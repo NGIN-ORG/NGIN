@@ -2,6 +2,14 @@ build/
 out/
 .cache/
 .cmake/
+__pycache__/
+*.pyc
 .ngin/workspace.overrides.json
 workspace/
 
+# Current local polyrepo layout (component repos live beside the umbrella repo)
+/NGIN.Base/
+/NGIN.Core/
+/NGIN.Reflection/
+/NGIN.ECS/
+/NGIN.Benchmark/

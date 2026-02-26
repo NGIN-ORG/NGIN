@@ -34,13 +34,13 @@ NGIN uses a **federated/polyrepo** model:
 List pinned components:
 
 ```bash
-./tools/ngin-sync.sh list
+python tools/ngin-sync.py list
 ```
 
 Prepare or sync local checkouts into `workspace/externals`:
 
 ```bash
-./tools/ngin-sync.sh sync
+python tools/ngin-sync.py sync
 ```
 
 Configure the workspace metadata project:
@@ -53,4 +53,3 @@ cmake --preset dev
 
 - Architecture: `docs/architecture/NGIN-Architecture.md`
 - First detailed spec: `docs/specs/001-module-dependency-graph.md`
-
