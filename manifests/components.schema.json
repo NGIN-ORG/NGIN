@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ngin.dev/schemas/components.schema.json",
+  "title": "NGIN Component Entry",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "name",
+    "role",
+    "required"
+  ],
+  "properties": {
+    "name": {
+      "type": "string",
+      "pattern": "^NGIN\\.[A-Za-z0-9_.-]+$"
+    },
+    "repoUrl": {
+      "type": "string",
+      "format": "uri"
+    },
+    "ref": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Pinned tag or commit. Null means bootstrap/unreleased component."
+    },
+    "version": {
+      "type": "string"
+    },
+    "packageName": {
+      "type": "string"
+    },
+    "role": {
+      "type": "string",
+      "enum": [
+        "foundation",
+        "runtime",
+        "tooling",
+        "domain",
+        "optional"
+      ]
+    },
+    "required": {
+      "type": "boolean"
+    },
+    "abiVersion": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 1
+    },
+    "dependsOn": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^NGIN\\.[A-Za-z0-9_.-]+$"
+      },
+      "uniqueItems": true
+    },
+    "notes": {
+      "type": "string"
+    }
+  }
+}
+

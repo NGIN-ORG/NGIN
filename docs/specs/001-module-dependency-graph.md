@@ -1,0 +1,220 @@
+# Spec 001: Module Dependency Graph (Core Module Map)
+
+Status: Draft v1 (foundation-aligned)  
+Owner: NGIN umbrella workspace (`NGIN`)  
+Last updated: 2026-02-26
+
+## Summary
+
+This spec defines dependency and layering rules for NGIN across:
+
+- component repositories (today)
+- runtime modules/plugins/targets (future platform)
+- packaging/build composition
+
+It is the first detailed spec because later runtime kernel, plugin ABI, and editor designs depend on stable layering.
+
+## Goals
+
+- Prevent cyclic or upward dependencies
+- Distinguish repo/module/plugin/target terminology
+- Preserve standalone library usability (`NGIN.Base`, `NGIN.Reflection`, `NGIN.ECS`)
+- Support a future binary plugin boundary and editor/runtime separation
+
+## Non-Goals
+
+- Full plugin ABI function definitions (Spec 003)
+- Runtime kernel service semantics (Spec 002)
+- Editor UI layout and tool host implementation (Spec 004)
+
+## Terminology (Normative)
+
+- **Repository**: a Git repo (example: `NGIN.Reflection`)
+- **Component**: a published repo/library unit tracked in the platform manifest
+- **Module**: smallest compilation/deployment unit inside the platform/module system (`*.module.json`)
+- **Plugin**: optional bundle of modules/assets/config/resources
+- **Target**: final build product (app/editor/server/tool)
+
+## Graphs (Three Distinct Graphs)
+
+## 1. Component Repository Graph (Current / Near-Term)
+
+This graph governs dependencies between standalone `NGIN.*` repositories.
+
+### Current observed component graph (workspace snapshot)
+
+- `NGIN.Base` -> (none)
+- `NGIN.Reflection` -> `NGIN.Base`
+- `NGIN.ECS` -> `NGIN.Base`
+- `NGIN.Core` -> `NGIN.Base`
+- `NGIN.Benchmark` -> `NGIN.Base` (expected/tooling role; manifest marks optional)
+
+### Rules (Component Graph)
+
+1. `NGIN.Base` is foundational and must not depend on higher-level NGIN repos.
+2. `NGIN.Reflection` may depend on `NGIN.Base`; higher-level repos may optionally depend on `NGIN.Reflection`.
+3. Domain libraries (for example `NGIN.ECS`) may depend on `NGIN.Base`, and may optionally integrate with `NGIN.Reflection` via adapter modules, not mandatory core dependency by default.
+4. Experimental repos must be marked `required: false` in the platform manifest until release-grade.
+
+## 2. Runtime Module Graph (Platform Modules, Future)
+
+This graph governs in-platform loadable/static modules and their layering.
+
+### Proposed Layer Stack (Top to Bottom)
+
+1. Application modules
+2. Domain engine modules (`Game`, `Sim`, `CAD`, `Viz`, etc.)
+3. Editor modules (tool host, panels, inspectors) [editor targets only]
+4. Platform service modules (runtime kernel services, asset/data, render abstractions)
+5. Platform abstraction modules (`Platform.Win64`, `Platform.Linux`, ...)
+6. Foundation modules (`NGIN.Base`, optional `NGIN.Reflection` support layer, low-level utils)
+
+### Allowed Dependency Direction
+
+Dependencies may only point downward within the stack, plus same-layer dependencies when explicitly allowed by that layer's rules.
+
+### Forbidden Dependency Examples
+
+- Foundation -> Editor
+- Platform abstraction -> Application
+- Runtime service module -> Domain application module
+- Generic asset/data module -> game-specific module
+
+## 3. Build/Packaging Graph
+
+This graph maps modules/plugins into build targets and packaged outputs.
+
+### Rules
+
+1. A target may include only modules valid for its target type (`Runtime`, `Editor`, `Program`, `Developer`).
+2. Plugin bundles may introduce optional modules but cannot violate runtime module graph rules.
+3. Packaging stages (`Build`, `Cook`, `Stage`, `Package`) must consume dependency metadata rather than hardcoded project-specific rules where possible.
+
+## Naming Rules (Normative)
+
+### Repository Names
+
+- Pattern: `NGIN.<Component>`
+- Examples: `NGIN.Base`, `NGIN.Reflection`
+
+### Runtime Module Names
+
+- Pattern: `<Family>.<Name>`
+- Examples: `Platform.Win64`, `Runtime.Kernel`, `Asset.Database`, `Editor.Inspector`
+
+### Plugin Names
+
+- Pattern: `<Vendor>.<PluginName>` or `<Org>.<PluginName>`
+- Examples: `NGIN.VisualScripting`, `Acme.SimExporter`
+
+### Target Names
+
+- Examples: `NGIN.Editor`, `MyApplication`, `SimulationServer`
+
+## Reflection Optionality Policy
+
+### Runtime Applications
+
+Reflection is optional by default for runtime-only applications and servers.
+
+### Required/Preferred Cases
+
+Reflection is required or strongly preferred for:
+
+- editor tooling
+- visual scripting
+- property inspection
+- dependency injection / IoC metadata
+- cross-module metadata export/import workflows
+
+### Integration Pattern
+
+Modules that can operate with or without reflection should isolate reflection usage behind adapter/service interfaces to avoid making `NGIN.Reflection` a hard dependency for every runtime target.
+
+## Editor / Runtime Separation Rules
+
+1. Editor-only modules must not be required by runtime targets.
+2. Runtime modules may expose metadata/services that editors consume, but not the reverse.
+3. Shared tool/runtime code must live in neutral modules (e.g. `Asset.Core`, `Config.Core`) rather than `Editor.*`.
+
+## Binary Plugin Boundary Placement (Pre-ABI Rules)
+
+1. Binary plugin host interface crosses a **C ABI boundary**.
+2. The ABI boundary sits at the runtime kernel/plugin loader layer, not deep within arbitrary internal modules.
+3. Plugin compatibility checks must include:
+   - platform version/range
+   - plugin ABI version
+   - module compatibility metadata
+4. Reflection metadata import/export is optional and must not be the only means of plugin compatibility.
+
+## Current Repo Mapping to Platform Vision
+
+### `NGIN.Base`
+
+- Role: Foundation
+- Future position: foundational system library consumed by almost all platform/domain layers
+
+### `NGIN.Reflection`
+
+- Role: Foundation (optional runtime, required for many tools)
+- Future position: runtime type system + metadata substrate for editor/IoC/plugin discovery workflows
+
+### `NGIN.ECS`
+
+- Role: Domain / reusable domain engine subsystem
+- Future position: reusable data-oriented subsystem used by domain engines or apps; not required for the whole platform
+
+### `NGIN.Core`
+
+- Current role: minimal compiled core library
+- Future position: candidate seed for `Runtime.*` / `Kernel` capabilities, subject to Spec 002
+
+## Allowed Dependency Matrix (Initial)
+
+Legend: `Y` allowed, `O` optional/conditional, `N` forbidden
+
+| From \\ To        | Base | Reflection | RuntimeSvc | Platform.* | Editor.* | Domain.* | App.* |
+|-------------------|------|------------|------------|------------|----------|----------|-------|
+| Base              | N    | N          | N          | N          | N        | N        | N     |
+| Reflection        | Y    | N          | N          | N          | N        | N        | N     |
+| RuntimeSvc        | Y    | O          | Y          | Y          | N        | N        | N     |
+| Platform.*        | Y    | O          | N          | Y          | N        | N        | N     |
+| Editor.*          | Y    | O          | Y          | Y          | Y        | O        | N     |
+| Domain.*          | Y    | O          | Y          | Y          | N        | Y        | N     |
+| App.*             | Y    | O          | Y          | Y          | N        | Y        | Y     |
+
+Notes:
+
+- `Base -> Base` is shown `N` in this matrix because the table is at family granularity, not per-module intra-family linking.
+- `Editor.* -> Domain.*` is optional and should occur via extension/plugin contracts, not hardcoded assumptions where possible.
+
+## Descriptor Requirements (Preview for Future Module System)
+
+Each module descriptor (`*.module.json`) is expected to define at minimum:
+
+- `name`
+- `type` (`Runtime`, `Editor`, `Developer`, `Program`, `ThirdParty`)
+- `dependencies` (hard + optional)
+- `platforms`
+- `version`
+- `compatiblePlatformRange`
+- `loadPhase`
+
+The exact descriptor schema will be defined in a later spec after runtime kernel and plugin ABI constraints are finalized.
+
+## Validation & Enforcement (Planned)
+
+The NGIN workspace tooling/CI should eventually enforce:
+
+1. Component manifest dependency consistency
+2. Runtime module graph acyclicity
+3. Forbidden layer dependencies
+4. Target composition validity (editor/runtime/program)
+5. Plugin bundle manifest compatibility before packaging
+
+## Open Questions (Tracked, Not Blocking This Spec)
+
+1. Whether `NGIN.Core` is renamed or absorbed into a future `NGIN.Runtime` repo/module family.
+2. Whether render/GPU abstractions live in a dedicated component repo or inside the umbrella repo initially.
+3. Degree of cross-component semantic version strictness vs commit pinning during early platform releases.
+

@@ -1,0 +1,40 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 20,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "dev",
+      "displayName": "NGIN Workspace Dev",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/dev",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "NGIN_WORKSPACE_ENABLE_INTEGRATION": "ON",
+        "NGIN_WORKSPACE_EXPECT_COMPONENTS": "OFF"
+      }
+    },
+    {
+      "name": "strict",
+      "displayName": "NGIN Workspace Strict (Expect Components)",
+      "inherits": "dev",
+      "binaryDir": "${sourceDir}/build/strict",
+      "cacheVariables": {
+        "NGIN_WORKSPACE_EXPECT_COMPONENTS": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "dev",
+      "configurePreset": "dev",
+      "targets": [
+        "ngin.workspace"
+      ]
+    }
+  ]
+}
+

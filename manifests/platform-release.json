@@ -1,0 +1,79 @@
+{
+  "schemaVersion": 1,
+  "platformVersion": "0.1.0-alpha.1",
+  "releaseDate": "2026-02-26",
+  "channel": "alpha",
+  "compatibility": {
+    "moduleGraphSpec": "001",
+    "pluginAbiVersion": null
+  },
+  "releaseNotes": "Initial umbrella NGIN workspace manifest. Component repos remain standalone and independently versioned.",
+  "components": [
+    {
+      "name": "NGIN.Base",
+      "repoUrl": "https://github.com/NGIN-ORG/NGIN.Base.git",
+      "ref": "9c8ce0431dd1d545ff30bbcba78e0421633342c0",
+      "version": "0.1",
+      "packageName": "NGINBase",
+      "role": "foundation",
+      "required": true,
+      "abiVersion": 1,
+      "dependsOn": []
+    },
+    {
+      "name": "NGIN.Core",
+      "repoUrl": "https://github.com/NGIN-ORG/NGIN.Core.git",
+      "ref": null,
+      "version": "0.1",
+      "packageName": "NGINCore",
+      "role": "runtime",
+      "required": false,
+      "abiVersion": 1,
+      "dependsOn": [
+        "NGIN.Base"
+      ],
+      "notes": "Repository exists locally but has no committed HEAD in this workspace snapshot."
+    },
+    {
+      "name": "NGIN.Reflection",
+      "repoUrl": "https://github.com/NGIN-ORG/NGIN.Reflection.git",
+      "ref": "b0a9afdd9c4ff419ed4d98b5ab460c8d201d67fb",
+      "version": "0.1",
+      "packageName": "NGINReflection",
+      "role": "foundation",
+      "required": true,
+      "abiVersion": 1,
+      "dependsOn": [
+        "NGIN.Base"
+      ]
+    },
+    {
+      "name": "NGIN.ECS",
+      "repoUrl": "https://github.com/NGIN-ORG/NGIN.ECS.git",
+      "ref": "266533462d3318d8678064eaef3117f490408bdf",
+      "version": "0.1",
+      "packageName": "NGINECS",
+      "role": "domain",
+      "required": false,
+      "abiVersion": 1,
+      "dependsOn": [
+        "NGIN.Base"
+      ]
+    },
+    {
+      "name": "NGIN.Benchmark",
+      "repoUrl": "https://github.com/NGIN-ORG/NGIN.Benchmark.git",
+      "ref": null,
+      "version": "0.1",
+      "packageName": "NGINBenchmark",
+      "role": "tooling",
+      "required": false,
+      "abiVersion": null,
+      "dependsOn": [
+        "NGIN.Base"
+      ],
+      "notes": "Repository present but no committed HEAD in this workspace snapshot."
+    }
+  ]
+}
+
