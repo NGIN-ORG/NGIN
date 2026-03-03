@@ -18,7 +18,7 @@ It is the first detailed spec because later runtime kernel, plugin ABI, and edit
 
 - Prevent cyclic or upward dependencies
 - Distinguish repo/module/plugin/target terminology
-- Preserve standalone library usability (`NGIN.Base`, `NGIN.Reflection`, `NGIN.ECS`)
+- Preserve standalone library usability (`NGIN.Base`, `NGIN.Log`, `NGIN.Reflection`, `NGIN.ECS`)
 - Support a future binary plugin boundary and editor/runtime separation
 
 ## Non-Goals
@@ -44,6 +44,7 @@ This graph governs dependencies between standalone `NGIN.*` repositories.
 ### Current observed component graph (workspace snapshot)
 
 - `NGIN.Base` -> (none)
+- `NGIN.Log` -> `NGIN.Base`
 - `NGIN.Reflection` -> `NGIN.Base`
 - `NGIN.ECS` -> `NGIN.Base`
 - `NGIN.Core` -> `NGIN.Base`
@@ -52,7 +53,7 @@ This graph governs dependencies between standalone `NGIN.*` repositories.
 ### Rules (Component Graph)
 
 1. `NGIN.Base` is foundational and must not depend on higher-level NGIN repos.
-2. `NGIN.Reflection` may depend on `NGIN.Base`; higher-level repos may optionally depend on `NGIN.Reflection`.
+2. `NGIN.Log` and `NGIN.Reflection` may depend on `NGIN.Base`; higher-level repos may optionally depend on them.
 3. Domain libraries (for example `NGIN.ECS`) may depend on `NGIN.Base`, and may optionally integrate with `NGIN.Reflection` via adapter modules, not mandatory core dependency by default.
 4. Experimental repos must be marked `required: false` in the platform manifest until release-grade.
 
@@ -67,7 +68,7 @@ This graph governs in-platform loadable/static modules and their layering.
 3. Editor modules (tool host, panels, inspectors) [editor targets only]
 4. Platform service modules (runtime kernel services, asset/data, render abstractions)
 5. Platform abstraction modules (`Platform.Win64`, `Platform.Linux`, ...)
-6. Foundation modules (`NGIN.Base`, optional `NGIN.Reflection` support layer, low-level utils)
+6. Foundation modules (`NGIN.Base`, `NGIN.Log`, optional `NGIN.Reflection` support layer, low-level utils)
 
 ### Allowed Dependency Direction
 
@@ -154,6 +155,11 @@ Modules that can operate with or without reflection should isolate reflection us
 - Role: Foundation
 - Future position: foundational system library consumed by almost all platform/domain layers
 
+### `NGIN.Log`
+
+- Role: Foundation logging subsystem
+- Future position: structured, sink-based logging library consumed by runtime/platform/domain components
+
 ### `NGIN.Reflection`
 
 - Role: Foundation (optional runtime, required for many tools)
@@ -217,4 +223,3 @@ The NGIN workspace tooling/CI should eventually enforce:
 1. Whether `NGIN.Core` is renamed or absorbed into a future `NGIN.Runtime` repo/module family.
 2. Whether render/GPU abstractions live in a dedicated component repo or inside the umbrella repo initially.
 3. Degree of cross-component semantic version strictness vs commit pinning during early platform releases.
-

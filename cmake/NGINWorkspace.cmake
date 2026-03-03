@@ -2,6 +2,7 @@ include_guard(GLOBAL)
 
 set(NGIN_WORKSPACE_KNOWN_COMPONENTS
   NGIN.Base
+  NGIN.Log
   NGIN.Core
   NGIN.Reflection
   NGIN.ECS
@@ -34,4 +35,3 @@ function(ngin_workspace_print_summary)
     endif()
   endforeach()
 endfunction()
-

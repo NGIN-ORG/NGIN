@@ -9,7 +9,7 @@ It coordinates a set of independently versioned component repositories and defin
 ## Naming Decision
 
 - Umbrella workspace/repo: `NGIN`
-- Component repos/libraries: `NGIN.Base`, `NGIN.Reflection`, `NGIN.ECS`, `NGIN.Core`, ...
+- Component repos/libraries: `NGIN.Base`, `NGIN.Log`, `NGIN.Reflection`, `NGIN.ECS`, `NGIN.Core`, ...
 - Avoid creating a separate runtime library named only `NGIN` to prevent ambiguity.
 - Use names like `NGIN.Runtime` or `NGIN.Kernel` for the future runtime kernel implementation.
 
@@ -54,4 +54,3 @@ Detailed dependency rules and module boundaries are specified in `docs/specs/001
 2. Add manifest-driven workspace sync and integration CI.
 3. Design runtime kernel and plugin ABI on top of locked layering.
 4. Add editor/tool host architecture after runtime and plugin boundaries are stable.
-

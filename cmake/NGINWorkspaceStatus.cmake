@@ -4,6 +4,7 @@ endif()
 
 set(_components
   NGIN.Base
+  NGIN.Log
   NGIN.Core
   NGIN.Reflection
   NGIN.ECS
@@ -18,4 +19,3 @@ foreach(_c IN LISTS _components)
     message(STATUS "[missing] ${_c}")
   endif()
 endforeach()
-

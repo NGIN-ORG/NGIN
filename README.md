@@ -5,6 +5,7 @@ NGIN is the umbrella workspace and release train for the NGIN application engine
 This repository coordinates independently versioned component repositories such as:
 
 - `NGIN.Base`
+- `NGIN.Log`
 - `NGIN.Core`
 - `NGIN.Reflection`
 - `NGIN.ECS`

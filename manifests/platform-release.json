@@ -21,6 +21,20 @@
       "dependsOn": []
     },
     {
+      "name": "NGIN.Log",
+      "repoUrl": "https://github.com/NGIN-ORG/NGIN.Log.git",
+      "ref": null,
+      "version": "0.1",
+      "packageName": "NGINLog",
+      "role": "foundation",
+      "required": false,
+      "abiVersion": 1,
+      "dependsOn": [
+        "NGIN.Base"
+      ],
+      "notes": "New standalone performance logging component; currently unpinned bootstrap state in workspace."
+    },
+    {
       "name": "NGIN.Core",
       "repoUrl": "https://github.com/NGIN-ORG/NGIN.Core.git",
       "ref": null,
@@ -76,4 +90,3 @@
     }
   ]
 }
-
