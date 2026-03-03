@@ -31,11 +31,16 @@ jobs:
 
       - name: Manifest and schema JSON parse check
         run: |
-          python -c "import json, pathlib; [json.loads(pathlib.Path(p).read_text(encoding='utf-8')) for p in ('manifests/platform-release.json','manifests/platform-release.schema.json','manifests/components.schema.json')]; print('json-ok')"
+          python -c "import json, pathlib; [json.loads(pathlib.Path(p).read_text(encoding='utf-8')) for p in ('manifests/platform-release.json','manifests/platform-release.schema.json','manifests/components.schema.json','manifests/module.schema.json','manifests/plugin-bundle.schema.json','manifests/target.schema.json','manifests/module-graph.schema.json','manifests/module-catalog.json','manifests/plugin-catalog.json','manifests/target-catalog.json')]; print('json-ok')"
 
       - name: Workspace doctor
         run: python tools/ngin-sync.py doctor
 
+      - name: Validate Spec 001
+        run: python tools/ngin-sync.py validate-spec001
+
+      - name: Resolve baseline target (Spec 001 smoke)
+        run: python tools/ngin-sync.py resolve-target --target NGIN.RuntimeSample
+
       - name: Configure workspace (CMake preset)
         run: cmake --preset dev
-

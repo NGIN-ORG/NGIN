@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ngin.dev/schemas/plugin-bundle.schema.json",
+  "title": "NGIN Plugin Bundle Descriptor",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "name",
+    "version",
+    "compatiblePlatformRange",
+    "abiVersion",
+    "modules",
+    "platforms"
+  ],
+  "properties": {
+    "name": {
+      "type": "string",
+      "pattern": "^[A-Za-z][A-Za-z0-9_-]*\\.[A-Za-z0-9_.-]+$"
+    },
+    "version": {
+      "type": "string"
+    },
+    "compatiblePlatformRange": {
+      "type": "string"
+    },
+    "abiVersion": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 1
+    },
+    "modules": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "required",
+        "optional"
+      ],
+      "properties": {
+        "required": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9]*\\.[A-Za-z0-9_.-]+$"
+          },
+          "uniqueItems": true
+        },
+        "optional": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9]*\\.[A-Za-z0-9_.-]+$"
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "platforms": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    }
+  }
+}

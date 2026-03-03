@@ -1,8 +1,8 @@
 # Spec 001: Module Dependency Graph (Core Module Map)
 
-Status: Draft v1 (foundation-aligned)  
+Status: Implemented v1 (umbrella-enforced)  
 Owner: NGIN umbrella workspace (`NGIN`)  
-Last updated: 2026-02-26
+Last updated: 2026-03-03
 
 ## Summary
 
@@ -194,29 +194,45 @@ Notes:
 - `Base -> Base` is shown `N` in this matrix because the table is at family granularity, not per-module intra-family linking.
 - `Editor.* -> Domain.*` is optional and should occur via extension/plugin contracts, not hardcoded assumptions where possible.
 
-## Descriptor Requirements (Preview for Future Module System)
+## Descriptor Requirements (Implemented v1)
 
-Each module descriptor (`*.module.json`) is expected to define at minimum:
+Module metadata is now enforced via `manifests/module-catalog.json`.
+Each module entry defines at minimum:
 
 - `name`
+- `family` (`Base`, `Reflection`, `RuntimeSvc`, `Platform`, `Editor`, `Domain`, `App`)
 - `type` (`Runtime`, `Editor`, `Developer`, `Program`, `ThirdParty`)
+- `component` (`NGIN.*`)
 - `dependencies` (hard + optional)
 - `platforms`
 - `version`
 - `compatiblePlatformRange`
 - `loadPhase`
+- `flags.editorOnly`
+- `flags.requiresReflection`
 
-The exact descriptor schema will be defined in a later spec after runtime kernel and plugin ABI constraints are finalized.
+Rule mapping note:
 
-## Validation & Enforcement (Planned)
+- `Developer` and `ThirdParty` module types use `App.*` dependency permissions for matrix validation.
 
-The NGIN workspace tooling/CI should eventually enforce:
+## Validation & Enforcement (Implemented)
+
+The NGIN workspace tooling/CI now enforces:
 
 1. Component manifest dependency consistency
 2. Runtime module graph acyclicity
 3. Forbidden layer dependencies
 4. Target composition validity (editor/runtime/program)
 5. Plugin bundle manifest compatibility before packaging
+
+Enforcement surface:
+
+- `python tools/ngin-sync.py validate-spec001`
+- `python tools/ngin-sync.py resolve-target --target <TargetName>`
+- `.github/workflows/workspace-ci.yml` runs both commands as hard gates
+- Root CMake targets:
+  - `ngin.spec001.validate`
+  - `ngin.spec001.resolve.runtime`
 
 ## Open Questions (Tracked, Not Blocking This Spec)
 

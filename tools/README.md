@@ -11,6 +11,8 @@ Manifest-driven helper for:
 - checking workspace health (`doctor`)
 - syncing source checkouts into `workspace/externals`
 - honoring local path overrides for active development
+- validating Spec 001 architecture constraints (`validate-spec001`)
+- resolving target module/plugin closure (`resolve-target`)
 
 ### Commands
 
@@ -26,6 +28,32 @@ Manifest-driven helper for:
 - `python tools/ngin-sync.py sync`
   - clones/fetches/checks out pinned refs into `workspace/externals`
   - skips components that are overridden or unpinned
+- `python tools/ngin-sync.py validate-spec001`
+  - validates component graph, module graph, target composition, plugin compatibility
+  - performs best-effort static scan of local CMake dependency references
+  - fails on violations (hard gate mode)
+- `python tools/ngin-sync.py resolve-target --target <TargetName>`
+  - resolves deterministic module/plugin closure for target packaging stages
+  - fails if graph is invalid or target cannot be resolved
+
+### JSON report output
+
+Both `validate-spec001` and `resolve-target` support:
+
+- `--json-report <path>`
+  - writes a stable JSON report for CI artifact inspection
+
+### Spec 001 metadata files
+
+Enforced metadata lives in `manifests/`:
+
+- `module.schema.json`
+- `plugin-bundle.schema.json`
+- `target.schema.json`
+- `module-graph.schema.json`
+- `module-catalog.json`
+- `plugin-catalog.json`
+- `target-catalog.json`
 
 Windows note:
 

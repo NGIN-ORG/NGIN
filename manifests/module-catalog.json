@@ -1,0 +1,131 @@
+{
+  "schemaVersion": 1,
+  "modules": [
+    {
+      "name": "Base.Foundation",
+      "family": "Base",
+      "type": "Runtime",
+      "component": "NGIN.Base",
+      "version": "0.1.0",
+      "compatiblePlatformRange": ">=0.1.0-alpha.1 <0.2.0",
+      "platforms": ["linux", "windows", "macos"],
+      "loadPhase": "Core",
+      "dependencies": {
+        "required": [],
+        "optional": []
+      },
+      "flags": {
+        "editorOnly": false,
+        "requiresReflection": false
+      }
+    },
+    {
+      "name": "Log.Foundation",
+      "family": "Base",
+      "type": "Runtime",
+      "component": "NGIN.Log",
+      "version": "0.1.0",
+      "compatiblePlatformRange": ">=0.1.0-alpha.1 <0.2.0",
+      "platforms": ["linux", "windows", "macos"],
+      "loadPhase": "Core",
+      "dependencies": {
+        "required": ["Base.Foundation"],
+        "optional": []
+      },
+      "flags": {
+        "editorOnly": false,
+        "requiresReflection": false
+      }
+    },
+    {
+      "name": "Reflection.Metadata",
+      "family": "Reflection",
+      "type": "Runtime",
+      "component": "NGIN.Reflection",
+      "version": "0.1.0",
+      "compatiblePlatformRange": ">=0.1.0-alpha.1 <0.2.0",
+      "platforms": ["linux", "windows", "macos"],
+      "loadPhase": "Core",
+      "dependencies": {
+        "required": ["Base.Foundation"],
+        "optional": []
+      },
+      "flags": {
+        "editorOnly": false,
+        "requiresReflection": false
+      }
+    },
+    {
+      "name": "Runtime.Kernel",
+      "family": "RuntimeSvc",
+      "type": "Runtime",
+      "component": "NGIN.Core",
+      "version": "0.1.0",
+      "compatiblePlatformRange": ">=0.1.0-alpha.1 <0.2.0",
+      "platforms": ["linux", "windows", "macos"],
+      "loadPhase": "Boot",
+      "dependencies": {
+        "required": ["Base.Foundation", "Log.Foundation"],
+        "optional": ["Reflection.Metadata"]
+      },
+      "flags": {
+        "editorOnly": false,
+        "requiresReflection": false
+      }
+    },
+    {
+      "name": "Domain.ECS",
+      "family": "Domain",
+      "type": "Runtime",
+      "component": "NGIN.ECS",
+      "version": "0.1.0",
+      "compatiblePlatformRange": ">=0.1.0-alpha.1 <0.2.0",
+      "platforms": ["linux", "windows", "macos"],
+      "loadPhase": "Runtime",
+      "dependencies": {
+        "required": ["Base.Foundation"],
+        "optional": ["Reflection.Metadata"]
+      },
+      "flags": {
+        "editorOnly": false,
+        "requiresReflection": false
+      }
+    },
+    {
+      "name": "App.SyncProgram",
+      "family": "App",
+      "type": "Program",
+      "component": "NGIN.Benchmark",
+      "version": "0.1.0",
+      "compatiblePlatformRange": ">=0.1.0-alpha.1 <0.2.0",
+      "platforms": ["linux", "windows", "macos"],
+      "loadPhase": "Program",
+      "dependencies": {
+        "required": ["Base.Foundation"],
+        "optional": []
+      },
+      "flags": {
+        "editorOnly": false,
+        "requiresReflection": false
+      }
+    },
+    {
+      "name": "App.BenchmarkTool",
+      "family": "App",
+      "type": "Developer",
+      "component": "NGIN.Benchmark",
+      "version": "0.1.0",
+      "compatiblePlatformRange": ">=0.1.0-alpha.1 <0.2.0",
+      "platforms": ["linux", "windows", "macos"],
+      "loadPhase": "Tools",
+      "dependencies": {
+        "required": ["Base.Foundation"],
+        "optional": ["Reflection.Metadata"]
+      },
+      "flags": {
+        "editorOnly": false,
+        "requiresReflection": false
+      }
+    }
+  ]
+}

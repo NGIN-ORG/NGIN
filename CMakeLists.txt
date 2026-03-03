@@ -16,9 +16,23 @@ add_custom_target(ngin.workspace
   COMMENT "NGIN workspace metadata target"
 )
 
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+
 add_custom_target(ngin.manifest.show
   COMMAND ${CMAKE_COMMAND} -E cat "${CMAKE_CURRENT_SOURCE_DIR}/manifests/platform-release.json"
   COMMENT "Print the active NGIN platform release manifest"
+  VERBATIM
+)
+
+add_custom_target(ngin.spec001.validate
+  COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tools/ngin-sync.py" validate-spec001
+  COMMENT "Validate Spec 001 dependency and target graph rules"
+  VERBATIM
+)
+
+add_custom_target(ngin.spec001.resolve.runtime
+  COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tools/ngin-sync.py" resolve-target --target NGIN.RuntimeSample
+  COMMENT "Resolve baseline runtime target closure from Spec 001 metadata"
   VERBATIM
 )
 
@@ -31,4 +45,3 @@ if(NGIN_WORKSPACE_ENABLE_INTEGRATION)
     VERBATIM
   )
 endif()
-

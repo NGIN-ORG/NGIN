@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ngin.dev/schemas/target.schema.json",
+  "title": "NGIN Target Composition Descriptor",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "name",
+    "type",
+    "platform",
+    "enableReflection",
+    "modules",
+    "plugins",
+    "stages"
+  ],
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "Runtime",
+        "Editor",
+        "Program",
+        "Developer"
+      ]
+    },
+    "platform": {
+      "type": "string",
+      "minLength": 1
+    },
+    "enableReflection": {
+      "type": "boolean"
+    },
+    "modules": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z][A-Za-z0-9]*\\.[A-Za-z0-9_.-]+$"
+      },
+      "uniqueItems": true
+    },
+    "plugins": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z][A-Za-z0-9_-]*\\.[A-Za-z0-9_.-]+$"
+      },
+      "uniqueItems": true
+    },
+    "stages": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "Build",
+          "Cook",
+          "Stage",
+          "Package"
+        ]
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    }
+  }
+}

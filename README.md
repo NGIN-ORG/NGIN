@@ -50,7 +50,25 @@ Configure the workspace metadata project:
 cmake --preset dev
 ```
 
+Run architecture enforcement checks (Spec 001):
+
+```bash
+python tools/ngin-sync.py validate-spec001
+python tools/ngin-sync.py resolve-target --target NGIN.RuntimeSample
+```
+
 ## Docs
 
 - Architecture: `docs/architecture/NGIN-Architecture.md`
 - First detailed spec: `docs/specs/001-module-dependency-graph.md`
+
+## Spec 001 Enforcement Surface
+
+- Metadata catalogs: `manifests/module-catalog.json`, `manifests/plugin-catalog.json`, `manifests/target-catalog.json`
+- Metadata schemas: `manifests/module.schema.json`, `manifests/plugin-bundle.schema.json`, `manifests/target.schema.json`, `manifests/module-graph.schema.json`
+- CLI enforcement commands:
+  - `python tools/ngin-sync.py validate-spec001`
+  - `python tools/ngin-sync.py resolve-target --target <TargetName>`
+- CMake helper targets:
+  - `ngin.spec001.validate`
+  - `ngin.spec001.resolve.runtime`
