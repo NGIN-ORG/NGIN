@@ -64,9 +64,10 @@ Windows note:
 The current preferred local layout is root-level sibling component repos:
 
 - `./NGIN.Base`
+- `./NGIN.Log`
+- `./NGIN.Runtime`
 - `./NGIN.Reflection`
 - `./NGIN.ECS`
-- `./NGIN.Core`
 
 `status` and `doctor` prefer this layout automatically, while `sync` can still populate `workspace/externals/` for missing components.
 

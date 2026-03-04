@@ -1,13 +1,13 @@
 {
   "schemaVersion": 1,
   "platformVersion": "0.1.0-alpha.1",
-  "releaseDate": "2026-02-26",
+  "releaseDate": "2026-03-04",
   "channel": "alpha",
   "compatibility": {
     "moduleGraphSpec": "001",
     "pluginAbiVersion": null
   },
-  "releaseNotes": "Initial umbrella NGIN workspace manifest. Component repos remain standalone and independently versioned.",
+  "releaseNotes": "Runtime kernel migrated to NGIN.Runtime; NGIN.Log and NGIN.Runtime are required platform components.",
   "components": [
     {
       "name": "NGIN.Base",
@@ -27,26 +27,26 @@
       "version": "0.1",
       "packageName": "NGINLog",
       "role": "foundation",
-      "required": false,
+      "required": true,
       "abiVersion": 1,
       "dependsOn": [
         "NGIN.Base"
-      ],
-      "notes": "New standalone performance logging component; currently unpinned bootstrap state in workspace."
+      ]
     },
     {
-      "name": "NGIN.Core",
-      "repoUrl": "https://github.com/NGIN-ORG/NGIN.Core.git",
+      "name": "NGIN.Runtime",
+      "repoUrl": "https://github.com/NGIN-ORG/NGIN.Runtime.git",
       "ref": null,
       "version": "0.1",
-      "packageName": "NGINCore",
+      "packageName": "NGINRuntime",
       "role": "runtime",
-      "required": false,
+      "required": true,
       "abiVersion": 1,
       "dependsOn": [
-        "NGIN.Base"
+        "NGIN.Base",
+        "NGIN.Log"
       ],
-      "notes": "Repository exists locally but has no committed HEAD in this workspace snapshot."
+      "notes": "Production runtime kernel component replacing NGIN.Core in active platform architecture."
     },
     {
       "name": "NGIN.Reflection",

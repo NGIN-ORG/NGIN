@@ -12,7 +12,7 @@ It is **not** the runtime/game/editor SDK itself and does not produce a single `
 ## What You Should Do Here
 
 If you want to use platform libraries in an app:
-- Use component repos/packages directly (`NGIN.Base`, `NGIN.Log`, `NGIN.Reflection`, etc.).
+- Use component repos/packages directly (`NGIN.Base`, `NGIN.Log`, `NGIN.Runtime`, `NGIN.Reflection`, etc.).
 - Treat this repo as architecture/release metadata, not as your app dependency.
 
 If you are maintaining the platform:
@@ -81,6 +81,13 @@ CI parity check locally:
 - `manifests/`: platform compatibility + module/plugin/target metadata
 - `tools/`: workspace tooling (`ngin-sync.py`)
 - `cmake/`: workspace CMake integration helpers
+
+## Required Platform Components (Current)
+
+- `NGIN.Base`
+- `NGIN.Log`
+- `NGIN.Runtime`
+- `NGIN.Reflection`
 
 ## Spec 001 Enforcement Surface
 

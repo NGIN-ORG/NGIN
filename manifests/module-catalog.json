@@ -56,17 +56,53 @@
       }
     },
     {
+      "name": "Platform.Window",
+      "family": "Platform",
+      "type": "Runtime",
+      "component": "NGIN.Runtime",
+      "version": "0.1.0",
+      "compatiblePlatformRange": ">=0.1.0-alpha.1 <0.2.0",
+      "platforms": ["linux", "windows", "macos"],
+      "loadPhase": "Boot",
+      "dependencies": {
+        "required": ["Base.Foundation"],
+        "optional": ["Log.Foundation"]
+      },
+      "flags": {
+        "editorOnly": false,
+        "requiresReflection": false
+      }
+    },
+    {
+      "name": "Platform.Input",
+      "family": "Platform",
+      "type": "Runtime",
+      "component": "NGIN.Runtime",
+      "version": "0.1.0",
+      "compatiblePlatformRange": ">=0.1.0-alpha.1 <0.2.0",
+      "platforms": ["linux", "windows", "macos"],
+      "loadPhase": "Boot",
+      "dependencies": {
+        "required": ["Base.Foundation", "Platform.Window"],
+        "optional": ["Log.Foundation"]
+      },
+      "flags": {
+        "editorOnly": false,
+        "requiresReflection": false
+      }
+    },
+    {
       "name": "Runtime.Kernel",
       "family": "RuntimeSvc",
       "type": "Runtime",
-      "component": "NGIN.Core",
+      "component": "NGIN.Runtime",
       "version": "0.1.0",
       "compatiblePlatformRange": ">=0.1.0-alpha.1 <0.2.0",
       "platforms": ["linux", "windows", "macos"],
       "loadPhase": "Boot",
       "dependencies": {
         "required": ["Base.Foundation", "Log.Foundation"],
-        "optional": ["Reflection.Metadata"]
+        "optional": ["Reflection.Metadata", "Platform.Window", "Platform.Input"]
       },
       "flags": {
         "editorOnly": false,
@@ -83,7 +119,7 @@
       "platforms": ["linux", "windows", "macos"],
       "loadPhase": "Runtime",
       "dependencies": {
-        "required": ["Base.Foundation"],
+        "required": ["Base.Foundation", "Runtime.Kernel"],
         "optional": ["Reflection.Metadata"]
       },
       "flags": {

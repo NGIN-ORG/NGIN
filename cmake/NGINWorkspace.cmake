@@ -3,7 +3,7 @@ include_guard(GLOBAL)
 set(NGIN_WORKSPACE_KNOWN_COMPONENTS
   NGIN.Base
   NGIN.Log
-  NGIN.Core
+  NGIN.Runtime
   NGIN.Reflection
   NGIN.ECS
   NGIN.Benchmark

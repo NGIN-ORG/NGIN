@@ -9,9 +9,9 @@ It coordinates a set of independently versioned component repositories and defin
 ## Naming Decision
 
 - Umbrella workspace/repo: `NGIN`
-- Component repos/libraries: `NGIN.Base`, `NGIN.Log`, `NGIN.Reflection`, `NGIN.ECS`, `NGIN.Core`, ...
+- Component repos/libraries: `NGIN.Base`, `NGIN.Log`, `NGIN.Reflection`, `NGIN.ECS`, `NGIN.Runtime`, ...
 - Avoid creating a separate runtime library named only `NGIN` to prevent ambiguity.
-- Use names like `NGIN.Runtime` or `NGIN.Kernel` for the future runtime kernel implementation.
+- Runtime kernel implementation is hosted in `NGIN.Runtime` for platform v1.
 
 ## Current Repository Model
 

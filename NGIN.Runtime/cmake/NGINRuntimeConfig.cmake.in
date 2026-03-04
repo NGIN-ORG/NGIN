@@ -1,0 +1,13 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+find_dependency(NGINBase CONFIG)
+find_dependency(NGINLog CONFIG)
+
+include("${CMAKE_CURRENT_LIST_DIR}/NGINRuntimeTargets.cmake")
+
+if(TARGET NGIN::RuntimeShared)
+  add_library(NGIN::Runtime ALIAS NGIN::RuntimeShared)
+elseif(TARGET NGIN::RuntimeStatic)
+  add_library(NGIN::Runtime ALIAS NGIN::RuntimeStatic)
+endif()

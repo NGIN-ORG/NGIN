@@ -44,3 +44,12 @@ jobs:
 
       - name: Configure workspace (CMake preset)
         run: cmake --preset dev
+
+      - name: Configure NGIN.Runtime
+        run: cmake -S NGIN.Runtime -B build/ngin-runtime-ci -DNGIN_RUNTIME_BUILD_TESTS=ON -DNGIN_RUNTIME_BUILD_EXAMPLES=OFF
+
+      - name: Build NGIN.Runtime tests
+        run: cmake --build build/ngin-runtime-ci --config Release --target NGINRuntimeTests
+
+      - name: Run NGIN.Runtime tests
+        run: ctest --test-dir build/ngin-runtime-ci --output-on-failure -C Release

@@ -1,8 +1,8 @@
 # Spec 002: Runtime Kernel Detailed Design
 
-Status: Draft v1 (foundation-aligned)  
+Status: Implemented v1  
 Owner: NGIN umbrella workspace (`NGIN`)  
-Last updated: 2026-02-26
+Last updated: 2026-03-04
 
 Depends on:
 
@@ -115,7 +115,7 @@ Responsibilities:
 - layered config by target/environment/plugin/module
 - change notifications and snapshot semantics
 
-## Reference Module Family Layout (Initial)
+## Reference Module Family Layout
 
 The kernel may be implemented as one repo or several repos/modules, but the logical split is:
 
@@ -127,10 +127,21 @@ The kernel may be implemented as one repo or several repos/modules, but the logi
 - `Runtime.Config`
 - `Runtime.ReflectionBridge` (optional adapter module)
 
-Notes:
+Implementation note:
 
-- `NGIN.Core` is a candidate seed for these capabilities but is not assumed to remain the final public name.
-- Kernel implementations may collapse some families initially, but the API boundaries should follow this split.
+- Public runtime kernel APIs and default subsystem implementations are hosted in the `NGIN.Runtime` component.
+- Kernel implementations may collapse some families initially, but API boundaries follow this split.
+
+## Implementation Mapping (v1)
+
+- Component: `NGIN.Runtime`
+- Public headers: `NGIN.Runtime/include/NGIN/Runtime/`
+  - `Kernel.hpp`, `Module.hpp`, `Loader.hpp`, `Services.hpp`, `Events.hpp`, `Tasks.hpp`, `Config.hpp`
+  - `Types.hpp`, `Errors.hpp`, `Versioning.hpp`, `HostConfig.hpp`, `Descriptors.hpp`, `Platform.hpp`
+- Default subsystem sources: `NGIN.Runtime/src/NGIN/Runtime/`
+  - `Kernel.cpp`, `Loader.cpp`, `Services.cpp`, `Events.cpp`, `Tasks.cpp`, `Config.cpp`, `Versioning.cpp`
+- Tests: `NGIN.Runtime/tests/AllTests.cpp` (Catch2)
+- Logging dependency: `NGIN.Log` (required by `NGIN.Runtime`)
 
 ## Runtime Modes / Host Types
 
@@ -622,7 +633,7 @@ Kernel logs should include categories at minimum:
 - `Config`
 - `Plugin`
 
-Planned implementation path: use `NGIN.Log` as the default foundation logging component once stabilized.
+Implemented path: `NGIN.Runtime` uses `NGIN.Log` as a required foundation logging component.
 
 ### Diagnostics surfaces (v1)
 
@@ -689,12 +700,11 @@ The executable host should remain thin.
 3. Config override precedence yields deterministic winning values with provenance.
 4. Config change notifications include namespace/key and effective new value.
 
-## Open Questions (Tracked, Non-Blocking for v1 Draft)
+## Open Questions (Tracked, Non-Blocking for v1)
 
-1. Whether kernel public APIs live in `NGIN.Core` temporarily or a new `NGIN.Runtime` component.
-2. Exact representation of version ranges (`SemVer`, normalized tuple, or custom comparator rules).
-3. Whether tick-phase registration belongs to `Runtime.Tasks` or a separate `Runtime.Loop` subsystem.
-4. How much unload support to require from v1 dynamic plugins vs load-once semantics.
+1. Exact representation of version ranges (`SemVer`, normalized tuple, or custom comparator rules).
+2. Whether tick-phase registration belongs to `Runtime.Tasks` or a separate `Runtime.Loop` subsystem.
+3. How much unload support to require from v1 dynamic plugins vs load-once semantics.
 
 ## Example Startup Sequence (Illustrative)
 

@@ -47,7 +47,7 @@ This graph governs dependencies between standalone `NGIN.*` repositories.
 - `NGIN.Log` -> `NGIN.Base`
 - `NGIN.Reflection` -> `NGIN.Base`
 - `NGIN.ECS` -> `NGIN.Base`
-- `NGIN.Core` -> `NGIN.Base`
+- `NGIN.Runtime` -> `NGIN.Base`, `NGIN.Log`
 - `NGIN.Benchmark` -> `NGIN.Base` (expected/tooling role; manifest marks optional)
 
 ### Rules (Component Graph)
@@ -170,10 +170,10 @@ Modules that can operate with or without reflection should isolate reflection us
 - Role: Domain / reusable domain engine subsystem
 - Future position: reusable data-oriented subsystem used by domain engines or apps; not required for the whole platform
 
-### `NGIN.Core`
+### `NGIN.Runtime`
 
-- Current role: minimal compiled core library
-- Future position: candidate seed for `Runtime.*` / `Kernel` capabilities, subject to Spec 002
+- Current role: runtime kernel component and platform service host
+- Future position: stable home for `Runtime.*`/`Platform.*` kernel service modules
 
 ## Allowed Dependency Matrix (Initial)
 
@@ -236,6 +236,5 @@ Enforcement surface:
 
 ## Open Questions (Tracked, Not Blocking This Spec)
 
-1. Whether `NGIN.Core` is renamed or absorbed into a future `NGIN.Runtime` repo/module family.
-2. Whether render/GPU abstractions live in a dedicated component repo or inside the umbrella repo initially.
-3. Degree of cross-component semantic version strictness vs commit pinning during early platform releases.
+1. Whether render/GPU abstractions live in a dedicated component repo or inside the umbrella repo initially.
+2. Degree of cross-component semantic version strictness vs commit pinning during early platform releases.
