@@ -5,7 +5,7 @@ endif()
 set(_components
   NGIN.Base
   NGIN.Log
-  NGIN.Runtime
+  NGIN.Core
   NGIN.Reflection
   NGIN.ECS
   NGIN.Benchmark

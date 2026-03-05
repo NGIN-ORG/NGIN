@@ -13,6 +13,7 @@
 
 namespace NGIN::Core
 {
+    class PackageBootstrapContext;
     class ServiceCollection;
     class PackageCollection;
     class ModuleCollection;
@@ -69,6 +70,8 @@ namespace NGIN::Core
     template <typename T>
     using CoreResult = std::expected<T, HostError>;
 
+    using PackageBootstrapFn = CoreResult<void>(*)(PackageBootstrapContext&);
+
     struct StartupWarning
     {
         std::string subsystem {};
@@ -119,6 +122,13 @@ namespace NGIN::Core
         PackageBootstrapMode mode {PackageBootstrapMode::BuilderHookV1};
         std::string          entryPoint {};
         bool                 autoApply {false};
+    };
+
+    struct PackageBootstrapEntry
+    {
+        std::string        packageName {};
+        std::string        entryPoint {};
+        PackageBootstrapFn fn {nullptr};
     };
 
     struct ModuleSelection
@@ -174,6 +184,20 @@ namespace NGIN::Core
         ProvidedContent          provides {};
     };
 
+    class PackageBootstrapRegistry
+    {
+    public:
+        virtual ~PackageBootstrapRegistry() = default;
+
+        virtual auto Register(PackageBootstrapEntry entry) -> CoreResult<void> = 0;
+        [[nodiscard]] virtual auto Find(std::string packageName, std::string entryPoint) const
+            -> std::optional<PackageBootstrapEntry> = 0;
+        [[nodiscard]] virtual auto FindDefault(std::string packageName) const
+            -> std::optional<PackageBootstrapEntry> = 0;
+    };
+
+    using PackageBootstrapRegistrarFn = void(*)(PackageBootstrapRegistry&);
+
     class ServiceCollection
     {
     public:
@@ -194,6 +218,7 @@ namespace NGIN::Core
         virtual ~PackageCollection() = default;
 
         virtual auto Add(PackageReference reference) -> PackageCollection& = 0;
+        virtual auto RegisterLinkedRegistrar(PackageBootstrapRegistrarFn registrar) -> PackageCollection& = 0;
         virtual auto ApplyBootstrap(std::string packageName) -> PackageCollection& = 0;
         virtual auto ApplyBootstrap(std::string packageName, std::string entryPoint) -> PackageCollection& = 0;
         virtual auto Clear() -> PackageCollection& = 0;
@@ -245,8 +270,6 @@ namespace NGIN::Core
         [[nodiscard]] virtual auto Plugins() noexcept -> PluginCollection& = 0;
         [[nodiscard]] virtual auto Configuration() noexcept -> ConfigurationBuilder& = 0;
     };
-
-    using PackageBootstrapFn = CoreResult<void>(*)(PackageBootstrapContext&);
 
     class IServiceProvider
     {

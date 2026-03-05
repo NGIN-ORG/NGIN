@@ -1,0 +1,13 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+find_dependency(NGINBase CONFIG)
+find_dependency(NGINLog CONFIG)
+
+include("${CMAKE_CURRENT_LIST_DIR}/NGINCoreTargets.cmake")
+
+if(TARGET NGIN::Core::Shared)
+  add_library(NGIN::Core ALIAS NGIN::Core::Shared)
+elseif(TARGET NGIN::Core::Static)
+  add_library(NGIN::Core ALIAS NGIN::Core::Static)
+endif()

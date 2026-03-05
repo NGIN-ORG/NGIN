@@ -23,7 +23,7 @@ It is **not** the single application SDK library itself and does not produce a s
 
 If you are building an application:
 
-- use component repos and packages directly such as `NGIN.Base`, `NGIN.Log`, `NGIN.Reflection`, and the current hosting implementation in `NGIN.Runtime`
+- use component repos and packages directly such as `NGIN.Base`, `NGIN.Log`, `NGIN.Reflection`, and the current hosting implementation in `NGIN.Core`
 - treat this repo as the platform definition and coordination layer
 
 If you are shaping the platform:
@@ -40,7 +40,7 @@ If you are developing multiple NGIN components together:
 
 The approved platform direction is to treat the central host/orchestration library as `NGIN.Core`.
 
-Today, the implementation still lives in `NGIN.Runtime`.
+Today, the implementation still lives in `NGIN.Core`.
 
 ## Quick Start
 
@@ -92,7 +92,7 @@ python3 tools/ngin-sync.py resolve-target --target NGIN.CoreSample
 
 - `NGIN.Base`
 - `NGIN.Log`
-- `NGIN.Runtime`
+- `NGIN.Core`
 - `NGIN.Reflection`
 
 ## Read Next

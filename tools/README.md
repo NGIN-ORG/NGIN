@@ -70,7 +70,7 @@ The current preferred local layout is root-level sibling component repos:
 
 - `./NGIN.Base`
 - `./NGIN.Log`
-- `./NGIN.Runtime`
+- `./NGIN.Core`
 - `./NGIN.Reflection`
 - `./NGIN.ECS`
 

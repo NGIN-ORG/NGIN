@@ -1,6 +1,0 @@
-add_executable(NGINRuntimeBasicHost main.cpp)
-target_compile_features(NGINRuntimeBasicHost PRIVATE cxx_std_23)
-target_link_libraries(NGINRuntimeBasicHost PRIVATE NGIN::Runtime)
-if(TARGET NGIN.Runtime.BuildOptions)
-  target_link_libraries(NGINRuntimeBasicHost PRIVATE NGIN.Runtime.BuildOptions)
-endif()

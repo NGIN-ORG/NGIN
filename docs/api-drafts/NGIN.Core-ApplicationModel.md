@@ -30,6 +30,7 @@ It is intentionally not:
 - Example application bootstrap: `docs/examples/project-model/ApplicationBuilder.Basic.cpp`
 - Example project manifest: `docs/examples/project-model/ngin.project.json`
 - Example package manifest: `docs/examples/project-model/ngin.package.json`
+- Example package registrar/bootstrap: `docs/examples/project-model/PackageBootstrap.ECS.cpp`
 
 ## Public API Surface
 
@@ -47,7 +48,10 @@ The draft header defines:
 - `NGIN::Core::PluginReference`
 - `NGIN::Core::TargetDefinition`
 - `NGIN::Core::PackageBootstrapDescriptor`
+- `NGIN::Core::PackageBootstrapEntry`
+- `NGIN::Core::PackageBootstrapRegistry`
 - `NGIN::Core::PackageBootstrapContext`
+- `NGIN::Core::PackageBootstrapRegistrarFn`
 
 It also defines the minimal builder-owned configuration surfaces needed to keep the API concrete:
 
@@ -67,8 +71,9 @@ The intended flow is:
 2. optionally load a project manifest
 3. set or override the target selection
 4. configure services, packages, modules, plugins, and config
-5. build an immutable application host
-6. start, run, stop, and shut down through `IApplicationHost`
+5. register linked package registrars
+6. build an immutable application host
+7. start, run, stop, and shut down through `IApplicationHost`
 
 Behavior rules:
 
@@ -155,11 +160,14 @@ This draft does not replace the existing detailed module/plugin catalogs. Those 
 
 NGIN needs a formal equivalent to the common ".NET package adds itself to the builder" experience.
 
+The first concrete implementation path is a static-link, explicit-registrar design.
+
 The draft package bootstrap convention is:
 
 1. a package may declare a bootstrap entrypoint in `ngin.package.json`
-2. that entrypoint configures the builder through `PackageBootstrapContext`
-3. the entrypoint uses the same service/module/plugin/config surfaces as the application bootstrap
+2. the package exposes a linked registrar function that registers bootstrap entries into `PackageBootstrapRegistry`
+3. the entrypoint configures the builder through `PackageBootstrapContext`
+4. the entrypoint uses the same service/module/plugin/config surfaces as the application bootstrap
 
 Manifest shape:
 
@@ -178,16 +186,34 @@ extern "C" auto NGIN_Bootstrap_NGIN_ECS(
     NGIN::Core::PackageBootstrapContext& context) -> NGIN::Core::CoreResult<void>;
 ```
 
+Registrar signature:
+
+```cpp
+extern "C" void NGIN_RegisterPackage_NGIN_ECS(
+    NGIN::Core::PackageBootstrapRegistry& registry);
+```
+
 Convention rules:
 
 - `mode` is `BuilderHookV1` in the first draft
 - `entryPoint` is a unique symbol-style identifier
-- `autoApply=true` means the builder may apply the package bootstrap automatically when that package is referenced
+- linked package registrars are supplied explicitly through the builder
+- `autoApply=true` means the builder may apply the package bootstrap automatically when that package is directly referenced by the selected target
+- v1 assumes one default bootstrap hook per package; `FindDefault(packageName)` returns that package-level default hook
 - packages may still expose friendlier convenience functions such as `AddEcs(ApplicationBuilder&)`, but those are package sugar, not the platform contract
+- no static global auto-registration is part of the v1 contract
+- no dynamic symbol discovery is part of the v1 contract
+
+The draft `PackageBootstrapRegistry` now exposes:
+
+- `Register(PackageBootstrapEntry)`
+- `Find(packageName, entryPoint)`
+- `FindDefault(packageName)`
 
 The draft `PackageCollection` now exposes:
 
 - `Add(...)`
+- `RegisterLinkedRegistrar(...)`
 - `ApplyBootstrap(packageName)`
 - `ApplyBootstrap(packageName, entryPoint)`
 
@@ -195,6 +221,44 @@ This gives NGIN both:
 
 - a generic toolable platform convention
 - room for package-specific convenience helpers
+
+## Builder Invocation Rules
+
+The first implementation should use the following builder-time rules:
+
+1. load the selected project target
+2. collect direct package references from that target
+3. execute all linked package registrars into a builder-owned `PackageBootstrapRegistry`
+4. determine which direct packages should bootstrap:
+   - explicit `ApplyBootstrap(...)`
+   - plus direct referenced packages whose manifest has `bootstrap.autoApply=true`
+5. order bootstrap execution by package dependency order within the direct referenced package set
+6. use target manifest order as the tiebreak for independent packages
+7. invoke bootstrap hooks
+8. freeze builder state and continue to host build
+
+Failure rules:
+
+- required package with declared bootstrap metadata but no matching registered hook: hard error
+- required package bootstrap hook returns error: hard error
+- optional package bootstrap missing or failing: warning and skip only if the package reference itself is optional
+- explicit `ApplyBootstrap(...)` upgrades missing or failing bootstrap to a hard error
+
+## Authoring Model
+
+The first authoring model should be explicit and portable.
+
+Package side:
+
+- define bootstrap function
+- define one explicit registrar function
+- registrar registers package name, entrypoint, and function pointer
+
+Application side:
+
+- explicitly reference linked package registrar symbols
+- register them through `Packages().RegisterLinkedRegistrar(...)`
+- this explicit symbol reference prevents static-library dead stripping in v1
 
 ## Example
 
@@ -210,6 +274,7 @@ builder->UseProfile(NGIN::Core::HostProfile::Game);
 
 builder->Services().AddDefaults().AddLogging().AddConfiguration();
 builder->Packages()
+    .RegisterLinkedRegistrar(&NGIN_RegisterPackage_NGIN_ECS)
     .Add({"NGIN.ECS", ">=0.1.0 <1.0.0", false})
     .ApplyBootstrap("NGIN.ECS");
 builder->Modules().Enable("Core.Hosting").Enable("Domain.ECS");

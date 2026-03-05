@@ -70,7 +70,7 @@ Purpose:
 
 Current implementation note:
 
-- current code lives in `NGIN.Runtime`
+- current code lives in `NGIN.Core`
 - target product naming is `NGIN.Core`
 
 ### Layer 3: Product and Domain Packages
@@ -216,7 +216,7 @@ Examples:
 
 Transition note:
 
-- current manifests still use some `Runtime.*` naming
+- current manifests still use some `Core.*` naming
 - target naming should move toward `Core.*` for the central hosting layer
 
 ### Packages

@@ -7,7 +7,7 @@
     "moduleGraphSpec": "001",
     "pluginAbiVersion": null
   },
-  "releaseNotes": "Core hosting implementation currently lives in NGIN.Runtime; NGIN.Log and NGIN.Runtime are required platform components.",
+  "releaseNotes": "Core hosting implementation currently lives in NGIN.Core; NGIN.Log and NGIN.Core are required platform components.",
   "components": [
     {
       "name": "NGIN.Base",
@@ -34,11 +34,11 @@
       ]
     },
     {
-      "name": "NGIN.Runtime",
-      "repoUrl": "https://github.com/NGIN-ORG/NGIN.Runtime.git",
+      "name": "NGIN.Core",
+      "repoUrl": "https://github.com/NGIN-ORG/NGIN.Core.git",
       "ref": "272625925130cf3cbf9e57008deb7bcdd98c802d",
       "version": "0.1",
-      "packageName": "NGINRuntime",
+      "packageName": "NGINCore",
       "role": "core",
       "required": true,
       "abiVersion": 1,

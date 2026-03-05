@@ -30,7 +30,7 @@ Actions:
 
 - adopt `NGIN` as the umbrella platform name
 - adopt `NGIN.Core` as the target name for the central hosting library
-- treat `NGIN.Runtime` as the temporary implementation name until the rename is executed
+- treat `NGIN.Core` as the temporary implementation name until the rename is executed
 - standardize terms: package, module, plugin, target, host profile
 
 Exit criteria:

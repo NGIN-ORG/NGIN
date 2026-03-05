@@ -119,7 +119,7 @@ The application should mostly be composition and configuration, not a hand-built
 
 ## Naming Recommendation
 
-My opinion: `NGIN.Runtime` is not the best long-term name for the current kernel/host library.
+My opinion: `NGIN.Core` is not the best long-term name for the current kernel/host library.
 
 Why:
 
@@ -131,7 +131,7 @@ Why:
 
 ### Preferred simple option
 
-Rename `NGIN.Runtime` to `NGIN.Core`.
+Rename `NGIN.Core` to `NGIN.Core`.
 
 Use `NGIN.Core` for:
 
@@ -155,7 +155,7 @@ This is architecturally cleaner, but only worth it if you want stricter layering
 
 ### What I would avoid
 
-- keeping `NGIN.Runtime` as the central platform identity
+- keeping `NGIN.Core` as the central platform identity
 - using `NGIN` alone as a library name
 - using `Runtime` to mean both host kernel and final app runtime
 

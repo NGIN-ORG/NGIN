@@ -1,0 +1,6 @@
+add_executable(NGINCoreBasicHost main.cpp)
+target_compile_features(NGINCoreBasicHost PRIVATE cxx_std_23)
+target_link_libraries(NGINCoreBasicHost PRIVATE NGIN::Core)
+if(TARGET NGIN.Core.BuildOptions)
+  target_link_libraries(NGINCoreBasicHost PRIVATE NGIN.Core.BuildOptions)
+endif()

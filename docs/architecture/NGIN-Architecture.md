@@ -86,7 +86,7 @@ Responsibilities:
 
 Current implementation note:
 
-- today this functionality lives in `NGIN.Runtime`
+- today this functionality lives in `NGIN.Core`
 - target long-term product naming is `NGIN.Core`
 
 ### 3. Product and Domain Packages
@@ -116,7 +116,7 @@ Examples:
 
 ## Naming Direction
 
-The current name `NGIN.Runtime` is serviceable for the existing implementation, but it does not best express the approved platform direction.
+The current name `NGIN.Core` is serviceable for the existing implementation, but it does not best express the approved platform direction.
 
 Recommended naming direction:
 

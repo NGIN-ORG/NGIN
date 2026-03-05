@@ -32,13 +32,13 @@ This spec defines that hosted application model.
 
 ## Naming Direction
 
-The current implementation lives in `NGIN.Runtime`.
+The current implementation lives in `NGIN.Core`.
 
 The approved platform direction is to treat that implementation as the central hosting/core layer of NGIN and move the product language toward `NGIN.Core`.
 
 For this spec:
 
-- **current implementation name**: `NGIN.Runtime`
+- **current implementation name**: `NGIN.Core`
 - **target platform name**: `NGIN.Core`
 
 The first concrete public draft for this spec lives in:
@@ -140,6 +140,10 @@ Expected capabilities:
 - surface modules, plugins, templates, and config defaults contributed by packages
 - surface optional package bootstrap metadata
 
+First concrete bootstrap implementation rule:
+
+- package bootstrap discovery is static-link and registrar-based in v1
+
 ### `HostProfile`
 
 A named mode that sets defaults without changing the architecture.
@@ -156,6 +160,7 @@ Initial profiles:
 Package bootstrap note:
 
 - packages may expose a formal builder bootstrap hook through package metadata and `PackageBootstrapContext`
+- linked package registrars are registered explicitly through the builder before `Build()`
 
 ## Recommended Builder Shape
 
@@ -168,7 +173,10 @@ int main(int argc, char** argv)
 
     builder->UseProfile(NGIN::Core::HostProfile::Game);
     builder->Services().AddLogging().AddConfiguration();
-    builder->Packages().Add({"NGIN.ECS", ">=0.1.0 <1.0.0", false});
+    builder->Packages()
+        .RegisterLinkedRegistrar(&NGIN_RegisterPackage_NGIN_ECS)
+        .Add({"NGIN.ECS", ">=0.1.0 <1.0.0", false})
+        .ApplyBootstrap("NGIN.ECS");
     builder->Modules().Enable("Core.Hosting").Enable("Domain.ECS");
 
     auto app = builder->Build();
@@ -238,6 +246,7 @@ Shared project model note:
 
 - `ngin.project.json` is the shared project manifest for the future CLI and VS Code extension
 - `ngin.package.json` may declare a formal package bootstrap hook for builder-time setup
+- direct target package references are the only packages auto-bootstrapped in v1
 
 ## Service Model
 
@@ -307,7 +316,7 @@ Required diagnostics:
 
 ## Current Implementation Mapping
 
-Today the platform already contains a substantial subset of this host model in `NGIN.Runtime`, including:
+Today the platform already contains a substantial subset of this host model in `NGIN.Core`, including:
 
 - module resolution and ordering
 - lifecycle orchestration

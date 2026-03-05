@@ -78,6 +78,10 @@ Rules:
 - bootstrap `entryPoint` is a unique symbol-style identifier
 - bootstrap executes against `PackageBootstrapContext`
 - package bootstraps use the same services/modules/plugins/configuration surfaces as the main application builder
+- bootstrap hooks are discovered from explicitly registered linked package registrars in v1
+- runtime symbol scanning and filesystem-based bootstrap discovery are out of scope in v1
+- `autoApply=true` applies only to packages directly referenced by the selected target
+- missing or failing required bootstraps are hard errors before host startup
 
 This is the NGIN platform equivalent of a package adding itself to the builder in one step.
 
