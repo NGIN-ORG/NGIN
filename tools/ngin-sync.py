@@ -38,7 +38,7 @@ PLUGIN_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*\.[A-Za-z0-9_.-]+$")
 FIND_PACKAGE_RE = re.compile(r"find_package\s*\(\s*([A-Za-z0-9_.+-]+)", re.IGNORECASE)
 NGIN_TARGET_RE = re.compile(r"NGIN::([A-Za-z0-9_]+)")
 
-MODULE_FAMILIES = {"Base", "Reflection", "RuntimeSvc", "Platform", "Editor", "Domain", "App"}
+MODULE_FAMILIES = {"Base", "Reflection", "Core", "Platform", "Editor", "Domain", "App"}
 MODULE_TYPES = {"Runtime", "Editor", "Program", "Developer", "ThirdParty"}
 TARGET_TYPES = {"Runtime", "Editor", "Program", "Developer"}
 STAGES = {"Build", "Cook", "Stage", "Package"}
@@ -58,7 +58,7 @@ DEPENDENCY_MATRIX: dict[str, dict[str, str]] = {
     "Base": {
         "Base": "N",
         "Reflection": "N",
-        "RuntimeSvc": "N",
+        "Core": "N",
         "Platform": "N",
         "Editor": "N",
         "Domain": "N",
@@ -67,16 +67,16 @@ DEPENDENCY_MATRIX: dict[str, dict[str, str]] = {
     "Reflection": {
         "Base": "Y",
         "Reflection": "N",
-        "RuntimeSvc": "N",
+        "Core": "N",
         "Platform": "N",
         "Editor": "N",
         "Domain": "N",
         "App": "N",
     },
-    "RuntimeSvc": {
+    "Core": {
         "Base": "Y",
         "Reflection": "O",
-        "RuntimeSvc": "Y",
+        "Core": "Y",
         "Platform": "Y",
         "Editor": "N",
         "Domain": "N",
@@ -85,7 +85,7 @@ DEPENDENCY_MATRIX: dict[str, dict[str, str]] = {
     "Platform": {
         "Base": "Y",
         "Reflection": "O",
-        "RuntimeSvc": "N",
+        "Core": "N",
         "Platform": "Y",
         "Editor": "N",
         "Domain": "N",
@@ -94,7 +94,7 @@ DEPENDENCY_MATRIX: dict[str, dict[str, str]] = {
     "Editor": {
         "Base": "Y",
         "Reflection": "O",
-        "RuntimeSvc": "Y",
+        "Core": "Y",
         "Platform": "Y",
         "Editor": "Y",
         "Domain": "O",
@@ -103,7 +103,7 @@ DEPENDENCY_MATRIX: dict[str, dict[str, str]] = {
     "Domain": {
         "Base": "Y",
         "Reflection": "O",
-        "RuntimeSvc": "Y",
+        "Core": "Y",
         "Platform": "Y",
         "Editor": "N",
         "Domain": "Y",
@@ -112,7 +112,7 @@ DEPENDENCY_MATRIX: dict[str, dict[str, str]] = {
     "App": {
         "Base": "Y",
         "Reflection": "O",
-        "RuntimeSvc": "Y",
+        "Core": "Y",
         "Platform": "Y",
         "Editor": "N",
         "Domain": "Y",

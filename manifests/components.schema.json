@@ -35,7 +35,7 @@
       "type": "string",
       "enum": [
         "foundation",
-        "runtime",
+        "core",
         "tooling",
         "domain",
         "optional"
@@ -64,4 +64,3 @@
     }
   }
 }
-

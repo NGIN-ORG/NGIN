@@ -30,9 +30,9 @@ add_custom_target(ngin.spec001.validate
   VERBATIM
 )
 
-add_custom_target(ngin.spec001.resolve.runtime
-  COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tools/ngin-sync.py" resolve-target --target NGIN.RuntimeSample
-  COMMENT "Resolve baseline runtime target closure from Spec 001 metadata"
+add_custom_target(ngin.spec001.resolve.core
+  COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tools/ngin-sync.py" resolve-target --target NGIN.CoreSample
+  COMMENT "Resolve baseline core-host target closure from Spec 001 metadata"
   VERBATIM
 )
 

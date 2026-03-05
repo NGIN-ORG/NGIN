@@ -1,244 +1,254 @@
-# Spec 001: Module Dependency Graph (Core Module Map)
+# Spec 001: Platform Layers and Dependency Model
 
-Status: Implemented v1 (umbrella-enforced)  
+Status: Active normative spec  
 Owner: NGIN umbrella workspace (`NGIN`)  
-Last updated: 2026-03-03
+Last updated: 2026-03-05
 
 ## Summary
 
-This spec defines dependency and layering rules for NGIN across:
+This spec defines the main nouns and layering rules for NGIN:
 
-- component repositories (today)
-- runtime modules/plugins/targets (future platform)
-- packaging/build composition
+- repositories/components
+- packages
+- modules
+- plugins
+- targets
+- host profiles
 
-It is the first detailed spec because later runtime kernel, plugin ABI, and editor designs depend on stable layering.
+Its job is to keep NGIN coherent as a general application platform instead of letting each product invent its own boot and dependency model.
 
 ## Goals
 
-- Prevent cyclic or upward dependencies
-- Distinguish repo/module/plugin/target terminology
-- Preserve standalone library usability (`NGIN.Base`, `NGIN.Log`, `NGIN.Reflection`, `NGIN.ECS`)
-- Support a future binary plugin boundary and editor/runtime separation
+- keep `NGIN.Base`, `NGIN.Log`, and similar libraries broadly reusable
+- define clear downward-only dependency rules
+- support both static composition and runtime plugin loading
+- ensure editors, games, tools, and services can share one platform model
+- create a stable vocabulary for tooling, manifests, and future code APIs
 
 ## Non-Goals
 
-- Full plugin ABI function definitions (Spec 003)
-- Runtime kernel service semantics (Spec 002)
-- Editor UI layout and tool host implementation (Spec 004)
+- builder API details and host lifecycle semantics
+- binary plugin ABI function tables
+- editor UI behavior and workspace layout details
 
-## Terminology (Normative)
+## Terminology
 
-- **Repository**: a Git repo (example: `NGIN.Reflection`)
-- **Component**: a published repo/library unit tracked in the platform manifest
-- **Module**: smallest compilation/deployment unit inside the platform/module system (`*.module.json`)
-- **Plugin**: optional bundle of modules/assets/config/resources
-- **Target**: final build product (app/editor/server/tool)
+- **Repository**: a Git repository such as `NGIN.Base`
+- **Component**: a published repo/library unit tracked by the platform release manifest
+- **Package**: a distributable unit that may contain modules, plugin binaries, assets, metadata, templates, and tooling data
+- **Module**: a composable feature unit registered into an application host
+- **Plugin**: an optional runtime extension delivered through a package and activated by the host
+- **Target**: a final build product such as an editor, game, CLI tool, or service
+- **Host profile**: a named application mode with platform defaults, such as `Editor` or `Service`
 
-## Graphs (Three Distinct Graphs)
+## Platform Layers
 
-## 1. Component Repository Graph (Current / Near-Term)
+### Layer 1: Foundation
 
-This graph governs dependencies between standalone `NGIN.*` repositories.
+Purpose:
 
-### Current observed component graph (workspace snapshot)
+- low-level reusable systems
+- no dependency on higher-level hosting or product concepts
 
-- `NGIN.Base` -> (none)
-- `NGIN.Log` -> `NGIN.Base`
-- `NGIN.Reflection` -> `NGIN.Base`
-- `NGIN.ECS` -> `NGIN.Base`
-- `NGIN.Runtime` -> `NGIN.Base`, `NGIN.Log`
-- `NGIN.Benchmark` -> `NGIN.Base` (expected/tooling role; manifest marks optional)
+Examples:
 
-### Rules (Component Graph)
+- `NGIN.Base`
+- `NGIN.Log`
+- `NGIN.Reflection`
 
-1. `NGIN.Base` is foundational and must not depend on higher-level NGIN repos.
-2. `NGIN.Log` and `NGIN.Reflection` may depend on `NGIN.Base`; higher-level repos may optionally depend on them.
-3. Domain libraries (for example `NGIN.ECS`) may depend on `NGIN.Base`, and may optionally integrate with `NGIN.Reflection` via adapter modules, not mandatory core dependency by default.
-4. Experimental repos must be marked `required: false` in the platform manifest until release-grade.
+### Layer 2: Core Hosting
 
-## 2. Runtime Module Graph (Platform Modules, Future)
+Purpose:
 
-This graph governs in-platform loadable/static modules and their layering.
+- application builder
+- host lifecycle
+- services
+- config
+- event/task contracts
+- module and plugin activation
+- package integration
 
-### Proposed Layer Stack (Top to Bottom)
+Current implementation note:
 
-1. Application modules
-2. Domain engine modules (`Game`, `Sim`, `CAD`, `Viz`, etc.)
-3. Editor modules (tool host, panels, inspectors) [editor targets only]
-4. Platform service modules (runtime kernel services, asset/data, render abstractions)
-5. Platform abstraction modules (`Platform.Win64`, `Platform.Linux`, ...)
-6. Foundation modules (`NGIN.Base`, `NGIN.Log`, optional `NGIN.Reflection` support layer, low-level utils)
+- current code lives in `NGIN.Runtime`
+- target product naming is `NGIN.Core`
 
-### Allowed Dependency Direction
+### Layer 3: Product and Domain Packages
 
-Dependencies may only point downward within the stack, plus same-layer dependencies when explicitly allowed by that layer's rules.
+Purpose:
 
-### Forbidden Dependency Examples
+- reusable platform products and domain features
 
-- Foundation -> Editor
-- Platform abstraction -> Application
-- Runtime service module -> Domain application module
-- Generic asset/data module -> game-specific module
+Examples:
 
-## 3. Build/Packaging Graph
+- ECS
+- editor framework
+- rendering
+- assets
+- diagnostics
+- scripting
 
-This graph maps modules/plugins into build targets and packaged outputs.
+### Layer 4: Applications
 
-### Rules
+Purpose:
 
-1. A target may include only modules valid for its target type (`Runtime`, `Editor`, `Program`, `Developer`).
-2. Plugin bundles may introduce optional modules but cannot violate runtime module graph rules.
-3. Packaging stages (`Build`, `Cook`, `Stage`, `Package`) must consume dependency metadata rather than hardcoded project-specific rules where possible.
+- the final user-facing executable or service
 
-## Naming Rules (Normative)
+Examples:
 
-### Repository Names
+- game
+- editor
+- calculator
+- CLI tool
+- daemon/service
 
-- Pattern: `NGIN.<Component>`
-- Examples: `NGIN.Base`, `NGIN.Reflection`
+## Dependency Direction
 
-### Runtime Module Names
+Dependencies may point:
 
-- Pattern: `<Family>.<Name>`
-- Examples: `Platform.Win64`, `Runtime.Kernel`, `Asset.Database`, `Editor.Inspector`
+- downward across layers
+- within the same layer only when the relationship is explicitly supported
 
-### Plugin Names
+Dependencies may not point upward.
 
-- Pattern: `<Vendor>.<PluginName>` or `<Org>.<PluginName>`
-- Examples: `NGIN.VisualScripting`, `Acme.SimExporter`
+## Forbidden Examples
 
-### Target Names
+- foundation depending on core hosting
+- core hosting depending on editor-only modules
+- reusable domain packages depending on a single final application
+- runtime shipping products depending on editor-only packages
 
-- Examples: `NGIN.Editor`, `MyApplication`, `SimulationServer`
+## Allowed Dependency Matrix
 
-## Reflection Optionality Policy
+Legend:
 
-### Runtime Applications
+- `Y` allowed
+- `O` optional/conditional
+- `N` forbidden
 
-Reflection is optional by default for runtime-only applications and servers.
-
-### Required/Preferred Cases
-
-Reflection is required or strongly preferred for:
-
-- editor tooling
-- visual scripting
-- property inspection
-- dependency injection / IoC metadata
-- cross-module metadata export/import workflows
-
-### Integration Pattern
-
-Modules that can operate with or without reflection should isolate reflection usage behind adapter/service interfaces to avoid making `NGIN.Reflection` a hard dependency for every runtime target.
-
-## Editor / Runtime Separation Rules
-
-1. Editor-only modules must not be required by runtime targets.
-2. Runtime modules may expose metadata/services that editors consume, but not the reverse.
-3. Shared tool/runtime code must live in neutral modules (e.g. `Asset.Core`, `Config.Core`) rather than `Editor.*`.
-
-## Binary Plugin Boundary Placement (Pre-ABI Rules)
-
-1. Binary plugin host interface crosses a **C ABI boundary**.
-2. The ABI boundary sits at the runtime kernel/plugin loader layer, not deep within arbitrary internal modules.
-3. Plugin compatibility checks must include:
-   - platform version/range
-   - plugin ABI version
-   - module compatibility metadata
-4. Reflection metadata import/export is optional and must not be the only means of plugin compatibility.
-
-## Current Repo Mapping to Platform Vision
-
-### `NGIN.Base`
-
-- Role: Foundation
-- Future position: foundational system library consumed by almost all platform/domain layers
-
-### `NGIN.Log`
-
-- Role: Foundation logging subsystem
-- Future position: structured, sink-based logging library consumed by runtime/platform/domain components
-
-### `NGIN.Reflection`
-
-- Role: Foundation (optional runtime, required for many tools)
-- Future position: runtime type system + metadata substrate for editor/IoC/plugin discovery workflows
-
-### `NGIN.ECS`
-
-- Role: Domain / reusable domain engine subsystem
-- Future position: reusable data-oriented subsystem used by domain engines or apps; not required for the whole platform
-
-### `NGIN.Runtime`
-
-- Current role: runtime kernel component and platform service host
-- Future position: stable home for `Runtime.*`/`Platform.*` kernel service modules
-
-## Allowed Dependency Matrix (Initial)
-
-Legend: `Y` allowed, `O` optional/conditional, `N` forbidden
-
-| From \\ To        | Base | Reflection | RuntimeSvc | Platform.* | Editor.* | Domain.* | App.* |
-|-------------------|------|------------|------------|------------|----------|----------|-------|
-| Base              | N    | N          | N          | N          | N        | N        | N     |
-| Reflection        | Y    | N          | N          | N          | N        | N        | N     |
-| RuntimeSvc        | Y    | O          | Y          | Y          | N        | N        | N     |
-| Platform.*        | Y    | O          | N          | Y          | N        | N        | N     |
-| Editor.*          | Y    | O          | Y          | Y          | Y        | O        | N     |
-| Domain.*          | Y    | O          | Y          | Y          | N        | Y        | N     |
-| App.*             | Y    | O          | Y          | Y          | N        | Y        | Y     |
+| From \\ To   | Foundation | Core Hosting | Product/Domain | Editor Product | Application |
+|--------------|------------|--------------|----------------|----------------|-------------|
+| Foundation   | Y          | N            | N              | N              | N           |
+| Core Hosting | Y          | Y            | N              | N              | N           |
+| Product/Domain | Y        | Y            | Y              | N              | N           |
+| Editor Product | Y        | Y            | O              | Y              | N           |
+| Application  | Y          | Y            | Y              | O              | Y           |
 
 Notes:
 
-- `Base -> Base` is shown `N` in this matrix because the table is at family granularity, not per-module intra-family linking.
-- `Editor.* -> Domain.*` is optional and should occur via extension/plugin contracts, not hardcoded assumptions where possible.
+- editor-facing packages may depend on neutral product/domain packages
+- application-to-editor dependencies are optional and only valid for editor targets
 
-## Descriptor Requirements (Implemented v1)
+## Composition Model
 
-Module metadata is now enforced via `manifests/module-catalog.json`.
-Each module entry defines at minimum:
+NGIN should support three levels of composition.
 
-- `name`
-- `family` (`Base`, `Reflection`, `RuntimeSvc`, `Platform`, `Editor`, `Domain`, `App`)
-- `type` (`Runtime`, `Editor`, `Developer`, `Program`, `ThirdParty`)
-- `component` (`NGIN.*`)
-- `dependencies` (hard + optional)
-- `platforms`
-- `version`
-- `compatiblePlatformRange`
-- `loadPhase`
-- `flags.editorOnly`
-- `flags.requiresReflection`
+### 1. Static modules
 
-Rule mapping note:
+Modules compiled directly into the target.
 
-- `Developer` and `ThirdParty` module types use `App.*` dependency permissions for matrix validation.
+Use when:
 
-## Validation & Enforcement (Implemented)
+- functionality is core to the product
+- startup determinism matters more than runtime extensibility
+- the module is internal to one app or one tightly coupled product family
 
-The NGIN workspace tooling/CI now enforces:
+### 2. Dynamic plugins
 
-1. Component manifest dependency consistency
-2. JSON Schema validation for module/plugin/target catalogs (draft 2020-12)
-3. Canonical runtime load phases (`Bootstrap`, `Platform`, `CoreServices`, `Data`, `Domain`, `Application`, `Editor`)
-4. Semver/version-range semantic checks across manifest catalogs
-5. Runtime module graph acyclicity
-6. Forbidden layer dependencies
-7. Target composition validity (editor/runtime/program)
-8. Plugin bundle manifest compatibility before packaging
-9. Reproducibility policy: on non-`dev` channels, every `required: true` component must have a non-null `ref`
+Optional runtime-loaded extensions.
 
-Enforcement surface:
+Use when:
 
-- `python tools/ngin-sync.py validate-spec001`
-- `python tools/ngin-sync.py resolve-target --target <TargetName>`
-- `.github/workflows/workspace-ci.yml` runs both commands as hard gates
-- Root CMake targets:
-  - `ngin.spec001.validate`
-  - `ngin.spec001.resolve.runtime`
+- the feature is optional
+- the feature should be installable or removable independently
+- a third-party extension model is desired
+- editor tooling and diagnostics need runtime discovery
 
-## Open Questions (Tracked, Not Blocking This Spec)
+### 3. Packages
 
-1. Whether render/GPU abstractions live in a dedicated component repo or inside the umbrella repo initially.
-2. Degree of cross-component semantic version strictness vs commit pinning during early platform releases.
+The distribution boundary for the platform.
+
+A package may include:
+
+- module descriptors
+- plugin binaries
+- static library metadata
+- config defaults
+- templates
+- assets
+- CLI integration metadata
+
+Packages are broader than plugins and should become the main unit of distribution and tooling.
+
+## Host Profiles
+
+The platform should standardize host profiles.
+
+Initial host profiles:
+
+- `ConsoleApp`
+- `GuiApp`
+- `Game`
+- `Editor`
+- `Service`
+- `TestHost`
+
+Profiles affect defaults, not architecture.
+
+Examples:
+
+- `Editor` enables diagnostics, reflection, and tool/plugin discovery by default
+- `Game` uses lean runtime defaults
+- `Service` disables UI-oriented facilities
+- `TestHost` emphasizes deterministic startup and teardown
+
+## Naming Rules
+
+### Repositories and Components
+
+- Pattern: `NGIN.<Component>`
+- Examples: `NGIN.Base`, `NGIN.Log`, `NGIN.Core`
+
+### Modules
+
+- Pattern: `<Family>.<Name>`
+- Examples: `Core.Hosting`, `Core.Configuration`, `Editor.Workspace`, `Domain.ECS`
+
+Transition note:
+
+- current manifests still use some `Runtime.*` naming
+- target naming should move toward `Core.*` for the central hosting layer
+
+### Packages
+
+- Pattern: `<Vendor>.<Package>`
+- Examples: `NGIN.Diagnostics`, `NGIN.Editor`, `Acme.SimExporter`
+
+### Targets
+
+- Examples: `NGIN.EditorApp`, `MyGame`, `MyCalculator`, `MyCliTool`
+
+## Rules For Editor Separation
+
+- editor-only packages must never be required by runtime shipping targets
+- runtime products may expose metadata/services consumed by editors
+- neutral shared code must live outside editor-specific packages
+
+## Rules For Platform Core
+
+- the core hosting layer must remain domain-agnostic
+- rendering, gameplay, editor UI, and asset-import assumptions must not leak into the core hosting layer
+- reflection may be optional at runtime, but the platform must support hosts where reflection is enabled by default
+
+## Manifest And Tooling Implications
+
+Workspace tooling should validate:
+
+- layer violations
+- cycles
+- target/profile validity
+- package compatibility
+- platform version compatibility
+- deterministic target resolution
+
+This spec is the foundation for all later build, package, plugin, and host behavior.

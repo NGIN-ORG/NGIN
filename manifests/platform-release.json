@@ -7,7 +7,7 @@
     "moduleGraphSpec": "001",
     "pluginAbiVersion": null
   },
-  "releaseNotes": "Runtime kernel migrated to NGIN.Runtime; NGIN.Log and NGIN.Runtime are required platform components.",
+  "releaseNotes": "Core hosting implementation currently lives in NGIN.Runtime; NGIN.Log and NGIN.Runtime are required platform components.",
   "components": [
     {
       "name": "NGIN.Base",
@@ -39,14 +39,14 @@
       "ref": "272625925130cf3cbf9e57008deb7bcdd98c802d",
       "version": "0.1",
       "packageName": "NGINRuntime",
-      "role": "runtime",
+      "role": "core",
       "required": true,
       "abiVersion": 1,
       "dependsOn": [
         "NGIN.Base",
         "NGIN.Log"
       ],
-      "notes": "Production runtime kernel component replacing NGIN.Core in active platform architecture."
+      "notes": "Current implementation repository for the central NGIN.Core hosting layer."
     },
     {
       "name": "NGIN.Reflection",

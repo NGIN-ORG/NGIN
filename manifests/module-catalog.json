@@ -92,8 +92,8 @@
       }
     },
     {
-      "name": "Runtime.Kernel",
-      "family": "RuntimeSvc",
+      "name": "Core.Hosting",
+      "family": "Core",
       "type": "Runtime",
       "component": "NGIN.Runtime",
       "version": "0.1.0",
@@ -119,7 +119,7 @@
       "platforms": ["linux", "windows", "macos"],
       "loadPhase": "Domain",
       "dependencies": {
-        "required": ["Base.Foundation", "Runtime.Kernel"],
+        "required": ["Base.Foundation", "Core.Hosting"],
         "optional": ["Reflection.Metadata"]
       },
       "flags": {

@@ -2,25 +2,45 @@
 
 NGIN is the **umbrella workspace** for the NGIN platform.
 
+NGIN is a **general C++ application platform** for building:
+
+- games
+- editors
+- GUI applications
+- CLI tools
+- services
+- domain-specific engines
+
 This repo is mainly for:
-- platform architecture/specs
+
+- platform architecture and specs
 - compatibility and release manifests
-- workspace tooling for syncing/checking component repos
+- workspace tooling for syncing and validating component repos
 
-It is **not** the runtime/game/editor SDK itself and does not produce a single `NGIN` library.
+It is **not** the single application SDK library itself and does not produce a single `NGIN` library.
 
-## What You Should Do Here
+## What You Use This Repo For
 
-If you want to use platform libraries in an app:
-- Use component repos/packages directly (`NGIN.Base`, `NGIN.Log`, `NGIN.Runtime`, `NGIN.Reflection`, etc.).
-- Treat this repo as architecture/release metadata, not as your app dependency.
+If you are building an application:
 
-If you are maintaining the platform:
-- Update `manifests/platform-release.json` and spec docs.
-- Run workspace validation/gates.
+- use component repos and packages directly such as `NGIN.Base`, `NGIN.Log`, `NGIN.Reflection`, and the current hosting implementation in `NGIN.Runtime`
+- treat this repo as the platform definition and coordination layer
+
+If you are shaping the platform:
+
+- update specs and architecture docs
+- update platform release and metadata manifests
+- run workspace validation and target resolution
 
 If you are developing multiple NGIN components together:
-- Use this workspace to keep repos aligned and verify cross-repo compatibility.
+
+- use this workspace to keep repos aligned and verify cross-repo compatibility
+
+## Current Naming Note
+
+The approved platform direction is to treat the central host/orchestration library as `NGIN.Core`.
+
+Today, the implementation still lives in `NGIN.Runtime`.
 
 ## Quick Start
 
@@ -51,35 +71,19 @@ python3 tools/ngin-sync.py sync
 cmake --preset dev
 ```
 
-5. Run Spec 001 architecture gates:
+5. Run Spec 001 validation and target resolution:
 
 ```bash
 python3 tools/ngin-sync.py validate-spec001
-python3 tools/ngin-sync.py resolve-target --target NGIN.RuntimeSample
+python3 tools/ngin-sync.py resolve-target --target NGIN.CoreSample
 ```
-
-## Common Workflows
-
-Platform release/compatibility update:
-- Edit [platform-release.json](/home/berggrenmille/NGIN/manifests/platform-release.json).
-- Run `python3 tools/ngin-sync.py validate-spec001`.
-- Confirm target resolution for baseline targets.
-
-Cross-repo local development:
-- Keep sibling repos in this workspace root (`NGIN.Base`, `NGIN.Log`, ...), or use `.ngin/workspace.overrides.json`.
-- Run `status`, `doctor`, and `validate-spec001` after dependency changes.
-
-CI parity check locally:
-- `cmake --preset dev`
-- `cmake --build build/dev --target ngin.spec001.validate`
-- `cmake --build build/dev --target ngin.spec001.resolve.runtime`
 
 ## Repository Map
 
-- `docs/architecture/`: umbrella architecture docs
-- `docs/specs/`: normative specs (`001`, `002`, ...)
-- `manifests/`: platform compatibility + module/plugin/target metadata
-- `tools/`: workspace tooling (`ngin-sync.py`)
+- `docs/architecture/`: umbrella architecture and direction docs
+- `docs/specs/`: normative platform specs
+- `manifests/`: platform compatibility plus module/plugin/target metadata
+- `tools/`: workspace tooling such as `ngin-sync.py`
 - `cmake/`: workspace CMake integration helpers
 
 ## Required Platform Components (Current)
@@ -89,27 +93,12 @@ CI parity check locally:
 - `NGIN.Runtime`
 - `NGIN.Reflection`
 
-## Spec 001 Enforcement Surface
-
-- Metadata catalogs:
-  - `manifests/module-catalog.json`
-  - `manifests/plugin-catalog.json`
-  - `manifests/target-catalog.json`
-- Metadata schemas:
-  - `manifests/module.schema.json`
-  - `manifests/plugin-bundle.schema.json`
-  - `manifests/target.schema.json`
-  - `manifests/module-graph.schema.json`
-- CLI gates:
-  - `python3 tools/ngin-sync.py validate-spec001`
-  - `python3 tools/ngin-sync.py resolve-target --target <TargetName>`
-  - optional parity flag: `--target-dir <externalsPath>` on `resolve-target`
-- CMake helper targets:
-  - `ngin.spec001.validate`
-  - `ngin.spec001.resolve.runtime`
-
 ## Read Next
 
 - [NGIN Architecture](/home/berggrenmille/NGIN/docs/architecture/NGIN-Architecture.md)
-- [Spec 001: Module Dependency Graph](/home/berggrenmille/NGIN/docs/specs/001-module-dependency-graph.md)
-- [Spec 002: Runtime Kernel Design](/home/berggrenmille/NGIN/docs/specs/002-runtime-kernel-design.md)
+- [NGIN Platform Direction](/home/berggrenmille/NGIN/docs/architecture/NGIN-Platform-Direction.md)
+- [Spec 001: Platform Layers and Dependency Model](/home/berggrenmille/NGIN/docs/specs/001-module-dependency-graph.md)
+- [Spec 002: Application Host and Builder Model](/home/berggrenmille/NGIN/docs/specs/002-runtime-kernel-design.md)
+- [Spec 003: Package, Module, and Plugin Model](/home/berggrenmille/NGIN/docs/specs/003-plugin-abi-header-spec.md)
+- [Spec 004: Editor and Product Architecture](/home/berggrenmille/NGIN/docs/specs/004-editor-architecture.md)
+- [Spec 005: Platform Transition and Next Steps](/home/berggrenmille/NGIN/docs/specs/005-implementation-roadmap.md)
