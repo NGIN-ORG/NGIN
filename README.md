@@ -81,6 +81,8 @@ python3 tools/ngin-sync.py resolve-target --target NGIN.CoreSample
 ## Repository Map
 
 - `docs/architecture/`: umbrella architecture and direction docs
+- `docs/api-drafts/`: concrete public draft artifacts for upcoming platform APIs
+- `docs/examples/`: example code and manifest shapes for draft platform workflows
 - `docs/specs/`: normative platform specs
 - `manifests/`: platform compatibility plus module/plugin/target metadata
 - `tools/`: workspace tooling such as `ngin-sync.py`
@@ -97,6 +99,7 @@ python3 tools/ngin-sync.py resolve-target --target NGIN.CoreSample
 
 - [NGIN Architecture](/home/berggrenmille/NGIN/docs/architecture/NGIN-Architecture.md)
 - [NGIN Platform Direction](/home/berggrenmille/NGIN/docs/architecture/NGIN-Platform-Direction.md)
+- [NGIN.Core Application Model Draft](/home/berggrenmille/NGIN/docs/api-drafts/NGIN.Core-ApplicationModel.md)
 - [Spec 001: Platform Layers and Dependency Model](/home/berggrenmille/NGIN/docs/specs/001-module-dependency-graph.md)
 - [Spec 002: Application Host and Builder Model](/home/berggrenmille/NGIN/docs/specs/002-runtime-kernel-design.md)
 - [Spec 003: Package, Module, and Plugin Model](/home/berggrenmille/NGIN/docs/specs/003-plugin-abi-header-spec.md)

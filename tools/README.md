@@ -46,12 +46,14 @@ Both `validate-spec001` and `resolve-target` support:
 - `--json-report <path>`
   - writes a stable JSON report for CI artifact inspection
 
-### Spec 001 metadata files
+### Platform metadata files
 
-Enforced metadata lives in `manifests/`:
+Platform metadata and draft schemas live in `manifests/`:
 
 - `module.schema.json`
+- `project.schema.json`
 - `plugin-bundle.schema.json`
+- `package.schema.json`
 - `target.schema.json`
 - `module-graph.schema.json`
 - `module-catalog.json`

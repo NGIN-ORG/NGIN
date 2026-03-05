@@ -12,6 +12,7 @@ Related:
 
 - `003-plugin-abi-header-spec.md`
 - `004-editor-architecture.md`
+- `../api-drafts/NGIN.Core-ApplicationModel.md`
 
 ## Summary
 
@@ -39,6 +40,12 @@ For this spec:
 
 - **current implementation name**: `NGIN.Runtime`
 - **target platform name**: `NGIN.Core`
+
+The first concrete public draft for this spec lives in:
+
+- `docs/api-drafts/NGIN.Core-ApplicationModel.md`
+- `docs/api-drafts/include/NGIN/Core/Application.hpp`
+- `manifests/project.schema.json`
 
 ## Goals
 
@@ -89,11 +96,17 @@ Pre-build service registration surface.
 
 Expected capabilities:
 
-- `Singleton`
-- `Scoped`
-- `Transient`
+- explicit `Singleton`, `Scoped`, and `Transient` registrations
 - explicit scopes
 - optional reflection-backed activation
+
+The first concrete draft makes this explicit through:
+
+- `ServiceLifetime`
+- `ServiceScopeKind`
+- `AddSingleton(...)`
+- `AddScoped(...)`
+- `AddTransient(...)`
 
 ### `ModuleCollection`
 
@@ -125,6 +138,7 @@ Expected capabilities:
 - discover installed packages
 - expose package metadata
 - surface modules, plugins, templates, and config defaults contributed by packages
+- surface optional package bootstrap metadata
 
 ### `HostProfile`
 
@@ -139,6 +153,10 @@ Initial profiles:
 - `Service`
 - `TestHost`
 
+Package bootstrap note:
+
+- packages may expose a formal builder bootstrap hook through package metadata and `PackageBootstrapContext`
+
 ## Recommended Builder Shape
 
 Conceptually:
@@ -146,21 +164,19 @@ Conceptually:
 ```cpp
 int main(int argc, char** argv)
 {
-    auto builder = NGIN::CreateApplicationBuilder(argc, argv);
+    auto builder = NGIN::Core::CreateApplicationBuilder(argc, argv);
 
-    builder.UseProfile(NGIN::HostProfile::Game);
-    builder.Services().AddLogging();
-    builder.Services().AddConfiguration();
-    builder.Modules().AddStaticModule<MyGameModule>();
-    builder.Packages().AddReference("NGIN.ECS");
-    builder.Plugins().LoadFromPath("plugins/");
+    builder->UseProfile(NGIN::Core::HostProfile::Game);
+    builder->Services().AddLogging().AddConfiguration();
+    builder->Packages().Add({"NGIN.ECS", ">=0.1.0 <1.0.0", false});
+    builder->Modules().Enable("Core.Hosting").Enable("Domain.ECS");
 
-    auto app = builder.Build();
-    return app.Run();
+    auto app = builder->Build();
+    return app ? 0 : 1;
 }
 ```
 
-The exact C++ API names can change. The shape and responsibilities should not.
+The first concrete draft now uses `NGIN.Core` naming only. The exact implementation may evolve, but the public shape and responsibilities should remain aligned with the draft artifacts.
 
 ## Host Lifecycle
 
@@ -217,6 +233,11 @@ Every host should have platform-defined access to:
 - environment and profile information
 - event publication/subscription
 - task scheduling contracts
+
+Shared project model note:
+
+- `ngin.project.json` is the shared project manifest for the future CLI and VS Code extension
+- `ngin.package.json` may declare a formal package bootstrap hook for builder-time setup
 
 ## Service Model
 

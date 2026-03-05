@@ -162,6 +162,17 @@ Component repos keep their own versions, while `manifests/platform-release.json`
 - `004`: editor and product architecture
 - `005`: platform transition and next steps
 
+## Concrete Drafts
+
+The first concrete public draft for the application model lives in:
+
+- `docs/api-drafts/NGIN.Core-ApplicationModel.md`
+- `docs/api-drafts/include/NGIN/Core/Application.hpp`
+- `manifests/project.schema.json`
+- `manifests/package.schema.json`
+
+These artifacts use `NGIN.Core` naming only and define the first shared project/package model for future CLI and VS Code integration.
+
 ## Near-Term Direction
 
 1. lock platform language around `NGIN` as an application platform

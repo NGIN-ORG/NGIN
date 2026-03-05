@@ -9,6 +9,12 @@ Depends on:
 - `001-module-dependency-graph.md`
 - `002-runtime-kernel-design.md`
 
+Concrete draft artifacts:
+
+- `docs/api-drafts/NGIN.Core-ApplicationModel.md`
+- `manifests/project.schema.json`
+- `manifests/package.schema.json`
+
 ## Summary
 
 NGIN should treat **packages** as the main distribution unit, with modules and plugins as contents that a package may provide.
@@ -56,9 +62,24 @@ Each package should have a manifest describing:
 - compatible ABI or package format version
 - provided modules
 - provided plugins
+- optional package bootstrap hook metadata
 - package dependencies
 - supported platforms
 - optional tools/templates/assets
+
+## Package Bootstrap Convention
+
+The first concrete draft now defines a formal package bootstrap convention so packages can participate in builder setup in a toolable way.
+
+Rules:
+
+- package manifest may declare a `bootstrap` object
+- bootstrap `mode` is `BuilderHookV1` in the first draft
+- bootstrap `entryPoint` is a unique symbol-style identifier
+- bootstrap executes against `PackageBootstrapContext`
+- package bootstraps use the same services/modules/plugins/configuration surfaces as the main application builder
+
+This is the NGIN platform equivalent of a package adding itself to the builder in one step.
 
 ## Module Rules
 
@@ -165,6 +186,12 @@ Applications and workspaces should declare:
 
 This gives the CLI and editor a stable project model to understand.
 
+Chosen concrete draft rule:
+
+- `ngin.project.json` is the shared project model for the future CLI and VS Code extension
+- `ngin.package.json` is the minimal reusable package manifest
+- these files complement the existing module/plugin catalogs during the transition
+
 ## Current State
 
 Today the workspace already has:
@@ -173,6 +200,7 @@ Today the workspace already has:
 - plugin catalogs
 - target catalogs
 - platform release manifests
+- concrete draft project/package schemas
 
 The next step is to unify those ideas under a package-first model instead of treating plugins as the only extension concept.
 
