@@ -42,6 +42,10 @@ MODULE_FAMILIES = {"Base", "Reflection", "RuntimeSvc", "Platform", "Editor", "Do
 MODULE_TYPES = {"Runtime", "Editor", "Program", "Developer", "ThirdParty"}
 TARGET_TYPES = {"Runtime", "Editor", "Program", "Developer"}
 STAGES = {"Build", "Cook", "Stage", "Package"}
+LOAD_PHASES = {"Bootstrap", "Platform", "CoreServices", "Data", "Domain", "Application", "Editor"}
+
+SEMVER_RE = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?$")
+RANGE_TOKEN_RE = re.compile(r"^(>=|<=|>|<|=)?(.+)$")
 
 TARGET_ALLOWED_MODULE_TYPES: dict[str, set[str]] = {
     "Runtime": {"Runtime", "ThirdParty"},
@@ -499,6 +503,88 @@ def _is_string_list(value: Any) -> bool:
     return isinstance(value, list) and all(isinstance(v, str) for v in value)
 
 
+def _json_pointer(path_tokens: list[Any]) -> str:
+    pointer = ""
+    for token in path_tokens:
+        text = str(token).replace("~", "~0").replace("/", "~1")
+        pointer += f"/{text}"
+    return pointer
+
+
+def _valid_semver(text: str) -> bool:
+    return bool(SEMVER_RE.fullmatch(text.strip()))
+
+
+def _valid_version_range(text: str) -> bool:
+    normalized = text.strip()
+    if not normalized:
+        return True
+
+    for token in normalized.split():
+        match = RANGE_TOKEN_RE.fullmatch(token)
+        if not match:
+            return False
+        version = match.group(2).strip()
+        if not version or not _valid_semver(version):
+            return False
+    return True
+
+
+def _schema_validate_catalog_envelope(
+    modules: list[dict[str, Any]],
+    plugins: list[dict[str, Any]],
+    targets: list[dict[str, Any]],
+    report: dict[str, Any],
+) -> None:
+    try:
+        import jsonschema
+    except ModuleNotFoundError:
+        add_error(report, "python dependency missing: 'jsonschema' is required for validate-spec001")
+        return
+
+    try:
+        graph_schema = load_json_file(SCHEMA_PATHS["graph"])
+        module_schema = load_json_file(SCHEMA_PATHS["module"])
+        plugin_schema = load_json_file(SCHEMA_PATHS["plugin"])
+        target_schema = load_json_file(SCHEMA_PATHS["target"])
+    except SystemExit as exc:
+        add_error(report, str(exc))
+        return
+
+    envelope = {
+        "schemaVersion": 1,
+        "modules": modules,
+        "plugins": plugins,
+        "targets": targets,
+    }
+
+    base_uri = SCHEMA_PATHS["graph"].resolve().parent.as_uri() + "/"
+    store: dict[str, Any] = {
+        SCHEMA_PATHS["graph"].resolve().as_uri(): graph_schema,
+        SCHEMA_PATHS["module"].resolve().as_uri(): module_schema,
+        SCHEMA_PATHS["plugin"].resolve().as_uri(): plugin_schema,
+        SCHEMA_PATHS["target"].resolve().as_uri(): target_schema,
+    }
+    for schema in (graph_schema, module_schema, plugin_schema, target_schema):
+        schema_id = schema.get("$id")
+        if isinstance(schema_id, str) and schema_id:
+            store[schema_id] = schema
+
+    resolver = jsonschema.RefResolver(base_uri=base_uri, referrer=graph_schema, store=store)
+    validator = jsonschema.Draft202012Validator(graph_schema, resolver=resolver)
+    errors = sorted(validator.iter_errors(envelope), key=lambda err: list(err.absolute_path))
+    for err in errors:
+        pointer = _json_pointer(list(err.absolute_path))
+        file_path = str(SCHEMA_PATHS["graph"])
+        if pointer.startswith("/modules"):
+            file_path = str(CATALOG_PATHS["module"])
+        elif pointer.startswith("/plugins"):
+            file_path = str(CATALOG_PATHS["plugin"])
+        elif pointer.startswith("/targets"):
+            file_path = str(CATALOG_PATHS["target"])
+        add_error(report, f"{file_path}{pointer}: {err.message}")
+
+
 def _check_exact_keys(obj: dict[str, Any], required: set[str], allowed: set[str], ctx: str, report: dict[str, Any]) -> None:
     missing = sorted(required - obj.keys())
     extra = sorted(set(obj.keys()) - allowed)
@@ -646,14 +732,25 @@ def _validate_module_entries(
         elif component not in component_names:
             add_error(report, f"{ctx}.component references unknown manifest component '{component}'")
 
-        if not isinstance(module.get("version"), str):
+        version = module.get("version")
+        if not isinstance(version, str):
             add_error(report, f"{ctx}.version must be a string")
-        if not isinstance(module.get("compatiblePlatformRange"), str):
+        elif not _valid_semver(version):
+            add_error(report, f"{ctx}.version must be valid semver (major.minor.patch[-prerelease])")
+
+        compatible_range = module.get("compatiblePlatformRange")
+        if not isinstance(compatible_range, str):
             add_error(report, f"{ctx}.compatiblePlatformRange must be a string")
+        elif not _valid_version_range(compatible_range):
+            add_error(report, f"{ctx}.compatiblePlatformRange contains invalid semver range token(s)")
+
         if not _is_string_list(module.get("platforms")):
             add_error(report, f"{ctx}.platforms must be an array of strings")
-        if not isinstance(module.get("loadPhase"), str):
+        load_phase = module.get("loadPhase")
+        if not isinstance(load_phase, str):
             add_error(report, f"{ctx}.loadPhase must be a string")
+        elif load_phase not in LOAD_PHASES:
+            add_error(report, f"{ctx}.loadPhase must be one of {sorted(LOAD_PHASES)}")
 
         deps = module.get("dependencies")
         if not isinstance(deps, dict):
@@ -708,10 +805,17 @@ def _validate_plugin_entries(
             add_error(report, f"{ctx}.name duplicates '{name}'")
             continue
 
-        if not isinstance(plugin.get("version"), str):
+        version = plugin.get("version")
+        if not isinstance(version, str):
             add_error(report, f"{ctx}.version must be a string")
-        if not isinstance(plugin.get("compatiblePlatformRange"), str):
+        elif not _valid_semver(version):
+            add_error(report, f"{ctx}.version must be valid semver (major.minor.patch[-prerelease])")
+
+        compatible_range = plugin.get("compatiblePlatformRange")
+        if not isinstance(compatible_range, str):
             add_error(report, f"{ctx}.compatiblePlatformRange must be a string")
+        elif not _valid_version_range(compatible_range):
+            add_error(report, f"{ctx}.compatiblePlatformRange contains invalid semver range token(s)")
 
         abi = plugin.get("abiVersion")
         if abi is not None and not isinstance(abi, int):
@@ -832,6 +936,38 @@ def _validate_component_graph(manifest: dict[str, Any], report: dict[str, Any]) 
         add_error(report, f"component graph contains cycle(s) involving: {', '.join(cycles)}")
 
     return by_name
+
+
+def _validate_required_ref_policy(manifest: dict[str, Any], report: dict[str, Any]) -> None:
+    channel = manifest.get("channel")
+    if not isinstance(channel, str):
+        add_error(report, f"{MANIFEST_PATH}: channel must be a string")
+        return
+
+    if channel not in {"alpha", "beta", "stable"}:
+        return
+
+    for idx, component in enumerate(iter_components(manifest)):
+        required = bool(component.get("required", False))
+        if not required:
+            continue
+
+        ref = component.get("ref")
+        ref_text = ref.strip() if isinstance(ref, str) else ""
+        if not ref_text:
+            name = str(component.get("name", "<unknown>"))
+            add_error(
+                report,
+                f"{MANIFEST_PATH}: components[{idx}] '{name}' has required=true but null/empty ref on channel '{channel}'",
+            )
+
+
+def _validate_manifest_semantics(manifest: dict[str, Any], report: dict[str, Any]) -> None:
+    platform_version = manifest.get("platformVersion")
+    if not isinstance(platform_version, str):
+        add_error(report, f"{MANIFEST_PATH}: platformVersion must be a string")
+    elif not _valid_semver(platform_version):
+        add_error(report, f"{MANIFEST_PATH}: platformVersion must be valid semver (major.minor.patch[-prerelease])")
 
 
 def _validate_module_graph(modules_by_name: dict[str, dict[str, Any]], report: dict[str, Any]) -> None:
@@ -1130,15 +1266,10 @@ def _perform_spec001_validation(manifest: dict[str, Any], overrides: dict[str, s
     modules = _load_catalog(CATALOG_PATHS["module"], "modules", report)
     plugins = _load_catalog(CATALOG_PATHS["plugin"], "plugins", report)
     targets = _load_catalog(CATALOG_PATHS["target"], "targets", report)
+    _schema_validate_catalog_envelope(modules, plugins, targets, report)
 
-    combined = {
-        "schemaVersion": 1,
-        "modules": modules,
-        "plugins": plugins,
-        "targets": targets,
-    }
-    if not isinstance(combined, dict) or combined.get("schemaVersion") != 1:
-        add_error(report, "module graph envelope is invalid")
+    _validate_manifest_semantics(manifest, report)
+    _validate_required_ref_policy(manifest, report)
 
     components_by_name = _validate_component_graph(manifest, report)
     component_names = set(components_by_name.keys())
@@ -1225,7 +1356,7 @@ def cmd_validate_spec001(args: argparse.Namespace) -> int:
 def cmd_resolve_target(args: argparse.Namespace) -> int:
     manifest = load_manifest()
     overrides = load_overrides()
-    target_dir = TARGET_DIR
+    target_dir = Path(args.target_dir) if args.target_dir else TARGET_DIR
 
     report = _perform_spec001_validation(manifest, overrides, target_dir)
     if not report.get("ok"):
@@ -1324,6 +1455,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Resolve a target's module/plugin closure using Spec 001 metadata.",
     )
     p_resolve.add_argument("--target", dest="target_name", required=True, help="Target name from manifests/target-catalog.json")
+    p_resolve.add_argument("--target-dir", help="Alternate externals target directory for static scan resolution parity.")
     p_resolve.add_argument("--json-report", help="Write resolved target plan as JSON to this path.")
 
     return parser

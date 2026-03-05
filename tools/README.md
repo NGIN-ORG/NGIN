@@ -29,12 +29,15 @@ Manifest-driven helper for:
   - clones/fetches/checks out pinned refs into `workspace/externals`
   - skips components that are overridden or unpinned
 - `python tools/ngin-sync.py validate-spec001`
-  - validates component graph, module graph, target composition, plugin compatibility
+  - validates JSON schemas + component graph + module graph + target composition + plugin compatibility
+  - validates semver/version-range fields and canonical load phases
+  - enforces pinned refs for `required: true` components on non-`dev` channels
   - performs best-effort static scan of local CMake dependency references
   - fails on violations (hard gate mode)
 - `python tools/ngin-sync.py resolve-target --target <TargetName>`
   - resolves deterministic module/plugin closure for target packaging stages
   - fails if graph is invalid or target cannot be resolved
+  - accepts `--target-dir <path>` for static-scan parity with `validate-spec001`
 
 ### JSON report output
 

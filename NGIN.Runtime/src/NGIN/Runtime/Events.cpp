@@ -1,7 +1,6 @@
 #include <NGIN/Runtime/Events.hpp>
 
 #include <algorithm>
-#include <mutex>
 
 namespace NGIN::Runtime
 {
@@ -96,13 +95,32 @@ namespace NGIN::Runtime
 
     auto EventBus::EnqueueDeferred(EventRecord eventRecord) noexcept -> RuntimeResult<void>
     {
+        return EnqueueDeferredTo(eventRecord.queue, std::move(eventRecord));
+    }
+
+    auto EventBus::EnqueueDeferredTo(const EventQueue queue, EventRecord eventRecord) noexcept -> RuntimeResult<void>
+    {
         std::lock_guard<std::mutex> lock(m_mutex);
+        eventRecord.queue = queue;
         eventRecord.sequence = ++m_sequence;
-        m_deferred.push_back(std::move(eventRecord));
+        m_deferredByQueue[static_cast<NGIN::UInt8>(queue)].push_back(std::move(eventRecord));
         return RuntimeResult<void> {};
     }
 
     auto EventBus::FlushDeferred(const std::string_view channel) noexcept -> RuntimeResult<void>
+    {
+        for (const auto queue : {EventQueue::Main, EventQueue::IO, EventQueue::Worker, EventQueue::Background, EventQueue::Render})
+        {
+            auto flush = FlushDeferredFrom(queue, channel);
+            if (!flush)
+            {
+                return NGIN::Utilities::Unexpected<KernelError>(flush.ErrorUnsafe());
+            }
+        }
+        return RuntimeResult<void> {};
+    }
+
+    auto EventBus::FlushDeferredFrom(const EventQueue queue, const std::string_view channel) noexcept -> RuntimeResult<void>
     {
         while (true)
         {
@@ -110,27 +128,29 @@ namespace NGIN::Runtime
             bool found = false;
             {
                 std::lock_guard<std::mutex> lock(m_mutex);
-                if (m_deferred.empty())
+                auto itQueue = m_deferredByQueue.find(static_cast<NGIN::UInt8>(queue));
+                if (itQueue == m_deferredByQueue.end() || itQueue->second.empty())
                 {
                     break;
                 }
 
+                auto& queueEvents = itQueue->second;
                 if (channel.empty())
                 {
-                    next = std::move(m_deferred.front());
-                    m_deferred.pop_front();
+                    next = std::move(queueEvents.front());
+                    queueEvents.pop_front();
                     found = true;
                 }
                 else
                 {
                     const auto it = std::find_if(
-                        m_deferred.begin(),
-                        m_deferred.end(),
+                        queueEvents.begin(),
+                        queueEvents.end(),
                         [&](const EventRecord& rec) { return rec.channel == channel; });
-                    if (it != m_deferred.end())
+                    if (it != queueEvents.end())
                     {
                         next = std::move(*it);
-                        m_deferred.erase(it);
+                        queueEvents.erase(it);
                         found = true;
                     }
                 }

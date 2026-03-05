@@ -27,6 +27,21 @@ It provides:
 
 This spec defines **kernel behavior and contracts**, not the exact binary plugin ABI function table (that is Spec 003).
 
+## Implementation Status (v1)
+
+Implemented in `NGIN.Runtime`:
+
+- descriptor-family-based resolver checks (`family`, load-phase ordering, platform/version compatibility)
+- DI V2 services (`Singleton` / `Scoped` / `Transient`) with explicit scope lifecycle
+- reserved kernel event emission and queue-owned deferred events
+- lane-aware task runtime with per-lane barriers
+- enforced host bootstrap fields (`workingDirectory`, `configSources`, `pluginSearchPaths`, `commandLineArgs`, `environmentName`, render-lane policy)
+- API thread policies (`SingleThreadOnly`, `Serialized`)
+
+Still Spec 003-owned:
+
+- dynamic binary plugin loading implementation (seam is present, backend intentionally deferred)
+
 ## Goals
 
 - Provide a domain-agnostic runtime substrate for applications, tools, and domain engines

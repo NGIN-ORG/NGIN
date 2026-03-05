@@ -62,7 +62,16 @@
       "uniqueItems": true
     },
     "loadPhase": {
-      "type": "string"
+      "type": "string",
+      "enum": [
+        "Bootstrap",
+        "Platform",
+        "CoreServices",
+        "Data",
+        "Domain",
+        "Application",
+        "Editor"
+      ]
     },
     "dependencies": {
       "type": "object",

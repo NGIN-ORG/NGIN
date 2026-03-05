@@ -9,7 +9,7 @@
       "version": "0.1.0",
       "compatiblePlatformRange": ">=0.1.0-alpha.1 <0.2.0",
       "platforms": ["linux", "windows", "macos"],
-      "loadPhase": "Core",
+      "loadPhase": "Bootstrap",
       "dependencies": {
         "required": [],
         "optional": []
@@ -27,7 +27,7 @@
       "version": "0.1.0",
       "compatiblePlatformRange": ">=0.1.0-alpha.1 <0.2.0",
       "platforms": ["linux", "windows", "macos"],
-      "loadPhase": "Core",
+      "loadPhase": "Bootstrap",
       "dependencies": {
         "required": ["Base.Foundation"],
         "optional": []
@@ -45,7 +45,7 @@
       "version": "0.1.0",
       "compatiblePlatformRange": ">=0.1.0-alpha.1 <0.2.0",
       "platforms": ["linux", "windows", "macos"],
-      "loadPhase": "Core",
+      "loadPhase": "Bootstrap",
       "dependencies": {
         "required": ["Base.Foundation"],
         "optional": []
@@ -63,7 +63,7 @@
       "version": "0.1.0",
       "compatiblePlatformRange": ">=0.1.0-alpha.1 <0.2.0",
       "platforms": ["linux", "windows", "macos"],
-      "loadPhase": "Boot",
+      "loadPhase": "Platform",
       "dependencies": {
         "required": ["Base.Foundation"],
         "optional": ["Log.Foundation"]
@@ -81,7 +81,7 @@
       "version": "0.1.0",
       "compatiblePlatformRange": ">=0.1.0-alpha.1 <0.2.0",
       "platforms": ["linux", "windows", "macos"],
-      "loadPhase": "Boot",
+      "loadPhase": "Platform",
       "dependencies": {
         "required": ["Base.Foundation", "Platform.Window"],
         "optional": ["Log.Foundation"]
@@ -99,7 +99,7 @@
       "version": "0.1.0",
       "compatiblePlatformRange": ">=0.1.0-alpha.1 <0.2.0",
       "platforms": ["linux", "windows", "macos"],
-      "loadPhase": "Boot",
+      "loadPhase": "CoreServices",
       "dependencies": {
         "required": ["Base.Foundation", "Log.Foundation"],
         "optional": ["Reflection.Metadata", "Platform.Window", "Platform.Input"]
@@ -117,7 +117,7 @@
       "version": "0.1.0",
       "compatiblePlatformRange": ">=0.1.0-alpha.1 <0.2.0",
       "platforms": ["linux", "windows", "macos"],
-      "loadPhase": "Runtime",
+      "loadPhase": "Domain",
       "dependencies": {
         "required": ["Base.Foundation", "Runtime.Kernel"],
         "optional": ["Reflection.Metadata"]
@@ -135,7 +135,7 @@
       "version": "0.1.0",
       "compatiblePlatformRange": ">=0.1.0-alpha.1 <0.2.0",
       "platforms": ["linux", "windows", "macos"],
-      "loadPhase": "Program",
+      "loadPhase": "Application",
       "dependencies": {
         "required": ["Base.Foundation"],
         "optional": []
@@ -153,7 +153,7 @@
       "version": "0.1.0",
       "compatiblePlatformRange": ">=0.1.0-alpha.1 <0.2.0",
       "platforms": ["linux", "windows", "macos"],
-      "loadPhase": "Tools",
+      "loadPhase": "Application",
       "dependencies": {
         "required": ["Base.Foundation"],
         "optional": ["Reflection.Metadata"]

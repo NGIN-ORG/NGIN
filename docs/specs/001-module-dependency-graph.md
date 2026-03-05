@@ -220,10 +220,14 @@ Rule mapping note:
 The NGIN workspace tooling/CI now enforces:
 
 1. Component manifest dependency consistency
-2. Runtime module graph acyclicity
-3. Forbidden layer dependencies
-4. Target composition validity (editor/runtime/program)
-5. Plugin bundle manifest compatibility before packaging
+2. JSON Schema validation for module/plugin/target catalogs (draft 2020-12)
+3. Canonical runtime load phases (`Bootstrap`, `Platform`, `CoreServices`, `Data`, `Domain`, `Application`, `Editor`)
+4. Semver/version-range semantic checks across manifest catalogs
+5. Runtime module graph acyclicity
+6. Forbidden layer dependencies
+7. Target composition validity (editor/runtime/program)
+8. Plugin bundle manifest compatibility before packaging
+9. Reproducibility policy: on non-`dev` channels, every `required: true` component must have a non-null `ref`
 
 Enforcement surface:
 

@@ -103,6 +103,7 @@ CI parity check locally:
 - CLI gates:
   - `python3 tools/ngin-sync.py validate-spec001`
   - `python3 tools/ngin-sync.py resolve-target --target <TargetName>`
+  - optional parity flag: `--target-dir <externalsPath>` on `resolve-target`
 - CMake helper targets:
   - `ngin.spec001.validate`
   - `ngin.spec001.resolve.runtime`

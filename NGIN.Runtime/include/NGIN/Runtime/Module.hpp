@@ -23,6 +23,7 @@ namespace NGIN::Runtime
     public:
         ModuleContext(
             std::string moduleName,
+            ServiceScopeId moduleScopeId,
             IServiceRegistry& services,
             IEventBus& events,
             ITaskRuntime& tasks,
@@ -30,6 +31,7 @@ namespace NGIN::Runtime
             NGIN::Log::LoggerRegistry& loggerRegistry,
             std::function<bool()> stopRequestedFn)
             : m_moduleName(std::move(moduleName))
+            , m_moduleScopeId(moduleScopeId)
             , m_services(services)
             , m_events(events)
             , m_tasks(tasks)
@@ -40,6 +42,7 @@ namespace NGIN::Runtime
         }
 
         [[nodiscard]] auto ModuleName() const noexcept -> std::string_view { return m_moduleName; }
+        [[nodiscard]] auto ModuleScope() const noexcept -> ServiceScopeId { return m_moduleScopeId; }
         [[nodiscard]] auto Services() noexcept -> IServiceRegistry& { return m_services; }
         [[nodiscard]] auto Events() noexcept -> IEventBus& { return m_events; }
         [[nodiscard]] auto Tasks() noexcept -> ITaskRuntime& { return m_tasks; }
@@ -55,14 +58,44 @@ namespace NGIN::Runtime
             return m_loggerRegistry.GetOrCreate(std::move(loggerName), NGIN::Log::LogLevel::Info);
         }
 
+        auto RegisterSingleton(
+            std::string key,
+            NGIN::Utilities::Any<> service,
+            ServiceMetadata metadata = {}) noexcept -> RuntimeResult<void>
+        {
+            return m_services.RegisterInstance(
+                std::move(key),
+                std::move(service),
+                ServiceRegistrationOptions {
+                    .lifetime = ServiceLifetime::Singleton,
+                    .ownerScope = m_moduleScopeId,
+                    .metadata = std::move(metadata)});
+        }
+
+        auto RegisterFactory(
+            std::string key,
+            ServiceFactory factory,
+            ServiceLifetime lifetime,
+            ServiceMetadata metadata = {}) noexcept -> RuntimeResult<void>
+        {
+            return m_services.RegisterFactory(
+                std::move(key),
+                std::move(factory),
+                ServiceRegistrationOptions {
+                    .lifetime = lifetime,
+                    .ownerScope = m_moduleScopeId,
+                    .metadata = std::move(metadata)});
+        }
+
     private:
-        std::string             m_moduleName {};
-        IServiceRegistry&       m_services;
-        IEventBus&              m_events;
-        ITaskRuntime&           m_tasks;
-        IConfigStore&           m_config;
+        std::string                m_moduleName {};
+        ServiceScopeId             m_moduleScopeId {ServiceScopeId::Global()};
+        IServiceRegistry&          m_services;
+        IEventBus&                 m_events;
+        ITaskRuntime&              m_tasks;
+        IConfigStore&              m_config;
         NGIN::Log::LoggerRegistry& m_loggerRegistry;
-        std::function<bool()>   m_stopRequestedFn;
+        std::function<bool()>      m_stopRequestedFn;
     };
 
     /// @brief Runtime module lifecycle interface.
@@ -78,4 +111,3 @@ namespace NGIN::Runtime
         virtual auto OnShutdown(ModuleContext&) noexcept -> RuntimeResult<void> { return RuntimeResult<void> {}; }
     };
 }
-

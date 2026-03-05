@@ -23,7 +23,7 @@
     {
       "name": "NGIN.Log",
       "repoUrl": "https://github.com/NGIN-ORG/NGIN.Log.git",
-      "ref": null,
+      "ref": "272625925130cf3cbf9e57008deb7bcdd98c802d",
       "version": "0.1",
       "packageName": "NGINLog",
       "role": "foundation",
@@ -36,7 +36,7 @@
     {
       "name": "NGIN.Runtime",
       "repoUrl": "https://github.com/NGIN-ORG/NGIN.Runtime.git",
-      "ref": null,
+      "ref": "272625925130cf3cbf9e57008deb7bcdd98c802d",
       "version": "0.1",
       "packageName": "NGINRuntime",
       "role": "runtime",

@@ -17,7 +17,6 @@
 #include <NGIN/Runtime/Types.hpp>
 
 #include <string>
-#include <string_view>
 #include <vector>
 
 namespace NGIN::Runtime
@@ -33,9 +32,10 @@ namespace NGIN::Runtime
     /// @brief Startup report summary.
     struct StartupReport
     {
-        std::vector<std::string> resolvedModules {};
-        std::vector<std::string> skippedOptionalModules {};
+        std::vector<std::string>  resolvedModules {};
+        std::vector<std::string>  skippedOptionalModules {};
         std::vector<StartupWarning> warnings {};
+        std::vector<KernelError>  failures {};
     };
 
     /// @brief Runtime module state snapshot.
@@ -45,6 +45,9 @@ namespace NGIN::Runtime
         ModuleState      state {ModuleState::Discovered};
         bool             optional {false};
         std::string      lastError {};
+        bool             registered {false};
+        bool             initialized {false};
+        bool             started {false};
     };
 
     /// @brief Process-level runtime kernel interface.
@@ -72,4 +75,3 @@ namespace NGIN::Runtime
     /// @brief Construct a new runtime kernel instance.
     NGIN_RUNTIME_API auto CreateKernel(const KernelHostConfig& config) noexcept -> RuntimeResult<NGIN::Memory::Shared<IKernel>>;
 }
-

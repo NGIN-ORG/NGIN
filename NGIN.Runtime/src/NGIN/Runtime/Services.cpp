@@ -4,11 +4,86 @@
 
 namespace NGIN::Runtime
 {
+    ServiceRegistry::ServiceRegistry()
+    {
+        m_scopes.emplace(ServiceScopeId::Global().value, ServiceScopeInfo {
+            .id = ServiceScopeId::Global(),
+            .kind = ServiceScopeKind::Kernel,
+            .owner = "Kernel"});
+    }
+
+    auto ServiceRegistry::BeginScope(const ServiceScopeKind kind, std::string owner) noexcept -> RuntimeResult<ServiceScopeId>
+    {
+        ServiceScopeInfo info {};
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            const ServiceScopeId id {m_nextScopeId++};
+            info = ServiceScopeInfo {
+                .id = id,
+                .kind = kind,
+                .owner = std::move(owner),
+            };
+            m_scopes.emplace(id.value, info);
+        }
+        return info.id;
+    }
+
+    auto ServiceRegistry::EndScope(const ServiceScopeId scopeId) noexcept -> RuntimeResult<void>
+    {
+        if (scopeId.IsGlobal())
+        {
+            return NGIN::Utilities::Unexpected<KernelError>(
+                MakeKernelError(KernelErrorCode::InvalidArgument, "Services", {}, "global scope cannot be ended"));
+        }
+
+        std::lock_guard<std::mutex> lock(m_mutex);
+        if (!m_scopes.erase(scopeId.value))
+        {
+            return NGIN::Utilities::Unexpected<KernelError>(
+                MakeKernelError(KernelErrorCode::NotFound, "Services", {}, "scope not found"));
+        }
+
+        for (auto entryIt = m_entries.begin(); entryIt != m_entries.end();)
+        {
+            entryIt->second.scopedCache.erase(scopeId.value);
+            if (entryIt->second.options.ownerScope == scopeId)
+            {
+                entryIt = m_entries.erase(entryIt);
+            }
+            else
+            {
+                ++entryIt;
+            }
+        }
+
+        return RuntimeResult<void> {};
+    }
+
+    auto ServiceRegistry::ValidateOptions(const ServiceRegistrationOptions& options) const noexcept -> RuntimeResult<void>
+    {
+        if (options.lifetime != ServiceLifetime::Singleton && options.ownerScope.IsGlobal())
+        {
+            return NGIN::Utilities::Unexpected<KernelError>(
+                MakeKernelError(
+                    KernelErrorCode::InvalidArgument,
+                    "Services",
+                    {},
+                    "scoped/transient providers must declare non-global owner scope"));
+        }
+
+        if (!options.ownerScope.IsGlobal() && !m_scopes.contains(options.ownerScope.value))
+        {
+            return NGIN::Utilities::Unexpected<KernelError>(
+                MakeKernelError(KernelErrorCode::NotFound, "Services", {}, "owner scope not found"));
+        }
+
+        return RuntimeResult<void> {};
+    }
+
     auto ServiceRegistry::RegisterInstance(
         std::string key,
         NGIN::Utilities::Any<> service,
-        ServiceScope scope,
-        ServiceMetadata metadata) noexcept -> RuntimeResult<void>
+        ServiceRegistrationOptions options) noexcept -> RuntimeResult<void>
     {
         if (key.empty())
         {
@@ -17,6 +92,21 @@ namespace NGIN::Runtime
         }
 
         std::lock_guard<std::mutex> lock(m_mutex);
+        if (auto valid = ValidateOptions(options); !valid)
+        {
+            return NGIN::Utilities::Unexpected<KernelError>(valid.ErrorUnsafe());
+        }
+
+        if (options.lifetime != ServiceLifetime::Singleton)
+        {
+            return NGIN::Utilities::Unexpected<KernelError>(
+                MakeKernelError(
+                    KernelErrorCode::InvalidArgument,
+                    "Services",
+                    key,
+                    "RegisterInstance currently supports singleton lifetime only"));
+        }
+
         if (m_entries.contains(key))
         {
             return NGIN::Utilities::Unexpected<KernelError>(
@@ -24,9 +114,8 @@ namespace NGIN::Runtime
         }
 
         Entry entry {};
-        entry.instance.emplace(std::move(service));
-        entry.scope = std::move(scope);
-        entry.metadata = std::move(metadata);
+        entry.singletonInstance.emplace(std::move(service));
+        entry.options = std::move(options);
         m_entries.emplace(std::move(key), std::move(entry));
         return RuntimeResult<void> {};
     }
@@ -34,8 +123,7 @@ namespace NGIN::Runtime
     auto ServiceRegistry::RegisterFactory(
         std::string key,
         ServiceFactory factory,
-        ServiceScope scope,
-        ServiceMetadata metadata) noexcept -> RuntimeResult<void>
+        ServiceRegistrationOptions options) noexcept -> RuntimeResult<void>
     {
         if (key.empty())
         {
@@ -49,6 +137,11 @@ namespace NGIN::Runtime
         }
 
         std::lock_guard<std::mutex> lock(m_mutex);
+        if (auto valid = ValidateOptions(options); !valid)
+        {
+            return NGIN::Utilities::Unexpected<KernelError>(valid.ErrorUnsafe());
+        }
+
         if (m_entries.contains(key))
         {
             return NGIN::Utilities::Unexpected<KernelError>(
@@ -57,66 +150,112 @@ namespace NGIN::Runtime
 
         Entry entry {};
         entry.factory.emplace(std::move(factory));
-        entry.scope = std::move(scope);
-        entry.metadata = std::move(metadata);
+        entry.options = std::move(options);
         m_entries.emplace(std::move(key), std::move(entry));
         return RuntimeResult<void> {};
     }
 
-    auto ServiceRegistry::ResolveOptional(const std::string_view key) noexcept
+    auto ServiceRegistry::ResolveOptional(const std::string_view key, const ServiceScopeId resolveScope) noexcept
         -> RuntimeResult<std::optional<NGIN::Utilities::Any<>>>
     {
-        std::optional<NGIN::Utilities::Any<>> instance {};
-        std::optional<ServiceFactory> factory {};
+        ServiceFactory factory {};
+        ServiceLifetime lifetime = ServiceLifetime::Singleton;
+        ServiceScopeId ownerScope = ServiceScopeId::Global();
 
         {
             std::lock_guard<std::mutex> lock(m_mutex);
             const auto it = m_entries.find(std::string(key));
             if (it == m_entries.end())
             {
-                return instance;
+                return std::optional<NGIN::Utilities::Any<>> {};
             }
-            if (it->second.instance.has_value())
+
+            lifetime = it->second.options.lifetime;
+            ownerScope = it->second.options.ownerScope;
+
+            if (lifetime == ServiceLifetime::Singleton && it->second.singletonInstance.has_value())
             {
-                return it->second.instance;
+                return it->second.singletonInstance;
             }
-            if (it->second.factory.has_value())
+
+            if (lifetime == ServiceLifetime::Scoped)
             {
-                factory = it->second.factory;
+                const ServiceScopeId activeScope = resolveScope.IsGlobal() ? ownerScope : resolveScope;
+                if (activeScope.IsGlobal())
+                {
+                    return NGIN::Utilities::Unexpected<KernelError>(
+                        MakeKernelError(KernelErrorCode::InvalidArgument, "Services", std::string(key), "scoped resolve requires non-global scope"));
+                }
+                if (!m_scopes.contains(activeScope.value))
+                {
+                    return NGIN::Utilities::Unexpected<KernelError>(
+                        MakeKernelError(KernelErrorCode::NotFound, "Services", std::string(key), "resolve scope not found"));
+                }
+                const auto cacheIt = it->second.scopedCache.find(activeScope.value);
+                if (cacheIt != it->second.scopedCache.end())
+                {
+                    return std::optional<NGIN::Utilities::Any<>> {cacheIt->second};
+                }
             }
+
+            if (!it->second.factory.has_value())
+            {
+                return std::optional<NGIN::Utilities::Any<>> {};
+            }
+            factory = *it->second.factory;
         }
 
-        if (!factory.has_value())
-        {
-            return instance;
-        }
-
-        auto created = (*factory)();
+        auto created = factory();
         if (!created)
         {
             return NGIN::Utilities::Unexpected<KernelError>(created.ErrorUnsafe());
         }
 
+        std::lock_guard<std::mutex> lock(m_mutex);
+        auto it = m_entries.find(std::string(key));
+        if (it == m_entries.end())
         {
-            std::lock_guard<std::mutex> lock(m_mutex);
-            auto it = m_entries.find(std::string(key));
-            if (it != m_entries.end() && !it->second.instance.has_value())
-            {
-                it->second.instance.emplace(created.ValueUnsafe());
-            }
-            if (it != m_entries.end() && it->second.instance.has_value())
-            {
-                return it->second.instance;
-            }
+            return std::optional<NGIN::Utilities::Any<>> {created.ValueUnsafe()};
         }
 
-        instance.emplace(created.ValueUnsafe());
-        return instance;
+        switch (lifetime)
+        {
+            case ServiceLifetime::Singleton:
+                if (!it->second.singletonInstance.has_value())
+                {
+                    it->second.singletonInstance.emplace(created.ValueUnsafe());
+                }
+                return it->second.singletonInstance;
+            case ServiceLifetime::Scoped:
+            {
+                const ServiceScopeId activeScope = resolveScope.IsGlobal() ? ownerScope : resolveScope;
+                if (activeScope.IsGlobal())
+                {
+                    return NGIN::Utilities::Unexpected<KernelError>(
+                        MakeKernelError(KernelErrorCode::InvalidArgument, "Services", std::string(key), "scoped resolve requires non-global scope"));
+                }
+                if (!m_scopes.contains(activeScope.value))
+                {
+                    return NGIN::Utilities::Unexpected<KernelError>(
+                        MakeKernelError(KernelErrorCode::NotFound, "Services", std::string(key), "resolve scope not found"));
+                }
+                auto cacheIt = it->second.scopedCache.find(activeScope.value);
+                if (cacheIt == it->second.scopedCache.end())
+                {
+                    cacheIt = it->second.scopedCache.emplace(activeScope.value, created.ValueUnsafe()).first;
+                }
+                return std::optional<NGIN::Utilities::Any<>> {cacheIt->second};
+            }
+            case ServiceLifetime::Transient:
+                return std::optional<NGIN::Utilities::Any<>> {created.ValueUnsafe()};
+        }
+
+        return std::optional<NGIN::Utilities::Any<>> {created.ValueUnsafe()};
     }
 
-    auto ServiceRegistry::ResolveRequired(const std::string_view key) noexcept -> RuntimeResult<NGIN::Utilities::Any<>>
+    auto ServiceRegistry::ResolveRequired(const std::string_view key, const ServiceScopeId resolveScope) noexcept -> RuntimeResult<NGIN::Utilities::Any<>>
     {
-        auto optionalValue = ResolveOptional(key);
+        auto optionalValue = ResolveOptional(key, resolveScope);
         if (!optionalValue)
         {
             return NGIN::Utilities::Unexpected<KernelError>(optionalValue.ErrorUnsafe());
@@ -144,14 +283,16 @@ namespace NGIN::Runtime
         return keys;
     }
 
-    void ServiceRegistry::ClearScope(const ServiceScope& scope) noexcept
+    auto ServiceRegistry::GetScopeInfo(const ServiceScopeId scopeId) const noexcept -> RuntimeResult<ServiceScopeInfo>
     {
         std::lock_guard<std::mutex> lock(m_mutex);
-        std::erase_if(
-            m_entries,
-            [&](const auto& pair) {
-                return pair.second.scope.lifetime == scope.lifetime && pair.second.scope.owner == scope.owner;
-            });
+        const auto it = m_scopes.find(scopeId.value);
+        if (it == m_scopes.end())
+        {
+            return NGIN::Utilities::Unexpected<KernelError>(
+                MakeKernelError(KernelErrorCode::NotFound, "Services", {}, "scope not found"));
+        }
+        return it->second;
     }
 
     auto CreateServiceRegistry() noexcept -> NGIN::Memory::Shared<IServiceRegistry>

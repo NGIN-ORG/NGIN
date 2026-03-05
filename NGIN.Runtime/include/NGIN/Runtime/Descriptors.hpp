@@ -11,6 +11,18 @@
 
 namespace NGIN::Runtime
 {
+    /// @brief Descriptor module family used for layer enforcement.
+    enum class ModuleFamily : NGIN::UInt8
+    {
+        Base,
+        Reflection,
+        RuntimeSvc,
+        Platform,
+        Editor,
+        Domain,
+        App
+    };
+
     /// @brief Descriptor module type.
     enum class ModuleType : NGIN::UInt8
     {
@@ -33,6 +45,7 @@ namespace NGIN::Runtime
     struct ModuleDescriptor
     {
         std::string                       name {};
+        ModuleFamily                      family {ModuleFamily::RuntimeSvc};
         ModuleType                        type {ModuleType::Runtime};
         SemanticVersion                   version {};
         VersionRange                      compatiblePlatformRange {};
@@ -48,6 +61,21 @@ namespace NGIN::Runtime
         NGIN::Int32                       priority {0};
     };
 
+    [[nodiscard]] constexpr auto ToString(const ModuleFamily value) noexcept -> std::string_view
+    {
+        switch (value)
+        {
+            case ModuleFamily::Base: return "Base";
+            case ModuleFamily::Reflection: return "Reflection";
+            case ModuleFamily::RuntimeSvc: return "RuntimeSvc";
+            case ModuleFamily::Platform: return "Platform";
+            case ModuleFamily::Editor: return "Editor";
+            case ModuleFamily::Domain: return "Domain";
+            case ModuleFamily::App: return "App";
+        }
+        return "Unknown";
+    }
+
     [[nodiscard]] constexpr auto ToString(const ModuleType value) noexcept -> std::string_view
     {
         switch (value)
@@ -61,4 +89,3 @@ namespace NGIN::Runtime
         return "Unknown";
     }
 }
-

@@ -4,14 +4,46 @@
 #include <NGIN/Time/MonotonicClock.hpp>
 #include <NGIN/Time/TimePoint.hpp>
 
+#include <algorithm>
+
 namespace NGIN::Runtime
 {
-    TaskRuntime::TaskRuntime(const NGIN::UInt32 threadCount)
-        : m_scheduler(threadCount == 0 ? static_cast<std::size_t>(NGIN::Execution::ThisThread::HardwareConcurrency()) : static_cast<std::size_t>(threadCount))
+    namespace
     {
+        [[nodiscard]] constexpr auto LaneIndex(const TaskLane lane) noexcept -> std::size_t
+        {
+            return static_cast<std::size_t>(lane);
+        }
+    }
+
+    TaskRuntime::TaskRuntime(const NGIN::UInt32 workerThreads, const bool enableRenderLane)
+    {
+        const auto hw = static_cast<std::size_t>(NGIN::Execution::ThisThread::HardwareConcurrency());
+        const auto workerCount = workerThreads == 0 ? (hw == 0 ? 1u : static_cast<NGIN::UInt32>(hw)) : workerThreads;
+
+        m_schedulers[LaneIndex(TaskLane::Main)] = std::make_unique<NGIN::Execution::ThreadPoolScheduler>(1);
+        m_schedulers[LaneIndex(TaskLane::Worker)] = std::make_unique<NGIN::Execution::ThreadPoolScheduler>(static_cast<std::size_t>(workerCount));
+        m_schedulers[LaneIndex(TaskLane::IO)] = std::make_unique<NGIN::Execution::ThreadPoolScheduler>(
+            static_cast<std::size_t>(std::max<NGIN::UInt32>(1, workerCount / 2)));
+        m_schedulers[LaneIndex(TaskLane::Background)] = std::make_unique<NGIN::Execution::ThreadPoolScheduler>(1);
+
+        if (enableRenderLane)
+        {
+            m_schedulers[LaneIndex(TaskLane::Render)] = std::make_unique<NGIN::Execution::ThreadPoolScheduler>(1);
+        }
     }
 
     TaskRuntime::~TaskRuntime() = default;
+
+    auto TaskRuntime::SchedulerForLane(const TaskLane lane) noexcept -> NGIN::Execution::ThreadPoolScheduler*
+    {
+        return m_schedulers[LaneIndex(lane)].get();
+    }
+
+    auto TaskRuntime::SchedulerForLane(const TaskLane lane) const noexcept -> const NGIN::Execution::ThreadPoolScheduler*
+    {
+        return m_schedulers[LaneIndex(lane)].get();
+    }
 
     void TaskRuntime::OnTaskBegin() noexcept
     {
@@ -27,7 +59,12 @@ namespace NGIN::Runtime
         }
     }
 
-    auto TaskRuntime::Submit(const TaskLane, TaskCallback callback) noexcept -> RuntimeResult<TaskId>
+    auto TaskRuntime::IsLaneEnabled(const TaskLane lane) const noexcept -> bool
+    {
+        return SchedulerForLane(lane) != nullptr;
+    }
+
+    auto TaskRuntime::Submit(const TaskLane lane, TaskCallback callback) noexcept -> RuntimeResult<TaskId>
     {
         if (!callback)
         {
@@ -35,12 +72,19 @@ namespace NGIN::Runtime
                 MakeKernelError(KernelErrorCode::InvalidArgument, "Tasks", {}, "task callback cannot be empty"));
         }
 
+        auto* scheduler = SchedulerForLane(lane);
+        if (!scheduler)
+        {
+            return NGIN::Utilities::Unexpected<KernelError>(
+                MakeKernelError(KernelErrorCode::InvalidArgument, "Tasks", {}, "task lane is disabled"));
+        }
+
         const TaskId id = m_nextId.fetch_add(1, std::memory_order_relaxed);
         OnTaskBegin();
 
         try
         {
-            m_scheduler.Execute(NGIN::Execution::WorkItem([this, callback = std::move(callback)]() mutable {
+            scheduler->Execute(NGIN::Execution::WorkItem([this, callback = std::move(callback)]() mutable {
                 callback();
                 OnTaskEnd();
             }));
@@ -55,7 +99,7 @@ namespace NGIN::Runtime
         return id;
     }
 
-    auto TaskRuntime::ScheduleAfter(const TaskLane,
+    auto TaskRuntime::ScheduleAfter(const TaskLane lane,
                                     const std::chrono::milliseconds delay,
                                     TaskCallback callback) noexcept -> RuntimeResult<TaskId>
     {
@@ -63,6 +107,13 @@ namespace NGIN::Runtime
         {
             return NGIN::Utilities::Unexpected<KernelError>(
                 MakeKernelError(KernelErrorCode::InvalidArgument, "Tasks", {}, "delayed callback cannot be empty"));
+        }
+
+        auto* scheduler = SchedulerForLane(lane);
+        if (!scheduler)
+        {
+            return NGIN::Utilities::Unexpected<KernelError>(
+                MakeKernelError(KernelErrorCode::InvalidArgument, "Tasks", {}, "task lane is disabled"));
         }
 
         const TaskId id = m_nextId.fetch_add(1, std::memory_order_relaxed);
@@ -74,7 +125,7 @@ namespace NGIN::Runtime
 
         try
         {
-            m_scheduler.ExecuteAt(
+            scheduler->ExecuteAt(
                 NGIN::Execution::WorkItem([this, callback = std::move(callback)]() mutable {
                     callback();
                     OnTaskEnd();
@@ -91,10 +142,27 @@ namespace NGIN::Runtime
         return id;
     }
 
-    auto TaskRuntime::Barrier() noexcept -> RuntimeResult<void>
+    auto TaskRuntime::Barrier(const TaskLane lane) noexcept -> RuntimeResult<void>
     {
-        while (m_scheduler.RunOne())
+        auto* scheduler = SchedulerForLane(lane);
+        if (!scheduler)
         {
+            return NGIN::Utilities::Unexpected<KernelError>(
+                MakeKernelError(KernelErrorCode::InvalidArgument, "Tasks", {}, "task lane is disabled"));
+        }
+
+        scheduler->RunUntilIdle();
+        return RuntimeResult<void> {};
+    }
+
+    auto TaskRuntime::BarrierAll() noexcept -> RuntimeResult<void>
+    {
+        for (const auto& scheduler : m_schedulers)
+        {
+            if (scheduler)
+            {
+                scheduler->RunUntilIdle();
+            }
         }
         return RuntimeResult<void> {};
     }
@@ -115,9 +183,8 @@ namespace NGIN::Runtime
         return success;
     }
 
-    auto CreateTaskRuntime(const NGIN::UInt32 threadCount) noexcept -> NGIN::Memory::Shared<ITaskRuntime>
+    auto CreateTaskRuntime(const NGIN::UInt32 workerThreads, const bool enableRenderLane) noexcept -> NGIN::Memory::Shared<ITaskRuntime>
     {
-        return NGIN::Memory::MakeSharedAs<ITaskRuntime, TaskRuntime>(threadCount);
+        return NGIN::Memory::MakeSharedAs<ITaskRuntime, TaskRuntime>(workerThreads, enableRenderLane);
     }
 }
-

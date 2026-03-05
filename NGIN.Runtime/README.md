@@ -33,3 +33,4 @@ ctest --test-dir build --output-on-failure
 - Depends on `NGIN.Base` and `NGIN.Log`.
 - `NGIN.Reflection` integration path is optional.
 - Dynamic binary plugin loading is intentionally deferred to Spec 003.
+- Breaking-change migration notes are in `docs/Migration.md`.

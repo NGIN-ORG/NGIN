@@ -6,6 +6,7 @@
 #include <NGIN/Primitives.hpp>
 #include <NGIN/Utilities/Expected.hpp>
 
+#include <memory>
 #include <string>
 #include <string_view>
 
@@ -34,17 +35,22 @@ namespace NGIN::Runtime
         TaskSubmissionFailure,
         ConfigFailure,
         DynamicPluginUnsupported,
+        ThreadPolicyViolation,
+        SchemaValidationFailure,
         InternalError
     };
+
+    struct KernelError;
 
     /// @brief Structured runtime error payload.
     struct KernelError
     {
-        KernelErrorCode code {KernelErrorCode::None};
-        std::string     subsystem {};
-        std::string     module {};
-        std::string     message {};
-        std::string     dependencyPath {};
+        KernelErrorCode                     code {KernelErrorCode::None};
+        std::string                         subsystem {};
+        std::string                         module {};
+        std::string                         message {};
+        std::string                         dependencyPath {};
+        std::shared_ptr<const KernelError>  cause {};
     };
 
     template<typename T>
@@ -55,14 +61,16 @@ namespace NGIN::Runtime
         std::string subsystem,
         std::string module,
         std::string message,
-        std::string dependencyPath = {}) noexcept -> KernelError
+        std::string dependencyPath = {},
+        std::shared_ptr<const KernelError> cause = {}) noexcept -> KernelError
     {
         return KernelError {
             .code = code,
             .subsystem = std::move(subsystem),
             .module = std::move(module),
             .message = std::move(message),
-            .dependencyPath = std::move(dependencyPath)};
+            .dependencyPath = std::move(dependencyPath),
+            .cause = std::move(cause)};
     }
 
     [[nodiscard]] constexpr auto ToString(const KernelErrorCode value) noexcept -> std::string_view
@@ -89,9 +97,10 @@ namespace NGIN::Runtime
             case KernelErrorCode::TaskSubmissionFailure: return "TaskSubmissionFailure";
             case KernelErrorCode::ConfigFailure: return "ConfigFailure";
             case KernelErrorCode::DynamicPluginUnsupported: return "DynamicPluginUnsupported";
+            case KernelErrorCode::ThreadPolicyViolation: return "ThreadPolicyViolation";
+            case KernelErrorCode::SchemaValidationFailure: return "SchemaValidationFailure";
             case KernelErrorCode::InternalError: return "InternalError";
         }
         return "Unknown";
     }
 }
-
