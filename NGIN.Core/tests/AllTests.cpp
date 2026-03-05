@@ -76,6 +76,27 @@ namespace
         });
     }
 
+    struct GlobalStaticModuleGuard
+    {
+        GlobalStaticModuleGuard()
+        {
+            NGIN::Core::ClearStaticModules();
+        }
+
+        ~GlobalStaticModuleGuard()
+        {
+            NGIN::Core::ClearStaticModules();
+        }
+    };
+
+    void WriteTextFile(const std::filesystem::path& path, const std::string& text)
+    {
+        std::ofstream output(path);
+        REQUIRE(output.good());
+        output << text;
+        output.close();
+    }
+
     class HookModule final : public NGIN::Core::IModule
     {
     public:
@@ -820,4 +841,314 @@ TEST_CASE("ThreadPoliciesAreEnforced", "[runtime][threading]")
         REQUIRE(result.HasValue());
         REQUIRE(kernel->GetState() == NGIN::Core::KernelState::Shutdown);
     }
+}
+
+TEST_CASE("ApplicationBuilderBuildsHostFromCode", "[builder][host]")
+{
+    GlobalStaticModuleGuard guard;
+
+    NGIN::Core::ModuleDescriptor descriptor = MakeDescriptor("App.Builder");
+    descriptor.family = NGIN::Core::ModuleFamily::App;
+    descriptor.loadPhase = NGIN::Core::LoadPhase::Application;
+    REQUIRE(NGIN::Core::RegisterStaticModule(
+                NGIN::Core::StaticModuleRegistration {
+                    .descriptor = descriptor,
+                    .factory = []() -> NGIN::Core::CoreResult<NGIN::Memory::Shared<NGIN::Core::IModule>>
+                    {
+                        return NGIN::Memory::MakeSharedAs<NGIN::Core::IModule, HookModule>("Builder", nullptr, nullptr);
+                    }})
+                .HasValue());
+
+    auto builder = NGIN::Core::CreateApplicationBuilder(0, nullptr);
+    builder->SetApplicationName("Builder.Tests");
+    builder->SetDefaultTarget("Builder.Target");
+    builder->UseProfile(NGIN::Core::HostProfile::ConsoleApp);
+    builder->Services()
+        .AddDefaults()
+        .AddConfiguration()
+        .AddSingleton("App.Message", NGIN::Utilities::Any<>(std::string("hello-builder")));
+    builder->Modules().Enable("App.Builder");
+
+    auto app = builder->Build();
+    REQUIRE(app.HasValue());
+    REQUIRE(app.ValueUnsafe()->GetProfile() == NGIN::Core::HostProfile::ConsoleApp);
+    REQUIRE(app.ValueUnsafe()->GetTargetName() == "Builder.Target");
+
+    auto report = app.ValueUnsafe()->GetStartupReport();
+    REQUIRE(report.targetName == "Builder.Target");
+    REQUIRE(report.hostName == "Builder.Tests");
+    REQUIRE(report.hostType == "ConsoleApp");
+
+    REQUIRE(app.ValueUnsafe()->Start().HasValue());
+
+    auto services = app.ValueUnsafe()->GetServices();
+    REQUIRE(static_cast<bool>(services));
+
+    auto resolved = services->ResolveRequired("App.Message");
+    REQUIRE(resolved.HasValue());
+    REQUIRE(resolved.ValueUnsafe().template TryCast<std::string>() != nullptr);
+    REQUIRE(*resolved.ValueUnsafe().template TryCast<std::string>() == "hello-builder");
+
+    auto config = app.ValueUnsafe()->GetConfig();
+    REQUIRE(static_cast<bool>(config));
+    REQUIRE(config->GetRaw("Kernel.TargetName").HasValue());
+    REQUIRE(config->GetRaw("Kernel.TargetName").ValueUnsafe() == "Builder.Target");
+
+    auto secondBuild = builder->Build();
+    REQUIRE_FALSE(secondBuild.HasValue());
+    REQUIRE(secondBuild.ErrorUnsafe().code == NGIN::Core::KernelErrorCode::InvalidState);
+
+    REQUIRE(app.ValueUnsafe()->Shutdown().HasValue());
+}
+
+TEST_CASE("ApplicationBuilderLoadsProjectManifestAndConfig", "[builder][manifest]")
+{
+    GlobalStaticModuleGuard guard;
+
+    NGIN::Core::ModuleDescriptor descriptor = MakeDescriptor("App.Manifest");
+    descriptor.family = NGIN::Core::ModuleFamily::App;
+    descriptor.loadPhase = NGIN::Core::LoadPhase::Application;
+    REQUIRE(NGIN::Core::RegisterStaticModule(
+                NGIN::Core::StaticModuleRegistration {
+                    .descriptor = descriptor,
+                    .factory = []() -> NGIN::Core::CoreResult<NGIN::Memory::Shared<NGIN::Core::IModule>>
+                    {
+                        return NGIN::Memory::MakeSharedAs<NGIN::Core::IModule, HookModule>("Manifest", nullptr, nullptr);
+                    }})
+                .HasValue());
+
+    NGIN::Core::ModuleDescriptor disabledDescriptor = MakeDescriptor("App.Disabled");
+    disabledDescriptor.family = NGIN::Core::ModuleFamily::App;
+    disabledDescriptor.loadPhase = NGIN::Core::LoadPhase::Application;
+    REQUIRE(NGIN::Core::RegisterStaticModule(
+                NGIN::Core::StaticModuleRegistration {
+                    .descriptor = disabledDescriptor,
+                    .factory = []() -> NGIN::Core::CoreResult<NGIN::Memory::Shared<NGIN::Core::IModule>>
+                    {
+                        return NGIN::Memory::MakeSharedAs<NGIN::Core::IModule, HookModule>("Disabled", nullptr, nullptr);
+                    }})
+                .HasValue());
+
+    const auto uniqueId = std::to_string(
+        static_cast<long long>(std::chrono::steady_clock::now().time_since_epoch().count()));
+    const auto tempDir = std::filesystem::temp_directory_path() / ("ngin-core-builder-manifest-" + uniqueId);
+    std::filesystem::create_directories(tempDir);
+
+    WriteTextFile(tempDir / "app.cfg", "App.Mode=manifest\n");
+    WriteTextFile(
+        tempDir / "ngin.project.json",
+        R"({
+  "schemaVersion": 1,
+  "name": "Manifest.Tests",
+  "defaultTarget": "Samples.Manifest",
+  "targets": [
+    {
+      "name": "Samples.Manifest",
+      "type": "Program",
+      "profile": "ConsoleApp",
+      "platform": "linux-x64",
+      "enableReflection": false,
+      "packages": [
+        {
+          "name": "NGIN.ECS",
+          "versionRange": ">=0.1.0 <1.0.0"
+        }
+      ],
+      "modules": {
+        "enable": [
+          "App.Manifest"
+        ],
+        "disable": [
+          "App.Disabled"
+        ]
+      },
+      "plugins": {
+        "enable": [
+          "Plugin.Sample"
+        ],
+        "disable": []
+      },
+      "environmentName": "Dev",
+      "configSources": [
+        "app.cfg"
+      ],
+      "workingDirectory": "."
+    }
+  ]
+})");
+
+    auto builder = NGIN::Core::CreateApplicationBuilder(0, nullptr);
+    builder->UseProjectFile((tempDir / "ngin.project.json").string());
+    builder->Services().AddConfiguration();
+
+    auto app = builder->Build();
+    REQUIRE(app.HasValue());
+    REQUIRE(app.ValueUnsafe()->Start().HasValue());
+
+    auto report = app.ValueUnsafe()->GetStartupReport();
+    REQUIRE(report.targetName == "Samples.Manifest");
+    REQUIRE(std::find(report.resolvedPackages.begin(), report.resolvedPackages.end(), "NGIN.ECS") != report.resolvedPackages.end());
+    REQUIRE(std::find(report.resolvedPlugins.begin(), report.resolvedPlugins.end(), "Plugin.Sample") != report.resolvedPlugins.end());
+    REQUIRE(std::find(report.resolvedModules.begin(), report.resolvedModules.end(), "App.Manifest") != report.resolvedModules.end());
+    REQUIRE(std::find(report.resolvedModules.begin(), report.resolvedModules.end(), "App.Disabled") == report.resolvedModules.end());
+
+    auto config = app.ValueUnsafe()->GetConfig();
+    REQUIRE(static_cast<bool>(config));
+    REQUIRE(config->GetRaw("App.Mode").HasValue());
+    REQUIRE(config->GetRaw("App.Mode").ValueUnsafe() == "manifest");
+    REQUIRE(config->GetRaw("Kernel.EnvironmentName").HasValue());
+    REQUIRE(config->GetRaw("Kernel.EnvironmentName").ValueUnsafe() == "Dev");
+
+    REQUIRE(app.ValueUnsafe()->Shutdown().HasValue());
+    std::filesystem::remove_all(tempDir);
+}
+
+TEST_CASE("ApplicationBuilderTargetOverrideBeatsProjectDefault", "[builder][manifest]")
+{
+    GlobalStaticModuleGuard guard;
+
+    NGIN::Core::ModuleDescriptor defaultDescriptor = MakeDescriptor("App.Default");
+    defaultDescriptor.family = NGIN::Core::ModuleFamily::App;
+    defaultDescriptor.loadPhase = NGIN::Core::LoadPhase::Application;
+    REQUIRE(NGIN::Core::RegisterStaticModule(
+                NGIN::Core::StaticModuleRegistration {
+                    .descriptor = defaultDescriptor,
+                    .factory = []() -> NGIN::Core::CoreResult<NGIN::Memory::Shared<NGIN::Core::IModule>>
+                    {
+                        return NGIN::Memory::MakeSharedAs<NGIN::Core::IModule, HookModule>("Default", nullptr, nullptr);
+                    }})
+                .HasValue());
+
+    NGIN::Core::ModuleDescriptor overrideDescriptor = MakeDescriptor("App.Override");
+    overrideDescriptor.family = NGIN::Core::ModuleFamily::App;
+    overrideDescriptor.loadPhase = NGIN::Core::LoadPhase::Application;
+    REQUIRE(NGIN::Core::RegisterStaticModule(
+                NGIN::Core::StaticModuleRegistration {
+                    .descriptor = overrideDescriptor,
+                    .factory = []() -> NGIN::Core::CoreResult<NGIN::Memory::Shared<NGIN::Core::IModule>>
+                    {
+                        return NGIN::Memory::MakeSharedAs<NGIN::Core::IModule, HookModule>("Override", nullptr, nullptr);
+                    }})
+                .HasValue());
+
+    const auto uniqueId = std::to_string(
+        static_cast<long long>(std::chrono::steady_clock::now().time_since_epoch().count()));
+    const auto tempDir = std::filesystem::temp_directory_path() / ("ngin-core-builder-target-" + uniqueId);
+    std::filesystem::create_directories(tempDir);
+
+    WriteTextFile(tempDir / "ngin.project.json", R"({
+  "schemaVersion": 1,
+  "name": "Manifest.Override",
+  "defaultTarget": "Default.Target",
+  "targets": [
+    {
+      "name": "Default.Target",
+      "type": "Program",
+      "profile": "ConsoleApp",
+      "platform": "linux-x64",
+      "enableReflection": false,
+      "packages": [],
+      "modules": {
+        "enable": [
+          "App.Default"
+        ],
+        "disable": []
+      },
+      "plugins": {
+        "enable": [],
+        "disable": []
+      },
+      "environmentName": "Default",
+      "configSources": [],
+      "workingDirectory": "."
+    },
+    {
+      "name": "Override.Target",
+      "type": "Program",
+      "profile": "ConsoleApp",
+      "platform": "linux-x64",
+      "enableReflection": false,
+      "packages": [],
+      "modules": {
+        "enable": [
+          "App.Override"
+        ],
+        "disable": []
+      },
+      "plugins": {
+        "enable": [],
+        "disable": []
+      },
+      "environmentName": "Override",
+      "configSources": [],
+      "workingDirectory": "."
+    }
+  ]
+})");
+
+    auto builder = NGIN::Core::CreateApplicationBuilder(0, nullptr);
+    builder->UseProjectFile((tempDir / "ngin.project.json").string());
+    builder->SetDefaultTarget("Override.Target");
+
+    auto app = builder->Build();
+    REQUIRE(app.HasValue());
+    REQUIRE(app.ValueUnsafe()->Start().HasValue());
+
+    auto report = app.ValueUnsafe()->GetStartupReport();
+    REQUIRE(report.targetName == "Override.Target");
+    REQUIRE(std::find(report.resolvedModules.begin(), report.resolvedModules.end(), "App.Override") != report.resolvedModules.end());
+    REQUIRE(std::find(report.resolvedModules.begin(), report.resolvedModules.end(), "App.Default") == report.resolvedModules.end());
+
+    auto config = app.ValueUnsafe()->GetConfig();
+    REQUIRE(static_cast<bool>(config));
+    REQUIRE(config->GetRaw("Kernel.EnvironmentName").HasValue());
+    REQUIRE(config->GetRaw("Kernel.EnvironmentName").ValueUnsafe() == "Override");
+
+    REQUIRE(app.ValueUnsafe()->Shutdown().HasValue());
+    std::filesystem::remove_all(tempDir);
+}
+
+TEST_CASE("ApplicationBuilderRejectsUnknownTarget", "[builder][manifest]")
+{
+    const auto uniqueId = std::to_string(
+        static_cast<long long>(std::chrono::steady_clock::now().time_since_epoch().count()));
+    const auto tempDir = std::filesystem::temp_directory_path() / ("ngin-core-builder-missing-target-" + uniqueId);
+    std::filesystem::create_directories(tempDir);
+
+    WriteTextFile(tempDir / "ngin.project.json", R"({
+  "schemaVersion": 1,
+  "name": "Manifest.Invalid",
+  "defaultTarget": "Samples.Default",
+  "targets": [
+    {
+      "name": "Samples.Default",
+      "type": "Program",
+      "profile": "ConsoleApp",
+      "platform": "linux-x64",
+      "enableReflection": false,
+      "packages": [],
+      "modules": {
+        "enable": [],
+        "disable": []
+      },
+      "plugins": {
+        "enable": [],
+        "disable": []
+      },
+      "environmentName": "",
+      "configSources": [],
+      "workingDirectory": "."
+    }
+  ]
+})");
+
+    auto builder = NGIN::Core::CreateApplicationBuilder(0, nullptr);
+    builder->UseProjectFile((tempDir / "ngin.project.json").string());
+    builder->SetDefaultTarget("Missing.Target");
+
+    auto app = builder->Build();
+    REQUIRE_FALSE(app.HasValue());
+    REQUIRE(app.ErrorUnsafe().code == NGIN::Core::KernelErrorCode::NotFound);
+
+    std::filesystem::remove_all(tempDir);
 }

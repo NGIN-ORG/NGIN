@@ -111,6 +111,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
 endif()
 
 set(NGIN_CORE_SOURCES
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/NGIN/Core/Application.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/src/NGIN/Core/Config.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/src/NGIN/Core/Events.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/src/NGIN/Core/Kernel.cpp

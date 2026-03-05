@@ -1,7 +1,5 @@
 #include <NGIN/Core/Application.hpp>
 
-extern "C" void NGIN_RegisterPackage_NGIN_ECS(NGIN::Core::PackageBootstrapRegistry& registry);
-
 int main(int argc, char** argv)
 {
     auto builder = NGIN::Core::CreateApplicationBuilder(argc, argv);
@@ -14,17 +12,14 @@ int main(int argc, char** argv)
     builder->Services()
         .AddDefaults()
         .AddLogging()
-        .AddConfiguration();
+        .AddConfiguration()
+        .AddSingleton("Game.Name", NGIN::Utilities::Any<>(std::string("Sandbox.Game")));
 
     builder->Packages().Add({
         .name = "NGIN.ECS",
         .versionRange = ">=0.1.0 <1.0.0",
         .optional = false,
     });
-
-    builder->Packages()
-        .RegisterLinkedRegistrar(&NGIN_RegisterPackage_NGIN_ECS)
-        .ApplyBootstrap("NGIN.ECS");
 
     builder->Modules()
         .Enable("Core.Hosting")

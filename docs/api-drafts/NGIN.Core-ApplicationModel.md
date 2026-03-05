@@ -8,6 +8,12 @@ Last updated: 2026-03-05
 
 This document defines the first concrete public draft for the `NGIN.Core` application model.
 
+Current implementation note:
+
+- the real `NGIN.Core` builder now exists as a thin MVP in the component itself
+- `ngin.project.json` loading is implemented
+- linked package bootstrap execution is still deferred to the next step
+
 It is intentionally:
 
 - concrete enough to guide implementation

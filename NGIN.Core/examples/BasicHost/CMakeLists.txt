@@ -1,6 +1,7 @@
 add_executable(NGINCoreBasicHost main.cpp)
 target_compile_features(NGINCoreBasicHost PRIVATE cxx_std_23)
 target_link_libraries(NGINCoreBasicHost PRIVATE NGIN::Core)
+target_compile_definitions(NGINCoreBasicHost PRIVATE NGIN_CORE_BASIC_HOST_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 if(TARGET NGIN.Core.BuildOptions)
   target_link_libraries(NGINCoreBasicHost PRIVATE NGIN.Core.BuildOptions)
 endif()

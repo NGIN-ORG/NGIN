@@ -8,8 +8,8 @@ namespace NGIN::Core
     {
         m_scopes.emplace(ServiceScopeId::Global().value, ServiceScopeInfo {
             .id = ServiceScopeId::Global(),
-            .kind = ServiceScopeKind::Kernel,
-            .owner = "Kernel"});
+            .kind = ServiceScopeKind::Host,
+            .owner = "Host"});
     }
 
     auto ServiceRegistry::BeginScope(const ServiceScopeKind kind, std::string owner) noexcept -> CoreResult<ServiceScopeId>

@@ -1,5 +1,6 @@
 #include <NGIN/Core/Core.hpp>
 
+#include <filesystem>
 #include <iostream>
 
 namespace
@@ -13,42 +14,46 @@ namespace
             if (logger)
             {
                 logger->Info([](NGIN::Log::RecordBuilder& rec) {
-                    rec.Message("CoreDemoModule started");
+                    rec.Message("CoreDemoModule started through ApplicationBuilder");
                 });
             }
             return {};
         }
     };
+
+    struct GlobalStaticModuleReset
+    {
+        ~GlobalStaticModuleReset()
+        {
+            NGIN::Core::ClearStaticModules();
+        }
+    };
 }
 
-int main()
+int main(int argc, char** argv)
 {
     using namespace NGIN::Core;
 
-    auto moduleCatalog = CreateStaticModuleCatalog();
-    if (!moduleCatalog)
-    {
-        std::cerr << "failed to create module catalog\n";
-        return 1;
-    }
+    ClearStaticModules();
+    GlobalStaticModuleReset reset;
 
     ModuleDescriptor descriptor {};
-    descriptor.name = "Core.Demo";
-    descriptor.family = ModuleFamily::Core;
+    descriptor.name = "App.BasicHost";
+    descriptor.family = ModuleFamily::App;
     descriptor.type = ModuleType::Runtime;
     descriptor.version = SemanticVersion {0, 1, 0, {}};
     descriptor.compatiblePlatformRange = ParseVersionRange(">=0.1.0 <1.0.0").ValueUnsafe();
     descriptor.platforms = {"linux", "windows", "macos"};
-    descriptor.loadPhase = LoadPhase::CoreServices;
+    descriptor.loadPhase = LoadPhase::Application;
 
-    auto regResult = moduleCatalog->Register(StaticModuleRegistration {
+    auto regResult = RegisterStaticModule(StaticModuleRegistration {
         .descriptor = descriptor,
         .factory = []() -> CoreResult<NGIN::Memory::Shared<IModule>> {
             auto module = NGIN::Memory::MakeSharedAs<IModule, CoreDemoModule>();
             if (!module)
             {
                 return NGIN::Utilities::Unexpected<KernelError>(
-                    MakeKernelError(KernelErrorCode::InternalError, "Example", "Core.Demo", "failed to allocate module"));
+                    MakeKernelError(KernelErrorCode::InternalError, "Example", "App.BasicHost", "failed to allocate module"));
             }
             return module;
         },
@@ -60,41 +65,57 @@ int main()
         return 1;
     }
 
-    KernelHostConfig config {};
-    config.hostName = "CoreBasicHost";
-    config.hostType = HostType::ConsoleApp;
-    config.platformName = "linux-x64";
-    config.platformVersion = SemanticVersion {0, 1, 0, {}};
-    config.targetName = "NGIN.Core.BasicHost";
-    config.enableDynamicPlugins = false;
-    config.enableReflection = false;
-    config.moduleCatalog = moduleCatalog;
+    const auto projectFile = std::filesystem::path(NGIN_CORE_BASIC_HOST_DIR) / "ngin.project.json";
 
-    auto kernelResult = CreateKernel(config);
-    if (!kernelResult)
+    auto builder = CreateApplicationBuilder(argc, argv);
+    builder->UseProjectFile(projectFile.string());
+    builder->SetApplicationName("NGIN.Core.BasicHost");
+    builder->SetDefaultTarget("Samples.BasicHost");
+    builder->UseProfile(HostProfile::ConsoleApp);
+    builder->Services()
+        .AddDefaults()
+        .AddConfiguration()
+        .AddSingleton("App.Message", NGIN::Utilities::Any<>(std::string("builder-ready")));
+    builder->Modules().Enable("App.BasicHost");
+
+    auto app = builder->Build();
+    if (!app)
     {
-        std::cerr << "CreateKernel failed: " << kernelResult.ErrorUnsafe().message << "\n";
+        std::cerr << "Build failed: " << app.ErrorUnsafe().message << "\n";
         return 2;
     }
 
-    auto kernel = kernelResult.ValueUnsafe();
+    auto host = app.ValueUnsafe();
 
-    auto start = kernel->Start();
+    auto start = host->Start();
     if (!start)
     {
         std::cerr << "Start failed: " << start.ErrorUnsafe().message << "\n";
         return 3;
     }
 
-    kernel->RequestStop("example complete");
+    auto services = host->GetServices();
+    if (!services)
+    {
+        std::cerr << "services unavailable after start\n";
+        return 4;
+    }
+    auto resolvedMessage = services->ResolveRequired("App.Message");
+    if (!resolvedMessage)
+    {
+        std::cerr << "failed to resolve App.Message: " << resolvedMessage.ErrorUnsafe().message << "\n";
+        return 5;
+    }
 
-    auto shutdown = kernel->Shutdown();
+    host->RequestStop("example complete");
+
+    auto shutdown = host->Shutdown();
     if (!shutdown)
     {
         std::cerr << "Shutdown failed: " << shutdown.ErrorUnsafe().message << "\n";
-        return 4;
+        return 6;
     }
 
-    std::cout << "NGIN.Core basic host completed successfully\n";
+    std::cout << "NGIN.Core basic host completed successfully through ApplicationBuilder\n";
     return 0;
 }

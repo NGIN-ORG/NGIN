@@ -17,6 +17,26 @@ namespace NGIN::Core
     class IPluginBinaryLoader;
     class IModuleCatalog;
     class IServiceRegistry;
+    class IEventBus;
+    class ITaskRuntime;
+    class IConfigStore;
+}
+
+namespace NGIN::Log
+{
+    class LoggerRegistry;
+}
+
+namespace NGIN::Core
+{
+    struct KernelBootstrapContext
+    {
+        NGIN::Memory::Shared<IServiceRegistry> services {};
+        NGIN::Memory::Shared<IEventBus>        events {};
+        NGIN::Memory::Shared<ITaskRuntime>     tasks {};
+        NGIN::Memory::Shared<IConfigStore>     config {};
+        NGIN::Log::LoggerRegistry*             loggerRegistry {nullptr};
+    };
 
     /// @brief API entry synchronization policy for kernel host calls.
     enum class KernelApiThreadPolicy : NGIN::UInt8
@@ -63,7 +83,7 @@ namespace NGIN::Core
 
         std::vector<std::string> requestedModules {};
 
-        std::function<CoreResult<void>(IServiceRegistry&)> configureServices {};
+        std::function<CoreResult<void>(KernelBootstrapContext&)> configureServices {};
 
         NGIN::Memory::Shared<IModuleCatalog>      moduleCatalog {};
         NGIN::Memory::Shared<IPluginCatalog>      pluginCatalog {};

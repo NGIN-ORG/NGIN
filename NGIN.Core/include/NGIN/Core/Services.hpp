@@ -30,10 +30,11 @@ namespace NGIN::Core
     /// @brief Scope kind for scoped services.
     enum class ServiceScopeKind : NGIN::UInt8
     {
-        Kernel,
-        Plugin,
+        Host,
+        Package,
         Module,
-        Host
+        Operation,
+        Plugin
     };
 
     /// @brief Opaque service scope identifier.
@@ -51,7 +52,7 @@ namespace NGIN::Core
     struct ServiceScopeInfo
     {
         ServiceScopeId   id {ServiceScopeId::Global()};
-        ServiceScopeKind kind {ServiceScopeKind::Kernel};
+        ServiceScopeKind kind {ServiceScopeKind::Host};
         std::string      owner {};
     };
 

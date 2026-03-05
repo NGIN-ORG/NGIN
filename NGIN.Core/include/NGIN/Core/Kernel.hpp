@@ -32,7 +32,12 @@ namespace NGIN::Core
     /// @brief Startup report summary.
     struct StartupReport
     {
+        std::string                hostName {};
+        std::string                targetName {};
+        std::string                hostType {};
+        std::vector<std::string>   resolvedPackages {};
         std::vector<std::string>  resolvedModules {};
+        std::vector<std::string>   resolvedPlugins {};
         std::vector<std::string>  skippedOptionalModules {};
         std::vector<StartupWarning> warnings {};
         std::vector<KernelError>  failures {};

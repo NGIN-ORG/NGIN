@@ -3,6 +3,7 @@
 /// @file Core.hpp
 /// @brief Umbrella include for NGIN.Core public API.
 
+#include <NGIN/Core/Application.hpp>
 #include <NGIN/Core/Config.hpp>
 #include <NGIN/Core/Descriptors.hpp>
 #include <NGIN/Core/Errors.hpp>
@@ -16,4 +17,3 @@
 #include <NGIN/Core/Tasks.hpp>
 #include <NGIN/Core/Types.hpp>
 #include <NGIN/Core/Versioning.hpp>
-

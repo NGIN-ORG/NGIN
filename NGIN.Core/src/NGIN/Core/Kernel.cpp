@@ -156,6 +156,9 @@ namespace NGIN::Core
             }
 
             m_startupReport = {};
+            m_startupReport.hostName = m_config.hostName;
+            m_startupReport.targetName = m_config.targetName;
+            m_startupReport.hostType = std::string(ToString(m_config.hostType));
             m_stopRequested.store(false, std::memory_order_release);
             m_stopReason.clear();
             m_moduleInfos.clear();
@@ -199,7 +202,14 @@ namespace NGIN::Core
 
             if (m_config.configureServices)
             {
-                auto configured = m_config.configureServices(*m_services);
+                KernelBootstrapContext bootstrapContext {
+                    .services = m_services,
+                    .events = m_events,
+                    .tasks = m_tasks,
+                    .config = m_configStore,
+                    .loggerRegistry = &m_loggerRegistry,
+                };
+                auto configured = m_config.configureServices(bootstrapContext);
                 if (!configured)
                 {
                     CaptureFailure(configured.ErrorUnsafe());

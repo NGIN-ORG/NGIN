@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 3.20)
 project(NGINCoreTests LANGUAGES CXX)
 
-set(_runtime_root_dir "${NGIN_CORE_ROOT_DIR}")
-if(NOT _runtime_root_dir)
-  get_filename_component(_runtime_root_dir "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
+set(_core_root_dir "${NGIN_CORE_ROOT_DIR}")
+if(NOT _core_root_dir)
+  get_filename_component(_core_root_dir "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
 endif()
 
 include(CTest)
@@ -24,11 +24,11 @@ endif()
 
 if(NOT _have_catch2)
   set(_catch2_local_candidates
-    "${_runtime_root_dir}/../NGIN.Base/build/tests/_deps/catch2-src"
-    "${_runtime_root_dir}/../NGIN.Base/build/_deps/catch2-src"
-    "${_runtime_root_dir}/../NGIN.Reflection/build/tests/_deps/catch2-src"
-    "${_runtime_root_dir}/../NGIN.Reflection/build/_deps/catch2-src"
-    "${_runtime_root_dir}/../NGIN.Log/build/_deps/catch2-src"
+    "${_core_root_dir}/../NGIN.Base/build/tests/_deps/catch2-src"
+    "${_core_root_dir}/../NGIN.Base/build/_deps/catch2-src"
+    "${_core_root_dir}/../NGIN.Reflection/build/tests/_deps/catch2-src"
+    "${_core_root_dir}/../NGIN.Reflection/build/_deps/catch2-src"
+    "${_core_root_dir}/../NGIN.Log/build/_deps/catch2-src"
   )
 
   foreach(_cand IN LISTS _catch2_local_candidates)
@@ -44,7 +44,7 @@ if(NOT _have_catch2)
 endif()
 
 if(NOT _have_catch2)
-  include("${_runtime_root_dir}/cmake/CPM.cmake")
+  include("${_core_root_dir}/cmake/CPM.cmake")
   set(CPM_SOURCE_CACHE "${PROJECT_BINARY_DIR}/cpm-cache" CACHE PATH "CPM cache")
 
   CPMAddPackage(
