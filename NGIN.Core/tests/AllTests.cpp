@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <future>
@@ -76,18 +77,34 @@ namespace
         });
     }
 
-    struct GlobalStaticModuleGuard
+    [[nodiscard]] auto MakeRegistration(
+        NGIN::Core::ModuleDescriptor descriptor,
+        NGIN::Core::ModuleFactory factory) -> NGIN::Core::StaticModuleRegistration
     {
-        GlobalStaticModuleGuard()
-        {
-            NGIN::Core::ClearStaticModules();
-        }
+        return NGIN::Core::StaticModuleRegistration {
+            .descriptor = std::move(descriptor),
+            .factory = std::move(factory),
+        };
+    }
 
-        ~GlobalStaticModuleGuard()
-        {
-            NGIN::Core::ClearStaticModules();
-        }
-    };
+    [[nodiscard]] auto ContainsString(
+        const std::vector<std::string>& values,
+        const std::string_view expected) -> bool
+    {
+        return std::find(values.begin(), values.end(), expected) != values.end();
+    }
+
+    [[nodiscard]] auto ContainsWarningMessage(
+        const std::vector<NGIN::Core::StartupWarning>& values,
+        const std::string_view expected) -> bool
+    {
+        return std::any_of(
+            values.begin(),
+            values.end(),
+            [&](const NGIN::Core::StartupWarning& warning) {
+                return warning.message == expected;
+            });
+    }
 
     void WriteTextFile(const std::filesystem::path& path, const std::string& text)
     {
@@ -272,6 +289,142 @@ namespace
         std::mutex*                                     m_lock {nullptr};
         std::vector<NGIN::Core::EventSubscriptionToken> m_tokens {};
     };
+
+    std::vector<std::string>* g_packageBootstrapOrder = nullptr;
+
+    auto BootstrapSamplesPackage(NGIN::Core::PackageBootstrapContext& context) -> NGIN::Core::CoreResult<void>
+    {
+        using namespace NGIN::Core;
+
+        context.Services().AddSingleton(
+            "Samples.Package.Message",
+            NGIN::Utilities::Any<>(std::string("bootstrapped")));
+
+        context.Modules()
+            .Register(MakeRegistration(
+                MakeDescriptor("App.PackageBootstrap", ModuleFamily::App, LoadPhase::Application),
+                []() -> CoreResult<NGIN::Memory::Shared<IModule>>
+                {
+                    return NGIN::Memory::MakeSharedAs<IModule, HookModule>("PackageBootstrap", nullptr, nullptr);
+                }))
+            .Enable("App.PackageBootstrap");
+
+        context.Plugins().AddSearchPath("plugins/package");
+        context.Configuration().AddSource("package.cfg");
+        return {};
+    }
+
+    auto BootstrapSamplesPackageAlt(NGIN::Core::PackageBootstrapContext& context) -> NGIN::Core::CoreResult<void>
+    {
+        context.Services().AddSingleton(
+            "Samples.Package.Message",
+            NGIN::Utilities::Any<>(std::string("bootstrapped-alt")));
+        return {};
+    }
+
+    auto BootstrapSamplesPackageA(NGIN::Core::PackageBootstrapContext&) -> NGIN::Core::CoreResult<void>
+    {
+        if (g_packageBootstrapOrder != nullptr)
+        {
+            g_packageBootstrapOrder->push_back("Samples.PackageA");
+        }
+        return {};
+    }
+
+    auto BootstrapSamplesPackageB(NGIN::Core::PackageBootstrapContext&) -> NGIN::Core::CoreResult<void>
+    {
+        if (g_packageBootstrapOrder != nullptr)
+        {
+            g_packageBootstrapOrder->push_back("Samples.PackageB");
+        }
+        return {};
+    }
+}
+
+extern "C" auto NGIN_Bootstrap_Samples_Package(
+    NGIN::Core::PackageBootstrapContext& context) -> NGIN::Core::CoreResult<void>
+{
+    return BootstrapSamplesPackage(context);
+}
+
+extern "C" auto NGIN_Bootstrap_Samples_PackageAlt(
+    NGIN::Core::PackageBootstrapContext& context) -> NGIN::Core::CoreResult<void>
+{
+    return BootstrapSamplesPackageAlt(context);
+}
+
+extern "C" auto NGIN_Bootstrap_Samples_PackageA(
+    NGIN::Core::PackageBootstrapContext& context) -> NGIN::Core::CoreResult<void>
+{
+    return BootstrapSamplesPackageA(context);
+}
+
+extern "C" auto NGIN_Bootstrap_Samples_PackageB(
+    NGIN::Core::PackageBootstrapContext& context) -> NGIN::Core::CoreResult<void>
+{
+    return BootstrapSamplesPackageB(context);
+}
+
+extern "C" void NGIN_RegisterPackage_Samples_Package(
+    NGIN::Core::PackageBootstrapRegistry& registry)
+{
+    auto first = registry.Register({
+        .packageName = "Samples.Package",
+        .entryPoint = "NGIN_Bootstrap_Samples_Package",
+        .fn = &NGIN_Bootstrap_Samples_Package,
+    });
+    if (!first)
+    {
+        std::abort();
+    }
+
+    auto second = registry.Register({
+        .packageName = "Samples.Package",
+        .entryPoint = "NGIN_Bootstrap_Samples_PackageAlt",
+        .fn = &NGIN_Bootstrap_Samples_PackageAlt,
+    });
+    if (!second)
+    {
+        std::abort();
+    }
+}
+
+extern "C" void NGIN_RegisterPackage_Samples_PackageA(
+    NGIN::Core::PackageBootstrapRegistry& registry)
+{
+    const auto result = registry.Register({
+        .packageName = "Samples.PackageA",
+        .entryPoint = "NGIN_Bootstrap_Samples_PackageA",
+        .fn = &NGIN_Bootstrap_Samples_PackageA,
+    });
+    if (!result)
+    {
+        std::abort();
+    }
+}
+
+extern "C" void NGIN_RegisterPackage_Samples_PackageB(
+    NGIN::Core::PackageBootstrapRegistry& registry)
+{
+    const auto result = registry.Register({
+        .packageName = "Samples.PackageB",
+        .entryPoint = "NGIN_Bootstrap_Samples_PackageB",
+        .fn = &NGIN_Bootstrap_Samples_PackageB,
+    });
+    if (!result)
+    {
+        std::abort();
+    }
+}
+
+extern "C" void NGIN_RegisterPackage_Samples_PackageSingleNoAbort(
+    NGIN::Core::PackageBootstrapRegistry& registry)
+{
+    (void)registry.Register({
+        .packageName = "Samples.Package",
+        .entryPoint = "NGIN_Bootstrap_Samples_Package",
+        .fn = &NGIN_Bootstrap_Samples_Package,
+    });
 }
 
 TEST_CASE("KernelStartsWithDependencyOrderedModules", "[runtime][startup]")
@@ -845,20 +998,6 @@ TEST_CASE("ThreadPoliciesAreEnforced", "[runtime][threading]")
 
 TEST_CASE("ApplicationBuilderBuildsHostFromCode", "[builder][host]")
 {
-    GlobalStaticModuleGuard guard;
-
-    NGIN::Core::ModuleDescriptor descriptor = MakeDescriptor("App.Builder");
-    descriptor.family = NGIN::Core::ModuleFamily::App;
-    descriptor.loadPhase = NGIN::Core::LoadPhase::Application;
-    REQUIRE(NGIN::Core::RegisterStaticModule(
-                NGIN::Core::StaticModuleRegistration {
-                    .descriptor = descriptor,
-                    .factory = []() -> NGIN::Core::CoreResult<NGIN::Memory::Shared<NGIN::Core::IModule>>
-                    {
-                        return NGIN::Memory::MakeSharedAs<NGIN::Core::IModule, HookModule>("Builder", nullptr, nullptr);
-                    }})
-                .HasValue());
-
     auto builder = NGIN::Core::CreateApplicationBuilder(0, nullptr);
     builder->SetApplicationName("Builder.Tests");
     builder->SetDefaultTarget("Builder.Target");
@@ -867,7 +1006,14 @@ TEST_CASE("ApplicationBuilderBuildsHostFromCode", "[builder][host]")
         .AddDefaults()
         .AddConfiguration()
         .AddSingleton("App.Message", NGIN::Utilities::Any<>(std::string("hello-builder")));
-    builder->Modules().Enable("App.Builder");
+    builder->Modules()
+        .Register(MakeRegistration(
+            MakeDescriptor("App.Builder", NGIN::Core::ModuleFamily::App, NGIN::Core::LoadPhase::Application),
+            []() -> NGIN::Core::CoreResult<NGIN::Memory::Shared<NGIN::Core::IModule>>
+            {
+                return NGIN::Memory::MakeSharedAs<NGIN::Core::IModule, HookModule>("Builder", nullptr, nullptr);
+            }))
+        .Enable("App.Builder");
 
     auto app = builder->Build();
     REQUIRE(app.HasValue());
@@ -903,32 +1049,6 @@ TEST_CASE("ApplicationBuilderBuildsHostFromCode", "[builder][host]")
 
 TEST_CASE("ApplicationBuilderLoadsProjectManifestAndConfig", "[builder][manifest]")
 {
-    GlobalStaticModuleGuard guard;
-
-    NGIN::Core::ModuleDescriptor descriptor = MakeDescriptor("App.Manifest");
-    descriptor.family = NGIN::Core::ModuleFamily::App;
-    descriptor.loadPhase = NGIN::Core::LoadPhase::Application;
-    REQUIRE(NGIN::Core::RegisterStaticModule(
-                NGIN::Core::StaticModuleRegistration {
-                    .descriptor = descriptor,
-                    .factory = []() -> NGIN::Core::CoreResult<NGIN::Memory::Shared<NGIN::Core::IModule>>
-                    {
-                        return NGIN::Memory::MakeSharedAs<NGIN::Core::IModule, HookModule>("Manifest", nullptr, nullptr);
-                    }})
-                .HasValue());
-
-    NGIN::Core::ModuleDescriptor disabledDescriptor = MakeDescriptor("App.Disabled");
-    disabledDescriptor.family = NGIN::Core::ModuleFamily::App;
-    disabledDescriptor.loadPhase = NGIN::Core::LoadPhase::Application;
-    REQUIRE(NGIN::Core::RegisterStaticModule(
-                NGIN::Core::StaticModuleRegistration {
-                    .descriptor = disabledDescriptor,
-                    .factory = []() -> NGIN::Core::CoreResult<NGIN::Memory::Shared<NGIN::Core::IModule>>
-                    {
-                        return NGIN::Memory::MakeSharedAs<NGIN::Core::IModule, HookModule>("Disabled", nullptr, nullptr);
-                    }})
-                .HasValue());
-
     const auto uniqueId = std::to_string(
         static_cast<long long>(std::chrono::steady_clock::now().time_since_epoch().count()));
     const auto tempDir = std::filesystem::temp_directory_path() / ("ngin-core-builder-manifest-" + uniqueId);
@@ -980,6 +1100,19 @@ TEST_CASE("ApplicationBuilderLoadsProjectManifestAndConfig", "[builder][manifest
     auto builder = NGIN::Core::CreateApplicationBuilder(0, nullptr);
     builder->UseProjectFile((tempDir / "ngin.project.json").string());
     builder->Services().AddConfiguration();
+    builder->Modules()
+        .Register(MakeRegistration(
+            MakeDescriptor("App.Manifest", NGIN::Core::ModuleFamily::App, NGIN::Core::LoadPhase::Application),
+            []() -> NGIN::Core::CoreResult<NGIN::Memory::Shared<NGIN::Core::IModule>>
+            {
+                return NGIN::Memory::MakeSharedAs<NGIN::Core::IModule, HookModule>("Manifest", nullptr, nullptr);
+            }))
+        .Register(MakeRegistration(
+            MakeDescriptor("App.Disabled", NGIN::Core::ModuleFamily::App, NGIN::Core::LoadPhase::Application),
+            []() -> NGIN::Core::CoreResult<NGIN::Memory::Shared<NGIN::Core::IModule>>
+            {
+                return NGIN::Memory::MakeSharedAs<NGIN::Core::IModule, HookModule>("Disabled", nullptr, nullptr);
+            }));
 
     auto app = builder->Build();
     REQUIRE(app.HasValue());
@@ -1005,32 +1138,6 @@ TEST_CASE("ApplicationBuilderLoadsProjectManifestAndConfig", "[builder][manifest
 
 TEST_CASE("ApplicationBuilderTargetOverrideBeatsProjectDefault", "[builder][manifest]")
 {
-    GlobalStaticModuleGuard guard;
-
-    NGIN::Core::ModuleDescriptor defaultDescriptor = MakeDescriptor("App.Default");
-    defaultDescriptor.family = NGIN::Core::ModuleFamily::App;
-    defaultDescriptor.loadPhase = NGIN::Core::LoadPhase::Application;
-    REQUIRE(NGIN::Core::RegisterStaticModule(
-                NGIN::Core::StaticModuleRegistration {
-                    .descriptor = defaultDescriptor,
-                    .factory = []() -> NGIN::Core::CoreResult<NGIN::Memory::Shared<NGIN::Core::IModule>>
-                    {
-                        return NGIN::Memory::MakeSharedAs<NGIN::Core::IModule, HookModule>("Default", nullptr, nullptr);
-                    }})
-                .HasValue());
-
-    NGIN::Core::ModuleDescriptor overrideDescriptor = MakeDescriptor("App.Override");
-    overrideDescriptor.family = NGIN::Core::ModuleFamily::App;
-    overrideDescriptor.loadPhase = NGIN::Core::LoadPhase::Application;
-    REQUIRE(NGIN::Core::RegisterStaticModule(
-                NGIN::Core::StaticModuleRegistration {
-                    .descriptor = overrideDescriptor,
-                    .factory = []() -> NGIN::Core::CoreResult<NGIN::Memory::Shared<NGIN::Core::IModule>>
-                    {
-                        return NGIN::Memory::MakeSharedAs<NGIN::Core::IModule, HookModule>("Override", nullptr, nullptr);
-                    }})
-                .HasValue());
-
     const auto uniqueId = std::to_string(
         static_cast<long long>(std::chrono::steady_clock::now().time_since_epoch().count()));
     const auto tempDir = std::filesystem::temp_directory_path() / ("ngin-core-builder-target-" + uniqueId);
@@ -1089,6 +1196,19 @@ TEST_CASE("ApplicationBuilderTargetOverrideBeatsProjectDefault", "[builder][mani
     auto builder = NGIN::Core::CreateApplicationBuilder(0, nullptr);
     builder->UseProjectFile((tempDir / "ngin.project.json").string());
     builder->SetDefaultTarget("Override.Target");
+    builder->Modules()
+        .Register(MakeRegistration(
+            MakeDescriptor("App.Default", NGIN::Core::ModuleFamily::App, NGIN::Core::LoadPhase::Application),
+            []() -> NGIN::Core::CoreResult<NGIN::Memory::Shared<NGIN::Core::IModule>>
+            {
+                return NGIN::Memory::MakeSharedAs<NGIN::Core::IModule, HookModule>("Default", nullptr, nullptr);
+            }))
+        .Register(MakeRegistration(
+            MakeDescriptor("App.Override", NGIN::Core::ModuleFamily::App, NGIN::Core::LoadPhase::Application),
+            []() -> NGIN::Core::CoreResult<NGIN::Memory::Shared<NGIN::Core::IModule>>
+            {
+                return NGIN::Memory::MakeSharedAs<NGIN::Core::IModule, HookModule>("Override", nullptr, nullptr);
+            }));
 
     auto app = builder->Build();
     REQUIRE(app.HasValue());
@@ -1151,4 +1271,288 @@ TEST_CASE("ApplicationBuilderRejectsUnknownTarget", "[builder][manifest]")
     REQUIRE(app.ErrorUnsafe().code == NGIN::Core::KernelErrorCode::NotFound);
 
     std::filesystem::remove_all(tempDir);
+}
+
+TEST_CASE("ApplicationBuilderExecutesExplicitPackageBootstrapFromManifestFile", "[builder][bootstrap]")
+{
+    const auto uniqueId = std::to_string(
+        static_cast<long long>(std::chrono::steady_clock::now().time_since_epoch().count()));
+    const auto tempDir = std::filesystem::temp_directory_path() / ("ngin-core-builder-bootstrap-" + uniqueId);
+    std::filesystem::create_directories(tempDir);
+
+    WriteTextFile(tempDir / "package.cfg", "Package.Mode=bootstrapped\n");
+    WriteTextFile(
+        tempDir / "ngin.package.json",
+        R"({
+  "schemaVersion": 1,
+  "name": "Samples.Package",
+  "version": "0.1.0",
+  "compatiblePlatformRange": ">=0.1.0 <1.0.0",
+  "platforms": ["linux", "windows", "macos"],
+  "dependencies": [],
+  "bootstrap": {
+    "mode": "BuilderHookV1",
+    "entryPoint": "NGIN_Bootstrap_Samples_Package",
+    "autoApply": false
+  },
+  "provides": {
+    "modules": ["App.PackageBootstrap"],
+    "plugins": []
+  }
+})");
+
+    auto builder = NGIN::Core::CreateApplicationBuilder(0, nullptr);
+    builder->SetApplicationName("Builder.Package");
+    builder->SetDefaultTarget("Builder.Package.Target");
+    builder->UseProfile(NGIN::Core::HostProfile::ConsoleApp);
+    builder->Configuration().SetWorkingDirectory(tempDir.string());
+    builder->Packages()
+        .Add({
+            .name = "Samples.Package",
+            .versionRange = ">=0.1.0 <1.0.0",
+            .optional = false,
+        })
+        .AddManifestFile((tempDir / "ngin.package.json").string())
+        .RegisterLinkedRegistrar(&NGIN_RegisterPackage_Samples_Package)
+        .ApplyBootstrap("Samples.Package");
+
+    auto app = builder->Build();
+    REQUIRE(app.HasValue());
+    REQUIRE(app.ValueUnsafe()->Start().HasValue());
+
+    auto services = app.ValueUnsafe()->GetServices();
+    REQUIRE(static_cast<bool>(services));
+
+    auto message = services->ResolveRequired("Samples.Package.Message");
+    REQUIRE(message.HasValue());
+    REQUIRE(message.ValueUnsafe().template TryCast<std::string>() != nullptr);
+    REQUIRE(*message.ValueUnsafe().template TryCast<std::string>() == "bootstrapped");
+
+    auto config = app.ValueUnsafe()->GetConfig();
+    REQUIRE(static_cast<bool>(config));
+    REQUIRE(config->GetRaw("Package.Mode").HasValue());
+    REQUIRE(config->GetRaw("Package.Mode").ValueUnsafe() == "bootstrapped");
+
+    auto report = app.ValueUnsafe()->GetStartupReport();
+    REQUIRE(ContainsString(report.resolvedPackages, "Samples.Package"));
+
+    REQUIRE(app.ValueUnsafe()->Shutdown().HasValue());
+    std::filesystem::remove_all(tempDir);
+}
+
+TEST_CASE("ApplicationBuilderExecutesNamedPackageBootstrapEntry", "[builder][bootstrap]")
+{
+    auto builder = NGIN::Core::CreateApplicationBuilder(0, nullptr);
+    builder->SetApplicationName("Builder.NamedBootstrap");
+    builder->SetDefaultTarget("Builder.NamedBootstrap.Target");
+    builder->UseProfile(NGIN::Core::HostProfile::ConsoleApp);
+    builder->Packages()
+        .Add({
+            .name = "Samples.Package",
+            .versionRange = ">=0.1.0 <1.0.0",
+            .optional = false,
+        })
+        .AddManifest(NGIN::Core::PackageManifest {
+            .schemaVersion = 1,
+            .name = "Samples.Package",
+            .version = "0.1.0",
+            .compatiblePlatformRange = ">=0.1.0 <1.0.0",
+            .platforms = {"linux", "windows", "macos"},
+            .dependencies = {},
+            .bootstrap = NGIN::Core::PackageBootstrapDescriptor {
+                .mode = NGIN::Core::PackageBootstrapMode::BuilderHookV1,
+                .entryPoint = "NGIN_Bootstrap_Samples_Package",
+                .autoApply = false,
+            },
+            .providedModules = {},
+            .providedPlugins = {},
+        })
+        .RegisterLinkedRegistrar(&NGIN_RegisterPackage_Samples_Package)
+        .ApplyBootstrap("Samples.Package", "NGIN_Bootstrap_Samples_PackageAlt");
+
+    auto app = builder->Build();
+    REQUIRE(app.HasValue());
+    REQUIRE(app.ValueUnsafe()->Start().HasValue());
+
+    auto services = app.ValueUnsafe()->GetServices();
+    REQUIRE(static_cast<bool>(services));
+
+    auto message = services->ResolveRequired("Samples.Package.Message");
+    REQUIRE(message.HasValue());
+    REQUIRE(message.ValueUnsafe().template TryCast<std::string>() != nullptr);
+    REQUIRE(*message.ValueUnsafe().template TryCast<std::string>() == "bootstrapped-alt");
+
+    REQUIRE(app.ValueUnsafe()->Shutdown().HasValue());
+}
+
+TEST_CASE("ApplicationBuilderAutoAppliesPackagesInDependencyOrder", "[builder][bootstrap]")
+{
+    std::vector<std::string> order {};
+    g_packageBootstrapOrder = &order;
+
+    auto builder = NGIN::Core::CreateApplicationBuilder(0, nullptr);
+    builder->SetApplicationName("Builder.AutoApply");
+    builder->SetDefaultTarget("Builder.AutoApply.Target");
+    builder->UseProfile(NGIN::Core::HostProfile::ConsoleApp);
+    builder->Packages()
+        .Add({
+            .name = "Samples.PackageB",
+            .versionRange = ">=0.1.0 <1.0.0",
+            .optional = false,
+        })
+        .Add({
+            .name = "Samples.PackageA",
+            .versionRange = ">=0.1.0 <1.0.0",
+            .optional = false,
+        })
+        .AddManifest(NGIN::Core::PackageManifest {
+            .schemaVersion = 1,
+            .name = "Samples.PackageA",
+            .version = "0.1.0",
+            .compatiblePlatformRange = ">=0.1.0 <1.0.0",
+            .platforms = {"linux", "windows", "macos"},
+            .dependencies = {},
+            .bootstrap = NGIN::Core::PackageBootstrapDescriptor {
+                .mode = NGIN::Core::PackageBootstrapMode::BuilderHookV1,
+                .entryPoint = "NGIN_Bootstrap_Samples_PackageA",
+                .autoApply = true,
+            },
+            .providedModules = {},
+            .providedPlugins = {},
+        })
+        .AddManifest(NGIN::Core::PackageManifest {
+            .schemaVersion = 1,
+            .name = "Samples.PackageB",
+            .version = "0.1.0",
+            .compatiblePlatformRange = ">=0.1.0 <1.0.0",
+            .platforms = {"linux", "windows", "macos"},
+            .dependencies = {
+                {
+                    .name = "Samples.PackageA",
+                    .versionRange = ">=0.1.0 <1.0.0",
+                    .optional = false,
+                },
+            },
+            .bootstrap = NGIN::Core::PackageBootstrapDescriptor {
+                .mode = NGIN::Core::PackageBootstrapMode::BuilderHookV1,
+                .entryPoint = "NGIN_Bootstrap_Samples_PackageB",
+                .autoApply = true,
+            },
+            .providedModules = {},
+            .providedPlugins = {},
+        })
+        .RegisterLinkedRegistrar(&NGIN_RegisterPackage_Samples_PackageB)
+        .RegisterLinkedRegistrar(&NGIN_RegisterPackage_Samples_PackageA);
+
+    auto app = builder->Build();
+    REQUIRE(app.HasValue());
+    REQUIRE(order == std::vector<std::string> {"Samples.PackageA", "Samples.PackageB"});
+
+    g_packageBootstrapOrder = nullptr;
+}
+
+TEST_CASE("ApplicationBuilderFailsOnMissingRequiredAutoAppliedPackageBootstrap", "[builder][bootstrap]")
+{
+    auto builder = NGIN::Core::CreateApplicationBuilder(0, nullptr);
+    builder->SetApplicationName("Builder.RequiredFailure");
+    builder->SetDefaultTarget("Builder.RequiredFailure.Target");
+    builder->UseProfile(NGIN::Core::HostProfile::ConsoleApp);
+    builder->Packages()
+        .Add({
+            .name = "Samples.RequiredPackage",
+            .versionRange = ">=0.1.0 <1.0.0",
+            .optional = false,
+        })
+        .AddManifest(NGIN::Core::PackageManifest {
+            .schemaVersion = 1,
+            .name = "Samples.RequiredPackage",
+            .version = "0.1.0",
+            .compatiblePlatformRange = ">=0.1.0 <1.0.0",
+            .platforms = {"linux", "windows", "macos"},
+            .dependencies = {},
+            .bootstrap = NGIN::Core::PackageBootstrapDescriptor {
+                .mode = NGIN::Core::PackageBootstrapMode::BuilderHookV1,
+                .entryPoint = "NGIN_Bootstrap_Samples_Missing",
+                .autoApply = true,
+            },
+            .providedModules = {},
+            .providedPlugins = {},
+        });
+
+    auto app = builder->Build();
+    REQUIRE_FALSE(app.HasValue());
+    REQUIRE(app.ErrorUnsafe().code == NGIN::Core::KernelErrorCode::NotFound);
+}
+
+TEST_CASE("ApplicationBuilderSkipsOptionalAutoAppliedPackageWithWarning", "[builder][bootstrap]")
+{
+    auto builder = NGIN::Core::CreateApplicationBuilder(0, nullptr);
+    builder->SetApplicationName("Builder.OptionalWarning");
+    builder->SetDefaultTarget("Builder.OptionalWarning.Target");
+    builder->UseProfile(NGIN::Core::HostProfile::ConsoleApp);
+    builder->Packages()
+        .Add({
+            .name = "Samples.OptionalPackage",
+            .versionRange = ">=0.1.0 <1.0.0",
+            .optional = true,
+        })
+        .AddManifest(NGIN::Core::PackageManifest {
+            .schemaVersion = 1,
+            .name = "Samples.OptionalPackage",
+            .version = "0.1.0",
+            .compatiblePlatformRange = ">=0.1.0 <1.0.0",
+            .platforms = {"linux", "windows", "macos"},
+            .dependencies = {},
+            .bootstrap = NGIN::Core::PackageBootstrapDescriptor {
+                .mode = NGIN::Core::PackageBootstrapMode::BuilderHookV1,
+                .entryPoint = "NGIN_Bootstrap_Samples_OptionalMissing",
+                .autoApply = true,
+            },
+            .providedModules = {},
+            .providedPlugins = {},
+        });
+
+    auto app = builder->Build();
+    REQUIRE(app.HasValue());
+
+    auto report = app.ValueUnsafe()->GetStartupReport();
+    REQUIRE_FALSE(report.warnings.empty());
+    REQUIRE(ContainsWarningMessage(
+        report.warnings,
+        "package bootstrap skipped for 'Samples.OptionalPackage': manifest entry point 'NGIN_Bootstrap_Samples_OptionalMissing' was not registered"));
+}
+
+TEST_CASE("ApplicationBuilderFailsOnDuplicatePackageBootstrapEntry", "[builder][bootstrap]")
+{
+    auto builder = NGIN::Core::CreateApplicationBuilder(0, nullptr);
+    builder->SetApplicationName("Builder.DuplicateBootstrap");
+    builder->SetDefaultTarget("Builder.DuplicateBootstrap.Target");
+    builder->UseProfile(NGIN::Core::HostProfile::ConsoleApp);
+    builder->Packages()
+        .Add({
+            .name = "Samples.Package",
+            .versionRange = ">=0.1.0 <1.0.0",
+            .optional = false,
+        })
+        .AddManifest(NGIN::Core::PackageManifest {
+            .schemaVersion = 1,
+            .name = "Samples.Package",
+            .version = "0.1.0",
+            .compatiblePlatformRange = ">=0.1.0 <1.0.0",
+            .platforms = {"linux", "windows", "macos"},
+            .dependencies = {},
+            .bootstrap = NGIN::Core::PackageBootstrapDescriptor {
+                .mode = NGIN::Core::PackageBootstrapMode::BuilderHookV1,
+                .entryPoint = "NGIN_Bootstrap_Samples_Package",
+                .autoApply = true,
+            },
+            .providedModules = {},
+            .providedPlugins = {},
+        })
+        .RegisterLinkedRegistrar(&NGIN_RegisterPackage_Samples_PackageSingleNoAbort)
+        .RegisterLinkedRegistrar(&NGIN_RegisterPackage_Samples_PackageSingleNoAbort);
+
+    auto app = builder->Build();
+    REQUIRE_FALSE(app.HasValue());
+    REQUIRE(app.ErrorUnsafe().code == NGIN::Core::KernelErrorCode::AlreadyExists);
 }

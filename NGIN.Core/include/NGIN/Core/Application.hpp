@@ -14,7 +14,9 @@
 #include <NGIN/Utilities/Any.hpp>
 
 #include <memory>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace NGIN::Core
@@ -42,6 +44,44 @@ namespace NGIN::Core
         std::string name {};
         std::string versionRange {};
         bool        optional {false};
+    };
+
+    enum class PackageBootstrapMode : NGIN::UInt8
+    {
+        BuilderHookV1
+    };
+
+    struct PackageBootstrapDescriptor
+    {
+        PackageBootstrapMode mode {PackageBootstrapMode::BuilderHookV1};
+        std::string          entryPoint {};
+        bool                 autoApply {false};
+    };
+
+    class PackageBootstrapContext;
+    class PackageBootstrapRegistry;
+
+    using PackageBootstrapFn = CoreResult<void> (*)(PackageBootstrapContext&);
+    using PackageBootstrapRegistrarFn = void (*)(PackageBootstrapRegistry&);
+
+    struct PackageBootstrapEntry
+    {
+        std::string        packageName {};
+        std::string        entryPoint {};
+        PackageBootstrapFn fn {nullptr};
+    };
+
+    struct PackageManifest
+    {
+        NGIN::UInt32                             schemaVersion {1};
+        std::string                              name {};
+        std::string                              version {};
+        std::string                              compatiblePlatformRange {};
+        std::vector<std::string>                 platforms {};
+        std::vector<PackageReference>            dependencies {};
+        std::optional<PackageBootstrapDescriptor> bootstrap {};
+        std::vector<std::string>                 providedModules {};
+        std::vector<std::string>                 providedPlugins {};
     };
 
     struct PluginReference
@@ -124,6 +164,11 @@ namespace NGIN::Core
         virtual ~PackageCollection() = default;
 
         virtual auto Add(PackageReference reference) -> PackageCollection& = 0;
+        virtual auto AddManifest(PackageManifest manifest) -> PackageCollection& = 0;
+        virtual auto AddManifestFile(std::string path) -> PackageCollection& = 0;
+        virtual auto RegisterLinkedRegistrar(PackageBootstrapRegistrarFn registrar) -> PackageCollection& = 0;
+        virtual auto ApplyBootstrap(std::string packageName) -> PackageCollection& = 0;
+        virtual auto ApplyBootstrap(std::string packageName, std::string entryPoint) -> PackageCollection& = 0;
         virtual auto Clear() -> PackageCollection& = 0;
     };
 
@@ -132,6 +177,7 @@ namespace NGIN::Core
     public:
         virtual ~ModuleCollection() = default;
 
+        virtual auto Register(StaticModuleRegistration registration) -> ModuleCollection& = 0;
         virtual auto Enable(std::string moduleName) -> ModuleCollection& = 0;
         virtual auto Disable(std::string moduleName) -> ModuleCollection& = 0;
         virtual auto Clear() -> ModuleCollection& = 0;
@@ -157,6 +203,34 @@ namespace NGIN::Core
         virtual auto SetEnvironmentName(std::string environmentName) -> ConfigurationBuilder& = 0;
         virtual auto SetWorkingDirectory(std::string workingDirectory) -> ConfigurationBuilder& = 0;
         virtual auto Clear() -> ConfigurationBuilder& = 0;
+    };
+
+    class PackageBootstrapContext
+    {
+    public:
+        virtual ~PackageBootstrapContext() = default;
+
+        [[nodiscard]] virtual auto PackageName() const noexcept -> std::string_view = 0;
+        [[nodiscard]] virtual auto TargetName() const noexcept -> std::string_view = 0;
+        [[nodiscard]] virtual auto Profile() const noexcept -> HostProfile = 0;
+
+        [[nodiscard]] virtual auto Services() noexcept -> ServiceCollection& = 0;
+        [[nodiscard]] virtual auto Packages() noexcept -> PackageCollection& = 0;
+        [[nodiscard]] virtual auto Modules() noexcept -> ModuleCollection& = 0;
+        [[nodiscard]] virtual auto Plugins() noexcept -> PluginCollection& = 0;
+        [[nodiscard]] virtual auto Configuration() noexcept -> ConfigurationBuilder& = 0;
+    };
+
+    class PackageBootstrapRegistry
+    {
+    public:
+        virtual ~PackageBootstrapRegistry() = default;
+
+        virtual auto Register(PackageBootstrapEntry entry) -> CoreResult<void> = 0;
+        [[nodiscard]] virtual auto Find(std::string_view packageName, std::string_view entryPoint) const noexcept
+            -> const PackageBootstrapEntry* = 0;
+        [[nodiscard]] virtual auto FindDefault(std::string_view packageName) const noexcept
+            -> const PackageBootstrapEntry* = 0;
     };
 
     class IApplicationHost

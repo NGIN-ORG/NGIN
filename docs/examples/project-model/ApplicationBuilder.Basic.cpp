@@ -1,5 +1,7 @@
 #include <NGIN/Core/Application.hpp>
 
+extern "C" void NGIN_RegisterPackage_NGIN_ECS(NGIN::Core::PackageBootstrapRegistry& registry);
+
 int main(int argc, char** argv)
 {
     auto builder = NGIN::Core::CreateApplicationBuilder(argc, argv);
@@ -20,6 +22,10 @@ int main(int argc, char** argv)
         .versionRange = ">=0.1.0 <1.0.0",
         .optional = false,
     });
+    builder->Packages()
+        .AddManifestFile("ngin.package.json")
+        .RegisterLinkedRegistrar(&NGIN_RegisterPackage_NGIN_ECS)
+        .ApplyBootstrap("NGIN.ECS");
 
     builder->Modules()
         .Enable("Core.Hosting")
