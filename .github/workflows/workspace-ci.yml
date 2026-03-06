@@ -30,23 +30,42 @@ jobs:
         run: python -m pip install --upgrade pip jsonschema
 
       - name: Python syntax check
-        run: python -m py_compile tools/ngin-sync.py
+        run: python -m py_compile tools/ngin.py tools/ngin_tool.py tools/tests/test_ngin_cli.py
 
       - name: Manifest and schema JSON parse check
         run: |
-          python -c "import json, pathlib; [json.loads(pathlib.Path(p).read_text(encoding='utf-8')) for p in ('manifests/platform-release.json','manifests/platform-release.schema.json','manifests/components.schema.json','manifests/module.schema.json','manifests/plugin-bundle.schema.json','manifests/target.schema.json','manifests/module-graph.schema.json','manifests/project.schema.json','manifests/package.schema.json','manifests/module-catalog.json','manifests/plugin-catalog.json','manifests/target-catalog.json')]; print('json-ok')"
+          python -c "import json, pathlib; [json.loads(pathlib.Path(p).read_text(encoding='utf-8')) for p in ('manifests/platform-release.json','manifests/platform-release.schema.json','manifests/components.schema.json','manifests/module.schema.json','manifests/plugin-bundle.schema.json','manifests/project.schema.json','manifests/package.schema.json','manifests/package-catalog.schema.json','manifests/package-lock.schema.json','manifests/module-catalog.json','manifests/package-catalog.json','manifests/plugin-catalog.json','manifests/workspace.project.json')]; print('json-ok')"
+
+      - name: CLI unit tests
+        run: python -m unittest tools/tests/test_ngin_cli.py
 
       - name: Workspace doctor
-        run: python tools/ngin-sync.py doctor
+        run: python tools/ngin.py doctor
 
-      - name: Validate Spec 001
-        run: python tools/ngin-sync.py validate-spec001
+      - name: Restore workspace project packages (JSON report)
+        run: python tools/ngin.py package restore --project manifests/workspace.project.json --lockfile build/workspace-reports/ngin.workspace.lock.json --cache-dir build/workspace-cache --json-report build/workspace-reports/ngin.package.restore.json
 
-      - name: Resolve baseline target (Spec 001 smoke)
-        run: python tools/ngin-sync.py resolve-target --target NGIN.CoreSample
+      - name: Validate workspace project (locked JSON report)
+        run: python tools/ngin.py validate --project manifests/workspace.project.json --locked --lockfile build/workspace-reports/ngin.workspace.lock.json --cache-dir build/workspace-cache --target NGIN.CoreSample --json-report build/workspace-reports/ngin.validate.NGIN.CoreSample.json
+
+      - name: Resolve workspace project target (locked JSON report)
+        run: python tools/ngin.py resolve --project manifests/workspace.project.json --locked --lockfile build/workspace-reports/ngin.workspace.lock.json --cache-dir build/workspace-cache --target NGIN.CoreSample --json-report build/workspace-reports/ngin.resolve.NGIN.CoreSample.json
 
       - name: Configure workspace (CMake preset)
         run: cmake --preset dev
+
+      - name: Generate workspace report targets
+        run: cmake --build build/dev --target ngin.reports
+
+      - name: Upload workspace validation reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: workspace-reports-${{ matrix.os }}
+          path: |
+            build/workspace-reports/
+            build/workspace-cache/
+            build/dev/reports/
+          if-no-files-found: error
 
       - name: Configure NGIN.Core
         run: cmake -S NGIN.Core -B build/ngin-core-ci -DNGIN_CORE_BUILD_TESTS=ON -DNGIN_CORE_BUILD_EXAMPLES=OFF

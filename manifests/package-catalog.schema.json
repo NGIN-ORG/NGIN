@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ngin.dev/schemas/package-catalog.schema.json",
+  "title": "NGIN Package Catalog",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "packages"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1
+    },
+    "packages": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/packageEntry"
+      }
+    }
+  },
+  "$defs": {
+    "packageEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "manifestPath"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9_-]*\\.[A-Za-z0-9_.-]+$"
+        },
+        "manifestPath": {
+          "type": "string",
+          "minLength": 1
+        },
+        "component": {
+          "type": "string",
+          "pattern": "^NGIN\\.[A-Za-z0-9_.-]+$"
+        }
+      }
+    }
+  }
+}

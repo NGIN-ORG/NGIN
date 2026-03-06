@@ -5,6 +5,7 @@ out/
 __pycache__/
 *.pyc
 .ngin/workspace.overrides.json
+.ngin/cache/
 workspace/
 
 # Current local polyrepo layout (component repos live beside the umbrella repo)

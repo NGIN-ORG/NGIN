@@ -128,6 +128,24 @@
       }
     },
     {
+      "name": "Editor.Workspace",
+      "family": "Editor",
+      "type": "Editor",
+      "component": "NGIN.Editor",
+      "version": "0.1.0",
+      "compatiblePlatformRange": ">=0.1.0-alpha.1 <0.2.0",
+      "platforms": ["linux", "windows", "macos"],
+      "loadPhase": "Editor",
+      "dependencies": {
+        "required": ["Base.Foundation", "Core.Hosting", "Reflection.Metadata"],
+        "optional": ["Domain.ECS"]
+      },
+      "flags": {
+        "editorOnly": true,
+        "requiresReflection": true
+      }
+    },
+    {
       "name": "App.SyncProgram",
       "family": "App",
       "type": "Program",

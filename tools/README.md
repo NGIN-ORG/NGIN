@@ -2,49 +2,74 @@
 
 Utilities for managing the umbrella `NGIN` workspace.
 
-## `ngin-sync.py`
+## `ngin.py`
 
-Manifest-driven helper for:
+Primary platform CLI for:
 
 - listing pinned components
-- showing local workspace status (root repos / externals / overrides)
-- checking workspace health (`doctor`)
-- syncing source checkouts into `workspace/externals`
-- honoring local path overrides for active development
-- validating Spec 001 architecture constraints (`validate-spec001`)
-- resolving target module/plugin closure (`resolve-target`)
+- checking workspace status and health
+- restoring projects into a local package lockfile and cache
+- validating target composition from a `ngin.project.json`
+- printing resolved package/module graphs
+- producing deterministic target resolution reports
 
 ### Commands
 
-- `python tools/ngin-sync.py list`
-  - prints manifest components, versions, pins, and overrides
-- `python tools/ngin-sync.py status`
-  - prints where each component resolves from (`root`, `externals`, `override`, `none`)
-  - shows local HEAD and whether it matches the manifest pin
-- `python tools/ngin-sync.py doctor`
-  - checks required tools (`git`, `cmake`, `python`)
-  - validates manifest/override JSON
-  - checks local component repo presence and pin availability
-- `python tools/ngin-sync.py sync`
-  - clones/fetches/checks out pinned refs into `workspace/externals`
-  - skips components that are overridden or unpinned
-- `python tools/ngin-sync.py validate-spec001`
-  - validates JSON schemas + component graph + module graph + target composition + plugin compatibility
-  - validates semver/version-range fields and canonical load phases
-  - enforces pinned refs for `required: true` components on non-`dev` channels
-  - performs best-effort static scan of local CMake dependency references
-  - fails on violations (hard gate mode)
-- `python tools/ngin-sync.py resolve-target --target <TargetName>`
-  - resolves deterministic module/plugin closure for target packaging stages
-  - fails if graph is invalid or target cannot be resolved
-  - accepts `--target-dir <path>` for static-scan parity with `validate-spec001`
+- `python tools/ngin.py list`
+- `python tools/ngin.py status`
+- `python tools/ngin.py doctor`
+- `python tools/ngin.py sync`
+- `python tools/ngin.py package restore --project manifests/workspace.project.json`
+- `python tools/ngin.py package list`
+- `python tools/ngin.py package show NGIN.Core`
+- `python tools/ngin.py validate --project manifests/workspace.project.json --locked --target <TargetName>`
+- `python tools/ngin.py graph --project manifests/workspace.project.json --locked --target <TargetName>`
+- `python tools/ngin.py resolve --project manifests/workspace.project.json --locked --target <TargetName>`
 
-### JSON report output
+Project-manifest flow:
 
-Both `validate-spec001` and `resolve-target` support:
+- `python tools/ngin.py package restore --project docs/examples/project-model/ngin.project.json`
+- `python tools/ngin.py resolve --project docs/examples/project-model/ngin.project.json --locked`
+- `python tools/ngin.py validate --project docs/examples/project-model/ngin.project.json --locked --target Tools.Cli`
+- if `--project` is omitted, `ngin.py` walks upward from the current directory and uses the first `ngin.project.json` it finds
 
+Restore and locked-mode options:
+
+- `--lockfile <path>`
+- `--cache-dir <path>`
+- `--locked`
+- `--package-override Package.Name=/path/to/ngin.package.json`
+- `--package-root <path>`
+- `--allow-package-probe`
 - `--json-report <path>`
-  - writes a stable JSON report for CI artifact inspection
+
+Modern JSON report shape:
+
+- `ok`, `command`, `target`, `source`
+- `validation`: stable validation summary for CI (`ok`, `counts`, `errors`, `warnings`, `scanSkipped`)
+- `resolution`: stable package/module graph and warnings/errors payload
+- `lockfile`: active lockfile path and source
+- `cache`: active cache path and cache operation summary
+
+Canonical local workflow:
+
+1. `python tools/ngin.py package restore --project manifests/workspace.project.json`
+2. `python tools/ngin.py validate --project manifests/workspace.project.json --locked --target NGIN.CoreSample`
+3. `python tools/ngin.py graph --project manifests/workspace.project.json --locked --target NGIN.CoreSample`
+4. `python tools/ngin.py resolve --project manifests/workspace.project.json --locked --target NGIN.CoreSample`
+
+Workspace integration targets:
+
+- `cmake --build build/dev --target ngin.package.restore`
+- `cmake --build build/dev --target ngin.package.restore.report`
+- `cmake --build build/dev --target ngin.validate.report`
+- `cmake --build build/dev --target ngin.graph.core.report`
+- `cmake --build build/dev --target ngin.resolve.report.core`
+- `cmake --build build/dev --target ngin.reports`
+
+Default report output directory:
+
+- `build/dev/reports/`
 
 ### Platform metadata files
 
@@ -54,15 +79,27 @@ Platform metadata and draft schemas live in `manifests/`:
 - `project.schema.json`
 - `plugin-bundle.schema.json`
 - `package.schema.json`
-- `target.schema.json`
-- `module-graph.schema.json`
+- `package-catalog.schema.json`
+- `package-lock.schema.json`
 - `module-catalog.json`
+- `package-catalog.json`
 - `plugin-catalog.json`
-- `target-catalog.json`
+- `workspace.project.json`
 
-Windows note:
+### Cache Layout
 
-- use `py tools\\ngin-sync.py <command>` if `python` is not on `PATH`
+Default local cache root:
+
+- `.ngin/cache/`
+
+Package metadata cache layout:
+
+- `.ngin/cache/packages/<PackageName>/<Version>/ngin.package.json`
+- `.ngin/cache/packages/<PackageName>/<Version>/entry.json`
+
+Default project lockfile:
+
+- `ngin.lock.json` next to the selected `ngin.project.json`
 
 ### Current Layout (Chosen)
 
@@ -73,6 +110,7 @@ The current preferred local layout is root-level sibling component repos:
 - `./NGIN.Core`
 - `./NGIN.Reflection`
 - `./NGIN.ECS`
+- `./NGIN.Editor`
 
 `status` and `doctor` prefer this layout automatically, while `sync` can still populate `workspace/externals/` for missing components.
 
@@ -85,6 +123,9 @@ Create `.ngin/workspace.overrides.json`:
   "paths": {
     "NGIN.Base": "/home/me/dev/NGIN.Base",
     "NGIN.Reflection": "/home/me/dev/NGIN.Reflection"
+  },
+  "packages": {
+    "Samples.DemoPackage": "/home/me/dev/Samples.DemoPackage/ngin.package.json"
   }
 }
 ```

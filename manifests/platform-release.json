@@ -75,6 +75,22 @@
       ]
     },
     {
+      "name": "NGIN.Editor",
+      "repoUrl": "https://github.com/NGIN-ORG/NGIN.Editor.git",
+      "ref": null,
+      "version": "0.1",
+      "packageName": "NGINEditor",
+      "role": "optional",
+      "required": false,
+      "abiVersion": null,
+      "dependsOn": [
+        "NGIN.Base",
+        "NGIN.Core",
+        "NGIN.Reflection"
+      ],
+      "notes": "Planned editor product package; metadata is tracked here before the component repo is pinned."
+    },
+    {
       "name": "NGIN.Benchmark",
       "repoUrl": "https://github.com/NGIN-ORG/NGIN.Benchmark.git",
       "ref": null,

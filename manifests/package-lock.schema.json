@@ -1,0 +1,260 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ngin.dev/schemas/package-lock.schema.json",
+  "title": "NGIN Package Lockfile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "project",
+    "defaultTarget",
+    "targets"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1
+    },
+    "project": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "projectPath",
+        "manifestHash"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "projectPath": {
+          "type": "string",
+          "minLength": 1
+        },
+        "manifestHash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "defaultTarget": {
+      "type": "string",
+      "minLength": 1
+    },
+    "targets": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/targetLock"
+      }
+    }
+  },
+  "$defs": {
+    "packageDependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "versionRange",
+        "optional"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "versionRange": {
+          "type": "string"
+        },
+        "optional": {
+          "type": "boolean"
+        }
+      }
+    },
+    "providedContent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "modules",
+        "plugins"
+      ],
+      "properties": {
+        "modules": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "plugins": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "stringArrayMap": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    },
+    "stagePlan": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "requiredModules",
+          "optionalModules"
+        ],
+        "properties": {
+          "requiredModules": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "optionalModules": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "lockedPackage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "version",
+        "source",
+        "manifestPath",
+        "manifestHash",
+        "cacheEntryPath",
+        "cacheManifestPath",
+        "dependencies",
+        "provides"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        },
+        "manifestPath": {
+          "type": "string"
+        },
+        "manifestHash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "cacheEntryPath": {
+          "type": "string",
+          "minLength": 1
+        },
+        "cacheManifestPath": {
+          "type": "string",
+          "minLength": 1
+        },
+        "dependencies": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/packageDependency"
+          }
+        },
+        "provides": {
+          "$ref": "#/$defs/providedContent"
+        }
+      }
+    },
+    "targetLock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "source",
+        "type",
+        "platform",
+        "enableReflection",
+        "packages",
+        "providedByModule",
+        "providedByPlugin",
+        "requiredModules",
+        "optionalModules",
+        "enabledPlugins",
+        "stages",
+        "dependencyEdges",
+        "packageEdges"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1
+        },
+        "type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "platform": {
+          "type": "string",
+          "minLength": 1
+        },
+        "enableReflection": {
+          "type": "boolean"
+        },
+        "packages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/lockedPackage"
+          }
+        },
+        "providedByModule": {
+          "$ref": "#/$defs/stringArrayMap"
+        },
+        "providedByPlugin": {
+          "$ref": "#/$defs/stringArrayMap"
+        },
+        "requiredModules": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "optionalModules": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "enabledPlugins": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "stages": {
+          "$ref": "#/$defs/stagePlan"
+        },
+        "dependencyEdges": {
+          "$ref": "#/$defs/stringArrayMap"
+        },
+        "packageEdges": {
+          "$ref": "#/$defs/stringArrayMap"
+        }
+      }
+    }
+  }
+}

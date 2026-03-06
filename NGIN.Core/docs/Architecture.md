@@ -15,7 +15,7 @@ NGIN.Core implements the Spec 002 runtime-kernel contract.
 
 - Static-first module loading is production-ready in v1.
 - Dynamic plugin loading remains behind `IPluginCatalog` and `IPluginBinaryLoader` seams pending Spec 003.
-- Module catalogs are per-kernel (`IModuleCatalog` / `StaticModuleCatalog`), with legacy global registration kept only as a deprecated compatibility adapter.
+- Module catalogs are per-kernel (`IModuleCatalog` / `StaticModuleCatalog`) and must be supplied explicitly by the builder, host config, or tests.
 - Resolver enforces:
   - descriptor family layer constraints
   - canonical load-phase ordering

@@ -82,18 +82,6 @@ namespace NGIN::Core
         virtual auto LoadBinary(const ModuleDescriptor& descriptor) noexcept -> CoreResult<void> = 0;
     };
 
-    /// @brief Create default module catalog.
+    /// @brief Create a default per-kernel static module catalog.
     NGIN_CORE_API auto CreateStaticModuleCatalog() noexcept -> NGIN::Memory::Shared<IModuleCatalog>;
-
-    /// @brief Register a static module descriptor/factory pair on the legacy process-global catalog.
-    [[deprecated("Use IModuleCatalog/StaticModuleCatalog instead")]]
-    NGIN_CORE_API auto RegisterStaticModule(StaticModuleRegistration registration) noexcept -> CoreResult<void>;
-
-    /// @brief Clear all static module registrations (legacy process-global catalog).
-    [[deprecated("Use IModuleCatalog/StaticModuleCatalog instead")]]
-    NGIN_CORE_API void ClearStaticModules() noexcept;
-
-    /// @brief Snapshot all currently registered static modules (legacy process-global catalog).
-    [[deprecated("Use IModuleCatalog/StaticModuleCatalog instead")]]
-    NGIN_CORE_API auto GetStaticModules() noexcept -> std::vector<StaticModuleRegistration>;
 }

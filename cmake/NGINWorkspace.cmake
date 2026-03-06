@@ -6,6 +6,7 @@ set(NGIN_WORKSPACE_KNOWN_COMPONENTS
   NGIN.Core
   NGIN.Reflection
   NGIN.ECS
+  NGIN.Editor
   NGIN.Benchmark
 )
 

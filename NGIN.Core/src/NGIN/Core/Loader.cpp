@@ -5,7 +5,6 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
-#include <mutex>
 #include <sstream>
 
 namespace NGIN::Core
@@ -15,19 +14,6 @@ namespace NGIN::Core
         using NGIN::Serialization::JsonDocument;
         using NGIN::Serialization::JsonObject;
         using NGIN::Serialization::JsonValue;
-
-        std::mutex                               g_legacyCatalogMutex;
-        NGIN::Memory::Shared<StaticModuleCatalog> g_legacyCatalog;
-
-        [[nodiscard]] auto GetLegacyCatalog() -> NGIN::Memory::Shared<StaticModuleCatalog>
-        {
-            std::lock_guard<std::mutex> lock(g_legacyCatalogMutex);
-            if (!g_legacyCatalog)
-            {
-                g_legacyCatalog = NGIN::Memory::MakeShared<StaticModuleCatalog>();
-            }
-            return g_legacyCatalog;
-        }
 
         [[nodiscard]] auto FindMember(const JsonObject& object, const std::string_view key) -> const JsonValue*
         {
@@ -341,20 +327,5 @@ namespace NGIN::Core
     auto CreateStaticModuleCatalog() noexcept -> NGIN::Memory::Shared<IModuleCatalog>
     {
         return NGIN::Memory::MakeSharedAs<IModuleCatalog, StaticModuleCatalog>();
-    }
-
-    auto RegisterStaticModule(StaticModuleRegistration registration) noexcept -> CoreResult<void>
-    {
-        return GetLegacyCatalog()->Register(std::move(registration));
-    }
-
-    void ClearStaticModules() noexcept
-    {
-        GetLegacyCatalog()->Clear();
-    }
-
-    auto GetStaticModules() noexcept -> std::vector<StaticModuleRegistration>
-    {
-        return GetLegacyCatalog()->Snapshot();
     }
 }

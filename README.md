@@ -30,7 +30,7 @@ If you are shaping the platform:
 
 - update specs and architecture docs
 - update platform release and metadata manifests
-- run workspace validation and target resolution
+- run workspace validation and project-based target resolution
 
 If you are developing multiple NGIN components together:
 
@@ -49,20 +49,20 @@ Use `python3` (or `py` on Windows).
 1. Show platform-pinned components:
 
 ```bash
-python3 tools/ngin-sync.py list
+python3 tools/ngin.py list
 ```
 
 2. Check local workspace health:
 
 ```bash
-python3 tools/ngin-sync.py doctor
-python3 tools/ngin-sync.py status
+python3 tools/ngin.py doctor
+python3 tools/ngin.py status
 ```
 
 3. Sync missing pinned repos into `workspace/externals`:
 
 ```bash
-python3 tools/ngin-sync.py sync
+python3 tools/ngin.py sync
 ```
 
 4. Configure workspace helper project:
@@ -71,11 +71,19 @@ python3 tools/ngin-sync.py sync
 cmake --preset dev
 ```
 
-5. Run Spec 001 validation and target resolution:
+5. Validate and resolve a target:
 
 ```bash
-python3 tools/ngin-sync.py validate-spec001
-python3 tools/ngin-sync.py resolve-target --target NGIN.CoreSample
+python3 tools/ngin.py package restore --project manifests/workspace.project.json
+python3 tools/ngin.py validate --project manifests/workspace.project.json --locked --target NGIN.CoreSample
+python3 tools/ngin.py graph --project manifests/workspace.project.json --locked --target NGIN.CoreSample
+python3 tools/ngin.py resolve --project manifests/workspace.project.json --locked --target NGIN.CoreSample
+```
+
+6. Write the standard JSON report artifact set:
+
+```bash
+cmake --build build/dev --target ngin.reports
 ```
 
 ## Repository Map
@@ -84,8 +92,8 @@ python3 tools/ngin-sync.py resolve-target --target NGIN.CoreSample
 - `docs/api-drafts/`: concrete public draft artifacts for upcoming platform APIs
 - `docs/examples/`: example code and manifest shapes for draft platform workflows
 - `docs/specs/`: normative platform specs
-- `manifests/`: platform compatibility plus module/plugin/target metadata
-- `tools/`: workspace tooling such as `ngin-sync.py`
+- `manifests/`: platform compatibility plus package/module/plugin metadata, schemas, and the canonical workspace project
+- `tools/`: workspace tooling such as `ngin.py`
 - `cmake/`: workspace CMake integration helpers
 
 ## Required Platform Components (Current)
@@ -100,7 +108,6 @@ python3 tools/ngin-sync.py resolve-target --target NGIN.CoreSample
 - [NGIN Architecture](/home/berggrenmille/NGIN/docs/architecture/NGIN-Architecture.md)
 - [NGIN Platform Direction](/home/berggrenmille/NGIN/docs/architecture/NGIN-Platform-Direction.md)
 - [NGIN.Core Application Model Draft](/home/berggrenmille/NGIN/docs/api-drafts/NGIN.Core-ApplicationModel.md)
-- [Spec 001: Platform Layers and Dependency Model](/home/berggrenmille/NGIN/docs/specs/001-module-dependency-graph.md)
 - [Spec 002: Application Host and Builder Model](/home/berggrenmille/NGIN/docs/specs/002-runtime-kernel-design.md)
 - [Spec 003: Package, Module, and Plugin Model](/home/berggrenmille/NGIN/docs/specs/003-plugin-abi-header-spec.md)
 - [Spec 004: Editor and Product Architecture](/home/berggrenmille/NGIN/docs/specs/004-editor-architecture.md)

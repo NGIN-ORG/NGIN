@@ -25,7 +25,7 @@ This document summarizes the API-breaking hardening changes introduced in the Sp
 - Introduced per-kernel module catalog:
   - `IModuleCatalog`
   - `StaticModuleCatalog`
-- Legacy global functions (`RegisterStaticModule`, `ClearStaticModules`, `GetStaticModules`) are deprecated compatibility adapters.
+- Removed process-global static module registration helpers; all hosts and tests now build explicit catalogs.
 
 ## Host Config
 
@@ -64,4 +64,3 @@ This document summarizes the API-breaking hardening changes introduced in the Sp
   - dependency `requiredVersion`
   - phase ordering
   - service contract preflight warnings + runtime required-service checks
-
