@@ -30,7 +30,7 @@ If you are shaping the platform:
 
 - update specs and architecture docs
 - update platform release and metadata manifests
-- run workspace validation and project-based target resolution
+- run workspace validation, package restore, and project-based target resolution
 
 If you are developing multiple NGIN components together:
 
@@ -75,6 +75,7 @@ cmake --preset dev
 
 ```bash
 python3 tools/ngin.py package restore --project manifests/workspace.project.json
+python3 tools/ngin.py build --project manifests/workspace.project.json --target NGIN.CoreSample
 python3 tools/ngin.py validate --project manifests/workspace.project.json --locked --target NGIN.CoreSample
 python3 tools/ngin.py graph --project manifests/workspace.project.json --locked --target NGIN.CoreSample
 python3 tools/ngin.py resolve --project manifests/workspace.project.json --locked --target NGIN.CoreSample

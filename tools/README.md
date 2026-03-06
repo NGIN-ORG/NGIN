@@ -22,6 +22,7 @@ Primary platform CLI for:
 - `python tools/ngin.py package restore --project manifests/workspace.project.json`
 - `python tools/ngin.py package list`
 - `python tools/ngin.py package show NGIN.Core`
+- `python tools/ngin.py build --project manifests/workspace.project.json --target <TargetName>`
 - `python tools/ngin.py validate --project manifests/workspace.project.json --locked --target <TargetName>`
 - `python tools/ngin.py graph --project manifests/workspace.project.json --locked --target <TargetName>`
 - `python tools/ngin.py resolve --project manifests/workspace.project.json --locked --target <TargetName>`
@@ -29,6 +30,7 @@ Primary platform CLI for:
 Project-manifest flow:
 
 - `python tools/ngin.py package restore --project docs/examples/project-model/ngin.project.json`
+- `python tools/ngin.py build --project docs/examples/project-model/ngin.project.json --target Sandbox.Game`
 - `python tools/ngin.py resolve --project docs/examples/project-model/ngin.project.json --locked`
 - `python tools/ngin.py validate --project docs/examples/project-model/ngin.project.json --locked --target Tools.Cli`
 - if `--project` is omitted, `ngin.py` walks upward from the current directory and uses the first `ngin.project.json` it finds
@@ -54,14 +56,17 @@ Modern JSON report shape:
 Canonical local workflow:
 
 1. `python tools/ngin.py package restore --project manifests/workspace.project.json`
-2. `python tools/ngin.py validate --project manifests/workspace.project.json --locked --target NGIN.CoreSample`
-3. `python tools/ngin.py graph --project manifests/workspace.project.json --locked --target NGIN.CoreSample`
-4. `python tools/ngin.py resolve --project manifests/workspace.project.json --locked --target NGIN.CoreSample`
+2. `python tools/ngin.py build --project manifests/workspace.project.json --target NGIN.CoreSample`
+3. `python tools/ngin.py validate --project manifests/workspace.project.json --locked --target NGIN.CoreSample`
+4. `python tools/ngin.py graph --project manifests/workspace.project.json --locked --target NGIN.CoreSample`
+5. `python tools/ngin.py resolve --project manifests/workspace.project.json --locked --target NGIN.CoreSample`
 
 Workspace integration targets:
 
 - `cmake --build build/dev --target ngin.package.restore`
 - `cmake --build build/dev --target ngin.package.restore.report`
+- `cmake --build build/dev --target ngin.build.core`
+- `cmake --build build/dev --target ngin.build.core.report`
 - `cmake --build build/dev --target ngin.validate.report`
 - `cmake --build build/dev --target ngin.graph.core.report`
 - `cmake --build build/dev --target ngin.resolve.report.core`
@@ -96,10 +101,19 @@ Package metadata cache layout:
 
 - `.ngin/cache/packages/<PackageName>/<Version>/ngin.package.json`
 - `.ngin/cache/packages/<PackageName>/<Version>/entry.json`
+- `.ngin/cache/packages/<PackageName>/<Version>/content/...`
+
+Package manifests may now declare `contents.files[]` entries. `ngin package restore` copies those files into the package cache and records their hashes in both `entry.json` and `ngin.lock.json`.
 
 Default project lockfile:
 
 - `ngin.lock.json` next to the selected `ngin.project.json`
+
+Default staged build output:
+
+- `.ngin/build/<TargetName>/`
+
+`ngin build` consumes the lockfile and cached package contents, stages all package payloads into the output directory using each content file's `targetPath` (or original path when omitted), copies any declared project `configSources`, and writes `ngin.target.json` as the staged target manifest.
 
 ### Current Layout (Chosen)
 

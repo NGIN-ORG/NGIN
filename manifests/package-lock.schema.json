@@ -92,6 +92,38 @@
         }
       }
     },
+    "materializedContent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "kind",
+        "cachePath",
+        "hash"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "targetPath": {
+          "type": "string",
+          "minLength": 1
+        },
+        "cachePath": {
+          "type": "string",
+          "minLength": 1
+        },
+        "hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
     "stringArrayMap": {
       "type": "object",
       "additionalProperties": {
@@ -173,6 +205,12 @@
         },
         "provides": {
           "$ref": "#/$defs/providedContent"
+        },
+        "contents": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/materializedContent"
+          }
         }
       }
     },
@@ -183,8 +221,10 @@
         "name",
         "source",
         "type",
+        "profile",
         "platform",
         "enableReflection",
+        "configSources",
         "packages",
         "providedByModule",
         "providedByPlugin",
@@ -208,12 +248,28 @@
           "type": "string",
           "minLength": 1
         },
+        "profile": {
+          "type": "string",
+          "minLength": 1
+        },
         "platform": {
           "type": "string",
           "minLength": 1
         },
         "enableReflection": {
           "type": "boolean"
+        },
+        "environmentName": {
+          "type": "string"
+        },
+        "configSources": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "workingDirectory": {
+          "type": "string"
         },
         "packages": {
           "type": "array",

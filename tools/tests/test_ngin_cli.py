@@ -73,8 +73,9 @@ def make_package(
     compatible_platform_range: str = ">=0.1.0-alpha.1 <0.2.0",
     platforms: list[str] | None = None,
     dependencies: list[dict[str, object]] | None = None,
+    contents: list[dict[str, object]] | None = None,
 ) -> dict[str, object]:
-    return {
+    payload = {
         "schemaVersion": 1,
         "name": name,
         "version": version,
@@ -86,6 +87,9 @@ def make_package(
             "plugins": [],
         },
     }
+    if contents is not None:
+        payload["contents"] = {"files": contents}
+    return payload
 
 
 class NginCliTests(unittest.TestCase):
@@ -125,6 +129,9 @@ class NginCliTests(unittest.TestCase):
             self.assertEqual(report["command"], "package-restore")
             self.assertEqual(report["lockfile"]["path"], str(lockfile_path))
             self.assertEqual(report["cache"]["path"], str(cache_dir))
+            self.assertTrue(
+                (cache_dir / "packages" / "NGIN.Editor" / "0.1.0" / "content" / "assets" / "default-layout.json").exists()
+            )
 
     def test_package_restore_is_stable_for_unchanged_inputs(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir_text:
@@ -194,6 +201,198 @@ class NginCliTests(unittest.TestCase):
             self.assertEqual(cp_show.returncode, 0, cp_show.stdout + cp_show.stderr)
             self.assertIn("Cached package: NGIN.Core", cp_show.stdout)
             self.assertIn("source manifest:", cp_show.stdout)
+
+    def test_package_restore_materializes_declared_contents(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir_text:
+            temp_dir = Path(temp_dir_text)
+            package_root = temp_dir / "pkg"
+            package_root.mkdir(parents=True, exist_ok=True)
+            (package_root / "assets").mkdir()
+            (package_root / "assets" / "hello.txt").write_text("hello\n", encoding="utf-8")
+            package_path = package_root / "ngin.package.json"
+            project_path = temp_dir / "ngin.project.json"
+            lockfile_path = temp_dir / "ngin.lock.json"
+            cache_dir = temp_dir / "cache"
+
+            write_json(
+                package_path,
+                make_package(
+                    "Acme.Content",
+                    contents=[{"path": "assets/hello.txt", "kind": "asset"}],
+                ),
+            )
+            write_json(
+                project_path,
+                make_project(
+                    "Content.Target",
+                    [{"name": "Acme.Content", "versionRange": ">=0.1.0 <1.0.0", "optional": False}],
+                ),
+            )
+
+            cp = run_cli(
+                str(TOOLS_DIR / "ngin.py"),
+                "package",
+                "restore",
+                "--project",
+                str(project_path),
+                "--lockfile",
+                str(lockfile_path),
+                "--cache-dir",
+                str(cache_dir),
+                "--package-override",
+                f"Acme.Content={package_path}",
+            )
+            self.assertEqual(cp.returncode, 0, cp.stdout + cp.stderr)
+            materialized_path = cache_dir / "packages" / "Acme.Content" / "0.1.0" / "content" / "assets" / "hello.txt"
+            self.assertTrue(materialized_path.exists())
+            self.assertEqual("hello\n", materialized_path.read_text(encoding="utf-8"))
+
+            lockfile = read_json(lockfile_path)
+            package = lockfile["targets"][0]["packages"][0]
+            self.assertEqual(package["contents"][0]["path"], "assets/hello.txt")
+            self.assertTrue(package["contents"][0]["cachePath"].endswith("content/assets/hello.txt"))
+
+    def test_build_stages_workspace_target_contents(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir_text:
+            temp_dir = Path(temp_dir_text)
+            lockfile_path = temp_dir / "workspace.lock.json"
+            cache_dir = temp_dir / "cache"
+            output_dir = temp_dir / "stage"
+            report_path = temp_dir / "build.json"
+
+            restore = run_cli(
+                str(TOOLS_DIR / "ngin.py"),
+                "package",
+                "restore",
+                "--project",
+                str(WORKSPACE_PROJECT),
+                "--lockfile",
+                str(lockfile_path),
+                "--cache-dir",
+                str(cache_dir),
+            )
+            self.assertEqual(restore.returncode, 0, restore.stdout + restore.stderr)
+
+            cp = run_cli(
+                str(TOOLS_DIR / "ngin.py"),
+                "build",
+                "--lockfile",
+                str(lockfile_path),
+                "--cache-dir",
+                str(cache_dir),
+                "--target",
+                "NGIN.EditorSample",
+                "--output",
+                str(output_dir),
+                "--json-report",
+                str(report_path),
+            )
+            self.assertEqual(cp.returncode, 0, cp.stdout + cp.stderr)
+            self.assertTrue((output_dir / "assets" / "default-layout.json").exists())
+            self.assertTrue((output_dir / "config" / "diagnostics.defaults.json").exists())
+            self.assertTrue((output_dir / "ngin.target.json").exists())
+            report = read_json(report_path)
+            self.assertEqual(report["command"], "build")
+            self.assertEqual(report["build"]["path"], str(output_dir))
+            self.assertTrue(report["ok"])
+
+    def test_build_copies_config_sources_and_target_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir_text:
+            temp_dir = Path(temp_dir_text)
+            package_root = temp_dir / "pkg"
+            package_root.mkdir(parents=True, exist_ok=True)
+            (package_root / "assets").mkdir()
+            (package_root / "assets" / "hello.txt").write_text("hello\n", encoding="utf-8")
+            package_path = package_root / "ngin.package.json"
+            project_path = temp_dir / "ngin.project.json"
+            lockfile_path = temp_dir / "ngin.lock.json"
+            cache_dir = temp_dir / "cache"
+            output_dir = temp_dir / "stage"
+            (temp_dir / "config").mkdir()
+            (temp_dir / "config" / "app.json").write_text("{\"mode\":\"dev\"}\n", encoding="utf-8")
+
+            write_json(
+                package_path,
+                make_package(
+                    "Acme.Content",
+                    contents=[{"path": "assets/hello.txt", "kind": "asset", "targetPath": "share/hello.txt"}],
+                ),
+            )
+            project = make_project(
+                "Content.Target",
+                [{"name": "Acme.Content", "versionRange": ">=0.1.0 <1.0.0", "optional": False}],
+            )
+            project["targets"][0]["configSources"] = ["config/app.json"]
+            write_json(project_path, project)
+
+            restore = run_cli(
+                str(TOOLS_DIR / "ngin.py"),
+                "package",
+                "restore",
+                "--project",
+                str(project_path),
+                "--lockfile",
+                str(lockfile_path),
+                "--cache-dir",
+                str(cache_dir),
+                "--package-override",
+                f"Acme.Content={package_path}",
+            )
+            self.assertEqual(restore.returncode, 0, restore.stdout + restore.stderr)
+
+            cp = run_cli(
+                str(TOOLS_DIR / "ngin.py"),
+                "build",
+                "--lockfile",
+                str(lockfile_path),
+                "--cache-dir",
+                str(cache_dir),
+                "--target",
+                "Content.Target",
+                "--output",
+                str(output_dir),
+            )
+            self.assertEqual(cp.returncode, 0, cp.stdout + cp.stderr)
+            self.assertEqual("hello\n", (output_dir / "share" / "hello.txt").read_text(encoding="utf-8"))
+            self.assertEqual("{\"mode\":\"dev\"}\n", (output_dir / "config" / "app.json").read_text(encoding="utf-8"))
+            build_manifest = read_json(output_dir / "ngin.target.json")
+            self.assertEqual(build_manifest["target"], "Content.Target")
+            self.assertIn("config/app.json", build_manifest["configSources"])
+
+    def test_missing_declared_content_fails_restore(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir_text:
+            temp_dir = Path(temp_dir_text)
+            package_root = temp_dir / "pkg"
+            package_root.mkdir(parents=True, exist_ok=True)
+            package_path = package_root / "ngin.package.json"
+            project_path = temp_dir / "ngin.project.json"
+
+            write_json(
+                package_path,
+                make_package(
+                    "Acme.BrokenContent",
+                    contents=[{"path": "assets/missing.txt", "kind": "asset"}],
+                ),
+            )
+            write_json(
+                project_path,
+                make_project(
+                    "Broken.Content",
+                    [{"name": "Acme.BrokenContent", "versionRange": ">=0.1.0 <1.0.0", "optional": False}],
+                ),
+            )
+
+            cp = run_cli(
+                str(TOOLS_DIR / "ngin.py"),
+                "package",
+                "restore",
+                "--project",
+                str(project_path),
+                "--package-override",
+                f"Acme.BrokenContent={package_path}",
+            )
+            self.assertNotEqual(cp.returncode, 0, cp.stdout + cp.stderr)
+            self.assertIn("content file 'assets/missing.txt' does not exist", cp.stdout)
 
     def test_validate_workspace_project_target(self) -> None:
         cp = run_cli(
@@ -357,6 +556,40 @@ class NginCliTests(unittest.TestCase):
             )
             self.assertNotEqual(cp.returncode, 0, cp.stdout + cp.stderr)
             self.assertIn("missing cache entry", cp.stdout)
+
+    def test_missing_cached_content_fails_locked_resolve(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir_text:
+            temp_dir = Path(temp_dir_text)
+            lockfile_path = temp_dir / "workspace.lock.json"
+            cache_dir = temp_dir / "cache"
+
+            restore = run_cli(
+                str(TOOLS_DIR / "ngin.py"),
+                "package",
+                "restore",
+                "--project",
+                str(WORKSPACE_PROJECT),
+                "--lockfile",
+                str(lockfile_path),
+                "--cache-dir",
+                str(cache_dir),
+            )
+            self.assertEqual(restore.returncode, 0, restore.stdout + restore.stderr)
+            (cache_dir / "packages" / "NGIN.Editor" / "0.1.0" / "content" / "assets" / "default-layout.json").unlink()
+
+            cp = run_cli(
+                str(TOOLS_DIR / "ngin.py"),
+                "resolve",
+                "--locked",
+                "--lockfile",
+                str(lockfile_path),
+                "--cache-dir",
+                str(cache_dir),
+                "--target",
+                "NGIN.EditorSample",
+            )
+            self.assertNotEqual(cp.returncode, 0, cp.stdout + cp.stderr)
+            self.assertIn("missing content file", cp.stdout)
 
     def test_required_missing_package_fails_validation(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir_text:

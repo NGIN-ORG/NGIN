@@ -51,6 +51,9 @@ jobs:
       - name: Resolve workspace project target (locked JSON report)
         run: python tools/ngin.py resolve --project manifests/workspace.project.json --locked --lockfile build/workspace-reports/ngin.workspace.lock.json --cache-dir build/workspace-cache --target NGIN.CoreSample --json-report build/workspace-reports/ngin.resolve.NGIN.CoreSample.json
 
+      - name: Build workspace project target (locked JSON report)
+        run: python tools/ngin.py build --project manifests/workspace.project.json --lockfile build/workspace-reports/ngin.workspace.lock.json --cache-dir build/workspace-cache --target NGIN.CoreSample --output build/workspace-stage/NGIN.CoreSample --json-report build/workspace-reports/ngin.build.NGIN.CoreSample.json
+
       - name: Configure workspace (CMake preset)
         run: cmake --preset dev
 
@@ -64,6 +67,7 @@ jobs:
           path: |
             build/workspace-reports/
             build/workspace-cache/
+            build/workspace-stage/
             build/dev/reports/
           if-no-files-found: error
 

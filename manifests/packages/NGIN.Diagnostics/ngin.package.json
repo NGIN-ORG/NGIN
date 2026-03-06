@@ -20,6 +20,14 @@
       "optional": true
     }
   ],
+  "contents": {
+    "files": [
+      {
+        "path": "config/diagnostics.defaults.json",
+        "kind": "config"
+      }
+    ]
+  },
   "provides": {
     "modules": [],
     "plugins": [

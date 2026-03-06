@@ -556,6 +556,36 @@ def _relative_path_text(path: Path, base: Path) -> str:
         return str(path)
 
 
+def _valid_relative_content_path(path_text: str) -> bool:
+    candidate = Path(path_text)
+    return (
+        bool(path_text.strip())
+        and not candidate.is_absolute()
+        and ".." not in candidate.parts
+        and candidate.parts != ()
+    )
+
+
+def _materialized_content_payload(
+    *,
+    source_path: str,
+    kind: str,
+    cache_path: Path,
+    lock_root: Path | None = None,
+    target_path: str | None = None,
+    file_hash: str,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "path": source_path,
+        "kind": kind,
+        "cachePath": _relative_path_text(cache_path, lock_root) if lock_root is not None else str(cache_path),
+        "hash": file_hash,
+    }
+    if target_path:
+        payload["targetPath"] = target_path
+    return payload
+
+
 def _cache_dir_from_args(args: argparse.Namespace) -> Path:
     return Path(getattr(args, "cache_dir", None) or DEFAULT_CACHE_DIR)
 
@@ -611,6 +641,7 @@ def _command_report_payload(
     *,
     lockfile: dict[str, Any] | None = None,
     cache: dict[str, Any] | None = None,
+    build: dict[str, Any] | None = None,
     reason: str | None = None,
 ) -> dict[str, Any]:
     target = payload.get("target") if isinstance(payload, dict) else None
@@ -629,10 +660,13 @@ def _command_report_payload(
         result["lockfile"] = lockfile
     if cache is not None:
         result["cache"] = cache
+    if build is not None:
+        result["build"] = build
     if payload is not None:
         result.update(
             {
                 "type": payload.get("type"),
+                "profile": payload.get("profile"),
                 "platform": payload.get("platform"),
                 "enableReflection": payload.get("enableReflection"),
                 "project": payload.get("project"),
@@ -853,6 +887,7 @@ def _validate_package_manifest(
         "platforms",
         "dependencies",
         "bootstrap",
+        "contents",
         "provides",
     }
     _check_exact_keys(
@@ -959,6 +994,52 @@ def _validate_package_manifest(
             if not isinstance(bootstrap.get("autoApply"), bool):
                 add_error(report, f"{context}.bootstrap.autoApply must be a boolean")
                 ok = False
+
+    contents = package.get("contents")
+    if contents is not None:
+        if not isinstance(contents, dict):
+            add_error(report, f"{context}.contents must be an object")
+            ok = False
+        else:
+            _check_exact_keys(
+                contents,
+                {"files"},
+                {"files"},
+                f"{context}.contents",
+                report,
+            )
+            files = contents.get("files")
+            if not isinstance(files, list):
+                add_error(report, f"{context}.contents.files must be an array")
+                ok = False
+            else:
+                for index, item in enumerate(files):
+                    item_ctx = f"{context}.contents.files[{index}]"
+                    if not isinstance(item, dict):
+                        add_error(report, f"{item_ctx} must be an object")
+                        ok = False
+                        continue
+                    _check_exact_keys(
+                        item,
+                        {"path", "kind"},
+                        {"path", "kind", "targetPath"},
+                        item_ctx,
+                        report,
+                    )
+                    source_path = item.get("path")
+                    if not isinstance(source_path, str) or not _valid_relative_content_path(source_path):
+                        add_error(report, f"{item_ctx}.path must be a safe relative path")
+                        ok = False
+                    kind = item.get("kind")
+                    if kind not in {"asset", "config", "binary", "plugin", "tool", "other"}:
+                        add_error(report, f"{item_ctx}.kind must be one of ['asset', 'binary', 'config', 'other', 'plugin', 'tool']")
+                        ok = False
+                    target_path = item.get("targetPath")
+                    if target_path is not None and (
+                        not isinstance(target_path, str) or not _valid_relative_content_path(target_path)
+                    ):
+                        add_error(report, f"{item_ctx}.targetPath must be a safe relative path")
+                        ok = False
 
     return ok
 
@@ -1554,12 +1635,16 @@ def _project_target_to_target_entry(project_path: Path, project: dict[str, Any],
     return {
         "name": target.get("name"),
         "type": target.get("type"),
+        "profile": target.get("profile"),
         "platform": target.get("platform"),
         "enableReflection": bool(target.get("enableReflection", False)),
         "packages": [_normalize_package_reference(package) for package in target.get("packages", []) if isinstance(package, dict)],
         "modules": filtered_modules,
         "plugins": filtered_plugins,
         "stages": list(DEFAULT_STAGES),
+        "environmentName": target.get("environmentName"),
+        "configSources": [value for value in target.get("configSources", []) if isinstance(value, str)],
+        "workingDirectory": target.get("workingDirectory"),
         "sourceKind": "project",
         "projectPath": str(project_path),
         "projectName": project.get("name"),
@@ -1644,6 +1729,7 @@ def _build_cache_entry(
     manifest_hash: str,
     cache_manifest_path: Path,
     cache_entry_path: Path,
+    materialized_contents: list[dict[str, Any]],
 ) -> dict[str, Any]:
     return {
         "schemaVersion": 1,
@@ -1655,6 +1741,7 @@ def _build_cache_entry(
         "cachedManifestPath": str(cache_manifest_path.name),
         "cacheEntryPath": str(cache_entry_path),
         "dependencies": list(package.get("dependencies", [])),
+        "contents": list(materialized_contents),
         "provides": dict(package.get("provides", {})),
     }
 
@@ -1669,6 +1756,7 @@ def _cache_entry_summary(entry_path: Path, entry: dict[str, Any]) -> dict[str, A
         "cacheEntryPath": str(entry_path),
         "cachedManifestPath": str(entry_path.parent / str(entry.get("cachedManifestPath", ""))),
         "dependencies": list(entry.get("dependencies", [])),
+        "contents": list(entry.get("contents", [])),
         "provides": dict(entry.get("provides", {})),
     }
 
@@ -1873,6 +1961,27 @@ def _resolve_package_graph(
             add_error(report, message)
             continue
 
+        package_contents = package.get("contents", {"files": []})
+        content_files = package_contents.get("files", []) if isinstance(package_contents, dict) else []
+        manifest_root = manifest_path.parent
+        content_missing = False
+        for item in content_files:
+            if not isinstance(item, dict):
+                continue
+            source_path_text = str(item.get("path", ""))
+            source_path = (manifest_root / source_path_text).resolve()
+            if not source_path.exists():
+                message = f"package '{package_name}' content file '{source_path_text}' does not exist"
+                if optional:
+                    add_warning(report, message)
+                    content_missing = True
+                    break
+                add_error(report, message)
+                content_missing = True
+                break
+        if content_missing:
+            continue
+
         package_record = {
             "name": package_name,
             "version": package_version,
@@ -1881,6 +1990,7 @@ def _resolve_package_graph(
             "source": source,
             "component": catalog_packages_by_name.get(package_name, {}).get("component"),
             "dependencies": package.get("dependencies", []),
+            "contents": package_contents,
             "provides": package.get("provides", {}),
         }
         resolved[package_name] = package_record
@@ -1977,8 +2087,12 @@ def _render_target_resolution(
         "source": target_source,
         "project": target.get("projectName"),
         "type": target.get("type"),
+        "profile": target.get("profile"),
         "platform": target.get("platform"),
         "enableReflection": target.get("enableReflection"),
+        "environmentName": target.get("environmentName"),
+        "configSources": list(target.get("configSources", [])),
+        "workingDirectory": target.get("workingDirectory"),
         "packages": [
             {
                 "name": package["name"],
@@ -1987,6 +2101,7 @@ def _render_target_resolution(
                 "manifestPath": package["manifestPath"],
                 "manifestHash": package.get("manifestHash"),
                 "dependencies": list(package.get("dependencies", [])),
+                "contents": list((package.get("contents", {}) or {}).get("files", [])),
                 "provides": dict(package.get("provides", {})),
             }
             for package in ordered_packages
@@ -2318,6 +2433,17 @@ def _build_cache_summary(
     return payload
 
 
+def _build_output_summary(output_dir: Path, *, manifest_path: Path | None = None, staged_files: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "path": str(output_dir),
+    }
+    if manifest_path is not None:
+        payload["manifestPath"] = str(manifest_path)
+    if staged_files is not None:
+        payload["stagedFiles"] = list(staged_files)
+    return payload
+
+
 def _resolve_live_target_payload(
     args: argparse.Namespace,
     *,
@@ -2374,6 +2500,14 @@ def _resolve_locked_package_paths(lockfile_path: Path, package: dict[str, Any]) 
     return entry_path, manifest_path
 
 
+def _resolve_locked_content_path(lockfile_path: Path, content: dict[str, Any]) -> Path:
+    lock_root = lockfile_path.parent
+    cache_path = Path(str(content.get("cachePath", "")))
+    if not cache_path.is_absolute():
+        cache_path = (lock_root / cache_path).resolve()
+    return cache_path
+
+
 def _validate_locked_target_cache(
     target_payload: dict[str, Any],
     lockfile_path: Path,
@@ -2413,6 +2547,33 @@ def _validate_locked_target_cache(
             report,
         ):
             add_error(report, f"locked package '{package.get('name')}' cached manifest is invalid")
+
+        entry_contents = entry.get("contents", [])
+        if not isinstance(entry_contents, list):
+            add_error(report, f"locked cache entry '{entry_path}' contents must be an array")
+            continue
+
+        locked_contents = package.get("contents", [])
+        if not isinstance(locked_contents, list):
+            add_error(report, f"lockfile package '{package.get('name')}' contents must be an array")
+            continue
+        if len(entry_contents) != len(locked_contents):
+            add_error(report, f"locked package '{package.get('name')}' content count does not match cache entry")
+            continue
+
+        for locked_content, entry_content in zip(locked_contents, entry_contents):
+            if not isinstance(locked_content, dict) or not isinstance(entry_content, dict):
+                add_error(report, f"locked package '{package.get('name')}' contains invalid content metadata")
+                continue
+            content_path = _resolve_locked_content_path(lockfile_path, locked_content)
+            if not content_path.exists():
+                add_error(report, f"locked package '{package.get('name')}' is missing content file '{content_path}'")
+                continue
+            content_hash = _file_sha256(content_path)
+            if str(locked_content.get("hash", "")) != content_hash:
+                add_error(report, f"lockfile content hash mismatch for package '{package.get('name')}' path '{locked_content.get('path')}'")
+            if str(entry_content.get("hash", "")) != content_hash:
+                add_error(report, f"cache entry content hash mismatch for package '{package.get('name')}' path '{locked_content.get('path')}'")
 
 
 def _resolve_locked_target_payload(
@@ -2460,6 +2621,9 @@ def _resolve_locked_target_payload(
     payload["target"] = target.get("name")
     payload["source"] = f"lockfile:{lockfile_path}"
     payload["project"] = project_info.get("name")
+    if isinstance(project_info.get("projectPath"), str) and project_info.get("projectPath"):
+        payload["projectPath"] = project_info.get("projectPath")
+        payload["projectRoot"] = str(Path(str(project_info.get("projectPath"))).resolve().parent)
     _validate_locked_target_cache(payload, lockfile_path, report)
 
     context = {
@@ -2522,6 +2686,159 @@ def _resolve_all_project_targets_live(
     return context, resolved_targets
 
 
+def _materialize_package_contents(
+    package: dict[str, Any],
+    package_dir: Path,
+) -> list[dict[str, Any]]:
+    manifest_path = Path(str(package.get("manifestPath", ""))).resolve()
+    source_root = manifest_path.parent
+    raw_contents = package.get("contents", {})
+    if isinstance(raw_contents, dict):
+        content_items = raw_contents.get("files", [])
+    elif isinstance(raw_contents, list):
+        content_items = raw_contents
+    else:
+        content_items = []
+    materialized: list[dict[str, Any]] = []
+
+    for item in content_items:
+        if not isinstance(item, dict):
+            continue
+        source_path_text = str(item.get("path", ""))
+        if not source_path_text:
+            continue
+        target_path_text = str(item.get("targetPath", source_path_text))
+        source_path = (source_root / source_path_text).resolve()
+        destination_path = package_dir / "content" / Path(target_path_text)
+        destination_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source_path, destination_path)
+        materialized.append(
+            _materialized_content_payload(
+                source_path=source_path_text,
+                kind=str(item.get("kind", "")),
+                cache_path=destination_path,
+                target_path=target_path_text if target_path_text != source_path_text else None,
+                file_hash=_file_sha256(destination_path),
+            )
+        )
+
+    return materialized
+
+
+def _default_build_output_dir(target_name: str) -> Path:
+    return ROOT_DIR / ".ngin" / "build" / target_name
+
+
+def _resolve_build_output_dir(args: argparse.Namespace, target_name: str) -> Path:
+    output = getattr(args, "output_dir", None)
+    if output:
+        return Path(output).resolve()
+    return _default_build_output_dir(target_name).resolve()
+
+
+def _copy_file_with_parent(source: Path, destination: Path) -> None:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(source, destination)
+
+
+def _stage_target_layout(
+    payload: dict[str, Any],
+    lockfile_path: Path,
+    output_dir: Path,
+    report: dict[str, Any],
+) -> tuple[list[dict[str, Any]], Path]:
+    if output_dir.exists():
+        shutil.rmtree(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    staged_files: list[dict[str, Any]] = []
+    staged_destinations: dict[Path, str] = {}
+
+    for package in payload.get("packages", []):
+        if not isinstance(package, dict):
+            continue
+        package_name = str(package.get("name", ""))
+        for content in package.get("contents", []):
+            if not isinstance(content, dict):
+                continue
+            source_cache_path = _resolve_locked_content_path(lockfile_path, content)
+            destination_rel = str(content.get("targetPath") or content.get("path") or "")
+            destination = (output_dir / destination_rel).resolve()
+            if destination in staged_destinations:
+                add_error(
+                    report,
+                    f"build output collision: '{destination_rel}' from package '{package_name}' conflicts with package "
+                    f"'{staged_destinations[destination]}'",
+                )
+                continue
+            if not source_cache_path.exists():
+                add_error(report, f"build input missing for package '{package_name}': {source_cache_path}")
+                continue
+            _copy_file_with_parent(source_cache_path, destination)
+            staged_destinations[destination] = package_name
+            staged_files.append(
+                {
+                    "package": package_name,
+                    "kind": content.get("kind"),
+                    "source": str(source_cache_path),
+                    "destination": str(destination),
+                    "relativeDestination": destination_rel,
+                    "hash": _file_sha256(destination),
+                }
+            )
+
+    for config_source in payload.get("configSources", []):
+        source_path = (Path(str(payload.get("projectRoot", ""))) / config_source).resolve()
+        if not source_path.exists():
+            add_error(report, f"build config source missing for target '{payload.get('target')}': {config_source}")
+            continue
+        destination = (output_dir / config_source).resolve()
+        if destination in staged_destinations:
+            add_error(report, f"build output collision: config source '{config_source}' conflicts with staged package content")
+            continue
+        _copy_file_with_parent(source_path, destination)
+        staged_destinations[destination] = "<config>"
+        staged_files.append(
+            {
+                "package": None,
+                "kind": "config-source",
+                "source": str(source_path),
+                "destination": str(destination),
+                "relativeDestination": config_source,
+                "hash": _file_sha256(destination),
+            }
+        )
+
+    manifest_path = output_dir / "ngin.target.json"
+    build_manifest = {
+        "schemaVersion": 1,
+        "target": payload.get("target"),
+        "project": payload.get("project"),
+        "type": payload.get("type"),
+        "profile": payload.get("profile"),
+        "platform": payload.get("platform"),
+        "environmentName": payload.get("environmentName"),
+        "workingDirectory": payload.get("workingDirectory"),
+        "configSources": list(payload.get("configSources", [])),
+        "packages": [
+            {
+                "name": package.get("name"),
+                "version": package.get("version"),
+                "source": package.get("source"),
+                "contents": list(package.get("contents", [])),
+            }
+            for package in payload.get("packages", [])
+            if isinstance(package, dict)
+        ],
+        "requiredModules": list(payload.get("requiredModules", [])),
+        "optionalModules": list(payload.get("optionalModules", [])),
+        "enabledPlugins": list(payload.get("enabledPlugins", [])),
+        "stagedFiles": staged_files,
+    }
+    manifest_path.write_text(json.dumps(build_manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return staged_files, manifest_path
+
+
 def _write_package_cache(
     resolved_targets: dict[str, dict[str, Any]],
     cache_dir: Path,
@@ -2547,12 +2864,14 @@ def _write_package_cache(
             cache_entry_path = package_dir / "entry.json"
             shutil.copyfile(source_manifest_path, cache_manifest_path)
             manifest_hash = _file_sha256(cache_manifest_path)
+            materialized_contents = _materialize_package_contents(package, package_dir)
 
             entry = _build_cache_entry(
                 package,
                 manifest_hash,
                 cache_manifest_path,
                 cache_entry_path,
+                materialized_contents,
             )
             cache_entry_path.write_text(json.dumps(entry, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
@@ -2560,9 +2879,11 @@ def _write_package_cache(
                 "entryPath": cache_entry_path,
                 "manifestPath": cache_manifest_path,
                 "manifestHash": manifest_hash,
+                "contents": materialized_contents,
                 "sourceKind": package.get("source"),
             }
             cache_writes.extend([str(cache_manifest_path), str(cache_entry_path)])
+            cache_writes.extend(str(content["cachePath"]) for content in materialized_contents)
 
     return cache_records, sorted(cache_writes)
 
@@ -2592,6 +2913,17 @@ def _build_lockfile_payload(
                     "cacheEntryPath": _relative_path_text(Path(cache_record["entryPath"]), lock_root),
                     "cacheManifestPath": _relative_path_text(Path(cache_record["manifestPath"]), lock_root),
                     "dependencies": list(package.get("dependencies", [])),
+                    "contents": [
+                        _materialized_content_payload(
+                            source_path=str(content.get("path", "")),
+                            kind=str(content.get("kind", "")),
+                            cache_path=Path(str(content.get("cachePath", ""))),
+                            lock_root=lock_root,
+                            target_path=str(content.get("targetPath", "")) if content.get("targetPath") else None,
+                            file_hash=str(content.get("hash", "")),
+                        )
+                        for content in cache_record.get("contents", [])
+                    ],
                     "provides": dict(package.get("provides", {})),
                 }
             )
@@ -2601,8 +2933,12 @@ def _build_lockfile_payload(
                 "name": payload.get("target"),
                 "source": payload.get("source"),
                 "type": payload.get("type"),
+                "profile": payload.get("profile"),
                 "platform": payload.get("platform"),
                 "enableReflection": payload.get("enableReflection"),
+                "environmentName": payload.get("environmentName"),
+                "configSources": list(payload.get("configSources", [])),
+                "workingDirectory": payload.get("workingDirectory"),
                 "packages": packages,
                 "providedByModule": dict(payload.get("providedByModule", {})),
                 "providedByPlugin": dict(payload.get("providedByPlugin", {})),
@@ -2675,6 +3011,7 @@ def cmd_package_restore(args: argparse.Namespace) -> int:
             "version": version,
             "cacheEntryPath": str(cache_records[(name, version)]["entryPath"]),
             "cacheManifestPath": str(cache_records[(name, version)]["manifestPath"]),
+            "contents": list(cache_records[(name, version)].get("contents", [])),
             "sourceKind": str(cache_records[(name, version)]["sourceKind"]),
         }
         for name, version in sorted(cache_records.keys())
@@ -2787,8 +3124,14 @@ def cmd_package_show(args: argparse.Namespace) -> int:
         print(f"  cached manifest: {entry['cachedManifestPath']}")
         print(f"  cache entry: {entry['cacheEntryPath']}")
         print(f"  dependencies: {len(entry['dependencies'])}")
+        print(f"  contents: {len(entry['contents'])}")
         print(f"  modules: {len(entry['provides'].get('modules', []))}")
         print(f"  plugins: {len(entry['provides'].get('plugins', []))}")
+        for content in entry["contents"]:
+            print(
+                f"    - {content.get('kind')} {content.get('path')} -> "
+                f"{content.get('cachePath')}"
+            )
 
     write_json_report(
         args.json_report,
@@ -2798,6 +3141,77 @@ def cmd_package_show(args: argparse.Namespace) -> int:
             report,
             {"source": f"cache:{cache_dir}", "restoredPackages": entries},
             cache=_build_cache_summary(cache_dir, mode="show", entries=entries),
+        ),
+    )
+    return 0
+
+
+def cmd_build(args: argparse.Namespace) -> int:
+    resolved = _resolve_locked_target_payload(args, require_target=True)
+    if resolved is None:
+        return 1
+
+    context, _, payload = resolved
+    report = context["resolutionReport"]
+    validation = context["validation"]
+    if payload is None or report["errors"]:
+        _print_validation_summary(validation)
+        if report["errors"]:
+            print("\nBuild errors:")
+            for issue in report["errors"]:
+                print(f"  - {issue}")
+        write_json_report(
+            args.json_report,
+            _command_report_payload(
+                "build",
+                validation,
+                report,
+                payload,
+                lockfile=context.get("lockfileSummary"),
+                cache=context.get("cacheSummary"),
+                build=_build_output_summary(_resolve_build_output_dir(args, str(getattr(args, "target_name", "") or payload.get("target", "target")))),
+                reason="target build failed",
+            ),
+        )
+        return 1
+
+    output_dir = _resolve_build_output_dir(args, str(payload.get("target", "target")))
+    staged_files, manifest_path = _stage_target_layout(payload, Path(context["lockfileSummary"]["path"]), output_dir, report)
+    if report["errors"]:
+        print("\nBuild errors:")
+        for issue in report["errors"]:
+            print(f"  - {issue}")
+        write_json_report(
+            args.json_report,
+            _command_report_payload(
+                "build",
+                validation,
+                report,
+                payload,
+                lockfile=context.get("lockfileSummary"),
+                cache=context.get("cacheSummary"),
+                build=_build_output_summary(output_dir, manifest_path=manifest_path, staged_files=staged_files),
+                reason="target build failed",
+            ),
+        )
+        return 1
+
+    print(f"Built target: {payload['target']}")
+    print(f"  source: {payload['source']}")
+    print(f"  output: {output_dir}")
+    print(f"  staged files: {len(staged_files)}")
+    print(f"  manifest: {manifest_path}")
+
+    write_json_report(
+        args.json_report,
+        _command_report_payload(
+            "build",
+            validation,
+            report,
+            payload,
+            lockfile=context.get("lockfileSummary"),
+            cache=context.get("cacheSummary"),
+            build=_build_output_summary(output_dir, manifest_path=manifest_path, staged_files=staged_files),
         ),
     )
     return 0
@@ -3049,10 +3463,20 @@ def _add_package_restore_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--target-dir", help="Alternate externals target directory for validation parity.")
     parser.add_argument("--json-report", help="Write command output as JSON to this path.")
 
+
+def _add_build_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--project", dest="project_path", help="Path to a specific ngin.project.json file.")
+    parser.add_argument("--target", dest="target_name", help="Target name from the selected project manifest or lockfile.")
+    parser.add_argument("--lockfile", help="Path to a specific ngin.lock.json file.")
+    parser.add_argument("--cache-dir", help="Path to the local package cache directory.")
+    parser.add_argument("--output", dest="output_dir", help="Output directory for the staged target layout.")
+    parser.add_argument("--target-dir", help="Alternate externals target directory for validation parity.")
+    parser.add_argument("--json-report", help="Write command output as JSON to this path.")
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="ngin",
-        description="NGIN platform CLI for project/package composition and workspace tooling.",
+        description="NGIN platform CLI for project/package composition, staging, and workspace tooling.",
     )
     sub = parser.add_subparsers(dest="command")
 
@@ -3078,6 +3502,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_package_show.add_argument("package_name", help="Package name to inspect in the local cache.")
     p_package_show.add_argument("--cache-dir", help="Path to the local package cache directory.")
     p_package_show.add_argument("--json-report", help="Write command output as JSON to this path.")
+
+    p_build = sub.add_parser("build", help="Build a staged target layout from a restored lockfile and cache.")
+    _add_build_args(p_build)
 
     p_validate = sub.add_parser("validate", help="Validate a target's package/module/plugin composition.")
     _add_shared_resolution_args(p_validate)
@@ -3112,6 +3539,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_package_show(args)
         parser.print_help()
         return 1
+    if args.command == "build":
+        return cmd_build(args)
     if args.command == "validate":
         return cmd_validate(args)
     if args.command == "graph":

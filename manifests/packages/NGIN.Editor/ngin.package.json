@@ -20,6 +20,14 @@
       "optional": false
     }
   ],
+  "contents": {
+    "files": [
+      {
+        "path": "assets/default-layout.json",
+        "kind": "config"
+      }
+    ]
+  },
   "provides": {
     "modules": [
       "Editor.Workspace"

@@ -21,8 +21,10 @@ find_package(Python3 COMPONENTS Interpreter REQUIRED)
 set(NGIN_WORKSPACE_PROJECT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/manifests/workspace.project.json")
 set(NGIN_WORKSPACE_REPORT_DIR "${CMAKE_BINARY_DIR}/reports")
 set(NGIN_WORKSPACE_CACHE_DIR "${CMAKE_BINARY_DIR}/cache")
+set(NGIN_WORKSPACE_STAGE_DIR "${CMAKE_BINARY_DIR}/stage")
 set(NGIN_WORKSPACE_LOCKFILE_PATH "${NGIN_WORKSPACE_REPORT_DIR}/ngin.workspace.lock.json")
 set(NGIN_PACKAGE_RESTORE_REPORT_PATH "${NGIN_WORKSPACE_REPORT_DIR}/ngin.package.restore.json")
+set(NGIN_BUILD_REPORT_PATH "${NGIN_WORKSPACE_REPORT_DIR}/ngin.build.NGIN.CoreSample.json")
 set(NGIN_VALIDATE_REPORT_PATH "${NGIN_WORKSPACE_REPORT_DIR}/ngin.validate.NGIN.CoreSample.json")
 set(NGIN_GRAPH_REPORT_PATH "${NGIN_WORKSPACE_REPORT_DIR}/ngin.graph.NGIN.CoreSample.json")
 set(NGIN_RESOLVE_REPORT_PATH "${NGIN_WORKSPACE_REPORT_DIR}/ngin.resolve.NGIN.CoreSample.json")
@@ -50,6 +52,37 @@ add_custom_target(ngin.validate
     --cache-dir "${NGIN_WORKSPACE_CACHE_DIR}"
     --target NGIN.CoreSample
   COMMENT "Validate the core sample target from the canonical workspace project"
+  VERBATIM
+)
+
+add_custom_target(ngin.build.core
+  DEPENDS ngin.package.restore
+  COMMAND ${CMAKE_COMMAND} -E make_directory "${NGIN_WORKSPACE_STAGE_DIR}"
+  COMMAND ${Python3_EXECUTABLE}
+    "${CMAKE_CURRENT_SOURCE_DIR}/tools/ngin.py"
+    build
+    --project "${NGIN_WORKSPACE_PROJECT_PATH}"
+    --lockfile "${NGIN_WORKSPACE_LOCKFILE_PATH}"
+    --cache-dir "${NGIN_WORKSPACE_CACHE_DIR}"
+    --target NGIN.CoreSample
+    --output "${NGIN_WORKSPACE_STAGE_DIR}/NGIN.CoreSample"
+  COMMENT "Build the staged layout for the core sample target"
+  VERBATIM
+)
+
+add_custom_target(ngin.build.core.report
+  DEPENDS ngin.package.restore.report
+  COMMAND ${CMAKE_COMMAND} -E make_directory "${NGIN_WORKSPACE_STAGE_DIR}"
+  COMMAND ${Python3_EXECUTABLE}
+    "${CMAKE_CURRENT_SOURCE_DIR}/tools/ngin.py"
+    build
+    --project "${NGIN_WORKSPACE_PROJECT_PATH}"
+    --lockfile "${NGIN_WORKSPACE_LOCKFILE_PATH}"
+    --cache-dir "${NGIN_WORKSPACE_CACHE_DIR}"
+    --target NGIN.CoreSample
+    --output "${NGIN_WORKSPACE_STAGE_DIR}/NGIN.CoreSample"
+    --json-report "${NGIN_BUILD_REPORT_PATH}"
+  COMMENT "Build the staged layout for the core sample target and write a stable JSON report"
   VERBATIM
 )
 
@@ -161,6 +194,7 @@ add_custom_target(ngin.resolve.report.core
 add_custom_target(ngin.reports
   DEPENDS
     ngin.package.restore.report
+    ngin.build.core.report
     ngin.validate.report
     ngin.graph.core.report
     ngin.resolve.report.core

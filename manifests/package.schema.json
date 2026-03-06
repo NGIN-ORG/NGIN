@@ -46,6 +46,9 @@
     "bootstrap": {
       "$ref": "#/$defs/packageBootstrap"
     },
+    "contents": {
+      "$ref": "#/$defs/packageContents"
+    },
     "provides": {
       "$ref": "#/$defs/providedContent"
     }
@@ -93,6 +96,50 @@
         },
         "autoApply": {
           "type": "boolean"
+        }
+      }
+    },
+    "packageContentFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "kind"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "asset",
+            "config",
+            "binary",
+            "plugin",
+            "tool",
+            "other"
+          ]
+        },
+        "targetPath": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "packageContents": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "files"
+      ],
+      "properties": {
+        "files": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/packageContentFile"
+          }
         }
       }
     },
