@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Package SchemaVersion="1"
+         Name="NGIN.ECS"
+         Version="0.1.0"
+         CompatiblePlatformRange=">=0.1.0-alpha.1 &lt;0.2.0">
+  <Platforms>
+    <Platform Name="linux" />
+    <Platform Name="windows" />
+    <Platform Name="macos" />
+  </Platforms>
+  <Dependencies>
+    <Dependency Name="NGIN.Base" VersionRange=">=0.1.0 &lt;1.0.0" Optional="false" />
+    <Dependency Name="NGIN.Core" VersionRange=">=0.1.0 &lt;1.0.0" Optional="false" />
+  </Dependencies>
+  <Bootstrap Mode="BuilderHookV1"
+             EntryPoint="NGIN_Bootstrap_NGIN_ECS"
+             AutoApply="true" />
+  <Provides>
+    <Module Name="Domain.ECS" />
+  </Provides>
+</Package>

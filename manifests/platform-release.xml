@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PlatformRelease SchemaVersion="1"
+                 PlatformVersion="0.1.0-alpha.1"
+                 ReleaseDate="2026-03-04"
+                 Channel="alpha">
+  <Compatibility ModuleGraphSpec="001" />
+  <ReleaseNotes Summary="NGIN.Core is the current host implementation. Packages are the primary composition unit for workspace tooling." />
+  <Components>
+    <Component Name="NGIN.Base"
+               RepoUrl="https://github.com/NGIN-ORG/NGIN.Base.git"
+               Ref="9c8ce0431dd1d545ff30bbcba78e0421633342c0"
+               Version="0.1"
+               Required="true">
+      <DependsOn />
+    </Component>
+    <Component Name="NGIN.Log"
+               RepoUrl="https://github.com/NGIN-ORG/NGIN.Log.git"
+               Ref="272625925130cf3cbf9e57008deb7bcdd98c802d"
+               Version="0.1"
+               Required="true">
+      <DependsOn>
+        <ComponentRef Name="NGIN.Base" />
+      </DependsOn>
+    </Component>
+    <Component Name="NGIN.Core"
+               RepoUrl="https://github.com/NGIN-ORG/NGIN.Core.git"
+               Ref="272625925130cf3cbf9e57008deb7bcdd98c802d"
+               Version="0.1"
+               Required="true">
+      <DependsOn>
+        <ComponentRef Name="NGIN.Base" />
+        <ComponentRef Name="NGIN.Log" />
+      </DependsOn>
+    </Component>
+    <Component Name="NGIN.Reflection"
+               RepoUrl="https://github.com/NGIN-ORG/NGIN.Reflection.git"
+               Ref="b0a9afdd9c4ff419ed4d98b5ab460c8d201d67fb"
+               Version="0.1"
+               Required="true">
+      <DependsOn>
+        <ComponentRef Name="NGIN.Base" />
+      </DependsOn>
+    </Component>
+    <Component Name="NGIN.ECS"
+               RepoUrl="https://github.com/NGIN-ORG/NGIN.ECS.git"
+               Ref="266533462d3318d8678064eaef3117f490408bdf"
+               Version="0.1"
+               Required="false">
+      <DependsOn>
+        <ComponentRef Name="NGIN.Base" />
+      </DependsOn>
+    </Component>
+    <Component Name="NGIN.Editor"
+               RepoUrl="https://github.com/NGIN-ORG/NGIN.Editor.git"
+               Version="0.1"
+               Required="false">
+      <DependsOn>
+        <ComponentRef Name="NGIN.Base" />
+        <ComponentRef Name="NGIN.Core" />
+        <ComponentRef Name="NGIN.Reflection" />
+      </DependsOn>
+    </Component>
+    <Component Name="NGIN.Benchmark"
+               RepoUrl="https://github.com/NGIN-ORG/NGIN.Benchmark.git"
+               Version="0.1"
+               Required="false">
+      <DependsOn>
+        <ComponentRef Name="NGIN.Base" />
+      </DependsOn>
+    </Component>
+  </Components>
+</PlatformRelease>

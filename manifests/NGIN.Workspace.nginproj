@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="1" Name="NGIN.Workspace" DefaultTarget="NGIN.CoreSample">
+  <Targets>
+    <Target Name="NGIN.CoreSample"
+            Type="Runtime"
+            Profile="ConsoleApp"
+            Platform="linux-x64"
+            EnableReflection="false"
+            Environment="Dev"
+            WorkingDirectory=".">
+      <Packages>
+        <PackageRef Name="NGIN.Core" VersionRange=">=0.1.0 &lt;0.2.0" Optional="false" />
+        <PackageRef Name="NGIN.ECS" VersionRange=">=0.1.0 &lt;0.2.0" Optional="false" />
+      </Packages>
+      <Modules>
+        <Enable Name="Core.Hosting" />
+        <Enable Name="Domain.ECS" />
+      </Modules>
+      <Plugins />
+      <ConfigSources />
+    </Target>
+    <Target Name="NGIN.EditorSample"
+            Type="Editor"
+            Profile="Editor"
+            Platform="linux-x64"
+            EnableReflection="true"
+            Environment="Dev"
+            WorkingDirectory=".">
+      <Packages>
+        <PackageRef Name="NGIN.Core" VersionRange=">=0.1.0 &lt;0.2.0" Optional="false" />
+        <PackageRef Name="NGIN.ECS" VersionRange=">=0.1.0 &lt;0.2.0" Optional="false" />
+        <PackageRef Name="NGIN.Editor" VersionRange=">=0.1.0 &lt;0.2.0" Optional="false" />
+        <PackageRef Name="NGIN.Reflection" VersionRange=">=0.1.0 &lt;0.2.0" Optional="false" />
+        <PackageRef Name="NGIN.Diagnostics" VersionRange=">=0.1.0 &lt;0.2.0" Optional="false" />
+      </Packages>
+      <Modules>
+        <Enable Name="Core.Hosting" />
+        <Enable Name="Domain.ECS" />
+        <Enable Name="Editor.Workspace" />
+      </Modules>
+      <Plugins>
+        <Enable Name="NGIN.Diagnostics" />
+      </Plugins>
+      <ConfigSources />
+    </Target>
+    <Target Name="NGIN.ProgramSync"
+            Type="Program"
+            Profile="ConsoleApp"
+            Platform="linux-x64"
+            EnableReflection="false"
+            Environment="Dev"
+            WorkingDirectory=".">
+      <Packages>
+        <PackageRef Name="NGIN.Benchmark" VersionRange=">=0.1.0 &lt;0.2.0" Optional="false" />
+      </Packages>
+      <Modules>
+        <Enable Name="App.SyncProgram" />
+      </Modules>
+      <Plugins />
+      <ConfigSources />
+    </Target>
+    <Target Name="NGIN.DevShell"
+            Type="Developer"
+            Profile="TestHost"
+            Platform="linux-x64"
+            EnableReflection="true"
+            Environment="Dev"
+            WorkingDirectory=".">
+      <Packages>
+        <PackageRef Name="NGIN.Benchmark" VersionRange=">=0.1.0 &lt;0.2.0" Optional="false" />
+        <PackageRef Name="NGIN.Reflection" VersionRange=">=0.1.0 &lt;0.2.0" Optional="false" />
+        <PackageRef Name="NGIN.Diagnostics" VersionRange=">=0.1.0 &lt;0.2.0" Optional="false" />
+      </Packages>
+      <Modules>
+        <Enable Name="App.BenchmarkTool" />
+      </Modules>
+      <Plugins>
+        <Enable Name="NGIN.Diagnostics" />
+      </Plugins>
+      <ConfigSources />
+    </Target>
+  </Targets>
+</Project>

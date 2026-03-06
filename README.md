@@ -1,115 +1,92 @@
 # NGIN
 
-NGIN is the **umbrella workspace** for the NGIN platform.
+NGIN is the umbrella workspace for a general C++ application platform.
 
-NGIN is a **general C++ application platform** for building:
+The active platform model is intentionally small:
 
-- games
-- editors
-- GUI applications
-- CLI tools
-- services
-- domain-specific engines
+- `Project`: the application definition
+- `Target`: one concrete buildable application variant
+- `Package`: the reusable unit users reference
+- `Module`: a runtime composition unit provided by packages
+- `Plugin`: an optional extension provided by packages
+- `Host`: the runtime container built from a resolved target
 
-This repo is mainly for:
+Packages are the main authored unit. Modules and plugins are lower-level runtime details.
 
-- platform architecture and specs
-- compatibility and release manifests
-- workspace tooling for syncing and validating component repos
+## What This Repo Is For
 
-It is **not** the single application SDK library itself and does not produce a single `NGIN` library.
+- active platform architecture and specs
+- platform release and composition metadata
+- the native `ngin` CLI
+- cross-repo workspace validation and staging
 
-## What You Use This Repo For
+This repo is not a single monolithic SDK library. The current host implementation lives in `NGIN.Core`.
 
-If you are building an application:
+## Authored Files
 
-- use component repos and packages directly such as `NGIN.Base`, `NGIN.Log`, `NGIN.Reflection`, and the current hosting implementation in `NGIN.Core`
-- treat this repo as the platform definition and coordination layer
+The active authored manifest family is XML-based:
 
-If you are shaping the platform:
+- project: `.nginproj`
+- package: `.nginpkg`
+- staged target layout: `.ngintarget`
 
-- update specs and architecture docs
-- update platform release and metadata manifests
-- run workspace validation, package restore, and project-based target resolution
-
-If you are developing multiple NGIN components together:
-
-- use this workspace to keep repos aligned and verify cross-repo compatibility
-
-## Current Naming Note
-
-The approved platform direction is to treat the central host/orchestration library as `NGIN.Core`.
-
-Today, the implementation still lives in `NGIN.Core`.
+The canonical workspace project is [NGIN.Workspace.nginproj](/home/berggrenmille/NGIN/manifests/NGIN.Workspace.nginproj).
 
 ## Quick Start
 
-Use `python3` (or `py` on Windows).
-
-1. Show platform-pinned components:
-
-```bash
-python3 tools/ngin.py list
-```
-
-2. Check local workspace health:
-
-```bash
-python3 tools/ngin.py doctor
-python3 tools/ngin.py status
-```
-
-3. Sync missing pinned repos into `workspace/externals`:
-
-```bash
-python3 tools/ngin.py sync
-```
-
-4. Configure workspace helper project:
+1. Configure the workspace:
 
 ```bash
 cmake --preset dev
 ```
 
-5. Validate and resolve a target:
+2. Build the native CLI:
 
 ```bash
-python3 tools/ngin.py package restore --project manifests/workspace.project.json
-python3 tools/ngin.py build --project manifests/workspace.project.json --target NGIN.CoreSample
-python3 tools/ngin.py validate --project manifests/workspace.project.json --locked --target NGIN.CoreSample
-python3 tools/ngin.py graph --project manifests/workspace.project.json --locked --target NGIN.CoreSample
-python3 tools/ngin.py resolve --project manifests/workspace.project.json --locked --target NGIN.CoreSample
+cmake --build build/dev --target ngin_cli
 ```
 
-6. Write the standard JSON report artifact set:
+3. Check workspace health:
 
 ```bash
-cmake --build build/dev --target ngin.reports
+./build/dev/ngin doctor
+./build/dev/ngin status
+```
+
+4. Validate and inspect a target:
+
+```bash
+./build/dev/ngin validate --project manifests/NGIN.Workspace.nginproj --target NGIN.CoreSample
+./build/dev/ngin graph --project manifests/NGIN.Workspace.nginproj --target NGIN.EditorSample
+```
+
+5. Build a staged target layout:
+
+```bash
+./build/dev/ngin build --project manifests/NGIN.Workspace.nginproj --target NGIN.CoreSample --output build/manual/NGIN.CoreSample
+```
+
+6. Run the standard workspace flow through CMake:
+
+```bash
+cmake --build build/dev --target ngin.workflow
 ```
 
 ## Repository Map
 
-- `docs/architecture/`: umbrella architecture and direction docs
-- `docs/api-drafts/`: concrete public draft artifacts for upcoming platform APIs
-- `docs/examples/`: example code and manifest shapes for draft platform workflows
-- `docs/specs/`: normative platform specs
-- `manifests/`: platform compatibility plus package/module/plugin metadata, schemas, and the canonical workspace project
-- `tools/`: workspace tooling such as `ngin.py`
+- `docs/architecture/`: active architecture and concept docs
+- `docs/api-drafts/`: public API/application-model drafts
+- `docs/examples/`: example C++ and manifest authoring
+- `docs/specs/`: active platform specs
+- `manifests/`: workspace metadata plus package/module/plugin catalogs
+- `tools/`: native CLI source
 - `cmake/`: workspace CMake integration helpers
-
-## Required Platform Components (Current)
-
-- `NGIN.Base`
-- `NGIN.Log`
-- `NGIN.Core`
-- `NGIN.Reflection`
 
 ## Read Next
 
+- [NGIN Concepts](/home/berggrenmille/NGIN/docs/architecture/NGIN-Concepts.md)
 - [NGIN Architecture](/home/berggrenmille/NGIN/docs/architecture/NGIN-Architecture.md)
-- [NGIN Platform Direction](/home/berggrenmille/NGIN/docs/architecture/NGIN-Platform-Direction.md)
 - [NGIN.Core Application Model Draft](/home/berggrenmille/NGIN/docs/api-drafts/NGIN.Core-ApplicationModel.md)
-- [Spec 002: Application Host and Builder Model](/home/berggrenmille/NGIN/docs/specs/002-runtime-kernel-design.md)
+- [Spec 002: Host and Builder Model](/home/berggrenmille/NGIN/docs/specs/002-runtime-kernel-design.md)
 - [Spec 003: Package, Module, and Plugin Model](/home/berggrenmille/NGIN/docs/specs/003-plugin-abi-header-spec.md)
-- [Spec 004: Editor and Product Architecture](/home/berggrenmille/NGIN/docs/specs/004-editor-architecture.md)
-- [Spec 005: Platform Transition and Next Steps](/home/berggrenmille/NGIN/docs/specs/005-implementation-roadmap.md)
+- [Spec 005: Roadmap](/home/berggrenmille/NGIN/docs/specs/005-implementation-roadmap.md)

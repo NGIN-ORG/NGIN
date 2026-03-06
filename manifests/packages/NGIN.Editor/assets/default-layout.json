@@ -1,9 +1,0 @@
-{
-  "schemaVersion": 1,
-  "layout": "workspace-default",
-  "panels": [
-    "Scene",
-    "Inspector",
-    "Output"
-  ]
-}

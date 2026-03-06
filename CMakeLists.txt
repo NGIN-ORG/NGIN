@@ -12,25 +12,37 @@ ngin_workspace_print_summary(
   EXPECT_COMPONENTS ${NGIN_WORKSPACE_EXPECT_COMPONENTS}
 )
 
+if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/NGIN.Base/CMakeLists.txt")
+  message(FATAL_ERROR "NGIN.Base is required to build the native ngin CLI in this workspace.")
+endif()
+
+set(NGIN_BASE_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(NGIN_BASE_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(NGIN_BASE_BUILD_BENCHMARKS OFF CACHE BOOL "" FORCE)
+add_subdirectory(NGIN.Base EXCLUDE_FROM_ALL)
+
 add_custom_target(ngin.workspace
   COMMENT "NGIN workspace metadata target"
 )
 
-find_package(Python3 COMPONENTS Interpreter REQUIRED)
+add_executable(ngin_cli
+  tools/ngin.cpp
+)
+set_target_properties(ngin_cli PROPERTIES OUTPUT_NAME ngin)
+target_link_libraries(ngin_cli PRIVATE NGIN::Base)
+target_compile_features(ngin_cli PRIVATE cxx_std_20)
+if(MSVC)
+  target_compile_options(ngin_cli PRIVATE /W4 /permissive-)
+else()
+  target_compile_options(ngin_cli PRIVATE -Wall -Wextra -Wpedantic)
+endif()
 
-set(NGIN_WORKSPACE_PROJECT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/manifests/workspace.project.json")
-set(NGIN_WORKSPACE_REPORT_DIR "${CMAKE_BINARY_DIR}/reports")
-set(NGIN_WORKSPACE_CACHE_DIR "${CMAKE_BINARY_DIR}/cache")
+set(NGIN_WORKSPACE_PROJECT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/manifests/NGIN.Workspace.nginproj")
 set(NGIN_WORKSPACE_STAGE_DIR "${CMAKE_BINARY_DIR}/stage")
-set(NGIN_WORKSPACE_LOCKFILE_PATH "${NGIN_WORKSPACE_REPORT_DIR}/ngin.workspace.lock.json")
-set(NGIN_PACKAGE_RESTORE_REPORT_PATH "${NGIN_WORKSPACE_REPORT_DIR}/ngin.package.restore.json")
-set(NGIN_BUILD_REPORT_PATH "${NGIN_WORKSPACE_REPORT_DIR}/ngin.build.NGIN.CoreSample.json")
-set(NGIN_VALIDATE_REPORT_PATH "${NGIN_WORKSPACE_REPORT_DIR}/ngin.validate.NGIN.CoreSample.json")
-set(NGIN_GRAPH_REPORT_PATH "${NGIN_WORKSPACE_REPORT_DIR}/ngin.graph.NGIN.CoreSample.json")
-set(NGIN_RESOLVE_REPORT_PATH "${NGIN_WORKSPACE_REPORT_DIR}/ngin.resolve.NGIN.CoreSample.json")
+set(NGIN_WORKSPACE_BUILD_OUTPUT "${NGIN_WORKSPACE_STAGE_DIR}/NGIN.CoreSample")
 
 add_custom_target(ngin.manifest.show
-  COMMAND ${CMAKE_COMMAND} -E cat "${CMAKE_CURRENT_SOURCE_DIR}/manifests/platform-release.json"
+  COMMAND ${CMAKE_COMMAND} -E cat "${CMAKE_CURRENT_SOURCE_DIR}/manifests/platform-release.xml"
   COMMENT "Print the active NGIN platform release manifest"
   VERBATIM
 )
@@ -42,163 +54,91 @@ add_custom_target(ngin.project.show
 )
 
 add_custom_target(ngin.validate
-  DEPENDS ngin.package.restore
-  COMMAND ${Python3_EXECUTABLE}
-    "${CMAKE_CURRENT_SOURCE_DIR}/tools/ngin.py"
+  COMMAND $<TARGET_FILE:ngin_cli>
     validate
     --project "${NGIN_WORKSPACE_PROJECT_PATH}"
-    --locked
-    --lockfile "${NGIN_WORKSPACE_LOCKFILE_PATH}"
-    --cache-dir "${NGIN_WORKSPACE_CACHE_DIR}"
     --target NGIN.CoreSample
+  DEPENDS ngin_cli
   COMMENT "Validate the core sample target from the canonical workspace project"
   VERBATIM
 )
 
+add_custom_target(ngin.graph.core
+  COMMAND $<TARGET_FILE:ngin_cli>
+    graph
+    --project "${NGIN_WORKSPACE_PROJECT_PATH}"
+    --target NGIN.CoreSample
+  DEPENDS ngin_cli
+  COMMENT "Print the resolved package and module graph for the core sample target"
+  VERBATIM
+)
+
 add_custom_target(ngin.build.core
-  DEPENDS ngin.package.restore
   COMMAND ${CMAKE_COMMAND} -E make_directory "${NGIN_WORKSPACE_STAGE_DIR}"
-  COMMAND ${Python3_EXECUTABLE}
-    "${CMAKE_CURRENT_SOURCE_DIR}/tools/ngin.py"
+  COMMAND $<TARGET_FILE:ngin_cli>
     build
     --project "${NGIN_WORKSPACE_PROJECT_PATH}"
-    --lockfile "${NGIN_WORKSPACE_LOCKFILE_PATH}"
-    --cache-dir "${NGIN_WORKSPACE_CACHE_DIR}"
     --target NGIN.CoreSample
-    --output "${NGIN_WORKSPACE_STAGE_DIR}/NGIN.CoreSample"
+    --output "${NGIN_WORKSPACE_BUILD_OUTPUT}"
+  DEPENDS ngin_cli
   COMMENT "Build the staged layout for the core sample target"
   VERBATIM
 )
 
-add_custom_target(ngin.build.core.report
-  DEPENDS ngin.package.restore.report
-  COMMAND ${CMAKE_COMMAND} -E make_directory "${NGIN_WORKSPACE_STAGE_DIR}"
-  COMMAND ${Python3_EXECUTABLE}
-    "${CMAKE_CURRENT_SOURCE_DIR}/tools/ngin.py"
-    build
-    --project "${NGIN_WORKSPACE_PROJECT_PATH}"
-    --lockfile "${NGIN_WORKSPACE_LOCKFILE_PATH}"
-    --cache-dir "${NGIN_WORKSPACE_CACHE_DIR}"
-    --target NGIN.CoreSample
-    --output "${NGIN_WORKSPACE_STAGE_DIR}/NGIN.CoreSample"
-    --json-report "${NGIN_BUILD_REPORT_PATH}"
-  COMMENT "Build the staged layout for the core sample target and write a stable JSON report"
-  VERBATIM
-)
-
-add_custom_target(ngin.package.restore
-  COMMAND ${CMAKE_COMMAND} -E make_directory "${NGIN_WORKSPACE_REPORT_DIR}"
-  COMMAND ${CMAKE_COMMAND} -E make_directory "${NGIN_WORKSPACE_CACHE_DIR}"
-  COMMAND ${Python3_EXECUTABLE}
-    "${CMAKE_CURRENT_SOURCE_DIR}/tools/ngin.py"
-    package
-    restore
-    --project "${NGIN_WORKSPACE_PROJECT_PATH}"
-    --lockfile "${NGIN_WORKSPACE_LOCKFILE_PATH}"
-    --cache-dir "${NGIN_WORKSPACE_CACHE_DIR}"
-  COMMENT "Restore the canonical workspace project into a lockfile and local cache"
-  VERBATIM
-)
-
-add_custom_target(ngin.package.restore.report
-  COMMAND ${CMAKE_COMMAND} -E make_directory "${NGIN_WORKSPACE_REPORT_DIR}"
-  COMMAND ${CMAKE_COMMAND} -E make_directory "${NGIN_WORKSPACE_CACHE_DIR}"
-  COMMAND ${Python3_EXECUTABLE}
-    "${CMAKE_CURRENT_SOURCE_DIR}/tools/ngin.py"
-    package
-    restore
-    --project "${NGIN_WORKSPACE_PROJECT_PATH}"
-    --lockfile "${NGIN_WORKSPACE_LOCKFILE_PATH}"
-    --cache-dir "${NGIN_WORKSPACE_CACHE_DIR}"
-    --json-report "${NGIN_PACKAGE_RESTORE_REPORT_PATH}"
-  COMMENT "Restore the canonical workspace project and write a stable JSON report"
-  VERBATIM
-)
-
-add_custom_target(ngin.validate.report
-  DEPENDS ngin.package.restore.report
-  COMMAND ${CMAKE_COMMAND} -E make_directory "${NGIN_WORKSPACE_REPORT_DIR}"
-  COMMAND ${Python3_EXECUTABLE}
-    "${CMAKE_CURRENT_SOURCE_DIR}/tools/ngin.py"
-    validate
-    --project "${NGIN_WORKSPACE_PROJECT_PATH}"
-    --locked
-    --lockfile "${NGIN_WORKSPACE_LOCKFILE_PATH}"
-    --cache-dir "${NGIN_WORKSPACE_CACHE_DIR}"
-    --target NGIN.CoreSample
-    --json-report "${NGIN_VALIDATE_REPORT_PATH}"
-  COMMENT "Validate the core sample target and write a stable JSON report"
-  VERBATIM
-)
-
-add_custom_target(ngin.graph.core
-  DEPENDS ngin.package.restore
-  COMMAND ${Python3_EXECUTABLE}
-    "${CMAKE_CURRENT_SOURCE_DIR}/tools/ngin.py"
-    graph
-    --project "${NGIN_WORKSPACE_PROJECT_PATH}"
-    --locked
-    --lockfile "${NGIN_WORKSPACE_LOCKFILE_PATH}"
-    --cache-dir "${NGIN_WORKSPACE_CACHE_DIR}"
-    --target NGIN.CoreSample
-  COMMENT "Print the resolved package/module graph for the core sample target"
-  VERBATIM
-)
-
-add_custom_target(ngin.graph.core.report
-  DEPENDS ngin.package.restore.report
-  COMMAND ${CMAKE_COMMAND} -E make_directory "${NGIN_WORKSPACE_REPORT_DIR}"
-  COMMAND ${Python3_EXECUTABLE}
-    "${CMAKE_CURRENT_SOURCE_DIR}/tools/ngin.py"
-    graph
-    --project "${NGIN_WORKSPACE_PROJECT_PATH}"
-    --locked
-    --lockfile "${NGIN_WORKSPACE_LOCKFILE_PATH}"
-    --cache-dir "${NGIN_WORKSPACE_CACHE_DIR}"
-    --target NGIN.CoreSample
-    --json-report "${NGIN_GRAPH_REPORT_PATH}"
-  COMMENT "Write the resolved package/module graph for the core sample target as JSON"
-  VERBATIM
-)
-
-add_custom_target(ngin.resolve.core
-  DEPENDS ngin.package.restore
-  COMMAND ${Python3_EXECUTABLE}
-    "${CMAKE_CURRENT_SOURCE_DIR}/tools/ngin.py"
-    resolve
-    --project "${NGIN_WORKSPACE_PROJECT_PATH}"
-    --locked
-    --lockfile "${NGIN_WORKSPACE_LOCKFILE_PATH}"
-    --cache-dir "${NGIN_WORKSPACE_CACHE_DIR}"
-    --target NGIN.CoreSample
-  COMMENT "Resolve the baseline core-host target closure from the canonical workspace project"
-  VERBATIM
-)
-
-add_custom_target(ngin.resolve.report.core
-  DEPENDS ngin.package.restore.report
-  COMMAND ${CMAKE_COMMAND} -E make_directory "${NGIN_WORKSPACE_REPORT_DIR}"
-  COMMAND ${Python3_EXECUTABLE}
-    "${CMAKE_CURRENT_SOURCE_DIR}/tools/ngin.py"
-    resolve
-    --project "${NGIN_WORKSPACE_PROJECT_PATH}"
-    --locked
-    --lockfile "${NGIN_WORKSPACE_LOCKFILE_PATH}"
-    --cache-dir "${NGIN_WORKSPACE_CACHE_DIR}"
-    --target NGIN.CoreSample
-    --json-report "${NGIN_RESOLVE_REPORT_PATH}"
-  COMMENT "Write the baseline core-host target closure as a stable JSON report"
-  VERBATIM
-)
-
-add_custom_target(ngin.reports
+add_custom_target(ngin.workflow
   DEPENDS
-    ngin.package.restore.report
-    ngin.build.core.report
-    ngin.validate.report
-    ngin.graph.core.report
-    ngin.resolve.report.core
-  COMMENT "Generate the standard JSON report set for workspace validation"
+    ngin.validate
+    ngin.graph.core
+    ngin.build.core
+  COMMENT "Run the standard workspace validate, graph, and build flow"
+)
+
+enable_testing()
+
+add_test(NAME ngin.doctor
+  COMMAND $<TARGET_FILE:ngin_cli> doctor
+)
+
+add_test(NAME ngin.package.list
+  COMMAND $<TARGET_FILE:ngin_cli> package list
+)
+
+add_test(NAME ngin.package.show.core
+  COMMAND $<TARGET_FILE:ngin_cli> package show NGIN.Core
+)
+
+add_test(NAME ngin.validate.workspace
+  COMMAND $<TARGET_FILE:ngin_cli> validate --project "${NGIN_WORKSPACE_PROJECT_PATH}" --target NGIN.CoreSample
+)
+
+add_test(NAME ngin.graph.workspace
+  COMMAND $<TARGET_FILE:ngin_cli> graph --project "${NGIN_WORKSPACE_PROJECT_PATH}" --target NGIN.EditorSample
+)
+
+add_test(NAME ngin.build.workspace
+  COMMAND ${CMAKE_COMMAND}
+    -DCLI=$<TARGET_FILE:ngin_cli>
+    -DPROJECT="${NGIN_WORKSPACE_PROJECT_PATH}"
+    -DTARGET=NGIN.EditorSample
+    -DOUTPUT="${CMAKE_BINARY_DIR}/test-stage/NGIN.EditorSample"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunNGINBuildCheck.cmake"
+)
+
+add_test(NAME ngin.project.autodiscovery
+  COMMAND $<TARGET_FILE:ngin_cli> validate --target Tools.Cli
+)
+set_tests_properties(ngin.project.autodiscovery PROPERTIES
+  WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/docs/examples/project-model"
+)
+
+add_test(NAME ngin.reject.legacy.json
+  COMMAND ${CMAKE_COMMAND}
+    -DCLI=$<TARGET_FILE:ngin_cli>
+    -DWORK_DIR="${CMAKE_BINARY_DIR}/legacy-test"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunNGINLegacyReject.cmake"
+)
+set_tests_properties(ngin.reject.legacy.json PROPERTIES
+  PASS_REGULAR_EXPRESSION "legacy manifest rejected"
 )
 
 if(NGIN_WORKSPACE_ENABLE_INTEGRATION)

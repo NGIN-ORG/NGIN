@@ -6,7 +6,7 @@ int main(int argc, char** argv)
 {
     auto builder = NGIN::Core::CreateApplicationBuilder(argc, argv);
 
-    builder->UseProjectFile("ngin.project.json");
+    builder->UseProjectFile("NGIN.Samples.ApplicationModel.nginproj");
     builder->SetApplicationName("Sandbox.Game");
     builder->SetDefaultTarget("Sandbox.Game");
     builder->UseProfile(NGIN::Core::HostProfile::Game);
@@ -23,7 +23,7 @@ int main(int argc, char** argv)
         .optional = false,
     });
     builder->Packages()
-        .AddManifestFile("ngin.package.json")
+        .AddManifestFile("NGIN.ECS.nginpkg")
         .RegisterLinkedRegistrar(&NGIN_RegisterPackage_NGIN_ECS)
         .ApplyBootstrap("NGIN.ECS");
 
@@ -33,7 +33,7 @@ int main(int argc, char** argv)
 
     builder->Configuration()
         .SetEnvironmentName("Dev")
-        .AddSource("config/game.json")
+        .AddSource("config/game.xml")
         .SetWorkingDirectory(".");
 
     auto app = builder->Build();

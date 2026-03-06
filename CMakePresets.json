@@ -32,9 +32,8 @@
       "name": "dev",
       "configurePreset": "dev",
       "targets": [
-        "ngin.workspace"
+        "ngin.workflow"
       ]
     }
   ]
 }
-

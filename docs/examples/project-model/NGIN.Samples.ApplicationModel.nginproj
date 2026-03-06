@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="1" Name="NGIN.Samples.ApplicationModel" DefaultTarget="Sandbox.Game">
+  <Targets>
+    <Target Name="Tools.Cli"
+            Type="Program"
+            Profile="ConsoleApp"
+            Platform="linux-x64"
+            EnableReflection="false"
+            Environment="Dev"
+            WorkingDirectory=".">
+      <Packages>
+        <PackageRef Name="NGIN.ECS" VersionRange=">=0.1.0 &lt;1.0.0" />
+      </Packages>
+      <Modules>
+        <Enable Name="Core.Hosting" />
+      </Modules>
+      <Plugins />
+      <ConfigSources>
+        <Config Source="config/cli.xml" />
+      </ConfigSources>
+    </Target>
+    <Target Name="Tools.Editor"
+            Type="Editor"
+            Profile="Editor"
+            Platform="linux-x64"
+            EnableReflection="true"
+            Environment="Dev"
+            WorkingDirectory=".">
+      <Packages>
+        <PackageRef Name="NGIN.ECS" VersionRange=">=0.1.0 &lt;1.0.0" />
+        <PackageRef Name="NGIN.Editor" VersionRange=">=0.1.0 &lt;1.0.0" />
+        <PackageRef Name="NGIN.Diagnostics" VersionRange=">=0.1.0 &lt;1.0.0" />
+      </Packages>
+      <Modules>
+        <Enable Name="Core.Hosting" />
+        <Enable Name="Domain.ECS" />
+        <Enable Name="Editor.Workspace" />
+      </Modules>
+      <Plugins>
+        <Enable Name="NGIN.Diagnostics" />
+      </Plugins>
+      <ConfigSources>
+        <Config Source="config/editor.xml" />
+      </ConfigSources>
+    </Target>
+    <Target Name="Sandbox.Game"
+            Type="Runtime"
+            Profile="Game"
+            Platform="linux-x64"
+            EnableReflection="false"
+            Environment="Dev"
+            WorkingDirectory=".">
+      <Packages>
+        <PackageRef Name="NGIN.ECS" VersionRange=">=0.1.0 &lt;1.0.0" />
+      </Packages>
+      <Modules>
+        <Enable Name="Core.Hosting" />
+        <Enable Name="Domain.ECS" />
+      </Modules>
+      <Plugins />
+      <ConfigSources>
+        <Config Source="config/game.xml" />
+      </ConfigSources>
+    </Target>
+  </Targets>
+</Project>

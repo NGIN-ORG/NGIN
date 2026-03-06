@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PluginCatalog SchemaVersion="1">
+  <Plugins>
+    <Plugin Name="NGIN.Diagnostics">
+      <Platforms>
+        <Platform Name="linux" />
+        <Platform Name="windows" />
+        <Platform Name="macos" />
+      </Platforms>
+      <Modules>
+        <Required>
+          <ModuleRef Name="Log.Foundation" />
+        </Required>
+        <Optional>
+          <ModuleRef Name="Reflection.Metadata" />
+        </Optional>
+      </Modules>
+    </Plugin>
+  </Plugins>
+</PluginCatalog>

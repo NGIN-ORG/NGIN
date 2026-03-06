@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Package SchemaVersion="1"
+         Name="NGIN.Editor"
+         Version="0.1.0"
+         CompatiblePlatformRange=">=0.1.0-alpha.1 &lt;0.2.0">
+  <Platforms>
+    <Platform Name="linux" />
+    <Platform Name="windows" />
+    <Platform Name="macos" />
+  </Platforms>
+  <Dependencies>
+    <Dependency Name="NGIN.Core" VersionRange=">=0.1.0 &lt;0.2.0" Optional="false" />
+    <Dependency Name="NGIN.Reflection" VersionRange=">=0.1.0 &lt;0.2.0" Optional="false" />
+  </Dependencies>
+  <Contents>
+    <File Path="assets/default-layout.xml" Kind="config" />
+  </Contents>
+  <Provides>
+    <Module Name="Editor.Workspace" />
+  </Provides>
+</Package>
