@@ -82,7 +82,7 @@ cmake --build build/dev --target ngin.workflow
 - `docs/api-drafts/`: public API/application-model drafts
 - `docs/examples/`: example C++ and manifest authoring
 - `docs/specs/`: active platform specs
-- `manifests/`: workspace metadata plus package/module/plugin catalogs
+- `manifests/`: workspace metadata plus package manifests
 - `tools/`: native CLI source
 - `cmake/`: workspace CMake integration helpers
 

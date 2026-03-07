@@ -41,7 +41,7 @@ Dynamic descriptor shape:
   - `RequiresServices`
   - `Capabilities`
 
-See [Spec 003: Package Manifest and Runtime Contributions](/home/berggrenmille/NGIN/docs/specs/003-package-manifest-and-runtime-contributions.md) and the example descriptor at [demo.module.xml](/home/berggrenmille/NGIN/docs/examples/runtime-descriptors/DemoPlugin/demo.module.xml).
+See [Spec 003: Package Manifest and Runtime Contributions](/home/berggrenmille/NGIN/docs/specs/003-package-manifest-and-runtime-contributions.md). Dynamic `.module.xml` descriptors remain an internal runtime seam, not the primary authored model.
 
 ## Service Model (DI V2)
 

@@ -1267,9 +1267,26 @@ TEST_CASE("ApplicationBuilderExecutesExplicitPackageBootstrapFromManifestFile", 
   <Bootstrap Mode="BuilderHookV1"
              EntryPoint="NGIN_Bootstrap_Samples_Package"
              AutoApply="false" />
-  <Provides>
-    <Module Name="App.PackageBootstrap" />
-  </Provides>
+  <Modules>
+    <Module Name="App.PackageBootstrap"
+            Family="App"
+            Type="Runtime"
+            LoadPhase="Application"
+            Version="0.1.0"
+            CompatiblePlatformRange=">=0.1.0 &lt;1.0.0"
+            ReflectionRequired="false">
+      <Platforms>
+        <Platform Name="linux" />
+        <Platform Name="windows" />
+        <Platform Name="macos" />
+      </Platforms>
+      <Dependencies />
+      <ProvidesServices />
+      <RequiresServices />
+      <Capabilities />
+    </Module>
+  </Modules>
+  <Plugins />
 </Package>
 )");
 
@@ -1336,8 +1353,9 @@ TEST_CASE("ApplicationBuilderExecutesNamedPackageBootstrapEntry", "[builder][boo
                 .entryPoint = "NGIN_Bootstrap_Samples_Package",
                 .autoApply = false,
             },
-            .providedModules = {},
-            .providedPlugins = {},
+            .contents = {},
+            .modules = {},
+            .plugins = {},
         })
         .RegisterLinkedRegistrar(&NGIN_RegisterPackage_Samples_Package)
         .ApplyBootstrap("Samples.Package", "NGIN_Bootstrap_Samples_PackageAlt");
@@ -1389,8 +1407,9 @@ TEST_CASE("ApplicationBuilderAutoAppliesPackagesInDependencyOrder", "[builder][b
                 .entryPoint = "NGIN_Bootstrap_Samples_PackageA",
                 .autoApply = true,
             },
-            .providedModules = {},
-            .providedPlugins = {},
+            .contents = {},
+            .modules = {},
+            .plugins = {},
         })
         .AddManifest(NGIN::Core::PackageManifest {
             .schemaVersion = 1,
@@ -1410,8 +1429,9 @@ TEST_CASE("ApplicationBuilderAutoAppliesPackagesInDependencyOrder", "[builder][b
                 .entryPoint = "NGIN_Bootstrap_Samples_PackageB",
                 .autoApply = true,
             },
-            .providedModules = {},
-            .providedPlugins = {},
+            .contents = {},
+            .modules = {},
+            .plugins = {},
         })
         .RegisterLinkedRegistrar(&NGIN_RegisterPackage_Samples_PackageB)
         .RegisterLinkedRegistrar(&NGIN_RegisterPackage_Samples_PackageA);
@@ -1447,8 +1467,9 @@ TEST_CASE("ApplicationBuilderFailsOnMissingRequiredAutoAppliedPackageBootstrap",
                 .entryPoint = "NGIN_Bootstrap_Samples_Missing",
                 .autoApply = true,
             },
-            .providedModules = {},
-            .providedPlugins = {},
+            .contents = {},
+            .modules = {},
+            .plugins = {},
         });
 
     auto app = builder->Build();
@@ -1480,8 +1501,9 @@ TEST_CASE("ApplicationBuilderSkipsOptionalAutoAppliedPackageWithWarning", "[buil
                 .entryPoint = "NGIN_Bootstrap_Samples_OptionalMissing",
                 .autoApply = true,
             },
-            .providedModules = {},
-            .providedPlugins = {},
+            .contents = {},
+            .modules = {},
+            .plugins = {},
         });
 
     auto app = builder->Build();
@@ -1518,8 +1540,9 @@ TEST_CASE("ApplicationBuilderFailsOnDuplicatePackageBootstrapEntry", "[builder][
                 .entryPoint = "NGIN_Bootstrap_Samples_Package",
                 .autoApply = true,
             },
-            .providedModules = {},
-            .providedPlugins = {},
+            .contents = {},
+            .modules = {},
+            .plugins = {},
         })
         .RegisterLinkedRegistrar(&NGIN_RegisterPackage_Samples_PackageSingleNoAbort)
         .RegisterLinkedRegistrar(&NGIN_RegisterPackage_Samples_PackageSingleNoAbort);

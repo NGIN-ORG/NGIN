@@ -71,6 +71,22 @@ namespace NGIN::Core
         PackageBootstrapFn fn {nullptr};
     };
 
+    struct PackageContentFile
+    {
+        std::string source {};
+        std::string target {};
+        std::string kind {};
+    };
+
+    struct PackagePluginManifest
+    {
+        std::string              name {};
+        std::vector<std::string> platforms {};
+        std::vector<std::string> requiredModules {};
+        std::vector<std::string> optionalModules {};
+        bool                     optional {false};
+    };
+
     struct PackageManifest
     {
         NGIN::UInt32                             schemaVersion {1};
@@ -80,8 +96,9 @@ namespace NGIN::Core
         std::vector<std::string>                 platforms {};
         std::vector<PackageReference>            dependencies {};
         std::optional<PackageBootstrapDescriptor> bootstrap {};
-        std::vector<std::string>                 providedModules {};
-        std::vector<std::string>                 providedPlugins {};
+        std::vector<PackageContentFile>          contents {};
+        std::vector<ModuleDescriptor>            modules {};
+        std::vector<PackagePluginManifest>       plugins {};
     };
 
     struct PluginReference

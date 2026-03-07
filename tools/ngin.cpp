@@ -244,38 +244,25 @@ namespace
 
     struct ContentFile
     {
-        std::string path {};
+        std::string source {};
         std::string kind {};
-        std::string targetPath {};
-    };
-
-    struct PackageManifest
-    {
-        fs::path                path {};
-        std::string             name {};
-        std::string             version {};
-        std::string             compatiblePlatformRange {};
-        std::vector<std::string> platforms {};
-        std::vector<PackageDependency> dependencies {};
-        std::vector<ContentFile>       contents {};
-        std::vector<std::string>       modules {};
-        std::vector<std::string>       plugins {};
-    };
-
-    struct PackageCatalogEntry
-    {
-        std::string name {};
-        fs::path    manifestPath {};
-        std::string component {};
+        std::string target {};
     };
 
     struct ModuleDescriptor
     {
         std::string              name {};
+        std::string              family {};
         std::string              type {};
+        std::string              loadPhase {};
+        std::string              version {};
+        std::string              compatiblePlatformRange {};
         std::vector<std::string> platforms {};
         std::vector<std::string> required {};
         std::vector<std::string> optional {};
+        std::vector<std::string> providesServices {};
+        std::vector<std::string> requiresServices {};
+        std::vector<std::string> capabilities {};
         bool                     editorOnly {false};
         bool                     requiresReflection {false};
     };
@@ -286,6 +273,27 @@ namespace
         std::vector<std::string> platforms {};
         std::vector<std::string> requiredModules {};
         std::vector<std::string> optionalModules {};
+        bool                     optional {false};
+    };
+
+    struct PackageManifest
+    {
+        fs::path                       path {};
+        std::string                    name {};
+        std::string                    version {};
+        std::string                    compatiblePlatformRange {};
+        std::vector<std::string>       platforms {};
+        std::vector<PackageDependency> dependencies {};
+        std::vector<ContentFile>       contents {};
+        std::vector<ModuleDescriptor>  modules {};
+        std::vector<PluginDescriptor>  plugins {};
+    };
+
+    struct PackageCatalogEntry
+    {
+        std::string name {};
+        fs::path    manifestPath {};
+        std::string component {};
     };
 
     struct PackageReference
@@ -628,108 +636,6 @@ namespace
         return out;
     }
 
-    [[nodiscard]] auto LoadModuleCatalog(const fs::path& root) -> std::unordered_map<std::string, ModuleDescriptor>
-    {
-        const auto path = root / "manifests" / "module-catalog.xml";
-        const auto doc = LoadXml(path);
-        const auto* rootElement = doc.document.Root();
-        if (rootElement == nullptr || rootElement->name != "ModuleCatalog")
-        {
-            throw std::runtime_error(path.string() + ": root element must be <ModuleCatalog>");
-        }
-        std::unordered_map<std::string, ModuleDescriptor> out;
-        const auto* modulesNode = FindChild(*rootElement, "Modules");
-        if (modulesNode == nullptr)
-        {
-            throw std::runtime_error(path.string() + ": missing <Modules>");
-        }
-        for (const auto* node : ChildElements(*modulesNode, "Module"))
-        {
-            ModuleDescriptor module {};
-            module.name = RequireAttribute(*node, "Name", path);
-            module.type = Attribute(*node, "Type").value_or("");
-            if (const auto* platforms = FindChild(*node, "Platforms"))
-            {
-                for (const auto* platform : ChildElements(*platforms, "Platform"))
-                {
-                    module.platforms.push_back(RequireAttribute(*platform, "Name", path));
-                }
-            }
-            if (const auto* dependencies = FindChild(*node, "Dependencies"))
-            {
-                if (const auto* required = FindChild(*dependencies, "Required"))
-                {
-                    for (const auto* dep : ChildElements(*required, "ModuleRef"))
-                    {
-                        module.required.push_back(RequireAttribute(*dep, "Name", path));
-                    }
-                }
-                if (const auto* optional = FindChild(*dependencies, "Optional"))
-                {
-                    for (const auto* dep : ChildElements(*optional, "ModuleRef"))
-                    {
-                        module.optional.push_back(RequireAttribute(*dep, "Name", path));
-                    }
-                }
-            }
-            if (const auto* flags = FindChild(*node, "Flags"))
-            {
-                module.editorOnly = BoolAttribute(*flags, "EditorOnly");
-                module.requiresReflection = BoolAttribute(*flags, "RequiresReflection");
-            }
-            out.emplace(module.name, std::move(module));
-        }
-        return out;
-    }
-
-    [[nodiscard]] auto LoadPluginCatalog(const fs::path& root) -> std::unordered_map<std::string, PluginDescriptor>
-    {
-        const auto path = root / "manifests" / "plugin-catalog.xml";
-        const auto doc = LoadXml(path);
-        const auto* rootElement = doc.document.Root();
-        if (rootElement == nullptr || rootElement->name != "PluginCatalog")
-        {
-            throw std::runtime_error(path.string() + ": root element must be <PluginCatalog>");
-        }
-        std::unordered_map<std::string, PluginDescriptor> out;
-        const auto* pluginsNode = FindChild(*rootElement, "Plugins");
-        if (pluginsNode == nullptr)
-        {
-            throw std::runtime_error(path.string() + ": missing <Plugins>");
-        }
-        for (const auto* node : ChildElements(*pluginsNode, "Plugin"))
-        {
-            PluginDescriptor plugin {};
-            plugin.name = RequireAttribute(*node, "Name", path);
-            if (const auto* platforms = FindChild(*node, "Platforms"))
-            {
-                for (const auto* platform : ChildElements(*platforms, "Platform"))
-                {
-                    plugin.platforms.push_back(RequireAttribute(*platform, "Name", path));
-                }
-            }
-            if (const auto* modules = FindChild(*node, "Modules"))
-            {
-                if (const auto* required = FindChild(*modules, "Required"))
-                {
-                    for (const auto* dep : ChildElements(*required, "ModuleRef"))
-                    {
-                        plugin.requiredModules.push_back(RequireAttribute(*dep, "Name", path));
-                    }
-                }
-                if (const auto* optional = FindChild(*modules, "Optional"))
-                {
-                    for (const auto* dep : ChildElements(*optional, "ModuleRef"))
-                    {
-                        plugin.optionalModules.push_back(RequireAttribute(*dep, "Name", path));
-                    }
-                }
-            }
-            out.emplace(plugin.name, std::move(plugin));
-        }
-        return out;
-    }
-
     [[nodiscard]] auto LoadPackageManifest(const fs::path& path) -> PackageManifest
     {
         const auto doc = LoadXml(path);
@@ -766,21 +672,116 @@ namespace
             for (const auto* node : ChildElements(*contents, "File"))
             {
                 ContentFile content {};
-                content.path = RequireAttribute(*node, "Path", path);
+                content.source = RequireAttribute(*node, "Source", path);
                 content.kind = Attribute(*node, "Kind").value_or("other");
-                content.targetPath = Attribute(*node, "TargetPath").value_or("");
+                content.target = Attribute(*node, "Target").value_or("");
                 package.contents.push_back(std::move(content));
             }
         }
-        if (const auto* provides = FindChild(*rootElement, "Provides"))
+
+        const auto* modules = FindChild(*rootElement, "Modules");
+        if (modules == nullptr)
         {
-            for (const auto* node : ChildElements(*provides, "Module"))
+            throw std::runtime_error(path.string() + ": missing <Modules>");
+        }
+        for (const auto* node : ChildElements(*modules, "Module"))
+        {
+            ModuleDescriptor module {};
+            module.name = RequireAttribute(*node, "Name", path);
+            module.family = Attribute(*node, "Family").value_or("Core");
+            module.type = Attribute(*node, "Type").value_or("Runtime");
+            module.loadPhase = Attribute(*node, "LoadPhase").value_or("CoreServices");
+            module.version = Attribute(*node, "Version").value_or("");
+            module.compatiblePlatformRange = Attribute(*node, "CompatiblePlatformRange").value_or("");
+            module.requiresReflection = BoolAttribute(*node, "ReflectionRequired");
+            module.editorOnly = Lower(module.type) == "editor";
+
+            if (const auto* platforms = FindChild(*node, "Platforms"))
             {
-                package.modules.push_back(RequireAttribute(*node, "Name", path));
+                for (const auto* platform : ChildElements(*platforms, "Platform"))
+                {
+                    module.platforms.push_back(RequireAttribute(*platform, "Name", path));
+                }
             }
-            for (const auto* node : ChildElements(*provides, "Plugin"))
+
+            if (const auto* dependencies = FindChild(*node, "Dependencies"))
             {
-                package.plugins.push_back(RequireAttribute(*node, "Name", path));
+                for (const auto* dep : ChildElements(*dependencies, "Dependency"))
+                {
+                    const auto name = RequireAttribute(*dep, "Name", path);
+                    if (BoolAttribute(*dep, "Optional"))
+                    {
+                        module.optional.push_back(name);
+                    }
+                    else
+                    {
+                        module.required.push_back(name);
+                    }
+                }
+            }
+
+            if (const auto* providesServices = FindChild(*node, "ProvidesServices"))
+            {
+                for (const auto* service : ChildElements(*providesServices, "Service"))
+                {
+                    module.providesServices.push_back(RequireAttribute(*service, "Name", path));
+                }
+            }
+
+            if (const auto* requiresServices = FindChild(*node, "RequiresServices"))
+            {
+                for (const auto* service : ChildElements(*requiresServices, "Service"))
+                {
+                    module.requiresServices.push_back(RequireAttribute(*service, "Name", path));
+                }
+            }
+
+            if (const auto* capabilities = FindChild(*node, "Capabilities"))
+            {
+                for (const auto* capability : ChildElements(*capabilities, "Capability"))
+                {
+                    module.capabilities.push_back(RequireAttribute(*capability, "Name", path));
+                }
+            }
+
+            package.modules.push_back(std::move(module));
+        }
+
+        if (const auto* plugins = FindChild(*rootElement, "Plugins"))
+        {
+            for (const auto* node : ChildElements(*plugins, "Plugin"))
+            {
+                PluginDescriptor plugin {};
+                plugin.name = RequireAttribute(*node, "Name", path);
+                plugin.optional = BoolAttribute(*node, "Optional");
+
+                if (const auto* platforms = FindChild(*node, "Platforms"))
+                {
+                    for (const auto* platform : ChildElements(*platforms, "Platform"))
+                    {
+                        plugin.platforms.push_back(RequireAttribute(*platform, "Name", path));
+                    }
+                }
+
+                if (const auto* modulesElement = FindChild(*node, "Modules"))
+                {
+                    if (const auto* required = FindChild(*modulesElement, "Required"))
+                    {
+                        for (const auto* dep : ChildElements(*required, "ModuleRef"))
+                        {
+                            plugin.requiredModules.push_back(RequireAttribute(*dep, "Name", path));
+                        }
+                    }
+                    if (const auto* optional = FindChild(*modulesElement, "Optional"))
+                    {
+                        for (const auto* dep : ChildElements(*optional, "ModuleRef"))
+                        {
+                            plugin.optionalModules.push_back(RequireAttribute(*dep, "Name", path));
+                        }
+                    }
+                }
+
+                package.plugins.push_back(std::move(plugin));
             }
         }
         return package;
@@ -997,10 +998,10 @@ namespace
 
             for (const auto& content : manifest.contents)
             {
-                const auto resolvedPath = manifest.path.parent_path() / content.path;
+                const auto resolvedPath = manifest.path.parent_path() / content.source;
                 if (!fs::exists(resolvedPath))
                 {
-                    AddError(report, "package '" + ref.name + "' content file '" + content.path + "' does not exist");
+                    AddError(report, "package '" + ref.name + "' content file '" + content.source + "' does not exist");
                 }
             }
 
@@ -1056,8 +1057,6 @@ namespace
     {
         const auto release = LoadPlatformRelease(root);
         const auto packageCatalog = LoadPackageCatalog(root);
-        const auto modules = LoadModuleCatalog(root);
-        const auto plugins = LoadPluginCatalog(root);
 
         auto orderedPackages = ResolvePackages(project, target, release, packageCatalog, report);
         if (!report.errors.empty())
@@ -1067,25 +1066,39 @@ namespace
 
         std::unordered_map<std::string, std::set<std::string>> providersByModule;
         std::unordered_map<std::string, std::set<std::string>> providersByPlugin;
+        std::unordered_map<std::string, ModuleDescriptor>        modules;
+        std::unordered_map<std::string, PluginDescriptor>        plugins;
         for (const auto& package : orderedPackages)
         {
             for (const auto& module : package.manifest.modules)
             {
-                if (!modules.contains(module))
+                if (!module.platforms.empty() && !PlatformSupported(target.platform, module.platforms))
                 {
-                    AddError(report, "package '" + package.manifest.name + "' provides unknown module '" + module + "'");
+                    AddError(report, "package '" + package.manifest.name + "' provides module '" + module.name + "' that is not supported on platform '" + target.platform + "'");
                     continue;
                 }
-                providersByModule[module].insert(package.manifest.name);
+                if (const auto providerIt = providersByModule.find(module.name); providerIt != providersByModule.end() && !providerIt->second.empty())
+                {
+                    AddError(report, "duplicate module declaration for '" + module.name + "' in packages '" + *providerIt->second.begin() + "' and '" + package.manifest.name + "'");
+                    continue;
+                }
+                modules.emplace(module.name, module);
+                providersByModule[module.name].insert(package.manifest.name);
             }
             for (const auto& plugin : package.manifest.plugins)
             {
-                if (!plugins.contains(plugin))
+                if (!plugin.platforms.empty() && !PlatformSupported(target.platform, plugin.platforms))
                 {
-                    AddError(report, "package '" + package.manifest.name + "' provides unknown plugin '" + plugin + "'");
+                    AddError(report, "package '" + package.manifest.name + "' provides plugin '" + plugin.name + "' that is not supported on platform '" + target.platform + "'");
                     continue;
                 }
-                providersByPlugin[plugin].insert(package.manifest.name);
+                if (const auto providerIt = providersByPlugin.find(plugin.name); providerIt != providersByPlugin.end() && !providerIt->second.empty())
+                {
+                    AddError(report, "duplicate plugin declaration for '" + plugin.name + "' in packages '" + *providerIt->second.begin() + "' and '" + package.manifest.name + "'");
+                    continue;
+                }
+                plugins.emplace(plugin.name, plugin);
+                providersByPlugin[plugin.name].insert(package.manifest.name);
             }
         }
         if (!report.errors.empty())
@@ -1451,8 +1464,6 @@ namespace
         {
             release = LoadPlatformRelease(root);
             (void)LoadPackageCatalog(root);
-            (void)LoadModuleCatalog(root);
-            (void)LoadPluginCatalog(root);
             std::cout << "[ok] XML manifests parse\n";
         }
         catch (const std::exception& ex)
@@ -1578,22 +1589,60 @@ namespace
         std::cout << "  contents: " << manifest.contents.size() << "\n";
         for (const auto& content : manifest.contents)
         {
-            std::cout << "    - " << content.path << " [" << content.kind << "]";
-            if (!content.targetPath.empty())
+            std::cout << "    - " << content.source << " [" << content.kind << "]";
+            if (!content.target.empty())
             {
-                std::cout << " -> " << content.targetPath;
+                std::cout << " -> " << content.target;
             }
             std::cout << "\n";
         }
         std::cout << "  modules: " << manifest.modules.size() << "\n";
         for (const auto& module : manifest.modules)
         {
-            std::cout << "    - " << module << "\n";
+            std::cout << "    - " << module.name << " [" << module.type << "]";
+            if (!module.required.empty())
+            {
+                std::cout << " requires:";
+                for (const auto& dep : module.required)
+                {
+                    std::cout << " " << dep;
+                }
+            }
+            if (!module.optional.empty())
+            {
+                std::cout << " optional:";
+                for (const auto& dep : module.optional)
+                {
+                    std::cout << " " << dep;
+                }
+            }
+            std::cout << "\n";
         }
         std::cout << "  plugins: " << manifest.plugins.size() << "\n";
         for (const auto& plugin : manifest.plugins)
         {
-            std::cout << "    - " << plugin << "\n";
+            std::cout << "    - " << plugin.name;
+            if (plugin.optional)
+            {
+                std::cout << " optional";
+            }
+            if (!plugin.requiredModules.empty())
+            {
+                std::cout << " requires:";
+                for (const auto& dep : plugin.requiredModules)
+                {
+                    std::cout << " " << dep;
+                }
+            }
+            if (!plugin.optionalModules.empty())
+            {
+                std::cout << " optional-modules:";
+                for (const auto& dep : plugin.optionalModules)
+                {
+                    std::cout << " " << dep;
+                }
+            }
+            std::cout << "\n";
         }
         return 0;
     }
@@ -1705,8 +1754,8 @@ namespace
             out << "    <Package Name=\"" << EscapeXml(package.manifest.name) << "\" Version=\"" << EscapeXml(package.manifest.version) << "\" Source=\"catalog\">\n";
             for (const auto& content : package.manifest.contents)
             {
-                const auto rel = content.targetPath.empty() ? content.path : content.targetPath;
-                out << "      <Content Path=\"" << EscapeXml(content.path)
+                const auto rel = content.target.empty() ? content.source : content.target;
+                out << "      <Content Source=\"" << EscapeXml(content.source)
                     << "\" Kind=\"" << EscapeXml(content.kind)
                     << "\" Destination=\"" << EscapeXml(rel) << "\" />\n";
             }
@@ -1767,8 +1816,8 @@ namespace
         {
             for (const auto& content : package.manifest.contents)
             {
-                const auto source = package.manifest.path.parent_path() / content.path;
-                const auto rel = content.targetPath.empty() ? content.path : content.targetPath;
+                const auto source = package.manifest.path.parent_path() / content.source;
+                const auto rel = content.target.empty() ? content.source : content.target;
                 const auto dest = outputDir / rel;
                 if (collisions.contains(dest))
                 {

@@ -29,15 +29,9 @@ If `--project` is omitted, `ngin` walks upward from the current directory and us
 
 - [platform-release.xml](/home/berggrenmille/NGIN/manifests/platform-release.xml)
 - [package-catalog.xml](/home/berggrenmille/NGIN/manifests/package-catalog.xml)
-- [module-catalog.xml](/home/berggrenmille/NGIN/manifests/module-catalog.xml)
-- [plugin-catalog.xml](/home/berggrenmille/NGIN/manifests/plugin-catalog.xml)
 - [NGIN.Workspace.nginproj](/home/berggrenmille/NGIN/manifests/NGIN.Workspace.nginproj)
 
-Lower-level runtime descriptor example:
-
-- [demo.module.xml](/home/berggrenmille/NGIN/docs/examples/runtime-descriptors/DemoPlugin/demo.module.xml)
-
-That descriptor format is a runtime implementation detail today, not the intended primary public authoring model.
+Runtime module and plugin metadata are authored inside `.nginpkg` files. Lower-level runtime descriptors may still exist internally inside `NGIN.Core`, but they are not part of the normal workspace authoring flow.
 
 ## Build Output
 

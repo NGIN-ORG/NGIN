@@ -13,9 +13,24 @@
     <Dependency Name="NGIN.Reflection" VersionRange=">=0.1.0 &lt;0.2.0" Optional="true" />
   </Dependencies>
   <Contents>
-    <File Path="config/diagnostics.defaults.xml" Kind="config" />
+    <File Source="config/diagnostics.defaults.xml" Target="config/diagnostics.defaults.xml" Kind="config" />
   </Contents>
-  <Provides>
-    <Plugin Name="NGIN.Diagnostics" />
-  </Provides>
+  <Modules />
+  <Plugins>
+    <Plugin Name="NGIN.Diagnostics">
+      <Platforms>
+        <Platform Name="linux" />
+        <Platform Name="windows" />
+        <Platform Name="macos" />
+      </Platforms>
+      <Modules>
+        <Required>
+          <ModuleRef Name="Log.Foundation" />
+        </Required>
+        <Optional>
+          <ModuleRef Name="Reflection.Metadata" />
+        </Optional>
+      </Modules>
+    </Plugin>
+  </Plugins>
 </Package>

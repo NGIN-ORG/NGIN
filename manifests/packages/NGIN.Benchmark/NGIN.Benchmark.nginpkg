@@ -12,8 +12,46 @@
     <Dependency Name="NGIN.Base" VersionRange=">=0.1.0 &lt;0.2.0" Optional="false" />
     <Dependency Name="NGIN.Reflection" VersionRange=">=0.1.0 &lt;0.2.0" Optional="true" />
   </Dependencies>
-  <Provides>
-    <Module Name="App.SyncProgram" />
-    <Module Name="App.BenchmarkTool" />
-  </Provides>
+  <Modules>
+    <Module Name="App.SyncProgram"
+            Family="App"
+            Type="Program"
+            LoadPhase="Application"
+            Version="0.1.0"
+            CompatiblePlatformRange=">=0.1.0-alpha.1 &lt;0.2.0"
+            ReflectionRequired="false">
+      <Platforms>
+        <Platform Name="linux" />
+        <Platform Name="windows" />
+        <Platform Name="macos" />
+      </Platforms>
+      <Dependencies>
+        <Dependency Name="Base.Foundation" Optional="false" />
+      </Dependencies>
+      <ProvidesServices />
+      <RequiresServices />
+      <Capabilities />
+    </Module>
+    <Module Name="App.BenchmarkTool"
+            Family="App"
+            Type="Developer"
+            LoadPhase="Application"
+            Version="0.1.0"
+            CompatiblePlatformRange=">=0.1.0-alpha.1 &lt;0.2.0"
+            ReflectionRequired="false">
+      <Platforms>
+        <Platform Name="linux" />
+        <Platform Name="windows" />
+        <Platform Name="macos" />
+      </Platforms>
+      <Dependencies>
+        <Dependency Name="Base.Foundation" Optional="false" />
+        <Dependency Name="Reflection.Metadata" Optional="true" />
+      </Dependencies>
+      <ProvidesServices />
+      <RequiresServices />
+      <Capabilities />
+    </Module>
+  </Modules>
+  <Plugins />
 </Package>

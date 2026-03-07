@@ -13,9 +13,33 @@
     <Dependency Name="NGIN.Reflection" VersionRange=">=0.1.0 &lt;0.2.0" Optional="false" />
   </Dependencies>
   <Contents>
-    <File Path="assets/default-layout.xml" Kind="config" />
+    <File Source="assets/default-layout.xml" Target="assets/default-layout.xml" Kind="config" />
   </Contents>
-  <Provides>
-    <Module Name="Editor.Workspace" />
-  </Provides>
+  <Modules>
+    <Module Name="Editor.Workspace"
+            Family="Editor"
+            Type="Editor"
+            LoadPhase="Editor"
+            Version="0.1.0"
+            CompatiblePlatformRange=">=0.1.0-alpha.1 &lt;0.2.0"
+            ReflectionRequired="true">
+      <Platforms>
+        <Platform Name="linux" />
+        <Platform Name="windows" />
+        <Platform Name="macos" />
+      </Platforms>
+      <Dependencies>
+        <Dependency Name="Base.Foundation" Optional="false" />
+        <Dependency Name="Core.Hosting" Optional="false" />
+        <Dependency Name="Reflection.Metadata" Optional="false" />
+        <Dependency Name="Domain.ECS" Optional="true" />
+      </Dependencies>
+      <ProvidesServices />
+      <RequiresServices />
+      <Capabilities>
+        <Capability Name="Workspace" />
+      </Capabilities>
+    </Module>
+  </Modules>
+  <Plugins />
 </Package>

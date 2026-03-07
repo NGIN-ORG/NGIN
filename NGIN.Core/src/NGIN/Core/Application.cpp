@@ -255,6 +255,299 @@ namespace NGIN::Core
                     KernelErrorCode::SchemaValidationFailure));
         }
 
+        [[nodiscard]] auto ParseModuleFamilyText(const std::string_view text) -> CoreResult<ModuleFamily>
+        {
+            if (text == "Base") return ModuleFamily::Base;
+            if (text == "Reflection") return ModuleFamily::Reflection;
+            if (text == "Core") return ModuleFamily::Core;
+            if (text == "Platform") return ModuleFamily::Platform;
+            if (text == "Editor") return ModuleFamily::Editor;
+            if (text == "Domain") return ModuleFamily::Domain;
+            if (text == "App") return ModuleFamily::App;
+            return NGIN::Utilities::Unexpected<KernelError>(
+                MakeBuilderError("unknown module family", std::string(text), KernelErrorCode::SchemaValidationFailure));
+        }
+
+        [[nodiscard]] auto ParseModuleTypeText(const std::string_view text) -> CoreResult<ModuleType>
+        {
+            if (text == "Runtime") return ModuleType::Runtime;
+            if (text == "Editor") return ModuleType::Editor;
+            if (text == "Program") return ModuleType::Program;
+            if (text == "Developer") return ModuleType::Developer;
+            if (text == "ThirdParty") return ModuleType::ThirdParty;
+            return NGIN::Utilities::Unexpected<KernelError>(
+                MakeBuilderError("unknown module type", std::string(text), KernelErrorCode::SchemaValidationFailure));
+        }
+
+        [[nodiscard]] auto ParseLoadPhaseText(const std::string_view text) -> CoreResult<LoadPhase>
+        {
+            if (text == "Bootstrap") return LoadPhase::Bootstrap;
+            if (text == "Platform") return LoadPhase::Platform;
+            if (text == "CoreServices") return LoadPhase::CoreServices;
+            if (text == "Data") return LoadPhase::Data;
+            if (text == "Domain") return LoadPhase::Domain;
+            if (text == "Application") return LoadPhase::Application;
+            if (text == "Editor") return LoadPhase::Editor;
+            return NGIN::Utilities::Unexpected<KernelError>(
+                MakeBuilderError("unknown load phase", std::string(text), KernelErrorCode::SchemaValidationFailure));
+        }
+
+        [[nodiscard]] auto ParsePackageModuleDescriptor(
+            const XmlElement& element,
+            const std::string_view context) -> CoreResult<ModuleDescriptor>
+        {
+            ModuleDescriptor descriptor {};
+
+            auto name = RequireAttribute(element, "Name", context);
+            if (!name)
+            {
+                return NGIN::Utilities::Unexpected<KernelError>(name.ErrorUnsafe());
+            }
+            descriptor.name = name.ValueUnsafe();
+
+            auto familyText = OptionalAttribute(element, "Family", context, "Core");
+            if (!familyText)
+            {
+                return NGIN::Utilities::Unexpected<KernelError>(familyText.ErrorUnsafe());
+            }
+            auto family = ParseModuleFamilyText(familyText.ValueUnsafe());
+            if (!family)
+            {
+                return NGIN::Utilities::Unexpected<KernelError>(family.ErrorUnsafe());
+            }
+            descriptor.family = family.ValueUnsafe();
+
+            auto typeText = OptionalAttribute(element, "Type", context, "Runtime");
+            if (!typeText)
+            {
+                return NGIN::Utilities::Unexpected<KernelError>(typeText.ErrorUnsafe());
+            }
+            auto type = ParseModuleTypeText(typeText.ValueUnsafe());
+            if (!type)
+            {
+                return NGIN::Utilities::Unexpected<KernelError>(type.ErrorUnsafe());
+            }
+            descriptor.type = type.ValueUnsafe();
+
+            auto phaseText = OptionalAttribute(element, "LoadPhase", context, "CoreServices");
+            if (!phaseText)
+            {
+                return NGIN::Utilities::Unexpected<KernelError>(phaseText.ErrorUnsafe());
+            }
+            auto phase = ParseLoadPhaseText(phaseText.ValueUnsafe());
+            if (!phase)
+            {
+                return NGIN::Utilities::Unexpected<KernelError>(phase.ErrorUnsafe());
+            }
+            descriptor.loadPhase = phase.ValueUnsafe();
+
+            auto versionText = OptionalAttribute(element, "Version", context, {});
+            if (!versionText)
+            {
+                return NGIN::Utilities::Unexpected<KernelError>(versionText.ErrorUnsafe());
+            }
+            if (!versionText.ValueUnsafe().empty())
+            {
+                auto version = ParseSemanticVersion(versionText.ValueUnsafe());
+                if (!version)
+                {
+                    return NGIN::Utilities::Unexpected<KernelError>(version.ErrorUnsafe());
+                }
+                descriptor.version = version.ValueUnsafe();
+            }
+
+            auto rangeText = OptionalAttribute(element, "CompatiblePlatformRange", context, {});
+            if (!rangeText)
+            {
+                return NGIN::Utilities::Unexpected<KernelError>(rangeText.ErrorUnsafe());
+            }
+            if (!rangeText.ValueUnsafe().empty())
+            {
+                auto range = ParseVersionRange(rangeText.ValueUnsafe());
+                if (!range)
+                {
+                    return NGIN::Utilities::Unexpected<KernelError>(range.ErrorUnsafe());
+                }
+                descriptor.compatiblePlatformRange = range.ValueUnsafe();
+            }
+
+            auto reflectionRequired = OptionalBoolAttribute(
+                element,
+                "ReflectionRequired",
+                std::string(context) + ".ReflectionRequired",
+                false);
+            if (!reflectionRequired)
+            {
+                return NGIN::Utilities::Unexpected<KernelError>(reflectionRequired.ErrorUnsafe());
+            }
+            descriptor.reflectionRequired = reflectionRequired.ValueUnsafe();
+
+            if (const auto* platforms = FindChild(element, "Platforms"))
+            {
+                for (const auto* platformElement : ChildElements(*platforms, "Platform"))
+                {
+                    auto platform = RequireAttribute(*platformElement, "Name", std::string(context) + ".Platforms");
+                    if (!platform)
+                    {
+                        return NGIN::Utilities::Unexpected<KernelError>(platform.ErrorUnsafe());
+                    }
+                    descriptor.platforms.push_back(platform.ValueUnsafe());
+                }
+            }
+
+            if (const auto* dependencies = FindChild(element, "Dependencies"))
+            {
+                for (const auto* dependencyElement : ChildElements(*dependencies, "Dependency"))
+                {
+                    auto dependencyName = RequireAttribute(*dependencyElement, "Name", std::string(context) + ".Dependencies");
+                    if (!dependencyName)
+                    {
+                        return NGIN::Utilities::Unexpected<KernelError>(dependencyName.ErrorUnsafe());
+                    }
+
+                    auto optional = OptionalBoolAttribute(
+                        *dependencyElement,
+                        "Optional",
+                        std::string(context) + ".Dependencies.Optional",
+                        false);
+                    if (!optional)
+                    {
+                        return NGIN::Utilities::Unexpected<KernelError>(optional.ErrorUnsafe());
+                    }
+
+                    DependencyDescriptor dependency {};
+                    dependency.name = dependencyName.ValueUnsafe();
+                    dependency.optional = optional.ValueUnsafe();
+
+                    auto requiredVersion = OptionalAttribute(
+                        *dependencyElement,
+                        "RequiredVersion",
+                        std::string(context) + ".Dependencies.RequiredVersion",
+                        {});
+                    if (!requiredVersion)
+                    {
+                        return NGIN::Utilities::Unexpected<KernelError>(requiredVersion.ErrorUnsafe());
+                    }
+                    if (!requiredVersion.ValueUnsafe().empty())
+                    {
+                        auto range = ParseVersionRange(requiredVersion.ValueUnsafe());
+                        if (!range)
+                        {
+                            return NGIN::Utilities::Unexpected<KernelError>(range.ErrorUnsafe());
+                        }
+                        dependency.requiredVersion = range.ValueUnsafe();
+                    }
+
+                    descriptor.dependencies.push_back(std::move(dependency));
+                }
+            }
+
+            if (const auto* providesServices = FindChild(element, "ProvidesServices"))
+            {
+                for (const auto* serviceElement : ChildElements(*providesServices, "Service"))
+                {
+                    auto service = RequireAttribute(*serviceElement, "Name", std::string(context) + ".ProvidesServices");
+                    if (!service)
+                    {
+                        return NGIN::Utilities::Unexpected<KernelError>(service.ErrorUnsafe());
+                    }
+                    descriptor.providesServices.push_back(service.ValueUnsafe());
+                }
+            }
+
+            if (const auto* requiresServices = FindChild(element, "RequiresServices"))
+            {
+                for (const auto* serviceElement : ChildElements(*requiresServices, "Service"))
+                {
+                    auto service = RequireAttribute(*serviceElement, "Name", std::string(context) + ".RequiresServices");
+                    if (!service)
+                    {
+                        return NGIN::Utilities::Unexpected<KernelError>(service.ErrorUnsafe());
+                    }
+                    descriptor.requiresServices.push_back(service.ValueUnsafe());
+                }
+            }
+
+            if (const auto* capabilities = FindChild(element, "Capabilities"))
+            {
+                for (const auto* capabilityElement : ChildElements(*capabilities, "Capability"))
+                {
+                    auto capability = RequireAttribute(*capabilityElement, "Name", std::string(context) + ".Capabilities");
+                    if (!capability)
+                    {
+                        return NGIN::Utilities::Unexpected<KernelError>(capability.ErrorUnsafe());
+                    }
+                    descriptor.capabilities.push_back(capability.ValueUnsafe());
+                }
+            }
+
+            return descriptor;
+        }
+
+        [[nodiscard]] auto ParsePackagePluginManifest(
+            const XmlElement& element,
+            const std::string_view context) -> CoreResult<PackagePluginManifest>
+        {
+            PackagePluginManifest plugin {};
+
+            auto name = RequireAttribute(element, "Name", context);
+            if (!name)
+            {
+                return NGIN::Utilities::Unexpected<KernelError>(name.ErrorUnsafe());
+            }
+            plugin.name = name.ValueUnsafe();
+
+            auto optional = OptionalBoolAttribute(element, "Optional", std::string(context) + ".Optional", false);
+            if (!optional)
+            {
+                return NGIN::Utilities::Unexpected<KernelError>(optional.ErrorUnsafe());
+            }
+            plugin.optional = optional.ValueUnsafe();
+
+            if (const auto* platforms = FindChild(element, "Platforms"))
+            {
+                for (const auto* platformElement : ChildElements(*platforms, "Platform"))
+                {
+                    auto platform = RequireAttribute(*platformElement, "Name", std::string(context) + ".Platforms");
+                    if (!platform)
+                    {
+                        return NGIN::Utilities::Unexpected<KernelError>(platform.ErrorUnsafe());
+                    }
+                    plugin.platforms.push_back(platform.ValueUnsafe());
+                }
+            }
+
+            if (const auto* modules = FindChild(element, "Modules"))
+            {
+                if (const auto* required = FindChild(*modules, "Required"))
+                {
+                    for (const auto* moduleElement : ChildElements(*required, "ModuleRef"))
+                    {
+                        auto moduleName = RequireAttribute(*moduleElement, "Name", std::string(context) + ".Modules.Required");
+                        if (!moduleName)
+                        {
+                            return NGIN::Utilities::Unexpected<KernelError>(moduleName.ErrorUnsafe());
+                        }
+                        plugin.requiredModules.push_back(moduleName.ValueUnsafe());
+                    }
+                }
+                if (const auto* optionalModules = FindChild(*modules, "Optional"))
+                {
+                    for (const auto* moduleElement : ChildElements(*optionalModules, "ModuleRef"))
+                    {
+                        auto moduleName = RequireAttribute(*moduleElement, "Name", std::string(context) + ".Modules.Optional");
+                        if (!moduleName)
+                        {
+                            return NGIN::Utilities::Unexpected<KernelError>(moduleName.ErrorUnsafe());
+                        }
+                        plugin.optionalModules.push_back(moduleName.ValueUnsafe());
+                    }
+                }
+            }
+
+            return plugin;
+        }
+
         [[nodiscard]] constexpr auto ToHostType(const HostProfile profile) noexcept -> HostType
         {
             switch (profile)
@@ -616,31 +909,80 @@ namespace NGIN::Core
                 };
             }
 
-            const auto* providesElement = FindChild(*root, "Provides");
-            if (providesElement == nullptr)
+            if (const auto* contentsElement = FindChild(*root, "Contents"))
+            {
+                for (const auto* fileElement : ChildElements(*contentsElement, "File"))
+                {
+                    auto source = RequireAttribute(*fileElement, "Source", "package.Contents.File");
+                    if (!source)
+                    {
+                        return NGIN::Utilities::Unexpected<KernelError>(source.ErrorUnsafe());
+                    }
+
+                    auto target = OptionalAttribute(*fileElement, "Target", "package.Contents.File", {});
+                    if (!target)
+                    {
+                        return NGIN::Utilities::Unexpected<KernelError>(target.ErrorUnsafe());
+                    }
+
+                    auto kind = OptionalAttribute(*fileElement, "Kind", "package.Contents.File", "other");
+                    if (!kind)
+                    {
+                        return NGIN::Utilities::Unexpected<KernelError>(kind.ErrorUnsafe());
+                    }
+
+                    manifest.contents.push_back(PackageContentFile {
+                        .source = source.ValueUnsafe(),
+                        .target = target.ValueUnsafe(),
+                        .kind = kind.ValueUnsafe(),
+                    });
+                }
+            }
+
+            const auto* modulesElement = FindChild(*root, "Modules");
+            if (modulesElement == nullptr)
             {
                 return NGIN::Utilities::Unexpected<KernelError>(
-                    MakeBuilderError("package must contain a <Provides> element"));
+                    MakeBuilderError("package must contain a <Modules> element"));
             }
 
-            for (const auto* moduleElement : ChildElements(*providesElement, "Module"))
+            std::set<std::string> moduleNames {};
+            for (const auto* moduleElement : ChildElements(*modulesElement, "Module"))
             {
-                auto moduleName = RequireAttribute(*moduleElement, "Name", "package.Provides.Module");
-                if (!moduleName)
+                auto module = ParsePackageModuleDescriptor(*moduleElement, "package.Modules.Module");
+                if (!module)
                 {
-                    return NGIN::Utilities::Unexpected<KernelError>(moduleName.ErrorUnsafe());
+                    return NGIN::Utilities::Unexpected<KernelError>(module.ErrorUnsafe());
                 }
-                manifest.providedModules.push_back(moduleName.ValueUnsafe());
+
+                if (!moduleNames.insert(module.ValueUnsafe().name).second)
+                {
+                    return NGIN::Utilities::Unexpected<KernelError>(
+                        MakeBuilderError("duplicate package module declaration", module.ValueUnsafe().name, KernelErrorCode::AlreadyExists));
+                }
+
+                manifest.modules.push_back(module.ValueUnsafe());
             }
 
-            for (const auto* pluginElement : ChildElements(*providesElement, "Plugin"))
+            if (const auto* pluginsElement = FindChild(*root, "Plugins"))
             {
-                auto pluginName = RequireAttribute(*pluginElement, "Name", "package.Provides.Plugin");
-                if (!pluginName)
+                std::set<std::string> pluginNames {};
+                for (const auto* pluginElement : ChildElements(*pluginsElement, "Plugin"))
                 {
-                    return NGIN::Utilities::Unexpected<KernelError>(pluginName.ErrorUnsafe());
+                    auto plugin = ParsePackagePluginManifest(*pluginElement, "package.Plugins.Plugin");
+                    if (!plugin)
+                    {
+                        return NGIN::Utilities::Unexpected<KernelError>(plugin.ErrorUnsafe());
+                    }
+
+                    if (!pluginNames.insert(plugin.ValueUnsafe().name).second)
+                    {
+                        return NGIN::Utilities::Unexpected<KernelError>(
+                            MakeBuilderError("duplicate package plugin declaration", plugin.ValueUnsafe().name, KernelErrorCode::AlreadyExists));
+                    }
+
+                    manifest.plugins.push_back(plugin.ValueUnsafe());
                 }
-                manifest.providedPlugins.push_back(pluginName.ValueUnsafe());
             }
 
             return manifest;
