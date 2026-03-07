@@ -18,6 +18,7 @@ This draft describes how `NGIN.Core` fits into the simplified platform model.
 - `Module`: runtime composition unit provided by packages
 - `Plugin`: optional extension provided by packages
 - `Host`: runtime container built from the resolved target
+- `Staged Target`: generated `.ngintarget` output used as the tooling/runtime handoff
 
 ## Builder Model
 
@@ -35,11 +36,13 @@ Packages remain the primary composition input. Direct module/plugin toggles are 
 
 ## Manifest Direction
 
-The active authored manifest family is XML-based:
+The active public manifest family is XML-based:
 
 - project: `.nginproj`
 - package: `.nginpkg`
 - staged target layout: `.ngintarget`
+
+Projects and packages are the primary authored files. `.ngintarget` is generated output.
 
 Example files:
 
@@ -60,3 +63,4 @@ The draft is intentionally smaller than earlier versions:
 - no JSON-first manifest story
 - no Python-first tooling story
 - no claim that plugins replace packages as the main composition unit
+- no separate standalone runtime descriptor format as part of the intended public authoring model

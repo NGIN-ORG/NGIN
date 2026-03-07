@@ -4,6 +4,8 @@ Status: Active
 
 NGIN should stay understandable through a very small model.
 
+The active spec source for these concepts is [Spec 001: Core Concepts and Vocabulary](/home/berggrenmille/NGIN/docs/specs/001-core-concepts.md).
+
 ## Project
 
 The top-level application definition.
@@ -52,10 +54,18 @@ An optional extension provided by packages.
 
 Plugins are subordinate to the package model, not a separate top-level ecosystem.
 
-At runtime, dynamically discovered plugin modules use lower-level XML descriptor files such as `.module.xml`. Those descriptors are runtime metadata, not the main authored package/project manifests.
-
 ## Host
 
 The runtime container built from a resolved target.
 
 The host starts the resolved module set and owns the application lifecycle.
+
+In current implementation terms, `NGIN.Core` is the active host.
+
+## Staged Target
+
+The generated target artifact emitted by `ngin build`.
+
+`.ngintarget` is not a primary authored file. It is the bridge between composition and runtime.
+
+At runtime, lower-level XML descriptor files such as `.module.xml` may still exist as implementation details. They are not the main authored package/project manifests.

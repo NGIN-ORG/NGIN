@@ -1,6 +1,6 @@
 # NGIN.Core Architecture
 
-NGIN.Core implements the Spec 002 runtime-kernel contract.
+NGIN.Core is the active host implementation for the platform contracts described by [Spec 001: Core Concepts and Vocabulary](/home/berggrenmille/NGIN/docs/specs/001-core-concepts.md), [Spec 003: Package Manifest and Runtime Contributions](/home/berggrenmille/NGIN/docs/specs/003-package-manifest-and-runtime-contributions.md), and [Spec 007: Host Integration Contract](/home/berggrenmille/NGIN/docs/specs/007-host-integration-contract.md).
 
 ## Subsystems
 
@@ -14,7 +14,7 @@ NGIN.Core implements the Spec 002 runtime-kernel contract.
 ## Loading model
 
 - Static-first module loading is production-ready in v1.
-- Dynamic plugin loading remains behind `IPluginCatalog` and `IPluginBinaryLoader` seams pending Spec 003.
+- Dynamic plugin loading remains behind `IPluginCatalog` and `IPluginBinaryLoader` seams.
 - Module catalogs are per-kernel (`IModuleCatalog` / `StaticModuleCatalog`) and must be supplied explicitly by the builder, host config, or tests.
 - Filesystem dynamic descriptor discovery is XML-only and scans for `.module.xml` / `.plugin-module.xml` under `pluginSearchPaths`.
 - Resolver enforces:
@@ -41,7 +41,7 @@ Dynamic descriptor shape:
   - `RequiresServices`
   - `Capabilities`
 
-See [Spec 003: Package, Module, and Plugin Model](/home/berggrenmille/NGIN/docs/specs/003-plugin-abi-header-spec.md) and the example descriptor at [demo.module.xml](/home/berggrenmille/NGIN/docs/examples/runtime-descriptors/DemoPlugin/demo.module.xml).
+See [Spec 003: Package Manifest and Runtime Contributions](/home/berggrenmille/NGIN/docs/specs/003-package-manifest-and-runtime-contributions.md) and the example descriptor at [demo.module.xml](/home/berggrenmille/NGIN/docs/examples/runtime-descriptors/DemoPlugin/demo.module.xml).
 
 ## Service Model (DI V2)
 

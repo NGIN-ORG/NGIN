@@ -25,6 +25,7 @@ The platform is not defined by a game engine, editor, or plugin ABI in isolation
 - authored manifests are XML, not JSON
 - active tooling is native C++, not Python
 - lockfiles are not part of the public platform model at this stage
+- staged targets are the bridge between tooling and runtime
 
 ## Repository Role
 
@@ -37,11 +38,13 @@ This repo owns:
 
 The current host implementation lives in `NGIN.Core`.
 
-## Active File Types
+## Public File Types
 
-- project: `.nginproj`
-- package: `.nginpkg`
-- staged target layout: `.ngintarget`
+- authored project: `.nginproj`
+- authored package: `.nginpkg`
+- generated staged target: `.ngintarget`
+
+Lower-level runtime descriptor files are implementation details, not the intended primary authoring surface.
 
 ## Current Workflow
 
@@ -54,6 +57,6 @@ The current host implementation lives in `NGIN.Core`.
 
 1. keep the authored model centered on project, target, package, module, plugin, and host
 2. keep packages as the main reusable unit
-3. make staged output the bridge to future run/build integration
-4. finish plugin productization only inside the package model
+3. move runtime module and plugin declaration fully into packages
+4. make staged output the bridge to future run/build integration
 5. build proof products on top of the same host model

@@ -9,6 +9,8 @@ It uses `NGIN.Base` for XML parsing and presents one package-first workflow:
 3. `graph`
 4. `build`
 
+`.ngintarget` is generated output, not a primary authored manifest.
+
 ## Commands
 
 - `ngin list`
@@ -34,6 +36,8 @@ If `--project` is omitted, `ngin` walks upward from the current directory and us
 Lower-level runtime descriptor example:
 
 - [demo.module.xml](/home/berggrenmille/NGIN/docs/examples/runtime-descriptors/DemoPlugin/demo.module.xml)
+
+That descriptor format is a runtime implementation detail today, not the intended primary public authoring model.
 
 ## Build Output
 
