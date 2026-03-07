@@ -56,11 +56,11 @@ namespace NGIN::Core
     public:
         virtual ~IPluginCatalog() = default;
 
-        /// @brief Enumerate dynamic module descriptors without loading binaries.
+        /// @brief Enumerate dynamic module descriptors from `.module.xml` / `.plugin-module.xml` files without loading binaries.
         virtual auto CollectDescriptors(std::vector<ModuleDescriptor>& out) noexcept -> CoreResult<void> = 0;
     };
 
-    /// @brief Filesystem-backed dynamic descriptor catalog.
+    /// @brief Filesystem-backed dynamic descriptor catalog scanning XML module descriptors from plugin search paths.
     class NGIN_CORE_API FilesystemPluginCatalog final : public IPluginCatalog
     {
     public:

@@ -841,22 +841,27 @@ TEST_CASE("DynamicDescriptorDiscoveryUsesPluginSearchPaths", "[runtime][plugin]"
     const auto root = std::filesystem::temp_directory_path() / "ngin-runtime-tests-plugins";
     const auto pluginDir = root / "DemoPlugin";
     std::filesystem::create_directories(pluginDir);
-    const auto descriptorPath = pluginDir / "demo.module.json";
+    const auto descriptorPath = pluginDir / "demo.module.xml";
     {
         std::ofstream out(descriptorPath);
-        out << "{\n"
-            << "  \"name\": \"Core.DynamicDemo\",\n"
-            << "  \"family\": \"Core\",\n"
-            << "  \"type\": \"Runtime\",\n"
-            << "  \"loadPhase\": \"CoreServices\",\n"
-            << "  \"version\": \"0.1.0\",\n"
-            << "  \"compatiblePlatformRange\": \">=0.1.0 <1.0.0\",\n"
-            << "  \"platforms\": [\"linux\", \"windows\", \"macos\"],\n"
-            << "  \"dependencies\": [],\n"
-            << "  \"requiresServices\": [],\n"
-            << "  \"providesServices\": [],\n"
-            << "  \"capabilities\": []\n"
-            << "}\n";
+        out << "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+            << "<Module Name=\"Core.DynamicDemo\"\n"
+            << "        Family=\"Core\"\n"
+            << "        Type=\"Runtime\"\n"
+            << "        LoadPhase=\"CoreServices\"\n"
+            << "        Version=\"0.1.0\"\n"
+            << "        CompatiblePlatformRange=\">=0.1.0 &lt;1.0.0\"\n"
+            << "        ReflectionRequired=\"false\">\n"
+            << "  <Platforms>\n"
+            << "    <Platform Name=\"linux\" />\n"
+            << "    <Platform Name=\"windows\" />\n"
+            << "    <Platform Name=\"macos\" />\n"
+            << "  </Platforms>\n"
+            << "  <Dependencies />\n"
+            << "  <RequiresServices />\n"
+            << "  <ProvidesServices />\n"
+            << "  <Capabilities />\n"
+            << "</Module>\n";
     }
 
     auto cfg = MakeHostConfig(catalog);
@@ -1056,49 +1061,37 @@ TEST_CASE("ApplicationBuilderLoadsProjectManifestAndConfig", "[builder][manifest
 
     WriteTextFile(tempDir / "app.cfg", "App.Mode=manifest\n");
     WriteTextFile(
-        tempDir / "ngin.project.json",
-        R"({
-  "schemaVersion": 1,
-  "name": "Manifest.Tests",
-  "defaultTarget": "Samples.Manifest",
-  "targets": [
-    {
-      "name": "Samples.Manifest",
-      "type": "Program",
-      "profile": "ConsoleApp",
-      "platform": "linux-x64",
-      "enableReflection": false,
-      "packages": [
-        {
-          "name": "NGIN.ECS",
-          "versionRange": ">=0.1.0 <1.0.0"
-        }
-      ],
-      "modules": {
-        "enable": [
-          "App.Manifest"
-        ],
-        "disable": [
-          "App.Disabled"
-        ]
-      },
-      "plugins": {
-        "enable": [
-          "Plugin.Sample"
-        ],
-        "disable": []
-      },
-      "environmentName": "Dev",
-      "configSources": [
-        "app.cfg"
-      ],
-      "workingDirectory": "."
-    }
-  ]
-})");
+        tempDir / "Manifest.Tests.nginproj",
+        R"(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="1" Name="Manifest.Tests" DefaultTarget="Samples.Manifest">
+  <Targets>
+    <Target Name="Samples.Manifest"
+            Type="Program"
+            Profile="ConsoleApp"
+            Platform="linux-x64"
+            EnableReflection="false"
+            Environment="Dev"
+            WorkingDirectory=".">
+      <Packages>
+        <PackageRef Name="NGIN.ECS" VersionRange=">=0.1.0 &lt;1.0.0" />
+      </Packages>
+      <Modules>
+        <Enable Name="App.Manifest" />
+        <Disable Name="App.Disabled" />
+      </Modules>
+      <Plugins>
+        <Enable Name="Plugin.Sample" />
+      </Plugins>
+      <ConfigSources>
+        <Config Source="app.cfg" />
+      </ConfigSources>
+    </Target>
+  </Targets>
+</Project>
+)");
 
     auto builder = NGIN::Core::CreateApplicationBuilder(0, nullptr);
-    builder->UseProjectFile((tempDir / "ngin.project.json").string());
+    builder->UseProjectFile((tempDir / "Manifest.Tests.nginproj").string());
     builder->Services().AddConfiguration();
     builder->Modules()
         .Register(MakeRegistration(
@@ -1143,58 +1136,43 @@ TEST_CASE("ApplicationBuilderTargetOverrideBeatsProjectDefault", "[builder][mani
     const auto tempDir = std::filesystem::temp_directory_path() / ("ngin-core-builder-target-" + uniqueId);
     std::filesystem::create_directories(tempDir);
 
-    WriteTextFile(tempDir / "ngin.project.json", R"({
-  "schemaVersion": 1,
-  "name": "Manifest.Override",
-  "defaultTarget": "Default.Target",
-  "targets": [
-    {
-      "name": "Default.Target",
-      "type": "Program",
-      "profile": "ConsoleApp",
-      "platform": "linux-x64",
-      "enableReflection": false,
-      "packages": [],
-      "modules": {
-        "enable": [
-          "App.Default"
-        ],
-        "disable": []
-      },
-      "plugins": {
-        "enable": [],
-        "disable": []
-      },
-      "environmentName": "Default",
-      "configSources": [],
-      "workingDirectory": "."
-    },
-    {
-      "name": "Override.Target",
-      "type": "Program",
-      "profile": "ConsoleApp",
-      "platform": "linux-x64",
-      "enableReflection": false,
-      "packages": [],
-      "modules": {
-        "enable": [
-          "App.Override"
-        ],
-        "disable": []
-      },
-      "plugins": {
-        "enable": [],
-        "disable": []
-      },
-      "environmentName": "Override",
-      "configSources": [],
-      "workingDirectory": "."
-    }
-  ]
-})");
+    WriteTextFile(tempDir / "Manifest.Override.nginproj", R"(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="1" Name="Manifest.Override" DefaultTarget="Default.Target">
+  <Targets>
+    <Target Name="Default.Target"
+            Type="Program"
+            Profile="ConsoleApp"
+            Platform="linux-x64"
+            EnableReflection="false"
+            Environment="Default"
+            WorkingDirectory=".">
+      <Packages />
+      <Modules>
+        <Enable Name="App.Default" />
+      </Modules>
+      <Plugins />
+      <ConfigSources />
+    </Target>
+    <Target Name="Override.Target"
+            Type="Program"
+            Profile="ConsoleApp"
+            Platform="linux-x64"
+            EnableReflection="false"
+            Environment="Override"
+            WorkingDirectory=".">
+      <Packages />
+      <Modules>
+        <Enable Name="App.Override" />
+      </Modules>
+      <Plugins />
+      <ConfigSources />
+    </Target>
+  </Targets>
+</Project>
+)");
 
     auto builder = NGIN::Core::CreateApplicationBuilder(0, nullptr);
-    builder->UseProjectFile((tempDir / "ngin.project.json").string());
+    builder->UseProjectFile((tempDir / "Manifest.Override.nginproj").string());
     builder->SetDefaultTarget("Override.Target");
     builder->Modules()
         .Register(MakeRegistration(
@@ -1235,35 +1213,27 @@ TEST_CASE("ApplicationBuilderRejectsUnknownTarget", "[builder][manifest]")
     const auto tempDir = std::filesystem::temp_directory_path() / ("ngin-core-builder-missing-target-" + uniqueId);
     std::filesystem::create_directories(tempDir);
 
-    WriteTextFile(tempDir / "ngin.project.json", R"({
-  "schemaVersion": 1,
-  "name": "Manifest.Invalid",
-  "defaultTarget": "Samples.Default",
-  "targets": [
-    {
-      "name": "Samples.Default",
-      "type": "Program",
-      "profile": "ConsoleApp",
-      "platform": "linux-x64",
-      "enableReflection": false,
-      "packages": [],
-      "modules": {
-        "enable": [],
-        "disable": []
-      },
-      "plugins": {
-        "enable": [],
-        "disable": []
-      },
-      "environmentName": "",
-      "configSources": [],
-      "workingDirectory": "."
-    }
-  ]
-})");
+    WriteTextFile(tempDir / "Manifest.Invalid.nginproj", R"(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="1" Name="Manifest.Invalid" DefaultTarget="Samples.Default">
+  <Targets>
+    <Target Name="Samples.Default"
+            Type="Program"
+            Profile="ConsoleApp"
+            Platform="linux-x64"
+            EnableReflection="false"
+            Environment=""
+            WorkingDirectory=".">
+      <Packages />
+      <Modules />
+      <Plugins />
+      <ConfigSources />
+    </Target>
+  </Targets>
+</Project>
+)");
 
     auto builder = NGIN::Core::CreateApplicationBuilder(0, nullptr);
-    builder->UseProjectFile((tempDir / "ngin.project.json").string());
+    builder->UseProjectFile((tempDir / "Manifest.Invalid.nginproj").string());
     builder->SetDefaultTarget("Missing.Target");
 
     auto app = builder->Build();
@@ -1282,24 +1252,26 @@ TEST_CASE("ApplicationBuilderExecutesExplicitPackageBootstrapFromManifestFile", 
 
     WriteTextFile(tempDir / "package.cfg", "Package.Mode=bootstrapped\n");
     WriteTextFile(
-        tempDir / "ngin.package.json",
-        R"({
-  "schemaVersion": 1,
-  "name": "Samples.Package",
-  "version": "0.1.0",
-  "compatiblePlatformRange": ">=0.1.0 <1.0.0",
-  "platforms": ["linux", "windows", "macos"],
-  "dependencies": [],
-  "bootstrap": {
-    "mode": "BuilderHookV1",
-    "entryPoint": "NGIN_Bootstrap_Samples_Package",
-    "autoApply": false
-  },
-  "provides": {
-    "modules": ["App.PackageBootstrap"],
-    "plugins": []
-  }
-})");
+        tempDir / "Samples.Package.nginpkg",
+        R"(<?xml version="1.0" encoding="utf-8"?>
+<Package SchemaVersion="1"
+         Name="Samples.Package"
+         Version="0.1.0"
+         CompatiblePlatformRange=">=0.1.0 &lt;1.0.0">
+  <Platforms>
+    <Platform Name="linux" />
+    <Platform Name="windows" />
+    <Platform Name="macos" />
+  </Platforms>
+  <Dependencies />
+  <Bootstrap Mode="BuilderHookV1"
+             EntryPoint="NGIN_Bootstrap_Samples_Package"
+             AutoApply="false" />
+  <Provides>
+    <Module Name="App.PackageBootstrap" />
+  </Provides>
+</Package>
+)");
 
     auto builder = NGIN::Core::CreateApplicationBuilder(0, nullptr);
     builder->SetApplicationName("Builder.Package");
@@ -1312,7 +1284,7 @@ TEST_CASE("ApplicationBuilderExecutesExplicitPackageBootstrapFromManifestFile", 
             .versionRange = ">=0.1.0 <1.0.0",
             .optional = false,
         })
-        .AddManifestFile((tempDir / "ngin.package.json").string())
+        .AddManifestFile((tempDir / "Samples.Package.nginpkg").string())
         .RegisterLinkedRegistrar(&NGIN_RegisterPackage_Samples_Package)
         .ApplyBootstrap("Samples.Package");
 

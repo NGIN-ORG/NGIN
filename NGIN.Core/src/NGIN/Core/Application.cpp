@@ -1,6 +1,6 @@
 #include <NGIN/Core/Application.hpp>
 
-#include <NGIN/Serialization/JSON/JsonParser.hpp>
+#include <NGIN/Serialization/XML/XmlParser.hpp>
 
 #include <algorithm>
 #include <filesystem>
@@ -15,9 +15,11 @@ namespace NGIN::Core
 {
     namespace
     {
-        using JsonArray = NGIN::Serialization::JsonArray;
-        using JsonObject = NGIN::Serialization::JsonObject;
-        using JsonValue = NGIN::Serialization::JsonValue;
+        using XmlDocument = NGIN::Serialization::XmlDocument;
+        using XmlElement = NGIN::Serialization::XmlElement;
+        using XmlNode = NGIN::Serialization::XmlNode;
+        using XmlParseOptions = NGIN::Serialization::XmlParseOptions;
+        using XmlParser = NGIN::Serialization::XmlParser;
 
         struct PendingServiceRegistration
         {
@@ -41,6 +43,12 @@ namespace NGIN::Core
             std::string            entryPoint {};
             bool                   explicitRequest {false};
             std::size_t            orderIndex {0};
+        };
+
+        struct LoadedXmlDocument
+        {
+            std::string text {};
+            XmlDocument document {0};
         };
 
         [[nodiscard]] auto MakeBuilderError(
@@ -74,115 +82,145 @@ namespace NGIN::Core
             return std::string(error.message.Data(), error.message.Size());
         }
 
-        [[nodiscard]] auto FindMember(const JsonObject& object, const std::string_view key) -> const JsonValue*
+        [[nodiscard]] auto LoadXmlDocument(
+            const std::string& text,
+            const std::string_view kind) -> CoreResult<LoadedXmlDocument>
         {
-            return object.Find(key);
-        }
+            LoadedXmlDocument loaded {};
+            loaded.text = text;
 
-        [[nodiscard]] auto RequireObject(
-            const JsonValue& value,
-            const std::string_view context) -> CoreResult<const JsonObject*>
-        {
-            if (!value.IsObject())
+            XmlParseOptions options {};
+            options.decodeEntities = true;
+            options.arenaBytes = std::max<NGIN::UIntSize>(
+                16384,
+                static_cast<NGIN::UIntSize>(loaded.text.size() * 8 + 4096));
+
+            auto parsed = XmlParser::Parse(loaded.text, options);
+            if (!parsed)
             {
                 return NGIN::Utilities::Unexpected<KernelError>(
-                    MakeBuilderError(std::string(context) + " must be an object"));
+                    MakeBuilderError("failed to parse " + std::string(kind) + " manifest: " + ToString(parsed.ErrorUnsafe())));
             }
-            return &value.AsObject();
+
+            loaded.document = std::move(parsed.ValueUnsafe());
+            return loaded;
         }
 
-        [[nodiscard]] auto RequireArray(
-            const JsonObject& object,
-            const std::string_view key,
-            const std::string_view context) -> CoreResult<const JsonArray*>
+        [[nodiscard]] auto ChildElements(const XmlElement& node, const std::string_view name = {}) -> std::vector<const XmlElement*>
         {
-            const auto* value = FindMember(object, key);
-            if (value == nullptr || !value->IsArray())
+            std::vector<const XmlElement*> out {};
+            out.reserve(static_cast<std::size_t>(node.children.Size()));
+            for (NGIN::UIntSize index = 0; index < node.children.Size(); ++index)
             {
-                return NGIN::Utilities::Unexpected<KernelError>(
-                    MakeBuilderError(std::string(context) + "." + std::string(key) + " must be an array"));
+                const auto& child = node.children[index];
+                if (child.type != XmlNode::Type::Element || child.element == nullptr)
+                {
+                    continue;
+                }
+                if (name.empty() || child.element->name == name)
+                {
+                    out.push_back(child.element);
+                }
             }
-            return &value->AsArray();
+            return out;
         }
 
-        [[nodiscard]] auto RequireString(
-            const JsonObject& object,
+        [[nodiscard]] auto FindChild(const XmlElement& node, const std::string_view name) -> const XmlElement*
+        {
+            for (NGIN::UIntSize index = 0; index < node.children.Size(); ++index)
+            {
+                const auto& child = node.children[index];
+                if (child.type == XmlNode::Type::Element && child.element != nullptr && child.element->name == name)
+                {
+                    return child.element;
+                }
+            }
+            return nullptr;
+        }
+
+        [[nodiscard]] auto Attribute(const XmlElement& node, const std::string_view key) -> std::optional<std::string>
+        {
+            const auto* attribute = node.FindAttribute(key);
+            if (attribute == nullptr)
+            {
+                return std::nullopt;
+            }
+            return std::string(attribute->value);
+        }
+
+        [[nodiscard]] auto RequireAttribute(
+            const XmlElement& element,
             const std::string_view key,
             const std::string_view context) -> CoreResult<std::string>
         {
-            const auto* value = FindMember(object, key);
-            if (value == nullptr || !value->IsString())
+            const auto value = Attribute(element, key);
+            if (!value.has_value())
             {
                 return NGIN::Utilities::Unexpected<KernelError>(
-                    MakeBuilderError(std::string(context) + "." + std::string(key) + " must be a string"));
+                    MakeBuilderError(std::string(context) + " missing required attribute '" + std::string(key) + "'"));
             }
-            return std::string(value->AsString());
+            return value.value();
         }
 
-        [[nodiscard]] auto OptionalString(
-            const JsonObject& object,
+        [[nodiscard]] auto OptionalAttribute(
+            const XmlElement& element,
             const std::string_view key,
-            const std::string_view context) -> CoreResult<std::string>
+            const std::string_view context,
+            const std::string& defaultValue = {}) -> CoreResult<std::string>
         {
-            const auto* value = FindMember(object, key);
-            if (value == nullptr || value->IsNull())
+            (void)context;
+            const auto value = Attribute(element, key);
+            if (!value.has_value())
             {
-                return std::string {};
+                return defaultValue;
             }
-            if (!value->IsString())
-            {
-                return NGIN::Utilities::Unexpected<KernelError>(
-                    MakeBuilderError(std::string(context) + "." + std::string(key) + " must be a string"));
-            }
-            return std::string(value->AsString());
+            return value.value();
         }
 
-        [[nodiscard]] auto OptionalBool(
-            const JsonObject& object,
+        [[nodiscard]] auto ParseBoolValue(
+            const std::string& value,
+            const std::string_view context) -> CoreResult<bool>
+        {
+            if (value == "true" || value == "1" || value == "yes")
+            {
+                return true;
+            }
+            if (value == "false" || value == "0" || value == "no")
+            {
+                return false;
+            }
+            return NGIN::Utilities::Unexpected<KernelError>(
+                MakeBuilderError(std::string(context) + " must be a boolean-compatible value"));
+        }
+
+        [[nodiscard]] auto OptionalBoolAttribute(
+            const XmlElement& element,
             const std::string_view key,
             const std::string_view context,
             const bool defaultValue = false) -> CoreResult<bool>
         {
-            const auto* value = FindMember(object, key);
-            if (value == nullptr || value->IsNull())
+            const auto value = Attribute(element, key);
+            if (!value.has_value())
             {
                 return defaultValue;
             }
-            if (!value->IsBool())
-            {
-                return NGIN::Utilities::Unexpected<KernelError>(
-                    MakeBuilderError(std::string(context) + "." + std::string(key) + " must be a boolean"));
-            }
-            return value->AsBool();
+            return ParseBoolValue(value.value(), context);
         }
 
-        [[nodiscard]] auto OptionalStringArray(
-            const JsonObject& object,
-            const std::string_view key,
-            const std::string_view context) -> CoreResult<std::vector<std::string>>
+        [[nodiscard]] auto ParseUInt32Value(
+            const std::string& value,
+            const std::string_view context) -> CoreResult<NGIN::UInt32>
         {
-            const auto* value = FindMember(object, key);
-            if (value == nullptr || value->IsNull())
+            try
             {
-                return std::vector<std::string> {};
+                const auto parsed = static_cast<unsigned long>(std::stoul(value));
+                return static_cast<NGIN::UInt32>(parsed);
             }
-            if (!value->IsArray())
+            catch (...)
             {
                 return NGIN::Utilities::Unexpected<KernelError>(
-                    MakeBuilderError(std::string(context) + "." + std::string(key) + " must be an array"));
+                    MakeBuilderError(std::string(context) + " must be an unsigned integer"));
             }
-
-            std::vector<std::string> out {};
-            for (const auto& item : value->AsArray().values)
-            {
-                if (!item.IsString())
-                {
-                    return NGIN::Utilities::Unexpected<KernelError>(
-                        MakeBuilderError(std::string(context) + "." + std::string(key) + " items must be strings"));
-                }
-                out.emplace_back(item.AsString());
-            }
-            return out;
         }
 
         [[nodiscard]] auto ParseTargetType(const std::string_view text) -> CoreResult<TargetType>
@@ -232,29 +270,22 @@ namespace NGIN::Core
         }
 
         [[nodiscard]] auto ParsePackageReference(
-            const JsonValue& value,
+            const XmlElement& element,
             const std::string_view context) -> CoreResult<PackageReference>
         {
-            auto objectResult = RequireObject(value, context);
-            if (!objectResult)
-            {
-                return NGIN::Utilities::Unexpected<KernelError>(objectResult.ErrorUnsafe());
-            }
-            const auto& object = *objectResult.ValueUnsafe();
-
-            auto name = RequireString(object, "name", context);
+            auto name = RequireAttribute(element, "Name", context);
             if (!name)
             {
                 return NGIN::Utilities::Unexpected<KernelError>(name.ErrorUnsafe());
             }
 
-            auto versionRange = OptionalString(object, "versionRange", context);
+            auto versionRange = OptionalAttribute(element, "VersionRange", context);
             if (!versionRange)
             {
                 return NGIN::Utilities::Unexpected<KernelError>(versionRange.ErrorUnsafe());
             }
 
-            auto optional = OptionalBool(object, "optional", context, false);
+            auto optional = OptionalBoolAttribute(element, "Optional", std::string(context) + " attribute 'Optional'", false);
             if (!optional)
             {
                 return NGIN::Utilities::Unexpected<KernelError>(optional.ErrorUnsafe());
@@ -268,97 +299,100 @@ namespace NGIN::Core
         }
 
         [[nodiscard]] auto ParseSelection(
-            const JsonObject& object,
-            const std::string_view key,
+            const XmlElement* selectionElement,
             const std::string_view context) -> CoreResult<std::pair<std::vector<std::string>, std::vector<std::string>>>
         {
-            const auto* selectionValue = FindMember(object, key);
-            if (selectionValue == nullptr || !selectionValue->IsObject())
+            std::vector<std::string> enabled {};
+            std::vector<std::string> disabled {};
+            if (selectionElement == nullptr)
             {
                 return std::pair<std::vector<std::string>, std::vector<std::string>> {};
             }
 
-            const auto& selectionObject = selectionValue->AsObject();
-            auto enabled = OptionalStringArray(selectionObject, "enable", std::string(context) + "." + std::string(key));
-            if (!enabled)
+            for (const auto* child : ChildElements(*selectionElement, "Enable"))
             {
-                return NGIN::Utilities::Unexpected<KernelError>(enabled.ErrorUnsafe());
+                auto name = RequireAttribute(*child, "Name", std::string(context) + ".Enable");
+                if (!name)
+                {
+                    return NGIN::Utilities::Unexpected<KernelError>(name.ErrorUnsafe());
+                }
+                enabled.push_back(name.ValueUnsafe());
             }
 
-            auto disabled = OptionalStringArray(selectionObject, "disable", std::string(context) + "." + std::string(key));
-            if (!disabled)
+            for (const auto* child : ChildElements(*selectionElement, "Disable"))
             {
-                return NGIN::Utilities::Unexpected<KernelError>(disabled.ErrorUnsafe());
+                auto name = RequireAttribute(*child, "Name", std::string(context) + ".Disable");
+                if (!name)
+                {
+                    return NGIN::Utilities::Unexpected<KernelError>(name.ErrorUnsafe());
+                }
+                disabled.push_back(name.ValueUnsafe());
             }
 
             return std::pair<std::vector<std::string>, std::vector<std::string>> {
-                enabled.ValueUnsafe(),
-                disabled.ValueUnsafe(),
+                std::move(enabled),
+                std::move(disabled),
             };
         }
 
         [[nodiscard]] auto ParseProjectManifestText(const std::string& text) -> CoreResult<ProjectManifest>
         {
-            auto parsed = NGIN::Serialization::JsonParser::Parse(text);
-            if (!parsed)
+            auto loaded = LoadXmlDocument(text, "project");
+            if (!loaded)
             {
-                return NGIN::Utilities::Unexpected<KernelError>(
-                    MakeBuilderError("failed to parse project manifest: " + ToString(parsed.ErrorUnsafe())));
+                return NGIN::Utilities::Unexpected<KernelError>(loaded.ErrorUnsafe());
             }
 
-            const auto& root = parsed.ValueUnsafe().Root();
-            auto objectResult = RequireObject(root, "project");
-            if (!objectResult)
+            const auto* root = loaded.ValueUnsafe().document.Root();
+            if (root == nullptr || root->name != "Project")
             {
-                return NGIN::Utilities::Unexpected<KernelError>(objectResult.ErrorUnsafe());
+                return NGIN::Utilities::Unexpected<KernelError>(
+                    MakeBuilderError("project manifest root element must be <Project>"));
             }
-            const auto& rootObject = *objectResult.ValueUnsafe();
 
             ProjectManifest manifest {};
 
-            const auto* schemaValue = FindMember(rootObject, "schemaVersion");
-            if (schemaValue == nullptr || !schemaValue->IsNumber())
+            auto schemaVersion = OptionalAttribute(*root, "SchemaVersion", "project", "1");
+            if (!schemaVersion)
             {
-                return NGIN::Utilities::Unexpected<KernelError>(
-                    MakeBuilderError("project.schemaVersion must be a number"));
+                return NGIN::Utilities::Unexpected<KernelError>(schemaVersion.ErrorUnsafe());
             }
-            manifest.schemaVersion = static_cast<NGIN::UInt32>(schemaValue->AsNumber());
+            auto parsedSchema = ParseUInt32Value(schemaVersion.ValueUnsafe(), "project.SchemaVersion");
+            if (!parsedSchema)
+            {
+                return NGIN::Utilities::Unexpected<KernelError>(parsedSchema.ErrorUnsafe());
+            }
+            manifest.schemaVersion = parsedSchema.ValueUnsafe();
 
-            auto name = RequireString(rootObject, "name", "project");
+            auto name = RequireAttribute(*root, "Name", "project");
             if (!name)
             {
                 return NGIN::Utilities::Unexpected<KernelError>(name.ErrorUnsafe());
             }
             manifest.name = name.ValueUnsafe();
 
-            auto defaultTarget = RequireString(rootObject, "defaultTarget", "project");
+            auto defaultTarget = RequireAttribute(*root, "DefaultTarget", "project");
             if (!defaultTarget)
             {
                 return NGIN::Utilities::Unexpected<KernelError>(defaultTarget.ErrorUnsafe());
             }
             manifest.defaultTarget = defaultTarget.ValueUnsafe();
 
-            auto targetsArray = RequireArray(rootObject, "targets", "project");
-            if (!targetsArray)
+            const auto* targetsElement = FindChild(*root, "Targets");
+            if (targetsElement == nullptr)
             {
-                return NGIN::Utilities::Unexpected<KernelError>(targetsArray.ErrorUnsafe());
+                return NGIN::Utilities::Unexpected<KernelError>(
+                    MakeBuilderError("project must contain a <Targets> element"));
             }
 
             std::set<std::string> targetNames {};
-            for (std::size_t index = 0; index < targetsArray.ValueUnsafe()->values.Size(); ++index)
+            std::size_t index = 0;
+            for (const auto* targetElement : ChildElements(*targetsElement, "Target"))
             {
-                const auto& value = targetsArray.ValueUnsafe()->values[index];
-                const std::string context = "project.targets[" + std::to_string(index) + "]";
-                auto targetObjectResult = RequireObject(value, context);
-                if (!targetObjectResult)
-                {
-                    return NGIN::Utilities::Unexpected<KernelError>(targetObjectResult.ErrorUnsafe());
-                }
-
-                const auto& targetObject = *targetObjectResult.ValueUnsafe();
+                const std::string context = "project.targets[" + std::to_string(index++) + "]";
                 TargetDefinition target {};
 
-                auto targetName = RequireString(targetObject, "name", context);
+                auto targetName = RequireAttribute(*targetElement, "Name", context);
                 if (!targetName)
                 {
                     return NGIN::Utilities::Unexpected<KernelError>(targetName.ErrorUnsafe());
@@ -371,7 +405,7 @@ namespace NGIN::Core
                         MakeBuilderError("duplicate target name", target.name, KernelErrorCode::AlreadyExists));
                 }
 
-                auto typeText = RequireString(targetObject, "type", context);
+                auto typeText = RequireAttribute(*targetElement, "Type", context);
                 if (!typeText)
                 {
                     return NGIN::Utilities::Unexpected<KernelError>(typeText.ErrorUnsafe());
@@ -383,7 +417,7 @@ namespace NGIN::Core
                 }
                 target.type = type.ValueUnsafe();
 
-                auto profileText = RequireString(targetObject, "profile", context);
+                auto profileText = RequireAttribute(*targetElement, "Profile", context);
                 if (!profileText)
                 {
                     return NGIN::Utilities::Unexpected<KernelError>(profileText.ErrorUnsafe());
@@ -395,34 +429,25 @@ namespace NGIN::Core
                 }
                 target.profile = profile.ValueUnsafe();
 
-                auto platform = RequireString(targetObject, "platform", context);
+                auto platform = RequireAttribute(*targetElement, "Platform", context);
                 if (!platform)
                 {
                     return NGIN::Utilities::Unexpected<KernelError>(platform.ErrorUnsafe());
                 }
                 target.platform = platform.ValueUnsafe();
 
-                auto reflection = OptionalBool(targetObject, "enableReflection", context, false);
+                auto reflection = OptionalBoolAttribute(*targetElement, "EnableReflection", std::string(context) + ".EnableReflection", false);
                 if (!reflection)
                 {
                     return NGIN::Utilities::Unexpected<KernelError>(reflection.ErrorUnsafe());
                 }
                 target.enableReflection = reflection.ValueUnsafe();
 
-                const auto* packagesValue = FindMember(targetObject, "packages");
-                if (packagesValue != nullptr)
+                if (const auto* packagesElement = FindChild(*targetElement, "Packages"))
                 {
-                    if (!packagesValue->IsArray())
+                    for (const auto* packageElement : ChildElements(*packagesElement, "PackageRef"))
                     {
-                        return NGIN::Utilities::Unexpected<KernelError>(
-                            MakeBuilderError(context + ".packages must be an array"));
-                    }
-
-                    for (std::size_t packageIndex = 0; packageIndex < packagesValue->AsArray().values.Size(); ++packageIndex)
-                    {
-                        auto package = ParsePackageReference(
-                            packagesValue->AsArray().values[packageIndex],
-                            context + ".packages[" + std::to_string(packageIndex) + "]");
+                        auto package = ParsePackageReference(*packageElement, context + ".Packages");
                         if (!package)
                         {
                             return NGIN::Utilities::Unexpected<KernelError>(package.ErrorUnsafe());
@@ -431,7 +456,7 @@ namespace NGIN::Core
                     }
                 }
 
-                auto moduleSelection = ParseSelection(targetObject, "modules", context);
+                auto moduleSelection = ParseSelection(FindChild(*targetElement, "Modules"), context + ".Modules");
                 if (!moduleSelection)
                 {
                     return NGIN::Utilities::Unexpected<KernelError>(moduleSelection.ErrorUnsafe());
@@ -439,7 +464,7 @@ namespace NGIN::Core
                 target.modules.enable = std::move(moduleSelection.ValueUnsafe().first);
                 target.modules.disable = std::move(moduleSelection.ValueUnsafe().second);
 
-                auto pluginSelection = ParseSelection(targetObject, "plugins", context);
+                auto pluginSelection = ParseSelection(FindChild(*targetElement, "Plugins"), context + ".Plugins");
                 if (!pluginSelection)
                 {
                     return NGIN::Utilities::Unexpected<KernelError>(pluginSelection.ErrorUnsafe());
@@ -447,26 +472,32 @@ namespace NGIN::Core
                 target.plugins.enable = std::move(pluginSelection.ValueUnsafe().first);
                 target.plugins.disable = std::move(pluginSelection.ValueUnsafe().second);
 
-                auto environmentName = OptionalString(targetObject, "environmentName", context);
+                auto environmentName = OptionalAttribute(*targetElement, "Environment", context, {});
                 if (!environmentName)
                 {
                     return NGIN::Utilities::Unexpected<KernelError>(environmentName.ErrorUnsafe());
                 }
                 target.environmentName = environmentName.ValueUnsafe();
 
-                auto configSources = OptionalStringArray(targetObject, "configSources", context);
-                if (!configSources)
-                {
-                    return NGIN::Utilities::Unexpected<KernelError>(configSources.ErrorUnsafe());
-                }
-                target.configSources = configSources.ValueUnsafe();
-
-                auto workingDirectory = OptionalString(targetObject, "workingDirectory", context);
+                auto workingDirectory = OptionalAttribute(*targetElement, "WorkingDirectory", context, {});
                 if (!workingDirectory)
                 {
                     return NGIN::Utilities::Unexpected<KernelError>(workingDirectory.ErrorUnsafe());
                 }
                 target.workingDirectory = workingDirectory.ValueUnsafe();
+
+                if (const auto* configSources = FindChild(*targetElement, "ConfigSources"))
+                {
+                    for (const auto* configElement : ChildElements(*configSources, "Config"))
+                    {
+                        auto source = RequireAttribute(*configElement, "Source", context + ".ConfigSources");
+                        if (!source)
+                        {
+                            return NGIN::Utilities::Unexpected<KernelError>(source.ErrorUnsafe());
+                        }
+                        target.configSources.push_back(source.ValueUnsafe());
+                    }
+                }
 
                 manifest.targets.push_back(std::move(target));
             }
@@ -476,94 +507,86 @@ namespace NGIN::Core
 
         [[nodiscard]] auto ParsePackageManifestText(const std::string& text) -> CoreResult<PackageManifest>
         {
-            auto parsed = NGIN::Serialization::JsonParser::Parse(text);
-            if (!parsed)
+            auto loaded = LoadXmlDocument(text, "package");
+            if (!loaded)
             {
-                return NGIN::Utilities::Unexpected<KernelError>(
-                    MakeBuilderError("failed to parse package manifest: " + ToString(parsed.ErrorUnsafe())));
+                return NGIN::Utilities::Unexpected<KernelError>(loaded.ErrorUnsafe());
             }
 
-            const auto& root = parsed.ValueUnsafe().Root();
-            auto objectResult = RequireObject(root, "package");
-            if (!objectResult)
+            const auto* root = loaded.ValueUnsafe().document.Root();
+            if (root == nullptr || root->name != "Package")
             {
-                return NGIN::Utilities::Unexpected<KernelError>(objectResult.ErrorUnsafe());
+                return NGIN::Utilities::Unexpected<KernelError>(
+                    MakeBuilderError("package manifest root element must be <Package>"));
             }
-            const auto& rootObject = *objectResult.ValueUnsafe();
 
             PackageManifest manifest {};
 
-            const auto* schemaValue = FindMember(rootObject, "schemaVersion");
-            if (schemaValue == nullptr || !schemaValue->IsNumber())
+            auto schemaVersion = OptionalAttribute(*root, "SchemaVersion", "package", "1");
+            if (!schemaVersion)
             {
-                return NGIN::Utilities::Unexpected<KernelError>(
-                    MakeBuilderError("package.schemaVersion must be a number"));
+                return NGIN::Utilities::Unexpected<KernelError>(schemaVersion.ErrorUnsafe());
             }
-            manifest.schemaVersion = static_cast<NGIN::UInt32>(schemaValue->AsNumber());
+            auto parsedSchema = ParseUInt32Value(schemaVersion.ValueUnsafe(), "package.SchemaVersion");
+            if (!parsedSchema)
+            {
+                return NGIN::Utilities::Unexpected<KernelError>(parsedSchema.ErrorUnsafe());
+            }
+            manifest.schemaVersion = parsedSchema.ValueUnsafe();
 
-            auto name = RequireString(rootObject, "name", "package");
+            auto name = RequireAttribute(*root, "Name", "package");
             if (!name)
             {
                 return NGIN::Utilities::Unexpected<KernelError>(name.ErrorUnsafe());
             }
             manifest.name = name.ValueUnsafe();
 
-            auto version = RequireString(rootObject, "version", "package");
+            auto version = RequireAttribute(*root, "Version", "package");
             if (!version)
             {
                 return NGIN::Utilities::Unexpected<KernelError>(version.ErrorUnsafe());
             }
             manifest.version = version.ValueUnsafe();
 
-            auto platformRange = RequireString(rootObject, "compatiblePlatformRange", "package");
+            auto platformRange = RequireAttribute(*root, "CompatiblePlatformRange", "package");
             if (!platformRange)
             {
                 return NGIN::Utilities::Unexpected<KernelError>(platformRange.ErrorUnsafe());
             }
             manifest.compatiblePlatformRange = platformRange.ValueUnsafe();
 
-            auto platforms = RequireArray(rootObject, "platforms", "package");
-            if (!platforms)
+            const auto* platformsElement = FindChild(*root, "Platforms");
+            if (platformsElement == nullptr)
             {
-                return NGIN::Utilities::Unexpected<KernelError>(platforms.ErrorUnsafe());
+                return NGIN::Utilities::Unexpected<KernelError>(
+                    MakeBuilderError("package must contain a <Platforms> element"));
             }
-            for (const auto& platform : platforms.ValueUnsafe()->values)
+            for (const auto* platformElement : ChildElements(*platformsElement, "Platform"))
             {
-                if (!platform.IsString())
+                auto platform = RequireAttribute(*platformElement, "Name", "package.Platforms");
+                if (!platform)
                 {
-                    return NGIN::Utilities::Unexpected<KernelError>(
-                        MakeBuilderError("package.platforms items must be strings"));
+                    return NGIN::Utilities::Unexpected<KernelError>(platform.ErrorUnsafe());
                 }
-                manifest.platforms.emplace_back(platform.AsString());
+                manifest.platforms.push_back(platform.ValueUnsafe());
             }
 
-            auto dependencies = RequireArray(rootObject, "dependencies", "package");
-            if (!dependencies)
+            if (const auto* dependenciesElement = FindChild(*root, "Dependencies"))
             {
-                return NGIN::Utilities::Unexpected<KernelError>(dependencies.ErrorUnsafe());
-            }
-            for (std::size_t index = 0; index < dependencies.ValueUnsafe()->values.Size(); ++index)
-            {
-                auto reference = ParsePackageReference(
-                    dependencies.ValueUnsafe()->values[index],
-                    "package.dependencies[" + std::to_string(index) + "]");
-                if (!reference)
+                for (const auto* dependencyElement : ChildElements(*dependenciesElement, "Dependency"))
                 {
-                    return NGIN::Utilities::Unexpected<KernelError>(reference.ErrorUnsafe());
+                    auto reference = ParsePackageReference(*dependencyElement, "package.Dependencies");
+                    if (!reference)
+                    {
+                        return NGIN::Utilities::Unexpected<KernelError>(reference.ErrorUnsafe());
+                    }
+                    manifest.dependencies.push_back(reference.ValueUnsafe());
                 }
-                manifest.dependencies.push_back(reference.ValueUnsafe());
             }
 
-            const auto* bootstrapValue = FindMember(rootObject, "bootstrap");
-            if (bootstrapValue != nullptr && !bootstrapValue->IsNull())
+            if (const auto* bootstrapElement = FindChild(*root, "Bootstrap"))
             {
-                auto bootstrapObject = RequireObject(*bootstrapValue, "package.bootstrap");
-                if (!bootstrapObject)
-                {
-                    return NGIN::Utilities::Unexpected<KernelError>(bootstrapObject.ErrorUnsafe());
-                }
-
-                auto modeText = RequireString(*bootstrapObject.ValueUnsafe(), "mode", "package.bootstrap");
+                auto modeText = RequireAttribute(*bootstrapElement, "Mode", "package.Bootstrap");
                 if (!modeText)
                 {
                     return NGIN::Utilities::Unexpected<KernelError>(modeText.ErrorUnsafe());
@@ -574,13 +597,13 @@ namespace NGIN::Core
                     return NGIN::Utilities::Unexpected<KernelError>(mode.ErrorUnsafe());
                 }
 
-                auto entryPoint = RequireString(*bootstrapObject.ValueUnsafe(), "entryPoint", "package.bootstrap");
+                auto entryPoint = RequireAttribute(*bootstrapElement, "EntryPoint", "package.Bootstrap");
                 if (!entryPoint)
                 {
                     return NGIN::Utilities::Unexpected<KernelError>(entryPoint.ErrorUnsafe());
                 }
 
-                auto autoApply = OptionalBool(*bootstrapObject.ValueUnsafe(), "autoApply", "package.bootstrap", false);
+                auto autoApply = OptionalBoolAttribute(*bootstrapElement, "AutoApply", "package.Bootstrap.AutoApply", false);
                 if (!autoApply)
                 {
                     return NGIN::Utilities::Unexpected<KernelError>(autoApply.ErrorUnsafe());
@@ -593,32 +616,32 @@ namespace NGIN::Core
                 };
             }
 
-            const auto* providesMember = FindMember(rootObject, "provides");
-            if (providesMember == nullptr)
+            const auto* providesElement = FindChild(*root, "Provides");
+            if (providesElement == nullptr)
             {
                 return NGIN::Utilities::Unexpected<KernelError>(
-                    MakeBuilderError("package.provides must be an object"));
+                    MakeBuilderError("package must contain a <Provides> element"));
             }
 
-            auto providesValue = RequireObject(*providesMember, "package.provides");
-            if (!providesValue)
+            for (const auto* moduleElement : ChildElements(*providesElement, "Module"))
             {
-                return NGIN::Utilities::Unexpected<KernelError>(providesValue.ErrorUnsafe());
+                auto moduleName = RequireAttribute(*moduleElement, "Name", "package.Provides.Module");
+                if (!moduleName)
+                {
+                    return NGIN::Utilities::Unexpected<KernelError>(moduleName.ErrorUnsafe());
+                }
+                manifest.providedModules.push_back(moduleName.ValueUnsafe());
             }
 
-            auto providedModules = OptionalStringArray(*providesValue.ValueUnsafe(), "modules", "package.provides");
-            if (!providedModules)
+            for (const auto* pluginElement : ChildElements(*providesElement, "Plugin"))
             {
-                return NGIN::Utilities::Unexpected<KernelError>(providedModules.ErrorUnsafe());
+                auto pluginName = RequireAttribute(*pluginElement, "Name", "package.Provides.Plugin");
+                if (!pluginName)
+                {
+                    return NGIN::Utilities::Unexpected<KernelError>(pluginName.ErrorUnsafe());
+                }
+                manifest.providedPlugins.push_back(pluginName.ValueUnsafe());
             }
-            manifest.providedModules = providedModules.ValueUnsafe();
-
-            auto providedPlugins = OptionalStringArray(*providesValue.ValueUnsafe(), "plugins", "package.provides");
-            if (!providedPlugins)
-            {
-                return NGIN::Utilities::Unexpected<KernelError>(providedPlugins.ErrorUnsafe());
-            }
-            manifest.providedPlugins = providedPlugins.ValueUnsafe();
 
             return manifest;
         }

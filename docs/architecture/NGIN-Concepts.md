@@ -52,6 +52,8 @@ An optional extension provided by packages.
 
 Plugins are subordinate to the package model, not a separate top-level ecosystem.
 
+At runtime, dynamically discovered plugin modules use lower-level XML descriptor files such as `.module.xml`. Those descriptors are runtime metadata, not the main authored package/project manifests.
+
 ## Host
 
 The runtime container built from a resolved target.

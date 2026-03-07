@@ -108,7 +108,7 @@ int main(int argc, char** argv)
     const auto sampleDir = std::filesystem::path(NGIN_CORE_BASIC_HOST_DIR);
 
     auto builder = CreateApplicationBuilder(argc, argv);
-    builder->UseProjectFile((sampleDir / "ngin.project.json").string());
+    builder->UseProjectFile((sampleDir / "NGIN.Core.BasicHost.nginproj").string());
     builder->SetApplicationName("NGIN.Core.BasicHost");
     builder->SetDefaultTarget("Samples.BasicHost");
     builder->UseProfile(HostProfile::ConsoleApp);
@@ -126,7 +126,7 @@ int main(int argc, char** argv)
         })
         .Enable("App.BasicHost");
     builder->Packages()
-        .AddManifestFile((sampleDir / "ngin.package.json").string())
+        .AddManifestFile((sampleDir / "Samples.DemoPackage.nginpkg").string())
         .RegisterLinkedRegistrar(&NGIN_RegisterPackage_Samples_DemoPackage);
 
     auto app = builder->Build();

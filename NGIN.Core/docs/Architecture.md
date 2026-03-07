@@ -16,11 +16,32 @@ NGIN.Core implements the Spec 002 runtime-kernel contract.
 - Static-first module loading is production-ready in v1.
 - Dynamic plugin loading remains behind `IPluginCatalog` and `IPluginBinaryLoader` seams pending Spec 003.
 - Module catalogs are per-kernel (`IModuleCatalog` / `StaticModuleCatalog`) and must be supplied explicitly by the builder, host config, or tests.
+- Filesystem dynamic descriptor discovery is XML-only and scans for `.module.xml` / `.plugin-module.xml` under `pluginSearchPaths`.
 - Resolver enforces:
   - descriptor family layer constraints
   - canonical load-phase ordering
   - module `compatiblePlatformRange` against host `platformVersion`
   - dependency `requiredVersion` checks
+
+Dynamic descriptor shape:
+
+- root element: `<Module>`
+- required root attribute: `Name`
+- optional root attributes:
+  - `Family`
+  - `Type`
+  - `LoadPhase`
+  - `Version`
+  - `CompatiblePlatformRange`
+  - `ReflectionRequired`
+- supported child sections:
+  - `Platforms`
+  - `Dependencies`
+  - `ProvidesServices`
+  - `RequiresServices`
+  - `Capabilities`
+
+See [Spec 003: Package, Module, and Plugin Model](/home/berggrenmille/NGIN/docs/specs/003-plugin-abi-header-spec.md) and the example descriptor at [demo.module.xml](/home/berggrenmille/NGIN/docs/examples/runtime-descriptors/DemoPlugin/demo.module.xml).
 
 ## Service Model (DI V2)
 

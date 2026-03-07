@@ -31,6 +31,10 @@ If `--project` is omitted, `ngin` walks upward from the current directory and us
 - [plugin-catalog.xml](/home/berggrenmille/NGIN/manifests/plugin-catalog.xml)
 - [NGIN.Workspace.nginproj](/home/berggrenmille/NGIN/manifests/NGIN.Workspace.nginproj)
 
+Lower-level runtime descriptor example:
+
+- [demo.module.xml](/home/berggrenmille/NGIN/docs/examples/runtime-descriptors/DemoPlugin/demo.module.xml)
+
 ## Build Output
 
 `ngin build` stages package contents and project config sources into an output directory and emits `<Target>.ngintarget` as the staged layout manifest.

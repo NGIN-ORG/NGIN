@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="1" Name="NGIN.Core.BasicHost" DefaultTarget="Samples.BasicHost">
+  <Targets>
+    <Target Name="Samples.BasicHost"
+            Type="Program"
+            Profile="ConsoleApp"
+            Platform="linux-x64"
+            EnableReflection="false"
+            Environment="Dev"
+            WorkingDirectory=".">
+      <Packages>
+        <PackageRef Name="Samples.DemoPackage" VersionRange=">=0.1.0 &lt;1.0.0" Optional="false" />
+      </Packages>
+      <Modules>
+        <Enable Name="App.BasicHost" />
+      </Modules>
+      <Plugins />
+      <ConfigSources>
+        <Config Source="app.cfg" />
+      </ConfigSources>
+    </Target>
+  </Targets>
+</Project>

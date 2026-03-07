@@ -30,6 +30,11 @@ The active authored manifest family is XML-based:
 - package: `.nginpkg`
 - staged target layout: `.ngintarget`
 
+Dynamic runtime discovery uses lower-level XML descriptors:
+
+- dynamic module descriptor: `.module.xml`
+- dynamic plugin module descriptor: `.plugin-module.xml`
+
 The canonical workspace project is [NGIN.Workspace.nginproj](/home/berggrenmille/NGIN/manifests/NGIN.Workspace.nginproj).
 
 ## Quick Start

@@ -1,24 +1,22 @@
 #include <NGIN/Core/Loader.hpp>
 
-#include <NGIN/Serialization/JSON/JsonParser.hpp>
+#include <NGIN/Serialization/XML/XmlParser.hpp>
 
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <sstream>
 
 namespace NGIN::Core
 {
     namespace
     {
-        using NGIN::Serialization::JsonDocument;
-        using NGIN::Serialization::JsonObject;
-        using NGIN::Serialization::JsonValue;
-
-        [[nodiscard]] auto FindMember(const JsonObject& object, const std::string_view key) -> const JsonValue*
-        {
-            return object.Find(key);
-        }
+        using XmlDocument = NGIN::Serialization::XmlDocument;
+        using XmlElement = NGIN::Serialization::XmlElement;
+        using XmlNode = NGIN::Serialization::XmlNode;
+        using XmlParseOptions = NGIN::Serialization::XmlParseOptions;
+        using XmlParser = NGIN::Serialization::XmlParser;
 
         [[nodiscard]] auto ParseModuleType(const std::string_view text) -> ModuleType
         {
@@ -54,29 +52,84 @@ namespace NGIN::Core
             return LoadPhase::CoreServices;
         }
 
-        template<typename T>
-        void ReadStringArray(const JsonObject& object, const std::string_view key, T& out)
+        [[nodiscard]] auto Attribute(const XmlElement& element, const std::string_view key) -> std::optional<std::string>
         {
-            const auto* value = FindMember(object, key);
-            if (!value || !value->IsArray())
+            const auto* attribute = element.FindAttribute(key);
+            if (attribute == nullptr)
+            {
+                return std::nullopt;
+            }
+            return std::string(attribute->value);
+        }
+
+        [[nodiscard]] auto FindChild(const XmlElement& element, const std::string_view name) -> const XmlElement*
+        {
+            for (NGIN::UIntSize index = 0; index < element.children.Size(); ++index)
+            {
+                const auto& child = element.children[index];
+                if (child.type == XmlNode::Type::Element && child.element != nullptr && child.element->name == name)
+                {
+                    return child.element;
+                }
+            }
+            return nullptr;
+        }
+
+        [[nodiscard]] auto ChildElements(const XmlElement& element, const std::string_view name = {}) -> std::vector<const XmlElement*>
+        {
+            std::vector<const XmlElement*> out {};
+            out.reserve(static_cast<std::size_t>(element.children.Size()));
+            for (NGIN::UIntSize index = 0; index < element.children.Size(); ++index)
+            {
+                const auto& child = element.children[index];
+                if (child.type != XmlNode::Type::Element || child.element == nullptr)
+                {
+                    continue;
+                }
+                if (name.empty() || child.element->name == name)
+                {
+                    out.push_back(child.element);
+                }
+            }
+            return out;
+        }
+
+        [[nodiscard]] auto ParseBoolAttribute(const XmlElement& element, const std::string_view key, const bool defaultValue = false) -> bool
+        {
+            const auto value = Attribute(element, key);
+            if (!value.has_value())
+            {
+                return defaultValue;
+            }
+            return value.value() == "true" || value.value() == "1" || value.value() == "yes";
+        }
+
+        template<typename T>
+        void ReadStringRefs(const XmlElement* element, const std::string_view childName, T& out)
+        {
+            if (element == nullptr)
             {
                 return;
             }
-            for (const auto& item : value->AsArray().values)
+            for (const auto* child : ChildElements(*element, childName))
             {
-                if (item.IsString())
+                const auto value = Attribute(*child, "Name");
+                if (value.has_value())
                 {
-                    out.emplace_back(item.AsString());
+                    out.emplace_back(value.value());
                 }
             }
         }
 
-        [[nodiscard]] auto ParseDescriptorFromJson(
+        [[nodiscard]] auto ParseDescriptorFromXml(
             const std::string& filePath,
-            const std::string_view jsonText,
+            const std::string_view xmlText,
             ModuleDescriptor& out) noexcept -> CoreResult<void>
         {
-            auto parsed = NGIN::Serialization::JsonParser::Parse(jsonText);
+            XmlParseOptions options {};
+            options.decodeEntities = true;
+            options.arenaBytes = std::max<NGIN::UIntSize>(8192, static_cast<NGIN::UIntSize>(xmlText.size() * 8 + 4096));
+            auto parsed = XmlParser::Parse(xmlText, options);
             if (!parsed)
             {
                 return NGIN::Utilities::Unexpected<KernelError>(
@@ -87,51 +140,50 @@ namespace NGIN::Core
                         "failed to parse plugin descriptor: " + filePath));
             }
 
-            const JsonDocument& doc = parsed.ValueUnsafe();
-            const auto& root = doc.Root();
-            if (!root.IsObject())
+            const XmlDocument& doc = parsed.ValueUnsafe();
+            const auto* root = doc.Root();
+            if (root == nullptr || root->name != "Module")
             {
                 return NGIN::Utilities::Unexpected<KernelError>(
                     MakeKernelError(
                         KernelErrorCode::InvalidArgument,
                         "Loader",
                         {},
-                        "plugin descriptor root must be object: " + filePath));
+                        "plugin descriptor root must be <Module>: " + filePath));
             }
 
-            const auto& object = root.AsObject();
-            const auto* nameValue = FindMember(object, "name");
-            if (!nameValue || !nameValue->IsString())
+            const auto nameValue = Attribute(*root, "Name");
+            if (!nameValue.has_value())
             {
                 return NGIN::Utilities::Unexpected<KernelError>(
                     MakeKernelError(
                         KernelErrorCode::InvalidArgument,
                         "Loader",
                         {},
-                        "plugin descriptor missing string field 'name': " + filePath));
+                        "plugin descriptor missing attribute 'Name': " + filePath));
             }
 
-            out.name = std::string(nameValue->AsString());
+            out.name = nameValue.value();
             out.entryKind = ModuleEntryKind::Dynamic;
 
-            if (const auto* family = FindMember(object, "family"); family && family->IsString())
+            if (const auto family = Attribute(*root, "Family"); family.has_value())
             {
-                out.family = ParseModuleFamily(family->AsString());
+                out.family = ParseModuleFamily(family.value());
             }
 
-            if (const auto* type = FindMember(object, "type"); type && type->IsString())
+            if (const auto type = Attribute(*root, "Type"); type.has_value())
             {
-                out.type = ParseModuleType(type->AsString());
+                out.type = ParseModuleType(type.value());
             }
 
-            if (const auto* phase = FindMember(object, "loadPhase"); phase && phase->IsString())
+            if (const auto phase = Attribute(*root, "LoadPhase"); phase.has_value())
             {
-                out.loadPhase = ParseLoadPhase(phase->AsString());
+                out.loadPhase = ParseLoadPhase(phase.value());
             }
 
-            if (const auto* version = FindMember(object, "version"); version && version->IsString())
+            if (const auto version = Attribute(*root, "Version"); version.has_value())
             {
-                auto parsedVersion = ParseSemanticVersion(version->AsString());
+                auto parsedVersion = ParseSemanticVersion(version.value());
                 if (!parsedVersion)
                 {
                     return NGIN::Utilities::Unexpected<KernelError>(parsedVersion.ErrorUnsafe());
@@ -139,9 +191,9 @@ namespace NGIN::Core
                 out.version = parsedVersion.ValueUnsafe();
             }
 
-            if (const auto* range = FindMember(object, "compatiblePlatformRange"); range && range->IsString())
+            if (const auto range = Attribute(*root, "CompatiblePlatformRange"); range.has_value())
             {
-                auto parsedRange = ParseVersionRange(range->AsString());
+                auto parsedRange = ParseVersionRange(range.value());
                 if (!parsedRange)
                 {
                     return NGIN::Utilities::Unexpected<KernelError>(parsedRange.ErrorUnsafe());
@@ -149,43 +201,31 @@ namespace NGIN::Core
                 out.compatiblePlatformRange = parsedRange.ValueUnsafe();
             }
 
-            ReadStringArray(object, "platforms", out.platforms);
-            ReadStringArray(object, "providesServices", out.providesServices);
-            ReadStringArray(object, "requiresServices", out.requiresServices);
-            ReadStringArray(object, "capabilities", out.capabilities);
+            ReadStringRefs(FindChild(*root, "Platforms"), "Platform", out.platforms);
+            ReadStringRefs(FindChild(*root, "ProvidesServices"), "Service", out.providesServices);
+            ReadStringRefs(FindChild(*root, "RequiresServices"), "Service", out.requiresServices);
+            ReadStringRefs(FindChild(*root, "Capabilities"), "Capability", out.capabilities);
 
-            if (const auto* reflection = FindMember(object, "reflectionRequired"); reflection && reflection->IsBool())
-            {
-                out.reflectionRequired = reflection->AsBool();
-            }
+            out.reflectionRequired = ParseBoolAttribute(*root, "ReflectionRequired", false);
 
-            if (const auto* depsValue = FindMember(object, "dependencies"); depsValue && depsValue->IsArray())
+            if (const auto* dependencies = FindChild(*root, "Dependencies"))
             {
-                for (const auto& depValue : depsValue->AsArray().values)
+                for (const auto* dependencyElement : ChildElements(*dependencies, "Dependency"))
                 {
-                    if (!depValue.IsObject())
-                    {
-                        continue;
-                    }
-
-                    const auto& depObj = depValue.AsObject();
-                    const auto* depName = FindMember(depObj, "name");
-                    if (!depName || !depName->IsString())
+                    const auto dependencyName = Attribute(*dependencyElement, "Name");
+                    if (!dependencyName.has_value())
                     {
                         continue;
                     }
 
                     DependencyDescriptor dep {};
-                    dep.name = std::string(depName->AsString());
+                    dep.name = dependencyName.value();
 
-                    if (const auto* depOptional = FindMember(depObj, "optional"); depOptional && depOptional->IsBool())
-                    {
-                        dep.optional = depOptional->AsBool();
-                    }
+                    dep.optional = ParseBoolAttribute(*dependencyElement, "Optional", false);
 
-                    if (const auto* depRange = FindMember(depObj, "requiredVersion"); depRange && depRange->IsString())
+                    if (const auto depRange = Attribute(*dependencyElement, "RequiredVersion"); depRange.has_value())
                     {
-                        auto parsedDepRange = ParseVersionRange(depRange->AsString());
+                        auto parsedDepRange = ParseVersionRange(depRange.value());
                         if (!parsedDepRange)
                         {
                             return NGIN::Utilities::Unexpected<KernelError>(parsedDepRange.ErrorUnsafe());
@@ -275,13 +315,13 @@ namespace NGIN::Core
                     }
 
                     const auto& path = it->path();
-                    if (path.extension() != ".json")
+                    if (path.extension() != ".xml")
                     {
                         continue;
                     }
 
                     const auto filename = path.filename().string();
-                    if (!(filename.ends_with(".module.json") || filename.ends_with(".plugin-module.json")))
+                    if (!(filename.ends_with(".module.xml") || filename.ends_with(".plugin-module.xml")))
                     {
                         continue;
                     }
@@ -296,7 +336,7 @@ namespace NGIN::Core
                     stream << input.rdbuf();
 
                     ModuleDescriptor descriptor {};
-                    auto parse = ParseDescriptorFromJson(path.string(), stream.str(), descriptor);
+                    auto parse = ParseDescriptorFromXml(path.string(), stream.str(), descriptor);
                     if (!parse)
                     {
                         return NGIN::Utilities::Unexpected<KernelError>(parse.ErrorUnsafe());

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Package SchemaVersion="1"
+         Name="Samples.DemoPackage"
+         Version="0.1.0"
+         CompatiblePlatformRange=">=0.1.0 &lt;1.0.0">
+  <Platforms>
+    <Platform Name="linux" />
+    <Platform Name="windows" />
+    <Platform Name="macos" />
+  </Platforms>
+  <Dependencies />
+  <Bootstrap Mode="BuilderHookV1"
+             EntryPoint="NGIN_Bootstrap_Samples_DemoPackage"
+             AutoApply="true" />
+  <Provides>
+    <Module Name="App.PackageBootstrap" />
+  </Provides>
+</Package>
