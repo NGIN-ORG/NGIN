@@ -3,7 +3,13 @@
          Name="NGIN.Benchmark"
          Version="0.1.0"
          CompatiblePlatformRange=">=0.1.0-alpha.1 &lt;0.2.0">
-  <SourceBinding Kind="DependencyRepo" Path="Dependencies/NGIN/NGIN.Benchmark" />
+  <SourceBinding Kind="Source" Path="Dependencies/NGIN/NGIN.Benchmark" />
+  <Artifacts>
+    <Executables>
+      <Executable Name="NGIN.SyncProgram" Target="NGIN.SyncProgram" />
+      <Executable Name="NGIN.BenchmarkTool" Target="NGIN.BenchmarkTool" />
+    </Executables>
+  </Artifacts>
   <Build Backend="CMake" />
   <Platforms>
     <Platform Name="linux" />

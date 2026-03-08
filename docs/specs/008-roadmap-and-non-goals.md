@@ -1,7 +1,7 @@
 # Spec 008: Roadmap and Non-Goals
 
 Status: Active
-Last updated: 2026-03-07
+Last updated: 2026-03-08
 
 ## Direction
 
@@ -20,12 +20,13 @@ NGIN is moving toward a simpler, package-first platform:
 3. Introduce shared C++ manifest and composition libraries used by both the CLI and `NGIN.Core`.
 4. Tighten collision and completeness validation around modules, plugins, config, and staged content.
 5. Complete the `.ngintarget` contract so future `ngin run` support has a stable input.
-6. Connect staged output more directly to `NGIN.Core` startup.
+6. Define `.nginpack`, installed package stores, and the initial package install/inspect flow.
+7. Connect staged output more directly to `NGIN.Core` startup.
 
 ## Non-Goals Right Now
 
 - remote registry protocol
-- publish/install distribution pipeline
+- package publishing workflow or remote feed UX
 - asset pipeline productization
 - final editor framework architecture
 - final published plugin ABI and distribution model

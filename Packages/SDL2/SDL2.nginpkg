@@ -4,11 +4,12 @@
          Version="2.30.0"
          CompatiblePlatformRange=">=0.1.0-alpha.1 &lt;0.2.0">
   <SourceBinding Kind="CMakePackage" Path="SDL2" />
-  <Build Backend="CMake">
+  <Artifacts>
     <Libraries>
-      <Library Name="SDL2" Target="SDL2::SDL2" Kind="Imported" />
+      <Library Name="SDL2" Target="SDL2::SDL2" Origin="Imported" />
     </Libraries>
-  </Build>
+  </Artifacts>
+  <Build Backend="CMake" />
   <Platforms>
     <Platform Name="linux" />
     <Platform Name="windows" />

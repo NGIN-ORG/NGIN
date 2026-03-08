@@ -1,0 +1,15 @@
+if(TARGET NGIN.SyncProgram AND TARGET NGIN.BenchmarkTool)
+  return()
+endif()
+
+set(_ngin_benchmark_source_dir "${CMAKE_CURRENT_LIST_DIR}/../../Dependencies/NGIN/NGIN.Benchmark")
+set(_ngin_base_source_dir "${CMAKE_CURRENT_LIST_DIR}/../../Dependencies/NGIN/NGIN.Base")
+if(NOT EXISTS "${_ngin_benchmark_source_dir}/CMakeLists.txt")
+  message(FATAL_ERROR "Packages/NGIN.Benchmark requires Dependencies/NGIN/NGIN.Benchmark")
+endif()
+if(NOT EXISTS "${_ngin_base_source_dir}/CMakeLists.txt")
+  message(FATAL_ERROR "Packages/NGIN.Benchmark requires Dependencies/NGIN/NGIN.Base")
+endif()
+
+set(NGIN_BASE_SOURCE_DIR "${_ngin_base_source_dir}" CACHE PATH "" FORCE)
+add_subdirectory("${_ngin_benchmark_source_dir}" "${CMAKE_CURRENT_BINARY_DIR}/_ngin_benchmark" EXCLUDE_FROM_ALL)

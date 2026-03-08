@@ -33,7 +33,7 @@ If `--project` is omitted, `ngin` walks upward from the current directory and us
 - [Packages README](/home/berggrenmille/NGIN/Packages/README.md)
 - [Dependencies README](/home/berggrenmille/NGIN/Dependencies/README.md)
 
-Runtime module and plugin metadata are authored inside `.nginpkg` files. Package wrappers also declare their source binding and build backend metadata so the umbrella workspace can expose first-party and third-party code through one package model.
+Runtime module and plugin metadata are authored inside `.nginpkg` files. Package wrappers also declare source binding, exposed artifacts, and any backend-thin build hints needed so the umbrella workspace can expose first-party and third-party code through one package model.
 
 ## Build Output
 

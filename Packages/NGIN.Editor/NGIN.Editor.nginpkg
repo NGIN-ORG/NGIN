@@ -3,7 +3,7 @@
          Name="NGIN.Editor"
          Version="0.1.0"
          CompatiblePlatformRange=">=0.1.0-alpha.1 &lt;0.2.0">
-  <SourceBinding Kind="DependencyRepo" Path="Dependencies/NGIN/NGIN.Editor" />
+  <SourceBinding Kind="Source" Path="Dependencies/NGIN/NGIN.Editor" />
   <Build Backend="CMake" />
   <Platforms>
     <Platform Name="linux" />

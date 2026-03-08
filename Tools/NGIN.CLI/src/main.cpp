@@ -177,6 +177,21 @@ namespace
         return out;
     }
 
+    [[nodiscard]] auto EscapeCMake(std::string_view input) -> std::string
+    {
+        std::string out;
+        out.reserve(input.size());
+        for (const char ch : input)
+        {
+            if (ch == '\\' || ch == '"')
+            {
+                out.push_back('\\');
+            }
+            out.push_back(ch);
+        }
+        return out;
+    }
+
     [[nodiscard]] auto ToolExists(const std::string& tool) -> bool
     {
 #if defined(_WIN32)
@@ -262,14 +277,28 @@ namespace
     {
         std::string name {};
         std::string target {};
-        std::string kind {};
+        std::string linkage {};
+        std::string origin {};
         bool        exported {true};
+    };
+
+    struct ExecutableArtifact
+    {
+        std::string name {};
+        std::string target {};
+        std::string origin {};
+        bool        exported {true};
+    };
+
+    struct ArtifactDescriptor
+    {
+        std::vector<LibraryArtifact>   libraries {};
+        std::vector<ExecutableArtifact> executables {};
     };
 
     struct BuildDescriptor
     {
-        std::string                 backend {};
-        std::vector<LibraryArtifact> libraries {};
+        std::string backend {};
     };
 
     struct ModuleDescriptor
@@ -306,6 +335,7 @@ namespace
         std::string                    version {};
         std::string                    compatiblePlatformRange {};
         SourceBinding                  sourceBinding {};
+        ArtifactDescriptor             artifacts {};
         BuildDescriptor                build {};
         std::vector<std::string>       platforms {};
         std::vector<PackageDependency> dependencies {};
@@ -337,6 +367,7 @@ namespace
         bool                          enableReflection {false};
         std::string                   environmentName {};
         std::string                   workingDirectory {};
+        std::optional<std::string>    launchExecutable {};
         std::vector<std::string>      configSources {};
         std::vector<PackageReference> packages {};
         std::vector<std::string>      modulesEnable {};
@@ -361,14 +392,17 @@ namespace
 
     struct ResolvedTarget
     {
-        ProjectManifest                         project {};
-        TargetDefinition                        target {};
-        std::vector<ResolvedPackage>            orderedPackages {};
+        ProjectManifest                              project {};
+        TargetDefinition                             target {};
+        std::vector<ResolvedPackage>                 orderedPackages {};
         std::map<std::string, std::set<std::string>> packageEdges {};
-        std::vector<std::string>                requiredModules {};
-        std::vector<std::string>                optionalModules {};
+        std::vector<std::string>                     requiredModules {};
+        std::vector<std::string>                     optionalModules {};
         std::map<std::string, std::set<std::string>> dependencyEdges {};
-        std::vector<std::string>                enabledPlugins {};
+        std::vector<std::string>                     enabledPlugins {};
+        std::vector<LibraryArtifact>                libraries {};
+        std::vector<ExecutableArtifact>             executables {};
+        std::optional<ExecutableArtifact>           selectedExecutable {};
     };
 
     [[nodiscard]] auto RootDirFrom(const fs::path& start) -> std::optional<fs::path>
@@ -435,6 +469,33 @@ namespace
             }
         }
         return false;
+    }
+
+    [[nodiscard]] auto DefaultArtifactOrigin(const std::string& sourceKind) -> std::string
+    {
+        const auto kind = Lower(sourceKind);
+        if (kind == "source")
+        {
+            return "Built";
+        }
+        if (kind == "cmakepackage")
+        {
+            return "Imported";
+        }
+        if (kind == "prebuilt")
+        {
+            return "Prebuilt";
+        }
+        return {};
+    }
+
+    [[nodiscard]] auto EffectiveArtifactOrigin(const std::string& explicitOrigin, const std::string& sourceKind) -> std::string
+    {
+        if (!explicitOrigin.empty())
+        {
+            return explicitOrigin;
+        }
+        return DefaultArtifactOrigin(sourceKind);
     }
 
     [[nodiscard]] auto ParseSemver(const std::string& text) -> std::optional<std::array<int, 3>>
@@ -682,21 +743,37 @@ namespace
             package.sourceBinding.kind = Attribute(*sourceBinding, "Kind").value_or("");
             package.sourceBinding.path = Attribute(*sourceBinding, "Path").value_or("");
         }
-        if (const auto* build = FindChild(*rootElement, "Build"))
+        if (const auto* artifacts = FindChild(*rootElement, "Artifacts"))
         {
-            package.build.backend = Attribute(*build, "Backend").value_or("");
-            if (const auto* libraries = FindChild(*build, "Libraries"))
+            if (const auto* libraries = FindChild(*artifacts, "Libraries"))
             {
                 for (const auto* node : ChildElements(*libraries, "Library"))
                 {
                     LibraryArtifact artifact {};
                     artifact.name = RequireAttribute(*node, "Name", path);
                     artifact.target = Attribute(*node, "Target").value_or("");
-                    artifact.kind = Attribute(*node, "Kind").value_or("");
+                    artifact.linkage = Attribute(*node, "Linkage").value_or("");
+                    artifact.origin = Attribute(*node, "Origin").value_or("");
                     artifact.exported = !Attribute(*node, "Exported").has_value() || BoolAttribute(*node, "Exported", true);
-                    package.build.libraries.push_back(std::move(artifact));
+                    package.artifacts.libraries.push_back(std::move(artifact));
                 }
             }
+            if (const auto* executables = FindChild(*artifacts, "Executables"))
+            {
+                for (const auto* node : ChildElements(*executables, "Executable"))
+                {
+                    ExecutableArtifact artifact {};
+                    artifact.name = RequireAttribute(*node, "Name", path);
+                    artifact.target = Attribute(*node, "Target").value_or("");
+                    artifact.origin = Attribute(*node, "Origin").value_or("");
+                    artifact.exported = !Attribute(*node, "Exported").has_value() || BoolAttribute(*node, "Exported", true);
+                    package.artifacts.executables.push_back(std::move(artifact));
+                }
+            }
+        }
+        if (const auto* build = FindChild(*rootElement, "Build"))
+        {
+            package.build.backend = Attribute(*build, "Backend").value_or("");
         }
         if (const auto* platforms = FindChild(*rootElement, "Platforms"))
         {
@@ -863,6 +940,13 @@ namespace
             target.enableReflection = BoolAttribute(*node, "EnableReflection");
             target.environmentName = Attribute(*node, "Environment").value_or("");
             target.workingDirectory = Attribute(*node, "WorkingDirectory").value_or(".");
+            if (const auto* launch = FindChild(*node, "Launch"))
+            {
+                if (const auto executable = Attribute(*launch, "Executable"); executable.has_value() && !executable->empty())
+                {
+                    target.launchExecutable = *executable;
+                }
+            }
             if (const auto* config = FindChild(*node, "ConfigSources"))
             {
                 for (const auto* item : ChildElements(*config, "Config"))
@@ -1096,6 +1180,87 @@ namespace
             ordered.push_back(resolved.at(name));
         }
         return ordered;
+    }
+
+    auto ResolveArtifacts(
+        const std::vector<ResolvedPackage>& orderedPackages,
+        const TargetDefinition& target,
+        IssueReport& report,
+        std::vector<LibraryArtifact>& librariesOut,
+        std::vector<ExecutableArtifact>& executablesOut,
+        std::optional<ExecutableArtifact>& selectedExecutableOut) -> void
+    {
+        std::unordered_map<std::string, std::string> libraryProviders;
+        std::unordered_map<std::string, std::string> executableProviders;
+
+        for (const auto& package : orderedPackages)
+        {
+            for (auto artifact : package.manifest.artifacts.libraries)
+            {
+                if (!artifact.exported)
+                {
+                    continue;
+                }
+                artifact.origin = EffectiveArtifactOrigin(artifact.origin, package.manifest.sourceBinding.kind);
+                if (artifact.origin.empty())
+                {
+                    AddError(report, "package '" + package.manifest.name + "' library artifact '" + artifact.name + "' does not declare an origin and it could not be inferred");
+                    continue;
+                }
+                if (const auto it = libraryProviders.find(artifact.name); it != libraryProviders.end())
+                {
+                    AddError(report, "duplicate library artifact '" + artifact.name + "' in packages '" + it->second + "' and '" + package.manifest.name + "'");
+                    continue;
+                }
+                libraryProviders.emplace(artifact.name, package.manifest.name);
+                librariesOut.push_back(std::move(artifact));
+            }
+
+            for (auto artifact : package.manifest.artifacts.executables)
+            {
+                if (!artifact.exported)
+                {
+                    continue;
+                }
+                artifact.origin = EffectiveArtifactOrigin(artifact.origin, package.manifest.sourceBinding.kind);
+                if (artifact.origin.empty())
+                {
+                    AddError(report, "package '" + package.manifest.name + "' executable artifact '" + artifact.name + "' does not declare an origin and it could not be inferred");
+                    continue;
+                }
+                if (const auto it = executableProviders.find(artifact.name); it != executableProviders.end())
+                {
+                    AddError(report, "duplicate executable artifact '" + artifact.name + "' in packages '" + it->second + "' and '" + package.manifest.name + "'");
+                    continue;
+                }
+                executableProviders.emplace(artifact.name, package.manifest.name);
+                executablesOut.push_back(std::move(artifact));
+            }
+        }
+
+        if (!target.launchExecutable.has_value())
+        {
+            if (executablesOut.size() == 1)
+            {
+                selectedExecutableOut = executablesOut.front();
+            }
+            else if (executablesOut.size() > 1)
+            {
+                AddError(report, "target '" + target.name + "' resolves multiple executable artifacts; add <Launch Executable=\"...\" /> to select one");
+            }
+            return;
+        }
+
+        const auto desired = *target.launchExecutable;
+        for (const auto& executable : executablesOut)
+        {
+            if (executable.name == desired)
+            {
+                selectedExecutableOut = executable;
+                return;
+            }
+        }
+        AddError(report, "target '" + target.name + "' selects executable '" + desired + "' but no package exposes it");
     }
 
     auto ResolveTarget(
@@ -1369,6 +1534,11 @@ namespace
             }
         }
         resolved.dependencyEdges = std::move(depEdges);
+        ResolveArtifacts(resolved.orderedPackages, resolved.target, report, resolved.libraries, resolved.executables, resolved.selectedExecutable);
+        if (!report.errors.empty())
+        {
+            return std::nullopt;
+        }
         return resolved;
     }
 
@@ -1388,6 +1558,196 @@ namespace
             for (const auto& issue : report.warnings)
             {
                 std::cout << "  - " << issue << "\n";
+            }
+        }
+    }
+
+    [[nodiscard]] auto SanitizeIdentifier(std::string value) -> std::string
+    {
+        for (auto& ch : value)
+        {
+            if (!std::isalnum(static_cast<unsigned char>(ch)))
+            {
+                ch = '_';
+            }
+        }
+        if (value.empty())
+        {
+            return "artifact";
+        }
+        return value;
+    }
+
+    [[nodiscard]] auto PackageExposesSelectedExecutable(const PackageManifest& manifest, const std::optional<ExecutableArtifact>& selectedExecutable) -> bool
+    {
+        if (!selectedExecutable.has_value())
+        {
+            return false;
+        }
+        return std::any_of(
+            manifest.artifacts.executables.begin(),
+            manifest.artifacts.executables.end(),
+            [&](const ExecutableArtifact& artifact) { return artifact.exported && artifact.name == selectedExecutable->name; });
+    }
+
+    [[nodiscard]] auto PackageNeedsCMakeWrapper(const PackageManifest& manifest, const std::optional<ExecutableArtifact>& selectedExecutable) -> bool
+    {
+        if (Lower(manifest.build.backend) != "cmake")
+        {
+            return false;
+        }
+        const auto hasLibraries = std::any_of(
+            manifest.artifacts.libraries.begin(),
+            manifest.artifacts.libraries.end(),
+            [](const LibraryArtifact& artifact) { return artifact.exported && !artifact.target.empty(); });
+        return hasLibraries || PackageExposesSelectedExecutable(manifest, selectedExecutable);
+    }
+
+    [[nodiscard]] auto HasArtifactTargetsToBuild(const ResolvedTarget& resolved) -> bool
+    {
+        if (resolved.selectedExecutable.has_value() && !resolved.selectedExecutable->target.empty())
+        {
+            return true;
+        }
+        return std::any_of(
+            resolved.libraries.begin(),
+            resolved.libraries.end(),
+            [](const LibraryArtifact& artifact)
+            {
+                return !artifact.target.empty() && Lower(artifact.linkage) != "interface" && Lower(artifact.origin) != "prebuilt";
+            });
+    }
+
+    auto WriteGeneratedBuildProject(const ResolvedTarget& resolved, const fs::path& outputDir, IssueReport& report) -> std::optional<fs::path>
+    {
+        if (!HasArtifactTargetsToBuild(resolved))
+        {
+            return std::nullopt;
+        }
+
+        const auto generatedSourceDir = outputDir / ".ngin" / "cmake-src";
+        const auto generatedBuildDir = outputDir / ".ngin" / "cmake-build";
+        fs::create_directories(generatedSourceDir);
+        fs::create_directories(generatedBuildDir);
+
+        std::ofstream out(generatedSourceDir / "CMakeLists.txt");
+        out << "cmake_minimum_required(VERSION 3.20)\n";
+        out << "project(NGINGeneratedBuild LANGUAGES CXX)\n";
+        out << "set(CMAKE_SUPPRESS_REGENERATION ON)\n";
+
+        std::unordered_set<std::string> addedPackageDirs;
+        for (const auto& package : resolved.orderedPackages)
+        {
+            if (!PackageNeedsCMakeWrapper(package.manifest, resolved.selectedExecutable))
+            {
+                continue;
+            }
+            const auto packageDir = fs::weakly_canonical(package.manifest.path.parent_path());
+            const auto cmakeLists = packageDir / "CMakeLists.txt";
+            if (!fs::exists(cmakeLists))
+            {
+                AddError(report, "package '" + package.manifest.name + "' requires a CMake wrapper at '" + cmakeLists.string() + "'");
+                continue;
+            }
+            const auto key = packageDir.string();
+            if (!addedPackageDirs.insert(key).second)
+            {
+                continue;
+            }
+            out << "add_subdirectory(\"" << EscapeCMake(packageDir.string()) << "\" \"${CMAKE_BINARY_DIR}/pkg_" << SanitizeIdentifier(package.manifest.name) << "\")\n";
+        }
+        if (!report.errors.empty())
+        {
+            return std::nullopt;
+        }
+
+        out << "add_custom_target(ngin_stage_artifacts)\n";
+
+        auto emitStageTarget = [&](const std::string& artifactName,
+                                   const std::string& targetName,
+                                   const std::string& subdir,
+                                   const bool copyFile) {
+            const auto safeName = SanitizeIdentifier(artifactName);
+            out << "if(NOT TARGET \"" << EscapeCMake(targetName) << "\")\n";
+            out << "  message(FATAL_ERROR \"required build target '" << EscapeCMake(targetName) << "' is not available\")\n";
+            out << "endif()\n";
+            out << "add_custom_target(stage_" << safeName;
+            if (copyFile)
+            {
+                out << "\n"
+                    << "  COMMAND ${CMAKE_COMMAND} -E make_directory \"" << EscapeCMake((outputDir / subdir).string()) << "\"\n"
+                    << "  COMMAND ${CMAKE_COMMAND} -E copy_if_different \"$<TARGET_FILE:" << targetName << ">\" \"" << EscapeCMake((outputDir / subdir).string()) << "/$<TARGET_FILE_NAME:" << targetName << ">\"\n";
+            }
+            out << "  DEPENDS \"" << EscapeCMake(targetName) << "\"\n";
+            out << "  VERBATIM)\n";
+            out << "add_dependencies(ngin_stage_artifacts stage_" << safeName << ")\n";
+        };
+
+        for (const auto& library : resolved.libraries)
+        {
+            if (library.target.empty() || Lower(library.origin) == "prebuilt")
+            {
+                continue;
+            }
+            emitStageTarget(library.name, library.target, "lib", Lower(library.linkage) != "interface");
+        }
+        if (resolved.selectedExecutable.has_value() && !resolved.selectedExecutable->target.empty() && Lower(resolved.selectedExecutable->origin) != "prebuilt")
+        {
+            emitStageTarget(resolved.selectedExecutable->name, resolved.selectedExecutable->target, "bin", true);
+        }
+
+        return generatedBuildDir;
+    }
+
+    auto BuildArtifacts(const ResolvedTarget& resolved, const fs::path& outputDir, IssueReport& report) -> void
+    {
+        const auto generatedBuildDir = WriteGeneratedBuildProject(resolved, outputDir, report);
+        if (!generatedBuildDir.has_value() || !report.errors.empty())
+        {
+            return;
+        }
+
+        const auto generatedSourceDir = outputDir / ".ngin" / "cmake-src";
+        const auto configure = "cmake -S \"" + generatedSourceDir.string() + "\" -B \"" + generatedBuildDir->string() + "\"";
+        if (std::system(configure.c_str()) != 0)
+        {
+            AddError(report, "failed to configure generated CMake build project for target '" + resolved.target.name + "'");
+            return;
+        }
+        const auto build = "cmake --build \"" + generatedBuildDir->string() + "\" --target ngin_stage_artifacts";
+        if (std::system(build.c_str()) != 0)
+        {
+            AddError(report, "failed to build or stage artifacts for target '" + resolved.target.name + "'");
+        }
+    }
+
+    auto CollectBuiltArtifactFiles(
+        const fs::path& outputDir,
+        std::map<fs::path, std::string>& collisions,
+        IssueReport& report,
+        std::vector<std::tuple<std::string, fs::path, fs::path>>& staged) -> void
+    {
+        for (const auto& subdir : {std::string("bin"), std::string("lib")})
+        {
+            const auto base = outputDir / subdir;
+            if (!fs::exists(base))
+            {
+                continue;
+            }
+            for (const auto& entry : fs::recursive_directory_iterator(base))
+            {
+                if (!entry.is_regular_file())
+                {
+                    continue;
+                }
+                const auto dest = entry.path();
+                if (collisions.contains(dest))
+                {
+                    AddError(report, "build output collision at '" + fs::relative(dest, outputDir).string() + "'");
+                    continue;
+                }
+                collisions[dest] = "<artifact>";
+                staged.emplace_back(subdir == "bin" ? "executable" : "library", dest, dest);
             }
         }
     }
@@ -1657,19 +2017,41 @@ namespace
             std::cout << "\n";
         }
         std::cout << "  build backend: " << (manifest.build.backend.empty() ? "(none)" : manifest.build.backend) << "\n";
-        std::cout << "  libraries: " << manifest.build.libraries.size() << "\n";
-        for (const auto& library : manifest.build.libraries)
+        std::cout << "  libraries: " << manifest.artifacts.libraries.size() << "\n";
+        for (const auto& library : manifest.artifacts.libraries)
         {
             std::cout << "    - " << library.name;
             if (!library.target.empty())
             {
                 std::cout << " target=" << library.target;
             }
-            if (!library.kind.empty())
+            if (!library.linkage.empty())
             {
-                std::cout << " kind=" << library.kind;
+                std::cout << " linkage=" << library.linkage;
+            }
+            if (!library.origin.empty())
+            {
+                std::cout << " origin=" << library.origin;
             }
             if (!library.exported)
+            {
+                std::cout << " internal";
+            }
+            std::cout << "\n";
+        }
+        std::cout << "  executables: " << manifest.artifacts.executables.size() << "\n";
+        for (const auto& executable : manifest.artifacts.executables)
+        {
+            std::cout << "    - " << executable.name;
+            if (!executable.target.empty())
+            {
+                std::cout << " target=" << executable.target;
+            }
+            if (!executable.origin.empty())
+            {
+                std::cout << " origin=" << executable.origin;
+            }
+            if (!executable.exported)
             {
                 std::cout << " internal";
             }
@@ -1776,6 +2158,9 @@ namespace
         std::cout << "  packages: " << resolved->orderedPackages.size() << "\n";
         std::cout << "  required modules: " << resolved->requiredModules.size() << "\n";
         std::cout << "  optional modules: " << resolved->optionalModules.size() << "\n";
+        std::cout << "  libraries: " << resolved->libraries.size() << "\n";
+        std::cout << "  executables: " << resolved->executables.size() << "\n";
+        std::cout << "  selected executable: " << (resolved->selectedExecutable.has_value() ? resolved->selectedExecutable->name : "(none)") << "\n";
         PrintIssues(report, "Validation");
         return 0;
     }
@@ -1838,6 +2223,41 @@ namespace
             }
             std::cout << "\n";
         }
+        std::cout << "\nArtifacts:\n";
+        for (const auto& library : resolved->libraries)
+        {
+            std::cout << "  - library " << library.name;
+            if (!library.target.empty())
+            {
+                std::cout << " target=" << library.target;
+            }
+            if (!library.linkage.empty())
+            {
+                std::cout << " linkage=" << library.linkage;
+            }
+            if (!library.origin.empty())
+            {
+                std::cout << " origin=" << library.origin;
+            }
+            std::cout << "\n";
+        }
+        for (const auto& executable : resolved->executables)
+        {
+            std::cout << "  - executable " << executable.name;
+            if (!executable.target.empty())
+            {
+                std::cout << " target=" << executable.target;
+            }
+            if (!executable.origin.empty())
+            {
+                std::cout << " origin=" << executable.origin;
+            }
+            if (resolved->selectedExecutable.has_value() && resolved->selectedExecutable->name == executable.name)
+            {
+                std::cout << " selected";
+            }
+            std::cout << "\n";
+        }
         PrintIssues(report, "Graph");
         return 0;
     }
@@ -1852,9 +2272,17 @@ namespace
             << "\" Type=\"" << EscapeXml(resolved.target.type)
             << "\" Profile=\"" << EscapeXml(resolved.target.profile)
             << "\" Platform=\"" << EscapeXml(resolved.target.platform)
-            << "\" Environment=\"" << EscapeXml(resolved.target.environmentName)
-            << "\" WorkingDirectory=\"" << EscapeXml(resolved.target.workingDirectory)
             << "\">\n";
+        out << "  <Runtime Environment=\"" << EscapeXml(resolved.target.environmentName)
+            << "\" WorkingDirectory=\"" << EscapeXml(resolved.target.workingDirectory)
+            << "\" />\n";
+        if (resolved.selectedExecutable.has_value())
+        {
+            out << "  <SelectedExecutable Name=\"" << EscapeXml(resolved.selectedExecutable->name)
+                << "\" Target=\"" << EscapeXml(resolved.selectedExecutable->target)
+                << "\" Origin=\"" << EscapeXml(resolved.selectedExecutable->origin)
+                << "\" />\n";
+        }
         out << "  <ConfigSources>\n";
         for (const auto& source : resolved.target.configSources)
         {
@@ -1875,24 +2303,43 @@ namespace
             out << "    </Package>\n";
         }
         out << "  </Packages>\n";
-        out << "  <RequiredModules>\n";
+        out << "  <Artifacts>\n";
+        out << "    <Libraries>\n";
+        for (const auto& library : resolved.libraries)
+        {
+            out << "      <Library Name=\"" << EscapeXml(library.name)
+                << "\" Target=\"" << EscapeXml(library.target)
+                << "\" Linkage=\"" << EscapeXml(library.linkage)
+                << "\" Origin=\"" << EscapeXml(library.origin)
+                << "\" />\n";
+        }
+        out << "    </Libraries>\n";
+        out << "    <Executables>\n";
+        for (const auto& executable : resolved.executables)
+        {
+            out << "      <Executable Name=\"" << EscapeXml(executable.name)
+                << "\" Target=\"" << EscapeXml(executable.target)
+                << "\" Origin=\"" << EscapeXml(executable.origin)
+                << "\" />\n";
+        }
+        out << "    </Executables>\n";
+        out << "  </Artifacts>\n";
+        out << "  <Modules>\n";
         for (const auto& module : resolved.requiredModules)
         {
             out << "    <Module Name=\"" << EscapeXml(module) << "\" />\n";
         }
-        out << "  </RequiredModules>\n";
-        out << "  <OptionalModules>\n";
         for (const auto& module : resolved.optionalModules)
         {
-            out << "    <Module Name=\"" << EscapeXml(module) << "\" />\n";
+            out << "    <Module Name=\"" << EscapeXml(module) << "\" Optional=\"true\" />\n";
         }
-        out << "  </OptionalModules>\n";
-        out << "  <EnabledPlugins>\n";
+        out << "  </Modules>\n";
+        out << "  <Plugins>\n";
         for (const auto& plugin : resolved.enabledPlugins)
         {
             out << "    <Plugin Name=\"" << EscapeXml(plugin) << "\" />\n";
         }
-        out << "  </EnabledPlugins>\n";
+        out << "  </Plugins>\n";
         out << "  <StagedFiles>\n";
         for (const auto& [kind, source, destination] : staged)
         {
@@ -1924,6 +2371,19 @@ namespace
         fs::create_directories(outputDir);
         std::map<fs::path, std::string> collisions;
         std::vector<std::tuple<std::string, fs::path, fs::path>> staged;
+
+        BuildArtifacts(*resolved, outputDir, report);
+        if (!report.errors.empty())
+        {
+            PrintIssues(report, "Build");
+            return 1;
+        }
+        CollectBuiltArtifactFiles(outputDir, collisions, report, staged);
+        if (!report.errors.empty())
+        {
+            PrintIssues(report, "Build");
+            return 1;
+        }
 
         for (const auto& package : resolved->orderedPackages)
         {
@@ -1971,6 +2431,7 @@ namespace
         std::cout << "Built target: " << resolved->target.name << "\n";
         std::cout << "  project: " << resolved->project.name << "\n";
         std::cout << "  output: " << outputDir << "\n";
+        std::cout << "  selected executable: " << (resolved->selectedExecutable.has_value() ? resolved->selectedExecutable->name : "(none)") << "\n";
         std::cout << "  staged files: " << staged.size() << "\n";
         return 0;
     }

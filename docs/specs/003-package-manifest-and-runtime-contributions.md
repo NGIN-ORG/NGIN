@@ -1,13 +1,15 @@
 # Spec 003: Package Manifest and Runtime Contributions
 
 Status: Active
-Last updated: 2026-03-07
+Last updated: 2026-03-08
 
 ## Purpose
 
 This spec defines the `.nginpkg` file format and the rule that packages own both runtime contributions and the umbrella-facing integration contract.
 
 Packages are the primary reusable unit in NGIN.
+
+This spec defines the authored package manifest only. It does not define distributable package archives or installed package stores. Those are covered by Spec 009.
 
 ## File Contract
 
@@ -32,6 +34,7 @@ Optional root attributes:
 Recommended top-level child sections:
 
 - `SourceBinding`
+- `Artifacts`
 - `Build`
 
 ## Structure
@@ -42,12 +45,13 @@ Recommended top-level child sections:
          Name="NGIN.Editor"
          Version="0.1.0"
          CompatiblePlatformRange=">=0.1.0 &lt;1.0.0">
-  <SourceBinding Kind="DependencyRepo" Path="Dependencies/NGIN/NGIN.Editor" />
-  <Build Backend="CMake">
+  <SourceBinding Kind="Source" Path="Dependencies/NGIN/NGIN.Editor" />
+  <Artifacts>
     <Libraries>
-      <Library Name="NGIN.Editor" Target="NGIN::Editor" Kind="Static" />
+      <Library Name="NGIN.Editor" Target="NGIN::Editor" Linkage="Static" />
     </Libraries>
-  </Build>
+  </Artifacts>
+  <Build Backend="CMake" />
   <Platforms>
     <Platform Name="linux" />
     <Platform Name="windows" />
@@ -118,42 +122,73 @@ Supported sections:
 - `Contents`
 - `Bootstrap`
 
-## Source Binding and Build Integration
+## Source Binding, Artifacts, and Build Integration
 
 Packages are also the authoritative integration layer for the umbrella workspace.
 
 ### SourceBinding
 
-`<SourceBinding>` identifies what backs the package in this workspace.
+`<SourceBinding>` identifies what backs the package in the public package model.
 
-Supported `Kind` values currently include:
+Supported `Kind` values:
 
-- `LocalComponent`
-- `DependencyRepo`
-- `ThirdPartyRepo`
+- `Source`
 - `CMakePackage`
-- `LocalPackage`
+- `Prebuilt`
 
 `Path` is workspace-relative when the package is backed by local source or local package content.
 
-### Build
+### Artifacts
 
-`<Build>` describes how the package is exposed to the build backend.
+`<Artifacts>` describes what a package exposes to builds and staged targets.
 
-Current active backend:
-
-- `CMake`
-
-Supported child sections:
+Start with only:
 
 - `Libraries`
+- `Executables`
 
 Each `<Library>` may define:
 
 - `Name` required
 - `Target` optional but recommended
-- `Kind` optional but recommended
+- `Linkage` optional
+- `Origin` optional
 - `Exported` optional, defaults to `true`
+
+`Linkage` values:
+
+- `Static`
+- `Shared`
+- `Interface`
+
+`Origin` values:
+
+- `Built`
+- `Imported`
+- `Prebuilt`
+
+If `Origin` is omitted, implementations may infer it from `SourceBinding`:
+
+- `Source` usually implies `Built`
+- `CMakePackage` usually implies `Imported`
+- `Prebuilt` usually implies `Prebuilt`
+
+Each `<Executable>` may define:
+
+- `Name` required
+- `Target` optional but recommended
+- `Origin` optional
+- `Exported` optional, defaults to `true`
+
+### Build
+
+`<Build>` describes backend mapping details that cannot be inferred from `Artifacts`.
+
+Current active backend:
+
+- `CMake`
+
+`Build` should remain optional and backend-thin.
 
 ### Modules
 
@@ -198,6 +233,8 @@ Content paths are relative to the package file unless absolute.
 - packages are the primary reusable unit referenced by projects
 - runtime module and plugin declarations belong inside packages
 - package wrappers are the authoritative NGIN-facing integration contract in the umbrella workspace
+- `SourceBinding` describes what backs the package, while `Artifacts` describes what the package exposes
+- `Build` should stay limited to backend-mapping details, not become a second overloaded package contract
 - standalone runtime descriptor files are not part of the intended primary authoring model
 - package names and versions identify reusable units
 - content staging paths must be explicit and conflict-checked during composition

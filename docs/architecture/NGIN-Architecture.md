@@ -49,6 +49,7 @@ The repo is structured intentionally:
 
 - authored project: `.nginproj`
 - authored package: `.nginpkg`
+- planned distributable package: `.nginpack`
 - generated staged target: `.ngintarget`
 
 Lower-level runtime descriptor files are implementation details, not the intended primary authoring surface.

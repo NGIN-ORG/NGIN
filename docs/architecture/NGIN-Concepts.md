@@ -35,12 +35,15 @@ The main reusable unit users reference.
 
 A package may provide:
 
+- libraries and executables
 - modules
 - plugins
 - staged content files
 - bootstrap metadata
 
 Users should think in packages first.
+
+`.nginpkg` is the authored package manifest. A future `.nginpack` archive is the planned installable package form.
 
 ## Module
 

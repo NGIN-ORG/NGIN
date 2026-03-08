@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Package SchemaVersion="1"
-         Name="NGIN.Reflection"
+         Name="MyGame.Runtime"
          Version="0.1.0"
          CompatiblePlatformRange=">=0.1.0-alpha.1 &lt;0.2.0">
-  <SourceBinding Kind="Source" Path="Dependencies/NGIN/NGIN.Reflection" />
+  <SourceBinding Kind="Source" Path="Source/MyGame.Runtime" />
   <Artifacts>
-    <Libraries>
-      <Library Name="NGIN.Reflection" Target="NGIN::Reflection" Linkage="Static" />
-    </Libraries>
+    <Executables>
+      <Executable Name="MyGame.Runtime" Target="MyGame.Runtime" />
+    </Executables>
   </Artifacts>
   <Build Backend="CMake" />
   <Platforms>
@@ -16,13 +16,15 @@
     <Platform Name="macos" />
   </Platforms>
   <Dependencies>
-    <Dependency Name="NGIN.Base" VersionRange=">=0.1.0 &lt;0.2.0" Optional="false" />
+    <Dependency Name="NGIN.Core" VersionRange=">=0.1.0 &lt;0.2.0" Optional="false" />
+    <Dependency Name="NGIN.ECS" VersionRange=">=0.1.0 &lt;0.2.0" Optional="false" />
+    <Dependency Name="SDL2" VersionRange=">=2.30.0 &lt;3.0.0" Optional="false" />
   </Dependencies>
   <Modules>
-    <Module Name="Reflection.Metadata"
-            Family="Reflection"
+    <Module Name="App.GameRuntime"
+            Family="App"
             Type="Runtime"
-            LoadPhase="CoreServices"
+            LoadPhase="Application"
             Version="0.1.0"
             CompatiblePlatformRange=">=0.1.0-alpha.1 &lt;0.2.0"
             ReflectionRequired="false">
@@ -32,11 +34,14 @@
         <Platform Name="macos" />
       </Platforms>
       <Dependencies>
-        <Dependency Name="Base.Foundation" Optional="false" />
+        <Dependency Name="Core.Hosting" Optional="false" />
+        <Dependency Name="Domain.ECS" Optional="false" />
       </Dependencies>
       <ProvidesServices />
       <RequiresServices />
-      <Capabilities />
+      <Capabilities>
+        <Capability Name="Runtime" />
+      </Capabilities>
     </Module>
   </Modules>
   <Plugins />

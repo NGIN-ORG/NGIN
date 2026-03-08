@@ -3,12 +3,13 @@
          Name="NGIN.Log"
          Version="0.1.0"
          CompatiblePlatformRange=">=0.1.0-alpha.1 &lt;0.2.0">
-  <SourceBinding Kind="DependencyRepo" Path="Dependencies/NGIN/NGIN.Log" />
-  <Build Backend="CMake">
+  <SourceBinding Kind="Source" Path="Dependencies/NGIN/NGIN.Log" />
+  <Artifacts>
     <Libraries>
-      <Library Name="NGIN.Log" Target="NGIN::Log" Kind="Static" />
+      <Library Name="NGIN.Log" Target="NGIN::Log" Linkage="Static" />
     </Libraries>
-  </Build>
+  </Artifacts>
+  <Build Backend="CMake" />
   <Platforms>
     <Platform Name="linux" />
     <Platform Name="windows" />

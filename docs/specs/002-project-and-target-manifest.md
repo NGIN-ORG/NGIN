@@ -1,7 +1,7 @@
 # Spec 002: Project and Target Manifest
 
 Status: Active
-Last updated: 2026-03-07
+Last updated: 2026-03-08
 
 ## Purpose
 
@@ -42,6 +42,7 @@ Required root attributes:
         <PackageRef Name="NGIN.Core" VersionRange=">=0.1.0 &lt;1.0.0" />
         <PackageRef Name="NGIN.ECS" VersionRange=">=0.1.0 &lt;1.0.0" />
       </Packages>
+      <Launch Executable="Sandbox.Game" />
       <Modules>
         <Enable Name="Core.Hosting" />
       </Modules>
@@ -69,6 +70,7 @@ Each `<Target>` may define:
 Supported child sections:
 
 - `Packages`
+- `Launch`
 - `Modules`
 - `Plugins`
 - `ConfigSources`
@@ -94,6 +96,22 @@ Supported elements:
 
 Direct module toggles should be rare. Packages remain the primary composition input.
 
+### Launch
+
+`Launch` is optional.
+
+It exists only to resolve ambiguity when a target can see more than one executable artifact through its packages.
+
+Supported attributes:
+
+- `Executable` optional
+
+Rules:
+
+- if a target resolves exactly one executable artifact, implementations may infer it
+- if a target resolves multiple executable artifacts, `Launch Executable="..."` should be used to choose the runnable output
+- if a target resolves no executable artifacts, the target may still be valid for validation or staging, but it has no inferred runnable output
+
 ### Plugins
 
 `Plugins` is an advanced override section.
@@ -115,6 +133,7 @@ Each `<Config>` entry defines a relative or absolute source path loaded into the
 - target names must be unique inside a project
 - `DefaultTarget` must name an existing target
 - target package references are the normal path for composition
+- targets may optionally choose a runnable executable when package-provided executable artifacts are ambiguous
 - module/plugin sections are advanced overrides, not the main authoring surface
 - relative `ConfigSources` and `WorkingDirectory` values are resolved relative to the project file location
 

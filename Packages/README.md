@@ -6,10 +6,10 @@ Each package wrapper defines:
 
 - package identity and exposed version
 - source binding metadata
-- build backend metadata
-- exported libraries
+- exposed artifacts such as libraries and executables
 - runtime modules and plugins
 - staged content
+- optional backend build hints
 
 Source code does not live here by default. Source-backed packages point at either:
 

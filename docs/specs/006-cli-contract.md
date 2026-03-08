@@ -1,7 +1,7 @@
 # Spec 006: CLI Contract
 
 Status: Active
-Last updated: 2026-03-07
+Last updated: 2026-03-08
 
 ## Purpose
 
@@ -37,6 +37,15 @@ Future command:
 
 - `ngin run`
 
+Planned package lifecycle commands after the distribution model is specified:
+
+- `ngin package pack`
+- `ngin package inspect`
+- `ngin package verify`
+- `ngin package install`
+- `ngin package uninstall`
+- `ngin package restore`
+
 ## Behavior
 
 ### workspace status / doctor / sync
@@ -53,7 +62,7 @@ Loads a project, selects a target, resolves composition, and prints the resolved
 
 ### project build
 
-Loads a project, selects a target, resolves composition, stages files into an output directory, and emits a `.ngintarget` file.
+Loads a project, selects a target, resolves composition, resolves artifact and executable candidates, invokes the active backend when needed, stages outputs and content into an output directory, and emits a `.ngintarget` file.
 
 ### package list
 
@@ -61,7 +70,9 @@ Lists packages known to the current workspace metadata.
 
 ### package show
 
-Prints package metadata relevant to composition and staging.
+Prints package metadata relevant to composition, artifacts, and staging.
+
+The current active CLI contract works on authored manifests and workspace-backed packages. Package distribution and installation commands are planned separately from the current build/graph/validate surface.
 
 ## Discovery
 

@@ -3,12 +3,13 @@
          Name="NGIN.Base"
          Version="0.1.0"
          CompatiblePlatformRange=">=0.1.0-alpha.1 &lt;0.2.0">
-  <SourceBinding Kind="DependencyRepo" Path="Dependencies/NGIN/NGIN.Base" />
-  <Build Backend="CMake">
+  <SourceBinding Kind="Source" Path="Dependencies/NGIN/NGIN.Base" />
+  <Artifacts>
     <Libraries>
-      <Library Name="NGIN.Base" Target="NGIN::Base" Kind="Static" />
+      <Library Name="NGIN.Base" Target="NGIN::Base" Linkage="Static" />
     </Libraries>
-  </Build>
+  </Artifacts>
+  <Build Backend="CMake" />
   <Platforms>
     <Platform Name="linux" />
     <Platform Name="windows" />

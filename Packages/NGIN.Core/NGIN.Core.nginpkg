@@ -3,12 +3,13 @@
          Name="NGIN.Core"
          Version="0.1.0"
          CompatiblePlatformRange=">=0.1.0-alpha.1 &lt;0.2.0">
-  <SourceBinding Kind="LocalComponent" Path="NGIN.Core" />
-  <Build Backend="CMake">
+  <SourceBinding Kind="Source" Path="NGIN.Core" />
+  <Artifacts>
     <Libraries>
-      <Library Name="NGIN.Core" Target="NGIN::Core" Kind="Static" />
+      <Library Name="NGIN.Core" Target="NGIN::Core" Linkage="Static" />
     </Libraries>
-  </Build>
+  </Artifacts>
+  <Build Backend="CMake" />
   <Platforms>
     <Platform Name="linux" />
     <Platform Name="windows" />
