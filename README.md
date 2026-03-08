@@ -306,10 +306,10 @@ That is why:
 
 ## Read Next
 
-- [NGIN Architecture](/home/berggrenmille/NGIN/docs/architecture/NGIN-Architecture.md)
-- [NGIN Concepts](/home/berggrenmille/NGIN/docs/architecture/NGIN-Concepts.md)
-- [Packages README](/home/berggrenmille/NGIN/Packages/README.md)
-- [Dependencies README](/home/berggrenmille/NGIN/Dependencies/README.md)
-- [Spec 001: Core Concepts and Vocabulary](/home/berggrenmille/NGIN/docs/specs/001-core-concepts.md)
-- [Spec 003: Package Manifest and Runtime Contributions](/home/berggrenmille/NGIN/docs/specs/003-package-manifest-and-runtime-contributions.md)
-- [Spec 006: CLI Contract](/home/berggrenmille/NGIN/docs/specs/006-cli-contract.md)
+- [NGIN Architecture](docs/architecture/NGIN-Architecture.md)
+- [NGIN Concepts](docs/architecture/NGIN-Concepts.md)
+- [Packages README](Packages/README.md)
+- [Dependencies README](Dependencies/README.md)
+- [Spec 001: Core Concepts and Vocabulary](docs/specs/001-core-concepts.md)
+- [Spec 003: Package Manifest and Runtime Contributions](docs/specs/003-package-manifest-and-runtime-contributions.md)
+- [Spec 006: CLI Contract](docs/specs/006-cli-contract.md)
