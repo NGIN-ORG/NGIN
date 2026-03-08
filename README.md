@@ -4,48 +4,156 @@
 
 NGIN is a C++ platform for building engines, tools, runtimes, editors, and applications around one shared model.
 
-The core idea is simple:
+It gives you:
 
-- you define a `Project`
-- a project exposes one or more `Targets`
-- targets depend on `Packages`
-- packages provide `Libraries`, `Modules`, `Plugins`, and `Content`
-- `NGIN.Core` hosts the resolved application
-- `ngin build` owns the build experience and drives CMake as the backend
-
-NGIN is not trying to replace CMake. It is trying to replace ad hoc integration.
-
-## What NGIN Is
-
-NGIN exists to give C++ projects a coherent platform layer above raw build scripts and scattered runtime metadata.
-
-Instead of wiring everything together manually, NGIN gives you:
-
+- a package-centric application model
 - XML manifests for projects and packages
 - a native `ngin` CLI
-- a package-centric composition model
-- staged target output through `.ngintarget`
-- a first-class host implementation in `NGIN.Core`
+- staged target output
+- a first-class host/runtime implementation in `NGIN.Core`
 
-This repo is the umbrella workspace for that platform.
+NGIN is not trying to replace CMake. It is trying to replace ad hoc integration, scattered runtime metadata, and unclear boundaries between build-time and runtime composition.
 
-## The Mental Model
+## What Problem NGIN Solves
 
-If NGIN is doing its job well, you mostly think in these terms:
+Large C++ codebases usually end up with some combination of:
 
-- `Project`: the application you are making
-- `Target`: one concrete variant, such as a game, editor, server, or tool
-- `Package`: the unit your target depends on
-- `Library`: build-time code artifacts exposed by a package
-- `Module`: runtime composition units provided by a package
-- `Plugin`: optional extensions provided by a package
-- `Host`: the runtime container that starts the resolved target
+- raw CMake targets as the only integration model
+- custom bootstrap code per application
+- runtime modules/plugins described separately from build dependencies
+- poor separation between reusable libraries and reusable application features
 
-The important rule is that **packages are the main reusable unit**. Modules and plugins are lower-level runtime details.
+NGIN tries to give that a cleaner shape.
 
-## What This Repo Owns
+The intended flow is:
 
-This umbrella repo owns:
+`Project -> Target -> Packages -> Host`
+
+You describe the application in terms of projects, targets, and packages. NGIN then resolves what code, runtime behavior, and staged content that target needs.
+
+## The Core Model
+
+### Project
+
+Your application.
+
+Examples:
+
+- a game
+- an editor
+- a server
+- a developer tool
+
+### Target
+
+One concrete variant of that project.
+
+Examples:
+
+- `Game`
+- `Editor`
+- `Server`
+
+A target says which packages are included and which platform/profile/environment they are built for.
+
+### Package
+
+The main reusable unit in NGIN.
+
+This is the most important concept.
+
+A package can represent:
+
+- a platform feature like `NGIN.Core`
+- a domain package like `NGIN.ECS`
+- a product feature like `NGIN.Editor`
+- an external integration like `SDL2`
+- your own app package like `MyGame.Runtime`
+
+When you author a target, you mostly add packages.
+
+### What Packages Can Provide
+
+A package may provide:
+
+- `Libraries`
+  Build-time code artifacts exposed to the native build backend.
+  Example: `NGIN::Core`, `SDL2::SDL2`
+
+- `Modules`
+  Runtime behavior that participates in startup, dependency ordering, and host composition.
+  Example: `Core.Hosting`, `Editor.Workspace`
+
+- `Plugins`
+  Optional runtime extensions owned by the package.
+
+- `Content`
+  Config files, assets, and staged files needed by the target.
+
+### Host
+
+The runtime container that starts the resolved target.
+
+Today, the active host implementation is `NGIN.Core`.
+
+## One Practical Example
+
+If you are making a game, the flow should feel like this:
+
+1. You create a project.
+2. That project has a `Game` target.
+3. The target depends on packages like `NGIN.Core`, `NGIN.ECS`, and `SDL2`.
+4. Those packages bring the libraries, modules, and content the target needs.
+5. NGIN validates the composition, stages the target, and hands it to the host.
+
+That is the main idea.
+
+## What You Can Do Today
+
+At the current stage of the project, NGIN can already do useful platform work:
+
+- author projects in `.nginproj`
+- author packages in `.nginpkg`
+- resolve package/module/plugin composition
+- validate target composition
+- inspect resolved graphs
+- build staged target layouts
+- emit `.ngintarget`
+- use `NGIN.Core` as the current host/runtime foundation
+
+The build backend is still CMake. The package wrapper and staging model are in place; broader package-driven native build orchestration is the next layer on top.
+
+## Tiny Example
+
+A target depending on `NGIN.Core`, `NGIN.ECS`, and `SDL2` looks like this:
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="1" Name="MyGame" DefaultTarget="Game">
+  <Targets>
+    <Target Name="Game"
+            Type="Runtime"
+            Profile="Game"
+            Platform="linux-x64"
+            Environment="Dev"
+            WorkingDirectory=".">
+      <Packages>
+        <PackageRef Name="NGIN.Core" VersionRange=">=0.1.0 <0.2.0" />
+        <PackageRef Name="NGIN.ECS" VersionRange=">=0.1.0 <0.2.0" />
+        <PackageRef Name="SDL2" VersionRange=">=2.30.0 <3.0.0" />
+      </Packages>
+    </Target>
+  </Targets>
+</Project>
+```
+
+That is the level NGIN wants you to work at first.
+
+## This Repo’s Role
+
+This repository is the umbrella workspace for the platform.
+
+It owns:
 
 - the active platform specs and architecture
 - release and workspace metadata
@@ -53,7 +161,7 @@ This umbrella repo owns:
 - package wrappers in `Packages/`
 - cross-repo validation, graphing, and staged build flow
 
-This umbrella repo does **not** try to own all source code directly.
+It does not try to directly own all first-party source code.
 
 - `NGIN.Core/` is first-class local platform code and is actively worked on here
 - `NGIN.Base`, `NGIN.Log`, `NGIN.Reflection`, and `NGIN.ECS` remain independent repos
@@ -62,12 +170,10 @@ This umbrella repo does **not** try to own all source code directly.
 ## Repository Shape
 
 - `Packages/`
-  The authoritative NGIN-facing integration layer. Package wrappers live here.
+  The authoritative NGIN-facing integration layer.
 
 - `Dependencies/`
-  Source availability for repos that are integrated here but not owned here.
-  `Dependencies/NGIN/` is for first-party repos.
-  `Dependencies/ThirdParty/` is for third-party source dependencies.
+  Source availability for repos integrated here but not owned here.
 
 - `NGIN.Core/`
   The current host/runtime implementation and the main first-class component in this repo.
@@ -90,16 +196,6 @@ The active authored manifest family is XML:
 - staged target output: `.ngintarget`
 
 `Project` and `Package` are the authored inputs. `.ngintarget` is generated by the build flow.
-
-## Current Workflow
-
-1. Author a project in `.nginproj`.
-2. Reference packages in targets.
-3. Validate composition with `ngin project validate`.
-4. Inspect the graph with `ngin project graph`.
-5. Build a staged target with `ngin project build`.
-
-Today, the build flow stages the resolved target layout and uses CMake as the native backend. The package wrapper model and build metadata are in place; broader package-driven native build orchestration is the next layer on top.
 
 ## Quick Start
 
