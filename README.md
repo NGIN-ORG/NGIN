@@ -2,34 +2,54 @@
 
 **NGIN — Next Generation Infrastructure for eNGINes**
 
-NGIN is a C++ platform for building engines, tools, runtimes, editors, and applications around one shared model.
+NGIN is a modular application foundation for C++.
 
-It gives you:
+It is built around a simple idea: a C++ application should start from a small, readable entrypoint, compose explicit services with clear lifetimes, and grow by adding well-defined packages instead of accumulating hidden globals and ad hoc startup code.
 
-- a package-centric application model
+NGIN gives you:
+
+- a clean host-based application model
+- explicit service registration and lifetimes
+- modular feature composition through packages
 - XML manifests for projects and packages
 - a native `ngin` CLI
 - staged target output
 - a first-class host/runtime implementation in `NGIN.Core`
 
-NGIN is not trying to replace CMake. It is trying to replace ad hoc integration, scattered runtime metadata, and unclear boundaries between build-time and runtime composition.
+NGIN is not trying to replace CMake. It is trying to give C++ applications a better composition model above the native build layer.
 
-## What Problem NGIN Solves
+## The Pitch
 
-Large C++ codebases usually end up with some combination of:
+NGIN is one way to build C++ applications with:
 
-- raw CMake targets as the only integration model
-- custom bootstrap code per application
-- runtime modules/plugins described separately from build dependencies
-- poor separation between reusable libraries and reusable application features
+- small entrypoint
+- explicit services
+- explicit lifetimes
+- modular features
+- predictable startup
+- less hidden state
 
-NGIN tries to give that a cleaner shape.
+If an application needs a window, logging, input, ECS, reflection, tools, or editor features, those capabilities should be added intentionally. They should come from packages and modules the application chooses, not from scattered initialization logic or implicit global state.
+
+That is the value NGIN is aiming to provide.
+
+## What NGIN Tries To Improve
+
+In many C++ applications and engines, you may run into patterns like:
+
+- startup code spread across many places
+- static initialization and singleton-heavy architecture
+- runtime wiring that is difficult to follow
+- build dependencies and runtime features modeled separately
+- reusable libraries without a clear application composition story
+
+NGIN provides one way to structure that more cleanly.
 
 The intended flow is:
 
 `Project -> Target -> Packages -> Host`
 
-You describe the application in terms of projects, targets, and packages. NGIN then resolves what code, runtime behavior, and staged content that target needs.
+You define the application, choose a target, add packages, and let the host compose the resulting application model.
 
 ## The Core Model
 
@@ -77,7 +97,7 @@ When you author a target, you mostly add packages.
 A package may provide:
 
 - `Libraries`
-  Build-time code artifacts exposed to the native build backend.
+  Build-time code exposed to the native backend.
   Example: `NGIN::Core`, `SDL2::SDL2`
 
 - `Modules`
@@ -92,9 +112,23 @@ A package may provide:
 
 ### Host
 
-The runtime container that starts the resolved target.
+The host is the runtime container that starts the resolved target.
 
 Today, the active host implementation is `NGIN.Core`.
+
+## Why This Matters
+
+The point is not only to describe files better.
+
+The point is to make application structure better:
+
+- one understandable entrypoint
+- explicit dependencies
+- explicit service lifetimes
+- explicit startup order
+- feature composition through packages instead of hand wiring
+
+NGIN is meant to make a C++ application feel intentionally composed instead of organically tangled.
 
 ## One Practical Example
 
@@ -103,7 +137,7 @@ If you are making a game, the flow should feel like this:
 1. You create a project.
 2. That project has a `Game` target.
 3. The target depends on packages like `NGIN.Core`, `NGIN.ECS`, and `SDL2`.
-4. Those packages bring the libraries, modules, and content the target needs.
+4. Those packages bring the libraries, modules, services, and content the target needs.
 5. NGIN validates the composition, stages the target, and hands it to the host.
 
 That is the main idea.
