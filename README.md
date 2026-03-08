@@ -14,7 +14,9 @@ It provides a structured way to build applications with:
 
 Instead of wiring everything manually across build scripts, globals, and scattered initialization code, NGIN lets you compose applications from **projects, targets, and packages**.
 
-NGIN is not trying to replace CMake. It is trying to give C++ applications a better composition model above the native build layer.
+NGIN is not primarily a package manager, and it is not trying to replace CMake. It is a composition model above the native build layer.
+
+In NGIN, a package is the main unit of application composition. Packages describe what a target brings together at build time, runtime, and staging time: libraries, modules, plugins, tools, executables, and content.
 
 NGIN encourages applications to start from a small, readable entrypoint and grow by composing explicit packages instead of accumulating hidden globals and ad hoc startup code.
 
@@ -28,8 +30,10 @@ Project -> Target -> Packages -> Host
 
 - **Project**: the product you are building
 - **Target**: one runtime or build variant of that product
-- **Packages**: reusable features and integrations
+- **Packages**: the primary unit of application composition, used to bring in reusable features, integrations, modules, libraries, tools, executables, and staged content
 - **Host**: the runtime that composes and starts everything
+
+This flow is about application composition: packages describe what a target contains, and the host realizes that target as a runnable application shape.
 
 Today, the active host implementation is `NGIN.Core`.
 
