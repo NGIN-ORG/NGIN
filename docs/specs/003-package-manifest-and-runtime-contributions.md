@@ -5,7 +5,7 @@ Last updated: 2026-03-07
 
 ## Purpose
 
-This spec defines the `.nginpkg` file format and the rule that packages own runtime contributions.
+This spec defines the `.nginpkg` file format and the rule that packages own both runtime contributions and the umbrella-facing integration contract.
 
 Packages are the primary reusable unit in NGIN.
 
@@ -29,6 +29,11 @@ Optional root attributes:
 
 - `CompatiblePlatformRange`
 
+Recommended top-level child sections:
+
+- `SourceBinding`
+- `Build`
+
 ## Structure
 
 ```xml
@@ -37,6 +42,12 @@ Optional root attributes:
          Name="NGIN.Editor"
          Version="0.1.0"
          CompatiblePlatformRange=">=0.1.0 &lt;1.0.0">
+  <SourceBinding Kind="DependencyRepo" Path="Dependencies/NGIN/NGIN.Editor" />
+  <Build Backend="CMake">
+    <Libraries>
+      <Library Name="NGIN.Editor" Target="NGIN::Editor" Kind="Static" />
+    </Libraries>
+  </Build>
   <Platforms>
     <Platform Name="linux" />
     <Platform Name="windows" />
@@ -107,6 +118,43 @@ Supported sections:
 - `Contents`
 - `Bootstrap`
 
+## Source Binding and Build Integration
+
+Packages are also the authoritative integration layer for the umbrella workspace.
+
+### SourceBinding
+
+`<SourceBinding>` identifies what backs the package in this workspace.
+
+Supported `Kind` values currently include:
+
+- `LocalComponent`
+- `DependencyRepo`
+- `ThirdPartyRepo`
+- `CMakePackage`
+- `LocalPackage`
+
+`Path` is workspace-relative when the package is backed by local source or local package content.
+
+### Build
+
+`<Build>` describes how the package is exposed to the build backend.
+
+Current active backend:
+
+- `CMake`
+
+Supported child sections:
+
+- `Libraries`
+
+Each `<Library>` may define:
+
+- `Name` required
+- `Target` optional but recommended
+- `Kind` optional but recommended
+- `Exported` optional, defaults to `true`
+
 ### Modules
 
 Modules declared inside a package define runtime composition metadata.
@@ -149,6 +197,7 @@ Content paths are relative to the package file unless absolute.
 
 - packages are the primary reusable unit referenced by projects
 - runtime module and plugin declarations belong inside packages
+- package wrappers are the authoritative NGIN-facing integration contract in the umbrella workspace
 - standalone runtime descriptor files are not part of the intended primary authoring model
 - package names and versions identify reusable units
 - content staging paths must be explicit and conflict-checked during composition

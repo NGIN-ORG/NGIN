@@ -222,6 +222,9 @@ namespace
     struct Component
     {
         std::string              name {};
+        std::string              kind {};
+        std::string              location {};
+        std::string              packagePath {};
         std::string              repoUrl {};
         std::string              ref {};
         std::string              version {};
@@ -247,6 +250,26 @@ namespace
         std::string source {};
         std::string kind {};
         std::string target {};
+    };
+
+    struct SourceBinding
+    {
+        std::string kind {};
+        std::string path {};
+    };
+
+    struct LibraryArtifact
+    {
+        std::string name {};
+        std::string target {};
+        std::string kind {};
+        bool        exported {true};
+    };
+
+    struct BuildDescriptor
+    {
+        std::string                 backend {};
+        std::vector<LibraryArtifact> libraries {};
     };
 
     struct ModuleDescriptor
@@ -282,6 +305,8 @@ namespace
         std::string                    name {};
         std::string                    version {};
         std::string                    compatiblePlatformRange {};
+        SourceBinding                  sourceBinding {};
+        BuildDescriptor                build {};
         std::vector<std::string>       platforms {};
         std::vector<PackageDependency> dependencies {};
         std::vector<ContentFile>       contents {};
@@ -594,6 +619,9 @@ namespace
         {
             Component component {};
             component.name = RequireAttribute(*child, "Name", path);
+            component.kind = Attribute(*child, "Kind").value_or("");
+            component.location = Attribute(*child, "Location").value_or("");
+            component.packagePath = Attribute(*child, "PackagePath").value_or("");
             component.repoUrl = Attribute(*child, "RepoUrl").value_or("");
             component.ref = Attribute(*child, "Ref").value_or("");
             component.version = Attribute(*child, "Version").value_or("");
@@ -649,6 +677,27 @@ namespace
         package.name = RequireAttribute(*rootElement, "Name", path);
         package.version = RequireAttribute(*rootElement, "Version", path);
         package.compatiblePlatformRange = Attribute(*rootElement, "CompatiblePlatformRange").value_or("");
+        if (const auto* sourceBinding = FindChild(*rootElement, "SourceBinding"))
+        {
+            package.sourceBinding.kind = Attribute(*sourceBinding, "Kind").value_or("");
+            package.sourceBinding.path = Attribute(*sourceBinding, "Path").value_or("");
+        }
+        if (const auto* build = FindChild(*rootElement, "Build"))
+        {
+            package.build.backend = Attribute(*build, "Backend").value_or("");
+            if (const auto* libraries = FindChild(*build, "Libraries"))
+            {
+                for (const auto* node : ChildElements(*libraries, "Library"))
+                {
+                    LibraryArtifact artifact {};
+                    artifact.name = RequireAttribute(*node, "Name", path);
+                    artifact.target = Attribute(*node, "Target").value_or("");
+                    artifact.kind = Attribute(*node, "Kind").value_or("");
+                    artifact.exported = !Attribute(*node, "Exported").has_value() || BoolAttribute(*node, "Exported", true);
+                    package.build.libraries.push_back(std::move(artifact));
+                }
+            }
+        }
         if (const auto* platforms = FindChild(*rootElement, "Platforms"))
         {
             for (const auto* node : ChildElements(*platforms, "Platform"))
@@ -1370,7 +1419,7 @@ namespace
             {
                 args.outputPath = argv[++index];
             }
-            else if (current == "--externals" && index + 1 < argc)
+            else if ((current == "--dependencies" || current == "--externals") && index + 1 < argc)
             {
                 args.targetDir = argv[++index];
             }
@@ -1400,17 +1449,37 @@ namespace
         return 0;
     }
 
-    [[nodiscard]] auto ResolveComponentPath(const fs::path& root, const std::string& component, const std::optional<std::string>& targetDir) -> std::pair<std::string, fs::path>
+    [[nodiscard]] auto DefaultComponentLocation(const Component& component) -> fs::path
     {
-        const auto sibling = root / component;
-        if (fs::exists(sibling))
+        if (!component.location.empty())
         {
-            return {"root", sibling};
+            return fs::path(component.location);
         }
-        const auto externals = fs::path(targetDir.value_or((root / "workspace" / "externals").string())) / component;
-        if (fs::exists(externals))
+        if (component.name == "NGIN.Core" || component.kind == "LocalComponent")
         {
-            return {"externals", externals};
+            return fs::path(component.name);
+        }
+        if (component.kind == "ThirdPartyRepo")
+        {
+            return fs::path("Dependencies") / "ThirdParty" / component.name;
+        }
+        return fs::path("Dependencies") / "NGIN" / component.name;
+    }
+
+    [[nodiscard]] auto ResolveComponentPath(const fs::path& root, const Component& component, const std::optional<std::string>& targetDir) -> std::pair<std::string, fs::path>
+    {
+        const auto configured = root / DefaultComponentLocation(component);
+        if (fs::exists(configured))
+        {
+            return {"configured", configured};
+        }
+        if (targetDir.has_value())
+        {
+            const auto overridePath = fs::path(*targetDir) / component.name;
+            if (fs::exists(overridePath))
+            {
+                return {"override", overridePath};
+            }
         }
         return {"none", {}};
     }
@@ -1418,17 +1487,19 @@ namespace
     auto CmdStatus(const fs::path& root, const ParsedArgs& args) -> int
     {
         const auto release = LoadPlatformRelease(root);
-        std::cout << "COMPONENT             SOURCE     REQ   REF           HEAD          PATH\n";
+        std::cout << "COMPONENT             KIND            SOURCE      REQ   REF           HEAD          PATH\n";
         for (const auto& component : release.components)
         {
-            const auto [source, path] = ResolveComponentPath(root, component.name, args.targetDir);
+            const auto [source, path] = ResolveComponentPath(root, component, args.targetDir);
             if (source == "none")
             {
-                std::cout << component.name << " none " << (component.required ? "yes" : "no") << " - - missing\n";
+                std::cout << component.name << " " << (component.kind.empty() ? "-" : component.kind) << " none "
+                          << (component.required ? "yes" : "no") << " - - missing\n";
                 continue;
             }
             const auto head = CaptureCommand("git -C \"" + path.string() + "\" rev-parse HEAD").value_or("-");
-            std::cout << component.name << " " << source << " " << (component.required ? "yes" : "no") << " "
+            std::cout << component.name << " " << (component.kind.empty() ? "-" : component.kind) << " " << source << " "
+                      << (component.required ? "yes" : "no") << " "
                       << (component.ref.empty() ? "unpinned" : component.ref.substr(0, std::min<std::size_t>(12, component.ref.size()))) << " "
                       << head.substr(0, std::min<std::size_t>(12, head.size())) << " " << path.string() << "\n";
         }
@@ -1479,7 +1550,7 @@ namespace
         }
         for (const auto& component : release->components)
         {
-            const auto [source, path] = ResolveComponentPath(root, component.name, args.targetDir);
+            const auto [source, path] = ResolveComponentPath(root, component, args.targetDir);
             if (source == "none")
             {
                 std::cout << (component.required ? "[warn] " : "[ok] ") << component.name << ": not present locally\n";
@@ -1497,15 +1568,22 @@ namespace
     auto CmdSync(const fs::path& root, const ParsedArgs& args) -> int
     {
         const auto release = LoadPlatformRelease(root);
-        const auto externals = fs::path(args.targetDir.value_or((root / "workspace" / "externals").string()));
-        fs::create_directories(externals);
         for (const auto& component : release.components)
         {
+            if (component.kind == "LocalComponent")
+            {
+                continue;
+            }
             if (component.repoUrl.empty() || component.ref.empty())
             {
                 continue;
             }
-            const auto dest = externals / component.name;
+            auto dest = root / DefaultComponentLocation(component);
+            if (args.targetDir.has_value())
+            {
+                dest = fs::path(*args.targetDir) / component.name;
+            }
+            fs::create_directories(dest.parent_path());
             if (!fs::exists(dest / ".git"))
             {
                 const auto clone = "git clone \"" + component.repoUrl + "\" \"" + dest.string() + "\"";
@@ -1541,7 +1619,9 @@ namespace
         {
             const auto& entry = catalog.at(name);
             const auto manifest = LoadPackageManifest(entry.manifestPath);
-            std::cout << manifest.name << " " << manifest.version << " " << entry.manifestPath.string() << "\n";
+            std::cout << manifest.name << " " << manifest.version << " "
+                      << (manifest.sourceBinding.kind.empty() ? "-" : manifest.sourceBinding.kind) << " "
+                      << entry.manifestPath.string() << "\n";
         }
         return 0;
     }
@@ -1562,6 +1642,39 @@ namespace
         std::cout << "Package: " << manifest.name << "\n";
         std::cout << "  version: " << manifest.version << "\n";
         std::cout << "  manifest: " << manifest.path << "\n";
+        std::cout << "  source binding: ";
+        if (manifest.sourceBinding.kind.empty() && manifest.sourceBinding.path.empty())
+        {
+            std::cout << "(none)\n";
+        }
+        else
+        {
+            std::cout << (manifest.sourceBinding.kind.empty() ? "-" : manifest.sourceBinding.kind);
+            if (!manifest.sourceBinding.path.empty())
+            {
+                std::cout << " -> " << manifest.sourceBinding.path;
+            }
+            std::cout << "\n";
+        }
+        std::cout << "  build backend: " << (manifest.build.backend.empty() ? "(none)" : manifest.build.backend) << "\n";
+        std::cout << "  libraries: " << manifest.build.libraries.size() << "\n";
+        for (const auto& library : manifest.build.libraries)
+        {
+            std::cout << "    - " << library.name;
+            if (!library.target.empty())
+            {
+                std::cout << " target=" << library.target;
+            }
+            if (!library.kind.empty())
+            {
+                std::cout << " kind=" << library.kind;
+            }
+            if (!library.exported)
+            {
+                std::cout << " internal";
+            }
+            std::cout << "\n";
+        }
         std::cout << "  platforms:";
         if (manifest.platforms.empty())
         {
@@ -1865,15 +1978,15 @@ namespace
     auto PrintHelp() -> void
     {
         std::cout
-            << "usage: ngin <command> [options]\n\n"
+            << "usage: ngin <group> <command> [options]\n\n"
             << "Commands:\n"
-            << "  list\n"
-            << "  status [--externals <dir>]\n"
-            << "  doctor [--externals <dir>]\n"
-            << "  sync [--externals <dir>]\n"
-            << "  validate [--project <file.nginproj>] [--target <name>]\n"
-            << "  graph [--project <file.nginproj>] [--target <name>]\n"
-            << "  build [--project <file.nginproj>] [--target <name>] [--output <dir>]\n"
+            << "  workspace list\n"
+            << "  workspace status [--dependencies <dir>]\n"
+            << "  workspace doctor [--dependencies <dir>]\n"
+            << "  workspace sync [--dependencies <dir>]\n"
+            << "  project validate [--project <file.nginproj>] [--target <name>]\n"
+            << "  project graph [--project <file.nginproj>] [--target <name>]\n"
+            << "  project build [--project <file.nginproj>] [--target <name>] [--output <dir>]\n"
             << "  package list\n"
             << "  package show <PackageName>\n";
     }
@@ -1890,6 +2003,69 @@ auto main(int argc, char** argv) -> int
             return 0;
         }
         const std::string command = argv[1];
+        if (command == "workspace")
+        {
+            if (argc < 3)
+            {
+                throw std::runtime_error("workspace requires a subcommand");
+            }
+            const std::string subcommand = argv[2];
+            if (subcommand == "list")
+            {
+                return CmdList(root);
+            }
+            if (subcommand == "status")
+            {
+                return CmdStatus(root, ParseCommonArgs(argc, argv, 3));
+            }
+            if (subcommand == "doctor")
+            {
+                return CmdDoctor(root, ParseCommonArgs(argc, argv, 3));
+            }
+            if (subcommand == "sync")
+            {
+                return CmdSync(root, ParseCommonArgs(argc, argv, 3));
+            }
+            throw std::runtime_error("unknown workspace subcommand '" + subcommand + "'");
+        }
+        if (command == "project")
+        {
+            if (argc < 3)
+            {
+                throw std::runtime_error("project requires a subcommand");
+            }
+            const std::string subcommand = argv[2];
+            if (subcommand == "validate")
+            {
+                return CmdValidate(root, ParseCommonArgs(argc, argv, 3));
+            }
+            if (subcommand == "graph")
+            {
+                return CmdGraph(root, ParseCommonArgs(argc, argv, 3));
+            }
+            if (subcommand == "build")
+            {
+                return CmdBuild(root, ParseCommonArgs(argc, argv, 3));
+            }
+            throw std::runtime_error("unknown project subcommand '" + subcommand + "'");
+        }
+        if (command == "package")
+        {
+            if (argc < 3)
+            {
+                throw std::runtime_error("package requires a subcommand");
+            }
+            const std::string subcommand = argv[2];
+            if (subcommand == "list")
+            {
+                return CmdPackageList(root);
+            }
+            if (subcommand == "show")
+            {
+                return CmdPackageShow(root, ParseCommonArgs(argc, argv, 3));
+            }
+            throw std::runtime_error("unknown package subcommand '" + subcommand + "'");
+        }
         if (command == "list")
         {
             return CmdList(root);
@@ -1917,23 +2093,6 @@ auto main(int argc, char** argv) -> int
         if (command == "build")
         {
             return CmdBuild(root, ParseCommonArgs(argc, argv, 2));
-        }
-        if (command == "package")
-        {
-            if (argc < 3)
-            {
-                throw std::runtime_error("package requires a subcommand");
-            }
-            const std::string subcommand = argv[2];
-            if (subcommand == "list")
-            {
-                return CmdPackageList(root);
-            }
-            if (subcommand == "show")
-            {
-                return CmdPackageShow(root, ParseCommonArgs(argc, argv, 3));
-            }
-            throw std::runtime_error("unknown package subcommand '" + subcommand + "'");
         }
 
         throw std::runtime_error("unknown command '" + command + "'");

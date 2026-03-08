@@ -26,9 +26,14 @@ if(NOT _have_catch2)
   set(_catch2_local_candidates
     "${_core_root_dir}/../NGIN.Base/build/tests/_deps/catch2-src"
     "${_core_root_dir}/../NGIN.Base/build/_deps/catch2-src"
+    "${_core_root_dir}/../Dependencies/NGIN/NGIN.Base/build/tests/_deps/catch2-src"
+    "${_core_root_dir}/../Dependencies/NGIN/NGIN.Base/build/_deps/catch2-src"
     "${_core_root_dir}/../NGIN.Reflection/build/tests/_deps/catch2-src"
     "${_core_root_dir}/../NGIN.Reflection/build/_deps/catch2-src"
+    "${_core_root_dir}/../Dependencies/NGIN/NGIN.Reflection/build/tests/_deps/catch2-src"
+    "${_core_root_dir}/../Dependencies/NGIN/NGIN.Reflection/build/_deps/catch2-src"
     "${_core_root_dir}/../NGIN.Log/build/_deps/catch2-src"
+    "${_core_root_dir}/../Dependencies/NGIN/NGIN.Log/build/_deps/catch2-src"
   )
 
   foreach(_cand IN LISTS _catch2_local_candidates)

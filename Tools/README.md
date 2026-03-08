@@ -1,25 +1,25 @@
 # Tools
 
-The workspace CLI is a native C++ executable built from [ngin.cpp](/home/berggrenmille/NGIN/tools/ngin.cpp).
+The workspace CLI is a native C++ executable built from [main.cpp](/home/berggrenmille/NGIN/Tools/NGIN.CLI/src/main.cpp).
 
 It uses `NGIN.Base` for XML parsing and presents one package-first workflow:
 
 1. author `.nginproj` and `.nginpkg` files
-2. `validate`
-3. `graph`
-4. `build`
+2. `ngin project validate`
+3. `ngin project graph`
+4. `ngin project build`
 
 `.ngintarget` is generated output, not a primary authored manifest.
 
 ## Commands
 
-- `ngin list`
-- `ngin status`
-- `ngin doctor`
-- `ngin sync`
-- `ngin validate --project <file.nginproj> --target <Target>`
-- `ngin graph --project <file.nginproj> --target <Target>`
-- `ngin build --project <file.nginproj> --target <Target> --output <dir>`
+- `ngin workspace list`
+- `ngin workspace status`
+- `ngin workspace doctor`
+- `ngin workspace sync`
+- `ngin project validate --project <file.nginproj> --target <Target>`
+- `ngin project graph --project <file.nginproj> --target <Target>`
+- `ngin project build --project <file.nginproj> --target <Target> --output <dir>`
 - `ngin package list`
 - `ngin package show <Package>`
 
@@ -30,8 +30,10 @@ If `--project` is omitted, `ngin` walks upward from the current directory and us
 - [platform-release.xml](/home/berggrenmille/NGIN/manifests/platform-release.xml)
 - [package-catalog.xml](/home/berggrenmille/NGIN/manifests/package-catalog.xml)
 - [NGIN.Workspace.nginproj](/home/berggrenmille/NGIN/manifests/NGIN.Workspace.nginproj)
+- [Packages README](/home/berggrenmille/NGIN/Packages/README.md)
+- [Dependencies README](/home/berggrenmille/NGIN/Dependencies/README.md)
 
-Runtime module and plugin metadata are authored inside `.nginpkg` files. Lower-level runtime descriptors may still exist internally inside `NGIN.Core`, but they are not part of the normal workspace authoring flow.
+Runtime module and plugin metadata are authored inside `.nginpkg` files. Package wrappers also declare their source binding and build backend metadata so the umbrella workspace can expose first-party and third-party code through one package model.
 
 ## Build Output
 

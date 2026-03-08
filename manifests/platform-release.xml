@@ -7,6 +7,9 @@
   <ReleaseNotes Summary="NGIN.Core is the current host implementation. Packages are the primary composition unit for workspace tooling." />
   <Components>
     <Component Name="NGIN.Base"
+               Kind="DependencyRepo"
+               Location="Dependencies/NGIN/NGIN.Base"
+               PackagePath="Packages/NGIN.Base/NGIN.Base.nginpkg"
                RepoUrl="https://github.com/NGIN-ORG/NGIN.Base.git"
                Ref="9c8ce0431dd1d545ff30bbcba78e0421633342c0"
                Version="0.1"
@@ -14,6 +17,9 @@
       <DependsOn />
     </Component>
     <Component Name="NGIN.Log"
+               Kind="DependencyRepo"
+               Location="Dependencies/NGIN/NGIN.Log"
+               PackagePath="Packages/NGIN.Log/NGIN.Log.nginpkg"
                RepoUrl="https://github.com/NGIN-ORG/NGIN.Log.git"
                Ref="272625925130cf3cbf9e57008deb7bcdd98c802d"
                Version="0.1"
@@ -23,6 +29,9 @@
       </DependsOn>
     </Component>
     <Component Name="NGIN.Core"
+               Kind="LocalComponent"
+               Location="NGIN.Core"
+               PackagePath="Packages/NGIN.Core/NGIN.Core.nginpkg"
                RepoUrl="https://github.com/NGIN-ORG/NGIN.Core.git"
                Ref="272625925130cf3cbf9e57008deb7bcdd98c802d"
                Version="0.1"
@@ -33,6 +42,9 @@
       </DependsOn>
     </Component>
     <Component Name="NGIN.Reflection"
+               Kind="DependencyRepo"
+               Location="Dependencies/NGIN/NGIN.Reflection"
+               PackagePath="Packages/NGIN.Reflection/NGIN.Reflection.nginpkg"
                RepoUrl="https://github.com/NGIN-ORG/NGIN.Reflection.git"
                Ref="b0a9afdd9c4ff419ed4d98b5ab460c8d201d67fb"
                Version="0.1"
@@ -42,6 +54,9 @@
       </DependsOn>
     </Component>
     <Component Name="NGIN.ECS"
+               Kind="DependencyRepo"
+               Location="Dependencies/NGIN/NGIN.ECS"
+               PackagePath="Packages/NGIN.ECS/NGIN.ECS.nginpkg"
                RepoUrl="https://github.com/NGIN-ORG/NGIN.ECS.git"
                Ref="266533462d3318d8678064eaef3117f490408bdf"
                Version="0.1"
@@ -51,6 +66,9 @@
       </DependsOn>
     </Component>
     <Component Name="NGIN.Editor"
+               Kind="DependencyRepo"
+               Location="Dependencies/NGIN/NGIN.Editor"
+               PackagePath="Packages/NGIN.Editor/NGIN.Editor.nginpkg"
                RepoUrl="https://github.com/NGIN-ORG/NGIN.Editor.git"
                Version="0.1"
                Required="false">
@@ -61,6 +79,9 @@
       </DependsOn>
     </Component>
     <Component Name="NGIN.Benchmark"
+               Kind="DependencyRepo"
+               Location="Dependencies/NGIN/NGIN.Benchmark"
+               PackagePath="Packages/NGIN.Benchmark/NGIN.Benchmark.nginpkg"
                RepoUrl="https://github.com/NGIN-ORG/NGIN.Benchmark.git"
                Version="0.1"
                Required="false">

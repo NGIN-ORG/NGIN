@@ -6,11 +6,3 @@ __pycache__/
 *.pyc
 .ngin/workspace.overrides.json
 .ngin/build/
-workspace/
-
-# Current local polyrepo layout (component repos live beside the umbrella repo)
-/NGIN.Base/
-/NGIN.Reflection/
-/NGIN.ECS/
-/NGIN.Benchmark/
-/NGIN.Log/

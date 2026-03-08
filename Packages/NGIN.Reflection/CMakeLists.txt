@@ -1,0 +1,18 @@
+if(TARGET NGIN::Reflection)
+  return()
+endif()
+
+set(_ngin_reflection_source_dir "${CMAKE_CURRENT_LIST_DIR}/../../Dependencies/NGIN/NGIN.Reflection")
+set(_ngin_base_source_dir "${CMAKE_CURRENT_LIST_DIR}/../../Dependencies/NGIN/NGIN.Base")
+if(NOT EXISTS "${_ngin_reflection_source_dir}/CMakeLists.txt")
+  message(FATAL_ERROR "Packages/NGIN.Reflection requires Dependencies/NGIN/NGIN.Reflection")
+endif()
+if(NOT EXISTS "${_ngin_base_source_dir}/CMakeLists.txt")
+  message(FATAL_ERROR "Packages/NGIN.Reflection requires Dependencies/NGIN/NGIN.Base")
+endif()
+
+set(NGIN_BASE_SOURCE_DIR "${_ngin_base_source_dir}" CACHE PATH "" FORCE)
+set(NGIN_REFLECTION_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(NGIN_REFLECTION_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(NGIN_REFLECTION_BUILD_BENCHMARKS OFF CACHE BOOL "" FORCE)
+add_subdirectory("${_ngin_reflection_source_dir}" "${CMAKE_CURRENT_BINARY_DIR}/_ngin_reflection" EXCLUDE_FROM_ALL)

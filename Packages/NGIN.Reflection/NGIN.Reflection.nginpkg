@@ -1,19 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Package SchemaVersion="1"
-         Name="NGIN.Base"
+         Name="NGIN.Reflection"
          Version="0.1.0"
          CompatiblePlatformRange=">=0.1.0-alpha.1 &lt;0.2.0">
+  <SourceBinding Kind="DependencyRepo" Path="Dependencies/NGIN/NGIN.Reflection" />
+  <Build Backend="CMake">
+    <Libraries>
+      <Library Name="NGIN.Reflection" Target="NGIN::Reflection" Kind="Static" />
+    </Libraries>
+  </Build>
   <Platforms>
     <Platform Name="linux" />
     <Platform Name="windows" />
     <Platform Name="macos" />
   </Platforms>
-  <Dependencies />
+  <Dependencies>
+    <Dependency Name="NGIN.Base" VersionRange=">=0.1.0 &lt;0.2.0" Optional="false" />
+  </Dependencies>
   <Modules>
-    <Module Name="Base.Foundation"
-            Family="Base"
+    <Module Name="Reflection.Metadata"
+            Family="Reflection"
             Type="Runtime"
-            LoadPhase="Bootstrap"
+            LoadPhase="CoreServices"
             Version="0.1.0"
             CompatiblePlatformRange=">=0.1.0-alpha.1 &lt;0.2.0"
             ReflectionRequired="false">
@@ -22,7 +30,9 @@
         <Platform Name="windows" />
         <Platform Name="macos" />
       </Platforms>
-      <Dependencies />
+      <Dependencies>
+        <Dependency Name="Base.Foundation" Optional="false" />
+      </Dependencies>
       <ProvidesServices />
       <RequiresServices />
       <Capabilities />

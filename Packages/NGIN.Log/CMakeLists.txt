@@ -1,0 +1,18 @@
+if(TARGET NGIN::Log)
+  return()
+endif()
+
+set(_ngin_log_source_dir "${CMAKE_CURRENT_LIST_DIR}/../../Dependencies/NGIN/NGIN.Log")
+set(_ngin_base_source_dir "${CMAKE_CURRENT_LIST_DIR}/../../Dependencies/NGIN/NGIN.Base")
+if(NOT EXISTS "${_ngin_log_source_dir}/CMakeLists.txt")
+  message(FATAL_ERROR "Packages/NGIN.Log requires Dependencies/NGIN/NGIN.Log")
+endif()
+if(NOT EXISTS "${_ngin_base_source_dir}/CMakeLists.txt")
+  message(FATAL_ERROR "Packages/NGIN.Log requires Dependencies/NGIN/NGIN.Base")
+endif()
+
+set(NGIN_BASE_SOURCE_DIR "${_ngin_base_source_dir}" CACHE PATH "" FORCE)
+set(NGIN_LOG_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(NGIN_LOG_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(NGIN_LOG_BUILD_BENCHMARKS OFF CACHE BOOL "" FORCE)
+add_subdirectory("${_ngin_log_source_dir}" "${CMAKE_CURRENT_BINARY_DIR}/_ngin_log" EXCLUDE_FROM_ALL)

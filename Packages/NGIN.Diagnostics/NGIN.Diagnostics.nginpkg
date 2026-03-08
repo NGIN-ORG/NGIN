@@ -3,6 +3,8 @@
          Name="NGIN.Diagnostics"
          Version="0.1.0"
          CompatiblePlatformRange=">=0.1.0-alpha.1 &lt;0.2.0">
+  <SourceBinding Kind="LocalPackage" Path="Packages/NGIN.Diagnostics" />
+  <Build Backend="None" />
   <Platforms>
     <Platform Name="linux" />
     <Platform Name="windows" />

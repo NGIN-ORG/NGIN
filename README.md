@@ -20,7 +20,7 @@ Packages are the main authored unit. Modules and plugins are lower-level runtime
 - the native `ngin` CLI
 - cross-repo workspace validation and staging
 
-This repo is not a single monolithic SDK library. The current host implementation lives in `NGIN.Core`.
+This repo is not a single monolithic SDK library. The current host implementation lives in `NGIN.Core`, while reusable first-party libraries such as `NGIN.Base`, `NGIN.Log`, `NGIN.Reflection`, and `NGIN.ECS` are integrated through package wrappers over externally owned source repos.
 
 ## Public Files
 
@@ -53,21 +53,21 @@ cmake --build build/dev --target ngin_cli
 3. Check workspace health:
 
 ```bash
-./build/dev/ngin doctor
-./build/dev/ngin status
+./build/dev/ngin workspace doctor
+./build/dev/ngin workspace status
 ```
 
 4. Validate and inspect a target:
 
 ```bash
-./build/dev/ngin validate --project manifests/NGIN.Workspace.nginproj --target NGIN.CoreSample
-./build/dev/ngin graph --project manifests/NGIN.Workspace.nginproj --target NGIN.EditorSample
+./build/dev/ngin project validate --project manifests/NGIN.Workspace.nginproj --target NGIN.CoreSample
+./build/dev/ngin project graph --project manifests/NGIN.Workspace.nginproj --target NGIN.EditorSample
 ```
 
 5. Build a staged target layout:
 
 ```bash
-./build/dev/ngin build --project manifests/NGIN.Workspace.nginproj --target NGIN.CoreSample --output build/manual/NGIN.CoreSample
+./build/dev/ngin project build --project manifests/NGIN.Workspace.nginproj --target NGIN.CoreSample --output build/manual/NGIN.CoreSample
 ```
 
 6. Run the standard workspace flow through CMake:
@@ -78,13 +78,23 @@ cmake --build build/dev --target ngin.workflow
 
 ## Repository Map
 
+- `Packages/`: authoritative NGIN package wrappers and integration contracts
+- `Dependencies/`: source checkouts for non-local component and third-party repos
+- `Tools/`: native tooling, with `Tools/NGIN.CLI/` as the public `ngin` source
+- `NGIN.Core/`: first-class local platform host implementation
 - `docs/architecture/`: active architecture and concept docs
 - `docs/api-drafts/`: public API/application-model drafts
 - `docs/examples/`: example C++ and manifest authoring
 - `docs/specs/`: active platform specs
-- `manifests/`: workspace metadata plus package manifests
-- `tools/`: native CLI source
+- `manifests/`: workspace catalogs, release metadata, and canonical sample projects
 - `cmake/`: workspace CMake integration helpers
+
+## Ownership Model
+
+- `Packages/` is the NGIN-facing source of truth for consumption.
+- `Dependencies/` is source availability only.
+- `NGIN.Core/` is the first-class platform component actively developed in this repo.
+- `ngin build` owns the product build flow and drives CMake as the backend.
 
 ## Read Next
 

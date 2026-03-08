@@ -8,7 +8,7 @@ string(REPLACE "\"" "" TARGET "${TARGET}")
 string(REPLACE "\"" "" OUTPUT "${OUTPUT}")
 
 execute_process(
-  COMMAND "${CLI}" build --project "${PROJECT}" --target "${TARGET}" --output "${OUTPUT}"
+  COMMAND "${CLI}" project build --project "${PROJECT}" --target "${TARGET}" --output "${OUTPUT}"
   RESULT_VARIABLE ngin_build_result
   OUTPUT_VARIABLE ngin_build_stdout
   ERROR_VARIABLE ngin_build_stderr

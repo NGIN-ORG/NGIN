@@ -32,11 +32,18 @@ The platform is not defined by a game engine, editor, or plugin ABI in isolation
 This repo owns:
 
 - active specs and architecture
-- workspace metadata catalogs
+- workspace metadata catalogs and package wrappers
 - the native `ngin` CLI
 - cross-repo validation and staging
 
 The current host implementation lives in `NGIN.Core`.
+
+The repo is structured intentionally:
+
+- `Packages/` exposes the NGIN-facing package contract
+- `Dependencies/` holds source trees that are integrated here but not owned here
+- `NGIN.Core/` remains first-class local platform code
+- `Tools/NGIN.CLI/` owns the public CLI implementation
 
 ## Public File Types
 
@@ -51,7 +58,7 @@ Lower-level runtime descriptor files are implementation details, not the intende
 1. author project and package manifests
 2. validate target composition
 3. inspect the resolved graph
-4. build a staged target layout
+4. build a staged target layout through the package wrappers and CMake backend
 
 ## Near-Term Direction
 

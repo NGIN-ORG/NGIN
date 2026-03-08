@@ -1,13 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <PackageCatalog SchemaVersion="1">
   <Packages>
-    <PackageEntry Name="NGIN.Base" ManifestPath="manifests/packages/NGIN.Base/NGIN.Base.nginpkg" Component="NGIN.Base" />
-    <PackageEntry Name="NGIN.Log" ManifestPath="manifests/packages/NGIN.Log/NGIN.Log.nginpkg" Component="NGIN.Log" />
-    <PackageEntry Name="NGIN.Reflection" ManifestPath="manifests/packages/NGIN.Reflection/NGIN.Reflection.nginpkg" Component="NGIN.Reflection" />
-    <PackageEntry Name="NGIN.Core" ManifestPath="manifests/packages/NGIN.Core/NGIN.Core.nginpkg" Component="NGIN.Core" />
-    <PackageEntry Name="NGIN.ECS" ManifestPath="manifests/packages/NGIN.ECS/NGIN.ECS.nginpkg" Component="NGIN.ECS" />
-    <PackageEntry Name="NGIN.Editor" ManifestPath="manifests/packages/NGIN.Editor/NGIN.Editor.nginpkg" Component="NGIN.Editor" />
-    <PackageEntry Name="NGIN.Benchmark" ManifestPath="manifests/packages/NGIN.Benchmark/NGIN.Benchmark.nginpkg" Component="NGIN.Benchmark" />
-    <PackageEntry Name="NGIN.Diagnostics" ManifestPath="manifests/packages/NGIN.Diagnostics/NGIN.Diagnostics.nginpkg" />
+    <PackageEntry Name="NGIN.Base" ManifestPath="Packages/NGIN.Base/NGIN.Base.nginpkg" Component="NGIN.Base" />
+    <PackageEntry Name="NGIN.Log" ManifestPath="Packages/NGIN.Log/NGIN.Log.nginpkg" Component="NGIN.Log" />
+    <PackageEntry Name="NGIN.Reflection" ManifestPath="Packages/NGIN.Reflection/NGIN.Reflection.nginpkg" Component="NGIN.Reflection" />
+    <PackageEntry Name="NGIN.Core" ManifestPath="Packages/NGIN.Core/NGIN.Core.nginpkg" Component="NGIN.Core" />
+    <PackageEntry Name="NGIN.ECS" ManifestPath="Packages/NGIN.ECS/NGIN.ECS.nginpkg" Component="NGIN.ECS" />
+    <PackageEntry Name="NGIN.Editor" ManifestPath="Packages/NGIN.Editor/NGIN.Editor.nginpkg" Component="NGIN.Editor" />
+    <PackageEntry Name="NGIN.Benchmark" ManifestPath="Packages/NGIN.Benchmark/NGIN.Benchmark.nginpkg" Component="NGIN.Benchmark" />
+    <PackageEntry Name="NGIN.Diagnostics" ManifestPath="Packages/NGIN.Diagnostics/NGIN.Diagnostics.nginpkg" />
+    <PackageEntry Name="SDL2" ManifestPath="Packages/SDL2/SDL2.nginpkg" />
   </Packages>
 </PackageCatalog>

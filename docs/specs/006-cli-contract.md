@@ -23,13 +23,13 @@ The CLI does not define the runtime host itself.
 
 Stable active commands:
 
-- `ngin list`
-- `ngin status`
-- `ngin doctor`
-- `ngin sync`
-- `ngin validate --project <file.nginproj> --target <Target>`
-- `ngin graph --project <file.nginproj> --target <Target>`
-- `ngin build --project <file.nginproj> --target <Target> --output <dir>`
+- `ngin workspace list`
+- `ngin workspace status`
+- `ngin workspace doctor`
+- `ngin workspace sync`
+- `ngin project validate --project <file.nginproj> --target <Target>`
+- `ngin project graph --project <file.nginproj> --target <Target>`
+- `ngin project build --project <file.nginproj> --target <Target> --output <dir>`
 - `ngin package list`
 - `ngin package show <Package>`
 
@@ -39,15 +39,19 @@ Future command:
 
 ## Behavior
 
-### validate
+### workspace status / doctor / sync
+
+Operate on the current umbrella workspace layout, component repo availability, and release-pinned dependency checkouts.
+
+### project validate
 
 Loads a project, selects a target, resolves composition, and reports success, warnings, or errors.
 
-### graph
+### project graph
 
 Loads a project, selects a target, resolves composition, and prints the resolved package/module/plugin graph.
 
-### build
+### project build
 
 Loads a project, selects a target, resolves composition, stages files into an output directory, and emits a `.ngintarget` file.
 
@@ -63,9 +67,11 @@ Prints package metadata relevant to composition and staging.
 
 - `--project` is the explicit contract
 - implementations may also support walking upward to discover the nearest `.nginproj`
+- workspace commands may also accept a dependency checkout override directory for sync/status/doctor flows
 
 ## Rules
 
 - the CLI should not require a user-facing lockfile
 - the CLI should present packages as the main reusable unit
 - the CLI should fail early on invalid composition state
+- the CLI should expose workspace/package/build concerns through grouped commands rather than a flat tool surface

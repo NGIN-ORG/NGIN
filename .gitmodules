@@ -1,0 +1,12 @@
+[submodule "Dependencies/NGIN/NGIN.Base"]
+	path = Dependencies/NGIN/NGIN.Base
+	url = https://github.com/NGIN-ORG/NGIN.Base.git
+[submodule "Dependencies/NGIN/NGIN.Log"]
+	path = Dependencies/NGIN/NGIN.Log
+	url = https://github.com/NGIN-ORG/NGIN.Log.git
+[submodule "Dependencies/NGIN/NGIN.Reflection"]
+	path = Dependencies/NGIN/NGIN.Reflection
+	url = https://github.com/NGIN-ORG/NGIN.Reflection.git
+[submodule "Dependencies/NGIN/NGIN.ECS"]
+	path = Dependencies/NGIN/NGIN.ECS
+	url = https://github.com/NGIN-ORG/NGIN.ECS.git
