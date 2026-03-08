@@ -50,7 +50,7 @@ Planned package lifecycle commands after the distribution model is specified:
 
 ### workspace status / doctor / sync
 
-Operate on the current umbrella workspace layout, component repo availability, and release-pinned dependency checkouts.
+Operate on the current umbrella workspace layout, component repo availability, and release-pinned dependency checkouts described by the workspace release manifest and local package catalog.
 
 ### project validate
 
@@ -66,13 +66,15 @@ Loads a project, selects a target, resolves composition, resolves artifact and e
 
 ### package list
 
-Lists packages known to the current workspace metadata.
+Lists packages known to the current workspace package catalog.
 
 ### package show
 
 Prints package metadata relevant to composition, artifacts, and staging.
 
 The current active CLI contract works on authored manifests and workspace-backed packages. Package distribution and installation commands are planned separately from the current build/graph/validate surface.
+
+For the umbrella repo, the active workspace metadata lives under `Workspace/`, and the canonical sample project used by docs and smoke checks lives under `Examples/Workspace/`.
 
 ## Discovery
 

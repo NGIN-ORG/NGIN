@@ -32,7 +32,7 @@ The platform is not defined by a game engine, editor, or plugin ABI in isolation
 This repo owns:
 
 - active specs and architecture
-- workspace metadata catalogs and package wrappers
+- workspace release metadata, local package catalogs, and package wrappers
 - the native `ngin` CLI
 - cross-repo validation and staging
 
@@ -44,6 +44,8 @@ The repo is structured intentionally:
 - `Dependencies/` holds source trees that are integrated here but not owned here
 - `NGIN.Core/` remains first-class local platform code
 - `Tools/NGIN.CLI/` owns the public CLI implementation
+- `Workspace/` holds umbrella-workspace release metadata and local package lookup catalogs
+- `Examples/` holds canonical sample projects used by docs and smoke tests
 
 ## Public File Types
 

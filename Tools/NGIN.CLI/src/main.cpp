@@ -405,6 +405,16 @@ namespace
         std::optional<ExecutableArtifact>           selectedExecutable {};
     };
 
+    [[nodiscard]] auto PlatformReleasePath(const fs::path& root) -> fs::path
+    {
+        return root / "Workspace" / "Releases" / "platform-release.xml";
+    }
+
+    [[nodiscard]] auto PackageCatalogPath(const fs::path& root) -> fs::path
+    {
+        return root / "Workspace" / "Catalogs" / "package-catalog.xml";
+    }
+
     [[nodiscard]] auto RootDirFrom(const fs::path& start) -> std::optional<fs::path>
     {
         auto current = fs::weakly_canonical(start);
@@ -414,7 +424,7 @@ namespace
         }
         while (!current.empty())
         {
-            if (fs::exists(current / "manifests"))
+            if (fs::exists(PlatformReleasePath(current)) && fs::exists(PackageCatalogPath(current)))
             {
                 return current;
             }
@@ -661,7 +671,7 @@ namespace
 
     [[nodiscard]] auto LoadPlatformRelease(const fs::path& root) -> PlatformRelease
     {
-        const auto path = root / "manifests" / "platform-release.xml";
+        const auto path = PlatformReleasePath(root);
         const auto doc = LoadXml(path);
         const auto* rootElement = doc.document.Root();
         if (rootElement == nullptr || rootElement->name != "PlatformRelease")
@@ -701,7 +711,7 @@ namespace
 
     [[nodiscard]] auto LoadPackageCatalog(const fs::path& root) -> std::unordered_map<std::string, PackageCatalogEntry>
     {
-        const auto path = root / "manifests" / "package-catalog.xml";
+        const auto path = PackageCatalogPath(root);
         const auto doc = LoadXml(path);
         const auto* rootElement = doc.document.Root();
         if (rootElement == nullptr || rootElement->name != "PackageCatalog")
@@ -1815,11 +1825,11 @@ namespace
         {
             return fs::path(component.location);
         }
-        if (component.name == "NGIN.Core" || component.kind == "LocalComponent")
+        if (component.name == "NGIN.Core" || component.kind == "WorkspaceComponent")
         {
             return fs::path(component.name);
         }
-        if (component.kind == "ThirdPartyRepo")
+        if (component.kind == "ThirdPartyDependency")
         {
             return fs::path("Dependencies") / "ThirdParty" / component.name;
         }
@@ -1871,7 +1881,7 @@ namespace
         int fail = 0;
         std::cout << "NGIN workspace doctor\n";
         std::cout << "  root: " << root << "\n";
-        std::cout << "  platform manifest: " << (root / "manifests" / "platform-release.xml") << "\n";
+        std::cout << "  workspace release manifest: " << PlatformReleasePath(root) << "\n";
         if (!ToolExists("git"))
         {
             std::cout << "[error] missing tool: git\n";
@@ -1930,7 +1940,7 @@ namespace
         const auto release = LoadPlatformRelease(root);
         for (const auto& component : release.components)
         {
-            if (component.kind == "LocalComponent")
+            if (component.kind == "WorkspaceComponent")
             {
                 continue;
             }

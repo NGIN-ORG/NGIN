@@ -229,14 +229,14 @@ cmake --build build/dev --target ngin_cli
 4. Validate and inspect the canonical workspace project:
 
 ```bash
-./build/dev/Tools/NGIN.CLI/ngin project validate --project manifests/NGIN.Workspace.nginproj --target NGIN.CoreSample
-./build/dev/Tools/NGIN.CLI/ngin project graph --project manifests/NGIN.Workspace.nginproj --target NGIN.EditorSample
+./build/dev/Tools/NGIN.CLI/ngin project validate --project Examples/Workspace/NGIN.Workspace.nginproj --target NGIN.CoreSample
+./build/dev/Tools/NGIN.CLI/ngin project graph --project Examples/Workspace/NGIN.Workspace.nginproj --target NGIN.EditorSample
 ```
 
 5. Build a staged target layout:
 
 ```bash
-./build/dev/Tools/NGIN.CLI/ngin project build --project manifests/NGIN.Workspace.nginproj --target NGIN.CoreSample --output build/manual/NGIN.CoreSample
+./build/dev/Tools/NGIN.CLI/ngin project build --project Examples/Workspace/NGIN.Workspace.nginproj --target NGIN.CoreSample --output build/manual/NGIN.CoreSample
 ```
 
 6. Run the full workspace workflow:
@@ -259,8 +259,11 @@ cmake --build build/dev --target ngin.workflow
 - **Tools/NGIN.CLI/**  
   The native `ngin` command line tool.
 
-- **manifests/**  
-  Workspace catalogs, release pins, and canonical example projects.
+- **Workspace/**  
+  Workspace release metadata and local package lookup catalogs for the umbrella repo.
+
+- **Examples/**  
+  Canonical sample projects used by docs, smoke tests, and CLI examples.
 
 - **docs/**  
   Architecture notes, examples, and active platform specs.

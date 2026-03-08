@@ -24,13 +24,13 @@ add_custom_target(ngin.workspace
 
 add_subdirectory(Tools)
 
-set(NGIN_WORKSPACE_PROJECT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/manifests/NGIN.Workspace.nginproj")
+set(NGIN_WORKSPACE_PROJECT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/Examples/Workspace/NGIN.Workspace.nginproj")
 set(NGIN_WORKSPACE_STAGE_DIR "${CMAKE_BINARY_DIR}/stage")
 set(NGIN_WORKSPACE_BUILD_OUTPUT "${NGIN_WORKSPACE_STAGE_DIR}/NGIN.CoreSample")
 
 add_custom_target(ngin.manifest.show
-  COMMAND ${CMAKE_COMMAND} -E cat "${CMAKE_CURRENT_SOURCE_DIR}/manifests/platform-release.xml"
-  COMMENT "Print the active NGIN platform release manifest"
+  COMMAND ${CMAKE_COMMAND} -E cat "${CMAKE_CURRENT_SOURCE_DIR}/Workspace/Releases/platform-release.xml"
+  COMMENT "Print the active NGIN workspace release manifest"
   VERBATIM
 )
 
