@@ -46,13 +46,6 @@
                Ref="266533462d3318d8678064eaef3117f490408bdf"
                Version="0.1"
                Required="false" />
-    <Component Name="NGIN.Editor"
-               Kind="RepoDependency"
-               Location="Dependencies/NGIN/NGIN.Editor"
-               PackagePath="Packages/NGIN.Editor/NGIN.Editor.nginpkg"
-               RepoUrl="https://github.com/NGIN-ORG/NGIN.Editor.git"
-               Version="0.1"
-               Required="false" />
     <Component Name="NGIN.Benchmark"
                Kind="RepoDependency"
                Location="Dependencies/NGIN/NGIN.Benchmark"

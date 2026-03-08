@@ -1,6 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<EditorLayout Version="1">
-  <Panel Id="Workspace" Dock="Left" />
-  <Panel Id="Inspector" Dock="Right" />
-  <Panel Id="Viewport" Dock="Center" />
-</EditorLayout>

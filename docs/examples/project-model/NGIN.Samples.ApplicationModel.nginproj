@@ -19,28 +19,27 @@
         <Config Source="config/cli.xml" />
       </ConfigSources>
     </Target>
-    <Target Name="Tools.Editor"
-            Type="Editor"
-            Profile="Editor"
+    <Target Name="Tools.Diagnostics"
+            Type="Developer"
+            Profile="TestHost"
             Platform="linux-x64"
             EnableReflection="true"
             Environment="Dev"
             WorkingDirectory=".">
       <Packages>
         <PackageRef Name="NGIN.ECS" VersionRange=">=0.1.0 &lt;1.0.0" />
-        <PackageRef Name="NGIN.Editor" VersionRange=">=0.1.0 &lt;1.0.0" />
+        <PackageRef Name="NGIN.Reflection" VersionRange=">=0.1.0 &lt;1.0.0" />
         <PackageRef Name="NGIN.Diagnostics" VersionRange=">=0.1.0 &lt;1.0.0" />
       </Packages>
       <Modules>
         <Enable Name="Core.Hosting" />
         <Enable Name="Domain.ECS" />
-        <Enable Name="Editor.Workspace" />
       </Modules>
       <Plugins>
         <Enable Name="NGIN.Diagnostics" />
       </Plugins>
       <ConfigSources>
-        <Config Source="config/editor.xml" />
+        <Config Source="config/tooling.xml" />
       </ConfigSources>
     </Target>
     <Target Name="Sandbox.Game"

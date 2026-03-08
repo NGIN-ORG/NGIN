@@ -42,13 +42,13 @@ Recommended top-level child sections:
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
 <Package SchemaVersion="1"
-         Name="NGIN.Editor"
+         Name="NGIN.Core"
          Version="0.1.0"
          CompatiblePlatformRange=">=0.1.0 &lt;1.0.0">
-  <SourceBinding Kind="Source" Path="Dependencies/NGIN/NGIN.Editor" />
+  <SourceBinding Kind="Source" Path="NGIN.Core" />
   <Artifacts>
     <Libraries>
-      <Library Name="NGIN.Editor" Target="NGIN::Editor" Linkage="Static" />
+      <Library Name="NGIN.Core" Target="NGIN::Core" Linkage="Static" />
     </Libraries>
   </Artifacts>
   <Build Backend="CMake" />
@@ -58,16 +58,14 @@ Recommended top-level child sections:
     <Platform Name="macos" />
   </Platforms>
   <Dependencies>
-    <Dependency Name="NGIN.Core" VersionRange=">=0.1.0 &lt;1.0.0" Optional="false" />
+    <Dependency Name="NGIN.Base" VersionRange=">=0.1.0 &lt;1.0.0" Optional="false" />
+    <Dependency Name="NGIN.Log" VersionRange=">=0.1.0 &lt;1.0.0" Optional="false" />
   </Dependencies>
-  <Bootstrap Mode="BuilderHookV1"
-             EntryPoint="NGIN_Bootstrap_NGIN_Editor"
-             AutoApply="true" />
   <Modules>
-    <Module Name="Editor.Workspace"
-            Family="Editor"
+    <Module Name="Core.Hosting"
+            Family="Core"
             Type="Runtime"
-            LoadPhase="Application"
+            LoadPhase="CoreServices"
             Version="0.1.0"
             CompatiblePlatformRange=">=0.1.0 &lt;1.0.0"
             ReflectionRequired="false">
@@ -77,27 +75,16 @@ Recommended top-level child sections:
         <Platform Name="macos" />
       </Platforms>
       <Dependencies>
-        <Dependency Name="Core.Hosting" RequiredVersion=">=0.1.0 &lt;1.0.0" Optional="false" />
+        <Dependency Name="Base.Foundation" RequiredVersion=">=0.1.0 &lt;1.0.0" Optional="false" />
+        <Dependency Name="Log.Foundation" RequiredVersion=">=0.1.0 &lt;1.0.0" Optional="false" />
       </Dependencies>
-      <ProvidesServices>
-        <Service Name="EditorWorkspace" />
-      </ProvidesServices>
-      <RequiresServices>
-        <Service Name="Config" />
-      </RequiresServices>
-      <Capabilities>
-        <Capability Name="Workspace" />
-      </Capabilities>
+      <ProvidesServices />
+      <RequiresServices />
+      <Capabilities />
     </Module>
   </Modules>
-  <Plugins>
-    <Plugin Name="NGIN.Diagnostics" Optional="true" />
-  </Plugins>
-  <Contents>
-    <File Source="assets/default-layout.xml"
-          Target="config/default-layout.xml"
-          Kind="Config" />
-  </Contents>
+  <Plugins />
+  <Contents />
 </Package>
 ```
 

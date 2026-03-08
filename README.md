@@ -133,7 +133,7 @@ Packages can represent:
 
 - platform features like `NGIN.Core`
 - domain features like `NGIN.ECS`
-- product features like `NGIN.Editor`
+- product features like `MyEngine.Editor`
 - external integrations like `SDL2`
 - your own app package like `MyGame.Runtime`
 
@@ -230,7 +230,7 @@ cmake --build build/dev --target ngin_cli
 
 ```bash
 ./build/dev/Tools/NGIN.CLI/ngin project validate --project Examples/Workspace/NGIN.Workspace.nginproj --target NGIN.CoreSample
-./build/dev/Tools/NGIN.CLI/ngin project graph --project Examples/Workspace/NGIN.Workspace.nginproj --target NGIN.EditorSample
+./build/dev/Tools/NGIN.CLI/ngin project graph --project Examples/Workspace/NGIN.Workspace.nginproj --target NGIN.DiagnosticsSample
 ```
 
 5. Build a staged target layout:

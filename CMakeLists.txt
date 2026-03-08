@@ -102,15 +102,15 @@ add_test(NAME ngin.validate.workspace
 )
 
 add_test(NAME ngin.graph.workspace
-  COMMAND $<TARGET_FILE:ngin_cli> project graph --project "${NGIN_WORKSPACE_PROJECT_PATH}" --target NGIN.EditorSample
+  COMMAND $<TARGET_FILE:ngin_cli> project graph --project "${NGIN_WORKSPACE_PROJECT_PATH}" --target NGIN.DiagnosticsSample
 )
 
 add_test(NAME ngin.build.workspace
   COMMAND ${CMAKE_COMMAND}
     -DCLI=$<TARGET_FILE:ngin_cli>
     -DPROJECT="${NGIN_WORKSPACE_PROJECT_PATH}"
-    -DTARGET=NGIN.EditorSample
-    -DOUTPUT="${CMAKE_BINARY_DIR}/test-stage/NGIN.EditorSample"
+    -DTARGET=NGIN.DiagnosticsSample
+    -DOUTPUT="${CMAKE_BINARY_DIR}/test-stage/NGIN.DiagnosticsSample"
     -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunNGINBuildCheck.cmake"
 )
 

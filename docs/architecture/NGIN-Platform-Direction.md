@@ -208,7 +208,6 @@ I would define NGIN as a product family.
 ### Optional first-party packages
 
 - `NGIN.ECS`
-- `NGIN.Editor`
 - `NGIN.Assets`
 - `NGIN.Build`
 - `NGIN.Diagnostics`
@@ -217,7 +216,7 @@ I would define NGIN as a product family.
 
 ### Final applications
 
-- `NGIN.EditorApp`
+- `MyEngine.Editor`
 - `MyGame`
 - `MyCalculator`
 - `MyCliTool`
