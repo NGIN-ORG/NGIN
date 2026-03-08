@@ -22,7 +22,7 @@ This draft describes how `NGIN.Core` fits into the simplified platform model.
 
 ## Builder Model
 
-`ApplicationBuilder` remains the public bootstrap API.
+`ApplicationBuilder` remains the public bootstrap API
 
 Expected flow:
 
