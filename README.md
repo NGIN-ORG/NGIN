@@ -55,26 +55,43 @@ You define the application, choose a target, add packages, and let the host comp
 
 ### Project
 
-Your application.
+The overall application or product you are building.
 
 Examples:
 
-- a game
-- an editor
-- a server
-- a developer tool
+- `MyGame`
+- `StudioTools`
+- `TelemetryService`
+
+A project contains one or more targets.
 
 ### Target
 
-One concrete variant of that project.
+One concrete variant of a project.
 
 Examples:
 
 - `Game`
 - `Editor`
-- `Server`
+- `DedicatedServer`
+- `Tools`
 
-A target says which packages are included and which platform/profile/environment they are built for.
+A target says which packages are included and which platform/profile/environment that variant is built for.
+
+The simplest way to think about it is:
+
+- `Project` = the product
+- `Target` = one build/run shape of that product
+
+For example:
+
+- Project: `MyGame`
+- Targets:
+  - `Game`
+  - `Editor`
+  - `DedicatedServer`
+
+In that model, the editor and the runtime are usually different targets of the same project, not separate projects.
 
 ### Package
 
