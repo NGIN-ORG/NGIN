@@ -13,7 +13,7 @@ Each package wrapper defines:
 
 Source code does not live here by default. Source-backed packages point at either:
 
-- `NGIN.Core/` for first-class local platform code
+- `Packages/NGIN.Core/` for first-class local platform code
 - `Dependencies/NGIN/*` for first-party libraries developed externally
 - `Dependencies/ThirdParty/*` for vendored third-party source trees
 - a backend package name such as `SDL2` for imported CMake packages

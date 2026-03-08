@@ -2,6 +2,9 @@ if(NOT DEFINED CLI OR NOT DEFINED WORK_DIR)
   message(FATAL_ERROR "CLI and WORK_DIR must be defined")
 endif()
 
+string(REPLACE "\"" "" CLI "${CLI}")
+string(REPLACE "\"" "" WORK_DIR "${WORK_DIR}")
+
 file(MAKE_DIRECTORY "${WORK_DIR}")
 file(WRITE "${WORK_DIR}/legacy.project" "{\n  \"name\": \"Legacy\"\n}\n")
 

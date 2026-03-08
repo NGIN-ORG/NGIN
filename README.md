@@ -253,9 +253,6 @@ cmake --build build/dev --target ngin.workflow
 - **Dependencies/**  
   External repositories integrated into the workspace.
 
-- **NGIN.Core/**  
-  The primary host/runtime implementation and the main first-class local component.
-
 - **Tools/NGIN.CLI/**  
   The native `ngin` command line tool.
 
@@ -278,6 +275,8 @@ NGIN separates:
 - runtime hosting
 
 That lets first-party libraries remain independently useful outside the umbrella workspace while still being exposed uniformly as packages.
+
+`Packages/NGIN.Core/` is the current locally owned host/runtime package. It lives beside the other package directories so the repo surface stays package-centric, even though `NGIN.Core` remains a special platform component in role.
 
 ## Documentation
 

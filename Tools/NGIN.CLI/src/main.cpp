@@ -1825,9 +1825,9 @@ namespace
         {
             return fs::path(component.location);
         }
-        if (component.name == "NGIN.Core" || component.kind == "WorkspaceComponent")
+        if (component.kind == "WorkspaceComponent")
         {
-            return fs::path(component.name);
+            return fs::path("Packages") / component.name;
         }
         if (component.kind == "ThirdPartyDependency")
         {

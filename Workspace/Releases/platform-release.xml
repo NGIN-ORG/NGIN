@@ -24,7 +24,7 @@
                Required="true" />
     <Component Name="NGIN.Core"
                Kind="WorkspaceComponent"
-               Location="NGIN.Core"
+               Location="Packages/NGIN.Core"
                PackagePath="Packages/NGIN.Core/NGIN.Core.nginpkg"
                RepoUrl="https://github.com/NGIN-ORG/NGIN.Core.git"
                Ref="272625925130cf3cbf9e57008deb7bcdd98c802d"

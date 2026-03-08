@@ -45,7 +45,7 @@ Recommended top-level child sections:
          Name="NGIN.Core"
          Version="0.1.0"
          CompatiblePlatformRange=">=0.1.0 &lt;1.0.0">
-  <SourceBinding Kind="Source" Path="NGIN.Core" />
+  <SourceBinding Kind="Source" Path="Packages/NGIN.Core" />
   <Artifacts>
     <Libraries>
       <Library Name="NGIN.Core" Target="NGIN::Core" Linkage="Static" />

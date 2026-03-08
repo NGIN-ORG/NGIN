@@ -45,7 +45,7 @@ jobs:
           if-no-files-found: error
 
       - name: Configure NGIN.Core
-        run: cmake -S NGIN.Core -B build/ngin-core-ci -DNGIN_CORE_BUILD_TESTS=ON -DNGIN_CORE_BUILD_EXAMPLES=OFF
+        run: cmake -S Packages/NGIN.Core -B build/ngin-core-ci -DNGIN_CORE_BUILD_TESTS=ON -DNGIN_CORE_BUILD_EXAMPLES=OFF
 
       - name: Build NGIN.Core tests
         run: cmake --build build/ngin-core-ci --config Release --target NGINCoreTests

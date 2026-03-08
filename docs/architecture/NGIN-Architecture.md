@@ -42,7 +42,7 @@ The repo is structured intentionally:
 
 - `Packages/` exposes the NGIN-facing package contract
 - `Dependencies/` holds source trees that are integrated here but not owned here
-- `NGIN.Core/` remains first-class local platform code
+- `Packages/NGIN.Core/` is the current locally owned host/runtime package source
 - `Tools/NGIN.CLI/` owns the public CLI implementation
 - `Workspace/` holds umbrella-workspace release metadata and local package lookup catalogs
 - `Examples/` holds canonical sample projects used by docs and smoke tests

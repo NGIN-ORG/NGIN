@@ -11,7 +11,7 @@ set(NGIN_WORKSPACE_KNOWN_COMPONENTS
 
 function(ngin_workspace_component_dir out_var component_name)
   if(component_name STREQUAL "NGIN.Core")
-    set(_candidate "${CMAKE_SOURCE_DIR}/NGIN.Core")
+    set(_candidate "${CMAKE_SOURCE_DIR}/Packages/NGIN.Core")
   else()
     set(_candidate "${CMAKE_SOURCE_DIR}/Dependencies/NGIN/${component_name}")
   endif()

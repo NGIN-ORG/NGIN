@@ -8,7 +8,7 @@ Last updated: 2026-03-07
 
 This draft describes how `NGIN.Core` fits into the simplified platform model.
 
-`NGIN.Core` is the current host implementation. The umbrella workspace owns the project/package metadata model and the native `ngin` CLI.
+`NGIN.Core` is the current host implementation. Its local package-owned source lives under `Packages/NGIN.Core/`. The umbrella workspace owns the project/package metadata model and the native `ngin` CLI.
 
 ## Platform Model
 

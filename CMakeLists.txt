@@ -108,9 +108,9 @@ add_test(NAME ngin.graph.workspace
 add_test(NAME ngin.build.workspace
   COMMAND ${CMAKE_COMMAND}
     -DCLI=$<TARGET_FILE:ngin_cli>
-    -DPROJECT="${NGIN_WORKSPACE_PROJECT_PATH}"
+    -DPROJECT=${NGIN_WORKSPACE_PROJECT_PATH}
     -DTARGET=NGIN.DiagnosticsSample
-    -DOUTPUT="${CMAKE_BINARY_DIR}/test-stage/NGIN.DiagnosticsSample"
+    -DOUTPUT=${CMAKE_BINARY_DIR}/test-stage/NGIN.DiagnosticsSample
     -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunNGINBuildCheck.cmake"
 )
 
@@ -124,7 +124,7 @@ set_tests_properties(ngin.project.autodiscovery PROPERTIES
 add_test(NAME ngin.reject.legacy.json
   COMMAND ${CMAKE_COMMAND}
     -DCLI=$<TARGET_FILE:ngin_cli>
-    -DWORK_DIR="${CMAKE_BINARY_DIR}/legacy-test"
+    -DWORK_DIR=${CMAKE_BINARY_DIR}/legacy-test
     -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunNGINLegacyReject.cmake"
 )
 set_tests_properties(ngin.reject.legacy.json PROPERTIES

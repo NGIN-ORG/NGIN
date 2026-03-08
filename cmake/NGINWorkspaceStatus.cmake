@@ -13,7 +13,7 @@ set(_components
 
 foreach(_c IN LISTS _components)
   if(_c STREQUAL "NGIN.Core")
-    set(_dir "${NGIN_WORKSPACE_ROOT}/NGIN.Core")
+    set(_dir "${NGIN_WORKSPACE_ROOT}/Packages/NGIN.Core")
   else()
     set(_dir "${NGIN_WORKSPACE_ROOT}/Dependencies/NGIN/${_c}")
   endif()
