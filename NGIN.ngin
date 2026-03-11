@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Workspace SchemaVersion="1" Name="NGIN" PlatformVersion="0.1.0">
+  <PackageSources>
+    <PackageSource Path="Packages" />
+  </PackageSources>
+  <Projects>
+    <Project Path="Examples/App.Basic/App.Basic.nginproj" />
+  </Projects>
+</Workspace>

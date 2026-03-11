@@ -223,16 +223,6 @@ namespace NGIN::Core
             }
         }
 
-        [[nodiscard]] auto ParseTargetType(const std::string_view text) -> CoreResult<TargetType>
-        {
-            if (text == "Runtime") return TargetType::Runtime;
-            if (text == "Editor") return TargetType::Editor;
-            if (text == "Program") return TargetType::Program;
-            if (text == "Developer") return TargetType::Developer;
-            return NGIN::Utilities::Unexpected<KernelError>(
-                MakeBuilderError("unknown target type", std::string(text)));
-        }
-
         [[nodiscard]] auto ParseHostProfile(const std::string_view text) -> CoreResult<HostProfile>
         {
             if (text == "ConsoleApp") return HostProfile::ConsoleApp;
@@ -591,41 +581,232 @@ namespace NGIN::Core
             };
         }
 
-        [[nodiscard]] auto ParseSelection(
-            const XmlElement* selectionElement,
-            const std::string_view context) -> CoreResult<std::pair<std::vector<std::string>, std::vector<std::string>>>
+        [[nodiscard]] auto ParseModuleRefs(
+            const XmlElement* parentElement,
+            const std::string_view childName,
+            const std::string_view context) -> CoreResult<std::vector<std::string>>
         {
-            std::vector<std::string> enabled {};
-            std::vector<std::string> disabled {};
-            if (selectionElement == nullptr)
+            std::vector<std::string> out {};
+            if (parentElement == nullptr)
             {
-                return std::pair<std::vector<std::string>, std::vector<std::string>> {};
+                return out;
             }
 
-            for (const auto* child : ChildElements(*selectionElement, "Enable"))
+            for (const auto* moduleElement : ChildElements(*parentElement, childName))
             {
-                auto name = RequireAttribute(*child, "Name", std::string(context) + ".Enable");
+                auto name = RequireAttribute(*moduleElement, "Name", std::string(context) + "." + std::string(childName));
                 if (!name)
                 {
                     return NGIN::Utilities::Unexpected<KernelError>(name.ErrorUnsafe());
                 }
-                enabled.push_back(name.ValueUnsafe());
+                out.push_back(name.ValueUnsafe());
             }
+            return out;
+        }
 
-            for (const auto* child : ChildElements(*selectionElement, "Disable"))
+        [[nodiscard]] auto ParseProjectReference(
+            const XmlElement& element,
+            const std::string_view context) -> CoreResult<ProjectReference>
+        {
+            ProjectReference reference {};
+
+            auto path = RequireAttribute(element, "Path", context);
+            if (!path)
             {
-                auto name = RequireAttribute(*child, "Name", std::string(context) + ".Disable");
-                if (!name)
-                {
-                    return NGIN::Utilities::Unexpected<KernelError>(name.ErrorUnsafe());
-                }
-                disabled.push_back(name.ValueUnsafe());
+                return NGIN::Utilities::Unexpected<KernelError>(path.ErrorUnsafe());
+            }
+            reference.path = path.ValueUnsafe();
+
+            auto variant = OptionalAttribute(element, "Variant", context, {});
+            if (!variant)
+            {
+                return NGIN::Utilities::Unexpected<KernelError>(variant.ErrorUnsafe());
+            }
+            if (!variant.ValueUnsafe().empty())
+            {
+                reference.variant = variant.ValueUnsafe();
             }
 
-            return std::pair<std::vector<std::string>, std::vector<std::string>> {
-                std::move(enabled),
-                std::move(disabled),
-            };
+            return reference;
+        }
+
+        [[nodiscard]] auto ParsePrimaryOutput(
+            const XmlElement& element,
+            const std::string_view context) -> CoreResult<PrimaryOutput>
+        {
+            PrimaryOutput output {};
+
+            auto kind = RequireAttribute(element, "Kind", context);
+            if (!kind)
+            {
+                return NGIN::Utilities::Unexpected<KernelError>(kind.ErrorUnsafe());
+            }
+            output.kind = kind.ValueUnsafe();
+
+            auto name = RequireAttribute(element, "Name", context);
+            if (!name)
+            {
+                return NGIN::Utilities::Unexpected<KernelError>(name.ErrorUnsafe());
+            }
+            output.name = name.ValueUnsafe();
+
+            auto target = RequireAttribute(element, "Target", context);
+            if (!target)
+            {
+                return NGIN::Utilities::Unexpected<KernelError>(target.ErrorUnsafe());
+            }
+            output.target = target.ValueUnsafe();
+
+            return output;
+        }
+
+        [[nodiscard]] auto ParseRuntimeDefinition(
+            const XmlElement* runtimeElement,
+            const std::string_view context) -> CoreResult<RuntimeDefinition>
+        {
+            RuntimeDefinition runtime {};
+            if (runtimeElement == nullptr)
+            {
+                return runtime;
+            }
+
+            if (const auto* modulesElement = FindChild(*runtimeElement, "Modules"))
+            {
+                std::size_t index = 0;
+                for (const auto* moduleElement : ChildElements(*modulesElement, "Module"))
+                {
+                    auto descriptor = ParsePackageModuleDescriptor(
+                        *moduleElement,
+                        std::string(context) + ".Modules[" + std::to_string(index++) + "]");
+                    if (!descriptor)
+                    {
+                        return NGIN::Utilities::Unexpected<KernelError>(descriptor.ErrorUnsafe());
+                    }
+                    runtime.modules.push_back(descriptor.ValueUnsafe());
+                }
+            }
+
+            auto enabled = ParseModuleRefs(FindChild(*runtimeElement, "EnableModules"), "ModuleRef", std::string(context) + ".EnableModules");
+            if (!enabled)
+            {
+                return NGIN::Utilities::Unexpected<KernelError>(enabled.ErrorUnsafe());
+            }
+            runtime.enableModules = std::move(enabled.ValueUnsafe());
+
+            auto disabled = ParseModuleRefs(FindChild(*runtimeElement, "DisableModules"), "ModuleRef", std::string(context) + ".DisableModules");
+            if (!disabled)
+            {
+                return NGIN::Utilities::Unexpected<KernelError>(disabled.ErrorUnsafe());
+            }
+            runtime.disableModules = std::move(disabled.ValueUnsafe());
+
+            return runtime;
+        }
+
+        [[nodiscard]] auto ParseVariantDefinition(
+            const XmlElement& element,
+            const std::string_view context) -> CoreResult<VariantDefinition>
+        {
+            VariantDefinition variant {};
+
+            auto name = RequireAttribute(element, "Name", context);
+            if (!name)
+            {
+                return NGIN::Utilities::Unexpected<KernelError>(name.ErrorUnsafe());
+            }
+            variant.name = name.ValueUnsafe();
+
+            auto profileText = RequireAttribute(element, "Profile", context);
+            if (!profileText)
+            {
+                return NGIN::Utilities::Unexpected<KernelError>(profileText.ErrorUnsafe());
+            }
+            auto profile = ParseHostProfile(profileText.ValueUnsafe());
+            if (!profile)
+            {
+                return NGIN::Utilities::Unexpected<KernelError>(profile.ErrorUnsafe());
+            }
+            variant.profile = profile.ValueUnsafe();
+
+            auto platform = RequireAttribute(element, "Platform", context);
+            if (!platform)
+            {
+                return NGIN::Utilities::Unexpected<KernelError>(platform.ErrorUnsafe());
+            }
+            variant.platform = platform.ValueUnsafe();
+
+            auto reflection = OptionalBoolAttribute(element, "EnableReflection", std::string(context) + ".EnableReflection", false);
+            if (!reflection)
+            {
+                return NGIN::Utilities::Unexpected<KernelError>(reflection.ErrorUnsafe());
+            }
+            variant.enableReflection = reflection.ValueUnsafe();
+
+            auto environment = OptionalAttribute(element, "Environment", context, {});
+            if (!environment)
+            {
+                return NGIN::Utilities::Unexpected<KernelError>(environment.ErrorUnsafe());
+            }
+            variant.environmentName = environment.ValueUnsafe();
+
+            auto workingDirectory = OptionalAttribute(element, "WorkingDirectory", context, ".");
+            if (!workingDirectory)
+            {
+                return NGIN::Utilities::Unexpected<KernelError>(workingDirectory.ErrorUnsafe());
+            }
+            variant.workingDirectory = workingDirectory.ValueUnsafe();
+
+            if (const auto* launchElement = FindChild(element, "Launch"))
+            {
+                auto executable = RequireAttribute(*launchElement, "Executable", std::string(context) + ".Launch");
+                if (!executable)
+                {
+                    return NGIN::Utilities::Unexpected<KernelError>(executable.ErrorUnsafe());
+                }
+                variant.launchExecutable = executable.ValueUnsafe();
+            }
+
+            if (const auto* packagesElement = FindChild(element, "PackageRefs"))
+            {
+                for (const auto* packageElement : ChildElements(*packagesElement, "PackageRef"))
+                {
+                    auto package = ParsePackageReference(*packageElement, std::string(context) + ".PackageRefs");
+                    if (!package)
+                    {
+                        return NGIN::Utilities::Unexpected<KernelError>(package.ErrorUnsafe());
+                    }
+                    variant.packageRefs.push_back(package.ValueUnsafe());
+                }
+            }
+
+            if (const auto* configSources = FindChild(element, "ConfigSources"))
+            {
+                for (const auto* configElement : ChildElements(*configSources, "Config"))
+                {
+                    auto source = RequireAttribute(*configElement, "Source", std::string(context) + ".ConfigSources");
+                    if (!source)
+                    {
+                        return NGIN::Utilities::Unexpected<KernelError>(source.ErrorUnsafe());
+                    }
+                    variant.configSources.push_back(source.ValueUnsafe());
+                }
+            }
+
+            auto enabled = ParseModuleRefs(FindChild(element, "EnableModules"), "ModuleRef", std::string(context) + ".EnableModules");
+            if (!enabled)
+            {
+                return NGIN::Utilities::Unexpected<KernelError>(enabled.ErrorUnsafe());
+            }
+            variant.enableModules = std::move(enabled.ValueUnsafe());
+
+            auto disabled = ParseModuleRefs(FindChild(element, "DisableModules"), "ModuleRef", std::string(context) + ".DisableModules");
+            if (!disabled)
+            {
+                return NGIN::Utilities::Unexpected<KernelError>(disabled.ErrorUnsafe());
+            }
+            variant.disableModules = std::move(disabled.ValueUnsafe());
+
+            return variant;
         }
 
         [[nodiscard]] auto ParseProjectManifestText(const std::string& text) -> CoreResult<ProjectManifest>
@@ -664,138 +845,233 @@ namespace NGIN::Core
             }
             manifest.name = name.ValueUnsafe();
 
-            auto defaultTarget = RequireAttribute(*root, "DefaultTarget", "project");
-            if (!defaultTarget)
+            auto type = OptionalAttribute(*root, "Type", "project", "Application");
+            if (!type)
             {
-                return NGIN::Utilities::Unexpected<KernelError>(defaultTarget.ErrorUnsafe());
+                return NGIN::Utilities::Unexpected<KernelError>(type.ErrorUnsafe());
             }
-            manifest.defaultTarget = defaultTarget.ValueUnsafe();
+            manifest.type = type.ValueUnsafe();
 
-            const auto* targetsElement = FindChild(*root, "Targets");
-            if (targetsElement == nullptr)
+            auto defaultVariant = RequireAttribute(*root, "DefaultVariant", "project");
+            if (!defaultVariant)
+            {
+                return NGIN::Utilities::Unexpected<KernelError>(defaultVariant.ErrorUnsafe());
+            }
+            manifest.defaultVariant = defaultVariant.ValueUnsafe();
+
+            if (const auto* sourceRootsElement = FindChild(*root, "SourceRoots"))
+            {
+                for (const auto* sourceRootElement : ChildElements(*sourceRootsElement, "SourceRoot"))
+                {
+                    auto path = RequireAttribute(*sourceRootElement, "Path", "project.SourceRoots");
+                    if (!path)
+                    {
+                        return NGIN::Utilities::Unexpected<KernelError>(path.ErrorUnsafe());
+                    }
+                    manifest.sourceRoots.push_back(path.ValueUnsafe());
+                }
+            }
+
+            const auto* primaryOutputElement = FindChild(*root, "PrimaryOutput");
+            if (primaryOutputElement == nullptr)
             {
                 return NGIN::Utilities::Unexpected<KernelError>(
-                    MakeBuilderError("project must contain a <Targets> element"));
+                    MakeBuilderError("project must contain a <PrimaryOutput> element"));
+            }
+            auto primaryOutput = ParsePrimaryOutput(*primaryOutputElement, "project.PrimaryOutput");
+            if (!primaryOutput)
+            {
+                return NGIN::Utilities::Unexpected<KernelError>(primaryOutput.ErrorUnsafe());
+            }
+            manifest.primaryOutput = primaryOutput.ValueUnsafe();
+
+            if (const auto* projectRefsElement = FindChild(*root, "ProjectRefs"))
+            {
+                std::size_t index = 0;
+                for (const auto* projectRefElement : ChildElements(*projectRefsElement, "ProjectRef"))
+                {
+                    auto reference = ParseProjectReference(*projectRefElement, "project.ProjectRefs[" + std::to_string(index++) + "]");
+                    if (!reference)
+                    {
+                        return NGIN::Utilities::Unexpected<KernelError>(reference.ErrorUnsafe());
+                    }
+                    manifest.projectRefs.push_back(reference.ValueUnsafe());
+                }
             }
 
-            std::set<std::string> targetNames {};
-            std::size_t index = 0;
-            for (const auto* targetElement : ChildElements(*targetsElement, "Target"))
+            if (const auto* packageRefsElement = FindChild(*root, "PackageRefs"))
             {
-                const std::string context = "project.targets[" + std::to_string(index++) + "]";
-                TargetDefinition target {};
-
-                auto targetName = RequireAttribute(*targetElement, "Name", context);
-                if (!targetName)
+                for (const auto* packageElement : ChildElements(*packageRefsElement, "PackageRef"))
                 {
-                    return NGIN::Utilities::Unexpected<KernelError>(targetName.ErrorUnsafe());
+                    auto package = ParsePackageReference(*packageElement, "project.PackageRefs");
+                    if (!package)
+                    {
+                        return NGIN::Utilities::Unexpected<KernelError>(package.ErrorUnsafe());
+                    }
+                    manifest.packageRefs.push_back(package.ValueUnsafe());
                 }
-                target.name = targetName.ValueUnsafe();
+            }
 
-                if (!targetNames.insert(target.name).second)
+            if (const auto* configSources = FindChild(*root, "ConfigSources"))
+            {
+                for (const auto* configElement : ChildElements(*configSources, "Config"))
+                {
+                    auto source = RequireAttribute(*configElement, "Source", "project.ConfigSources");
+                    if (!source)
+                    {
+                        return NGIN::Utilities::Unexpected<KernelError>(source.ErrorUnsafe());
+                    }
+                    manifest.configSources.push_back(source.ValueUnsafe());
+                }
+            }
+
+            auto runtime = ParseRuntimeDefinition(FindChild(*root, "Runtime"), "project.Runtime");
+            if (!runtime)
+            {
+                return NGIN::Utilities::Unexpected<KernelError>(runtime.ErrorUnsafe());
+            }
+            manifest.runtime = std::move(runtime.ValueUnsafe());
+
+            const auto* variantsElement = FindChild(*root, "Variants");
+            if (variantsElement == nullptr)
+            {
+                return NGIN::Utilities::Unexpected<KernelError>(
+                    MakeBuilderError("project must contain a <Variants> element"));
+            }
+
+            std::set<std::string> variantNames {};
+            std::size_t index = 0;
+            for (const auto* variantElement : ChildElements(*variantsElement, "Variant"))
+            {
+                auto variant = ParseVariantDefinition(*variantElement, "project.Variants[" + std::to_string(index++) + "]");
+                if (!variant)
+                {
+                    return NGIN::Utilities::Unexpected<KernelError>(variant.ErrorUnsafe());
+                }
+                if (!variantNames.insert(variant.ValueUnsafe().name).second)
                 {
                     return NGIN::Utilities::Unexpected<KernelError>(
-                        MakeBuilderError("duplicate target name", target.name, KernelErrorCode::AlreadyExists));
+                        MakeBuilderError("duplicate variant name", variant.ValueUnsafe().name, KernelErrorCode::AlreadyExists));
                 }
-
-                auto typeText = RequireAttribute(*targetElement, "Type", context);
-                if (!typeText)
-                {
-                    return NGIN::Utilities::Unexpected<KernelError>(typeText.ErrorUnsafe());
-                }
-                auto type = ParseTargetType(typeText.ValueUnsafe());
-                if (!type)
-                {
-                    return NGIN::Utilities::Unexpected<KernelError>(type.ErrorUnsafe());
-                }
-                target.type = type.ValueUnsafe();
-
-                auto profileText = RequireAttribute(*targetElement, "Profile", context);
-                if (!profileText)
-                {
-                    return NGIN::Utilities::Unexpected<KernelError>(profileText.ErrorUnsafe());
-                }
-                auto profile = ParseHostProfile(profileText.ValueUnsafe());
-                if (!profile)
-                {
-                    return NGIN::Utilities::Unexpected<KernelError>(profile.ErrorUnsafe());
-                }
-                target.profile = profile.ValueUnsafe();
-
-                auto platform = RequireAttribute(*targetElement, "Platform", context);
-                if (!platform)
-                {
-                    return NGIN::Utilities::Unexpected<KernelError>(platform.ErrorUnsafe());
-                }
-                target.platform = platform.ValueUnsafe();
-
-                auto reflection = OptionalBoolAttribute(*targetElement, "EnableReflection", std::string(context) + ".EnableReflection", false);
-                if (!reflection)
-                {
-                    return NGIN::Utilities::Unexpected<KernelError>(reflection.ErrorUnsafe());
-                }
-                target.enableReflection = reflection.ValueUnsafe();
-
-                if (const auto* packagesElement = FindChild(*targetElement, "Packages"))
-                {
-                    for (const auto* packageElement : ChildElements(*packagesElement, "PackageRef"))
-                    {
-                        auto package = ParsePackageReference(*packageElement, context + ".Packages");
-                        if (!package)
-                        {
-                            return NGIN::Utilities::Unexpected<KernelError>(package.ErrorUnsafe());
-                        }
-                        target.packages.push_back(package.ValueUnsafe());
-                    }
-                }
-
-                auto moduleSelection = ParseSelection(FindChild(*targetElement, "Modules"), context + ".Modules");
-                if (!moduleSelection)
-                {
-                    return NGIN::Utilities::Unexpected<KernelError>(moduleSelection.ErrorUnsafe());
-                }
-                target.modules.enable = std::move(moduleSelection.ValueUnsafe().first);
-                target.modules.disable = std::move(moduleSelection.ValueUnsafe().second);
-
-                auto pluginSelection = ParseSelection(FindChild(*targetElement, "Plugins"), context + ".Plugins");
-                if (!pluginSelection)
-                {
-                    return NGIN::Utilities::Unexpected<KernelError>(pluginSelection.ErrorUnsafe());
-                }
-                target.plugins.enable = std::move(pluginSelection.ValueUnsafe().first);
-                target.plugins.disable = std::move(pluginSelection.ValueUnsafe().second);
-
-                auto environmentName = OptionalAttribute(*targetElement, "Environment", context, {});
-                if (!environmentName)
-                {
-                    return NGIN::Utilities::Unexpected<KernelError>(environmentName.ErrorUnsafe());
-                }
-                target.environmentName = environmentName.ValueUnsafe();
-
-                auto workingDirectory = OptionalAttribute(*targetElement, "WorkingDirectory", context, {});
-                if (!workingDirectory)
-                {
-                    return NGIN::Utilities::Unexpected<KernelError>(workingDirectory.ErrorUnsafe());
-                }
-                target.workingDirectory = workingDirectory.ValueUnsafe();
-
-                if (const auto* configSources = FindChild(*targetElement, "ConfigSources"))
-                {
-                    for (const auto* configElement : ChildElements(*configSources, "Config"))
-                    {
-                        auto source = RequireAttribute(*configElement, "Source", context + ".ConfigSources");
-                        if (!source)
-                        {
-                            return NGIN::Utilities::Unexpected<KernelError>(source.ErrorUnsafe());
-                        }
-                        target.configSources.push_back(source.ValueUnsafe());
-                    }
-                }
-
-                manifest.targets.push_back(std::move(target));
+                manifest.variants.push_back(variant.ValueUnsafe());
             }
 
             return manifest;
+        }
+
+        struct ResolvedProjectUnit
+        {
+            ProjectManifest       manifest {};
+            VariantDefinition     variant {};
+            std::filesystem::path directory {};
+        };
+
+        [[nodiscard]] auto FindVariant(
+            const ProjectManifest& manifest,
+            const std::optional<std::string>& overrideVariant = std::nullopt) -> CoreResult<VariantDefinition>
+        {
+            const std::string selectedVariant = overrideVariant.has_value() && !overrideVariant->empty()
+                ? *overrideVariant
+                : manifest.defaultVariant;
+            if (selectedVariant.empty())
+            {
+                return NGIN::Utilities::Unexpected<KernelError>(
+                    MakeBuilderError("project has no selected variant", manifest.name, KernelErrorCode::InvalidArgument));
+            }
+
+            const auto it = std::find_if(
+                manifest.variants.begin(),
+                manifest.variants.end(),
+                [&](const VariantDefinition& candidate) {
+                    return candidate.name == selectedVariant;
+                });
+            if (it == manifest.variants.end())
+            {
+                return NGIN::Utilities::Unexpected<KernelError>(
+                    MakeBuilderError("selected variant was not found", selectedVariant, KernelErrorCode::NotFound));
+            }
+            return *it;
+        }
+
+        [[nodiscard]] auto LoadProjectManifestFile(
+            const std::filesystem::path& filePath) -> CoreResult<std::pair<ProjectManifest, std::filesystem::path>>
+        {
+            auto fileText = ReadTextFile(filePath, "project");
+            if (!fileText)
+            {
+                return NGIN::Utilities::Unexpected<KernelError>(fileText.ErrorUnsafe());
+            }
+
+            auto manifest = ParseProjectManifestText(fileText.ValueUnsafe());
+            if (!manifest)
+            {
+                return NGIN::Utilities::Unexpected<KernelError>(manifest.ErrorUnsafe());
+            }
+
+            return std::pair<ProjectManifest, std::filesystem::path> {
+                manifest.ValueUnsafe(),
+                std::filesystem::absolute(filePath).parent_path(),
+            };
+        }
+
+        auto CollectProjectClosure(
+            const std::filesystem::path& filePath,
+            const std::optional<std::string>& selectedVariant,
+            std::vector<ResolvedProjectUnit>& out,
+            std::set<std::filesystem::path>& visiting,
+            std::set<std::filesystem::path>& visited) -> CoreResult<void>
+        {
+            const auto canonicalPath = std::filesystem::weakly_canonical(filePath);
+            if (visited.contains(canonicalPath))
+            {
+                return {};
+            }
+            if (visiting.contains(canonicalPath))
+            {
+                return NGIN::Utilities::Unexpected<KernelError>(
+                    MakeBuilderError("project reference cycle detected", canonicalPath.string(), KernelErrorCode::DependencyCycle));
+            }
+            visiting.insert(canonicalPath);
+
+            auto loaded = LoadProjectManifestFile(canonicalPath);
+            if (!loaded)
+            {
+                return NGIN::Utilities::Unexpected<KernelError>(loaded.ErrorUnsafe());
+            }
+
+            auto manifest = std::move(loaded.ValueUnsafe().first);
+            auto directory = std::move(loaded.ValueUnsafe().second);
+
+            for (const auto& reference : manifest.projectRefs)
+            {
+                auto referencedPath = std::filesystem::path(reference.path);
+                if (referencedPath.is_relative())
+                {
+                    referencedPath = directory / referencedPath;
+                }
+
+                auto result = CollectProjectClosure(referencedPath, reference.variant, out, visiting, visited);
+                if (!result)
+                {
+                    return result;
+                }
+            }
+
+            auto variant = FindVariant(manifest, selectedVariant);
+            if (!variant)
+            {
+                return NGIN::Utilities::Unexpected<KernelError>(variant.ErrorUnsafe());
+            }
+
+            out.push_back(ResolvedProjectUnit {
+                .manifest = std::move(manifest),
+                .variant = variant.ValueUnsafe(),
+                .directory = std::move(directory),
+            });
+
+            visiting.erase(canonicalPath);
+            visited.insert(canonicalPath);
+            return {};
         }
 
         [[nodiscard]] auto ParsePackageManifestText(const std::string& text) -> CoreResult<PackageManifest>
@@ -1221,7 +1497,7 @@ namespace NGIN::Core
                 return m_profile;
             }
 
-            [[nodiscard]] auto GetTargetName() const -> std::string override
+            [[nodiscard]] auto GetVariantName() const -> std::string override
             {
                 return m_metadataReport.targetName;
             }
@@ -1390,7 +1666,7 @@ namespace NGIN::Core
         public:
             PackageBootstrapContextImpl(
                 std::string_view packageName,
-                std::string_view targetName,
+                std::string_view variantName,
                 const HostProfile profile,
                 ServiceCollection& services,
                 PackageCollection& packages,
@@ -1398,7 +1674,7 @@ namespace NGIN::Core
                 PluginCollection& plugins,
                 ConfigurationBuilder& configuration)
                 : m_packageName(packageName)
-                , m_targetName(targetName)
+                , m_variantName(variantName)
                 , m_profile(profile)
                 , m_services(services)
                 , m_packages(packages)
@@ -1409,7 +1685,7 @@ namespace NGIN::Core
             }
 
             [[nodiscard]] auto PackageName() const noexcept -> std::string_view override { return m_packageName; }
-            [[nodiscard]] auto TargetName() const noexcept -> std::string_view override { return m_targetName; }
+            [[nodiscard]] auto VariantName() const noexcept -> std::string_view override { return m_variantName; }
             [[nodiscard]] auto Profile() const noexcept -> HostProfile override { return m_profile; }
 
             [[nodiscard]] auto Services() noexcept -> ServiceCollection& override { return m_services; }
@@ -1420,7 +1696,7 @@ namespace NGIN::Core
 
         private:
             std::string_view      m_packageName;
-            std::string_view      m_targetName;
+            std::string_view      m_variantName;
             HostProfile           m_profile {HostProfile::ConsoleApp};
             ServiceCollection&    m_services;
             PackageCollection&    m_packages;
@@ -1472,6 +1748,7 @@ namespace NGIN::Core
                 }
 
                 m_project = manifest.ValueUnsafe();
+                m_projectPath = std::filesystem::absolute(filePath);
                 m_projectDirectory = std::filesystem::absolute(filePath).parent_path();
                 return *this;
             }
@@ -1482,6 +1759,7 @@ namespace NGIN::Core
                 if (!HasStickyError())
                 {
                     m_project = std::move(manifest);
+                    m_projectPath.clear();
                     m_projectDirectory.clear();
                 }
                 return *this;
@@ -1507,12 +1785,12 @@ namespace NGIN::Core
                 return *this;
             }
 
-            auto SetDefaultTarget(std::string targetName) -> ApplicationBuilder& override
+            auto SetDefaultVariant(std::string variantName) -> ApplicationBuilder& override
             {
                 MarkMutating();
                 if (!HasStickyError())
                 {
-                    m_targetOverride = std::move(targetName);
+                    m_variantOverride = std::move(variantName);
                 }
                 return *this;
             }
@@ -1535,49 +1813,61 @@ namespace NGIN::Core
                     return NGIN::Utilities::Unexpected<KernelError>(*m_stickyError);
                 }
 
-                const TargetDefinition* target = nullptr;
+                std::vector<ResolvedProjectUnit> projectUnits {};
+                const ResolvedProjectUnit*       rootProjectUnit = nullptr;
                 if (m_project.has_value())
                 {
-                    const auto& project = *m_project;
-                    const std::string selectedTarget = !m_targetOverride.empty() ? m_targetOverride : project.defaultTarget;
-                    if (!selectedTarget.empty())
+                    if (!m_projectPath.empty())
                     {
-                        const auto it = std::find_if(
-                            project.targets.begin(),
-                            project.targets.end(),
-                            [&](const TargetDefinition& candidate) {
-                                return candidate.name == selectedTarget;
-                            });
-                        if (it == project.targets.end())
+                        std::set<std::filesystem::path> visiting {};
+                        std::set<std::filesystem::path> visited {};
+                        auto closure = CollectProjectClosure(m_projectPath, m_variantOverride, projectUnits, visiting, visited);
+                        if (!closure)
                         {
-                            return NGIN::Utilities::Unexpected<KernelError>(
-                                MakeBuilderError("selected target was not found", selectedTarget, KernelErrorCode::NotFound));
+                            return NGIN::Utilities::Unexpected<KernelError>(closure.ErrorUnsafe());
                         }
-                        target = &(*it);
+                    }
+                    else
+                    {
+                        auto selectedVariant = FindVariant(*m_project, m_variantOverride);
+                        if (!selectedVariant)
+                        {
+                            return NGIN::Utilities::Unexpected<KernelError>(selectedVariant.ErrorUnsafe());
+                        }
+
+                        projectUnits.push_back(ResolvedProjectUnit {
+                            .manifest = *m_project,
+                            .variant = selectedVariant.ValueUnsafe(),
+                            .directory = m_projectDirectory,
+                        });
+                    }
+
+                    if (!projectUnits.empty())
+                    {
+                        rootProjectUnit = &projectUnits.back();
                     }
                 }
 
-                const HostProfile profile = m_profileOverride.value_or(target != nullptr ? target->profile : HostProfile::ConsoleApp);
+                const VariantDefinition* selectedVariant = rootProjectUnit != nullptr ? &rootProjectUnit->variant : nullptr;
+
+                const HostProfile profile = m_profileOverride.value_or(
+                    selectedVariant != nullptr ? selectedVariant->profile : HostProfile::ConsoleApp);
                 const HostType hostType = ToHostType(profile);
 
-                std::string targetName = !m_targetOverride.empty() ? m_targetOverride : std::string {};
-                if (targetName.empty() && target != nullptr)
+                std::string variantName = !m_variantOverride.empty() ? m_variantOverride : std::string {};
+                if (variantName.empty() && selectedVariant != nullptr)
                 {
-                    targetName = target->name;
+                    variantName = selectedVariant->name;
                 }
-                if (targetName.empty())
+                if (variantName.empty())
                 {
-                    targetName = !m_applicationName.empty() ? m_applicationName : "NGIN.Target";
+                    variantName = !m_applicationName.empty() ? m_applicationName : "NGIN.Variant";
                 }
 
                 std::string applicationName = m_applicationName;
-                if (applicationName.empty() && target != nullptr)
+                if (applicationName.empty() && rootProjectUnit != nullptr)
                 {
-                    applicationName = target->name;
-                }
-                if (applicationName.empty() && m_project.has_value())
-                {
-                    applicationName = m_project->name;
+                    applicationName = rootProjectUnit->manifest.name;
                 }
                 if (applicationName.empty())
                 {
@@ -1585,9 +1875,10 @@ namespace NGIN::Core
                 }
 
                 std::vector<PackageReference> bootstrapPackages {};
-                if (target != nullptr)
+                for (const auto& unit : projectUnits)
                 {
-                    bootstrapPackages = target->packages;
+                    MergePackageReferences(bootstrapPackages, unit.manifest.packageRefs);
+                    MergePackageReferences(bootstrapPackages, unit.variant.packageRefs);
                 }
                 MergePackageReferences(bootstrapPackages, m_packageReferences);
 
@@ -1834,7 +2125,7 @@ namespace NGIN::Core
 
                     PackageBootstrapContextImpl context(
                         candidate.reference.name,
-                        targetName,
+                        variantName,
                         profile,
                         m_services,
                         m_packages,
@@ -1859,23 +2150,26 @@ namespace NGIN::Core
                 }
 
                 std::vector<PackageReference> packages {};
-                if (target != nullptr)
+                for (const auto& unit : projectUnits)
                 {
-                    packages = target->packages;
+                    MergePackageReferences(packages, unit.manifest.packageRefs);
+                    MergePackageReferences(packages, unit.variant.packageRefs);
                 }
                 MergePackageReferences(packages, m_packageReferences);
 
                 std::vector<std::string> enabledModules {};
-                if (target != nullptr)
+                for (const auto& unit : projectUnits)
                 {
-                    enabledModules = target->modules.enable;
+                    AppendUniqueStrings(enabledModules, unit.manifest.runtime.enableModules);
+                    AppendUniqueStrings(enabledModules, unit.variant.enableModules);
                 }
                 AppendUniqueStrings(enabledModules, m_enabledModules);
 
                 std::vector<std::string> disabledModules {};
-                if (target != nullptr)
+                for (const auto& unit : projectUnits)
                 {
-                    disabledModules = target->modules.disable;
+                    AppendUniqueStrings(disabledModules, unit.manifest.runtime.disableModules);
+                    AppendUniqueStrings(disabledModules, unit.variant.disableModules);
                 }
                 AppendUniqueStrings(disabledModules, m_disabledModules);
                 const std::set<std::string> disabledModuleSet(disabledModules.begin(), disabledModules.end());
@@ -1888,17 +2182,9 @@ namespace NGIN::Core
                     enabledModules.end());
 
                 std::vector<std::string> enabledPlugins {};
-                if (target != nullptr)
-                {
-                    enabledPlugins = target->plugins.enable;
-                }
                 AppendUniqueStrings(enabledPlugins, m_enabledPlugins);
 
                 std::vector<std::string> disabledPlugins {};
-                if (target != nullptr)
-                {
-                    disabledPlugins = target->plugins.disable;
-                }
                 AppendUniqueStrings(disabledPlugins, m_disabledPlugins);
                 const std::set<std::string> disabledPluginSet(disabledPlugins.begin(), disabledPlugins.end());
 
@@ -1910,29 +2196,34 @@ namespace NGIN::Core
                     enabledPlugins.end());
 
                 std::vector<std::string> configSources {};
-                if (target != nullptr)
+                for (const auto& unit : projectUnits)
                 {
-                    configSources = target->configSources;
+                    for (const auto& source : unit.manifest.configSources)
+                    {
+                        const auto resolved = ResolveWorkingDirectory(source, unit.directory);
+                        AppendUnique(configSources, resolved);
+                    }
+                    for (const auto& source : unit.variant.configSources)
+                    {
+                        const auto resolved = ResolveWorkingDirectory(source, unit.directory);
+                        AppendUnique(configSources, resolved);
+                    }
                 }
                 AppendUniqueStrings(configSources, m_configSources);
 
                 std::vector<std::string> pluginSearchPaths {};
-                if (target != nullptr)
-                {
-                    pluginSearchPaths = target->plugins.searchPaths;
-                }
                 AppendUniqueStrings(pluginSearchPaths, m_pluginSearchPaths);
 
                 std::string environmentName = m_environmentName;
-                if (environmentName.empty() && target != nullptr)
+                if (environmentName.empty() && selectedVariant != nullptr)
                 {
-                    environmentName = target->environmentName;
+                    environmentName = selectedVariant->environmentName;
                 }
 
                 std::string workingDirectory = m_workingDirectory;
-                if (workingDirectory.empty() && target != nullptr)
+                if (workingDirectory.empty() && selectedVariant != nullptr)
                 {
-                    workingDirectory = target->workingDirectory;
+                    workingDirectory = selectedVariant->workingDirectory;
                 }
                 if (workingDirectory.empty() && !m_projectDirectory.empty())
                 {
@@ -1948,7 +2239,7 @@ namespace NGIN::Core
 
                 StartupReport metadataReport {};
                 metadataReport.hostName = applicationName;
-                metadataReport.targetName = targetName;
+                metadataReport.targetName = variantName;
                 metadataReport.hostType = std::string(ToString(hostType));
                 metadataReport.warnings = bootstrapWarnings;
                 for (const auto& reference : packages)
@@ -1960,14 +2251,14 @@ namespace NGIN::Core
                 KernelHostConfig hostConfig {};
                 hostConfig.hostName = applicationName;
                 hostConfig.hostType = hostType;
-                hostConfig.platformName = target != nullptr ? target->platform : "linux-x64";
+                hostConfig.platformName = selectedVariant != nullptr ? selectedVariant->platform : "linux-x64";
                 hostConfig.platformVersion = SemanticVersion {0, 1, 0, {}};
-                hostConfig.targetName = targetName;
+                hostConfig.targetName = variantName;
                 hostConfig.workingDirectory = workingDirectory;
                 hostConfig.configSources = configSources;
                 hostConfig.pluginSearchPaths = pluginSearchPaths;
                 hostConfig.enableDynamicPlugins = false;
-                hostConfig.enableReflection = target != nullptr ? target->enableReflection : false;
+                hostConfig.enableReflection = selectedVariant != nullptr ? selectedVariant->enableReflection : false;
                 hostConfig.commandLineArgs = m_commandLineArgs;
                 hostConfig.environmentName = environmentName;
                 hostConfig.requestedModules = enabledModules;
@@ -1979,7 +2270,7 @@ namespace NGIN::Core
                 const bool addConfiguration = m_addConfiguration;
 
                 hostConfig.configureServices =
-                    [pendingServices, addDefaults, addLogging, addConfiguration, targetName](KernelBootstrapContext& context)
+                    [pendingServices, addDefaults, addLogging, addConfiguration, variantName](KernelBootstrapContext& context)
                     -> CoreResult<void>
                 {
                     ServiceScopeId hostScope = ServiceScopeId::Global();
@@ -1992,7 +2283,7 @@ namespace NGIN::Core
 
                     if (requiresHostScope)
                     {
-                        auto scope = context.services->BeginScope(ServiceScopeKind::Host, targetName);
+                        auto scope = context.services->BeginScope(ServiceScopeKind::Host, variantName);
                         if (!scope)
                         {
                             return NGIN::Utilities::Unexpected<KernelError>(scope.ErrorUnsafe());
@@ -2127,11 +2418,12 @@ namespace NGIN::Core
             std::vector<std::string>                     m_configSources {};
             std::vector<std::string>                     m_commandLineArgs {};
             std::optional<ProjectManifest>               m_project {};
+            std::filesystem::path                        m_projectPath {};
             std::filesystem::path                        m_projectDirectory {};
             std::optional<KernelError>                   m_stickyError {};
             std::optional<HostProfile>                   m_profileOverride {};
             std::string                                  m_applicationName {};
-            std::string                                  m_targetOverride {};
+            std::string                                  m_variantOverride {};
             std::string                                  m_environmentName {};
             std::string                                  m_workingDirectory {};
             bool                                         m_addDefaultServices {false};

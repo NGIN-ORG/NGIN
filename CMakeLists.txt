@@ -24,19 +24,20 @@ add_custom_target(ngin.workspace
 
 add_subdirectory(Tools)
 
-set(NGIN_WORKSPACE_PROJECT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/Examples/Workspace/NGIN.Workspace.nginproj")
+set(NGIN_WORKSPACE_MANIFEST_PATH "${CMAKE_CURRENT_SOURCE_DIR}/NGIN.ngin")
 set(NGIN_WORKSPACE_STAGE_DIR "${CMAKE_BINARY_DIR}/stage")
-set(NGIN_WORKSPACE_BUILD_OUTPUT "${NGIN_WORKSPACE_STAGE_DIR}/NGIN.CoreSample")
+set(NGIN_APP_BASIC_PROJECT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/Examples/App.Basic/App.Basic.nginproj")
+set(NGIN_APP_BASIC_BUILD_OUTPUT "${NGIN_WORKSPACE_STAGE_DIR}/App.Basic/Runtime")
 
 add_custom_target(ngin.manifest.show
-  COMMAND ${CMAKE_COMMAND} -E cat "${CMAKE_CURRENT_SOURCE_DIR}/Workspace/Releases/platform-release.xml"
-  COMMENT "Print the active NGIN workspace release manifest"
+  COMMAND ${CMAKE_COMMAND} -E cat "${NGIN_WORKSPACE_MANIFEST_PATH}"
+  COMMENT "Print the active NGIN workspace manifest"
   VERBATIM
 )
 
 add_custom_target(ngin.project.show
-  COMMAND ${CMAKE_COMMAND} -E cat "${NGIN_WORKSPACE_PROJECT_PATH}"
-  COMMENT "Print the canonical workspace project manifest"
+  COMMAND ${CMAKE_COMMAND} -E cat "${NGIN_APP_BASIC_PROJECT_PATH}"
+  COMMENT "Print the canonical App.Basic project manifest"
   VERBATIM
 )
 
@@ -44,10 +45,10 @@ add_custom_target(ngin.validate
   COMMAND $<TARGET_FILE:ngin_cli>
     project
     validate
-    --project "${NGIN_WORKSPACE_PROJECT_PATH}"
-    --target NGIN.CoreSample
+    --project "${NGIN_APP_BASIC_PROJECT_PATH}"
+    --variant Runtime
   DEPENDS ngin_cli
-  COMMENT "Validate the core sample target from the canonical workspace project"
+  COMMENT "Validate the App.Basic runtime variant"
   VERBATIM
 )
 
@@ -55,10 +56,10 @@ add_custom_target(ngin.graph.core
   COMMAND $<TARGET_FILE:ngin_cli>
     project
     graph
-    --project "${NGIN_WORKSPACE_PROJECT_PATH}"
-    --target NGIN.CoreSample
+    --project "${NGIN_APP_BASIC_PROJECT_PATH}"
+    --variant Runtime
   DEPENDS ngin_cli
-  COMMENT "Print the resolved package and module graph for the core sample target"
+  COMMENT "Print the resolved package and module graph for App.Basic"
   VERBATIM
 )
 
@@ -67,11 +68,11 @@ add_custom_target(ngin.build.core
   COMMAND $<TARGET_FILE:ngin_cli>
     project
     build
-    --project "${NGIN_WORKSPACE_PROJECT_PATH}"
-    --target NGIN.CoreSample
-    --output "${NGIN_WORKSPACE_BUILD_OUTPUT}"
+    --project "${NGIN_APP_BASIC_PROJECT_PATH}"
+    --variant Runtime
+    --output "${NGIN_APP_BASIC_BUILD_OUTPUT}"
   DEPENDS ngin_cli
-  COMMENT "Build the staged layout for the core sample target"
+  COMMENT "Build the staged layout for App.Basic"
   VERBATIM
 )
 
@@ -98,27 +99,27 @@ add_test(NAME ngin.package.show.core
 )
 
 add_test(NAME ngin.validate.workspace
-  COMMAND $<TARGET_FILE:ngin_cli> project validate --project "${NGIN_WORKSPACE_PROJECT_PATH}" --target NGIN.CoreSample
+  COMMAND $<TARGET_FILE:ngin_cli> project validate --project "${NGIN_APP_BASIC_PROJECT_PATH}" --variant Runtime
 )
 
 add_test(NAME ngin.graph.workspace
-  COMMAND $<TARGET_FILE:ngin_cli> project graph --project "${NGIN_WORKSPACE_PROJECT_PATH}" --target NGIN.DiagnosticsSample
+  COMMAND $<TARGET_FILE:ngin_cli> project graph --project "${NGIN_APP_BASIC_PROJECT_PATH}" --variant Runtime
 )
 
 add_test(NAME ngin.build.workspace
   COMMAND ${CMAKE_COMMAND}
     -DCLI=$<TARGET_FILE:ngin_cli>
-    -DPROJECT=${NGIN_WORKSPACE_PROJECT_PATH}
-    -DTARGET=NGIN.DiagnosticsSample
-    -DOUTPUT=${CMAKE_BINARY_DIR}/test-stage/NGIN.DiagnosticsSample
+    -DPROJECT=${NGIN_APP_BASIC_PROJECT_PATH}
+    -DVARIANT=Runtime
+    -DOUTPUT=${CMAKE_BINARY_DIR}/test-stage/App.Basic/Runtime
     -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunNGINBuildCheck.cmake"
 )
 
 add_test(NAME ngin.project.autodiscovery
-  COMMAND $<TARGET_FILE:ngin_cli> project validate --target Tools.Cli
+  COMMAND $<TARGET_FILE:ngin_cli> project validate
 )
 set_tests_properties(ngin.project.autodiscovery PROPERTIES
-  WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/docs/examples/project-model"
+  WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/Examples/App.Basic"
 )
 
 add_test(NAME ngin.reject.legacy.json

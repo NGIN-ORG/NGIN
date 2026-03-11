@@ -1,7 +1,7 @@
 # Spec 005: Staged Target Manifest
 
 Status: Active
-Last updated: 2026-03-08
+Last updated: 2026-03-10
 
 ## Purpose
 
@@ -13,7 +13,7 @@ The staged target manifest is the handoff artifact between tooling and runtime.
 
 Filename:
 
-- `<TargetName>.ngintarget`
+- `<Project>.<Variant>.ngintarget`
 
 Root element:
 
@@ -23,7 +23,7 @@ Required root attributes:
 
 - `SchemaVersion`
 - `Project`
-- `Target`
+- `Variant`
 
 ## Structure
 
@@ -31,8 +31,8 @@ Required root attributes:
 <?xml version="1.0" encoding="utf-8"?>
 <TargetLayout SchemaVersion="1"
               Project="Sandbox.Game"
-              Target="Game"
-              Type="Runtime"
+              Variant="Game"
+              Type="Application"
               Profile="Game"
               Platform="linux-x64">
   <Runtime WorkingDirectory="." Environment="Dev" />
@@ -71,7 +71,7 @@ Required root attributes:
 A staged target manifest should contain:
 
 - source project identity
-- selected target identity
+- selected variant identity
 - host-facing metadata such as type, profile, platform, working directory, and environment
 - resolved artifact exposure
 - selected executable when one was inferred or explicitly chosen
@@ -84,7 +84,8 @@ A staged target manifest should contain:
 ## Rules
 
 - `.ngintarget` is generated, not authored
-- the file must reflect the resolved target model used for staging
+- the file must reflect the resolved project/variant model used for staging
+- the file must reflect the resolved project/variant model used for staging
 - the file should record the artifact view used for backend build orchestration and executable selection
 - staged file destinations must be deterministic
 - future run support should consume the staged target contract rather than re-resolving authored manifests during launch

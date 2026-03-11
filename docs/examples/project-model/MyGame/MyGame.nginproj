@@ -1,29 +1,46 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="1" Name="MyGame" DefaultTarget="Game">
-  <Targets>
-    <Target Name="Game"
-            Type="Runtime"
-            Profile="Game"
-            Platform="linux-x64"
-            EnableReflection="false"
-            Environment="Dev"
-            WorkingDirectory=".">
-      <Packages>
-        <PackageRef Name="NGIN.Core" VersionRange=">=0.1.0 &lt;0.2.0" />
-        <PackageRef Name="NGIN.ECS" VersionRange=">=0.1.0 &lt;0.2.0" />
-        <PackageRef Name="SDL2" VersionRange=">=2.30.0 &lt;3.0.0" />
-        <PackageRef Name="MyGame.Runtime" VersionRange=">=0.1.0 &lt;0.2.0" />
-      </Packages>
-      <Launch Executable="MyGame.Runtime" />
-      <Modules>
-        <Enable Name="Core.Hosting" />
-        <Enable Name="Domain.ECS" />
-        <Enable Name="App.GameRuntime" />
-      </Modules>
-      <Plugins />
-      <ConfigSources>
-        <Config Source="config/game.xml" />
-      </ConfigSources>
-    </Target>
-  </Targets>
+<Project SchemaVersion="1"
+         Name="MyGame"
+         Type="Application"
+         DefaultVariant="Game">
+  <SourceRoots>
+    <SourceRoot Path="src" />
+  </SourceRoots>
+  <PrimaryOutput Kind="Executable"
+                 Name="MyGame"
+                 Target="MyGame" />
+  <PackageRefs>
+    <PackageRef Name="NGIN.Core" VersionRange=">=0.1.0 &lt;0.2.0" />
+    <PackageRef Name="NGIN.ECS" VersionRange=">=0.1.0 &lt;0.2.0" />
+    <PackageRef Name="SDL2" VersionRange=">=2.30.0 &lt;3.0.0" />
+  </PackageRefs>
+  <ConfigSources>
+    <Config Source="config/game.xml" />
+  </ConfigSources>
+  <Runtime>
+    <Modules>
+      <Module Name="App.GameRuntime"
+              Family="App"
+              Type="Runtime"
+              LoadPhase="Application"
+              Version="0.1.0"
+              ReflectionRequired="false" />
+    </Modules>
+    <EnableModules>
+      <ModuleRef Name="App.GameRuntime" />
+    </EnableModules>
+  </Runtime>
+  <Variants>
+    <Variant Name="Game"
+             Profile="Game"
+             Platform="linux-x64"
+             Environment="Dev"
+             WorkingDirectory=".">
+      <Launch Executable="MyGame" />
+      <EnableModules>
+        <ModuleRef Name="Core.Hosting" />
+        <ModuleRef Name="Domain.ECS" />
+      </EnableModules>
+    </Variant>
+  </Variants>
 </Project>

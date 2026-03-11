@@ -31,14 +31,6 @@ namespace NGIN::Core
         TestHost
     };
 
-    enum class TargetType : NGIN::UInt8
-    {
-        Runtime,
-        Editor,
-        Program,
-        Developer
-    };
-
     struct PackageReference
     {
         std::string name {};
@@ -113,34 +105,54 @@ namespace NGIN::Core
         std::vector<std::string> disable {};
     };
 
-    struct PluginSelection
+    struct ProjectReference
     {
-        std::vector<std::string> enable {};
-        std::vector<std::string> disable {};
-        std::vector<std::string> searchPaths {};
+        std::string               path {};
+        std::optional<std::string> variant {};
     };
 
-    struct TargetDefinition
+    struct PrimaryOutput
+    {
+        std::string kind {};
+        std::string name {};
+        std::string target {};
+    };
+
+    struct RuntimeDefinition
+    {
+        std::vector<ModuleDescriptor> modules {};
+        std::vector<std::string>      enableModules {};
+        std::vector<std::string>      disableModules {};
+    };
+
+    struct VariantDefinition
     {
         std::string                   name {};
-        TargetType                    type {TargetType::Runtime};
         HostProfile                   profile {HostProfile::ConsoleApp};
         std::string                   platform {};
         bool                          enableReflection {false};
-        std::vector<PackageReference> packages {};
-        ModuleSelection               modules {};
-        PluginSelection               plugins {};
         std::string                   environmentName {};
+        std::vector<PackageReference> packageRefs {};
         std::vector<std::string>      configSources {};
-        std::string                   workingDirectory {};
+        std::string                   workingDirectory {"."};
+        std::optional<std::string>    launchExecutable {};
+        std::vector<std::string>      enableModules {};
+        std::vector<std::string>      disableModules {};
     };
 
     struct ProjectManifest
     {
-        NGIN::UInt32                  schemaVersion {1};
-        std::string                   name {};
-        std::string                   defaultTarget {};
-        std::vector<TargetDefinition> targets {};
+        NGIN::UInt32                   schemaVersion {1};
+        std::string                    name {};
+        std::string                    type {};
+        std::string                    defaultVariant {};
+        std::vector<std::string>       sourceRoots {};
+        PrimaryOutput                  primaryOutput {};
+        std::vector<ProjectReference>  projectRefs {};
+        std::vector<PackageReference>  packageRefs {};
+        std::vector<std::string>       configSources {};
+        RuntimeDefinition              runtime {};
+        std::vector<VariantDefinition> variants {};
     };
 
     class ServiceCollection
@@ -228,7 +240,7 @@ namespace NGIN::Core
         virtual ~PackageBootstrapContext() = default;
 
         [[nodiscard]] virtual auto PackageName() const noexcept -> std::string_view = 0;
-        [[nodiscard]] virtual auto TargetName() const noexcept -> std::string_view = 0;
+        [[nodiscard]] virtual auto VariantName() const noexcept -> std::string_view = 0;
         [[nodiscard]] virtual auto Profile() const noexcept -> HostProfile = 0;
 
         [[nodiscard]] virtual auto Services() noexcept -> ServiceCollection& = 0;
@@ -262,7 +274,7 @@ namespace NGIN::Core
         virtual auto Shutdown() noexcept -> CoreResult<void> = 0;
 
         [[nodiscard]] virtual auto GetProfile() const noexcept -> HostProfile = 0;
-        [[nodiscard]] virtual auto GetTargetName() const -> std::string = 0;
+        [[nodiscard]] virtual auto GetVariantName() const -> std::string = 0;
         [[nodiscard]] virtual auto GetStartupReport() const -> StartupReport = 0;
 
         [[nodiscard]] virtual auto GetServices() noexcept -> NGIN::Memory::Shared<IServiceRegistry> = 0;
@@ -278,7 +290,7 @@ namespace NGIN::Core
         virtual auto UseProject(ProjectManifest manifest) -> ApplicationBuilder& = 0;
         virtual auto SetApplicationName(std::string applicationName) -> ApplicationBuilder& = 0;
         virtual auto UseProfile(HostProfile profile) -> ApplicationBuilder& = 0;
-        virtual auto SetDefaultTarget(std::string targetName) -> ApplicationBuilder& = 0;
+        virtual auto SetDefaultVariant(std::string variantName) -> ApplicationBuilder& = 0;
 
         [[nodiscard]] virtual auto Services() noexcept -> ServiceCollection& = 0;
         [[nodiscard]] virtual auto Packages() noexcept -> PackageCollection& = 0;

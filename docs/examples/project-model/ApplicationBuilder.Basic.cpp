@@ -8,7 +8,7 @@ int main(int argc, char** argv)
 
     builder->UseProjectFile("NGIN.Samples.ApplicationModel.nginproj");
     builder->SetApplicationName("Sandbox.Game");
-    builder->SetDefaultTarget("Sandbox.Game");
+    builder->SetDefaultVariant("Sandbox.Game");
     builder->UseProfile(NGIN::Core::HostProfile::Game);
 
     builder->Services()

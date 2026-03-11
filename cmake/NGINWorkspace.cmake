@@ -26,7 +26,7 @@ function(ngin_workspace_print_summary)
   cmake_parse_arguments(NWS "" "EXPECT_COMPONENTS" "" ${ARGN})
 
   message(STATUS "NGIN workspace version: ${PROJECT_VERSION}")
-  message(STATUS "Workspace release manifest: ${CMAKE_SOURCE_DIR}/Workspace/Releases/platform-release.xml")
+  message(STATUS "Workspace manifest: ${CMAKE_SOURCE_DIR}/NGIN.ngin")
 
   foreach(_component IN LISTS NGIN_WORKSPACE_KNOWN_COMPONENTS)
     ngin_workspace_component_dir(_dir "${_component}")

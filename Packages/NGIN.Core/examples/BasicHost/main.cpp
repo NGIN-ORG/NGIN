@@ -110,7 +110,7 @@ int main(int argc, char** argv)
     auto builder = CreateApplicationBuilder(argc, argv);
     builder->UseProjectFile((sampleDir / "NGIN.Core.BasicHost.nginproj").string());
     builder->SetApplicationName("NGIN.Core.BasicHost");
-    builder->SetDefaultTarget("Samples.BasicHost");
+    builder->SetDefaultVariant("Samples.BasicHost");
     builder->UseProfile(HostProfile::ConsoleApp);
     builder->Services()
         .AddDefaults()

@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="1"
+         Name="App.Basic"
+         Type="Application"
+         DefaultVariant="Runtime">
+  <SourceRoots>
+    <SourceRoot Path="src" />
+  </SourceRoots>
+  <PrimaryOutput Kind="Executable"
+                 Name="App.Basic"
+                 Target="App.Basic" />
+  <PackageRefs>
+    <PackageRef Name="NGIN.Core" VersionRange=">=0.1.0 &lt;0.2.0" Optional="false" />
+  </PackageRefs>
+  <ConfigSources>
+    <Config Source="config/app.cfg" />
+  </ConfigSources>
+  <Runtime>
+    <Modules>
+      <Module Name="App.Basic.Runtime"
+              Family="App"
+              Type="Runtime"
+              LoadPhase="Application"
+              Version="0.1.0"
+              ReflectionRequired="false">
+        <Platforms>
+          <Platform Name="linux" />
+          <Platform Name="windows" />
+          <Platform Name="macos" />
+        </Platforms>
+      </Module>
+    </Modules>
+    <EnableModules>
+      <ModuleRef Name="App.Basic.Runtime" />
+    </EnableModules>
+  </Runtime>
+  <Variants>
+    <Variant Name="Runtime"
+             Profile="ConsoleApp"
+             Platform="linux-x64"
+             Environment="Dev"
+             WorkingDirectory="." />
+  </Variants>
+</Project>

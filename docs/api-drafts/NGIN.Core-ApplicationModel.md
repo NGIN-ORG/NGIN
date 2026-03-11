@@ -13,11 +13,11 @@ This draft describes how `NGIN.Core` fits into the simplified platform model.
 ## Platform Model
 
 - `Project`: top-level application definition in `.nginproj`
-- `Target`: one concrete application variant
+- `Variant`: one concrete application variant
 - `Package`: main reusable unit in `.nginpkg`
 - `Module`: runtime composition unit provided by packages
 - `Plugin`: optional extension provided by packages
-- `Host`: runtime container built from the resolved target
+- `Host`: runtime container built from the resolved project variant
 - `Staged Target`: generated `.ngintarget` output used as the tooling/runtime handoff
 
 ## Builder Model
@@ -28,7 +28,7 @@ Expected flow:
 
 1. create a builder
 2. load or construct project state
-3. select a target
+3. select a variant
 4. configure services, packages, modules, plugins, and config
 5. build the host
 

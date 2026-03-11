@@ -234,23 +234,13 @@ namespace
         return out;
     }
 
-    struct Component
+    struct WorkspaceManifest
     {
-        std::string              name {};
-        std::string              kind {};
-        std::string              location {};
-        std::string              packagePath {};
-        std::string              repoUrl {};
-        std::string              ref {};
-        std::string              version {};
-        bool                     required {false};
-        std::vector<std::string> dependsOn {};
-    };
-
-    struct PlatformRelease
-    {
-        std::string            platformVersion {};
-        std::vector<Component> components {};
+        fs::path              path {};
+        std::string           name {};
+        std::string           platformVersion {};
+        std::vector<fs::path> packageSources {};
+        std::vector<fs::path> projects {};
     };
 
     struct PackageDependency
@@ -348,7 +338,6 @@ namespace
     {
         std::string name {};
         fs::path    manifestPath {};
-        std::string component {};
     };
 
     struct PackageReference
@@ -358,30 +347,60 @@ namespace
         bool        optional {false};
     };
 
-    struct TargetDefinition
+    struct ProjectReference
     {
-        std::string                   name {};
-        std::string                   type {};
-        std::string                   profile {};
-        std::string                   platform {};
-        bool                          enableReflection {false};
-        std::string                   environmentName {};
-        std::string                   workingDirectory {};
-        std::optional<std::string>    launchExecutable {};
+        fs::path                   path {};
+        std::optional<std::string> variant {};
+    };
+
+    struct PrimaryOutput
+    {
+        std::string kind {};
+        std::string name {};
+        std::string target {};
+    };
+
+    struct RuntimeDefinition
+    {
+        std::vector<ModuleDescriptor> modules {};
+        std::vector<std::string>      enableModules {};
+        std::vector<std::string>      disableModules {};
+    };
+
+    struct VariantDefinition
+    {
+        std::string                name {};
+        std::string                profile {};
+        std::string                platform {};
+        bool                       enableReflection {false};
+        std::string                environmentName {};
+        std::string                workingDirectory {"."};
+        std::optional<std::string> launchExecutable {};
+        std::vector<PackageReference> packageRefs {};
         std::vector<std::string>      configSources {};
-        std::vector<PackageReference> packages {};
-        std::vector<std::string>      modulesEnable {};
-        std::vector<std::string>      modulesDisable {};
-        std::vector<std::string>      pluginsEnable {};
-        std::vector<std::string>      pluginsDisable {};
+        std::vector<std::string>      enableModules {};
+        std::vector<std::string>      disableModules {};
     };
 
     struct ProjectManifest
     {
-        fs::path                     path {};
-        std::string                  name {};
-        std::string                  defaultTarget {};
-        std::vector<TargetDefinition> targets {};
+        fs::path                       path {};
+        std::string                    name {};
+        std::string                    type {};
+        std::string                    defaultVariant {};
+        std::vector<std::string>       sourceRoots {};
+        PrimaryOutput                  primaryOutput {};
+        std::vector<ProjectReference>  projectRefs {};
+        std::vector<PackageReference>  packageRefs {};
+        std::vector<std::string>       configSources {};
+        RuntimeDefinition              runtime {};
+        std::vector<VariantDefinition> variants {};
+    };
+
+    struct ResolvedProjectUnit
+    {
+        ProjectManifest   project {};
+        VariantDefinition variant {};
     };
 
     struct ResolvedPackage
@@ -392,27 +411,42 @@ namespace
 
     struct ResolvedTarget
     {
+        WorkspaceManifest                            workspace {};
         ProjectManifest                              project {};
-        TargetDefinition                             target {};
+        VariantDefinition                            variant {};
+        std::vector<ResolvedProjectUnit>             projectUnits {};
+        std::vector<std::string>                     configSources {};
         std::vector<ResolvedPackage>                 orderedPackages {};
         std::map<std::string, std::set<std::string>> packageEdges {};
         std::vector<std::string>                     requiredModules {};
         std::vector<std::string>                     optionalModules {};
         std::map<std::string, std::set<std::string>> dependencyEdges {};
         std::vector<std::string>                     enabledPlugins {};
-        std::vector<LibraryArtifact>                libraries {};
-        std::vector<ExecutableArtifact>             executables {};
-        std::optional<ExecutableArtifact>           selectedExecutable {};
+        std::vector<LibraryArtifact>                 libraries {};
+        std::vector<ExecutableArtifact>              executables {};
+        std::optional<ExecutableArtifact>            selectedExecutable {};
     };
 
-    [[nodiscard]] auto PlatformReleasePath(const fs::path& root) -> fs::path
+    [[nodiscard]] auto WorkspaceFilePath(const fs::path& root) -> std::optional<fs::path>
     {
-        return root / "Workspace" / "Releases" / "platform-release.xml";
-    }
-
-    [[nodiscard]] auto PackageCatalogPath(const fs::path& root) -> fs::path
-    {
-        return root / "Workspace" / "Catalogs" / "package-catalog.xml";
+        if (!fs::exists(root))
+        {
+            return std::nullopt;
+        }
+        std::vector<fs::path> candidates;
+        for (const auto& entry : fs::directory_iterator(root))
+        {
+            if (entry.is_regular_file() && entry.path().extension() == ".ngin")
+            {
+                candidates.push_back(entry.path());
+            }
+        }
+        if (candidates.empty())
+        {
+            return std::nullopt;
+        }
+        std::sort(candidates.begin(), candidates.end());
+        return candidates.front();
     }
 
     [[nodiscard]] auto RootDirFrom(const fs::path& start) -> std::optional<fs::path>
@@ -424,7 +458,7 @@ namespace
         }
         while (!current.empty())
         {
-            if (fs::exists(PlatformReleasePath(current)) && fs::exists(PackageCatalogPath(current)))
+            if (WorkspaceFilePath(current).has_value())
             {
                 return current;
             }
@@ -447,7 +481,7 @@ namespace
         {
             return *fromCwd;
         }
-        throw std::runtime_error("failed to locate NGIN workspace root");
+        throw std::runtime_error("failed to locate NGIN workspace root (.ngin)");
     }
 
     [[nodiscard]] auto PlatformAliases(const std::string& platform) -> std::set<std::string>
@@ -669,68 +703,73 @@ namespace
         return std::vector<std::string>(nodes.begin(), nodes.end());
     }
 
-    [[nodiscard]] auto LoadPlatformRelease(const fs::path& root) -> PlatformRelease
+    [[nodiscard]] auto LoadPackageManifest(const fs::path& path) -> PackageManifest;
+
+    [[nodiscard]] auto LoadWorkspaceManifest(const fs::path& root) -> WorkspaceManifest
     {
-        const auto path = PlatformReleasePath(root);
-        const auto doc = LoadXml(path);
-        const auto* rootElement = doc.document.Root();
-        if (rootElement == nullptr || rootElement->name != "PlatformRelease")
+        const auto path = WorkspaceFilePath(root);
+        if (!path.has_value())
         {
-            throw std::runtime_error(path.string() + ": root element must be <PlatformRelease>");
+            throw std::runtime_error(root.string() + ": no .ngin workspace file found");
+        }
+        const auto doc = LoadXml(*path);
+        const auto* rootElement = doc.document.Root();
+        if (rootElement == nullptr || rootElement->name != "Workspace")
+        {
+            throw std::runtime_error(path->string() + ": root element must be <Workspace>");
         }
 
-        PlatformRelease release {};
-        release.platformVersion = RequireAttribute(*rootElement, "PlatformVersion", path);
-        const auto* componentsNode = FindChild(*rootElement, "Components");
-        if (componentsNode == nullptr)
+        WorkspaceManifest workspace {};
+        workspace.path = fs::weakly_canonical(*path);
+        workspace.name = RequireAttribute(*rootElement, "Name", *path);
+        workspace.platformVersion = Attribute(*rootElement, "PlatformVersion").value_or("0.1.0");
+
+        const auto* packageSourcesNode = FindChild(*rootElement, "PackageSources");
+        if (packageSourcesNode == nullptr)
         {
-            throw std::runtime_error(path.string() + ": missing <Components>");
+            throw std::runtime_error(path->string() + ": missing <PackageSources>");
         }
-        for (const auto* child : ChildElements(*componentsNode, "Component"))
+        for (const auto* child : ChildElements(*packageSourcesNode, "PackageSource"))
         {
-            Component component {};
-            component.name = RequireAttribute(*child, "Name", path);
-            component.kind = Attribute(*child, "Kind").value_or("");
-            component.location = Attribute(*child, "Location").value_or("");
-            component.packagePath = Attribute(*child, "PackagePath").value_or("");
-            component.repoUrl = Attribute(*child, "RepoUrl").value_or("");
-            component.ref = Attribute(*child, "Ref").value_or("");
-            component.version = Attribute(*child, "Version").value_or("");
-            component.required = BoolAttribute(*child, "Required");
-            if (const auto* depends = FindChild(*child, "DependsOn"))
-            {
-                for (const auto* dep : ChildElements(*depends, "ComponentRef"))
-                {
-                    component.dependsOn.push_back(RequireAttribute(*dep, "Name", path));
-                }
-            }
-            release.components.push_back(std::move(component));
+            workspace.packageSources.push_back((workspace.path.parent_path() / RequireAttribute(*child, "Path", *path)).lexically_normal());
         }
-        return release;
+
+        const auto* projectsNode = FindChild(*rootElement, "Projects");
+        if (projectsNode == nullptr)
+        {
+            throw std::runtime_error(path->string() + ": missing <Projects>");
+        }
+        for (const auto* node : ChildElements(*projectsNode, "Project"))
+        {
+            workspace.projects.push_back((workspace.path.parent_path() / RequireAttribute(*node, "Path", *path)).lexically_normal());
+        }
+
+        return workspace;
     }
 
     [[nodiscard]] auto LoadPackageCatalog(const fs::path& root) -> std::unordered_map<std::string, PackageCatalogEntry>
     {
-        const auto path = PackageCatalogPath(root);
-        const auto doc = LoadXml(path);
-        const auto* rootElement = doc.document.Root();
-        if (rootElement == nullptr || rootElement->name != "PackageCatalog")
-        {
-            throw std::runtime_error(path.string() + ": root element must be <PackageCatalog>");
-        }
+        const auto workspace = LoadWorkspaceManifest(root);
         std::unordered_map<std::string, PackageCatalogEntry> out;
-        const auto* packagesNode = FindChild(*rootElement, "Packages");
-        if (packagesNode == nullptr)
+        for (const auto& packageRoot : workspace.packageSources)
         {
-            throw std::runtime_error(path.string() + ": missing <Packages>");
-        }
-        for (const auto* node : ChildElements(*packagesNode, "PackageEntry"))
-        {
-            PackageCatalogEntry entry {};
-            entry.name = RequireAttribute(*node, "Name", path);
-            entry.manifestPath = root / RequireAttribute(*node, "ManifestPath", path);
-            entry.component = Attribute(*node, "Component").value_or("");
-            out.emplace(entry.name, std::move(entry));
+            if (!fs::exists(packageRoot))
+            {
+                continue;
+            }
+            for (const auto& entry : fs::recursive_directory_iterator(packageRoot))
+            {
+                if (!entry.is_regular_file() || entry.path().extension() != ".nginpkg")
+                {
+                    continue;
+                }
+                const auto manifestPath = fs::weakly_canonical(entry.path());
+                const auto manifest = LoadPackageManifest(manifestPath);
+                out.emplace(manifest.name, PackageCatalogEntry {
+                    .name = manifest.name,
+                    .manifestPath = manifestPath,
+                });
+            }
         }
         return out;
     }
@@ -923,6 +962,69 @@ namespace
         return package;
     }
 
+    [[nodiscard]] auto ParseModuleDefinition(const XmlElement& node, const fs::path& path) -> ModuleDescriptor
+    {
+        ModuleDescriptor module {};
+        module.name = RequireAttribute(node, "Name", path);
+        module.family = Attribute(node, "Family").value_or("App");
+        module.type = Attribute(node, "Type").value_or("Runtime");
+        module.loadPhase = Attribute(node, "LoadPhase").value_or("Application");
+        module.version = Attribute(node, "Version").value_or("");
+        module.compatiblePlatformRange = Attribute(node, "CompatiblePlatformRange").value_or("");
+        module.requiresReflection = BoolAttribute(node, "ReflectionRequired");
+        module.editorOnly = Lower(module.type) == "editor";
+
+        if (const auto* platforms = FindChild(node, "Platforms"))
+        {
+            for (const auto* platform : ChildElements(*platforms, "Platform"))
+            {
+                module.platforms.push_back(RequireAttribute(*platform, "Name", path));
+            }
+        }
+
+        if (const auto* dependencies = FindChild(node, "Dependencies"))
+        {
+            for (const auto* dep : ChildElements(*dependencies, "Dependency"))
+            {
+                const auto name = RequireAttribute(*dep, "Name", path);
+                if (BoolAttribute(*dep, "Optional"))
+                {
+                    module.optional.push_back(name);
+                }
+                else
+                {
+                    module.required.push_back(name);
+                }
+            }
+        }
+
+        if (const auto* providesServices = FindChild(node, "ProvidesServices"))
+        {
+            for (const auto* service : ChildElements(*providesServices, "Service"))
+            {
+                module.providesServices.push_back(RequireAttribute(*service, "Name", path));
+            }
+        }
+
+        if (const auto* requiresServices = FindChild(node, "RequiresServices"))
+        {
+            for (const auto* service : ChildElements(*requiresServices, "Service"))
+            {
+                module.requiresServices.push_back(RequireAttribute(*service, "Name", path));
+            }
+        }
+
+        if (const auto* capabilities = FindChild(node, "Capabilities"))
+        {
+            for (const auto* capability : ChildElements(*capabilities, "Capability"))
+            {
+                module.capabilities.push_back(RequireAttribute(*capability, "Name", path));
+            }
+        }
+
+        return module;
+    }
+
     [[nodiscard]] auto LoadProjectManifest(const fs::path& path) -> ProjectManifest
     {
         const auto doc = LoadXml(path);
@@ -934,70 +1036,140 @@ namespace
         ProjectManifest project {};
         project.path = path;
         project.name = RequireAttribute(*rootElement, "Name", path);
-        project.defaultTarget = RequireAttribute(*rootElement, "DefaultTarget", path);
-        const auto* targetsNode = FindChild(*rootElement, "Targets");
-        if (targetsNode == nullptr)
+        project.type = RequireAttribute(*rootElement, "Type", path);
+        project.defaultVariant = RequireAttribute(*rootElement, "DefaultVariant", path);
+
+        if (const auto* sourceRoots = FindChild(*rootElement, "SourceRoots"))
         {
-            throw std::runtime_error(path.string() + ": missing <Targets>");
+            for (const auto* node : ChildElements(*sourceRoots, "SourceRoot"))
+            {
+                project.sourceRoots.push_back(RequireAttribute(*node, "Path", path));
+            }
         }
-        for (const auto* node : ChildElements(*targetsNode, "Target"))
+
+        const auto* primaryOutput = FindChild(*rootElement, "PrimaryOutput");
+        if (primaryOutput == nullptr)
         {
-            TargetDefinition target {};
-            target.name = RequireAttribute(*node, "Name", path);
-            target.type = RequireAttribute(*node, "Type", path);
-            target.profile = RequireAttribute(*node, "Profile", path);
-            target.platform = RequireAttribute(*node, "Platform", path);
-            target.enableReflection = BoolAttribute(*node, "EnableReflection");
-            target.environmentName = Attribute(*node, "Environment").value_or("");
-            target.workingDirectory = Attribute(*node, "WorkingDirectory").value_or(".");
+            throw std::runtime_error(path.string() + ": missing <PrimaryOutput>");
+        }
+        project.primaryOutput.kind = RequireAttribute(*primaryOutput, "Kind", path);
+        project.primaryOutput.name = RequireAttribute(*primaryOutput, "Name", path);
+        project.primaryOutput.target = RequireAttribute(*primaryOutput, "Target", path);
+
+        if (const auto* projectRefs = FindChild(*rootElement, "ProjectRefs"))
+        {
+            for (const auto* node : ChildElements(*projectRefs, "ProjectRef"))
+            {
+                ProjectReference reference {};
+                reference.path = (path.parent_path() / RequireAttribute(*node, "Path", path)).lexically_normal();
+                if (const auto variant = Attribute(*node, "Variant"); variant.has_value() && !variant->empty())
+                {
+                    reference.variant = *variant;
+                }
+                project.projectRefs.push_back(std::move(reference));
+            }
+        }
+
+        if (const auto* packageRefs = FindChild(*rootElement, "PackageRefs"))
+        {
+            for (const auto* node : ChildElements(*packageRefs, "PackageRef"))
+            {
+                PackageReference packageReference {};
+                packageReference.name = RequireAttribute(*node, "Name", path);
+                packageReference.versionRange = Attribute(*node, "VersionRange").value_or("");
+                packageReference.optional = BoolAttribute(*node, "Optional");
+                project.packageRefs.push_back(std::move(packageReference));
+            }
+        }
+
+        if (const auto* config = FindChild(*rootElement, "ConfigSources"))
+        {
+            for (const auto* item : ChildElements(*config, "Config"))
+            {
+                project.configSources.push_back(RequireAttribute(*item, "Source", path));
+            }
+        }
+
+        if (const auto* runtime = FindChild(*rootElement, "Runtime"))
+        {
+            if (const auto* modules = FindChild(*runtime, "Modules"))
+            {
+                for (const auto* node : ChildElements(*modules, "Module"))
+                {
+                    project.runtime.modules.push_back(ParseModuleDefinition(*node, path));
+                }
+            }
+            if (const auto* enableModules = FindChild(*runtime, "EnableModules"))
+            {
+                for (const auto* node : ChildElements(*enableModules, "ModuleRef"))
+                {
+                    project.runtime.enableModules.push_back(RequireAttribute(*node, "Name", path));
+                }
+            }
+            if (const auto* disableModules = FindChild(*runtime, "DisableModules"))
+            {
+                for (const auto* node : ChildElements(*disableModules, "ModuleRef"))
+                {
+                    project.runtime.disableModules.push_back(RequireAttribute(*node, "Name", path));
+                }
+            }
+        }
+
+        const auto* variantsNode = FindChild(*rootElement, "Variants");
+        if (variantsNode == nullptr)
+        {
+            throw std::runtime_error(path.string() + ": missing <Variants>");
+        }
+        for (const auto* node : ChildElements(*variantsNode, "Variant"))
+        {
+            VariantDefinition variant {};
+            variant.name = RequireAttribute(*node, "Name", path);
+            variant.profile = RequireAttribute(*node, "Profile", path);
+            variant.platform = RequireAttribute(*node, "Platform", path);
+            variant.enableReflection = BoolAttribute(*node, "EnableReflection");
+            variant.environmentName = Attribute(*node, "Environment").value_or("");
+            variant.workingDirectory = Attribute(*node, "WorkingDirectory").value_or(".");
+
             if (const auto* launch = FindChild(*node, "Launch"))
             {
                 if (const auto executable = Attribute(*launch, "Executable"); executable.has_value() && !executable->empty())
                 {
-                    target.launchExecutable = *executable;
+                    variant.launchExecutable = *executable;
                 }
             }
             if (const auto* config = FindChild(*node, "ConfigSources"))
             {
                 for (const auto* item : ChildElements(*config, "Config"))
                 {
-                    target.configSources.push_back(RequireAttribute(*item, "Source", path));
+                    variant.configSources.push_back(RequireAttribute(*item, "Source", path));
                 }
             }
-            if (const auto* packages = FindChild(*node, "Packages"))
+            if (const auto* packageRefs = FindChild(*node, "PackageRefs"))
             {
-                for (const auto* item : ChildElements(*packages, "PackageRef"))
+                for (const auto* item : ChildElements(*packageRefs, "PackageRef"))
                 {
                     PackageReference packageReference {};
                     packageReference.name = RequireAttribute(*item, "Name", path);
                     packageReference.versionRange = Attribute(*item, "VersionRange").value_or("");
                     packageReference.optional = BoolAttribute(*item, "Optional");
-                    target.packages.push_back(std::move(packageReference));
+                    variant.packageRefs.push_back(std::move(packageReference));
                 }
             }
-            if (const auto* modules = FindChild(*node, "Modules"))
+            if (const auto* modules = FindChild(*node, "EnableModules"))
             {
-                for (const auto* item : ChildElements(*modules, "Enable"))
+                for (const auto* item : ChildElements(*modules, "ModuleRef"))
                 {
-                    target.modulesEnable.push_back(RequireAttribute(*item, "Name", path));
-                }
-                for (const auto* item : ChildElements(*modules, "Disable"))
-                {
-                    target.modulesDisable.push_back(RequireAttribute(*item, "Name", path));
+                    variant.enableModules.push_back(RequireAttribute(*item, "Name", path));
                 }
             }
-            if (const auto* plugins = FindChild(*node, "Plugins"))
+            if (const auto* modules = FindChild(*node, "DisableModules"))
             {
-                for (const auto* item : ChildElements(*plugins, "Enable"))
+                for (const auto* item : ChildElements(*modules, "ModuleRef"))
                 {
-                    target.pluginsEnable.push_back(RequireAttribute(*item, "Name", path));
-                }
-                for (const auto* item : ChildElements(*plugins, "Disable"))
-                {
-                    target.pluginsDisable.push_back(RequireAttribute(*item, "Name", path));
+                    variant.disableModules.push_back(RequireAttribute(*item, "Name", path));
                 }
             }
-            project.targets.push_back(std::move(target));
+            project.variants.push_back(std::move(variant));
         }
         return project;
     }
@@ -1045,29 +1217,107 @@ namespace
         throw std::runtime_error("no project manifest specified and no .nginproj file found in the current directory tree");
     }
 
-    [[nodiscard]] auto TargetByName(const ProjectManifest& project, const std::optional<std::string>& targetName) -> const TargetDefinition&
+    [[nodiscard]] auto VariantByName(const ProjectManifest& project, const std::optional<std::string>& variantName) -> const VariantDefinition&
     {
-        const auto desired = targetName.value_or(project.defaultTarget);
-        for (const auto& target : project.targets)
+        const auto desired = variantName.value_or(project.defaultVariant);
+        for (const auto& variant : project.variants)
         {
-            if (target.name == desired)
+            if (variant.name == desired)
             {
-                return target;
+                return variant;
             }
         }
-        throw std::runtime_error("unknown target '" + desired + "'");
+        throw std::runtime_error("unknown variant '" + desired + "'");
     }
 
-    auto ResolvePackages(
-        const ProjectManifest&,
-        const TargetDefinition& target,
-        const PlatformRelease& release,
+    auto MergePackageReferences(std::vector<PackageReference>& target, const std::vector<PackageReference>& source) -> void
+    {
+        std::unordered_map<std::string, std::size_t> indexByName;
+        for (std::size_t index = 0; index < target.size(); ++index)
+        {
+            indexByName[target[index].name] = index;
+        }
+        for (const auto& reference : source)
+        {
+            if (const auto it = indexByName.find(reference.name); it != indexByName.end())
+            {
+                target[it->second] = reference;
+                continue;
+            }
+            indexByName[reference.name] = target.size();
+            target.push_back(reference);
+        }
+    }
+
+    auto MergeStringSelection(std::set<std::string>& enabled, const std::vector<std::string>& add, const std::vector<std::string>& remove) -> void
+    {
+        for (const auto& name : add)
+        {
+            enabled.insert(name);
+        }
+        for (const auto& name : remove)
+        {
+            enabled.erase(name);
+        }
+    }
+
+    auto CollectProjectClosure(
+        const ProjectManifest& project,
+        const VariantDefinition& variant,
+        std::vector<ResolvedProjectUnit>& ordered,
+        std::set<fs::path>& visiting,
+        std::set<fs::path>& visited,
+        IssueReport& report) -> void
+    {
+        const auto canonicalPath = fs::weakly_canonical(project.path);
+        if (visited.contains(canonicalPath))
+        {
+            return;
+        }
+        if (!visiting.insert(canonicalPath).second)
+        {
+            AddError(report, "project reference cycle detected at '" + canonicalPath.string() + "'");
+            return;
+        }
+
+        for (const auto& reference : project.projectRefs)
+        {
+            const auto referencedPath = fs::weakly_canonical(reference.path);
+            if (!fs::exists(referencedPath))
+            {
+                AddError(report, "project reference '" + referencedPath.string() + "' does not exist");
+                continue;
+            }
+            const auto referencedProject = LoadProjectManifest(referencedPath);
+            const auto& referencedVariant = VariantByName(referencedProject, reference.variant);
+            CollectProjectClosure(referencedProject, referencedVariant, ordered, visiting, visited, report);
+        }
+
+        visiting.erase(canonicalPath);
+        visited.insert(canonicalPath);
+        ordered.push_back(ResolvedProjectUnit {
+            .project = project,
+            .variant = variant,
+        });
+    }
+
+    [[nodiscard]] auto ResolvePackages(
+        const WorkspaceManifest& workspace,
+        const std::vector<ResolvedProjectUnit>& projectUnits,
         const std::unordered_map<std::string, PackageCatalogEntry>& catalog,
+        const std::string& targetPlatform,
         IssueReport& report) -> std::vector<ResolvedPackage>
     {
+        std::vector<PackageReference> combinedRefs {};
+        for (const auto& unit : projectUnits)
+        {
+            MergePackageReferences(combinedRefs, unit.project.packageRefs);
+            MergePackageReferences(combinedRefs, unit.variant.packageRefs);
+        }
+
         std::unordered_map<std::string, ResolvedPackage> resolved;
-        std::map<std::string, std::set<std::string>>     edges;
-        std::vector<PackageReference>                    queue = target.packages;
+        std::map<std::string, std::set<std::string>>     edges {};
+        std::vector<PackageReference>                    queue = combinedRefs;
         std::vector<std::string>                         parents(queue.size(), "");
 
         std::size_t index = 0;
@@ -1120,9 +1370,9 @@ namespace
                 }
                 continue;
             }
-            if (!manifest.platforms.empty() && !PlatformSupported(target.platform, manifest.platforms))
+            if (!manifest.platforms.empty() && !PlatformSupported(targetPlatform, manifest.platforms))
             {
-                const auto message = "package '" + ref.name + "' is not supported on platform '" + target.platform + "'";
+                const auto message = "package '" + ref.name + "' is not supported on platform '" + targetPlatform + "'";
                 if (ref.optional)
                 {
                     AddWarning(report, message);
@@ -1133,9 +1383,9 @@ namespace
                 }
                 continue;
             }
-            if (!manifest.compatiblePlatformRange.empty() && !VersionSatisfies(release.platformVersion, manifest.compatiblePlatformRange))
+            if (!manifest.compatiblePlatformRange.empty() && !VersionSatisfies(workspace.platformVersion, manifest.compatiblePlatformRange))
             {
-                AddError(report, "package '" + ref.name + "' compatible platform range does not include platform version '" + release.platformVersion + "'");
+                AddError(report, "package '" + ref.name + "' compatible platform range does not include workspace platform version '" + workspace.platformVersion + "'");
                 continue;
             }
 
@@ -1160,7 +1410,7 @@ namespace
                 edges[ref.name].insert(dep.name);
             }
 
-            resolved.emplace(ref.name, ResolvedPackage {std::move(manifest), "catalog"});
+            resolved.emplace(ref.name, ResolvedPackage {std::move(manifest), "workspace"});
         }
 
         if (!report.errors.empty())
@@ -1184,6 +1434,7 @@ namespace
             AddError(report, "package graph could not be ordered");
             return {};
         }
+
         std::vector<ResolvedPackage> ordered;
         for (const auto& name : *orderedNames)
         {
@@ -1193,8 +1444,10 @@ namespace
     }
 
     auto ResolveArtifacts(
+        const std::vector<ResolvedProjectUnit>& projectUnits,
         const std::vector<ResolvedPackage>& orderedPackages,
-        const TargetDefinition& target,
+        const ProjectManifest& rootProject,
+        const VariantDefinition& rootVariant,
         IssueReport& report,
         std::vector<LibraryArtifact>& librariesOut,
         std::vector<ExecutableArtifact>& executablesOut,
@@ -1202,6 +1455,40 @@ namespace
     {
         std::unordered_map<std::string, std::string> libraryProviders;
         std::unordered_map<std::string, std::string> executableProviders;
+
+        for (const auto& unit : projectUnits)
+        {
+            const auto kind = Lower(unit.project.primaryOutput.kind);
+            if (kind == "staticlibrary" || kind == "sharedlibrary")
+            {
+                LibraryArtifact artifact {};
+                artifact.name = unit.project.primaryOutput.name;
+                artifact.target = unit.project.primaryOutput.target;
+                artifact.linkage = kind == "sharedlibrary" ? "Shared" : "Static";
+                artifact.origin = "Built";
+                if (const auto it = libraryProviders.find(artifact.name); it != libraryProviders.end())
+                {
+                    AddError(report, "duplicate library artifact '" + artifact.name + "' in projects '" + it->second + "' and '" + unit.project.name + "'");
+                    continue;
+                }
+                libraryProviders.emplace(artifact.name, unit.project.name);
+                librariesOut.push_back(std::move(artifact));
+            }
+            else if (kind == "executable")
+            {
+                ExecutableArtifact artifact {};
+                artifact.name = unit.project.primaryOutput.name;
+                artifact.target = unit.project.primaryOutput.target;
+                artifact.origin = "Built";
+                if (const auto it = executableProviders.find(artifact.name); it != executableProviders.end())
+                {
+                    AddError(report, "duplicate executable artifact '" + artifact.name + "' in projects '" + it->second + "' and '" + unit.project.name + "'");
+                    continue;
+                }
+                executableProviders.emplace(artifact.name, unit.project.name);
+                executablesOut.push_back(std::move(artifact));
+            }
+        }
 
         for (const auto& package : orderedPackages)
         {
@@ -1219,7 +1506,7 @@ namespace
                 }
                 if (const auto it = libraryProviders.find(artifact.name); it != libraryProviders.end())
                 {
-                    AddError(report, "duplicate library artifact '" + artifact.name + "' in packages '" + it->second + "' and '" + package.manifest.name + "'");
+                    AddError(report, "duplicate library artifact '" + artifact.name + "' in '" + it->second + "' and package '" + package.manifest.name + "'");
                     continue;
                 }
                 libraryProviders.emplace(artifact.name, package.manifest.name);
@@ -1240,7 +1527,7 @@ namespace
                 }
                 if (const auto it = executableProviders.find(artifact.name); it != executableProviders.end())
                 {
-                    AddError(report, "duplicate executable artifact '" + artifact.name + "' in packages '" + it->second + "' and '" + package.manifest.name + "'");
+                    AddError(report, "duplicate executable artifact '" + artifact.name + "' in '" + it->second + "' and package '" + package.manifest.name + "'");
                     continue;
                 }
                 executableProviders.emplace(artifact.name, package.manifest.name);
@@ -1248,7 +1535,20 @@ namespace
             }
         }
 
-        if (!target.launchExecutable.has_value())
+        const auto rootKind = Lower(rootProject.primaryOutput.kind);
+        if (!rootVariant.launchExecutable.has_value() && rootKind == "executable")
+        {
+            for (const auto& executable : executablesOut)
+            {
+                if (executable.name == rootProject.primaryOutput.name)
+                {
+                    selectedExecutableOut = executable;
+                    return;
+                }
+            }
+        }
+
+        if (!rootVariant.launchExecutable.has_value())
         {
             if (executablesOut.size() == 1)
             {
@@ -1256,12 +1556,12 @@ namespace
             }
             else if (executablesOut.size() > 1)
             {
-                AddError(report, "target '" + target.name + "' resolves multiple executable artifacts; add <Launch Executable=\"...\" /> to select one");
+                AddError(report, "variant '" + rootVariant.name + "' resolves multiple executable artifacts; add <Launch Executable=\"...\" /> to select one");
             }
             return;
         }
 
-        const auto desired = *target.launchExecutable;
+        const auto desired = *rootVariant.launchExecutable;
         for (const auto& executable : executablesOut)
         {
             if (executable.name == desired)
@@ -1270,19 +1570,28 @@ namespace
                 return;
             }
         }
-        AddError(report, "target '" + target.name + "' selects executable '" + desired + "' but no package exposes it");
+        AddError(report, "variant '" + rootVariant.name + "' selects executable '" + desired + "' but no project or package exposes it");
     }
 
     auto ResolveTarget(
         const fs::path& root,
         const ProjectManifest& project,
-        const TargetDefinition& target,
+        const VariantDefinition& variant,
         IssueReport& report) -> std::optional<ResolvedTarget>
     {
-        const auto release = LoadPlatformRelease(root);
+        const auto workspace = LoadWorkspaceManifest(root);
         const auto packageCatalog = LoadPackageCatalog(root);
 
-        auto orderedPackages = ResolvePackages(project, target, release, packageCatalog, report);
+        std::vector<ResolvedProjectUnit> projectUnits {};
+        std::set<fs::path> visiting {};
+        std::set<fs::path> visited {};
+        CollectProjectClosure(project, variant, projectUnits, visiting, visited, report);
+        if (!report.errors.empty())
+        {
+            return std::nullopt;
+        }
+
+        auto orderedPackages = ResolvePackages(workspace, projectUnits, packageCatalog, variant.platform, report);
         if (!report.errors.empty())
         {
             return std::nullopt;
@@ -1290,20 +1599,40 @@ namespace
 
         std::unordered_map<std::string, std::set<std::string>> providersByModule;
         std::unordered_map<std::string, std::set<std::string>> providersByPlugin;
-        std::unordered_map<std::string, ModuleDescriptor>        modules;
-        std::unordered_map<std::string, PluginDescriptor>        plugins;
-        for (const auto& package : orderedPackages)
+        std::unordered_map<std::string, ModuleDescriptor> modules;
+        std::unordered_map<std::string, PluginDescriptor> plugins;
+
+        for (const auto& unit : projectUnits)
         {
-            for (const auto& module : package.manifest.modules)
+            for (const auto& module : unit.project.runtime.modules)
             {
-                if (!module.platforms.empty() && !PlatformSupported(target.platform, module.platforms))
+                if (!module.platforms.empty() && !PlatformSupported(variant.platform, module.platforms))
                 {
-                    AddError(report, "package '" + package.manifest.name + "' provides module '" + module.name + "' that is not supported on platform '" + target.platform + "'");
+                    AddError(report, "project '" + unit.project.name + "' provides module '" + module.name + "' that is not supported on platform '" + variant.platform + "'");
                     continue;
                 }
                 if (const auto providerIt = providersByModule.find(module.name); providerIt != providersByModule.end() && !providerIt->second.empty())
                 {
-                    AddError(report, "duplicate module declaration for '" + module.name + "' in packages '" + *providerIt->second.begin() + "' and '" + package.manifest.name + "'");
+                    AddError(report, "duplicate module declaration for '" + module.name + "' in '" + *providerIt->second.begin() + "' and project '" + unit.project.name + "'");
+                    continue;
+                }
+                modules.emplace(module.name, module);
+                providersByModule[module.name].insert(unit.project.name);
+            }
+        }
+
+        for (const auto& package : orderedPackages)
+        {
+            for (const auto& module : package.manifest.modules)
+            {
+                if (!module.platforms.empty() && !PlatformSupported(variant.platform, module.platforms))
+                {
+                    AddError(report, "package '" + package.manifest.name + "' provides module '" + module.name + "' that is not supported on platform '" + variant.platform + "'");
+                    continue;
+                }
+                if (const auto providerIt = providersByModule.find(module.name); providerIt != providersByModule.end() && !providerIt->second.empty())
+                {
+                    AddError(report, "duplicate module declaration for '" + module.name + "' in '" + *providerIt->second.begin() + "' and package '" + package.manifest.name + "'");
                     continue;
                 }
                 modules.emplace(module.name, module);
@@ -1311,9 +1640,9 @@ namespace
             }
             for (const auto& plugin : package.manifest.plugins)
             {
-                if (!plugin.platforms.empty() && !PlatformSupported(target.platform, plugin.platforms))
+                if (!plugin.platforms.empty() && !PlatformSupported(variant.platform, plugin.platforms))
                 {
-                    AddError(report, "package '" + package.manifest.name + "' provides plugin '" + plugin.name + "' that is not supported on platform '" + target.platform + "'");
+                    AddError(report, "package '" + package.manifest.name + "' provides plugin '" + plugin.name + "' that is not supported on platform '" + variant.platform + "'");
                     continue;
                 }
                 if (const auto providerIt = providersByPlugin.find(plugin.name); providerIt != providersByPlugin.end() && !providerIt->second.empty())
@@ -1330,45 +1659,24 @@ namespace
             return std::nullopt;
         }
 
-        std::set<std::string> directModules;
-        for (const auto& name : target.modulesEnable)
+        std::set<std::string> directModules {};
+        for (const auto& unit : projectUnits)
         {
-            if (std::find(target.modulesDisable.begin(), target.modulesDisable.end(), name) == target.modulesDisable.end())
-            {
-                directModules.insert(name);
-            }
+            MergeStringSelection(directModules, unit.project.runtime.enableModules, unit.project.runtime.disableModules);
+            MergeStringSelection(directModules, unit.variant.enableModules, unit.variant.disableModules);
         }
-        std::set<std::string> directPlugins;
-        for (const auto& name : target.pluginsEnable)
-        {
-            if (std::find(target.pluginsDisable.begin(), target.pluginsDisable.end(), name) == target.pluginsDisable.end())
-            {
-                directPlugins.insert(name);
-            }
-        }
+        std::set<std::string> directPlugins {};
 
-        for (const auto& plugin : directPlugins)
-        {
-            if (!plugins.contains(plugin))
-            {
-                AddError(report, "target '" + target.name + "' references unknown plugin '" + plugin + "'");
-                continue;
-            }
-            if (!providersByPlugin.contains(plugin))
-            {
-                AddError(report, "target '" + target.name + "' enables plugin '" + plugin + "' but no active package provides it");
-            }
-        }
         for (const auto& module : directModules)
         {
             if (!modules.contains(module))
             {
-                AddError(report, "target '" + target.name + "' references unknown module '" + module + "'");
+                AddError(report, "variant '" + variant.name + "' references unknown module '" + module + "'");
                 continue;
             }
             if (!providersByModule.contains(module))
             {
-                AddError(report, "target '" + target.name + "' enables module '" + module + "' but no active package provides it");
+                AddError(report, "variant '" + variant.name + "' enables module '" + module + "' but no active project or package provides it");
             }
         }
         if (!report.errors.empty())
@@ -1378,29 +1686,6 @@ namespace
 
         std::set<std::string> requiredSet = directModules;
         std::set<std::string> optionalSet;
-        for (const auto& pluginName : directPlugins)
-        {
-            const auto& plugin = plugins.at(pluginName);
-            for (const auto& moduleName : plugin.requiredModules)
-            {
-                if (!providersByModule.contains(moduleName))
-                {
-                    AddError(report, "plugin '" + pluginName + "' requires module '" + moduleName + "' but no active package provides it");
-                    continue;
-                }
-                requiredSet.insert(moduleName);
-            }
-            for (const auto& moduleName : plugin.optionalModules)
-            {
-                if (!providersByModule.contains(moduleName))
-                {
-                    AddWarning(report, "plugin '" + pluginName + "' optional module '" + moduleName + "' is not provided by any active package");
-                    continue;
-                }
-                optionalSet.insert(moduleName);
-            }
-        }
-
         std::vector<std::string> reqQueue(requiredSet.begin(), requiredSet.end());
         std::vector<std::string> optQueue(optionalSet.begin(), optionalSet.end());
         std::size_t reqIndex = 0;
@@ -1410,22 +1695,22 @@ namespace
             const auto it = modules.find(current);
             if (it == modules.end())
             {
-                AddError(report, "target '" + target.name + "' references unknown module '" + current + "'");
+                AddError(report, "variant '" + variant.name + "' references unknown module '" + current + "'");
                 continue;
             }
-            if (it->second.editorOnly && target.type != "Editor")
+            if (it->second.editorOnly && Lower(project.type) != "plugin" && Lower(variant.profile) != "editor")
             {
-                AddError(report, "target '" + target.name + "' includes editor-only module '" + current + "'");
+                AddError(report, "variant '" + variant.name + "' includes editor-only module '" + current + "'");
             }
-            if (it->second.requiresReflection && !target.enableReflection)
+            if (it->second.requiresReflection && !variant.enableReflection)
             {
-                AddError(report, "target '" + target.name + "' includes module '" + current + "' that requires reflection");
+                AddError(report, "variant '" + variant.name + "' includes module '" + current + "' that requires reflection");
             }
             for (const auto& dep : it->second.required)
             {
                 if (!providersByModule.contains(dep))
                 {
-                    AddError(report, "module '" + current + "' requires '" + dep + "' but no active package provides it");
+                    AddError(report, "module '" + current + "' requires '" + dep + "' but no active project or package provides it");
                     continue;
                 }
                 if (!requiredSet.contains(dep))
@@ -1515,13 +1800,22 @@ namespace
         const auto orderedModules = TopologicalDependenciesFirst(allNodes, depEdges);
         if (!orderedModules.has_value())
         {
-            AddError(report, "target closure contains cyclic module dependencies");
+            AddError(report, "variant closure contains cyclic module dependencies");
             return std::nullopt;
         }
 
         ResolvedTarget resolved {};
+        resolved.workspace = workspace;
         resolved.project = project;
-        resolved.target = target;
+        resolved.variant = variant;
+        resolved.projectUnits = std::move(projectUnits);
+        std::set<std::string> mergedConfigSources {};
+        for (const auto& unit : resolved.projectUnits)
+        {
+            mergedConfigSources.insert(unit.project.configSources.begin(), unit.project.configSources.end());
+            mergedConfigSources.insert(unit.variant.configSources.begin(), unit.variant.configSources.end());
+        }
+        resolved.configSources.assign(mergedConfigSources.begin(), mergedConfigSources.end());
         resolved.orderedPackages = std::move(orderedPackages);
         for (const auto& package : resolved.orderedPackages)
         {
@@ -1544,7 +1838,7 @@ namespace
             }
         }
         resolved.dependencyEdges = std::move(depEdges);
-        ResolveArtifacts(resolved.orderedPackages, resolved.target, report, resolved.libraries, resolved.executables, resolved.selectedExecutable);
+        ResolveArtifacts(resolved.projectUnits, resolved.orderedPackages, resolved.project, resolved.variant, report, resolved.libraries, resolved.executables, resolved.selectedExecutable);
         if (!report.errors.empty())
         {
             return std::nullopt;
@@ -1613,6 +1907,12 @@ namespace
         return hasLibraries || PackageExposesSelectedExecutable(manifest, selectedExecutable);
     }
 
+    [[nodiscard]] auto ProjectNeedsCMakeBuild(const ProjectManifest& project) -> bool
+    {
+        const auto kind = Lower(project.primaryOutput.kind);
+        return kind == "executable" || kind == "staticlibrary" || kind == "sharedlibrary";
+    }
+
     [[nodiscard]] auto HasArtifactTargetsToBuild(const ResolvedTarget& resolved) -> bool
     {
         if (resolved.selectedExecutable.has_value() && !resolved.selectedExecutable->target.empty())
@@ -1671,6 +1971,32 @@ namespace
             return std::nullopt;
         }
 
+        std::unordered_set<std::string> addedProjectDirs;
+        for (const auto& unit : resolved.projectUnits)
+        {
+            if (!ProjectNeedsCMakeBuild(unit.project))
+            {
+                continue;
+            }
+            const auto projectDir = fs::weakly_canonical(unit.project.path.parent_path());
+            const auto cmakeLists = projectDir / "CMakeLists.txt";
+            if (!fs::exists(cmakeLists))
+            {
+                AddError(report, "project '" + unit.project.name + "' requires a CMakeLists.txt at '" + cmakeLists.string() + "'");
+                continue;
+            }
+            const auto key = projectDir.string();
+            if (!addedProjectDirs.insert(key).second)
+            {
+                continue;
+            }
+            out << "add_subdirectory(\"" << EscapeCMake(projectDir.string()) << "\" \"${CMAKE_BINARY_DIR}/proj_" << SanitizeIdentifier(unit.project.name) << "\")\n";
+        }
+        if (!report.errors.empty())
+        {
+            return std::nullopt;
+        }
+
         out << "add_custom_target(ngin_stage_artifacts)\n";
 
         auto emitStageTarget = [&](const std::string& artifactName,
@@ -1721,13 +2047,13 @@ namespace
         const auto configure = "cmake -S \"" + generatedSourceDir.string() + "\" -B \"" + generatedBuildDir->string() + "\"";
         if (std::system(configure.c_str()) != 0)
         {
-            AddError(report, "failed to configure generated CMake build project for target '" + resolved.target.name + "'");
+            AddError(report, "failed to configure generated CMake build project for variant '" + resolved.variant.name + "'");
             return;
         }
         const auto build = "cmake --build \"" + generatedBuildDir->string() + "\" --target ngin_stage_artifacts";
         if (std::system(build.c_str()) != 0)
         {
-            AddError(report, "failed to build or stage artifacts for target '" + resolved.target.name + "'");
+            AddError(report, "failed to build or stage artifacts for variant '" + resolved.variant.name + "'");
         }
     }
 
@@ -1765,7 +2091,7 @@ namespace
     struct ParsedArgs
     {
         std::optional<std::string> projectPath {};
-        std::optional<std::string> targetName {};
+        std::optional<std::string> variantName {};
         std::optional<std::string> outputPath {};
         std::optional<std::string> targetDir {};
         std::optional<std::string> packageName {};
@@ -1781,9 +2107,9 @@ namespace
             {
                 args.projectPath = argv[++index];
             }
-            else if (current == "--target" && index + 1 < argc)
+            else if (current == "--variant" && index + 1 < argc)
             {
-                args.targetName = argv[++index];
+                args.variantName = argv[++index];
             }
             else if ((current == "--output" || current == "--output-dir") && index + 1 < argc)
             {
@@ -1811,77 +2137,44 @@ namespace
 
     auto CmdList(const fs::path& root) -> int
     {
-        const auto release = LoadPlatformRelease(root);
-        for (const auto& component : release.components)
+        const auto workspace = LoadWorkspaceManifest(root);
+        std::cout << "Workspace: " << workspace.name << "\n";
+        std::cout << "Projects:\n";
+        for (const auto& projectPath : workspace.projects)
         {
-            std::cout << component.name << " " << component.version << " " << (component.ref.empty() ? "unpinned" : component.ref) << "\n";
+            const auto project = LoadProjectManifest(projectPath);
+            std::cout << "  - " << project.name << " [" << project.type << "] " << project.path.string() << "\n";
         }
         return 0;
     }
 
-    [[nodiscard]] auto DefaultComponentLocation(const Component& component) -> fs::path
-    {
-        if (!component.location.empty())
-        {
-            return fs::path(component.location);
-        }
-        if (component.kind == "WorkspaceComponent")
-        {
-            return fs::path("Packages") / component.name;
-        }
-        if (component.kind == "ThirdPartyDependency")
-        {
-            return fs::path("Dependencies") / "ThirdParty" / component.name;
-        }
-        return fs::path("Dependencies") / "NGIN" / component.name;
-    }
-
-    [[nodiscard]] auto ResolveComponentPath(const fs::path& root, const Component& component, const std::optional<std::string>& targetDir) -> std::pair<std::string, fs::path>
-    {
-        const auto configured = root / DefaultComponentLocation(component);
-        if (fs::exists(configured))
-        {
-            return {"configured", configured};
-        }
-        if (targetDir.has_value())
-        {
-            const auto overridePath = fs::path(*targetDir) / component.name;
-            if (fs::exists(overridePath))
-            {
-                return {"override", overridePath};
-            }
-        }
-        return {"none", {}};
-    }
-
     auto CmdStatus(const fs::path& root, const ParsedArgs& args) -> int
     {
-        const auto release = LoadPlatformRelease(root);
-        std::cout << "COMPONENT             KIND            SOURCE      REQ   REF           HEAD          PATH\n";
-        for (const auto& component : release.components)
+        (void)args;
+        const auto workspace = LoadWorkspaceManifest(root);
+        std::cout << "Workspace: " << workspace.name << "\n";
+        std::cout << "  manifest: " << workspace.path.string() << "\n";
+        std::cout << "  platform version: " << workspace.platformVersion << "\n";
+        std::cout << "Package sources:\n";
+        for (const auto& source : workspace.packageSources)
         {
-            const auto [source, path] = ResolveComponentPath(root, component, args.targetDir);
-            if (source == "none")
-            {
-                std::cout << component.name << " " << (component.kind.empty() ? "-" : component.kind) << " none "
-                          << (component.required ? "yes" : "no") << " - - missing\n";
-                continue;
-            }
-            const auto head = CaptureCommand("git -C \"" + path.string() + "\" rev-parse HEAD").value_or("-");
-            std::cout << component.name << " " << (component.kind.empty() ? "-" : component.kind) << " " << source << " "
-                      << (component.required ? "yes" : "no") << " "
-                      << (component.ref.empty() ? "unpinned" : component.ref.substr(0, std::min<std::size_t>(12, component.ref.size()))) << " "
-                      << head.substr(0, std::min<std::size_t>(12, head.size())) << " " << path.string() << "\n";
+            std::cout << "  - " << source.string() << (fs::exists(source) ? "" : " [missing]") << "\n";
+        }
+        std::cout << "Projects:\n";
+        for (const auto& projectPath : workspace.projects)
+        {
+            std::cout << "  - " << projectPath.string() << (fs::exists(projectPath) ? "" : " [missing]") << "\n";
         }
         return 0;
     }
 
     auto CmdDoctor(const fs::path& root, const ParsedArgs& args) -> int
     {
+        (void)args;
         int fail = 0;
         std::cout << "NGIN workspace doctor\n";
         std::cout << "  root: " << root << "\n";
-        std::cout << "  workspace release manifest: " << PlatformReleasePath(root) << "\n";
+        std::cout << "  workspace manifest: " << WorkspaceFilePath(root).value_or(root / "<missing>") << "\n";
         if (!ToolExists("git"))
         {
             std::cout << "[error] missing tool: git\n";
@@ -1900,12 +2193,20 @@ namespace
         {
             std::cout << "[ok] tool: cmake\n";
         }
-        std::optional<PlatformRelease> release;
+        std::optional<WorkspaceManifest> workspace;
         try
         {
-            release = LoadPlatformRelease(root);
-            (void)LoadPackageCatalog(root);
+            workspace = LoadWorkspaceManifest(root);
+            std::size_t projectsParsed = 0;
+            for (const auto& projectPath : workspace->projects)
+            {
+                (void)LoadProjectManifest(projectPath);
+                ++projectsParsed;
+            }
+            const auto catalog = LoadPackageCatalog(root);
             std::cout << "[ok] XML manifests parse\n";
+            std::cout << "[ok] projects: " << projectsParsed << "\n";
+            std::cout << "[ok] packages indexed: " << catalog.size() << "\n";
         }
         catch (const std::exception& ex)
         {
@@ -1913,22 +2214,17 @@ namespace
             fail = 1;
         }
 
-        if (!release.has_value())
+        if (!workspace.has_value())
         {
             std::cout << "\ndoctor result: FAIL\n";
             return 1;
         }
-        for (const auto& component : release->components)
+        for (const auto& source : workspace->packageSources)
         {
-            const auto [source, path] = ResolveComponentPath(root, component, args.targetDir);
-            if (source == "none")
+            if (!fs::exists(source))
             {
-                std::cout << (component.required ? "[warn] " : "[ok] ") << component.name << ": not present locally\n";
-                continue;
-            }
-            if (!fs::exists(path / ".git"))
-            {
-                std::cout << "[warn] " << component.name << ": source tree present without nested .git metadata at " << path << "\n";
+                std::cout << "[warn] package source missing: " << source.string() << "\n";
+                fail = 1;
             }
         }
         std::cout << "\ndoctor result: " << (fail == 0 ? "PASS" : "FAIL") << "\n";
@@ -1937,41 +2233,19 @@ namespace
 
     auto CmdSync(const fs::path& root, const ParsedArgs& args) -> int
     {
-        const auto release = LoadPlatformRelease(root);
-        for (const auto& component : release.components)
+        (void)args;
+        if (!fs::exists(root / ".gitmodules"))
         {
-            if (component.kind == "WorkspaceComponent")
-            {
-                continue;
-            }
-            if (component.repoUrl.empty() || component.ref.empty())
-            {
-                continue;
-            }
-            auto dest = root / DefaultComponentLocation(component);
-            if (args.targetDir.has_value())
-            {
-                dest = fs::path(*args.targetDir) / component.name;
-            }
-            fs::create_directories(dest.parent_path());
-            if (!fs::exists(dest / ".git"))
-            {
-                const auto clone = "git clone \"" + component.repoUrl + "\" \"" + dest.string() + "\"";
-                if (std::system(clone.c_str()) != 0)
-                {
-                    return 1;
-                }
-            }
-            const auto fetch = "git -C \"" + dest.string() + "\" fetch --tags origin";
-            if (std::system(fetch.c_str()) != 0)
-            {
-                return 1;
-            }
-            const auto checkout = "git -C \"" + dest.string() + "\" checkout --detach " + component.ref;
-            if (std::system(checkout.c_str()) != 0)
-            {
-                return 1;
-            }
+            std::cout << "No .gitmodules file found; nothing to sync.\n";
+            return 0;
+        }
+        if (std::system(("git -C \"" + root.string() + "\" submodule sync --recursive").c_str()) != 0)
+        {
+            return 1;
+        }
+        if (std::system(("git -C \"" + root.string() + "\" submodule update --init --recursive").c_str()) != 0)
+        {
+            return 1;
         }
         return 0;
     }
@@ -2155,15 +2429,15 @@ namespace
     auto CmdValidate(const fs::path& root, const ParsedArgs& args) -> int
     {
         const auto project = LoadProjectManifest(ResolveProjectPath(args.projectPath));
-        const auto& target = TargetByName(project, args.targetName);
+        const auto& variant = VariantByName(project, args.variantName);
         IssueReport report {};
-        const auto resolved = ResolveTarget(root, project, target, report);
+        const auto resolved = ResolveTarget(root, project, variant, report);
         if (!resolved.has_value() || !report.errors.empty())
         {
             PrintIssues(report, "Validation");
             return 1;
         }
-        std::cout << "Validated target: " << resolved->target.name << "\n";
+        std::cout << "Validated variant: " << resolved->variant.name << "\n";
         std::cout << "  project: " << resolved->project.name << "\n";
         std::cout << "  packages: " << resolved->orderedPackages.size() << "\n";
         std::cout << "  required modules: " << resolved->requiredModules.size() << "\n";
@@ -2178,15 +2452,20 @@ namespace
     auto CmdGraph(const fs::path& root, const ParsedArgs& args) -> int
     {
         const auto project = LoadProjectManifest(ResolveProjectPath(args.projectPath));
-        const auto& target = TargetByName(project, args.targetName);
+        const auto& variant = VariantByName(project, args.variantName);
         IssueReport report {};
-        const auto resolved = ResolveTarget(root, project, target, report);
+        const auto resolved = ResolveTarget(root, project, variant, report);
         if (!resolved.has_value() || !report.errors.empty())
         {
             PrintIssues(report, "Graph");
             return 1;
         }
-        std::cout << "Graph for target: " << resolved->target.name << "\n\nPackages:\n";
+        std::cout << "Graph for variant: " << resolved->variant.name << "\n\nProjects:\n";
+        for (const auto& unit : resolved->projectUnits)
+        {
+            std::cout << "  - " << unit.project.name << " [" << unit.variant.name << "]\n";
+        }
+        std::cout << "\nPackages:\n";
         for (const auto& package : resolved->orderedPackages)
         {
             const auto& edges = resolved->packageEdges.at(package.manifest.name);
@@ -2274,17 +2553,17 @@ namespace
 
     auto WriteTargetLayout(const ResolvedTarget& resolved, const fs::path& outputDir, const std::vector<std::tuple<std::string, fs::path, fs::path>>& staged) -> void
     {
-        const auto manifestPath = outputDir / (resolved.target.name + ".ngintarget");
+        const auto manifestPath = outputDir / (resolved.project.name + "." + resolved.variant.name + ".ngintarget");
         std::ofstream out(manifestPath);
         out << "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n";
-        out << "<TargetLayout SchemaVersion=\"1\" Target=\"" << EscapeXml(resolved.target.name)
+        out << "<TargetLayout SchemaVersion=\"1\" Variant=\"" << EscapeXml(resolved.variant.name)
             << "\" Project=\"" << EscapeXml(resolved.project.name)
-            << "\" Type=\"" << EscapeXml(resolved.target.type)
-            << "\" Profile=\"" << EscapeXml(resolved.target.profile)
-            << "\" Platform=\"" << EscapeXml(resolved.target.platform)
+            << "\" Type=\"" << EscapeXml(resolved.project.type)
+            << "\" Profile=\"" << EscapeXml(resolved.variant.profile)
+            << "\" Platform=\"" << EscapeXml(resolved.variant.platform)
             << "\">\n";
-        out << "  <Runtime Environment=\"" << EscapeXml(resolved.target.environmentName)
-            << "\" WorkingDirectory=\"" << EscapeXml(resolved.target.workingDirectory)
+        out << "  <Runtime Environment=\"" << EscapeXml(resolved.variant.environmentName)
+            << "\" WorkingDirectory=\"" << EscapeXml(resolved.variant.workingDirectory)
             << "\" />\n";
         if (resolved.selectedExecutable.has_value())
         {
@@ -2294,7 +2573,7 @@ namespace
                 << "\" />\n";
         }
         out << "  <ConfigSources>\n";
-        for (const auto& source : resolved.target.configSources)
+        for (const auto& source : resolved.configSources)
         {
             out << "    <Config Source=\"" << EscapeXml(source) << "\" />\n";
         }
@@ -2365,15 +2644,15 @@ namespace
     auto CmdBuild(const fs::path& root, const ParsedArgs& args) -> int
     {
         const auto project = LoadProjectManifest(ResolveProjectPath(args.projectPath));
-        const auto& target = TargetByName(project, args.targetName);
+        const auto& variant = VariantByName(project, args.variantName);
         IssueReport report {};
-        const auto resolved = ResolveTarget(root, project, target, report);
+        const auto resolved = ResolveTarget(root, project, variant, report);
         if (!resolved.has_value() || !report.errors.empty())
         {
             PrintIssues(report, "Build");
             return 1;
         }
-        const auto outputDir = args.outputPath.has_value() ? fs::absolute(*args.outputPath) : (root / ".ngin" / "build" / resolved->target.name);
+        const auto outputDir = args.outputPath.has_value() ? fs::absolute(*args.outputPath) : (root / ".ngin" / "build" / resolved->project.name / resolved->variant.name);
         if (fs::exists(outputDir))
         {
             fs::remove_all(outputDir);
@@ -2413,7 +2692,7 @@ namespace
                 staged.emplace_back(content.kind, source, dest);
             }
         }
-        for (const auto& config : resolved->target.configSources)
+        for (const auto& config : resolved->configSources)
         {
             const auto source = resolved->project.path.parent_path() / config;
             if (!fs::exists(source))
@@ -2438,7 +2717,7 @@ namespace
             return 1;
         }
         WriteTargetLayout(*resolved, outputDir, staged);
-        std::cout << "Built target: " << resolved->target.name << "\n";
+        std::cout << "Built variant: " << resolved->variant.name << "\n";
         std::cout << "  project: " << resolved->project.name << "\n";
         std::cout << "  output: " << outputDir << "\n";
         std::cout << "  selected executable: " << (resolved->selectedExecutable.has_value() ? resolved->selectedExecutable->name : "(none)") << "\n";
@@ -2452,12 +2731,12 @@ namespace
             << "usage: ngin <group> <command> [options]\n\n"
             << "Commands:\n"
             << "  workspace list\n"
-            << "  workspace status [--dependencies <dir>]\n"
-            << "  workspace doctor [--dependencies <dir>]\n"
-            << "  workspace sync [--dependencies <dir>]\n"
-            << "  project validate [--project <file.nginproj>] [--target <name>]\n"
-            << "  project graph [--project <file.nginproj>] [--target <name>]\n"
-            << "  project build [--project <file.nginproj>] [--target <name>] [--output <dir>]\n"
+            << "  workspace status\n"
+            << "  workspace doctor\n"
+            << "  workspace sync\n"
+            << "  project validate [--project <file.nginproj>] [--variant <name>]\n"
+            << "  project graph [--project <file.nginproj>] [--variant <name>]\n"
+            << "  project build [--project <file.nginproj>] [--variant <name>] [--output <dir>]\n"
             << "  package list\n"
             << "  package show <PackageName>\n";
     }

@@ -1,65 +1,74 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="1" Name="NGIN.Samples.ApplicationModel" DefaultTarget="Sandbox.Game">
-  <Targets>
-    <Target Name="Tools.Cli"
-            Type="Program"
-            Profile="ConsoleApp"
-            Platform="linux-x64"
-            EnableReflection="false"
-            Environment="Dev"
-            WorkingDirectory=".">
-      <Packages>
-        <PackageRef Name="NGIN.ECS" VersionRange=">=0.1.0 &lt;1.0.0" />
-      </Packages>
-      <Modules>
-        <Enable Name="Core.Hosting" />
-      </Modules>
-      <Plugins />
+<Project SchemaVersion="1"
+         Name="NGIN.Samples.ApplicationModel"
+         Type="Application"
+         DefaultVariant="Sandbox.Game">
+  <SourceRoots>
+    <SourceRoot Path="src" />
+  </SourceRoots>
+  <PrimaryOutput Kind="Executable"
+                 Name="Sandbox.Game"
+                 Target="Sandbox.Game" />
+  <PackageRefs>
+    <PackageRef Name="NGIN.ECS" VersionRange=">=0.1.0 &lt;1.0.0" />
+  </PackageRefs>
+  <Runtime>
+    <Modules>
+      <Module Name="App.SandboxGame"
+              Family="App"
+              Type="Runtime"
+              LoadPhase="Application"
+              Version="0.1.0"
+              ReflectionRequired="false" />
+    </Modules>
+    <EnableModules>
+      <ModuleRef Name="App.SandboxGame" />
+    </EnableModules>
+  </Runtime>
+  <Variants>
+    <Variant Name="Tools.Cli"
+             Profile="ConsoleApp"
+             Platform="linux-x64"
+             Environment="Dev"
+             WorkingDirectory=".">
       <ConfigSources>
         <Config Source="config/cli.xml" />
       </ConfigSources>
-    </Target>
-    <Target Name="Tools.Diagnostics"
-            Type="Developer"
-            Profile="TestHost"
-            Platform="linux-x64"
-            EnableReflection="true"
-            Environment="Dev"
-            WorkingDirectory=".">
-      <Packages>
-        <PackageRef Name="NGIN.ECS" VersionRange=">=0.1.0 &lt;1.0.0" />
+      <EnableModules>
+        <ModuleRef Name="Core.Hosting" />
+      </EnableModules>
+    </Variant>
+    <Variant Name="Tools.Diagnostics"
+             Profile="TestHost"
+             Platform="linux-x64"
+             Environment="Dev"
+             WorkingDirectory="."
+             EnableReflection="true">
+      <PackageRefs>
         <PackageRef Name="NGIN.Reflection" VersionRange=">=0.1.0 &lt;1.0.0" />
         <PackageRef Name="NGIN.Diagnostics" VersionRange=">=0.1.0 &lt;1.0.0" />
-      </Packages>
-      <Modules>
-        <Enable Name="Core.Hosting" />
-        <Enable Name="Domain.ECS" />
-      </Modules>
-      <Plugins>
-        <Enable Name="NGIN.Diagnostics" />
-      </Plugins>
+      </PackageRefs>
       <ConfigSources>
         <Config Source="config/tooling.xml" />
       </ConfigSources>
-    </Target>
-    <Target Name="Sandbox.Game"
-            Type="Runtime"
-            Profile="Game"
-            Platform="linux-x64"
-            EnableReflection="false"
-            Environment="Dev"
-            WorkingDirectory=".">
-      <Packages>
-        <PackageRef Name="NGIN.ECS" VersionRange=">=0.1.0 &lt;1.0.0" />
-      </Packages>
-      <Modules>
-        <Enable Name="Core.Hosting" />
-        <Enable Name="Domain.ECS" />
-      </Modules>
-      <Plugins />
+      <EnableModules>
+        <ModuleRef Name="Core.Hosting" />
+        <ModuleRef Name="Domain.ECS" />
+      </EnableModules>
+    </Variant>
+    <Variant Name="Sandbox.Game"
+             Profile="Game"
+             Platform="linux-x64"
+             Environment="Dev"
+             WorkingDirectory=".">
       <ConfigSources>
         <Config Source="config/game.xml" />
       </ConfigSources>
-    </Target>
-  </Targets>
+      <Launch Executable="Sandbox.Game" />
+      <EnableModules>
+        <ModuleRef Name="Core.Hosting" />
+        <ModuleRef Name="Domain.ECS" />
+      </EnableModules>
+    </Variant>
+  </Variants>
 </Project>

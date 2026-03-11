@@ -1,23 +1,30 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="1" Name="NGIN.Core.BasicHost" DefaultTarget="Samples.BasicHost">
-  <Targets>
-    <Target Name="Samples.BasicHost"
-            Type="Program"
-            Profile="ConsoleApp"
-            Platform="linux-x64"
-            EnableReflection="false"
-            Environment="Dev"
-            WorkingDirectory=".">
-      <Packages>
-        <PackageRef Name="Samples.DemoPackage" VersionRange=">=0.1.0 &lt;1.0.0" Optional="false" />
-      </Packages>
-      <Modules>
-        <Enable Name="App.BasicHost" />
-      </Modules>
-      <Plugins />
-      <ConfigSources>
-        <Config Source="app.cfg" />
-      </ConfigSources>
-    </Target>
-  </Targets>
+<Project SchemaVersion="1"
+         Name="NGIN.Core.BasicHost"
+         Type="Application"
+         DefaultVariant="Samples.BasicHost">
+  <SourceRoots>
+    <SourceRoot Path="." />
+  </SourceRoots>
+  <PrimaryOutput Kind="Executable"
+                 Name="NGIN.Core.BasicHost"
+                 Target="NGINCoreBasicHost" />
+  <PackageRefs>
+    <PackageRef Name="Samples.DemoPackage" VersionRange=">=0.1.0 &lt;1.0.0" Optional="false" />
+  </PackageRefs>
+  <ConfigSources>
+    <Config Source="app.cfg" />
+  </ConfigSources>
+  <Runtime>
+    <EnableModules>
+      <ModuleRef Name="App.BasicHost" />
+    </EnableModules>
+  </Runtime>
+  <Variants>
+    <Variant Name="Samples.BasicHost"
+             Profile="ConsoleApp"
+             Platform="linux-x64"
+             Environment="Dev"
+             WorkingDirectory="." />
+  </Variants>
 </Project>

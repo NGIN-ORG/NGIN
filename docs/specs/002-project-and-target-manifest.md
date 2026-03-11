@@ -1,13 +1,22 @@
-# Spec 002: Project and Target Manifest
+# Spec 002: Project And Variant Manifest
 
 Status: Active
-Last updated: 2026-03-08
+Last updated: 2026-03-10
 
 ## Purpose
 
-This spec defines the `.nginproj` file format.
+This spec defines the active `.nginproj` file format.
 
-A project manifest is the top-level authored application definition.
+A project manifest is the top-level authored buildable unit in NGIN.
+
+Projects own:
+
+- source roots
+- primary output
+- project references
+- package references
+- app-local runtime contributions
+- variants
 
 ## File Contract
 
@@ -23,61 +32,107 @@ Required root attributes:
 
 - `SchemaVersion`
 - `Name`
-- `DefaultTarget`
+- `Type`
+- `DefaultVariant`
 
 ## Structure
 
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="1" Name="Sandbox.Game" DefaultTarget="Game">
-  <Targets>
-    <Target Name="Game"
-            Type="Runtime"
-            Profile="Game"
-            Platform="linux-x64"
-            EnableReflection="false"
-            Environment="Dev"
-            WorkingDirectory=".">
-      <Packages>
-        <PackageRef Name="NGIN.Core" VersionRange=">=0.1.0 &lt;1.0.0" />
-        <PackageRef Name="NGIN.ECS" VersionRange=">=0.1.0 &lt;1.0.0" />
-      </Packages>
+<Project SchemaVersion="1"
+         Name="Sandbox.Game"
+         Type="Application"
+         DefaultVariant="Game">
+  <SourceRoots>
+    <SourceRoot Path="src" />
+  </SourceRoots>
+  <PrimaryOutput Kind="Executable"
+                 Name="Sandbox.Game"
+                 Target="Sandbox.Game" />
+  <PackageRefs>
+    <PackageRef Name="NGIN.Core" VersionRange=">=0.1.0 &lt;1.0.0" />
+    <PackageRef Name="NGIN.ECS" VersionRange=">=0.1.0 &lt;1.0.0" />
+  </PackageRefs>
+  <ConfigSources>
+    <Config Source="config/game.xml" />
+  </ConfigSources>
+  <Runtime>
+    <Modules>
+      <Module Name="App.GameRuntime"
+              Family="App"
+              Type="Runtime"
+              LoadPhase="Application"
+              Version="0.1.0"
+              ReflectionRequired="false" />
+    </Modules>
+    <EnableModules>
+      <ModuleRef Name="App.GameRuntime" />
+    </EnableModules>
+  </Runtime>
+  <Variants>
+    <Variant Name="Game"
+             Profile="Game"
+             Platform="linux-x64"
+             Environment="Dev"
+             WorkingDirectory=".">
       <Launch Executable="Sandbox.Game" />
-      <Modules>
-        <Enable Name="Core.Hosting" />
-      </Modules>
-      <Plugins />
-      <ConfigSources>
-        <Config Source="config/game.xml" />
-      </ConfigSources>
-    </Target>
-  </Targets>
+    </Variant>
+  </Variants>
 </Project>
 ```
 
-## Target Shape
+## Project Shape
 
-Each `<Target>` may define:
+Root-level project sections:
 
-- `Name` required
-- `Type` required
-- `Profile` optional but recommended
-- `Platform` required
-- `EnableReflection` optional, defaults to `false`
-- `Environment` optional
-- `WorkingDirectory` optional, defaults to `.`
-
-Supported child sections:
-
-- `Packages`
-- `Launch`
-- `Modules`
-- `Plugins`
+- `SourceRoots`
+- `PrimaryOutput`
+- `ProjectRefs`
+- `PackageRefs`
 - `ConfigSources`
+- `Runtime`
+- `Variants`
 
-### Packages
+### SourceRoots
 
-Packages are the normal composition path.
+`SourceRoots` declares project-owned source directories.
+
+Each `<SourceRoot>` entry defines:
+
+- `Path` required
+
+### PrimaryOutput
+
+`PrimaryOutput` declares the main artifact produced by the project.
+
+Required attributes:
+
+- `Kind`
+- `Name`
+- `Target`
+
+Supported `Kind` values in v1:
+
+- `Executable`
+- `StaticLibrary`
+- `SharedLibrary`
+
+Projects may define additional outputs later, but v1 requires one primary output.
+
+### ProjectRefs
+
+`ProjectRefs` declares source/build graph dependencies on other workspace projects.
+
+Each `<ProjectRef>` may define:
+
+- `Path` required
+- `Variant` optional
+
+`ProjectRef` is distinct from `PackageRef`. Project references are workspace-local build graph edges, not reusable package dependencies.
+
+### PackageRefs
+
+Packages are the normal reusable dependency path.
 
 Each `<PackageRef>` may define:
 
@@ -85,22 +140,48 @@ Each `<PackageRef>` may define:
 - `VersionRange` optional but recommended
 - `Optional` optional, defaults to `false`
 
-### Modules
+### ConfigSources
 
-`Modules` is an advanced override section.
+Each `<Config>` entry defines a relative or absolute source path loaded into the project configuration model.
 
-Supported elements:
+### Runtime
 
-- `<Enable Name="..." />`
-- `<Disable Name="..." />`
+`Runtime` declares app-local runtime contributions owned by the project itself.
 
-Direct module toggles should be rare. Packages remain the primary composition input.
+Supported child sections in v1:
+
+- `Modules`
+- `EnableModules`
+- `DisableModules`
+
+This allows applications to own their entry modules without forcing those modules through a reusable package.
+
+### Variants
+
+Variants define build/run variants of the same project.
+
+Each `<Variant>` may define:
+
+- `Name` required
+- `Profile` required
+- `Platform` required
+- `Environment` optional
+- `WorkingDirectory` optional, defaults to `.`
+- `EnableReflection` optional, defaults to `false`
+
+Supported child sections:
+
+- `PackageRefs`
+- `ConfigSources`
+- `Launch`
+- `EnableModules`
+- `DisableModules`
 
 ### Launch
 
 `Launch` is optional.
 
-It exists only to resolve ambiguity when a target can see more than one executable artifact through its packages.
+It exists only to resolve ambiguity when a variant can see more than one executable artifact through its project output plus package graph.
 
 Supported attributes:
 
@@ -108,35 +189,22 @@ Supported attributes:
 
 Rules:
 
-- if a target resolves exactly one executable artifact, implementations may infer it
-- if a target resolves multiple executable artifacts, `Launch Executable="..."` should be used to choose the runnable output
-- if a target resolves no executable artifacts, the target may still be valid for validation or staging, but it has no inferred runnable output
-
-### Plugins
-
-`Plugins` is an advanced override section.
-
-Supported elements:
-
-- `<Enable Name="..." />`
-- `<Disable Name="..." />`
-
-Direct plugin toggles should be rare. Package-declared plugin contributions remain primary.
-
-### ConfigSources
-
-Each `<Config>` entry defines a relative or absolute source path loaded into the target configuration model.
+- if a project resolves exactly one executable artifact, implementations may infer it
+- if a project resolves multiple executable artifacts, `Launch Executable="..."` should be used to choose the runnable output
+- if a project resolves no executable artifacts, the variant may still be valid for validation or staging, but it has no inferred runnable output
 
 ## Rules
 
-- one project file defines one application
-- target names must be unique inside a project
-- `DefaultTarget` must name an existing target
-- target package references are the normal path for composition
-- targets may optionally choose a runnable executable when package-provided executable artifacts are ambiguous
-- module/plugin sections are advanced overrides, not the main authoring surface
+- one project file defines one authored buildable unit
+- variant names must be unique inside a project
+- `DefaultVariant` must name an existing variant
+- root-level package references apply to the whole project
+- variants may add package/config/module overrides
+- projects may define app-local runtime modules
+- package references remain the normal path for reusable composition
+- `ProjectRef` and `PackageRef` are different dependency types and must not be conflated
 - relative `ConfigSources` and `WorkingDirectory` values are resolved relative to the project file location
 
 ## Output
 
-Selecting a target from a project produces the input to composition and validation.
+Selecting a variant from a project produces the input to composition, validation, build planning, and staging.

@@ -1,7 +1,12 @@
 # Examples
 
-`Examples/` contains canonical sample projects and reference material used by the workspace docs, smoke tests, and CLI examples.
+`Examples/` contains the canonical authored examples for the active NGIN model.
 
-- `Workspace/` contains the umbrella repo's canonical example project used for validate/graph/build checks.
+- `App.Basic/` is the smallest real application project in the repo. It owns its `main.cpp`, project manifest, config, and executable output.
+- `Workspace/NGIN.Workspace.ngin` is a minimal sample workspace file that points at `App.Basic` and demonstrates the `.ngin` workspace layer.
 
-These files are real `.nginproj` examples, not workspace inventory metadata.
+These examples use the current split:
+
+- `.ngin` for workspaces
+- `.nginproj` for authored projects
+- `.nginpkg` for reusable packages
