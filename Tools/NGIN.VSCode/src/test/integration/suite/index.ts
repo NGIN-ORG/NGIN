@@ -1,5 +1,5 @@
 import * as path from 'node:path';
-import * as Mocha from 'mocha';
+import Mocha from 'mocha';
 import { promises as fs } from 'node:fs';
 
 async function collectTestFiles(directory: string): Promise<string[]> {

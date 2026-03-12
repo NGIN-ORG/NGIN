@@ -15,18 +15,9 @@
     "Debuggers"
   ],
   "activationEvents": [
-    "onLanguage:ngin",
-    "onCommand:ngin.selectProject",
-    "onCommand:ngin.selectVariant",
-    "onCommand:ngin.build",
-    "onCommand:ngin.run",
-    "onCommand:ngin.debug",
-    "onCommand:ngin.validate",
-    "onCommand:ngin.graph",
-    "onCommand:ngin.workspaceStatus",
-    "onCommand:ngin.workspaceDoctor",
-    "onCommand:ngin.openLastTargetManifest",
     "onDebugResolve:ngin",
+    "onView:nginOverview",
+    "onView:nginProjects",
     "workspaceContains:**/*.nginproj"
   ],
   "main": "./dist/extension.js",
@@ -34,12 +25,13 @@
     "build": "node ./scripts/build.mjs",
     "watch": "node ./scripts/build.mjs --watch",
     "typecheck": "tsc -p ./tsconfig.json --noEmit && tsc -p ./tsconfig.tests.json --noEmit",
-    "test:unit": "tsc -p ./tsconfig.tests.json && node --test ./dist-test/test/unit",
+    "test:unit": "tsc -p ./tsconfig.tests.json && node --test ./dist-test/test/unit/*.test.js",
     "test:integration": "tsc -p ./tsconfig.tests.json && node ./dist-test/test/integration/runTest.js",
     "test": "npm run test:unit && npm run test:integration"
   },
   "dependencies": {
-    "fast-xml-parser": "^5.2.5"
+    "fast-xml-parser": "^5.2.5",
+    "vscode-cpptools": "^7.1.1"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",
@@ -79,58 +71,134 @@
         "path": "./snippets/ngin.code-snippets"
       }
     ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "ngin",
+          "title": "NGIN",
+          "icon": "./media/ngin-activity.svg"
+        }
+      ]
+    },
+    "views": {
+      "ngin": [
+        {
+          "id": "nginOverview",
+          "name": "Overview"
+        },
+        {
+          "id": "nginProjects",
+          "name": "Projects"
+        }
+      ]
+    },
     "commands": [
       {
         "command": "ngin.selectProject",
-        "title": "NGIN: Select Project",
+        "title": "Select Project",
         "category": "NGIN"
       },
       {
         "command": "ngin.selectVariant",
-        "title": "NGIN: Select Variant",
+        "title": "Select Variant",
+        "category": "NGIN"
+      },
+      {
+        "command": "ngin.selectConfiguration",
+        "title": "Select Configuration",
         "category": "NGIN"
       },
       {
         "command": "ngin.build",
-        "title": "NGIN: Build",
+        "title": "Build",
         "category": "NGIN"
       },
       {
         "command": "ngin.run",
-        "title": "NGIN: Run",
+        "title": "Run",
         "category": "NGIN"
       },
       {
         "command": "ngin.debug",
-        "title": "NGIN: Debug",
+        "title": "Debug",
         "category": "NGIN"
       },
       {
         "command": "ngin.validate",
-        "title": "NGIN: Validate",
+        "title": "Validate",
         "category": "NGIN"
       },
       {
         "command": "ngin.graph",
-        "title": "NGIN: Graph",
+        "title": "Graph",
         "category": "NGIN"
       },
       {
         "command": "ngin.workspaceStatus",
-        "title": "NGIN: Workspace Status",
+        "title": "Workspace Status",
         "category": "NGIN"
       },
       {
         "command": "ngin.workspaceDoctor",
-        "title": "NGIN: Workspace Doctor",
+        "title": "Workspace Doctor",
         "category": "NGIN"
       },
       {
         "command": "ngin.openLastTargetManifest",
-        "title": "NGIN: Open Last Target Manifest",
+        "title": "Open Last Target Manifest",
         "category": "NGIN"
+      },
+      {
+        "command": "ngin.refresh",
+        "title": "Refresh",
+        "category": "NGIN",
+        "icon": {
+          "light": "./media/refresh-light.svg",
+          "dark": "./media/refresh-dark.svg"
+        }
       }
     ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "ngin.refresh",
+          "when": "view == nginOverview",
+          "group": "navigation"
+        },
+        {
+          "command": "ngin.refresh",
+          "when": "view == nginProjects",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "ngin.build",
+          "when": "view == nginProjects && viewItem == nginVariant",
+          "group": "inline"
+        },
+        {
+          "command": "ngin.run",
+          "when": "view == nginProjects && viewItem == nginVariant",
+          "group": "inline"
+        },
+        {
+          "command": "ngin.debug",
+          "when": "view == nginProjects && viewItem == nginVariant",
+          "group": "inline"
+        },
+        {
+          "command": "ngin.validate",
+          "when": "view == nginProjects && viewItem == nginVariant",
+          "group": "navigation"
+        },
+        {
+          "command": "ngin.graph",
+          "when": "view == nginProjects && viewItem == nginVariant",
+          "group": "navigation"
+        }
+      ]
+    },
     "configuration": {
       "title": "NGIN Tools",
       "properties": {
@@ -142,7 +210,7 @@
         "ngin.build.outputRoot": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Optional staged output root. When set, build output is written to `<outputRoot>/<project>/<variant>`."
+          "markdownDescription": "Optional staged output root. When set, build output is written to `<outputRoot>/<project>/<variant>/<configuration>`."
         },
         "ngin.validate.onSave": {
           "type": "boolean",
@@ -163,6 +231,16 @@
           "type": "string",
           "default": "NGIN",
           "description": "Integrated terminal name used for `NGIN: Run`."
+        },
+        "ngin.cpp.configurationProvider.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Register NGIN as a C/C++ custom configuration provider for the current workspace when compile commands are available."
+        },
+        "ngin.ui.statusBar.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the NGIN workspace, project, variant, configuration, build, run, and debug items in the bottom status bar."
         }
       }
     },
@@ -187,6 +265,9 @@
             "type": "string"
           },
           "variant": {
+            "type": "string"
+          },
+          "configuration": {
             "type": "string"
           },
           "output": {
@@ -227,6 +308,10 @@
                 "type": "string",
                 "description": "Variant name to build and debug."
               },
+              "configuration": {
+                "type": "string",
+                "description": "Build configuration to use for staging and debugging, such as Debug or Release."
+              },
               "cliPath": {
                 "type": "string",
                 "description": "Optional explicit path to the ngin executable."
@@ -248,7 +333,8 @@
               },
               "preBuild": {
                 "type": "boolean",
-                "default": true
+                "default": false,
+                "description": "When true, always run `ngin project build` before launching. Otherwise reuse the staged target when available and build only if needed."
               }
             }
           }
@@ -260,7 +346,8 @@
             "name": "NGIN: Debug App.Basic [Runtime]",
             "project": "Examples/App.Basic/App.Basic.nginproj",
             "variant": "Runtime",
-            "preBuild": true,
+            "configuration": "Debug",
+            "preBuild": false,
             "programArgs": [],
             "env": {}
           }

@@ -6,6 +6,10 @@
   },
   "include": [
     "src/test/**/*.ts",
-    "src/core/**/*.ts"
-  ]
+    "src/core/**/*.ts",
+    "src/state/**/*.ts",
+    "src/ui/**/*.ts",
+    "src/cpptools/**/*.ts"
+  ],
+  "exclude": []
 }

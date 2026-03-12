@@ -1,7 +1,7 @@
 # Spec 006: CLI Contract
 
 Status: Active
-Last updated: 2026-03-10
+Last updated: 2026-03-12
 
 ## Purpose
 
@@ -30,7 +30,7 @@ Stable active commands:
 - `ngin workspace sync`
 - `ngin project validate --project <file.nginproj> --variant <name>`
 - `ngin project graph --project <file.nginproj> --variant <name>`
-- `ngin project build --project <file.nginproj> --variant <name> --output <dir>`
+- `ngin project build --project <file.nginproj> --variant <name> [--configuration <Debug|Release|RelWithDebInfo|MinSizeRel>] [--output <dir>]`
 - `ngin package list`
 - `ngin package show <Package>`
 
@@ -63,7 +63,7 @@ Loads a project, selects a variant, resolves composition, and prints the resolve
 
 ### project build
 
-Loads a project, selects a variant, resolves composition, resolves artifact and executable candidates, invokes the active backend when needed, stages outputs and content into an output directory, and emits a `.ngintarget` file.
+Loads a project, selects a variant, resolves composition, resolves artifact and executable candidates, invokes the active backend for the selected build configuration when needed, stages outputs and content into an output directory, and emits a `.ngintarget` file.
 
 ### package list
 

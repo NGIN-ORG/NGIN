@@ -1,4 +1,5 @@
 import * as path from 'node:path';
+import { normalizeBuildConfiguration } from './buildConfiguration';
 import { ParsedCliDiagnostic, TargetManifest } from './types';
 
 export function basenameWithoutExtension(filePath: string): string {
@@ -10,17 +11,19 @@ export function computeOutputDir(
   workspaceRoot: string,
   projectName: string,
   variantName: string,
-  configuredOutputRoot?: string
+  configuredOutputRoot?: string,
+  configurationName?: string
 ): string {
+  const buildConfiguration = normalizeBuildConfiguration(configurationName);
   if (!configuredOutputRoot) {
-    return path.join(workspaceRoot, '.ngin', 'build', projectName, variantName);
+    return path.join(workspaceRoot, '.ngin', 'build', projectName, variantName, buildConfiguration);
   }
 
   const outputRoot = path.isAbsolute(configuredOutputRoot)
     ? configuredOutputRoot
     : path.resolve(workspaceRoot, configuredOutputRoot);
 
-  return path.join(outputRoot, projectName, variantName);
+  return path.join(outputRoot, projectName, variantName, buildConfiguration);
 }
 
 export function computeTargetManifestPath(outputDir: string, projectName: string, variantName: string): string {

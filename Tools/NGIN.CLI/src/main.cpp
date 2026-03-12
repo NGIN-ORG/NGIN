@@ -177,6 +177,14 @@ namespace
             || value == "TestHost";
     }
 
+    [[nodiscard]] auto IsSupportedBuildConfiguration(const std::string_view value) -> bool
+    {
+        return value == "Debug"
+            || value == "Release"
+            || value == "RelWithDebInfo"
+            || value == "MinSizeRel";
+    }
+
     [[nodiscard]] auto ParseSupportedHosts(const XmlElement& node, const fs::path& path) -> std::vector<std::string>
     {
         std::vector<std::string> supportedHosts {};
@@ -2081,7 +2089,7 @@ namespace
         return generatedBuildDir;
     }
 
-    auto BuildArtifacts(const ResolvedTarget& resolved, const fs::path& outputDir, IssueReport& report) -> void
+    auto BuildArtifacts(const ResolvedTarget& resolved, const fs::path& outputDir, const std::string& configurationName, IssueReport& report) -> void
     {
         const auto generatedBuildDir = WriteGeneratedBuildProject(resolved, outputDir, report);
         if (!generatedBuildDir.has_value() || !report.errors.empty())
@@ -2090,16 +2098,16 @@ namespace
         }
 
         const auto generatedSourceDir = outputDir / ".ngin" / "cmake-src";
-        const auto configure = "cmake -S \"" + generatedSourceDir.string() + "\" -B \"" + generatedBuildDir->string() + "\"";
+        const auto configure = "cmake -S \"" + generatedSourceDir.string() + "\" -B \"" + generatedBuildDir->string() + "\" -DCMAKE_BUILD_TYPE=\"" + configurationName + "\"";
         if (std::system(configure.c_str()) != 0)
         {
-            AddError(report, "failed to configure generated CMake build project for variant '" + resolved.variant.name + "'");
+            AddError(report, "failed to configure generated CMake build project for variant '" + resolved.variant.name + "' with configuration '" + configurationName + "'");
             return;
         }
-        const auto build = "cmake --build \"" + generatedBuildDir->string() + "\" --target ngin_stage_artifacts";
+        const auto build = "cmake --build \"" + generatedBuildDir->string() + "\" --config \"" + configurationName + "\" --target ngin_stage_artifacts";
         if (std::system(build.c_str()) != 0)
         {
-            AddError(report, "failed to build or stage artifacts for variant '" + resolved.variant.name + "'");
+            AddError(report, "failed to build or stage artifacts for variant '" + resolved.variant.name + "' with configuration '" + configurationName + "'");
         }
     }
 
@@ -2138,6 +2146,7 @@ namespace
     {
         std::optional<std::string> projectPath {};
         std::optional<std::string> variantName {};
+        std::optional<std::string> configurationName {};
         std::optional<std::string> outputPath {};
         std::optional<std::string> targetDir {};
         std::optional<std::string> packageName {};
@@ -2156,6 +2165,10 @@ namespace
             else if (current == "--variant" && index + 1 < argc)
             {
                 args.variantName = argv[++index];
+            }
+            else if ((current == "--configuration" || current == "--config") && index + 1 < argc)
+            {
+                args.configurationName = argv[++index];
             }
             else if ((current == "--output" || current == "--output-dir") && index + 1 < argc)
             {
@@ -2691,14 +2704,23 @@ namespace
     {
         const auto project = LoadProjectManifest(ResolveProjectPath(args.projectPath));
         const auto& variant = VariantByName(project, args.variantName);
+        const auto configurationName = args.configurationName.value_or("Debug");
         IssueReport report {};
+        if (!IsSupportedBuildConfiguration(configurationName))
+        {
+            AddError(report, "unsupported build configuration '" + configurationName + "'. Expected one of: Debug, Release, RelWithDebInfo, MinSizeRel");
+            PrintIssues(report, "Build");
+            return 1;
+        }
         const auto resolved = ResolveTarget(root, project, variant, report);
         if (!resolved.has_value() || !report.errors.empty())
         {
             PrintIssues(report, "Build");
             return 1;
         }
-        const auto outputDir = args.outputPath.has_value() ? fs::absolute(*args.outputPath) : (root / ".ngin" / "build" / resolved->project.name / resolved->variant.name);
+        const auto outputDir = args.outputPath.has_value()
+            ? fs::absolute(*args.outputPath)
+            : (root / ".ngin" / "build" / resolved->project.name / resolved->variant.name / configurationName);
         if (fs::exists(outputDir))
         {
             fs::remove_all(outputDir);
@@ -2707,7 +2729,7 @@ namespace
         std::map<fs::path, std::string> collisions;
         std::vector<std::tuple<std::string, fs::path, fs::path>> staged;
 
-        BuildArtifacts(*resolved, outputDir, report);
+        BuildArtifacts(*resolved, outputDir, configurationName, report);
         if (!report.errors.empty())
         {
             PrintIssues(report, "Build");
@@ -2782,7 +2804,7 @@ namespace
             << "  workspace sync\n"
             << "  project validate [--project <file.nginproj>] [--variant <name>]\n"
             << "  project graph [--project <file.nginproj>] [--variant <name>]\n"
-            << "  project build [--project <file.nginproj>] [--variant <name>] [--output <dir>]\n"
+            << "  project build [--project <file.nginproj>] [--variant <name>] [--configuration <name>] [--output <dir>]\n"
             << "  package list\n"
             << "  package show <PackageName>\n";
     }
