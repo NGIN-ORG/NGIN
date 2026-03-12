@@ -1,0 +1,271 @@
+{
+  "name": "ngin-tools",
+  "displayName": "NGIN Tools",
+  "description": "CLI-first build, run, and debug workflows for NGIN projects in VS Code.",
+  "version": "0.1.0",
+  "publisher": "ngin",
+  "license": "UNLICENSED",
+  "private": true,
+  "engines": {
+    "vscode": "^1.86.0"
+  },
+  "categories": [
+    "Other",
+    "Programming Languages",
+    "Debuggers"
+  ],
+  "activationEvents": [
+    "onLanguage:ngin",
+    "onCommand:ngin.selectProject",
+    "onCommand:ngin.selectVariant",
+    "onCommand:ngin.build",
+    "onCommand:ngin.run",
+    "onCommand:ngin.debug",
+    "onCommand:ngin.validate",
+    "onCommand:ngin.graph",
+    "onCommand:ngin.workspaceStatus",
+    "onCommand:ngin.workspaceDoctor",
+    "onCommand:ngin.openLastTargetManifest",
+    "onDebugResolve:ngin",
+    "workspaceContains:**/*.nginproj"
+  ],
+  "main": "./dist/extension.js",
+  "scripts": {
+    "build": "node ./scripts/build.mjs",
+    "watch": "node ./scripts/build.mjs --watch",
+    "typecheck": "tsc -p ./tsconfig.json --noEmit && tsc -p ./tsconfig.tests.json --noEmit",
+    "test:unit": "tsc -p ./tsconfig.tests.json && node --test ./dist-test/test/unit",
+    "test:integration": "tsc -p ./tsconfig.tests.json && node ./dist-test/test/integration/runTest.js",
+    "test": "npm run test:unit && npm run test:integration"
+  },
+  "dependencies": {
+    "fast-xml-parser": "^5.2.5"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^22.13.10",
+    "@types/vscode": "^1.86.0",
+    "@vscode/test-electron": "^2.5.2",
+    "esbuild": "^0.25.1",
+    "mocha": "^11.1.0",
+    "typescript": "^5.8.2"
+  },
+  "contributes": {
+    "languages": [
+      {
+        "id": "ngin",
+        "aliases": [
+          "NGIN"
+        ],
+        "extensions": [
+          ".ngin",
+          ".nginproj",
+          ".nginpkg",
+          ".ngintarget"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "ngin",
+        "scopeName": "source.ngin",
+        "path": "./syntaxes/ngin.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "ngin",
+        "path": "./snippets/ngin.code-snippets"
+      }
+    ],
+    "commands": [
+      {
+        "command": "ngin.selectProject",
+        "title": "NGIN: Select Project",
+        "category": "NGIN"
+      },
+      {
+        "command": "ngin.selectVariant",
+        "title": "NGIN: Select Variant",
+        "category": "NGIN"
+      },
+      {
+        "command": "ngin.build",
+        "title": "NGIN: Build",
+        "category": "NGIN"
+      },
+      {
+        "command": "ngin.run",
+        "title": "NGIN: Run",
+        "category": "NGIN"
+      },
+      {
+        "command": "ngin.debug",
+        "title": "NGIN: Debug",
+        "category": "NGIN"
+      },
+      {
+        "command": "ngin.validate",
+        "title": "NGIN: Validate",
+        "category": "NGIN"
+      },
+      {
+        "command": "ngin.graph",
+        "title": "NGIN: Graph",
+        "category": "NGIN"
+      },
+      {
+        "command": "ngin.workspaceStatus",
+        "title": "NGIN: Workspace Status",
+        "category": "NGIN"
+      },
+      {
+        "command": "ngin.workspaceDoctor",
+        "title": "NGIN: Workspace Doctor",
+        "category": "NGIN"
+      },
+      {
+        "command": "ngin.openLastTargetManifest",
+        "title": "NGIN: Open Last Target Manifest",
+        "category": "NGIN"
+      }
+    ],
+    "configuration": {
+      "title": "NGIN Tools",
+      "properties": {
+        "ngin.cli.path": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Optional explicit path to the `ngin` executable. Relative paths are resolved from the active workspace root."
+        },
+        "ngin.build.outputRoot": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Optional staged output root. When set, build output is written to `<outputRoot>/<project>/<variant>`."
+        },
+        "ngin.validate.onSave": {
+          "type": "boolean",
+          "default": false,
+          "description": "Validate the current NGIN project after saving an NGIN manifest."
+        },
+        "ngin.cli.warnIfStale": {
+          "type": "boolean",
+          "default": true,
+          "description": "Warn once per session if the in-repo development CLI looks older than key CLI source files."
+        },
+        "ngin.debug.miDebuggerPath": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Optional path to the MI debugger used by `cppdbg` on Linux and macOS."
+        },
+        "ngin.run.terminalName": {
+          "type": "string",
+          "default": "NGIN",
+          "description": "Integrated terminal name used for `NGIN: Run`."
+        }
+      }
+    },
+    "taskDefinitions": [
+      {
+        "type": "ngin",
+        "required": [
+          "command"
+        ],
+        "properties": {
+          "command": {
+            "type": "string",
+            "enum": [
+              "build",
+              "validate",
+              "graph",
+              "workspaceStatus",
+              "workspaceDoctor"
+            ]
+          },
+          "project": {
+            "type": "string"
+          },
+          "variant": {
+            "type": "string"
+          },
+          "output": {
+            "type": "string"
+          }
+        }
+      }
+    ],
+    "problemMatchers": [
+      {
+        "name": "ngin-file",
+        "label": "NGIN File Errors",
+        "owner": "ngin",
+        "fileLocation": "absolute",
+        "pattern": {
+          "regexp": "^(?:\\s*-\\s+)?((?:[A-Za-z]:)?[^:]+\\.(?:ngin|nginproj|nginpkg|ngintarget|xml|cfg)):\\s+(.+)$",
+          "file": 1,
+          "message": 2
+        }
+      }
+    ],
+    "debuggers": [
+      {
+        "type": "ngin",
+        "label": "NGIN",
+        "configurationAttributes": {
+          "launch": {
+            "required": [
+              "project",
+              "variant"
+            ],
+            "properties": {
+              "project": {
+                "type": "string",
+                "description": "Path to the .nginproj file."
+              },
+              "variant": {
+                "type": "string",
+                "description": "Variant name to build and debug."
+              },
+              "cliPath": {
+                "type": "string",
+                "description": "Optional explicit path to the ngin executable."
+              },
+              "outputDir": {
+                "type": "string",
+                "description": "Optional explicit staged output directory."
+              },
+              "programArgs": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "default": []
+              },
+              "env": {
+                "type": "object",
+                "default": {}
+              },
+              "preBuild": {
+                "type": "boolean",
+                "default": true
+              }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "ngin",
+            "request": "launch",
+            "name": "NGIN: Debug App.Basic [Runtime]",
+            "project": "Examples/App.Basic/App.Basic.nginproj",
+            "variant": "Runtime",
+            "preBuild": true,
+            "programArgs": [],
+            "env": {}
+          }
+        ]
+      }
+    ]
+  }
+}

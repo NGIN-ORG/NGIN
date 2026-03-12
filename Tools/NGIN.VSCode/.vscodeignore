@@ -1,0 +1,8 @@
+src/**
+scripts/**
+tsconfig.json
+tsconfig.tests.json
+.gitignore
+node_modules/**
+dist-test/**
+*.tsbuildinfo

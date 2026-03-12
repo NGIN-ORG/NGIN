@@ -1,0 +1,92 @@
+{
+  "Workspace": {
+    "scope": "ngin",
+    "prefix": "ngin-workspace",
+    "body": [
+      "<?xml version=\"1.0\" encoding=\"utf-8\"?>",
+      "<Workspace SchemaVersion=\"1\" Name=\"$1\" PlatformVersion=\"$2\">",
+      "  <PackageSources>",
+      "    <PackageSource Path=\"$3\" />",
+      "  </PackageSources>",
+      "  <Projects>",
+      "    <Project Path=\"$4\" />",
+      "  </Projects>",
+      "</Workspace>"
+    ]
+  },
+  "Project": {
+    "scope": "ngin",
+    "prefix": "ngin-project",
+    "body": [
+      "<?xml version=\"1.0\" encoding=\"utf-8\"?>",
+      "<Project SchemaVersion=\"1\" Name=\"$1\" Type=\"Application\" DefaultVariant=\"$2\">",
+      "  <SourceRoots>",
+      "    <SourceRoot Path=\"src\" />",
+      "  </SourceRoots>",
+      "  <PrimaryOutput Kind=\"Executable\" Name=\"$1\" Target=\"$1\" />",
+      "  <PackageRefs>",
+      "    <PackageRef Name=\"$3\" VersionRange=\"$4\" />",
+      "  </PackageRefs>",
+      "  <Variants>",
+      "    <Variant Name=\"$2\" Profile=\"$5\" Platform=\"$6\" Environment=\"$7\" WorkingDirectory=\".\">",
+      "      <Launch Executable=\"$1\" />",
+      "    </Variant>",
+      "  </Variants>",
+      "</Project>"
+    ]
+  },
+  "Package": {
+    "scope": "ngin",
+    "prefix": "ngin-package",
+    "body": [
+      "<?xml version=\"1.0\" encoding=\"utf-8\"?>",
+      "<Package SchemaVersion=\"1\" Name=\"$1\" Version=\"$2\">",
+      "  <Dependencies>",
+      "    <PackageRef Name=\"$3\" VersionRange=\"$4\" />",
+      "  </Dependencies>",
+      "  <Artifacts>",
+      "    <Libraries>",
+      "      <Library Name=\"$1\" Target=\"$5\" Linkage=\"Static\" Origin=\"Built\" />",
+      "    </Libraries>",
+      "  </Artifacts>",
+      "  <Modules>",
+      "    <Module Name=\"$6\" Family=\"$7\" Type=\"Runtime\" LoadPhase=\"Application\" Version=\"$2\" />",
+      "  </Modules>",
+      "</Package>"
+    ]
+  },
+  "Variant": {
+    "scope": "ngin",
+    "prefix": "ngin-variant",
+    "body": [
+      "<Variant Name=\"$1\" Profile=\"$2\" Platform=\"$3\" Environment=\"$4\" WorkingDirectory=\".\">",
+      "  <Launch Executable=\"$5\" />",
+      "</Variant>"
+    ]
+  },
+  "PackageRef": {
+    "scope": "ngin",
+    "prefix": "ngin-packageref",
+    "body": [
+      "<PackageRef Name=\"$1\" VersionRange=\"$2\" Optional=\"$3\" />"
+    ]
+  },
+  "Module": {
+    "scope": "ngin",
+    "prefix": "ngin-module",
+    "body": [
+      "<Module Name=\"$1\" Family=\"$2\" Type=\"Runtime\" LoadPhase=\"$3\" Version=\"$4\">",
+      "  <Platforms>",
+      "    <Platform Name=\"$5\" />",
+      "  </Platforms>",
+      "</Module>"
+    ]
+  },
+  "Launch": {
+    "scope": "ngin",
+    "prefix": "ngin-launch",
+    "body": [
+      "<Launch Executable=\"$1\" />"
+    ]
+  }
+}

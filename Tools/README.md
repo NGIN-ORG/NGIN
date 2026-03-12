@@ -52,3 +52,16 @@ Default staged output:
 - `ngin.graph.core`
 - `ngin.build.core`
 - `ngin.workflow`
+
+## VS Code Extension
+
+The workspace now also contains an in-tree VS Code extension at `Tools/NGIN.VSCode`.
+
+It is contributor-focused and provides:
+
+- NGIN project and variant selection
+- `validate`, `build`, `run`, and `debug` flows driven by the `ngin` CLI
+- staged `.ngintarget` launch resolution
+- VS Code tasks and a custom `ngin` debug type
+
+Extension development uses Node.js tooling and lives separately from the CMake-based native CLI build.
