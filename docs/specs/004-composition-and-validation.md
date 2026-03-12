@@ -1,7 +1,7 @@
 # Spec 004: Composition and Validation Rules
 
 Status: Active
-Last updated: 2026-03-07
+Last updated: 2026-03-12
 
 ## Purpose
 
@@ -58,7 +58,7 @@ Validation must fail on:
 - package platform mismatch
 - duplicate provided module name
 - unresolved module dependency
-- invalid module family or phase ordering
+- invalid module family or startup-stage ordering
 - duplicate staged output path
 - invalid bootstrap metadata
 - invalid config source or content declaration

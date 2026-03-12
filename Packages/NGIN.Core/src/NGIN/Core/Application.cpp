@@ -269,17 +269,27 @@ namespace NGIN::Core
                 MakeBuilderError("unknown module type", std::string(text), KernelErrorCode::SchemaValidationFailure));
         }
 
-        [[nodiscard]] auto ParseLoadPhaseText(const std::string_view text) -> CoreResult<LoadPhase>
+        [[nodiscard]] auto ParseHostTypeText(const std::string_view text) -> CoreResult<HostType>
         {
-            if (text == "Bootstrap") return LoadPhase::Bootstrap;
-            if (text == "Platform") return LoadPhase::Platform;
-            if (text == "CoreServices") return LoadPhase::CoreServices;
-            if (text == "Data") return LoadPhase::Data;
-            if (text == "Domain") return LoadPhase::Domain;
-            if (text == "Application") return LoadPhase::Application;
-            if (text == "Editor") return LoadPhase::Editor;
+            if (text == "ConsoleApp") return HostType::ConsoleApp;
+            if (text == "GuiApp") return HostType::GuiApp;
+            if (text == "Game") return HostType::Game;
+            if (text == "Editor") return HostType::Editor;
+            if (text == "Service") return HostType::Service;
+            if (text == "TestHost") return HostType::TestHost;
             return NGIN::Utilities::Unexpected<KernelError>(
-                MakeBuilderError("unknown load phase", std::string(text), KernelErrorCode::SchemaValidationFailure));
+                MakeBuilderError("unknown supported host", std::string(text), KernelErrorCode::SchemaValidationFailure));
+        }
+
+        [[nodiscard]] auto ParseStartupStageText(const std::string_view text) -> CoreResult<StartupStage>
+        {
+            if (text == "Foundation") return StartupStage::Foundation;
+            if (text == "Platform") return StartupStage::Platform;
+            if (text == "Services") return StartupStage::Services;
+            if (text == "Features") return StartupStage::Features;
+            if (text == "Presentation") return StartupStage::Presentation;
+            return NGIN::Utilities::Unexpected<KernelError>(
+                MakeBuilderError("unknown startup stage", std::string(text), KernelErrorCode::SchemaValidationFailure));
         }
 
         [[nodiscard]] auto ParsePackageModuleDescriptor(
@@ -319,17 +329,17 @@ namespace NGIN::Core
             }
             descriptor.type = type.ValueUnsafe();
 
-            auto phaseText = OptionalAttribute(element, "LoadPhase", context, "CoreServices");
-            if (!phaseText)
+            auto stageText = OptionalAttribute(element, "StartupStage", context, "Features");
+            if (!stageText)
             {
-                return NGIN::Utilities::Unexpected<KernelError>(phaseText.ErrorUnsafe());
+                return NGIN::Utilities::Unexpected<KernelError>(stageText.ErrorUnsafe());
             }
-            auto phase = ParseLoadPhaseText(phaseText.ValueUnsafe());
-            if (!phase)
+            auto stage = ParseStartupStageText(stageText.ValueUnsafe());
+            if (!stage)
             {
-                return NGIN::Utilities::Unexpected<KernelError>(phase.ErrorUnsafe());
+                return NGIN::Utilities::Unexpected<KernelError>(stage.ErrorUnsafe());
             }
-            descriptor.loadPhase = phase.ValueUnsafe();
+            descriptor.startupStage = stage.ValueUnsafe();
 
             auto versionText = OptionalAttribute(element, "Version", context, {});
             if (!versionText)
@@ -429,6 +439,26 @@ namespace NGIN::Core
                     }
 
                     descriptor.dependencies.push_back(std::move(dependency));
+                }
+            }
+
+            if (const auto* supportedHosts = FindChild(element, "SupportedHosts"))
+            {
+                for (const auto* hostElement : ChildElements(*supportedHosts, "Host"))
+                {
+                    auto hostName = RequireAttribute(*hostElement, "Name", std::string(context) + ".SupportedHosts");
+                    if (!hostName)
+                    {
+                        return NGIN::Utilities::Unexpected<KernelError>(hostName.ErrorUnsafe());
+                    }
+
+                    auto host = ParseHostTypeText(hostName.ValueUnsafe());
+                    if (!host)
+                    {
+                        return NGIN::Utilities::Unexpected<KernelError>(host.ErrorUnsafe());
+                    }
+
+                    descriptor.supportedHosts.push_back(host.ValueUnsafe());
                 }
             }
 

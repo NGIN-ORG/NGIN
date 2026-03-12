@@ -1,7 +1,7 @@
 # Spec 003: Package Manifest and Runtime Contributions
 
 Status: Active
-Last updated: 2026-03-08
+Last updated: 2026-03-12
 
 ## Purpose
 
@@ -65,7 +65,7 @@ Recommended top-level child sections:
     <Module Name="Core.Hosting"
             Family="Core"
             Type="Runtime"
-            LoadPhase="CoreServices"
+            StartupStage="Services"
             Version="0.1.0"
             CompatiblePlatformRange=">=0.1.0 &lt;1.0.0"
             ReflectionRequired="false">
@@ -78,6 +78,7 @@ Recommended top-level child sections:
         <Dependency Name="Base.Foundation" RequiredVersion=">=0.1.0 &lt;1.0.0" Optional="false" />
         <Dependency Name="Log.Foundation" RequiredVersion=">=0.1.0 &lt;1.0.0" Optional="false" />
       </Dependencies>
+      <SupportedHosts />
       <ProvidesServices />
       <RequiresServices />
       <Capabilities />
@@ -186,7 +187,7 @@ Each `<Module>` may define:
 - `Name` required
 - `Family` optional, defaults to `Core`
 - `Type` optional, defaults to `Runtime`
-- `LoadPhase` optional, defaults to `CoreServices`
+- `StartupStage` optional, defaults to `Features`
 - `Version` optional but recommended
 - `CompatiblePlatformRange` optional
 - `ReflectionRequired` optional, defaults to `false`
@@ -195,9 +196,32 @@ Supported module child sections:
 
 - `Platforms`
 - `Dependencies`
+- `SupportedHosts`
 - `ProvidesServices`
 - `RequiresServices`
 - `Capabilities`
+
+`StartupStage` is a coarse startup-order hint, not an architectural layer or host selector.
+Dependencies remain the authoritative ordering rule; `StartupStage` provides broad grouping and deterministic tie-breaking.
+
+Supported `StartupStage` values:
+
+- `Foundation`
+- `Platform`
+- `Services`
+- `Features`
+- `Presentation`
+
+`SupportedHosts` restricts which host profiles may activate the module. If the section is omitted or empty, the module is valid for all hosts.
+
+Supported `<Host Name="...">` values:
+
+- `ConsoleApp`
+- `GuiApp`
+- `Game`
+- `Editor`
+- `Service`
+- `TestHost`
 
 ### Plugins
 

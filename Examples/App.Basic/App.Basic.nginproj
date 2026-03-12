@@ -20,7 +20,7 @@
       <Module Name="App.Basic.Runtime"
               Family="App"
               Type="Runtime"
-              LoadPhase="Application"
+              StartupStage="Features"
               Version="0.1.0"
               ReflectionRequired="false">
         <Platforms>

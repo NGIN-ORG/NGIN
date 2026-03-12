@@ -51,7 +51,8 @@ namespace NGIN::Core
         VersionRange                      compatiblePlatformRange {};
         std::vector<std::string>          platforms {};
         std::vector<DependencyDescriptor> dependencies {};
-        LoadPhase                         loadPhase {LoadPhase::CoreServices};
+        StartupStage                      startupStage {StartupStage::Features};
+        std::vector<HostType>             supportedHosts {};
         ModuleEntryKind                   entryKind {ModuleEntryKind::Static};
         std::string                       pluginName {};
         std::vector<std::string>          providesServices {};

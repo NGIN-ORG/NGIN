@@ -19,7 +19,8 @@ NGIN.Core is the active host implementation for the platform contracts described
 - Filesystem dynamic descriptor discovery is XML-only and scans for `.module.xml` / `.plugin-module.xml` under `pluginSearchPaths`.
 - Resolver enforces:
   - descriptor family layer constraints
-  - canonical load-phase ordering
+  - canonical startup-stage ordering
+  - explicit supported-host filtering
   - module `compatiblePlatformRange` against host `platformVersion`
   - dependency `requiredVersion` checks
 
@@ -30,13 +31,14 @@ Dynamic descriptor shape:
 - optional root attributes:
   - `Family`
   - `Type`
-  - `LoadPhase`
+  - `StartupStage`
   - `Version`
   - `CompatiblePlatformRange`
   - `ReflectionRequired`
 - supported child sections:
   - `Platforms`
   - `Dependencies`
+  - `SupportedHosts`
   - `ProvidesServices`
   - `RequiresServices`
   - `Capabilities`

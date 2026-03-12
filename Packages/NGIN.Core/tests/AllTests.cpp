@@ -34,7 +34,7 @@ namespace
     [[nodiscard]] auto MakeDescriptor(
         std::string name,
         const NGIN::Core::ModuleFamily family = NGIN::Core::ModuleFamily::Core,
-        const NGIN::Core::LoadPhase phase = NGIN::Core::LoadPhase::CoreServices,
+        const NGIN::Core::StartupStage stage = NGIN::Core::StartupStage::Features,
         const NGIN::Core::ModuleType type = NGIN::Core::ModuleType::Runtime) -> NGIN::Core::ModuleDescriptor
     {
         NGIN::Core::ModuleDescriptor desc {};
@@ -44,7 +44,7 @@ namespace
         desc.version = Version(0, 1, 0);
         desc.compatiblePlatformRange = Range(">=0.1.0 <1.0.0");
         desc.platforms = {"linux", "windows", "macos"};
-        desc.loadPhase = phase;
+        desc.startupStage = stage;
         desc.entryKind = NGIN::Core::ModuleEntryKind::Static;
         return desc;
     }
@@ -302,7 +302,7 @@ namespace
 
         context.Modules()
             .Register(MakeRegistration(
-                MakeDescriptor("App.PackageBootstrap", ModuleFamily::App, LoadPhase::Application),
+                MakeDescriptor("App.PackageBootstrap", ModuleFamily::App, StartupStage::Features),
                 []() -> CoreResult<NGIN::Memory::Shared<IModule>>
                 {
                     return NGIN::Memory::MakeSharedAs<IModule, HookModule>("PackageBootstrap", nullptr, nullptr);
@@ -435,7 +435,7 @@ TEST_CASE("KernelStartsWithDependencyOrderedModules", "[runtime][startup]")
     std::vector<std::string> order;
     std::mutex orderLock;
 
-    auto a = MakeDescriptor("Core.A", NGIN::Core::ModuleFamily::Core, NGIN::Core::LoadPhase::Bootstrap);
+    auto a = MakeDescriptor("Core.A", NGIN::Core::ModuleFamily::Core, NGIN::Core::StartupStage::Foundation);
     auto b = MakeDescriptor("Core.B");
     b.dependencies.push_back(NGIN::Core::DependencyDescriptor {
         .name = "Core.A",
@@ -530,6 +530,27 @@ TEST_CASE("PlatformRangeAndDependencyVersionAreEnforced", "[runtime][compat]")
         REQUIRE(start.ErrorUnsafe().code == NGIN::Core::KernelErrorCode::IncompatiblePlatform);
     }
 
+    SECTION("Module supported hosts mismatch is rejected")
+    {
+        auto catalog = NGIN::Core::CreateStaticModuleCatalog();
+        auto incompatible = MakeDescriptor("Editor.Incompatible");
+        incompatible.supportedHosts = {NGIN::Core::HostType::Editor};
+
+        REQUIRE(RegisterModule(
+                    catalog,
+                    incompatible,
+                    []() -> NGIN::Core::CoreResult<NGIN::Memory::Shared<NGIN::Core::IModule>>
+                    {
+                        return NGIN::Memory::MakeSharedAs<NGIN::Core::IModule, HookModule>("EditorOnly", nullptr, nullptr);
+                    })
+                    .HasValue());
+
+        auto kernel = NGIN::Core::CreateKernel(MakeHostConfig(catalog)).ValueUnsafe();
+        auto start = kernel->Start();
+        REQUIRE_FALSE(start.HasValue());
+        REQUIRE(start.ErrorUnsafe().code == NGIN::Core::KernelErrorCode::IncompatibleHostType);
+    }
+
     SECTION("Dependency requiredVersion mismatch is rejected")
     {
         auto catalog = NGIN::Core::CreateStaticModuleCatalog();
@@ -567,7 +588,7 @@ TEST_CASE("PlatformRangeAndDependencyVersionAreEnforced", "[runtime][compat]")
     }
 }
 
-TEST_CASE("LayerAndPhaseViolationsAreRejected", "[runtime][resolver]")
+TEST_CASE("LayerAndStartupStageViolationsAreRejected", "[runtime][resolver]")
 {
     SECTION("Forbidden family dependency fails")
     {
@@ -603,11 +624,11 @@ TEST_CASE("LayerAndPhaseViolationsAreRejected", "[runtime][resolver]")
         REQUIRE(start.ErrorUnsafe().code == NGIN::Core::KernelErrorCode::LayerConstraintViolation);
     }
 
-    SECTION("Dependency with later load phase fails")
+    SECTION("Dependency with later startup stage fails")
     {
         auto catalog = NGIN::Core::CreateStaticModuleCatalog();
-        auto early = MakeDescriptor("Core.Early", NGIN::Core::ModuleFamily::Core, NGIN::Core::LoadPhase::Bootstrap);
-        auto late = MakeDescriptor("Core.Late", NGIN::Core::ModuleFamily::Core, NGIN::Core::LoadPhase::Application);
+        auto early = MakeDescriptor("Core.Early", NGIN::Core::ModuleFamily::Core, NGIN::Core::StartupStage::Foundation);
+        auto late = MakeDescriptor("Core.Late", NGIN::Core::ModuleFamily::Core, NGIN::Core::StartupStage::Features);
         early.dependencies.push_back(NGIN::Core::DependencyDescriptor {
             .name = "Core.Late",
             .optional = false,
@@ -634,7 +655,7 @@ TEST_CASE("LayerAndPhaseViolationsAreRejected", "[runtime][resolver]")
         auto kernel = NGIN::Core::CreateKernel(MakeHostConfig(catalog)).ValueUnsafe();
         auto start = kernel->Start();
         REQUIRE_FALSE(start.HasValue());
-        REQUIRE(start.ErrorUnsafe().code == NGIN::Core::KernelErrorCode::PhaseOrderingViolation);
+        REQUIRE(start.ErrorUnsafe().code == NGIN::Core::KernelErrorCode::StageOrderingViolation);
     }
 }
 
@@ -848,7 +869,7 @@ TEST_CASE("DynamicDescriptorDiscoveryUsesPluginSearchPaths", "[runtime][plugin]"
             << "<Module Name=\"Core.DynamicDemo\"\n"
             << "        Family=\"Core\"\n"
             << "        Type=\"Runtime\"\n"
-            << "        LoadPhase=\"CoreServices\"\n"
+            << "        StartupStage=\"Services\"\n"
             << "        Version=\"0.1.0\"\n"
             << "        CompatiblePlatformRange=\">=0.1.0 &lt;1.0.0\"\n"
             << "        ReflectionRequired=\"false\">\n"
@@ -1013,7 +1034,7 @@ TEST_CASE("ApplicationBuilderBuildsHostFromCode", "[builder][host]")
         .AddSingleton("App.Message", NGIN::Utilities::Any<>(std::string("hello-builder")));
     builder->Modules()
         .Register(MakeRegistration(
-            MakeDescriptor("App.Builder", NGIN::Core::ModuleFamily::App, NGIN::Core::LoadPhase::Application),
+            MakeDescriptor("App.Builder", NGIN::Core::ModuleFamily::App, NGIN::Core::StartupStage::Features),
             []() -> NGIN::Core::CoreResult<NGIN::Memory::Shared<NGIN::Core::IModule>>
             {
                 return NGIN::Memory::MakeSharedAs<NGIN::Core::IModule, HookModule>("Builder", nullptr, nullptr);
@@ -1102,13 +1123,13 @@ TEST_CASE("ApplicationBuilderLoadsProjectManifestAndConfig", "[builder][manifest
     builder->Services().AddConfiguration();
     builder->Modules()
         .Register(MakeRegistration(
-            MakeDescriptor("App.Manifest", NGIN::Core::ModuleFamily::App, NGIN::Core::LoadPhase::Application),
+            MakeDescriptor("App.Manifest", NGIN::Core::ModuleFamily::App, NGIN::Core::StartupStage::Features),
             []() -> NGIN::Core::CoreResult<NGIN::Memory::Shared<NGIN::Core::IModule>>
             {
                 return NGIN::Memory::MakeSharedAs<NGIN::Core::IModule, HookModule>("Manifest", nullptr, nullptr);
             }))
         .Register(MakeRegistration(
-            MakeDescriptor("App.Disabled", NGIN::Core::ModuleFamily::App, NGIN::Core::LoadPhase::Application),
+            MakeDescriptor("App.Disabled", NGIN::Core::ModuleFamily::App, NGIN::Core::StartupStage::Features),
             []() -> NGIN::Core::CoreResult<NGIN::Memory::Shared<NGIN::Core::IModule>>
             {
                 return NGIN::Memory::MakeSharedAs<NGIN::Core::IModule, HookModule>("Disabled", nullptr, nullptr);
@@ -1181,13 +1202,13 @@ TEST_CASE("ApplicationBuilderTargetOverrideBeatsProjectDefault", "[builder][mani
     builder->SetDefaultVariant("Override.Target");
     builder->Modules()
         .Register(MakeRegistration(
-            MakeDescriptor("App.Default", NGIN::Core::ModuleFamily::App, NGIN::Core::LoadPhase::Application),
+            MakeDescriptor("App.Default", NGIN::Core::ModuleFamily::App, NGIN::Core::StartupStage::Features),
             []() -> NGIN::Core::CoreResult<NGIN::Memory::Shared<NGIN::Core::IModule>>
             {
                 return NGIN::Memory::MakeSharedAs<NGIN::Core::IModule, HookModule>("Default", nullptr, nullptr);
             }))
         .Register(MakeRegistration(
-            MakeDescriptor("App.Override", NGIN::Core::ModuleFamily::App, NGIN::Core::LoadPhase::Application),
+            MakeDescriptor("App.Override", NGIN::Core::ModuleFamily::App, NGIN::Core::StartupStage::Features),
             []() -> NGIN::Core::CoreResult<NGIN::Memory::Shared<NGIN::Core::IModule>>
             {
                 return NGIN::Memory::MakeSharedAs<NGIN::Core::IModule, HookModule>("Override", nullptr, nullptr);
@@ -1277,7 +1298,7 @@ TEST_CASE("ApplicationBuilderExecutesExplicitPackageBootstrapFromManifestFile", 
     <Module Name="App.PackageBootstrap"
             Family="App"
             Type="Runtime"
-            LoadPhase="Application"
+            StartupStage="Features"
             Version="0.1.0"
             CompatiblePlatformRange=">=0.1.0 &lt;1.0.0"
             ReflectionRequired="false">

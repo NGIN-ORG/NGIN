@@ -23,37 +23,27 @@ namespace NGIN::Core
             bool                     requiredByGraph {true};
         };
 
-        [[nodiscard]] constexpr auto PhaseOrdinal(const LoadPhase phase) noexcept -> NGIN::UInt8
+        [[nodiscard]] constexpr auto StageOrdinal(const StartupStage stage) noexcept -> NGIN::UInt8
         {
-            switch (phase)
+            switch (stage)
             {
-                case LoadPhase::Bootstrap: return 0;
-                case LoadPhase::Platform: return 1;
-                case LoadPhase::CoreServices: return 2;
-                case LoadPhase::Data: return 3;
-                case LoadPhase::Domain: return 4;
-                case LoadPhase::Application: return 5;
-                case LoadPhase::Editor: return 6;
+                case StartupStage::Foundation: return 0;
+                case StartupStage::Platform: return 1;
+                case StartupStage::Services: return 2;
+                case StartupStage::Features: return 3;
+                case StartupStage::Presentation: return 4;
             }
             return 255;
         }
 
-        [[nodiscard]] constexpr auto ModuleTypeCompatibleWithHost(const ModuleType type, const HostType host) noexcept -> bool
+        [[nodiscard]] auto SupportsHost(const ModuleDescriptor& descriptor, const HostType host) noexcept -> bool
         {
-            switch (host)
+            if (descriptor.supportedHosts.empty())
             {
-                case HostType::GuiApp:
-                case HostType::Game:
-                case HostType::Service:
-                    return type == ModuleType::Runtime || type == ModuleType::ThirdParty;
-                case HostType::Editor:
-                    return true;
-                case HostType::ConsoleApp:
-                    return type == ModuleType::Runtime || type == ModuleType::Program || type == ModuleType::ThirdParty || type == ModuleType::Developer;
-                case HostType::TestHost:
-                    return true;
+                return true;
             }
-            return false;
+
+            return std::find(descriptor.supportedHosts.begin(), descriptor.supportedHosts.end(), host) != descriptor.supportedHosts.end();
         }
 
         [[nodiscard]] constexpr auto DependencyAllowed(const ModuleFamily src, const ModuleFamily dst) noexcept -> bool
@@ -792,17 +782,29 @@ namespace NGIN::Core
                     const bool required = requiredMap[name];
 
                     const bool platformOk = desc.platforms.empty() || std::find(desc.platforms.begin(), desc.platforms.end(), platformTag) != desc.platforms.end();
-                    const bool hostOk = ModuleTypeCompatibleWithHost(desc.type, m_config.hostType)
-                        && !(desc.loadPhase == LoadPhase::Editor && m_config.hostType != HostType::Editor)
-                        && (!desc.reflectionRequired || m_config.enableReflection);
+                    const bool hostOk = SupportsHost(desc, m_config.hostType);
+                    const bool reflectionOk = !desc.reflectionRequired || m_config.enableReflection;
                     const bool versionOk = desc.compatiblePlatformRange.Contains(m_config.platformVersion);
 
-                    if (!platformOk || !hostOk || !versionOk)
+                    if (!platformOk || !hostOk || !reflectionOk || !versionOk)
                     {
                         if (required)
                         {
+                            auto errorCode = KernelErrorCode::IncompatiblePlatform;
+                            std::string message = "module incompatible with host/platform/version settings";
+                            if (!hostOk)
+                            {
+                                errorCode = KernelErrorCode::IncompatibleHostType;
+                                message = "module does not support host type";
+                            }
+                            else if (!reflectionOk)
+                            {
+                                errorCode = KernelErrorCode::ReflectionRequired;
+                                message = "module requires reflection";
+                            }
+
                             return NGIN::Utilities::Unexpected<KernelError>(
-                                MakeKernelError(KernelErrorCode::IncompatiblePlatform, "ModuleLoader", desc.name, "module incompatible with host/platform/version settings"));
+                                MakeKernelError(errorCode, "ModuleLoader", desc.name, std::move(message)));
                         }
 
                         m_startupReport.warnings.push_back({"ModuleLoader", desc.name, "optional module skipped due compatibility"});
@@ -936,10 +938,10 @@ namespace NGIN::Core
                             MakeKernelError(KernelErrorCode::LayerConstraintViolation, "ModuleLoader", name, "forbidden dependency edge to " + dep.name));
                     }
 
-                    if (PhaseOrdinal(depDesc->loadPhase) > PhaseOrdinal(registration.descriptor.loadPhase))
+                    if (StageOrdinal(depDesc->startupStage) > StageOrdinal(registration.descriptor.startupStage))
                     {
                         return NGIN::Utilities::Unexpected<KernelError>(
-                            MakeKernelError(KernelErrorCode::PhaseOrderingViolation, "ModuleLoader", name, "dependency phase is later than dependent module"));
+                            MakeKernelError(KernelErrorCode::StageOrderingViolation, "ModuleLoader", name, "dependency startup stage is later than dependent module"));
                     }
 
                     if (!dep.requiredVersion.Contains(depDesc->version))
@@ -982,11 +984,11 @@ namespace NGIN::Core
                         {
                             return lhs < rhs;
                         }
-                        const auto lhsPhase = PhaseOrdinal(lhsDesc->loadPhase);
-                        const auto rhsPhase = PhaseOrdinal(rhsDesc->loadPhase);
-                        if (lhsPhase != rhsPhase)
+                        const auto lhsStage = StageOrdinal(lhsDesc->startupStage);
+                        const auto rhsStage = StageOrdinal(rhsDesc->startupStage);
+                        if (lhsStage != rhsStage)
                         {
-                            return lhsPhase < rhsPhase;
+                            return lhsStage < rhsStage;
                         }
                         if (lhsDesc->priority != rhsDesc->priority)
                         {

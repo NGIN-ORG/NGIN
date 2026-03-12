@@ -1,7 +1,7 @@
 # Spec 002: Project And Variant Manifest
 
 Status: Active
-Last updated: 2026-03-10
+Last updated: 2026-03-12
 
 ## Purpose
 
@@ -61,7 +61,7 @@ Required root attributes:
       <Module Name="App.GameRuntime"
               Family="App"
               Type="Runtime"
-              LoadPhase="Application"
+              StartupStage="Features"
               Version="0.1.0"
               ReflectionRequired="false" />
     </Modules>
@@ -155,6 +155,8 @@ Supported child sections in v1:
 - `DisableModules`
 
 This allows applications to own their entry modules without forcing those modules through a reusable package.
+
+Project-owned runtime modules use the same module descriptor fields as package-owned modules, including `StartupStage` and optional `SupportedHosts`.
 
 ### Variants
 

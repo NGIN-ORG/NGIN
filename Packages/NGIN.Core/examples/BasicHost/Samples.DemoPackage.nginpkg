@@ -16,7 +16,7 @@
     <Module Name="App.PackageBootstrap"
             Family="App"
             Type="Runtime"
-            LoadPhase="Application"
+            StartupStage="Features"
             Version="0.1.0"
             CompatiblePlatformRange=">=0.1.0 &lt;1.0.0"
             ReflectionRequired="false">

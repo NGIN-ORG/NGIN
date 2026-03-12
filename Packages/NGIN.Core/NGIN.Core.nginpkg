@@ -24,7 +24,7 @@
     <Module Name="Platform.Window"
             Family="Platform"
             Type="Runtime"
-            LoadPhase="Platform"
+            StartupStage="Platform"
             Version="0.1.0"
             CompatiblePlatformRange=">=0.1.0-alpha.1 &lt;0.2.0"
             ReflectionRequired="false">
@@ -44,7 +44,7 @@
     <Module Name="Platform.Input"
             Family="Platform"
             Type="Runtime"
-            LoadPhase="Platform"
+            StartupStage="Platform"
             Version="0.1.0"
             CompatiblePlatformRange=">=0.1.0-alpha.1 &lt;0.2.0"
             ReflectionRequired="false">
@@ -65,7 +65,7 @@
     <Module Name="Core.Hosting"
             Family="Core"
             Type="Runtime"
-            LoadPhase="CoreServices"
+            StartupStage="Services"
             Version="0.1.0"
             CompatiblePlatformRange=">=0.1.0-alpha.1 &lt;0.2.0"
             ReflectionRequired="false">

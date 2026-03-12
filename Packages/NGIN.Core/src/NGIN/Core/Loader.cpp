@@ -40,16 +40,25 @@ namespace NGIN::Core
             return ModuleFamily::Core;
         }
 
-        [[nodiscard]] auto ParseLoadPhase(const std::string_view text) -> LoadPhase
+        [[nodiscard]] auto ParseStartupStage(const std::string_view text) -> std::optional<StartupStage>
         {
-            if (text == "Bootstrap") return LoadPhase::Bootstrap;
-            if (text == "Platform") return LoadPhase::Platform;
-            if (text == "CoreServices") return LoadPhase::CoreServices;
-            if (text == "Data") return LoadPhase::Data;
-            if (text == "Domain") return LoadPhase::Domain;
-            if (text == "Application") return LoadPhase::Application;
-            if (text == "Editor") return LoadPhase::Editor;
-            return LoadPhase::CoreServices;
+            if (text == "Foundation") return StartupStage::Foundation;
+            if (text == "Platform") return StartupStage::Platform;
+            if (text == "Services") return StartupStage::Services;
+            if (text == "Features") return StartupStage::Features;
+            if (text == "Presentation") return StartupStage::Presentation;
+            return std::nullopt;
+        }
+
+        [[nodiscard]] auto ParseHostType(const std::string_view text) -> std::optional<HostType>
+        {
+            if (text == "GuiApp") return HostType::GuiApp;
+            if (text == "Game") return HostType::Game;
+            if (text == "Editor") return HostType::Editor;
+            if (text == "Service") return HostType::Service;
+            if (text == "ConsoleApp") return HostType::ConsoleApp;
+            if (text == "TestHost") return HostType::TestHost;
+            return std::nullopt;
         }
 
         [[nodiscard]] auto Attribute(const XmlElement& element, const std::string_view key) -> std::optional<std::string>
@@ -176,9 +185,19 @@ namespace NGIN::Core
                 out.type = ParseModuleType(type.value());
             }
 
-            if (const auto phase = Attribute(*root, "LoadPhase"); phase.has_value())
+            if (const auto stage = Attribute(*root, "StartupStage"); stage.has_value())
             {
-                out.loadPhase = ParseLoadPhase(phase.value());
+                const auto parsedStage = ParseStartupStage(stage.value());
+                if (!parsedStage.has_value())
+                {
+                    return NGIN::Utilities::Unexpected<KernelError>(
+                        MakeKernelError(
+                            KernelErrorCode::InvalidArgument,
+                            "Loader",
+                            {},
+                            "plugin descriptor contains unknown startup stage '" + stage.value() + "': " + filePath));
+                }
+                out.startupStage = parsedStage.value();
             }
 
             if (const auto version = Attribute(*root, "Version"); version.has_value())
@@ -205,6 +224,31 @@ namespace NGIN::Core
             ReadStringRefs(FindChild(*root, "ProvidesServices"), "Service", out.providesServices);
             ReadStringRefs(FindChild(*root, "RequiresServices"), "Service", out.requiresServices);
             ReadStringRefs(FindChild(*root, "Capabilities"), "Capability", out.capabilities);
+
+            if (const auto* supportedHosts = FindChild(*root, "SupportedHosts"))
+            {
+                for (const auto* hostElement : ChildElements(*supportedHosts, "Host"))
+                {
+                    const auto hostName = Attribute(*hostElement, "Name");
+                    if (!hostName.has_value())
+                    {
+                        continue;
+                    }
+
+                    const auto parsedHost = ParseHostType(hostName.value());
+                    if (!parsedHost.has_value())
+                    {
+                        return NGIN::Utilities::Unexpected<KernelError>(
+                            MakeKernelError(
+                                KernelErrorCode::InvalidArgument,
+                                "Loader",
+                                {},
+                                "plugin descriptor contains unknown supported host '" + hostName.value() + "': " + filePath));
+                    }
+
+                    out.supportedHosts.push_back(parsedHost.value());
+                }
+            }
 
             out.reflectionRequired = ParseBoolAttribute(*root, "ReflectionRequired", false);
 

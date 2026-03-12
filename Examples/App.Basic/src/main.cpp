@@ -16,7 +16,7 @@ namespace
         descriptor.version = SemanticVersion {0, 1, 0, {}};
         descriptor.compatiblePlatformRange = ParseVersionRange(">=0.1.0 <1.0.0").ValueUnsafe();
         descriptor.platforms = {"linux", "windows", "macos"};
-        descriptor.loadPhase = LoadPhase::Application;
+        descriptor.startupStage = StartupStage::Features;
         descriptor.entryKind = ModuleEntryKind::Static;
         return descriptor;
     }

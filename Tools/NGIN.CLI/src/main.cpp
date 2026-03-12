@@ -158,6 +158,43 @@ namespace
         return value;
     }
 
+    [[nodiscard]] auto IsValidStartupStage(const std::string_view value) -> bool
+    {
+        return value == "Foundation"
+            || value == "Platform"
+            || value == "Services"
+            || value == "Features"
+            || value == "Presentation";
+    }
+
+    [[nodiscard]] auto IsValidHostProfile(const std::string_view value) -> bool
+    {
+        return value == "ConsoleApp"
+            || value == "GuiApp"
+            || value == "Game"
+            || value == "Editor"
+            || value == "Service"
+            || value == "TestHost";
+    }
+
+    [[nodiscard]] auto ParseSupportedHosts(const XmlElement& node, const fs::path& path) -> std::vector<std::string>
+    {
+        std::vector<std::string> supportedHosts {};
+        if (const auto* section = FindChild(node, "SupportedHosts"))
+        {
+            for (const auto* host : ChildElements(*section, "Host"))
+            {
+                auto hostName = RequireAttribute(*host, "Name", path);
+                if (!IsValidHostProfile(hostName))
+                {
+                    throw std::runtime_error(path.string() + ": unknown supported host '" + hostName + "'");
+                }
+                supportedHosts.push_back(std::move(hostName));
+            }
+        }
+        return supportedHosts;
+    }
+
     [[nodiscard]] auto EscapeXml(std::string_view input) -> std::string
     {
         std::string out;
@@ -296,7 +333,7 @@ namespace
         std::string              name {};
         std::string              family {};
         std::string              type {};
-        std::string              loadPhase {};
+        std::string              startupStage {};
         std::string              version {};
         std::string              compatiblePlatformRange {};
         std::vector<std::string> platforms {};
@@ -305,7 +342,7 @@ namespace
         std::vector<std::string> providesServices {};
         std::vector<std::string> requiresServices {};
         std::vector<std::string> capabilities {};
-        bool                     editorOnly {false};
+        std::vector<std::string> supportedHosts {};
         bool                     requiresReflection {false};
     };
 
@@ -865,11 +902,15 @@ namespace
             module.name = RequireAttribute(*node, "Name", path);
             module.family = Attribute(*node, "Family").value_or("Core");
             module.type = Attribute(*node, "Type").value_or("Runtime");
-            module.loadPhase = Attribute(*node, "LoadPhase").value_or("CoreServices");
+            module.startupStage = Attribute(*node, "StartupStage").value_or("Features");
             module.version = Attribute(*node, "Version").value_or("");
             module.compatiblePlatformRange = Attribute(*node, "CompatiblePlatformRange").value_or("");
             module.requiresReflection = BoolAttribute(*node, "ReflectionRequired");
-            module.editorOnly = Lower(module.type) == "editor";
+            if (!IsValidStartupStage(module.startupStage))
+            {
+                throw std::runtime_error(path.string() + ": unknown startup stage '" + module.startupStage + "'");
+            }
+            module.supportedHosts = ParseSupportedHosts(*node, path);
 
             if (const auto* platforms = FindChild(*node, "Platforms"))
             {
@@ -968,11 +1009,15 @@ namespace
         module.name = RequireAttribute(node, "Name", path);
         module.family = Attribute(node, "Family").value_or("App");
         module.type = Attribute(node, "Type").value_or("Runtime");
-        module.loadPhase = Attribute(node, "LoadPhase").value_or("Application");
+        module.startupStage = Attribute(node, "StartupStage").value_or("Features");
         module.version = Attribute(node, "Version").value_or("");
         module.compatiblePlatformRange = Attribute(node, "CompatiblePlatformRange").value_or("");
         module.requiresReflection = BoolAttribute(node, "ReflectionRequired");
-        module.editorOnly = Lower(module.type) == "editor";
+        if (!IsValidStartupStage(module.startupStage))
+        {
+            throw std::runtime_error(path.string() + ": unknown startup stage '" + module.startupStage + "'");
+        }
+        module.supportedHosts = ParseSupportedHosts(node, path);
 
         if (const auto* platforms = FindChild(node, "Platforms"))
         {
@@ -1698,9 +1743,10 @@ namespace
                 AddError(report, "variant '" + variant.name + "' references unknown module '" + current + "'");
                 continue;
             }
-            if (it->second.editorOnly && Lower(project.type) != "plugin" && Lower(variant.profile) != "editor")
+            if (!it->second.supportedHosts.empty()
+                && std::find(it->second.supportedHosts.begin(), it->second.supportedHosts.end(), variant.profile) == it->second.supportedHosts.end())
             {
-                AddError(report, "variant '" + variant.name + "' includes editor-only module '" + current + "'");
+                AddError(report, "variant '" + variant.name + "' includes module '" + current + "' that does not support host profile '" + variant.profile + "'");
             }
             if (it->second.requiresReflection && !variant.enableReflection)
             {

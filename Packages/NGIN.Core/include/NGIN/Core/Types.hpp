@@ -49,16 +49,14 @@ namespace NGIN::Core
         Unloaded
     };
 
-    /// @brief Coarse module startup phase.
-    enum class LoadPhase : NGIN::UInt8
+    /// @brief Coarse module startup stage.
+    enum class StartupStage : NGIN::UInt8
     {
-        Bootstrap,
+        Foundation,
         Platform,
-        CoreServices,
-        Data,
-        Domain,
-        Application,
-        Editor
+        Services,
+        Features,
+        Presentation
     };
 
     /// @brief Module entry source.
@@ -127,17 +125,15 @@ namespace NGIN::Core
         return "Unknown";
     }
 
-    [[nodiscard]] constexpr auto ToString(const LoadPhase value) noexcept -> std::string_view
+    [[nodiscard]] constexpr auto ToString(const StartupStage value) noexcept -> std::string_view
     {
         switch (value)
         {
-            case LoadPhase::Bootstrap: return "Bootstrap";
-            case LoadPhase::Platform: return "Platform";
-            case LoadPhase::CoreServices: return "CoreServices";
-            case LoadPhase::Data: return "Data";
-            case LoadPhase::Domain: return "Domain";
-            case LoadPhase::Application: return "Application";
-            case LoadPhase::Editor: return "Editor";
+            case StartupStage::Foundation: return "Foundation";
+            case StartupStage::Platform: return "Platform";
+            case StartupStage::Services: return "Services";
+            case StartupStage::Features: return "Features";
+            case StartupStage::Presentation: return "Presentation";
         }
         return "Unknown";
     }

@@ -8,7 +8,7 @@ namespace
 {
     [[nodiscard]] auto MakeDescriptor(
         std::string name,
-        const NGIN::Core::LoadPhase phase = NGIN::Core::LoadPhase::Application) -> NGIN::Core::ModuleDescriptor
+        const NGIN::Core::StartupStage stage = NGIN::Core::StartupStage::Features) -> NGIN::Core::ModuleDescriptor
     {
         using namespace NGIN::Core;
 
@@ -19,7 +19,7 @@ namespace
         descriptor.version = SemanticVersion {0, 1, 0, {}};
         descriptor.compatiblePlatformRange = ParseVersionRange(">=0.1.0 <1.0.0").ValueUnsafe();
         descriptor.platforms = {"linux", "windows", "macos"};
-        descriptor.loadPhase = phase;
+        descriptor.startupStage = stage;
         descriptor.entryKind = ModuleEntryKind::Static;
         return descriptor;
     }

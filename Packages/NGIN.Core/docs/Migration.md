@@ -62,5 +62,17 @@ This document summarizes the API-breaking hardening changes introduced in the Sp
 - Added enforcement for:
   - `compatiblePlatformRange`
   - dependency `requiredVersion`
-  - phase ordering
+  - startup-stage ordering
   - service contract preflight warnings + runtime required-service checks
+
+## Module Startup Metadata
+
+- Replaced `LoadPhase` with `StartupStage`.
+- `StartupStage` is now startup-order metadata only:
+  - `Foundation`
+  - `Platform`
+  - `Services`
+  - `Features`
+  - `Presentation`
+- Added explicit module host filtering through `SupportedHosts`.
+- Host applicability is no longer inferred from startup-order metadata.

@@ -26,7 +26,7 @@ namespace NGIN::Core
         ReflectionRequired,
         MissingRequiredDependency,
         DependencyCycle,
-        PhaseOrderingViolation,
+        StageOrderingViolation,
         LayerConstraintViolation,
         ModuleFactoryFailure,
         ModuleLifecycleFailure,
@@ -88,7 +88,7 @@ namespace NGIN::Core
             case KernelErrorCode::ReflectionRequired: return "ReflectionRequired";
             case KernelErrorCode::MissingRequiredDependency: return "MissingRequiredDependency";
             case KernelErrorCode::DependencyCycle: return "DependencyCycle";
-            case KernelErrorCode::PhaseOrderingViolation: return "PhaseOrderingViolation";
+            case KernelErrorCode::StageOrderingViolation: return "StageOrderingViolation";
             case KernelErrorCode::LayerConstraintViolation: return "LayerConstraintViolation";
             case KernelErrorCode::ModuleFactoryFailure: return "ModuleFactoryFailure";
             case KernelErrorCode::ModuleLifecycleFailure: return "ModuleLifecycleFailure";
