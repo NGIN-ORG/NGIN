@@ -4,5 +4,7 @@ out/
 .cmake/
 __pycache__/
 *.pyc
+*.vsix
+package-lock.json
 .ngin/workspace.overrides.json
 .ngin/build/
