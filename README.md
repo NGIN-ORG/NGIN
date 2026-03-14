@@ -9,7 +9,7 @@ NGIN is a modular application platform for modern C++. It gives C++ applications
 - package files for reusable capabilities
 - a host/runtime that composes the resolved application
 
-NGIN is not primarily a package manager, and it is not trying to replace CMake. It is a composition and build model above the native backend layer.
+NGIN is not primarily a package manager, and it is not trying to replace CMake. It is a composition and build model above the native backend layer, with CMake as the active backend.
 
 The active authored split is:
 
@@ -61,6 +61,10 @@ A simple game project might define one application project with a `Game` variant
   <PrimaryOutput Kind="Executable"
                  Name="MyGame"
                  Target="MyGame" />
+  <Build Backend="CMake"
+         Mode="Generated"
+         Language="CXX"
+         LanguageStandard="23" />
   <PackageRefs>
     <PackageRef Name="NGIN.Core" VersionRange=">=0.1.0 <0.2.0" />
     <PackageRef Name="NGIN.ECS" VersionRange=">=0.1.0 <0.2.0" />
@@ -78,7 +82,7 @@ A simple game project might define one application project with a `Game` variant
 </Project>
 ```
 
-When this variant is built, NGIN resolves the project and package graph, validates dependencies, and emits a staged `.ngintarget` layout that the host can execute.
+When this variant is built, NGIN resolves the project and package graph, generates the required CMake backend input for generated-mode projects, and emits a staged `.ngintarget` layout that the host can execute.
 
 ## Core Concepts
 
@@ -189,7 +193,7 @@ At the current stage of the project, NGIN can:
 - emit `.ngintarget` outputs
 - run applications through the `NGIN.Core` host
 
-The build backend is currently CMake. Package distribution and installation workflows are planned separately.
+The build backend is currently CMake. Package distribution and installation workflows are planned separately. Normal application projects do not need a handwritten project `CMakeLists.txt`; `ngin project build` generates that backend layer from `.nginproj` metadata.
 
 ## Manifest Files
 

@@ -690,6 +690,159 @@ namespace NGIN::Core
             return output;
         }
 
+        [[nodiscard]] auto ParseBuildSetting(
+            const XmlElement& element,
+            const std::string_view context,
+            const std::string_view valueAttribute) -> CoreResult<BuildSetting>
+        {
+            BuildSetting setting {};
+
+            auto value = RequireAttribute(element, valueAttribute, context);
+            if (!value)
+            {
+                return NGIN::Utilities::Unexpected<KernelError>(value.ErrorUnsafe());
+            }
+            setting.value = value.ValueUnsafe();
+
+            auto visibility = OptionalAttribute(element, "Visibility", context, "Private");
+            if (!visibility)
+            {
+                return NGIN::Utilities::Unexpected<KernelError>(visibility.ErrorUnsafe());
+            }
+            if (visibility.ValueUnsafe() != "Private" && visibility.ValueUnsafe() != "Public" && visibility.ValueUnsafe() != "Interface")
+            {
+                return NGIN::Utilities::Unexpected<KernelError>(
+                    MakeBuilderError(std::string(context) + " uses unknown build visibility", visibility.ValueUnsafe()));
+            }
+            setting.visibility = visibility.ValueUnsafe();
+            return setting;
+        }
+
+        [[nodiscard]] auto ParseProjectBuildDescriptor(
+            const XmlElement* buildElement,
+            const std::string_view context) -> CoreResult<ProjectBuildDescriptor>
+        {
+            ProjectBuildDescriptor build {};
+            if (buildElement == nullptr)
+            {
+                return build;
+            }
+
+            auto backend = OptionalAttribute(*buildElement, "Backend", context, "CMake");
+            if (!backend)
+            {
+                return NGIN::Utilities::Unexpected<KernelError>(backend.ErrorUnsafe());
+            }
+            build.backend = backend.ValueUnsafe();
+
+            auto mode = OptionalAttribute(*buildElement, "Mode", context, "Generated");
+            if (!mode)
+            {
+                return NGIN::Utilities::Unexpected<KernelError>(mode.ErrorUnsafe());
+            }
+            if (mode.ValueUnsafe() != "Generated" && mode.ValueUnsafe() != "Manual")
+            {
+                return NGIN::Utilities::Unexpected<KernelError>(
+                    MakeBuilderError(std::string(context) + " uses unknown build mode", mode.ValueUnsafe()));
+            }
+            build.mode = mode.ValueUnsafe();
+
+            auto language = OptionalAttribute(*buildElement, "Language", context, "CXX");
+            if (!language)
+            {
+                return NGIN::Utilities::Unexpected<KernelError>(language.ErrorUnsafe());
+            }
+            build.language = language.ValueUnsafe();
+
+            auto languageStandard = OptionalAttribute(*buildElement, "LanguageStandard", context, "23");
+            if (!languageStandard)
+            {
+                return NGIN::Utilities::Unexpected<KernelError>(languageStandard.ErrorUnsafe());
+            }
+            build.languageStandard = languageStandard.ValueUnsafe();
+
+            if (const auto* sourcesElement = FindChild(*buildElement, "Sources"))
+            {
+                for (const auto* sourceElement : ChildElements(*sourcesElement, "Source"))
+                {
+                    auto path = RequireAttribute(*sourceElement, "Path", std::string(context) + ".Sources");
+                    if (!path)
+                    {
+                        return NGIN::Utilities::Unexpected<KernelError>(path.ErrorUnsafe());
+                    }
+                    build.sources.push_back(path.ValueUnsafe());
+                }
+            }
+
+            auto parseSettings = [&](const XmlElement* section,
+                                     const std::string_view childName,
+                                     const std::string_view attrName,
+                                     std::vector<BuildSetting>& output,
+                                     const std::string& sectionContext) -> CoreResult<void>
+            {
+                if (section == nullptr)
+                {
+                    return {};
+                }
+                for (const auto* child : ChildElements(*section, childName))
+                {
+                    auto setting = ParseBuildSetting(*child, sectionContext, attrName);
+                    if (!setting)
+                    {
+                        return NGIN::Utilities::Unexpected<KernelError>(setting.ErrorUnsafe());
+                    }
+                    output.push_back(setting.ValueUnsafe());
+                }
+                return {};
+            };
+
+            auto includeDirectories = parseSettings(
+                FindChild(*buildElement, "IncludeDirectories"),
+                "IncludeDirectory",
+                "Path",
+                build.includeDirectories,
+                std::string(context) + ".IncludeDirectories");
+            if (!includeDirectories)
+            {
+                return NGIN::Utilities::Unexpected<KernelError>(includeDirectories.ErrorUnsafe());
+            }
+
+            auto compileDefinitions = parseSettings(
+                FindChild(*buildElement, "CompileDefinitions"),
+                "Definition",
+                "Value",
+                build.compileDefinitions,
+                std::string(context) + ".CompileDefinitions");
+            if (!compileDefinitions)
+            {
+                return NGIN::Utilities::Unexpected<KernelError>(compileDefinitions.ErrorUnsafe());
+            }
+
+            auto compileOptions = parseSettings(
+                FindChild(*buildElement, "CompileOptions"),
+                "Option",
+                "Value",
+                build.compileOptions,
+                std::string(context) + ".CompileOptions");
+            if (!compileOptions)
+            {
+                return NGIN::Utilities::Unexpected<KernelError>(compileOptions.ErrorUnsafe());
+            }
+
+            auto linkOptions = parseSettings(
+                FindChild(*buildElement, "LinkOptions"),
+                "Option",
+                "Value",
+                build.linkOptions,
+                std::string(context) + ".LinkOptions");
+            if (!linkOptions)
+            {
+                return NGIN::Utilities::Unexpected<KernelError>(linkOptions.ErrorUnsafe());
+            }
+
+            return build;
+        }
+
         [[nodiscard]] auto ParseRuntimeDefinition(
             const XmlElement* runtimeElement,
             const std::string_view context) -> CoreResult<RuntimeDefinition>
@@ -914,6 +1067,13 @@ namespace NGIN::Core
                 return NGIN::Utilities::Unexpected<KernelError>(primaryOutput.ErrorUnsafe());
             }
             manifest.primaryOutput = primaryOutput.ValueUnsafe();
+
+            auto build = ParseProjectBuildDescriptor(FindChild(*root, "Build"), "project.Build");
+            if (!build)
+            {
+                return NGIN::Utilities::Unexpected<KernelError>(build.ErrorUnsafe());
+            }
+            manifest.build = std::move(build.ValueUnsafe());
 
             if (const auto* projectRefsElement = FindChild(*root, "ProjectRefs"))
             {

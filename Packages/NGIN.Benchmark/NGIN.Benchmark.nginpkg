@@ -10,7 +10,7 @@
       <Executable Name="NGIN.BenchmarkTool" Target="NGIN.BenchmarkTool" />
     </Executables>
   </Artifacts>
-  <Build Backend="CMake" />
+  <Build Backend="CMake" Mode="Manual" />
   <Platforms>
     <Platform Name="linux" />
     <Platform Name="windows" />

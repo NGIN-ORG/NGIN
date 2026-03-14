@@ -9,7 +9,12 @@
       <Library Name="NGIN.ECS" Target="NGIN::ECS" Linkage="Static" />
     </Libraries>
   </Artifacts>
-  <Build Backend="CMake" />
+  <Build Backend="CMake" Mode="AddSubdirectory">
+    <Options>
+      <Option Name="NGIN_ECS_BUILD_TESTS" Value="OFF" />
+      <Option Name="NGIN_ECS_BUILD_EXAMPLES" Value="OFF" />
+    </Options>
+  </Build>
   <Platforms>
     <Platform Name="linux" />
     <Platform Name="windows" />

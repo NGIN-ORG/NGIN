@@ -9,6 +9,15 @@
   <PrimaryOutput Kind="Executable"
                  Name="App.Basic"
                  Target="App.Basic" />
+  <Build Backend="CMake"
+         Mode="Generated"
+         Language="CXX"
+         LanguageStandard="23">
+    <CompileDefinitions>
+      <Definition Value="APP_BASIC_EXAMPLE_ROOT=&quot;${ProjectDir}&quot;"
+                  Visibility="Private" />
+    </CompileDefinitions>
+  </Build>
   <PackageRefs>
     <PackageRef Name="NGIN.Core" VersionRange=">=0.1.0 &lt;0.2.0" Optional="false" />
   </PackageRefs>

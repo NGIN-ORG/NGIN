@@ -185,6 +185,25 @@ namespace
             || value == "MinSizeRel";
     }
 
+    [[nodiscard]] auto IsSupportedBuildVisibility(const std::string_view value) -> bool
+    {
+        return value == "Private"
+            || value == "Public"
+            || value == "Interface";
+    }
+
+    [[nodiscard]] auto IsSupportedProjectBuildMode(const std::string_view value) -> bool
+    {
+        return value == "Generated" || value == "Manual";
+    }
+
+    [[nodiscard]] auto IsSupportedPackageBuildMode(const std::string_view value) -> bool
+    {
+        return value == "Manual"
+            || value == "FindPackage"
+            || value == "AddSubdirectory";
+    }
+
     [[nodiscard]] auto ParseSupportedHosts(const XmlElement& node, const fs::path& path) -> std::vector<std::string>
     {
         std::vector<std::string> supportedHosts {};
@@ -306,6 +325,9 @@ namespace
     {
         std::string kind {};
         std::string path {};
+        std::string url {};
+        std::string ref {};
+        std::string subdirectory {};
     };
 
     struct LibraryArtifact
@@ -331,9 +353,36 @@ namespace
         std::vector<ExecutableArtifact> executables {};
     };
 
-    struct BuildDescriptor
+    struct BuildSetting
     {
-        std::string backend {};
+        std::string value {};
+        std::string visibility {"Private"};
+    };
+
+    struct BuildVariable
+    {
+        std::string name {};
+        std::string value {};
+    };
+
+    struct PackageBuildDescriptor
+    {
+        std::string                    backend {};
+        std::string                    mode {};
+        std::vector<BuildVariable>     options {};
+    };
+
+    struct ProjectBuildDescriptor
+    {
+        std::string               backend {"CMake"};
+        std::string               mode {"Generated"};
+        std::string               language {"CXX"};
+        std::string               languageStandard {"23"};
+        std::vector<std::string>  sources {};
+        std::vector<BuildSetting> includeDirectories {};
+        std::vector<BuildSetting> compileDefinitions {};
+        std::vector<BuildSetting> compileOptions {};
+        std::vector<BuildSetting> linkOptions {};
     };
 
     struct ModuleDescriptor
@@ -371,7 +420,7 @@ namespace
         std::string                    compatiblePlatformRange {};
         SourceBinding                  sourceBinding {};
         ArtifactDescriptor             artifacts {};
-        BuildDescriptor                build {};
+        PackageBuildDescriptor         build {};
         std::vector<std::string>       platforms {};
         std::vector<PackageDependency> dependencies {};
         std::vector<ContentFile>       contents {};
@@ -435,6 +484,7 @@ namespace
         std::string                    defaultVariant {};
         std::vector<std::string>       sourceRoots {};
         PrimaryOutput                  primaryOutput {};
+        ProjectBuildDescriptor         build {};
         std::vector<ProjectReference>  projectRefs {};
         std::vector<PackageReference>  packageRefs {};
         std::vector<std::string>       configSources {};
@@ -564,6 +614,10 @@ namespace
     {
         const auto kind = Lower(sourceKind);
         if (kind == "source")
+        {
+            return "Built";
+        }
+        if (kind == "git")
         {
             return "Built";
         }
@@ -748,6 +802,7 @@ namespace
         return std::vector<std::string>(nodes.begin(), nodes.end());
     }
 
+    auto LoadPackageBuildDescriptor(PackageBuildDescriptor& build, const XmlElement* buildElement, const fs::path& path) -> void;
     [[nodiscard]] auto LoadPackageManifest(const fs::path& path) -> PackageManifest;
 
     [[nodiscard]] auto LoadWorkspaceManifest(const fs::path& root) -> WorkspaceManifest
@@ -836,6 +891,9 @@ namespace
         {
             package.sourceBinding.kind = Attribute(*sourceBinding, "Kind").value_or("");
             package.sourceBinding.path = Attribute(*sourceBinding, "Path").value_or("");
+            package.sourceBinding.url = Attribute(*sourceBinding, "Url").value_or("");
+            package.sourceBinding.ref = Attribute(*sourceBinding, "Ref").value_or("");
+            package.sourceBinding.subdirectory = Attribute(*sourceBinding, "Subdirectory").value_or("");
         }
         if (const auto* artifacts = FindChild(*rootElement, "Artifacts"))
         {
@@ -865,10 +923,7 @@ namespace
                 }
             }
         }
-        if (const auto* build = FindChild(*rootElement, "Build"))
-        {
-            package.build.backend = Attribute(*build, "Backend").value_or("");
-        }
+        LoadPackageBuildDescriptor(package.build, FindChild(*rootElement, "Build"), path);
         if (const auto* platforms = FindChild(*rootElement, "Platforms"))
         {
             for (const auto* node : ChildElements(*platforms, "Platform"))
@@ -1078,6 +1133,114 @@ namespace
         return module;
     }
 
+    [[nodiscard]] auto ParseBuildSetting(
+        const XmlElement& node,
+        const fs::path& path,
+        std::string_view valueAttribute) -> BuildSetting
+    {
+        BuildSetting setting {};
+        setting.value = RequireAttribute(node, valueAttribute, path);
+        setting.visibility = Attribute(node, "Visibility").value_or("Private");
+        if (!IsSupportedBuildVisibility(setting.visibility))
+        {
+            throw std::runtime_error(path.string() + ": unknown build visibility '" + setting.visibility + "'");
+        }
+        return setting;
+    }
+
+    auto LoadProjectBuildDescriptor(ProjectBuildDescriptor& build, const XmlElement* buildElement, const fs::path& path) -> void
+    {
+        if (buildElement == nullptr)
+        {
+            return;
+        }
+
+        if (const auto backend = Attribute(*buildElement, "Backend"); backend.has_value() && !backend->empty())
+        {
+            build.backend = *backend;
+        }
+        if (const auto mode = Attribute(*buildElement, "Mode"); mode.has_value() && !mode->empty())
+        {
+            build.mode = *mode;
+        }
+        if (!IsSupportedProjectBuildMode(build.mode))
+        {
+            throw std::runtime_error(path.string() + ": unknown project build mode '" + build.mode + "'");
+        }
+        if (const auto language = Attribute(*buildElement, "Language"); language.has_value() && !language->empty())
+        {
+            build.language = *language;
+        }
+        if (const auto languageStandard = Attribute(*buildElement, "LanguageStandard"); languageStandard.has_value() && !languageStandard->empty())
+        {
+            build.languageStandard = *languageStandard;
+        }
+
+        if (const auto* sources = FindChild(*buildElement, "Sources"))
+        {
+            for (const auto* item : ChildElements(*sources, "Source"))
+            {
+                build.sources.push_back(RequireAttribute(*item, "Path", path));
+            }
+        }
+
+        if (const auto* includeDirectories = FindChild(*buildElement, "IncludeDirectories"))
+        {
+            for (const auto* item : ChildElements(*includeDirectories, "IncludeDirectory"))
+            {
+                build.includeDirectories.push_back(ParseBuildSetting(*item, path, "Path"));
+            }
+        }
+
+        if (const auto* compileDefinitions = FindChild(*buildElement, "CompileDefinitions"))
+        {
+            for (const auto* item : ChildElements(*compileDefinitions, "Definition"))
+            {
+                build.compileDefinitions.push_back(ParseBuildSetting(*item, path, "Value"));
+            }
+        }
+
+        if (const auto* compileOptions = FindChild(*buildElement, "CompileOptions"))
+        {
+            for (const auto* item : ChildElements(*compileOptions, "Option"))
+            {
+                build.compileOptions.push_back(ParseBuildSetting(*item, path, "Value"));
+            }
+        }
+
+        if (const auto* linkOptions = FindChild(*buildElement, "LinkOptions"))
+        {
+            for (const auto* item : ChildElements(*linkOptions, "Option"))
+            {
+                build.linkOptions.push_back(ParseBuildSetting(*item, path, "Value"));
+            }
+        }
+    }
+
+    auto LoadPackageBuildDescriptor(PackageBuildDescriptor& build, const XmlElement* buildElement, const fs::path& path) -> void
+    {
+        if (buildElement == nullptr)
+        {
+            return;
+        }
+        build.backend = Attribute(*buildElement, "Backend").value_or("");
+        build.mode = Attribute(*buildElement, "Mode").value_or("");
+        if (!build.mode.empty() && !IsSupportedPackageBuildMode(build.mode))
+        {
+            throw std::runtime_error(path.string() + ": unknown package build mode '" + build.mode + "'");
+        }
+        if (const auto* options = FindChild(*buildElement, "Options"))
+        {
+            for (const auto* item : ChildElements(*options, "Option"))
+            {
+                BuildVariable variable {};
+                variable.name = RequireAttribute(*item, "Name", path);
+                variable.value = RequireAttribute(*item, "Value", path);
+                build.options.push_back(std::move(variable));
+            }
+        }
+    }
+
     [[nodiscard]] auto LoadProjectManifest(const fs::path& path) -> ProjectManifest
     {
         const auto doc = LoadXml(path);
@@ -1108,6 +1271,8 @@ namespace
         project.primaryOutput.kind = RequireAttribute(*primaryOutput, "Kind", path);
         project.primaryOutput.name = RequireAttribute(*primaryOutput, "Name", path);
         project.primaryOutput.target = RequireAttribute(*primaryOutput, "Target", path);
+
+        LoadProjectBuildDescriptor(project.build, FindChild(*rootElement, "Build"), path);
 
         if (const auto* projectRefs = FindChild(*rootElement, "ProjectRefs"))
         {
@@ -1948,7 +2113,124 @@ namespace
             [&](const ExecutableArtifact& artifact) { return artifact.exported && artifact.name == selectedExecutable->name; });
     }
 
-    [[nodiscard]] auto PackageNeedsCMakeWrapper(const PackageManifest& manifest, const std::optional<ExecutableArtifact>& selectedExecutable) -> bool
+    [[nodiscard]] auto ReplaceAll(std::string text, const std::string& needle, const std::string& replacement) -> std::string
+    {
+        if (needle.empty())
+        {
+            return text;
+        }
+        std::size_t offset = 0;
+        while ((offset = text.find(needle, offset)) != std::string::npos)
+        {
+            text.replace(offset, needle.size(), replacement);
+            offset += replacement.size();
+        }
+        return text;
+    }
+
+    [[nodiscard]] auto ExpandProjectVariables(
+        const std::string& input,
+        const ProjectManifest& project,
+        const WorkspaceManifest& workspace) -> std::string
+    {
+        auto expanded = ReplaceAll(input, "${ProjectDir}", fs::weakly_canonical(project.path.parent_path()).string());
+        expanded = ReplaceAll(expanded, "${WorkspaceDir}", workspace.path.parent_path().string());
+        expanded = ReplaceAll(expanded, "${ProjectName}", project.name);
+        expanded = ReplaceAll(expanded, "${ProjectTarget}", project.primaryOutput.target);
+        return expanded;
+    }
+
+    [[nodiscard]] auto ResolveProjectPathValue(
+        const std::string& input,
+        const ProjectManifest& project,
+        const WorkspaceManifest& workspace) -> fs::path
+    {
+        auto value = ExpandProjectVariables(input, project, workspace);
+        fs::path path {value};
+        if (path.is_relative())
+        {
+            path = project.path.parent_path() / path;
+        }
+        return path.lexically_normal();
+    }
+
+    [[nodiscard]] auto IsCompiledSourceExtension(const fs::path& path) -> bool
+    {
+        const auto ext = Lower(path.extension().string());
+        return ext == ".c"
+            || ext == ".cc"
+            || ext == ".cpp"
+            || ext == ".cxx"
+            || ext == ".m"
+            || ext == ".mm";
+    }
+
+    [[nodiscard]] auto SourceLanguageFor(const fs::path& path) -> std::string
+    {
+        const auto ext = Lower(path.extension().string());
+        if (ext == ".c")
+        {
+            return "C";
+        }
+        if (ext == ".m")
+        {
+            return "OBJC";
+        }
+        if (ext == ".mm")
+        {
+            return "OBJCXX";
+        }
+        return "CXX";
+    }
+
+    [[nodiscard]] auto ProjectNeedsCMakeBuild(const ProjectManifest& project) -> bool
+    {
+        const auto kind = Lower(project.primaryOutput.kind);
+        return kind == "executable" || kind == "staticlibrary" || kind == "sharedlibrary";
+    }
+
+    [[nodiscard]] auto ProjectBuildMode(const ProjectManifest& project) -> std::string
+    {
+        return project.build.mode.empty() ? "Generated" : project.build.mode;
+    }
+
+    [[nodiscard]] auto ToCMakeVisibility(const std::string& visibility) -> std::string
+    {
+        if (visibility == "Public")
+        {
+            return "PUBLIC";
+        }
+        if (visibility == "Interface")
+        {
+            return "INTERFACE";
+        }
+        return "PRIVATE";
+    }
+
+    [[nodiscard]] auto EffectivePackageBuildMode(const PackageManifest& manifest) -> std::string
+    {
+        if (!manifest.build.mode.empty())
+        {
+            return manifest.build.mode;
+        }
+
+        const auto sourceKind = Lower(manifest.sourceBinding.kind);
+        if (sourceKind == "cmakepackage")
+        {
+            return "FindPackage";
+        }
+        if ((sourceKind == "source" || sourceKind == "git") && fs::exists(manifest.path.parent_path() / "CMakeLists.txt"))
+        {
+            return "Manual";
+        }
+        if (sourceKind == "source" || sourceKind == "git")
+        {
+            return "AddSubdirectory";
+        }
+        return {};
+    }
+
+    [[nodiscard]] auto PackageNeedsBuildIntegration(const PackageManifest& manifest, const std::optional<ExecutableArtifact>& selectedExecutable) -> bool
     {
         if (Lower(manifest.build.backend) != "cmake")
         {
@@ -1959,12 +2241,6 @@ namespace
             manifest.artifacts.libraries.end(),
             [](const LibraryArtifact& artifact) { return artifact.exported && !artifact.target.empty(); });
         return hasLibraries || PackageExposesSelectedExecutable(manifest, selectedExecutable);
-    }
-
-    [[nodiscard]] auto ProjectNeedsCMakeBuild(const ProjectManifest& project) -> bool
-    {
-        const auto kind = Lower(project.primaryOutput.kind);
-        return kind == "executable" || kind == "staticlibrary" || kind == "sharedlibrary";
     }
 
     [[nodiscard]] auto HasArtifactTargetsToBuild(const ResolvedTarget& resolved) -> bool
@@ -1982,6 +2258,144 @@ namespace
             });
     }
 
+    [[nodiscard]] auto ResolveGitCheckoutDir(const fs::path& root, const PackageManifest& manifest) -> fs::path
+    {
+        if (!manifest.sourceBinding.path.empty())
+        {
+            return (root / manifest.sourceBinding.path).lexically_normal();
+        }
+        return (root / ".ngin" / "deps" / manifest.name).lexically_normal();
+    }
+
+    [[nodiscard]] auto ResolvePackageSourceDir(const fs::path& root, const PackageManifest& manifest) -> fs::path
+    {
+        const auto sourceKind = Lower(manifest.sourceBinding.kind);
+        fs::path sourceDir;
+        if (sourceKind == "git")
+        {
+            sourceDir = ResolveGitCheckoutDir(root, manifest);
+        }
+        else if (!manifest.sourceBinding.path.empty())
+        {
+            sourceDir = (root / manifest.sourceBinding.path).lexically_normal();
+        }
+        else
+        {
+            sourceDir = manifest.path.parent_path();
+        }
+
+        if (!manifest.sourceBinding.subdirectory.empty())
+        {
+            sourceDir /= manifest.sourceBinding.subdirectory;
+        }
+        return sourceDir.lexically_normal();
+    }
+
+    [[nodiscard]] auto CollectGeneratedProjectSources(
+        const WorkspaceManifest& workspace,
+        const ProjectManifest& project,
+        IssueReport& report) -> std::vector<fs::path>
+    {
+        std::vector<fs::path> sources {};
+        std::set<fs::path>    unique {};
+
+        auto addSource = [&](const fs::path& candidate) {
+            const auto normalized = candidate.lexically_normal();
+            if (!fs::exists(normalized))
+            {
+                AddError(report, "project '" + project.name + "' source file '" + normalized.string() + "' does not exist");
+                return;
+            }
+            if (!fs::is_regular_file(normalized))
+            {
+                AddError(report, "project '" + project.name + "' source path '" + normalized.string() + "' is not a file");
+                return;
+            }
+            if (!IsCompiledSourceExtension(normalized))
+            {
+                AddError(report, "project '" + project.name + "' source file '" + normalized.string() + "' has an unsupported extension");
+                return;
+            }
+            if (unique.insert(normalized).second)
+            {
+                sources.push_back(normalized);
+            }
+        };
+
+        if (!project.build.sources.empty())
+        {
+            for (const auto& item : project.build.sources)
+            {
+                addSource(ResolveProjectPathValue(item, project, workspace));
+            }
+        }
+        else
+        {
+            for (const auto& rootPath : project.sourceRoots)
+            {
+                const auto sourceRoot = ResolveProjectPathValue(rootPath, project, workspace);
+                if (!fs::exists(sourceRoot))
+                {
+                    AddError(report, "project '" + project.name + "' source root '" + sourceRoot.string() + "' does not exist");
+                    continue;
+                }
+                if (!fs::is_directory(sourceRoot))
+                {
+                    AddError(report, "project '" + project.name + "' source root '" + sourceRoot.string() + "' is not a directory");
+                    continue;
+                }
+                for (const auto& entry : fs::recursive_directory_iterator(sourceRoot))
+                {
+                    if (!entry.is_regular_file() || !IsCompiledSourceExtension(entry.path()))
+                    {
+                        continue;
+                    }
+                    if (unique.insert(entry.path()).second)
+                    {
+                        sources.push_back(entry.path());
+                    }
+                }
+            }
+        }
+
+        std::sort(sources.begin(), sources.end());
+        return sources;
+    }
+
+    auto EmitTargetChecks(std::ofstream& out, const PackageManifest& manifest) -> void
+    {
+        for (const auto& artifact : manifest.artifacts.libraries)
+        {
+            if (artifact.exported && !artifact.target.empty())
+            {
+                out << "if(NOT TARGET \"" << EscapeCMake(artifact.target) << "\")\n";
+                out << "  message(FATAL_ERROR \"package '" << EscapeCMake(manifest.name)
+                    << "' expected target '" << EscapeCMake(artifact.target) << "'\")\n";
+                out << "endif()\n";
+            }
+        }
+        for (const auto& artifact : manifest.artifacts.executables)
+        {
+            if (artifact.exported && !artifact.target.empty())
+            {
+                out << "if(NOT TARGET \"" << EscapeCMake(artifact.target) << "\")\n";
+                out << "  message(FATAL_ERROR \"package '" << EscapeCMake(manifest.name)
+                    << "' expected target '" << EscapeCMake(artifact.target) << "'\")\n";
+                out << "endif()\n";
+            }
+        }
+    }
+
+    auto EmitPackageBuildOptions(std::ofstream& out, const PackageBuildDescriptor& build) -> void
+    {
+        for (const auto& option : build.options)
+        {
+            const auto lowerValue = Lower(option.value);
+            const auto cacheType = lowerValue == "on" || lowerValue == "off" || lowerValue == "true" || lowerValue == "false" ? "BOOL" : "STRING";
+            out << "set(" << option.name << " \"" << EscapeCMake(option.value) << "\" CACHE " << cacheType << " \"\" FORCE)\n";
+        }
+    }
+
     auto WriteGeneratedBuildProject(const ResolvedTarget& resolved, const fs::path& outputDir, IssueReport& report) -> std::optional<fs::path>
     {
         if (!HasArtifactTargetsToBuild(resolved))
@@ -1989,62 +2403,311 @@ namespace
             return std::nullopt;
         }
 
+        const auto workspaceRoot = resolved.workspace.path.parent_path();
         const auto generatedSourceDir = outputDir / ".ngin" / "cmake-src";
         const auto generatedBuildDir = outputDir / ".ngin" / "cmake-build";
         fs::create_directories(generatedSourceDir);
         fs::create_directories(generatedBuildDir);
 
-        std::ofstream out(generatedSourceDir / "CMakeLists.txt");
-        out << "cmake_minimum_required(VERSION 3.20)\n";
-        out << "project(NGINGeneratedBuild LANGUAGES CXX)\n";
-        out << "set(CMAKE_SUPPRESS_REGENERATION ON)\n";
+        std::unordered_map<std::string, std::vector<fs::path>> generatedSourcesByProject;
+        std::set<std::string> languages {"CXX"};
+        std::unordered_map<std::string, std::string> targetProviders {};
 
-        std::unordered_set<std::string> addedPackageDirs;
-        for (const auto& package : resolved.orderedPackages)
+        for (const auto& library : resolved.libraries)
         {
-            if (!PackageNeedsCMakeWrapper(package.manifest, resolved.selectedExecutable))
+            if (!library.target.empty() && !targetProviders.emplace(library.target, library.name).second)
             {
+                AddError(report, "duplicate build target '" + library.target + "' in artifacts '" + targetProviders.at(library.target) + "' and '" + library.name + "'");
+            }
+        }
+        for (const auto& executable : resolved.executables)
+        {
+            if (!executable.target.empty() && !targetProviders.emplace(executable.target, executable.name).second)
+            {
+                AddError(report, "duplicate build target '" + executable.target + "' in artifacts '" + targetProviders.at(executable.target) + "' and '" + executable.name + "'");
+            }
+        }
+
+        std::unordered_map<std::string, const ResolvedProjectUnit*> projectByPath {};
+        for (const auto& unit : resolved.projectUnits)
+        {
+            projectByPath.emplace(fs::weakly_canonical(unit.project.path).string(), &unit);
+
+            const auto buildMode = ProjectBuildMode(unit.project);
+            if (!IsSupportedProjectBuildMode(buildMode))
+            {
+                AddError(report, "project '" + unit.project.name + "' uses unsupported build mode '" + buildMode + "'");
                 continue;
             }
-            const auto packageDir = fs::weakly_canonical(package.manifest.path.parent_path());
-            const auto cmakeLists = packageDir / "CMakeLists.txt";
-            if (!fs::exists(cmakeLists))
+            if (Lower(unit.project.build.backend) != "cmake")
             {
-                AddError(report, "package '" + package.manifest.name + "' requires a CMake wrapper at '" + cmakeLists.string() + "'");
+                AddError(report, "project '" + unit.project.name + "' uses unsupported build backend '" + unit.project.build.backend + "'");
                 continue;
             }
-            const auto key = packageDir.string();
-            if (!addedPackageDirs.insert(key).second)
+            if (buildMode == "Generated")
             {
-                continue;
+                if (Lower(unit.project.build.language) != "cxx")
+                {
+                    AddError(report, "project '" + unit.project.name + "' generated build currently supports only Language=\"CXX\"");
+                    continue;
+                }
+                auto sources = CollectGeneratedProjectSources(resolved.workspace, unit.project, report);
+                if (sources.empty())
+                {
+                    AddError(report, "project '" + unit.project.name + "' generated build resolved no source files");
+                    continue;
+                }
+                for (const auto& source : sources)
+                {
+                    languages.insert(SourceLanguageFor(source));
+                }
+                generatedSourcesByProject.emplace(unit.project.name, std::move(sources));
             }
-            out << "add_subdirectory(\"" << EscapeCMake(packageDir.string()) << "\" \"${CMAKE_BINARY_DIR}/pkg_" << SanitizeIdentifier(package.manifest.name) << "\")\n";
         }
         if (!report.errors.empty())
         {
             return std::nullopt;
         }
 
-        std::unordered_set<std::string> addedProjectDirs;
+        std::ofstream out(generatedSourceDir / "CMakeLists.txt");
+        out << "cmake_minimum_required(VERSION 3.20)\n";
+        out << "project(NGINGeneratedBuild LANGUAGES";
+        for (const auto& language : languages)
+        {
+            out << " " << language;
+        }
+        out << ")\n";
+        out << "set(CMAKE_SUPPRESS_REGENERATION ON)\n";
+
+        std::unordered_set<std::string> addedPackageKeys;
+        for (const auto& package : resolved.orderedPackages)
+        {
+            if (!PackageNeedsBuildIntegration(package.manifest, resolved.selectedExecutable))
+            {
+                continue;
+            }
+            if (Lower(package.manifest.build.backend) != "cmake")
+            {
+                AddError(report, "package '" + package.manifest.name + "' uses unsupported build backend '" + package.manifest.build.backend + "'");
+                continue;
+            }
+
+            const auto mode = EffectivePackageBuildMode(package.manifest);
+            const auto sourceKind = Lower(package.manifest.sourceBinding.kind);
+            if (mode.empty())
+            {
+                AddError(report, "package '" + package.manifest.name + "' does not define a usable CMake integration mode");
+                continue;
+            }
+
+            if (mode == "FindPackage")
+            {
+                if (sourceKind != "cmakepackage")
+                {
+                    AddError(report, "package '" + package.manifest.name + "' uses Mode=\"FindPackage\" but SourceBinding Kind=\"" + package.manifest.sourceBinding.kind + "\"");
+                    continue;
+                }
+                const auto packageId = package.manifest.sourceBinding.path.empty() ? package.manifest.name : package.manifest.sourceBinding.path;
+                if (!addedPackageKeys.insert("find:" + packageId).second)
+                {
+                    continue;
+                }
+                out << "find_package(\"" << EscapeCMake(packageId) << "\" CONFIG QUIET)\n";
+                if (!package.manifest.artifacts.libraries.empty() && !package.manifest.artifacts.libraries.front().target.empty())
+                {
+                    out << "if(NOT TARGET \"" << EscapeCMake(package.manifest.artifacts.libraries.front().target) << "\")\n";
+                }
+                else if (!package.manifest.artifacts.executables.empty() && !package.manifest.artifacts.executables.front().target.empty())
+                {
+                    out << "if(NOT TARGET \"" << EscapeCMake(package.manifest.artifacts.executables.front().target) << "\")\n";
+                }
+                else
+                {
+                    out << "if(TRUE)\n";
+                }
+                out << "  find_package(\"" << EscapeCMake(packageId) << "\" QUIET)\n";
+                out << "endif()\n";
+                EmitTargetChecks(out, package.manifest);
+                continue;
+            }
+
+            if (mode == "AddSubdirectory")
+            {
+                if (sourceKind != "source" && sourceKind != "git")
+                {
+                    AddError(report, "package '" + package.manifest.name + "' uses Mode=\"AddSubdirectory\" but SourceBinding Kind=\"" + package.manifest.sourceBinding.kind + "\"");
+                    continue;
+                }
+                const auto sourceDir = ResolvePackageSourceDir(workspaceRoot, package.manifest);
+                if (sourceKind == "git" && !fs::exists(ResolveGitCheckoutDir(workspaceRoot, package.manifest)))
+                {
+                    AddError(report, "package '" + package.manifest.name + "' has not been synced to '" + ResolveGitCheckoutDir(workspaceRoot, package.manifest).string() + "'");
+                    continue;
+                }
+                const auto cmakeLists = sourceDir / "CMakeLists.txt";
+                if (!fs::exists(cmakeLists))
+                {
+                    AddError(report, "package '" + package.manifest.name + "' requires a CMake project at '" + cmakeLists.string() + "'");
+                    continue;
+                }
+                const auto key = "subdir:" + sourceDir.string();
+                if (!addedPackageKeys.insert(key).second)
+                {
+                    continue;
+                }
+                EmitPackageBuildOptions(out, package.manifest.build);
+                out << "add_subdirectory(\"" << EscapeCMake(sourceDir.string()) << "\" \"${CMAKE_BINARY_DIR}/pkg_" << SanitizeIdentifier(package.manifest.name) << "\" EXCLUDE_FROM_ALL)\n";
+                EmitTargetChecks(out, package.manifest);
+                continue;
+            }
+
+            if (mode == "Manual")
+            {
+                const auto packageDir = fs::weakly_canonical(package.manifest.path.parent_path());
+                const auto cmakeLists = packageDir / "CMakeLists.txt";
+                if (!fs::exists(cmakeLists))
+                {
+                    AddError(report, "package '" + package.manifest.name + "' requires a manual CMake wrapper at '" + cmakeLists.string() + "'");
+                    continue;
+                }
+                const auto key = "manual:" + packageDir.string();
+                if (!addedPackageKeys.insert(key).second)
+                {
+                    continue;
+                }
+                EmitPackageBuildOptions(out, package.manifest.build);
+                out << "add_subdirectory(\"" << EscapeCMake(packageDir.string()) << "\" \"${CMAKE_BINARY_DIR}/pkg_" << SanitizeIdentifier(package.manifest.name) << "\" EXCLUDE_FROM_ALL)\n";
+                EmitTargetChecks(out, package.manifest);
+                continue;
+            }
+
+            AddError(report, "package '" + package.manifest.name + "' uses unsupported CMake integration mode '" + mode + "'");
+        }
+        if (!report.errors.empty())
+        {
+            return std::nullopt;
+        }
+
         for (const auto& unit : resolved.projectUnits)
         {
             if (!ProjectNeedsCMakeBuild(unit.project))
             {
                 continue;
             }
-            const auto projectDir = fs::weakly_canonical(unit.project.path.parent_path());
-            const auto cmakeLists = projectDir / "CMakeLists.txt";
-            if (!fs::exists(cmakeLists))
+
+            const auto buildMode = ProjectBuildMode(unit.project);
+            if (buildMode == "Manual")
             {
-                AddError(report, "project '" + unit.project.name + "' requires a CMakeLists.txt at '" + cmakeLists.string() + "'");
+                const auto projectDir = fs::weakly_canonical(unit.project.path.parent_path());
+                const auto cmakeLists = projectDir / "CMakeLists.txt";
+                if (!fs::exists(cmakeLists))
+                {
+                    AddError(report, "project '" + unit.project.name + "' requires a manual CMakeLists.txt at '" + cmakeLists.string() + "'");
+                    continue;
+                }
+                out << "add_subdirectory(\"" << EscapeCMake(projectDir.string()) << "\" \"${CMAKE_BINARY_DIR}/proj_" << SanitizeIdentifier(unit.project.name) << "\")\n";
                 continue;
             }
-            const auto key = projectDir.string();
-            if (!addedProjectDirs.insert(key).second)
+
+            const auto kind = Lower(unit.project.primaryOutput.kind);
+            const auto targetName = unit.project.primaryOutput.target;
+            const auto& sources = generatedSourcesByProject.at(unit.project.name);
+
+            if (kind == "executable")
             {
+                out << "add_executable(\"" << EscapeCMake(targetName) << "\"\n";
+            }
+            else if (kind == "staticlibrary")
+            {
+                out << "add_library(\"" << EscapeCMake(targetName) << "\" STATIC\n";
+            }
+            else if (kind == "sharedlibrary")
+            {
+                out << "add_library(\"" << EscapeCMake(targetName) << "\" SHARED\n";
+            }
+            else
+            {
+                AddError(report, "project '" + unit.project.name + "' output kind '" + unit.project.primaryOutput.kind + "' is not supported by generated CMake");
                 continue;
             }
-            out << "add_subdirectory(\"" << EscapeCMake(projectDir.string()) << "\" \"${CMAKE_BINARY_DIR}/proj_" << SanitizeIdentifier(unit.project.name) << "\")\n";
+            for (const auto& source : sources)
+            {
+                out << "  \"" << EscapeCMake(source.string()) << "\"\n";
+            }
+            out << ")\n";
+            out << "set_target_properties(\"" << EscapeCMake(targetName) << "\" PROPERTIES CXX_STANDARD "
+                << EscapeCMake(unit.project.build.languageStandard)
+                << " CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)\n";
+
+            for (const auto& sourceRoot : unit.project.sourceRoots)
+            {
+                const auto includeDir = ResolveProjectPathValue(sourceRoot, unit.project, resolved.workspace);
+                out << "target_include_directories(\"" << EscapeCMake(targetName) << "\" PRIVATE \"" << EscapeCMake(includeDir.string()) << "\")\n";
+            }
+            for (const auto& setting : unit.project.build.includeDirectories)
+            {
+                const auto includeDir = ResolveProjectPathValue(setting.value, unit.project, resolved.workspace);
+                out << "target_include_directories(\"" << EscapeCMake(targetName) << "\" " << ToCMakeVisibility(setting.visibility)
+                    << " \"" << EscapeCMake(includeDir.string()) << "\")\n";
+            }
+            for (const auto& setting : unit.project.build.compileDefinitions)
+            {
+                out << "target_compile_definitions(\"" << EscapeCMake(targetName) << "\" " << ToCMakeVisibility(setting.visibility)
+                    << " \"" << EscapeCMake(ExpandProjectVariables(setting.value, unit.project, resolved.workspace)) << "\")\n";
+            }
+            for (const auto& setting : unit.project.build.compileOptions)
+            {
+                out << "target_compile_options(\"" << EscapeCMake(targetName) << "\" " << ToCMakeVisibility(setting.visibility)
+                    << " \"" << EscapeCMake(ExpandProjectVariables(setting.value, unit.project, resolved.workspace)) << "\")\n";
+            }
+            for (const auto& setting : unit.project.build.linkOptions)
+            {
+                out << "target_link_options(\"" << EscapeCMake(targetName) << "\" " << ToCMakeVisibility(setting.visibility)
+                    << " \"" << EscapeCMake(ExpandProjectVariables(setting.value, unit.project, resolved.workspace)) << "\")\n";
+            }
+
+            const auto linkVisibility = kind == "executable" ? "PRIVATE" : "PUBLIC";
+            std::vector<PackageReference> packageRefs = unit.project.packageRefs;
+            MergePackageReferences(packageRefs, unit.variant.packageRefs);
+            for (const auto& packageRef : packageRefs)
+            {
+                const auto packageIt = std::find_if(
+                    resolved.orderedPackages.begin(),
+                    resolved.orderedPackages.end(),
+                    [&](const ResolvedPackage& package) { return package.manifest.name == packageRef.name; });
+                if (packageIt == resolved.orderedPackages.end())
+                {
+                    continue;
+                }
+                for (const auto& library : packageIt->manifest.artifacts.libraries)
+                {
+                    if (library.exported && !library.target.empty())
+                    {
+                        out << "target_link_libraries(\"" << EscapeCMake(targetName) << "\" " << linkVisibility
+                            << " \"" << EscapeCMake(library.target) << "\")\n";
+                    }
+                }
+            }
+
+            for (const auto& projectRef : unit.project.projectRefs)
+            {
+                const auto canonical = fs::weakly_canonical(projectRef.path).string();
+                const auto refIt = projectByPath.find(canonical);
+                if (refIt == projectByPath.end())
+                {
+                    AddError(report, "project '" + unit.project.name + "' references unknown project '" + projectRef.path.string() + "'");
+                    continue;
+                }
+                const auto* referencedUnit = refIt->second;
+                const auto referencedKind = Lower(referencedUnit->project.primaryOutput.kind);
+                if (referencedKind != "staticlibrary" && referencedKind != "sharedlibrary")
+                {
+                    AddError(report, "project '" + unit.project.name + "' references non-library project '" + referencedUnit->project.name + "'");
+                    continue;
+                }
+                out << "target_link_libraries(\"" << EscapeCMake(targetName) << "\" " << linkVisibility
+                    << " \"" << EscapeCMake(referencedUnit->project.primaryOutput.target) << "\")\n";
+            }
         }
         if (!report.errors.empty())
         {
@@ -2293,18 +2956,84 @@ namespace
     auto CmdSync(const fs::path& root, const ParsedArgs& args) -> int
     {
         (void)args;
-        if (!fs::exists(root / ".gitmodules"))
+        bool didWork = false;
+
+        if (fs::exists(root / ".gitmodules"))
         {
-            std::cout << "No .gitmodules file found; nothing to sync.\n";
-            return 0;
+            didWork = true;
+            if (std::system(("git -C \"" + root.string() + "\" submodule sync --recursive").c_str()) != 0)
+            {
+                return 1;
+            }
+            if (std::system(("git -C \"" + root.string() + "\" submodule update --init --recursive").c_str()) != 0)
+            {
+                return 1;
+            }
         }
-        if (std::system(("git -C \"" + root.string() + "\" submodule sync --recursive").c_str()) != 0)
+
+        const auto catalog = LoadPackageCatalog(root);
+        std::vector<std::string> packageNames;
+        packageNames.reserve(catalog.size());
+        for (const auto& [name, _] : catalog)
         {
-            return 1;
+            packageNames.push_back(name);
         }
-        if (std::system(("git -C \"" + root.string() + "\" submodule update --init --recursive").c_str()) != 0)
+        std::sort(packageNames.begin(), packageNames.end());
+
+        for (const auto& packageName : packageNames)
         {
-            return 1;
+            const auto manifest = LoadPackageManifest(catalog.at(packageName).manifestPath);
+            if (Lower(manifest.sourceBinding.kind) != "git")
+            {
+                continue;
+            }
+            if (manifest.sourceBinding.url.empty())
+            {
+                std::cerr << "package '" << manifest.name << "' uses SourceBinding Kind=\"Git\" but does not declare Url\n";
+                return 1;
+            }
+            if (manifest.sourceBinding.ref.empty())
+            {
+                std::cerr << "package '" << manifest.name << "' uses SourceBinding Kind=\"Git\" but does not declare Ref\n";
+                return 1;
+            }
+
+            didWork = true;
+            const auto checkoutDir = ResolveGitCheckoutDir(root, manifest);
+            fs::create_directories(checkoutDir.parent_path());
+            if (!fs::exists(checkoutDir))
+            {
+                const auto clone = "git clone --recursive \"" + manifest.sourceBinding.url + "\" \"" + checkoutDir.string() + "\"";
+                if (std::system(clone.c_str()) != 0)
+                {
+                    return 1;
+                }
+            }
+            if (!fs::exists(checkoutDir / ".git"))
+            {
+                std::cerr << "git package checkout path is not a git repository: " << checkoutDir << "\n";
+                return 1;
+            }
+
+            if (std::system(("git -C \"" + checkoutDir.string() + "\" fetch --tags --prune origin").c_str()) != 0)
+            {
+                return 1;
+            }
+            if (std::system(("git -C \"" + checkoutDir.string() + "\" checkout --force \"" + manifest.sourceBinding.ref + "\"").c_str()) != 0)
+            {
+                return 1;
+            }
+            if (std::system(("git -C \"" + checkoutDir.string() + "\" submodule update --init --recursive").c_str()) != 0)
+            {
+                return 1;
+            }
+
+            std::cout << "Synced git package: " << manifest.name << " -> " << checkoutDir.string() << "\n";
+        }
+
+        if (!didWork)
+        {
+            std::cout << "No submodules or git-backed packages found; nothing to sync.\n";
         }
         return 0;
     }

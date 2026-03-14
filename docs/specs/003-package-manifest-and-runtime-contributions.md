@@ -51,7 +51,7 @@ Recommended top-level child sections:
       <Library Name="NGIN.Core" Target="NGIN::Core" Linkage="Static" />
     </Libraries>
   </Artifacts>
-  <Build Backend="CMake" />
+  <Build Backend="CMake" Mode="AddSubdirectory" />
   <Platforms>
     <Platform Name="linux" />
     <Platform Name="windows" />
@@ -122,9 +122,11 @@ Supported `Kind` values:
 
 - `Source`
 - `CMakePackage`
+- `Git`
 - `Prebuilt`
 
 `Path` is workspace-relative when the package is backed by local source or local package content.
+For `Kind="Git"`, `Url` and `Ref` identify the remote checkout and pinned revision. `Path` optionally overrides the workspace-local checkout path, and `Subdirectory` may point at a nested CMake project inside the checkout.
 
 ### Artifacts
 
@@ -158,6 +160,7 @@ Each `<Library>` may define:
 If `Origin` is omitted, implementations may infer it from `SourceBinding`:
 
 - `Source` usually implies `Built`
+- `Git` usually implies `Built`
 - `CMakePackage` usually implies `Imported`
 - `Prebuilt` usually implies `Prebuilt`
 
@@ -175,6 +178,12 @@ Each `<Executable>` may define:
 Current active backend:
 
 - `CMake`
+
+Supported `Mode` values in v1:
+
+- `FindPackage`
+- `AddSubdirectory`
+- `Manual`
 
 `Build` should remain optional and backend-thin.
 

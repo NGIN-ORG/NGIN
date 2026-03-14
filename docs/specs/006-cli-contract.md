@@ -52,6 +52,7 @@ Planned package lifecycle commands after the distribution model is specified:
 ### workspace status / doctor / sync
 
 Operate on the current `.ngin` workspace, package source roots, and the component repos available to that workspace.
+`workspace sync` also materializes any package `SourceBinding Kind="Git"` checkouts declared by the workspace-visible package catalog.
 
 ### project validate
 
@@ -63,7 +64,7 @@ Loads a project, selects a variant, resolves composition, and prints the resolve
 
 ### project build
 
-Loads a project, selects a variant, resolves composition, resolves artifact and executable candidates, invokes the active backend for the selected build configuration when needed, stages outputs and content into an output directory, and emits a `.ngintarget` file.
+Loads a project, selects a variant, resolves composition, resolves artifact and executable candidates, generates backend input for generated-mode projects and packages when needed, invokes the active backend for the selected build configuration, stages outputs and content into an output directory, and emits a `.ngintarget` file.
 
 ### package list
 

@@ -9,7 +9,13 @@
       <Library Name="NGIN.Reflection" Target="NGIN::Reflection" Linkage="Static" />
     </Libraries>
   </Artifacts>
-  <Build Backend="CMake" />
+  <Build Backend="CMake" Mode="AddSubdirectory">
+    <Options>
+      <Option Name="NGIN_REFLECTION_BUILD_TESTS" Value="OFF" />
+      <Option Name="NGIN_REFLECTION_BUILD_EXAMPLES" Value="OFF" />
+      <Option Name="NGIN_REFLECTION_BUILD_BENCHMARKS" Value="OFF" />
+    </Options>
+  </Build>
   <Platforms>
     <Platform Name="linux" />
     <Platform Name="windows" />

@@ -13,6 +13,7 @@ Projects own:
 
 - source roots
 - primary output
+- build metadata for generated backend input
 - project references
 - package references
 - app-local runtime contributions
@@ -49,6 +50,10 @@ Required root attributes:
   <PrimaryOutput Kind="Executable"
                  Name="Sandbox.Game"
                  Target="Sandbox.Game" />
+  <Build Backend="CMake"
+         Mode="Generated"
+         Language="CXX"
+         LanguageStandard="23" />
   <PackageRefs>
     <PackageRef Name="NGIN.Core" VersionRange=">=0.1.0 &lt;1.0.0" />
     <PackageRef Name="NGIN.ECS" VersionRange=">=0.1.0 &lt;1.0.0" />
@@ -87,6 +92,7 @@ Root-level project sections:
 
 - `SourceRoots`
 - `PrimaryOutput`
+- `Build`
 - `ProjectRefs`
 - `PackageRefs`
 - `ConfigSources`
@@ -118,6 +124,32 @@ Supported `Kind` values in v1:
 - `SharedLibrary`
 
 Projects may define additional outputs later, but v1 requires one primary output.
+
+### Build
+
+`Build` declares backend-thin project build metadata for generated project builds.
+
+Supported root attributes:
+
+- `Backend` optional, defaults to `CMake`
+- `Mode` optional, defaults to `Generated`
+- `Language` optional, defaults to `CXX`
+- `LanguageStandard` optional, defaults to `23`
+
+Supported `Mode` values in v1:
+
+- `Generated`
+- `Manual`
+
+Supported child sections in v1:
+
+- `Sources`
+- `IncludeDirectories`
+- `CompileDefinitions`
+- `CompileOptions`
+- `LinkOptions`
+
+If `Mode="Generated"` and `Sources` is omitted, implementations recursively compile source files found under `SourceRoots`.
 
 ### ProjectRefs
 

@@ -35,12 +35,13 @@ If `--project` is omitted, `ngin` walks upward from the current directory and us
 - [Dependencies README](/home/berggrenmille/NGIN/Dependencies/README.md)
 
 Runtime module and plugin metadata are authored inside `.nginpkg` files. Package wrappers also declare source binding, exposed artifacts, and any backend-thin build hints needed so the umbrella workspace can expose first-party and third-party code through one package model.
+Projects may also declare a root `<Build>` section. In the normal path, `ngin project build` generates the project CMake layer from `.nginproj` metadata instead of requiring a handwritten project `CMakeLists.txt`.
 
 The root `.ngin` file is the workspace authority. It declares package source roots and the projects available to the workspace. Package discovery comes from `<PackageSources>` in that workspace file rather than a separate catalog.
 
 ## Build Output
 
-`ngin build` stages package contents and project config sources into an output directory and emits `<Project>.<Variant>.ngintarget` as the staged layout manifest.
+`ngin build` stages package contents and project config sources into an output directory, generates backend input when needed, and emits `<Project>.<Variant>.ngintarget` as the staged layout manifest.
 
 Default staged output:
 

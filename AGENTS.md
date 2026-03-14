@@ -5,6 +5,7 @@ This file is the root instruction surface for AI-assisted work in this repositor
 ## Architecture Overview
 
 NGIN is a modular C++ application platform built around authored workspace, project, and package manifests that resolve into a staged runtime layout. The repository combines a native CLI, package wrappers, a locally owned runtime package, and source-backed dependency trees that are composed through the workspace model.
+In the active model, normal application projects build from `.nginproj` metadata through generated CMake backend input. Handwritten `CMakeLists.txt` files are mainly for workspace automation, package wrappers, dependency-owned source trees, or explicit manual compatibility paths.
 
 ## Start Here
 
@@ -45,6 +46,8 @@ Treat these as authored inputs:
 - `CMakeLists.txt`
 - files under `docs/`, `Tools/`, `Packages/`, `Examples/`, and `Dependencies/`
 
+Project-level handwritten `CMakeLists.txt` files are no longer the normal app authoring path. Prefer `.nginproj` root `<Build>` metadata for new project build behavior.
+
 Treat these as generated outputs unless the user explicitly asks otherwise:
 
 - `build/`
@@ -59,7 +62,7 @@ Do not edit generated files to implement behavior changes.
 - Workspace automation and tests: root `CMakeLists.txt` and `cmake/`
 - Canonical example changes: `Examples/App.Basic/`
 - Host/runtime behavior: `Packages/NGIN.Core/`
-- Package exposure or source binding changes: `Packages/*.nginpkg`
+- Package exposure, source binding, and backend integration changes: `Packages/*.nginpkg`
 - First-party dependency implementation changes: `Dependencies/NGIN/*`
 
 Before changing manifests or CLI semantics, check the relevant spec in `docs/specs/`.
@@ -68,7 +71,7 @@ Before changing manifests or CLI semantics, check the relevant spec in `docs/spe
 
 - `Dependencies/NGIN/*` may be modified when the required implementation genuinely belongs to that source tree.
 - If a dependency subtree contains its own `AGENTS.md`, follow that file for any edits under that subtree.
-- Prefer changing package wrappers in `Packages/` when the task is about exposure, binding, packaging, or workspace composition rather than dependency internals.
+- Prefer changing package wrappers in `Packages/` when the task is about exposure, binding, packaging, generated build integration, or workspace composition rather than dependency internals.
 - Avoid editing `Dependencies/ThirdParty/*` unless the task explicitly requires vendored third-party source changes.
 - Do not make opportunistic dependency edits just because the code is reachable from the workspace; keep changes in the ownership boundary where they belong.
 
@@ -113,12 +116,20 @@ Smoke-test the example project:
 ./build/dev/Tools/NGIN.CLI/ngin project build --project Examples/App.Basic/App.Basic.nginproj --variant Runtime --output build/manual/App.Basic
 ```
 
+Sync git-backed package sources when needed:
+
+```bash
+./build/dev/Tools/NGIN.CLI/ngin workspace sync
+```
+
 ## Working Rules
 
 - Keep diffs narrow and task-focused.
 - Prefer updating docs when behavior or contracts change.
 - Preserve the distinction between package wrappers in `Packages/` and source trees in `Dependencies/`.
 - Use `Examples/App.Basic/` for CLI and manifest smoke checks unless a different example is required.
+- Prefer project `<Build>` metadata over adding new handwritten project `CMakeLists.txt` files.
+- Use package `SourceBinding` and `<Build Mode="...">` metadata to integrate external or dependency-owned CMake projects.
 - When changing dependency subtrees, follow any local `AGENTS.md` in that subtree.
 
 ## Typical Change Workflow

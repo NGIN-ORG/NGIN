@@ -26,4 +26,4 @@ Use this skill when the task is to configure or build C++ code in this repositor
 
 - The workspace preset is `dev`.
 - Generated output lives under `build/`.
-- Use `Examples/App.Basic/` for smoke validation after a successful build.
+- Use `Examples/App.Basic/` for smoke validation after a successful build. It exercises the generated project-CMake path from `.nginproj`.

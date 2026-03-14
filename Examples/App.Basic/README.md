@@ -6,6 +6,7 @@ It is intentionally generic:
 
 - one project
 - one project-owned executable entrypoint
+- no handwritten project `CMakeLists.txt`
 - one variant that builds and stages through `ngin`
 - one config file consumed through `NGIN.Core`
 

@@ -1094,6 +1094,14 @@ TEST_CASE("ApplicationBuilderLoadsProjectManifestAndConfig", "[builder][manifest
   <PrimaryOutput Kind="Executable"
                  Name="Manifest.Tests"
                  Target="Manifest.Tests" />
+  <Build Backend="CMake"
+         Mode="Generated"
+         Language="CXX"
+         LanguageStandard="23">
+    <CompileDefinitions>
+      <Definition Value="MANIFEST_TESTS=1" Visibility="Private" />
+    </CompileDefinitions>
+  </Build>
   <PackageRefs>
     <PackageRef Name="NGIN.ECS" VersionRange=">=0.1.0 &lt;1.0.0" />
   </PackageRefs>

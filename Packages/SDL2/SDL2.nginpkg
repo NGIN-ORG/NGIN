@@ -9,7 +9,7 @@
       <Library Name="SDL2" Target="SDL2::SDL2" Origin="Imported" />
     </Libraries>
   </Artifacts>
-  <Build Backend="CMake" />
+  <Build Backend="CMake" Mode="FindPackage" />
   <Platforms>
     <Platform Name="linux" />
     <Platform Name="windows" />

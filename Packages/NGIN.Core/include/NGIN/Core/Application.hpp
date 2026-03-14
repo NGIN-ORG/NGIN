@@ -118,6 +118,25 @@ namespace NGIN::Core
         std::string target {};
     };
 
+    struct BuildSetting
+    {
+        std::string value {};
+        std::string visibility {"Private"};
+    };
+
+    struct ProjectBuildDescriptor
+    {
+        std::string               backend {"CMake"};
+        std::string               mode {"Generated"};
+        std::string               language {"CXX"};
+        std::string               languageStandard {"23"};
+        std::vector<std::string>  sources {};
+        std::vector<BuildSetting> includeDirectories {};
+        std::vector<BuildSetting> compileDefinitions {};
+        std::vector<BuildSetting> compileOptions {};
+        std::vector<BuildSetting> linkOptions {};
+    };
+
     struct RuntimeDefinition
     {
         std::vector<ModuleDescriptor> modules {};
@@ -148,6 +167,7 @@ namespace NGIN::Core
         std::string                    defaultVariant {};
         std::vector<std::string>       sourceRoots {};
         PrimaryOutput                  primaryOutput {};
+        ProjectBuildDescriptor         build {};
         std::vector<ProjectReference>  projectRefs {};
         std::vector<PackageReference>  packageRefs {};
         std::vector<std::string>       configSources {};

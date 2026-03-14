@@ -17,3 +17,9 @@ Source code does not live here by default. Source-backed packages point at eithe
 - `Dependencies/NGIN/*` for first-party libraries developed externally
 - `Dependencies/ThirdParty/*` for vendored third-party source trees
 - a backend package name such as `SDL2` for imported CMake packages
+
+For CMake-backed integration, package wrappers may use:
+
+- `Mode="AddSubdirectory"` to wrap local or synced source trees
+- `Mode="FindPackage"` to wrap installed/exported CMake packages
+- `Mode="Manual"` to preserve a handwritten compatibility wrapper

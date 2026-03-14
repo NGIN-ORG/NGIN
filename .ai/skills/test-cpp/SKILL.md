@@ -24,4 +24,4 @@ Use this skill when the task is to verify changes in this repository.
 
 - Workspace tests use `ctest --test-dir build/dev --output-on-failure`.
 - `NGIN.Core` tests use the `build/ngin-core-ci` tree and `Release` config.
-- The `app-basic` flow validates and then builds the staged layout.
+- The `app-basic` flow validates and then builds the staged layout through generated project CMake from `App.Basic.nginproj`.
