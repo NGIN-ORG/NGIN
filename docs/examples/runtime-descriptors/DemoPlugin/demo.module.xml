@@ -2,7 +2,7 @@
 <Module Name="Core.DynamicDemo"
         Family="Core"
         Type="Runtime"
-        LoadPhase="CoreServices"
+  StartupStage="Services"
         Version="0.1.0"
         CompatiblePlatformRange=">=0.1.0 &lt;1.0.0"
         ReflectionRequired="false">

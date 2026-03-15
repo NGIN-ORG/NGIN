@@ -67,7 +67,6 @@ This document summarizes the API-breaking hardening changes introduced in the Sp
 
 ## Module Startup Metadata
 
-- Replaced `LoadPhase` with `StartupStage`.
 - `StartupStage` is now startup-order metadata only:
   - `Foundation`
   - `Platform`

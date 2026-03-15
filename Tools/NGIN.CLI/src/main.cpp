@@ -167,6 +167,42 @@ namespace
             || value == "Presentation";
     }
 
+    [[nodiscard]] auto StartupStageRank(const std::string_view value) -> int
+    {
+        if (value == "Foundation")
+        {
+            return 0;
+        }
+        if (value == "Platform")
+        {
+            return 1;
+        }
+        if (value == "Services")
+        {
+            return 2;
+        }
+        if (value == "Features")
+        {
+            return 3;
+        }
+        if (value == "Presentation")
+        {
+            return 4;
+        }
+        return 99;
+    }
+
+    [[nodiscard]] auto IsValidModuleFamily(const std::string_view value) -> bool
+    {
+        return value == "Base"
+            || value == "Reflection"
+            || value == "Core"
+            || value == "Platform"
+            || value == "Editor"
+            || value == "Domain"
+            || value == "App";
+    }
+
     [[nodiscard]] auto IsValidHostProfile(const std::string_view value) -> bool
     {
         return value == "ConsoleApp"
@@ -256,6 +292,24 @@ namespace
         return out;
     }
 
+    auto ValidateSchemaVersion(const XmlElement& node, const fs::path& path) -> void
+    {
+        const auto schemaVersion = RequireAttribute(node, "SchemaVersion", path);
+        if (schemaVersion != "1")
+        {
+            throw std::runtime_error(path.string() + ": unsupported SchemaVersion '" + schemaVersion + "' (expected '1')");
+        }
+    }
+
+    [[nodiscard]] auto ResolveStartupStage(const XmlElement& node, const std::string_view defaultStage) -> std::string
+    {
+        if (const auto startupStage = Attribute(node, "StartupStage"); startupStage.has_value() && !startupStage->empty())
+        {
+            return *startupStage;
+        }
+        return std::string(defaultStage);
+    }
+
     [[nodiscard]] auto ToolExists(const std::string& tool) -> bool
     {
 #if defined(_WIN32)
@@ -319,6 +373,12 @@ namespace
         std::string source {};
         std::string kind {};
         std::string target {};
+    };
+    struct PackageBootstrapDescriptor
+    {
+        std::string mode {"BuilderHookV1"};
+        std::string entryPoint {};
+        bool        autoApply {false};
     };
 
     struct SourceBinding
@@ -403,6 +463,18 @@ namespace
         bool                     requiresReflection {false};
     };
 
+    auto ValidateModuleDescriptor(const ModuleDescriptor& module, const fs::path& path) -> void
+    {
+        if (!IsValidModuleFamily(module.family))
+        {
+            throw std::runtime_error(path.string() + ": unknown module family '" + module.family + "'");
+        }
+        if (!IsValidStartupStage(module.startupStage))
+        {
+            throw std::runtime_error(path.string() + ": unknown startup stage '" + module.startupStage + "'");
+        }
+    }
+
     struct PluginDescriptor
     {
         std::string              name {};
@@ -423,9 +495,26 @@ namespace
         PackageBuildDescriptor         build {};
         std::vector<std::string>       platforms {};
         std::vector<PackageDependency> dependencies {};
+        std::optional<PackageBootstrapDescriptor> bootstrap {};
         std::vector<ContentFile>       contents {};
         std::vector<ModuleDescriptor>  modules {};
         std::vector<PluginDescriptor>  plugins {};
+    };
+
+    struct ResolvedConfigSource
+    {
+        std::string ownerProjectName {};
+        fs::path    ownerProjectDirectory {};
+        std::string source {};
+        fs::path    absoluteSourcePath {};
+        fs::path    stagedRelativePath {};
+    };
+    struct ResolvedBootstrap
+    {
+        std::string packageName {};
+        std::string mode {};
+        std::string entryPoint {};
+        bool        autoApply {false};
     };
 
     struct PackageCatalogEntry
@@ -510,7 +599,8 @@ namespace
         ProjectManifest                              project {};
         VariantDefinition                            variant {};
         std::vector<ResolvedProjectUnit>             projectUnits {};
-        std::vector<std::string>                     configSources {};
+        std::vector<ResolvedConfigSource>            configSources {};
+        std::vector<ResolvedBootstrap>               bootstraps {};
         std::vector<ResolvedPackage>                 orderedPackages {};
         std::map<std::string, std::set<std::string>> packageEdges {};
         std::vector<std::string>                     requiredModules {};
@@ -542,6 +632,10 @@ namespace
         }
         std::sort(candidates.begin(), candidates.end());
         return candidates.front();
+    }
+    [[nodiscard]] auto IsValidPackageBootstrapMode(const std::string_view value) -> bool
+    {
+        return value == "BuilderHookV1";
     }
 
     [[nodiscard]] auto RootDirFrom(const fs::path& start) -> std::optional<fs::path>
@@ -818,6 +912,7 @@ namespace
         {
             throw std::runtime_error(path->string() + ": root element must be <Workspace>");
         }
+        ValidateSchemaVersion(*rootElement, *path);
 
         WorkspaceManifest workspace {};
         workspace.path = fs::weakly_canonical(*path);
@@ -882,6 +977,7 @@ namespace
         {
             throw std::runtime_error(path.string() + ": root element must be <Package>");
         }
+        ValidateSchemaVersion(*rootElement, path);
         PackageManifest package {};
         package.path = path;
         package.name = RequireAttribute(*rootElement, "Name", path);
@@ -942,6 +1038,18 @@ namespace
                 package.dependencies.push_back(std::move(dependency));
             }
         }
+        if (const auto* bootstrap = FindChild(*rootElement, "Bootstrap"))
+        {
+            PackageBootstrapDescriptor descriptor {};
+            descriptor.mode = RequireAttribute(*bootstrap, "Mode", path);
+            if (!IsValidPackageBootstrapMode(descriptor.mode))
+            {
+                throw std::runtime_error(path.string() + ": unknown package bootstrap mode '" + descriptor.mode + "'");
+            }
+            descriptor.entryPoint = RequireAttribute(*bootstrap, "EntryPoint", path);
+            descriptor.autoApply = BoolAttribute(*bootstrap, "AutoApply");
+            package.bootstrap = std::move(descriptor);
+        }
         if (const auto* contents = FindChild(*rootElement, "Contents"))
         {
             for (const auto* node : ChildElements(*contents, "File"))
@@ -965,14 +1073,11 @@ namespace
             module.name = RequireAttribute(*node, "Name", path);
             module.family = Attribute(*node, "Family").value_or("Core");
             module.type = Attribute(*node, "Type").value_or("Runtime");
-            module.startupStage = Attribute(*node, "StartupStage").value_or("Features");
+            module.startupStage = ResolveStartupStage(*node, "Features");
             module.version = Attribute(*node, "Version").value_or("");
             module.compatiblePlatformRange = Attribute(*node, "CompatiblePlatformRange").value_or("");
             module.requiresReflection = BoolAttribute(*node, "ReflectionRequired");
-            if (!IsValidStartupStage(module.startupStage))
-            {
-                throw std::runtime_error(path.string() + ": unknown startup stage '" + module.startupStage + "'");
-            }
+            ValidateModuleDescriptor(module, path);
             module.supportedHosts = ParseSupportedHosts(*node, path);
 
             if (const auto* platforms = FindChild(*node, "Platforms"))
@@ -1072,14 +1177,11 @@ namespace
         module.name = RequireAttribute(node, "Name", path);
         module.family = Attribute(node, "Family").value_or("App");
         module.type = Attribute(node, "Type").value_or("Runtime");
-        module.startupStage = Attribute(node, "StartupStage").value_or("Features");
+        module.startupStage = ResolveStartupStage(node, "Features");
         module.version = Attribute(node, "Version").value_or("");
         module.compatiblePlatformRange = Attribute(node, "CompatiblePlatformRange").value_or("");
         module.requiresReflection = BoolAttribute(node, "ReflectionRequired");
-        if (!IsValidStartupStage(module.startupStage))
-        {
-            throw std::runtime_error(path.string() + ": unknown startup stage '" + module.startupStage + "'");
-        }
+        ValidateModuleDescriptor(module, path);
         module.supportedHosts = ParseSupportedHosts(node, path);
 
         if (const auto* platforms = FindChild(node, "Platforms"))
@@ -1249,6 +1351,7 @@ namespace
         {
             throw std::runtime_error(path.string() + ": root element must be <Project>");
         }
+        ValidateSchemaVersion(*rootElement, path);
         ProjectManifest project {};
         project.path = path;
         project.name = RequireAttribute(*rootElement, "Name", path);
@@ -2016,8 +2119,88 @@ namespace
                 }
             }
         }
-        const auto orderedModules = TopologicalDependenciesFirst(allNodes, depEdges);
-        if (!orderedModules.has_value())
+        for (const auto& [moduleName, dependencies] : depEdges)
+        {
+            const auto& module = modules.at(moduleName);
+            const auto moduleRank = StartupStageRank(module.startupStage);
+            for (const auto& dependencyName : dependencies)
+            {
+                const auto& dependency = modules.at(dependencyName);
+                const auto dependencyRank = StartupStageRank(dependency.startupStage);
+                if (moduleRank < dependencyRank)
+                {
+                    AddError(
+                        report,
+                        "module '" + moduleName + "' at startup stage '" + module.startupStage
+                            + "' depends on '" + dependencyName + "' at later startup stage '" + dependency.startupStage + "'");
+                }
+            }
+        }
+        if (!report.errors.empty())
+        {
+            return std::nullopt;
+        }
+
+        std::map<std::string, int> indegree {};
+        std::map<std::string, std::set<std::string>> dependents {};
+        for (const auto& node : allNodes)
+        {
+            indegree[node] = 0;
+        }
+        for (const auto& node : allNodes)
+        {
+            const auto it = depEdges.find(node);
+            if (it == depEdges.end())
+            {
+                continue;
+            }
+            for (const auto& dep : it->second)
+            {
+                if (allNodes.contains(dep))
+                {
+                    ++indegree[node];
+                    dependents[dep].insert(node);
+                }
+            }
+        }
+
+        auto compareModuleOrder = [&](const std::string& left, const std::string& right) {
+            const auto leftRank = StartupStageRank(modules.at(left).startupStage);
+            const auto rightRank = StartupStageRank(modules.at(right).startupStage);
+            if (leftRank != rightRank)
+            {
+                return leftRank < rightRank;
+            }
+            return left < right;
+        };
+
+        std::vector<std::string> queue;
+        for (const auto& [node, deg] : indegree)
+        {
+            if (deg == 0)
+            {
+                queue.push_back(node);
+            }
+        }
+        std::sort(queue.begin(), queue.end(), compareModuleOrder);
+
+        std::vector<std::string> orderedModules {};
+        while (!queue.empty())
+        {
+            const auto current = queue.front();
+            queue.erase(queue.begin());
+            orderedModules.push_back(current);
+            for (const auto& dep : dependents[current])
+            {
+                --indegree[dep];
+                if (indegree[dep] == 0)
+                {
+                    queue.push_back(dep);
+                    std::sort(queue.begin(), queue.end(), compareModuleOrder);
+                }
+            }
+        }
+        if (orderedModules.size() != allNodes.size())
         {
             AddError(report, "variant closure contains cyclic module dependencies");
             return std::nullopt;
@@ -2028,14 +2211,61 @@ namespace
         resolved.project = project;
         resolved.variant = variant;
         resolved.projectUnits = std::move(projectUnits);
-        std::set<std::string> mergedConfigSources {};
+        std::map<fs::path, std::string> configOwnersByDestination {};
+        std::set<std::pair<std::string, std::string>> seenConfigDeclarations {};
         for (const auto& unit : resolved.projectUnits)
         {
-            mergedConfigSources.insert(unit.project.configSources.begin(), unit.project.configSources.end());
-            mergedConfigSources.insert(unit.variant.configSources.begin(), unit.variant.configSources.end());
+            const auto ownerProjectDirectory = unit.project.path.parent_path();
+            const auto collectConfigSources = [&](const std::vector<std::string>& configSources) {
+                for (const auto& source : configSources)
+                {
+                    const auto declarationKey = std::make_pair(unit.project.name, source);
+                    if (!seenConfigDeclarations.insert(declarationKey).second)
+                    {
+                        continue;
+                    }
+
+                    ResolvedConfigSource configSource {};
+                    configSource.ownerProjectName = unit.project.name;
+                    configSource.ownerProjectDirectory = ownerProjectDirectory;
+                    configSource.source = source;
+
+                    const auto declaredPath = fs::path(source);
+                    configSource.stagedRelativePath = declaredPath.is_absolute() ? declaredPath.filename() : declaredPath.lexically_normal();
+                    configSource.absoluteSourcePath = declaredPath.is_absolute()
+                        ? declaredPath.lexically_normal()
+                        : (ownerProjectDirectory / declaredPath).lexically_normal();
+
+                    if (const auto it = configOwnersByDestination.find(configSource.stagedRelativePath); it != configOwnersByDestination.end())
+                    {
+                        AddError(report, "config source destination collision at '" + configSource.stagedRelativePath.string() + "' between projects '" + it->second + "' and '" + unit.project.name + "'");
+                        continue;
+                    }
+                    configOwnersByDestination[configSource.stagedRelativePath] = unit.project.name;
+                    resolved.configSources.push_back(std::move(configSource));
+                }
+            };
+            collectConfigSources(unit.project.configSources);
+            collectConfigSources(unit.variant.configSources);
         }
-        resolved.configSources.assign(mergedConfigSources.begin(), mergedConfigSources.end());
+        if (!report.errors.empty())
+        {
+            return std::nullopt;
+        }
         resolved.orderedPackages = std::move(orderedPackages);
+        for (const auto& package : resolved.orderedPackages)
+        {
+            if (!package.manifest.bootstrap.has_value())
+            {
+                continue;
+            }
+            resolved.bootstraps.push_back(ResolvedBootstrap {
+                .packageName = package.manifest.name,
+                .mode = package.manifest.bootstrap->mode,
+                .entryPoint = package.manifest.bootstrap->entryPoint,
+                .autoApply = package.manifest.bootstrap->autoApply,
+            });
+        }
         for (const auto& package : resolved.orderedPackages)
         {
             resolved.packageEdges[package.manifest.name] = {};
@@ -2045,7 +2275,7 @@ namespace
             }
         }
         resolved.enabledPlugins.assign(directPlugins.begin(), directPlugins.end());
-        for (const auto& name : *orderedModules)
+        for (const auto& name : orderedModules)
         {
             if (requiredSet.contains(name))
             {
@@ -3363,9 +3593,22 @@ namespace
         out << "  <ConfigSources>\n";
         for (const auto& source : resolved.configSources)
         {
-            out << "    <Config Source=\"" << EscapeXml(source) << "\" />\n";
+            out << "    <Config Source=\"" << EscapeXml(source.source)
+                << "\" Project=\"" << EscapeXml(source.ownerProjectName)
+                << "\" Destination=\"" << EscapeXml(source.stagedRelativePath.string())
+                << "\" />\n";
         }
         out << "  </ConfigSources>\n";
+        out << "  <Bootstraps>\n";
+        for (const auto& bootstrap : resolved.bootstraps)
+        {
+            out << "    <Bootstrap Package=\"" << EscapeXml(bootstrap.packageName)
+                << "\" Mode=\"" << EscapeXml(bootstrap.mode)
+                << "\" EntryPoint=\"" << EscapeXml(bootstrap.entryPoint)
+                << "\" AutoApply=\"" << (bootstrap.autoApply ? "true" : "false")
+                << "\" />\n";
+        }
+        out << "  </Bootstraps>\n";
         out << "  <Packages>\n";
         for (const auto& package : resolved.orderedPackages)
         {
@@ -3491,16 +3734,16 @@ namespace
         }
         for (const auto& config : resolved->configSources)
         {
-            const auto source = resolved->project.path.parent_path() / config;
+            const auto source = config.absoluteSourcePath;
             if (!fs::exists(source))
             {
-                AddError(report, "missing config source '" + config + "'");
+                AddError(report, "missing config source '" + config.source + "' declared by project '" + config.ownerProjectName + "'");
                 continue;
             }
-            const auto dest = outputDir / config;
+            const auto dest = outputDir / config.stagedRelativePath;
             if (collisions.contains(dest))
             {
-                AddError(report, "build output collision at config source '" + config + "'");
+                AddError(report, "build output collision at config source '" + config.stagedRelativePath.string() + "' declared by project '" + config.ownerProjectName + "'");
                 continue;
             }
             collisions[dest] = "<config>";

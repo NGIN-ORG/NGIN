@@ -50,7 +50,7 @@
       "    </Libraries>",
       "  </Artifacts>",
       "  <Modules>",
-      "    <Module Name=\"$6\" Family=\"$7\" Type=\"Runtime\" LoadPhase=\"Application\" Version=\"$2\" />",
+      "    <Module Name=\"$6\" Family=\"$7\" Type=\"Runtime\" StartupStage=\"Features\" Version=\"$2\" />",
       "  </Modules>",
       "</Package>"
     ]
@@ -75,7 +75,7 @@
     "scope": "ngin",
     "prefix": "ngin-module",
     "body": [
-      "<Module Name=\"$1\" Family=\"$2\" Type=\"Runtime\" LoadPhase=\"$3\" Version=\"$4\">",
+      "<Module Name=\"$1\" Family=\"$2\" Type=\"Runtime\" StartupStage=\"$3\" Version=\"$4\">",
       "  <Platforms>",
       "    <Platform Name=\"$5\" />",
       "  </Platforms>",

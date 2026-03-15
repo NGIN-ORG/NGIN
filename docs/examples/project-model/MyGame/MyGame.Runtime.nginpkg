@@ -24,7 +24,7 @@
     <Module Name="App.GameRuntime"
             Family="App"
             Type="Runtime"
-            LoadPhase="Application"
+            StartupStage="Features"
             Version="0.1.0"
             CompatiblePlatformRange=">=0.1.0-alpha.1 &lt;0.2.0"
             ReflectionRequired="false">

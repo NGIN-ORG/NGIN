@@ -29,7 +29,7 @@
     <Module Name="Domain.ECS"
             Family="Domain"
             Type="Runtime"
-            LoadPhase="Domain"
+            StartupStage="Features"
             Version="0.1.0"
             CompatiblePlatformRange=">=0.1.0-alpha.1 &lt;0.2.0"
             ReflectionRequired="false">
