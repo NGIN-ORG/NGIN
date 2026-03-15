@@ -1,7 +1,7 @@
 # Spec 003: Package Manifest and Runtime Contributions
 
 Status: Active
-Last updated: 2026-03-12
+Last updated: 2026-03-15
 
 ## Purpose
 
@@ -221,6 +221,16 @@ Supported `StartupStage` values:
 - `Features`
 - `Presentation`
 
+Supported `Family` values:
+
+- `Base`
+- `Reflection`
+- `Core`
+- `Platform`
+- `Editor`
+- `Domain`
+- `App`
+
 `SupportedHosts` restricts which host profiles may activate the module. If the section is omitted or empty, the module is valid for all hosts.
 
 Supported `<Host Name="...">` values:
@@ -236,6 +246,36 @@ Supported `<Host Name="...">` values:
 
 Plugins declared inside a package define optional runtime extensions provided by that package.
 
+Each `<Plugin>` may define:
+
+- `Name` required
+- `Optional` optional, defaults to `false`
+
+Supported plugin child sections:
+
+- `Platforms`
+- `Modules`
+
+If a plugin is enabled, all `Modules/Required/ModuleRef` entries are treated as required modules for target closure.
+`Modules/Optional/ModuleRef` entries may be included when available.
+
+Non-optional package plugins are enabled by default after package collection.
+Optional package plugins are disabled by default unless a project or variant explicitly enables them.
+
+### Bootstrap
+
+`<Bootstrap>` declares package-level host bootstrap metadata.
+
+Supported attributes:
+
+- `Mode` required
+- `EntryPoint` required
+- `AutoApply` optional, defaults to `false`
+
+Supported `Mode` values in v1:
+
+- `BuilderHookV1`
+
 The exact binary ABI and distribution model remain future work. The package is still the primary public container.
 
 ### Contents
@@ -243,10 +283,11 @@ The exact binary ABI and distribution model remain future work. The package is s
 Each `<File>` may define:
 
 - `Source` required
-- `Target` required
+- `Target` optional
 - `Kind` optional but recommended
 
 Content paths are relative to the package file unless absolute.
+If `Target` is omitted, the staged destination defaults to `Source`.
 
 ## Rules
 

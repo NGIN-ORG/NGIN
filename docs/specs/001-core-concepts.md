@@ -1,7 +1,7 @@
 # Spec 001: Core Concepts and Vocabulary
 
 Status: Active
-Last updated: 2026-03-07
+Last updated: 2026-03-15
 
 ## Purpose
 
@@ -30,6 +30,18 @@ A project answers:
 - which package references, config sources, and overrides belong to each target
 
 Projects are authored in `.nginproj` files.
+
+### Workspace
+
+The top-level developer workspace definition.
+
+A workspace answers:
+
+- which projects belong to the current working tree
+- which package source roots are visible to the CLI
+- which platform version the workspace targets
+
+Workspaces are authored in `.ngin` files.
 
 ### Target
 
@@ -99,6 +111,7 @@ A staged target is a build artifact, not a primary authored source file.
 
 User-authored files:
 
+- `.ngin`
 - `.nginproj`
 - `.nginpkg`
 
@@ -115,7 +128,8 @@ The active platform flow is:
 1. load a project
 2. select a target
 3. resolve packages
-4. derive modules and plugins from those packages
-5. validate the resolved graph
-6. build a staged target
-7. hand the staged target to the host or a future runner
+4. derive modules, plugins, bootstrap metadata, and staged content from those packages
+5. apply target-level overrides
+6. validate the resolved graph
+7. build a staged target
+8. hand the staged target to the host or a future runner

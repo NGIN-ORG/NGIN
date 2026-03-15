@@ -13,6 +13,9 @@ This spec defines the intended split between:
 
 The goal is to make NGIN application authoring feel project-first, while keeping packages as the reusable and distributable unit.
 
+Active workspace, project, package, composition, and staged-target behavior now lives in Specs 011, 002, 003, 004, and 005.
+This draft remains only for forward-looking design notes that are not yet part of the active contract.
+
 This is a staged architecture change. It is not a vocabulary-only rename of the current `.nginproj` model.
 
 ## Problem Statement

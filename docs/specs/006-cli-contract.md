@@ -1,7 +1,7 @@
 # Spec 006: CLI Contract
 
 Status: Active
-Last updated: 2026-03-12
+Last updated: 2026-03-15
 
 ## Purpose
 
@@ -53,6 +53,7 @@ Planned package lifecycle commands after the distribution model is specified:
 
 Operate on the current `.ngin` workspace, package source roots, and the component repos available to that workspace.
 `workspace sync` also materializes any package `SourceBinding Kind="Git"` checkouts declared by the workspace-visible package catalog.
+The `.ngin` workspace contract is defined by Spec 011.
 
 ### project validate
 

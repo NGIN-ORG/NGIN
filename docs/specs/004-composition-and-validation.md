@@ -1,7 +1,7 @@
 # Spec 004: Composition and Validation Rules
 
 Status: Active
-Last updated: 2026-03-12
+Last updated: 2026-03-15
 
 ## Purpose
 
@@ -39,6 +39,8 @@ The active pipeline is:
 ### Plugin Resolution
 
 - plugins are collected from resolved packages
+- non-optional package plugins are enabled by default after package collection
+- optional package plugins are disabled by default after package collection
 - target-level plugin overrides may enable or disable plugins after package collection
 - plugin activation must not violate package or module constraints
 
@@ -46,6 +48,7 @@ The active pipeline is:
 
 - staged content files are collected from resolved packages
 - project config sources are collected from the selected target
+- relative project config sources are resolved from the declaring project file location across the full `ProjectRef` closure
 - staged output destination paths must be unique unless an explicit override rule is defined later
 
 ## Validation Failures

@@ -1,7 +1,7 @@
 # Spec 005: Staged Target Manifest
 
 Status: Active
-Last updated: 2026-03-10
+Last updated: 2026-03-15
 
 ## Purpose
 
@@ -37,6 +37,12 @@ Required root attributes:
               Platform="linux-x64">
   <Runtime WorkingDirectory="." Environment="Dev" />
   <SelectedExecutable Name="Sandbox.Game" Target="Sandbox.Game" />
+  <ConfigSources>
+    <Config Source="config/game.xml" Project="Sandbox.Game" Destination="config/game.xml" />
+  </ConfigSources>
+  <Bootstraps>
+    <Bootstrap Package="Sandbox.Package" Mode="BuilderHookV1" EntryPoint="NGIN_Bootstrap_Sandbox_Package" AutoApply="true" />
+  </Bootstraps>
   <Packages>
     <Package Name="NGIN.Core" Version="0.1.0" />
     <Package Name="NGIN.ECS" Version="0.1.0" />
@@ -55,9 +61,6 @@ Required root attributes:
     <Module Name="Domain.ECS" />
   </Modules>
   <Plugins />
-  <ConfigSources>
-    <Config Source="config/game.xml" />
-  </ConfigSources>
   <StagedFiles>
     <File Source="assets/default-layout.xml"
           Destination="config/default-layout.xml"
@@ -78,6 +81,7 @@ A staged target manifest should contain:
 - resolved packages
 - resolved modules
 - resolved plugins
+- resolved bootstrap metadata
 - config sources
 - staged file map
 
@@ -87,6 +91,7 @@ A staged target manifest should contain:
 - the file must reflect the resolved project/variant model used for staging
 - the file must reflect the resolved project/variant model used for staging
 - the file should record the artifact view used for backend build orchestration and executable selection
+- config sources should preserve both the declared source path and the staged relative destination
 - staged file destinations must be deterministic
 - future run support should consume the staged target contract rather than re-resolving authored manifests during launch
 

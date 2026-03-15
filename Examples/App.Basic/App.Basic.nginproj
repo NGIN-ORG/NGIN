@@ -49,5 +49,17 @@
              Platform="linux-x64"
              Environment="Dev"
              WorkingDirectory="." />
+    <Variant Name="Diagnostics"
+             Profile="ConsoleApp"
+             Platform="linux-x64"
+             Environment="Dev"
+             WorkingDirectory=".">
+      <PackageRefs>
+        <PackageRef Name="NGIN.Diagnostics" VersionRange=">=0.1.0 &lt;0.2.0" Optional="false" />
+      </PackageRefs>
+      <EnablePlugins>
+        <PluginRef Name="NGIN.Diagnostics" />
+      </EnablePlugins>
+    </Variant>
   </Variants>
 </Project>

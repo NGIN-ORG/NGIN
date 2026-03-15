@@ -10,11 +10,11 @@ namespace
 
     [[nodiscard]] auto MakeDescriptor() -> ModuleDescriptor
     {
-        ModuleDescriptor descriptor {};
+        ModuleDescriptor descriptor{};
         descriptor.name = "Domain.ECS";
         descriptor.family = ModuleFamily::Domain;
         descriptor.type = ModuleType::Runtime;
-        descriptor.version = SemanticVersion {0, 1, 0, {}};
+        descriptor.version = SemanticVersion{0, 1, 0, {}};
         descriptor.compatiblePlatformRange = ParseVersionRange(">=0.1.0 <1.0.0").ValueUnsafe();
         descriptor.platforms = {"linux", "windows", "macos"};
         descriptor.startupStage = StartupStage::Features;
@@ -22,7 +22,7 @@ namespace
         return descriptor;
     }
 
-    auto BootstrapEcs(PackageBootstrapContext& context) -> CoreResult<void>
+    auto BootstrapEcs(PackageBootstrapContext &context) -> CoreResult<void>
     {
         context.Services()
             .AddSingleton("NGIN.ECS.Registry", NGIN::Utilities::Any<>(std::string("ecs-registry")))
@@ -47,13 +47,13 @@ namespace
 }
 
 extern "C" auto NGIN_Bootstrap_NGIN_ECS(
-    NGIN::Core::PackageBootstrapContext& context) -> NGIN::Core::CoreResult<void>
+    NGIN::Core::PackageBootstrapContext &context) -> NGIN::Core::CoreResult<void>
 {
     return BootstrapEcs(context);
 }
 
 extern "C" void NGIN_RegisterPackage_NGIN_ECS(
-    NGIN::Core::PackageBootstrapRegistry& registry)
+    NGIN::Core::PackageBootstrapRegistry &registry)
 {
     (void)registry.Register({
         .packageName = "NGIN.ECS",

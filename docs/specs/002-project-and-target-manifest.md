@@ -1,7 +1,7 @@
 # Spec 002: Project And Variant Manifest
 
 Status: Active
-Last updated: 2026-03-12
+Last updated: 2026-03-15
 
 ## Purpose
 
@@ -185,6 +185,8 @@ Supported child sections in v1:
 - `Modules`
 - `EnableModules`
 - `DisableModules`
+- `EnablePlugins`
+- `DisablePlugins`
 
 This allows applications to own their entry modules without forcing those modules through a reusable package.
 
@@ -210,6 +212,8 @@ Supported child sections:
 - `Launch`
 - `EnableModules`
 - `DisableModules`
+- `EnablePlugins`
+- `DisablePlugins`
 
 ### Launch
 
@@ -234,10 +238,12 @@ Rules:
 - `DefaultVariant` must name an existing variant
 - root-level package references apply to the whole project
 - variants may add package/config/module overrides
+- variants may add plugin overrides
 - projects may define app-local runtime modules
 - package references remain the normal path for reusable composition
 - `ProjectRef` and `PackageRef` are different dependency types and must not be conflated
-- relative `ConfigSources` and `WorkingDirectory` values are resolved relative to the project file location
+- relative `ConfigSources` and `WorkingDirectory` values are resolved relative to the declaring project file location
+- plugin overrides apply after package plugin collection; non-optional package plugins are enabled by default and optional package plugins are disabled by default unless explicitly overridden
 
 ## Output
 
