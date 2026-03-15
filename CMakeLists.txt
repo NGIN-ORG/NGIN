@@ -28,6 +28,8 @@ set(NGIN_WORKSPACE_MANIFEST_PATH "${CMAKE_CURRENT_SOURCE_DIR}/NGIN.ngin")
 set(NGIN_WORKSPACE_STAGE_DIR "${CMAKE_BINARY_DIR}/stage")
 set(NGIN_APP_BASIC_PROJECT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/Examples/App.Basic/App.Basic.nginproj")
 set(NGIN_APP_BASIC_BUILD_OUTPUT "${NGIN_WORKSPACE_STAGE_DIR}/App.Basic/Runtime")
+set(NGIN_PROJECTREF_CONFIG_PROJECT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/Examples/ProjectRef.Config/Root/ProjectRef.Config.Root.nginproj")
+set(NGIN_PROJECTREF_CONFIG_COLLISION_PROJECT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/Examples/ProjectRef.Config/CollisionRoot/ProjectRef.Config.CollisionRoot.nginproj")
 
 add_custom_target(ngin.manifest.show
   COMMAND ${CMAKE_COMMAND} -E cat "${NGIN_WORKSPACE_MANIFEST_PATH}"
@@ -113,6 +115,23 @@ add_test(NAME ngin.build.workspace
     -DVARIANT=Runtime
     -DOUTPUT=${CMAKE_BINARY_DIR}/test-stage/App.Basic/Runtime
     -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunNGINBuildCheck.cmake"
+)
+
+add_test(NAME ngin.projectref.config.build
+  COMMAND ${CMAKE_COMMAND}
+    -DCLI=$<TARGET_FILE:ngin_cli>
+    -DPROJECT=${NGIN_PROJECTREF_CONFIG_PROJECT_PATH}
+    -DVARIANT=Runtime
+    -DOUTPUT=${CMAKE_BINARY_DIR}/test-stage/ProjectRef.Config/Runtime
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunNGINProjectRefConfigCheck.cmake"
+)
+
+add_test(NAME ngin.projectref.config.collision
+  COMMAND ${CMAKE_COMMAND}
+    -DCLI=$<TARGET_FILE:ngin_cli>
+    -DPROJECT=${NGIN_PROJECTREF_CONFIG_COLLISION_PROJECT_PATH}
+    -DVARIANT=Runtime
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunNGINProjectRefConfigCollisionCheck.cmake"
 )
 
 add_test(NAME ngin.project.autodiscovery

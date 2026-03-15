@@ -310,39 +310,6 @@ namespace
 #endif
     }
 
-    [[nodiscard]] auto CaptureCommand(const std::string &command) -> std::optional<std::string>
-    {
-        std::array<char, 256> buffer{};
-        std::string out;
-#if defined(_WIN32)
-        FILE *pipe = _popen(command.c_str(), "r");
-#else
-        FILE *pipe = popen(command.c_str(), "r");
-#endif
-        if (pipe == nullptr)
-        {
-            return std::nullopt;
-        }
-        while (fgets(buffer.data(), static_cast<int>(buffer.size()), pipe) != nullptr)
-        {
-            out += buffer.data();
-        }
-#if defined(_WIN32)
-        const int rc = _pclose(pipe);
-#else
-        const int rc = pclose(pipe);
-#endif
-        if (rc != 0)
-        {
-            return std::nullopt;
-        }
-        while (!out.empty() && (out.back() == '\n' || out.back() == '\r'))
-        {
-            out.pop_back();
-        }
-        return out;
-    }
-
     struct WorkspaceManifest
     {
         fs::path path{};
@@ -2010,7 +1977,7 @@ namespace
             MergeStringSelection(directModules, unit.variant.enableModules, unit.variant.disableModules);
         }
         std::set<std::string> directPlugins{};
-        for (const auto & [pluginName, plugin] : plugins)
+        for (const auto &[pluginName, plugin] : plugins)
         {
             if (!plugin.optional)
             {
@@ -2035,7 +2002,7 @@ namespace
                 AddError(report, "variant '" + variant.name + "' enables module '" + module + "' but no active project or package provides it");
             }
         }
-        for (const auto& plugin : directPlugins)
+        for (const auto &plugin : directPlugins)
         {
             if (!plugins.contains(plugin))
             {
@@ -2047,8 +2014,8 @@ namespace
                 AddError(report, "variant '" + variant.name + "' enables plugin '" + plugin + "' but no active package provides it");
                 continue;
             }
-            const auto& descriptor = plugins.at(plugin);
-            for (const auto& module : descriptor.requiredModules)
+            const auto &descriptor = plugins.at(plugin);
+            for (const auto &module : descriptor.requiredModules)
             {
                 if (!providersByModule.contains(module))
                 {
@@ -2063,14 +2030,14 @@ namespace
 
         std::set<std::string> requiredSet = directModules;
         std::set<std::string> optionalSet;
-        for (const auto& plugin : directPlugins)
+        for (const auto &plugin : directPlugins)
         {
-            const auto& descriptor = plugins.at(plugin);
-            for (const auto& module : descriptor.requiredModules)
+            const auto &descriptor = plugins.at(plugin);
+            for (const auto &module : descriptor.requiredModules)
             {
                 requiredSet.insert(module);
             }
-            for (const auto& module : descriptor.optionalModules)
+            for (const auto &module : descriptor.optionalModules)
             {
                 if (providersByModule.contains(module) && !requiredSet.contains(module))
                 {

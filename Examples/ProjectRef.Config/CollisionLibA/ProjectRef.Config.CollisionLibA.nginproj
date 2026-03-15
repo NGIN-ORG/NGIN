@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="1"
+         Name="ProjectRef.Config.CollisionLibA"
+         Type="Library"
+         DefaultVariant="Runtime">
+  <SourceRoots>
+    <SourceRoot Path="src" />
+  </SourceRoots>
+  <PrimaryOutput Kind="StaticLibrary"
+                 Name="ProjectRef.Config.CollisionLibA"
+                 Target="ProjectRefConfigCollisionLibA" />
+  <ConfigSources>
+    <Config Source="config/shared.cfg" />
+  </ConfigSources>
+  <Variants>
+    <Variant Name="Runtime"
+             Profile="ConsoleApp"
+             Platform="linux-x64"
+             Environment="Dev"
+             WorkingDirectory="." />
+  </Variants>
+</Project>

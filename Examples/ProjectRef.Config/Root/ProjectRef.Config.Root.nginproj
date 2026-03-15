@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="1"
+         Name="ProjectRef.Config.Root"
+         Type="Application"
+         DefaultVariant="Runtime">
+  <SourceRoots>
+    <SourceRoot Path="src" />
+  </SourceRoots>
+  <PrimaryOutput Kind="Executable"
+                 Name="ProjectRef.Config.Root"
+                 Target="ProjectRefConfigRoot" />
+  <ProjectRefs>
+    <ProjectRef Path="../Library/ProjectRef.Config.Library.nginproj" />
+  </ProjectRefs>
+  <ConfigSources>
+    <Config Source="config/root.cfg" />
+  </ConfigSources>
+  <Variants>
+    <Variant Name="Runtime"
+             Profile="ConsoleApp"
+             Platform="linux-x64"
+             Environment="Dev"
+             WorkingDirectory="." />
+  </Variants>
+</Project>
