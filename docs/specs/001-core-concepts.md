@@ -1,135 +1,35 @@
 # Spec 001: Core Concepts and Vocabulary
 
 Status: Active
-Last updated: 2026-03-15
+Last updated: 2026-03-21
 
 ## Purpose
 
-This spec defines the core NGIN model and the vocabulary used by all other active specs.
+This spec defines the active V2 vocabulary used by all other active specs.
 
-NGIN should remain understandable through a small number of concepts:
-
-- `Project`
-- `Target`
-- `Package`
-- `Module`
-- `Plugin`
-- `Host`
-- `Staged Target`
-
-## Definitions
+## Core Terms
 
 ### Project
 
-The top-level application definition.
+The primary authored buildable unit. Projects are authored in `.nginproj`.
 
-A project answers:
+### Configuration
 
-- what application is being built
-- which targets it exposes
-- which package references, config sources, and overrides belong to each target
-
-Projects are authored in `.nginproj` files.
-
-### Workspace
-
-The top-level developer workspace definition.
-
-A workspace answers:
-
-- which projects belong to the current working tree
-- which package source roots are visible to the CLI
-- which platform version the workspace targets
-
-Workspaces are authored in `.ngin` files.
-
-### Target
-
-One concrete application variant inside a project.
-
-Examples:
-
-- game runtime
-- editor
-- program
-- service
-- developer tool
-
-A target selects packages and host-facing metadata such as platform, profile, environment, and working directory.
+One named setup of a project. A configuration may select build configuration, host profile, platform, environment, working directory, launch executable, and narrow reference or runtime overrides.
 
 ### Package
 
-The main reusable unit users reference.
+The reusable unit. Packages are authored in `.nginpkg`.
 
-A package may provide:
+### Workspace
 
-- runtime modules
-- optional plugins
-- staged content files
-- bootstrap metadata
-- runtime contribution metadata
+An optional authored repo-level container. Workspaces are authored in `.ngin`.
 
-Packages are authored in `.nginpkg` files.
+### Launch Manifest
 
-### Module
+Generated build output that represents the staged launchable result of a selected project configuration. Launch manifests are written as `.nginlaunch`.
 
-A runtime composition unit provided by a package.
+## Modeling Rule
 
-Modules participate in dependency ordering, lifecycle orchestration, service registration, and host startup.
-
-Modules are not the primary user-facing distribution surface.
-
-### Plugin
-
-An optional extension provided by a package.
-
-Plugins are subordinate to the package model. They are not a separate top-level packaging model.
-
-### Host
-
-The runtime container built from a resolved target.
-
-In the current platform implementation, `NGIN.Core` is the active host implementation.
-
-### Staged Target
-
-A staged target is the output of `ngin build`.
-
-It is represented by a `.ngintarget` file and the corresponding staged directory layout.
-
-A staged target is a build artifact, not a primary authored source file.
-
-## Authoring Rules
-
-- users author projects and packages
-- targets live inside projects
-- packages are the primary reusable unit
-- modules and plugins are usually declared inside packages, not as separate top-level authored files
-- the host consumes a resolved target model, not unrelated authoring fragments
-
-## Public File Types
-
-User-authored files:
-
-- `.ngin`
-- `.nginproj`
-- `.nginpkg`
-
-Generated files:
-
-- `.ngintarget`
-
-Lower-level runtime descriptors may exist as implementation details, but they are not part of the intended primary authoring model.
-
-## Composition Flow
-
-The active platform flow is:
-
-1. load a project
-2. select a target
-3. resolve packages
-4. derive modules, plugins, bootstrap metadata, and staged content from those packages
-5. apply target-level overrides
-6. validate the resolved graph
-7. build a staged target
-8. hand the staged target to the host or a future runner
+- Different executables or entrypoints should usually be different projects.
+- Configurations should represent narrow selection or override data on the same project.

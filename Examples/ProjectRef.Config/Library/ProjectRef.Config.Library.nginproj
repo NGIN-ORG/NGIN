@@ -1,22 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="1"
+<Project SchemaVersion="2"
          Name="ProjectRef.Config.Library"
          Type="Library"
-         DefaultVariant="Runtime">
+         DefaultConfiguration="Runtime">
   <SourceRoots>
     <SourceRoot Path="src" />
   </SourceRoots>
-  <PrimaryOutput Kind="StaticLibrary"
+  <Output Kind="StaticLibrary"
                  Name="ProjectRef.Config.Library"
                  Target="ProjectRefConfigLibrary" />
   <ConfigSources>
     <Config Source="config/library.cfg" />
   </ConfigSources>
-  <Variants>
-    <Variant Name="Runtime"
-             Profile="ConsoleApp"
+  <Configurations>
+    <Configuration Name="Runtime"
+             BuildConfiguration="Debug"
+             HostProfile="ConsoleApp"
              Platform="linux-x64"
              Environment="Dev"
              WorkingDirectory="." />
-  </Variants>
+  </Configurations>
 </Project>

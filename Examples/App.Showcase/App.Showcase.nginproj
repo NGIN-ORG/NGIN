@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="1"
+<Project SchemaVersion="2"
          Name="App.Showcase"
          Type="Application"
-         DefaultVariant="Runtime">
+         DefaultConfiguration="Runtime">
   <SourceRoots>
     <SourceRoot Path="src" />
   </SourceRoots>
-  <PrimaryOutput Kind="Executable"
+  <Output Kind="Executable"
                  Name="App.Showcase"
                  Target="App.Showcase" />
   <Build Backend="CMake"
@@ -18,9 +18,9 @@
                   Visibility="Private" />
     </CompileDefinitions>
   </Build>
-  <PackageRefs>
-    <PackageRef Name="NGIN.Core" VersionRange=">=0.1.0 &lt;0.2.0" Optional="false" />
-  </PackageRefs>
+  <References>
+    <Package Name="NGIN.Core" Version=">=0.1.0 &lt;0.2.0" Optional="false" />
+  </References>
   <ConfigSources>
     <Config Source="config/app.cfg" />
   </ConfigSources>
@@ -152,18 +152,20 @@
       <ModuleRef Name="App.Showcase.ConsoleBanner" />
     </EnableModules>
   </Runtime>
-  <Variants>
-    <Variant Name="Runtime"
-             Profile="ConsoleApp"
+  <Configurations>
+    <Configuration Name="Runtime"
+             BuildConfiguration="Debug"
+             HostProfile="ConsoleApp"
              Platform="linux-x64"
              Environment="Dev"
              WorkingDirectory=".">
       <ConfigSources>
         <Config Source="config/variants/runtime.cfg" />
       </ConfigSources>
-    </Variant>
-    <Variant Name="Runtime.DevTools"
-             Profile="ConsoleApp"
+    </Configuration>
+    <Configuration Name="Runtime.DevTools"
+             BuildConfiguration="Debug"
+             HostProfile="ConsoleApp"
              Platform="linux-x64"
              Environment="Dev"
              WorkingDirectory=".">
@@ -173,40 +175,43 @@
       <EnableModules>
         <ModuleRef Name="App.Showcase.DevTools" />
       </EnableModules>
-    </Variant>
-    <Variant Name="Runtime.Diagnostics"
-             Profile="ConsoleApp"
+    </Configuration>
+    <Configuration Name="Runtime.Diagnostics"
+             BuildConfiguration="Debug"
+             HostProfile="ConsoleApp"
              Platform="linux-x64"
              Environment="Diagnostics"
              WorkingDirectory=".">
-      <PackageRefs>
-        <PackageRef Name="NGIN.Diagnostics" VersionRange=">=0.1.0 &lt;0.2.0" Optional="false" />
-      </PackageRefs>
+      <References>
+        <Package Name="NGIN.Diagnostics" Version=">=0.1.0 &lt;0.2.0" Optional="false" />
+      </References>
       <ConfigSources>
         <Config Source="config/variants/runtime.diagnostics.cfg" />
       </ConfigSources>
       <EnableModules>
         <ModuleRef Name="App.Showcase.Diagnostics" />
       </EnableModules>
-    </Variant>
-    <Variant Name="Runtime.Reflection"
-             Profile="ConsoleApp"
+    </Configuration>
+    <Configuration Name="Runtime.Reflection"
+             BuildConfiguration="Debug"
+             HostProfile="ConsoleApp"
              Platform="linux-x64"
              Environment="Research"
              WorkingDirectory="."
              EnableReflection="true">
-      <PackageRefs>
-        <PackageRef Name="NGIN.Reflection" VersionRange=">=0.1.0 &lt;0.2.0" Optional="false" />
-      </PackageRefs>
+      <References>
+        <Package Name="NGIN.Reflection" Version=">=0.1.0 &lt;0.2.0" Optional="false" />
+      </References>
       <ConfigSources>
         <Config Source="config/variants/runtime.reflection.cfg" />
       </ConfigSources>
       <EnableModules>
         <ModuleRef Name="App.Showcase.Reflection" />
       </EnableModules>
-    </Variant>
-    <Variant Name="Service"
-             Profile="Service"
+    </Configuration>
+    <Configuration Name="Service"
+             BuildConfiguration="Debug"
+             HostProfile="Service"
              Platform="linux-x64"
              Environment="Staging"
              WorkingDirectory=".">
@@ -219,6 +224,6 @@
       <DisableModules>
         <ModuleRef Name="App.Showcase.ConsoleBanner" />
       </DisableModules>
-    </Variant>
-  </Variants>
+    </Configuration>
+  </Configurations>
 </Project>

@@ -53,7 +53,7 @@
           ".ngin",
           ".nginproj",
           ".nginpkg",
-          ".ngintarget"
+          ".nginlaunch"
         ],
         "configuration": "./language-configuration.json"
       }
@@ -99,11 +99,6 @@
         "category": "NGIN"
       },
       {
-        "command": "ngin.selectVariant",
-        "title": "Select Variant",
-        "category": "NGIN"
-      },
-      {
         "command": "ngin.selectConfiguration",
         "title": "Select Configuration",
         "category": "NGIN"
@@ -144,7 +139,7 @@
         "category": "NGIN"
       },
       {
-        "command": "ngin.openLastTargetManifest",
+        "command": "ngin.openLastLaunchManifest",
         "title": "Open Last Build Manifest",
         "category": "NGIN"
       },
@@ -174,27 +169,27 @@
       "view/item/context": [
         {
           "command": "ngin.build",
-          "when": "view == nginProjects && viewItem == nginVariant",
+          "when": "view == nginProjects && viewItem == nginConfiguration",
           "group": "inline"
         },
         {
           "command": "ngin.run",
-          "when": "view == nginProjects && viewItem == nginVariant",
+          "when": "view == nginProjects && viewItem == nginConfiguration",
           "group": "inline"
         },
         {
           "command": "ngin.debug",
-          "when": "view == nginProjects && viewItem == nginVariant",
+          "when": "view == nginProjects && viewItem == nginConfiguration",
           "group": "inline"
         },
         {
           "command": "ngin.validate",
-          "when": "view == nginProjects && viewItem == nginVariant",
+          "when": "view == nginProjects && viewItem == nginConfiguration",
           "group": "navigation"
         },
         {
           "command": "ngin.graph",
-          "when": "view == nginProjects && viewItem == nginVariant",
+          "when": "view == nginProjects && viewItem == nginConfiguration",
           "group": "navigation"
         }
       ]
@@ -210,7 +205,7 @@
         "ngin.build.outputRoot": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Optional staged output root. When set, build output is written to `<outputRoot>/<project>/<variant>/<configuration>`."
+          "markdownDescription": "Optional staged output root. When set, build output is written to `<outputRoot>/<project>/<configuration>`."
         },
         "ngin.validate.onSave": {
           "type": "boolean",
@@ -240,7 +235,7 @@
         "ngin.ui.statusBar.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Show the NGIN workspace, project, variant, configuration, build, run, and debug items in the bottom status bar."
+          "description": "Show the NGIN workspace, project, configuration, build, run, and debug items in the bottom status bar."
         }
       }
     },
@@ -264,9 +259,6 @@
           "project": {
             "type": "string"
           },
-          "variant": {
-            "type": "string"
-          },
           "configuration": {
             "type": "string"
           },
@@ -283,7 +275,7 @@
         "owner": "ngin",
         "fileLocation": "absolute",
         "pattern": {
-          "regexp": "^(?:\\s*-\\s+)?((?:[A-Za-z]:)?[^:]+\\.(?:ngin|nginproj|nginpkg|ngintarget|xml|cfg)):\\s+(.+)$",
+          "regexp": "^(?:\\s*-\\s+)?((?:[A-Za-z]:)?[^:]+\\.(?:ngin|nginproj|nginpkg|nginlaunch|xml|cfg)):\\s+(.+)$",
           "file": 1,
           "message": 2
         }
@@ -297,20 +289,16 @@
           "launch": {
             "required": [
               "project",
-              "variant"
+              "configuration"
             ],
             "properties": {
               "project": {
                 "type": "string",
                 "description": "Path to the .nginproj file."
               },
-              "variant": {
-                "type": "string",
-                "description": "Variant name to build and debug."
-              },
               "configuration": {
                 "type": "string",
-                "description": "Build configuration to use for staging and debugging, such as Debug or Release."
+                "description": "Project configuration to build and debug."
               },
               "cliPath": {
                 "type": "string",
@@ -334,7 +322,7 @@
               "preBuild": {
                 "type": "boolean",
                 "default": false,
-                "description": "When true, always run `ngin project build` before launching. Otherwise reuse the staged target when available and build only if needed."
+                "description": "When true, always run `ngin build` before launching. Otherwise reuse the generated launch manifest when available and build only if needed."
               }
             }
           }
@@ -345,8 +333,7 @@
             "request": "launch",
             "name": "NGIN: Debug App.Basic [Runtime]",
             "project": "Examples/App.Basic/App.Basic.nginproj",
-            "variant": "Runtime",
-            "configuration": "Debug",
+            "configuration": "Runtime",
             "preBuild": false,
             "programArgs": [],
             "env": {}

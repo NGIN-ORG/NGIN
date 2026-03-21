@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="2"
+         Name="Game.Client"
+         Type="Application"
+         DefaultConfiguration="Runtime">
+  <SourceRoots>
+    <SourceRoot Path="src" />
+  </SourceRoots>
+  <Output Kind="Executable"
+          Name="Game.Client"
+          Target="GameClient" />
+  <References>
+    <Project Path="../Game.Engine/Game.Engine.nginproj" />
+    <Package Name="NGIN.Core" Version=">=0.1.0 &lt;0.2.0" Optional="false" />
+  </References>
+  <ConfigSources>
+    <Config Source="config/client.cfg" />
+  </ConfigSources>
+  <Configurations>
+    <Configuration Name="Runtime"
+                   BuildConfiguration="Debug"
+                   HostProfile="Game"
+                   Platform="linux-x64"
+                   Environment="Dev"
+                   WorkingDirectory="." />
+    <Configuration Name="Shipping"
+                   BuildConfiguration="Release"
+                   HostProfile="Game"
+                   Platform="linux-x64"
+                   Environment="Shipping"
+                   WorkingDirectory="." />
+  </Configurations>
+</Project>

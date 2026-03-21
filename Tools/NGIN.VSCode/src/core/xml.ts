@@ -1,6 +1,6 @@
 import * as path from 'node:path';
 import { XMLParser } from 'fast-xml-parser';
-import { ProjectManifest, ProjectVariant, StagedFile, TargetManifest, TargetRuntime, WorkspaceManifest } from './types';
+import { LaunchManifest, LaunchRuntime, ProjectConfiguration, ProjectManifest, StagedFile, WorkspaceManifest } from './types';
 
 const parser = new XMLParser({
   ignoreAttributes: false,
@@ -45,9 +45,10 @@ export function parseProjectManifest(xml: string, manifestPath: string): Project
     throw new Error(`${manifestPath}: root element must be <Project>`);
   }
 
-  const variants = asArray(root.Variants?.Variant).map((entry): ProjectVariant => ({
+  const configurations = asArray(root.Configurations?.Configuration).map((entry): ProjectConfiguration => ({
     name: entry?.Name,
-    profile: entry?.Profile,
+    hostProfile: entry?.HostProfile ?? entry?.Profile,
+    buildConfiguration: entry?.BuildConfiguration,
     platform: entry?.Platform,
     environment: entry?.Environment,
     workingDirectory: entry?.WorkingDirectory,
@@ -58,19 +59,19 @@ export function parseProjectManifest(xml: string, manifestPath: string): Project
     path: manifestPath,
     directory: path.dirname(manifestPath),
     name: root.Name ?? path.basename(manifestPath, path.extname(manifestPath)),
-    defaultVariant: root.DefaultVariant,
-    variants
+    defaultConfiguration: root.DefaultConfiguration,
+    configurations
   };
 }
 
-export function parseTargetManifest(xml: string, manifestPath: string): TargetManifest {
+export function parseLaunchManifest(xml: string, manifestPath: string): LaunchManifest {
   const document = parser.parse(xml);
-  const root = document.TargetLayout;
+  const root = document.LaunchManifest;
   if (!root) {
-    throw new Error(`${manifestPath}: root element must be <TargetLayout>`);
+    throw new Error(`${manifestPath}: root element must be <LaunchManifest>`);
   }
 
-  const runtime: TargetRuntime = {
+  const runtime: LaunchRuntime = {
     workingDirectory: root.Runtime?.WorkingDirectory,
     environment: root.Runtime?.Environment
   };
@@ -86,7 +87,11 @@ export function parseTargetManifest(xml: string, manifestPath: string): TargetMa
     path: manifestPath,
     directory: path.dirname(manifestPath),
     project: root.Project,
-    variant: root.Variant,
+    configuration: root.Configuration,
+    type: root.Type,
+    buildConfiguration: root.BuildConfiguration,
+    hostProfile: root.HostProfile,
+    platform: root.Platform,
     runtime,
     selectedExecutable: root.SelectedExecutable
       ? {

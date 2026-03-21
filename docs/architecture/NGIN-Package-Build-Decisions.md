@@ -1,11 +1,13 @@
 # NGIN Package Build Decisions
 
-Status: Active design note  
-Last updated: 2026-03-08
+Status: Historical design note, superseded by V2  
+Last updated: 2026-03-21
 
 ## Purpose
 
-This note captures the current design decisions around package build metadata, artifact modeling, and target executable selection.
+This note captured pre-V2 design decisions around package build metadata, artifact modeling, and target executable selection.
+
+It intentionally discusses removed V1 concepts such as `SourceBinding` and `.ngintarget`.
 
 It is intentionally narrower than the main specs. It exists to record:
 

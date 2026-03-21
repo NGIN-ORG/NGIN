@@ -10,28 +10,28 @@ import {
 import { createNativeDebugConfiguration } from '../../core/debug';
 import {
   basenameWithoutExtension,
+  computeLaunchManifestPath,
   computeOutputDir,
-  computeTargetManifestPath,
   getExecutableCandidatePaths,
   getWorkingDirectoryCandidates,
   parseCliDiagnostics
 } from '../../core/helpers';
 import { buildOverviewSections, buildProjectTreeModels, buildStatusBarModel } from '../../ui/models';
-import { parseProjectManifest, parseTargetManifest, parseWorkspaceManifest } from '../../core/xml';
+import { parseLaunchManifest, parseProjectManifest, parseWorkspaceManifest } from '../../core/xml';
 
 test('computeOutputDir uses the CLI default layout when no root override is configured', () => {
   const outputDir = computeOutputDir('/workspace', 'App.Basic', 'Runtime');
-  assert.equal(outputDir, '/workspace/.ngin/build/App.Basic/Runtime/Debug');
+  assert.equal(outputDir, '/workspace/.ngin/build/App.Basic/Runtime');
 });
 
-test('computeOutputDir appends project and variant beneath a configured output root', () => {
-  const outputDir = computeOutputDir('/workspace', 'App.Basic', 'Runtime', 'build/out', 'Release');
-  assert.equal(outputDir, '/workspace/build/out/App.Basic/Runtime/Release');
+test('computeOutputDir appends project and configuration beneath a configured output root', () => {
+  const outputDir = computeOutputDir('/workspace', 'App.Basic', 'Runtime', 'build/out');
+  assert.equal(outputDir, '/workspace/build/out/App.Basic/Runtime');
 });
 
-test('computeTargetManifestPath uses the staged naming convention', () => {
-  const manifestPath = computeTargetManifestPath('/workspace/.ngin/build/App.Basic/Runtime', 'App.Basic', 'Runtime');
-  assert.equal(manifestPath, '/workspace/.ngin/build/App.Basic/Runtime/App.Basic.Runtime.ngintarget');
+test('computeLaunchManifestPath uses the staged naming convention', () => {
+  const manifestPath = computeLaunchManifestPath('/workspace/.ngin/build/App.Basic/Runtime', 'App.Basic', 'Runtime');
+  assert.equal(manifestPath, '/workspace/.ngin/build/App.Basic/Runtime/App.Basic.Runtime.nginlaunch');
 });
 
 test('computeCompileCommandsPath uses the staged cmake-build location', () => {
@@ -48,13 +48,13 @@ test('parseCliDiagnostics extracts structured file and generic errors', () => {
   const diagnostics = parseCliDiagnostics([
     'Validation errors:',
     '  - /tmp/App.Basic.nginproj: failed to parse XML: unexpected token',
-    'error: unknown variant `Editor`'
+    'error: unknown configuration `Editor`'
   ].join('\n'));
 
   assert.equal(diagnostics.length, 2);
   assert.equal(diagnostics[0].file, '/tmp/App.Basic.nginproj');
   assert.match(diagnostics[0].message, /failed to parse XML/);
-  assert.equal(diagnostics[1].message, 'unknown variant `Editor`');
+  assert.equal(diagnostics[1].message, 'unknown configuration `Editor`');
 });
 
 test('workspace manifests parse project paths relative to the workspace manifest', () => {
@@ -67,34 +67,36 @@ test('workspace manifests parse project paths relative to the workspace manifest
   assert.deepEqual(workspace.projectPaths, ['/repo/Examples/App.Basic/App.Basic.nginproj']);
 });
 
-test('project manifests parse variants and launch metadata', () => {
+test('project manifests parse configurations and launch metadata', () => {
   const project = parseProjectManifest(
-    '<?xml version="1.0" encoding="utf-8"?><Project Name="App.Basic" DefaultVariant="Runtime"><Variants><Variant Name="Runtime" WorkingDirectory="."><Launch Executable="App.Basic" /></Variant></Variants></Project>',
+    '<?xml version="1.0" encoding="utf-8"?><Project Name="App.Basic" DefaultConfiguration="Runtime"><Configurations><Configuration Name="Runtime" HostProfile="Game" BuildConfiguration="Debug" WorkingDirectory="."><Launch Executable="App.Basic" /></Configuration></Configurations></Project>',
     '/repo/Examples/App.Basic/App.Basic.nginproj'
   );
 
-  assert.equal(project.defaultVariant, 'Runtime');
-  assert.equal(project.variants[0].launchExecutable, 'App.Basic');
+  assert.equal(project.defaultConfiguration, 'Runtime');
+  assert.equal(project.configurations[0].launchExecutable, 'App.Basic');
+  assert.equal(project.configurations[0].hostProfile, 'Game');
 });
 
-test('target manifests surface selected executable and staged files', () => {
-  const target = parseTargetManifest(
-    '<?xml version="1.0" encoding="utf-8"?><TargetLayout Project="App.Basic" Variant="Runtime"><Runtime WorkingDirectory="." /><SelectedExecutable Name="App.Basic" /><StagedFiles><File Kind="executable" Destination="/repo/out/bin/App.Basic" RelativeDestination="bin/App.Basic" /></StagedFiles></TargetLayout>',
-    '/repo/out/App.Basic.Runtime.ngintarget'
+test('launch manifests surface selected executable and staged files', () => {
+  const launch = parseLaunchManifest(
+    '<?xml version="1.0" encoding="utf-8"?><LaunchManifest Project="App.Basic" Configuration="Runtime" Type="Application" BuildConfiguration="Debug" Platform="Linux"><Runtime WorkingDirectory="." /><SelectedExecutable Name="App.Basic" /><StagedFiles><File Kind="executable" Destination="/repo/out/bin/App.Basic" RelativeDestination="bin/App.Basic" /></StagedFiles></LaunchManifest>',
+    '/repo/out/App.Basic.Runtime.nginlaunch'
   );
 
-  assert.equal(target.project, 'App.Basic');
-  assert.equal(target.selectedExecutable?.name, 'App.Basic');
-  assert.equal(target.stagedFiles[0].kind, 'executable');
+  assert.equal(launch.project, 'App.Basic');
+  assert.equal(launch.configuration, 'Runtime');
+  assert.equal(launch.selectedExecutable?.name, 'App.Basic');
+  assert.equal(launch.stagedFiles[0].kind, 'executable');
 });
 
 test('executable resolution prefers staged manifest entries before bin fallback', () => {
   const candidates = getExecutableCandidatePaths(
     {
-      path: '/repo/out/App.Basic.Runtime.ngintarget',
+      path: '/repo/out/App.Basic.Runtime.nginlaunch',
       directory: '/repo/out',
       project: 'App.Basic',
-      variant: 'Runtime',
+      configuration: 'Runtime',
       runtime: { workingDirectory: '.' },
       selectedExecutable: { name: 'App.Basic' },
       stagedFiles: [
@@ -115,10 +117,10 @@ test('executable resolution prefers staged manifest entries before bin fallback'
 test('working directory resolution checks staged and project-relative candidates', () => {
   const candidates = getWorkingDirectoryCandidates(
     {
-      path: '/repo/out/App.Basic.Runtime.ngintarget',
+      path: '/repo/out/App.Basic.Runtime.nginlaunch',
       directory: '/repo/out',
       project: 'App.Basic',
-      variant: 'Runtime',
+      configuration: 'Runtime',
       runtime: { workingDirectory: 'config' },
       stagedFiles: []
     },
@@ -214,7 +216,6 @@ test('basenameWithoutExtension strips a platform executable suffix', () => {
 
 test('overview sections describe the current workspace selection and actions', () => {
   const sections = buildOverviewSections({
-    buildConfiguration: 'Release',
     workspace: {
       workspace: { path: '/repo/NGIN.ngin', directory: '/repo', name: 'NGIN', projectPaths: [] },
       projects: [],
@@ -226,34 +227,33 @@ test('overview sections describe the current workspace selection and actions', (
         projects: [],
         root: '/repo'
       },
-      project: { path: '/repo/Examples/App.Basic/App.Basic.nginproj', directory: '/repo/Examples/App.Basic', name: 'App.Basic', variants: [] },
-      variant: { name: 'Runtime', profile: 'Game' }
+      project: { path: '/repo/Examples/App.Basic/App.Basic.nginproj', directory: '/repo/Examples/App.Basic', name: 'App.Basic', configurations: [] },
+      configuration: { name: 'Runtime', hostProfile: 'Game' }
     },
-    outputDir: '/repo/.ngin/build/App.Basic/Runtime/Release',
-    targetManifestPath: '/repo/.ngin/build/App.Basic/Runtime/Release/App.Basic.Runtime.ngintarget',
-    targetManifestExists: true,
-    stagedCompileCommandsPath: '/repo/.ngin/build/App.Basic/Runtime/Release/.ngin/cmake-build/compile_commands.json',
+    outputDir: '/repo/.ngin/build/App.Basic/Runtime',
+    launchManifestPath: '/repo/.ngin/build/App.Basic/Runtime/App.Basic.Runtime.nginlaunch',
+    launchManifestExists: true,
+    stagedCompileCommandsPath: '/repo/.ngin/build/App.Basic/Runtime/.ngin/cmake-build/compile_commands.json',
     stagedCompileCommandsAvailable: true,
-    activeCompileCommandsPath: '/repo/.ngin/build/App.Basic/Runtime/Release/.ngin/cmake-build/compile_commands.json',
+    activeCompileCommandsPath: '/repo/.ngin/build/App.Basic/Runtime/.ngin/cmake-build/compile_commands.json',
     activeCompileCommandsSource: 'staged',
-    lastTargetManifestPath: '/repo/.ngin/build/App.Basic/Runtime/Release/App.Basic.Runtime.ngintarget'
+    lastLaunchManifestPath: '/repo/.ngin/build/App.Basic/Runtime/App.Basic.Runtime.nginlaunch'
   });
 
   assert.equal(sections.length, 5);
   assert.equal(sections[1].label, 'Current Context');
   assert.equal(sections[1].children[0].label, 'Project: App.Basic');
-  assert.equal(sections[1].children[2].label, 'Configuration: Release');
-  assert.equal(sections[1].children[2].command, 'ngin.selectConfiguration');
+  assert.equal(sections[1].children[1].label, 'Configuration: Runtime');
+  assert.equal(sections[1].children[1].command, 'ngin.selectConfiguration');
   assert.equal(sections[2].label, 'Build Artifacts');
   assert.equal(sections[2].children[0].label, 'Output Folder');
   assert.equal(sections[2].children[0].command, 'ngin.internal.revealPath');
   assert.equal(sections[3].children[0].command, 'ngin.build');
-  assert.equal(sections[4].children[1].label, 'Open Last Build Manifest');
+  assert.equal(sections[4].children[1].label, 'Open Last Launch Manifest');
 });
 
-test('project tree models mark the selected project and variant', () => {
+test('project tree models mark the selected project and configuration', () => {
   const models = buildProjectTreeModels({
-    buildConfiguration: 'Debug',
     workspace: {
       workspace: { path: '/repo/NGIN.ngin', directory: '/repo', name: 'NGIN', projectPaths: [] },
       projects: [
@@ -261,8 +261,8 @@ test('project tree models mark the selected project and variant', () => {
           path: '/repo/Examples/App.Basic/App.Basic.nginproj',
           directory: '/repo/Examples/App.Basic',
           name: 'App.Basic',
-          defaultVariant: 'Runtime',
-          variants: [{ name: 'Runtime', profile: 'Game' }]
+          defaultConfiguration: 'Runtime',
+          configurations: [{ name: 'Runtime', hostProfile: 'Game' }]
         }
       ],
       root: '/repo'
@@ -277,22 +277,21 @@ test('project tree models mark the selected project and variant', () => {
         path: '/repo/Examples/App.Basic/App.Basic.nginproj',
         directory: '/repo/Examples/App.Basic',
         name: 'App.Basic',
-        defaultVariant: 'Runtime',
-        variants: [{ name: 'Runtime', profile: 'Game' }]
+        defaultConfiguration: 'Runtime',
+        configurations: [{ name: 'Runtime', hostProfile: 'Game' }]
       },
-      variant: { name: 'Runtime', profile: 'Game' }
+      configuration: { name: 'Runtime', hostProfile: 'Game' }
     },
-    targetManifestExists: false,
+    launchManifestExists: false,
     stagedCompileCommandsAvailable: false
   });
 
   assert.equal(models.projects[0].selected, true);
-  assert.equal(models.variantsByProject.get('/repo/Examples/App.Basic/App.Basic.nginproj')?.[0].selected, true);
+  assert.equal(models.configurationsByProject.get('/repo/Examples/App.Basic/App.Basic.nginproj')?.[0].selected, true);
 });
 
 test('status bar models expose the compact NGIN bottom-bar actions', () => {
   const model = buildStatusBarModel({
-    buildConfiguration: 'Release',
     workspace: {
       workspace: { path: '/repo/NGIN.ngin', directory: '/repo', name: 'NGIN', projectPaths: [] },
       projects: [],
@@ -304,20 +303,19 @@ test('status bar models expose the compact NGIN bottom-bar actions', () => {
         projects: [],
         root: '/repo'
       },
-      project: { path: '/repo/Examples/App.Basic/App.Basic.nginproj', directory: '/repo/Examples/App.Basic', name: 'App.Basic', variants: [] },
-      variant: { name: 'Runtime', profile: 'Game' }
+      project: { path: '/repo/Examples/App.Basic/App.Basic.nginproj', directory: '/repo/Examples/App.Basic', name: 'App.Basic', configurations: [] },
+      configuration: { name: 'Runtime', hostProfile: 'Game' }
     },
-    outputDir: '/repo/.ngin/build/App.Basic/Runtime/Release',
-    targetManifestExists: false,
+    outputDir: '/repo/.ngin/build/App.Basic/Runtime',
+    launchManifestExists: false,
     stagedCompileCommandsAvailable: false
   });
 
   assert.equal(model.visible, true);
   assert.match(model.workspace?.text ?? '', /\$\(folder-library\)/);
   assert.equal(model.project?.command, 'ngin.internal.pickProject');
-  assert.equal(model.variant?.command, 'ngin.internal.pickVariant');
-  assert.match(model.configuration?.text ?? '', /\$\(settings-gear\) Release/);
-  assert.equal(model.configuration?.command, 'ngin.selectConfiguration');
+  assert.equal(model.configuration?.command, 'ngin.internal.pickConfiguration');
+  assert.match(model.configuration?.text ?? '', /\$\(symbol-enum\) Runtime/);
   assert.equal(model.build?.command, 'ngin.build');
   assert.equal(model.run?.command, 'ngin.run');
   assert.equal(model.debug?.command, 'ngin.debug');

@@ -73,7 +73,7 @@ namespace NGIN::Core
 
     struct StartupReport
     {
-        std::string              variantName {};
+        std::string              configurationName {};
         HostProfile              profile {HostProfile::ConsoleApp};
         std::vector<std::string> resolvedPackages {};
         std::vector<std::string> resolvedModules {};
@@ -138,7 +138,7 @@ namespace NGIN::Core
     struct ProjectReference
     {
         std::string               path {};
-        std::optional<std::string> variant {};
+        std::optional<std::string> configuration {};
     };
 
     struct PrimaryOutput
@@ -155,7 +155,7 @@ namespace NGIN::Core
         std::vector<std::string> disableModules {};
     };
 
-    struct VariantDefinition
+    struct ConfigurationDefinition
     {
         std::string              name {};
         HostProfile              profile {HostProfile::ConsoleApp};
@@ -175,14 +175,14 @@ namespace NGIN::Core
         int                      schemaVersion {1};
         std::string              name {};
         std::string              type {};
-        std::string              defaultVariant {};
+        std::string              defaultConfiguration {};
         std::vector<std::string> sourceRoots {};
         PrimaryOutput            primaryOutput {};
         std::vector<ProjectReference> projectRefs {};
         std::vector<PackageReference> packageRefs {};
         std::vector<std::string> configSources {};
         RuntimeDefinition        runtime {};
-        std::vector<VariantDefinition> variants {};
+        std::vector<ConfigurationDefinition> configurations {};
     };
 
     struct PackageManifest
@@ -280,7 +280,7 @@ namespace NGIN::Core
         virtual ~PackageBootstrapContext() = default;
 
         [[nodiscard]] virtual auto PackageName() const -> std::string = 0;
-        [[nodiscard]] virtual auto VariantName() const -> std::string = 0;
+        [[nodiscard]] virtual auto ConfigurationName() const -> std::string = 0;
         [[nodiscard]] virtual auto Profile() const noexcept -> HostProfile = 0;
 
         [[nodiscard]] virtual auto Services() noexcept -> ServiceCollection& = 0;
@@ -311,7 +311,7 @@ namespace NGIN::Core
         virtual auto Shutdown() noexcept -> CoreResult<void> = 0;
 
         [[nodiscard]] virtual auto GetProfile() const noexcept -> HostProfile = 0;
-        [[nodiscard]] virtual auto GetVariantName() const -> std::string = 0;
+        [[nodiscard]] virtual auto GetConfigurationName() const -> std::string = 0;
         [[nodiscard]] virtual auto GetStartupReport() const -> StartupReport = 0;
 
         [[nodiscard]] virtual auto GetServices() noexcept -> IServiceProvider& = 0;
@@ -327,7 +327,7 @@ namespace NGIN::Core
         virtual auto UseProject(ProjectManifest manifest) -> ApplicationBuilder& = 0;
         virtual auto SetApplicationName(std::string applicationName) -> ApplicationBuilder& = 0;
         virtual auto UseProfile(HostProfile profile) -> ApplicationBuilder& = 0;
-        virtual auto SetDefaultVariant(std::string variantName) -> ApplicationBuilder& = 0;
+        virtual auto SetConfiguration(std::string configurationName) -> ApplicationBuilder& = 0;
 
         [[nodiscard]] virtual auto Services() noexcept -> ServiceCollection& = 0;
         [[nodiscard]] virtual auto Packages() noexcept -> PackageCollection& = 0;

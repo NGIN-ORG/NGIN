@@ -26,12 +26,12 @@ export interface ProjectTreeProjectModel {
   selected: boolean;
 }
 
-export interface ProjectTreeVariantModel {
+export interface ProjectTreeConfigurationModel {
   label: string;
   description?: string;
   tooltip?: string;
   projectPath: string;
-  variantName: string;
+  configurationName: string;
   selected: boolean;
 }
 
@@ -39,7 +39,7 @@ export interface ProjectTreeModels {
   workspaceLabel?: string;
   workspaceDescription?: string;
   projects: ProjectTreeProjectModel[];
-  variantsByProject: Map<string, ProjectTreeVariantModel[]>;
+  configurationsByProject: Map<string, ProjectTreeConfigurationModel[]>;
 }
 
 export interface StatusBarEntryModel {
@@ -53,7 +53,6 @@ export interface StatusBarModel {
   visible: boolean;
   workspace?: StatusBarEntryModel;
   project?: StatusBarEntryModel;
-  variant?: StatusBarEntryModel;
   configuration?: StatusBarEntryModel;
   build?: StatusBarEntryModel;
   run?: StatusBarEntryModel;
@@ -67,7 +66,7 @@ function createTarget(snapshot: NginWorkspaceSnapshot): NginCommandTarget | unde
 
   return {
     projectPath: snapshot.context.project.path,
-    variantName: snapshot.context.variant.name
+    configurationName: snapshot.context.configuration.name
   };
 }
 
@@ -80,15 +79,15 @@ function relativeLabel(rootPath: string, targetPath?: string): string | undefine
   return relativePath.length > 0 ? relativePath : '.';
 }
 
-function variantDescription(snapshot: NginWorkspaceSnapshot): string | undefined {
-  const profile = snapshot.context?.variant.profile;
-  const environment = snapshot.context?.variant.environment;
+function configurationDescription(snapshot: NginWorkspaceSnapshot): string | undefined {
+  const hostProfile = snapshot.context?.configuration.hostProfile;
+  const environment = snapshot.context?.configuration.environment;
 
-  if (profile && environment) {
-    return `${profile} • ${environment}`;
+  if (hostProfile && environment) {
+    return `${hostProfile} • ${environment}`;
   }
 
-  return profile ?? environment ?? undefined;
+  return hostProfile ?? environment ?? undefined;
 }
 
 function artifactStatusIcon(status: 'ready' | 'fallback' | 'missing'): string {
@@ -122,12 +121,12 @@ export function buildOverviewSections(snapshot: NginWorkspaceSnapshot): Overview
   const compileTooltip = snapshot.activeCompileCommandsPath
     ? `${compileStatus} compile commands\n${snapshot.activeCompileCommandsPath}`
     : 'Compile commands are not available yet. Run Build to generate them.';
-  const targetManifestStatus = snapshot.targetManifestExists ? 'Ready' : 'Not generated';
-  const targetManifestTooltip = snapshot.targetManifestExists && snapshot.targetManifestPath
-    ? `Staged target manifest\n${snapshot.targetManifestPath}`
-    : 'Target manifest is not available yet. Run Build to generate it.';
+  const launchManifestStatus = snapshot.launchManifestExists ? 'Ready' : 'Not generated';
+  const launchManifestTooltip = snapshot.launchManifestExists && snapshot.launchManifestPath
+    ? `Generated launch manifest\n${snapshot.launchManifestPath}`
+    : 'Launch manifest is not available yet. Run Build to generate it.';
   const outputTooltip = snapshot.outputDir ?? 'Output folder has not been resolved yet.';
-  const contextDescription = variantDescription(snapshot);
+  const contextDescription = configurationDescription(snapshot);
 
   return [
     {
@@ -164,19 +163,12 @@ export function buildOverviewSections(snapshot: NginWorkspaceSnapshot): Overview
           arguments: []
         },
         {
-          id: 'context-variant',
-          label: `Variant: ${snapshot.context.variant.name}`,
-          description: contextDescription,
-          tooltip: `${snapshot.context.project.name} [${snapshot.context.variant.name}]`,
-          command: 'ngin.selectVariant',
-          icon: 'symbol-enum'
-        },
-        {
           id: 'context-configuration',
-          label: `Configuration: ${snapshot.buildConfiguration}`,
-          tooltip: `Active NGIN build configuration: ${snapshot.buildConfiguration}\n${snapshot.outputDir ?? 'No staged output directory resolved yet.'}`,
+          label: `Configuration: ${snapshot.context.configuration.name}`,
+          description: contextDescription,
+          tooltip: `${snapshot.context.project.name} [${snapshot.context.configuration.name}]`,
           command: 'ngin.selectConfiguration',
-          icon: 'settings-gear'
+          icon: 'symbol-enum'
         }
       ]
     },
@@ -194,13 +186,13 @@ export function buildOverviewSections(snapshot: NginWorkspaceSnapshot): Overview
           arguments: snapshot.outputDir ? [snapshot.outputDir] : undefined
         },
         {
-          id: 'artifacts-target',
-          label: 'Target Manifest',
-          description: targetManifestStatus,
-          tooltip: targetManifestTooltip,
-          icon: snapshot.targetManifestExists ? artifactStatusIcon('ready') : artifactStatusIcon('missing'),
-          command: snapshot.targetManifestExists && snapshot.targetManifestPath ? 'ngin.internal.openPath' : undefined,
-          arguments: snapshot.targetManifestExists && snapshot.targetManifestPath ? [snapshot.targetManifestPath] : undefined
+          id: 'artifacts-launch',
+          label: 'Launch Manifest',
+          description: launchManifestStatus,
+          tooltip: launchManifestTooltip,
+          icon: snapshot.launchManifestExists ? artifactStatusIcon('ready') : artifactStatusIcon('missing'),
+          command: snapshot.launchManifestExists && snapshot.launchManifestPath ? 'ngin.internal.openPath' : undefined,
+          arguments: snapshot.launchManifestExists && snapshot.launchManifestPath ? [snapshot.launchManifestPath] : undefined
         },
         {
           id: 'artifacts-compile',
@@ -217,10 +209,10 @@ export function buildOverviewSections(snapshot: NginWorkspaceSnapshot): Overview
       id: 'actions',
       label: 'Actions',
       children: [
-        { id: 'action-build', label: 'Build', tooltip: 'Build the selected project and variant.', command: 'ngin.build', arguments: target ? [target] : undefined, icon: 'gear' },
-        { id: 'action-run', label: 'Run', tooltip: 'Run the selected project and variant.', command: 'ngin.run', arguments: target ? [target] : undefined, icon: 'play' },
-        { id: 'action-debug', label: 'Debug', tooltip: 'Debug the selected project and variant.', command: 'ngin.debug', arguments: target ? [target] : undefined, icon: 'bug' },
-        { id: 'action-validate', label: 'Validate', tooltip: 'Validate the selected project and variant.', command: 'ngin.validate', arguments: target ? [target] : undefined, icon: 'check' }
+        { id: 'action-build', label: 'Build', tooltip: 'Build the selected project and configuration.', command: 'ngin.build', arguments: target ? [target] : undefined, icon: 'gear' },
+        { id: 'action-run', label: 'Run', tooltip: 'Run the selected project and configuration.', command: 'ngin.run', arguments: target ? [target] : undefined, icon: 'play' },
+        { id: 'action-debug', label: 'Debug', tooltip: 'Debug the selected project and configuration.', command: 'ngin.debug', arguments: target ? [target] : undefined, icon: 'bug' },
+        { id: 'action-validate', label: 'Validate', tooltip: 'Validate the selected project and configuration.', command: 'ngin.validate', arguments: target ? [target] : undefined, icon: 'check' }
       ]
     },
     {
@@ -228,7 +220,7 @@ export function buildOverviewSections(snapshot: NginWorkspaceSnapshot): Overview
       label: 'More',
       children: [
         { id: 'action-graph', label: 'Graph', tooltip: 'Show the resolved dependency graph.', command: 'ngin.graph', arguments: target ? [target] : undefined, icon: 'graph-line' },
-        { id: 'action-last-target', label: 'Open Last Build Manifest', tooltip: 'Open the most recently built target manifest.', command: 'ngin.openLastTargetManifest', icon: 'go-to-file' }
+        { id: 'action-last-launch', label: 'Open Last Launch Manifest', tooltip: 'Open the most recently built launch manifest.', command: 'ngin.openLastLaunchManifest', icon: 'go-to-file' }
       ]
     }
   ];
@@ -236,10 +228,10 @@ export function buildOverviewSections(snapshot: NginWorkspaceSnapshot): Overview
 
 export function buildProjectTreeModels(snapshot: NginWorkspaceSnapshot): ProjectTreeModels {
   const projects: ProjectTreeProjectModel[] = [];
-  const variantsByProject = new Map<string, ProjectTreeVariantModel[]>();
+  const configurationsByProject = new Map<string, ProjectTreeConfigurationModel[]>();
 
   if (!snapshot.workspace) {
-    return { projects, variantsByProject };
+    return { projects, configurationsByProject };
   }
 
   for (const project of snapshot.workspace.projects) {
@@ -252,15 +244,15 @@ export function buildProjectTreeModels(snapshot: NginWorkspaceSnapshot): Project
       selected: selectedProject
     });
 
-    variantsByProject.set(project.path, project.variants.map((variant) => ({
-      label: variant.name,
-      description: snapshot.context?.project.path === project.path && snapshot.context.variant.name === variant.name
+    configurationsByProject.set(project.path, project.configurations.map((configuration) => ({
+      label: configuration.name,
+      description: snapshot.context?.project.path === project.path && snapshot.context.configuration.name === configuration.name
         ? 'Current'
-        : variant.profile ?? variant.environment ?? '',
-      tooltip: `${project.name} [${variant.name}]`,
+        : configuration.hostProfile ?? configuration.environment ?? '',
+      tooltip: `${project.name} [${configuration.name}]`,
       projectPath: project.path,
-      variantName: variant.name,
-      selected: snapshot.context?.project.path === project.path && snapshot.context.variant.name === variant.name
+      configurationName: configuration.name,
+      selected: snapshot.context?.project.path === project.path && snapshot.context.configuration.name === configuration.name
     })));
   }
 
@@ -268,7 +260,7 @@ export function buildProjectTreeModels(snapshot: NginWorkspaceSnapshot): Project
     workspaceLabel: snapshot.workspace.workspace.name,
     workspaceDescription: snapshot.workspace.root,
     projects,
-    variantsByProject
+    configurationsByProject
   };
 }
 
@@ -278,7 +270,7 @@ export function buildStatusBarModel(snapshot: NginWorkspaceSnapshot): StatusBarM
   }
 
   const target = createTarget(snapshot);
-  const selectionLabel = `${snapshot.context.project.name} [${snapshot.context.variant.name}]`;
+  const selectionLabel = `${snapshot.context.project.name} [${snapshot.context.configuration.name}]`;
   return {
     visible: true,
     workspace: {
@@ -291,15 +283,10 @@ export function buildStatusBarModel(snapshot: NginWorkspaceSnapshot): StatusBarM
       tooltip: snapshot.context.project.path,
       command: 'ngin.internal.pickProject'
     },
-    variant: {
-      text: `$(symbol-enum) ${snapshot.context.variant.name}`,
-      tooltip: `${selectionLabel}\nProfile: ${snapshot.context.variant.profile ?? 'n/a'}`,
-      command: 'ngin.internal.pickVariant'
-    },
     configuration: {
-      text: `$(settings-gear) ${snapshot.buildConfiguration}`,
-      tooltip: `Active NGIN build configuration: ${snapshot.buildConfiguration}\n${snapshot.outputDir ?? 'No staged output directory resolved yet.'}`,
-      command: 'ngin.selectConfiguration'
+      text: `$(symbol-enum) ${snapshot.context.configuration.name}`,
+      tooltip: `${selectionLabel}\nHost Profile: ${snapshot.context.configuration.hostProfile ?? 'n/a'}`,
+      command: 'ngin.internal.pickConfiguration'
     },
     build: {
       text: '$(gear) Build',

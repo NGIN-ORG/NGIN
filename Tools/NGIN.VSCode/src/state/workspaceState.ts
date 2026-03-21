@@ -1,24 +1,18 @@
 import * as path from 'node:path';
 import * as vscode from 'vscode';
-import { DEFAULT_BUILD_CONFIGURATION, normalizeBuildConfiguration } from '../core/buildConfiguration';
 import { computeCompileCommandsPath, getFallbackCompileCommandsPath } from '../core/compileCommands';
-import { computeOutputDir, computeTargetManifestPath } from '../core/helpers';
-import {
-  findNearestWorkspaceManifest,
-  loadWorkspaceProjects,
-  pathExists
-} from '../core/discovery';
-import { ProjectManifest, ProjectVariant, WorkspaceManifest } from '../core/types';
+import { computeLaunchManifestPath, computeOutputDir } from '../core/helpers';
+import { findNearestWorkspaceManifest, loadWorkspaceProjects, pathExists } from '../core/discovery';
+import { ProjectConfiguration, ProjectManifest, WorkspaceManifest } from '../core/types';
 
 const LAST_PROJECT_KEY = 'ngin.lastProject';
-const LAST_CONFIGURATION_KEY = 'ngin.lastConfiguration';
-const LAST_TARGET_MANIFEST_KEY = 'ngin.lastTargetManifest';
-const LAST_VARIANT_PREFIX = 'ngin.lastVariant:';
+const LAST_LAUNCH_MANIFEST_KEY = 'ngin.lastLaunchManifest';
+const LAST_CONFIGURATION_PREFIX = 'ngin.lastConfiguration:';
 
 export interface NginCommandTarget {
   preferredUri?: vscode.Uri;
   projectPath?: string;
-  variantName?: string;
+  configurationName?: string;
 }
 
 export interface ResolvedWorkspaceInfo {
@@ -31,21 +25,20 @@ export interface ResolvedWorkspaceInfo {
 export interface ResolvedCommandContext {
   workspace: ResolvedWorkspaceInfo;
   project: ProjectManifest;
-  variant: ProjectVariant;
+  configuration: ProjectConfiguration;
 }
 
 export interface NginWorkspaceSnapshot {
   workspace?: ResolvedWorkspaceInfo;
   context?: ResolvedCommandContext;
-  buildConfiguration: string;
   outputDir?: string;
-  targetManifestPath?: string;
-  targetManifestExists: boolean;
+  launchManifestPath?: string;
+  launchManifestExists: boolean;
   stagedCompileCommandsPath?: string;
   stagedCompileCommandsAvailable: boolean;
   activeCompileCommandsPath?: string;
   activeCompileCommandsSource?: 'staged' | 'fallback';
-  lastTargetManifestPath?: string;
+  lastLaunchManifestPath?: string;
 }
 
 function comparablePath(value: string): string {
@@ -53,8 +46,8 @@ function comparablePath(value: string): string {
   return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
 }
 
-function workspaceVariantKey(projectPath: string): string {
-  return `${LAST_VARIANT_PREFIX}${comparablePath(projectPath)}`;
+function projectConfigurationKey(projectPath: string): string {
+  return `${LAST_CONFIGURATION_PREFIX}${comparablePath(projectPath)}`;
 }
 
 export class WorkspaceStateService implements vscode.Disposable {
@@ -88,18 +81,18 @@ export class WorkspaceStateService implements vscode.Disposable {
     this.fireDidChange();
   }
 
-  getLastTargetManifestPath(): string | undefined {
-    return this.context.workspaceState.get<string>(LAST_TARGET_MANIFEST_KEY);
+  getLastLaunchManifestPath(): string | undefined {
+    return this.context.workspaceState.get<string>(LAST_LAUNCH_MANIFEST_KEY);
   }
 
-  async setLastTargetManifestPath(manifestPath: string): Promise<void> {
-    await this.context.workspaceState.update(LAST_TARGET_MANIFEST_KEY, manifestPath);
+  async setLastLaunchManifestPath(manifestPath: string): Promise<void> {
+    await this.context.workspaceState.update(LAST_LAUNCH_MANIFEST_KEY, manifestPath);
     this.fireDidChange();
   }
 
   async rememberSelection(context: ResolvedCommandContext): Promise<void> {
     await this.context.workspaceState.update(LAST_PROJECT_KEY, context.project.path);
-    await this.context.workspaceState.update(workspaceVariantKey(context.project.path), context.variant.name);
+    await this.context.workspaceState.update(projectConfigurationKey(context.project.path), context.configuration.name);
     this.fireDidChange();
   }
 
@@ -143,7 +136,7 @@ export class WorkspaceStateService implements vscode.Disposable {
   async resolveCommandContext(options?: {
     preferredUri?: vscode.Uri;
     explicitProjectPath?: string;
-    explicitVariant?: string;
+    explicitConfiguration?: string;
     promptIfNeeded?: boolean;
   }): Promise<ResolvedCommandContext | undefined> {
     const promptIfNeeded = options?.promptIfNeeded ?? true;
@@ -157,15 +150,15 @@ export class WorkspaceStateService implements vscode.Disposable {
       return undefined;
     }
 
-    const variant = await this.resolveVariant(project, options?.explicitVariant, promptIfNeeded);
-    if (!variant) {
+    const configuration = await this.resolveConfiguration(project, options?.explicitConfiguration, promptIfNeeded);
+    if (!configuration) {
       return undefined;
     }
 
     const context: ResolvedCommandContext = {
       workspace: workspaceInfo,
       project,
-      variant
+      configuration
     };
 
     await this.rememberSelection(context);
@@ -178,10 +171,10 @@ export class WorkspaceStateService implements vscode.Disposable {
       return [];
     }
 
-    return workspaceInfo.projects.flatMap((project) => project.variants.map((variant) => ({
+    return workspaceInfo.projects.flatMap((project) => project.configurations.map((configuration) => ({
       workspace: workspaceInfo,
       project,
-      variant
+      configuration
     })));
   }
 
@@ -192,20 +185,20 @@ export class WorkspaceStateService implements vscode.Disposable {
     return workspaceInfo.projects.find((project) => comparablePath(project.path) === comparablePath(resolvedPath));
   }
 
-  findVariant(project: ProjectManifest, variantName: string): ProjectVariant | undefined {
-    return project.variants.find((variant) => variant.name === variantName);
+  findConfiguration(project: ProjectManifest, configurationName: string): ProjectConfiguration | undefined {
+    return project.configurations.find((configuration) => configuration.name === configurationName);
   }
 
   async pickProject(workspaceInfo: ResolvedWorkspaceInfo): Promise<ProjectManifest | undefined> {
     return this.resolveProject(workspaceInfo, undefined, undefined, true);
   }
 
-  async pickVariant(project: ProjectManifest): Promise<ProjectVariant | undefined> {
-    return this.resolveVariant(project, undefined, true);
+  async pickConfiguration(project: ProjectManifest): Promise<ProjectConfiguration | undefined> {
+    return this.resolveConfiguration(project, undefined, true);
   }
 
-  async resolveStoredVariant(project: ProjectManifest): Promise<ProjectVariant | undefined> {
-    return this.resolveVariant(project, undefined, false);
+  async resolveStoredConfiguration(project: ProjectManifest): Promise<ProjectConfiguration | undefined> {
+    return this.resolveConfiguration(project, undefined, false);
   }
 
   async promptForProject(workspaceInfo: ResolvedWorkspaceInfo): Promise<ProjectManifest | undefined> {
@@ -223,29 +216,28 @@ export class WorkspaceStateService implements vscode.Disposable {
     return picked?.project;
   }
 
-  async promptForVariant(project: ProjectManifest): Promise<ProjectVariant | undefined> {
+  async promptForConfiguration(project: ProjectManifest): Promise<ProjectConfiguration | undefined> {
     const picked = await vscode.window.showQuickPick(
-      project.variants.map((variant) => ({
-        label: variant.name,
-        description: variant.profile ?? '',
-        variant
+      project.configurations.map((configuration) => ({
+        label: configuration.name,
+        description: configuration.hostProfile ?? configuration.environment ?? '',
+        configuration
       })),
       {
-        title: `Select variant for ${project.name}`
+        title: `Select configuration for ${project.name}`
       }
     );
 
-    return picked?.variant;
+    return picked?.configuration;
   }
 
   async getSnapshot(preferredUri?: vscode.Uri): Promise<NginWorkspaceSnapshot> {
     const workspace = await this.getWorkspaceInfo(preferredUri);
     const snapshot: NginWorkspaceSnapshot = {
-      buildConfiguration: this.getSelectedBuildConfiguration(),
       workspace,
-      targetManifestExists: false,
+      launchManifestExists: false,
       stagedCompileCommandsAvailable: false,
-      lastTargetManifestPath: this.getLastTargetManifestPath()
+      lastLaunchManifestPath: this.getLastLaunchManifestPath()
     };
 
     if (!workspace) {
@@ -257,14 +249,14 @@ export class WorkspaceStateService implements vscode.Disposable {
       return snapshot;
     }
 
-    const variant = await this.resolveVariant(project, undefined, false);
-    if (!variant) {
+    const configuration = await this.resolveConfiguration(project, undefined, false);
+    if (!configuration) {
       return snapshot;
     }
 
-    const context: ResolvedCommandContext = { workspace, project, variant };
-    const outputDir = this.computeOutputDirectory(context, undefined, snapshot.buildConfiguration);
-    const targetManifestPath = computeTargetManifestPath(outputDir, project.name, variant.name);
+    const context: ResolvedCommandContext = { workspace, project, configuration };
+    const outputDir = this.computeOutputDirectory(context);
+    const launchManifestPath = computeLaunchManifestPath(outputDir, project.name, configuration.name);
     const stagedCompileCommandsPath = computeCompileCommandsPath(outputDir);
     const fallbackCompileCommandsPath = getFallbackCompileCommandsPath(workspace.root);
     const stagedCompileCommandsAvailable = await pathExists(stagedCompileCommandsPath);
@@ -272,8 +264,8 @@ export class WorkspaceStateService implements vscode.Disposable {
 
     snapshot.context = context;
     snapshot.outputDir = outputDir;
-    snapshot.targetManifestPath = targetManifestPath;
-    snapshot.targetManifestExists = await pathExists(targetManifestPath);
+    snapshot.launchManifestPath = launchManifestPath;
+    snapshot.launchManifestExists = await pathExists(launchManifestPath);
     snapshot.stagedCompileCommandsPath = stagedCompileCommandsPath;
     snapshot.stagedCompileCommandsAvailable = stagedCompileCommandsAvailable;
     snapshot.activeCompileCommandsPath = stagedCompileCommandsAvailable
@@ -294,16 +286,7 @@ export class WorkspaceStateService implements vscode.Disposable {
     return vscode.workspace.getConfiguration('ngin', scope).get<string>('build.outputRoot')?.trim() || undefined;
   }
 
-  getSelectedBuildConfiguration(): string {
-    return normalizeBuildConfiguration(this.context.workspaceState.get<string>(LAST_CONFIGURATION_KEY) ?? DEFAULT_BUILD_CONFIGURATION);
-  }
-
-  async setSelectedBuildConfiguration(configurationName: string): Promise<void> {
-    await this.context.workspaceState.update(LAST_CONFIGURATION_KEY, normalizeBuildConfiguration(configurationName));
-    this.fireDidChange();
-  }
-
-  computeOutputDirectory(context: ResolvedCommandContext, override?: string, configurationName?: string): string {
+  computeOutputDirectory(context: ResolvedCommandContext, override?: string): string {
     if (override) {
       return path.isAbsolute(override) ? override : path.resolve(context.workspace.root, override);
     }
@@ -311,9 +294,8 @@ export class WorkspaceStateService implements vscode.Disposable {
     return computeOutputDir(
       context.workspace.root,
       context.project.name,
-      context.variant.name,
-      this.getConfiguredBuildOutputRoot(context.workspace.folder),
-      configurationName ?? this.getSelectedBuildConfiguration()
+      context.configuration.name,
+      this.getConfiguredBuildOutputRoot(context.workspace.folder)
     );
   }
 
@@ -370,34 +352,38 @@ export class WorkspaceStateService implements vscode.Disposable {
     return this.promptForProject(workspaceInfo);
   }
 
-  private async resolveVariant(project: ProjectManifest, explicitVariant?: string, promptIfNeeded = true): Promise<ProjectVariant | undefined> {
-    if (explicitVariant) {
-      return project.variants.find((variant) => variant.name === explicitVariant);
+  private async resolveConfiguration(
+    project: ProjectManifest,
+    explicitConfiguration?: string,
+    promptIfNeeded = true
+  ): Promise<ProjectConfiguration | undefined> {
+    if (explicitConfiguration) {
+      return project.configurations.find((configuration) => configuration.name === explicitConfiguration);
     }
 
-    const storedVariant = this.context.workspaceState.get<string>(workspaceVariantKey(project.path));
-    if (storedVariant) {
-      const matched = project.variants.find((variant) => variant.name === storedVariant);
+    const storedConfiguration = this.context.workspaceState.get<string>(projectConfigurationKey(project.path));
+    if (storedConfiguration) {
+      const matched = project.configurations.find((configuration) => configuration.name === storedConfiguration);
       if (matched) {
         return matched;
       }
     }
 
-    if (project.defaultVariant) {
-      const matched = project.variants.find((variant) => variant.name === project.defaultVariant);
+    if (project.defaultConfiguration) {
+      const matched = project.configurations.find((configuration) => configuration.name === project.defaultConfiguration);
       if (matched) {
         return matched;
       }
     }
 
-    if (project.variants.length === 1) {
-      return project.variants[0];
+    if (project.configurations.length === 1) {
+      return project.configurations[0];
     }
 
     if (!promptIfNeeded) {
       return undefined;
     }
 
-    return this.promptForVariant(project);
+    return this.promptForConfiguration(project);
   }
 }

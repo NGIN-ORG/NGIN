@@ -1026,7 +1026,7 @@ TEST_CASE("ApplicationBuilderBuildsHostFromCode", "[builder][host]")
 {
     auto builder = NGIN::Core::CreateApplicationBuilder(0, nullptr);
     builder->SetApplicationName("Builder.Tests");
-    builder->SetDefaultVariant("Builder.Target");
+    builder->SetConfiguration("Builder.Target");
     builder->UseProfile(NGIN::Core::HostProfile::ConsoleApp);
     builder->Services()
         .AddDefaults()
@@ -1044,7 +1044,7 @@ TEST_CASE("ApplicationBuilderBuildsHostFromCode", "[builder][host]")
     auto app = builder->Build();
     REQUIRE(app.HasValue());
     REQUIRE(app.ValueUnsafe()->GetProfile() == NGIN::Core::HostProfile::ConsoleApp);
-    REQUIRE(app.ValueUnsafe()->GetVariantName() == "Builder.Target");
+    REQUIRE(app.ValueUnsafe()->GetConfigurationName() == "Builder.Target");
 
     auto report = app.ValueUnsafe()->GetStartupReport();
     REQUIRE(report.targetName == "Builder.Target");
@@ -1084,16 +1084,17 @@ TEST_CASE("ApplicationBuilderLoadsProjectManifestAndConfig", "[builder][manifest
     WriteTextFile(
         tempDir / "Manifest.Tests.nginproj",
         R"(<?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="1"
+<Project SchemaVersion="2"
          Name="Manifest.Tests"
          Type="Application"
-         DefaultVariant="Samples.Manifest">
+         DefaultConfiguration="Samples.Manifest">
+  <Host Profile="ConsoleApp" />
   <SourceRoots>
     <SourceRoot Path="src" />
   </SourceRoots>
-  <PrimaryOutput Kind="Executable"
-                 Name="Manifest.Tests"
-                 Target="Manifest.Tests" />
+  <Output Kind="Executable"
+          Name="Manifest.Tests"
+          Target="Manifest.Tests" />
   <Build Backend="CMake"
          Mode="Generated"
          Language="CXX"
@@ -1102,9 +1103,9 @@ TEST_CASE("ApplicationBuilderLoadsProjectManifestAndConfig", "[builder][manifest
       <Definition Value="MANIFEST_TESTS=1" Visibility="Private" />
     </CompileDefinitions>
   </Build>
-  <PackageRefs>
-    <PackageRef Name="NGIN.ECS" VersionRange=">=0.1.0 &lt;1.0.0" />
-  </PackageRefs>
+  <References>
+    <Package Name="NGIN.ECS" Version=">=0.1.0 &lt;1.0.0" />
+  </References>
   <ConfigSources>
     <Config Source="app.cfg" />
   </ConfigSources>
@@ -1116,13 +1117,14 @@ TEST_CASE("ApplicationBuilderLoadsProjectManifestAndConfig", "[builder][manifest
       <ModuleRef Name="App.Disabled" />
     </DisableModules>
   </Runtime>
-  <Variants>
-    <Variant Name="Samples.Manifest"
-             Profile="ConsoleApp"
+  <Configurations>
+    <Configuration Name="Samples.Manifest"
+             BuildConfiguration="Debug"
              Platform="linux-x64"
              Environment="Dev"
+             HostProfile="ConsoleApp"
              WorkingDirectory="." />
-  </Variants>
+  </Configurations>
 </Project>
 )");
 
@@ -1172,42 +1174,45 @@ TEST_CASE("ApplicationBuilderTargetOverrideBeatsProjectDefault", "[builder][mani
     std::filesystem::create_directories(tempDir);
 
     WriteTextFile(tempDir / "Manifest.Override.nginproj", R"(<?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="1"
+<Project SchemaVersion="2"
          Name="Manifest.Override"
          Type="Application"
-         DefaultVariant="Default.Target">
+         DefaultConfiguration="Default.Target">
+  <Host Profile="ConsoleApp" />
   <SourceRoots>
     <SourceRoot Path="src" />
   </SourceRoots>
-  <PrimaryOutput Kind="Executable"
-                 Name="Manifest.Override"
-                 Target="Manifest.Override" />
-  <Variants>
-    <Variant Name="Default.Target"
-             Profile="ConsoleApp"
+  <Output Kind="Executable"
+          Name="Manifest.Override"
+          Target="Manifest.Override" />
+  <Configurations>
+    <Configuration Name="Default.Target"
+             BuildConfiguration="Debug"
              Platform="linux-x64"
              Environment="Default"
+             HostProfile="ConsoleApp"
              WorkingDirectory=".">
       <EnableModules>
         <ModuleRef Name="App.Default" />
       </EnableModules>
-    </Variant>
-    <Variant Name="Override.Target"
-             Profile="ConsoleApp"
+    </Configuration>
+    <Configuration Name="Override.Target"
+             BuildConfiguration="Release"
              Platform="linux-x64"
              Environment="Override"
+             HostProfile="ConsoleApp"
              WorkingDirectory=".">
       <EnableModules>
         <ModuleRef Name="App.Override" />
       </EnableModules>
-    </Variant>
-  </Variants>
+    </Configuration>
+  </Configurations>
 </Project>
 )");
 
     auto builder = NGIN::Core::CreateApplicationBuilder(0, nullptr);
     builder->UseProjectFile((tempDir / "Manifest.Override.nginproj").string());
-    builder->SetDefaultVariant("Override.Target");
+    builder->SetConfiguration("Override.Target");
     builder->Modules()
         .Register(MakeRegistration(
             MakeDescriptor("App.Default", NGIN::Core::ModuleFamily::App, NGIN::Core::StartupStage::Features),
@@ -1248,28 +1253,30 @@ TEST_CASE("ApplicationBuilderRejectsUnknownTarget", "[builder][manifest]")
     std::filesystem::create_directories(tempDir);
 
     WriteTextFile(tempDir / "Manifest.Invalid.nginproj", R"(<?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="1"
+<Project SchemaVersion="2"
          Name="Manifest.Invalid"
          Type="Application"
-         DefaultVariant="Samples.Default">
+         DefaultConfiguration="Samples.Default">
+  <Host Profile="ConsoleApp" />
   <SourceRoots>
     <SourceRoot Path="src" />
   </SourceRoots>
-  <PrimaryOutput Kind="Executable"
-                 Name="Manifest.Invalid"
-                 Target="Manifest.Invalid" />
-  <Variants>
-    <Variant Name="Samples.Default"
-             Profile="ConsoleApp"
+  <Output Kind="Executable"
+          Name="Manifest.Invalid"
+          Target="Manifest.Invalid" />
+  <Configurations>
+    <Configuration Name="Samples.Default"
+             BuildConfiguration="Debug"
              Platform="linux-x64"
+             HostProfile="ConsoleApp"
              WorkingDirectory="." />
-  </Variants>
+  </Configurations>
 </Project>
 )");
 
     auto builder = NGIN::Core::CreateApplicationBuilder(0, nullptr);
     builder->UseProjectFile((tempDir / "Manifest.Invalid.nginproj").string());
-    builder->SetDefaultVariant("Missing.Target");
+    builder->SetConfiguration("Missing.Target");
 
     auto app = builder->Build();
     REQUIRE_FALSE(app.HasValue());
@@ -1327,7 +1334,7 @@ TEST_CASE("ApplicationBuilderExecutesExplicitPackageBootstrapFromManifestFile", 
 
     auto builder = NGIN::Core::CreateApplicationBuilder(0, nullptr);
     builder->SetApplicationName("Builder.Package");
-    builder->SetDefaultVariant("Builder.Package.Target");
+    builder->SetConfiguration("Builder.Package.Target");
     builder->UseProfile(NGIN::Core::HostProfile::ConsoleApp);
     builder->Configuration().SetWorkingDirectory(tempDir.string());
     builder->Packages()
@@ -1368,7 +1375,7 @@ TEST_CASE("ApplicationBuilderExecutesNamedPackageBootstrapEntry", "[builder][boo
 {
     auto builder = NGIN::Core::CreateApplicationBuilder(0, nullptr);
     builder->SetApplicationName("Builder.NamedBootstrap");
-    builder->SetDefaultVariant("Builder.NamedBootstrap.Target");
+    builder->SetConfiguration("Builder.NamedBootstrap.Target");
     builder->UseProfile(NGIN::Core::HostProfile::ConsoleApp);
     builder->Packages()
         .Add({
@@ -1417,7 +1424,7 @@ TEST_CASE("ApplicationBuilderAutoAppliesPackagesInDependencyOrder", "[builder][b
 
     auto builder = NGIN::Core::CreateApplicationBuilder(0, nullptr);
     builder->SetApplicationName("Builder.AutoApply");
-    builder->SetDefaultVariant("Builder.AutoApply.Target");
+    builder->SetConfiguration("Builder.AutoApply.Target");
     builder->UseProfile(NGIN::Core::HostProfile::ConsoleApp);
     builder->Packages()
         .Add({
@@ -1482,7 +1489,7 @@ TEST_CASE("ApplicationBuilderFailsOnMissingRequiredAutoAppliedPackageBootstrap",
 {
     auto builder = NGIN::Core::CreateApplicationBuilder(0, nullptr);
     builder->SetApplicationName("Builder.RequiredFailure");
-    builder->SetDefaultVariant("Builder.RequiredFailure.Target");
+    builder->SetConfiguration("Builder.RequiredFailure.Target");
     builder->UseProfile(NGIN::Core::HostProfile::ConsoleApp);
     builder->Packages()
         .Add({
@@ -1516,7 +1523,7 @@ TEST_CASE("ApplicationBuilderSkipsOptionalAutoAppliedPackageWithWarning", "[buil
 {
     auto builder = NGIN::Core::CreateApplicationBuilder(0, nullptr);
     builder->SetApplicationName("Builder.OptionalWarning");
-    builder->SetDefaultVariant("Builder.OptionalWarning.Target");
+    builder->SetConfiguration("Builder.OptionalWarning.Target");
     builder->UseProfile(NGIN::Core::HostProfile::ConsoleApp);
     builder->Packages()
         .Add({
@@ -1555,7 +1562,7 @@ TEST_CASE("ApplicationBuilderFailsOnDuplicatePackageBootstrapEntry", "[builder][
 {
     auto builder = NGIN::Core::CreateApplicationBuilder(0, nullptr);
     builder->SetApplicationName("Builder.DuplicateBootstrap");
-    builder->SetDefaultVariant("Builder.DuplicateBootstrap.Target");
+    builder->SetConfiguration("Builder.DuplicateBootstrap.Target");
     builder->UseProfile(NGIN::Core::HostProfile::ConsoleApp);
     builder->Packages()
         .Add({

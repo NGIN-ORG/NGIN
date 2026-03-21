@@ -177,7 +177,7 @@ The package archive format must not assume every package is a source-built libra
 - `.nginpack`
   Distributable package archive
 
-- `.ngintarget`
+- `.nginlaunch`
   Generated staged application target
 
 These three file types must remain distinct.

@@ -1,213 +1,103 @@
-# Spec 002: Project And Variant Manifest
+# Spec 002: Project Manifest
 
 Status: Active
-Last updated: 2026-03-15
+Last updated: 2026-03-21
 
 ## Purpose
 
-This spec defines the active `.nginproj` file format.
-
-A project manifest is the top-level authored buildable unit in NGIN.
-
-Projects own:
-
-- source roots
-- primary output
-- build metadata for generated backend input
-- project references
-- package references
-- app-local runtime contributions
-- variants
+This spec defines the active V2 `.nginproj` contract.
 
 ## File Contract
 
-Filename:
+- filename: `<ProjectName>.nginproj`
+- root element: `<Project>`
+- required root attributes:
+  - `SchemaVersion="2"`
+  - `Name`
+  - `Type`
+  - `DefaultConfiguration`
 
-- `<ProjectName>.nginproj`
+## Root Surface
 
-Root element:
-
-- `<Project>`
-
-Required root attributes:
-
-- `SchemaVersion`
-- `Name`
-- `Type`
-- `DefaultVariant`
-
-## Structure
-
-```xml
-<?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="1"
-         Name="Sandbox.Game"
-         Type="Application"
-         DefaultVariant="Game">
-  <SourceRoots>
-    <SourceRoot Path="src" />
-  </SourceRoots>
-  <PrimaryOutput Kind="Executable"
-                 Name="Sandbox.Game"
-                 Target="Sandbox.Game" />
-  <Build Backend="CMake"
-         Mode="Generated"
-         Language="CXX"
-         LanguageStandard="23" />
-  <PackageRefs>
-    <PackageRef Name="NGIN.Core" VersionRange=">=0.1.0 &lt;1.0.0" />
-    <PackageRef Name="NGIN.ECS" VersionRange=">=0.1.0 &lt;1.0.0" />
-  </PackageRefs>
-  <ConfigSources>
-    <Config Source="config/game.xml" />
-  </ConfigSources>
-  <Runtime>
-    <Modules>
-      <Module Name="App.GameRuntime"
-              Family="App"
-              Type="Runtime"
-              StartupStage="Features"
-              Version="0.1.0"
-              ReflectionRequired="false" />
-    </Modules>
-    <EnableModules>
-      <ModuleRef Name="App.GameRuntime" />
-    </EnableModules>
-  </Runtime>
-  <Variants>
-    <Variant Name="Game"
-             Profile="Game"
-             Platform="linux-x64"
-             Environment="Dev"
-             WorkingDirectory=".">
-      <Launch Executable="Sandbox.Game" />
-    </Variant>
-  </Variants>
-</Project>
-```
-
-## Project Shape
-
-Root-level project sections:
+Supported root sections:
 
 - `SourceRoots`
-- `PrimaryOutput`
+- `Output`
 - `Build`
-- `ProjectRefs`
-- `PackageRefs`
+- `Host`
+- `References`
 - `ConfigSources`
 - `Runtime`
-- `Variants`
+- `Configurations`
 
-### SourceRoots
+`Runtime` is optional advanced metadata. It is not required for normal application authoring.
 
-`SourceRoots` declares project-owned source directories.
+## Output
 
-Each `<SourceRoot>` entry defines:
+Projects own one `Output` definition:
 
-- `Path` required
+```xml
+<Output Kind="Executable|Library"
+        Name="MyApp"
+        Target="MyApp"
+        FileName="MyApp" />
+```
 
-### PrimaryOutput
+## References
 
-`PrimaryOutput` declares the main artifact produced by the project.
+Projects use one unified `References` surface:
 
-Required attributes:
+```xml
+<References>
+  <Project Path="../Game.Engine/Game.Engine.nginproj" Configuration="Runtime" />
+  <Package Name="NGIN.Core" Version="0.1.0" Optional="false" />
+</References>
+```
 
-- `Kind`
-- `Name`
-- `Target`
+Reference resolution rules:
 
-Supported `Kind` values in v1:
+- explicit referenced project `Configuration` wins
+- otherwise try the selected root project configuration name in the referenced project
+- otherwise use the referenced project `DefaultConfiguration`
 
-- `Executable`
-- `StaticLibrary`
-- `SharedLibrary`
+## Host
 
-Projects may define additional outputs later, but v1 requires one primary output.
+Projects may define a root host default:
 
-### Build
+```xml
+<Host Profile="ConsoleApp|GuiApp|Game|Editor|Service|TestHost" />
+```
 
-`Build` declares backend-thin project build metadata for generated project builds.
+## Configurations
 
-Supported root attributes:
+Projects declare configurations under `Configurations`.
 
-- `Backend` optional, defaults to `CMake`
-- `Mode` optional, defaults to `Generated`
-- `Language` optional, defaults to `CXX`
-- `LanguageStandard` optional, defaults to `23`
+```xml
+<Configurations>
+  <Configuration Name="Runtime"
+                 BuildConfiguration="Debug"
+                 HostProfile="Game"
+                 Platform="Linux"
+                 Environment="Dev"
+                 WorkingDirectory=".">
+    <Launch Executable="MyApp" />
+  </Configuration>
+</Configurations>
+```
 
-Supported `Mode` values in v1:
-
-- `Generated`
-- `Manual`
-
-Supported child sections in v1:
-
-- `Sources`
-- `IncludeDirectories`
-- `CompileDefinitions`
-- `CompileOptions`
-- `LinkOptions`
-
-If `Mode="Generated"` and `Sources` is omitted, implementations recursively compile source files found under `SourceRoots`.
-
-### ProjectRefs
-
-`ProjectRefs` declares source/build graph dependencies on other workspace projects.
-
-Each `<ProjectRef>` may define:
-
-- `Path` required
-- `Variant` optional
-
-`ProjectRef` is distinct from `PackageRef`. Project references are workspace-local build graph edges, not reusable package dependencies.
-
-### PackageRefs
-
-Packages are the normal reusable dependency path.
-
-Each `<PackageRef>` may define:
+Supported configuration attributes:
 
 - `Name` required
-- `VersionRange` optional but recommended
-- `Optional` optional, defaults to `false`
-
-### ConfigSources
-
-Each `<Config>` entry defines a relative or absolute source path loaded into the project configuration model.
-
-### Runtime
-
-`Runtime` declares app-local runtime contributions owned by the project itself.
-
-Supported child sections in v1:
-
-- `Modules`
-- `EnableModules`
-- `DisableModules`
-- `EnablePlugins`
-- `DisablePlugins`
-
-This allows applications to own their entry modules without forcing those modules through a reusable package.
-
-Project-owned runtime modules use the same module descriptor fields as package-owned modules, including `StartupStage` and optional `SupportedHosts`.
-
-### Variants
-
-Variants define build/run variants of the same project.
-
-Each `<Variant>` may define:
-
-- `Name` required
-- `Profile` required
-- `Platform` required
+- `BuildConfiguration` optional
+- `Platform` optional
 - `Environment` optional
-- `WorkingDirectory` optional, defaults to `.`
-- `EnableReflection` optional, defaults to `false`
+- `WorkingDirectory` optional
+- `HostProfile` optional
+- `EnableReflection` optional
 
-Supported child sections:
+Supported configuration child sections:
 
-- `PackageRefs`
+- `References`
 - `ConfigSources`
 - `Launch`
 - `EnableModules`
@@ -215,36 +105,29 @@ Supported child sections:
 - `EnablePlugins`
 - `DisablePlugins`
 
-### Launch
+## Example
 
-`Launch` is optional.
-
-It exists only to resolve ambiguity when a variant can see more than one executable artifact through its project output plus package graph.
-
-Supported attributes:
-
-- `Executable` optional
-
-Rules:
-
-- if a project resolves exactly one executable artifact, implementations may infer it
-- if a project resolves multiple executable artifacts, `Launch Executable="..."` should be used to choose the runnable output
-- if a project resolves no executable artifacts, the variant may still be valid for validation or staging, but it has no inferred runnable output
-
-## Rules
-
-- one project file defines one authored buildable unit
-- variant names must be unique inside a project
-- `DefaultVariant` must name an existing variant
-- root-level package references apply to the whole project
-- variants may add package/config/module overrides
-- variants may add plugin overrides
-- projects may define app-local runtime modules
-- package references remain the normal path for reusable composition
-- `ProjectRef` and `PackageRef` are different dependency types and must not be conflated
-- relative `ConfigSources` and `WorkingDirectory` values are resolved relative to the declaring project file location
-- plugin overrides apply after package plugin collection; non-optional package plugins are enabled by default and optional package plugins are disabled by default unless explicitly overridden
-
-## Output
-
-Selecting a variant from a project produces the input to composition, validation, build planning, and staging.
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="2"
+         Name="App.Basic"
+         Type="Application"
+         DefaultConfiguration="Runtime">
+  <SourceRoots>
+    <SourceRoot Path="src" />
+  </SourceRoots>
+  <Output Kind="Executable" Name="App.Basic" Target="App.Basic" />
+  <References>
+    <Package Name="NGIN.Core" Version="0.1.0" />
+  </References>
+  <Configurations>
+    <Configuration Name="Runtime"
+                   BuildConfiguration="Debug"
+                   HostProfile="ConsoleApp"
+                   Environment="Dev"
+                   WorkingDirectory=".">
+      <Launch Executable="App.Basic" />
+    </Configuration>
+  </Configurations>
+</Project>
+```

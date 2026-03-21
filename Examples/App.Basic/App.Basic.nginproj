@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="1"
+<Project SchemaVersion="2"
          Name="App.Basic"
          Type="Application"
-         DefaultVariant="Runtime">
+         DefaultConfiguration="Runtime">
   <SourceRoots>
     <SourceRoot Path="src" />
   </SourceRoots>
-  <PrimaryOutput Kind="Executable"
+  <Output Kind="Executable"
                  Name="App.Basic"
                  Target="App.Basic" />
   <Build Backend="CMake"
@@ -18,9 +18,9 @@
                   Visibility="Private" />
     </CompileDefinitions>
   </Build>
-  <PackageRefs>
-    <PackageRef Name="NGIN.Core" VersionRange=">=0.1.0 &lt;0.2.0" Optional="false" />
-  </PackageRefs>
+  <References>
+    <Package Name="NGIN.Core" Version=">=0.1.0 &lt;0.2.0" Optional="false" />
+  </References>
   <ConfigSources>
     <Config Source="config/app.cfg" />
   </ConfigSources>
@@ -43,23 +43,25 @@
       <ModuleRef Name="App.Basic.Runtime" />
     </EnableModules>
   </Runtime>
-  <Variants>
-    <Variant Name="Runtime"
-             Profile="ConsoleApp"
+  <Configurations>
+    <Configuration Name="Runtime"
+             BuildConfiguration="Debug"
+             HostProfile="ConsoleApp"
              Platform="linux-x64"
              Environment="Dev"
              WorkingDirectory="." />
-    <Variant Name="Diagnostics"
-             Profile="ConsoleApp"
+    <Configuration Name="Diagnostics"
+             BuildConfiguration="Debug"
+             HostProfile="ConsoleApp"
              Platform="linux-x64"
              Environment="Dev"
              WorkingDirectory=".">
-      <PackageRefs>
-        <PackageRef Name="NGIN.Diagnostics" VersionRange=">=0.1.0 &lt;0.2.0" Optional="false" />
-      </PackageRefs>
+      <References>
+        <Package Name="NGIN.Diagnostics" Version=">=0.1.0 &lt;0.2.0" Optional="false" />
+      </References>
       <EnablePlugins>
         <PluginRef Name="NGIN.Diagnostics" />
       </EnablePlugins>
-    </Variant>
-  </Variants>
+    </Configuration>
+  </Configurations>
 </Project>

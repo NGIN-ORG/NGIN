@@ -5,8 +5,8 @@ import {
   buildProjectTreeModels,
   OverviewEntryModel,
   OverviewSectionModel,
+  ProjectTreeConfigurationModel,
   ProjectTreeProjectModel,
-  ProjectTreeVariantModel
 } from './models';
 
 class OverviewSectionTreeItem extends vscode.TreeItem {
@@ -36,7 +36,7 @@ class OverviewEntryTreeItem extends vscode.TreeItem {
 
 class OverviewTreeDataProvider implements vscode.TreeDataProvider<OverviewSectionTreeItem | OverviewEntryTreeItem> {
   private readonly onDidChangeTreeDataEmitter = new vscode.EventEmitter<void>();
-  private snapshot: NginWorkspaceSnapshot = { buildConfiguration: 'Debug', targetManifestExists: false, stagedCompileCommandsAvailable: false };
+  private snapshot: NginWorkspaceSnapshot = { launchManifestExists: false, stagedCompileCommandsAvailable: false };
 
   readonly onDidChangeTreeData = this.onDidChangeTreeDataEmitter.event;
 
@@ -93,29 +93,29 @@ class ProjectTreeItem extends vscode.TreeItem {
   }
 }
 
-class VariantTreeItem extends vscode.TreeItem {
+class ConfigurationTreeItem extends vscode.TreeItem {
   readonly projectPath: string;
-  readonly variantName: string;
+  readonly configurationName: string;
 
-  constructor(model: ProjectTreeVariantModel) {
+  constructor(model: ProjectTreeConfigurationModel) {
     super(model.label, vscode.TreeItemCollapsibleState.None);
     this.projectPath = model.projectPath;
-    this.variantName = model.variantName;
+    this.configurationName = model.configurationName;
     this.description = model.description;
     this.tooltip = model.tooltip;
     this.iconPath = new vscode.ThemeIcon(model.selected ? 'play-circle' : 'symbol-enum');
-    this.contextValue = 'nginVariant';
+    this.contextValue = 'nginConfiguration';
     this.command = {
-      command: 'ngin.selectVariant',
+      command: 'ngin.selectConfiguration',
       title: model.label,
-      arguments: [{ projectPath: model.projectPath, variantName: model.variantName }]
+      arguments: [{ projectPath: model.projectPath, configurationName: model.configurationName }]
     };
   }
 }
 
-class ProjectsTreeDataProvider implements vscode.TreeDataProvider<WorkspaceTreeItem | ProjectTreeItem | VariantTreeItem> {
+class ProjectsTreeDataProvider implements vscode.TreeDataProvider<WorkspaceTreeItem | ProjectTreeItem | ConfigurationTreeItem> {
   private readonly onDidChangeTreeDataEmitter = new vscode.EventEmitter<void>();
-  private snapshot: NginWorkspaceSnapshot = { buildConfiguration: 'Debug', targetManifestExists: false, stagedCompileCommandsAvailable: false };
+  private snapshot: NginWorkspaceSnapshot = { launchManifestExists: false, stagedCompileCommandsAvailable: false };
 
   readonly onDidChangeTreeData = this.onDidChangeTreeDataEmitter.event;
 
@@ -124,11 +124,11 @@ class ProjectsTreeDataProvider implements vscode.TreeDataProvider<WorkspaceTreeI
     this.onDidChangeTreeDataEmitter.fire();
   }
 
-  getTreeItem(element: WorkspaceTreeItem | ProjectTreeItem | VariantTreeItem): vscode.TreeItem {
+  getTreeItem(element: WorkspaceTreeItem | ProjectTreeItem | ConfigurationTreeItem): vscode.TreeItem {
     return element;
   }
 
-  getChildren(element?: WorkspaceTreeItem | ProjectTreeItem | VariantTreeItem): vscode.ProviderResult<(WorkspaceTreeItem | ProjectTreeItem | VariantTreeItem)[]> {
+  getChildren(element?: WorkspaceTreeItem | ProjectTreeItem | ConfigurationTreeItem): vscode.ProviderResult<(WorkspaceTreeItem | ProjectTreeItem | ConfigurationTreeItem)[]> {
     const model = buildProjectTreeModels(this.snapshot);
 
     if (!element) {
@@ -143,7 +143,7 @@ class ProjectsTreeDataProvider implements vscode.TreeDataProvider<WorkspaceTreeI
     }
 
     if (element instanceof ProjectTreeItem) {
-      return (model.variantsByProject.get(element.projectPath) ?? []).map((variant) => new VariantTreeItem(variant));
+      return (model.configurationsByProject.get(element.projectPath) ?? []).map((configuration) => new ConfigurationTreeItem(configuration));
     }
 
     return [];
@@ -154,7 +154,7 @@ export class NginSidebarController implements vscode.Disposable {
   private readonly overviewProvider = new OverviewTreeDataProvider();
   private readonly projectsProvider = new ProjectsTreeDataProvider();
   private readonly overviewTreeView: vscode.TreeView<OverviewSectionTreeItem | OverviewEntryTreeItem>;
-  private readonly projectsTreeView: vscode.TreeView<WorkspaceTreeItem | ProjectTreeItem | VariantTreeItem>;
+  private readonly projectsTreeView: vscode.TreeView<WorkspaceTreeItem | ProjectTreeItem | ConfigurationTreeItem>;
 
   constructor() {
     this.overviewTreeView = vscode.window.createTreeView('nginOverview', {

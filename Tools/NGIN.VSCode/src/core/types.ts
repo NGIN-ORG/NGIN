@@ -6,9 +6,10 @@ export interface WorkspaceManifest {
   projectPaths: string[];
 }
 
-export interface ProjectVariant {
+export interface ProjectConfiguration {
   name: string;
-  profile?: string;
+  hostProfile?: string;
+  buildConfiguration?: string;
   platform?: string;
   environment?: string;
   workingDirectory?: string;
@@ -19,16 +20,16 @@ export interface ProjectManifest {
   path: string;
   directory: string;
   name: string;
-  defaultVariant?: string;
-  variants: ProjectVariant[];
+  defaultConfiguration?: string;
+  configurations: ProjectConfiguration[];
 }
 
-export interface TargetRuntime {
+export interface LaunchRuntime {
   workingDirectory?: string;
   environment?: string;
 }
 
-export interface TargetExecutable {
+export interface LaunchExecutable {
   name: string;
   target?: string;
   origin?: string;
@@ -41,13 +42,17 @@ export interface StagedFile {
   relativeDestination?: string;
 }
 
-export interface TargetManifest {
+export interface LaunchManifest {
   path: string;
   directory: string;
   project: string;
-  variant: string;
-  runtime: TargetRuntime;
-  selectedExecutable?: TargetExecutable;
+  configuration: string;
+  type?: string;
+  buildConfiguration?: string;
+  hostProfile?: string;
+  platform?: string;
+  runtime: LaunchRuntime;
+  selectedExecutable?: LaunchExecutable;
   stagedFiles: StagedFile[];
 }
 

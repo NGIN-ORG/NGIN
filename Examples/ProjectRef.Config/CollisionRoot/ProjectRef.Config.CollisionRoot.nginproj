@@ -1,23 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="1"
+<Project SchemaVersion="2"
          Name="ProjectRef.Config.CollisionRoot"
          Type="Application"
-         DefaultVariant="Runtime">
+         DefaultConfiguration="Runtime">
   <SourceRoots>
     <SourceRoot Path="src" />
   </SourceRoots>
-  <PrimaryOutput Kind="Executable"
+  <Output Kind="Executable"
                  Name="ProjectRef.Config.CollisionRoot"
                  Target="ProjectRefConfigCollisionRoot" />
-  <ProjectRefs>
-    <ProjectRef Path="../CollisionLibA/ProjectRef.Config.CollisionLibA.nginproj" />
-    <ProjectRef Path="../CollisionLibB/ProjectRef.Config.CollisionLibB.nginproj" />
-  </ProjectRefs>
-  <Variants>
-    <Variant Name="Runtime"
-             Profile="ConsoleApp"
+  <References>
+    <Project Path="../CollisionLibA/ProjectRef.Config.CollisionLibA.nginproj" />
+    <Project Path="../CollisionLibB/ProjectRef.Config.CollisionLibB.nginproj" />
+  </References>
+  <Configurations>
+    <Configuration Name="Runtime"
+             BuildConfiguration="Debug"
+             HostProfile="ConsoleApp"
              Platform="linux-x64"
              Environment="Dev"
              WorkingDirectory="." />
-  </Variants>
+  </Configurations>
 </Project>

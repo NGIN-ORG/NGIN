@@ -1,7 +1,6 @@
 #include <NGIN/Core/Core.hpp>
 
 #include <algorithm>
-#include <cstdlib>
 #include <filesystem>
 #include <iostream>
 #include <optional>
@@ -23,7 +22,7 @@ namespace
     using NGIN::Core::StartupReport;
     using NGIN::Core::StartupStage;
 
-    struct VariantExpectations
+    struct ConfigurationExpectations
     {
         std::string              mode {};
         std::string              environment {};
@@ -92,32 +91,6 @@ namespace
         return descriptor;
     }
 
-    [[nodiscard]] auto ResolveVariantOverride(const int argc, char** argv) -> std::optional<std::string>
-    {
-        for (int index = 1; index < argc; ++index)
-        {
-            const std::string_view argument = argv[index] != nullptr ? argv[index] : "";
-            if (argument == "--variant" && (index + 1) < argc && argv[index + 1] != nullptr)
-            {
-                return std::string(argv[index + 1]);
-            }
-
-            constexpr std::string_view prefix = "--variant=";
-            if (argument.rfind(prefix, 0) == 0)
-            {
-                return std::string(argument.substr(prefix.size()));
-            }
-        }
-
-        if (const char* environmentValue = std::getenv("APP_SHOWCASE_VARIANT");
-            environmentValue != nullptr && *environmentValue != '\0')
-        {
-            return std::string(environmentValue);
-        }
-
-        return std::nullopt;
-    }
-
     [[nodiscard]] auto HasEntry(const std::vector<std::string>& values, const std::string_view target) -> bool
     {
         return std::find(values.begin(), values.end(), target) != values.end();
@@ -145,11 +118,11 @@ namespace
         return value.ValueUnsafe().has_value();
     }
 
-    [[nodiscard]] auto GetExpectations(const std::string_view variant) -> std::optional<VariantExpectations>
+    [[nodiscard]] auto GetExpectations(const std::string_view configuration) -> std::optional<ConfigurationExpectations>
     {
-        if (variant == "Runtime")
+        if (configuration == "Runtime")
         {
-            return VariantExpectations {
+            return ConfigurationExpectations {
                 .mode = "runtime",
                 .environment = "Dev",
                 .profile = HostProfile::ConsoleApp,
@@ -167,9 +140,9 @@ namespace
             };
         }
 
-        if (variant == "Runtime.DevTools")
+        if (configuration == "Runtime.DevTools")
         {
-            return VariantExpectations {
+            return ConfigurationExpectations {
                 .mode = "runtime-devtools",
                 .environment = "Dev",
                 .profile = HostProfile::ConsoleApp,
@@ -187,9 +160,9 @@ namespace
             };
         }
 
-        if (variant == "Runtime.Diagnostics")
+        if (configuration == "Runtime.Diagnostics")
         {
-            return VariantExpectations {
+            return ConfigurationExpectations {
                 .mode = "runtime-diagnostics",
                 .environment = "Diagnostics",
                 .profile = HostProfile::ConsoleApp,
@@ -207,9 +180,9 @@ namespace
             };
         }
 
-        if (variant == "Runtime.Reflection")
+        if (configuration == "Runtime.Reflection")
         {
-            return VariantExpectations {
+            return ConfigurationExpectations {
                 .mode = "runtime-reflection",
                 .environment = "Research",
                 .profile = HostProfile::ConsoleApp,
@@ -227,9 +200,9 @@ namespace
             };
         }
 
-        if (variant == "Service")
+        if (configuration == "Service")
         {
-            return VariantExpectations {
+            return ConfigurationExpectations {
                 .mode = "service",
                 .environment = "Staging",
                 .profile = HostProfile::Service,
@@ -252,7 +225,7 @@ namespace
 
     auto ValidateConfiguration(
         NGIN::Core::IConfigStore& config,
-        const VariantExpectations& expectations) -> bool
+        const ConfigurationExpectations& expectations) -> bool
     {
         const auto appName = ReadConfigValue(config, "App.Name");
         const auto appMode = ReadConfigValue(config, "App.Mode");
@@ -264,12 +237,12 @@ namespace
         }
         if (!appMode || *appMode != expectations.mode)
         {
-            std::cerr << "App.Mode did not match the selected variant\n";
+            std::cerr << "App.Mode did not match the selected configuration\n";
             return false;
         }
         if (!appEnvironment || *appEnvironment != expectations.environment)
         {
-            std::cerr << "App.Environment did not match the selected variant\n";
+            std::cerr << "App.Environment did not match the selected configuration\n";
             return false;
         }
 
@@ -278,7 +251,7 @@ namespace
 
     auto ValidateStartupReport(
         const StartupReport& report,
-        const VariantExpectations& expectations) -> bool
+        const ConfigurationExpectations& expectations) -> bool
     {
         for (const auto& packageName : expectations.expectedPackages)
         {
@@ -294,7 +267,7 @@ namespace
 
     auto ValidateServices(
         NGIN::Core::IServiceRegistry& services,
-        const VariantExpectations& expectations) -> bool
+        const ConfigurationExpectations& expectations) -> bool
     {
         for (const auto& serviceName : expectations.expectedServices)
         {
@@ -323,7 +296,7 @@ namespace
             }
             if (present.ValueUnsafe())
             {
-                std::cerr << "service '" << serviceName << "' should not be active for the selected variant\n";
+                std::cerr << "service '" << serviceName << "' should not be active for the selected configuration\n";
                 return false;
             }
         }
@@ -332,7 +305,7 @@ namespace
     }
 
     void PrintSummary(
-        const std::string& variantName,
+        const std::string& configurationName,
         const StartupReport& report,
         NGIN::Core::IConfigStore& config)
     {
@@ -340,7 +313,7 @@ namespace
         const auto environment = ReadConfigValue(config, "App.Environment").value_or("<missing>");
         const auto features = ReadConfigValue(config, "App.Features").value_or("<missing>");
 
-        std::cout << "App.Showcase variant: " << variantName << "\n";
+        std::cout << "App.Showcase configuration: " << configurationName << "\n";
         std::cout << "  mode: " << mode << "\n";
         std::cout << "  environment: " << environment << "\n";
         std::cout << "  features: " << features << "\n";
@@ -376,15 +349,9 @@ int main(int argc, char** argv)
 
     const auto exampleRoot = std::filesystem::path(APP_SHOWCASE_EXAMPLE_ROOT);
     const auto projectPath = (exampleRoot / "App.Showcase.nginproj").lexically_normal();
-    const auto selectedVariant = ResolveVariantOverride(argc, argv);
-
     auto builder = CreateApplicationBuilder(argc, argv);
     builder->UseProjectFile(projectPath.string());
     builder->SetApplicationName("App.Showcase");
-    if (selectedVariant.has_value())
-    {
-        builder->SetDefaultVariant(*selectedVariant);
-    }
 
     builder->Services()
         .AddDefaults()
@@ -466,17 +433,17 @@ int main(int argc, char** argv)
         return 2;
     }
 
-    const auto variantName = host->GetVariantName();
-    const auto expectations = GetExpectations(variantName);
+    const auto configurationName = host->GetConfigurationName();
+    const auto expectations = GetExpectations(configurationName);
     if (!expectations.has_value())
     {
-        std::cerr << "No expectations defined for variant '" << variantName << "'\n";
+        std::cerr << "No expectations defined for configuration '" << configurationName << "'\n";
         return 3;
     }
 
     if (host->GetProfile() != expectations->profile)
     {
-        std::cerr << "Host profile did not match the selected variant\n";
+        std::cerr << "Host profile did not match the selected configuration\n";
         return 4;
     }
 
@@ -510,7 +477,7 @@ int main(int argc, char** argv)
         return 9;
     }
 
-    PrintSummary(variantName, report, *config);
+    PrintSummary(configurationName, report, *config);
 
     host->RequestStop("example complete");
 

@@ -1,17 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="1"
+<Project SchemaVersion="2"
          Name="NGIN.Samples.ApplicationModel"
          Type="Application"
-         DefaultVariant="Sandbox.Game">
+         DefaultConfiguration="Sandbox.Game">
   <SourceRoots>
     <SourceRoot Path="src" />
   </SourceRoots>
-  <PrimaryOutput Kind="Executable"
+  <Output Kind="Executable"
                  Name="Sandbox.Game"
                  Target="Sandbox.Game" />
-  <PackageRefs>
-    <PackageRef Name="NGIN.ECS" VersionRange=">=0.1.0 &lt;1.0.0" />
-  </PackageRefs>
+  <References>
+    <Package Name="NGIN.ECS" Version=">=0.1.0 &lt;1.0.0" />
+  </References>
   <Runtime>
     <Modules>
       <Module Name="App.SandboxGame"
@@ -25,9 +25,10 @@
       <ModuleRef Name="App.SandboxGame" />
     </EnableModules>
   </Runtime>
-  <Variants>
-    <Variant Name="Tools.Cli"
-             Profile="ConsoleApp"
+  <Configurations>
+    <Configuration Name="Tools.Cli"
+             BuildConfiguration="Debug"
+             HostProfile="ConsoleApp"
              Platform="linux-x64"
              Environment="Dev"
              WorkingDirectory=".">
@@ -37,17 +38,18 @@
       <EnableModules>
         <ModuleRef Name="Core.Hosting" />
       </EnableModules>
-    </Variant>
-    <Variant Name="Tools.Diagnostics"
-             Profile="TestHost"
+    </Configuration>
+    <Configuration Name="Tools.Diagnostics"
+             BuildConfiguration="Debug"
+             HostProfile="TestHost"
              Platform="linux-x64"
              Environment="Dev"
              WorkingDirectory="."
              EnableReflection="true">
-      <PackageRefs>
-        <PackageRef Name="NGIN.Reflection" VersionRange=">=0.1.0 &lt;1.0.0" />
-        <PackageRef Name="NGIN.Diagnostics" VersionRange=">=0.1.0 &lt;1.0.0" />
-      </PackageRefs>
+      <References>
+        <Package Name="NGIN.Reflection" Version=">=0.1.0 &lt;1.0.0" />
+        <Package Name="NGIN.Diagnostics" Version=">=0.1.0 &lt;1.0.0" />
+      </References>
       <ConfigSources>
         <Config Source="config/tooling.xml" />
       </ConfigSources>
@@ -55,9 +57,10 @@
         <ModuleRef Name="Core.Hosting" />
         <ModuleRef Name="Domain.ECS" />
       </EnableModules>
-    </Variant>
-    <Variant Name="Sandbox.Game"
-             Profile="Game"
+    </Configuration>
+    <Configuration Name="Sandbox.Game"
+             BuildConfiguration="Debug"
+             HostProfile="Game"
              Platform="linux-x64"
              Environment="Dev"
              WorkingDirectory=".">
@@ -69,6 +72,6 @@
         <ModuleRef Name="Core.Hosting" />
         <ModuleRef Name="Domain.ECS" />
       </EnableModules>
-    </Variant>
-  </Variants>
+    </Configuration>
+  </Configurations>
 </Project>

@@ -1,10 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Workspace SchemaVersion="1" Name="NGIN.Workspace" PlatformVersion="0.1.0">
+<Workspace SchemaVersion="2" Name="NGIN.Workspace" PlatformVersion="0.1.0">
   <PackageSources>
     <PackageSource Path="../../Packages" />
   </PackageSources>
+  <PackageProviders>
+    <PackageProvider Name="NGIN.Base" Root="../../Dependencies/NGIN/NGIN.Base" />
+    <PackageProvider Name="NGIN.ECS" Root="../../Dependencies/NGIN/NGIN.ECS" />
+  </PackageProviders>
   <Projects>
     <Project Path="../App.Basic/App.Basic.nginproj" />
+    <Project Path="../ProjectRef.Config/Root/ProjectRef.Config.Root.nginproj" />
+    <Project Path="../Game.Engine/Game.Engine.nginproj" />
+    <Project Path="../Game.Client/Game.Client.nginproj" />
+    <Project Path="../Game.Server/Game.Server.nginproj" />
     <Project Path="../App.Showcase/App.Showcase.nginproj" />
   </Projects>
 </Workspace>

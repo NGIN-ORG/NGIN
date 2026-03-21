@@ -1,17 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="1"
+<Project SchemaVersion="2"
          Name="NGIN.Core.BasicHost"
          Type="Application"
-         DefaultVariant="Samples.BasicHost">
+         DefaultConfiguration="Samples.BasicHost">
   <SourceRoots>
     <SourceRoot Path="." />
   </SourceRoots>
-  <PrimaryOutput Kind="Executable"
+  <Output Kind="Executable"
                  Name="NGIN.Core.BasicHost"
                  Target="NGINCoreBasicHost" />
-  <PackageRefs>
-    <PackageRef Name="Samples.DemoPackage" VersionRange=">=0.1.0 &lt;1.0.0" Optional="false" />
-  </PackageRefs>
+  <References>
+    <Package Name="Samples.DemoPackage" Version=">=0.1.0 &lt;1.0.0" Optional="false" />
+  </References>
   <ConfigSources>
     <Config Source="app.cfg" />
   </ConfigSources>
@@ -20,11 +20,12 @@
       <ModuleRef Name="App.BasicHost" />
     </EnableModules>
   </Runtime>
-  <Variants>
-    <Variant Name="Samples.BasicHost"
-             Profile="ConsoleApp"
+  <Configurations>
+    <Configuration Name="Samples.BasicHost"
+             BuildConfiguration="Debug"
+             HostProfile="ConsoleApp"
              Platform="linux-x64"
              Environment="Dev"
              WorkingDirectory="." />
-  </Variants>
+  </Configurations>
 </Project>

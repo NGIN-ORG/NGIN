@@ -1,72 +1,19 @@
 # NGIN Architecture
 
-Status: Active platform architecture  
-Owner: NGIN umbrella workspace (`NGIN`)  
-Last updated: 2026-03-07
+NGIN V2 has four authored concepts and one generated handoff:
 
-## Purpose
+- workspace: optional repo-level container
+- project: buildable app, tool, or library
+- configuration: named setup of one project
+- package: reusable dependency unit
+- launch manifest: generated `.nginlaunch`
 
-NGIN is a C++ application platform built around a common host model.
+The intended flow is:
 
-The platform is not defined by a game engine, editor, or plugin ABI in isolation. It is defined by one composition flow:
-
-1. load a project
-2. select a target
-3. resolve packages
-4. derive modules and plugins from those packages
-5. build a host
-6. stage or run the result
-
-## Main Principles
-
-- packages are the main authored composition unit
-- modules and plugins are provided by packages
-- targets are small explicit app variants
-- authored manifests are XML, not JSON
-- active tooling is native C++, not Python
-- lockfiles are not part of the public platform model at this stage
-- staged targets are the bridge between tooling and runtime
-
-## Repository Role
-
-This repo owns:
-
-- active specs and architecture
-- workspace release metadata, local package catalogs, and package wrappers
-- the native `ngin` CLI
-- cross-repo validation and staging
-
-The current host implementation lives in `NGIN.Core`.
-
-The repo is structured intentionally:
-
-- `Packages/` exposes the NGIN-facing package contract
-- `Dependencies/` holds source trees that are integrated here but not owned here
-- `Packages/NGIN.Core/` is the current locally owned host/runtime package source
-- `Tools/NGIN.CLI/` owns the public CLI implementation
-- `Workspace/` holds umbrella-workspace release metadata and local package lookup catalogs
-- `Examples/` holds canonical sample projects used by docs and smoke tests
-
-## Public File Types
-
-- authored project: `.nginproj`
-- authored package: `.nginpkg`
-- planned distributable package: `.nginpack`
-- generated staged target: `.ngintarget`
-
-Lower-level runtime descriptor files are implementation details, not the intended primary authoring surface.
-
-## Current Workflow
-
-1. author project and package manifests
-2. validate target composition
-3. inspect the resolved graph
-4. build a staged target layout through the package wrappers and CMake backend
-
-## Near-Term Direction
-
-1. keep the authored model centered on project, target, package, module, plugin, and host
-2. keep packages as the main reusable unit
-3. move runtime module and plugin declaration fully into packages
-4. make staged output the bridge to future run/build integration
-5. build proof products on top of the same host model
+1. load workspace if present
+2. load project
+3. select configuration
+4. resolve project and package references
+5. build and stage output
+6. emit `.nginlaunch`
+7. run or debug from the generated launch manifest

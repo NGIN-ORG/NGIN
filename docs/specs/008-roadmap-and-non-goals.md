@@ -1,42 +1,27 @@
 # Spec 008: Roadmap and Non-Goals
 
 Status: Active
-Last updated: 2026-03-08
+Last updated: 2026-03-21
 
 ## Direction
 
-NGIN is moving toward a simpler, package-first platform:
+NGIN V2 is now:
 
-- XML manifests
-- native C++ CLI
-- project and target driven composition
-- packages as the primary reusable unit
-- staged targets as the handoff between tooling and runtime
+- project-first
+- configuration-first
+- workspace-optional
+- package-reusable
+- launch-manifest based
 
-## Near-Term Steps
+## Near-Term Follow-Up
 
-1. Move runtime module and plugin declaration fully into `.nginpkg`.
-2. Make `Packages/` the authoritative umbrella integration layer over `Dependencies/` and locally owned package source trees such as `Packages/NGIN.Core/`.
-3. Introduce shared C++ manifest and composition libraries used by both the CLI and `NGIN.Core`.
-4. Tighten collision and completeness validation around modules, plugins, config, and staged content.
-5. Complete the `.ngintarget` contract so future `ngin run` support has a stable input.
-6. Define `.nginpack`, installed package stores, and the initial package install/inspect flow.
-7. Connect staged output more directly to `NGIN.Core` startup.
+1. Extract shared project/package/workspace parsing into common libraries.
+2. Expand workspace-optional flows in editor tooling.
+3. Improve package installation and distribution around the V2 package contract.
+4. Keep docs and examples aligned with the project-first model.
 
-## Non-Goals Right Now
+## Non-Goals
 
-- remote registry protocol
-- package publishing workflow or remote feed UX
-- asset pipeline productization
-- final editor framework architecture
-- final published plugin ABI and distribution model
-- reintroducing a lockfile-centric public workflow
-
-## Quality Bar
-
-The platform should stay:
-
-- small in vocabulary
-- explicit in composition rules
-- deterministic in staging
-- easy to understand and modify
+- reintroducing `variant` as an active authoring concept
+- bringing back package `SourceBinding`
+- reviving `workspace sync`

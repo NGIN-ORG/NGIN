@@ -1,90 +1,39 @@
-# Spec 004: Composition and Validation Rules
+# Spec 004: Composition and Validation
 
 Status: Active
-Last updated: 2026-03-15
+Last updated: 2026-03-21
 
 ## Purpose
 
-This spec defines how a project target becomes a resolved application model.
+This spec defines resolution and validation for a selected project configuration.
 
-## Resolution Pipeline
+## Resolution Inputs
 
-The active pipeline is:
+Composition starts from:
 
-1. load a project manifest
-2. select a target
-3. resolve the package dependency graph
-4. collect modules, plugins, bootstrap metadata, and content from resolved packages
-5. apply target-level module and plugin overrides
-6. validate the resulting graph
-7. produce a resolved target model for graphing, staging, and host startup
+- one project
+- one selected configuration
+- optional workspace context
 
-## Resolution Rules
+## Resolution Steps
 
-### Package Resolution
+1. load the selected project
+2. resolve the selected configuration
+3. merge root and configuration-level references
+4. resolve project references recursively
+5. resolve package references
+6. apply config source, module, and plugin overlays
+7. determine output and launch selection
 
-- all required package references must resolve
-- optional package references may be skipped with a warning
-- dependency cycles are invalid
-- package version constraints must be satisfied
-- package platform compatibility must be satisfied
+## Validation Rules
 
-### Module Resolution
+Validation must reject:
 
-- modules are collected from resolved packages
-- module names must be unique in the resolved target
-- target-level module overrides may enable or disable modules after package collection
-- module dependency closure must be complete after overrides are applied
+- unknown selected configuration
+- duplicate configuration names in one project
+- invalid host profile values
+- unresolved required project references
+- unresolved required package references
+- duplicate selected executable names that cannot be disambiguated
 
-### Plugin Resolution
-
-- plugins are collected from resolved packages
-- non-optional package plugins are enabled by default after package collection
-- optional package plugins are disabled by default after package collection
-- target-level plugin overrides may enable or disable plugins after package collection
-- plugin activation must not violate package or module constraints
-
-### Content Resolution
-
-- staged content files are collected from resolved packages
-- project config sources are collected from the selected target
-- relative project config sources are resolved from the declaring project file location across the full `ProjectRef` closure
-- staged output destination paths must be unique unless an explicit override rule is defined later
-
-## Validation Failures
-
-Validation must fail on:
-
-- missing required package
-- package dependency cycle
-- package version mismatch
-- package platform mismatch
-- duplicate provided module name
-- unresolved module dependency
-- invalid module family or startup-stage ordering
-- duplicate staged output path
-- invalid bootstrap metadata
-- invalid config source or content declaration
-
-Validation may warn on:
-
-- missing optional package
-- disabled optional plugin
-- package content not used by the selected target profile
-
-## Outputs
-
-Successful composition produces:
-
-- resolved package set
-- resolved module set
-- resolved plugin set
-- staged content map
-- target-level host metadata
-
-That resolved model is the input to:
-
-- `ngin graph`
-- `ngin build`
-- future `ngin run`
-- host integration
+Validation may succeed without a runnable executable when the project is valid but does not resolve to a launchable output.

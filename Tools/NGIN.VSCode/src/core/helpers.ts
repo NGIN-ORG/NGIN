@@ -1,6 +1,5 @@
 import * as path from 'node:path';
-import { normalizeBuildConfiguration } from './buildConfiguration';
-import { ParsedCliDiagnostic, TargetManifest } from './types';
+import { LaunchManifest, ParsedCliDiagnostic } from './types';
 
 export function basenameWithoutExtension(filePath: string): string {
   const extension = path.extname(filePath);
@@ -10,24 +9,22 @@ export function basenameWithoutExtension(filePath: string): string {
 export function computeOutputDir(
   workspaceRoot: string,
   projectName: string,
-  variantName: string,
-  configuredOutputRoot?: string,
-  configurationName?: string
+  configurationName: string,
+  configuredOutputRoot?: string
 ): string {
-  const buildConfiguration = normalizeBuildConfiguration(configurationName);
   if (!configuredOutputRoot) {
-    return path.join(workspaceRoot, '.ngin', 'build', projectName, variantName, buildConfiguration);
+    return path.join(workspaceRoot, '.ngin', 'build', projectName, configurationName);
   }
 
   const outputRoot = path.isAbsolute(configuredOutputRoot)
     ? configuredOutputRoot
     : path.resolve(workspaceRoot, configuredOutputRoot);
 
-  return path.join(outputRoot, projectName, variantName, buildConfiguration);
+  return path.join(outputRoot, projectName, configurationName);
 }
 
-export function computeTargetManifestPath(outputDir: string, projectName: string, variantName: string): string {
-  return path.join(outputDir, `${projectName}.${variantName}.ngintarget`);
+export function computeLaunchManifestPath(outputDir: string, projectName: string, configurationName: string): string {
+  return path.join(outputDir, `${projectName}.${configurationName}.nginlaunch`);
 }
 
 export function looksLikePath(value: string): boolean {
@@ -95,7 +92,7 @@ export function parseCliDiagnostics(output: string): ParsedCliDiagnostic[] {
 }
 
 export function getExecutableCandidatePaths(
-  manifest: TargetManifest,
+  manifest: LaunchManifest,
   outputDir: string,
   platform: NodeJS.Platform
 ): string[] {
@@ -140,7 +137,7 @@ export function getExecutableCandidatePaths(
 }
 
 export function getWorkingDirectoryCandidates(
-  manifest: TargetManifest,
+  manifest: LaunchManifest,
   outputDir: string,
   projectDir: string
 ): string[] {
