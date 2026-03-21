@@ -71,20 +71,63 @@ function createTarget(snapshot: NginWorkspaceSnapshot): NginCommandTarget | unde
   };
 }
 
+function relativeLabel(rootPath: string, targetPath?: string): string | undefined {
+  if (!targetPath) {
+    return undefined;
+  }
+
+  const relativePath = path.relative(rootPath, targetPath);
+  return relativePath.length > 0 ? relativePath : '.';
+}
+
+function variantDescription(snapshot: NginWorkspaceSnapshot): string | undefined {
+  const profile = snapshot.context?.variant.profile;
+  const environment = snapshot.context?.variant.environment;
+
+  if (profile && environment) {
+    return `${profile} • ${environment}`;
+  }
+
+  return profile ?? environment ?? undefined;
+}
+
+function artifactStatusIcon(status: 'ready' | 'fallback' | 'missing'): string {
+  if (status === 'ready') {
+    return 'pass-filled';
+  }
+
+  if (status === 'fallback') {
+    return 'warning';
+  }
+
+  return 'circle-slash';
+}
+
 export function buildOverviewSections(snapshot: NginWorkspaceSnapshot): OverviewSectionModel[] {
   if (!snapshot.workspace || !snapshot.context) {
     return [];
   }
 
   const target = createTarget(snapshot);
-  const compileDescription = snapshot.activeCompileCommandsSource === 'fallback'
-    ? 'Fallback'
+  const compileStatus = snapshot.activeCompileCommandsSource === 'fallback'
+    ? 'Workspace fallback'
     : snapshot.stagedCompileCommandsAvailable
       ? 'Staged'
-      : 'Missing';
+      : 'Not generated';
+  const compileStatusIcon = snapshot.activeCompileCommandsSource === 'fallback'
+    ? artifactStatusIcon('fallback')
+    : snapshot.stagedCompileCommandsAvailable
+      ? artifactStatusIcon('ready')
+      : artifactStatusIcon('missing');
   const compileTooltip = snapshot.activeCompileCommandsPath
-    ? `${compileDescription} compile database\n${snapshot.activeCompileCommandsPath}`
-    : 'Compile database unavailable';
+    ? `${compileStatus} compile commands\n${snapshot.activeCompileCommandsPath}`
+    : 'Compile commands are not available yet. Run Build to generate them.';
+  const targetManifestStatus = snapshot.targetManifestExists ? 'Ready' : 'Not generated';
+  const targetManifestTooltip = snapshot.targetManifestExists && snapshot.targetManifestPath
+    ? `Staged target manifest\n${snapshot.targetManifestPath}`
+    : 'Target manifest is not available yet. Run Build to generate it.';
+  const outputTooltip = snapshot.outputDir ?? 'Output folder has not been resolved yet.';
+  const contextDescription = variantDescription(snapshot);
 
   return [
     {
@@ -108,12 +151,12 @@ export function buildOverviewSections(snapshot: NginWorkspaceSnapshot): Overview
       ]
     },
     {
-      id: 'selection',
-      label: 'Selection',
+      id: 'context',
+      label: 'Current Context',
       children: [
         {
-          id: 'selection-project',
-          label: snapshot.context.project.name,
+          id: 'context-project',
+          label: `Project: ${snapshot.context.project.name}`,
           description: path.relative(snapshot.workspace.root, snapshot.context.project.path),
           tooltip: snapshot.context.project.path,
           command: 'ngin.selectProject',
@@ -121,17 +164,16 @@ export function buildOverviewSections(snapshot: NginWorkspaceSnapshot): Overview
           arguments: []
         },
         {
-          id: 'selection-variant',
-          label: snapshot.context.variant.name,
-          description: snapshot.context.variant.profile ?? snapshot.context.variant.environment ?? '',
+          id: 'context-variant',
+          label: `Variant: ${snapshot.context.variant.name}`,
+          description: contextDescription,
           tooltip: `${snapshot.context.project.name} [${snapshot.context.variant.name}]`,
           command: 'ngin.selectVariant',
           icon: 'symbol-enum'
         },
         {
-          id: 'selection-configuration',
-          label: snapshot.buildConfiguration,
-          description: 'Build configuration',
+          id: 'context-configuration',
+          label: `Configuration: ${snapshot.buildConfiguration}`,
           tooltip: `Active NGIN build configuration: ${snapshot.buildConfiguration}\n${snapshot.outputDir ?? 'No staged output directory resolved yet.'}`,
           command: 'ngin.selectConfiguration',
           icon: 'settings-gear'
@@ -139,33 +181,35 @@ export function buildOverviewSections(snapshot: NginWorkspaceSnapshot): Overview
       ]
     },
     {
-      id: 'stage',
-      label: 'Stage',
+      id: 'artifacts',
+      label: 'Build Artifacts',
       children: [
         {
-          id: 'stage-output',
-          label: 'Output',
-          description: snapshot.outputDir,
-          tooltip: snapshot.outputDir,
-          icon: 'output'
+          id: 'artifacts-output',
+          label: 'Output Folder',
+          description: relativeLabel(snapshot.workspace.root, snapshot.outputDir),
+          tooltip: outputTooltip,
+          icon: 'folder-opened',
+          command: snapshot.outputDir ? 'ngin.internal.revealPath' : undefined,
+          arguments: snapshot.outputDir ? [snapshot.outputDir] : undefined
         },
         {
-          id: 'stage-target',
+          id: 'artifacts-target',
           label: 'Target Manifest',
-          description: snapshot.targetManifestExists ? 'Available' : 'Missing',
-          tooltip: snapshot.targetManifestPath,
-          icon: 'file-code',
-          command: snapshot.targetManifestPath ? 'ngin.internal.openPath' : undefined,
-          arguments: snapshot.targetManifestPath ? [snapshot.targetManifestPath] : undefined
+          description: targetManifestStatus,
+          tooltip: targetManifestTooltip,
+          icon: snapshot.targetManifestExists ? artifactStatusIcon('ready') : artifactStatusIcon('missing'),
+          command: snapshot.targetManifestExists && snapshot.targetManifestPath ? 'ngin.internal.openPath' : undefined,
+          arguments: snapshot.targetManifestExists && snapshot.targetManifestPath ? [snapshot.targetManifestPath] : undefined
         },
         {
-          id: 'stage-compile',
+          id: 'artifacts-compile',
           label: 'Compile Commands',
-          description: compileDescription,
+          description: compileStatus,
           tooltip: compileTooltip,
-          icon: 'symbol-file',
-          command: snapshot.activeCompileCommandsPath ? 'ngin.internal.openPath' : undefined,
-          arguments: snapshot.activeCompileCommandsPath ? [snapshot.activeCompileCommandsPath] : undefined
+          icon: compileStatusIcon,
+          command: snapshot.activeCompileCommandsSource && snapshot.activeCompileCommandsPath ? 'ngin.internal.openPath' : undefined,
+          arguments: snapshot.activeCompileCommandsSource && snapshot.activeCompileCommandsPath ? [snapshot.activeCompileCommandsPath] : undefined
         }
       ]
     },
@@ -174,11 +218,17 @@ export function buildOverviewSections(snapshot: NginWorkspaceSnapshot): Overview
       label: 'Actions',
       children: [
         { id: 'action-build', label: 'Build', tooltip: 'Build the selected project and variant.', command: 'ngin.build', arguments: target ? [target] : undefined, icon: 'gear' },
-        { id: 'action-validate', label: 'Validate', tooltip: 'Validate the selected project and variant.', command: 'ngin.validate', arguments: target ? [target] : undefined, icon: 'check' },
         { id: 'action-run', label: 'Run', tooltip: 'Run the selected project and variant.', command: 'ngin.run', arguments: target ? [target] : undefined, icon: 'play' },
         { id: 'action-debug', label: 'Debug', tooltip: 'Debug the selected project and variant.', command: 'ngin.debug', arguments: target ? [target] : undefined, icon: 'bug' },
+        { id: 'action-validate', label: 'Validate', tooltip: 'Validate the selected project and variant.', command: 'ngin.validate', arguments: target ? [target] : undefined, icon: 'check' }
+      ]
+    },
+    {
+      id: 'more',
+      label: 'More',
+      children: [
         { id: 'action-graph', label: 'Graph', tooltip: 'Show the resolved dependency graph.', command: 'ngin.graph', arguments: target ? [target] : undefined, icon: 'graph-line' },
-        { id: 'action-last-target', label: 'Open Last Target Manifest', tooltip: 'Open the most recently built target manifest.', command: 'ngin.openLastTargetManifest', icon: 'go-to-file' }
+        { id: 'action-last-target', label: 'Open Last Build Manifest', tooltip: 'Open the most recently built target manifest.', command: 'ngin.openLastTargetManifest', icon: 'go-to-file' }
       ]
     }
   ];
