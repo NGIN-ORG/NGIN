@@ -204,6 +204,40 @@ export class WorkspaceStateService implements vscode.Disposable {
     return this.resolveVariant(project, undefined, true);
   }
 
+  async resolveStoredVariant(project: ProjectManifest): Promise<ProjectVariant | undefined> {
+    return this.resolveVariant(project, undefined, false);
+  }
+
+  async promptForProject(workspaceInfo: ResolvedWorkspaceInfo): Promise<ProjectManifest | undefined> {
+    const picked = await vscode.window.showQuickPick(
+      workspaceInfo.projects.map((project) => ({
+        label: project.name,
+        description: path.relative(workspaceInfo.root, project.path),
+        project
+      })),
+      {
+        title: 'Select NGIN project'
+      }
+    );
+
+    return picked?.project;
+  }
+
+  async promptForVariant(project: ProjectManifest): Promise<ProjectVariant | undefined> {
+    const picked = await vscode.window.showQuickPick(
+      project.variants.map((variant) => ({
+        label: variant.name,
+        description: variant.profile ?? '',
+        variant
+      })),
+      {
+        title: `Select variant for ${project.name}`
+      }
+    );
+
+    return picked?.variant;
+  }
+
   async getSnapshot(preferredUri?: vscode.Uri): Promise<NginWorkspaceSnapshot> {
     const workspace = await this.getWorkspaceInfo(preferredUri);
     const snapshot: NginWorkspaceSnapshot = {
@@ -333,18 +367,7 @@ export class WorkspaceStateService implements vscode.Disposable {
       return undefined;
     }
 
-    const picked = await vscode.window.showQuickPick(
-      workspaceInfo.projects.map((project) => ({
-        label: project.name,
-        description: path.relative(workspaceInfo.root, project.path),
-        project
-      })),
-      {
-        title: 'Select NGIN project'
-      }
-    );
-
-    return picked?.project;
+    return this.promptForProject(workspaceInfo);
   }
 
   private async resolveVariant(project: ProjectManifest, explicitVariant?: string, promptIfNeeded = true): Promise<ProjectVariant | undefined> {
@@ -375,17 +398,6 @@ export class WorkspaceStateService implements vscode.Disposable {
       return undefined;
     }
 
-    const picked = await vscode.window.showQuickPick(
-      project.variants.map((variant) => ({
-        label: variant.name,
-        description: variant.profile ?? '',
-        variant
-      })),
-      {
-        title: `Select variant for ${project.name}`
-      }
-    );
-
-    return picked?.variant;
+    return this.promptForVariant(project);
   }
 }

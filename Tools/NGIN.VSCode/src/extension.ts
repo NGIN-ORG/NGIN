@@ -115,6 +115,8 @@ class NginController implements vscode.Disposable {
       vscode.commands.registerCommand('ngin.workspaceDoctor', () => this.runHandled(() => this.workspaceCommand('doctor'))),
       vscode.commands.registerCommand('ngin.openLastTargetManifest', () => this.runHandled(() => this.openLastTargetManifest())),
       vscode.commands.registerCommand('ngin.refresh', () => this.runHandled(() => this.refreshUi())),
+      vscode.commands.registerCommand('ngin.internal.pickProject', (arg) => this.runHandled(() => this.pickProjectFromStatusBar(this.asCommandTarget(arg)))),
+      vscode.commands.registerCommand('ngin.internal.pickVariant', (arg) => this.runHandled(() => this.pickVariantFromStatusBar(this.asCommandTarget(arg)))),
       vscode.commands.registerCommand('ngin.internal.openPath', (filePath) => this.runHandled(() => this.openPathCommand(filePath))),
       vscode.commands.registerCommand('ngin.internal.revealPath', (filePath) => this.runHandled(() => this.revealPathCommand(filePath))),
       vscode.workspace.onDidSaveTextDocument((document) => this.handleDocumentSaved(document)),
@@ -407,6 +409,55 @@ class NginController implements vscode.Disposable {
     await this.workspaceState.setSelectedBuildConfiguration(picked.label);
     await this.refreshUi(workspaceInfo.folder?.uri);
     void vscode.window.showInformationMessage(`Selected NGIN build configuration: ${picked.label}`);
+  }
+
+  private async pickProjectFromStatusBar(target?: NginCommandTarget): Promise<void> {
+    const workspaceInfo = await this.workspaceState.getWorkspaceInfo(target?.preferredUri);
+    if (!workspaceInfo) {
+      void vscode.window.showErrorMessage('NGIN workspace not found.');
+      return;
+    }
+
+    const project = await this.workspaceState.promptForProject(workspaceInfo);
+    if (!project) {
+      return;
+    }
+
+    const variant = await this.workspaceState.resolveStoredVariant(project)
+      ?? await this.workspaceState.promptForVariant(project);
+    if (!variant) {
+      return;
+    }
+
+    const context = {
+      workspace: workspaceInfo,
+      project,
+      variant
+    };
+    await this.workspaceState.rememberSelection(context);
+    await this.refreshUi(target?.preferredUri);
+    void vscode.window.showInformationMessage(`Selected NGIN project: ${context.project.name}`);
+  }
+
+  private async pickVariantFromStatusBar(target?: NginCommandTarget): Promise<void> {
+    const snapshot = await this.workspaceState.getSnapshot(target?.preferredUri);
+    if (!snapshot.workspace || !snapshot.context) {
+      void vscode.window.showErrorMessage('NGIN workspace not found.');
+      return;
+    }
+
+    const variant = await this.workspaceState.promptForVariant(snapshot.context.project);
+    if (!variant) {
+      return;
+    }
+
+    await this.workspaceState.rememberSelection({
+      workspace: snapshot.workspace,
+      project: snapshot.context.project,
+      variant
+    });
+    await this.refreshUi(target?.preferredUri);
+    void vscode.window.showInformationMessage(`Selected NGIN variant: ${snapshot.context.project.name} [${variant.name}]`);
   }
 
   private async buildCommand(target?: NginCommandTarget): Promise<void> {

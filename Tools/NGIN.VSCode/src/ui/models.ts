@@ -289,12 +289,12 @@ export function buildStatusBarModel(snapshot: NginWorkspaceSnapshot): StatusBarM
     project: {
       text: `$(project) ${snapshot.context.project.name}`,
       tooltip: snapshot.context.project.path,
-      command: 'ngin.selectProject'
+      command: 'ngin.internal.pickProject'
     },
     variant: {
       text: `$(symbol-enum) ${snapshot.context.variant.name}`,
       tooltip: `${selectionLabel}\nProfile: ${snapshot.context.variant.profile ?? 'n/a'}`,
-      command: 'ngin.selectVariant'
+      command: 'ngin.internal.pickVariant'
     },
     configuration: {
       text: `$(settings-gear) ${snapshot.buildConfiguration}`,

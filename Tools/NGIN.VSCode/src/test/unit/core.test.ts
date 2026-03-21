@@ -314,6 +314,8 @@ test('status bar models expose the compact NGIN bottom-bar actions', () => {
 
   assert.equal(model.visible, true);
   assert.match(model.workspace?.text ?? '', /\$\(folder-library\)/);
+  assert.equal(model.project?.command, 'ngin.internal.pickProject');
+  assert.equal(model.variant?.command, 'ngin.internal.pickVariant');
   assert.match(model.configuration?.text ?? '', /\$\(settings-gear\) Release/);
   assert.equal(model.configuration?.command, 'ngin.selectConfiguration');
   assert.equal(model.build?.command, 'ngin.build');

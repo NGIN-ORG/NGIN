@@ -1,53 +1,141 @@
-## NGIN
+Here’s a **fully rewritten README** that keeps your intent, terminology, and structure—but fixes clarity, flow, and positioning. It leads with value, separates concepts cleanly, and makes the system understandable before introducing files and mechanics.
+
+---
+
+# NGIN
 
 **NGIN — Next Generation Infrastructure for eNGINes**
 
-NGIN is a modular application platform for modern C++. It gives C++ applications a clearer authored shape:
+NGIN is a composition model for modern C++ applications.
 
-- a workspace file to organize projects
-- project files that own source roots and outputs
-- package files for reusable capabilities
-- a host/runtime that composes the resolved application
+It provides a single, explicit way to define:
 
-NGIN is not primarily a package manager, and it is not trying to replace CMake. It is a composition and build model above the native backend layer, with CMake as the active backend.
+* what your application is made of
+* how it is built
+* how it starts and runs
 
-The active authored split is:
+Instead of scattering these concerns across build scripts, runtime code, and implicit initialization, NGIN brings them together into one authored model.
 
-- `.ngin` for workspaces
-- `.nginproj` for projects
-- `.nginpkg` for packages
-- `.ngintarget` for generated staged outputs
-
-Today, the active host implementation is `NGIN.Core`.
+---
 
 ## Why NGIN Exists
 
-In many C++ applications, you may run into patterns like:
+In many C++ applications, common patterns emerge:
 
-- startup code spread across many places
-- static initialization and singletons doing too much work
-- runtime wiring that is difficult to follow
-- unclear service lifetimes
-- build dependencies and runtime composition modeled separately
+* startup logic spread across multiple systems
+* static initialization and singletons doing too much work
+* runtime wiring that is difficult to follow
+* unclear or implicit service lifetimes
+* build configuration and runtime composition modeled separately
 
-NGIN provides one way to structure that more cleanly.
+These issues make applications harder to reason about, extend, and debug.
 
-Applications are composed intentionally through **projects and packages**, with:
+NGIN addresses this by making application structure **explicit and intentional**.
 
-- explicit dependencies
-- predictable startup order
-- clear service lifetimes
-- modular feature composition
+Applications are composed through **projects and packages**, with:
 
-If an application needs a window, logging, input, ECS, reflection, tools, or editor features, those capabilities should be added intentionally instead of appearing through hidden global state or scattered initialization.
+* explicit dependencies
+* predictable startup order
+* clear service lifetimes
+* modular feature composition
+
+If an application needs a window, logging, input, ECS, reflection, tools, or editor features, those capabilities are added deliberately—not introduced through hidden global state or scattered initialization.
+
+---
+
+## What NGIN Is
+
+NGIN sits **above the native build layer** and defines how an application is composed.
+
+* It uses CMake as its current build backend
+* It does not replace compilers or linkers
+* It is not primarily a package manager
+
+Its core responsibility is **application composition**.
+
+NGIN describes:
+
+* the structure of your application
+* the features it includes
+* how those features are connected at runtime
+
+---
+
+## Core Model
+
+An application in NGIN is defined through three main concepts:
+
+### Project
+
+A **project** is the thing you build.
+
+Examples:
+
+* `MyGame`
+* `StudioTools`
+* `TelemetryService`
+
+A project defines one or more **variants**.
+
+---
+
+### Variant
+
+A **variant** is a concrete configuration of a project.
+
+Examples:
+
+* `Game`
+* `Editor`
+* `DedicatedServer`
+* `Tools`
+
+Variants define:
+
+* which packages are included
+* target platform
+* build profile
+* runtime environment
+
+In this model, different runtime modes (like editor vs game) are **variants of the same project**, not separate projects.
+
+---
+
+### Package
+
+A **package** is the primary unit of composition.
+
+Packages represent reusable capabilities:
+
+* platform features (`NGIN.Core`)
+* domain systems (`NGIN.ECS`)
+* product features (`MyEngine.Editor`)
+* external integrations (`SDL2`)
+* application-specific logic (`MyGame.Runtime`)
+
+When defining a project, you compose it by adding packages.
+
+---
+
+## What Packages Provide
+
+Packages can contribute:
+
+* **Libraries** — native code integrated into the build
+* **Modules** — runtime components participating in startup and dependency ordering
+* **Plugins** — optional runtime extensions
+* **Content** — assets, configuration, and staged files
+* **Executables** — tools or applications exposed by the package
+
+---
 
 ## Example
 
 A simple game project might define one application project with a `Game` variant composed from several packages:
 
-- `NGIN.Core` — hosting and runtime foundation
-- `NGIN.ECS` — entity component system
-- `SDL2` — windowing and input integration
+* `NGIN.Core` — hosting and runtime foundation
+* `NGIN.ECS` — entity component system
+* `SDL2` — windowing and input integration
 
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
@@ -82,130 +170,91 @@ A simple game project might define one application project with a `Game` variant
 </Project>
 ```
 
-When this variant is built, NGIN resolves the project and package graph, generates the required CMake backend input for generated-mode projects, and emits a staged `.ngintarget` layout that the host can execute.
+This describes the application as a composition of capabilities.
 
-## Core Concepts
+When built, NGIN:
 
-### Workspace
+* resolves the project and package graph
+* generates the required CMake backend input
+* produces a staged `.ngintarget` layout
+* runs the application through the host
 
-The top-level `.ngin` file that groups projects and package source roots.
+---
 
-### Project
+## Workspace
 
-The overall buildable application, library, or tool you are building.
+A **workspace** groups projects and package source roots.
 
-Examples:
+It is defined by the top-level `.ngin` file and acts as the entry point for the system.
 
-- `MyGame`
-- `StudioTools`
-- `TelemetryService`
+---
 
-A project defines one or more **variants**.
+## Host
 
-### Variant
+The **host** is the runtime container responsible for starting a resolved application.
 
-One concrete variant of a project.
+* It composes modules
+* enforces dependency ordering
+* manages application lifetime
 
-Examples:
+Today, the active host implementation is `NGIN.Core`.
 
-- `Game`
-- `Editor`
-- `DedicatedServer`
-- `Tools`
+---
 
-Variants define which additional **packages** are included and which platform, profile, and environment the variant is built for.
+## Manifest Files
 
-For example:
+NGIN uses XML-based manifests:
 
-- Project: `MyGame`
-- Variants:
-  - `Game`
-  - `Editor`
-  - `DedicatedServer`
+* `.ngin` — workspace definition
+* `.nginproj` — project definition
+* `.nginpkg` — package definition
+* `.ngintarget` — generated staged output
+* `.nginpack` — planned package archive format
 
-In that model, the editor and the shipped runtime are usually different variants of the same project, not separate projects.
+`Workspace`, `Project`, and `Package` are authored inputs.
+`.ngintarget` is produced by the build process.
 
-### Package
-
-The main reusable unit in NGIN.
-
-Packages can represent:
-
-- platform features like `NGIN.Core`
-- domain features like `NGIN.ECS`
-- product features like `MyEngine.Editor`
-- external integrations like `SDL2`
-- your own app package like `MyGame.Runtime`
-
-When defining a project, you primarily add packages and then choose a variant.
-
-### What Packages Can Provide
-
-Packages may contribute:
-
-- **Libraries**: native code exposed to the build backend
-- **Modules**: runtime components participating in host startup and dependency ordering
-- **Plugins**: optional runtime extensions
-- **Content**: assets, configuration, and staged files
-- **Executables**: application or tool binaries exposed by the package
-
-### Host
-
-The host is the runtime container that starts the resolved project variant.
-
-Today, the active host/runtime foundation is `NGIN.Core`.
+---
 
 ## CLI
 
-The `ngin` CLI is the primary interface for working with workspaces, projects, packages, and variants.
+The `ngin` CLI is the primary interface for working with NGIN.
 
-Examples:
-
-Validate a variant:
+### Validate a variant
 
 ```bash
 ngin project validate --project MyGame.nginproj --variant Game
 ```
 
-Inspect the resolved graph:
+### Inspect the resolved graph
 
 ```bash
 ngin project graph --project MyGame.nginproj --variant Game
 ```
 
-Build a staged variant layout:
+### Build a staged variant
 
 ```bash
 ngin project build --project MyGame.nginproj --variant Game
 ```
 
+---
+
 ## What You Can Do Today
 
-At the current stage of the project, NGIN can:
+NGIN currently supports:
 
-- author workspaces in `.ngin`
-- author projects in `.nginproj`
-- author packages in `.nginpkg`
-- resolve project, package, module, and plugin composition
-- validate variants
-- inspect dependency graphs
-- build staged project layouts
-- emit `.ngintarget` outputs
-- run applications through the `NGIN.Core` host
+* authoring workspaces, projects, and packages
+* resolving composition graphs (projects, packages, modules, plugins)
+* validating project variants
+* inspecting dependency graphs
+* generating build backend input (CMake)
+* producing staged application layouts
+* running applications through the `NGIN.Core` host
 
-The build backend is currently CMake. Package distribution and installation workflows are planned separately. Normal application projects do not need a handwritten project `CMakeLists.txt`; `ngin project build` generates that backend layer from `.nginproj` metadata.
+Package distribution and installation workflows are planned separately.
 
-## Manifest Files
-
-The active manifest family is XML:
-
-- workspace: `.ngin`
-- project: `.nginproj`
-- package: `.nginpkg`
-- planned package archive: `.nginpack`
-- staged target output: `.ngintarget`
-
-`Workspace`, `Project`, and `Package` are the authored inputs. `.ngintarget` is generated by the build flow. `.nginpack` is the planned installable package archive format, separate from the authored `.nginpkg` manifest.
+---
 
 ## Quick Start
 
@@ -215,13 +264,13 @@ The active manifest family is XML:
 cmake --preset dev
 ```
 
-2. Build the native CLI:
+1. Build the CLI:
 
 ```bash
 cmake --build build/dev --target ngin_cli
 ```
 
-3. Check workspace health:
+1. Inspect workspace state:
 
 ```bash
 ./build/dev/Tools/NGIN.CLI/ngin workspace doctor
@@ -229,65 +278,79 @@ cmake --build build/dev --target ngin_cli
 ./build/dev/Tools/NGIN.CLI/ngin workspace status
 ```
 
-4. Validate and inspect the canonical example project:
+1. Validate and inspect an example project:
 
 ```bash
 ./build/dev/Tools/NGIN.CLI/ngin project validate --project Examples/App.Basic/App.Basic.nginproj --variant Runtime
 ./build/dev/Tools/NGIN.CLI/ngin project graph --project Examples/App.Basic/App.Basic.nginproj --variant Runtime
 ```
 
-5. Build a staged project variant:
+1. Build a staged variant:
 
 ```bash
 ./build/dev/Tools/NGIN.CLI/ngin project build --project Examples/App.Basic/App.Basic.nginproj --variant Runtime --output build/manual/App.Basic
 ```
 
-6. Run the full workspace workflow:
+1. Run the full workflow:
 
 ```bash
 cmake --build build/dev --target ngin.workflow
 ```
 
+---
+
 ## Repository Layout
 
-- **Packages/**  
-  NGIN package wrappers used by the workspace.
+* **Packages/**
+  NGIN package wrappers used by the workspace
 
-- **Dependencies/**  
-  External repositories integrated into the workspace.
+* **Dependencies/**
+  External repositories integrated into the workspace
 
-- **Tools/NGIN.CLI/**  
-  The native `ngin` command line tool.
+* **Tools/NGIN.CLI/**
+  The `ngin` command line tool
 
-- **NGIN.ngin**  
-  The root workspace file for the repo.
+* **NGIN.ngin**
+  Root workspace file
 
-- **Examples/**  
-  Canonical sample workspaces and projects used by docs, smoke tests, and CLI examples.
+* **Examples/**
+  Sample projects and workspaces
 
-- **docs/**  
-  Architecture notes, examples, and active platform specs.
+* **docs/**
+  Architecture notes and specifications
 
-## Why The Repo Is Split This Way
+---
+
+## Why the Repository Is Structured This Way
 
 NGIN separates:
 
-- source ownership
-- package exposure
-- workspace orchestration
-- runtime hosting
+* source ownership
+* package exposure
+* workspace orchestration
+* runtime hosting
 
-That lets first-party libraries remain independently useful outside the umbrella workspace while still being exposed uniformly as packages.
+This allows libraries to remain independently usable while still being exposed consistently as packages.
 
-`Packages/NGIN.Core/` is the current locally owned host/runtime package. It lives beside the other package directories so the repo surface stays package-centric, even though `NGIN.Core` remains a special platform component in role.
+`Packages/NGIN.Core/` contains the current host/runtime implementation.
+It exists alongside other packages to keep the repository structure uniform.
+
+---
 
 ## Documentation
 
-- [NGIN Architecture](docs/architecture/NGIN-Architecture.md)
-- [NGIN Concepts](docs/architecture/NGIN-Concepts.md)
-- [Packages README](Packages/README.md)
-- [Dependencies README](Dependencies/README.md)
-- [Spec 001: Core Concepts and Vocabulary](docs/specs/001-core-concepts.md)
-- [Spec 003: Package Manifest and Runtime Contributions](docs/specs/003-package-manifest-and-runtime-contributions.md)
-- [Spec 006: CLI Contract](docs/specs/006-cli-contract.md)
-- [Spec 009: Package Distribution and Installation](docs/specs/009-package-distribution-and-installation.md)
+* [NGIN Architecture](docs/architecture/NGIN-Architecture.md)
+* [NGIN Concepts](docs/architecture/NGIN-Concepts.md)
+* [Packages README](Packages/README.md)
+* [Dependencies README](Dependencies/README.md)
+* [Spec 001: Core Concepts and Vocabulary](docs/specs/001-core-concepts.md)
+* [Spec 003: Package Manifest and Runtime Contributions](docs/specs/003-package-manifest-and-runtime-contributions.md)
+* [Spec 006: CLI Contract](docs/specs/006-cli-contract.md)
+* [Spec 009: Package Distribution and Installation](docs/specs/009-package-distribution-and-installation.md)
+
+---
+
+If you want, next step I can:
+
+* make a **short “landing README” + deeper docs split** (very GitHub-friendly), or
+* sharpen this further for **engine dev audience vs general C++ audience**.
