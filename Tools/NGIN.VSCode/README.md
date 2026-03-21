@@ -39,6 +39,14 @@ Build:
 npm run build
 ```
 
+Package and install locally:
+
+```bash
+VERSION=$(node -p "require('./package.json').version")
+npx @vscode/vsce package --out "ngin-tools-${VERSION}.vsix"
+code --install-extension "./ngin-tools-${VERSION}.vsix" --force
+```
+
 Run unit tests:
 
 ```bash
