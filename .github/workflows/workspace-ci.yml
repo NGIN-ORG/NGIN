@@ -1,8 +1,6 @@
 name: Workspace CI
 
 on:
-  push:
-  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -19,7 +17,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           submodules: recursive
 
@@ -36,7 +34,7 @@ jobs:
         run: ctest --test-dir build/dev --output-on-failure
 
       - name: Upload workspace stage artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: workspace-stage-${{ matrix.os }}
           path: |

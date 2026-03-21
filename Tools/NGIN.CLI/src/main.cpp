@@ -283,6 +283,11 @@ namespace
         return out;
     }
 
+    [[nodiscard]] auto ToCMakePath(const fs::path &path) -> std::string
+    {
+        return EscapeCMake(path.generic_string());
+    }
+
     auto ValidateSchemaVersion(const XmlElement &node, const fs::path &path) -> void
     {
         const auto schemaVersion = RequireAttribute(node, "SchemaVersion", path);
@@ -2823,7 +2828,7 @@ namespace
                     continue;
                 }
                 EmitPackageBuildOptions(out, package.manifest.build);
-                out << "add_subdirectory(\"" << EscapeCMake(sourceDir.string()) << "\" \"${CMAKE_BINARY_DIR}/pkg_" << SanitizeIdentifier(package.manifest.name) << "\" EXCLUDE_FROM_ALL)\n";
+                out << "add_subdirectory(\"" << ToCMakePath(sourceDir) << "\" \"${CMAKE_BINARY_DIR}/pkg_" << SanitizeIdentifier(package.manifest.name) << "\" EXCLUDE_FROM_ALL)\n";
                 EmitTargetChecks(out, package.manifest);
                 continue;
             }
@@ -2843,7 +2848,7 @@ namespace
                     continue;
                 }
                 EmitPackageBuildOptions(out, package.manifest.build);
-                out << "add_subdirectory(\"" << EscapeCMake(packageDir.string()) << "\" \"${CMAKE_BINARY_DIR}/pkg_" << SanitizeIdentifier(package.manifest.name) << "\" EXCLUDE_FROM_ALL)\n";
+                out << "add_subdirectory(\"" << ToCMakePath(packageDir) << "\" \"${CMAKE_BINARY_DIR}/pkg_" << SanitizeIdentifier(package.manifest.name) << "\" EXCLUDE_FROM_ALL)\n";
                 EmitTargetChecks(out, package.manifest);
                 continue;
             }
@@ -2872,7 +2877,7 @@ namespace
                     AddError(report, "project '" + unit.project.name + "' requires a manual CMakeLists.txt at '" + cmakeLists.string() + "'");
                     continue;
                 }
-                out << "add_subdirectory(\"" << EscapeCMake(projectDir.string()) << "\" \"${CMAKE_BINARY_DIR}/proj_" << SanitizeIdentifier(unit.project.name) << "\")\n";
+                out << "add_subdirectory(\"" << ToCMakePath(projectDir) << "\" \"${CMAKE_BINARY_DIR}/proj_" << SanitizeIdentifier(unit.project.name) << "\")\n";
                 continue;
             }
 
@@ -2899,7 +2904,7 @@ namespace
             }
             for (const auto &source : sources)
             {
-                out << "  \"" << EscapeCMake(source.string()) << "\"\n";
+                out << "  \"" << ToCMakePath(source) << "\"\n";
             }
             out << ")\n";
             out << "set_target_properties(\"" << EscapeCMake(targetName) << "\" PROPERTIES CXX_STANDARD "
@@ -2909,13 +2914,13 @@ namespace
             for (const auto &sourceRoot : unit.project.sourceRoots)
             {
                 const auto includeDir = ResolveProjectPathValue(sourceRoot, unit.project, resolved.workspace);
-                out << "target_include_directories(\"" << EscapeCMake(targetName) << "\" PRIVATE \"" << EscapeCMake(includeDir.string()) << "\")\n";
+                out << "target_include_directories(\"" << EscapeCMake(targetName) << "\" PRIVATE \"" << ToCMakePath(includeDir) << "\")\n";
             }
             for (const auto &setting : unit.project.build.includeDirectories)
             {
                 const auto includeDir = ResolveProjectPathValue(setting.value, unit.project, resolved.workspace);
                 out << "target_include_directories(\"" << EscapeCMake(targetName) << "\" " << ToCMakeVisibility(setting.visibility)
-                    << " \"" << EscapeCMake(includeDir.string()) << "\")\n";
+                    << " \"" << ToCMakePath(includeDir) << "\")\n";
             }
             for (const auto &setting : unit.project.build.compileDefinitions)
             {
@@ -2997,8 +3002,8 @@ namespace
             if (copyFile)
             {
                 out << "\n"
-                    << "  COMMAND ${CMAKE_COMMAND} -E make_directory \"" << EscapeCMake((outputDir / subdir).string()) << "\"\n"
-                    << "  COMMAND ${CMAKE_COMMAND} -E copy_if_different \"$<TARGET_FILE:" << targetName << ">\" \"" << EscapeCMake((outputDir / subdir).string()) << "/$<TARGET_FILE_NAME:" << targetName << ">\"\n";
+                    << "  COMMAND ${CMAKE_COMMAND} -E make_directory \"" << ToCMakePath(outputDir / subdir) << "\"\n"
+                    << "  COMMAND ${CMAKE_COMMAND} -E copy_if_different \"$<TARGET_FILE:" << targetName << ">\" \"" << ToCMakePath(outputDir / subdir) << "/$<TARGET_FILE_NAME:" << targetName << ">\"\n";
             }
             out << "  DEPENDS \"" << EscapeCMake(targetName) << "\"\n";
             out << "  VERBATIM)\n";
