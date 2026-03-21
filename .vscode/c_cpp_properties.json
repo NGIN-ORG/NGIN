@@ -1,9 +1,10 @@
 {
-  "configurations": [
-    {
-      "name": "NGIN",
-      "configurationProvider": "ngin.ngin-tools"
-    }
-  ],
-  "version": 4
+    "configurations": [
+        {
+            "name": "NGIN",
+            "configurationProvider": "ngin.ngin-tools",
+            "cppStandard": "c++23"
+        }
+    ],
+    "version": 4
 }
