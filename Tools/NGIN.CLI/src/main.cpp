@@ -3,6 +3,17 @@
 #include <NGIN/Serialization/XML/XmlParser.hpp>
 #include <NGIN/Serialization/XML/XmlTypes.hpp>
 
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#else
+#include <cerrno>
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
+
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -306,12 +317,299 @@ namespace
         return std::string(defaultStage);
     }
 
+    [[nodiscard]] auto NormalizePath(const fs::path &path) -> fs::path
+    {
+        std::error_code error;
+        const auto normalized = fs::weakly_canonical(path, error);
+        if (!error)
+        {
+            return normalized.lexically_normal();
+        }
+        return fs::absolute(path).lexically_normal();
+    }
+
+    [[nodiscard]] auto IsPathWithinDirectory(const fs::path &candidate, const fs::path &directory) -> bool
+    {
+        const auto normalizedCandidate = NormalizePath(candidate);
+        const auto normalizedDirectory = NormalizePath(directory);
+
+        auto candidateIt = normalizedCandidate.begin();
+        auto directoryIt = normalizedDirectory.begin();
+        for (; directoryIt != normalizedDirectory.end() && candidateIt != normalizedCandidate.end(); ++directoryIt, ++candidateIt)
+        {
+            if (*candidateIt != *directoryIt)
+            {
+                return false;
+            }
+        }
+        return directoryIt == normalizedDirectory.end();
+    }
+
+    [[nodiscard]] auto HasPathSeparator(const std::string &value) -> bool
+    {
+        return value.find('/') != std::string::npos || value.find('\\') != std::string::npos;
+    }
+
+    [[nodiscard]] auto SearchExecutableCandidates(const fs::path &path) -> std::vector<fs::path>
+    {
+        std::vector<fs::path> candidates{};
+#if defined(_WIN32)
+        const auto pathext = std::getenv("PATHEXT");
+        std::string pathextValue = pathext != nullptr ? pathext : ".COM;.EXE;.BAT;.CMD";
+        std::vector<std::string> extensions{};
+        std::size_t start = 0;
+        while (start <= pathextValue.size())
+        {
+            const auto end = pathextValue.find(';', start);
+            auto extension = pathextValue.substr(start, end == std::string::npos ? std::string::npos : end - start);
+            if (!extension.empty())
+            {
+                extensions.push_back(Lower(extension));
+            }
+            if (end == std::string::npos)
+            {
+                break;
+            }
+            start = end + 1;
+        }
+
+        const auto lowercaseExtension = Lower(path.extension().string());
+        if (!lowercaseExtension.empty())
+        {
+            candidates.push_back(path);
+            return candidates;
+        }
+
+        candidates.push_back(path);
+        for (const auto &extension : extensions)
+        {
+            candidates.push_back(path.string() + extension);
+        }
+#else
+        candidates.push_back(path);
+#endif
+        return candidates;
+    }
+
+    [[nodiscard]] auto IsExecutableCandidate(const fs::path &path) -> bool
+    {
+        std::error_code error;
+        if (!fs::exists(path, error) || !fs::is_regular_file(path, error))
+        {
+            return false;
+        }
+#if defined(_WIN32)
+        return true;
+#else
+        return ::access(path.c_str(), X_OK) == 0;
+#endif
+    }
+
     [[nodiscard]] auto ToolExists(const std::string &tool) -> bool
     {
+        if (tool.empty())
+        {
+            return false;
+        }
+
+        const fs::path toolPath{tool};
+        if (toolPath.is_absolute() || HasPathSeparator(tool))
+        {
+            for (const auto &candidate : SearchExecutableCandidates(toolPath))
+            {
+                if (IsExecutableCandidate(candidate))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        const auto *pathValue = std::getenv("PATH");
+        if (pathValue == nullptr)
+        {
+            return false;
+        }
+
 #if defined(_WIN32)
-        return std::system(("where " + tool + " >nul 2>nul").c_str()) == 0;
+        constexpr char separator = ';';
 #else
-        return std::system(("command -v " + tool + " >/dev/null 2>&1").c_str()) == 0;
+        constexpr char separator = ':';
+#endif
+
+        std::string searchPath = pathValue;
+        std::size_t start = 0;
+        while (start <= searchPath.size())
+        {
+            const auto end = searchPath.find(separator, start);
+            const auto entry = searchPath.substr(start, end == std::string::npos ? std::string::npos : end - start);
+            const fs::path directory = entry.empty() ? fs::current_path() : fs::path(entry);
+            for (const auto &candidate : SearchExecutableCandidates(directory / tool))
+            {
+                if (IsExecutableCandidate(candidate))
+                {
+                    return true;
+                }
+            }
+            if (end == std::string::npos)
+            {
+                break;
+            }
+            start = end + 1;
+        }
+
+        return false;
+    }
+
+#if defined(_WIN32)
+    [[nodiscard]] auto QuoteWindowsArgument(const std::wstring &value) -> std::wstring
+    {
+        if (value.empty())
+        {
+            return L"\"\"";
+        }
+
+        const auto needsQuotes = value.find_first_of(L" \t\n\v\"") != std::wstring::npos;
+        if (!needsQuotes)
+        {
+            return value;
+        }
+
+        std::wstring quoted{L"\""};
+        unsigned int backslashes = 0;
+        for (const wchar_t ch : value)
+        {
+            if (ch == L'\\')
+            {
+                ++backslashes;
+                continue;
+            }
+            if (ch == L'"')
+            {
+                quoted.append(backslashes * 2 + 1, L'\\');
+                quoted.push_back(L'"');
+                backslashes = 0;
+                continue;
+            }
+            if (backslashes > 0)
+            {
+                quoted.append(backslashes, L'\\');
+                backslashes = 0;
+            }
+            quoted.push_back(ch);
+        }
+        if (backslashes > 0)
+        {
+            quoted.append(backslashes * 2, L'\\');
+        }
+        quoted.push_back(L'"');
+        return quoted;
+    }
+#endif
+
+    [[nodiscard]] auto RunProcess(
+        const fs::path &executable,
+        const std::vector<std::string> &arguments,
+        const std::optional<fs::path> &workingDirectory = std::nullopt) -> int
+    {
+#if defined(_WIN32)
+        std::wstring commandLine = QuoteWindowsArgument(executable.wstring());
+        for (const auto &argument : arguments)
+        {
+            commandLine += L" ";
+            commandLine += QuoteWindowsArgument(fs::path(argument).wstring());
+        }
+
+        std::vector<wchar_t> commandBuffer(commandLine.begin(), commandLine.end());
+        commandBuffer.push_back(L'\0');
+
+        std::wstring workingDirectoryValue{};
+        const wchar_t *workingDirectoryPtr = nullptr;
+        if (workingDirectory.has_value())
+        {
+            workingDirectoryValue = workingDirectory->wstring();
+            workingDirectoryPtr = workingDirectoryValue.c_str();
+        }
+
+        STARTUPINFOW startupInfo{};
+        startupInfo.cb = sizeof(startupInfo);
+        PROCESS_INFORMATION processInfo{};
+        if (!CreateProcessW(
+                nullptr,
+                commandBuffer.data(),
+                nullptr,
+                nullptr,
+                FALSE,
+                0,
+                nullptr,
+                workingDirectoryPtr,
+                &startupInfo,
+                &processInfo))
+        {
+            throw std::runtime_error("failed to start process '" + executable.string() + "'");
+        }
+
+        WaitForSingleObject(processInfo.hProcess, INFINITE);
+        DWORD exitCode = 1;
+        if (!GetExitCodeProcess(processInfo.hProcess, &exitCode))
+        {
+            CloseHandle(processInfo.hThread);
+            CloseHandle(processInfo.hProcess);
+            throw std::runtime_error("failed to read exit code for process '" + executable.string() + "'");
+        }
+
+        CloseHandle(processInfo.hThread);
+        CloseHandle(processInfo.hProcess);
+        return static_cast<int>(exitCode);
+#else
+        std::vector<std::string> argvStorage{};
+        argvStorage.reserve(arguments.size() + 1);
+        argvStorage.push_back(executable.string());
+        argvStorage.insert(argvStorage.end(), arguments.begin(), arguments.end());
+
+        std::vector<char *> argv{};
+        argv.reserve(argvStorage.size() + 1);
+        for (auto &value : argvStorage)
+        {
+            argv.push_back(value.data());
+        }
+        argv.push_back(nullptr);
+
+        const auto processId = ::fork();
+        if (processId < 0)
+        {
+            throw std::runtime_error("failed to fork process '" + executable.string() + "'");
+        }
+
+        if (processId == 0)
+        {
+            if (workingDirectory.has_value() && ::chdir(workingDirectory->c_str()) != 0)
+            {
+                std::_Exit(127);
+            }
+            ::execvp(executable.c_str(), argv.data());
+            std::_Exit(errno == ENOENT ? 127 : 126);
+        }
+
+        int status = 0;
+        while (::waitpid(processId, &status, 0) < 0)
+        {
+            if (errno == EINTR)
+            {
+                continue;
+            }
+            throw std::runtime_error("failed to wait for process '" + executable.string() + "'");
+        }
+
+        if (WIFEXITED(status))
+        {
+            return WEXITSTATUS(status);
+        }
+        if (WIFSIGNALED(status))
+        {
+            return 128 + WTERMSIG(status);
+        }
+        return 1;
 #endif
     }
 
@@ -3052,14 +3350,31 @@ namespace
 
         const auto generatedSourceDir = outputDir / ".ngin" / "cmake-src";
         const auto buildConfiguration = resolved.configuration.buildConfiguration.empty() ? "Debug" : resolved.configuration.buildConfiguration;
-        const auto configure = "cmake -S \"" + generatedSourceDir.string() + "\" -B \"" + generatedBuildDir->string() + "\" -DCMAKE_BUILD_TYPE=\"" + buildConfiguration + "\"";
-        if (std::system(configure.c_str()) != 0)
+        if (RunProcess(
+                "cmake",
+                {
+                    "-S",
+                    generatedSourceDir.string(),
+                    "-B",
+                    generatedBuildDir->string(),
+                    "-DCMAKE_BUILD_TYPE=" + buildConfiguration,
+                })
+            != 0)
         {
             AddError(report, "failed to configure generated CMake build project for configuration '" + resolved.configuration.name + "' with build configuration '" + buildConfiguration + "'");
             return;
         }
-        const auto build = "cmake --build \"" + generatedBuildDir->string() + "\" --config \"" + buildConfiguration + "\" --target ngin_stage_artifacts";
-        if (std::system(build.c_str()) != 0)
+        if (RunProcess(
+                "cmake",
+                {
+                    "--build",
+                    generatedBuildDir->string(),
+                    "--config",
+                    buildConfiguration,
+                    "--target",
+                    "ngin_stage_artifacts",
+                })
+            != 0)
         {
             AddError(report, "failed to build or stage artifacts for configuration '" + resolved.configuration.name + "' with build configuration '" + buildConfiguration + "'");
         }
@@ -3661,6 +3976,111 @@ namespace
         fs::path manifestPath{};
     };
 
+    auto PruneEmptyDirectories(fs::path path, const fs::path &stopAt) -> void
+    {
+        const auto normalizedStop = NormalizePath(stopAt);
+        while (!path.empty() && NormalizePath(path) != normalizedStop)
+        {
+            std::error_code error;
+            if (!fs::exists(path, error) || !fs::is_directory(path, error) || !fs::is_empty(path, error))
+            {
+                break;
+            }
+            fs::remove(path, error);
+            if (error)
+            {
+                break;
+            }
+            path = path.parent_path();
+        }
+    }
+
+    auto CleanupPreviousStage(const fs::path &outputDir, IssueReport &report) -> void
+    {
+        if (!fs::exists(outputDir))
+        {
+            return;
+        }
+        if (!fs::is_directory(outputDir))
+        {
+            AddError(report, "output path '" + outputDir.string() + "' exists but is not a directory");
+            return;
+        }
+
+        std::vector<fs::path> manifests{};
+        for (const auto &entry : fs::directory_iterator(outputDir))
+        {
+            std::error_code error;
+            if (!entry.is_regular_file(error))
+            {
+                continue;
+            }
+            if (entry.path().extension() == ".nginlaunch")
+            {
+                manifests.push_back(entry.path());
+            }
+        }
+
+        for (const auto &manifestPath : manifests)
+        {
+            try
+            {
+                const auto document = LoadXml(manifestPath);
+                const auto *rootElement = document.document.Root();
+                if (rootElement == nullptr || rootElement->name != "LaunchManifest")
+                {
+                    throw std::runtime_error("root element must be <LaunchManifest>");
+                }
+
+                if (const auto *stagedFiles = FindChild(*rootElement, "StagedFiles"))
+                {
+                    for (const auto *file : ChildElements(*stagedFiles, "File"))
+                    {
+                        fs::path stagedPath{};
+                        if (const auto relativeDestination = Attribute(*file, "RelativeDestination"); relativeDestination.has_value() && !relativeDestination->empty())
+                        {
+                            stagedPath = outputDir / fs::path(*relativeDestination);
+                        }
+                        else if (const auto destination = Attribute(*file, "Destination"); destination.has_value() && !destination->empty())
+                        {
+                            stagedPath = fs::path(*destination);
+                        }
+                        else
+                        {
+                            continue;
+                        }
+
+                        if (!IsPathWithinDirectory(stagedPath, outputDir))
+                        {
+                            AddWarning(report, "skipped cleanup for staged file outside output directory: '" + stagedPath.string() + "'");
+                            continue;
+                        }
+
+                        std::error_code error;
+                        if (fs::is_regular_file(stagedPath, error) || fs::is_symlink(stagedPath, error))
+                        {
+                            fs::remove(stagedPath, error);
+                            if (!error)
+                            {
+                                PruneEmptyDirectories(stagedPath.parent_path(), outputDir);
+                            }
+                        }
+                    }
+                }
+
+                std::error_code removeError;
+                fs::remove(manifestPath, removeError);
+            }
+            catch (const std::exception &ex)
+            {
+                AddWarning(report, "failed to clean previous launch manifest '" + manifestPath.string() + "': " + ex.what());
+            }
+        }
+
+        std::error_code generatedError;
+        fs::remove_all(outputDir / ".ngin", generatedError);
+    }
+
     [[nodiscard]] auto BuildLaunch(const ParsedArgs &args, IssueReport &report) -> std::optional<GeneratedLaunchPaths>
     {
         const auto project = LoadProjectManifest(ResolveProjectPath(args.projectPath));
@@ -3679,9 +4099,10 @@ namespace
         const auto outputDir = args.outputPath.has_value()
                                    ? fs::absolute(*args.outputPath)
                                    : (buildRoot / ".ngin" / "build" / resolved->project.name / resolved->configuration.name);
-        if (fs::exists(outputDir))
+        CleanupPreviousStage(outputDir, report);
+        if (!report.errors.empty())
         {
-            fs::remove_all(outputDir);
+            return std::nullopt;
         }
         fs::create_directories(outputDir);
         std::map<fs::path, std::string> collisions;
@@ -3829,12 +4250,7 @@ namespace
             workingDirectory = built->outputDir;
         }
 
-        std::string command = "cd \"" + workingDirectory.string() + "\" && \"" + executablePath.string() + "\"";
-        for (const auto &argument : args.runArgs)
-        {
-            command += " \"" + argument + "\"";
-        }
-        return std::system(command.c_str());
+        return RunProcess(executablePath, args.runArgs, workingDirectory);
     }
 
     auto PrintHelp() -> void

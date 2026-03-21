@@ -52,7 +52,7 @@ Treat these as generated outputs unless the user explicitly asks otherwise:
 
 - `build/`
 - staged output under `.ngin/build/` or `build/**/stage/`
-- `*.ngintarget`
+- `*.nginlaunch`
 
 Do not edit generated files to implement behavior changes.
 
@@ -62,7 +62,7 @@ Do not edit generated files to implement behavior changes.
 - Workspace automation and tests: root `CMakeLists.txt` and `cmake/`
 - Canonical example changes: `Examples/App.Basic/`
 - Host/runtime behavior: `Packages/NGIN.Core/`
-- Package exposure, source binding, and backend integration changes: `Packages/*.nginpkg`
+- Package exposure, provider wiring, and backend integration changes: `Packages/*.nginpkg`
 - First-party dependency implementation changes: `Dependencies/NGIN/*`
 
 Before changing manifests or CLI semantics, check the relevant spec in `docs/specs/`.
@@ -112,14 +112,8 @@ ctest --test-dir build/ngin-core-ci --output-on-failure -C Release
 Smoke-test the example project:
 
 ```bash
-./build/dev/Tools/NGIN.CLI/ngin project validate --project Examples/App.Basic/App.Basic.nginproj --variant Runtime
-./build/dev/Tools/NGIN.CLI/ngin project build --project Examples/App.Basic/App.Basic.nginproj --variant Runtime --output build/manual/App.Basic
-```
-
-Sync git-backed package sources when needed:
-
-```bash
-./build/dev/Tools/NGIN.CLI/ngin workspace sync
+./build/dev/Tools/NGIN.CLI/ngin validate --project Examples/App.Basic/App.Basic.nginproj --configuration Runtime
+./build/dev/Tools/NGIN.CLI/ngin build --project Examples/App.Basic/App.Basic.nginproj --configuration Runtime --output build/manual/App.Basic
 ```
 
 ## Working Rules
@@ -129,7 +123,7 @@ Sync git-backed package sources when needed:
 - Preserve the distinction between package wrappers in `Packages/` and source trees in `Dependencies/`.
 - Use `Examples/App.Basic/` for CLI and manifest smoke checks unless a different example is required.
 - Prefer project `<Build>` metadata over adding new handwritten project `CMakeLists.txt` files.
-- Use package `SourceBinding` and `<Build Mode="...">` metadata to integrate external or dependency-owned CMake projects.
+- Use workspace `PackageProviders` together with package `<Build Mode="...">` metadata to integrate external or dependency-owned CMake projects.
 - When changing dependency subtrees, follow any local `AGENTS.md` in that subtree.
 
 ## Build Timing Policy

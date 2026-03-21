@@ -1,13 +1,13 @@
-if(NOT DEFINED CLI OR NOT DEFINED PROJECT OR NOT DEFINED VARIANT)
-  message(FATAL_ERROR "CLI, PROJECT, and VARIANT must be defined")
+if(NOT DEFINED CLI OR NOT DEFINED PROJECT OR NOT DEFINED CONFIGURATION)
+  message(FATAL_ERROR "CLI, PROJECT, and CONFIGURATION must be defined")
 endif()
 
 string(REPLACE "\"" "" CLI "${CLI}")
 string(REPLACE "\"" "" PROJECT "${PROJECT}")
-string(REPLACE "\"" "" VARIANT "${VARIANT}")
+string(REPLACE "\"" "" CONFIGURATION "${CONFIGURATION}")
 
 execute_process(
-  COMMAND "${CLI}" project validate --project "${PROJECT}" --variant "${VARIANT}"
+  COMMAND "${CLI}" validate --project "${PROJECT}" --configuration "${CONFIGURATION}"
   RESULT_VARIABLE ngin_validate_result
   OUTPUT_VARIABLE ngin_validate_stdout
   ERROR_VARIABLE ngin_validate_stderr

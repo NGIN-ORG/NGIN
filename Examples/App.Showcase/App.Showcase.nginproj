@@ -160,7 +160,7 @@
              Environment="Dev"
              WorkingDirectory=".">
       <ConfigSources>
-        <Config Source="config/variants/runtime.cfg" />
+        <Config Source="config/configurations/runtime.cfg" />
       </ConfigSources>
     </Configuration>
     <Configuration Name="Runtime.DevTools"
@@ -170,7 +170,7 @@
              Environment="Dev"
              WorkingDirectory=".">
       <ConfigSources>
-        <Config Source="config/variants/runtime.devtools.cfg" />
+        <Config Source="config/configurations/runtime.devtools.cfg" />
       </ConfigSources>
       <EnableModules>
         <ModuleRef Name="App.Showcase.DevTools" />
@@ -186,7 +186,7 @@
         <Package Name="NGIN.Diagnostics" Version=">=0.1.0 &lt;0.2.0" Optional="false" />
       </References>
       <ConfigSources>
-        <Config Source="config/variants/runtime.diagnostics.cfg" />
+        <Config Source="config/configurations/runtime.diagnostics.cfg" />
       </ConfigSources>
       <EnableModules>
         <ModuleRef Name="App.Showcase.Diagnostics" />
@@ -203,7 +203,7 @@
         <Package Name="NGIN.Reflection" Version=">=0.1.0 &lt;0.2.0" Optional="false" />
       </References>
       <ConfigSources>
-        <Config Source="config/variants/runtime.reflection.cfg" />
+        <Config Source="config/configurations/runtime.reflection.cfg" />
       </ConfigSources>
       <EnableModules>
         <ModuleRef Name="App.Showcase.Reflection" />
@@ -216,7 +216,7 @@
              Environment="Staging"
              WorkingDirectory=".">
       <ConfigSources>
-        <Config Source="config/variants/service.cfg" />
+        <Config Source="config/configurations/service.cfg" />
       </ConfigSources>
       <EnableModules>
         <ModuleRef Name="App.Showcase.Service" />

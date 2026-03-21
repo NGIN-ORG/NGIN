@@ -88,7 +88,7 @@ If you want to inspect the interesting parts directly, look at:
 
 - [App.Showcase.nginproj](/home/berggrenmille/NGIN/Examples/App.Showcase/App.Showcase.nginproj) for the authored configuration overlays
 - [main.cpp](/home/berggrenmille/NGIN/Examples/App.Showcase/src/main.cpp) for the runtime checks and module registrations
-- `config/variants/` under the example directory for the per-configuration config overlays
+- `config/configurations/` under the example directory for the per-configuration config overlays
 
 This is the example to read when you want to understand where the boundary is between:
 

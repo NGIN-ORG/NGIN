@@ -45,21 +45,19 @@ add_custom_target(ngin.project.show
 
 add_custom_target(ngin.validate
   COMMAND $<TARGET_FILE:ngin_cli>
-    project
     validate
     --project "${NGIN_APP_BASIC_PROJECT_PATH}"
-    --variant Runtime
+    --configuration Runtime
   DEPENDS ngin_cli
-  COMMENT "Validate the App.Basic runtime variant"
+  COMMENT "Validate the App.Basic Runtime configuration"
   VERBATIM
 )
 
 add_custom_target(ngin.graph.core
   COMMAND $<TARGET_FILE:ngin_cli>
-    project
     graph
     --project "${NGIN_APP_BASIC_PROJECT_PATH}"
-    --variant Runtime
+    --configuration Runtime
   DEPENDS ngin_cli
   COMMENT "Print the resolved package and module graph for App.Basic"
   VERBATIM
@@ -68,10 +66,9 @@ add_custom_target(ngin.graph.core
 add_custom_target(ngin.build.core
   COMMAND ${CMAKE_COMMAND} -E make_directory "${NGIN_WORKSPACE_STAGE_DIR}"
   COMMAND $<TARGET_FILE:ngin_cli>
-    project
     build
     --project "${NGIN_APP_BASIC_PROJECT_PATH}"
-    --variant Runtime
+    --configuration Runtime
     --output "${NGIN_APP_BASIC_BUILD_OUTPUT}"
   DEPENDS ngin_cli
   COMMENT "Build the staged layout for App.Basic"
@@ -101,18 +98,18 @@ add_test(NAME ngin.package.show.core
 )
 
 add_test(NAME ngin.validate.workspace
-  COMMAND $<TARGET_FILE:ngin_cli> project validate --project "${NGIN_APP_BASIC_PROJECT_PATH}" --variant Runtime
+  COMMAND $<TARGET_FILE:ngin_cli> validate --project "${NGIN_APP_BASIC_PROJECT_PATH}" --configuration Runtime
 )
 
 add_test(NAME ngin.graph.workspace
-  COMMAND $<TARGET_FILE:ngin_cli> project graph --project "${NGIN_APP_BASIC_PROJECT_PATH}" --variant Runtime
+  COMMAND $<TARGET_FILE:ngin_cli> graph --project "${NGIN_APP_BASIC_PROJECT_PATH}" --configuration Runtime
 )
 
 add_test(NAME ngin.build.workspace
   COMMAND ${CMAKE_COMMAND}
     -DCLI=$<TARGET_FILE:ngin_cli>
     -DPROJECT=${NGIN_APP_BASIC_PROJECT_PATH}
-    -DVARIANT=Runtime
+    -DCONFIGURATION=Runtime
     -DOUTPUT=${CMAKE_BINARY_DIR}/test-stage/App.Basic/Runtime
     -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunNGINBuildCheck.cmake"
 )
@@ -121,7 +118,7 @@ add_test(NAME ngin.projectref.config.build
   COMMAND ${CMAKE_COMMAND}
     -DCLI=$<TARGET_FILE:ngin_cli>
     -DPROJECT=${NGIN_PROJECTREF_CONFIG_PROJECT_PATH}
-    -DVARIANT=Runtime
+    -DCONFIGURATION=Runtime
     -DOUTPUT=${CMAKE_BINARY_DIR}/test-stage/ProjectRef.Config/Runtime
     -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunNGINProjectRefConfigCheck.cmake"
 )
@@ -130,15 +127,24 @@ add_test(NAME ngin.projectref.config.collision
   COMMAND ${CMAKE_COMMAND}
     -DCLI=$<TARGET_FILE:ngin_cli>
     -DPROJECT=${NGIN_PROJECTREF_CONFIG_COLLISION_PROJECT_PATH}
-    -DVARIANT=Runtime
+    -DCONFIGURATION=Runtime
     -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunNGINProjectRefConfigCollisionCheck.cmake"
 )
 
 add_test(NAME ngin.project.autodiscovery
-  COMMAND $<TARGET_FILE:ngin_cli> project validate
+  COMMAND $<TARGET_FILE:ngin_cli> validate
 )
 set_tests_properties(ngin.project.autodiscovery PROPERTIES
   WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/Examples/App.Basic"
+)
+
+add_test(NAME ngin.build.output.preserve
+  COMMAND ${CMAKE_COMMAND}
+    -DCLI=$<TARGET_FILE:ngin_cli>
+    -DPROJECT=${NGIN_APP_BASIC_PROJECT_PATH}
+    -DCONFIGURATION=Runtime
+    -DOUTPUT=${CMAKE_BINARY_DIR}/test-stage/App.Basic/Preserve
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunNGINOutputPreserveCheck.cmake"
 )
 
 add_test(NAME ngin.reject.legacy.json

@@ -5,7 +5,7 @@
 Each package wrapper defines:
 
 - package identity and exposed version
-- source binding metadata
+- exposed dependency and build-integration metadata
 - exposed artifacts such as libraries and executables
 - runtime modules and plugins
 - staged content

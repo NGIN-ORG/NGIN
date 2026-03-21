@@ -18,8 +18,8 @@ case "$target" in
     ctest --test-dir "$repo_root/build/ngin-core-ci" --output-on-failure -C Release
     ;;
   app-basic)
-    "$cli" project validate --project "$project" --variant Runtime
-    "$cli" project build --project "$project" --variant Runtime --output "$repo_root/build/manual/App.Basic"
+    "$cli" validate --project "$project" --configuration Runtime
+    "$cli" build --project "$project" --configuration Runtime --output "$repo_root/build/manual/App.Basic"
     ;;
   *)
     echo "unknown test target: $target" >&2
