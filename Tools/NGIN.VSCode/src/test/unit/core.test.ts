@@ -239,11 +239,16 @@ test('overview sections describe the current workspace selection and actions', (
     lastTargetManifestPath: '/repo/.ngin/build/App.Basic/Runtime/Release/App.Basic.Runtime.ngintarget'
   });
 
-  assert.equal(sections.length, 4);
-  assert.equal(sections[1].children[0].label, 'App.Basic');
-  assert.equal(sections[1].children[2].label, 'Release');
+  assert.equal(sections.length, 5);
+  assert.equal(sections[1].label, 'Current Context');
+  assert.equal(sections[1].children[0].label, 'Project: App.Basic');
+  assert.equal(sections[1].children[2].label, 'Configuration: Release');
   assert.equal(sections[1].children[2].command, 'ngin.selectConfiguration');
+  assert.equal(sections[2].label, 'Build Artifacts');
+  assert.equal(sections[2].children[0].label, 'Output Folder');
+  assert.equal(sections[2].children[0].command, 'ngin.internal.revealPath');
   assert.equal(sections[3].children[0].command, 'ngin.build');
+  assert.equal(sections[4].children[1].label, 'Open Last Build Manifest');
 });
 
 test('project tree models mark the selected project and variant', () => {

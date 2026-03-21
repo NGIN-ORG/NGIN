@@ -132,21 +132,37 @@ Sync git-backed package sources when needed:
 - Use package `SourceBinding` and `<Build Mode="...">` metadata to integrate external or dependency-owned CMake projects.
 - When changing dependency subtrees, follow any local `AGENTS.md` in that subtree.
 
+## Build Timing Policy
+
+- The commands in this file are reference commands, not an automatic checklist to run after every edit.
+- Do not build during initial exploration or after each individual edit.
+- Batch related edits first, then run one targeted verification pass near the end of the task.
+- Reuse existing configured build trees when possible. Do not rerun `cmake --preset dev` unless the build tree is missing, broken, or the change affects configure-time inputs.
+- Prefer the cheapest command that can validate the specific change.
+- Escalate to broader verification only when the narrower check fails, the change affects build or workspace composition, or the user explicitly asks for broader validation.
+- For docs, comments, prompt files, and other non-behavioral instruction changes, do not build unless explicitly requested.
+
 ## Typical Change Workflow
 
 1. Read the relevant contract in `docs/specs/` and the nearest applicable README or `AGENTS.md`.
 2. Identify the ownership boundary for the change before editing code or manifests.
-3. Modify the implementation in the correct repo area with a narrow diff.
-4. Build the smallest relevant target for the change.
-5. Run the smallest relevant verification flow and report anything not verified.
+3. Modify the implementation in the correct repo area with a narrow diff, batching related edits before verification.
+4. Run one final targeted build or validation step for the change rather than building after each edit.
+5. Escalate to broader verification only when warranted by change scope, failure, or explicit user request, and report anything not verified.
 
 ## Verification Expectations
 
-Pick the smallest relevant verification set:
+Pick one final verification path that matches the change. Do not run all of these by default.
 
-- CLI changes: build `ngin_cli`, run workspace `ctest`, and smoke-test `App.Basic`
+- CLI changes:
+  - First choice: build `ngin_cli`
+  - Add workspace `ctest` only when the change affects shared CLI behavior, test-covered flows, or regression risk is broad
+  - Add `App.Basic` smoke checks only when the change affects project, build, staging, or runtime behavior
 - Workspace/build flow changes: run `ngin.workflow`
 - `NGIN.Core` changes: build and run `NGINCoreTests`
-- Manifest/schema changes: validate and graph `Examples/App.Basic/App.Basic.nginproj`
+- Manifest/schema changes:
+  - First choice: validate `Examples/App.Basic/App.Basic.nginproj`
+  - Build or graph the example project only when generation, staging, or runtime layout behavior changed
+- Docs or AI-instruction changes: no build required
 
 If you cannot run a verification step, state that explicitly.

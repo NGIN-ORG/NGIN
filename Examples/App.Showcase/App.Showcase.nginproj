@@ -1,0 +1,224 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="1"
+         Name="App.Showcase"
+         Type="Application"
+         DefaultVariant="Runtime">
+  <SourceRoots>
+    <SourceRoot Path="src" />
+  </SourceRoots>
+  <PrimaryOutput Kind="Executable"
+                 Name="App.Showcase"
+                 Target="App.Showcase" />
+  <Build Backend="CMake"
+         Mode="Generated"
+         Language="CXX"
+         LanguageStandard="23">
+    <CompileDefinitions>
+      <Definition Value="APP_SHOWCASE_EXAMPLE_ROOT=&quot;${ProjectDir}&quot;"
+                  Visibility="Private" />
+    </CompileDefinitions>
+  </Build>
+  <PackageRefs>
+    <PackageRef Name="NGIN.Core" VersionRange=">=0.1.0 &lt;0.2.0" Optional="false" />
+  </PackageRefs>
+  <ConfigSources>
+    <Config Source="config/app.cfg" />
+  </ConfigSources>
+  <Runtime>
+    <Modules>
+      <Module Name="App.Showcase.Runtime"
+              Family="App"
+              Type="Runtime"
+              StartupStage="Services"
+              Version="0.1.0"
+              ReflectionRequired="false">
+        <Platforms>
+          <Platform Name="linux" />
+          <Platform Name="windows" />
+          <Platform Name="macos" />
+        </Platforms>
+        <ProvidesServices>
+          <Service Name="App.Showcase.Runtime.Ready" />
+        </ProvidesServices>
+      </Module>
+      <Module Name="App.Showcase.ConsoleBanner"
+              Family="App"
+              Type="Runtime"
+              StartupStage="Presentation"
+              Version="0.1.0"
+              ReflectionRequired="false">
+        <Platforms>
+          <Platform Name="linux" />
+          <Platform Name="windows" />
+          <Platform Name="macos" />
+        </Platforms>
+        <SupportedHosts>
+          <Host Name="ConsoleApp" />
+        </SupportedHosts>
+        <Dependencies>
+          <Dependency Name="App.Showcase.Runtime" Optional="false" />
+        </Dependencies>
+        <ProvidesServices>
+          <Service Name="App.Showcase.ConsoleBanner.Ready" />
+        </ProvidesServices>
+      </Module>
+      <Module Name="App.Showcase.DevTools"
+              Family="App"
+              Type="Developer"
+              StartupStage="Presentation"
+              Version="0.1.0"
+              ReflectionRequired="false">
+        <Platforms>
+          <Platform Name="linux" />
+          <Platform Name="windows" />
+          <Platform Name="macos" />
+        </Platforms>
+        <SupportedHosts>
+          <Host Name="ConsoleApp" />
+        </SupportedHosts>
+        <Dependencies>
+          <Dependency Name="App.Showcase.Runtime" Optional="false" />
+        </Dependencies>
+        <ProvidesServices>
+          <Service Name="App.Showcase.DevTools.Ready" />
+        </ProvidesServices>
+      </Module>
+      <Module Name="App.Showcase.Diagnostics"
+              Family="App"
+              Type="Developer"
+              StartupStage="Services"
+              Version="0.1.0"
+              ReflectionRequired="false">
+        <Platforms>
+          <Platform Name="linux" />
+          <Platform Name="windows" />
+          <Platform Name="macos" />
+        </Platforms>
+        <SupportedHosts>
+          <Host Name="ConsoleApp" />
+        </SupportedHosts>
+        <Dependencies>
+          <Dependency Name="App.Showcase.Runtime" Optional="false" />
+        </Dependencies>
+        <ProvidesServices>
+          <Service Name="App.Showcase.Diagnostics.Ready" />
+        </ProvidesServices>
+      </Module>
+      <Module Name="App.Showcase.Reflection"
+              Family="App"
+              Type="Developer"
+              StartupStage="Services"
+              Version="0.1.0"
+              ReflectionRequired="true">
+        <Platforms>
+          <Platform Name="linux" />
+          <Platform Name="windows" />
+          <Platform Name="macos" />
+        </Platforms>
+        <SupportedHosts>
+          <Host Name="ConsoleApp" />
+        </SupportedHosts>
+        <Dependencies>
+          <Dependency Name="App.Showcase.Runtime" Optional="false" />
+        </Dependencies>
+        <ProvidesServices>
+          <Service Name="App.Showcase.Reflection.Ready" />
+        </ProvidesServices>
+      </Module>
+      <Module Name="App.Showcase.Service"
+              Family="App"
+              Type="Runtime"
+              StartupStage="Services"
+              Version="0.1.0"
+              ReflectionRequired="false">
+        <Platforms>
+          <Platform Name="linux" />
+          <Platform Name="windows" />
+          <Platform Name="macos" />
+        </Platforms>
+        <SupportedHosts>
+          <Host Name="Service" />
+        </SupportedHosts>
+        <Dependencies>
+          <Dependency Name="App.Showcase.Runtime" Optional="false" />
+        </Dependencies>
+        <ProvidesServices>
+          <Service Name="App.Showcase.Service.Ready" />
+        </ProvidesServices>
+      </Module>
+    </Modules>
+    <EnableModules>
+      <ModuleRef Name="App.Showcase.Runtime" />
+      <ModuleRef Name="App.Showcase.ConsoleBanner" />
+    </EnableModules>
+  </Runtime>
+  <Variants>
+    <Variant Name="Runtime"
+             Profile="ConsoleApp"
+             Platform="linux-x64"
+             Environment="Dev"
+             WorkingDirectory=".">
+      <ConfigSources>
+        <Config Source="config/variants/runtime.cfg" />
+      </ConfigSources>
+    </Variant>
+    <Variant Name="Runtime.DevTools"
+             Profile="ConsoleApp"
+             Platform="linux-x64"
+             Environment="Dev"
+             WorkingDirectory=".">
+      <ConfigSources>
+        <Config Source="config/variants/runtime.devtools.cfg" />
+      </ConfigSources>
+      <EnableModules>
+        <ModuleRef Name="App.Showcase.DevTools" />
+      </EnableModules>
+    </Variant>
+    <Variant Name="Runtime.Diagnostics"
+             Profile="ConsoleApp"
+             Platform="linux-x64"
+             Environment="Diagnostics"
+             WorkingDirectory=".">
+      <PackageRefs>
+        <PackageRef Name="NGIN.Diagnostics" VersionRange=">=0.1.0 &lt;0.2.0" Optional="false" />
+      </PackageRefs>
+      <ConfigSources>
+        <Config Source="config/variants/runtime.diagnostics.cfg" />
+      </ConfigSources>
+      <EnableModules>
+        <ModuleRef Name="App.Showcase.Diagnostics" />
+      </EnableModules>
+    </Variant>
+    <Variant Name="Runtime.Reflection"
+             Profile="ConsoleApp"
+             Platform="linux-x64"
+             Environment="Research"
+             WorkingDirectory="."
+             EnableReflection="true">
+      <PackageRefs>
+        <PackageRef Name="NGIN.Reflection" VersionRange=">=0.1.0 &lt;0.2.0" Optional="false" />
+      </PackageRefs>
+      <ConfigSources>
+        <Config Source="config/variants/runtime.reflection.cfg" />
+      </ConfigSources>
+      <EnableModules>
+        <ModuleRef Name="App.Showcase.Reflection" />
+      </EnableModules>
+    </Variant>
+    <Variant Name="Service"
+             Profile="Service"
+             Platform="linux-x64"
+             Environment="Staging"
+             WorkingDirectory=".">
+      <ConfigSources>
+        <Config Source="config/variants/service.cfg" />
+      </ConfigSources>
+      <EnableModules>
+        <ModuleRef Name="App.Showcase.Service" />
+      </EnableModules>
+      <DisableModules>
+        <ModuleRef Name="App.Showcase.ConsoleBanner" />
+      </DisableModules>
+    </Variant>
+  </Variants>
+</Project>

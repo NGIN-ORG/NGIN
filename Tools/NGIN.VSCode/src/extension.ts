@@ -116,6 +116,7 @@ class NginController implements vscode.Disposable {
       vscode.commands.registerCommand('ngin.openLastTargetManifest', () => this.runHandled(() => this.openLastTargetManifest())),
       vscode.commands.registerCommand('ngin.refresh', () => this.runHandled(() => this.refreshUi())),
       vscode.commands.registerCommand('ngin.internal.openPath', (filePath) => this.runHandled(() => this.openPathCommand(filePath))),
+      vscode.commands.registerCommand('ngin.internal.revealPath', (filePath) => this.runHandled(() => this.revealPathCommand(filePath))),
       vscode.workspace.onDidSaveTextDocument((document) => this.handleDocumentSaved(document)),
       vscode.tasks.registerTaskProvider('ngin', new NginTaskProvider(this)),
       vscode.debug.registerDebugConfigurationProvider('ngin', new NginDebugConfigurationProvider(this)),
@@ -529,6 +530,24 @@ class NginController implements vscode.Disposable {
 
     const document = await vscode.workspace.openTextDocument(vscode.Uri.file(filePath));
     await vscode.window.showTextDocument(document, { preview: false });
+  }
+
+  private async revealPathCommand(filePath: unknown): Promise<void> {
+    if (typeof filePath !== 'string' || !filePath) {
+      return;
+    }
+
+    if (!(await pathExists(filePath))) {
+      void vscode.window.showErrorMessage(`Path not found: ${filePath}`);
+      return;
+    }
+
+    const targetUri = vscode.Uri.file(filePath);
+    try {
+      await vscode.commands.executeCommand('revealFileInOS', targetUri);
+    } catch {
+      await vscode.env.openExternal(targetUri);
+    }
   }
 
   private async openLastTargetManifest(): Promise<void> {

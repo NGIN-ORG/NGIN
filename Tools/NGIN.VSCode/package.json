@@ -145,7 +145,7 @@
       },
       {
         "command": "ngin.openLastTargetManifest",
-        "title": "Open Last Target Manifest",
+        "title": "Open Last Build Manifest",
         "category": "NGIN"
       },
       {
