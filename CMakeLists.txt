@@ -22,6 +22,8 @@ add_custom_target(ngin.workspace
   COMMENT "NGIN workspace metadata target"
 )
 
+include(CTest)
+
 add_subdirectory(Tools)
 
 set(NGIN_WORKSPACE_MANIFEST_PATH "${CMAKE_CURRENT_SOURCE_DIR}/NGIN.ngin")
@@ -82,8 +84,6 @@ add_custom_target(ngin.workflow
     ngin.build.core
   COMMENT "Run the standard workspace validate, graph, and build flow"
 )
-
-enable_testing()
 
 add_test(NAME ngin.doctor
   COMMAND $<TARGET_FILE:ngin_cli> workspace doctor
