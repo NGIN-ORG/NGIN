@@ -202,10 +202,10 @@ namespace NGIN::Core
                 auto parsed = ParseSemanticVersion(view.substr(1));
                 if (!parsed)
                 {
-                    return NGIN::Utilities::Unexpected<KernelError>(parsed.ErrorUnsafe());
+                    return NGIN::Utilities::Unexpected<KernelError>(parsed.Error());
                 }
-                range.lower = parsed.ValueUnsafe();
-                range.upper = parsed.ValueUnsafe();
+                range.lower = parsed.Value();
+                range.upper = parsed.Value();
                 range.includeLower = true;
                 range.includeUpper = true;
                 continue;
@@ -215,10 +215,10 @@ namespace NGIN::Core
                 auto parsed = ParseSemanticVersion(view);
                 if (!parsed)
                 {
-                    return NGIN::Utilities::Unexpected<KernelError>(parsed.ErrorUnsafe());
+                    return NGIN::Utilities::Unexpected<KernelError>(parsed.Error());
                 }
-                range.lower = parsed.ValueUnsafe();
-                range.upper = parsed.ValueUnsafe();
+                range.lower = parsed.Value();
+                range.upper = parsed.Value();
                 range.includeLower = true;
                 range.includeUpper = true;
                 continue;
@@ -227,17 +227,17 @@ namespace NGIN::Core
             auto parsed = ParseSemanticVersion(view);
             if (!parsed)
             {
-                return NGIN::Utilities::Unexpected<KernelError>(parsed.ErrorUnsafe());
+                return NGIN::Utilities::Unexpected<KernelError>(parsed.Error());
             }
 
             if (isLower)
             {
-                range.lower = parsed.ValueUnsafe();
+                range.lower = parsed.Value();
                 range.includeLower = include;
             }
             else
             {
-                range.upper = parsed.ValueUnsafe();
+                range.upper = parsed.Value();
                 range.includeUpper = include;
             }
         }

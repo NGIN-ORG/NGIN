@@ -20,7 +20,7 @@ namespace
     {
         auto parsed = NGIN::Core::ParseVersionRange(text);
         REQUIRE(parsed.HasValue());
-        return parsed.ValueUnsafe();
+        return parsed.Value();
     }
 
     [[nodiscard]] auto Version(
@@ -276,9 +276,9 @@ namespace
                     NGIN::Core::EventScope {.owner = std::string(context.ModuleName())});
                 if (!sub)
                 {
-                    return NGIN::Utilities::Unexpected<NGIN::Core::KernelError>(sub.ErrorUnsafe());
+                    return NGIN::Utilities::Unexpected<NGIN::Core::KernelError>(sub.Error());
                 }
-                m_tokens.push_back(sub.ValueUnsafe());
+                m_tokens.push_back(sub.Value());
             }
 
             return {};
@@ -462,7 +462,7 @@ TEST_CASE("KernelStartsWithDependencyOrderedModules", "[runtime][startup]")
 
     auto kernelResult = NGIN::Core::CreateKernel(MakeHostConfig(catalog));
     REQUIRE(kernelResult.HasValue());
-    auto kernel = kernelResult.ValueUnsafe();
+    auto kernel = kernelResult.Value();
 
     REQUIRE(kernel->Start().HasValue());
     REQUIRE(kernel->GetState() == NGIN::Core::KernelState::Running);
@@ -502,10 +502,10 @@ TEST_CASE("MissingRequiredDependencyFailsBeforeLifecycle", "[runtime][resolver]"
                 })
                 .HasValue());
 
-    auto kernel = NGIN::Core::CreateKernel(MakeHostConfig(catalog)).ValueUnsafe();
+    auto kernel = NGIN::Core::CreateKernel(MakeHostConfig(catalog)).Value();
     auto start = kernel->Start();
     REQUIRE_FALSE(start.HasValue());
-    REQUIRE(start.ErrorUnsafe().code == NGIN::Core::KernelErrorCode::NotFound);
+    REQUIRE(start.Error().code == NGIN::Core::KernelErrorCode::NotFound);
 }
 
 TEST_CASE("PlatformRangeAndDependencyVersionAreEnforced", "[runtime][compat]")
@@ -524,10 +524,10 @@ TEST_CASE("PlatformRangeAndDependencyVersionAreEnforced", "[runtime][compat]")
                     })
                     .HasValue());
 
-        auto kernel = NGIN::Core::CreateKernel(MakeHostConfig(catalog)).ValueUnsafe();
+        auto kernel = NGIN::Core::CreateKernel(MakeHostConfig(catalog)).Value();
         auto start = kernel->Start();
         REQUIRE_FALSE(start.HasValue());
-        REQUIRE(start.ErrorUnsafe().code == NGIN::Core::KernelErrorCode::IncompatiblePlatform);
+        REQUIRE(start.Error().code == NGIN::Core::KernelErrorCode::IncompatiblePlatform);
     }
 
     SECTION("Module supported hosts mismatch is rejected")
@@ -545,10 +545,10 @@ TEST_CASE("PlatformRangeAndDependencyVersionAreEnforced", "[runtime][compat]")
                     })
                     .HasValue());
 
-        auto kernel = NGIN::Core::CreateKernel(MakeHostConfig(catalog)).ValueUnsafe();
+        auto kernel = NGIN::Core::CreateKernel(MakeHostConfig(catalog)).Value();
         auto start = kernel->Start();
         REQUIRE_FALSE(start.HasValue());
-        REQUIRE(start.ErrorUnsafe().code == NGIN::Core::KernelErrorCode::IncompatibleHostType);
+        REQUIRE(start.Error().code == NGIN::Core::KernelErrorCode::IncompatibleHostType);
     }
 
     SECTION("Dependency requiredVersion mismatch is rejected")
@@ -581,10 +581,10 @@ TEST_CASE("PlatformRangeAndDependencyVersionAreEnforced", "[runtime][compat]")
                     })
                     .HasValue());
 
-        auto kernel = NGIN::Core::CreateKernel(MakeHostConfig(catalog)).ValueUnsafe();
+        auto kernel = NGIN::Core::CreateKernel(MakeHostConfig(catalog)).Value();
         auto start = kernel->Start();
         REQUIRE_FALSE(start.HasValue());
-        REQUIRE(start.ErrorUnsafe().code == NGIN::Core::KernelErrorCode::IncompatibleVersion);
+        REQUIRE(start.Error().code == NGIN::Core::KernelErrorCode::IncompatibleVersion);
     }
 }
 
@@ -618,10 +618,10 @@ TEST_CASE("LayerAndStartupStageViolationsAreRejected", "[runtime][resolver]")
                     })
                     .HasValue());
 
-        auto kernel = NGIN::Core::CreateKernel(MakeHostConfig(catalog)).ValueUnsafe();
+        auto kernel = NGIN::Core::CreateKernel(MakeHostConfig(catalog)).Value();
         auto start = kernel->Start();
         REQUIRE_FALSE(start.HasValue());
-        REQUIRE(start.ErrorUnsafe().code == NGIN::Core::KernelErrorCode::LayerConstraintViolation);
+        REQUIRE(start.Error().code == NGIN::Core::KernelErrorCode::LayerConstraintViolation);
     }
 
     SECTION("Dependency with later startup stage fails")
@@ -652,10 +652,10 @@ TEST_CASE("LayerAndStartupStageViolationsAreRejected", "[runtime][resolver]")
                     })
                     .HasValue());
 
-        auto kernel = NGIN::Core::CreateKernel(MakeHostConfig(catalog)).ValueUnsafe();
+        auto kernel = NGIN::Core::CreateKernel(MakeHostConfig(catalog)).Value();
         auto start = kernel->Start();
         REQUIRE_FALSE(start.HasValue());
-        REQUIRE(start.ErrorUnsafe().code == NGIN::Core::KernelErrorCode::StageOrderingViolation);
+        REQUIRE(start.Error().code == NGIN::Core::KernelErrorCode::StageOrderingViolation);
     }
 }
 
@@ -699,11 +699,11 @@ TEST_CASE("LifecycleFailureUnwindsStartedModules", "[runtime][lifecycle]")
                 })
                 .HasValue());
 
-    auto kernel = NGIN::Core::CreateKernel(MakeHostConfig(catalog)).ValueUnsafe();
+    auto kernel = NGIN::Core::CreateKernel(MakeHostConfig(catalog)).Value();
     auto start = kernel->Start();
     REQUIRE_FALSE(start.HasValue());
-    REQUIRE(start.ErrorUnsafe().code == NGIN::Core::KernelErrorCode::ModuleLifecycleFailure);
-    REQUIRE(start.ErrorUnsafe().cause != nullptr);
+    REQUIRE(start.Error().code == NGIN::Core::KernelErrorCode::ModuleLifecycleFailure);
+    REQUIRE(start.Error().cause != nullptr);
 
     REQUIRE(std::find(order.begin(), order.end(), "start:A") == order.end());
     REQUIRE(std::find(order.begin(), order.end(), "shutdown:A") != order.end());
@@ -745,7 +745,7 @@ TEST_CASE("ServiceRegistrySupportsSingletonScopedTransient", "[runtime][services
                     },
                     NGIN::Core::ServiceRegistrationOptions {
                         .lifetime = NGIN::Core::ServiceLifetime::Scoped,
-                        .ownerScope = scopeA.ValueUnsafe(),
+                        .ownerScope = scopeA.Value(),
                     })
                     .HasValue());
 
@@ -758,7 +758,7 @@ TEST_CASE("ServiceRegistrySupportsSingletonScopedTransient", "[runtime][services
                     },
                     NGIN::Core::ServiceRegistrationOptions {
                         .lifetime = NGIN::Core::ServiceLifetime::Transient,
-                        .ownerScope = scopeA.ValueUnsafe(),
+                        .ownerScope = scopeA.Value(),
                     })
                     .HasValue());
 
@@ -766,28 +766,28 @@ TEST_CASE("ServiceRegistrySupportsSingletonScopedTransient", "[runtime][services
     auto s2 = registry->ResolveRequired("Svc.Singleton");
     REQUIRE(s1.HasValue());
     REQUIRE(s2.HasValue());
-    REQUIRE(*s1.ValueUnsafe().TryCast<NGIN::UInt32>() == 1);
-    REQUIRE(*s2.ValueUnsafe().TryCast<NGIN::UInt32>() == 1);
+    REQUIRE(*s1.Value().TryCast<NGIN::UInt32>() == 1);
+    REQUIRE(*s2.Value().TryCast<NGIN::UInt32>() == 1);
 
-    auto scopedA1 = registry->ResolveRequired("Svc.Scoped", scopeA.ValueUnsafe());
-    auto scopedA2 = registry->ResolveRequired("Svc.Scoped", scopeA.ValueUnsafe());
-    auto scopedB1 = registry->ResolveRequired("Svc.Scoped", scopeB.ValueUnsafe());
+    auto scopedA1 = registry->ResolveRequired("Svc.Scoped", scopeA.Value());
+    auto scopedA2 = registry->ResolveRequired("Svc.Scoped", scopeA.Value());
+    auto scopedB1 = registry->ResolveRequired("Svc.Scoped", scopeB.Value());
     REQUIRE(scopedA1.HasValue());
     REQUIRE(scopedA2.HasValue());
     REQUIRE(scopedB1.HasValue());
-    REQUIRE(*scopedA1.ValueUnsafe().TryCast<NGIN::UInt32>() == *scopedA2.ValueUnsafe().TryCast<NGIN::UInt32>());
-    REQUIRE(*scopedB1.ValueUnsafe().TryCast<NGIN::UInt32>() != *scopedA1.ValueUnsafe().TryCast<NGIN::UInt32>());
+    REQUIRE(*scopedA1.Value().TryCast<NGIN::UInt32>() == *scopedA2.Value().TryCast<NGIN::UInt32>());
+    REQUIRE(*scopedB1.Value().TryCast<NGIN::UInt32>() != *scopedA1.Value().TryCast<NGIN::UInt32>());
 
-    auto t1 = registry->ResolveRequired("Svc.Transient", scopeA.ValueUnsafe());
-    auto t2 = registry->ResolveRequired("Svc.Transient", scopeA.ValueUnsafe());
+    auto t1 = registry->ResolveRequired("Svc.Transient", scopeA.Value());
+    auto t2 = registry->ResolveRequired("Svc.Transient", scopeA.Value());
     REQUIRE(t1.HasValue());
     REQUIRE(t2.HasValue());
-    REQUIRE(*t1.ValueUnsafe().TryCast<NGIN::UInt32>() != *t2.ValueUnsafe().TryCast<NGIN::UInt32>());
+    REQUIRE(*t1.Value().TryCast<NGIN::UInt32>() != *t2.Value().TryCast<NGIN::UInt32>());
 
-    REQUIRE(registry->EndScope(scopeA.ValueUnsafe()).HasValue());
-    auto scopedAfterEnd = registry->ResolveOptional("Svc.Scoped", scopeA.ValueUnsafe());
+    REQUIRE(registry->EndScope(scopeA.Value()).HasValue());
+    auto scopedAfterEnd = registry->ResolveOptional("Svc.Scoped", scopeA.Value());
     REQUIRE(scopedAfterEnd.HasValue());
-    REQUIRE_FALSE(scopedAfterEnd.ValueUnsafe().has_value());
+    REQUIRE_FALSE(scopedAfterEnd.Value().has_value());
 }
 
 TEST_CASE("ModuleRequiredServiceContractsAreEnforcedBeforeInit", "[runtime][services]")
@@ -807,10 +807,10 @@ TEST_CASE("ModuleRequiredServiceContractsAreEnforcedBeforeInit", "[runtime][serv
                 })
                 .HasValue());
 
-    auto kernel = NGIN::Core::CreateKernel(MakeHostConfig(catalog)).ValueUnsafe();
+    auto kernel = NGIN::Core::CreateKernel(MakeHostConfig(catalog)).Value();
     auto start = kernel->Start();
     REQUIRE_FALSE(start.HasValue());
-    REQUIRE(start.ErrorUnsafe().code == NGIN::Core::KernelErrorCode::MissingRequiredDependency);
+    REQUIRE(start.Error().code == NGIN::Core::KernelErrorCode::MissingRequiredDependency);
 }
 
 TEST_CASE("HostConfigSourcesCliAndEnvironmentAreApplied", "[runtime][config]")
@@ -841,15 +841,15 @@ TEST_CASE("HostConfigSourcesCliAndEnvironmentAreApplied", "[runtime][config]")
     cfg.configSources = {"base.cfg"};
     cfg.commandLineArgs = {"--App.Value=cli"};
 
-    auto kernel = NGIN::Core::CreateKernel(cfg).ValueUnsafe();
+    auto kernel = NGIN::Core::CreateKernel(cfg).Value();
     REQUIRE(kernel->Start().HasValue());
 
     auto config = kernel->GetConfig();
     REQUIRE(static_cast<bool>(config));
-    REQUIRE(config->GetRaw("App.Value").ValueUnsafe() == "cli");
-    REQUIRE(config->GetRaw("App.Other").ValueUnsafe() == "from_file");
-    REQUIRE(config->GetRaw("Kernel.EnvironmentName").ValueUnsafe() == "TestEnv");
-    REQUIRE(config->GetRaw("Kernel.HostName").ValueUnsafe() == "Core.Tests");
+    REQUIRE(config->GetRaw("App.Value").Value() == "cli");
+    REQUIRE(config->GetRaw("App.Other").Value() == "from_file");
+    REQUIRE(config->GetRaw("Kernel.EnvironmentName").Value() == "TestEnv");
+    REQUIRE(config->GetRaw("Kernel.HostName").Value() == "Core.Tests");
 
     REQUIRE(kernel->Shutdown().HasValue());
 }
@@ -889,10 +889,10 @@ TEST_CASE("DynamicDescriptorDiscoveryUsesPluginSearchPaths", "[runtime][plugin]"
     cfg.enableDynamicPlugins = true;
     cfg.pluginSearchPaths = {root.string()};
 
-    auto kernel = NGIN::Core::CreateKernel(cfg).ValueUnsafe();
+    auto kernel = NGIN::Core::CreateKernel(cfg).Value();
     auto start = kernel->Start();
     REQUIRE_FALSE(start.HasValue());
-    REQUIRE(start.ErrorUnsafe().code == NGIN::Core::KernelErrorCode::DynamicPluginUnsupported);
+    REQUIRE(start.Error().code == NGIN::Core::KernelErrorCode::DynamicPluginUnsupported);
 }
 
 TEST_CASE("TaskLanesAndBarriersExecutePerLane", "[runtime][tasks]")
@@ -961,7 +961,7 @@ TEST_CASE("KernelEmitsReservedLifecycleEvents", "[runtime][events]")
                 })
                 .HasValue());
 
-    auto kernel = NGIN::Core::CreateKernel(MakeHostConfig(catalog)).ValueUnsafe();
+    auto kernel = NGIN::Core::CreateKernel(MakeHostConfig(catalog)).Value();
     REQUIRE(kernel->Start().HasValue());
     REQUIRE(kernel->Shutdown().HasValue());
 
@@ -979,7 +979,7 @@ TEST_CASE("ThreadPoliciesAreEnforced", "[runtime][threading]")
         auto cfg = MakeHostConfig(catalog);
         cfg.apiThreadPolicy = NGIN::Core::KernelApiThreadPolicy::SingleThreadOnly;
 
-        auto kernel = NGIN::Core::CreateKernel(cfg).ValueUnsafe();
+        auto kernel = NGIN::Core::CreateKernel(cfg).Value();
 
         std::promise<NGIN::Core::CoreResult<void>> promise;
         auto future = promise.get_future();
@@ -988,7 +988,7 @@ TEST_CASE("ThreadPoliciesAreEnforced", "[runtime][threading]")
 
         auto start = future.get();
         REQUIRE_FALSE(start.HasValue());
-        REQUIRE(start.ErrorUnsafe().code == NGIN::Core::KernelErrorCode::ThreadPolicyViolation);
+        REQUIRE(start.Error().code == NGIN::Core::KernelErrorCode::ThreadPolicyViolation);
     }
 
     SECTION("Serialized allows cross-thread run and RequestStop")
@@ -1006,7 +1006,7 @@ TEST_CASE("ThreadPoliciesAreEnforced", "[runtime][threading]")
 
         auto cfg = MakeHostConfig(catalog);
         cfg.apiThreadPolicy = NGIN::Core::KernelApiThreadPolicy::Serialized;
-        auto kernel = NGIN::Core::CreateKernel(cfg).ValueUnsafe();
+        auto kernel = NGIN::Core::CreateKernel(cfg).Value();
 
         std::promise<NGIN::Core::CoreResult<void>> promise;
         auto future = promise.get_future();
@@ -1043,34 +1043,34 @@ TEST_CASE("ApplicationBuilderBuildsHostFromCode", "[builder][host]")
 
     auto app = builder->Build();
     REQUIRE(app.HasValue());
-    REQUIRE(app.ValueUnsafe()->GetProfile() == NGIN::Core::HostProfile::ConsoleApp);
-    REQUIRE(app.ValueUnsafe()->GetConfigurationName() == "Builder.Target");
+    REQUIRE(app.Value()->GetProfile() == NGIN::Core::HostProfile::ConsoleApp);
+    REQUIRE(app.Value()->GetConfigurationName() == "Builder.Target");
 
-    auto report = app.ValueUnsafe()->GetStartupReport();
+    auto report = app.Value()->GetStartupReport();
     REQUIRE(report.targetName == "Builder.Target");
     REQUIRE(report.hostName == "Builder.Tests");
     REQUIRE(report.hostType == "ConsoleApp");
 
-    REQUIRE(app.ValueUnsafe()->Start().HasValue());
+    REQUIRE(app.Value()->Start().HasValue());
 
-    auto services = app.ValueUnsafe()->GetServices();
+    auto services = app.Value()->GetServices();
     REQUIRE(static_cast<bool>(services));
 
     auto resolved = services->ResolveRequired("App.Message");
     REQUIRE(resolved.HasValue());
-    REQUIRE(resolved.ValueUnsafe().template TryCast<std::string>() != nullptr);
-    REQUIRE(*resolved.ValueUnsafe().template TryCast<std::string>() == "hello-builder");
+    REQUIRE(resolved.Value().template TryCast<std::string>() != nullptr);
+    REQUIRE(*resolved.Value().template TryCast<std::string>() == "hello-builder");
 
-    auto config = app.ValueUnsafe()->GetConfig();
+    auto config = app.Value()->GetConfig();
     REQUIRE(static_cast<bool>(config));
     REQUIRE(config->GetRaw("Kernel.TargetName").HasValue());
-    REQUIRE(config->GetRaw("Kernel.TargetName").ValueUnsafe() == "Builder.Target");
+    REQUIRE(config->GetRaw("Kernel.TargetName").Value() == "Builder.Target");
 
     auto secondBuild = builder->Build();
     REQUIRE_FALSE(secondBuild.HasValue());
-    REQUIRE(secondBuild.ErrorUnsafe().code == NGIN::Core::KernelErrorCode::InvalidState);
+    REQUIRE(secondBuild.Error().code == NGIN::Core::KernelErrorCode::InvalidState);
 
-    REQUIRE(app.ValueUnsafe()->Shutdown().HasValue());
+    REQUIRE(app.Value()->Shutdown().HasValue());
 }
 
 TEST_CASE("ApplicationBuilderLoadsProjectManifestAndConfig", "[builder][manifest]")
@@ -1147,22 +1147,22 @@ TEST_CASE("ApplicationBuilderLoadsProjectManifestAndConfig", "[builder][manifest
 
     auto app = builder->Build();
     REQUIRE(app.HasValue());
-    REQUIRE(app.ValueUnsafe()->Start().HasValue());
+    REQUIRE(app.Value()->Start().HasValue());
 
-    auto report = app.ValueUnsafe()->GetStartupReport();
+    auto report = app.Value()->GetStartupReport();
     REQUIRE(report.targetName == "Samples.Manifest");
     REQUIRE(std::find(report.resolvedPackages.begin(), report.resolvedPackages.end(), "NGIN.ECS") != report.resolvedPackages.end());
     REQUIRE(std::find(report.resolvedModules.begin(), report.resolvedModules.end(), "App.Manifest") != report.resolvedModules.end());
     REQUIRE(std::find(report.resolvedModules.begin(), report.resolvedModules.end(), "App.Disabled") == report.resolvedModules.end());
 
-    auto config = app.ValueUnsafe()->GetConfig();
+    auto config = app.Value()->GetConfig();
     REQUIRE(static_cast<bool>(config));
     REQUIRE(config->GetRaw("App.Mode").HasValue());
-    REQUIRE(config->GetRaw("App.Mode").ValueUnsafe() == "manifest");
+    REQUIRE(config->GetRaw("App.Mode").Value() == "manifest");
     REQUIRE(config->GetRaw("Kernel.EnvironmentName").HasValue());
-    REQUIRE(config->GetRaw("Kernel.EnvironmentName").ValueUnsafe() == "Dev");
+    REQUIRE(config->GetRaw("Kernel.EnvironmentName").Value() == "Dev");
 
-    REQUIRE(app.ValueUnsafe()->Shutdown().HasValue());
+    REQUIRE(app.Value()->Shutdown().HasValue());
     std::filesystem::remove_all(tempDir);
 }
 
@@ -1229,19 +1229,19 @@ TEST_CASE("ApplicationBuilderTargetOverrideBeatsProjectDefault", "[builder][mani
 
     auto app = builder->Build();
     REQUIRE(app.HasValue());
-    REQUIRE(app.ValueUnsafe()->Start().HasValue());
+    REQUIRE(app.Value()->Start().HasValue());
 
-    auto report = app.ValueUnsafe()->GetStartupReport();
+    auto report = app.Value()->GetStartupReport();
     REQUIRE(report.targetName == "Override.Target");
     REQUIRE(std::find(report.resolvedModules.begin(), report.resolvedModules.end(), "App.Override") != report.resolvedModules.end());
     REQUIRE(std::find(report.resolvedModules.begin(), report.resolvedModules.end(), "App.Default") == report.resolvedModules.end());
 
-    auto config = app.ValueUnsafe()->GetConfig();
+    auto config = app.Value()->GetConfig();
     REQUIRE(static_cast<bool>(config));
     REQUIRE(config->GetRaw("Kernel.EnvironmentName").HasValue());
-    REQUIRE(config->GetRaw("Kernel.EnvironmentName").ValueUnsafe() == "Override");
+    REQUIRE(config->GetRaw("Kernel.EnvironmentName").Value() == "Override");
 
-    REQUIRE(app.ValueUnsafe()->Shutdown().HasValue());
+    REQUIRE(app.Value()->Shutdown().HasValue());
     std::filesystem::remove_all(tempDir);
 }
 
@@ -1280,7 +1280,7 @@ TEST_CASE("ApplicationBuilderRejectsUnknownTarget", "[builder][manifest]")
 
     auto app = builder->Build();
     REQUIRE_FALSE(app.HasValue());
-    REQUIRE(app.ErrorUnsafe().code == NGIN::Core::KernelErrorCode::NotFound);
+    REQUIRE(app.Error().code == NGIN::Core::KernelErrorCode::NotFound);
 
     std::filesystem::remove_all(tempDir);
 }
@@ -1349,25 +1349,25 @@ TEST_CASE("ApplicationBuilderExecutesExplicitPackageBootstrapFromManifestFile", 
 
     auto app = builder->Build();
     REQUIRE(app.HasValue());
-    REQUIRE(app.ValueUnsafe()->Start().HasValue());
+    REQUIRE(app.Value()->Start().HasValue());
 
-    auto services = app.ValueUnsafe()->GetServices();
+    auto services = app.Value()->GetServices();
     REQUIRE(static_cast<bool>(services));
 
     auto message = services->ResolveRequired("Samples.Package.Message");
     REQUIRE(message.HasValue());
-    REQUIRE(message.ValueUnsafe().template TryCast<std::string>() != nullptr);
-    REQUIRE(*message.ValueUnsafe().template TryCast<std::string>() == "bootstrapped");
+    REQUIRE(message.Value().template TryCast<std::string>() != nullptr);
+    REQUIRE(*message.Value().template TryCast<std::string>() == "bootstrapped");
 
-    auto config = app.ValueUnsafe()->GetConfig();
+    auto config = app.Value()->GetConfig();
     REQUIRE(static_cast<bool>(config));
     REQUIRE(config->GetRaw("Package.Mode").HasValue());
-    REQUIRE(config->GetRaw("Package.Mode").ValueUnsafe() == "bootstrapped");
+    REQUIRE(config->GetRaw("Package.Mode").Value() == "bootstrapped");
 
-    auto report = app.ValueUnsafe()->GetStartupReport();
+    auto report = app.Value()->GetStartupReport();
     REQUIRE(ContainsString(report.resolvedPackages, "Samples.Package"));
 
-    REQUIRE(app.ValueUnsafe()->Shutdown().HasValue());
+    REQUIRE(app.Value()->Shutdown().HasValue());
     std::filesystem::remove_all(tempDir);
 }
 
@@ -1404,17 +1404,17 @@ TEST_CASE("ApplicationBuilderExecutesNamedPackageBootstrapEntry", "[builder][boo
 
     auto app = builder->Build();
     REQUIRE(app.HasValue());
-    REQUIRE(app.ValueUnsafe()->Start().HasValue());
+    REQUIRE(app.Value()->Start().HasValue());
 
-    auto services = app.ValueUnsafe()->GetServices();
+    auto services = app.Value()->GetServices();
     REQUIRE(static_cast<bool>(services));
 
     auto message = services->ResolveRequired("Samples.Package.Message");
     REQUIRE(message.HasValue());
-    REQUIRE(message.ValueUnsafe().template TryCast<std::string>() != nullptr);
-    REQUIRE(*message.ValueUnsafe().template TryCast<std::string>() == "bootstrapped-alt");
+    REQUIRE(message.Value().template TryCast<std::string>() != nullptr);
+    REQUIRE(*message.Value().template TryCast<std::string>() == "bootstrapped-alt");
 
-    REQUIRE(app.ValueUnsafe()->Shutdown().HasValue());
+    REQUIRE(app.Value()->Shutdown().HasValue());
 }
 
 TEST_CASE("ApplicationBuilderAutoAppliesPackagesInDependencyOrder", "[builder][bootstrap]")
@@ -1516,7 +1516,7 @@ TEST_CASE("ApplicationBuilderFailsOnMissingRequiredAutoAppliedPackageBootstrap",
 
     auto app = builder->Build();
     REQUIRE_FALSE(app.HasValue());
-    REQUIRE(app.ErrorUnsafe().code == NGIN::Core::KernelErrorCode::NotFound);
+    REQUIRE(app.Error().code == NGIN::Core::KernelErrorCode::NotFound);
 }
 
 TEST_CASE("ApplicationBuilderSkipsOptionalAutoAppliedPackageWithWarning", "[builder][bootstrap]")
@@ -1551,7 +1551,7 @@ TEST_CASE("ApplicationBuilderSkipsOptionalAutoAppliedPackageWithWarning", "[buil
     auto app = builder->Build();
     REQUIRE(app.HasValue());
 
-    auto report = app.ValueUnsafe()->GetStartupReport();
+    auto report = app.Value()->GetStartupReport();
     REQUIRE_FALSE(report.warnings.empty());
     REQUIRE(ContainsWarningMessage(
         report.warnings,
@@ -1591,5 +1591,5 @@ TEST_CASE("ApplicationBuilderFailsOnDuplicatePackageBootstrapEntry", "[builder][
 
     auto app = builder->Build();
     REQUIRE_FALSE(app.HasValue());
-    REQUIRE(app.ErrorUnsafe().code == NGIN::Core::KernelErrorCode::AlreadyExists);
+    REQUIRE(app.Error().code == NGIN::Core::KernelErrorCode::AlreadyExists);
 }

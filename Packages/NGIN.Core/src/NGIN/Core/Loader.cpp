@@ -149,7 +149,7 @@ namespace NGIN::Core
                         "failed to parse plugin descriptor: " + filePath));
             }
 
-            const XmlDocument& doc = parsed.ValueUnsafe();
+            const XmlDocument& doc = parsed.Value();
             const auto* root = doc.Root();
             if (root == nullptr || root->name != "Module")
             {
@@ -205,9 +205,9 @@ namespace NGIN::Core
                 auto parsedVersion = ParseSemanticVersion(version.value());
                 if (!parsedVersion)
                 {
-                    return NGIN::Utilities::Unexpected<KernelError>(parsedVersion.ErrorUnsafe());
+                    return NGIN::Utilities::Unexpected<KernelError>(parsedVersion.Error());
                 }
-                out.version = parsedVersion.ValueUnsafe();
+                out.version = parsedVersion.Value();
             }
 
             if (const auto range = Attribute(*root, "CompatiblePlatformRange"); range.has_value())
@@ -215,9 +215,9 @@ namespace NGIN::Core
                 auto parsedRange = ParseVersionRange(range.value());
                 if (!parsedRange)
                 {
-                    return NGIN::Utilities::Unexpected<KernelError>(parsedRange.ErrorUnsafe());
+                    return NGIN::Utilities::Unexpected<KernelError>(parsedRange.Error());
                 }
-                out.compatiblePlatformRange = parsedRange.ValueUnsafe();
+                out.compatiblePlatformRange = parsedRange.Value();
             }
 
             ReadStringRefs(FindChild(*root, "Platforms"), "Platform", out.platforms);
@@ -272,9 +272,9 @@ namespace NGIN::Core
                         auto parsedDepRange = ParseVersionRange(depRange.value());
                         if (!parsedDepRange)
                         {
-                            return NGIN::Utilities::Unexpected<KernelError>(parsedDepRange.ErrorUnsafe());
+                            return NGIN::Utilities::Unexpected<KernelError>(parsedDepRange.Error());
                         }
-                        dep.requiredVersion = parsedDepRange.ValueUnsafe();
+                        dep.requiredVersion = parsedDepRange.Value();
                     }
 
                     out.dependencies.push_back(std::move(dep));
@@ -383,7 +383,7 @@ namespace NGIN::Core
                     auto parse = ParseDescriptorFromXml(path.string(), stream.str(), descriptor);
                     if (!parse)
                     {
-                        return NGIN::Utilities::Unexpected<KernelError>(parse.ErrorUnsafe());
+                        return NGIN::Utilities::Unexpected<KernelError>(parse.Error());
                     }
 
                     if (descriptor.pluginName.empty())

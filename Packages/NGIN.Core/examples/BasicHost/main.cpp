@@ -17,7 +17,7 @@ namespace
         descriptor.family = ModuleFamily::App;
         descriptor.type = ModuleType::Runtime;
         descriptor.version = SemanticVersion {0, 1, 0, {}};
-        descriptor.compatiblePlatformRange = ParseVersionRange(">=0.1.0 <1.0.0").ValueUnsafe();
+        descriptor.compatiblePlatformRange = ParseVersionRange(">=0.1.0 <1.0.0").Value();
         descriptor.platforms = {"linux", "windows", "macos"};
         descriptor.startupStage = stage;
         descriptor.entryKind = ModuleEntryKind::Static;
@@ -132,15 +132,15 @@ int main(int argc, char** argv)
     auto app = builder->Build();
     if (!app)
     {
-        std::cerr << "Build failed: " << app.ErrorUnsafe().message << "\n";
+        std::cerr << "Build failed: " << app.Error().message << "\n";
         return 1;
     }
 
-    auto host = app.ValueUnsafe();
+    auto host = app.Value();
     auto start = host->Start();
     if (!start)
     {
-        std::cerr << "Start failed: " << start.ErrorUnsafe().message << "\n";
+        std::cerr << "Start failed: " << start.Error().message << "\n";
         return 2;
     }
 
@@ -154,14 +154,14 @@ int main(int argc, char** argv)
     auto resolvedMessage = services->ResolveRequired("App.Message");
     if (!resolvedMessage)
     {
-        std::cerr << "failed to resolve App.Message: " << resolvedMessage.ErrorUnsafe().message << "\n";
+        std::cerr << "failed to resolve App.Message: " << resolvedMessage.Error().message << "\n";
         return 4;
     }
 
     auto packageMessage = services->ResolveRequired("Samples.Package.Message");
     if (!packageMessage)
     {
-        std::cerr << "failed to resolve Samples.Package.Message: " << packageMessage.ErrorUnsafe().message << "\n";
+        std::cerr << "failed to resolve Samples.Package.Message: " << packageMessage.Error().message << "\n";
         return 5;
     }
 
@@ -177,7 +177,7 @@ int main(int argc, char** argv)
     auto shutdown = host->Shutdown();
     if (!shutdown)
     {
-        std::cerr << "Shutdown failed: " << shutdown.ErrorUnsafe().message << "\n";
+        std::cerr << "Shutdown failed: " << shutdown.Error().message << "\n";
         return 7;
     }
 

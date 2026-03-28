@@ -94,7 +94,7 @@ namespace NGIN::Core
         std::lock_guard<std::mutex> lock(m_mutex);
         if (auto valid = ValidateOptions(options); !valid)
         {
-            return NGIN::Utilities::Unexpected<KernelError>(valid.ErrorUnsafe());
+            return NGIN::Utilities::Unexpected<KernelError>(valid.Error());
         }
 
         if (options.lifetime != ServiceLifetime::Singleton)
@@ -139,7 +139,7 @@ namespace NGIN::Core
         std::lock_guard<std::mutex> lock(m_mutex);
         if (auto valid = ValidateOptions(options); !valid)
         {
-            return NGIN::Utilities::Unexpected<KernelError>(valid.ErrorUnsafe());
+            return NGIN::Utilities::Unexpected<KernelError>(valid.Error());
         }
 
         if (m_entries.contains(key))
@@ -208,14 +208,14 @@ namespace NGIN::Core
         auto created = factory();
         if (!created)
         {
-            return NGIN::Utilities::Unexpected<KernelError>(created.ErrorUnsafe());
+            return NGIN::Utilities::Unexpected<KernelError>(created.Error());
         }
 
         std::lock_guard<std::mutex> lock(m_mutex);
         auto it = m_entries.find(std::string(key));
         if (it == m_entries.end())
         {
-            return std::optional<NGIN::Utilities::Any<>> {created.ValueUnsafe()};
+            return std::optional<NGIN::Utilities::Any<>> {created.Value()};
         }
 
         switch (lifetime)
@@ -223,7 +223,7 @@ namespace NGIN::Core
             case ServiceLifetime::Singleton:
                 if (!it->second.singletonInstance.has_value())
                 {
-                    it->second.singletonInstance.emplace(created.ValueUnsafe());
+                    it->second.singletonInstance.emplace(created.Value());
                 }
                 return it->second.singletonInstance;
             case ServiceLifetime::Scoped:
@@ -242,15 +242,15 @@ namespace NGIN::Core
                 auto cacheIt = it->second.scopedCache.find(activeScope.value);
                 if (cacheIt == it->second.scopedCache.end())
                 {
-                    cacheIt = it->second.scopedCache.emplace(activeScope.value, created.ValueUnsafe()).first;
+                    cacheIt = it->second.scopedCache.emplace(activeScope.value, created.Value()).first;
                 }
                 return std::optional<NGIN::Utilities::Any<>> {cacheIt->second};
             }
             case ServiceLifetime::Transient:
-                return std::optional<NGIN::Utilities::Any<>> {created.ValueUnsafe()};
+                return std::optional<NGIN::Utilities::Any<>> {created.Value()};
         }
 
-        return std::optional<NGIN::Utilities::Any<>> {created.ValueUnsafe()};
+        return std::optional<NGIN::Utilities::Any<>> {created.Value()};
     }
 
     auto ServiceRegistry::ResolveRequired(const std::string_view key, const ServiceScopeId resolveScope) noexcept -> CoreResult<NGIN::Utilities::Any<>>
@@ -258,16 +258,16 @@ namespace NGIN::Core
         auto optionalValue = ResolveOptional(key, resolveScope);
         if (!optionalValue)
         {
-            return NGIN::Utilities::Unexpected<KernelError>(optionalValue.ErrorUnsafe());
+            return NGIN::Utilities::Unexpected<KernelError>(optionalValue.Error());
         }
 
-        if (!optionalValue.ValueUnsafe().has_value())
+        if (!optionalValue.Value().has_value())
         {
             return NGIN::Utilities::Unexpected<KernelError>(
                 MakeKernelError(KernelErrorCode::NotFound, "Services", {}, "service not found: " + std::string(key)));
         }
 
-        return *optionalValue.ValueUnsafe();
+        return *optionalValue.Value();
     }
 
     auto ServiceRegistry::EnumerateKeys() const -> std::vector<std::string>

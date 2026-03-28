@@ -114,7 +114,7 @@ namespace NGIN::Core
             auto flush = FlushDeferredFrom(queue, channel);
             if (!flush)
             {
-                return NGIN::Utilities::Unexpected<KernelError>(flush.ErrorUnsafe());
+                return NGIN::Utilities::Unexpected<KernelError>(flush.Error());
             }
         }
         return CoreResult<void> {};
@@ -164,7 +164,7 @@ namespace NGIN::Core
             auto dispatch = PublishImmediate(std::move(next));
             if (!dispatch)
             {
-                return NGIN::Utilities::Unexpected<KernelError>(dispatch.ErrorUnsafe());
+                return NGIN::Utilities::Unexpected<KernelError>(dispatch.Error());
             }
         }
 

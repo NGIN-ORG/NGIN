@@ -161,19 +161,19 @@ namespace NGIN::Core
 
             if (auto applied = ApplyHostConfig(); !applied)
             {
-                CaptureFailure(applied.ErrorUnsafe());
+                CaptureFailure(applied.Error());
                 SetState(KernelState::Stopped);
                 SetState(KernelState::Shutdown);
-                return NGIN::Utilities::Unexpected<KernelError>(applied.ErrorUnsafe());
+                return NGIN::Utilities::Unexpected<KernelError>(applied.Error());
             }
 
             auto resolve = ResolveModules();
             if (!resolve)
             {
-                CaptureFailure(resolve.ErrorUnsafe());
+                CaptureFailure(resolve.Error());
                 SetState(KernelState::Stopped);
                 SetState(KernelState::Shutdown);
-                return NGIN::Utilities::Unexpected<KernelError>(resolve.ErrorUnsafe());
+                return NGIN::Utilities::Unexpected<KernelError>(resolve.Error());
             }
 
             SetState(KernelState::ModulesResolved);
@@ -181,10 +181,10 @@ namespace NGIN::Core
             auto build = BuildSubsystems();
             if (!build)
             {
-                CaptureFailure(build.ErrorUnsafe());
+                CaptureFailure(build.Error());
                 SetState(KernelState::Stopped);
                 SetState(KernelState::Shutdown);
-                return NGIN::Utilities::Unexpected<KernelError>(build.ErrorUnsafe());
+                return NGIN::Utilities::Unexpected<KernelError>(build.Error());
             }
 
             SetState(KernelState::ServicesBuilt);
@@ -202,17 +202,17 @@ namespace NGIN::Core
                 auto configured = m_config.configureServices(bootstrapContext);
                 if (!configured)
                 {
-                    CaptureFailure(configured.ErrorUnsafe());
+                    CaptureFailure(configured.Error());
                     SetState(KernelState::Stopped);
                     SetState(KernelState::Shutdown);
-                    return NGIN::Utilities::Unexpected<KernelError>(configured.ErrorUnsafe());
+                    return NGIN::Utilities::Unexpected<KernelError>(configured.Error());
                 }
             }
 
             auto load = LoadAndStartModules();
             if (!load)
             {
-                CaptureFailure(load.ErrorUnsafe());
+                CaptureFailure(load.Error());
                 if (apiLock.owns_lock())
                 {
                     apiLock.unlock();
@@ -220,9 +220,9 @@ namespace NGIN::Core
                 auto shutdown = Shutdown();
                 if (!shutdown)
                 {
-                    return NGIN::Utilities::Unexpected<KernelError>(shutdown.ErrorUnsafe());
+                    return NGIN::Utilities::Unexpected<KernelError>(shutdown.Error());
                 }
-                return NGIN::Utilities::Unexpected<KernelError>(load.ErrorUnsafe());
+                return NGIN::Utilities::Unexpected<KernelError>(load.Error());
             }
 
             SetState(KernelState::ModulesLoaded);
@@ -296,7 +296,7 @@ namespace NGIN::Core
                 auto flush = m_events->FlushDeferred();
                 if (!flush)
                 {
-                    return NGIN::Utilities::Unexpected<KernelError>(flush.ErrorUnsafe());
+                    return NGIN::Utilities::Unexpected<KernelError>(flush.Error());
                 }
             }
 
@@ -481,27 +481,27 @@ namespace NGIN::Core
             }
 
             auto set = m_configStore->SetValue(ConfigLayer::BuiltInDefaults, "Kernel.HostName", m_config.hostName);
-            if (!set) return NGIN::Utilities::Unexpected<KernelError>(set.ErrorUnsafe());
+            if (!set) return NGIN::Utilities::Unexpected<KernelError>(set.Error());
 
             set = m_configStore->SetValue(ConfigLayer::BuiltInDefaults, "Kernel.TargetName", m_config.targetName);
-            if (!set) return NGIN::Utilities::Unexpected<KernelError>(set.ErrorUnsafe());
+            if (!set) return NGIN::Utilities::Unexpected<KernelError>(set.Error());
 
             set = m_configStore->SetValue(ConfigLayer::BuiltInDefaults, "Kernel.Platform", m_config.platformName);
-            if (!set) return NGIN::Utilities::Unexpected<KernelError>(set.ErrorUnsafe());
+            if (!set) return NGIN::Utilities::Unexpected<KernelError>(set.Error());
 
             set = m_configStore->SetValue(ConfigLayer::BuiltInDefaults, "Kernel.PlatformVersion", FormatSemanticVersion(m_config.platformVersion));
-            if (!set) return NGIN::Utilities::Unexpected<KernelError>(set.ErrorUnsafe());
+            if (!set) return NGIN::Utilities::Unexpected<KernelError>(set.Error());
 
             set = m_configStore->SetValue(ConfigLayer::BuiltInDefaults, "Kernel.HostType", std::string(ToString(m_config.hostType)));
-            if (!set) return NGIN::Utilities::Unexpected<KernelError>(set.ErrorUnsafe());
+            if (!set) return NGIN::Utilities::Unexpected<KernelError>(set.Error());
 
             set = m_configStore->SetValue(ConfigLayer::BuiltInDefaults, "Kernel.ReflectionEnabled", m_config.enableReflection ? "true" : "false");
-            if (!set) return NGIN::Utilities::Unexpected<KernelError>(set.ErrorUnsafe());
+            if (!set) return NGIN::Utilities::Unexpected<KernelError>(set.Error());
 
             if (!m_config.environmentName.empty())
             {
                 set = m_configStore->SetValue(ConfigLayer::Environment, "Kernel.EnvironmentName", m_config.environmentName);
-                if (!set) return NGIN::Utilities::Unexpected<KernelError>(set.ErrorUnsafe());
+                if (!set) return NGIN::Utilities::Unexpected<KernelError>(set.Error());
             }
 
             std::filesystem::path baseDir = m_config.workingDirectory;
@@ -576,7 +576,7 @@ namespace NGIN::Core
                     set = m_configStore->SetValue(ConfigLayer::HostTarget, std::string(key), std::string(value));
                     if (!set)
                     {
-                        return NGIN::Utilities::Unexpected<KernelError>(set.ErrorUnsafe());
+                        return NGIN::Utilities::Unexpected<KernelError>(set.Error());
                     }
                 }
             }
@@ -597,7 +597,7 @@ namespace NGIN::Core
                 set = m_configStore->SetValue(ConfigLayer::CommandLine, key, value);
                 if (!set)
                 {
-                    return NGIN::Utilities::Unexpected<KernelError>(set.ErrorUnsafe());
+                    return NGIN::Utilities::Unexpected<KernelError>(set.Error());
                 }
             }
 
@@ -648,9 +648,9 @@ namespace NGIN::Core
             });
             if (!configSub)
             {
-                return NGIN::Utilities::Unexpected<KernelError>(configSub.ErrorUnsafe());
+                return NGIN::Utilities::Unexpected<KernelError>(configSub.Error());
             }
-            m_configSubscription = configSub.ValueUnsafe();
+            m_configSubscription = configSub.Value();
 
             return CoreResult<void> {};
         }
@@ -682,7 +682,7 @@ namespace NGIN::Core
                 auto collect = m_config.pluginCatalog->CollectDescriptors(dynamicDescriptors);
                 if (!collect)
                 {
-                    return NGIN::Utilities::Unexpected<KernelError>(collect.ErrorUnsafe());
+                    return NGIN::Utilities::Unexpected<KernelError>(collect.Error());
                 }
 
                 for (auto& descriptor : dynamicDescriptors)
@@ -1114,7 +1114,7 @@ namespace NGIN::Core
                     auto load = m_config.pluginBinaryLoader->LoadBinary(descriptor);
                     if (!load)
                     {
-                        return NGIN::Utilities::Unexpected<KernelError>(load.ErrorUnsafe());
+                        return NGIN::Utilities::Unexpected<KernelError>(load.Error());
                     }
                 }
 
@@ -1127,17 +1127,17 @@ namespace NGIN::Core
                 auto instance = resolved.registration.factory();
                 if (!instance)
                 {
-                    return NGIN::Utilities::Unexpected<KernelError>(instance.ErrorUnsafe());
+                    return NGIN::Utilities::Unexpected<KernelError>(instance.Error());
                 }
 
                 auto scope = m_services->BeginScope(ServiceScopeKind::Module, descriptor.name);
                 if (!scope)
                 {
-                    return NGIN::Utilities::Unexpected<KernelError>(scope.ErrorUnsafe());
+                    return NGIN::Utilities::Unexpected<KernelError>(scope.Error());
                 }
 
-                m_moduleInstances[index] = instance.ValueUnsafe();
-                m_moduleScopes[index] = scope.ValueUnsafe();
+                m_moduleInstances[index] = instance.Value();
+                m_moduleScopes[index] = scope.Value();
                 m_moduleInfos[index].state = ModuleState::Constructed;
 
                 ModuleContext context(
@@ -1153,8 +1153,8 @@ namespace NGIN::Core
                 auto reg = m_moduleInstances[index]->OnRegister(context);
                 if (!reg)
                 {
-                    m_moduleInfos[index].lastError = reg.ErrorUnsafe().message;
-                    return LifecycleFailure("OnRegister", descriptor.name, reg.ErrorUnsafe());
+                    m_moduleInfos[index].lastError = reg.Error().message;
+                    return LifecycleFailure("OnRegister", descriptor.name, reg.Error());
                 }
 
                 m_moduleInfos[index].registered = true;
@@ -1170,9 +1170,9 @@ namespace NGIN::Core
                     auto resolved = m_services->ResolveOptional(requiredService, m_moduleScopes[index]);
                     if (!resolved)
                     {
-                        return NGIN::Utilities::Unexpected<KernelError>(resolved.ErrorUnsafe());
+                        return NGIN::Utilities::Unexpected<KernelError>(resolved.Error());
                     }
-                    if (!resolved.ValueUnsafe().has_value())
+                    if (!resolved.Value().has_value())
                     {
                         return NGIN::Utilities::Unexpected<KernelError>(
                             MakeKernelError(
@@ -1202,8 +1202,8 @@ namespace NGIN::Core
                 auto init = m_moduleInstances[index]->OnInit(context);
                 if (!init)
                 {
-                    m_moduleInfos[index].lastError = init.ErrorUnsafe().message;
-                    return LifecycleFailure("OnInit", descriptor.name, init.ErrorUnsafe());
+                    m_moduleInfos[index].lastError = init.Error().message;
+                    return LifecycleFailure("OnInit", descriptor.name, init.Error());
                 }
 
                 m_moduleInfos[index].initialized = true;
@@ -1227,9 +1227,9 @@ namespace NGIN::Core
                 auto start = m_moduleInstances[index]->OnStart(context);
                 if (!start)
                 {
-                    m_moduleInfos[index].lastError = start.ErrorUnsafe().message;
+                    m_moduleInfos[index].lastError = start.Error().message;
                     EmitModuleEvent(ReservedKernelEvent::ModuleFailed, descriptor.name);
-                    return LifecycleFailure("OnStart", descriptor.name, start.ErrorUnsafe());
+                    return LifecycleFailure("OnStart", descriptor.name, start.Error());
                 }
 
                 m_moduleInfos[index].started = true;
@@ -1276,7 +1276,7 @@ namespace NGIN::Core
                     auto stop = m_moduleInstances[index]->OnStop(context);
                     if (!stop)
                     {
-                        info.lastError = stop.ErrorUnsafe().message;
+                        info.lastError = stop.Error().message;
                     }
                     info.started = false;
                 }
@@ -1288,7 +1288,7 @@ namespace NGIN::Core
                     auto shutdown = m_moduleInstances[index]->OnShutdown(context);
                     if (!shutdown)
                     {
-                        info.lastError = shutdown.ErrorUnsafe().message;
+                        info.lastError = shutdown.Error().message;
                     }
                     info.registered = false;
                 }
@@ -1298,7 +1298,7 @@ namespace NGIN::Core
                     auto endScope = m_services->EndScope(m_moduleScopes[index]);
                     if (!endScope)
                     {
-                        info.lastError = endScope.ErrorUnsafe().message;
+                        info.lastError = endScope.Error().message;
                     }
                 }
 

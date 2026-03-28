@@ -185,15 +185,15 @@ namespace NGIN::Core
         auto value = registry.ResolveOptional(TypeServiceKey<T>(), resolveScope);
         if (!value)
         {
-            return NGIN::Utilities::Unexpected<KernelError>(value.ErrorUnsafe());
+            return NGIN::Utilities::Unexpected<KernelError>(value.Error());
         }
 
-        if (!value.ValueUnsafe().has_value())
+        if (!value.Value().has_value())
         {
             return std::optional<T> {};
         }
 
-        const auto& anyValue = *value.ValueUnsafe();
+        const auto& anyValue = *value.Value();
         const auto* typed = anyValue.template TryCast<T>();
         if (typed == nullptr)
         {
