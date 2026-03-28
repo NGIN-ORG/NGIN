@@ -19,9 +19,12 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
+#include <cstdint>
 #include <fstream>
 #include <map>
+#include <sstream>
 #include <set>
+#include <string_view>
 #include <tuple>
 #include <unordered_map>
 #include <unordered_set>
@@ -150,6 +153,63 @@ namespace NGIN::CLI
                 return "artifact";
             }
             return value;
+        }
+
+        [[nodiscard]] auto HashString(std::string_view value) -> std::string
+        {
+            std::uint64_t hash = 14695981039346656037ull;
+            for (const unsigned char ch : value)
+            {
+                hash ^= ch;
+                hash *= 1099511628211ull;
+            }
+
+            std::ostringstream stream{};
+            stream << std::hex << hash;
+            return stream.str();
+        }
+
+        [[nodiscard]] auto ReadTextFile(const fs::path &path) -> std::optional<std::string>
+        {
+            std::ifstream input(path, std::ios::binary);
+            if (!input)
+            {
+                return std::nullopt;
+            }
+
+            std::ostringstream buffer{};
+            buffer << input.rdbuf();
+            return buffer.str();
+        }
+
+        [[nodiscard]] auto WriteTextFileIfChanged(const fs::path &path, std::string_view content) -> bool
+        {
+            if (const auto existing = ReadTextFile(path); existing.has_value() && *existing == content)
+            {
+                return false;
+            }
+
+            std::ofstream output(path, std::ios::binary | std::ios::trunc);
+            output.write(content.data(), static_cast<std::streamsize>(content.size()));
+            return true;
+        }
+
+        struct GeneratedBuildPaths
+        {
+            fs::path sourceDir;
+            fs::path buildDir;
+        };
+
+        [[nodiscard]] auto ResolveGeneratedBuildPaths(const ResolvedLaunch &resolved, const fs::path &outputDir) -> GeneratedBuildPaths
+        {
+            const auto buildRoot = resolved.workspace.has_value() ? resolved.workspace->path.parent_path() : resolved.project.path.parent_path();
+            const auto cacheKey = HashString(fs::absolute(outputDir).lexically_normal().string());
+            const auto buildConfiguration = resolved.configuration.buildConfiguration.empty() ? "Debug" : resolved.configuration.buildConfiguration;
+            const auto cacheRoot = buildRoot / ".ngin" / "cache" / "build" / resolved.project.name / resolved.configuration.name / buildConfiguration / cacheKey;
+            return {
+                .sourceDir = cacheRoot / "cmake-src",
+                .buildDir = cacheRoot / "cmake-build",
+            };
         }
 
         [[nodiscard]] auto PackageExposesSelectedExecutable(const PackageManifest &manifest, const std::optional<ExecutableArtifact> &selectedExecutable) -> bool
@@ -369,7 +429,7 @@ namespace NGIN::CLI
             return sources;
         }
 
-        auto EmitTargetChecks(std::ofstream &out, const PackageManifest &manifest) -> void
+        auto EmitTargetChecks(std::ostream &out, const PackageManifest &manifest) -> void
         {
             for (const auto &artifact : manifest.artifacts.libraries)
             {
@@ -393,7 +453,7 @@ namespace NGIN::CLI
             }
         }
 
-        auto EmitPackageBuildOptions(std::ofstream &out, const PackageBuildDescriptor &build) -> void
+        auto EmitPackageBuildOptions(std::ostream &out, const PackageBuildDescriptor &build) -> void
         {
             for (const auto &option : build.options)
             {
@@ -403,17 +463,20 @@ namespace NGIN::CLI
             }
         }
 
-        [[nodiscard]] auto WriteGeneratedBuildProject(const ResolvedLaunch &resolved, const fs::path &outputDir, DiagnosticReport &report) -> std::optional<fs::path>
+        [[nodiscard]] auto WriteGeneratedBuildProject(
+            const ResolvedLaunch &resolved,
+            const fs::path &outputDir,
+            const GeneratedBuildPaths &generatedPaths,
+            DiagnosticReport &report) -> bool
         {
             if (!HasArtifactTargetsToBuild(resolved))
             {
-                return std::nullopt;
+                return false;
             }
 
-            const auto generatedSourceDir = outputDir / ".ngin" / "cmake-src";
-            const auto generatedBuildDir = outputDir / ".ngin" / "cmake-build";
+            const auto &generatedSourceDir = generatedPaths.sourceDir;
             fs::create_directories(generatedSourceDir);
-            fs::create_directories(generatedBuildDir);
+            fs::create_directories(generatedPaths.buildDir);
 
             std::unordered_map<std::string, std::vector<fs::path>> generatedSourcesByProject{};
             std::set<std::string> languages{"CXX"};
@@ -472,10 +535,11 @@ namespace NGIN::CLI
             }
             if (report.HasErrors())
             {
-                return std::nullopt;
+                return false;
             }
 
-            std::ofstream out(generatedSourceDir / "CMakeLists.txt");
+            std::ostringstream content{};
+            auto &out = content;
             out << "cmake_minimum_required(VERSION 3.20)\n";
             out << "project(NGINGeneratedBuild LANGUAGES";
             for (const auto &language : languages)
@@ -575,7 +639,7 @@ namespace NGIN::CLI
             }
             if (report.HasErrors())
             {
-                return std::nullopt;
+                return false;
             }
 
             for (const auto &unit : resolved.projectUnits)
@@ -722,7 +786,7 @@ namespace NGIN::CLI
             }
             if (report.HasErrors())
             {
-                return std::nullopt;
+                return false;
             }
 
             out << "add_custom_target(ngin_stage_artifacts)\n";
@@ -761,38 +825,47 @@ namespace NGIN::CLI
                 emitStageTarget(resolved.selectedExecutable->name, resolved.selectedExecutable->target, "bin", true);
             }
 
-            return generatedBuildDir;
+            return WriteTextFileIfChanged(generatedSourceDir / "CMakeLists.txt", content.str());
         }
 
         auto BuildArtifacts(const ResolvedLaunch &resolved, const fs::path &outputDir, DiagnosticReport &report) -> void
         {
-            const auto generatedBuildDir = WriteGeneratedBuildProject(resolved, outputDir, report);
-            if (!generatedBuildDir.has_value() || report.HasErrors())
+            if (!HasArtifactTargetsToBuild(resolved))
             {
                 return;
             }
 
-            const auto generatedSourceDir = outputDir / ".ngin" / "cmake-src";
-            const auto buildConfiguration = resolved.configuration.buildConfiguration.empty() ? "Debug" : resolved.configuration.buildConfiguration;
-            if (RunProcess(
-                    "cmake",
-                    {
-                        "-S",
-                        generatedSourceDir.string(),
-                        "-B",
-                        generatedBuildDir->string(),
-                        "-DCMAKE_BUILD_TYPE=" + buildConfiguration,
-                    })
-                != 0)
+            const auto generatedPaths = ResolveGeneratedBuildPaths(resolved, outputDir);
+            const auto cmakeProjectChanged = WriteGeneratedBuildProject(resolved, outputDir, generatedPaths, report);
+            if (report.HasErrors())
             {
-                AddError(report, "failed to configure generated CMake build project for configuration '" + resolved.configuration.name + "' with build configuration '" + buildConfiguration + "'");
                 return;
+            }
+
+            const auto buildConfiguration = resolved.configuration.buildConfiguration.empty() ? "Debug" : resolved.configuration.buildConfiguration;
+            const auto cmakeCachePath = generatedPaths.buildDir / "CMakeCache.txt";
+            if (cmakeProjectChanged || !fs::exists(cmakeCachePath))
+            {
+                if (RunProcess(
+                        "cmake",
+                        {
+                            "-S",
+                            generatedPaths.sourceDir.string(),
+                            "-B",
+                            generatedPaths.buildDir.string(),
+                            "-DCMAKE_BUILD_TYPE=" + buildConfiguration,
+                        })
+                    != 0)
+                {
+                    AddError(report, "failed to configure generated CMake build project for configuration '" + resolved.configuration.name + "' with build configuration '" + buildConfiguration + "'");
+                    return;
+                }
             }
             if (RunProcess(
                     "cmake",
                     {
                         "--build",
-                        generatedBuildDir->string(),
+                        generatedPaths.buildDir.string(),
                         "--config",
                         buildConfiguration,
                         "--target",
@@ -1207,8 +1280,11 @@ namespace NGIN::CLI
             }
         }
 
-        std::error_code generatedError;
-        fs::remove_all(outputDir / ".ngin", generatedError);
+        const auto legacyGeneratedDir = outputDir / ".ngin";
+        std::error_code legacyError;
+        fs::remove_all(legacyGeneratedDir / "cmake-src", legacyError);
+        legacyError.clear();
+        fs::remove_all(legacyGeneratedDir / "cmake-build", legacyError);
     }
 
     auto BuildLaunch(

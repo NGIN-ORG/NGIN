@@ -14,7 +14,7 @@ namespace
         descriptor.family = ModuleFamily::App;
         descriptor.type = ModuleType::Runtime;
         descriptor.version = SemanticVersion {0, 1, 0, {}};
-        descriptor.compatiblePlatformRange = ParseVersionRange(">=0.1.0 <1.0.0").ValueUnsafe();
+        descriptor.compatiblePlatformRange = ParseVersionRange(">=0.1.0 <1.0.0").Value();
         descriptor.platforms = {"linux", "windows", "macos"};
         descriptor.startupStage = StartupStage::Features;
         descriptor.entryKind = ModuleEntryKind::Static;
@@ -65,15 +65,15 @@ int main(int argc, char** argv)
     auto app = builder->Build();
     if (!app)
     {
-        std::cerr << "Build failed: " << app.ErrorUnsafe().message << "\n";
+        std::cerr << "Build failed: " << app.Error().message << "\n";
         return 1;
     }
 
-    auto host = app.ValueUnsafe();
+    auto host = app.Value();
     auto start = host->Start();
     if (!start)
     {
-        std::cerr << "Start failed: " << start.ErrorUnsafe().message << "\n";
+        std::cerr << "Start failed: " << start.Error().message << "\n";
         return 2;
     }
 
@@ -86,12 +86,12 @@ int main(int argc, char** argv)
 
     auto appName = config->GetRaw("App.Name");
     auto appMessage = config->GetRaw("App.Message");
-    if (!appName || appName.ValueUnsafe() != "App.Basic")
+    if (!appName || appName.Value() != "App.Basic")
     {
         std::cerr << "App.Name was not resolved from project config\n";
         return 4;
     }
-    if (!appMessage || appMessage.ValueUnsafe() != "hello from App.Basic")
+    if (!appMessage || appMessage.Value() != "hello from App.Basic")
     {
         std::cerr << "App.Message was not resolved from project config\n";
         return 5;
@@ -102,7 +102,7 @@ int main(int argc, char** argv)
     auto shutdown = host->Shutdown();
     if (!shutdown)
     {
-        std::cerr << "Shutdown failed: " << shutdown.ErrorUnsafe().message << "\n";
+        std::cerr << "Shutdown failed: " << shutdown.Error().message << "\n";
         return 6;
     }
 
