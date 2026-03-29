@@ -31,6 +31,7 @@ ctest --test-dir build --output-on-failure
 ## Notes
 
 - Depends on `NGIN.Base` and `NGIN.Log`.
+- File access can be injected through `KernelHostConfig::fileSystem` or `ApplicationBuilder::UseFileSystem(...)`; `LocalFileSystem` remains the default.
 - `NGIN.Reflection` integration path is optional.
 - Dynamic binary plugin loading is intentionally deferred to Spec 003.
 - Breaking-change migration notes are in `docs/Migration.md`.

@@ -1,1348 +1,1270 @@
 #include <NGIN/Core/Kernel.hpp>
 
+#include <NGIN/IO/FileSystemUtilities.hpp>
+#include <NGIN/IO/LocalFileSystem.hpp>
 #include <NGIN/Log/Log.hpp>
 #include <NGIN/Log/Sinks/ConsoleSink.hpp>
 
 #include <algorithm>
 #include <atomic>
 #include <charconv>
-#include <filesystem>
-#include <fstream>
 #include <mutex>
 #include <set>
 #include <thread>
 #include <unordered_map>
 
-namespace NGIN::Core
-{
-    namespace
-    {
-        struct ResolvedModule
-        {
-            StaticModuleRegistration registration {};
-            bool                     requiredByGraph {true};
-        };
+namespace NGIN::Core {
+namespace {
+using IoErrorCode = NGIN::IO::IOErrorCode;
+using IoFileSystem = NGIN::IO::IFileSystem;
+using IoPath = NGIN::IO::Path;
 
-        [[nodiscard]] constexpr auto StageOrdinal(const StartupStage stage) noexcept -> NGIN::UInt8
-        {
-            switch (stage)
-            {
-                case StartupStage::Foundation: return 0;
-                case StartupStage::Platform: return 1;
-                case StartupStage::Services: return 2;
-                case StartupStage::Features: return 3;
-                case StartupStage::Presentation: return 4;
-            }
-            return 255;
-        }
+struct ResolvedModule {
+  StaticModuleRegistration registration{};
+  bool requiredByGraph{true};
+};
 
-        [[nodiscard]] auto SupportsHost(const ModuleDescriptor& descriptor, const HostType host) noexcept -> bool
-        {
-            if (descriptor.supportedHosts.empty())
-            {
-                return true;
-            }
+[[nodiscard]] constexpr auto StageOrdinal(const StartupStage stage) noexcept
+    -> NGIN::UInt8 {
+  switch (stage) {
+  case StartupStage::Foundation:
+    return 0;
+  case StartupStage::Platform:
+    return 1;
+  case StartupStage::Services:
+    return 2;
+  case StartupStage::Features:
+    return 3;
+  case StartupStage::Presentation:
+    return 4;
+  }
+  return 255;
+}
 
-            return std::find(descriptor.supportedHosts.begin(), descriptor.supportedHosts.end(), host) != descriptor.supportedHosts.end();
-        }
+[[nodiscard]] auto SupportsHost(const ModuleDescriptor &descriptor,
+                                const HostType host) noexcept -> bool {
+  if (descriptor.supportedHosts.empty()) {
+    return true;
+  }
 
-        [[nodiscard]] constexpr auto DependencyAllowed(const ModuleFamily src, const ModuleFamily dst) noexcept -> bool
-        {
-            switch (src)
-            {
-                case ModuleFamily::Base: return dst == ModuleFamily::Base;
-                case ModuleFamily::Reflection: return dst == ModuleFamily::Base;
-                case ModuleFamily::Core:
-                    return dst == ModuleFamily::Base || dst == ModuleFamily::Reflection || dst == ModuleFamily::Core || dst == ModuleFamily::Platform;
-                case ModuleFamily::Platform:
-                    return dst == ModuleFamily::Base || dst == ModuleFamily::Reflection || dst == ModuleFamily::Platform;
-                case ModuleFamily::Editor:
-                    return dst == ModuleFamily::Base || dst == ModuleFamily::Reflection || dst == ModuleFamily::Core || dst == ModuleFamily::Platform || dst == ModuleFamily::Editor || dst == ModuleFamily::Domain;
-                case ModuleFamily::Domain:
-                    return dst == ModuleFamily::Base || dst == ModuleFamily::Reflection || dst == ModuleFamily::Core || dst == ModuleFamily::Platform || dst == ModuleFamily::Domain;
-                case ModuleFamily::App:
-                    return dst == ModuleFamily::Base || dst == ModuleFamily::Reflection || dst == ModuleFamily::Core || dst == ModuleFamily::Platform || dst == ModuleFamily::Domain || dst == ModuleFamily::App;
-            }
-            return false;
-        }
+  return std::find(descriptor.supportedHosts.begin(),
+                   descriptor.supportedHosts.end(),
+                   host) != descriptor.supportedHosts.end();
+}
 
-        [[nodiscard]] auto ExtractPlatformTag(const std::string& text) -> std::string
-        {
-            if (text.empty())
-            {
-                return {};
-            }
-            const auto dash = text.find('-');
-            if (dash == std::string::npos)
-            {
-                return text;
-            }
-            return text.substr(0, dash);
-        }
+[[nodiscard]] constexpr auto DependencyAllowed(const ModuleFamily src,
+                                               const ModuleFamily dst) noexcept
+    -> bool {
+  switch (src) {
+  case ModuleFamily::Base:
+    return dst == ModuleFamily::Base;
+  case ModuleFamily::Reflection:
+    return dst == ModuleFamily::Base;
+  case ModuleFamily::Core:
+    return dst == ModuleFamily::Base || dst == ModuleFamily::Reflection ||
+           dst == ModuleFamily::Core || dst == ModuleFamily::Platform;
+  case ModuleFamily::Platform:
+    return dst == ModuleFamily::Base || dst == ModuleFamily::Reflection ||
+           dst == ModuleFamily::Platform;
+  case ModuleFamily::Editor:
+    return dst == ModuleFamily::Base || dst == ModuleFamily::Reflection ||
+           dst == ModuleFamily::Core || dst == ModuleFamily::Platform ||
+           dst == ModuleFamily::Editor || dst == ModuleFamily::Domain;
+  case ModuleFamily::Domain:
+    return dst == ModuleFamily::Base || dst == ModuleFamily::Reflection ||
+           dst == ModuleFamily::Core || dst == ModuleFamily::Platform ||
+           dst == ModuleFamily::Domain;
+  case ModuleFamily::App:
+    return dst == ModuleFamily::Base || dst == ModuleFamily::Reflection ||
+           dst == ModuleFamily::Core || dst == ModuleFamily::Platform ||
+           dst == ModuleFamily::Domain || dst == ModuleFamily::App;
+  }
+  return false;
+}
 
-        [[nodiscard]] auto Trim(const std::string_view input) -> std::string_view
-        {
-            std::size_t left = 0;
-            std::size_t right = input.size();
-            while (left < right && (input[left] == ' ' || input[left] == '\t' || input[left] == '\r' || input[left] == '\n'))
-            {
-                ++left;
-            }
-            while (right > left && (input[right - 1] == ' ' || input[right - 1] == '\t' || input[right - 1] == '\r' || input[right - 1] == '\n'))
-            {
-                --right;
-            }
-            return input.substr(left, right - left);
-        }
+[[nodiscard]] auto ExtractPlatformTag(const std::string &text) -> std::string {
+  if (text.empty()) {
+    return {};
+  }
+  const auto dash = text.find('-');
+  if (dash == std::string::npos) {
+    return text;
+  }
+  return text.substr(0, dash);
+}
+
+[[nodiscard]] auto Trim(const std::string_view input) -> std::string_view {
+  std::size_t left = 0;
+  std::size_t right = input.size();
+  while (left < right && (input[left] == ' ' || input[left] == '\t' ||
+                          input[left] == '\r' || input[left] == '\n')) {
+    ++left;
+  }
+  while (right > left &&
+         (input[right - 1] == ' ' || input[right - 1] == '\t' ||
+          input[right - 1] == '\r' || input[right - 1] == '\n')) {
+    --right;
+  }
+  return input.substr(left, right - left);
+}
+
+[[nodiscard]] auto ToString(const IoPath &path) -> std::string {
+  return std::string(path.View());
+}
+
+[[nodiscard]] auto ResolvePath(const std::string &rawPath,
+                               const IoPath &baseDir) -> IoPath {
+  IoPath resolved(rawPath);
+  if (resolved.IsRelative() && !baseDir.IsEmpty()) {
+    resolved = baseDir.Join(resolved.View());
+  }
+  return resolved.LexicallyNormal();
+}
+
+[[nodiscard]] auto ReadConfigSource(IoFileSystem &fileSystem,
+                                    const IoPath &path)
+    -> CoreResult<std::string> {
+  auto text = NGIN::IO::ReadAllText(fileSystem, path);
+  if (!text) {
+    const auto code = text.Error().code == IoErrorCode::NotFound
+                          ? KernelErrorCode::NotFound
+                          : KernelErrorCode::ConfigFailure;
+    const auto message = text.Error().code == IoErrorCode::NotFound
+                             ? "failed to open config source"
+                             : "failed to read config source";
+    return NGIN::Utilities::Unexpected<KernelError>(
+        MakeKernelError(code, "Config", ToString(path), message));
+  }
+  return std::string(text.Value().Data(), text.Value().Size());
+}
+
+template <typename Callback>
+void ForEachConfigLine(const std::string_view text, Callback &&callback) {
+  std::size_t offset = 0;
+  while (offset <= text.size()) {
+    const std::size_t end = text.find('\n', offset);
+    std::string_view line = end == std::string_view::npos
+                                ? text.substr(offset)
+                                : text.substr(offset, end - offset);
+    if (!line.empty() && line.back() == '\r') {
+      line.remove_suffix(1);
     }
 
-    class KernelImpl final : public IKernel
-    {
-    public:
-        explicit KernelImpl(KernelHostConfig config)
-            : m_config(std::move(config))
-            , m_state(KernelState::Created)
-            , m_ownerThread(std::this_thread::get_id())
-        {
-            if (m_config.hostName.empty())
-            {
-                m_config.hostName = "NGIN.Host";
-            }
-            if (m_config.targetName.empty())
-            {
-                m_config.targetName = "NGIN.Target";
-            }
-            if (m_config.platformName.empty())
-            {
-                m_config.platformName = "linux-x64";
-            }
-            if (m_config.workingDirectory.empty())
-            {
-                std::error_code ec;
-                m_config.workingDirectory = std::filesystem::current_path(ec).string();
-            }
-            if (!m_config.moduleCatalog)
-            {
-                m_config.moduleCatalog = CreateStaticModuleCatalog();
-            }
+    callback(line);
+
+    if (end == std::string_view::npos) {
+      break;
+    }
+    offset = end + 1;
+  }
+}
+} // namespace
+
+class KernelImpl final : public IKernel {
+public:
+  explicit KernelImpl(KernelHostConfig config)
+      : m_config(std::move(config)), m_state(KernelState::Created),
+        m_ownerThread(std::this_thread::get_id()) {
+    if (m_config.hostName.empty()) {
+      m_config.hostName = "NGIN.Host";
+    }
+    if (m_config.targetName.empty()) {
+      m_config.targetName = "NGIN.Target";
+    }
+    if (m_config.platformName.empty()) {
+      m_config.platformName = "linux-x64";
+    }
+    if (!m_config.fileSystem) {
+      m_config.fileSystem =
+          NGIN::Memory::MakeSharedAs<IoFileSystem, NGIN::IO::LocalFileSystem>();
+    }
+    if (m_config.workingDirectory.empty()) {
+      auto currentDirectory = m_config.fileSystem->CurrentWorkingDirectory();
+      if (currentDirectory) {
+        m_config.workingDirectory = ToString(currentDirectory.Value());
+      }
+    }
+    if (!m_config.moduleCatalog) {
+      m_config.moduleCatalog = CreateStaticModuleCatalog();
+    }
+  }
+
+  auto Start() noexcept -> CoreResult<void> override {
+    std::unique_lock<std::mutex> apiLock;
+    if (auto guard = AcquireApiAccess(true, apiLock); !guard) {
+      return guard;
+    }
+
+    if (m_state == KernelState::Running) {
+      return CoreResult<void>{};
+    }
+    if (m_state != KernelState::Created && m_state != KernelState::Stopped) {
+      return NGIN::Utilities::Unexpected<KernelError>(
+          MakeKernelError(KernelErrorCode::InvalidState, "Kernel", {},
+                          "Start called from invalid state"));
+    }
+
+    m_startupReport = {};
+    m_startupReport.hostName = m_config.hostName;
+    m_startupReport.targetName = m_config.targetName;
+    m_startupReport.hostType = std::string(ToString(m_config.hostType));
+    m_stopRequested.store(false, std::memory_order_release);
+    m_stopReason.clear();
+    m_moduleInfos.clear();
+    m_moduleInstances.clear();
+    m_moduleScopes.clear();
+    m_resolvedModules.clear();
+    m_moduleDescriptorByName.clear();
+
+    SetState(KernelState::ConfigLoaded);
+
+    if (auto applied = ApplyHostConfig(); !applied) {
+      CaptureFailure(applied.Error());
+      SetState(KernelState::Stopped);
+      SetState(KernelState::Shutdown);
+      return NGIN::Utilities::Unexpected<KernelError>(applied.Error());
+    }
+
+    auto resolve = ResolveModules();
+    if (!resolve) {
+      CaptureFailure(resolve.Error());
+      SetState(KernelState::Stopped);
+      SetState(KernelState::Shutdown);
+      return NGIN::Utilities::Unexpected<KernelError>(resolve.Error());
+    }
+
+    SetState(KernelState::ModulesResolved);
+
+    auto build = BuildSubsystems();
+    if (!build) {
+      CaptureFailure(build.Error());
+      SetState(KernelState::Stopped);
+      SetState(KernelState::Shutdown);
+      return NGIN::Utilities::Unexpected<KernelError>(build.Error());
+    }
+
+    SetState(KernelState::ServicesBuilt);
+    EmitKernelEvent(ReservedKernelEvent::KernelStarting, "KernelStarting");
+
+    if (m_config.configureServices) {
+      KernelBootstrapContext bootstrapContext{
+          .services = m_services,
+          .events = m_events,
+          .tasks = m_tasks,
+          .config = m_configStore,
+          .loggerRegistry = &m_loggerRegistry,
+      };
+      auto configured = m_config.configureServices(bootstrapContext);
+      if (!configured) {
+        CaptureFailure(configured.Error());
+        SetState(KernelState::Stopped);
+        SetState(KernelState::Shutdown);
+        return NGIN::Utilities::Unexpected<KernelError>(configured.Error());
+      }
+    }
+
+    auto load = LoadAndStartModules();
+    if (!load) {
+      CaptureFailure(load.Error());
+      if (apiLock.owns_lock()) {
+        apiLock.unlock();
+      }
+      auto shutdown = Shutdown();
+      if (!shutdown) {
+        return NGIN::Utilities::Unexpected<KernelError>(shutdown.Error());
+      }
+      return NGIN::Utilities::Unexpected<KernelError>(load.Error());
+    }
+
+    SetState(KernelState::ModulesLoaded);
+    SetState(KernelState::Running);
+    EmitKernelEvent(ReservedKernelEvent::KernelRunning, "KernelRunning");
+    LogCategory("Kernel", "kernel entered Running state");
+    return CoreResult<void>{};
+  }
+
+  auto Run() noexcept -> CoreResult<void> override {
+    std::unique_lock<std::mutex> apiLock;
+    if (auto guard = AcquireApiAccess(false, apiLock); !guard) {
+      return guard;
+    }
+
+    if (m_state == KernelState::Created) {
+      auto start = Start();
+      if (!start) {
+        return start;
+      }
+    }
+
+    if (m_state != KernelState::Running) {
+      return NGIN::Utilities::Unexpected<KernelError>(
+          MakeKernelError(KernelErrorCode::InvalidState, "Kernel", {},
+                          "Run requires Running state"));
+    }
+
+    while (!m_stopRequested.load(std::memory_order_acquire)) {
+      auto tick = Tick();
+      if (!tick) {
+        switch (m_config.failurePolicy) {
+        case KernelFailurePolicy::FailFast:
+          return tick;
+        case KernelFailurePolicy::StopKernel:
+        case KernelFailurePolicy::IsolateModule:
+          RequestStop("tick failure");
+          break;
+        }
+      }
+
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+
+    return Shutdown();
+  }
+
+  auto Tick() noexcept -> CoreResult<void> override {
+    std::unique_lock<std::mutex> apiLock;
+    if (auto guard = AcquireApiAccess(true, apiLock); !guard) {
+      return guard;
+    }
+
+    if (m_state != KernelState::Running) {
+      return NGIN::Utilities::Unexpected<KernelError>(
+          MakeKernelError(KernelErrorCode::InvalidState, "Kernel", {},
+                          "Tick requires Running state"));
+    }
+
+    if (m_events) {
+      auto flush = m_events->FlushDeferred();
+      if (!flush) {
+        return NGIN::Utilities::Unexpected<KernelError>(flush.Error());
+      }
+    }
+
+    return CoreResult<void>{};
+  }
+
+  void RequestStop(std::string reason) noexcept override {
+    m_stopReason = std::move(reason);
+    m_stopRequested.store(true, std::memory_order_release);
+    LogCategory("Kernel", "stop requested: " + m_stopReason);
+  }
+
+  auto Shutdown() noexcept -> CoreResult<void> override {
+    std::unique_lock<std::mutex> apiLock;
+    if (auto guard = AcquireApiAccess(true, apiLock); !guard) {
+      return guard;
+    }
+
+    if (m_state == KernelState::Shutdown) {
+      return CoreResult<void>{};
+    }
+
+    if (m_state == KernelState::Created) {
+      SetState(KernelState::Stopped);
+      SetState(KernelState::Shutdown);
+      return CoreResult<void>{};
+    }
+
+    SetState(KernelState::Stopping);
+    EmitKernelEvent(ReservedKernelEvent::KernelStopping, "KernelStopping");
+    StopAndShutdownModules();
+
+    if (m_tasks) {
+      const auto wait = m_tasks->WaitIdle(std::chrono::milliseconds(2000));
+      if (!wait) {
+        LogCategory("Tasks", "wait idle failed during shutdown");
+      }
+    }
+
+    SetState(KernelState::Stopped);
+    SetState(KernelState::Shutdown);
+    LogCategory("Kernel", "kernel shutdown complete");
+    return CoreResult<void>{};
+  }
+
+  [[nodiscard]] auto GetState() const noexcept -> KernelState override {
+    return m_state;
+  }
+
+  [[nodiscard]] auto GetStartupReport() const -> StartupReport override {
+    return m_startupReport;
+  }
+
+  [[nodiscard]] auto GetModuleStates() const
+      -> std::vector<ModuleRuntimeInfo> override {
+    return m_moduleInfos;
+  }
+
+  [[nodiscard]] auto GetServices() noexcept
+      -> NGIN::Memory::Shared<IServiceRegistry> override {
+    return m_services;
+  }
+
+  [[nodiscard]] auto GetEvents() noexcept
+      -> NGIN::Memory::Shared<IEventBus> override {
+    return m_events;
+  }
+
+  [[nodiscard]] auto GetTasks() noexcept
+      -> NGIN::Memory::Shared<ITaskRuntime> override {
+    return m_tasks;
+  }
+
+  [[nodiscard]] auto GetConfig() noexcept
+      -> NGIN::Memory::Shared<IConfigStore> override {
+    return m_configStore;
+  }
+
+private:
+  [[nodiscard]] auto
+  AcquireApiAccess(bool mutating, std::unique_lock<std::mutex> &lock) noexcept
+      -> CoreResult<void> {
+    if (m_config.apiThreadPolicy == KernelApiThreadPolicy::SingleThreadOnly) {
+      if (std::this_thread::get_id() != m_ownerThread) {
+        return NGIN::Utilities::Unexpected<KernelError>(MakeKernelError(
+            KernelErrorCode::ThreadPolicyViolation, "Kernel", {},
+            "kernel API called from non-owner thread in SingleThreadOnly "
+            "mode"));
+      }
+      return CoreResult<void>{};
+    }
+
+    if (mutating) {
+      lock = std::unique_lock<std::mutex>(m_apiMutex);
+    }
+    return CoreResult<void>{};
+  }
+
+  void CaptureFailure(const KernelError &error) {
+    m_startupReport.failures.push_back(error);
+  }
+
+  void SetState(const KernelState state) noexcept {
+    m_state = state;
+    LogCategory("Kernel",
+                "state transition -> " + std::string(ToString(state)));
+  }
+
+  void EmitKernelEvent(const ReservedKernelEvent eventId, std::string channel) {
+    if (!m_events) {
+      return;
+    }
+    EventRecord rec{};
+    rec.channel = std::move(channel);
+    rec.reserved = eventId;
+    rec.queue = EventQueue::Main;
+    rec.payload = NGIN::Utilities::Any<>(std::string(m_config.hostName));
+    (void)m_events->PublishImmediate(std::move(rec));
+  }
+
+  void EmitModuleEvent(const ReservedKernelEvent eventId,
+                       const std::string &moduleName) {
+    if (!m_events) {
+      return;
+    }
+    EventRecord rec{};
+    rec.channel = std::string(ToString(eventId));
+    rec.reserved = eventId;
+    rec.queue = EventQueue::Main;
+    rec.payload = NGIN::Utilities::Any<>(moduleName);
+    (void)m_events->PublishImmediate(std::move(rec));
+  }
+
+  [[nodiscard]] auto ModuleByName(const std::string &name) const
+      -> const ModuleDescriptor * {
+    const auto it = m_moduleDescriptorByName.find(name);
+    if (it == m_moduleDescriptorByName.end()) {
+      return nullptr;
+    }
+    return &it->second;
+  }
+
+  void LogCategory(const std::string_view category,
+                   const std::string &message) {
+    auto logger = m_loggerRegistry.GetOrCreate(std::string(category),
+                                               NGIN::Log::LogLevel::Info);
+    if (!logger) {
+      return;
+    }
+
+    logger->Info([&](NGIN::Log::RecordBuilder &record) {
+      record.Message(message);
+      record.Attr("host", std::string_view(m_config.hostName));
+    });
+  }
+
+  [[nodiscard]] auto ApplyHostConfig() noexcept -> CoreResult<void> {
+    m_configStore = CreateConfigStore();
+    if (!m_configStore) {
+      return NGIN::Utilities::Unexpected<KernelError>(
+          MakeKernelError(KernelErrorCode::InternalError, "Config", {},
+                          "failed to create config store"));
+    }
+
+    auto set = m_configStore->SetValue(ConfigLayer::BuiltInDefaults,
+                                       "Kernel.HostName", m_config.hostName);
+    if (!set)
+      return NGIN::Utilities::Unexpected<KernelError>(set.Error());
+
+    set = m_configStore->SetValue(ConfigLayer::BuiltInDefaults,
+                                  "Kernel.TargetName", m_config.targetName);
+    if (!set)
+      return NGIN::Utilities::Unexpected<KernelError>(set.Error());
+
+    set = m_configStore->SetValue(ConfigLayer::BuiltInDefaults,
+                                  "Kernel.Platform", m_config.platformName);
+    if (!set)
+      return NGIN::Utilities::Unexpected<KernelError>(set.Error());
+
+    set = m_configStore->SetValue(
+        ConfigLayer::BuiltInDefaults, "Kernel.PlatformVersion",
+        FormatSemanticVersion(m_config.platformVersion));
+    if (!set)
+      return NGIN::Utilities::Unexpected<KernelError>(set.Error());
+
+    set =
+        m_configStore->SetValue(ConfigLayer::BuiltInDefaults, "Kernel.HostType",
+                                std::string(ToString(m_config.hostType)));
+    if (!set)
+      return NGIN::Utilities::Unexpected<KernelError>(set.Error());
+
+    set = m_configStore->SetValue(ConfigLayer::BuiltInDefaults,
+                                  "Kernel.ReflectionEnabled",
+                                  m_config.enableReflection ? "true" : "false");
+    if (!set)
+      return NGIN::Utilities::Unexpected<KernelError>(set.Error());
+
+    if (!m_config.environmentName.empty()) {
+      set = m_configStore->SetValue(ConfigLayer::Environment,
+                                    "Kernel.EnvironmentName",
+                                    m_config.environmentName);
+      if (!set)
+        return NGIN::Utilities::Unexpected<KernelError>(set.Error());
+    }
+
+    IoPath baseDir(m_config.workingDirectory);
+    if (baseDir.IsEmpty()) {
+      auto currentDirectory = m_config.fileSystem->CurrentWorkingDirectory();
+      if (currentDirectory) {
+        baseDir = currentDirectory.Value();
+      }
+    }
+
+    m_effectivePluginPaths.clear();
+    m_effectivePluginPaths.reserve(m_config.pluginSearchPaths.size());
+    for (const auto &raw : m_config.pluginSearchPaths) {
+      if (raw.empty()) {
+        continue;
+      }
+
+      m_effectivePluginPaths.push_back(ToString(ResolvePath(raw, baseDir)));
+    }
+
+    if (m_config.enableDynamicPlugins && !m_config.pluginCatalog) {
+      m_config.pluginCatalog =
+          NGIN::Memory::MakeSharedAs<IPluginCatalog, FilesystemPluginCatalog>(
+              m_effectivePluginPaths, m_config.fileSystem);
+    }
+
+    for (const auto &source : m_config.configSources) {
+      if (source.empty()) {
+        continue;
+      }
+
+      const IoPath filePath = ResolvePath(source, baseDir);
+      auto configText = ReadConfigSource(*m_config.fileSystem, filePath);
+      if (!configText) {
+        return NGIN::Utilities::Unexpected<KernelError>(configText.Error());
+      }
+
+      ForEachConfigLine(configText.Value(), [&](std::string_view line) {
+        std::string ownedLine(line);
+        const auto hashPos = ownedLine.find('#');
+        if (hashPos != std::string::npos) {
+          ownedLine.erase(hashPos);
+        }
+        const auto eqPos = ownedLine.find('=');
+        if (eqPos == std::string::npos) {
+          return;
         }
 
-        auto Start() noexcept -> CoreResult<void> override
-        {
-            std::unique_lock<std::mutex> apiLock;
-            if (auto guard = AcquireApiAccess(true, apiLock); !guard)
-            {
-                return guard;
-            }
-
-            if (m_state == KernelState::Running)
-            {
-                return CoreResult<void> {};
-            }
-            if (m_state != KernelState::Created && m_state != KernelState::Stopped)
-            {
-                return NGIN::Utilities::Unexpected<KernelError>(
-                    MakeKernelError(KernelErrorCode::InvalidState, "Kernel", {}, "Start called from invalid state"));
-            }
-
-            m_startupReport = {};
-            m_startupReport.hostName = m_config.hostName;
-            m_startupReport.targetName = m_config.targetName;
-            m_startupReport.hostType = std::string(ToString(m_config.hostType));
-            m_stopRequested.store(false, std::memory_order_release);
-            m_stopReason.clear();
-            m_moduleInfos.clear();
-            m_moduleInstances.clear();
-            m_moduleScopes.clear();
-            m_resolvedModules.clear();
-            m_moduleDescriptorByName.clear();
-
-            SetState(KernelState::ConfigLoaded);
-
-            if (auto applied = ApplyHostConfig(); !applied)
-            {
-                CaptureFailure(applied.Error());
-                SetState(KernelState::Stopped);
-                SetState(KernelState::Shutdown);
-                return NGIN::Utilities::Unexpected<KernelError>(applied.Error());
-            }
-
-            auto resolve = ResolveModules();
-            if (!resolve)
-            {
-                CaptureFailure(resolve.Error());
-                SetState(KernelState::Stopped);
-                SetState(KernelState::Shutdown);
-                return NGIN::Utilities::Unexpected<KernelError>(resolve.Error());
-            }
-
-            SetState(KernelState::ModulesResolved);
-
-            auto build = BuildSubsystems();
-            if (!build)
-            {
-                CaptureFailure(build.Error());
-                SetState(KernelState::Stopped);
-                SetState(KernelState::Shutdown);
-                return NGIN::Utilities::Unexpected<KernelError>(build.Error());
-            }
-
-            SetState(KernelState::ServicesBuilt);
-            EmitKernelEvent(ReservedKernelEvent::KernelStarting, "KernelStarting");
-
-            if (m_config.configureServices)
-            {
-                KernelBootstrapContext bootstrapContext {
-                    .services = m_services,
-                    .events = m_events,
-                    .tasks = m_tasks,
-                    .config = m_configStore,
-                    .loggerRegistry = &m_loggerRegistry,
-                };
-                auto configured = m_config.configureServices(bootstrapContext);
-                if (!configured)
-                {
-                    CaptureFailure(configured.Error());
-                    SetState(KernelState::Stopped);
-                    SetState(KernelState::Shutdown);
-                    return NGIN::Utilities::Unexpected<KernelError>(configured.Error());
-                }
-            }
-
-            auto load = LoadAndStartModules();
-            if (!load)
-            {
-                CaptureFailure(load.Error());
-                if (apiLock.owns_lock())
-                {
-                    apiLock.unlock();
-                }
-                auto shutdown = Shutdown();
-                if (!shutdown)
-                {
-                    return NGIN::Utilities::Unexpected<KernelError>(shutdown.Error());
-                }
-                return NGIN::Utilities::Unexpected<KernelError>(load.Error());
-            }
-
-            SetState(KernelState::ModulesLoaded);
-            SetState(KernelState::Running);
-            EmitKernelEvent(ReservedKernelEvent::KernelRunning, "KernelRunning");
-            LogCategory("Kernel", "kernel entered Running state");
-            return CoreResult<void> {};
+        const auto key = Trim(std::string_view(ownedLine).substr(0, eqPos));
+        const auto value = Trim(std::string_view(ownedLine).substr(eqPos + 1));
+        if (key.empty()) {
+          return;
         }
 
-        auto Run() noexcept -> CoreResult<void> override
-        {
-            std::unique_lock<std::mutex> apiLock;
-            if (auto guard = AcquireApiAccess(false, apiLock); !guard)
-            {
-                return guard;
-            }
+        set = m_configStore->SetValue(ConfigLayer::HostTarget, std::string(key),
+                                      std::string(value));
+      });
 
-            if (m_state == KernelState::Created)
-            {
-                auto start = Start();
-                if (!start)
-                {
-                    return start;
-                }
-            }
+      if (!set) {
+        return NGIN::Utilities::Unexpected<KernelError>(set.Error());
+      }
+    }
 
-            if (m_state != KernelState::Running)
-            {
-                return NGIN::Utilities::Unexpected<KernelError>(
-                    MakeKernelError(KernelErrorCode::InvalidState, "Kernel", {}, "Run requires Running state"));
-            }
+    for (const auto &arg : m_config.commandLineArgs) {
+      if (!arg.starts_with("--")) {
+        continue;
+      }
+      const auto eqPos = arg.find('=');
+      if (eqPos == std::string::npos || eqPos <= 2) {
+        continue;
+      }
+      const std::string key = arg.substr(2, eqPos - 2);
+      const std::string value = arg.substr(eqPos + 1);
+      set = m_configStore->SetValue(ConfigLayer::CommandLine, key, value);
+      if (!set) {
+        return NGIN::Utilities::Unexpected<KernelError>(set.Error());
+      }
+    }
 
-            while (!m_stopRequested.load(std::memory_order_acquire))
-            {
-                auto tick = Tick();
-                if (!tick)
-                {
-                    switch (m_config.failurePolicy)
-                    {
-                        case KernelFailurePolicy::FailFast:
-                            return tick;
-                        case KernelFailurePolicy::StopKernel:
-                        case KernelFailurePolicy::IsolateModule:
-                            RequestStop("tick failure");
-                            break;
-                    }
-                }
+    return CoreResult<void>{};
+  }
 
-                std::this_thread::sleep_for(std::chrono::milliseconds(1));
-            }
+  [[nodiscard]] auto BuildSubsystems() noexcept -> CoreResult<void> {
+    if (!m_configStore) {
+      m_configStore = CreateConfigStore();
+    }
 
-            return Shutdown();
+    m_services = CreateServiceRegistry();
+    m_events = CreateEventBus();
+    m_tasks = CreateTaskRuntime(m_config.schedulerPolicy.workerThreads,
+                                m_config.schedulerPolicy.enableRenderLane);
+
+    if (!m_services || !m_events || !m_tasks || !m_configStore) {
+      return NGIN::Utilities::Unexpected<KernelError>(
+          MakeKernelError(KernelErrorCode::InternalError, "Kernel", {},
+                          "failed to allocate required subsystems"));
+    }
+
+    NGIN::Log::LoggerRegistry::SinkSet sinks{};
+    if (m_config.logSinkConfig.includeConsoleSink) {
+      sinks.push_back(NGIN::Log::MakeSink<NGIN::Log::ConsoleSink>(
+          NGIN::Log::ConsoleSinkOptions{
+              .useStderrForErrors = true,
+              .includeSource = m_config.logSinkConfig.includeSource,
+              .autoFlush = m_config.logSinkConfig.autoFlush}));
+    }
+    m_loggerRegistry.SetDefaultSinks(std::move(sinks));
+
+    auto configSub =
+        m_configStore->Subscribe([this](const ConfigChangeEvent &change) {
+          if (!m_events) {
+            return;
+          }
+
+          EventRecord rec{};
+          rec.channel = "ConfigChanged";
+          rec.reserved = ReservedKernelEvent::ConfigChanged;
+          rec.queue = EventQueue::Main;
+          rec.payload =
+              NGIN::Utilities::Any<>(change.key + "=" + change.newValue);
+          (void)m_events->PublishImmediate(std::move(rec));
+        });
+    if (!configSub) {
+      return NGIN::Utilities::Unexpected<KernelError>(configSub.Error());
+    }
+    m_configSubscription = configSub.Value();
+
+    return CoreResult<void>{};
+  }
+
+  [[nodiscard]] auto ResolveModules() noexcept -> CoreResult<void> {
+    std::vector<StaticModuleRegistration> staticModules;
+    if (m_config.moduleCatalog) {
+      staticModules = m_config.moduleCatalog->Snapshot();
+    }
+
+    std::unordered_map<std::string, StaticModuleRegistration> catalog{};
+    catalog.reserve(staticModules.size());
+
+    for (auto &reg : staticModules) {
+      if (catalog.contains(reg.descriptor.name)) {
+        return NGIN::Utilities::Unexpected<KernelError>(MakeKernelError(
+            KernelErrorCode::AlreadyExists, "ModuleLoader", reg.descriptor.name,
+            "duplicate static module descriptor"));
+      }
+      catalog.emplace(reg.descriptor.name, std::move(reg));
+    }
+
+    if (m_config.enableDynamicPlugins && m_config.pluginCatalog) {
+      std::vector<ModuleDescriptor> dynamicDescriptors;
+      auto collect =
+          m_config.pluginCatalog->CollectDescriptors(dynamicDescriptors);
+      if (!collect) {
+        return NGIN::Utilities::Unexpected<KernelError>(collect.Error());
+      }
+
+      for (auto &descriptor : dynamicDescriptors) {
+        descriptor.entryKind = ModuleEntryKind::Dynamic;
+        StaticModuleRegistration registration{
+            .descriptor = std::move(descriptor),
+            .factory = {},
+        };
+        if (catalog.contains(registration.descriptor.name)) {
+          return NGIN::Utilities::Unexpected<KernelError>(
+              MakeKernelError(KernelErrorCode::AlreadyExists, "ModuleLoader",
+                              registration.descriptor.name,
+                              "duplicate dynamic/static module descriptor"));
+        }
+        catalog.emplace(registration.descriptor.name, std::move(registration));
+      }
+    }
+
+    std::unordered_map<std::string, bool> requiredMap{};
+    std::deque<std::pair<std::string, bool>> queue;
+
+    if (m_config.requestedModules.empty()) {
+      for (const auto &[name, _] : catalog) {
+        queue.emplace_back(name, true);
+      }
+    } else {
+      for (const auto &name : m_config.requestedModules) {
+        queue.emplace_back(name, true);
+      }
+    }
+
+    while (!queue.empty()) {
+      auto [name, required] = queue.front();
+      queue.pop_front();
+
+      auto catIt = catalog.find(name);
+      if (catIt == catalog.end()) {
+        if (required) {
+          return NGIN::Utilities::Unexpected<KernelError>(
+              MakeKernelError(KernelErrorCode::NotFound, "ModuleLoader", name,
+                              "requested module was not found in catalog"));
+        }
+        m_startupReport.warnings.push_back(
+            {"ModuleLoader", name, "optional module not found"});
+        continue;
+      }
+
+      const auto requiredIt = requiredMap.find(name);
+      if (requiredIt != requiredMap.end()) {
+        if (required && !requiredIt->second) {
+          requiredMap[name] = true;
+        }
+        continue;
+      }
+
+      requiredMap.emplace(name, required);
+      const auto &descriptor = catIt->second.descriptor;
+
+      for (const auto &dep : descriptor.dependencies) {
+        queue.emplace_back(dep.name, !dep.optional);
+      }
+    }
+
+    std::set<std::string> active;
+    for (const auto &[name, _] : requiredMap) {
+      active.insert(name);
+    }
+
+    const auto platformTag = ExtractPlatformTag(m_config.platformName);
+
+    bool changed = true;
+    while (changed) {
+      changed = false;
+      for (auto it = active.begin(); it != active.end();) {
+        const auto &name = *it;
+        const auto catIt = catalog.find(name);
+        if (catIt == catalog.end()) {
+          it = active.erase(it);
+          changed = true;
+          continue;
         }
 
-        auto Tick() noexcept -> CoreResult<void> override
-        {
-            std::unique_lock<std::mutex> apiLock;
-            if (auto guard = AcquireApiAccess(true, apiLock); !guard)
-            {
-                return guard;
+        const auto &desc = catIt->second.descriptor;
+        const bool required = requiredMap[name];
+
+        const bool platformOk =
+            desc.platforms.empty() ||
+            std::find(desc.platforms.begin(), desc.platforms.end(),
+                      platformTag) != desc.platforms.end();
+        const bool hostOk = SupportsHost(desc, m_config.hostType);
+        const bool reflectionOk =
+            !desc.reflectionRequired || m_config.enableReflection;
+        const bool versionOk =
+            desc.compatiblePlatformRange.Contains(m_config.platformVersion);
+
+        if (!platformOk || !hostOk || !reflectionOk || !versionOk) {
+          if (required) {
+            auto errorCode = KernelErrorCode::IncompatiblePlatform;
+            std::string message =
+                "module incompatible with host/platform/version settings";
+            if (!hostOk) {
+              errorCode = KernelErrorCode::IncompatibleHostType;
+              message = "module does not support host type";
+            } else if (!reflectionOk) {
+              errorCode = KernelErrorCode::ReflectionRequired;
+              message = "module requires reflection";
             }
 
-            if (m_state != KernelState::Running)
-            {
-                return NGIN::Utilities::Unexpected<KernelError>(
-                    MakeKernelError(KernelErrorCode::InvalidState, "Kernel", {}, "Tick requires Running state"));
-            }
+            return NGIN::Utilities::Unexpected<KernelError>(MakeKernelError(
+                errorCode, "ModuleLoader", desc.name, std::move(message)));
+          }
 
-            if (m_events)
-            {
-                auto flush = m_events->FlushDeferred();
-                if (!flush)
-                {
-                    return NGIN::Utilities::Unexpected<KernelError>(flush.Error());
-                }
-            }
-
-            return CoreResult<void> {};
+          m_startupReport.warnings.push_back(
+              {"ModuleLoader", desc.name,
+               "optional module skipped due compatibility"});
+          m_startupReport.skippedOptionalModules.push_back(desc.name);
+          it = active.erase(it);
+          changed = true;
+          continue;
         }
 
-        void RequestStop(std::string reason) noexcept override
-        {
-            m_stopReason = std::move(reason);
-            m_stopRequested.store(true, std::memory_order_release);
-            LogCategory("Kernel", "stop requested: " + m_stopReason);
+        if (desc.entryKind == ModuleEntryKind::Dynamic &&
+            !m_config.enableDynamicPlugins) {
+          if (required) {
+            return NGIN::Utilities::Unexpected<KernelError>(MakeKernelError(
+                KernelErrorCode::DynamicPluginUnsupported, "Plugin", desc.name,
+                "dynamic module requested while dynamic plugins are disabled"));
+          }
+          m_startupReport.warnings.push_back(
+              {"Plugin", desc.name,
+               "optional dynamic module skipped (dynamic disabled)"});
+          it = active.erase(it);
+          changed = true;
+          continue;
         }
 
-        auto Shutdown() noexcept -> CoreResult<void> override
-        {
-            std::unique_lock<std::mutex> apiLock;
-            if (auto guard = AcquireApiAccess(true, apiLock); !guard)
-            {
-                return guard;
-            }
-
-            if (m_state == KernelState::Shutdown)
-            {
-                return CoreResult<void> {};
-            }
-
-            if (m_state == KernelState::Created)
-            {
-                SetState(KernelState::Stopped);
-                SetState(KernelState::Shutdown);
-                return CoreResult<void> {};
-            }
-
-            SetState(KernelState::Stopping);
-            EmitKernelEvent(ReservedKernelEvent::KernelStopping, "KernelStopping");
-            StopAndShutdownModules();
-
-            if (m_tasks)
-            {
-                const auto wait = m_tasks->WaitIdle(std::chrono::milliseconds(2000));
-                if (!wait)
-                {
-                    LogCategory("Tasks", "wait idle failed during shutdown");
-                }
-            }
-
-            SetState(KernelState::Stopped);
-            SetState(KernelState::Shutdown);
-            LogCategory("Kernel", "kernel shutdown complete");
-            return CoreResult<void> {};
+        bool missingRequiredDependency = false;
+        for (const auto &dep : desc.dependencies) {
+          if (!dep.optional && !active.contains(dep.name)) {
+            missingRequiredDependency = true;
+            break;
+          }
         }
 
-        [[nodiscard]] auto GetState() const noexcept -> KernelState override
-        {
-            return m_state;
+        if (missingRequiredDependency) {
+          if (required) {
+            return NGIN::Utilities::Unexpected<KernelError>(MakeKernelError(
+                KernelErrorCode::MissingRequiredDependency, "ModuleLoader",
+                desc.name,
+                "required dependency missing after compatibility filtering"));
+          }
+
+          m_startupReport.warnings.push_back(
+              {"ModuleLoader", desc.name,
+               "optional module skipped due missing required dependency"});
+          m_startupReport.skippedOptionalModules.push_back(desc.name);
+          it = active.erase(it);
+          changed = true;
+          continue;
         }
 
-        [[nodiscard]] auto GetStartupReport() const -> StartupReport override
-        {
-            return m_startupReport;
+        ++it;
+      }
+    }
+
+    std::unordered_map<std::string, std::vector<std::string>> dependents{};
+    std::unordered_map<std::string, NGIN::UInt32> indegree{};
+    std::unordered_map<std::string, StaticModuleRegistration> selected{};
+
+    for (const auto &name : active) {
+      const auto catIt = catalog.find(name);
+      if (catIt == catalog.end()) {
+        continue;
+      }
+
+      selected.emplace(name, catIt->second);
+      indegree.emplace(name, 0);
+      m_moduleDescriptorByName.emplace(name, catIt->second.descriptor);
+    }
+
+    std::unordered_map<std::string, std::vector<std::string>>
+        serviceProviders{};
+    for (const auto &[name, registration] : selected) {
+      for (const auto &provided : registration.descriptor.providesServices) {
+        if (!provided.empty()) {
+          serviceProviders[provided].push_back(name);
+        }
+      }
+    }
+
+    for (const auto &[name, registration] : selected) {
+      for (const auto &requiredService :
+           registration.descriptor.requiresServices) {
+        if (requiredService.empty()) {
+          continue;
+        }
+        if (!serviceProviders.contains(requiredService)) {
+          m_startupReport.warnings.push_back(
+              {"Services", name,
+               "no module advertises required service contract: " +
+                   requiredService});
+        }
+      }
+    }
+
+    for (const auto &[name, registration] : selected) {
+      const auto srcFamily = registration.descriptor.family;
+
+      for (const auto &dep : registration.descriptor.dependencies) {
+        if (!active.contains(dep.name)) {
+          if (dep.optional) {
+            m_startupReport.warnings.push_back(
+                {"ModuleLoader", name,
+                 "optional dependency missing: " + dep.name});
+            continue;
+          }
+          return NGIN::Utilities::Unexpected<KernelError>(MakeKernelError(
+              KernelErrorCode::MissingRequiredDependency, "ModuleLoader", name,
+              "required dependency missing: " + dep.name));
         }
 
-        [[nodiscard]] auto GetModuleStates() const -> std::vector<ModuleRuntimeInfo> override
-        {
-            return m_moduleInfos;
+        const auto *depDesc = ModuleByName(dep.name);
+        if (!depDesc) {
+          return NGIN::Utilities::Unexpected<KernelError>(MakeKernelError(
+              KernelErrorCode::InternalError, "ModuleLoader", name,
+              "dependency descriptor lookup failed: " + dep.name));
         }
 
-        [[nodiscard]] auto GetServices() noexcept -> NGIN::Memory::Shared<IServiceRegistry> override
-        {
-            return m_services;
+        const auto dstFamily = depDesc->family;
+        if (!DependencyAllowed(srcFamily, dstFamily)) {
+          return NGIN::Utilities::Unexpected<KernelError>(MakeKernelError(
+              KernelErrorCode::LayerConstraintViolation, "ModuleLoader", name,
+              "forbidden dependency edge to " + dep.name));
         }
 
-        [[nodiscard]] auto GetEvents() noexcept -> NGIN::Memory::Shared<IEventBus> override
-        {
-            return m_events;
+        if (StageOrdinal(depDesc->startupStage) >
+            StageOrdinal(registration.descriptor.startupStage)) {
+          return NGIN::Utilities::Unexpected<KernelError>(MakeKernelError(
+              KernelErrorCode::StageOrderingViolation, "ModuleLoader", name,
+              "dependency startup stage is later than dependent module"));
         }
 
-        [[nodiscard]] auto GetTasks() noexcept -> NGIN::Memory::Shared<ITaskRuntime> override
-        {
-            return m_tasks;
+        if (!dep.requiredVersion.Contains(depDesc->version)) {
+          return NGIN::Utilities::Unexpected<KernelError>(MakeKernelError(
+              KernelErrorCode::IncompatibleVersion, "ModuleLoader", name,
+              "dependency version mismatch", name + " -> " + dep.name));
         }
 
-        [[nodiscard]] auto GetConfig() noexcept -> NGIN::Memory::Shared<IConfigStore> override
-        {
-            return m_configStore;
+        if (!dep.optional) {
+          indegree[name] += 1;
+          dependents[dep.name].push_back(name);
         }
-
-    private:
-        [[nodiscard]] auto AcquireApiAccess(bool mutating, std::unique_lock<std::mutex>& lock) noexcept -> CoreResult<void>
-        {
-            if (m_config.apiThreadPolicy == KernelApiThreadPolicy::SingleThreadOnly)
-            {
-                if (std::this_thread::get_id() != m_ownerThread)
-                {
-                    return NGIN::Utilities::Unexpected<KernelError>(
-                        MakeKernelError(
-                            KernelErrorCode::ThreadPolicyViolation,
-                            "Kernel",
-                            {},
-                            "kernel API called from non-owner thread in SingleThreadOnly mode"));
-                }
-                return CoreResult<void> {};
-            }
-
-            if (mutating)
-            {
-                lock = std::unique_lock<std::mutex>(m_apiMutex);
-            }
-            return CoreResult<void> {};
-        }
-
-        void CaptureFailure(const KernelError& error)
-        {
-            m_startupReport.failures.push_back(error);
-        }
-
-        void SetState(const KernelState state) noexcept
-        {
-            m_state = state;
-            LogCategory("Kernel", "state transition -> " + std::string(ToString(state)));
-        }
-
-        void EmitKernelEvent(const ReservedKernelEvent eventId, std::string channel)
-        {
-            if (!m_events)
-            {
-                return;
-            }
-            EventRecord rec {};
-            rec.channel = std::move(channel);
-            rec.reserved = eventId;
-            rec.queue = EventQueue::Main;
-            rec.payload = NGIN::Utilities::Any<>(std::string(m_config.hostName));
-            (void)m_events->PublishImmediate(std::move(rec));
-        }
-
-        void EmitModuleEvent(const ReservedKernelEvent eventId, const std::string& moduleName)
-        {
-            if (!m_events)
-            {
-                return;
-            }
-            EventRecord rec {};
-            rec.channel = std::string(ToString(eventId));
-            rec.reserved = eventId;
-            rec.queue = EventQueue::Main;
-            rec.payload = NGIN::Utilities::Any<>(moduleName);
-            (void)m_events->PublishImmediate(std::move(rec));
-        }
-
-        [[nodiscard]] auto ModuleByName(const std::string& name) const -> const ModuleDescriptor*
-        {
-            const auto it = m_moduleDescriptorByName.find(name);
-            if (it == m_moduleDescriptorByName.end())
-            {
-                return nullptr;
-            }
-            return &it->second;
-        }
-
-        void LogCategory(const std::string_view category, const std::string& message)
-        {
-            auto logger = m_loggerRegistry.GetOrCreate(std::string(category), NGIN::Log::LogLevel::Info);
-            if (!logger)
-            {
-                return;
-            }
-
-            logger->Info([&](NGIN::Log::RecordBuilder& record) {
-                record.Message(message);
-                record.Attr("host", std::string_view(m_config.hostName));
-            });
-        }
-
-        [[nodiscard]] auto ApplyHostConfig() noexcept -> CoreResult<void>
-        {
-            m_configStore = CreateConfigStore();
-            if (!m_configStore)
-            {
-                return NGIN::Utilities::Unexpected<KernelError>(
-                    MakeKernelError(KernelErrorCode::InternalError, "Config", {}, "failed to create config store"));
-            }
-
-            auto set = m_configStore->SetValue(ConfigLayer::BuiltInDefaults, "Kernel.HostName", m_config.hostName);
-            if (!set) return NGIN::Utilities::Unexpected<KernelError>(set.Error());
-
-            set = m_configStore->SetValue(ConfigLayer::BuiltInDefaults, "Kernel.TargetName", m_config.targetName);
-            if (!set) return NGIN::Utilities::Unexpected<KernelError>(set.Error());
-
-            set = m_configStore->SetValue(ConfigLayer::BuiltInDefaults, "Kernel.Platform", m_config.platformName);
-            if (!set) return NGIN::Utilities::Unexpected<KernelError>(set.Error());
-
-            set = m_configStore->SetValue(ConfigLayer::BuiltInDefaults, "Kernel.PlatformVersion", FormatSemanticVersion(m_config.platformVersion));
-            if (!set) return NGIN::Utilities::Unexpected<KernelError>(set.Error());
-
-            set = m_configStore->SetValue(ConfigLayer::BuiltInDefaults, "Kernel.HostType", std::string(ToString(m_config.hostType)));
-            if (!set) return NGIN::Utilities::Unexpected<KernelError>(set.Error());
-
-            set = m_configStore->SetValue(ConfigLayer::BuiltInDefaults, "Kernel.ReflectionEnabled", m_config.enableReflection ? "true" : "false");
-            if (!set) return NGIN::Utilities::Unexpected<KernelError>(set.Error());
-
-            if (!m_config.environmentName.empty())
-            {
-                set = m_configStore->SetValue(ConfigLayer::Environment, "Kernel.EnvironmentName", m_config.environmentName);
-                if (!set) return NGIN::Utilities::Unexpected<KernelError>(set.Error());
-            }
-
-            std::filesystem::path baseDir = m_config.workingDirectory;
-            if (baseDir.empty())
-            {
-                std::error_code ec;
-                baseDir = std::filesystem::current_path(ec);
-            }
-
-            m_effectivePluginPaths.clear();
-            m_effectivePluginPaths.reserve(m_config.pluginSearchPaths.size());
-            for (const auto& raw : m_config.pluginSearchPaths)
-            {
-                if (raw.empty())
-                {
-                    continue;
-                }
-                std::filesystem::path p(raw);
-                if (p.is_relative())
-                {
-                    p = baseDir / p;
-                }
-                m_effectivePluginPaths.push_back(p.string());
-            }
-
-            if (m_config.enableDynamicPlugins && !m_config.pluginCatalog)
-            {
-                m_config.pluginCatalog = NGIN::Memory::MakeSharedAs<IPluginCatalog, FilesystemPluginCatalog>(m_effectivePluginPaths);
-            }
-
-            for (const auto& source : m_config.configSources)
-            {
-                if (source.empty())
-                {
-                    continue;
-                }
-
-                std::filesystem::path filePath(source);
-                if (filePath.is_relative())
-                {
-                    filePath = baseDir / filePath;
-                }
-
-                std::ifstream input(filePath);
-                if (!input.good())
-                {
-                    return NGIN::Utilities::Unexpected<KernelError>(
-                        MakeKernelError(KernelErrorCode::ConfigFailure, "Config", filePath.string(), "failed to open config source"));
-                }
-
-                std::string line;
-                while (std::getline(input, line))
-                {
-                    const auto hashPos = line.find('#');
-                    if (hashPos != std::string::npos)
-                    {
-                        line.erase(hashPos);
-                    }
-                    const auto eqPos = line.find('=');
-                    if (eqPos == std::string::npos)
-                    {
-                        continue;
-                    }
-
-                    const auto key = Trim(std::string_view(line).substr(0, eqPos));
-                    const auto value = Trim(std::string_view(line).substr(eqPos + 1));
-                    if (key.empty())
-                    {
-                        continue;
-                    }
-
-                    set = m_configStore->SetValue(ConfigLayer::HostTarget, std::string(key), std::string(value));
-                    if (!set)
-                    {
-                        return NGIN::Utilities::Unexpected<KernelError>(set.Error());
-                    }
-                }
-            }
-
-            for (const auto& arg : m_config.commandLineArgs)
-            {
-                if (!arg.starts_with("--"))
-                {
-                    continue;
-                }
-                const auto eqPos = arg.find('=');
-                if (eqPos == std::string::npos || eqPos <= 2)
-                {
-                    continue;
-                }
-                const std::string key = arg.substr(2, eqPos - 2);
-                const std::string value = arg.substr(eqPos + 1);
-                set = m_configStore->SetValue(ConfigLayer::CommandLine, key, value);
-                if (!set)
-                {
-                    return NGIN::Utilities::Unexpected<KernelError>(set.Error());
-                }
-            }
-
-            return CoreResult<void> {};
-        }
-
-        [[nodiscard]] auto BuildSubsystems() noexcept -> CoreResult<void>
-        {
-            if (!m_configStore)
-            {
-                m_configStore = CreateConfigStore();
-            }
-
-            m_services = CreateServiceRegistry();
-            m_events = CreateEventBus();
-            m_tasks = CreateTaskRuntime(m_config.schedulerPolicy.workerThreads, m_config.schedulerPolicy.enableRenderLane);
-
-            if (!m_services || !m_events || !m_tasks || !m_configStore)
-            {
-                return NGIN::Utilities::Unexpected<KernelError>(
-                    MakeKernelError(KernelErrorCode::InternalError, "Kernel", {}, "failed to allocate required subsystems"));
-            }
-
-            NGIN::Log::LoggerRegistry::SinkSet sinks {};
-            if (m_config.logSinkConfig.includeConsoleSink)
-            {
-                sinks.push_back(
-                    NGIN::Log::MakeSink<NGIN::Log::ConsoleSink>(
-                        NGIN::Log::ConsoleSinkOptions {
-                            .useStderrForErrors = true,
-                            .includeSource = m_config.logSinkConfig.includeSource,
-                            .autoFlush = m_config.logSinkConfig.autoFlush}));
-            }
-            m_loggerRegistry.SetDefaultSinks(std::move(sinks));
-
-            auto configSub = m_configStore->Subscribe([this](const ConfigChangeEvent& change) {
-                if (!m_events)
-                {
-                    return;
-                }
-
-                EventRecord rec {};
-                rec.channel = "ConfigChanged";
-                rec.reserved = ReservedKernelEvent::ConfigChanged;
-                rec.queue = EventQueue::Main;
-                rec.payload = NGIN::Utilities::Any<>(change.key + "=" + change.newValue);
-                (void)m_events->PublishImmediate(std::move(rec));
-            });
-            if (!configSub)
-            {
-                return NGIN::Utilities::Unexpected<KernelError>(configSub.Error());
-            }
-            m_configSubscription = configSub.Value();
-
-            return CoreResult<void> {};
-        }
-
-        [[nodiscard]] auto ResolveModules() noexcept -> CoreResult<void>
-        {
-            std::vector<StaticModuleRegistration> staticModules;
-            if (m_config.moduleCatalog)
-            {
-                staticModules = m_config.moduleCatalog->Snapshot();
-            }
-
-            std::unordered_map<std::string, StaticModuleRegistration> catalog {};
-            catalog.reserve(staticModules.size());
-
-            for (auto& reg : staticModules)
-            {
-                if (catalog.contains(reg.descriptor.name))
-                {
-                    return NGIN::Utilities::Unexpected<KernelError>(
-                        MakeKernelError(KernelErrorCode::AlreadyExists, "ModuleLoader", reg.descriptor.name, "duplicate static module descriptor"));
-                }
-                catalog.emplace(reg.descriptor.name, std::move(reg));
-            }
-
-            if (m_config.enableDynamicPlugins && m_config.pluginCatalog)
-            {
-                std::vector<ModuleDescriptor> dynamicDescriptors;
-                auto collect = m_config.pluginCatalog->CollectDescriptors(dynamicDescriptors);
-                if (!collect)
-                {
-                    return NGIN::Utilities::Unexpected<KernelError>(collect.Error());
-                }
-
-                for (auto& descriptor : dynamicDescriptors)
-                {
-                    descriptor.entryKind = ModuleEntryKind::Dynamic;
-                    StaticModuleRegistration registration {
-                        .descriptor = std::move(descriptor),
-                        .factory = {},
-                    };
-                    if (catalog.contains(registration.descriptor.name))
-                    {
-                        return NGIN::Utilities::Unexpected<KernelError>(
-                            MakeKernelError(KernelErrorCode::AlreadyExists, "ModuleLoader", registration.descriptor.name, "duplicate dynamic/static module descriptor"));
-                    }
-                    catalog.emplace(registration.descriptor.name, std::move(registration));
-                }
-            }
-
-            std::unordered_map<std::string, bool> requiredMap {};
-            std::deque<std::pair<std::string, bool>> queue;
-
-            if (m_config.requestedModules.empty())
-            {
-                for (const auto& [name, _] : catalog)
-                {
-                    queue.emplace_back(name, true);
-                }
-            }
-            else
-            {
-                for (const auto& name : m_config.requestedModules)
-                {
-                    queue.emplace_back(name, true);
-                }
-            }
-
-            while (!queue.empty())
-            {
-                auto [name, required] = queue.front();
-                queue.pop_front();
-
-                auto catIt = catalog.find(name);
-                if (catIt == catalog.end())
-                {
-                    if (required)
-                    {
-                        return NGIN::Utilities::Unexpected<KernelError>(
-                            MakeKernelError(KernelErrorCode::NotFound, "ModuleLoader", name, "requested module was not found in catalog"));
-                    }
-                    m_startupReport.warnings.push_back({"ModuleLoader", name, "optional module not found"});
-                    continue;
-                }
-
-                const auto requiredIt = requiredMap.find(name);
-                if (requiredIt != requiredMap.end())
-                {
-                    if (required && !requiredIt->second)
-                    {
-                        requiredMap[name] = true;
-                    }
-                    continue;
-                }
-
-                requiredMap.emplace(name, required);
-                const auto& descriptor = catIt->second.descriptor;
-
-                for (const auto& dep : descriptor.dependencies)
-                {
-                    queue.emplace_back(dep.name, !dep.optional);
-                }
-            }
-
-            std::set<std::string> active;
-            for (const auto& [name, _] : requiredMap)
-            {
-                active.insert(name);
-            }
-
-            const auto platformTag = ExtractPlatformTag(m_config.platformName);
-
-            bool changed = true;
-            while (changed)
-            {
-                changed = false;
-                for (auto it = active.begin(); it != active.end();)
-                {
-                    const auto& name = *it;
-                    const auto catIt = catalog.find(name);
-                    if (catIt == catalog.end())
-                    {
-                        it = active.erase(it);
-                        changed = true;
-                        continue;
-                    }
-
-                    const auto& desc = catIt->second.descriptor;
-                    const bool required = requiredMap[name];
-
-                    const bool platformOk = desc.platforms.empty() || std::find(desc.platforms.begin(), desc.platforms.end(), platformTag) != desc.platforms.end();
-                    const bool hostOk = SupportsHost(desc, m_config.hostType);
-                    const bool reflectionOk = !desc.reflectionRequired || m_config.enableReflection;
-                    const bool versionOk = desc.compatiblePlatformRange.Contains(m_config.platformVersion);
-
-                    if (!platformOk || !hostOk || !reflectionOk || !versionOk)
-                    {
-                        if (required)
-                        {
-                            auto errorCode = KernelErrorCode::IncompatiblePlatform;
-                            std::string message = "module incompatible with host/platform/version settings";
-                            if (!hostOk)
-                            {
-                                errorCode = KernelErrorCode::IncompatibleHostType;
-                                message = "module does not support host type";
-                            }
-                            else if (!reflectionOk)
-                            {
-                                errorCode = KernelErrorCode::ReflectionRequired;
-                                message = "module requires reflection";
-                            }
-
-                            return NGIN::Utilities::Unexpected<KernelError>(
-                                MakeKernelError(errorCode, "ModuleLoader", desc.name, std::move(message)));
-                        }
-
-                        m_startupReport.warnings.push_back({"ModuleLoader", desc.name, "optional module skipped due compatibility"});
-                        m_startupReport.skippedOptionalModules.push_back(desc.name);
-                        it = active.erase(it);
-                        changed = true;
-                        continue;
-                    }
-
-                    if (desc.entryKind == ModuleEntryKind::Dynamic && !m_config.enableDynamicPlugins)
-                    {
-                        if (required)
-                        {
-                            return NGIN::Utilities::Unexpected<KernelError>(
-                                MakeKernelError(KernelErrorCode::DynamicPluginUnsupported, "Plugin", desc.name, "dynamic module requested while dynamic plugins are disabled"));
-                        }
-                        m_startupReport.warnings.push_back({"Plugin", desc.name, "optional dynamic module skipped (dynamic disabled)"});
-                        it = active.erase(it);
-                        changed = true;
-                        continue;
-                    }
-
-                    bool missingRequiredDependency = false;
-                    for (const auto& dep : desc.dependencies)
-                    {
-                        if (!dep.optional && !active.contains(dep.name))
-                        {
-                            missingRequiredDependency = true;
-                            break;
-                        }
-                    }
-
-                    if (missingRequiredDependency)
-                    {
-                        if (required)
-                        {
-                            return NGIN::Utilities::Unexpected<KernelError>(
-                                MakeKernelError(
-                                    KernelErrorCode::MissingRequiredDependency,
-                                    "ModuleLoader",
-                                    desc.name,
-                                    "required dependency missing after compatibility filtering"));
-                        }
-
-                        m_startupReport.warnings.push_back({"ModuleLoader", desc.name, "optional module skipped due missing required dependency"});
-                        m_startupReport.skippedOptionalModules.push_back(desc.name);
-                        it = active.erase(it);
-                        changed = true;
-                        continue;
-                    }
-
-                    ++it;
-                }
-            }
-
-            std::unordered_map<std::string, std::vector<std::string>> dependents {};
-            std::unordered_map<std::string, NGIN::UInt32> indegree {};
-            std::unordered_map<std::string, StaticModuleRegistration> selected {};
-
-            for (const auto& name : active)
-            {
-                const auto catIt = catalog.find(name);
-                if (catIt == catalog.end())
-                {
-                    continue;
-                }
-
-                selected.emplace(name, catIt->second);
-                indegree.emplace(name, 0);
-                m_moduleDescriptorByName.emplace(name, catIt->second.descriptor);
-            }
-
-            std::unordered_map<std::string, std::vector<std::string>> serviceProviders {};
-            for (const auto& [name, registration] : selected)
-            {
-                for (const auto& provided : registration.descriptor.providesServices)
-                {
-                    if (!provided.empty())
-                    {
-                        serviceProviders[provided].push_back(name);
-                    }
-                }
-            }
-
-            for (const auto& [name, registration] : selected)
-            {
-                for (const auto& requiredService : registration.descriptor.requiresServices)
-                {
-                    if (requiredService.empty())
-                    {
-                        continue;
-                    }
-                    if (!serviceProviders.contains(requiredService))
-                    {
-                        m_startupReport.warnings.push_back({
-                            "Services",
-                            name,
-                            "no module advertises required service contract: " + requiredService});
-                    }
-                }
-            }
-
-            for (const auto& [name, registration] : selected)
-            {
-                const auto srcFamily = registration.descriptor.family;
-
-                for (const auto& dep : registration.descriptor.dependencies)
-                {
-                    if (!active.contains(dep.name))
-                    {
-                        if (dep.optional)
-                        {
-                            m_startupReport.warnings.push_back({"ModuleLoader", name, "optional dependency missing: " + dep.name});
-                            continue;
-                        }
-                        return NGIN::Utilities::Unexpected<KernelError>(
-                            MakeKernelError(KernelErrorCode::MissingRequiredDependency, "ModuleLoader", name, "required dependency missing: " + dep.name));
-                    }
-
-                    const auto* depDesc = ModuleByName(dep.name);
-                    if (!depDesc)
-                    {
-                        return NGIN::Utilities::Unexpected<KernelError>(
-                            MakeKernelError(KernelErrorCode::InternalError, "ModuleLoader", name, "dependency descriptor lookup failed: " + dep.name));
-                    }
-
-                    const auto dstFamily = depDesc->family;
-                    if (!DependencyAllowed(srcFamily, dstFamily))
-                    {
-                        return NGIN::Utilities::Unexpected<KernelError>(
-                            MakeKernelError(KernelErrorCode::LayerConstraintViolation, "ModuleLoader", name, "forbidden dependency edge to " + dep.name));
-                    }
-
-                    if (StageOrdinal(depDesc->startupStage) > StageOrdinal(registration.descriptor.startupStage))
-                    {
-                        return NGIN::Utilities::Unexpected<KernelError>(
-                            MakeKernelError(KernelErrorCode::StageOrderingViolation, "ModuleLoader", name, "dependency startup stage is later than dependent module"));
-                    }
-
-                    if (!dep.requiredVersion.Contains(depDesc->version))
-                    {
-                        return NGIN::Utilities::Unexpected<KernelError>(
-                            MakeKernelError(
-                                KernelErrorCode::IncompatibleVersion,
-                                "ModuleLoader",
-                                name,
-                                "dependency version mismatch",
-                                name + " -> " + dep.name));
-                    }
-
-                    if (!dep.optional)
-                    {
-                        indegree[name] += 1;
-                        dependents[dep.name].push_back(name);
-                    }
-                }
-            }
-
-            std::vector<std::string> ready;
-            ready.reserve(indegree.size());
-            for (const auto& [name, count] : indegree)
-            {
-                if (count == 0)
-                {
-                    ready.push_back(name);
-                }
-            }
-
-            auto sortReady = [&]() {
-                std::sort(
-                    ready.begin(),
-                    ready.end(),
-                    [&](const std::string& lhs, const std::string& rhs) {
-                        const auto* lhsDesc = ModuleByName(lhs);
-                        const auto* rhsDesc = ModuleByName(rhs);
-                        if (!lhsDesc || !rhsDesc)
-                        {
-                            return lhs < rhs;
-                        }
-                        const auto lhsStage = StageOrdinal(lhsDesc->startupStage);
-                        const auto rhsStage = StageOrdinal(rhsDesc->startupStage);
-                        if (lhsStage != rhsStage)
-                        {
-                            return lhsStage < rhsStage;
-                        }
-                        if (lhsDesc->priority != rhsDesc->priority)
-                        {
-                            return lhsDesc->priority < rhsDesc->priority;
-                        }
-                        return lhs < rhs;
-                    });
-            };
-
-            sortReady();
-
-            std::vector<std::string> ordered;
-            ordered.reserve(indegree.size());
-
-            while (!ready.empty())
-            {
-                const std::string current = ready.front();
-                ready.erase(ready.begin());
-                ordered.push_back(current);
-
-                auto depIt = dependents.find(current);
-                if (depIt == dependents.end())
-                {
-                    continue;
-                }
-
-                for (const auto& dependent : depIt->second)
-                {
-                    auto inIt = indegree.find(dependent);
-                    if (inIt == indegree.end())
-                    {
-                        continue;
-                    }
-
-                    if (inIt->second > 0)
-                    {
-                        inIt->second -= 1;
-                        if (inIt->second == 0)
-                        {
-                            ready.push_back(dependent);
-                        }
-                    }
-                }
-                sortReady();
-            }
-
-            if (ordered.size() != indegree.size())
-            {
-                return NGIN::Utilities::Unexpected<KernelError>(
-                    MakeKernelError(KernelErrorCode::DependencyCycle, "ModuleLoader", {}, "required dependency cycle detected"));
-            }
-
-            m_resolvedModules.reserve(ordered.size());
-            for (const auto& name : ordered)
-            {
-                const auto selectedIt = selected.find(name);
-                if (selectedIt == selected.end())
-                {
-                    continue;
-                }
-                m_resolvedModules.push_back(ResolvedModule {
-                    .registration = selectedIt->second,
-                    .requiredByGraph = requiredMap[name],
+      }
+    }
+
+    std::vector<std::string> ready;
+    ready.reserve(indegree.size());
+    for (const auto &[name, count] : indegree) {
+      if (count == 0) {
+        ready.push_back(name);
+      }
+    }
+
+    auto sortReady = [&]() {
+      std::sort(ready.begin(), ready.end(),
+                [&](const std::string &lhs, const std::string &rhs) {
+                  const auto *lhsDesc = ModuleByName(lhs);
+                  const auto *rhsDesc = ModuleByName(rhs);
+                  if (!lhsDesc || !rhsDesc) {
+                    return lhs < rhs;
+                  }
+                  const auto lhsStage = StageOrdinal(lhsDesc->startupStage);
+                  const auto rhsStage = StageOrdinal(rhsDesc->startupStage);
+                  if (lhsStage != rhsStage) {
+                    return lhsStage < rhsStage;
+                  }
+                  if (lhsDesc->priority != rhsDesc->priority) {
+                    return lhsDesc->priority < rhsDesc->priority;
+                  }
+                  return lhs < rhs;
                 });
-                m_startupReport.resolvedModules.push_back(name);
-            }
-
-            return CoreResult<void> {};
-        }
-
-        [[nodiscard]] auto LifecycleFailure(
-            const std::string& stage,
-            const std::string& module,
-            const KernelError& causeError) noexcept -> CoreResult<void>
-        {
-            auto cause = std::make_shared<KernelError>(causeError);
-            return NGIN::Utilities::Unexpected<KernelError>(
-                MakeKernelError(
-                    KernelErrorCode::ModuleLifecycleFailure,
-                    "Module",
-                    module,
-                    stage + " failed: " + causeError.message,
-                    module,
-                    std::move(cause)));
-        }
-
-        [[nodiscard]] auto LoadAndStartModules() noexcept -> CoreResult<void>
-        {
-            m_moduleInfos.reserve(m_resolvedModules.size());
-            m_moduleInstances.resize(m_resolvedModules.size());
-            m_moduleScopes.resize(m_resolvedModules.size(), ServiceScopeId::Global());
-
-            // 1) construct + register
-            for (std::size_t index = 0; index < m_resolvedModules.size(); ++index)
-            {
-                auto& resolved = m_resolvedModules[index];
-                const auto& descriptor = resolved.registration.descriptor;
-
-                ModuleRuntimeInfo info {
-                    .descriptor = descriptor,
-                    .state = ModuleState::Loaded,
-                    .optional = !resolved.requiredByGraph,
-                    .lastError = {},
-                    .registered = false,
-                    .initialized = false,
-                    .started = false,
-                };
-                m_moduleInfos.push_back(info);
-
-                if (descriptor.entryKind == ModuleEntryKind::Dynamic)
-                {
-                    if (!m_config.enableDynamicPlugins)
-                    {
-                        return NGIN::Utilities::Unexpected<KernelError>(
-                            MakeKernelError(KernelErrorCode::DynamicPluginUnsupported, "Plugin", descriptor.name, "dynamic module requested while dynamic plugins are disabled"));
-                    }
-                    if (!m_config.pluginBinaryLoader)
-                    {
-                        return NGIN::Utilities::Unexpected<KernelError>(
-                            MakeKernelError(KernelErrorCode::DynamicPluginUnsupported, "Plugin", descriptor.name, "dynamic module requires Spec 003 binary loader"));
-                    }
-
-                    auto load = m_config.pluginBinaryLoader->LoadBinary(descriptor);
-                    if (!load)
-                    {
-                        return NGIN::Utilities::Unexpected<KernelError>(load.Error());
-                    }
-                }
-
-                if (!resolved.registration.factory)
-                {
-                    return NGIN::Utilities::Unexpected<KernelError>(
-                        MakeKernelError(KernelErrorCode::ModuleFactoryFailure, "ModuleLoader", descriptor.name, "module factory is missing"));
-                }
-
-                auto instance = resolved.registration.factory();
-                if (!instance)
-                {
-                    return NGIN::Utilities::Unexpected<KernelError>(instance.Error());
-                }
-
-                auto scope = m_services->BeginScope(ServiceScopeKind::Module, descriptor.name);
-                if (!scope)
-                {
-                    return NGIN::Utilities::Unexpected<KernelError>(scope.Error());
-                }
-
-                m_moduleInstances[index] = instance.Value();
-                m_moduleScopes[index] = scope.Value();
-                m_moduleInfos[index].state = ModuleState::Constructed;
-
-                ModuleContext context(
-                    descriptor.name,
-                    m_moduleScopes[index],
-                    *m_services,
-                    *m_events,
-                    *m_tasks,
-                    *m_configStore,
-                    m_loggerRegistry,
-                    [&]() { return m_stopRequested.load(std::memory_order_acquire); });
-
-                auto reg = m_moduleInstances[index]->OnRegister(context);
-                if (!reg)
-                {
-                    m_moduleInfos[index].lastError = reg.Error().message;
-                    return LifecycleFailure("OnRegister", descriptor.name, reg.Error());
-                }
-
-                m_moduleInfos[index].registered = true;
-                EmitModuleEvent(ReservedKernelEvent::ModuleLoaded, descriptor.name);
-            }
-
-            // 2) enforce requiresServices pre-init
-            for (std::size_t index = 0; index < m_resolvedModules.size(); ++index)
-            {
-                const auto& descriptor = m_resolvedModules[index].registration.descriptor;
-                for (const auto& requiredService : descriptor.requiresServices)
-                {
-                    auto resolved = m_services->ResolveOptional(requiredService, m_moduleScopes[index]);
-                    if (!resolved)
-                    {
-                        return NGIN::Utilities::Unexpected<KernelError>(resolved.Error());
-                    }
-                    if (!resolved.Value().has_value())
-                    {
-                        return NGIN::Utilities::Unexpected<KernelError>(
-                            MakeKernelError(
-                                KernelErrorCode::MissingRequiredDependency,
-                                "Services",
-                                descriptor.name,
-                                "missing required service contract: " + requiredService,
-                                descriptor.name + " -> " + requiredService));
-                    }
-                }
-            }
-
-            // 3) init
-            for (std::size_t index = 0; index < m_resolvedModules.size(); ++index)
-            {
-                const auto& descriptor = m_resolvedModules[index].registration.descriptor;
-                ModuleContext context(
-                    descriptor.name,
-                    m_moduleScopes[index],
-                    *m_services,
-                    *m_events,
-                    *m_tasks,
-                    *m_configStore,
-                    m_loggerRegistry,
-                    [&]() { return m_stopRequested.load(std::memory_order_acquire); });
-
-                auto init = m_moduleInstances[index]->OnInit(context);
-                if (!init)
-                {
-                    m_moduleInfos[index].lastError = init.Error().message;
-                    return LifecycleFailure("OnInit", descriptor.name, init.Error());
-                }
-
-                m_moduleInfos[index].initialized = true;
-                m_moduleInfos[index].state = ModuleState::Initialized;
-            }
-
-            // 4) start
-            for (std::size_t index = 0; index < m_resolvedModules.size(); ++index)
-            {
-                const auto& descriptor = m_resolvedModules[index].registration.descriptor;
-                ModuleContext context(
-                    descriptor.name,
-                    m_moduleScopes[index],
-                    *m_services,
-                    *m_events,
-                    *m_tasks,
-                    *m_configStore,
-                    m_loggerRegistry,
-                    [&]() { return m_stopRequested.load(std::memory_order_acquire); });
-
-                auto start = m_moduleInstances[index]->OnStart(context);
-                if (!start)
-                {
-                    m_moduleInfos[index].lastError = start.Error().message;
-                    EmitModuleEvent(ReservedKernelEvent::ModuleFailed, descriptor.name);
-                    return LifecycleFailure("OnStart", descriptor.name, start.Error());
-                }
-
-                m_moduleInfos[index].started = true;
-                m_moduleInfos[index].state = ModuleState::Running;
-                EmitModuleEvent(ReservedKernelEvent::ModuleStarted, descriptor.name);
-                LogCategory("ModuleLoader", "module started: " + descriptor.name);
-            }
-
-            return CoreResult<void> {};
-        }
-
-        void StopAndShutdownModules() noexcept
-        {
-            if (!m_services || !m_events || !m_tasks || !m_configStore)
-            {
-                return;
-            }
-
-            for (std::size_t i = m_moduleInfos.size(); i > 0; --i)
-            {
-                const std::size_t index = i - 1;
-                auto& info = m_moduleInfos[index];
-                const auto& descriptor = info.descriptor;
-
-                if (!m_moduleInstances[index])
-                {
-                    continue;
-                }
-
-                ModuleContext context(
-                    descriptor.name,
-                    m_moduleScopes[index],
-                    *m_services,
-                    *m_events,
-                    *m_tasks,
-                    *m_configStore,
-                    m_loggerRegistry,
-                    [&]() { return m_stopRequested.load(std::memory_order_acquire); });
-
-                info.state = ModuleState::Stopping;
-
-                if (info.started)
-                {
-                    auto stop = m_moduleInstances[index]->OnStop(context);
-                    if (!stop)
-                    {
-                        info.lastError = stop.Error().message;
-                    }
-                    info.started = false;
-                }
-
-                m_events->ClearScope(EventScope {.owner = descriptor.name});
-
-                if (info.registered)
-                {
-                    auto shutdown = m_moduleInstances[index]->OnShutdown(context);
-                    if (!shutdown)
-                    {
-                        info.lastError = shutdown.Error().message;
-                    }
-                    info.registered = false;
-                }
-
-                if (!m_moduleScopes[index].IsGlobal())
-                {
-                    auto endScope = m_services->EndScope(m_moduleScopes[index]);
-                    if (!endScope)
-                    {
-                        info.lastError = endScope.Error().message;
-                    }
-                }
-
-                info.initialized = false;
-                info.state = ModuleState::Unloaded;
-            }
-        }
-
-    private:
-        KernelHostConfig m_config;
-        KernelState      m_state {KernelState::Created};
-
-        std::thread::id m_ownerThread;
-        mutable std::mutex m_apiMutex;
-
-        std::atomic<bool> m_stopRequested {false};
-        std::string       m_stopReason {};
-
-        NGIN::Memory::Shared<IServiceRegistry> m_services {};
-        NGIN::Memory::Shared<IEventBus>        m_events {};
-        NGIN::Memory::Shared<ITaskRuntime>     m_tasks {};
-        NGIN::Memory::Shared<IConfigStore>     m_configStore {};
-
-        NGIN::Log::LoggerRegistry m_loggerRegistry {};
-        ConfigSubscriptionToken   m_configSubscription {};
-
-        StartupReport                                 m_startupReport {};
-        std::unordered_map<std::string, ModuleDescriptor> m_moduleDescriptorByName {};
-        std::vector<ResolvedModule>                   m_resolvedModules {};
-        std::vector<ModuleRuntimeInfo>                m_moduleInfos {};
-        std::vector<NGIN::Memory::Shared<IModule>>   m_moduleInstances {};
-        std::vector<ServiceScopeId>                   m_moduleScopes {};
-        std::vector<std::string>                      m_effectivePluginPaths {};
     };
 
-    auto CreateKernel(const KernelHostConfig& config) noexcept -> CoreResult<NGIN::Memory::Shared<IKernel>>
-    {
-        auto kernel = NGIN::Memory::MakeSharedAs<IKernel, KernelImpl>(config);
-        if (!kernel)
-        {
-            return NGIN::Utilities::Unexpected<KernelError>(
-                MakeKernelError(KernelErrorCode::InternalError, "Kernel", {}, "failed to allocate kernel instance"));
+    sortReady();
+
+    std::vector<std::string> ordered;
+    ordered.reserve(indegree.size());
+
+    while (!ready.empty()) {
+      const std::string current = ready.front();
+      ready.erase(ready.begin());
+      ordered.push_back(current);
+
+      auto depIt = dependents.find(current);
+      if (depIt == dependents.end()) {
+        continue;
+      }
+
+      for (const auto &dependent : depIt->second) {
+        auto inIt = indegree.find(dependent);
+        if (inIt == indegree.end()) {
+          continue;
         }
 
-        return kernel;
+        if (inIt->second > 0) {
+          inIt->second -= 1;
+          if (inIt->second == 0) {
+            ready.push_back(dependent);
+          }
+        }
+      }
+      sortReady();
     }
+
+    if (ordered.size() != indegree.size()) {
+      return NGIN::Utilities::Unexpected<KernelError>(
+          MakeKernelError(KernelErrorCode::DependencyCycle, "ModuleLoader", {},
+                          "required dependency cycle detected"));
+    }
+
+    m_resolvedModules.reserve(ordered.size());
+    for (const auto &name : ordered) {
+      const auto selectedIt = selected.find(name);
+      if (selectedIt == selected.end()) {
+        continue;
+      }
+      m_resolvedModules.push_back(ResolvedModule{
+          .registration = selectedIt->second,
+          .requiredByGraph = requiredMap[name],
+      });
+      m_startupReport.resolvedModules.push_back(name);
+    }
+
+    return CoreResult<void>{};
+  }
+
+  [[nodiscard]] auto LifecycleFailure(const std::string &stage,
+                                      const std::string &module,
+                                      const KernelError &causeError) noexcept
+      -> CoreResult<void> {
+    auto cause = std::make_shared<KernelError>(causeError);
+    return NGIN::Utilities::Unexpected<KernelError>(MakeKernelError(
+        KernelErrorCode::ModuleLifecycleFailure, "Module", module,
+        stage + " failed: " + causeError.message, module, std::move(cause)));
+  }
+
+  [[nodiscard]] auto LoadAndStartModules() noexcept -> CoreResult<void> {
+    m_moduleInfos.reserve(m_resolvedModules.size());
+    m_moduleInstances.resize(m_resolvedModules.size());
+    m_moduleScopes.resize(m_resolvedModules.size(), ServiceScopeId::Global());
+
+    // 1) construct + register
+    for (std::size_t index = 0; index < m_resolvedModules.size(); ++index) {
+      auto &resolved = m_resolvedModules[index];
+      const auto &descriptor = resolved.registration.descriptor;
+
+      ModuleRuntimeInfo info{
+          .descriptor = descriptor,
+          .state = ModuleState::Loaded,
+          .optional = !resolved.requiredByGraph,
+          .lastError = {},
+          .registered = false,
+          .initialized = false,
+          .started = false,
+      };
+      m_moduleInfos.push_back(info);
+
+      if (descriptor.entryKind == ModuleEntryKind::Dynamic) {
+        if (!m_config.enableDynamicPlugins) {
+          return NGIN::Utilities::Unexpected<KernelError>(MakeKernelError(
+              KernelErrorCode::DynamicPluginUnsupported, "Plugin",
+              descriptor.name,
+              "dynamic module requested while dynamic plugins are disabled"));
+        }
+        if (!m_config.pluginBinaryLoader) {
+          return NGIN::Utilities::Unexpected<KernelError>(MakeKernelError(
+              KernelErrorCode::DynamicPluginUnsupported, "Plugin",
+              descriptor.name,
+              "dynamic module requires Spec 003 binary loader"));
+        }
+
+        auto load = m_config.pluginBinaryLoader->LoadBinary(descriptor);
+        if (!load) {
+          return NGIN::Utilities::Unexpected<KernelError>(load.Error());
+        }
+      }
+
+      if (!resolved.registration.factory) {
+        return NGIN::Utilities::Unexpected<KernelError>(MakeKernelError(
+            KernelErrorCode::ModuleFactoryFailure, "ModuleLoader",
+            descriptor.name, "module factory is missing"));
+      }
+
+      auto instance = resolved.registration.factory();
+      if (!instance) {
+        return NGIN::Utilities::Unexpected<KernelError>(instance.Error());
+      }
+
+      auto scope =
+          m_services->BeginScope(ServiceScopeKind::Module, descriptor.name);
+      if (!scope) {
+        return NGIN::Utilities::Unexpected<KernelError>(scope.Error());
+      }
+
+      m_moduleInstances[index] = instance.Value();
+      m_moduleScopes[index] = scope.Value();
+      m_moduleInfos[index].state = ModuleState::Constructed;
+
+      ModuleContext context(
+          descriptor.name, m_moduleScopes[index], *m_services, *m_events,
+          *m_tasks, *m_configStore, m_loggerRegistry,
+          [&]() { return m_stopRequested.load(std::memory_order_acquire); });
+
+      auto reg = m_moduleInstances[index]->OnRegister(context);
+      if (!reg) {
+        m_moduleInfos[index].lastError = reg.Error().message;
+        return LifecycleFailure("OnRegister", descriptor.name, reg.Error());
+      }
+
+      m_moduleInfos[index].registered = true;
+      EmitModuleEvent(ReservedKernelEvent::ModuleLoaded, descriptor.name);
+    }
+
+    // 2) enforce requiresServices pre-init
+    for (std::size_t index = 0; index < m_resolvedModules.size(); ++index) {
+      const auto &descriptor = m_resolvedModules[index].registration.descriptor;
+      for (const auto &requiredService : descriptor.requiresServices) {
+        auto resolved =
+            m_services->ResolveOptional(requiredService, m_moduleScopes[index]);
+        if (!resolved) {
+          return NGIN::Utilities::Unexpected<KernelError>(resolved.Error());
+        }
+        if (!resolved.Value().has_value()) {
+          return NGIN::Utilities::Unexpected<KernelError>(MakeKernelError(
+              KernelErrorCode::MissingRequiredDependency, "Services",
+              descriptor.name,
+              "missing required service contract: " + requiredService,
+              descriptor.name + " -> " + requiredService));
+        }
+      }
+    }
+
+    // 3) init
+    for (std::size_t index = 0; index < m_resolvedModules.size(); ++index) {
+      const auto &descriptor = m_resolvedModules[index].registration.descriptor;
+      ModuleContext context(
+          descriptor.name, m_moduleScopes[index], *m_services, *m_events,
+          *m_tasks, *m_configStore, m_loggerRegistry,
+          [&]() { return m_stopRequested.load(std::memory_order_acquire); });
+
+      auto init = m_moduleInstances[index]->OnInit(context);
+      if (!init) {
+        m_moduleInfos[index].lastError = init.Error().message;
+        return LifecycleFailure("OnInit", descriptor.name, init.Error());
+      }
+
+      m_moduleInfos[index].initialized = true;
+      m_moduleInfos[index].state = ModuleState::Initialized;
+    }
+
+    // 4) start
+    for (std::size_t index = 0; index < m_resolvedModules.size(); ++index) {
+      const auto &descriptor = m_resolvedModules[index].registration.descriptor;
+      ModuleContext context(
+          descriptor.name, m_moduleScopes[index], *m_services, *m_events,
+          *m_tasks, *m_configStore, m_loggerRegistry,
+          [&]() { return m_stopRequested.load(std::memory_order_acquire); });
+
+      auto start = m_moduleInstances[index]->OnStart(context);
+      if (!start) {
+        m_moduleInfos[index].lastError = start.Error().message;
+        EmitModuleEvent(ReservedKernelEvent::ModuleFailed, descriptor.name);
+        return LifecycleFailure("OnStart", descriptor.name, start.Error());
+      }
+
+      m_moduleInfos[index].started = true;
+      m_moduleInfos[index].state = ModuleState::Running;
+      EmitModuleEvent(ReservedKernelEvent::ModuleStarted, descriptor.name);
+      LogCategory("ModuleLoader", "module started: " + descriptor.name);
+    }
+
+    return CoreResult<void>{};
+  }
+
+  void StopAndShutdownModules() noexcept {
+    if (!m_services || !m_events || !m_tasks || !m_configStore) {
+      return;
+    }
+
+    for (std::size_t i = m_moduleInfos.size(); i > 0; --i) {
+      const std::size_t index = i - 1;
+      auto &info = m_moduleInfos[index];
+      const auto &descriptor = info.descriptor;
+
+      if (!m_moduleInstances[index]) {
+        continue;
+      }
+
+      ModuleContext context(
+          descriptor.name, m_moduleScopes[index], *m_services, *m_events,
+          *m_tasks, *m_configStore, m_loggerRegistry,
+          [&]() { return m_stopRequested.load(std::memory_order_acquire); });
+
+      info.state = ModuleState::Stopping;
+
+      if (info.started) {
+        auto stop = m_moduleInstances[index]->OnStop(context);
+        if (!stop) {
+          info.lastError = stop.Error().message;
+        }
+        info.started = false;
+      }
+
+      m_events->ClearScope(EventScope{.owner = descriptor.name});
+
+      if (info.registered) {
+        auto shutdown = m_moduleInstances[index]->OnShutdown(context);
+        if (!shutdown) {
+          info.lastError = shutdown.Error().message;
+        }
+        info.registered = false;
+      }
+
+      if (!m_moduleScopes[index].IsGlobal()) {
+        auto endScope = m_services->EndScope(m_moduleScopes[index]);
+        if (!endScope) {
+          info.lastError = endScope.Error().message;
+        }
+      }
+
+      info.initialized = false;
+      info.state = ModuleState::Unloaded;
+    }
+  }
+
+private:
+  KernelHostConfig m_config;
+  KernelState m_state{KernelState::Created};
+
+  std::thread::id m_ownerThread;
+  mutable std::mutex m_apiMutex;
+
+  std::atomic<bool> m_stopRequested{false};
+  std::string m_stopReason{};
+
+  NGIN::Memory::Shared<IServiceRegistry> m_services{};
+  NGIN::Memory::Shared<IEventBus> m_events{};
+  NGIN::Memory::Shared<ITaskRuntime> m_tasks{};
+  NGIN::Memory::Shared<IConfigStore> m_configStore{};
+
+  NGIN::Log::LoggerRegistry m_loggerRegistry{};
+  ConfigSubscriptionToken m_configSubscription{};
+
+  StartupReport m_startupReport{};
+  std::unordered_map<std::string, ModuleDescriptor> m_moduleDescriptorByName{};
+  std::vector<ResolvedModule> m_resolvedModules{};
+  std::vector<ModuleRuntimeInfo> m_moduleInfos{};
+  std::vector<NGIN::Memory::Shared<IModule>> m_moduleInstances{};
+  std::vector<ServiceScopeId> m_moduleScopes{};
+  std::vector<std::string> m_effectivePluginPaths{};
+};
+
+auto CreateKernel(const KernelHostConfig &config) noexcept
+    -> CoreResult<NGIN::Memory::Shared<IKernel>> {
+  auto kernel = NGIN::Memory::MakeSharedAs<IKernel, KernelImpl>(config);
+  if (!kernel) {
+    return NGIN::Utilities::Unexpected<KernelError>(
+        MakeKernelError(KernelErrorCode::InternalError, "Kernel", {},
+                        "failed to allocate kernel instance"));
+  }
+
+  return kernel;
 }
+} // namespace NGIN::Core
