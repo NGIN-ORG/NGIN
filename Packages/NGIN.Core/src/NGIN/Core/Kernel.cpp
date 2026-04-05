@@ -244,7 +244,7 @@ public:
     }
 
     SetState(KernelState::ServicesBuilt);
-    EmitKernelEvent(ReservedKernelEvent::KernelStarting, "KernelStarting");
+    EmitKernelEvent(ReservedKernelEvent::KernelStarting);
 
     if (m_config.configureServices) {
       KernelBootstrapContext bootstrapContext{
@@ -278,7 +278,7 @@ public:
 
     SetState(KernelState::ModulesLoaded);
     SetState(KernelState::Running);
-    EmitKernelEvent(ReservedKernelEvent::KernelRunning, "KernelRunning");
+    EmitKernelEvent(ReservedKernelEvent::KernelRunning);
     LogCategory("Kernel", "kernel entered Running state");
     return CoreResult<void>{};
   }
@@ -334,7 +334,7 @@ public:
     }
 
     if (m_events) {
-      auto flush = m_events->FlushDeferred();
+      auto flush = m_events->FlushRaw();
       if (!flush) {
         return NGIN::Utilities::Unexpected<KernelError>(flush.Error());
       }
@@ -366,7 +366,7 @@ public:
     }
 
     SetState(KernelState::Stopping);
-    EmitKernelEvent(ReservedKernelEvent::KernelStopping, "KernelStopping");
+    EmitKernelEvent(ReservedKernelEvent::KernelStopping);
     StopAndShutdownModules();
 
     if (m_tasks) {
@@ -445,29 +445,53 @@ private:
                 "state transition -> " + std::string(ToString(state)));
   }
 
-  void EmitKernelEvent(const ReservedKernelEvent eventId, std::string channel) {
+  template <typename TEvent> void EmitReservedEvent(TEvent event) {
     if (!m_events) {
       return;
     }
-    EventRecord rec{};
-    rec.channel = std::move(channel);
-    rec.reserved = eventId;
-    rec.queue = EventQueue::Main;
-    rec.payload = NGIN::Utilities::Any<>(std::string(m_config.hostName));
-    (void)m_events->PublishImmediate(std::move(rec));
+
+    (void)m_events->Publish(std::move(event));
+  }
+
+  void EmitKernelEvent(const ReservedKernelEvent eventId) {
+    switch (eventId) {
+    case ReservedKernelEvent::KernelStarting:
+      EmitReservedEvent(KernelStartingEvent{.hostName = m_config.hostName});
+      return;
+    case ReservedKernelEvent::KernelRunning:
+      EmitReservedEvent(KernelRunningEvent{.hostName = m_config.hostName});
+      return;
+    case ReservedKernelEvent::KernelStopping:
+      EmitReservedEvent(KernelStoppingEvent{.hostName = m_config.hostName});
+      return;
+    case ReservedKernelEvent::None:
+    case ReservedKernelEvent::ModuleLoaded:
+    case ReservedKernelEvent::ModuleStarted:
+    case ReservedKernelEvent::ModuleFailed:
+    case ReservedKernelEvent::ConfigChanged:
+      return;
+    }
   }
 
   void EmitModuleEvent(const ReservedKernelEvent eventId,
                        const std::string &moduleName) {
-    if (!m_events) {
+    switch (eventId) {
+    case ReservedKernelEvent::ModuleLoaded:
+      EmitReservedEvent(ModuleLoadedEvent{.moduleName = moduleName});
+      return;
+    case ReservedKernelEvent::ModuleStarted:
+      EmitReservedEvent(ModuleStartedEvent{.moduleName = moduleName});
+      return;
+    case ReservedKernelEvent::ModuleFailed:
+      EmitReservedEvent(ModuleFailedEvent{.moduleName = moduleName});
+      return;
+    case ReservedKernelEvent::None:
+    case ReservedKernelEvent::KernelStarting:
+    case ReservedKernelEvent::KernelRunning:
+    case ReservedKernelEvent::KernelStopping:
+    case ReservedKernelEvent::ConfigChanged:
       return;
     }
-    EventRecord rec{};
-    rec.channel = std::string(ToString(eventId));
-    rec.reserved = eventId;
-    rec.queue = EventQueue::Main;
-    rec.payload = NGIN::Utilities::Any<>(moduleName);
-    (void)m_events->PublishImmediate(std::move(rec));
   }
 
   [[nodiscard]] auto ModuleByName(const std::string &name) const
@@ -654,13 +678,7 @@ private:
             return;
           }
 
-          EventRecord rec{};
-          rec.channel = "ConfigChanged";
-          rec.reserved = ReservedKernelEvent::ConfigChanged;
-          rec.queue = EventQueue::Main;
-          rec.payload =
-              NGIN::Utilities::Any<>(change.key + "=" + change.newValue);
-          (void)m_events->PublishImmediate(std::move(rec));
+          (void)m_events->Publish(change);
         });
     if (!configSub) {
       return NGIN::Utilities::Unexpected<KernelError>(configSub.Error());

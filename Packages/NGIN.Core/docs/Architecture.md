@@ -59,6 +59,16 @@ See [Spec 003: Package Manifest and Runtime Contributions](/home/berggrenmille/N
 
 ## Events and Tasks
 
+- Typed events are the primary event-bus surface:
+  - `Subscribe<TEvent>(...)`
+  - `Publish(TEvent)`
+  - `Enqueue(TEvent)` / `EnqueueTo(queue, TEvent)`
+  - typed callbacks receive payload plus delivery metadata
+- Raw event records remain available for dynamic/plugin scenarios through:
+  - `SubscribeRaw(...)`
+  - `PublishRawImmediate(...)`
+  - `EnqueueRaw(...)` / `EnqueueRawTo(...)`
+  - `FlushRaw(...)` / `FlushRawFrom(...)`
 - Reserved kernel events are emitted on lifecycle transitions:
   - `KernelStarting`
   - `KernelRunning`
@@ -67,7 +77,11 @@ See [Spec 003: Package Manifest and Runtime Contributions](/home/berggrenmille/N
   - `ModuleStarted`
   - `ModuleFailed`
   - `ConfigChanged`
-- Deferred events are queue-owned (`Main`, `IO`, `Worker`, `Background`, `Render`) with queue-specific flush APIs.
+- Reserved lifecycle and config events are also exposed as typed payloads:
+  - `KernelStartingEvent`, `KernelRunningEvent`, `KernelStoppingEvent`
+  - `ModuleLoadedEvent`, `ModuleStartedEvent`, `ModuleFailedEvent`
+  - `ConfigChangeEvent`
+- Deferred events are queue-owned (`Main`, `IO`, `Worker`, `Background`, `Render`) with queue-specific raw and typed flush APIs.
 - Task runtime uses lane-specific schedulers:
   - `Main`
   - `IO`

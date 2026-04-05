@@ -38,14 +38,28 @@ This document summarizes the API-breaking hardening changes introduced in the Sp
 
 ## Events
 
+- Event bus API is now typed-first:
+  - `Subscribe<TEvent>(...)`
+  - `Publish(TEvent)`
+  - `Enqueue(TEvent)` / `EnqueueTo(...)`
+  - `Flush<TEvent>()` / `FlushFrom<TEvent>(...)`
+- Raw event operations remain available as an explicit escape hatch:
+  - `SubscribeRaw(...)`
+  - `PublishRawImmediate(...)`
+  - `EnqueueRaw(...)` / `EnqueueRawTo(...)`
+  - `FlushRaw(...)` / `FlushRawFrom(...)`
 - Added reserved event enum:
   - `KernelStarting`, `KernelRunning`, `KernelStopping`
   - `ModuleLoaded`, `ModuleStarted`, `ModuleFailed`
   - `ConfigChanged`
+- Added typed reserved event payloads:
+  - `KernelStartingEvent`, `KernelRunningEvent`, `KernelStoppingEvent`
+  - `ModuleLoadedEvent`, `ModuleStartedEvent`, `ModuleFailedEvent`
+  - `ConfigChangeEvent`
 - Added deferred queue ownership:
   - `EventQueue::{Main, IO, Worker, Background, Render}`
-  - `EnqueueDeferredTo(...)`
-  - `FlushDeferredFrom(...)`
+  - `EnqueueRawTo(...)`
+  - `FlushRawFrom(...)`
 
 ## Tasks
 

@@ -248,6 +248,14 @@ private:
   std::string m_key;
 };
 
+struct TestUserEvent {
+  NGIN::UInt32 value{0};
+};
+
+struct TestScopedEvent {
+  std::string name{};
+};
+
 class EventProbeModule final : public NGIN::Core::IModule {
 public:
   EventProbeModule(std::vector<std::string> *events, std::mutex *lock)
@@ -255,11 +263,69 @@ public:
 
   auto OnRegister(NGIN::Core::ModuleContext &context) noexcept
       -> NGIN::Core::CoreResult<void> override {
+    auto subscribe = [&]<typename TEvent>() -> NGIN::Core::CoreResult<void> {
+      auto sub = context.Events().Subscribe<TEvent>(
+          [this](const NGIN::Core::TypedEventRecord<TEvent> &eventRecord) {
+            if (m_events == nullptr || m_lock == nullptr) {
+              return;
+            }
+            std::lock_guard<std::mutex> guard(*m_lock);
+            m_events->push_back(eventRecord.metadata.channel);
+          },
+          NGIN::Core::EventScope{.owner = std::string(context.ModuleName())});
+      if (!sub) {
+        return NGIN::Utilities::Unexpected<NGIN::Core::KernelError>(
+            sub.Error());
+      }
+      m_tokens.push_back(sub.Value());
+      return {};
+    };
+
+    auto result = subscribe.operator()<NGIN::Core::ModuleLoadedEvent>();
+    if (!result) {
+      return NGIN::Utilities::Unexpected<NGIN::Core::KernelError>(
+          result.Error());
+    }
+
+    result = subscribe.operator()<NGIN::Core::ModuleStartedEvent>();
+    if (!result) {
+      return NGIN::Utilities::Unexpected<NGIN::Core::KernelError>(
+          result.Error());
+    }
+
+    result = subscribe.operator()<NGIN::Core::KernelRunningEvent>();
+    if (!result) {
+      return NGIN::Utilities::Unexpected<NGIN::Core::KernelError>(
+          result.Error());
+    }
+
+    result = subscribe.operator()<NGIN::Core::KernelStoppingEvent>();
+    if (!result) {
+      return NGIN::Utilities::Unexpected<NGIN::Core::KernelError>(
+          result.Error());
+    }
+
+    return {};
+  }
+
+private:
+  std::vector<std::string> *m_events{nullptr};
+  std::mutex *m_lock{nullptr};
+  std::vector<NGIN::Core::EventSubscriptionToken> m_tokens{};
+};
+
+class RawEventProbeModule final : public NGIN::Core::IModule {
+public:
+  RawEventProbeModule(std::vector<std::string> *events, std::mutex *lock)
+      : m_events(events), m_lock(lock) {}
+
+  auto OnRegister(NGIN::Core::ModuleContext &context) noexcept
+      -> NGIN::Core::CoreResult<void> override {
     for (const auto channel :
          {"ModuleLoaded", "ModuleStarted", "KernelRunning", "KernelStopping"}) {
-      auto sub = context.Events().Subscribe(
+      auto sub = context.Events().SubscribeRaw(
           channel,
-          [this](const NGIN::Core::EventRecord &eventRecord) {
+          [this](const NGIN::Core::RawEventRecord &eventRecord) {
             if (m_events == nullptr || m_lock == nullptr) {
               return;
             }
@@ -953,52 +1019,197 @@ TEST_CASE("TaskLanesAndBarriersExecutePerLane", "[runtime][tasks]") {
   REQUIRE(hits.load(std::memory_order_relaxed) == 3);
 }
 
-TEST_CASE("EventBusDeferredQueuesFlushByQueue", "[runtime][events]") {
+TEST_CASE("TypedEventBusPublishSubscribeDeliversMetadata",
+          "[runtime][events]") {
   auto bus = NGIN::Core::CreateEventBus();
   REQUIRE(static_cast<bool>(bus));
 
-  std::vector<std::string> seen;
-  auto sub = bus->Subscribe(
-      "Event.IO",
-      [&](const NGIN::Core::EventRecord &record) {
-        seen.push_back(record.channel);
+  NGIN::UInt32 seenValue = 0;
+  NGIN::Core::EventMetadata metadata{};
+  auto sub = bus->Subscribe<TestUserEvent>(
+      [&](const NGIN::Core::TypedEventRecord<TestUserEvent> &record) {
+        seenValue = record.event.value;
+        metadata = record.metadata;
       },
       NGIN::Core::EventScope{.owner = "tests"});
   REQUIRE(sub.HasValue());
 
-  REQUIRE(bus->EnqueueDeferredTo(
-                 NGIN::Core::EventQueue::Main,
-                 NGIN::Core::EventRecord{
-                     .channel = "Event.Main",
-                     .payload = NGIN::Utilities::Any<>(NGIN::UInt32{1})})
-              .HasValue());
-  REQUIRE(bus->EnqueueDeferredTo(
-                 NGIN::Core::EventQueue::IO,
-                 NGIN::Core::EventRecord{
-                     .channel = "Event.IO",
-                     .payload = NGIN::Utilities::Any<>(NGIN::UInt32{2})})
+  REQUIRE(bus->Publish(TestUserEvent{.value = 7}).HasValue());
+
+  REQUIRE(seenValue == 7);
+  REQUIRE(metadata.channel == NGIN::Core::EventChannelName<TestUserEvent>());
+  REQUIRE(metadata.channelId == NGIN::Core::EventChannelId<TestUserEvent>());
+  REQUIRE(metadata.sequence > 0);
+  REQUIRE(metadata.queue == NGIN::Core::EventQueue::Main);
+  REQUIRE(metadata.reserved == NGIN::Core::ReservedKernelEvent::None);
+}
+
+TEST_CASE("TypedEventBusDeferredQueuesFlushByQueueAndType",
+          "[runtime][events]") {
+  auto bus = NGIN::Core::CreateEventBus();
+  REQUIRE(static_cast<bool>(bus));
+
+  std::vector<NGIN::UInt32> seen;
+  auto sub = bus->Subscribe<TestUserEvent>(
+      [&](const NGIN::Core::TypedEventRecord<TestUserEvent> &record) {
+        seen.push_back(record.event.value);
+      },
+      NGIN::Core::EventScope{.owner = "tests"});
+  REQUIRE(sub.HasValue());
+
+  REQUIRE(
+      bus->EnqueueTo(NGIN::Core::EventQueue::Main, TestUserEvent{.value = 1})
+          .HasValue());
+  REQUIRE(bus->EnqueueTo(NGIN::Core::EventQueue::IO, TestUserEvent{.value = 2})
               .HasValue());
 
-  REQUIRE(bus->FlushDeferredFrom(NGIN::Core::EventQueue::IO).HasValue());
-  REQUIRE(seen.size() == 1);
-  REQUIRE(seen[0] == "Event.IO");
+  REQUIRE(bus->FlushFrom<TestUserEvent>(NGIN::Core::EventQueue::IO).HasValue());
+  REQUIRE(seen == std::vector<NGIN::UInt32>{2});
+
+  REQUIRE(bus->Flush<TestUserEvent>().HasValue());
+  REQUIRE(seen == std::vector<NGIN::UInt32>{2, 1});
+}
+
+TEST_CASE("TypedEventBusRespectsPriorityUnsubscribeAndScopeClear",
+          "[runtime][events]") {
+  auto bus = NGIN::Core::CreateEventBus();
+  REQUIRE(static_cast<bool>(bus));
+
+  std::vector<std::string> order;
+  auto low = bus->Subscribe<TestScopedEvent>(
+      [&](const NGIN::Core::TypedEventRecord<TestScopedEvent> &record) {
+        order.push_back(record.event.name);
+      },
+      NGIN::Core::EventScope{.owner = "scope.low"}, 1);
+  REQUIRE(low.HasValue());
+
+  auto high = bus->Subscribe<TestScopedEvent>(
+      [&](const NGIN::Core::TypedEventRecord<TestScopedEvent> &record) {
+        order.push_back(record.event.name + "-high");
+      },
+      NGIN::Core::EventScope{.owner = "scope.high"}, 5);
+  REQUIRE(high.HasValue());
+
+  REQUIRE(bus->Publish(TestScopedEvent{.name = "first"}).HasValue());
+  REQUIRE(order == std::vector<std::string>{"first-high", "first"});
+
+  REQUIRE(bus->Unsubscribe(high.Value()).HasValue());
+  order.clear();
+  REQUIRE(bus->Publish(TestScopedEvent{.name = "second"}).HasValue());
+  REQUIRE(order == std::vector<std::string>{"second"});
+
+  bus->ClearScope(NGIN::Core::EventScope{.owner = "scope.low"});
+  order.clear();
+  REQUIRE(bus->Publish(TestScopedEvent{.name = "third"}).HasValue());
+  REQUIRE(order.empty());
+}
+
+TEST_CASE("EventBusInteropBetweenTypedAndRawSubscribers", "[runtime][events]") {
+  auto bus = NGIN::Core::CreateEventBus();
+  REQUIRE(static_cast<bool>(bus));
+
+  NGIN::UInt32 typedValue = 0;
+  auto typedSub = bus->Subscribe<TestUserEvent>(
+      [&](const NGIN::Core::TypedEventRecord<TestUserEvent> &record) {
+        typedValue = record.event.value;
+      },
+      NGIN::Core::EventScope{.owner = "typed"});
+  REQUIRE(typedSub.HasValue());
+
+  REQUIRE(
+      bus
+          ->PublishRawImmediate(NGIN::Core::RawEventRecord{
+              .channel =
+                  std::string(NGIN::Core::EventChannelName<TestUserEvent>()),
+              .payload = NGIN::Utilities::Any<>(TestUserEvent{.value = 42})})
+          .HasValue());
+  REQUIRE(typedValue == 42);
+
+  std::vector<NGIN::UInt32> rawValues;
+  auto rawSub = bus->SubscribeRaw(
+      std::string(NGIN::Core::EventChannelName<TestUserEvent>()),
+      [&](const NGIN::Core::RawEventRecord &record) {
+        const auto *typed = record.payload.template TryCast<TestUserEvent>();
+        REQUIRE(typed != nullptr);
+        rawValues.push_back(typed->value);
+      },
+      NGIN::Core::EventScope{.owner = "raw"});
+  REQUIRE(rawSub.HasValue());
+
+  REQUIRE(bus->Publish(TestUserEvent{.value = 99}).HasValue());
+  REQUIRE(rawValues == std::vector<NGIN::UInt32>{99});
+}
+
+TEST_CASE("TypedEventSubscribersRejectPayloadMismatch", "[runtime][events]") {
+  auto bus = NGIN::Core::CreateEventBus();
+  REQUIRE(static_cast<bool>(bus));
+
+  auto sub = bus->Subscribe<TestUserEvent>(
+      [](const NGIN::Core::TypedEventRecord<TestUserEvent> &) {},
+      NGIN::Core::EventScope{.owner = "tests"});
+  REQUIRE(sub.HasValue());
+
+  auto publish = bus->PublishRawImmediate(NGIN::Core::RawEventRecord{
+      .channel = std::string(NGIN::Core::EventChannelName<TestUserEvent>()),
+      .payload = NGIN::Utilities::Any<>(std::string("wrong-type"))});
+  REQUIRE_FALSE(publish.HasValue());
+  REQUIRE(publish.Error().code ==
+          NGIN::Core::KernelErrorCode::EventDispatchFailure);
+}
+
+TEST_CASE("DeferredEventSequenceIsPreservedOnFlush", "[runtime][events]") {
+  auto bus = NGIN::Core::CreateEventBus();
+  REQUIRE(static_cast<bool>(bus));
+
+  NGIN::UInt64 seenSequence = 0;
+  auto sub = bus->SubscribeRaw(
+      std::string(NGIN::Core::EventChannelName<TestUserEvent>()),
+      [&](const NGIN::Core::RawEventRecord &record) {
+        seenSequence = record.sequence;
+      },
+      NGIN::Core::EventScope{.owner = "tests"});
+  REQUIRE(sub.HasValue());
+
+  REQUIRE(bus
+              ->EnqueueRaw(NGIN::Core::RawEventRecord{
+                  .channel = std::string(
+                      NGIN::Core::EventChannelName<TestUserEvent>()),
+                  .payload = NGIN::Utilities::Any<>(TestUserEvent{.value = 1}),
+                  .sequence = 77})
+              .HasValue());
+
+  REQUIRE(bus->FlushRawFrom(NGIN::Core::EventQueue::Main).HasValue());
+  REQUIRE(seenSequence == 77);
 }
 
 TEST_CASE("KernelEmitsReservedLifecycleEvents", "[runtime][events]") {
   auto catalog = NGIN::Core::CreateStaticModuleCatalog();
   REQUIRE(static_cast<bool>(catalog));
 
-  std::vector<std::string> events;
-  std::mutex eventsLock;
+  std::vector<std::string> typedEvents;
+  std::vector<std::string> rawEvents;
+  std::mutex typedEventsLock;
+  std::mutex rawEventsLock;
 
-  auto desc = MakeDescriptor("Core.EventProbe");
+  auto desc = MakeDescriptor("Core.EventProbe.Typed");
   REQUIRE(
       RegisterModule(catalog, desc,
                      [&]() -> NGIN::Core::CoreResult<
                                NGIN::Memory::Shared<NGIN::Core::IModule>> {
                        return NGIN::Memory::MakeSharedAs<NGIN::Core::IModule,
                                                          EventProbeModule>(
-                           &events, &eventsLock);
+                           &typedEvents, &typedEventsLock);
+                     })
+          .HasValue());
+
+  auto rawDesc = MakeDescriptor("Core.EventProbe.Raw");
+  REQUIRE(
+      RegisterModule(catalog, rawDesc,
+                     [&]() -> NGIN::Core::CoreResult<
+                               NGIN::Memory::Shared<NGIN::Core::IModule>> {
+                       return NGIN::Memory::MakeSharedAs<NGIN::Core::IModule,
+                                                         RawEventProbeModule>(
+                           &rawEvents, &rawEventsLock);
                      })
           .HasValue());
 
@@ -1006,14 +1217,72 @@ TEST_CASE("KernelEmitsReservedLifecycleEvents", "[runtime][events]") {
   REQUIRE(kernel->Start().HasValue());
   REQUIRE(kernel->Shutdown().HasValue());
 
-  REQUIRE(std::find(events.begin(), events.end(), "ModuleLoaded") !=
-          events.end());
-  REQUIRE(std::find(events.begin(), events.end(), "ModuleStarted") !=
-          events.end());
-  REQUIRE(std::find(events.begin(), events.end(), "KernelRunning") !=
-          events.end());
-  REQUIRE(std::find(events.begin(), events.end(), "KernelStopping") !=
-          events.end());
+  REQUIRE(std::find(typedEvents.begin(), typedEvents.end(), "ModuleLoaded") !=
+          typedEvents.end());
+  REQUIRE(std::find(typedEvents.begin(), typedEvents.end(), "ModuleStarted") !=
+          typedEvents.end());
+  REQUIRE(std::find(typedEvents.begin(), typedEvents.end(), "KernelRunning") !=
+          typedEvents.end());
+  REQUIRE(std::find(typedEvents.begin(), typedEvents.end(), "KernelStopping") !=
+          typedEvents.end());
+
+  REQUIRE(std::find(rawEvents.begin(), rawEvents.end(), "ModuleLoaded") !=
+          rawEvents.end());
+  REQUIRE(std::find(rawEvents.begin(), rawEvents.end(), "ModuleStarted") !=
+          rawEvents.end());
+  REQUIRE(std::find(rawEvents.begin(), rawEvents.end(), "KernelRunning") !=
+          rawEvents.end());
+  REQUIRE(std::find(rawEvents.begin(), rawEvents.end(), "KernelStopping") !=
+          rawEvents.end());
+}
+
+TEST_CASE("KernelEmitsTypedConfigChangedEventAndRawCompatibility",
+          "[runtime][events][config]") {
+  auto catalog = NGIN::Core::CreateStaticModuleCatalog();
+  REQUIRE(static_cast<bool>(catalog));
+
+  auto kernel = NGIN::Core::CreateKernel(MakeHostConfig(catalog)).Value();
+  REQUIRE(kernel->Start().HasValue());
+
+  auto events = kernel->GetEvents();
+  auto config = kernel->GetConfig();
+  REQUIRE(static_cast<bool>(events));
+  REQUIRE(static_cast<bool>(config));
+
+  std::vector<std::string> typedChanges;
+  auto typedSub = events->Subscribe<NGIN::Core::ConfigChangeEvent>(
+      [&](const NGIN::Core::TypedEventRecord<NGIN::Core::ConfigChangeEvent>
+              &record) {
+        typedChanges.push_back(record.event.key + "=" + record.event.newValue);
+        REQUIRE(record.metadata.channel == "ConfigChanged");
+        REQUIRE(record.metadata.reserved ==
+                NGIN::Core::ReservedKernelEvent::ConfigChanged);
+      },
+      NGIN::Core::EventScope{.owner = "typed"});
+  REQUIRE(typedSub.HasValue());
+
+  std::vector<std::string> rawChanges;
+  auto rawSub = events->SubscribeRaw(
+      "ConfigChanged",
+      [&](const NGIN::Core::RawEventRecord &record) {
+        rawChanges.push_back(record.channel);
+        const auto *change =
+            record.payload.template TryCast<NGIN::Core::ConfigChangeEvent>();
+        REQUIRE(change != nullptr);
+        REQUIRE(change->key == "App.Mode");
+        REQUIRE(change->newValue == "runtime");
+      },
+      NGIN::Core::EventScope{.owner = "raw"});
+  REQUIRE(rawSub.HasValue());
+
+  REQUIRE(config
+              ->SetValue(NGIN::Core::ConfigLayer::RuntimeMutable, "App.Mode",
+                         "runtime")
+              .HasValue());
+
+  REQUIRE(typedChanges == std::vector<std::string>{"App.Mode=runtime"});
+  REQUIRE(rawChanges == std::vector<std::string>{"ConfigChanged"});
+  REQUIRE(kernel->Shutdown().HasValue());
 }
 
 TEST_CASE("ThreadPoliciesAreEnforced", "[runtime][threading]") {
