@@ -4,6 +4,7 @@
 /// @brief Structured error model for core host operations.
 
 #include <NGIN/Primitives.hpp>
+#include <NGIN/Utilities/Error.hpp>
 #include <NGIN/Utilities/Expected.hpp>
 
 #include <memory>
@@ -40,17 +41,27 @@ namespace NGIN::Core
         InternalError
     };
 
-    struct KernelError;
-
     /// @brief Structured core host error payload.
     struct KernelError
     {
-        KernelErrorCode                     code {KernelErrorCode::None};
-        std::string                         subsystem {};
-        std::string                         module {};
-        std::string                         message {};
-        std::string                         dependencyPath {};
-        std::shared_ptr<const KernelError>  cause {};
+        KernelErrorCode                    code {KernelErrorCode::None};
+        std::string                        subsystem {};
+        std::string                        module {};
+        std::string                        message {};
+        std::string                        dependencyPath {};
+        std::shared_ptr<const KernelError> cause {};
+
+        KernelError() noexcept = default;
+
+        explicit KernelError(KernelErrorCode errorCode) noexcept
+            : code(errorCode)
+        {
+        }
+
+        [[nodiscard]] constexpr NGIN::Utilities::ErrorInfo ToErrorInfo() const noexcept
+        {
+            return {NGIN::Utilities::ErrorDomain::Core, code};
+        }
     };
 
     template<typename T>
@@ -64,13 +75,13 @@ namespace NGIN::Core
         std::string dependencyPath = {},
         std::shared_ptr<const KernelError> cause = {}) noexcept -> KernelError
     {
-        return KernelError {
-            .code = code,
-            .subsystem = std::move(subsystem),
-            .module = std::move(module),
-            .message = std::move(message),
-            .dependencyPath = std::move(dependencyPath),
-            .cause = std::move(cause)};
+        KernelError error {code};
+        error.subsystem = std::move(subsystem);
+        error.module = std::move(module);
+        error.message = std::move(message);
+        error.dependencyPath = std::move(dependencyPath);
+        error.cause = std::move(cause);
+        return error;
     }
 
     [[nodiscard]] constexpr auto ToString(const KernelErrorCode value) noexcept -> std::string_view
