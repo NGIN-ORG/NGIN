@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Package SchemaVersion="2"
          Name="NGIN.ECS"
-         Version="0.1.0"
-         CompatiblePlatformRange=">=0.1.0-alpha.1 &lt;0.2.0">
+         Version="0.2.0"
+         CompatiblePlatformRange=">=0.2.0-alpha.1 &lt;0.3.0">
   <Artifacts>
     <Libraries>
       <Library Name="NGIN.ECS" Target="NGIN::ECS" Linkage="Static" />
@@ -12,6 +12,7 @@
     <Options>
       <Option Name="NGIN_ECS_BUILD_TESTS" Value="OFF" />
       <Option Name="NGIN_ECS_BUILD_EXAMPLES" Value="OFF" />
+      <Option Name="NGIN_ECS_BUILD_BENCHMARKS" Value="OFF" />
     </Options>
   </Build>
   <Platforms>
@@ -29,8 +30,8 @@
             Family="Domain"
             Type="Runtime"
             StartupStage="Features"
-            Version="0.1.0"
-            CompatiblePlatformRange=">=0.1.0-alpha.1 &lt;0.2.0"
+            Version="0.2.0"
+            CompatiblePlatformRange=">=0.2.0-alpha.1 &lt;0.3.0"
             ReflectionRequired="false">
       <Platforms>
         <Platform Name="linux" />
