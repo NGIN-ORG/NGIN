@@ -1,6 +1,6 @@
 {
   "compilerOptions": {
-    "module": "commonjs",
+    "module": "node20",
     "target": "ES2022",
     "lib": [
       "ES2022"
@@ -12,7 +12,6 @@
     "noUnusedParameters": false,
     "sourceMap": true,
     "esModuleInterop": true,
-    "moduleResolution": "node",
     "types": [
       "node",
       "vscode"
