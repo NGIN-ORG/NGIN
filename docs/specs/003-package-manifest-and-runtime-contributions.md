@@ -1,13 +1,15 @@
 # Spec 003: Package Manifest and Runtime Contributions
 
 Status: Active
-Last updated: 2026-03-21
+Last updated: 2026-04-23
 
 ## Purpose
 
 This spec defines the active V2 `.nginpkg` contract.
 
 Packages are the reusable unit in NGIN.
+
+Packages contribute to composition through declared manifest sections rather than through open-ended side effects.
 
 ## File Contract
 
@@ -39,6 +41,18 @@ Packages continue to use `PackageRef` inside `Dependencies`:
   <PackageRef Name="NGIN.Base" Version="0.1.0" Optional="false" />
 </Dependencies>
 ```
+
+## Versioning Rule
+
+- package manifests carry an explicit package identity of `Name` plus `Version`
+- one resolved version per package identity may participate in a single composition
+- version resolution behavior beyond that invariant is defined by the resolver and workspace policy, but compositions must not contain ambiguous multi-version results for the same package identity
+
+## Contribution Surface
+
+The active capability surface of a package is defined by the supported top-level manifest sections in this spec. Tooling and validation should treat those sections as the declared contribution types of the package.
+
+At the current V2 stage, NGIN does not define a second parallel `<Capabilities>` schema. Capability clarity should come from explicit manifest sections, validation, and graph or inspection tooling.
 
 ## Ownership Rule
 

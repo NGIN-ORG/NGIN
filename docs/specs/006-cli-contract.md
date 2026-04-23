@@ -1,7 +1,7 @@
 # Spec 006: CLI Contract
 
 Status: Active
-Last updated: 2026-03-21
+Last updated: 2026-04-23
 
 ## Purpose
 
@@ -33,3 +33,9 @@ Removed commands:
 - `ngin build` emits `.nginlaunch`
 - `ngin run` consumes the generated `.nginlaunch`
 - a workspace is optional
+
+## Inspection Direction
+
+- `ngin graph` is the active structural inspection command for resolved composition
+- package inspection commands expose reusable package identity and declared package data
+- future CLI inspection may add more direct provenance or explanation commands without changing the authored model split

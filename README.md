@@ -4,6 +4,8 @@ NGIN is a modular application platform for modern C++. It gives C++ projects a c
 
 NGIN is not trying to replace CMake or pretend C++ should work like a managed runtime. The goal is narrower: make application composition, startup shape, and staged output more explicit than the usual mix of handwritten build logic, scattered initialization, and implicit runtime wiring.
 
+The center of gravity is composition: a selected project configuration, together with resolved project and package contributions, produces a concrete runtime shape that can be validated, graphed, staged, and launched.
+
 ## Why NGIN Exists
 
 In a typical native codebase, several concerns tend to blur together:
@@ -29,6 +31,8 @@ NGIN provides one way to make those answers visible in authored metadata. It doe
 - `.nginlaunch` for generated staged output
 
 The active host/runtime implementation in this repo is `NGIN.Core`.
+
+`ngin build` does not just emit binaries. It produces a fully materialized runnable directory and a generated `.nginlaunch` file that captures the launchable result of the resolved composition.
 
 ## Core Authored Model
 
@@ -62,13 +66,21 @@ A configuration is one named setup of the same project. It is intentionally narr
 
 Configurations are not meant to model unrelated apps. They are for changes in setup, not for inventing extra buildable identities.
 
+`Environment` is intentionally narrow in the active model. Today it is selected configuration data that participates in composition and launch metadata, not a full standalone environment-definition system.
+
 ### Package
 
-A package is the reusable unit. Packages can expose libraries, executables, modules, plugins, content, and bootstrap behavior. In V2, packages stay focused on reusable identity and contributions. Workspace-local source overrides now come from workspace `PackageProviders`, not from package-level source binding metadata.
+A package is the reusable unit. Packages can expose libraries, executables, modules, plugins, content, and bootstrap behavior. In V2, packages stay focused on reusable identity and declared contributions through explicit manifest sections. Workspace-local source overrides now come from workspace `PackageProviders`, not from package-level source binding metadata.
+
+Packages are versioned dependency units. The active expectation is one resolved version per package identity within a single composition.
+
+As a practical rule: keep something as a project while it is a local buildable unit owned primarily by one repo. Make it a package when it needs reusable identity, dependency-style consumption, and independent versioning across projects.
 
 ### Launch Manifest
 
 `ngin build` emits `<Project>.<Configuration>.nginlaunch` in the staged output directory. That file captures the resolved launchable result: the selected executable, working directory, staged files, and the resolved runtime composition that the tooling and host care about.
+
+You should think of `.nginlaunch` as the serialized launchable form of the resolved composition, not as another authored input file.
 
 ## Example Project
 
@@ -135,6 +147,8 @@ The normal flow is:
 4. build to a staged output directory
 5. run from the generated `.nginlaunch`
 
+`ngin graph` is the current structural inspection surface for composition. Longer-term CLI inspection should answer not just "what is in the graph" but also "why is this here".
+
 ## What You Can Do Today
 
 At the current state of the repo, NGIN can:
@@ -147,6 +161,8 @@ At the current state of the repo, NGIN can:
 - stage outputs, content, and config into a launchable directory
 - emit `.nginlaunch` as the build/runtime handoff artifact
 - run applications through `NGIN.Core`
+
+NGIN prefers explicit validation failure over implicit or ambiguous runtime resolution. If authored inputs do not resolve to a clear launchable result, validation should fail instead of silently inventing behavior.
 
 The active build backend is CMake. The normal application path does not require a handwritten project `CMakeLists.txt`; the project manifest owns the build-facing metadata NGIN needs.
 
