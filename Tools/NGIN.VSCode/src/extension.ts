@@ -41,7 +41,7 @@ interface CliRunResult {
 }
 
 interface NginTaskDefinition extends vscode.TaskDefinition {
-  command: 'build' | 'validate' | 'graph' | 'workspaceStatus' | 'workspaceDoctor';
+  command: 'build' | 'clean' | 'rebuild' | 'validate' | 'graph' | 'workspaceStatus' | 'workspaceDoctor';
   project?: string;
   configuration?: string;
   output?: string;
@@ -96,6 +96,8 @@ class NginController implements vscode.Disposable {
       vscode.commands.registerCommand('ngin.selectProject', (arg) => this.runHandled(() => this.selectProjectCommand(this.asCommandTarget(arg)))),
       vscode.commands.registerCommand('ngin.selectConfiguration', (arg) => this.runHandled(() => this.selectConfigurationCommand(this.asCommandTarget(arg)))),
       vscode.commands.registerCommand('ngin.build', (arg) => this.runHandled(() => this.buildCommand(this.asCommandTarget(arg)))),
+      vscode.commands.registerCommand('ngin.clean', (arg) => this.runHandled(() => this.cleanCommand(this.asCommandTarget(arg)))),
+      vscode.commands.registerCommand('ngin.rebuild', (arg) => this.runHandled(() => this.rebuildCommand(this.asCommandTarget(arg)))),
       vscode.commands.registerCommand('ngin.run', (arg) => this.runHandled(() => this.runCommand(this.asCommandTarget(arg)))),
       vscode.commands.registerCommand('ngin.debug', (arg) => this.runHandled(() => this.debugCommand(this.asCommandTarget(arg)))),
       vscode.commands.registerCommand('ngin.validate', (arg) => this.runHandled(() => this.validateCommand(this.asCommandTarget(arg)))),
@@ -231,6 +233,12 @@ class NginController implements vscode.Disposable {
 
     if (definition.command === 'build') {
       task.group = vscode.TaskGroup.Build;
+    }
+    if (definition.command === 'rebuild') {
+      task.group = vscode.TaskGroup.Build;
+    }
+    if (definition.command === 'clean') {
+      task.group = vscode.TaskGroup.Clean;
     }
 
     return task;
@@ -417,6 +425,38 @@ class NginController implements vscode.Disposable {
     await this.buildProject(context);
   }
 
+  private async cleanCommand(target?: NginCommandTarget): Promise<void> {
+    const context = await this.resolveCommandContext(target);
+    if (!context) {
+      return;
+    }
+
+    const outputDir = this.workspaceState.computeOutputDirectory(context);
+    const launchManifestPath = computeLaunchManifestPath(outputDir, context.project.name, context.configuration.name);
+    const result = await this.runCli(
+      context.workspace.root,
+      ['clean', '--project', context.project.path, '--configuration', context.configuration.name, '--output', outputDir],
+      vscode.Uri.file(context.project.path)
+    );
+
+    if (result.exitCode !== 0) {
+      throw new Error(`ngin clean failed for ${context.project.name} [${context.configuration.name}]`);
+    }
+
+    await this.workspaceState.clearLastLaunchManifestPath(launchManifestPath);
+    await this.refreshUi(context.workspace.folder?.uri);
+    void vscode.window.showInformationMessage(`Cleaned ${context.project.name} [${context.configuration.name}]`);
+  }
+
+  private async rebuildCommand(target?: NginCommandTarget): Promise<void> {
+    const context = await this.resolveCommandContext(target);
+    if (!context) {
+      return;
+    }
+
+    await this.buildProject(context, { command: 'rebuild' });
+  }
+
   private async validateCommand(target?: NginCommandTarget, options?: { silent?: boolean }): Promise<void> {
     const context = await this.resolveCommandContext(target, !options?.silent);
     if (!context) {
@@ -576,11 +616,11 @@ class NginController implements vscode.Disposable {
 
   private async buildProject(
     context: ResolvedCommandContext,
-    options?: { cliOverride?: string; outputDirOverride?: string }
+    options?: { cliOverride?: string; outputDirOverride?: string; command?: 'build' | 'rebuild' }
   ): Promise<BuildResult> {
     const outputDir = this.workspaceState.computeOutputDirectory(context, options?.outputDirOverride);
     const args = [
-      'build',
+      options?.command ?? 'build',
       '--project',
       context.project.path,
       '--configuration',
@@ -597,7 +637,7 @@ class NginController implements vscode.Disposable {
     );
 
     if (result.exitCode !== 0) {
-      throw new Error(`ngin build failed for ${context.project.name} [${context.configuration.name}]`);
+      throw new Error(`ngin ${options?.command ?? 'build'} failed for ${context.project.name} [${context.configuration.name}]`);
     }
 
     const launchManifestPath = computeLaunchManifestPath(outputDir, context.project.name, context.configuration.name);
@@ -831,7 +871,7 @@ class NginController implements vscode.Disposable {
       args.push('--configuration', configuration);
     }
 
-    if (definition.command === 'build' && definition.output) {
+    if ((definition.command === 'build' || definition.command === 'clean' || definition.command === 'rebuild') && definition.output) {
       args.push('--output', definition.output);
     }
 
@@ -873,6 +913,20 @@ class NginTaskProvider implements vscode.TaskProvider {
       tasks.push(await this.controller.createTask({
         type: 'ngin',
         command: 'build',
+        project: context.project.path,
+        configuration: context.configuration.name,
+        output: outputDir
+      }, scopedFolder));
+      tasks.push(await this.controller.createTask({
+        type: 'ngin',
+        command: 'rebuild',
+        project: context.project.path,
+        configuration: context.configuration.name,
+        output: outputDir
+      }, scopedFolder));
+      tasks.push(await this.controller.createTask({
+        type: 'ngin',
+        command: 'clean',
         project: context.project.path,
         configuration: context.configuration.name,
         output: outputDir

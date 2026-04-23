@@ -15,7 +15,8 @@ The normal authored loop is:
 3. `ngin validate`
 4. `ngin graph`
 5. `ngin build`
-6. `ngin run`
+6. `ngin clean` or `ngin rebuild` when you want to reset generated artifacts for that scope
+7. `ngin run`
 
 If `--project` is omitted, the CLI can work from the current directory and discover the nearest project where that flow is supported.
 
@@ -33,7 +34,9 @@ Project-level workflows:
 
 - `ngin validate --project <file.nginproj> --configuration <name>`
 - `ngin graph --project <file.nginproj> --configuration <name>`
+- `ngin clean --project <file.nginproj> --configuration <name> --output <dir>`
 - `ngin build --project <file.nginproj> --configuration <name> --output <dir>`
+- `ngin rebuild --project <file.nginproj> --configuration <name> --output <dir>`
 - `ngin run --project <file.nginproj> --configuration <name> --output <dir>`
 
 Those commands all resolve the same authored concepts. The difference is whether you want a report, a graph, a staged build, or an actual process launch.
@@ -64,7 +67,7 @@ The repo also contains an in-tree VS Code extension at `Tools/NGIN.VSCode`. It i
 It provides:
 
 - workspace, project, and configuration selection
-- build, validate, graph, run, and debug commands
+- build, clean, rebuild, validate, graph, run, and debug commands
 - `.nginlaunch`-based run and debug resolution
 - editor tasks and a custom `ngin` debug type
 - C/C++ compile database discovery for `ms-vscode.cpptools`

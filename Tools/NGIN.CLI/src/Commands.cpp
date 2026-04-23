@@ -483,11 +483,32 @@ namespace NGIN::CLI
         return 0;
     }
 
+    auto CmdClean(const fs::path &root, const ParsedArgs &args) -> int
+    {
+        (void)root;
+        const auto invocation = ResolveInvocation(args);
+        const auto cleaned = CleanLaunch(
+            invocation.project,
+            invocation.configuration,
+            args.outputPath.has_value() ? std::optional<fs::path>{*args.outputPath} : std::nullopt);
+        if (!cleaned.value.has_value() || cleaned.diagnostics.HasErrors())
+        {
+            PrintDiagnostics(cleaned.diagnostics, "Clean", std::cout);
+            return 1;
+        }
+
+        std::cout << "Cleaned configuration: " << invocation.configuration.name << "\n";
+        std::cout << "  project: " << invocation.project.name << "\n";
+        std::cout << "  output: " << *cleaned.value << "\n";
+        PrintDiagnostics(cleaned.diagnostics, "Clean", std::cout);
+        return 0;
+    }
+
     auto CmdBuild(const fs::path &root, const ParsedArgs &args) -> int
     {
         (void)root;
         const auto invocation = ResolveInvocation(args);
-        const auto built = BuildLaunch(
+        auto built = BuildLaunch(
             invocation.project,
             invocation.configuration,
             args.outputPath.has_value() ? std::optional<fs::path>{*args.outputPath} : std::nullopt);
@@ -504,6 +525,41 @@ namespace NGIN::CLI
         std::cout << "  launch manifest: " << built.value->manifestPath << "\n";
         std::cout << "  selected executable: " << (summary.selectedExecutable.has_value() && !summary.selectedExecutable->empty() ? *summary.selectedExecutable : "(none)") << "\n";
         PrintDiagnostics(built.diagnostics, "Build", std::cout);
+        return 0;
+    }
+
+    auto CmdRebuild(const fs::path &root, const ParsedArgs &args) -> int
+    {
+        (void)root;
+        const auto invocation = ResolveInvocation(args);
+        const auto cleanResult = CleanLaunch(
+            invocation.project,
+            invocation.configuration,
+            args.outputPath.has_value() ? std::optional<fs::path>{*args.outputPath} : std::nullopt);
+        if (!cleanResult.value.has_value() || cleanResult.diagnostics.HasErrors())
+        {
+            PrintDiagnostics(cleanResult.diagnostics, "Rebuild", std::cout);
+            return 1;
+        }
+
+        auto built = BuildLaunch(
+            invocation.project,
+            invocation.configuration,
+            args.outputPath.has_value() ? std::optional<fs::path>{*args.outputPath} : std::nullopt);
+        AppendDiagnostics(built.diagnostics, cleanResult.diagnostics);
+        if (!built.value.has_value() || built.diagnostics.HasErrors())
+        {
+            PrintDiagnostics(built.diagnostics, "Rebuild", std::cout);
+            return 1;
+        }
+
+        const auto summary = LoadLaunchManifestSummary(built.value->manifestPath);
+        std::cout << "Rebuilt configuration: " << invocation.configuration.name << "\n";
+        std::cout << "  project: " << invocation.project.name << "\n";
+        std::cout << "  output: " << built.value->outputDir << "\n";
+        std::cout << "  launch manifest: " << built.value->manifestPath << "\n";
+        std::cout << "  selected executable: " << (summary.selectedExecutable.has_value() && !summary.selectedExecutable->empty() ? *summary.selectedExecutable : "(none)") << "\n";
+        PrintDiagnostics(built.diagnostics, "Rebuild", std::cout);
         return 0;
     }
 

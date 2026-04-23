@@ -22,6 +22,11 @@ namespace NGIN::CLI
 
     auto CleanupPreviousStage(const fs::path &outputDir, DiagnosticReport &report) -> void;
 
+    [[nodiscard]] auto CleanLaunch(
+        const ProjectManifest &project,
+        const ConfigurationDefinition &configuration,
+        const std::optional<fs::path> &outputPath) -> DiagnosticResult<fs::path>;
+
     [[nodiscard]] auto BuildLaunch(
         const ProjectManifest &project,
         const ConfigurationDefinition &configuration,

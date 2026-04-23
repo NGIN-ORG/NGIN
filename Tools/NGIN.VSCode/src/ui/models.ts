@@ -215,6 +215,8 @@ export function buildOverviewSections(snapshot: NginWorkspaceSnapshot): Overview
       label: 'Actions',
       children: [
         { id: 'action-build', label: 'Build', tooltip: 'Build the selected project and configuration.', command: 'ngin.build', arguments: target ? [target] : undefined, icon: 'gear' },
+        { id: 'action-rebuild', label: 'Rebuild', tooltip: 'Clean and rebuild the selected project and configuration.', command: 'ngin.rebuild', arguments: target ? [target] : undefined, icon: 'tools' },
+        { id: 'action-clean', label: 'Clean', tooltip: 'Remove NGIN-owned generated artifacts for the selected project and configuration.', command: 'ngin.clean', arguments: target ? [target] : undefined, icon: 'trash' },
         { id: 'action-run', label: 'Run', tooltip: 'Run the selected project and configuration.', command: 'ngin.run', arguments: target ? [target] : undefined, icon: 'play' },
         { id: 'action-debug', label: 'Debug', tooltip: 'Debug the selected project and configuration.', command: 'ngin.debug', arguments: target ? [target] : undefined, icon: 'bug' },
         { id: 'action-validate', label: 'Validate', tooltip: 'Validate the selected project and configuration.', command: 'ngin.validate', arguments: target ? [target] : undefined, icon: 'check' }

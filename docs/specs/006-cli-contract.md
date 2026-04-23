@@ -12,6 +12,8 @@ This spec defines the active user-facing surface of the native `ngin` CLI.
 Stable active commands:
 
 - `ngin build [--project <file>] [--configuration <name>] [--output <dir>]`
+- `ngin clean [--project <file>] [--configuration <name>] [--output <dir>]`
+- `ngin rebuild [--project <file>] [--configuration <name>] [--output <dir>]`
 - `ngin run [--project <file>] [--configuration <name>] [--output <dir>] [-- <args...>]`
 - `ngin validate [--project <file>] [--configuration <name>]`
 - `ngin graph [--project <file>] [--configuration <name>]`
@@ -31,6 +33,9 @@ Removed commands:
 - `--configuration` always selects the project configuration
 - build configuration comes from the selected project configuration’s `BuildConfiguration`
 - `ngin build` emits `.nginlaunch`
+- `ngin build` remains incremental and should not aggressively remove unrelated files outside NGIN-owned stale outputs
+- `ngin clean` removes NGIN-owned generated artifacts for the selected build scope
+- `ngin rebuild` is equivalent to `ngin clean` followed by `ngin build`
 - `ngin run` consumes the generated `.nginlaunch`
 - a workspace is optional
 

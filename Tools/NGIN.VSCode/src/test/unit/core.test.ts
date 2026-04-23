@@ -250,6 +250,8 @@ test('overview sections describe the current workspace selection and actions', (
   assert.equal(sections[2].children[0].label, 'Output Folder');
   assert.equal(sections[2].children[0].command, 'ngin.internal.revealPath');
   assert.equal(sections[3].children[0].command, 'ngin.build');
+  assert.equal(sections[3].children[1].command, 'ngin.rebuild');
+  assert.equal(sections[3].children[2].command, 'ngin.clean');
   assert.equal(sections[4].children[1].label, 'Open Last Launch Manifest');
 });
 

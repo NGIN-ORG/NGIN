@@ -10,7 +10,13 @@ suite('NGIN Tools Extension', () => {
 
     const tasks = await vscode.tasks.fetchTasks({ type: 'ngin' });
     assert.ok(tasks.some((task) => task.name.startsWith('NGIN: Build')));
+    assert.ok(tasks.some((task) => task.name.startsWith('NGIN: Rebuild')));
+    assert.ok(tasks.some((task) => task.name.startsWith('NGIN: Clean')));
     assert.ok(tasks.some((task) => task.name.startsWith('NGIN: Validate')));
+
+    const commands = await vscode.commands.getCommands(true);
+    assert.ok(commands.includes('ngin.clean'));
+    assert.ok(commands.includes('ngin.rebuild'));
   });
 
   test('validate command can execute in the sample workspace', async () => {

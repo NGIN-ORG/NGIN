@@ -90,6 +90,18 @@ export class WorkspaceStateService implements vscode.Disposable {
     this.fireDidChange();
   }
 
+  async clearLastLaunchManifestPath(manifestPath?: string): Promise<void> {
+    if (manifestPath) {
+      const current = this.getLastLaunchManifestPath();
+      if (!current || comparablePath(current) !== comparablePath(manifestPath)) {
+        return;
+      }
+    }
+
+    await this.context.workspaceState.update(LAST_LAUNCH_MANIFEST_KEY, undefined);
+    this.fireDidChange();
+  }
+
   async rememberSelection(context: ResolvedCommandContext): Promise<void> {
     await this.context.workspaceState.update(LAST_PROJECT_KEY, context.project.path);
     await this.context.workspaceState.update(projectConfigurationKey(context.project.path), context.configuration.name);

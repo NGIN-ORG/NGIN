@@ -23,6 +23,8 @@ namespace NGIN::CLI
     auto CmdPackageShow(const fs::path &root, const ParsedArgs &args) -> int;
     auto CmdValidate(const fs::path &root, const ParsedArgs &args) -> int;
     auto CmdGraph(const fs::path &root, const ParsedArgs &args) -> int;
+    auto CmdClean(const fs::path &root, const ParsedArgs &args) -> int;
     auto CmdBuild(const fs::path &root, const ParsedArgs &args) -> int;
+    auto CmdRebuild(const fs::path &root, const ParsedArgs &args) -> int;
     auto CmdRun(const fs::path &root, const ParsedArgs &args) -> int;
 }

@@ -1,6 +1,6 @@
 # NGIN Tools
 
-`NGIN Tools` is the in-repo VS Code extension for working with NGIN projects from the editor without leaving the CLI-first model behind. It exists so contributors can use build, validate, graph, run, and debug flows inside VS Code while still going through the same project/configuration surface that the native `ngin` command uses.
+`NGIN Tools` is the in-repo VS Code extension for working with NGIN projects from the editor without leaving the CLI-first model behind. It exists so contributors can use build, clean, rebuild, validate, graph, run, and debug flows inside VS Code while still going through the same project/configuration surface that the native `ngin` command uses.
 
 The extension is not a second build system. It is a front end over the authored NGIN model and the native CLI that already lives in this repo.
 
@@ -22,9 +22,9 @@ The extension currently provides:
 - a dedicated `NGIN` activity-bar view with workspace overview and project/configuration navigation
 - bottom status bar items for workspace, project, configuration, build, run, and debug
 - project and configuration selection from workspace manifests
-- `validate`, `graph`, `build`, `run`, and `debug` commands backed by the CLI
+- `validate`, `graph`, `build`, `clean`, `rebuild`, `run`, and `debug` commands backed by the CLI
 - generated `.nginlaunch` resolution for run and debug
-- auto-provided VS Code tasks for build, validate, and graph
+- auto-provided VS Code tasks for build, clean, rebuild, validate, and graph
 - a custom `ngin` debug type that resolves to native C/C++ debug sessions
 - custom C/C++ configuration-provider support for `ms-vscode.cpptools` backed by staged compile databases
 - snippets and file registration for `.ngin`, `.nginproj`, `.nginpkg`, and `.nginlaunch`
@@ -37,6 +37,8 @@ The editor surface mirrors the CLI directly:
 - selected project in the extension maps to `--project`
 - selected configuration in the extension maps to `--configuration`
 - build uses `ngin build`
+- clean uses `ngin clean`
+- rebuild uses `ngin rebuild`
 - validation uses `ngin validate`
 - graph inspection uses `ngin graph`
 - run/debug resolve from the staged `.nginlaunch`

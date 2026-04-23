@@ -132,6 +132,8 @@ That should be read as:
 The native CLI is the main interface for working with the authored model. The active surface is:
 
 - `ngin build [--project <file>] [--configuration <name>] [--output <dir>]`
+- `ngin clean [--project <file>] [--configuration <name>] [--output <dir>]`
+- `ngin rebuild [--project <file>] [--configuration <name>] [--output <dir>]`
 - `ngin run [--project <file>] [--configuration <name>] [--output <dir>] [-- <args...>]`
 - `ngin validate [--project <file>] [--configuration <name>]`
 - `ngin graph [--project <file>] [--configuration <name>]`
@@ -147,7 +149,8 @@ The normal flow is:
 2. select a configuration
 3. validate or inspect the graph
 4. build to a staged output directory
-5. run from the generated `.nginlaunch`
+5. clean or rebuild when you need to reset generated artifacts for that scope
+6. run from the generated `.nginlaunch`
 
 `ngin graph` is the current structural inspection surface for composition. Longer-term CLI inspection should answer not just "what is in the graph" but also "why is this here".
 

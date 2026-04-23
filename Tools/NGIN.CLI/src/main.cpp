@@ -18,7 +18,9 @@ namespace
             << "  workspace doctor\n"
             << "  validate [--project <file.nginproj>] [--configuration <name>]\n"
             << "  graph [--project <file.nginproj>] [--configuration <name>]\n"
+            << "  clean [--project <file.nginproj>] [--configuration <name>] [--output <dir>]\n"
             << "  build [--project <file.nginproj>] [--configuration <name>] [--output <dir>]\n"
+            << "  rebuild [--project <file.nginproj>] [--configuration <name>] [--output <dir>]\n"
             << "  run [--project <file.nginproj>] [--configuration <name>] [--output <dir>] [-- <args...>]\n"
             << "  package list\n"
             << "  package show <PackageName>\n";
@@ -95,9 +97,17 @@ auto main(int argc, char **argv) -> int
         {
             return NGIN::CLI::CmdGraph(root, NGIN::CLI::ParseCommonArgs(argc, argv, 2));
         }
+        if (command == "clean")
+        {
+            return NGIN::CLI::CmdClean(root, NGIN::CLI::ParseCommonArgs(argc, argv, 2));
+        }
         if (command == "build")
         {
             return NGIN::CLI::CmdBuild(root, NGIN::CLI::ParseCommonArgs(argc, argv, 2));
+        }
+        if (command == "rebuild")
+        {
+            return NGIN::CLI::CmdRebuild(root, NGIN::CLI::ParseCommonArgs(argc, argv, 2));
         }
         if (command == "run")
         {

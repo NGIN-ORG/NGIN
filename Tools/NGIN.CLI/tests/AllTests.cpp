@@ -312,6 +312,61 @@ TEST_CASE("build facade writes launch manifests and preserves unrelated output f
     REQUIRE(*summary.selectedExecutable == "App.Basic");
 }
 
+  TEST_CASE("clean facade removes owned generated artifacts and preserves unrelated files")
+  {
+    const auto projectPath = RepoRoot() / "Examples/App.Basic/App.Basic.nginproj";
+    REQUIRE(fs::exists(projectPath));
+
+    const auto project = LoadProjectManifest(projectPath);
+    const std::optional<std::string> configurationName{"Runtime"};
+    const auto &configuration = ConfigurationByName(project, configurationName);
+    TempDir temp{};
+    const auto outputDir = temp.path() / "stage";
+
+    const auto build = BuildLaunch(project, configuration, outputDir);
+    REQUIRE(build.value.has_value());
+    REQUIRE_FALSE(build.diagnostics.HasErrors());
+
+    WriteFile(outputDir / "keep.txt", "preserve me\n");
+
+    const auto cleaned = CleanLaunch(project, configuration, outputDir);
+    REQUIRE(cleaned.value.has_value());
+    REQUIRE_FALSE(cleaned.diagnostics.HasErrors());
+    REQUIRE(fs::exists(outputDir / "keep.txt"));
+    REQUIRE_FALSE(fs::exists(outputDir / "App.Basic.Runtime.nginlaunch"));
+    REQUIRE_FALSE(fs::exists(outputDir / "bin" / "App.Basic"));
+  }
+
+  TEST_CASE("rebuild semantics can be expressed as clean followed by build")
+  {
+    const auto projectPath = RepoRoot() / "Examples/App.Basic/App.Basic.nginproj";
+    REQUIRE(fs::exists(projectPath));
+
+    const auto project = LoadProjectManifest(projectPath);
+    const std::optional<std::string> configurationName{"Runtime"};
+    const auto &configuration = ConfigurationByName(project, configurationName);
+    TempDir temp{};
+    const auto outputDir = temp.path() / "stage";
+
+    const auto firstBuild = BuildLaunch(project, configuration, outputDir);
+    REQUIRE(firstBuild.value.has_value());
+    REQUIRE_FALSE(firstBuild.diagnostics.HasErrors());
+
+    const auto cleaned = CleanLaunch(project, configuration, outputDir);
+    REQUIRE(cleaned.value.has_value());
+    REQUIRE_FALSE(cleaned.diagnostics.HasErrors());
+
+    const auto rebuilt = BuildLaunch(project, configuration, outputDir);
+    REQUIRE(rebuilt.value.has_value());
+    REQUIRE_FALSE(rebuilt.diagnostics.HasErrors());
+    REQUIRE(fs::exists(rebuilt.value->manifestPath));
+
+    const auto summary = LoadLaunchManifestSummary(rebuilt.value->manifestPath);
+    REQUIRE(summary.configurationName == "Runtime");
+    REQUIRE(summary.selectedExecutable.has_value());
+    REQUIRE(*summary.selectedExecutable == "App.Basic");
+  }
+
 TEST_CASE("process execution helper runs tools directly without a shell")
 {
     REQUIRE(RunProcess("cmake", {"--version"}) == 0);

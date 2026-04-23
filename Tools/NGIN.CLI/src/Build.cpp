@@ -31,6 +31,8 @@
 
 namespace NGIN::CLI
 {
+    auto ToolExists(const std::string &tool) -> bool;
+
     namespace
     {
         [[nodiscard]] auto HasPathSeparator(const std::string &value) -> bool
@@ -91,6 +93,62 @@ namespace NGIN::CLI
 #else
             return ::access(path.c_str(), X_OK) == 0;
 #endif
+        }
+
+        [[nodiscard]] auto FindToolPath(const std::string &tool) -> std::optional<fs::path>
+        {
+            if (tool.empty())
+            {
+                return std::nullopt;
+            }
+
+            const fs::path toolPath{tool};
+            if (toolPath.is_absolute() || HasPathSeparator(tool))
+            {
+                for (const auto &candidate : SearchExecutableCandidates(toolPath))
+                {
+                    if (IsExecutableCandidate(candidate))
+                    {
+                        return candidate;
+                    }
+                }
+                return std::nullopt;
+            }
+
+            const auto *pathValue = std::getenv("PATH");
+            if (pathValue == nullptr)
+            {
+                return std::nullopt;
+            }
+
+#if defined(_WIN32)
+            constexpr char separator = ';';
+#else
+            constexpr char separator = ':';
+#endif
+
+            std::string searchPath = pathValue;
+            std::size_t start = 0;
+            while (start <= searchPath.size())
+            {
+                const auto end = searchPath.find(separator, start);
+                const auto entry = searchPath.substr(start, end == std::string::npos ? std::string::npos : end - start);
+                const fs::path directory = entry.empty() ? fs::current_path() : fs::path(entry);
+                for (const auto &candidate : SearchExecutableCandidates(directory / tool))
+                {
+                    if (IsExecutableCandidate(candidate))
+                    {
+                        return candidate;
+                    }
+                }
+                if (end == std::string::npos)
+                {
+                    break;
+                }
+                start = end + 1;
+            }
+
+            return std::nullopt;
         }
 
 #if defined(_WIN32)
@@ -210,6 +268,21 @@ namespace NGIN::CLI
                 .sourceDir = cacheRoot / "cmake-src",
                 .buildDir = cacheRoot / "cmake-build",
             };
+        }
+
+        [[nodiscard]] auto ResolveBuildRoot(const ResolvedLaunch &resolved) -> fs::path
+        {
+            return resolved.workspace.has_value() ? resolved.workspace->path.parent_path() : resolved.project.path.parent_path();
+        }
+
+        [[nodiscard]] auto ResolveOutputDir(const ResolvedLaunch &resolved, const std::optional<fs::path> &outputPath) -> fs::path
+        {
+            if (outputPath.has_value())
+            {
+                return fs::absolute(*outputPath);
+            }
+
+            return ResolveBuildRoot(resolved) / ".ngin" / "build" / resolved.project.name / resolved.configuration.name;
         }
 
         [[nodiscard]] auto PackageExposesSelectedExecutable(const PackageManifest &manifest, const std::optional<ExecutableArtifact> &selectedExecutable) -> bool
@@ -865,16 +938,24 @@ namespace NGIN::CLI
             const auto cmakeCachePath = generatedPaths.buildDir / "CMakeCache.txt";
             if (cmakeProjectChanged || !fs::exists(cmakeCachePath))
             {
+                std::vector<std::string> configureArguments{
+                    "-S",
+                    generatedPaths.sourceDir.string(),
+                    "-B",
+                    generatedPaths.buildDir.string(),
+                    "-DCMAKE_BUILD_TYPE=" + buildConfiguration,
+                };
+                if (const auto ninjaPath = FindToolPath("ninja").or_else([]()
+                                                                         { return FindToolPath("ninja-build"); });
+                    ninjaPath.has_value())
+                {
+                    configureArguments.push_back("-G");
+                    configureArguments.push_back("Ninja");
+                    configureArguments.push_back("-DCMAKE_MAKE_PROGRAM=" + ninjaPath->string());
+                }
                 if (RunProcess(
                         "cmake",
-                        {
-                            "-S",
-                            generatedPaths.sourceDir.string(),
-                            "-B",
-                            generatedPaths.buildDir.string(),
-                            "-DCMAKE_BUILD_TYPE=" + buildConfiguration,
-                        })
-                    != 0)
+                        configureArguments) != 0)
                 {
                     AddError(report, "failed to configure generated CMake build project for configuration '" + resolved.configuration.name + "' with build configuration '" + buildConfiguration + "'");
                     return;
@@ -889,8 +970,7 @@ namespace NGIN::CLI
                         buildConfiguration,
                         "--target",
                         "ngin_stage_artifacts",
-                    })
-                != 0)
+                    }) != 0)
             {
                 AddError(report, "failed to build or stage artifacts for configuration '" + resolved.configuration.name + "' with build configuration '" + buildConfiguration + "'");
             }
@@ -949,58 +1029,7 @@ namespace NGIN::CLI
 
     auto ToolExists(const std::string &tool) -> bool
     {
-        if (tool.empty())
-        {
-            return false;
-        }
-
-        const fs::path toolPath{tool};
-        if (toolPath.is_absolute() || HasPathSeparator(tool))
-        {
-            for (const auto &candidate : SearchExecutableCandidates(toolPath))
-            {
-                if (IsExecutableCandidate(candidate))
-                {
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        const auto *pathValue = std::getenv("PATH");
-        if (pathValue == nullptr)
-        {
-            return false;
-        }
-
-#if defined(_WIN32)
-        constexpr char separator = ';';
-#else
-        constexpr char separator = ':';
-#endif
-
-        std::string searchPath = pathValue;
-        std::size_t start = 0;
-        while (start <= searchPath.size())
-        {
-            const auto end = searchPath.find(separator, start);
-            const auto entry = searchPath.substr(start, end == std::string::npos ? std::string::npos : end - start);
-            const fs::path directory = entry.empty() ? fs::current_path() : fs::path(entry);
-            for (const auto &candidate : SearchExecutableCandidates(directory / tool))
-            {
-                if (IsExecutableCandidate(candidate))
-                {
-                    return true;
-                }
-            }
-            if (end == std::string::npos)
-            {
-                break;
-            }
-            start = end + 1;
-        }
-
-        return false;
+        return FindToolPath(tool).has_value();
     }
 
     auto RunProcess(
@@ -1320,6 +1349,47 @@ namespace NGIN::CLI
         fs::remove_all(legacyGeneratedDir / "cmake-build", legacyError);
     }
 
+    auto CleanLaunch(
+        const ProjectManifest &project,
+        const ConfigurationDefinition &configuration,
+        const std::optional<fs::path> &outputPath) -> DiagnosticResult<fs::path>
+    {
+        DiagnosticResult<fs::path> result{};
+
+        if (!IsSupportedBuildConfiguration(configuration.buildConfiguration))
+        {
+            AddError(
+                result.diagnostics,
+                "unsupported build configuration '" + configuration.buildConfiguration + "' in configuration '" + configuration.name + "'. Expected one of: Debug, Release, RelWithDebInfo, MinSizeRel");
+            return result;
+        }
+
+        const auto resolved = ResolveLaunch(project, configuration);
+        AppendDiagnostics(result.diagnostics, resolved.diagnostics);
+        if (!resolved.value.has_value() || result.diagnostics.HasErrors())
+        {
+            return result;
+        }
+
+        const auto resolvedOutputDir = ResolveOutputDir(*resolved.value, outputPath);
+        CleanupPreviousStage(resolvedOutputDir, result.diagnostics);
+        if (result.diagnostics.HasErrors())
+        {
+            return result;
+        }
+
+        const auto generatedPaths = ResolveGeneratedBuildPaths(*resolved.value, resolvedOutputDir);
+        const auto cacheRoot = generatedPaths.buildDir.parent_path();
+        std::error_code error;
+        fs::remove_all(generatedPaths.sourceDir, error);
+        error.clear();
+        fs::remove_all(generatedPaths.buildDir, error);
+        PruneEmptyDirectories(cacheRoot, ResolveBuildRoot(*resolved.value) / ".ngin");
+
+        result.value = resolvedOutputDir;
+        return result;
+    }
+
     auto BuildLaunch(
         const ProjectManifest &project,
         const ConfigurationDefinition &configuration,
@@ -1342,10 +1412,7 @@ namespace NGIN::CLI
             return result;
         }
 
-        const auto buildRoot = resolved.value->workspace.has_value() ? resolved.value->workspace->path.parent_path() : resolved.value->project.path.parent_path();
-        const auto resolvedOutputDir = outputPath.has_value()
-                                           ? fs::absolute(*outputPath)
-                                           : (buildRoot / ".ngin" / "build" / resolved.value->project.name / resolved.value->configuration.name);
+        const auto resolvedOutputDir = ResolveOutputDir(*resolved.value, outputPath);
 
         CleanupPreviousStage(resolvedOutputDir, result.diagnostics);
         if (result.diagnostics.HasErrors())

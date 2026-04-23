@@ -109,6 +109,16 @@
         "category": "NGIN"
       },
       {
+        "command": "ngin.clean",
+        "title": "Clean",
+        "category": "NGIN"
+      },
+      {
+        "command": "ngin.rebuild",
+        "title": "Rebuild",
+        "category": "NGIN"
+      },
+      {
         "command": "ngin.run",
         "title": "Run",
         "category": "NGIN"
@@ -173,6 +183,11 @@
           "group": "inline"
         },
         {
+          "command": "ngin.rebuild",
+          "when": "view == nginProjects && viewItem == nginConfiguration",
+          "group": "inline"
+        },
+        {
           "command": "ngin.run",
           "when": "view == nginProjects && viewItem == nginConfiguration",
           "group": "inline"
@@ -189,6 +204,11 @@
         },
         {
           "command": "ngin.graph",
+          "when": "view == nginProjects && viewItem == nginConfiguration",
+          "group": "navigation"
+        },
+        {
+          "command": "ngin.clean",
           "when": "view == nginProjects && viewItem == nginConfiguration",
           "group": "navigation"
         }
@@ -250,6 +270,8 @@
             "type": "string",
             "enum": [
               "build",
+              "clean",
+              "rebuild",
               "validate",
               "graph",
               "workspaceStatus",

@@ -37,7 +37,7 @@ if(NOT _ngin_cli_have_catch2)
 endif()
 
 if(NOT _ngin_cli_have_catch2)
-  include("${CMAKE_SOURCE_DIR}/cmake/CPM.cmake")
+  include("${CMAKE_CURRENT_SOURCE_DIR}/../cmake/CPM.cmake")
   set(CPM_SOURCE_CACHE "${PROJECT_BINARY_DIR}/cpm-cache" CACHE PATH "CPM cache")
 
   CPMAddPackage(
