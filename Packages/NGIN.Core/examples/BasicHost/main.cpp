@@ -18,7 +18,7 @@ namespace {
   descriptor.version = SemanticVersion{0, 1, 0, {}};
   descriptor.compatiblePlatformRange =
       ParseVersionRange(">=0.1.0 <1.0.0").Value();
-  descriptor.platforms = {"linux", "windows", "macos"};
+  descriptor.operatingSystems = {"linux", "windows", "macos"};
   descriptor.startupStage = stage;
   descriptor.entryKind = ModuleEntryKind::Static;
   return descriptor;
@@ -104,7 +104,6 @@ int main(int argc, char **argv) {
       std::string(sampleDir.Join("NGIN.Core.BasicHost.nginproj").View()));
   builder->SetApplicationName("NGIN.Core.BasicHost");
   builder->SetConfiguration("Samples.BasicHost");
-  builder->UseProfile(HostProfile::ConsoleApp);
   builder->Services().AddDefaults().AddConfiguration().AddSingleton(
       "App.Message", NGIN::Utilities::Any<>(std::string("builder-ready")));
   builder->Modules()

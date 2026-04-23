@@ -123,8 +123,13 @@ TEST_CASE("workspace, project, and package manifests parse through authoring fac
   <References>
     <Package Name="Sample.Package" />
   </References>
+  <Environments>
+    <Environment Name="dev" />
+  </Environments>
   <Configurations>
-    <Configuration Name="Runtime" BuildConfiguration="Debug" HostProfile="ConsoleApp" Platform="linux-x64" />
+    <Configuration Name="Runtime" BuildConfiguration="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev">
+      <Launch Executable="Sample.App" WorkingDirectory="." />
+    </Configuration>
   </Configurations>
 </Project>
 )");
@@ -149,8 +154,11 @@ TEST_CASE("project parsing rejects missing required output metadata")
         projectPath,
         R"(<?xml version="1.0" encoding="utf-8"?>
 <Project SchemaVersion="2" Name="Invalid" Type="Application" DefaultConfiguration="Runtime">
+  <Environments>
+    <Environment Name="dev" />
+  </Environments>
   <Configurations>
-    <Configuration Name="Runtime" BuildConfiguration="Debug" HostProfile="ConsoleApp" Platform="linux-x64" />
+    <Configuration Name="Runtime" BuildConfiguration="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev" />
   </Configurations>
 </Project>
 )");
@@ -169,8 +177,11 @@ TEST_CASE("project autodiscovery resolves nearest nginproj in the current tree")
         R"(<?xml version="1.0" encoding="utf-8"?>
 <Project SchemaVersion="2" Name="Nested" Type="Application" DefaultConfiguration="Runtime">
   <Output Kind="Executable" Name="Nested" Target="NestedTarget" />
+  <Environments>
+    <Environment Name="dev" />
+  </Environments>
   <Configurations>
-    <Configuration Name="Runtime" BuildConfiguration="Debug" HostProfile="ConsoleApp" Platform="linux-x64" />
+    <Configuration Name="Runtime" BuildConfiguration="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev" />
   </Configurations>
 </Project>
 )");
@@ -231,8 +242,11 @@ TEST_CASE("resolution reports package dependency cycles")
   <References>
     <Package Name="Package.A" />
   </References>
+  <Environments>
+    <Environment Name="dev" />
+  </Environments>
   <Configurations>
-    <Configuration Name="Runtime" BuildConfiguration="Debug" HostProfile="ConsoleApp" Platform="linux-x64" />
+    <Configuration Name="Runtime" BuildConfiguration="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev" />
   </Configurations>
 </Project>
 )");

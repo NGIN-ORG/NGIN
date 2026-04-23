@@ -14,6 +14,8 @@ This spec defines the authored model split between workspace, project, and packa
 - `.ngin` is optional
 - separate executables should usually be separate projects
 - configurations should hold narrow selection and override data
+- NGIN does not model application category as a configuration property
+- launch metadata belongs to launchable projects
 
 ## Consequences
 

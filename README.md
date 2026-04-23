@@ -57,16 +57,15 @@ This is the main V2 shift: if you have separate executables, they are usually se
 A configuration is one named setup of the same project. It is intentionally narrow. It selects build and launch details such as:
 
 - `BuildConfiguration`
-- `HostProfile`
-- `Platform`
+- `OperatingSystem`
+- `Architecture`
 - `Environment`
-- `WorkingDirectory`
 - `Launch`
 - reference, config, module, or plugin overlays
 
 Configurations are not meant to model unrelated apps. They are for changes in setup, not for inventing extra buildable identities.
 
-`Environment` is intentionally narrow in the active model. Today it is selected configuration data that participates in composition and launch metadata, not a full standalone environment-definition system.
+`Environment` selects a named runtime layer that can contribute config sources, variables, features, contents, and runtime overlays.
 
 ### Package
 
@@ -105,14 +104,17 @@ The shape below is the normal V2 path: one project owns the executable boundary,
     <Package Name="NGIN.Core" Version="0.1.0" />
   </References>
 
+  <Environments>
+    <Environment Name="development" />
+  </Environments>
+
   <Configurations>
     <Configuration Name="Runtime"
                    BuildConfiguration="Debug"
-                   HostProfile="Game"
-                   Platform="Linux"
-                   Environment="Dev"
-                   WorkingDirectory=".">
-      <Launch Executable="MyGame" />
+                   OperatingSystem="linux"
+                   Architecture="x64"
+                   Environment="development">
+      <Launch Executable="MyGame" WorkingDirectory="." />
     </Configuration>
   </Configurations>
 </Project>

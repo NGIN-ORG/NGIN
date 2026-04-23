@@ -41,17 +41,6 @@ struct ResolvedModule {
   return 255;
 }
 
-[[nodiscard]] auto SupportsHost(const ModuleDescriptor &descriptor,
-                                const HostType host) noexcept -> bool {
-  if (descriptor.supportedHosts.empty()) {
-    return true;
-  }
-
-  return std::find(descriptor.supportedHosts.begin(),
-                   descriptor.supportedHosts.end(),
-                   host) != descriptor.supportedHosts.end();
-}
-
 [[nodiscard]] constexpr auto DependencyAllowed(const ModuleFamily src,
                                                const ModuleFamily dst) noexcept
     -> bool {
@@ -80,17 +69,6 @@ struct ResolvedModule {
            dst == ModuleFamily::Domain || dst == ModuleFamily::App;
   }
   return false;
-}
-
-[[nodiscard]] auto ExtractPlatformTag(const std::string &text) -> std::string {
-  if (text.empty()) {
-    return {};
-  }
-  const auto dash = text.find('-');
-  if (dash == std::string::npos) {
-    return text;
-  }
-  return text.substr(0, dash);
 }
 
 [[nodiscard]] auto Trim(const std::string_view input) -> std::string_view {
@@ -172,7 +150,8 @@ public:
       m_config.targetName = "NGIN.Target";
     }
     if (m_config.platformName.empty()) {
-      m_config.platformName = "linux-x64";
+      m_config.platformName =
+          m_config.operatingSystemName + "-" + m_config.architectureName;
     }
     if (!m_config.fileSystem) {
       m_config.fileSystem =
@@ -540,6 +519,18 @@ private:
     if (!set)
       return NGIN::Utilities::Unexpected<KernelError>(set.Error());
 
+    set = m_configStore->SetValue(ConfigLayer::BuiltInDefaults,
+                                  "Kernel.OperatingSystem",
+                                  m_config.operatingSystemName);
+    if (!set)
+      return NGIN::Utilities::Unexpected<KernelError>(set.Error());
+
+    set = m_configStore->SetValue(ConfigLayer::BuiltInDefaults,
+                                  "Kernel.Architecture",
+                                  m_config.architectureName);
+    if (!set)
+      return NGIN::Utilities::Unexpected<KernelError>(set.Error());
+
     set = m_configStore->SetValue(
         ConfigLayer::BuiltInDefaults, "Kernel.PlatformVersion",
         FormatSemanticVersion(m_config.platformVersion));
@@ -780,8 +771,6 @@ private:
       active.insert(name);
     }
 
-    const auto platformTag = ExtractPlatformTag(m_config.platformName);
-
     bool changed = true;
     while (changed) {
       changed = false;
@@ -797,25 +786,29 @@ private:
         const auto &desc = catIt->second.descriptor;
         const bool required = requiredMap[name];
 
-        const bool platformOk =
-            desc.platforms.empty() ||
-            std::find(desc.platforms.begin(), desc.platforms.end(),
-                      platformTag) != desc.platforms.end();
-        const bool hostOk = SupportsHost(desc, m_config.hostType);
+        const bool operatingSystemOk =
+            desc.operatingSystems.empty() ||
+            std::find(desc.operatingSystems.begin(),
+                      desc.operatingSystems.end(),
+                      m_config.operatingSystemName) !=
+                desc.operatingSystems.end();
+        const bool architectureOk =
+            desc.architectures.empty() ||
+            std::find(desc.architectures.begin(), desc.architectures.end(),
+                      m_config.architectureName) != desc.architectures.end();
         const bool reflectionOk =
             !desc.reflectionRequired || m_config.enableReflection;
         const bool versionOk =
             desc.compatiblePlatformRange.Contains(m_config.platformVersion);
 
-        if (!platformOk || !hostOk || !reflectionOk || !versionOk) {
+        if (!operatingSystemOk || !architectureOk || !reflectionOk ||
+            !versionOk) {
           if (required) {
             auto errorCode = KernelErrorCode::IncompatiblePlatform;
             std::string message =
-                "module incompatible with host/platform/version settings";
-            if (!hostOk) {
-              errorCode = KernelErrorCode::IncompatibleHostType;
-              message = "module does not support host type";
-            } else if (!reflectionOk) {
+                "module incompatible with operating-system/architecture/version "
+                "settings";
+            if (!reflectionOk) {
               errorCode = KernelErrorCode::ReflectionRequired;
               message = "module requires reflection";
             }

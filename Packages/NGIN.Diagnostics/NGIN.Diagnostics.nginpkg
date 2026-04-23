@@ -3,11 +3,13 @@
          Name="NGIN.Diagnostics"
          Version="0.1.0"
          CompatiblePlatformRange=">=0.1.0-alpha.1 &lt;0.2.0">
-  <Platforms>
-    <Platform Name="linux" />
-    <Platform Name="windows" />
-    <Platform Name="macos" />
-  </Platforms>
+  <Compatibility>
+    <OperatingSystems>
+      <OperatingSystem Name="linux" />
+      <OperatingSystem Name="windows" />
+      <OperatingSystem Name="macos" />
+    </OperatingSystems>
+  </Compatibility>
   <Dependencies>
     <Dependency Name="NGIN.Log" VersionRange=">=0.1.0 &lt;0.2.0" Optional="false" />
     <Dependency Name="NGIN.Reflection" VersionRange=">=0.1.0 &lt;0.2.0" Optional="true" />
@@ -18,11 +20,13 @@
   <Modules />
   <Plugins>
     <Plugin Name="NGIN.Diagnostics">
-      <Platforms>
-        <Platform Name="linux" />
-        <Platform Name="windows" />
-        <Platform Name="macos" />
-      </Platforms>
+      <Compatibility>
+        <OperatingSystems>
+          <OperatingSystem Name="linux" />
+          <OperatingSystem Name="windows" />
+          <OperatingSystem Name="macos" />
+        </OperatingSystems>
+      </Compatibility>
       <Modules>
         <Required>
           <ModuleRef Name="Log.Foundation" />

@@ -12,12 +12,14 @@
   <ConfigSources>
     <Config Source="config/shared.cfg" />
   </ConfigSources>
+  <Environments>
+    <Environment Name="development" />
+  </Environments>
   <Configurations>
     <Configuration Name="Runtime"
              BuildConfiguration="Debug"
-             HostProfile="ConsoleApp"
-             Platform="linux-x64"
-             Environment="Dev"
-             WorkingDirectory="." />
+             OperatingSystem="linux"
+             Architecture="x64"
+             Environment="development" />
   </Configurations>
 </Project>

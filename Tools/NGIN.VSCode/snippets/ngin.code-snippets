@@ -27,9 +27,12 @@
       "  <References>",
       "    <Package Name=\"$3\" Version=\"$4\" />",
       "  </References>",
+      "  <Environments>",
+      "    <Environment Name=\"$5\" />",
+      "  </Environments>",
       "  <Configurations>",
-      "    <Configuration Name=\"$2\" HostProfile=\"$5\" BuildConfiguration=\"Debug\" Platform=\"$6\" Environment=\"$7\" WorkingDirectory=\".\">",
-      "      <Launch Executable=\"$1\" />",
+      "    <Configuration Name=\"$2\" BuildConfiguration=\"Debug\" OperatingSystem=\"$6\" Architecture=\"$7\" Environment=\"$5\">",
+      "      <Launch Executable=\"$1\" WorkingDirectory=\".\" />",
       "    </Configuration>",
       "  </Configurations>",
       "</Project>"
@@ -59,8 +62,8 @@
     "scope": "ngin",
     "prefix": "ngin-configuration",
     "body": [
-      "<Configuration Name=\"$1\" HostProfile=\"$2\" BuildConfiguration=\"Debug\" Platform=\"$3\" Environment=\"$4\" WorkingDirectory=\".\">",
-      "  <Launch Executable=\"$5\" />",
+      "<Configuration Name=\"$1\" BuildConfiguration=\"Debug\" OperatingSystem=\"$2\" Architecture=\"$3\" Environment=\"$4\">",
+      "  <Launch Executable=\"$5\" WorkingDirectory=\".\" />",
       "</Configuration>"
     ]
   },
@@ -76,9 +79,11 @@
     "prefix": "ngin-module",
     "body": [
       "<Module Name=\"$1\" Family=\"$2\" Type=\"Runtime\" StartupStage=\"$3\" Version=\"$4\">",
-      "  <Platforms>",
-      "    <Platform Name=\"$5\" />",
-      "  </Platforms>",
+      "  <Compatibility>",
+      "    <OperatingSystems>",
+      "      <OperatingSystem Name=\"$5\" />",
+      "    </OperatingSystems>",
+      "  </Compatibility>",
       "</Module>"
     ]
   },

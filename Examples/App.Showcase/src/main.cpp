@@ -12,8 +12,6 @@ namespace
 {
     using NGIN::Core::CoreResult;
     using NGIN::Core::DependencyDescriptor;
-    using NGIN::Core::HostProfile;
-    using NGIN::Core::HostType;
     using NGIN::Core::IModule;
     using NGIN::Core::ModuleContext;
     using NGIN::Core::ModuleDescriptor;
@@ -26,7 +24,6 @@ namespace
     {
         std::string              mode {};
         std::string              environment {};
-        HostProfile              profile {HostProfile::ConsoleApp};
         std::vector<std::string> expectedPackages {};
         std::vector<std::string> expectedServices {};
         std::vector<std::string> absentServices {};
@@ -72,7 +69,6 @@ namespace
         std::string name,
         const ModuleType type = ModuleType::Runtime,
         const StartupStage stage = StartupStage::Features,
-        std::vector<HostType> supportedHosts = {},
         const bool reflectionRequired = false,
         std::vector<DependencyDescriptor> dependencies = {}) -> ModuleDescriptor
     {
@@ -82,10 +78,9 @@ namespace
         descriptor.type = type;
         descriptor.version = NGIN::Core::SemanticVersion {0, 1, 0, {}};
         descriptor.compatiblePlatformRange = NGIN::Core::ParseVersionRange(">=0.1.0 <1.0.0").ValueUnsafe();
-        descriptor.platforms = {"linux", "windows", "macos"};
+        descriptor.operatingSystems = {"linux", "windows", "macos"};
         descriptor.dependencies = std::move(dependencies);
         descriptor.startupStage = stage;
-        descriptor.supportedHosts = std::move(supportedHosts);
         descriptor.entryKind = NGIN::Core::ModuleEntryKind::Static;
         descriptor.reflectionRequired = reflectionRequired;
         return descriptor;
@@ -125,7 +120,6 @@ namespace
             return ConfigurationExpectations {
                 .mode = "runtime",
                 .environment = "Dev",
-                .profile = HostProfile::ConsoleApp,
                 .expectedPackages = {"NGIN.Core"},
                 .expectedServices = {
                     "App.Showcase.Runtime.Ready",
@@ -145,7 +139,6 @@ namespace
             return ConfigurationExpectations {
                 .mode = "runtime-devtools",
                 .environment = "Dev",
-                .profile = HostProfile::ConsoleApp,
                 .expectedPackages = {"NGIN.Core"},
                 .expectedServices = {
                     "App.Showcase.Runtime.Ready",
@@ -165,7 +158,6 @@ namespace
             return ConfigurationExpectations {
                 .mode = "runtime-diagnostics",
                 .environment = "Diagnostics",
-                .profile = HostProfile::ConsoleApp,
                 .expectedPackages = {"NGIN.Core", "NGIN.Diagnostics"},
                 .expectedServices = {
                     "App.Showcase.Runtime.Ready",
@@ -185,7 +177,6 @@ namespace
             return ConfigurationExpectations {
                 .mode = "runtime-reflection",
                 .environment = "Research",
-                .profile = HostProfile::ConsoleApp,
                 .expectedPackages = {"NGIN.Core", "NGIN.Reflection"},
                 .expectedServices = {
                     "App.Showcase.Runtime.Ready",
@@ -205,7 +196,6 @@ namespace
             return ConfigurationExpectations {
                 .mode = "service",
                 .environment = "Staging",
-                .profile = HostProfile::Service,
                 .expectedPackages = {"NGIN.Core"},
                 .expectedServices = {
                     "App.Showcase.Runtime.Ready",
@@ -368,7 +358,6 @@ int main(int argc, char** argv)
             "App.Showcase.ConsoleBanner",
             ModuleType::Runtime,
             StartupStage::Presentation,
-            {HostType::ConsoleApp},
             false,
             {MakeDependency("App.Showcase.Runtime")}),
         "App.Showcase.ConsoleBanner.Ready",
@@ -379,7 +368,6 @@ int main(int argc, char** argv)
             "App.Showcase.DevTools",
             ModuleType::Developer,
             StartupStage::Presentation,
-            {HostType::ConsoleApp},
             false,
             {MakeDependency("App.Showcase.Runtime")}),
         "App.Showcase.DevTools.Ready",
@@ -390,7 +378,6 @@ int main(int argc, char** argv)
             "App.Showcase.Diagnostics",
             ModuleType::Developer,
             StartupStage::Services,
-            {HostType::ConsoleApp},
             false,
             {MakeDependency("App.Showcase.Runtime")}),
         "App.Showcase.Diagnostics.Ready",
@@ -401,7 +388,6 @@ int main(int argc, char** argv)
             "App.Showcase.Reflection",
             ModuleType::Developer,
             StartupStage::Services,
-            {HostType::ConsoleApp},
             true,
             {MakeDependency("App.Showcase.Runtime")}),
         "App.Showcase.Reflection.Ready",
@@ -412,7 +398,6 @@ int main(int argc, char** argv)
             "App.Showcase.Service",
             ModuleType::Runtime,
             StartupStage::Services,
-            {HostType::Service},
             false,
             {MakeDependency("App.Showcase.Runtime")}),
         "App.Showcase.Service.Ready",
@@ -441,40 +426,34 @@ int main(int argc, char** argv)
         return 3;
     }
 
-    if (host->GetProfile() != expectations->profile)
-    {
-        std::cerr << "Host profile did not match the selected configuration\n";
-        return 4;
-    }
-
     auto config = host->GetConfig();
     if (!config)
     {
         std::cerr << "Config store unavailable\n";
-        return 5;
+        return 4;
     }
 
     if (!ValidateConfiguration(*config, *expectations))
     {
-        return 6;
+        return 5;
     }
 
     const auto report = host->GetStartupReport();
     if (!ValidateStartupReport(report, *expectations))
     {
-        return 7;
+        return 6;
     }
 
     auto services = host->GetServices();
     if (!services)
     {
         std::cerr << "Service registry unavailable\n";
-        return 8;
+        return 7;
     }
 
     if (!ValidateServices(*services, *expectations))
     {
-        return 9;
+        return 8;
     }
 
     PrintSummary(configurationName, report, *config);
@@ -485,7 +464,7 @@ int main(int argc, char** argv)
     if (!shutdown)
     {
         std::cerr << "Shutdown failed: " << shutdown.ErrorUnsafe().message << "\n";
-        return 10;
+        return 9;
     }
 
     std::cout << "App.Showcase completed successfully\n";

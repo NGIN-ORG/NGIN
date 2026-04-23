@@ -24,24 +24,30 @@ Supported root sections:
 - `SourceRoots`
 - `Output`
 - `Build`
-- `Host`
 - `References`
 - `ConfigSources`
 - `Runtime`
+- `Environments`
 - `Configurations`
 
 `Runtime` is optional advanced metadata. It is not required for normal application authoring.
 
 ## Output
 
-Projects own one `Output` definition:
+Projects own one `Output` definition. `Type` is the authored project class and `Output Kind` is the artifact form.
 
 ```xml
-<Output Kind="Executable|Library"
+<Output Kind="Executable|StaticLibrary|SharedLibrary"
         Name="MyApp"
         Target="MyApp"
         FileName="MyApp" />
 ```
+
+Valid pairings:
+
+- `Application` -> `Executable`
+- `Tool` -> `Executable`
+- `Library` -> `StaticLibrary|SharedLibrary`
 
 ## References
 
@@ -60,14 +66,6 @@ Reference resolution rules:
 - otherwise try the selected root project configuration name in the referenced project
 - otherwise use the referenced project `DefaultConfiguration`
 
-## Host
-
-Projects may define a root host default:
-
-```xml
-<Host Profile="ConsoleApp|GuiApp|Game|Editor|Service|TestHost" />
-```
-
 ## Configurations
 
 Projects declare configurations under `Configurations`.
@@ -76,11 +74,10 @@ Projects declare configurations under `Configurations`.
 <Configurations>
   <Configuration Name="Runtime"
                  BuildConfiguration="Debug"
-                 HostProfile="Game"
-                 Platform="Linux"
-                 Environment="Dev"
-                 WorkingDirectory=".">
-    <Launch Executable="MyApp" />
+                 OperatingSystem="linux"
+                 Architecture="x64"
+                 Environment="development">
+    <Launch Executable="MyApp" WorkingDirectory="." />
   </Configuration>
 </Configurations>
 ```
@@ -89,10 +86,9 @@ Supported configuration attributes:
 
 - `Name` required
 - `BuildConfiguration` optional
-- `Platform` optional
-- `Environment` optional
-- `WorkingDirectory` optional
-- `HostProfile` optional
+- `OperatingSystem` optional
+- `Architecture` optional
+- `Environment` required
 - `EnableReflection` optional
 
 Supported configuration child sections:
@@ -100,10 +96,22 @@ Supported configuration child sections:
 - `References`
 - `ConfigSources`
 - `Launch`
-- `EnableModules`
-- `DisableModules`
-- `EnablePlugins`
-- `DisablePlugins`
+- `Runtime`
+
+`<Launch>` is launch-only metadata. Library projects may not declare it.
+
+## Environments
+
+Projects may define named environment layers under `Environments`.
+
+Each environment may contribute:
+
+- `References`
+- `ConfigSources`
+- `Variables`
+- `Features`
+- `Contents`
+- `Runtime`
 
 ## Example
 
@@ -120,13 +128,16 @@ Supported configuration child sections:
   <References>
     <Package Name="NGIN.Core" Version="0.1.0" />
   </References>
+  <Environments>
+    <Environment Name="development" />
+  </Environments>
   <Configurations>
     <Configuration Name="Runtime"
                    BuildConfiguration="Debug"
-                   HostProfile="ConsoleApp"
-                   Environment="Dev"
-                   WorkingDirectory=".">
-      <Launch Executable="App.Basic" />
+                   OperatingSystem="linux"
+                   Architecture="x64"
+                   Environment="development">
+      <Launch Executable="App.Basic" WorkingDirectory="." />
     </Configuration>
   </Configurations>
 </Project>

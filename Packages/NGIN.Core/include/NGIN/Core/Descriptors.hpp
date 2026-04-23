@@ -49,10 +49,10 @@ namespace NGIN::Core
         ModuleType                        type {ModuleType::Runtime};
         SemanticVersion                   version {};
         VersionRange                      compatiblePlatformRange {};
-        std::vector<std::string>          platforms {};
+        std::vector<std::string>          operatingSystems {};
+        std::vector<std::string>          architectures {};
         std::vector<DependencyDescriptor> dependencies {};
         StartupStage                      startupStage {StartupStage::Features};
-        std::vector<HostType>             supportedHosts {};
         ModuleEntryKind                   entryKind {ModuleEntryKind::Static};
         std::string                       pluginName {};
         std::vector<std::string>          providesServices {};

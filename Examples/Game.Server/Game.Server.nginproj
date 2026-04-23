@@ -16,18 +16,24 @@
   <ConfigSources>
     <Config Source="config/server.cfg" />
   </ConfigSources>
+  <Environments>
+    <Environment Name="development" />
+    <Environment Name="production" />
+  </Environments>
   <Configurations>
     <Configuration Name="Runtime"
                    BuildConfiguration="Debug"
-                   HostProfile="Service"
-                   Platform="linux-x64"
-                   Environment="Dev"
-                   WorkingDirectory="." />
+                   OperatingSystem="linux"
+                   Architecture="x64"
+                   Environment="development">
+      <Launch Executable="Game.Server" WorkingDirectory="." />
+    </Configuration>
     <Configuration Name="Shipping"
                    BuildConfiguration="Release"
-                   HostProfile="Service"
-                   Platform="linux-x64"
-                   Environment="Shipping"
-                   WorkingDirectory="." />
+                   OperatingSystem="linux"
+                   Architecture="x64"
+                   Environment="production">
+      <Launch Executable="Game.Server" WorkingDirectory="." />
+    </Configuration>
   </Configurations>
 </Project>

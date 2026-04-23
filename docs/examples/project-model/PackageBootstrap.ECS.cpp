@@ -16,7 +16,7 @@ namespace
         descriptor.type = ModuleType::Runtime;
         descriptor.version = SemanticVersion{0, 1, 0, {}};
         descriptor.compatiblePlatformRange = ParseVersionRange(">=0.1.0 <1.0.0").ValueUnsafe();
-        descriptor.platforms = {"linux", "windows", "macos"};
+        descriptor.operatingSystems = {"linux", "windows", "macos"};
         descriptor.startupStage = StartupStage::Features;
         descriptor.entryKind = ModuleEntryKind::Static;
         return descriptor;

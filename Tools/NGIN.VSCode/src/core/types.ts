@@ -8,12 +8,12 @@ export interface WorkspaceManifest {
 
 export interface ProjectConfiguration {
   name: string;
-  hostProfile?: string;
   buildConfiguration?: string;
-  platform?: string;
+  operatingSystem?: string;
+  architecture?: string;
   environment?: string;
-  workingDirectory?: string;
   launchExecutable?: string;
+  launchWorkingDirectory?: string;
 }
 
 export interface ProjectManifest {
@@ -24,9 +24,11 @@ export interface ProjectManifest {
   configurations: ProjectConfiguration[];
 }
 
-export interface LaunchRuntime {
+export interface LaunchDescriptor {
   workingDirectory?: string;
-  environment?: string;
+  executable?: string;
+  target?: string;
+  origin?: string;
 }
 
 export interface LaunchExecutable {
@@ -49,9 +51,10 @@ export interface LaunchManifest {
   configuration: string;
   type?: string;
   buildConfiguration?: string;
-  hostProfile?: string;
-  platform?: string;
-  runtime: LaunchRuntime;
+  operatingSystem?: string;
+  architecture?: string;
+  environmentName?: string;
+  launch: LaunchDescriptor;
   selectedExecutable?: LaunchExecutable;
   stagedFiles: StagedFile[];
 }

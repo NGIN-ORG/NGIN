@@ -265,14 +265,24 @@ namespace NGIN::CLI
             }
             std::cout << "\n";
         }
-        std::cout << "  platforms:";
-        if (manifest.platforms.empty())
+        std::cout << "  operating systems:";
+        if (manifest.compatibility.operatingSystems.empty())
         {
             std::cout << " (none)";
         }
-        for (const auto &platform : manifest.platforms)
+        for (const auto &operatingSystem : manifest.compatibility.operatingSystems)
         {
-            std::cout << " " << platform;
+            std::cout << " " << operatingSystem;
+        }
+        std::cout << "\n";
+        std::cout << "  architectures:";
+        if (manifest.compatibility.architectures.empty())
+        {
+            std::cout << " (none)";
+        }
+        for (const auto &architecture : manifest.compatibility.architectures)
+        {
+            std::cout << " " << architecture;
         }
         std::cout << "\n";
         std::cout << "  dependencies: " << manifest.dependencies.size() << "\n";

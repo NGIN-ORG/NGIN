@@ -15,7 +15,7 @@ namespace
         descriptor.type = ModuleType::Runtime;
         descriptor.version = SemanticVersion {0, 1, 0, {}};
         descriptor.compatiblePlatformRange = ParseVersionRange(">=0.1.0 <1.0.0").Value();
-        descriptor.platforms = {"linux", "windows", "macos"};
+        descriptor.operatingSystems = {"linux", "windows", "macos"};
         descriptor.startupStage = StartupStage::Features;
         descriptor.entryKind = ModuleEntryKind::Static;
         return descriptor;
@@ -48,7 +48,6 @@ int main(int argc, char** argv)
     auto builder = CreateApplicationBuilder(argc, argv);
     builder->UseProjectFile(projectPath.string());
     builder->SetApplicationName("App.Basic");
-    builder->UseProfile(HostProfile::ConsoleApp);
     builder->Services()
         .AddDefaults()
         .AddConfiguration();

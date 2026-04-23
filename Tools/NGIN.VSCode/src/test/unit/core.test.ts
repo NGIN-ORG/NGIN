@@ -69,18 +69,19 @@ test('workspace manifests parse project paths relative to the workspace manifest
 
 test('project manifests parse configurations and launch metadata', () => {
   const project = parseProjectManifest(
-    '<?xml version="1.0" encoding="utf-8"?><Project Name="App.Basic" DefaultConfiguration="Runtime"><Configurations><Configuration Name="Runtime" HostProfile="Game" BuildConfiguration="Debug" WorkingDirectory="."><Launch Executable="App.Basic" /></Configuration></Configurations></Project>',
+    '<?xml version="1.0" encoding="utf-8"?><Project Name="App.Basic" DefaultConfiguration="Runtime"><Configurations><Configuration Name="Runtime" BuildConfiguration="Debug" OperatingSystem="linux" Architecture="x64" Environment="development"><Launch Executable="App.Basic" WorkingDirectory="." /></Configuration></Configurations></Project>',
     '/repo/Examples/App.Basic/App.Basic.nginproj'
   );
 
   assert.equal(project.defaultConfiguration, 'Runtime');
   assert.equal(project.configurations[0].launchExecutable, 'App.Basic');
-  assert.equal(project.configurations[0].hostProfile, 'Game');
+  assert.equal(project.configurations[0].operatingSystem, 'linux');
+  assert.equal(project.configurations[0].architecture, 'x64');
 });
 
 test('launch manifests surface selected executable and staged files', () => {
   const launch = parseLaunchManifest(
-    '<?xml version="1.0" encoding="utf-8"?><LaunchManifest Project="App.Basic" Configuration="Runtime" Type="Application" BuildConfiguration="Debug" Platform="Linux"><Runtime WorkingDirectory="." /><SelectedExecutable Name="App.Basic" /><StagedFiles><File Kind="executable" Destination="/repo/out/bin/App.Basic" RelativeDestination="bin/App.Basic" /></StagedFiles></LaunchManifest>',
+    '<?xml version="1.0" encoding="utf-8"?><LaunchManifest Project="App.Basic" Configuration="Runtime" Type="Application" BuildConfiguration="Debug" OperatingSystem="linux" Architecture="x64"><Launch Executable="App.Basic" WorkingDirectory="." /><Environment Name="development"><Variables /><Features /></Environment><StagedFiles><File Kind="executable" Destination="/repo/out/bin/App.Basic" RelativeDestination="bin/App.Basic" /></StagedFiles></LaunchManifest>',
     '/repo/out/App.Basic.Runtime.nginlaunch'
   );
 
@@ -97,7 +98,7 @@ test('executable resolution prefers staged manifest entries before bin fallback'
       directory: '/repo/out',
       project: 'App.Basic',
       configuration: 'Runtime',
-      runtime: { workingDirectory: '.' },
+      launch: { workingDirectory: '.' },
       selectedExecutable: { name: 'App.Basic' },
       stagedFiles: [
         {
@@ -121,7 +122,7 @@ test('working directory resolution checks staged and project-relative candidates
       directory: '/repo/out',
       project: 'App.Basic',
       configuration: 'Runtime',
-      runtime: { workingDirectory: 'config' },
+      launch: { workingDirectory: 'config' },
       stagedFiles: []
     },
     '/repo/out',
@@ -228,7 +229,7 @@ test('overview sections describe the current workspace selection and actions', (
         root: '/repo'
       },
       project: { path: '/repo/Examples/App.Basic/App.Basic.nginproj', directory: '/repo/Examples/App.Basic', name: 'App.Basic', configurations: [] },
-      configuration: { name: 'Runtime', hostProfile: 'Game' }
+      configuration: { name: 'Runtime', operatingSystem: 'linux', architecture: 'x64', environment: 'development' }
     },
     outputDir: '/repo/.ngin/build/App.Basic/Runtime',
     launchManifestPath: '/repo/.ngin/build/App.Basic/Runtime/App.Basic.Runtime.nginlaunch',
@@ -262,7 +263,7 @@ test('project tree models mark the selected project and configuration', () => {
           directory: '/repo/Examples/App.Basic',
           name: 'App.Basic',
           defaultConfiguration: 'Runtime',
-          configurations: [{ name: 'Runtime', hostProfile: 'Game' }]
+          configurations: [{ name: 'Runtime', operatingSystem: 'linux', architecture: 'x64', environment: 'development' }]
         }
       ],
       root: '/repo'
@@ -278,9 +279,9 @@ test('project tree models mark the selected project and configuration', () => {
         directory: '/repo/Examples/App.Basic',
         name: 'App.Basic',
         defaultConfiguration: 'Runtime',
-        configurations: [{ name: 'Runtime', hostProfile: 'Game' }]
+        configurations: [{ name: 'Runtime', operatingSystem: 'linux', architecture: 'x64', environment: 'development' }]
       },
-      configuration: { name: 'Runtime', hostProfile: 'Game' }
+      configuration: { name: 'Runtime', operatingSystem: 'linux', architecture: 'x64', environment: 'development' }
     },
     launchManifestExists: false,
     stagedCompileCommandsAvailable: false
@@ -304,7 +305,7 @@ test('status bar models expose the compact NGIN bottom-bar actions', () => {
         root: '/repo'
       },
       project: { path: '/repo/Examples/App.Basic/App.Basic.nginproj', directory: '/repo/Examples/App.Basic', name: 'App.Basic', configurations: [] },
-      configuration: { name: 'Runtime', hostProfile: 'Game' }
+      configuration: { name: 'Runtime', operatingSystem: 'linux', architecture: 'x64', environment: 'development' }
     },
     outputDir: '/repo/.ngin/build/App.Basic/Runtime',
     launchManifestExists: false,

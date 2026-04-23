@@ -229,6 +229,58 @@ MakeBuilderError(const std::string &message, std::string subject = {},
   return ParseBoolValue(value.value(), context);
 }
 
+[[nodiscard]] auto IsValidOperatingSystem(const std::string_view value) -> bool {
+  return value == "linux" || value == "windows" || value == "macos";
+}
+
+[[nodiscard]] auto IsValidArchitecture(const std::string_view value) -> bool {
+  return value == "x64" || value == "arm64";
+}
+
+[[nodiscard]] auto ReadCompatibility(const XmlElement &element,
+                                     const std::string_view context,
+                                     std::vector<std::string> &operatingSystems,
+                                     std::vector<std::string> &architectures)
+    -> CoreResult<void> {
+  if (FindChild(element, "Platforms") != nullptr) {
+    return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+        "legacy <Platforms> is no longer supported", std::string(context),
+        KernelErrorCode::SchemaValidationFailure));
+  }
+  if (FindChild(element, "SupportedHosts") != nullptr) {
+    return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+        "legacy <SupportedHosts> is no longer supported",
+        std::string(context), KernelErrorCode::SchemaValidationFailure));
+  }
+  if (const auto *compatibility = FindChild(element, "Compatibility")) {
+    if (const auto *operatingSystemsElement =
+            FindChild(*compatibility, "OperatingSystems")) {
+      for (const auto *entry :
+           ChildElements(*operatingSystemsElement, "OperatingSystem")) {
+        auto value =
+            RequireAttribute(*entry, "Name", std::string(context) + ".OS");
+        if (!value) {
+          return NGIN::Utilities::Unexpected<KernelError>(value.Error());
+        }
+        operatingSystems.push_back(value.Value());
+      }
+    }
+    if (const auto *architecturesElement =
+            FindChild(*compatibility, "Architectures")) {
+      for (const auto *entry :
+           ChildElements(*architecturesElement, "Architecture")) {
+        auto value =
+            RequireAttribute(*entry, "Name", std::string(context) + ".Arch");
+        if (!value) {
+          return NGIN::Utilities::Unexpected<KernelError>(value.Error());
+        }
+        architectures.push_back(value.Value());
+      }
+    }
+  }
+  return CoreResult<void>{};
+}
+
 [[nodiscard]] auto ParseUInt32Value(const std::string &value,
                                     const std::string_view context)
     -> CoreResult<NGIN::UInt32> {
@@ -239,24 +291,6 @@ MakeBuilderError(const std::string &message, std::string subject = {},
     return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
         std::string(context) + " must be an unsigned integer"));
   }
-}
-
-[[nodiscard]] auto ParseHostProfile(const std::string_view text)
-    -> CoreResult<HostProfile> {
-  if (text == "ConsoleApp")
-    return HostProfile::ConsoleApp;
-  if (text == "GuiApp")
-    return HostProfile::GuiApp;
-  if (text == "Game")
-    return HostProfile::Game;
-  if (text == "Editor")
-    return HostProfile::Editor;
-  if (text == "Service")
-    return HostProfile::Service;
-  if (text == "TestHost")
-    return HostProfile::TestHost;
-  return NGIN::Utilities::Unexpected<KernelError>(
-      MakeBuilderError("unknown host profile", std::string(text)));
 }
 
 [[nodiscard]] auto ParsePackageBootstrapMode(const std::string_view text)
@@ -303,25 +337,6 @@ MakeBuilderError(const std::string &message, std::string subject = {},
     return ModuleType::ThirdParty;
   return NGIN::Utilities::Unexpected<KernelError>(
       MakeBuilderError("unknown module type", std::string(text),
-                       KernelErrorCode::SchemaValidationFailure));
-}
-
-[[nodiscard]] auto ParseHostTypeText(const std::string_view text)
-    -> CoreResult<HostType> {
-  if (text == "ConsoleApp")
-    return HostType::ConsoleApp;
-  if (text == "GuiApp")
-    return HostType::GuiApp;
-  if (text == "Game")
-    return HostType::Game;
-  if (text == "Editor")
-    return HostType::Editor;
-  if (text == "Service")
-    return HostType::Service;
-  if (text == "TestHost")
-    return HostType::TestHost;
-  return NGIN::Utilities::Unexpected<KernelError>(
-      MakeBuilderError("unknown supported host", std::string(text),
                        KernelErrorCode::SchemaValidationFailure));
 }
 
@@ -417,15 +432,11 @@ MakeBuilderError(const std::string &message, std::string subject = {},
   }
   descriptor.reflectionRequired = reflectionRequired.Value();
 
-  if (const auto *platforms = FindChild(element, "Platforms")) {
-    for (const auto *platformElement : ChildElements(*platforms, "Platform")) {
-      auto platform = RequireAttribute(*platformElement, "Name",
-                                       std::string(context) + ".Platforms");
-      if (!platform) {
-        return NGIN::Utilities::Unexpected<KernelError>(platform.Error());
-      }
-      descriptor.platforms.push_back(platform.Value());
-    }
+  auto compatibility = ReadCompatibility(element, context,
+                                         descriptor.operatingSystems,
+                                         descriptor.architectures);
+  if (!compatibility) {
+    return NGIN::Utilities::Unexpected<KernelError>(compatibility.Error());
   }
 
   if (const auto *dependencies = FindChild(element, "Dependencies")) {
@@ -464,23 +475,6 @@ MakeBuilderError(const std::string &message, std::string subject = {},
       }
 
       descriptor.dependencies.push_back(std::move(dependency));
-    }
-  }
-
-  if (const auto *supportedHosts = FindChild(element, "SupportedHosts")) {
-    for (const auto *hostElement : ChildElements(*supportedHosts, "Host")) {
-      auto hostName = RequireAttribute(
-          *hostElement, "Name", std::string(context) + ".SupportedHosts");
-      if (!hostName) {
-        return NGIN::Utilities::Unexpected<KernelError>(hostName.Error());
-      }
-
-      auto host = ParseHostTypeText(hostName.Value());
-      if (!host) {
-        return NGIN::Utilities::Unexpected<KernelError>(host.Error());
-      }
-
-      descriptor.supportedHosts.push_back(host.Value());
     }
   }
 
@@ -541,15 +535,11 @@ MakeBuilderError(const std::string &message, std::string subject = {},
   }
   plugin.optional = optional.Value();
 
-  if (const auto *platforms = FindChild(element, "Platforms")) {
-    for (const auto *platformElement : ChildElements(*platforms, "Platform")) {
-      auto platform = RequireAttribute(*platformElement, "Name",
-                                       std::string(context) + ".Platforms");
-      if (!platform) {
-        return NGIN::Utilities::Unexpected<KernelError>(platform.Error());
-      }
-      plugin.platforms.push_back(platform.Value());
-    }
+  auto compatibility = ReadCompatibility(element, context,
+                                         plugin.operatingSystems,
+                                         plugin.architectures);
+  if (!compatibility) {
+    return NGIN::Utilities::Unexpected<KernelError>(compatibility.Error());
   }
 
   if (const auto *modules = FindChild(element, "Modules")) {
@@ -577,25 +567,6 @@ MakeBuilderError(const std::string &message, std::string subject = {},
   }
 
   return plugin;
-}
-
-[[nodiscard]] constexpr auto ToHostType(const HostProfile profile) noexcept
-    -> HostType {
-  switch (profile) {
-  case HostProfile::ConsoleApp:
-    return HostType::ConsoleApp;
-  case HostProfile::GuiApp:
-    return HostType::GuiApp;
-  case HostProfile::Game:
-    return HostType::Game;
-  case HostProfile::Editor:
-    return HostType::Editor;
-  case HostProfile::Service:
-    return HostType::Service;
-  case HostProfile::TestHost:
-    return HostType::TestHost;
-  }
-  return HostType::ConsoleApp;
 }
 
 [[nodiscard]] auto ParsePackageReference(const XmlElement &element,
@@ -864,6 +835,137 @@ MakeBuilderError(const std::string &message, std::string subject = {},
   return runtime;
 }
 
+[[nodiscard]] auto ParseEnvironmentDefinition(const XmlElement &element,
+                                              const std::string_view context)
+    -> CoreResult<EnvironmentDefinition> {
+  EnvironmentDefinition environment{};
+
+  auto name = RequireAttribute(element, "Name", context);
+  if (!name) {
+    return NGIN::Utilities::Unexpected<KernelError>(name.Error());
+  }
+  environment.name = name.Value();
+
+  if (const auto *referencesElement = FindChild(element, "References")) {
+    std::size_t projectIndex = 0;
+    for (const auto *projectElement :
+         ChildElements(*referencesElement, "Project")) {
+      auto project = ParseProjectReference(
+          *projectElement, std::string(context) + ".References.Project[" +
+                               std::to_string(projectIndex++) + "]");
+      if (!project) {
+        return NGIN::Utilities::Unexpected<KernelError>(project.Error());
+      }
+      environment.projectRefs.push_back(project.Value());
+    }
+    for (const auto *packageElement :
+         ChildElements(*referencesElement, "Package")) {
+      auto package = ParsePackageReference(
+          *packageElement, std::string(context) + ".References.Package");
+      if (!package) {
+        return NGIN::Utilities::Unexpected<KernelError>(package.Error());
+      }
+      environment.packageRefs.push_back(package.Value());
+    }
+  }
+
+  if (const auto *configSources = FindChild(element, "ConfigSources")) {
+    for (const auto *configElement : ChildElements(*configSources, "Config")) {
+      auto source = RequireAttribute(*configElement, "Source",
+                                     std::string(context) + ".ConfigSources");
+      if (!source) {
+        return NGIN::Utilities::Unexpected<KernelError>(source.Error());
+      }
+      environment.configSources.push_back(source.Value());
+    }
+  }
+
+  if (const auto *contents = FindChild(element, "Contents")) {
+    for (const auto *fileElement : ChildElements(*contents, "File")) {
+      auto source = RequireAttribute(*fileElement, "Source",
+                                     std::string(context) + ".Contents.File");
+      if (!source) {
+        return NGIN::Utilities::Unexpected<KernelError>(source.Error());
+      }
+
+      auto target = OptionalAttribute(*fileElement, "Target",
+                                      std::string(context) + ".Contents.File");
+      if (!target) {
+        return NGIN::Utilities::Unexpected<KernelError>(target.Error());
+      }
+
+      auto kind = OptionalAttribute(*fileElement, "Kind",
+                                    std::string(context) + ".Contents.File",
+                                    "other");
+      if (!kind) {
+        return NGIN::Utilities::Unexpected<KernelError>(kind.Error());
+      }
+
+      environment.contents.push_back(PackageContentFile{
+          .source = source.Value(),
+          .target = target.Value(),
+          .kind = kind.Value(),
+      });
+    }
+  }
+
+  if (const auto *variables = FindChild(element, "Variables")) {
+    for (const auto *variableElement : ChildElements(*variables, "Variable")) {
+      auto variableName =
+          RequireAttribute(*variableElement, "Name",
+                           std::string(context) + ".Variables.Variable");
+      if (!variableName) {
+        return NGIN::Utilities::Unexpected<KernelError>(variableName.Error());
+      }
+
+      auto value =
+          RequireAttribute(*variableElement, "Value",
+                           std::string(context) + ".Variables.Variable");
+      if (!value) {
+        return NGIN::Utilities::Unexpected<KernelError>(value.Error());
+      }
+
+      environment.variables.push_back(EnvironmentVariable{
+          .name = variableName.Value(),
+          .value = value.Value(),
+      });
+    }
+  }
+
+  if (const auto *features = FindChild(element, "Features")) {
+    for (const auto *featureElement : ChildElements(*features, "Feature")) {
+      auto featureName =
+          RequireAttribute(*featureElement, "Name",
+                           std::string(context) + ".Features.Feature");
+      if (!featureName) {
+        return NGIN::Utilities::Unexpected<KernelError>(featureName.Error());
+      }
+
+      auto enabled = OptionalBoolAttribute(
+          *featureElement, "Enabled",
+          std::string(context) + ".Features.Feature.Enabled", false);
+      if (!enabled) {
+        return NGIN::Utilities::Unexpected<KernelError>(enabled.Error());
+      }
+
+      environment.features.push_back(FeatureFlag{
+          .name = featureName.Value(),
+          .enabled = enabled.Value(),
+      });
+    }
+  }
+
+  auto runtime =
+      ParseRuntimeDefinition(FindChild(element, "Runtime"),
+                             std::string(context) + ".Runtime");
+  if (!runtime) {
+    return NGIN::Utilities::Unexpected<KernelError>(runtime.Error());
+  }
+  environment.runtime = std::move(runtime.Value());
+
+  return environment;
+}
+
 [[nodiscard]] auto ParseConfigurationDefinition(const XmlElement &element,
                                                 const std::string_view context)
     -> CoreResult<ConfigurationDefinition> {
@@ -882,22 +984,39 @@ MakeBuilderError(const std::string &message, std::string subject = {},
   }
   configuration.buildConfiguration = buildConfiguration.Value();
 
-  auto profileText =
-      OptionalAttribute(element, "HostProfile", context, "ConsoleApp");
-  if (!profileText) {
-    return NGIN::Utilities::Unexpected<KernelError>(profileText.Error());
+  if (element.FindAttribute("HostProfile") != nullptr ||
+      element.FindAttribute("Platform") != nullptr ||
+      element.FindAttribute("WorkingDirectory") != nullptr) {
+    return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+        std::string(context) +
+            " uses legacy HostProfile/Platform/WorkingDirectory attributes",
+        {}, KernelErrorCode::SchemaValidationFailure));
   }
-  auto profile = ParseHostProfile(profileText.Value());
-  if (!profile) {
-    return NGIN::Utilities::Unexpected<KernelError>(profile.Error());
-  }
-  configuration.profile = profile.Value();
 
-  auto platform = OptionalAttribute(element, "Platform", context, "linux-x64");
-  if (!platform) {
-    return NGIN::Utilities::Unexpected<KernelError>(platform.Error());
+  auto operatingSystem =
+      OptionalAttribute(element, "OperatingSystem", context, "linux");
+  if (!operatingSystem) {
+    return NGIN::Utilities::Unexpected<KernelError>(operatingSystem.Error());
   }
-  configuration.platform = platform.Value();
+  configuration.operatingSystem = operatingSystem.Value();
+  if (!IsValidOperatingSystem(configuration.operatingSystem)) {
+    return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+        "configuration uses unknown operating system",
+        configuration.operatingSystem,
+        KernelErrorCode::SchemaValidationFailure));
+  }
+
+  auto architecture =
+      OptionalAttribute(element, "Architecture", context, "x64");
+  if (!architecture) {
+    return NGIN::Utilities::Unexpected<KernelError>(architecture.Error());
+  }
+  configuration.architecture = architecture.Value();
+  if (!IsValidArchitecture(configuration.architecture)) {
+    return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+        "configuration uses unknown architecture", configuration.architecture,
+        KernelErrorCode::SchemaValidationFailure));
+  }
 
   auto reflection =
       OptionalBoolAttribute(element, "EnableReflection",
@@ -912,13 +1031,11 @@ MakeBuilderError(const std::string &message, std::string subject = {},
     return NGIN::Utilities::Unexpected<KernelError>(environment.Error());
   }
   configuration.environmentName = environment.Value();
-
-  auto workingDirectory =
-      OptionalAttribute(element, "WorkingDirectory", context, ".");
-  if (!workingDirectory) {
-    return NGIN::Utilities::Unexpected<KernelError>(workingDirectory.Error());
+  if (configuration.environmentName.empty()) {
+    return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+        std::string(context) + " must define Environment", {},
+        KernelErrorCode::SchemaValidationFailure));
   }
-  configuration.workingDirectory = workingDirectory.Value();
 
   if (const auto *launchElement = FindChild(element, "Launch")) {
     auto executable = RequireAttribute(*launchElement, "Executable",
@@ -926,7 +1043,16 @@ MakeBuilderError(const std::string &message, std::string subject = {},
     if (!executable) {
       return NGIN::Utilities::Unexpected<KernelError>(executable.Error());
     }
-    configuration.launchExecutable = executable.Value();
+    auto workingDirectory =
+        OptionalAttribute(*launchElement, "WorkingDirectory",
+                          std::string(context) + ".Launch", ".");
+    if (!workingDirectory) {
+      return NGIN::Utilities::Unexpected<KernelError>(workingDirectory.Error());
+    }
+    configuration.launch = LaunchDefinition{
+        .executable = executable.Value(),
+        .workingDirectory = workingDirectory.Value(),
+    };
   }
 
   if (const auto *referencesElement = FindChild(element, "References")) {
@@ -963,21 +1089,22 @@ MakeBuilderError(const std::string &message, std::string subject = {},
     }
   }
 
-  auto enabled =
-      ParseModuleRefs(FindChild(element, "EnableModules"), "ModuleRef",
-                      std::string(context) + ".EnableModules");
-  if (!enabled) {
-    return NGIN::Utilities::Unexpected<KernelError>(enabled.Error());
+  if (FindChild(element, "EnableModules") != nullptr ||
+      FindChild(element, "DisableModules") != nullptr ||
+      FindChild(element, "Modules") != nullptr) {
+    return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+        std::string(context) +
+            " must place runtime module selections inside <Runtime>",
+        {}, KernelErrorCode::SchemaValidationFailure));
   }
-  configuration.enableModules = std::move(enabled.Value());
 
-  auto disabled =
-      ParseModuleRefs(FindChild(element, "DisableModules"), "ModuleRef",
-                      std::string(context) + ".DisableModules");
-  if (!disabled) {
-    return NGIN::Utilities::Unexpected<KernelError>(disabled.Error());
+  auto runtime =
+      ParseRuntimeDefinition(FindChild(element, "Runtime"),
+                             std::string(context) + ".Runtime");
+  if (!runtime) {
+    return NGIN::Utilities::Unexpected<KernelError>(runtime.Error());
   }
-  configuration.disableModules = std::move(disabled.Value());
+  configuration.runtime = std::move(runtime.Value());
 
   return configuration;
 }
@@ -1047,17 +1174,10 @@ MakeBuilderError(const std::string &message, std::string subject = {},
     }
   }
 
-  if (const auto *hostElement = FindChild(*root, "Host")) {
-    auto profileText = OptionalAttribute(*hostElement, "Profile",
-                                         "project.Host", "ConsoleApp");
-    if (!profileText) {
-      return NGIN::Utilities::Unexpected<KernelError>(profileText.Error());
-    }
-    auto profile = ParseHostProfile(profileText.Value());
-    if (!profile) {
-      return NGIN::Utilities::Unexpected<KernelError>(profile.Error());
-    }
-    manifest.profile = profile.Value();
+  if (FindChild(*root, "Host") != nullptr) {
+    return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+        "project manifest root <Host> is no longer supported", {},
+        KernelErrorCode::SchemaValidationFailure));
   }
 
   const auto *outputElement = FindChild(*root, "Output");
@@ -1070,6 +1190,19 @@ MakeBuilderError(const std::string &message, std::string subject = {},
     return NGIN::Utilities::Unexpected<KernelError>(output.Error());
   }
   manifest.output = output.Value();
+
+  const bool validPairing =
+      ((manifest.type == "Application" || manifest.type == "Tool") &&
+       manifest.output.kind == "Executable") ||
+      (manifest.type == "Library" &&
+       (manifest.output.kind == "StaticLibrary" ||
+        manifest.output.kind == "SharedLibrary"));
+  if (!validPairing) {
+    return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+        "project type and output kind are incompatible",
+        manifest.type + ":" + manifest.output.kind,
+        KernelErrorCode::SchemaValidationFailure));
+  }
 
   auto build =
       ParseProjectBuildDescriptor(FindChild(*root, "Build"), "project.Build");
@@ -1112,6 +1245,26 @@ MakeBuilderError(const std::string &message, std::string subject = {},
     }
   }
 
+  if (const auto *environmentsElement = FindChild(*root, "Environments")) {
+    std::set<std::string> environmentNames{};
+    std::size_t environmentIndex = 0;
+    for (const auto *environmentElement :
+         ChildElements(*environmentsElement, "Environment")) {
+      auto environment = ParseEnvironmentDefinition(
+          *environmentElement,
+          "project.Environments[" + std::to_string(environmentIndex++) + "]");
+      if (!environment) {
+        return NGIN::Utilities::Unexpected<KernelError>(environment.Error());
+      }
+      if (!environmentNames.insert(environment.Value().name).second) {
+        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+            "duplicate environment name", environment.Value().name,
+            KernelErrorCode::AlreadyExists));
+      }
+      manifest.environments.push_back(environment.Value());
+    }
+  }
+
   auto runtime =
       ParseRuntimeDefinition(FindChild(*root, "Runtime"), "project.Runtime");
   if (!runtime) {
@@ -1140,6 +1293,25 @@ MakeBuilderError(const std::string &message, std::string subject = {},
           "duplicate configuration name", configuration.Value().name,
           KernelErrorCode::AlreadyExists));
     }
+    if (!configuration.Value().environmentName.empty()) {
+      const auto environmentIt = std::find_if(
+          manifest.environments.begin(), manifest.environments.end(),
+          [&](const EnvironmentDefinition &environment) {
+            return environment.name == configuration.Value().environmentName;
+          });
+      if (environmentIt == manifest.environments.end()) {
+        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+            "configuration selects unknown environment",
+            configuration.Value().environmentName,
+            KernelErrorCode::SchemaValidationFailure));
+      }
+    }
+    if (manifest.type == "Library" && configuration.Value().launch.has_value()) {
+      return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+          "library configurations may not define <Launch>",
+          configuration.Value().name,
+          KernelErrorCode::SchemaValidationFailure));
+    }
     manifest.configurations.push_back(configuration.Value());
   }
 
@@ -1149,34 +1321,82 @@ MakeBuilderError(const std::string &message, std::string subject = {},
 struct ResolvedProjectUnit {
   ProjectManifest manifest{};
   ConfigurationDefinition configuration{};
+  std::optional<EnvironmentDefinition> environment{};
   IoPath directory{};
 };
 
+[[nodiscard]] auto FindEnvironment(const ProjectManifest &manifest,
+                                   const std::string &environmentName)
+    -> CoreResult<std::optional<EnvironmentDefinition>> {
+  if (environmentName.empty()) {
+    return std::optional<EnvironmentDefinition>{};
+  }
+
+  const auto it = std::find_if(
+      manifest.environments.begin(), manifest.environments.end(),
+      [&](const EnvironmentDefinition &candidate) {
+        return candidate.name == environmentName;
+      });
+  if (it == manifest.environments.end()) {
+    return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+        "selected environment was not found", environmentName,
+        KernelErrorCode::NotFound));
+  }
+
+  return *it;
+}
+
 [[nodiscard]] auto FindConfiguration(
     const ProjectManifest &manifest,
-    const std::optional<std::string> &overrideConfiguration = std::nullopt)
+    const std::optional<std::string> &overrideConfiguration = std::nullopt,
+    const bool allowDefaultFallback = false)
     -> CoreResult<ConfigurationDefinition> {
-  const std::string selectedConfiguration =
-      overrideConfiguration.has_value() && !overrideConfiguration->empty()
-          ? *overrideConfiguration
-          : manifest.defaultConfiguration;
-  if (selectedConfiguration.empty()) {
+  auto findByName = [&](const std::string &name)
+      -> std::optional<ConfigurationDefinition> {
+    const auto it =
+        std::find_if(manifest.configurations.begin(), manifest.configurations.end(),
+                     [&](const ConfigurationDefinition &candidate) {
+                       return candidate.name == name;
+                     });
+    if (it == manifest.configurations.end()) {
+      return std::nullopt;
+    }
+    return *it;
+  };
+
+  if (overrideConfiguration.has_value() && !overrideConfiguration->empty()) {
+    if (const auto selected = findByName(*overrideConfiguration);
+        selected.has_value()) {
+      return *selected;
+    }
+    if (!allowDefaultFallback) {
+      return NGIN::Utilities::Unexpected<KernelError>(
+          MakeBuilderError("selected configuration was not found",
+                           *overrideConfiguration,
+                           KernelErrorCode::NotFound));
+    }
+  }
+
+  if (manifest.defaultConfiguration.empty()) {
     return NGIN::Utilities::Unexpected<KernelError>(
         MakeBuilderError("project has no selected configuration", manifest.name,
                          KernelErrorCode::InvalidArgument));
   }
 
-  const auto it = std::find_if(manifest.configurations.begin(),
-                               manifest.configurations.end(),
-                               [&](const ConfigurationDefinition &candidate) {
-                                 return candidate.name == selectedConfiguration;
-                               });
-  if (it == manifest.configurations.end()) {
+  if (const auto selected = findByName(manifest.defaultConfiguration);
+      selected.has_value()) {
+    return *selected;
+  }
+
+  if (overrideConfiguration.has_value() && !overrideConfiguration->empty()) {
     return NGIN::Utilities::Unexpected<KernelError>(
         MakeBuilderError("selected configuration was not found",
-                         selectedConfiguration, KernelErrorCode::NotFound));
+                         *overrideConfiguration, KernelErrorCode::NotFound));
   }
-  return *it;
+  return NGIN::Utilities::Unexpected<KernelError>(
+      MakeBuilderError("selected configuration was not found",
+                       manifest.defaultConfiguration,
+                       KernelErrorCode::NotFound));
 }
 
 [[nodiscard]] auto LoadProjectManifestFile(IoFileSystem &fileSystem,
@@ -1206,6 +1426,7 @@ struct ResolvedProjectUnit {
 auto CollectProjectClosure(
     IoFileSystem &fileSystem, const IoPath &filePath,
     const std::optional<std::string> &selectedConfiguration,
+    const bool allowDefaultFallbackForSelection,
     std::vector<ResolvedProjectUnit> &out, std::set<std::string> &visiting,
     std::set<std::string> &visited) -> CoreResult<void> {
   auto canonicalPath = WeaklyCanonicalPath(fileSystem, filePath);
@@ -1232,9 +1453,16 @@ auto CollectProjectClosure(
   auto manifest = std::move(loaded.Value().first);
   auto directory = std::move(loaded.Value().second);
 
-  auto configuration = FindConfiguration(manifest, selectedConfiguration);
+  auto configuration = FindConfiguration(manifest, selectedConfiguration,
+                                         allowDefaultFallbackForSelection);
   if (!configuration) {
     return NGIN::Utilities::Unexpected<KernelError>(configuration.Error());
+  }
+
+  auto environment =
+      FindEnvironment(manifest, configuration.Value().environmentName);
+  if (!environment) {
+    return NGIN::Utilities::Unexpected<KernelError>(environment.Error());
   }
 
   auto collectReference =
@@ -1245,22 +1473,16 @@ auto CollectProjectClosure(
     }
     referencedPath = referencedPath.LexicallyNormal();
 
-    std::optional<std::string> referencedConfiguration =
-        reference.configuration;
-    if (!referencedConfiguration.has_value()) {
-      const auto it = std::find_if(
-          manifest.configurations.begin(), manifest.configurations.end(),
-          [&](const ConfigurationDefinition &candidate) {
-            return candidate.name == configuration.Value().name;
-          });
-      if (it != manifest.configurations.end()) {
-        referencedConfiguration = configuration.Value().name;
-      }
-    }
+    const std::optional<std::string> referencedConfiguration =
+        reference.configuration.has_value()
+            ? reference.configuration
+            : std::optional<std::string>{configuration.Value().name};
 
     auto result =
         CollectProjectClosure(fileSystem, referencedPath,
-                              referencedConfiguration, out, visiting, visited);
+                              referencedConfiguration,
+                              !reference.configuration.has_value(), out,
+                              visiting, visited);
     if (!result) {
       return NGIN::Utilities::Unexpected<KernelError>(result.Error());
     }
@@ -1273,6 +1495,14 @@ auto CollectProjectClosure(
       return result;
     }
   }
+  if (environment.Value().has_value()) {
+    for (const auto &reference : environment.Value()->projectRefs) {
+      auto result = collectReference(reference);
+      if (!result) {
+        return result;
+      }
+    }
+  }
   for (const auto &reference : configuration.Value().projectRefs) {
     auto result = collectReference(reference);
     if (!result) {
@@ -1283,6 +1513,7 @@ auto CollectProjectClosure(
   out.push_back(ResolvedProjectUnit{
       .manifest = std::move(manifest),
       .configuration = configuration.Value(),
+      .environment = environment.Value(),
       .directory = std::move(directory),
   });
 
@@ -1337,19 +1568,11 @@ auto CollectProjectClosure(
   }
   manifest.compatiblePlatformRange = platformRange.Value();
 
-  const auto *platformsElement = FindChild(*root, "Platforms");
-  if (platformsElement == nullptr) {
-    return NGIN::Utilities::Unexpected<KernelError>(
-        MakeBuilderError("package must contain a <Platforms> element"));
-  }
-  for (const auto *platformElement :
-       ChildElements(*platformsElement, "Platform")) {
-    auto platform =
-        RequireAttribute(*platformElement, "Name", "package.Platforms");
-    if (!platform) {
-      return NGIN::Utilities::Unexpected<KernelError>(platform.Error());
-    }
-    manifest.platforms.push_back(platform.Value());
+  auto compatibility = ReadCompatibility(*root, "package",
+                                         manifest.operatingSystems,
+                                         manifest.architectures);
+  if (!compatibility) {
+    return NGIN::Utilities::Unexpected<KernelError>(compatibility.Error());
   }
 
   if (const auto *dependenciesElement = FindChild(*root, "Dependencies")) {
@@ -1631,9 +1854,9 @@ private:
 class ApplicationHostImpl final : public IApplicationHost {
 public:
   ApplicationHostImpl(NGIN::Memory::Shared<IKernel> kernel,
-                      const HostProfile profile, StartupReport metadataReport)
-      : m_kernel(std::move(kernel)), m_profile(profile),
-        m_metadataReport(std::move(metadataReport)) {}
+                      StartupReport metadataReport)
+      : m_kernel(std::move(kernel)), m_metadataReport(std::move(metadataReport)) {
+  }
 
   auto Start() noexcept -> CoreResult<void> override {
     return m_kernel->Start();
@@ -1649,10 +1872,6 @@ public:
 
   auto Shutdown() noexcept -> CoreResult<void> override {
     return m_kernel->Shutdown();
-  }
-
-  [[nodiscard]] auto GetProfile() const noexcept -> HostProfile override {
-    return m_profile;
   }
 
   [[nodiscard]] auto GetConfigurationName() const -> std::string override {
@@ -1697,7 +1916,6 @@ public:
 
 private:
   NGIN::Memory::Shared<IKernel> m_kernel{};
-  HostProfile m_profile{HostProfile::ConsoleApp};
   StartupReport m_metadataReport{};
 };
 
@@ -1800,12 +2018,12 @@ class PackageBootstrapContextImpl final : public PackageBootstrapContext {
 public:
   PackageBootstrapContextImpl(
       std::string_view packageName, std::string_view configurationName,
-      const HostProfile profile, ServiceCollection &services,
-      PackageCollection &packages, ModuleCollection &modules,
-      PluginCollection &plugins, ConfigurationBuilder &configuration)
+      ServiceCollection &services, PackageCollection &packages,
+      ModuleCollection &modules, PluginCollection &plugins,
+      ConfigurationBuilder &configuration)
       : m_packageName(packageName), m_configurationName(configurationName),
-        m_profile(profile), m_services(services), m_packages(packages),
-        m_modules(modules), m_plugins(plugins), m_configuration(configuration) {
+        m_services(services), m_packages(packages), m_modules(modules),
+        m_plugins(plugins), m_configuration(configuration) {
   }
 
   [[nodiscard]] auto PackageName() const noexcept -> std::string_view override {
@@ -1814,9 +2032,6 @@ public:
   [[nodiscard]] auto ConfigurationName() const noexcept
       -> std::string_view override {
     return m_configurationName;
-  }
-  [[nodiscard]] auto Profile() const noexcept -> HostProfile override {
-    return m_profile;
   }
 
   [[nodiscard]] auto Services() noexcept -> ServiceCollection & override {
@@ -1839,7 +2054,6 @@ public:
 private:
   std::string_view m_packageName;
   std::string_view m_configurationName;
-  HostProfile m_profile{HostProfile::ConsoleApp};
   ServiceCollection &m_services;
   PackageCollection &m_packages;
   ModuleCollection &m_modules;
@@ -1926,14 +2140,6 @@ public:
     return *this;
   }
 
-  auto UseProfile(const HostProfile profile) -> ApplicationBuilder & override {
-    MarkMutating();
-    if (!HasStickyError()) {
-      m_profileOverride = profile;
-    }
-    return *this;
-  }
-
   auto SetConfiguration(std::string configurationName)
       -> ApplicationBuilder & override {
     MarkMutating();
@@ -1978,7 +2184,7 @@ public:
         std::set<std::string> visiting{};
         std::set<std::string> visited{};
         auto closure = CollectProjectClosure(FileSystem(), m_projectPath,
-                                             m_configurationOverride,
+                                             m_configurationOverride, false,
                                              projectUnits, visiting, visited);
         if (!closure) {
           return NGIN::Utilities::Unexpected<KernelError>(closure.Error());
@@ -1990,10 +2196,17 @@ public:
           return NGIN::Utilities::Unexpected<KernelError>(
               selectedConfiguration.Error());
         }
+        auto selectedEnvironment =
+            FindEnvironment(*m_project, selectedConfiguration.Value().environmentName);
+        if (!selectedEnvironment) {
+          return NGIN::Utilities::Unexpected<KernelError>(
+              selectedEnvironment.Error());
+        }
 
         projectUnits.push_back(ResolvedProjectUnit{
             .manifest = *m_project,
             .configuration = selectedConfiguration.Value(),
+            .environment = selectedEnvironment.Value(),
             .directory = m_projectDirectory,
         });
       }
@@ -2006,10 +2219,21 @@ public:
     const ConfigurationDefinition *selectedConfiguration =
         rootProjectUnit != nullptr ? &rootProjectUnit->configuration : nullptr;
 
-    const HostProfile profile = m_profileOverride.value_or(
-        selectedConfiguration != nullptr ? selectedConfiguration->profile
-                                         : HostProfile::ConsoleApp);
-    const HostType hostType = ToHostType(profile);
+    if (selectedConfiguration != nullptr) {
+      for (const auto &unit : projectUnits) {
+        if (unit.configuration.operatingSystem !=
+                selectedConfiguration->operatingSystem ||
+            unit.configuration.architecture !=
+                selectedConfiguration->architecture) {
+          return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+              "referenced project target does not match the selected root "
+              "configuration",
+              unit.manifest.name, KernelErrorCode::SchemaValidationFailure));
+        }
+      }
+    }
+
+    const HostType hostType = HostType::ConsoleApp;
 
     std::string configurationName = !m_configurationOverride.empty()
                                         ? m_configurationOverride
@@ -2033,6 +2257,9 @@ public:
     std::vector<PackageReference> bootstrapPackages{};
     for (const auto &unit : projectUnits) {
       MergePackageReferences(bootstrapPackages, unit.manifest.packageRefs);
+      if (unit.environment.has_value()) {
+        MergePackageReferences(bootstrapPackages, unit.environment->packageRefs);
+      }
       MergePackageReferences(bootstrapPackages, unit.configuration.packageRefs);
     }
     MergePackageReferences(bootstrapPackages, m_packageReferences);
@@ -2247,8 +2474,8 @@ public:
       }
 
       PackageBootstrapContextImpl context(
-          candidate.reference.name, configurationName, profile, m_services,
-          m_packages, m_modules, m_plugins, m_configuration);
+          candidate.reference.name, configurationName, m_services, m_packages,
+          m_modules, m_plugins, m_configuration);
 
       auto bootstrapResult = entry->fn(context);
       if (bootstrapResult) {
@@ -2267,6 +2494,9 @@ public:
     std::vector<PackageReference> packages{};
     for (const auto &unit : projectUnits) {
       MergePackageReferences(packages, unit.manifest.packageRefs);
+      if (unit.environment.has_value()) {
+        MergePackageReferences(packages, unit.environment->packageRefs);
+      }
       MergePackageReferences(packages, unit.configuration.packageRefs);
     }
     MergePackageReferences(packages, m_packageReferences);
@@ -2274,7 +2504,10 @@ public:
     std::vector<std::string> enabledModules{};
     for (const auto &unit : projectUnits) {
       AppendUniqueStrings(enabledModules, unit.manifest.runtime.enableModules);
-      AppendUniqueStrings(enabledModules, unit.configuration.enableModules);
+      if (unit.environment.has_value()) {
+        AppendUniqueStrings(enabledModules, unit.environment->runtime.enableModules);
+      }
+      AppendUniqueStrings(enabledModules, unit.configuration.runtime.enableModules);
     }
     AppendUniqueStrings(enabledModules, m_enabledModules);
 
@@ -2282,7 +2515,12 @@ public:
     for (const auto &unit : projectUnits) {
       AppendUniqueStrings(disabledModules,
                           unit.manifest.runtime.disableModules);
-      AppendUniqueStrings(disabledModules, unit.configuration.disableModules);
+      if (unit.environment.has_value()) {
+        AppendUniqueStrings(disabledModules,
+                            unit.environment->runtime.disableModules);
+      }
+      AppendUniqueStrings(disabledModules,
+                          unit.configuration.runtime.disableModules);
     }
     AppendUniqueStrings(disabledModules, m_disabledModules);
     const std::set<std::string> disabledModuleSet(disabledModules.begin(),
@@ -2316,6 +2554,12 @@ public:
         const auto resolved = ResolveWorkingDirectory(source, unit.directory);
         AppendUnique(configSources, resolved);
       }
+      if (unit.environment.has_value()) {
+        for (const auto &source : unit.environment->configSources) {
+          const auto resolved = ResolveWorkingDirectory(source, unit.directory);
+          AppendUnique(configSources, resolved);
+        }
+      }
       for (const auto &source : unit.configuration.configSources) {
         const auto resolved = ResolveWorkingDirectory(source, unit.directory);
         AppendUnique(configSources, resolved);
@@ -2332,8 +2576,9 @@ public:
     }
 
     std::string workingDirectory = m_workingDirectory;
-    if (workingDirectory.empty() && selectedConfiguration != nullptr) {
-      workingDirectory = selectedConfiguration->workingDirectory;
+    if (workingDirectory.empty() && selectedConfiguration != nullptr &&
+        selectedConfiguration->launch.has_value()) {
+      workingDirectory = selectedConfiguration->launch->workingDirectory;
     }
     if (workingDirectory.empty() && !m_projectDirectory.IsEmpty()) {
       workingDirectory = ToString(m_projectDirectory);
@@ -2360,9 +2605,14 @@ public:
     KernelHostConfig hostConfig{};
     hostConfig.hostName = applicationName;
     hostConfig.hostType = hostType;
-    hostConfig.platformName = selectedConfiguration != nullptr
-                                  ? selectedConfiguration->platform
-                                  : "linux-x64";
+    hostConfig.operatingSystemName =
+        selectedConfiguration != nullptr ? selectedConfiguration->operatingSystem
+                                         : "linux";
+    hostConfig.architectureName =
+        selectedConfiguration != nullptr ? selectedConfiguration->architecture
+                                         : "x64";
+    hostConfig.platformName =
+        hostConfig.operatingSystemName + "-" + hostConfig.architectureName;
     hostConfig.platformVersion = SemanticVersion{0, 1, 0, {}};
     hostConfig.targetName = configurationName;
     hostConfig.workingDirectory = workingDirectory;
@@ -2471,7 +2721,7 @@ public:
 
     m_built = true;
     std::shared_ptr<IApplicationHost> host =
-        std::make_shared<ApplicationHostImpl>(kernel.Value(), profile,
+        std::make_shared<ApplicationHostImpl>(kernel.Value(),
                                               std::move(metadataReport));
     return host;
   }
@@ -2506,7 +2756,6 @@ public:
   IoPath m_projectDirectory{};
   NGIN::Memory::Shared<IoFileSystem> m_fileSystem{};
   std::optional<KernelError> m_stickyError{};
-  std::optional<HostProfile> m_profileOverride{};
   std::string m_applicationName{};
   std::string m_configurationOverride{};
   std::string m_environmentName{};

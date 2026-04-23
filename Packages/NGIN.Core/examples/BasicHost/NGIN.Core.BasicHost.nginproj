@@ -20,12 +20,16 @@
       <ModuleRef Name="App.BasicHost" />
     </EnableModules>
   </Runtime>
+  <Environments>
+    <Environment Name="development" />
+  </Environments>
   <Configurations>
     <Configuration Name="Samples.BasicHost"
              BuildConfiguration="Debug"
-             HostProfile="ConsoleApp"
-             Platform="linux-x64"
-             Environment="Dev"
-             WorkingDirectory="." />
+             OperatingSystem="linux"
+             Architecture="x64"
+             Environment="development">
+      <Launch Executable="NGIN.Core.BasicHost" WorkingDirectory="." />
+    </Configuration>
   </Configurations>
 </Project>

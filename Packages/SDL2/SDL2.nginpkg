@@ -9,11 +9,13 @@
     </Libraries>
   </Artifacts>
   <Build Backend="CMake" Mode="FindPackage" />
-  <Platforms>
-    <Platform Name="linux" />
-    <Platform Name="windows" />
-    <Platform Name="macos" />
-  </Platforms>
+  <Compatibility>
+    <OperatingSystems>
+      <OperatingSystem Name="linux" />
+      <OperatingSystem Name="windows" />
+      <OperatingSystem Name="macos" />
+    </OperatingSystems>
+  </Compatibility>
   <Dependencies />
   <Modules />
   <Plugins />

@@ -9,18 +9,20 @@
   <Output Kind="StaticLibrary"
           Name="Game.Engine"
           Target="GameEngine" />
+  <Environments>
+    <Environment Name="development" />
+    <Environment Name="production" />
+  </Environments>
   <Configurations>
     <Configuration Name="Debug"
                    BuildConfiguration="Debug"
-                   HostProfile="Game"
-                   Platform="linux-x64"
-                   Environment="Dev"
-                   WorkingDirectory="." />
+                   OperatingSystem="linux"
+                   Architecture="x64"
+                   Environment="development" />
     <Configuration Name="Release"
                    BuildConfiguration="Release"
-                   HostProfile="Game"
-                   Platform="linux-x64"
-                   Environment="Shipping"
-                   WorkingDirectory="." />
+                   OperatingSystem="linux"
+                   Architecture="x64"
+                   Environment="production" />
   </Configurations>
 </Project>

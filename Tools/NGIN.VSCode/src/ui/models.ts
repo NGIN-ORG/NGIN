@@ -80,14 +80,19 @@ function relativeLabel(rootPath: string, targetPath?: string): string | undefine
 }
 
 function configurationDescription(snapshot: NginWorkspaceSnapshot): string | undefined {
-  const hostProfile = snapshot.context?.configuration.hostProfile;
+  const operatingSystem = snapshot.context?.configuration.operatingSystem;
+  const architecture = snapshot.context?.configuration.architecture;
   const environment = snapshot.context?.configuration.environment;
 
-  if (hostProfile && environment) {
-    return `${hostProfile} • ${environment}`;
+  if (operatingSystem && architecture && environment) {
+    return `${operatingSystem}/${architecture} • ${environment}`;
   }
 
-  return hostProfile ?? environment ?? undefined;
+  if (operatingSystem && architecture) {
+    return `${operatingSystem}/${architecture}`;
+  }
+
+  return environment ?? undefined;
 }
 
 function artifactStatusIcon(status: 'ready' | 'fallback' | 'missing'): string {
@@ -248,7 +253,7 @@ export function buildProjectTreeModels(snapshot: NginWorkspaceSnapshot): Project
       label: configuration.name,
       description: snapshot.context?.project.path === project.path && snapshot.context.configuration.name === configuration.name
         ? 'Current'
-        : configuration.hostProfile ?? configuration.environment ?? '',
+        : configuration.environment || [configuration.operatingSystem, configuration.architecture].filter(Boolean).join('/'),
       tooltip: `${project.name} [${configuration.name}]`,
       projectPath: project.path,
       configurationName: configuration.name,
@@ -285,7 +290,7 @@ export function buildStatusBarModel(snapshot: NginWorkspaceSnapshot): StatusBarM
     },
     configuration: {
       text: `$(symbol-enum) ${snapshot.context.configuration.name}`,
-      tooltip: `${selectionLabel}\nHost Profile: ${snapshot.context.configuration.hostProfile ?? 'n/a'}`,
+      tooltip: `${selectionLabel}\nTarget: ${[snapshot.context.configuration.operatingSystem, snapshot.context.configuration.architecture].filter(Boolean).join('/') || 'n/a'}`,
       command: 'ngin.internal.pickConfiguration'
     },
     build: {

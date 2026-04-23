@@ -17,7 +17,8 @@ This spec defines the `.nginlaunch` file emitted by `ngin build`.
   - `Configuration`
   - `Type`
   - `BuildConfiguration`
-  - `Platform`
+  - `OperatingSystem`
+  - `Architecture`
 
 ## Example
 
@@ -28,10 +29,13 @@ This spec defines the `.nginlaunch` file emitted by `ngin build`.
                 Configuration="Runtime"
                 Type="Application"
                 BuildConfiguration="Debug"
-                HostProfile="ConsoleApp"
-                Platform="Linux">
-  <Runtime WorkingDirectory="." Environment="Dev" />
-  <SelectedExecutable Name="App.Basic" Target="App.Basic" />
+                OperatingSystem="linux"
+                Architecture="x64">
+  <Launch Executable="App.Basic" Target="App.Basic" WorkingDirectory="." />
+  <Environment Name="development">
+    <Variables />
+    <Features />
+  </Environment>
   <StagedFiles>
     <File Kind="executable"
           Destination="/repo/.ngin/build/App.Basic/Runtime/bin/App.Basic"
@@ -47,8 +51,8 @@ The launch manifest must capture:
 - selected project identity
 - selected configuration identity
 - resolved build configuration
-- resolved platform
-- resolved working directory and environment
-- selected executable
+- resolved operating system and architecture
+- resolved launch working directory and selected executable
+- resolved environment variables and features
 - resolved packages, modules, plugins, and config sources
 - staged files

@@ -24,15 +24,6 @@ class IFileSystem;
 }
 
 namespace NGIN::Core {
-enum class HostProfile : NGIN::UInt8 {
-  ConsoleApp,
-  GuiApp,
-  Game,
-  Editor,
-  Service,
-  TestHost
-};
-
 struct PackageReference {
   std::string name{};
   std::string versionRange{};
@@ -65,9 +56,25 @@ struct PackageContentFile {
   std::string kind{};
 };
 
+struct LaunchDefinition {
+  std::string executable{};
+  std::string workingDirectory{"."};
+};
+
+struct EnvironmentVariable {
+  std::string name{};
+  std::string value{};
+};
+
+struct FeatureFlag {
+  std::string name{};
+  bool enabled{false};
+};
+
 struct PackagePluginManifest {
   std::string name{};
-  std::vector<std::string> platforms{};
+  std::vector<std::string> operatingSystems{};
+  std::vector<std::string> architectures{};
   std::vector<std::string> requiredModules{};
   std::vector<std::string> optionalModules{};
   bool optional{false};
@@ -78,7 +85,8 @@ struct PackageManifest {
   std::string name{};
   std::string version{};
   std::string compatiblePlatformRange{};
-  std::vector<std::string> platforms{};
+  std::vector<std::string> operatingSystems{};
+  std::vector<std::string> architectures{};
   std::vector<PackageReference> dependencies{};
   std::optional<PackageBootstrapDescriptor> bootstrap{};
   std::vector<PackageContentFile> contents{};
@@ -130,20 +138,29 @@ struct RuntimeDefinition {
   std::vector<std::string> disableModules{};
 };
 
+struct EnvironmentDefinition {
+  std::string name{};
+  std::vector<ProjectReference> projectRefs{};
+  std::vector<PackageReference> packageRefs{};
+  std::vector<std::string> configSources{};
+  std::vector<PackageContentFile> contents{};
+  std::vector<EnvironmentVariable> variables{};
+  std::vector<FeatureFlag> features{};
+  RuntimeDefinition runtime{};
+};
+
 struct ConfigurationDefinition {
   std::string name{};
   std::string buildConfiguration{"Debug"};
-  HostProfile profile{HostProfile::ConsoleApp};
-  std::string platform{"linux-x64"};
+  std::string operatingSystem{"linux"};
+  std::string architecture{"x64"};
   bool enableReflection{false};
   std::string environmentName{};
   std::vector<ProjectReference> projectRefs{};
   std::vector<PackageReference> packageRefs{};
   std::vector<std::string> configSources{};
-  std::string workingDirectory{"."};
-  std::optional<std::string> launchExecutable{};
-  std::vector<std::string> enableModules{};
-  std::vector<std::string> disableModules{};
+  std::optional<LaunchDefinition> launch{};
+  RuntimeDefinition runtime{};
 };
 
 struct ProjectManifest {
@@ -151,13 +168,13 @@ struct ProjectManifest {
   std::string name{};
   std::string type{};
   std::string defaultConfiguration{};
-  HostProfile profile{HostProfile::ConsoleApp};
   std::vector<std::string> sourceRoots{};
   OutputDefinition output{};
   ProjectBuildDescriptor build{};
   std::vector<ProjectReference> projectRefs{};
   std::vector<PackageReference> packageRefs{};
   std::vector<std::string> configSources{};
+  std::vector<EnvironmentDefinition> environments{};
   RuntimeDefinition runtime{};
   std::vector<ConfigurationDefinition> configurations{};
 };
@@ -246,7 +263,6 @@ public:
       -> std::string_view = 0;
   [[nodiscard]] virtual auto ConfigurationName() const noexcept
       -> std::string_view = 0;
-  [[nodiscard]] virtual auto Profile() const noexcept -> HostProfile = 0;
 
   [[nodiscard]] virtual auto Services() noexcept -> ServiceCollection & = 0;
   [[nodiscard]] virtual auto Packages() noexcept -> PackageCollection & = 0;
@@ -279,7 +295,6 @@ public:
   virtual void RequestStop(std::string reason) noexcept = 0;
   virtual auto Shutdown() noexcept -> CoreResult<void> = 0;
 
-  [[nodiscard]] virtual auto GetProfile() const noexcept -> HostProfile = 0;
   [[nodiscard]] virtual auto GetConfigurationName() const -> std::string = 0;
   [[nodiscard]] virtual auto GetStartupReport() const -> StartupReport = 0;
 
@@ -297,7 +312,6 @@ public:
   virtual auto UseProject(ProjectManifest manifest) -> ApplicationBuilder & = 0;
   virtual auto SetApplicationName(std::string applicationName)
       -> ApplicationBuilder & = 0;
-  virtual auto UseProfile(HostProfile profile) -> ApplicationBuilder & = 0;
   virtual auto SetConfiguration(std::string configurationName)
       -> ApplicationBuilder & = 0;
   virtual auto

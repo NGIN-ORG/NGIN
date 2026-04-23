@@ -21,15 +21,15 @@ Public application APIs use configuration terminology:
 The host must derive runtime launch behavior from:
 
 - selected configuration
-- root host defaults
 - generated launch manifest
 
 The host must honor:
 
-- `HostProfile`
 - `Environment`
 - `WorkingDirectory`
 - `EnableReflection`
 - selected executable
+
+The authored model does not classify the application by host category. Runtime behavior is described through launch metadata, selected environment, and resolved runtime composition.
 
 Advanced project runtime metadata remains supported, but it is optional.

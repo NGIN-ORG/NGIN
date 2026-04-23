@@ -40,22 +40,143 @@ namespace NGIN::CLI
             return value == "Manual" || value == "FindPackage" || value == "AddSubdirectory";
         }
 
-        [[nodiscard]] auto ParseSupportedHosts(const XmlElement &node, const fs::path &path) -> std::vector<std::string>
+        [[nodiscard]] auto ParseCompatibility(const XmlElement &node, const fs::path &path) -> CompatibilityDefinition
         {
-            std::vector<std::string> supportedHosts{};
-            if (const auto *section = FindChild(node, "SupportedHosts"))
+            CompatibilityDefinition compatibility{};
+            if (FindChild(node, "Platforms") != nullptr)
             {
-                for (const auto *host : ChildElements(*section, "Host"))
+                throw std::runtime_error(path.string() + ": legacy <Platforms> is no longer supported; use <Compatibility>");
+            }
+            if (FindChild(node, "SupportedHosts") != nullptr)
+            {
+                throw std::runtime_error(path.string() + ": legacy <SupportedHosts> is no longer supported");
+            }
+            if (const auto *section = FindChild(node, "Compatibility"))
+            {
+                if (const auto *operatingSystems = FindChild(*section, "OperatingSystems"))
                 {
-                    auto hostName = RequireAttribute(*host, "Name", path);
-                    if (!IsValidHostProfile(hostName))
+                    for (const auto *entry : ChildElements(*operatingSystems, "OperatingSystem"))
                     {
-                        throw std::runtime_error(path.string() + ": unknown supported host '" + hostName + "'");
+                        const auto value = RequireAttribute(*entry, "Name", path);
+                        if (!IsValidOperatingSystem(value))
+                        {
+                            throw std::runtime_error(path.string() + ": unknown operating system '" + value + "'");
+                        }
+                        compatibility.operatingSystems.push_back(value);
                     }
-                    supportedHosts.push_back(std::move(hostName));
+                }
+                if (const auto *architectures = FindChild(*section, "Architectures"))
+                {
+                    for (const auto *entry : ChildElements(*architectures, "Architecture"))
+                    {
+                        const auto value = RequireAttribute(*entry, "Name", path);
+                        if (!IsValidArchitecture(value))
+                        {
+                            throw std::runtime_error(path.string() + ": unknown architecture '" + value + "'");
+                        }
+                        compatibility.architectures.push_back(value);
+                    }
                 }
             }
-            return supportedHosts;
+            return compatibility;
+        }
+
+        auto ParseConfigSources(const XmlElement &parent, const fs::path &path, std::vector<std::string> &out) -> void
+        {
+            if (const auto *config = FindChild(parent, "ConfigSources"))
+            {
+                for (const auto *item : ChildElements(*config, "Config"))
+                {
+                    out.push_back(RequireAttribute(*item, "Source", path));
+                }
+            }
+        }
+
+        auto ParseContents(const XmlElement &parent, const fs::path &path, std::vector<ContentFile> &out) -> void
+        {
+            if (const auto *contents = FindChild(parent, "Contents"))
+            {
+                for (const auto *node : ChildElements(*contents, "File"))
+                {
+                    ContentFile content{};
+                    content.source = RequireAttribute(*node, "Source", path);
+                    content.kind = Attribute(*node, "Kind").value_or("other");
+                    content.target = Attribute(*node, "Target").value_or("");
+                    out.push_back(std::move(content));
+                }
+            }
+        }
+
+        auto ParseVariables(const XmlElement &parent, const fs::path &path, std::vector<EnvironmentVariable> &out) -> void
+        {
+            if (const auto *variables = FindChild(parent, "Variables"))
+            {
+                for (const auto *node : ChildElements(*variables, "Variable"))
+                {
+                    EnvironmentVariable variable{};
+                    variable.name = RequireAttribute(*node, "Name", path);
+                    variable.value = RequireAttribute(*node, "Value", path);
+                    out.push_back(std::move(variable));
+                }
+            }
+        }
+
+        auto ParseFeatures(const XmlElement &parent, const fs::path &path, std::vector<FeatureFlag> &out) -> void
+        {
+            if (const auto *features = FindChild(parent, "Features"))
+            {
+                for (const auto *node : ChildElements(*features, "Feature"))
+                {
+                    FeatureFlag feature{};
+                    feature.name = RequireAttribute(*node, "Name", path);
+                    feature.enabled = !Attribute(*node, "Enabled").has_value() || BoolAttribute(*node, "Enabled", true);
+                    out.push_back(std::move(feature));
+                }
+            }
+        }
+
+        [[nodiscard]] auto ParseModuleDefinition(const XmlElement &node, const fs::path &path) -> ModuleDescriptor;
+
+        auto ParseRuntimeDefinition(const XmlElement &runtime, const fs::path &path, RuntimeDefinition &target, const bool allowModules) -> void
+        {
+            if (allowModules)
+            {
+                if (const auto *modules = FindChild(runtime, "Modules"))
+                {
+                    for (const auto *node : ChildElements(*modules, "Module"))
+                    {
+                        target.modules.push_back(ParseModuleDefinition(*node, path));
+                    }
+                }
+            }
+            if (const auto *enableModules = FindChild(runtime, "EnableModules"))
+            {
+                for (const auto *node : ChildElements(*enableModules, "ModuleRef"))
+                {
+                    target.enableModules.push_back(RequireAttribute(*node, "Name", path));
+                }
+            }
+            if (const auto *disableModules = FindChild(runtime, "DisableModules"))
+            {
+                for (const auto *node : ChildElements(*disableModules, "ModuleRef"))
+                {
+                    target.disableModules.push_back(RequireAttribute(*node, "Name", path));
+                }
+            }
+            if (const auto *enablePlugins = FindChild(runtime, "EnablePlugins"))
+            {
+                for (const auto *node : ChildElements(*enablePlugins, "PluginRef"))
+                {
+                    target.enablePlugins.push_back(RequireAttribute(*node, "Name", path));
+                }
+            }
+            if (const auto *disablePlugins = FindChild(runtime, "DisablePlugins"))
+            {
+                for (const auto *node : ChildElements(*disablePlugins, "PluginRef"))
+                {
+                    target.disablePlugins.push_back(RequireAttribute(*node, "Name", path));
+                }
+            }
         }
 
         [[nodiscard]] auto ResolveStartupStage(const XmlElement &node, std::string_view defaultStage) -> std::string
@@ -120,15 +241,7 @@ namespace NGIN::CLI
             module.compatiblePlatformRange = Attribute(node, "CompatiblePlatformRange").value_or("");
             module.requiresReflection = BoolAttribute(node, "ReflectionRequired");
             ValidateModuleDescriptor(module, path);
-            module.supportedHosts = ParseSupportedHosts(node, path);
-
-            if (const auto *platforms = FindChild(node, "Platforms"))
-            {
-                for (const auto *platform : ChildElements(*platforms, "Platform"))
-                {
-                    module.platforms.push_back(RequireAttribute(*platform, "Name", path));
-                }
-            }
+            module.compatibility = ParseCompatibility(node, path);
 
             if (const auto *dependencies = FindChild(node, "Dependencies"))
             {
@@ -279,11 +392,6 @@ namespace NGIN::CLI
         }
     }
 
-    [[nodiscard]] auto IsValidHostProfile(std::string_view value) -> bool
-    {
-        return value == "ConsoleApp" || value == "GuiApp" || value == "Game" || value == "Editor" || value == "Service" || value == "TestHost";
-    }
-
     [[nodiscard]] auto IsSupportedBuildConfiguration(std::string_view value) -> bool
     {
         return value == "Debug" || value == "Release" || value == "RelWithDebInfo" || value == "MinSizeRel";
@@ -292,6 +400,39 @@ namespace NGIN::CLI
     [[nodiscard]] auto IsSupportedProjectBuildMode(std::string_view value) -> bool
     {
         return value == "Generated" || value == "Manual";
+    }
+
+    [[nodiscard]] auto IsValidOperatingSystem(std::string_view value) -> bool
+    {
+        return value == "linux" || value == "windows" || value == "macos";
+    }
+
+    [[nodiscard]] auto IsValidArchitecture(std::string_view value) -> bool
+    {
+        return value == "x64" || value == "arm64";
+    }
+
+    [[nodiscard]] auto IsSupportedProjectType(std::string_view value) -> bool
+    {
+        return value == "Application" || value == "Tool" || value == "Library";
+    }
+
+    [[nodiscard]] auto IsSupportedOutputKind(std::string_view value) -> bool
+    {
+        return value == "Executable" || value == "StaticLibrary" || value == "SharedLibrary";
+    }
+
+    [[nodiscard]] auto IsValidProjectOutputPairing(std::string_view projectType, std::string_view outputKind) -> bool
+    {
+        if (projectType == "Application" || projectType == "Tool")
+        {
+            return outputKind == "Executable";
+        }
+        if (projectType == "Library")
+        {
+            return outputKind == "StaticLibrary" || outputKind == "SharedLibrary";
+        }
+        return false;
     }
 
     [[nodiscard]] auto WorkspaceFilePath(const fs::path &root) -> std::optional<fs::path>
@@ -496,14 +637,7 @@ namespace NGIN::CLI
         }
 
         LoadPackageBuildDescriptor(package.build, FindChild(*rootElement, "Build"), path);
-
-        if (const auto *platforms = FindChild(*rootElement, "Platforms"))
-        {
-            for (const auto *node : ChildElements(*platforms, "Platform"))
-            {
-                package.platforms.push_back(RequireAttribute(*node, "Name", path));
-            }
-        }
+        package.compatibility = ParseCompatibility(*rootElement, path);
 
         if (const auto *deps = FindChild(*rootElement, "Dependencies"))
         {
@@ -530,17 +664,7 @@ namespace NGIN::CLI
             package.bootstrap = std::move(descriptor);
         }
 
-        if (const auto *contents = FindChild(*rootElement, "Contents"))
-        {
-            for (const auto *node : ChildElements(*contents, "File"))
-            {
-                ContentFile content{};
-                content.source = RequireAttribute(*node, "Source", path);
-                content.kind = Attribute(*node, "Kind").value_or("other");
-                content.target = Attribute(*node, "Target").value_or("");
-                package.contents.push_back(std::move(content));
-            }
-        }
+        ParseContents(*rootElement, path, package.contents);
 
         const auto *modules = FindChild(*rootElement, "Modules");
         if (modules == nullptr)
@@ -559,14 +683,7 @@ namespace NGIN::CLI
                 PluginDescriptor plugin{};
                 plugin.name = RequireAttribute(*node, "Name", path);
                 plugin.optional = BoolAttribute(*node, "Optional");
-
-                if (const auto *platforms = FindChild(*node, "Platforms"))
-                {
-                    for (const auto *platform : ChildElements(*platforms, "Platform"))
-                    {
-                        plugin.platforms.push_back(RequireAttribute(*platform, "Name", path));
-                    }
-                }
+                plugin.compatibility = ParseCompatibility(*node, path);
 
                 if (const auto *modulesElement = FindChild(*node, "Modules"))
                 {
@@ -608,14 +725,13 @@ namespace NGIN::CLI
         project.name = RequireAttribute(*rootElement, "Name", path);
         project.type = RequireAttribute(*rootElement, "Type", path);
         project.defaultConfiguration = RequireAttribute(*rootElement, "DefaultConfiguration", path);
-
-        if (const auto *host = FindChild(*rootElement, "Host"))
+        if (!IsSupportedProjectType(project.type))
         {
-            project.hostProfile = Attribute(*host, "Profile").value_or("");
-            if (!project.hostProfile.empty() && !IsValidHostProfile(project.hostProfile))
-            {
-                throw std::runtime_error(path.string() + ": unknown host profile '" + project.hostProfile + "'");
-            }
+            throw std::runtime_error(path.string() + ": unknown project type '" + project.type + "'");
+        }
+        if (FindChild(*rootElement, "Host") != nullptr)
+        {
+            throw std::runtime_error(path.string() + ": legacy <Host> is no longer supported");
         }
 
         if (const auto *sourceRoots = FindChild(*rootElement, "SourceRoots"))
@@ -634,6 +750,14 @@ namespace NGIN::CLI
         project.output.kind = RequireAttribute(*output, "Kind", path);
         project.output.name = RequireAttribute(*output, "Name", path);
         project.output.target = RequireAttribute(*output, "Target", path);
+        if (!IsSupportedOutputKind(project.output.kind))
+        {
+            throw std::runtime_error(path.string() + ": unknown output kind '" + project.output.kind + "'");
+        }
+        if (!IsValidProjectOutputPairing(project.type, project.output.kind))
+        {
+            throw std::runtime_error(path.string() + ": project type '" + project.type + "' is not compatible with output kind '" + project.output.kind + "'");
+        }
 
         LoadProjectBuildDescriptor(project.build, FindChild(*rootElement, "Build"), path);
 
@@ -664,50 +788,32 @@ namespace NGIN::CLI
             parseReferences(*references, project.projectRefs, project.packageRefs);
         }
 
-        if (const auto *config = FindChild(*rootElement, "ConfigSources"))
-        {
-            for (const auto *item : ChildElements(*config, "Config"))
-            {
-                project.configSources.push_back(RequireAttribute(*item, "Source", path));
-            }
-        }
+        ParseConfigSources(*rootElement, path, project.configSources);
 
         if (const auto *runtime = FindChild(*rootElement, "Runtime"))
         {
-            if (const auto *modules = FindChild(*runtime, "Modules"))
+            ParseRuntimeDefinition(*runtime, path, project.runtime, true);
+        }
+
+        if (const auto *environments = FindChild(*rootElement, "Environments"))
+        {
+            for (const auto *node : ChildElements(*environments, "Environment"))
             {
-                for (const auto *node : ChildElements(*modules, "Module"))
+                EnvironmentDefinition environment{};
+                environment.name = RequireAttribute(*node, "Name", path);
+                if (const auto *references = FindChild(*node, "References"))
                 {
-                    project.runtime.modules.push_back(ParseModuleDefinition(*node, path));
+                    parseReferences(*references, environment.projectRefs, environment.packageRefs);
                 }
-            }
-            if (const auto *enableModules = FindChild(*runtime, "EnableModules"))
-            {
-                for (const auto *node : ChildElements(*enableModules, "ModuleRef"))
+                ParseConfigSources(*node, path, environment.configSources);
+                ParseContents(*node, path, environment.contents);
+                ParseVariables(*node, path, environment.variables);
+                ParseFeatures(*node, path, environment.features);
+                if (const auto *runtime = FindChild(*node, "Runtime"))
                 {
-                    project.runtime.enableModules.push_back(RequireAttribute(*node, "Name", path));
+                    ParseRuntimeDefinition(*runtime, path, environment.runtime, true);
                 }
-            }
-            if (const auto *disableModules = FindChild(*runtime, "DisableModules"))
-            {
-                for (const auto *node : ChildElements(*disableModules, "ModuleRef"))
-                {
-                    project.runtime.disableModules.push_back(RequireAttribute(*node, "Name", path));
-                }
-            }
-            if (const auto *enablePlugins = FindChild(*runtime, "EnablePlugins"))
-            {
-                for (const auto *node : ChildElements(*enablePlugins, "PluginRef"))
-                {
-                    project.runtime.enablePlugins.push_back(RequireAttribute(*node, "Name", path));
-                }
-            }
-            if (const auto *disablePlugins = FindChild(*runtime, "DisablePlugins"))
-            {
-                for (const auto *node : ChildElements(*disablePlugins, "PluginRef"))
-                {
-                    project.runtime.disablePlugins.push_back(RequireAttribute(*node, "Name", path));
-                }
+                project.environments.push_back(std::move(environment));
             }
         }
 
@@ -721,67 +827,78 @@ namespace NGIN::CLI
             ConfigurationDefinition configuration{};
             configuration.name = RequireAttribute(*node, "Name", path);
             configuration.buildConfiguration = Attribute(*node, "BuildConfiguration").value_or("Debug");
-            configuration.hostProfile = Attribute(*node, "HostProfile").value_or(project.hostProfile);
-            configuration.platform = Attribute(*node, "Platform").value_or("linux-x64");
             if (!IsSupportedBuildConfiguration(configuration.buildConfiguration))
             {
                 throw std::runtime_error(path.string() + ": unknown build configuration '" + configuration.buildConfiguration + "'");
             }
-            if (!configuration.hostProfile.empty() && !IsValidHostProfile(configuration.hostProfile))
+            if (Attribute(*node, "HostProfile").has_value())
             {
-                throw std::runtime_error(path.string() + ": unknown host profile '" + configuration.hostProfile + "'");
+                throw std::runtime_error(path.string() + ": legacy configuration attribute 'HostProfile' is no longer supported");
+            }
+            if (Attribute(*node, "Platform").has_value())
+            {
+                throw std::runtime_error(path.string() + ": legacy configuration attribute 'Platform' is no longer supported");
+            }
+            if (Attribute(*node, "WorkingDirectory").has_value())
+            {
+                throw std::runtime_error(path.string() + ": legacy configuration attribute 'WorkingDirectory' is no longer supported");
+            }
+            configuration.operatingSystem = Attribute(*node, "OperatingSystem").value_or("linux");
+            configuration.architecture = Attribute(*node, "Architecture").value_or("x64");
+            if (!IsValidOperatingSystem(configuration.operatingSystem))
+            {
+                throw std::runtime_error(path.string() + ": unknown operating system '" + configuration.operatingSystem + "'");
+            }
+            if (!IsValidArchitecture(configuration.architecture))
+            {
+                throw std::runtime_error(path.string() + ": unknown architecture '" + configuration.architecture + "'");
             }
             configuration.enableReflection = BoolAttribute(*node, "EnableReflection");
-            configuration.environmentName = Attribute(*node, "Environment").value_or("");
-            configuration.workingDirectory = Attribute(*node, "WorkingDirectory").value_or(".");
+            configuration.environmentName = RequireAttribute(*node, "Environment", path);
 
             if (const auto *launch = FindChild(*node, "Launch"))
             {
                 if (const auto executable = Attribute(*launch, "Executable"); executable.has_value() && !executable->empty())
                 {
-                    configuration.launchExecutable = *executable;
+                    configuration.launch.executable = *executable;
                 }
+                configuration.launch.workingDirectory = Attribute(*launch, "WorkingDirectory").value_or(".");
             }
-            if (const auto *config = FindChild(*node, "ConfigSources"))
+            if (FindChild(*node, "EnableModules") != nullptr || FindChild(*node, "DisableModules") != nullptr
+                || FindChild(*node, "EnablePlugins") != nullptr || FindChild(*node, "DisablePlugins") != nullptr)
             {
-                for (const auto *item : ChildElements(*config, "Config"))
-                {
-                    configuration.configSources.push_back(RequireAttribute(*item, "Source", path));
-                }
+                throw std::runtime_error(path.string() + ": legacy configuration runtime sections must be nested under <Runtime>");
             }
+            ParseConfigSources(*node, path, configuration.configSources);
             if (const auto *references = FindChild(*node, "References"))
             {
                 parseReferences(*references, configuration.projectRefs, configuration.packageRefs);
             }
-            if (const auto *modules = FindChild(*node, "EnableModules"))
+            if (const auto *runtime = FindChild(*node, "Runtime"))
             {
-                for (const auto *item : ChildElements(*modules, "ModuleRef"))
-                {
-                    configuration.enableModules.push_back(RequireAttribute(*item, "Name", path));
-                }
+                ParseRuntimeDefinition(*runtime, path, configuration.runtime, true);
             }
-            if (const auto *modules = FindChild(*node, "DisableModules"))
+            if (Lower(project.type) == "library" && FindChild(*node, "Launch") != nullptr)
             {
-                for (const auto *item : ChildElements(*modules, "ModuleRef"))
-                {
-                    configuration.disableModules.push_back(RequireAttribute(*item, "Name", path));
-                }
-            }
-            if (const auto *plugins = FindChild(*node, "EnablePlugins"))
-            {
-                for (const auto *item : ChildElements(*plugins, "PluginRef"))
-                {
-                    configuration.enablePlugins.push_back(RequireAttribute(*item, "Name", path));
-                }
-            }
-            if (const auto *plugins = FindChild(*node, "DisablePlugins"))
-            {
-                for (const auto *item : ChildElements(*plugins, "PluginRef"))
-                {
-                    configuration.disablePlugins.push_back(RequireAttribute(*item, "Name", path));
-                }
+                throw std::runtime_error(path.string() + ": library projects may not declare <Launch> in configurations");
             }
             project.configurations.push_back(std::move(configuration));
+        }
+
+        std::set<std::string> knownEnvironments{};
+        for (const auto &environment : project.environments)
+        {
+            if (!knownEnvironments.insert(environment.name).second)
+            {
+                throw std::runtime_error(path.string() + ": duplicate environment '" + environment.name + "'");
+            }
+        }
+        for (const auto &configuration : project.configurations)
+        {
+            if (!knownEnvironments.contains(configuration.environmentName))
+            {
+                throw std::runtime_error(path.string() + ": configuration '" + configuration.name + "' selects unknown environment '" + configuration.environmentName + "'");
+            }
         }
 
         return project;

@@ -15,12 +15,16 @@
   <ConfigSources>
     <Config Source="config/root.cfg" />
   </ConfigSources>
+  <Environments>
+    <Environment Name="development" />
+  </Environments>
   <Configurations>
     <Configuration Name="Runtime"
              BuildConfiguration="Debug"
-             HostProfile="ConsoleApp"
-             Platform="linux-x64"
-             Environment="Dev"
-             WorkingDirectory="." />
+             OperatingSystem="linux"
+             Architecture="x64"
+             Environment="development">
+      <Launch Executable="ProjectRef.Config.Root" WorkingDirectory="." />
+    </Configuration>
   </Configurations>
 </Project>

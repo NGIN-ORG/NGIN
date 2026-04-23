@@ -80,6 +80,24 @@ namespace NGIN::CLI
         std::string value{};
     };
 
+    struct EnvironmentVariable
+    {
+        std::string name{};
+        std::string value{};
+    };
+
+    struct FeatureFlag
+    {
+        std::string name{};
+        bool enabled{false};
+    };
+
+    struct CompatibilityDefinition
+    {
+        std::vector<std::string> operatingSystems{};
+        std::vector<std::string> architectures{};
+    };
+
     struct PackageBuildDescriptor
     {
         std::string backend{"CMake"};
@@ -109,8 +127,7 @@ namespace NGIN::CLI
         std::string version{};
         std::string compatiblePlatformRange{};
         bool requiresReflection{false};
-        std::vector<std::string> platforms{};
-        std::vector<std::string> supportedHosts{};
+        CompatibilityDefinition compatibility{};
         std::vector<std::string> required{};
         std::vector<std::string> optional{};
         std::vector<std::string> providesServices{};
@@ -122,7 +139,7 @@ namespace NGIN::CLI
     {
         std::string name{};
         bool optional{false};
-        std::vector<std::string> platforms{};
+        CompatibilityDefinition compatibility{};
         std::vector<std::string> requiredModules{};
         std::vector<std::string> optionalModules{};
     };
@@ -135,7 +152,7 @@ namespace NGIN::CLI
         std::string compatiblePlatformRange{};
         ArtifactDescriptor artifacts{};
         PackageBuildDescriptor build{};
-        std::vector<std::string> platforms{};
+        CompatibilityDefinition compatibility{};
         std::vector<PackageDependency> dependencies{};
         std::optional<PackageBootstrapDescriptor> bootstrap{};
         std::vector<ContentFile> contents{};
@@ -196,23 +213,37 @@ namespace NGIN::CLI
         std::vector<std::string> disablePlugins{};
     };
 
+    struct LaunchDefinition
+    {
+        std::optional<std::string> executable{};
+        std::string workingDirectory{"."};
+    };
+
+    struct EnvironmentDefinition
+    {
+        std::string name{};
+        std::vector<ProjectReference> projectRefs{};
+        std::vector<PackageReference> packageRefs{};
+        std::vector<std::string> configSources{};
+        std::vector<ContentFile> contents{};
+        std::vector<EnvironmentVariable> variables{};
+        std::vector<FeatureFlag> features{};
+        RuntimeDefinition runtime{};
+    };
+
     struct ConfigurationDefinition
     {
         std::string name{};
         std::string buildConfiguration{"Debug"};
-        std::string hostProfile{};
-        std::string platform{"linux-x64"};
+        std::string operatingSystem{"linux"};
+        std::string architecture{"x64"};
         bool enableReflection{false};
         std::string environmentName{};
-        std::string workingDirectory{"."};
-        std::optional<std::string> launchExecutable{};
+        LaunchDefinition launch{};
         std::vector<ProjectReference> projectRefs{};
         std::vector<PackageReference> packageRefs{};
         std::vector<std::string> configSources{};
-        std::vector<std::string> enableModules{};
-        std::vector<std::string> disableModules{};
-        std::vector<std::string> enablePlugins{};
-        std::vector<std::string> disablePlugins{};
+        RuntimeDefinition runtime{};
     };
 
     struct ProjectManifest
@@ -221,7 +252,6 @@ namespace NGIN::CLI
         std::string name{};
         std::string type{};
         std::string defaultConfiguration{};
-        std::string hostProfile{};
         std::vector<std::string> sourceRoots{};
         OutputDefinition output{};
         ProjectBuildDescriptor build{};
@@ -229,6 +259,7 @@ namespace NGIN::CLI
         std::vector<PackageReference> packageRefs{};
         std::vector<std::string> configSources{};
         RuntimeDefinition runtime{};
+        std::vector<EnvironmentDefinition> environments{};
         std::vector<ConfigurationDefinition> configurations{};
     };
 
@@ -236,6 +267,17 @@ namespace NGIN::CLI
     {
         ProjectManifest project{};
         ConfigurationDefinition configuration{};
+        std::optional<EnvironmentDefinition> environment{};
+    };
+
+    struct ResolvedContentSource
+    {
+        std::string ownerProjectName{};
+        fs::path ownerProjectDirectory{};
+        std::string source{};
+        std::string kind{};
+        fs::path stagedRelativePath{};
+        fs::path absoluteSourcePath{};
     };
 
     struct ResolvedPackage
@@ -252,6 +294,9 @@ namespace NGIN::CLI
         ConfigurationDefinition configuration{};
         std::vector<ResolvedProjectUnit> projectUnits{};
         std::vector<ResolvedConfigSource> configSources{};
+        std::vector<ResolvedContentSource> environmentContents{};
+        std::vector<EnvironmentVariable> environmentVariables{};
+        std::vector<FeatureFlag> environmentFeatures{};
         std::vector<ResolvedBootstrap> bootstraps{};
         std::vector<ResolvedPackage> orderedPackages{};
         std::map<std::string, std::set<std::string>> packageEdges{};

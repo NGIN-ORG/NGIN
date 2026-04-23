@@ -67,23 +67,6 @@ using XmlParser = NGIN::Serialization::XmlParser;
   return std::nullopt;
 }
 
-[[nodiscard]] auto ParseHostType(const std::string_view text)
-    -> std::optional<HostType> {
-  if (text == "GuiApp")
-    return HostType::GuiApp;
-  if (text == "Game")
-    return HostType::Game;
-  if (text == "Editor")
-    return HostType::Editor;
-  if (text == "Service")
-    return HostType::Service;
-  if (text == "ConsoleApp")
-    return HostType::ConsoleApp;
-  if (text == "TestHost")
-    return HostType::TestHost;
-  return std::nullopt;
-}
-
 [[nodiscard]] auto Attribute(const XmlElement &element,
                              const std::string_view key)
     -> std::optional<std::string> {
@@ -218,32 +201,30 @@ void ReadStringRefs(const XmlElement *element, const std::string_view childName,
     out.compatiblePlatformRange = parsedRange.Value();
   }
 
-  ReadStringRefs(FindChild(*root, "Platforms"), "Platform", out.platforms);
+  if (FindChild(*root, "Platforms") != nullptr) {
+    return NGIN::Utilities::Unexpected<KernelError>(MakeKernelError(
+        KernelErrorCode::InvalidArgument, "Loader", {},
+        "plugin descriptor legacy <Platforms> is no longer supported: " +
+            filePath));
+  }
+  if (FindChild(*root, "SupportedHosts") != nullptr) {
+    return NGIN::Utilities::Unexpected<KernelError>(MakeKernelError(
+        KernelErrorCode::InvalidArgument, "Loader", {},
+        "plugin descriptor legacy <SupportedHosts> is no longer supported: " +
+            filePath));
+  }
+  if (const auto *compatibility = FindChild(*root, "Compatibility")) {
+    ReadStringRefs(FindChild(*compatibility, "OperatingSystems"),
+                   "OperatingSystem", out.operatingSystems);
+    ReadStringRefs(FindChild(*compatibility, "Architectures"), "Architecture",
+                   out.architectures);
+  }
   ReadStringRefs(FindChild(*root, "ProvidesServices"), "Service",
                  out.providesServices);
   ReadStringRefs(FindChild(*root, "RequiresServices"), "Service",
                  out.requiresServices);
   ReadStringRefs(FindChild(*root, "Capabilities"), "Capability",
                  out.capabilities);
-
-  if (const auto *supportedHosts = FindChild(*root, "SupportedHosts")) {
-    for (const auto *hostElement : ChildElements(*supportedHosts, "Host")) {
-      const auto hostName = Attribute(*hostElement, "Name");
-      if (!hostName.has_value()) {
-        continue;
-      }
-
-      const auto parsedHost = ParseHostType(hostName.value());
-      if (!parsedHost.has_value()) {
-        return NGIN::Utilities::Unexpected<KernelError>(MakeKernelError(
-            KernelErrorCode::InvalidArgument, "Loader", {},
-            "plugin descriptor contains unknown supported host '" +
-                hostName.value() + "': " + filePath));
-      }
-
-      out.supportedHosts.push_back(parsedHost.value());
-    }
-  }
 
   out.reflectionRequired =
       ParseBoolAttribute(*root, "ReflectionRequired", false);

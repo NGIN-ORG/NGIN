@@ -3,11 +3,13 @@
          Name="Samples.DemoPackage"
          Version="0.1.0"
          CompatiblePlatformRange=">=0.1.0 &lt;1.0.0">
-  <Platforms>
-    <Platform Name="linux" />
-    <Platform Name="windows" />
-    <Platform Name="macos" />
-  </Platforms>
+  <Compatibility>
+    <OperatingSystems>
+      <OperatingSystem Name="linux" />
+      <OperatingSystem Name="windows" />
+      <OperatingSystem Name="macos" />
+    </OperatingSystems>
+  </Compatibility>
   <Dependencies />
   <Bootstrap Mode="BuilderHookV1"
              EntryPoint="NGIN_Bootstrap_Samples_DemoPackage"
@@ -20,11 +22,13 @@
             Version="0.1.0"
             CompatiblePlatformRange=">=0.1.0 &lt;1.0.0"
             ReflectionRequired="false">
-      <Platforms>
-        <Platform Name="linux" />
-        <Platform Name="windows" />
-        <Platform Name="macos" />
-      </Platforms>
+      <Compatibility>
+        <OperatingSystems>
+          <OperatingSystem Name="linux" />
+          <OperatingSystem Name="windows" />
+          <OperatingSystem Name="macos" />
+        </OperatingSystems>
+      </Compatibility>
       <Dependencies />
       <ProvidesServices />
       <RequiresServices />

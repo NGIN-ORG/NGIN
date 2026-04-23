@@ -7,8 +7,8 @@
     <SourceRoot Path="src" />
   </SourceRoots>
   <Output Kind="Executable"
-                 Name="App.Showcase"
-                 Target="App.Showcase" />
+          Name="App.Showcase"
+          Target="App.Showcase" />
   <Build Backend="CMake"
          Mode="Generated"
          Language="CXX"
@@ -24,6 +24,20 @@
   <ConfigSources>
     <Config Source="config/app.cfg" />
   </ConfigSources>
+  <Environments>
+    <Environment Name="Dev" />
+    <Environment Name="Diagnostics">
+      <References>
+        <Package Name="NGIN.Diagnostics" Version=">=0.1.0 &lt;0.2.0" Optional="false" />
+      </References>
+    </Environment>
+    <Environment Name="Research">
+      <References>
+        <Package Name="NGIN.Reflection" Version=">=0.1.0 &lt;0.2.0" Optional="false" />
+      </References>
+    </Environment>
+    <Environment Name="Staging" />
+  </Environments>
   <Runtime>
     <Modules>
       <Module Name="App.Showcase.Runtime"
@@ -32,11 +46,13 @@
               StartupStage="Services"
               Version="0.1.0"
               ReflectionRequired="false">
-        <Platforms>
-          <Platform Name="linux" />
-          <Platform Name="windows" />
-          <Platform Name="macos" />
-        </Platforms>
+        <Compatibility>
+          <OperatingSystems>
+            <OperatingSystem Name="linux" />
+            <OperatingSystem Name="windows" />
+            <OperatingSystem Name="macos" />
+          </OperatingSystems>
+        </Compatibility>
         <ProvidesServices>
           <Service Name="App.Showcase.Runtime.Ready" />
         </ProvidesServices>
@@ -47,14 +63,13 @@
               StartupStage="Presentation"
               Version="0.1.0"
               ReflectionRequired="false">
-        <Platforms>
-          <Platform Name="linux" />
-          <Platform Name="windows" />
-          <Platform Name="macos" />
-        </Platforms>
-        <SupportedHosts>
-          <Host Name="ConsoleApp" />
-        </SupportedHosts>
+        <Compatibility>
+          <OperatingSystems>
+            <OperatingSystem Name="linux" />
+            <OperatingSystem Name="windows" />
+            <OperatingSystem Name="macos" />
+          </OperatingSystems>
+        </Compatibility>
         <Dependencies>
           <Dependency Name="App.Showcase.Runtime" Optional="false" />
         </Dependencies>
@@ -68,14 +83,13 @@
               StartupStage="Presentation"
               Version="0.1.0"
               ReflectionRequired="false">
-        <Platforms>
-          <Platform Name="linux" />
-          <Platform Name="windows" />
-          <Platform Name="macos" />
-        </Platforms>
-        <SupportedHosts>
-          <Host Name="ConsoleApp" />
-        </SupportedHosts>
+        <Compatibility>
+          <OperatingSystems>
+            <OperatingSystem Name="linux" />
+            <OperatingSystem Name="windows" />
+            <OperatingSystem Name="macos" />
+          </OperatingSystems>
+        </Compatibility>
         <Dependencies>
           <Dependency Name="App.Showcase.Runtime" Optional="false" />
         </Dependencies>
@@ -89,14 +103,13 @@
               StartupStage="Services"
               Version="0.1.0"
               ReflectionRequired="false">
-        <Platforms>
-          <Platform Name="linux" />
-          <Platform Name="windows" />
-          <Platform Name="macos" />
-        </Platforms>
-        <SupportedHosts>
-          <Host Name="ConsoleApp" />
-        </SupportedHosts>
+        <Compatibility>
+          <OperatingSystems>
+            <OperatingSystem Name="linux" />
+            <OperatingSystem Name="windows" />
+            <OperatingSystem Name="macos" />
+          </OperatingSystems>
+        </Compatibility>
         <Dependencies>
           <Dependency Name="App.Showcase.Runtime" Optional="false" />
         </Dependencies>
@@ -110,14 +123,13 @@
               StartupStage="Services"
               Version="0.1.0"
               ReflectionRequired="true">
-        <Platforms>
-          <Platform Name="linux" />
-          <Platform Name="windows" />
-          <Platform Name="macos" />
-        </Platforms>
-        <SupportedHosts>
-          <Host Name="ConsoleApp" />
-        </SupportedHosts>
+        <Compatibility>
+          <OperatingSystems>
+            <OperatingSystem Name="linux" />
+            <OperatingSystem Name="windows" />
+            <OperatingSystem Name="macos" />
+          </OperatingSystems>
+        </Compatibility>
         <Dependencies>
           <Dependency Name="App.Showcase.Runtime" Optional="false" />
         </Dependencies>
@@ -131,14 +143,13 @@
               StartupStage="Services"
               Version="0.1.0"
               ReflectionRequired="false">
-        <Platforms>
-          <Platform Name="linux" />
-          <Platform Name="windows" />
-          <Platform Name="macos" />
-        </Platforms>
-        <SupportedHosts>
-          <Host Name="Service" />
-        </SupportedHosts>
+        <Compatibility>
+          <OperatingSystems>
+            <OperatingSystem Name="linux" />
+            <OperatingSystem Name="windows" />
+            <OperatingSystem Name="macos" />
+          </OperatingSystems>
+        </Compatibility>
         <Dependencies>
           <Dependency Name="App.Showcase.Runtime" Optional="false" />
         </Dependencies>
@@ -154,76 +165,78 @@
   </Runtime>
   <Configurations>
     <Configuration Name="Runtime"
-             BuildConfiguration="Debug"
-             HostProfile="ConsoleApp"
-             Platform="linux-x64"
-             Environment="Dev"
-             WorkingDirectory=".">
+                   BuildConfiguration="Debug"
+                   OperatingSystem="linux"
+                   Architecture="x64"
+                   Environment="Dev">
+      <Launch Executable="App.Showcase" WorkingDirectory="." />
       <ConfigSources>
         <Config Source="config/configurations/runtime.cfg" />
       </ConfigSources>
     </Configuration>
     <Configuration Name="Runtime.DevTools"
-             BuildConfiguration="Debug"
-             HostProfile="ConsoleApp"
-             Platform="linux-x64"
-             Environment="Dev"
-             WorkingDirectory=".">
+                   BuildConfiguration="Debug"
+                   OperatingSystem="linux"
+                   Architecture="x64"
+                   Environment="Dev">
+      <Launch Executable="App.Showcase" WorkingDirectory="." />
       <ConfigSources>
         <Config Source="config/configurations/runtime.devtools.cfg" />
       </ConfigSources>
-      <EnableModules>
-        <ModuleRef Name="App.Showcase.DevTools" />
-      </EnableModules>
+      <Runtime>
+        <EnableModules>
+          <ModuleRef Name="App.Showcase.DevTools" />
+        </EnableModules>
+      </Runtime>
     </Configuration>
     <Configuration Name="Runtime.Diagnostics"
-             BuildConfiguration="Debug"
-             HostProfile="ConsoleApp"
-             Platform="linux-x64"
-             Environment="Diagnostics"
-             WorkingDirectory=".">
-      <References>
-        <Package Name="NGIN.Diagnostics" Version=">=0.1.0 &lt;0.2.0" Optional="false" />
-      </References>
+                   BuildConfiguration="Debug"
+                   OperatingSystem="linux"
+                   Architecture="x64"
+                   Environment="Diagnostics">
+      <Launch Executable="App.Showcase" WorkingDirectory="." />
       <ConfigSources>
         <Config Source="config/configurations/runtime.diagnostics.cfg" />
       </ConfigSources>
-      <EnableModules>
-        <ModuleRef Name="App.Showcase.Diagnostics" />
-      </EnableModules>
+      <Runtime>
+        <EnableModules>
+          <ModuleRef Name="App.Showcase.Diagnostics" />
+        </EnableModules>
+      </Runtime>
     </Configuration>
     <Configuration Name="Runtime.Reflection"
-             BuildConfiguration="Debug"
-             HostProfile="ConsoleApp"
-             Platform="linux-x64"
-             Environment="Research"
-             WorkingDirectory="."
-             EnableReflection="true">
-      <References>
-        <Package Name="NGIN.Reflection" Version=">=0.1.0 &lt;0.2.0" Optional="false" />
-      </References>
+                   BuildConfiguration="Debug"
+                   OperatingSystem="linux"
+                   Architecture="x64"
+                   Environment="Research"
+                   EnableReflection="true">
+      <Launch Executable="App.Showcase" WorkingDirectory="." />
       <ConfigSources>
         <Config Source="config/configurations/runtime.reflection.cfg" />
       </ConfigSources>
-      <EnableModules>
-        <ModuleRef Name="App.Showcase.Reflection" />
-      </EnableModules>
+      <Runtime>
+        <EnableModules>
+          <ModuleRef Name="App.Showcase.Reflection" />
+        </EnableModules>
+      </Runtime>
     </Configuration>
     <Configuration Name="Service"
-             BuildConfiguration="Debug"
-             HostProfile="Service"
-             Platform="linux-x64"
-             Environment="Staging"
-             WorkingDirectory=".">
+                   BuildConfiguration="Debug"
+                   OperatingSystem="linux"
+                   Architecture="x64"
+                   Environment="Staging">
+      <Launch Executable="App.Showcase" WorkingDirectory="." />
       <ConfigSources>
         <Config Source="config/configurations/service.cfg" />
       </ConfigSources>
-      <EnableModules>
-        <ModuleRef Name="App.Showcase.Service" />
-      </EnableModules>
-      <DisableModules>
-        <ModuleRef Name="App.Showcase.ConsoleBanner" />
-      </DisableModules>
+      <Runtime>
+        <EnableModules>
+          <ModuleRef Name="App.Showcase.Service" />
+        </EnableModules>
+        <DisableModules>
+          <ModuleRef Name="App.Showcase.ConsoleBanner" />
+        </DisableModules>
+      </Runtime>
     </Configuration>
   </Configurations>
 </Project>

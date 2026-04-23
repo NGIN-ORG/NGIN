@@ -7,8 +7,8 @@
     <SourceRoot Path="src" />
   </SourceRoots>
   <Output Kind="Executable"
-                 Name="MyGame"
-                 Target="MyGame" />
+          Name="MyGame"
+          Target="MyGame" />
   <References>
     <Package Name="NGIN.Core" Version=">=0.1.0 &lt;0.2.0" />
     <Package Name="NGIN.ECS" Version=">=0.1.0 &lt;0.2.0" />
@@ -17,6 +17,9 @@
   <ConfigSources>
     <Config Source="config/game.xml" />
   </ConfigSources>
+  <Environments>
+    <Environment Name="Dev" />
+  </Environments>
   <Runtime>
     <Modules>
       <Module Name="App.GameRuntime"
@@ -32,16 +35,17 @@
   </Runtime>
   <Configurations>
     <Configuration Name="Game"
-             BuildConfiguration="Debug"
-             HostProfile="Game"
-             Platform="linux-x64"
-             Environment="Dev"
-             WorkingDirectory=".">
-      <Launch Executable="MyGame" />
-      <EnableModules>
-        <ModuleRef Name="Core.Hosting" />
-        <ModuleRef Name="Domain.ECS" />
-      </EnableModules>
+                   BuildConfiguration="Debug"
+                   OperatingSystem="linux"
+                   Architecture="x64"
+                   Environment="Dev">
+      <Launch Executable="MyGame" WorkingDirectory="." />
+      <Runtime>
+        <EnableModules>
+          <ModuleRef Name="Core.Hosting" />
+          <ModuleRef Name="Domain.ECS" />
+        </EnableModules>
+      </Runtime>
     </Configuration>
   </Configurations>
 </Project>

@@ -220,7 +220,7 @@ export class WorkspaceStateService implements vscode.Disposable {
     const picked = await vscode.window.showQuickPick(
       project.configurations.map((configuration) => ({
         label: configuration.name,
-        description: configuration.hostProfile ?? configuration.environment ?? '',
+        description: configuration.environment ?? [configuration.operatingSystem, configuration.architecture].filter(Boolean).join('/'),
         configuration
       })),
       {

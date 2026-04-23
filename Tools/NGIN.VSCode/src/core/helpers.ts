@@ -141,7 +141,7 @@ export function getWorkingDirectoryCandidates(
   outputDir: string,
   projectDir: string
 ): string[] {
-  const configured = manifest.runtime.workingDirectory?.trim() || '.';
+  const configured = manifest.launch.workingDirectory?.trim() || '.';
   if (path.isAbsolute(configured)) {
     return [configured];
   }

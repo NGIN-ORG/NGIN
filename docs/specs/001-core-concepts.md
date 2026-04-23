@@ -15,7 +15,7 @@ The primary authored buildable unit. Projects are authored in `.nginproj`.
 
 ### Configuration
 
-One named setup of a project. A configuration may select build configuration, host profile, platform, environment, working directory, launch executable, and narrow reference or runtime overrides.
+One named setup of a project. A configuration may select build configuration, operating system, architecture, environment, launch metadata, and narrow reference or runtime overrides.
 
 ### Composition
 

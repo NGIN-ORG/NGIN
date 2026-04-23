@@ -77,7 +77,7 @@ MakeMountedVirtualFileSystem(const NGIN::IO::Path &realRoot,
   desc.type = type;
   desc.version = Version(0, 1, 0);
   desc.compatiblePlatformRange = Range(">=0.1.0 <1.0.0");
-  desc.platforms = {"linux", "windows", "macos"};
+  desc.operatingSystems = {"linux", "windows", "macos"};
   desc.startupStage = stage;
   desc.entryKind = NGIN::Core::ModuleEntryKind::Static;
   return desc;
@@ -583,10 +583,10 @@ TEST_CASE("PlatformRangeAndDependencyVersionAreEnforced", "[runtime][compat]") {
             NGIN::Core::KernelErrorCode::IncompatiblePlatform);
   }
 
-  SECTION("Module supported hosts mismatch is rejected") {
+  SECTION("Module operating system mismatch is rejected") {
     auto catalog = NGIN::Core::CreateStaticModuleCatalog();
     auto incompatible = MakeDescriptor("Editor.Incompatible");
-    incompatible.supportedHosts = {NGIN::Core::HostType::Editor};
+    incompatible.operatingSystems = {"windows"};
 
     REQUIRE(
         RegisterModule(catalog, incompatible,
@@ -602,7 +602,7 @@ TEST_CASE("PlatformRangeAndDependencyVersionAreEnforced", "[runtime][compat]") {
     auto start = kernel->Start();
     REQUIRE_FALSE(start.HasValue());
     REQUIRE(start.Error().code ==
-            NGIN::Core::KernelErrorCode::IncompatibleHostType);
+            NGIN::Core::KernelErrorCode::IncompatiblePlatform);
   }
 
   SECTION("Dependency requiredVersion mismatch is rejected") {
@@ -927,11 +927,13 @@ TEST_CASE("DynamicDescriptorDiscoveryUsesPluginSearchPaths",
                 "        Version=\"0.1.0\"\n"
                 "        CompatiblePlatformRange=\">=0.1.0 &lt;1.0.0\"\n"
                 "        ReflectionRequired=\"false\">\n"
-                "  <Platforms>\n"
-                "    <Platform Name=\"linux\" />\n"
-                "    <Platform Name=\"windows\" />\n"
-                "    <Platform Name=\"macos\" />\n"
-                "  </Platforms>\n"
+                "  <Compatibility>\n"
+                "    <OperatingSystems>\n"
+                "      <OperatingSystem Name=\"linux\" />\n"
+                "      <OperatingSystem Name=\"windows\" />\n"
+                "      <OperatingSystem Name=\"macos\" />\n"
+                "    </OperatingSystems>\n"
+                "  </Compatibility>\n"
                 "  <Dependencies />\n"
                 "  <RequiresServices />\n"
                 "  <ProvidesServices />\n"
@@ -962,11 +964,13 @@ TEST_CASE("DynamicDescriptorDiscoveryCanUseInjectedFilesystem",
                 "        Version=\"0.1.0\"\n"
                 "        CompatiblePlatformRange=\">=0.1.0 &lt;1.0.0\"\n"
                 "        ReflectionRequired=\"false\">\n"
-                "  <Platforms>\n"
-                "    <Platform Name=\"linux\" />\n"
-                "    <Platform Name=\"windows\" />\n"
-                "    <Platform Name=\"macos\" />\n"
-                "  </Platforms>\n"
+                "  <Compatibility>\n"
+                "    <OperatingSystems>\n"
+                "      <OperatingSystem Name=\"linux\" />\n"
+                "      <OperatingSystem Name=\"windows\" />\n"
+                "      <OperatingSystem Name=\"macos\" />\n"
+                "    </OperatingSystems>\n"
+                "  </Compatibility>\n"
                 "  <Dependencies />\n"
                 "  <RequiresServices />\n"
                 "  <ProvidesServices />\n"
@@ -1339,7 +1343,6 @@ TEST_CASE("ApplicationBuilderBuildsHostFromCode", "[builder][host]") {
   auto builder = NGIN::Core::CreateApplicationBuilder(0, nullptr);
   builder->SetApplicationName("Builder.Tests");
   builder->SetConfiguration("Builder.Target");
-  builder->UseProfile(NGIN::Core::HostProfile::ConsoleApp);
   builder->Services().AddDefaults().AddConfiguration().AddSingleton(
       "App.Message", NGIN::Utilities::Any<>(std::string("hello-builder")));
   builder->Modules()
@@ -1355,7 +1358,6 @@ TEST_CASE("ApplicationBuilderBuildsHostFromCode", "[builder][host]") {
 
   auto app = builder->Build();
   REQUIRE(app.HasValue());
-  REQUIRE(app.Value()->GetProfile() == NGIN::Core::HostProfile::ConsoleApp);
   REQUIRE(app.Value()->GetConfigurationName() == "Builder.Target");
 
   auto report = app.Value()->GetStartupReport();
@@ -1397,7 +1399,6 @@ TEST_CASE("ApplicationBuilderLoadsProjectManifestAndConfig",
          Name="Manifest.Tests"
          Type="Application"
          DefaultConfiguration="Samples.Manifest">
-  <Host Profile="ConsoleApp" />
   <SourceRoots>
     <SourceRoot Path="src" />
   </SourceRoots>
@@ -1418,6 +1419,9 @@ TEST_CASE("ApplicationBuilderLoadsProjectManifestAndConfig",
   <ConfigSources>
     <Config Source="app.cfg" />
   </ConfigSources>
+  <Environments>
+    <Environment Name="Dev" />
+  </Environments>
   <Runtime>
     <EnableModules>
       <ModuleRef Name="App.Manifest" />
@@ -1429,10 +1433,11 @@ TEST_CASE("ApplicationBuilderLoadsProjectManifestAndConfig",
   <Configurations>
     <Configuration Name="Samples.Manifest"
              BuildConfiguration="Debug"
-             Platform="linux-x64"
-             Environment="Dev"
-             HostProfile="ConsoleApp"
-             WorkingDirectory="." />
+             OperatingSystem="linux"
+             Architecture="x64"
+             Environment="Dev">
+      <Launch Executable="Manifest.Tests" WorkingDirectory="." />
+    </Configuration>
   </Configurations>
 </Project>
 )");
@@ -1495,13 +1500,15 @@ TEST_CASE("ApplicationBuilderLoadsProjectManifestFromInjectedFilesystem",
          Name="Virtual.Manifest"
          Type="Application"
          DefaultConfiguration="Samples.Virtual">
-  <Host Profile="ConsoleApp" />
   <Output Kind="Executable"
           Name="Virtual.Manifest"
           Target="Virtual.Manifest" />
   <ConfigSources>
     <Config Source="app.cfg" />
   </ConfigSources>
+  <Environments>
+    <Environment Name="Virtual" />
+  </Environments>
   <Runtime>
     <EnableModules>
       <ModuleRef Name="App.VirtualManifest" />
@@ -1510,10 +1517,11 @@ TEST_CASE("ApplicationBuilderLoadsProjectManifestFromInjectedFilesystem",
   <Configurations>
     <Configuration Name="Samples.Virtual"
              BuildConfiguration="Debug"
-             Platform="linux-x64"
-             Environment="Virtual"
-             HostProfile="ConsoleApp"
-             WorkingDirectory="." />
+             OperatingSystem="linux"
+             Architecture="x64"
+             Environment="Virtual">
+      <Launch Executable="Virtual.Manifest" WorkingDirectory="." />
+    </Configuration>
   </Configurations>
 </Project>
 )");
@@ -1559,33 +1567,40 @@ TEST_CASE("ApplicationBuilderTargetOverrideBeatsProjectDefault",
          Name="Manifest.Override"
          Type="Application"
          DefaultConfiguration="Default.Target">
-  <Host Profile="ConsoleApp" />
   <SourceRoots>
     <SourceRoot Path="src" />
   </SourceRoots>
   <Output Kind="Executable"
           Name="Manifest.Override"
           Target="Manifest.Override" />
+  <Environments>
+    <Environment Name="Default" />
+    <Environment Name="Override" />
+  </Environments>
   <Configurations>
     <Configuration Name="Default.Target"
              BuildConfiguration="Debug"
-             Platform="linux-x64"
-             Environment="Default"
-             HostProfile="ConsoleApp"
-             WorkingDirectory=".">
-      <EnableModules>
-        <ModuleRef Name="App.Default" />
-      </EnableModules>
+             OperatingSystem="linux"
+             Architecture="x64"
+             Environment="Default">
+      <Launch Executable="Manifest.Override" WorkingDirectory="." />
+      <Runtime>
+        <EnableModules>
+          <ModuleRef Name="App.Default" />
+        </EnableModules>
+      </Runtime>
     </Configuration>
     <Configuration Name="Override.Target"
              BuildConfiguration="Release"
-             Platform="linux-x64"
-             Environment="Override"
-             HostProfile="ConsoleApp"
-             WorkingDirectory=".">
-      <EnableModules>
-        <ModuleRef Name="App.Override" />
-      </EnableModules>
+             OperatingSystem="linux"
+             Architecture="x64"
+             Environment="Override">
+      <Launch Executable="Manifest.Override" WorkingDirectory="." />
+      <Runtime>
+        <EnableModules>
+          <ModuleRef Name="App.Override" />
+        </EnableModules>
+      </Runtime>
     </Configuration>
   </Configurations>
 </Project>
@@ -1643,19 +1658,23 @@ TEST_CASE("ApplicationBuilderRejectsUnknownTarget", "[builder][manifest]") {
          Name="Manifest.Invalid"
          Type="Application"
          DefaultConfiguration="Samples.Default">
-  <Host Profile="ConsoleApp" />
   <SourceRoots>
     <SourceRoot Path="src" />
   </SourceRoots>
   <Output Kind="Executable"
           Name="Manifest.Invalid"
           Target="Manifest.Invalid" />
+  <Environments>
+    <Environment Name="Default" />
+  </Environments>
   <Configurations>
     <Configuration Name="Samples.Default"
              BuildConfiguration="Debug"
-             Platform="linux-x64"
-             HostProfile="ConsoleApp"
-             WorkingDirectory="." />
+             OperatingSystem="linux"
+             Architecture="x64"
+             Environment="Default">
+      <Launch Executable="Manifest.Invalid" WorkingDirectory="." />
+    </Configuration>
   </Configurations>
 </Project>
 )");
@@ -1682,11 +1701,13 @@ TEST_CASE("ApplicationBuilderExecutesExplicitPackageBootstrapFromManifestFile",
          Name="Samples.Package"
          Version="0.1.0"
          CompatiblePlatformRange=">=0.1.0 &lt;1.0.0">
-  <Platforms>
-    <Platform Name="linux" />
-    <Platform Name="windows" />
-    <Platform Name="macos" />
-  </Platforms>
+  <Compatibility>
+    <OperatingSystems>
+      <OperatingSystem Name="linux" />
+      <OperatingSystem Name="windows" />
+      <OperatingSystem Name="macos" />
+    </OperatingSystems>
+  </Compatibility>
   <Dependencies />
   <Bootstrap Mode="BuilderHookV1"
              EntryPoint="NGIN_Bootstrap_Samples_Package"
@@ -1699,11 +1720,13 @@ TEST_CASE("ApplicationBuilderExecutesExplicitPackageBootstrapFromManifestFile",
             Version="0.1.0"
             CompatiblePlatformRange=">=0.1.0 &lt;1.0.0"
             ReflectionRequired="false">
-      <Platforms>
-        <Platform Name="linux" />
-        <Platform Name="windows" />
-        <Platform Name="macos" />
-      </Platforms>
+      <Compatibility>
+        <OperatingSystems>
+          <OperatingSystem Name="linux" />
+          <OperatingSystem Name="windows" />
+          <OperatingSystem Name="macos" />
+        </OperatingSystems>
+      </Compatibility>
       <Dependencies />
       <ProvidesServices />
       <RequiresServices />
@@ -1717,7 +1740,6 @@ TEST_CASE("ApplicationBuilderExecutesExplicitPackageBootstrapFromManifestFile",
   auto builder = NGIN::Core::CreateApplicationBuilder(0, nullptr);
   builder->SetApplicationName("Builder.Package");
   builder->SetConfiguration("Builder.Package.Target");
-  builder->UseProfile(NGIN::Core::HostProfile::ConsoleApp);
   builder->Configuration().SetWorkingDirectory(ToString(tempDir));
   builder->Packages()
       .Add({
@@ -1758,7 +1780,6 @@ TEST_CASE("ApplicationBuilderExecutesNamedPackageBootstrapEntry",
   auto builder = NGIN::Core::CreateApplicationBuilder(0, nullptr);
   builder->SetApplicationName("Builder.NamedBootstrap");
   builder->SetConfiguration("Builder.NamedBootstrap.Target");
-  builder->UseProfile(NGIN::Core::HostProfile::ConsoleApp);
   builder->Packages()
       .Add({
           .name = "Samples.Package",
@@ -1770,7 +1791,7 @@ TEST_CASE("ApplicationBuilderExecutesNamedPackageBootstrapEntry",
           .name = "Samples.Package",
           .version = "0.1.0",
           .compatiblePlatformRange = ">=0.1.0 <1.0.0",
-          .platforms = {"linux", "windows", "macos"},
+          .operatingSystems = {"linux", "windows", "macos"},
           .dependencies = {},
           .bootstrap =
               NGIN::Core::PackageBootstrapDescriptor{
@@ -1809,7 +1830,6 @@ TEST_CASE("ApplicationBuilderAutoAppliesPackagesInDependencyOrder",
   auto builder = NGIN::Core::CreateApplicationBuilder(0, nullptr);
   builder->SetApplicationName("Builder.AutoApply");
   builder->SetConfiguration("Builder.AutoApply.Target");
-  builder->UseProfile(NGIN::Core::HostProfile::ConsoleApp);
   builder->Packages()
       .Add({
           .name = "Samples.PackageB",
@@ -1826,7 +1846,7 @@ TEST_CASE("ApplicationBuilderAutoAppliesPackagesInDependencyOrder",
           .name = "Samples.PackageA",
           .version = "0.1.0",
           .compatiblePlatformRange = ">=0.1.0 <1.0.0",
-          .platforms = {"linux", "windows", "macos"},
+          .operatingSystems = {"linux", "windows", "macos"},
           .dependencies = {},
           .bootstrap =
               NGIN::Core::PackageBootstrapDescriptor{
@@ -1843,7 +1863,7 @@ TEST_CASE("ApplicationBuilderAutoAppliesPackagesInDependencyOrder",
           .name = "Samples.PackageB",
           .version = "0.1.0",
           .compatiblePlatformRange = ">=0.1.0 <1.0.0",
-          .platforms = {"linux", "windows", "macos"},
+          .operatingSystems = {"linux", "windows", "macos"},
           .dependencies =
               {
                   {
@@ -1878,7 +1898,6 @@ TEST_CASE("ApplicationBuilderFailsOnMissingRequiredAutoAppliedPackageBootstrap",
   auto builder = NGIN::Core::CreateApplicationBuilder(0, nullptr);
   builder->SetApplicationName("Builder.RequiredFailure");
   builder->SetConfiguration("Builder.RequiredFailure.Target");
-  builder->UseProfile(NGIN::Core::HostProfile::ConsoleApp);
   builder->Packages()
       .Add({
           .name = "Samples.RequiredPackage",
@@ -1890,7 +1909,7 @@ TEST_CASE("ApplicationBuilderFailsOnMissingRequiredAutoAppliedPackageBootstrap",
           .name = "Samples.RequiredPackage",
           .version = "0.1.0",
           .compatiblePlatformRange = ">=0.1.0 <1.0.0",
-          .platforms = {"linux", "windows", "macos"},
+          .operatingSystems = {"linux", "windows", "macos"},
           .dependencies = {},
           .bootstrap =
               NGIN::Core::PackageBootstrapDescriptor{
@@ -1913,7 +1932,6 @@ TEST_CASE("ApplicationBuilderSkipsOptionalAutoAppliedPackageWithWarning",
   auto builder = NGIN::Core::CreateApplicationBuilder(0, nullptr);
   builder->SetApplicationName("Builder.OptionalWarning");
   builder->SetConfiguration("Builder.OptionalWarning.Target");
-  builder->UseProfile(NGIN::Core::HostProfile::ConsoleApp);
   builder->Packages()
       .Add({
           .name = "Samples.OptionalPackage",
@@ -1925,7 +1943,7 @@ TEST_CASE("ApplicationBuilderSkipsOptionalAutoAppliedPackageWithWarning",
           .name = "Samples.OptionalPackage",
           .version = "0.1.0",
           .compatiblePlatformRange = ">=0.1.0 <1.0.0",
-          .platforms = {"linux", "windows", "macos"},
+          .operatingSystems = {"linux", "windows", "macos"},
           .dependencies = {},
           .bootstrap =
               NGIN::Core::PackageBootstrapDescriptor{
@@ -1954,7 +1972,6 @@ TEST_CASE("ApplicationBuilderFailsOnDuplicatePackageBootstrapEntry",
   auto builder = NGIN::Core::CreateApplicationBuilder(0, nullptr);
   builder->SetApplicationName("Builder.DuplicateBootstrap");
   builder->SetConfiguration("Builder.DuplicateBootstrap.Target");
-  builder->UseProfile(NGIN::Core::HostProfile::ConsoleApp);
   builder->Packages()
       .Add({
           .name = "Samples.Package",
@@ -1966,7 +1983,7 @@ TEST_CASE("ApplicationBuilderFailsOnDuplicatePackageBootstrapEntry",
           .name = "Samples.Package",
           .version = "0.1.0",
           .compatiblePlatformRange = ">=0.1.0 <1.0.0",
-          .platforms = {"linux", "windows", "macos"},
+          .operatingSystems = {"linux", "windows", "macos"},
           .dependencies = {},
           .bootstrap =
               NGIN::Core::PackageBootstrapDescriptor{

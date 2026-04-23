@@ -1,7 +1,7 @@
 #pragma once
 
 /// @file Application.hpp
-/// @brief Draft-only public API surface for the first NGIN.Core application model.
+/// @brief Draft-only public API surface for the NGIN.Core application model.
 ///
 /// This header is documentation-first and is not wired into a build target yet.
 
@@ -22,29 +22,11 @@ namespace NGIN::Core
     class IServiceProvider;
     class IConfigurationRoot;
 
-    enum class HostProfile
-    {
-        ConsoleApp,
-        GuiApp,
-        Game,
-        Editor,
-        Service,
-        TestHost
-    };
-
     enum class ServiceLifetime
     {
         Singleton,
         Scoped,
         Transient
-    };
-
-    enum class ServiceScopeKind
-    {
-        Host,
-        Package,
-        Module,
-        Operation
     };
 
     enum class PackageBootstrapMode
@@ -73,11 +55,11 @@ namespace NGIN::Core
 
     struct StartupReport
     {
-        std::string              configurationName {};
-        HostProfile              profile {HostProfile::ConsoleApp};
-        std::vector<std::string> resolvedPackages {};
-        std::vector<std::string> resolvedModules {};
-        std::vector<std::string> resolvedPlugins {};
+        std::string                 configurationName {};
+        std::string                 hostType {};
+        std::vector<std::string>    resolvedPackages {};
+        std::vector<std::string>    resolvedModules {};
+        std::vector<std::string>    resolvedPlugins {};
         std::vector<StartupWarning> warnings {};
     };
 
@@ -86,27 +68,6 @@ namespace NGIN::Core
         std::string name {};
         std::string versionRange {};
         bool        optional {false};
-    };
-
-    struct ServiceRegistration
-    {
-        std::string     serviceKey {};
-        std::string     implementationKey {};
-        ServiceLifetime lifetime {ServiceLifetime::Singleton};
-        bool            tryAdd {false};
-    };
-
-    struct PluginReference
-    {
-        std::string name {};
-        std::string versionRange {};
-    };
-
-    struct ServiceScope
-    {
-        std::string      id {};
-        ServiceScopeKind kind {ServiceScopeKind::Host};
-        std::string      owner {};
     };
 
     struct PackageBootstrapDescriptor
@@ -123,29 +84,42 @@ namespace NGIN::Core
         PackageBootstrapFn fn {nullptr};
     };
 
-    struct ModuleSelection
-    {
-        std::vector<std::string> enable {};
-        std::vector<std::string> disable {};
-    };
-
-    struct PluginSelection
-    {
-        std::vector<std::string> enable {};
-        std::vector<std::string> disable {};
-    };
-
     struct ProjectReference
     {
-        std::string               path {};
+        std::string                path {};
         std::optional<std::string> configuration {};
     };
 
-    struct PrimaryOutput
+    struct OutputDefinition
     {
         std::string kind {};
         std::string name {};
         std::string target {};
+    };
+
+    struct BuildSetting
+    {
+        std::string value {};
+        std::string visibility {"Private"};
+    };
+
+    struct ProjectBuildDescriptor
+    {
+        std::string              backend {"CMake"};
+        std::string              mode {"Generated"};
+        std::string              language {"CXX"};
+        std::string              languageStandard {"23"};
+        std::vector<std::string> sources {};
+        std::vector<BuildSetting> includeDirectories {};
+        std::vector<BuildSetting> compileDefinitions {};
+        std::vector<BuildSetting> compileOptions {};
+        std::vector<BuildSetting> linkOptions {};
+    };
+
+    struct LaunchDefinition
+    {
+        std::string executable {};
+        std::string workingDirectory {"."};
     };
 
     struct RuntimeDefinition
@@ -155,52 +129,58 @@ namespace NGIN::Core
         std::vector<std::string> disableModules {};
     };
 
+    struct EnvironmentVariable
+    {
+        std::string name {};
+        std::string value {};
+    };
+
+    struct FeatureFlag
+    {
+        std::string name {};
+        bool        enabled {false};
+    };
+
+    struct EnvironmentDefinition
+    {
+        std::string                    name {};
+        std::vector<ProjectReference>  projectRefs {};
+        std::vector<PackageReference>  packageRefs {};
+        std::vector<std::string>       configSources {};
+        std::vector<EnvironmentVariable> variables {};
+        std::vector<FeatureFlag>       features {};
+        RuntimeDefinition              runtime {};
+    };
+
     struct ConfigurationDefinition
     {
-        std::string              name {};
-        HostProfile              profile {HostProfile::ConsoleApp};
-        std::string              platform {};
-        bool                     enableReflection {false};
+        std::string                   name {};
+        std::string                   buildConfiguration {"Debug"};
+        std::string                   operatingSystem {"linux"};
+        std::string                   architecture {"x64"};
+        bool                          enableReflection {false};
         std::vector<PackageReference> packageRefs {};
-        std::string              environmentName {};
-        std::vector<std::string> configSources {};
-        std::string              workingDirectory {};
-        std::optional<std::string> launchExecutable {};
-        std::vector<std::string> enableModules {};
-        std::vector<std::string> disableModules {};
+        std::string                   environmentName {};
+        std::vector<std::string>      configSources {};
+        std::optional<LaunchDefinition> launch {};
+        RuntimeDefinition             runtime {};
     };
 
     struct ProjectManifest
     {
-        int                      schemaVersion {1};
-        std::string              name {};
-        std::string              type {};
-        std::string              defaultConfiguration {};
-        std::vector<std::string> sourceRoots {};
-        PrimaryOutput            primaryOutput {};
-        std::vector<ProjectReference> projectRefs {};
-        std::vector<PackageReference> packageRefs {};
-        std::vector<std::string> configSources {};
-        RuntimeDefinition        runtime {};
+        int                             schemaVersion {2};
+        std::string                     name {};
+        std::string                     type {};
+        std::string                     defaultConfiguration {};
+        std::vector<std::string>        sourceRoots {};
+        OutputDefinition                primaryOutput {};
+        ProjectBuildDescriptor          build {};
+        std::vector<ProjectReference>   projectRefs {};
+        std::vector<PackageReference>   packageRefs {};
+        std::vector<std::string>        configSources {};
+        std::vector<EnvironmentDefinition> environments {};
+        RuntimeDefinition               runtime {};
         std::vector<ConfigurationDefinition> configurations {};
-    };
-
-    struct PackageManifest
-    {
-        struct ProvidedContent
-        {
-            std::vector<std::string> modules {};
-            std::vector<std::string> plugins {};
-        };
-
-        int                      schemaVersion {1};
-        std::string              name {};
-        std::string              version {};
-        std::string              compatiblePlatformRange {};
-        std::vector<std::string> platforms {};
-        std::vector<PackageReference> dependencies {};
-        std::optional<PackageBootstrapDescriptor> bootstrap {};
-        ProvidedContent          provides {};
     };
 
     class PackageBootstrapRegistry
@@ -222,7 +202,6 @@ namespace NGIN::Core
     public:
         virtual ~ServiceCollection() = default;
 
-        virtual auto Add(ServiceRegistration registration) -> ServiceCollection& = 0;
         virtual auto AddSingleton(std::string serviceKey, std::string implementationKey = {}) -> ServiceCollection& = 0;
         virtual auto AddScoped(std::string serviceKey, std::string implementationKey = {}) -> ServiceCollection& = 0;
         virtual auto AddTransient(std::string serviceKey, std::string implementationKey = {}) -> ServiceCollection& = 0;
@@ -260,7 +239,6 @@ namespace NGIN::Core
 
         virtual auto Enable(std::string pluginName) -> PluginCollection& = 0;
         virtual auto Disable(std::string pluginName) -> PluginCollection& = 0;
-        virtual auto AddSearchPath(std::string path) -> PluginCollection& = 0;
         virtual auto Clear() -> PluginCollection& = 0;
     };
 
@@ -272,6 +250,7 @@ namespace NGIN::Core
         virtual auto AddSource(std::string path) -> ConfigurationBuilder& = 0;
         virtual auto SetEnvironmentName(std::string environmentName) -> ConfigurationBuilder& = 0;
         virtual auto SetWorkingDirectory(std::string workingDirectory) -> ConfigurationBuilder& = 0;
+        virtual auto Clear() -> ConfigurationBuilder& = 0;
     };
 
     class PackageBootstrapContext
@@ -279,24 +258,14 @@ namespace NGIN::Core
     public:
         virtual ~PackageBootstrapContext() = default;
 
-        [[nodiscard]] virtual auto PackageName() const -> std::string = 0;
-        [[nodiscard]] virtual auto ConfigurationName() const -> std::string = 0;
-        [[nodiscard]] virtual auto Profile() const noexcept -> HostProfile = 0;
+        [[nodiscard]] virtual auto PackageName() const noexcept -> std::string_view = 0;
+        [[nodiscard]] virtual auto ConfigurationName() const noexcept -> std::string_view = 0;
 
         [[nodiscard]] virtual auto Services() noexcept -> ServiceCollection& = 0;
         [[nodiscard]] virtual auto Packages() noexcept -> PackageCollection& = 0;
         [[nodiscard]] virtual auto Modules() noexcept -> ModuleCollection& = 0;
         [[nodiscard]] virtual auto Plugins() noexcept -> PluginCollection& = 0;
         [[nodiscard]] virtual auto Configuration() noexcept -> ConfigurationBuilder& = 0;
-    };
-
-    class IServiceProvider
-    {
-    public:
-        virtual ~IServiceProvider() = default;
-
-        virtual auto BeginScope(ServiceScopeKind kind, std::string owner) -> CoreResult<ServiceScope> = 0;
-        virtual auto EndScope(std::string scopeId) -> CoreResult<void> = 0;
     };
 
     class IApplicationHost
@@ -310,12 +279,8 @@ namespace NGIN::Core
         virtual void RequestStop(std::string reason) noexcept = 0;
         virtual auto Shutdown() noexcept -> CoreResult<void> = 0;
 
-        [[nodiscard]] virtual auto GetProfile() const noexcept -> HostProfile = 0;
         [[nodiscard]] virtual auto GetConfigurationName() const -> std::string = 0;
         [[nodiscard]] virtual auto GetStartupReport() const -> StartupReport = 0;
-
-        [[nodiscard]] virtual auto GetServices() noexcept -> IServiceProvider& = 0;
-        [[nodiscard]] virtual auto GetConfig() noexcept -> IConfigurationRoot& = 0;
     };
 
     class ApplicationBuilder
@@ -326,7 +291,6 @@ namespace NGIN::Core
         virtual auto UseProjectFile(std::string path) -> ApplicationBuilder& = 0;
         virtual auto UseProject(ProjectManifest manifest) -> ApplicationBuilder& = 0;
         virtual auto SetApplicationName(std::string applicationName) -> ApplicationBuilder& = 0;
-        virtual auto UseProfile(HostProfile profile) -> ApplicationBuilder& = 0;
         virtual auto SetConfiguration(std::string configurationName) -> ApplicationBuilder& = 0;
 
         [[nodiscard]] virtual auto Services() noexcept -> ServiceCollection& = 0;
@@ -337,6 +301,4 @@ namespace NGIN::Core
 
         [[nodiscard]] virtual auto Build() -> CoreResult<std::shared_ptr<IApplicationHost>> = 0;
     };
-
-    [[nodiscard]] auto CreateApplicationBuilder(int argc, char** argv) -> std::unique_ptr<ApplicationBuilder>;
 }

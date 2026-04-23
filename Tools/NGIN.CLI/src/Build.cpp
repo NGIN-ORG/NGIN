@@ -728,6 +728,21 @@ namespace NGIN::CLI
                     {
                         indexByName[packageRefs[index].name] = index;
                     }
+                    if (unit.environment.has_value())
+                    {
+                        for (const auto &reference : unit.environment->packageRefs)
+                        {
+                            if (const auto it = indexByName.find(reference.name); it != indexByName.end())
+                            {
+                                packageRefs[it->second] = reference;
+                            }
+                            else
+                            {
+                                indexByName[reference.name] = packageRefs.size();
+                                packageRefs.push_back(reference);
+                            }
+                        }
+                    }
                     for (const auto &reference : unit.configuration.packageRefs)
                     {
                         if (const auto it = indexByName.find(reference.name); it != indexByName.end())
@@ -763,6 +778,10 @@ namespace NGIN::CLI
                 }
 
                 std::vector<ProjectReference> projectRefs = unit.project.projectRefs;
+                if (unit.environment.has_value())
+                {
+                    projectRefs.insert(projectRefs.end(), unit.environment->projectRefs.begin(), unit.environment->projectRefs.end());
+                }
                 projectRefs.insert(projectRefs.end(), unit.configuration.projectRefs.begin(), unit.configuration.projectRefs.end());
                 for (const auto &projectRef : projectRefs)
                 {
@@ -1102,19 +1121,33 @@ namespace NGIN::CLI
             << "\" Project=\"" << EscapeXml(resolved.project.name)
             << "\" Type=\"" << EscapeXml(resolved.project.type)
             << "\" BuildConfiguration=\"" << EscapeXml(resolved.configuration.buildConfiguration)
-            << "\" HostProfile=\"" << EscapeXml(resolved.configuration.hostProfile.empty() ? "ConsoleApp" : resolved.configuration.hostProfile)
-            << "\" Platform=\"" << EscapeXml(resolved.configuration.platform)
+            << "\" OperatingSystem=\"" << EscapeXml(resolved.configuration.operatingSystem)
+            << "\" Architecture=\"" << EscapeXml(resolved.configuration.architecture)
             << "\">\n";
-        out << "  <Runtime Environment=\"" << EscapeXml(resolved.configuration.environmentName)
-            << "\" WorkingDirectory=\"" << EscapeXml(resolved.configuration.workingDirectory)
-            << "\" />\n";
+        out << "  <Launch";
         if (resolved.selectedExecutable.has_value())
         {
-            out << "  <SelectedExecutable Name=\"" << EscapeXml(resolved.selectedExecutable->name)
+            out << " Executable=\"" << EscapeXml(resolved.selectedExecutable->name)
                 << "\" Target=\"" << EscapeXml(resolved.selectedExecutable->target)
-                << "\" Origin=\"" << EscapeXml(resolved.selectedExecutable->origin)
-                << "\" />\n";
+                << "\" Origin=\"" << EscapeXml(resolved.selectedExecutable->origin) << "\"";
         }
+        out << " WorkingDirectory=\"" << EscapeXml(resolved.configuration.launch.workingDirectory) << "\" />\n";
+        out << "  <Environment Name=\"" << EscapeXml(resolved.configuration.environmentName) << "\">\n";
+        out << "    <Variables>\n";
+        for (const auto &variable : resolved.environmentVariables)
+        {
+            out << "      <Variable Name=\"" << EscapeXml(variable.name)
+                << "\" Value=\"" << EscapeXml(variable.value) << "\" />\n";
+        }
+        out << "    </Variables>\n";
+        out << "    <Features>\n";
+        for (const auto &feature : resolved.environmentFeatures)
+        {
+            out << "      <Feature Name=\"" << EscapeXml(feature.name)
+                << "\" Enabled=\"" << (feature.enabled ? "true" : "false") << "\" />\n";
+        }
+        out << "    </Features>\n";
+        out << "  </Environment>\n";
         out << "  <ConfigSources>\n";
         for (const auto &source : resolved.configSources)
         {
@@ -1373,6 +1406,25 @@ namespace NGIN::CLI
             fs::copy_file(source, dest, fs::copy_options::overwrite_existing);
             staged.emplace_back("config-source", source, dest);
         }
+        for (const auto &content : resolved.value->environmentContents)
+        {
+            const auto source = content.absoluteSourcePath;
+            if (!fs::exists(source))
+            {
+                AddError(result.diagnostics, "missing environment content '" + content.source + "' declared by project '" + content.ownerProjectName + "'");
+                continue;
+            }
+            const auto dest = resolvedOutputDir / content.stagedRelativePath;
+            if (collisions.contains(dest))
+            {
+                AddError(result.diagnostics, "build output collision at environment content '" + content.stagedRelativePath.string() + "' declared by project '" + content.ownerProjectName + "'");
+                continue;
+            }
+            collisions[dest] = "<environment>";
+            fs::create_directories(dest.parent_path());
+            fs::copy_file(source, dest, fs::copy_options::overwrite_existing);
+            staged.emplace_back(content.kind.empty() ? "environment-content" : content.kind, source, dest);
+        }
         if (result.diagnostics.HasErrors())
         {
             return result;
@@ -1397,13 +1449,13 @@ namespace NGIN::CLI
         LaunchManifestSummary summary{};
         summary.manifestPath = manifestPath;
         summary.configurationName = RequireAttribute(*rootElement, "Configuration", manifestPath);
-        if (const auto *runtime = FindChild(*rootElement, "Runtime"))
+        if (const auto *launch = FindChild(*rootElement, "Launch"))
         {
-            summary.workingDirectory = Attribute(*runtime, "WorkingDirectory").value_or(".");
+            summary.workingDirectory = Attribute(*launch, "WorkingDirectory").value_or(".");
         }
-        if (const auto *selectedExecutable = FindChild(*rootElement, "SelectedExecutable"))
+        if (const auto *launch = FindChild(*rootElement, "Launch"))
         {
-            summary.selectedExecutable = Attribute(*selectedExecutable, "Name").value_or("");
+            summary.selectedExecutable = Attribute(*launch, "Executable").value_or("");
         }
         return summary;
     }

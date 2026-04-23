@@ -1,6 +1,6 @@
 import * as path from 'node:path';
 import { XMLParser } from 'fast-xml-parser';
-import { LaunchManifest, LaunchRuntime, ProjectConfiguration, ProjectManifest, StagedFile, WorkspaceManifest } from './types';
+import { LaunchManifest, LaunchDescriptor, ProjectConfiguration, ProjectManifest, StagedFile, WorkspaceManifest } from './types';
 
 const parser = new XMLParser({
   ignoreAttributes: false,
@@ -47,12 +47,12 @@ export function parseProjectManifest(xml: string, manifestPath: string): Project
 
   const configurations = asArray(root.Configurations?.Configuration).map((entry): ProjectConfiguration => ({
     name: entry?.Name,
-    hostProfile: entry?.HostProfile ?? entry?.Profile,
     buildConfiguration: entry?.BuildConfiguration,
-    platform: entry?.Platform,
+    operatingSystem: entry?.OperatingSystem,
+    architecture: entry?.Architecture,
     environment: entry?.Environment,
-    workingDirectory: entry?.WorkingDirectory,
-    launchExecutable: entry?.Launch?.Executable
+    launchExecutable: entry?.Launch?.Executable,
+    launchWorkingDirectory: entry?.Launch?.WorkingDirectory
   })).filter((entry) => Boolean(entry.name));
 
   return {
@@ -71,9 +71,11 @@ export function parseLaunchManifest(xml: string, manifestPath: string): LaunchMa
     throw new Error(`${manifestPath}: root element must be <LaunchManifest>`);
   }
 
-  const runtime: LaunchRuntime = {
-    workingDirectory: root.Runtime?.WorkingDirectory,
-    environment: root.Runtime?.Environment
+  const launch: LaunchDescriptor = {
+    workingDirectory: root.Launch?.WorkingDirectory,
+    executable: root.Launch?.Executable,
+    target: root.Launch?.Target,
+    origin: root.Launch?.Origin
   };
 
   const stagedFiles = asArray(root.StagedFiles?.File).map((entry): StagedFile => ({
@@ -90,14 +92,15 @@ export function parseLaunchManifest(xml: string, manifestPath: string): LaunchMa
     configuration: root.Configuration,
     type: root.Type,
     buildConfiguration: root.BuildConfiguration,
-    hostProfile: root.HostProfile,
-    platform: root.Platform,
-    runtime,
-    selectedExecutable: root.SelectedExecutable
+    operatingSystem: root.OperatingSystem,
+    architecture: root.Architecture,
+    environmentName: root.Environment?.Name,
+    launch,
+    selectedExecutable: root.Launch?.Executable
       ? {
-          name: root.SelectedExecutable.Name,
-          target: root.SelectedExecutable.Target,
-          origin: root.SelectedExecutable.Origin
+          name: root.Launch.Executable,
+          target: root.Launch.Target,
+          origin: root.Launch.Origin
         }
       : undefined,
     stagedFiles

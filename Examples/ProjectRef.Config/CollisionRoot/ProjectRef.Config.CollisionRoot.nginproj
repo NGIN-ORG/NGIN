@@ -13,12 +13,16 @@
     <Project Path="../CollisionLibA/ProjectRef.Config.CollisionLibA.nginproj" />
     <Project Path="../CollisionLibB/ProjectRef.Config.CollisionLibB.nginproj" />
   </References>
+  <Environments>
+    <Environment Name="development" />
+  </Environments>
   <Configurations>
     <Configuration Name="Runtime"
              BuildConfiguration="Debug"
-             HostProfile="ConsoleApp"
-             Platform="linux-x64"
-             Environment="Dev"
-             WorkingDirectory="." />
+             OperatingSystem="linux"
+             Architecture="x64"
+             Environment="development">
+      <Launch Executable="ProjectRef.Config.CollisionRoot" WorkingDirectory="." />
+    </Configuration>
   </Configurations>
 </Project>

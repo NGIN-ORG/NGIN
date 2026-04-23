@@ -23,11 +23,12 @@ The output of this process is a resolved composition that determines selected la
 
 1. load the selected project
 2. resolve the selected configuration
-3. merge root and configuration-level references
-4. resolve project references recursively
-5. resolve package references
-6. apply config source, module, and plugin overlays
-7. determine output and launch selection
+3. resolve the selected environment layer
+4. merge root, environment, and configuration-level references
+5. resolve project references recursively
+6. resolve package references
+7. apply config source, content, module, plugin, variable, and feature overlays
+8. determine output and launch selection
 
 ## Conflict Rule
 
@@ -48,10 +49,16 @@ Resolved composition data should preserve enough provenance for tooling to expla
 Validation must reject:
 
 - unknown selected configuration
+- unknown selected environment
 - duplicate configuration names in one project
-- invalid host profile values
+- duplicate environment names in one project
+- invalid operating system values
+- invalid architecture values
+- invalid `Type` and `Output Kind` pairings
+- launch metadata on non-launchable projects
 - unresolved required project references
 - unresolved required package references
+- referenced project target mismatch on operating system or architecture
 - duplicate selected executable names that cannot be disambiguated
 - ambiguous runtime or launch contributions that the authored model does not explicitly resolve
 
