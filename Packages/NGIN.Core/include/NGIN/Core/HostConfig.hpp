@@ -5,6 +5,7 @@
 
 #include <NGIN/Core/Types.hpp>
 #include <NGIN/Core/Versioning.hpp>
+#include <NGIN/Log/LoggerRegistry.hpp>
 #include <NGIN/Memory/SmartPointers.hpp>
 
 #include <functional>
@@ -26,11 +27,6 @@ namespace NGIN::Core
   class ITaskRuntime;
   class IConfigStore;
 } // namespace NGIN::Core
-
-namespace NGIN::Log
-{
-  class LoggerRegistry;
-}
 
 namespace NGIN::Core
 {

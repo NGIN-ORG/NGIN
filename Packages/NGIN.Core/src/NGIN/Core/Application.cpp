@@ -11,3105 +11,3647 @@
 #include <utility>
 #include <vector>
 
-namespace NGIN::Core {
-namespace {
-using XmlDocument = NGIN::Serialization::XmlDocument;
-using XmlElement = NGIN::Serialization::XmlElement;
-using XmlNode = NGIN::Serialization::XmlNode;
-using XmlParseOptions = NGIN::Serialization::XmlParseOptions;
-using XmlParser = NGIN::Serialization::XmlParser;
-using IoError = NGIN::IO::IOError;
-using IoErrorCode = NGIN::IO::IOErrorCode;
-using IoFileSystem = NGIN::IO::IFileSystem;
-using IoPath = NGIN::IO::Path;
+namespace NGIN::Core
+{
+  namespace
+  {
+    using XmlDocument = NGIN::Serialization::XmlDocument;
+    using XmlElement = NGIN::Serialization::XmlElement;
+    using XmlNode = NGIN::Serialization::XmlNode;
+    using XmlParseOptions = NGIN::Serialization::XmlParseOptions;
+    using XmlParser = NGIN::Serialization::XmlParser;
+    using IoError = NGIN::IO::IOError;
+    using IoErrorCode = NGIN::IO::IOErrorCode;
+    using IoFileSystem = NGIN::IO::IFileSystem;
+    using IoPath = NGIN::IO::Path;
 
-struct PendingServiceRegistration {
-  std::string key{};
-  std::optional<NGIN::Utilities::Any<>> instance{};
-  std::optional<ServiceFactory> factory{};
-  ServiceLifetime lifetime{ServiceLifetime::Singleton};
-  ServiceMetadata metadata{};
-};
+    struct PendingServiceRegistration
+    {
+      std::string key{};
+      std::optional<NGIN::Utilities::Any<>> instance{};
+      std::optional<ServiceFactory> factory{};
+      ServiceLifetime lifetime{ServiceLifetime::Singleton};
+      ServiceMetadata metadata{};
+    };
 
-struct PackageBootstrapRequest {
-  std::string packageName{};
-  std::optional<std::string> entryPoint{};
-};
+    struct PackageBootstrapRequest
+    {
+      std::string packageName{};
+      std::optional<std::string> entryPoint{};
+    };
 
-struct BootstrapCandidate {
-  PackageReference reference{};
-  const PackageManifest *manifest{nullptr};
-  std::string entryPoint{};
-  bool explicitRequest{false};
-  std::size_t orderIndex{0};
-};
+    struct BootstrapCandidate
+    {
+      PackageReference reference{};
+      const PackageManifest *manifest{nullptr};
+      std::string entryPoint{};
+      bool explicitRequest{false};
+      std::size_t orderIndex{0};
+    };
 
-struct LoadedXmlDocument {
-  std::string text{};
-  XmlDocument document{0};
-};
+    struct LoadedXmlDocument
+    {
+      std::string text{};
+      XmlDocument document{0};
+    };
 
-[[nodiscard]] auto
-MakeBuilderError(const std::string &message, std::string subject = {},
-                 const KernelErrorCode code = KernelErrorCode::InvalidArgument)
-    -> KernelError {
-  return MakeKernelError(code, "ApplicationBuilder", std::move(subject),
-                         message);
-}
-
-[[nodiscard]] auto ToString(const NGIN::Text::String &text) -> std::string {
-  return std::string(text.Data(), text.Size());
-}
-
-[[nodiscard]] auto ToString(const IoPath &path) -> std::string {
-  return std::string(path.View());
-}
-
-[[nodiscard]] auto MakeBuilderFileSystemError(
-    const std::string_view message, const IoPath &path, const IoError &error,
-    const KernelErrorCode fallbackCode = KernelErrorCode::ConfigFailure)
-    -> KernelError {
-  const auto code = error.code == IoErrorCode::NotFound
-                        ? KernelErrorCode::NotFound
-                        : fallbackCode;
-  const auto &subjectPath = error.path.IsEmpty() ? path : error.path;
-  return MakeBuilderError(std::string(message), ToString(subjectPath), code);
-}
-
-[[nodiscard]] auto ReadTextFile(IoFileSystem &fileSystem, const IoPath &path,
-                                const std::string_view kind)
-    -> CoreResult<std::string> {
-  auto input = NGIN::IO::ReadAllText(fileSystem, path);
-  if (!input) {
-    const auto message = input.Error().code == IoErrorCode::NotFound
-                             ? "failed to open " + std::string(kind) + " file"
-                             : "failed to read " + std::string(kind) + " file";
-    return NGIN::Utilities::Unexpected<KernelError>(
-        MakeBuilderFileSystemError(message, path, input.Error()));
-  }
-
-  return ToString(input.Value());
-}
-
-[[nodiscard]] auto AbsolutePath(IoFileSystem &fileSystem, const IoPath &path)
-    -> CoreResult<IoPath> {
-  auto absolute = fileSystem.Absolute(path);
-  if (!absolute) {
-    return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderFileSystemError(
-        "failed to resolve project path", path, absolute.Error()));
-  }
-  return absolute.Value();
-}
-
-[[nodiscard]] auto WeaklyCanonicalPath(IoFileSystem &fileSystem,
-                                       const IoPath &path)
-    -> CoreResult<IoPath> {
-  auto canonical = fileSystem.WeaklyCanonical(path);
-  if (!canonical) {
-    return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderFileSystemError(
-        "failed to resolve project path", path, canonical.Error()));
-  }
-  return canonical.Value();
-}
-
-[[nodiscard]] auto ToString(const NGIN::Serialization::ParseError &error)
-    -> std::string {
-  return std::string(error.message.Data(), error.message.Size());
-}
-
-[[nodiscard]] auto LoadXmlDocument(const std::string &text,
-                                   const std::string_view kind)
-    -> CoreResult<LoadedXmlDocument> {
-  LoadedXmlDocument loaded{};
-  loaded.text = text;
-
-  XmlParseOptions options{};
-  options.decodeEntities = true;
-  options.arenaBytes = std::max<NGIN::UIntSize>(
-      16384, static_cast<NGIN::UIntSize>(loaded.text.size() * 8 + 4096));
-
-  auto parsed = XmlParser::Parse(loaded.text, options);
-  if (!parsed) {
-    return NGIN::Utilities::Unexpected<KernelError>(
-        MakeBuilderError("failed to parse " + std::string(kind) +
-                         " manifest: " + ToString(parsed.Error())));
-  }
-
-  loaded.document = std::move(parsed.Value());
-  return loaded;
-}
-
-[[nodiscard]] auto ChildElements(const XmlElement &node,
-                                 const std::string_view name = {})
-    -> std::vector<const XmlElement *> {
-  std::vector<const XmlElement *> out{};
-  out.reserve(static_cast<std::size_t>(node.children.Size()));
-  for (NGIN::UIntSize index = 0; index < node.children.Size(); ++index) {
-    const auto &child = node.children[index];
-    if (child.type != XmlNode::Type::Element || child.element == nullptr) {
-      continue;
+    [[nodiscard]] auto
+    MakeBuilderError(const std::string &message, std::string subject = {},
+                     const KernelErrorCode code = KernelErrorCode::InvalidArgument)
+        -> KernelError
+    {
+      return MakeKernelError(code, "ApplicationBuilder", std::move(subject),
+                             message);
     }
-    if (name.empty() || child.element->name == name) {
-      out.push_back(child.element);
+
+    [[nodiscard]] auto ToString(const NGIN::Text::String &text) -> std::string
+    {
+      return std::string(text.Data(), text.Size());
     }
-  }
-  return out;
-}
 
-[[nodiscard]] auto FindChild(const XmlElement &node,
-                             const std::string_view name)
-    -> const XmlElement * {
-  for (NGIN::UIntSize index = 0; index < node.children.Size(); ++index) {
-    const auto &child = node.children[index];
-    if (child.type == XmlNode::Type::Element && child.element != nullptr &&
-        child.element->name == name) {
-      return child.element;
+    [[nodiscard]] auto ToString(const IoPath &path) -> std::string
+    {
+      return std::string(path.View());
     }
-  }
-  return nullptr;
-}
 
-[[nodiscard]] auto Attribute(const XmlElement &node, const std::string_view key)
-    -> std::optional<std::string> {
-  const auto *attribute = node.FindAttribute(key);
-  if (attribute == nullptr) {
-    return std::nullopt;
-  }
-  return std::string(attribute->value);
-}
+    [[nodiscard]] auto MakeBuilderFileSystemError(
+        const std::string_view message, const IoPath &path, const IoError &error,
+        const KernelErrorCode fallbackCode = KernelErrorCode::ConfigFailure)
+        -> KernelError
+    {
+      const auto code = error.code == IoErrorCode::NotFound
+                            ? KernelErrorCode::NotFound
+                            : fallbackCode;
+      const auto &subjectPath = error.path.IsEmpty() ? path : error.path;
+      return MakeBuilderError(std::string(message), ToString(subjectPath), code);
+    }
 
-[[nodiscard]] auto RequireAttribute(const XmlElement &element,
-                                    const std::string_view key,
-                                    const std::string_view context)
-    -> CoreResult<std::string> {
-  const auto value = Attribute(element, key);
-  if (!value.has_value()) {
-    return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-        std::string(context) + " missing required attribute '" +
-        std::string(key) + "'"));
-  }
-  return value.value();
-}
+    [[nodiscard]] auto ReadTextFile(IoFileSystem &fileSystem, const IoPath &path,
+                                    const std::string_view kind)
+        -> CoreResult<std::string>
+    {
+      auto input = NGIN::IO::ReadAllText(fileSystem, path);
+      if (!input)
+      {
+        const auto message = input.Error().code == IoErrorCode::NotFound
+                                 ? "failed to open " + std::string(kind) + " file"
+                                 : "failed to read " + std::string(kind) + " file";
+        return NGIN::Utilities::Unexpected<KernelError>(
+            MakeBuilderFileSystemError(message, path, input.Error()));
+      }
 
-[[nodiscard]] auto OptionalAttribute(const XmlElement &element,
-                                     const std::string_view key,
-                                     const std::string_view context,
-                                     const std::string &defaultValue = {})
-    -> CoreResult<std::string> {
-  (void)context;
-  const auto value = Attribute(element, key);
-  if (!value.has_value()) {
-    return defaultValue;
-  }
-  return value.value();
-}
+      return ToString(input.Value());
+    }
 
-[[nodiscard]] auto ParseBoolValue(const std::string &value,
-                                  const std::string_view context)
-    -> CoreResult<bool> {
-  if (value == "true" || value == "1" || value == "yes") {
-    return true;
-  }
-  if (value == "false" || value == "0" || value == "no") {
-    return false;
-  }
-  return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-      std::string(context) + " must be a boolean-compatible value"));
-}
+    [[nodiscard]] auto AbsolutePath(IoFileSystem &fileSystem, const IoPath &path)
+        -> CoreResult<IoPath>
+    {
+      auto absolute = fileSystem.Absolute(path);
+      if (!absolute)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderFileSystemError(
+            "failed to resolve project path", path, absolute.Error()));
+      }
+      return absolute.Value();
+    }
 
-[[nodiscard]] auto OptionalBoolAttribute(const XmlElement &element,
+    [[nodiscard]] auto WeaklyCanonicalPath(IoFileSystem &fileSystem,
+                                           const IoPath &path)
+        -> CoreResult<IoPath>
+    {
+      auto canonical = fileSystem.WeaklyCanonical(path);
+      if (!canonical)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderFileSystemError(
+            "failed to resolve project path", path, canonical.Error()));
+      }
+      return canonical.Value();
+    }
+
+    [[nodiscard]] auto ToString(const NGIN::Serialization::ParseError &error)
+        -> std::string
+    {
+      return std::string(error.message.Data(), error.message.Size());
+    }
+
+    [[nodiscard]] auto LoadXmlDocument(const std::string &text,
+                                       const std::string_view kind)
+        -> CoreResult<LoadedXmlDocument>
+    {
+      LoadedXmlDocument loaded{};
+      loaded.text = text;
+
+      XmlParseOptions options{};
+      options.decodeEntities = true;
+      options.arenaBytes = std::max<NGIN::UIntSize>(
+          16384, static_cast<NGIN::UIntSize>(loaded.text.size() * 8 + 4096));
+
+      auto parsed = XmlParser::Parse(loaded.text, options);
+      if (!parsed)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(
+            MakeBuilderError("failed to parse " + std::string(kind) +
+                             " manifest: " + ToString(parsed.Error())));
+      }
+
+      loaded.document = std::move(parsed.Value());
+      return loaded;
+    }
+
+    [[nodiscard]] auto ChildElements(const XmlElement &node,
+                                     const std::string_view name = {})
+        -> std::vector<const XmlElement *>
+    {
+      std::vector<const XmlElement *> out{};
+      out.reserve(static_cast<std::size_t>(node.children.Size()));
+      for (NGIN::UIntSize index = 0; index < node.children.Size(); ++index)
+      {
+        const auto &child = node.children[index];
+        if (child.type != XmlNode::Type::Element || child.element == nullptr)
+        {
+          continue;
+        }
+        if (name.empty() || child.element->name == name)
+        {
+          out.push_back(child.element);
+        }
+      }
+      return out;
+    }
+
+    [[nodiscard]] auto FindChild(const XmlElement &node,
+                                 const std::string_view name)
+        -> const XmlElement *
+    {
+      for (NGIN::UIntSize index = 0; index < node.children.Size(); ++index)
+      {
+        const auto &child = node.children[index];
+        if (child.type == XmlNode::Type::Element && child.element != nullptr &&
+            child.element->name == name)
+        {
+          return child.element;
+        }
+      }
+      return nullptr;
+    }
+
+    [[nodiscard]] auto Attribute(const XmlElement &node, const std::string_view key)
+        -> std::optional<std::string>
+    {
+      const auto *attribute = node.FindAttribute(key);
+      if (attribute == nullptr)
+      {
+        return std::nullopt;
+      }
+      return std::string(attribute->value);
+    }
+
+    [[nodiscard]] auto RequireAttribute(const XmlElement &element,
+                                        const std::string_view key,
+                                        const std::string_view context)
+        -> CoreResult<std::string>
+    {
+      const auto value = Attribute(element, key);
+      if (!value.has_value())
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+            std::string(context) + " missing required attribute '" +
+            std::string(key) + "'"));
+      }
+      return value.value();
+    }
+
+    [[nodiscard]] auto OptionalAttribute(const XmlElement &element,
                                          const std::string_view key,
                                          const std::string_view context,
-                                         const bool defaultValue = false)
-    -> CoreResult<bool> {
-  const auto value = Attribute(element, key);
-  if (!value.has_value()) {
-    return defaultValue;
-  }
-  return ParseBoolValue(value.value(), context);
-}
+                                         const std::string &defaultValue = {})
+        -> CoreResult<std::string>
+    {
+      (void)context;
+      const auto value = Attribute(element, key);
+      if (!value.has_value())
+      {
+        return defaultValue;
+      }
+      return value.value();
+    }
 
-[[nodiscard]] auto IsValidOperatingSystem(const std::string_view value) -> bool {
-  return value == "linux" || value == "windows" || value == "macos";
-}
+    [[nodiscard]] auto ParseBoolValue(const std::string &value,
+                                      const std::string_view context)
+        -> CoreResult<bool>
+    {
+      if (value == "true" || value == "1" || value == "yes")
+      {
+        return true;
+      }
+      if (value == "false" || value == "0" || value == "no")
+      {
+        return false;
+      }
+      return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+          std::string(context) + " must be a boolean-compatible value"));
+    }
 
-[[nodiscard]] auto IsValidArchitecture(const std::string_view value) -> bool {
-  return value == "x64" || value == "arm64";
-}
+    [[nodiscard]] auto OptionalBoolAttribute(const XmlElement &element,
+                                             const std::string_view key,
+                                             const std::string_view context,
+                                             const bool defaultValue = false)
+        -> CoreResult<bool>
+    {
+      const auto value = Attribute(element, key);
+      if (!value.has_value())
+      {
+        return defaultValue;
+      }
+      return ParseBoolValue(value.value(), context);
+    }
 
-[[nodiscard]] auto ReadCompatibility(const XmlElement &element,
-                                     const std::string_view context,
-                                     std::vector<std::string> &operatingSystems,
-                                     std::vector<std::string> &architectures)
-    -> CoreResult<void> {
-  if (FindChild(element, "Platforms") != nullptr) {
-    return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-        "legacy <Platforms> is no longer supported", std::string(context),
-        KernelErrorCode::SchemaValidationFailure));
-  }
-  if (FindChild(element, "SupportedHosts") != nullptr) {
-    return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-        "legacy <SupportedHosts> is no longer supported",
-        std::string(context), KernelErrorCode::SchemaValidationFailure));
-  }
-  if (const auto *compatibility = FindChild(element, "Compatibility")) {
-    if (const auto *operatingSystemsElement =
-            FindChild(*compatibility, "OperatingSystems")) {
-      for (const auto *entry :
-           ChildElements(*operatingSystemsElement, "OperatingSystem")) {
-        auto value =
-            RequireAttribute(*entry, "Name", std::string(context) + ".OS");
-        if (!value) {
-          return NGIN::Utilities::Unexpected<KernelError>(value.Error());
+    [[nodiscard]] auto IsValidOperatingSystem(const std::string_view value) -> bool
+    {
+      return value == "linux" || value == "windows" || value == "macos";
+    }
+
+    [[nodiscard]] auto IsValidArchitecture(const std::string_view value) -> bool
+    {
+      return value == "x64" || value == "arm64";
+    }
+
+    [[nodiscard]] auto ReadCompatibility(const XmlElement &element,
+                                         const std::string_view context,
+                                         std::vector<std::string> &operatingSystems,
+                                         std::vector<std::string> &architectures)
+        -> CoreResult<void>
+    {
+      if (FindChild(element, "Platforms") != nullptr)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+            "legacy <Platforms> is no longer supported", std::string(context),
+            KernelErrorCode::SchemaValidationFailure));
+      }
+      if (FindChild(element, "SupportedHosts") != nullptr)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+            "legacy <SupportedHosts> is no longer supported",
+            std::string(context), KernelErrorCode::SchemaValidationFailure));
+      }
+      if (const auto *compatibility = FindChild(element, "Compatibility"))
+      {
+        if (const auto *operatingSystemsElement =
+                FindChild(*compatibility, "OperatingSystems"))
+        {
+          for (const auto *entry :
+               ChildElements(*operatingSystemsElement, "OperatingSystem"))
+          {
+            auto value =
+                RequireAttribute(*entry, "Name", std::string(context) + ".OS");
+            if (!value)
+            {
+              return NGIN::Utilities::Unexpected<KernelError>(value.Error());
+            }
+            operatingSystems.push_back(value.Value());
+          }
         }
-        operatingSystems.push_back(value.Value());
+        if (const auto *architecturesElement =
+                FindChild(*compatibility, "Architectures"))
+        {
+          for (const auto *entry :
+               ChildElements(*architecturesElement, "Architecture"))
+          {
+            auto value =
+                RequireAttribute(*entry, "Name", std::string(context) + ".Arch");
+            if (!value)
+            {
+              return NGIN::Utilities::Unexpected<KernelError>(value.Error());
+            }
+            architectures.push_back(value.Value());
+          }
+        }
+      }
+      return CoreResult<void>{};
+    }
+
+    [[nodiscard]] auto ParseUInt32Value(const std::string &value,
+                                        const std::string_view context)
+        -> CoreResult<NGIN::UInt32>
+    {
+      try
+      {
+        const auto parsed = static_cast<unsigned long>(std::stoul(value));
+        return static_cast<NGIN::UInt32>(parsed);
+      }
+      catch (...)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+            std::string(context) + " must be an unsigned integer"));
       }
     }
-    if (const auto *architecturesElement =
-            FindChild(*compatibility, "Architectures")) {
-      for (const auto *entry :
-           ChildElements(*architecturesElement, "Architecture")) {
-        auto value =
-            RequireAttribute(*entry, "Name", std::string(context) + ".Arch");
-        if (!value) {
-          return NGIN::Utilities::Unexpected<KernelError>(value.Error());
-        }
-        architectures.push_back(value.Value());
+
+    [[nodiscard]] auto ParsePackageBootstrapMode(const std::string_view text)
+        -> CoreResult<PackageBootstrapMode>
+    {
+      if (text == "BuilderHookV1")
+        return PackageBootstrapMode::BuilderHookV1;
+      return NGIN::Utilities::Unexpected<KernelError>(
+          MakeBuilderError("unknown package bootstrap mode", std::string(text),
+                           KernelErrorCode::SchemaValidationFailure));
+    }
+
+    [[nodiscard]] auto ParseModuleFamilyText(const std::string_view text)
+        -> CoreResult<ModuleFamily>
+    {
+      if (text == "Base")
+        return ModuleFamily::Base;
+      if (text == "Reflection")
+        return ModuleFamily::Reflection;
+      if (text == "Core")
+        return ModuleFamily::Core;
+      if (text == "Platform")
+        return ModuleFamily::Platform;
+      if (text == "Editor")
+        return ModuleFamily::Editor;
+      if (text == "Domain")
+        return ModuleFamily::Domain;
+      if (text == "App")
+        return ModuleFamily::App;
+      return NGIN::Utilities::Unexpected<KernelError>(
+          MakeBuilderError("unknown module family", std::string(text),
+                           KernelErrorCode::SchemaValidationFailure));
+    }
+
+    [[nodiscard]] auto ParseModuleTypeText(const std::string_view text)
+        -> CoreResult<ModuleType>
+    {
+      if (text == "Runtime")
+        return ModuleType::Runtime;
+      if (text == "Editor")
+        return ModuleType::Editor;
+      if (text == "Program")
+        return ModuleType::Program;
+      if (text == "Developer")
+        return ModuleType::Developer;
+      if (text == "ThirdParty")
+        return ModuleType::ThirdParty;
+      return NGIN::Utilities::Unexpected<KernelError>(
+          MakeBuilderError("unknown module type", std::string(text),
+                           KernelErrorCode::SchemaValidationFailure));
+    }
+
+    [[nodiscard]] auto ParseStartupStageText(const std::string_view text)
+        -> CoreResult<StartupStage>
+    {
+      if (text == "Foundation")
+        return StartupStage::Foundation;
+      if (text == "Platform")
+        return StartupStage::Platform;
+      if (text == "Services")
+        return StartupStage::Services;
+      if (text == "Features")
+        return StartupStage::Features;
+      if (text == "Presentation")
+        return StartupStage::Presentation;
+      return NGIN::Utilities::Unexpected<KernelError>(
+          MakeBuilderError("unknown startup stage", std::string(text),
+                           KernelErrorCode::SchemaValidationFailure));
+    }
+
+    [[nodiscard]] auto ParsePackageModuleDescriptor(const XmlElement &element,
+                                                    const std::string_view context)
+        -> CoreResult<ModuleDescriptor>
+    {
+      ModuleDescriptor descriptor{};
+
+      auto name = RequireAttribute(element, "Name", context);
+      if (!name)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(name.Error());
       }
+      descriptor.name = name.Value();
+
+      auto familyText = OptionalAttribute(element, "Family", context, "Core");
+      if (!familyText)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(familyText.Error());
+      }
+      auto family = ParseModuleFamilyText(familyText.Value());
+      if (!family)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(family.Error());
+      }
+      descriptor.family = family.Value();
+
+      auto typeText = OptionalAttribute(element, "Type", context, "Runtime");
+      if (!typeText)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(typeText.Error());
+      }
+      auto type = ParseModuleTypeText(typeText.Value());
+      if (!type)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(type.Error());
+      }
+      descriptor.type = type.Value();
+
+      auto stageText =
+          OptionalAttribute(element, "StartupStage", context, "Features");
+      if (!stageText)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(stageText.Error());
+      }
+      auto stage = ParseStartupStageText(stageText.Value());
+      if (!stage)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(stage.Error());
+      }
+      descriptor.startupStage = stage.Value();
+
+      auto versionText = OptionalAttribute(element, "Version", context, {});
+      if (!versionText)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(versionText.Error());
+      }
+      if (!versionText.Value().empty())
+      {
+        auto version = ParseSemanticVersion(versionText.Value());
+        if (!version)
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(version.Error());
+        }
+        descriptor.version = version.Value();
+      }
+
+      auto rangeText =
+          OptionalAttribute(element, "CompatiblePlatformRange", context, {});
+      if (!rangeText)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(rangeText.Error());
+      }
+      if (!rangeText.Value().empty())
+      {
+        auto range = ParseVersionRange(rangeText.Value());
+        if (!range)
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(range.Error());
+        }
+        descriptor.compatiblePlatformRange = range.Value();
+      }
+
+      auto reflectionRequired = OptionalBoolAttribute(
+          element, "ReflectionRequired",
+          std::string(context) + ".ReflectionRequired", false);
+      if (!reflectionRequired)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(reflectionRequired.Error());
+      }
+      descriptor.reflectionRequired = reflectionRequired.Value();
+
+      auto compatibility = ReadCompatibility(element, context,
+                                             descriptor.operatingSystems,
+                                             descriptor.architectures);
+      if (!compatibility)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(compatibility.Error());
+      }
+
+      if (const auto *dependencies = FindChild(element, "Dependencies"))
+      {
+        for (const auto *dependencyElement :
+             ChildElements(*dependencies, "Dependency"))
+        {
+          auto dependencyName = RequireAttribute(
+              *dependencyElement, "Name", std::string(context) + ".Dependencies");
+          if (!dependencyName)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(dependencyName.Error());
+          }
+
+          auto optional = OptionalBoolAttribute(
+              *dependencyElement, "Optional",
+              std::string(context) + ".Dependencies.Optional", false);
+          if (!optional)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(optional.Error());
+          }
+
+          DependencyDescriptor dependency{};
+          dependency.name = dependencyName.Value();
+          dependency.optional = optional.Value();
+
+          auto requiredVersion = OptionalAttribute(
+              *dependencyElement, "RequiredVersion",
+              std::string(context) + ".Dependencies.RequiredVersion", {});
+          if (!requiredVersion)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(
+                requiredVersion.Error());
+          }
+          if (!requiredVersion.Value().empty())
+          {
+            auto range = ParseVersionRange(requiredVersion.Value());
+            if (!range)
+            {
+              return NGIN::Utilities::Unexpected<KernelError>(range.Error());
+            }
+            dependency.requiredVersion = range.Value();
+          }
+
+          descriptor.dependencies.push_back(std::move(dependency));
+        }
+      }
+
+      if (const auto *providesServices = FindChild(element, "ProvidesServices"))
+      {
+        for (const auto *serviceElement :
+             ChildElements(*providesServices, "Service"))
+        {
+          auto service = RequireAttribute(
+              *serviceElement, "Name", std::string(context) + ".ProvidesServices");
+          if (!service)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(service.Error());
+          }
+          descriptor.providesServices.push_back(service.Value());
+        }
+      }
+
+      if (const auto *requiresServices = FindChild(element, "RequiresServices"))
+      {
+        for (const auto *serviceElement :
+             ChildElements(*requiresServices, "Service"))
+        {
+          auto service = RequireAttribute(
+              *serviceElement, "Name", std::string(context) + ".RequiresServices");
+          if (!service)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(service.Error());
+          }
+          descriptor.requiresServices.push_back(service.Value());
+        }
+      }
+
+      if (const auto *capabilities = FindChild(element, "Capabilities"))
+      {
+        for (const auto *capabilityElement :
+             ChildElements(*capabilities, "Capability"))
+        {
+          auto capability = RequireAttribute(
+              *capabilityElement, "Name", std::string(context) + ".Capabilities");
+          if (!capability)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(capability.Error());
+          }
+          descriptor.capabilities.push_back(capability.Value());
+        }
+      }
+
+      return descriptor;
     }
-  }
-  return CoreResult<void>{};
-}
 
-[[nodiscard]] auto ParseUInt32Value(const std::string &value,
-                                    const std::string_view context)
-    -> CoreResult<NGIN::UInt32> {
-  try {
-    const auto parsed = static_cast<unsigned long>(std::stoul(value));
-    return static_cast<NGIN::UInt32>(parsed);
-  } catch (...) {
-    return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-        std::string(context) + " must be an unsigned integer"));
-  }
-}
+    [[nodiscard]] auto ParsePackagePluginManifest(const XmlElement &element,
+                                                  const std::string_view context)
+        -> CoreResult<PackagePluginManifest>
+    {
+      PackagePluginManifest plugin{};
 
-[[nodiscard]] auto ParsePackageBootstrapMode(const std::string_view text)
-    -> CoreResult<PackageBootstrapMode> {
-  if (text == "BuilderHookV1")
-    return PackageBootstrapMode::BuilderHookV1;
-  return NGIN::Utilities::Unexpected<KernelError>(
-      MakeBuilderError("unknown package bootstrap mode", std::string(text),
-                       KernelErrorCode::SchemaValidationFailure));
-}
+      auto name = RequireAttribute(element, "Name", context);
+      if (!name)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(name.Error());
+      }
+      plugin.name = name.Value();
 
-[[nodiscard]] auto ParseModuleFamilyText(const std::string_view text)
-    -> CoreResult<ModuleFamily> {
-  if (text == "Base")
-    return ModuleFamily::Base;
-  if (text == "Reflection")
-    return ModuleFamily::Reflection;
-  if (text == "Core")
-    return ModuleFamily::Core;
-  if (text == "Platform")
-    return ModuleFamily::Platform;
-  if (text == "Editor")
-    return ModuleFamily::Editor;
-  if (text == "Domain")
-    return ModuleFamily::Domain;
-  if (text == "App")
-    return ModuleFamily::App;
-  return NGIN::Utilities::Unexpected<KernelError>(
-      MakeBuilderError("unknown module family", std::string(text),
-                       KernelErrorCode::SchemaValidationFailure));
-}
+      auto optional = OptionalBoolAttribute(
+          element, "Optional", std::string(context) + ".Optional", false);
+      if (!optional)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(optional.Error());
+      }
+      plugin.optional = optional.Value();
 
-[[nodiscard]] auto ParseModuleTypeText(const std::string_view text)
-    -> CoreResult<ModuleType> {
-  if (text == "Runtime")
-    return ModuleType::Runtime;
-  if (text == "Editor")
-    return ModuleType::Editor;
-  if (text == "Program")
-    return ModuleType::Program;
-  if (text == "Developer")
-    return ModuleType::Developer;
-  if (text == "ThirdParty")
-    return ModuleType::ThirdParty;
-  return NGIN::Utilities::Unexpected<KernelError>(
-      MakeBuilderError("unknown module type", std::string(text),
-                       KernelErrorCode::SchemaValidationFailure));
-}
+      auto compatibility = ReadCompatibility(element, context,
+                                             plugin.operatingSystems,
+                                             plugin.architectures);
+      if (!compatibility)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(compatibility.Error());
+      }
 
-[[nodiscard]] auto ParseStartupStageText(const std::string_view text)
-    -> CoreResult<StartupStage> {
-  if (text == "Foundation")
-    return StartupStage::Foundation;
-  if (text == "Platform")
-    return StartupStage::Platform;
-  if (text == "Services")
-    return StartupStage::Services;
-  if (text == "Features")
-    return StartupStage::Features;
-  if (text == "Presentation")
-    return StartupStage::Presentation;
-  return NGIN::Utilities::Unexpected<KernelError>(
-      MakeBuilderError("unknown startup stage", std::string(text),
-                       KernelErrorCode::SchemaValidationFailure));
-}
+      if (const auto *modules = FindChild(element, "Modules"))
+      {
+        if (const auto *required = FindChild(*modules, "Required"))
+        {
+          for (const auto *moduleElement : ChildElements(*required, "ModuleRef"))
+          {
+            auto moduleName = RequireAttribute(
+                *moduleElement, "Name", std::string(context) + ".Modules.Required");
+            if (!moduleName)
+            {
+              return NGIN::Utilities::Unexpected<KernelError>(moduleName.Error());
+            }
+            plugin.requiredModules.push_back(moduleName.Value());
+          }
+        }
+        if (const auto *optionalModules = FindChild(*modules, "Optional"))
+        {
+          for (const auto *moduleElement :
+               ChildElements(*optionalModules, "ModuleRef"))
+          {
+            auto moduleName = RequireAttribute(
+                *moduleElement, "Name", std::string(context) + ".Modules.Optional");
+            if (!moduleName)
+            {
+              return NGIN::Utilities::Unexpected<KernelError>(moduleName.Error());
+            }
+            plugin.optionalModules.push_back(moduleName.Value());
+          }
+        }
+      }
 
-[[nodiscard]] auto ParsePackageModuleDescriptor(const XmlElement &element,
-                                                const std::string_view context)
-    -> CoreResult<ModuleDescriptor> {
-  ModuleDescriptor descriptor{};
-
-  auto name = RequireAttribute(element, "Name", context);
-  if (!name) {
-    return NGIN::Utilities::Unexpected<KernelError>(name.Error());
-  }
-  descriptor.name = name.Value();
-
-  auto familyText = OptionalAttribute(element, "Family", context, "Core");
-  if (!familyText) {
-    return NGIN::Utilities::Unexpected<KernelError>(familyText.Error());
-  }
-  auto family = ParseModuleFamilyText(familyText.Value());
-  if (!family) {
-    return NGIN::Utilities::Unexpected<KernelError>(family.Error());
-  }
-  descriptor.family = family.Value();
-
-  auto typeText = OptionalAttribute(element, "Type", context, "Runtime");
-  if (!typeText) {
-    return NGIN::Utilities::Unexpected<KernelError>(typeText.Error());
-  }
-  auto type = ParseModuleTypeText(typeText.Value());
-  if (!type) {
-    return NGIN::Utilities::Unexpected<KernelError>(type.Error());
-  }
-  descriptor.type = type.Value();
-
-  auto stageText =
-      OptionalAttribute(element, "StartupStage", context, "Features");
-  if (!stageText) {
-    return NGIN::Utilities::Unexpected<KernelError>(stageText.Error());
-  }
-  auto stage = ParseStartupStageText(stageText.Value());
-  if (!stage) {
-    return NGIN::Utilities::Unexpected<KernelError>(stage.Error());
-  }
-  descriptor.startupStage = stage.Value();
-
-  auto versionText = OptionalAttribute(element, "Version", context, {});
-  if (!versionText) {
-    return NGIN::Utilities::Unexpected<KernelError>(versionText.Error());
-  }
-  if (!versionText.Value().empty()) {
-    auto version = ParseSemanticVersion(versionText.Value());
-    if (!version) {
-      return NGIN::Utilities::Unexpected<KernelError>(version.Error());
+      return plugin;
     }
-    descriptor.version = version.Value();
-  }
 
-  auto rangeText =
-      OptionalAttribute(element, "CompatiblePlatformRange", context, {});
-  if (!rangeText) {
-    return NGIN::Utilities::Unexpected<KernelError>(rangeText.Error());
-  }
-  if (!rangeText.Value().empty()) {
-    auto range = ParseVersionRange(rangeText.Value());
-    if (!range) {
-      return NGIN::Utilities::Unexpected<KernelError>(range.Error());
-    }
-    descriptor.compatiblePlatformRange = range.Value();
-  }
+    [[nodiscard]] auto ParsePackageReference(const XmlElement &element,
+                                             const std::string_view context)
+        -> CoreResult<PackageReference>
+    {
+      auto name = RequireAttribute(element, "Name", context);
+      if (!name)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(name.Error());
+      }
 
-  auto reflectionRequired = OptionalBoolAttribute(
-      element, "ReflectionRequired",
-      std::string(context) + ".ReflectionRequired", false);
-  if (!reflectionRequired) {
-    return NGIN::Utilities::Unexpected<KernelError>(reflectionRequired.Error());
-  }
-  descriptor.reflectionRequired = reflectionRequired.Value();
-
-  auto compatibility = ReadCompatibility(element, context,
-                                         descriptor.operatingSystems,
-                                         descriptor.architectures);
-  if (!compatibility) {
-    return NGIN::Utilities::Unexpected<KernelError>(compatibility.Error());
-  }
-
-  if (const auto *dependencies = FindChild(element, "Dependencies")) {
-    for (const auto *dependencyElement :
-         ChildElements(*dependencies, "Dependency")) {
-      auto dependencyName = RequireAttribute(
-          *dependencyElement, "Name", std::string(context) + ".Dependencies");
-      if (!dependencyName) {
-        return NGIN::Utilities::Unexpected<KernelError>(dependencyName.Error());
+      auto versionRange = OptionalAttribute(element, "Version", context);
+      if (!versionRange)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(versionRange.Error());
+      }
+      if (versionRange.Value().empty())
+      {
+        versionRange = OptionalAttribute(element, "VersionRange", context);
+      }
+      if (!versionRange)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(versionRange.Error());
       }
 
       auto optional = OptionalBoolAttribute(
-          *dependencyElement, "Optional",
-          std::string(context) + ".Dependencies.Optional", false);
-      if (!optional) {
+          element, "Optional", std::string(context) + " attribute 'Optional'",
+          false);
+      if (!optional)
+      {
         return NGIN::Utilities::Unexpected<KernelError>(optional.Error());
       }
 
-      DependencyDescriptor dependency{};
-      dependency.name = dependencyName.Value();
-      dependency.optional = optional.Value();
+      return PackageReference{
+          .name = name.Value(),
+          .versionRange = versionRange.Value(),
+          .optional = optional.Value(),
+      };
+    }
 
-      auto requiredVersion = OptionalAttribute(
-          *dependencyElement, "RequiredVersion",
-          std::string(context) + ".Dependencies.RequiredVersion", {});
-      if (!requiredVersion) {
-        return NGIN::Utilities::Unexpected<KernelError>(
-            requiredVersion.Error());
+    [[nodiscard]] auto ParseModuleRefs(const XmlElement *parentElement,
+                                       const std::string_view childName,
+                                       const std::string_view context)
+        -> CoreResult<std::vector<std::string>>
+    {
+      std::vector<std::string> out{};
+      if (parentElement == nullptr)
+      {
+        return out;
       }
-      if (!requiredVersion.Value().empty()) {
-        auto range = ParseVersionRange(requiredVersion.Value());
-        if (!range) {
-          return NGIN::Utilities::Unexpected<KernelError>(range.Error());
+
+      for (const auto *moduleElement : ChildElements(*parentElement, childName))
+      {
+        auto name =
+            RequireAttribute(*moduleElement, "Name",
+                             std::string(context) + "." + std::string(childName));
+        if (!name)
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(name.Error());
         }
-        dependency.requiredVersion = range.Value();
+        out.push_back(name.Value());
       }
-
-      descriptor.dependencies.push_back(std::move(dependency));
+      return out;
     }
-  }
 
-  if (const auto *providesServices = FindChild(element, "ProvidesServices")) {
-    for (const auto *serviceElement :
-         ChildElements(*providesServices, "Service")) {
-      auto service = RequireAttribute(
-          *serviceElement, "Name", std::string(context) + ".ProvidesServices");
-      if (!service) {
-        return NGIN::Utilities::Unexpected<KernelError>(service.Error());
-      }
-      descriptor.providesServices.push_back(service.Value());
-    }
-  }
+    [[nodiscard]] auto ParseProjectReference(const XmlElement &element,
+                                             const std::string_view context)
+        -> CoreResult<ProjectReference>
+    {
+      ProjectReference reference{};
 
-  if (const auto *requiresServices = FindChild(element, "RequiresServices")) {
-    for (const auto *serviceElement :
-         ChildElements(*requiresServices, "Service")) {
-      auto service = RequireAttribute(
-          *serviceElement, "Name", std::string(context) + ".RequiresServices");
-      if (!service) {
-        return NGIN::Utilities::Unexpected<KernelError>(service.Error());
-      }
-      descriptor.requiresServices.push_back(service.Value());
-    }
-  }
-
-  if (const auto *capabilities = FindChild(element, "Capabilities")) {
-    for (const auto *capabilityElement :
-         ChildElements(*capabilities, "Capability")) {
-      auto capability = RequireAttribute(
-          *capabilityElement, "Name", std::string(context) + ".Capabilities");
-      if (!capability) {
-        return NGIN::Utilities::Unexpected<KernelError>(capability.Error());
-      }
-      descriptor.capabilities.push_back(capability.Value());
-    }
-  }
-
-  return descriptor;
-}
-
-[[nodiscard]] auto ParsePackagePluginManifest(const XmlElement &element,
-                                              const std::string_view context)
-    -> CoreResult<PackagePluginManifest> {
-  PackagePluginManifest plugin{};
-
-  auto name = RequireAttribute(element, "Name", context);
-  if (!name) {
-    return NGIN::Utilities::Unexpected<KernelError>(name.Error());
-  }
-  plugin.name = name.Value();
-
-  auto optional = OptionalBoolAttribute(
-      element, "Optional", std::string(context) + ".Optional", false);
-  if (!optional) {
-    return NGIN::Utilities::Unexpected<KernelError>(optional.Error());
-  }
-  plugin.optional = optional.Value();
-
-  auto compatibility = ReadCompatibility(element, context,
-                                         plugin.operatingSystems,
-                                         plugin.architectures);
-  if (!compatibility) {
-    return NGIN::Utilities::Unexpected<KernelError>(compatibility.Error());
-  }
-
-  if (const auto *modules = FindChild(element, "Modules")) {
-    if (const auto *required = FindChild(*modules, "Required")) {
-      for (const auto *moduleElement : ChildElements(*required, "ModuleRef")) {
-        auto moduleName = RequireAttribute(
-            *moduleElement, "Name", std::string(context) + ".Modules.Required");
-        if (!moduleName) {
-          return NGIN::Utilities::Unexpected<KernelError>(moduleName.Error());
-        }
-        plugin.requiredModules.push_back(moduleName.Value());
-      }
-    }
-    if (const auto *optionalModules = FindChild(*modules, "Optional")) {
-      for (const auto *moduleElement :
-           ChildElements(*optionalModules, "ModuleRef")) {
-        auto moduleName = RequireAttribute(
-            *moduleElement, "Name", std::string(context) + ".Modules.Optional");
-        if (!moduleName) {
-          return NGIN::Utilities::Unexpected<KernelError>(moduleName.Error());
-        }
-        plugin.optionalModules.push_back(moduleName.Value());
-      }
-    }
-  }
-
-  return plugin;
-}
-
-[[nodiscard]] auto ParsePackageReference(const XmlElement &element,
-                                         const std::string_view context)
-    -> CoreResult<PackageReference> {
-  auto name = RequireAttribute(element, "Name", context);
-  if (!name) {
-    return NGIN::Utilities::Unexpected<KernelError>(name.Error());
-  }
-
-  auto versionRange = OptionalAttribute(element, "Version", context);
-  if (!versionRange) {
-    return NGIN::Utilities::Unexpected<KernelError>(versionRange.Error());
-  }
-  if (versionRange.Value().empty()) {
-    versionRange = OptionalAttribute(element, "VersionRange", context);
-  }
-  if (!versionRange) {
-    return NGIN::Utilities::Unexpected<KernelError>(versionRange.Error());
-  }
-
-  auto optional = OptionalBoolAttribute(
-      element, "Optional", std::string(context) + " attribute 'Optional'",
-      false);
-  if (!optional) {
-    return NGIN::Utilities::Unexpected<KernelError>(optional.Error());
-  }
-
-  return PackageReference{
-      .name = name.Value(),
-      .versionRange = versionRange.Value(),
-      .optional = optional.Value(),
-  };
-}
-
-[[nodiscard]] auto ParseModuleRefs(const XmlElement *parentElement,
-                                   const std::string_view childName,
-                                   const std::string_view context)
-    -> CoreResult<std::vector<std::string>> {
-  std::vector<std::string> out{};
-  if (parentElement == nullptr) {
-    return out;
-  }
-
-  for (const auto *moduleElement : ChildElements(*parentElement, childName)) {
-    auto name =
-        RequireAttribute(*moduleElement, "Name",
-                         std::string(context) + "." + std::string(childName));
-    if (!name) {
-      return NGIN::Utilities::Unexpected<KernelError>(name.Error());
-    }
-    out.push_back(name.Value());
-  }
-  return out;
-}
-
-[[nodiscard]] auto ParseProjectReference(const XmlElement &element,
-                                         const std::string_view context)
-    -> CoreResult<ProjectReference> {
-  ProjectReference reference{};
-
-  auto path = RequireAttribute(element, "Path", context);
-  if (!path) {
-    return NGIN::Utilities::Unexpected<KernelError>(path.Error());
-  }
-  reference.path = path.Value();
-
-  auto configuration = OptionalAttribute(element, "Configuration", context, {});
-  if (!configuration) {
-    return NGIN::Utilities::Unexpected<KernelError>(configuration.Error());
-  }
-  if (!configuration.Value().empty()) {
-    reference.configuration = configuration.Value();
-  }
-
-  return reference;
-}
-
-[[nodiscard]] auto ParseOutputDefinition(const XmlElement &element,
-                                         const std::string_view context)
-    -> CoreResult<OutputDefinition> {
-  OutputDefinition output{};
-
-  auto kind = RequireAttribute(element, "Kind", context);
-  if (!kind) {
-    return NGIN::Utilities::Unexpected<KernelError>(kind.Error());
-  }
-  output.kind = kind.Value();
-
-  auto name = RequireAttribute(element, "Name", context);
-  if (!name) {
-    return NGIN::Utilities::Unexpected<KernelError>(name.Error());
-  }
-  output.name = name.Value();
-
-  auto target = RequireAttribute(element, "Target", context);
-  if (!target) {
-    return NGIN::Utilities::Unexpected<KernelError>(target.Error());
-  }
-  output.target = target.Value();
-
-  return output;
-}
-
-[[nodiscard]] auto ParseBuildSetting(const XmlElement &element,
-                                     const std::string_view context,
-                                     const std::string_view valueAttribute)
-    -> CoreResult<BuildSetting> {
-  BuildSetting setting{};
-
-  auto value = RequireAttribute(element, valueAttribute, context);
-  if (!value) {
-    return NGIN::Utilities::Unexpected<KernelError>(value.Error());
-  }
-  setting.value = value.Value();
-
-  auto visibility =
-      OptionalAttribute(element, "Visibility", context, "Private");
-  if (!visibility) {
-    return NGIN::Utilities::Unexpected<KernelError>(visibility.Error());
-  }
-  if (visibility.Value() != "Private" && visibility.Value() != "Public" &&
-      visibility.Value() != "Interface") {
-    return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-        std::string(context) + " uses unknown build visibility",
-        visibility.Value()));
-  }
-  setting.visibility = visibility.Value();
-  return setting;
-}
-
-[[nodiscard]] auto ParseProjectBuildDescriptor(const XmlElement *buildElement,
-                                               const std::string_view context)
-    -> CoreResult<ProjectBuildDescriptor> {
-  ProjectBuildDescriptor build{};
-  if (buildElement == nullptr) {
-    return build;
-  }
-
-  auto backend = OptionalAttribute(*buildElement, "Backend", context, "CMake");
-  if (!backend) {
-    return NGIN::Utilities::Unexpected<KernelError>(backend.Error());
-  }
-  build.backend = backend.Value();
-
-  auto mode = OptionalAttribute(*buildElement, "Mode", context, "Generated");
-  if (!mode) {
-    return NGIN::Utilities::Unexpected<KernelError>(mode.Error());
-  }
-  if (mode.Value() != "Generated" && mode.Value() != "Manual") {
-    return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-        std::string(context) + " uses unknown build mode", mode.Value()));
-  }
-  build.mode = mode.Value();
-
-  auto language = OptionalAttribute(*buildElement, "Language", context, "CXX");
-  if (!language) {
-    return NGIN::Utilities::Unexpected<KernelError>(language.Error());
-  }
-  build.language = language.Value();
-
-  auto languageStandard =
-      OptionalAttribute(*buildElement, "LanguageStandard", context, "23");
-  if (!languageStandard) {
-    return NGIN::Utilities::Unexpected<KernelError>(languageStandard.Error());
-  }
-  build.languageStandard = languageStandard.Value();
-
-  if (const auto *sourcesElement = FindChild(*buildElement, "Sources")) {
-    for (const auto *sourceElement : ChildElements(*sourcesElement, "Source")) {
-      auto path = RequireAttribute(*sourceElement, "Path",
-                                   std::string(context) + ".Sources");
-      if (!path) {
+      auto path = RequireAttribute(element, "Path", context);
+      if (!path)
+      {
         return NGIN::Utilities::Unexpected<KernelError>(path.Error());
       }
-      build.sources.push_back(path.Value());
-    }
-  }
+      reference.path = path.Value();
 
-  auto parseSettings =
-      [&](const XmlElement *section, const std::string_view childName,
-          const std::string_view attrName, std::vector<BuildSetting> &output,
-          const std::string &sectionContext) -> CoreResult<void> {
-    if (section == nullptr) {
-      return {};
-    }
-    for (const auto *child : ChildElements(*section, childName)) {
-      auto setting = ParseBuildSetting(*child, sectionContext, attrName);
-      if (!setting) {
-        return NGIN::Utilities::Unexpected<KernelError>(setting.Error());
+      auto configuration = OptionalAttribute(element, "Configuration", context, {});
+      if (!configuration)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(configuration.Error());
       }
-      output.push_back(setting.Value());
-    }
-    return {};
-  };
-
-  auto includeDirectories =
-      parseSettings(FindChild(*buildElement, "IncludeDirectories"),
-                    "IncludeDirectory", "Path", build.includeDirectories,
-                    std::string(context) + ".IncludeDirectories");
-  if (!includeDirectories) {
-    return NGIN::Utilities::Unexpected<KernelError>(includeDirectories.Error());
-  }
-
-  auto compileDefinitions = parseSettings(
-      FindChild(*buildElement, "CompileDefinitions"), "Definition", "Value",
-      build.compileDefinitions, std::string(context) + ".CompileDefinitions");
-  if (!compileDefinitions) {
-    return NGIN::Utilities::Unexpected<KernelError>(compileDefinitions.Error());
-  }
-
-  auto compileOptions = parseSettings(
-      FindChild(*buildElement, "CompileOptions"), "Option", "Value",
-      build.compileOptions, std::string(context) + ".CompileOptions");
-  if (!compileOptions) {
-    return NGIN::Utilities::Unexpected<KernelError>(compileOptions.Error());
-  }
-
-  auto linkOptions =
-      parseSettings(FindChild(*buildElement, "LinkOptions"), "Option", "Value",
-                    build.linkOptions, std::string(context) + ".LinkOptions");
-  if (!linkOptions) {
-    return NGIN::Utilities::Unexpected<KernelError>(linkOptions.Error());
-  }
-
-  return build;
-}
-
-[[nodiscard]] auto ParseRuntimeDefinition(const XmlElement *runtimeElement,
-                                          const std::string_view context)
-    -> CoreResult<RuntimeDefinition> {
-  RuntimeDefinition runtime{};
-  if (runtimeElement == nullptr) {
-    return runtime;
-  }
-
-  if (const auto *modulesElement = FindChild(*runtimeElement, "Modules")) {
-    std::size_t index = 0;
-    for (const auto *moduleElement : ChildElements(*modulesElement, "Module")) {
-      auto descriptor = ParsePackageModuleDescriptor(
-          *moduleElement,
-          std::string(context) + ".Modules[" + std::to_string(index++) + "]");
-      if (!descriptor) {
-        return NGIN::Utilities::Unexpected<KernelError>(descriptor.Error());
-      }
-      runtime.modules.push_back(descriptor.Value());
-    }
-  }
-
-  auto enabled =
-      ParseModuleRefs(FindChild(*runtimeElement, "EnableModules"), "ModuleRef",
-                      std::string(context) + ".EnableModules");
-  if (!enabled) {
-    return NGIN::Utilities::Unexpected<KernelError>(enabled.Error());
-  }
-  runtime.enableModules = std::move(enabled.Value());
-
-  auto disabled =
-      ParseModuleRefs(FindChild(*runtimeElement, "DisableModules"), "ModuleRef",
-                      std::string(context) + ".DisableModules");
-  if (!disabled) {
-    return NGIN::Utilities::Unexpected<KernelError>(disabled.Error());
-  }
-  runtime.disableModules = std::move(disabled.Value());
-
-  return runtime;
-}
-
-[[nodiscard]] auto ParseEnvironmentDefinition(const XmlElement &element,
-                                              const std::string_view context)
-    -> CoreResult<EnvironmentDefinition> {
-  EnvironmentDefinition environment{};
-
-  auto name = RequireAttribute(element, "Name", context);
-  if (!name) {
-    return NGIN::Utilities::Unexpected<KernelError>(name.Error());
-  }
-  environment.name = name.Value();
-
-  if (const auto *referencesElement = FindChild(element, "References")) {
-    std::size_t projectIndex = 0;
-    for (const auto *projectElement :
-         ChildElements(*referencesElement, "Project")) {
-      auto project = ParseProjectReference(
-          *projectElement, std::string(context) + ".References.Project[" +
-                               std::to_string(projectIndex++) + "]");
-      if (!project) {
-        return NGIN::Utilities::Unexpected<KernelError>(project.Error());
-      }
-      environment.projectRefs.push_back(project.Value());
-    }
-    for (const auto *packageElement :
-         ChildElements(*referencesElement, "Package")) {
-      auto package = ParsePackageReference(
-          *packageElement, std::string(context) + ".References.Package");
-      if (!package) {
-        return NGIN::Utilities::Unexpected<KernelError>(package.Error());
-      }
-      environment.packageRefs.push_back(package.Value());
-    }
-  }
-
-  if (const auto *configSources = FindChild(element, "ConfigSources")) {
-    for (const auto *configElement : ChildElements(*configSources, "Config")) {
-      auto source = RequireAttribute(*configElement, "Source",
-                                     std::string(context) + ".ConfigSources");
-      if (!source) {
-        return NGIN::Utilities::Unexpected<KernelError>(source.Error());
-      }
-      environment.configSources.push_back(source.Value());
-    }
-  }
-
-  if (const auto *contents = FindChild(element, "Contents")) {
-    for (const auto *fileElement : ChildElements(*contents, "File")) {
-      auto source = RequireAttribute(*fileElement, "Source",
-                                     std::string(context) + ".Contents.File");
-      if (!source) {
-        return NGIN::Utilities::Unexpected<KernelError>(source.Error());
+      if (!configuration.Value().empty())
+      {
+        reference.configuration = configuration.Value();
       }
 
-      auto target = OptionalAttribute(*fileElement, "Target",
-                                      std::string(context) + ".Contents.File");
-      if (!target) {
-        return NGIN::Utilities::Unexpected<KernelError>(target.Error());
-      }
+      return reference;
+    }
 
-      auto kind = OptionalAttribute(*fileElement, "Kind",
-                                    std::string(context) + ".Contents.File",
-                                    "other");
-      if (!kind) {
+    [[nodiscard]] auto ParseOutputDefinition(const XmlElement &element,
+                                             const std::string_view context)
+        -> CoreResult<OutputDefinition>
+    {
+      OutputDefinition output{};
+
+      auto kind = RequireAttribute(element, "Kind", context);
+      if (!kind)
+      {
         return NGIN::Utilities::Unexpected<KernelError>(kind.Error());
       }
+      output.kind = kind.Value();
 
-      environment.contents.push_back(PackageContentFile{
-          .source = source.Value(),
-          .target = target.Value(),
-          .kind = kind.Value(),
-      });
-    }
-  }
-
-  if (const auto *variables = FindChild(element, "Variables")) {
-    for (const auto *variableElement : ChildElements(*variables, "Variable")) {
-      auto variableName =
-          RequireAttribute(*variableElement, "Name",
-                           std::string(context) + ".Variables.Variable");
-      if (!variableName) {
-        return NGIN::Utilities::Unexpected<KernelError>(variableName.Error());
+      auto name = RequireAttribute(element, "Name", context);
+      if (!name)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(name.Error());
       }
+      output.name = name.Value();
 
-      auto value =
-          RequireAttribute(*variableElement, "Value",
-                           std::string(context) + ".Variables.Variable");
-      if (!value) {
+      auto target = RequireAttribute(element, "Target", context);
+      if (!target)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(target.Error());
+      }
+      output.target = target.Value();
+
+      return output;
+    }
+
+    [[nodiscard]] auto ParseBuildSetting(const XmlElement &element,
+                                         const std::string_view context,
+                                         const std::string_view valueAttribute)
+        -> CoreResult<BuildSetting>
+    {
+      BuildSetting setting{};
+
+      auto value = RequireAttribute(element, valueAttribute, context);
+      if (!value)
+      {
         return NGIN::Utilities::Unexpected<KernelError>(value.Error());
       }
+      setting.value = value.Value();
 
-      environment.variables.push_back(EnvironmentVariable{
-          .name = variableName.Value(),
-          .value = value.Value(),
-      });
+      auto visibility =
+          OptionalAttribute(element, "Visibility", context, "Private");
+      if (!visibility)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(visibility.Error());
+      }
+      if (visibility.Value() != "Private" && visibility.Value() != "Public" &&
+          visibility.Value() != "Interface")
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+            std::string(context) + " uses unknown build visibility",
+            visibility.Value()));
+      }
+      setting.visibility = visibility.Value();
+      return setting;
     }
-  }
 
-  if (const auto *features = FindChild(element, "Features")) {
-    for (const auto *featureElement : ChildElements(*features, "Feature")) {
-      auto featureName =
-          RequireAttribute(*featureElement, "Name",
-                           std::string(context) + ".Features.Feature");
-      if (!featureName) {
-        return NGIN::Utilities::Unexpected<KernelError>(featureName.Error());
+    [[nodiscard]] auto ParseProjectBuildDescriptor(const XmlElement *buildElement,
+                                                   const std::string_view context)
+        -> CoreResult<ProjectBuildDescriptor>
+    {
+      ProjectBuildDescriptor build{};
+      if (buildElement == nullptr)
+      {
+        return build;
       }
 
-      auto enabled = OptionalBoolAttribute(
-          *featureElement, "Enabled",
-          std::string(context) + ".Features.Feature.Enabled", false);
-      if (!enabled) {
+      auto backend = OptionalAttribute(*buildElement, "Backend", context, "CMake");
+      if (!backend)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(backend.Error());
+      }
+      build.backend = backend.Value();
+
+      auto mode = OptionalAttribute(*buildElement, "Mode", context, "Generated");
+      if (!mode)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(mode.Error());
+      }
+      if (mode.Value() != "Generated" && mode.Value() != "Manual")
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+            std::string(context) + " uses unknown build mode", mode.Value()));
+      }
+      build.mode = mode.Value();
+
+      auto language = OptionalAttribute(*buildElement, "Language", context, "CXX");
+      if (!language)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(language.Error());
+      }
+      build.language = language.Value();
+
+      auto languageStandard =
+          OptionalAttribute(*buildElement, "LanguageStandard", context, "23");
+      if (!languageStandard)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(languageStandard.Error());
+      }
+      build.languageStandard = languageStandard.Value();
+
+      if (const auto *sourcesElement = FindChild(*buildElement, "Sources"))
+      {
+        for (const auto *sourceElement : ChildElements(*sourcesElement, "Source"))
+        {
+          auto path = RequireAttribute(*sourceElement, "Path",
+                                       std::string(context) + ".Sources");
+          if (!path)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(path.Error());
+          }
+          build.sources.push_back(path.Value());
+        }
+      }
+
+      auto parseSettings =
+          [&](const XmlElement *section, const std::string_view childName,
+              const std::string_view attrName, std::vector<BuildSetting> &output,
+              const std::string &sectionContext) -> CoreResult<void>
+      {
+        if (section == nullptr)
+        {
+          return {};
+        }
+        for (const auto *child : ChildElements(*section, childName))
+        {
+          auto setting = ParseBuildSetting(*child, sectionContext, attrName);
+          if (!setting)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(setting.Error());
+          }
+          output.push_back(setting.Value());
+        }
+        return {};
+      };
+
+      auto includeDirectories =
+          parseSettings(FindChild(*buildElement, "IncludeDirectories"),
+                        "IncludeDirectory", "Path", build.includeDirectories,
+                        std::string(context) + ".IncludeDirectories");
+      if (!includeDirectories)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(includeDirectories.Error());
+      }
+
+      auto compileDefinitions = parseSettings(
+          FindChild(*buildElement, "CompileDefinitions"), "Definition", "Value",
+          build.compileDefinitions, std::string(context) + ".CompileDefinitions");
+      if (!compileDefinitions)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(compileDefinitions.Error());
+      }
+
+      auto compileOptions = parseSettings(
+          FindChild(*buildElement, "CompileOptions"), "Option", "Value",
+          build.compileOptions, std::string(context) + ".CompileOptions");
+      if (!compileOptions)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(compileOptions.Error());
+      }
+
+      auto linkOptions =
+          parseSettings(FindChild(*buildElement, "LinkOptions"), "Option", "Value",
+                        build.linkOptions, std::string(context) + ".LinkOptions");
+      if (!linkOptions)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(linkOptions.Error());
+      }
+
+      return build;
+    }
+
+    [[nodiscard]] auto ParseRuntimeDefinition(const XmlElement *runtimeElement,
+                                              const std::string_view context)
+        -> CoreResult<RuntimeDefinition>
+    {
+      RuntimeDefinition runtime{};
+      if (runtimeElement == nullptr)
+      {
+        return runtime;
+      }
+
+      if (const auto *modulesElement = FindChild(*runtimeElement, "Modules"))
+      {
+        std::size_t index = 0;
+        for (const auto *moduleElement : ChildElements(*modulesElement, "Module"))
+        {
+          auto descriptor = ParsePackageModuleDescriptor(
+              *moduleElement,
+              std::string(context) + ".Modules[" + std::to_string(index++) + "]");
+          if (!descriptor)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(descriptor.Error());
+          }
+          runtime.modules.push_back(descriptor.Value());
+        }
+      }
+
+      auto enabled =
+          ParseModuleRefs(FindChild(*runtimeElement, "EnableModules"), "ModuleRef",
+                          std::string(context) + ".EnableModules");
+      if (!enabled)
+      {
         return NGIN::Utilities::Unexpected<KernelError>(enabled.Error());
       }
+      runtime.enableModules = std::move(enabled.Value());
 
-      environment.features.push_back(FeatureFlag{
-          .name = featureName.Value(),
-          .enabled = enabled.Value(),
-      });
-    }
-  }
-
-  auto runtime =
-      ParseRuntimeDefinition(FindChild(element, "Runtime"),
-                             std::string(context) + ".Runtime");
-  if (!runtime) {
-    return NGIN::Utilities::Unexpected<KernelError>(runtime.Error());
-  }
-  environment.runtime = std::move(runtime.Value());
-
-  return environment;
-}
-
-[[nodiscard]] auto ParseConfigurationDefinition(const XmlElement &element,
-                                                const std::string_view context)
-    -> CoreResult<ConfigurationDefinition> {
-  ConfigurationDefinition configuration{};
-
-  auto name = RequireAttribute(element, "Name", context);
-  if (!name) {
-    return NGIN::Utilities::Unexpected<KernelError>(name.Error());
-  }
-  configuration.name = name.Value();
-
-  auto buildConfiguration =
-      OptionalAttribute(element, "BuildConfiguration", context, "Debug");
-  if (!buildConfiguration) {
-    return NGIN::Utilities::Unexpected<KernelError>(buildConfiguration.Error());
-  }
-  configuration.buildConfiguration = buildConfiguration.Value();
-
-  if (element.FindAttribute("HostProfile") != nullptr ||
-      element.FindAttribute("Platform") != nullptr ||
-      element.FindAttribute("WorkingDirectory") != nullptr) {
-    return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-        std::string(context) +
-            " uses legacy HostProfile/Platform/WorkingDirectory attributes",
-        {}, KernelErrorCode::SchemaValidationFailure));
-  }
-
-  auto operatingSystem =
-      OptionalAttribute(element, "OperatingSystem", context, "linux");
-  if (!operatingSystem) {
-    return NGIN::Utilities::Unexpected<KernelError>(operatingSystem.Error());
-  }
-  configuration.operatingSystem = operatingSystem.Value();
-  if (!IsValidOperatingSystem(configuration.operatingSystem)) {
-    return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-        "configuration uses unknown operating system",
-        configuration.operatingSystem,
-        KernelErrorCode::SchemaValidationFailure));
-  }
-
-  auto architecture =
-      OptionalAttribute(element, "Architecture", context, "x64");
-  if (!architecture) {
-    return NGIN::Utilities::Unexpected<KernelError>(architecture.Error());
-  }
-  configuration.architecture = architecture.Value();
-  if (!IsValidArchitecture(configuration.architecture)) {
-    return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-        "configuration uses unknown architecture", configuration.architecture,
-        KernelErrorCode::SchemaValidationFailure));
-  }
-
-  auto reflection =
-      OptionalBoolAttribute(element, "EnableReflection",
-                            std::string(context) + ".EnableReflection", false);
-  if (!reflection) {
-    return NGIN::Utilities::Unexpected<KernelError>(reflection.Error());
-  }
-  configuration.enableReflection = reflection.Value();
-
-  auto environment = OptionalAttribute(element, "Environment", context, {});
-  if (!environment) {
-    return NGIN::Utilities::Unexpected<KernelError>(environment.Error());
-  }
-  configuration.environmentName = environment.Value();
-  if (configuration.environmentName.empty()) {
-    return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-        std::string(context) + " must define Environment", {},
-        KernelErrorCode::SchemaValidationFailure));
-  }
-
-  if (const auto *launchElement = FindChild(element, "Launch")) {
-    auto executable = RequireAttribute(*launchElement, "Executable",
-                                       std::string(context) + ".Launch");
-    if (!executable) {
-      return NGIN::Utilities::Unexpected<KernelError>(executable.Error());
-    }
-    auto workingDirectory =
-        OptionalAttribute(*launchElement, "WorkingDirectory",
-                          std::string(context) + ".Launch", ".");
-    if (!workingDirectory) {
-      return NGIN::Utilities::Unexpected<KernelError>(workingDirectory.Error());
-    }
-    configuration.launch = LaunchDefinition{
-        .executable = executable.Value(),
-        .workingDirectory = workingDirectory.Value(),
-    };
-  }
-
-  if (const auto *referencesElement = FindChild(element, "References")) {
-    std::size_t projectIndex = 0;
-    for (const auto *projectElement :
-         ChildElements(*referencesElement, "Project")) {
-      auto project = ParseProjectReference(
-          *projectElement, std::string(context) + ".References.Project[" +
-                               std::to_string(projectIndex++) + "]");
-      if (!project) {
-        return NGIN::Utilities::Unexpected<KernelError>(project.Error());
+      auto disabled =
+          ParseModuleRefs(FindChild(*runtimeElement, "DisableModules"), "ModuleRef",
+                          std::string(context) + ".DisableModules");
+      if (!disabled)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(disabled.Error());
       }
-      configuration.projectRefs.push_back(project.Value());
+      runtime.disableModules = std::move(disabled.Value());
+
+      return runtime;
     }
-    for (const auto *packageElement :
-         ChildElements(*referencesElement, "Package")) {
-      auto package = ParsePackageReference(
-          *packageElement, std::string(context) + ".References.Package");
-      if (!package) {
-        return NGIN::Utilities::Unexpected<KernelError>(package.Error());
+
+    [[nodiscard]] auto ParseEnvironmentDefinition(const XmlElement &element,
+                                                  const std::string_view context)
+        -> CoreResult<EnvironmentDefinition>
+    {
+      EnvironmentDefinition environment{};
+
+      auto name = RequireAttribute(element, "Name", context);
+      if (!name)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(name.Error());
       }
-      configuration.packageRefs.push_back(package.Value());
-    }
-  }
+      environment.name = name.Value();
 
-  if (const auto *configSources = FindChild(element, "ConfigSources")) {
-    for (const auto *configElement : ChildElements(*configSources, "Config")) {
-      auto source = RequireAttribute(*configElement, "Source",
-                                     std::string(context) + ".ConfigSources");
-      if (!source) {
-        return NGIN::Utilities::Unexpected<KernelError>(source.Error());
+      if (const auto *referencesElement = FindChild(element, "References"))
+      {
+        std::size_t projectIndex = 0;
+        for (const auto *projectElement :
+             ChildElements(*referencesElement, "Project"))
+        {
+          auto project = ParseProjectReference(
+              *projectElement, std::string(context) + ".References.Project[" +
+                                   std::to_string(projectIndex++) + "]");
+          if (!project)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(project.Error());
+          }
+          environment.projectRefs.push_back(project.Value());
+        }
+        for (const auto *packageElement :
+             ChildElements(*referencesElement, "Package"))
+        {
+          auto package = ParsePackageReference(
+              *packageElement, std::string(context) + ".References.Package");
+          if (!package)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(package.Error());
+          }
+          environment.packageRefs.push_back(package.Value());
+        }
       }
-      configuration.configSources.push_back(source.Value());
-    }
-  }
 
-  if (FindChild(element, "EnableModules") != nullptr ||
-      FindChild(element, "DisableModules") != nullptr ||
-      FindChild(element, "Modules") != nullptr) {
-    return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-        std::string(context) +
-            " must place runtime module selections inside <Runtime>",
-        {}, KernelErrorCode::SchemaValidationFailure));
-  }
-
-  auto runtime =
-      ParseRuntimeDefinition(FindChild(element, "Runtime"),
-                             std::string(context) + ".Runtime");
-  if (!runtime) {
-    return NGIN::Utilities::Unexpected<KernelError>(runtime.Error());
-  }
-  configuration.runtime = std::move(runtime.Value());
-
-  return configuration;
-}
-
-[[nodiscard]] auto ParseProjectManifestText(const std::string &text)
-    -> CoreResult<ProjectManifest> {
-  auto loaded = LoadXmlDocument(text, "project");
-  if (!loaded) {
-    return NGIN::Utilities::Unexpected<KernelError>(loaded.Error());
-  }
-
-  const auto *root = loaded.Value().document.Root();
-  if (root == nullptr || root->name != "Project") {
-    return NGIN::Utilities::Unexpected<KernelError>(
-        MakeBuilderError("project manifest root element must be <Project>"));
-  }
-
-  ProjectManifest manifest{};
-
-  auto schemaVersion =
-      OptionalAttribute(*root, "SchemaVersion", "project", "2");
-  if (!schemaVersion) {
-    return NGIN::Utilities::Unexpected<KernelError>(schemaVersion.Error());
-  }
-  auto parsedSchema =
-      ParseUInt32Value(schemaVersion.Value(), "project.SchemaVersion");
-  if (!parsedSchema) {
-    return NGIN::Utilities::Unexpected<KernelError>(parsedSchema.Error());
-  }
-  manifest.schemaVersion = parsedSchema.Value();
-  if (manifest.schemaVersion != 2) {
-    return NGIN::Utilities::Unexpected<KernelError>(
-        MakeBuilderError("unsupported project schema version",
-                         std::to_string(manifest.schemaVersion),
-                         KernelErrorCode::InvalidArgument));
-  }
-
-  auto name = RequireAttribute(*root, "Name", "project");
-  if (!name) {
-    return NGIN::Utilities::Unexpected<KernelError>(name.Error());
-  }
-  manifest.name = name.Value();
-
-  auto type = OptionalAttribute(*root, "Type", "project", "Application");
-  if (!type) {
-    return NGIN::Utilities::Unexpected<KernelError>(type.Error());
-  }
-  manifest.type = type.Value();
-
-  auto defaultConfiguration =
-      RequireAttribute(*root, "DefaultConfiguration", "project");
-  if (!defaultConfiguration) {
-    return NGIN::Utilities::Unexpected<KernelError>(
-        defaultConfiguration.Error());
-  }
-  manifest.defaultConfiguration = defaultConfiguration.Value();
-
-  if (const auto *sourceRootsElement = FindChild(*root, "SourceRoots")) {
-    for (const auto *sourceRootElement :
-         ChildElements(*sourceRootsElement, "SourceRoot")) {
-      auto path =
-          RequireAttribute(*sourceRootElement, "Path", "project.SourceRoots");
-      if (!path) {
-        return NGIN::Utilities::Unexpected<KernelError>(path.Error());
+      if (const auto *configSources = FindChild(element, "ConfigSources"))
+      {
+        for (const auto *configElement : ChildElements(*configSources, "Config"))
+        {
+          auto source = RequireAttribute(*configElement, "Source",
+                                         std::string(context) + ".ConfigSources");
+          if (!source)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(source.Error());
+          }
+          environment.configSources.push_back(source.Value());
+        }
       }
-      manifest.sourceRoots.push_back(path.Value());
-    }
-  }
 
-  if (FindChild(*root, "Host") != nullptr) {
-    return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-        "project manifest root <Host> is no longer supported", {},
-        KernelErrorCode::SchemaValidationFailure));
-  }
+      if (const auto *contents = FindChild(element, "Contents"))
+      {
+        for (const auto *fileElement : ChildElements(*contents, "File"))
+        {
+          auto source = RequireAttribute(*fileElement, "Source",
+                                         std::string(context) + ".Contents.File");
+          if (!source)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(source.Error());
+          }
 
-  const auto *outputElement = FindChild(*root, "Output");
-  if (outputElement == nullptr) {
-    return NGIN::Utilities::Unexpected<KernelError>(
-        MakeBuilderError("project must contain an <Output> element"));
-  }
-  auto output = ParseOutputDefinition(*outputElement, "project.Output");
-  if (!output) {
-    return NGIN::Utilities::Unexpected<KernelError>(output.Error());
-  }
-  manifest.output = output.Value();
+          auto target = OptionalAttribute(*fileElement, "Target",
+                                          std::string(context) + ".Contents.File");
+          if (!target)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(target.Error());
+          }
 
-  const bool validPairing =
-      ((manifest.type == "Application" || manifest.type == "Tool") &&
-       manifest.output.kind == "Executable") ||
-      (manifest.type == "Library" &&
-       (manifest.output.kind == "StaticLibrary" ||
-        manifest.output.kind == "SharedLibrary"));
-  if (!validPairing) {
-    return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-        "project type and output kind are incompatible",
-        manifest.type + ":" + manifest.output.kind,
-        KernelErrorCode::SchemaValidationFailure));
-  }
+          auto kind = OptionalAttribute(*fileElement, "Kind",
+                                        std::string(context) + ".Contents.File",
+                                        "other");
+          if (!kind)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(kind.Error());
+          }
 
-  auto build =
-      ParseProjectBuildDescriptor(FindChild(*root, "Build"), "project.Build");
-  if (!build) {
-    return NGIN::Utilities::Unexpected<KernelError>(build.Error());
-  }
-  manifest.build = std::move(build.Value());
-
-  if (const auto *referencesElement = FindChild(*root, "References")) {
-    std::size_t index = 0;
-    for (const auto *projectRefElement :
-         ChildElements(*referencesElement, "Project")) {
-      auto reference = ParseProjectReference(*projectRefElement,
-                                             "project.References.Project[" +
-                                                 std::to_string(index++) + "]");
-      if (!reference) {
-        return NGIN::Utilities::Unexpected<KernelError>(reference.Error());
-      }
-      manifest.projectRefs.push_back(reference.Value());
-    }
-    for (const auto *packageElement :
-         ChildElements(*referencesElement, "Package")) {
-      auto package =
-          ParsePackageReference(*packageElement, "project.References.Package");
-      if (!package) {
-        return NGIN::Utilities::Unexpected<KernelError>(package.Error());
-      }
-      manifest.packageRefs.push_back(package.Value());
-    }
-  }
-
-  if (const auto *configSources = FindChild(*root, "ConfigSources")) {
-    for (const auto *configElement : ChildElements(*configSources, "Config")) {
-      auto source =
-          RequireAttribute(*configElement, "Source", "project.ConfigSources");
-      if (!source) {
-        return NGIN::Utilities::Unexpected<KernelError>(source.Error());
-      }
-      manifest.configSources.push_back(source.Value());
-    }
-  }
-
-  if (const auto *environmentsElement = FindChild(*root, "Environments")) {
-    std::set<std::string> environmentNames{};
-    std::size_t environmentIndex = 0;
-    for (const auto *environmentElement :
-         ChildElements(*environmentsElement, "Environment")) {
-      auto environment = ParseEnvironmentDefinition(
-          *environmentElement,
-          "project.Environments[" + std::to_string(environmentIndex++) + "]");
-      if (!environment) {
-        return NGIN::Utilities::Unexpected<KernelError>(environment.Error());
-      }
-      if (!environmentNames.insert(environment.Value().name).second) {
-        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-            "duplicate environment name", environment.Value().name,
-            KernelErrorCode::AlreadyExists));
-      }
-      manifest.environments.push_back(environment.Value());
-    }
-  }
-
-  auto runtime =
-      ParseRuntimeDefinition(FindChild(*root, "Runtime"), "project.Runtime");
-  if (!runtime) {
-    return NGIN::Utilities::Unexpected<KernelError>(runtime.Error());
-  }
-  manifest.runtime = std::move(runtime.Value());
-
-  const auto *configurationsElement = FindChild(*root, "Configurations");
-  if (configurationsElement == nullptr) {
-    return NGIN::Utilities::Unexpected<KernelError>(
-        MakeBuilderError("project must contain a <Configurations> element"));
-  }
-
-  std::set<std::string> configurationNames{};
-  std::size_t index = 0;
-  for (const auto *configurationElement :
-       ChildElements(*configurationsElement, "Configuration")) {
-    auto configuration = ParseConfigurationDefinition(
-        *configurationElement,
-        "project.Configurations[" + std::to_string(index++) + "]");
-    if (!configuration) {
-      return NGIN::Utilities::Unexpected<KernelError>(configuration.Error());
-    }
-    if (!configurationNames.insert(configuration.Value().name).second) {
-      return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-          "duplicate configuration name", configuration.Value().name,
-          KernelErrorCode::AlreadyExists));
-    }
-    if (!configuration.Value().environmentName.empty()) {
-      const auto environmentIt = std::find_if(
-          manifest.environments.begin(), manifest.environments.end(),
-          [&](const EnvironmentDefinition &environment) {
-            return environment.name == configuration.Value().environmentName;
+          environment.contents.push_back(PackageContentFile{
+              .source = source.Value(),
+              .target = target.Value(),
+              .kind = kind.Value(),
           });
-      if (environmentIt == manifest.environments.end()) {
+        }
+      }
+
+      if (const auto *variables = FindChild(element, "Variables"))
+      {
+        for (const auto *variableElement : ChildElements(*variables, "Variable"))
+        {
+          auto variableName =
+              RequireAttribute(*variableElement, "Name",
+                               std::string(context) + ".Variables.Variable");
+          if (!variableName)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(variableName.Error());
+          }
+
+          auto value =
+              RequireAttribute(*variableElement, "Value",
+                               std::string(context) + ".Variables.Variable");
+          if (!value)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(value.Error());
+          }
+
+          environment.variables.push_back(EnvironmentVariable{
+              .name = variableName.Value(),
+              .value = value.Value(),
+          });
+        }
+      }
+
+      if (const auto *features = FindChild(element, "Features"))
+      {
+        for (const auto *featureElement : ChildElements(*features, "Feature"))
+        {
+          auto featureName =
+              RequireAttribute(*featureElement, "Name",
+                               std::string(context) + ".Features.Feature");
+          if (!featureName)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(featureName.Error());
+          }
+
+          auto enabled = OptionalBoolAttribute(
+              *featureElement, "Enabled",
+              std::string(context) + ".Features.Feature.Enabled", false);
+          if (!enabled)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(enabled.Error());
+          }
+
+          environment.features.push_back(FeatureFlag{
+              .name = featureName.Value(),
+              .enabled = enabled.Value(),
+          });
+        }
+      }
+
+      auto runtime =
+          ParseRuntimeDefinition(FindChild(element, "Runtime"),
+                                 std::string(context) + ".Runtime");
+      if (!runtime)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(runtime.Error());
+      }
+      environment.runtime = std::move(runtime.Value());
+
+      return environment;
+    }
+
+    [[nodiscard]] auto ParseConfigurationDefinition(const XmlElement &element,
+                                                    const std::string_view context)
+        -> CoreResult<ConfigurationDefinition>
+    {
+      ConfigurationDefinition configuration{};
+
+      auto name = RequireAttribute(element, "Name", context);
+      if (!name)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(name.Error());
+      }
+      configuration.name = name.Value();
+
+      auto buildConfiguration =
+          OptionalAttribute(element, "BuildConfiguration", context, "Debug");
+      if (!buildConfiguration)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(buildConfiguration.Error());
+      }
+      configuration.buildConfiguration = buildConfiguration.Value();
+
+      if (element.FindAttribute("HostProfile") != nullptr ||
+          element.FindAttribute("Platform") != nullptr ||
+          element.FindAttribute("WorkingDirectory") != nullptr)
+      {
         return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-            "configuration selects unknown environment",
-            configuration.Value().environmentName,
+            std::string(context) +
+                " uses legacy HostProfile/Platform/WorkingDirectory attributes",
+            {}, KernelErrorCode::SchemaValidationFailure));
+      }
+
+      auto operatingSystem =
+          OptionalAttribute(element, "OperatingSystem", context, "linux");
+      if (!operatingSystem)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(operatingSystem.Error());
+      }
+      configuration.operatingSystem = operatingSystem.Value();
+      if (!IsValidOperatingSystem(configuration.operatingSystem))
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+            "configuration uses unknown operating system",
+            configuration.operatingSystem,
             KernelErrorCode::SchemaValidationFailure));
       }
+
+      auto architecture =
+          OptionalAttribute(element, "Architecture", context, "x64");
+      if (!architecture)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(architecture.Error());
+      }
+      configuration.architecture = architecture.Value();
+      if (!IsValidArchitecture(configuration.architecture))
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+            "configuration uses unknown architecture", configuration.architecture,
+            KernelErrorCode::SchemaValidationFailure));
+      }
+
+      auto reflection =
+          OptionalBoolAttribute(element, "EnableReflection",
+                                std::string(context) + ".EnableReflection", false);
+      if (!reflection)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(reflection.Error());
+      }
+      configuration.enableReflection = reflection.Value();
+
+      auto environment = OptionalAttribute(element, "Environment", context, {});
+      if (!environment)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(environment.Error());
+      }
+      configuration.environmentName = environment.Value();
+      if (configuration.environmentName.empty())
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+            std::string(context) + " must define Environment", {},
+            KernelErrorCode::SchemaValidationFailure));
+      }
+
+      if (const auto *launchElement = FindChild(element, "Launch"))
+      {
+        auto executable = RequireAttribute(*launchElement, "Executable",
+                                           std::string(context) + ".Launch");
+        if (!executable)
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(executable.Error());
+        }
+        auto workingDirectory =
+            OptionalAttribute(*launchElement, "WorkingDirectory",
+                              std::string(context) + ".Launch", ".");
+        if (!workingDirectory)
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(workingDirectory.Error());
+        }
+        configuration.launch = LaunchDefinition{
+            .executable = executable.Value(),
+            .workingDirectory = workingDirectory.Value(),
+        };
+      }
+
+      if (const auto *referencesElement = FindChild(element, "References"))
+      {
+        std::size_t projectIndex = 0;
+        for (const auto *projectElement :
+             ChildElements(*referencesElement, "Project"))
+        {
+          auto project = ParseProjectReference(
+              *projectElement, std::string(context) + ".References.Project[" +
+                                   std::to_string(projectIndex++) + "]");
+          if (!project)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(project.Error());
+          }
+          configuration.projectRefs.push_back(project.Value());
+        }
+        for (const auto *packageElement :
+             ChildElements(*referencesElement, "Package"))
+        {
+          auto package = ParsePackageReference(
+              *packageElement, std::string(context) + ".References.Package");
+          if (!package)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(package.Error());
+          }
+          configuration.packageRefs.push_back(package.Value());
+        }
+      }
+
+      if (const auto *configSources = FindChild(element, "ConfigSources"))
+      {
+        for (const auto *configElement : ChildElements(*configSources, "Config"))
+        {
+          auto source = RequireAttribute(*configElement, "Source",
+                                         std::string(context) + ".ConfigSources");
+          if (!source)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(source.Error());
+          }
+          configuration.configSources.push_back(source.Value());
+        }
+      }
+
+      if (FindChild(element, "EnableModules") != nullptr ||
+          FindChild(element, "DisableModules") != nullptr ||
+          FindChild(element, "Modules") != nullptr)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+            std::string(context) +
+                " must place runtime module selections inside <Runtime>",
+            {}, KernelErrorCode::SchemaValidationFailure));
+      }
+
+      auto runtime =
+          ParseRuntimeDefinition(FindChild(element, "Runtime"),
+                                 std::string(context) + ".Runtime");
+      if (!runtime)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(runtime.Error());
+      }
+      configuration.runtime = std::move(runtime.Value());
+
+      return configuration;
     }
-    if (manifest.type == "Library" && configuration.Value().launch.has_value()) {
-      return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-          "library configurations may not define <Launch>",
-          configuration.Value().name,
-          KernelErrorCode::SchemaValidationFailure));
+
+    [[nodiscard]] auto ParseProjectManifestText(const std::string &text)
+        -> CoreResult<ProjectManifest>
+    {
+      auto loaded = LoadXmlDocument(text, "project");
+      if (!loaded)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(loaded.Error());
+      }
+
+      const auto *root = loaded.Value().document.Root();
+      if (root == nullptr || root->name != "Project")
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(
+            MakeBuilderError("project manifest root element must be <Project>"));
+      }
+
+      ProjectManifest manifest{};
+
+      auto schemaVersion =
+          OptionalAttribute(*root, "SchemaVersion", "project", "2");
+      if (!schemaVersion)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(schemaVersion.Error());
+      }
+      auto parsedSchema =
+          ParseUInt32Value(schemaVersion.Value(), "project.SchemaVersion");
+      if (!parsedSchema)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(parsedSchema.Error());
+      }
+      manifest.schemaVersion = parsedSchema.Value();
+      if (manifest.schemaVersion != 2)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(
+            MakeBuilderError("unsupported project schema version",
+                             std::to_string(manifest.schemaVersion),
+                             KernelErrorCode::InvalidArgument));
+      }
+
+      auto name = RequireAttribute(*root, "Name", "project");
+      if (!name)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(name.Error());
+      }
+      manifest.name = name.Value();
+
+      auto type = OptionalAttribute(*root, "Type", "project", "Application");
+      if (!type)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(type.Error());
+      }
+      manifest.type = type.Value();
+
+      auto defaultConfiguration =
+          RequireAttribute(*root, "DefaultConfiguration", "project");
+      if (!defaultConfiguration)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(
+            defaultConfiguration.Error());
+      }
+      manifest.defaultConfiguration = defaultConfiguration.Value();
+
+      if (const auto *sourceRootsElement = FindChild(*root, "SourceRoots"))
+      {
+        for (const auto *sourceRootElement :
+             ChildElements(*sourceRootsElement, "SourceRoot"))
+        {
+          auto path =
+              RequireAttribute(*sourceRootElement, "Path", "project.SourceRoots");
+          if (!path)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(path.Error());
+          }
+          manifest.sourceRoots.push_back(path.Value());
+        }
+      }
+
+      if (FindChild(*root, "Host") != nullptr)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+            "project manifest root <Host> is no longer supported", {},
+            KernelErrorCode::SchemaValidationFailure));
+      }
+
+      const auto *outputElement = FindChild(*root, "Output");
+      if (outputElement == nullptr)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(
+            MakeBuilderError("project must contain an <Output> element"));
+      }
+      auto output = ParseOutputDefinition(*outputElement, "project.Output");
+      if (!output)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(output.Error());
+      }
+      manifest.output = output.Value();
+
+      const bool validPairing =
+          ((manifest.type == "Application" || manifest.type == "Tool") &&
+           manifest.output.kind == "Executable") ||
+          (manifest.type == "Library" &&
+           (manifest.output.kind == "StaticLibrary" ||
+            manifest.output.kind == "SharedLibrary"));
+      if (!validPairing)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+            "project type and output kind are incompatible",
+            manifest.type + ":" + manifest.output.kind,
+            KernelErrorCode::SchemaValidationFailure));
+      }
+
+      auto build =
+          ParseProjectBuildDescriptor(FindChild(*root, "Build"), "project.Build");
+      if (!build)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(build.Error());
+      }
+      manifest.build = std::move(build.Value());
+
+      if (const auto *referencesElement = FindChild(*root, "References"))
+      {
+        std::size_t index = 0;
+        for (const auto *projectRefElement :
+             ChildElements(*referencesElement, "Project"))
+        {
+          auto reference = ParseProjectReference(*projectRefElement,
+                                                 "project.References.Project[" +
+                                                     std::to_string(index++) + "]");
+          if (!reference)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(reference.Error());
+          }
+          manifest.projectRefs.push_back(reference.Value());
+        }
+        for (const auto *packageElement :
+             ChildElements(*referencesElement, "Package"))
+        {
+          auto package =
+              ParsePackageReference(*packageElement, "project.References.Package");
+          if (!package)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(package.Error());
+          }
+          manifest.packageRefs.push_back(package.Value());
+        }
+      }
+
+      if (const auto *configSources = FindChild(*root, "ConfigSources"))
+      {
+        for (const auto *configElement : ChildElements(*configSources, "Config"))
+        {
+          auto source =
+              RequireAttribute(*configElement, "Source", "project.ConfigSources");
+          if (!source)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(source.Error());
+          }
+          manifest.configSources.push_back(source.Value());
+        }
+      }
+
+      if (const auto *environmentsElement = FindChild(*root, "Environments"))
+      {
+        std::set<std::string> environmentNames{};
+        std::size_t environmentIndex = 0;
+        for (const auto *environmentElement :
+             ChildElements(*environmentsElement, "Environment"))
+        {
+          auto environment = ParseEnvironmentDefinition(
+              *environmentElement,
+              "project.Environments[" + std::to_string(environmentIndex++) + "]");
+          if (!environment)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(environment.Error());
+          }
+          if (!environmentNames.insert(environment.Value().name).second)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+                "duplicate environment name", environment.Value().name,
+                KernelErrorCode::AlreadyExists));
+          }
+          manifest.environments.push_back(environment.Value());
+        }
+      }
+
+      auto runtime =
+          ParseRuntimeDefinition(FindChild(*root, "Runtime"), "project.Runtime");
+      if (!runtime)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(runtime.Error());
+      }
+      manifest.runtime = std::move(runtime.Value());
+
+      const auto *configurationsElement = FindChild(*root, "Configurations");
+      if (configurationsElement == nullptr)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(
+            MakeBuilderError("project must contain a <Configurations> element"));
+      }
+
+      std::set<std::string> configurationNames{};
+      std::size_t index = 0;
+      for (const auto *configurationElement :
+           ChildElements(*configurationsElement, "Configuration"))
+      {
+        auto configuration = ParseConfigurationDefinition(
+            *configurationElement,
+            "project.Configurations[" + std::to_string(index++) + "]");
+        if (!configuration)
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(configuration.Error());
+        }
+        if (!configurationNames.insert(configuration.Value().name).second)
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+              "duplicate configuration name", configuration.Value().name,
+              KernelErrorCode::AlreadyExists));
+        }
+        if (!configuration.Value().environmentName.empty())
+        {
+          const auto environmentIt = std::find_if(
+              manifest.environments.begin(), manifest.environments.end(),
+              [&](const EnvironmentDefinition &environment)
+              {
+                return environment.name == configuration.Value().environmentName;
+              });
+          if (environmentIt == manifest.environments.end())
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+                "configuration selects unknown environment",
+                configuration.Value().environmentName,
+                KernelErrorCode::SchemaValidationFailure));
+          }
+        }
+        if (manifest.type == "Library" && configuration.Value().launch.has_value())
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+              "library configurations may not define <Launch>",
+              configuration.Value().name,
+              KernelErrorCode::SchemaValidationFailure));
+        }
+        manifest.configurations.push_back(configuration.Value());
+      }
+
+      return manifest;
     }
-    manifest.configurations.push_back(configuration.Value());
-  }
 
-  return manifest;
-}
+    struct ResolvedProjectUnit
+    {
+      ProjectManifest manifest{};
+      ConfigurationDefinition configuration{};
+      std::optional<EnvironmentDefinition> environment{};
+      IoPath directory{};
+    };
 
-struct ResolvedProjectUnit {
-  ProjectManifest manifest{};
-  ConfigurationDefinition configuration{};
-  std::optional<EnvironmentDefinition> environment{};
-  IoPath directory{};
-};
+    [[nodiscard]] auto FindEnvironment(const ProjectManifest &manifest,
+                                       const std::string &environmentName)
+        -> CoreResult<std::optional<EnvironmentDefinition>>
+    {
+      if (environmentName.empty())
+      {
+        return std::optional<EnvironmentDefinition>{};
+      }
 
-[[nodiscard]] auto FindEnvironment(const ProjectManifest &manifest,
-                                   const std::string &environmentName)
-    -> CoreResult<std::optional<EnvironmentDefinition>> {
-  if (environmentName.empty()) {
-    return std::optional<EnvironmentDefinition>{};
-  }
+      const auto it = std::find_if(
+          manifest.environments.begin(), manifest.environments.end(),
+          [&](const EnvironmentDefinition &candidate)
+          {
+            return candidate.name == environmentName;
+          });
+      if (it == manifest.environments.end())
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+            "selected environment was not found", environmentName,
+            KernelErrorCode::NotFound));
+      }
 
-  const auto it = std::find_if(
-      manifest.environments.begin(), manifest.environments.end(),
-      [&](const EnvironmentDefinition &candidate) {
-        return candidate.name == environmentName;
-      });
-  if (it == manifest.environments.end()) {
-    return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-        "selected environment was not found", environmentName,
-        KernelErrorCode::NotFound));
-  }
-
-  return *it;
-}
-
-[[nodiscard]] auto FindConfiguration(
-    const ProjectManifest &manifest,
-    const std::optional<std::string> &overrideConfiguration = std::nullopt,
-    const bool allowDefaultFallback = false)
-    -> CoreResult<ConfigurationDefinition> {
-  auto findByName = [&](const std::string &name)
-      -> std::optional<ConfigurationDefinition> {
-    const auto it =
-        std::find_if(manifest.configurations.begin(), manifest.configurations.end(),
-                     [&](const ConfigurationDefinition &candidate) {
-                       return candidate.name == name;
-                     });
-    if (it == manifest.configurations.end()) {
-      return std::nullopt;
+      return std::optional<EnvironmentDefinition>{*it};
     }
-    return *it;
-  };
 
-  if (overrideConfiguration.has_value() && !overrideConfiguration->empty()) {
-    if (const auto selected = findByName(*overrideConfiguration);
-        selected.has_value()) {
-      return *selected;
-    }
-    if (!allowDefaultFallback) {
+    [[nodiscard]] auto FindConfiguration(
+        const ProjectManifest &manifest,
+        const std::optional<std::string> &overrideConfiguration = std::nullopt,
+        const bool allowDefaultFallback = false)
+        -> CoreResult<ConfigurationDefinition>
+    {
+      auto findByName = [&](const std::string &name)
+          -> std::optional<ConfigurationDefinition>
+      {
+        const auto it =
+            std::find_if(manifest.configurations.begin(), manifest.configurations.end(),
+                         [&](const ConfigurationDefinition &candidate)
+                         {
+                           return candidate.name == name;
+                         });
+        if (it == manifest.configurations.end())
+        {
+          return std::nullopt;
+        }
+        return *it;
+      };
+
+      if (overrideConfiguration.has_value() && !overrideConfiguration->empty())
+      {
+        if (const auto selected = findByName(*overrideConfiguration);
+            selected.has_value())
+        {
+          return *selected;
+        }
+        if (!allowDefaultFallback)
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(
+              MakeBuilderError("selected configuration was not found",
+                               *overrideConfiguration,
+                               KernelErrorCode::NotFound));
+        }
+      }
+
+      if (manifest.defaultConfiguration.empty())
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(
+            MakeBuilderError("project has no selected configuration", manifest.name,
+                             KernelErrorCode::InvalidArgument));
+      }
+
+      if (const auto selected = findByName(manifest.defaultConfiguration);
+          selected.has_value())
+      {
+        return *selected;
+      }
+
+      if (overrideConfiguration.has_value() && !overrideConfiguration->empty())
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(
+            MakeBuilderError("selected configuration was not found",
+                             *overrideConfiguration, KernelErrorCode::NotFound));
+      }
       return NGIN::Utilities::Unexpected<KernelError>(
           MakeBuilderError("selected configuration was not found",
-                           *overrideConfiguration,
+                           manifest.defaultConfiguration,
                            KernelErrorCode::NotFound));
     }
-  }
 
-  if (manifest.defaultConfiguration.empty()) {
-    return NGIN::Utilities::Unexpected<KernelError>(
-        MakeBuilderError("project has no selected configuration", manifest.name,
-                         KernelErrorCode::InvalidArgument));
-  }
-
-  if (const auto selected = findByName(manifest.defaultConfiguration);
-      selected.has_value()) {
-    return *selected;
-  }
-
-  if (overrideConfiguration.has_value() && !overrideConfiguration->empty()) {
-    return NGIN::Utilities::Unexpected<KernelError>(
-        MakeBuilderError("selected configuration was not found",
-                         *overrideConfiguration, KernelErrorCode::NotFound));
-  }
-  return NGIN::Utilities::Unexpected<KernelError>(
-      MakeBuilderError("selected configuration was not found",
-                       manifest.defaultConfiguration,
-                       KernelErrorCode::NotFound));
-}
-
-[[nodiscard]] auto LoadProjectManifestFile(IoFileSystem &fileSystem,
-                                           const IoPath &filePath)
-    -> CoreResult<std::pair<ProjectManifest, IoPath>> {
-  auto fileText = ReadTextFile(fileSystem, filePath, "project");
-  if (!fileText) {
-    return NGIN::Utilities::Unexpected<KernelError>(fileText.Error());
-  }
-
-  auto manifest = ParseProjectManifestText(fileText.Value());
-  if (!manifest) {
-    return NGIN::Utilities::Unexpected<KernelError>(manifest.Error());
-  }
-
-  auto absolutePath = AbsolutePath(fileSystem, filePath);
-  if (!absolutePath) {
-    return NGIN::Utilities::Unexpected<KernelError>(absolutePath.Error());
-  }
-
-  return std::pair<ProjectManifest, IoPath>{
-      manifest.Value(),
-      absolutePath.Value().Parent(),
-  };
-}
-
-auto CollectProjectClosure(
-    IoFileSystem &fileSystem, const IoPath &filePath,
-    const std::optional<std::string> &selectedConfiguration,
-    const bool allowDefaultFallbackForSelection,
-    std::vector<ResolvedProjectUnit> &out, std::set<std::string> &visiting,
-    std::set<std::string> &visited) -> CoreResult<void> {
-  auto canonicalPath = WeaklyCanonicalPath(fileSystem, filePath);
-  if (!canonicalPath) {
-    return NGIN::Utilities::Unexpected<KernelError>(canonicalPath.Error());
-  }
-
-  const std::string canonicalKey = ToString(canonicalPath.Value());
-  if (visited.contains(canonicalKey)) {
-    return {};
-  }
-  if (visiting.contains(canonicalKey)) {
-    return NGIN::Utilities::Unexpected<KernelError>(
-        MakeBuilderError("project reference cycle detected", canonicalKey,
-                         KernelErrorCode::DependencyCycle));
-  }
-  visiting.insert(canonicalKey);
-
-  auto loaded = LoadProjectManifestFile(fileSystem, canonicalPath.Value());
-  if (!loaded) {
-    return NGIN::Utilities::Unexpected<KernelError>(loaded.Error());
-  }
-
-  auto manifest = std::move(loaded.Value().first);
-  auto directory = std::move(loaded.Value().second);
-
-  auto configuration = FindConfiguration(manifest, selectedConfiguration,
-                                         allowDefaultFallbackForSelection);
-  if (!configuration) {
-    return NGIN::Utilities::Unexpected<KernelError>(configuration.Error());
-  }
-
-  auto environment =
-      FindEnvironment(manifest, configuration.Value().environmentName);
-  if (!environment) {
-    return NGIN::Utilities::Unexpected<KernelError>(environment.Error());
-  }
-
-  auto collectReference =
-      [&](const ProjectReference &reference) -> CoreResult<void> {
-    IoPath referencedPath(reference.path);
-    if (referencedPath.IsRelative() && !directory.IsEmpty()) {
-      referencedPath = directory.Join(referencedPath.View());
-    }
-    referencedPath = referencedPath.LexicallyNormal();
-
-    const std::optional<std::string> referencedConfiguration =
-        reference.configuration.has_value()
-            ? reference.configuration
-            : std::optional<std::string>{configuration.Value().name};
-
-    auto result =
-        CollectProjectClosure(fileSystem, referencedPath,
-                              referencedConfiguration,
-                              !reference.configuration.has_value(), out,
-                              visiting, visited);
-    if (!result) {
-      return NGIN::Utilities::Unexpected<KernelError>(result.Error());
-    }
-    return {};
-  };
-
-  for (const auto &reference : manifest.projectRefs) {
-    auto result = collectReference(reference);
-    if (!result) {
-      return result;
-    }
-  }
-  if (environment.Value().has_value()) {
-    for (const auto &reference : environment.Value()->projectRefs) {
-      auto result = collectReference(reference);
-      if (!result) {
-        return result;
-      }
-    }
-  }
-  for (const auto &reference : configuration.Value().projectRefs) {
-    auto result = collectReference(reference);
-    if (!result) {
-      return result;
-    }
-  }
-
-  out.push_back(ResolvedProjectUnit{
-      .manifest = std::move(manifest),
-      .configuration = configuration.Value(),
-      .environment = environment.Value(),
-      .directory = std::move(directory),
-  });
-
-  visiting.erase(canonicalKey);
-  visited.insert(canonicalKey);
-  return {};
-}
-
-[[nodiscard]] auto ParsePackageManifestText(const std::string &text)
-    -> CoreResult<PackageManifest> {
-  auto loaded = LoadXmlDocument(text, "package");
-  if (!loaded) {
-    return NGIN::Utilities::Unexpected<KernelError>(loaded.Error());
-  }
-
-  const auto *root = loaded.Value().document.Root();
-  if (root == nullptr || root->name != "Package") {
-    return NGIN::Utilities::Unexpected<KernelError>(
-        MakeBuilderError("package manifest root element must be <Package>"));
-  }
-
-  PackageManifest manifest{};
-
-  auto schemaVersion =
-      OptionalAttribute(*root, "SchemaVersion", "package", "1");
-  if (!schemaVersion) {
-    return NGIN::Utilities::Unexpected<KernelError>(schemaVersion.Error());
-  }
-  auto parsedSchema =
-      ParseUInt32Value(schemaVersion.Value(), "package.SchemaVersion");
-  if (!parsedSchema) {
-    return NGIN::Utilities::Unexpected<KernelError>(parsedSchema.Error());
-  }
-  manifest.schemaVersion = parsedSchema.Value();
-
-  auto name = RequireAttribute(*root, "Name", "package");
-  if (!name) {
-    return NGIN::Utilities::Unexpected<KernelError>(name.Error());
-  }
-  manifest.name = name.Value();
-
-  auto version = RequireAttribute(*root, "Version", "package");
-  if (!version) {
-    return NGIN::Utilities::Unexpected<KernelError>(version.Error());
-  }
-  manifest.version = version.Value();
-
-  auto platformRange =
-      RequireAttribute(*root, "CompatiblePlatformRange", "package");
-  if (!platformRange) {
-    return NGIN::Utilities::Unexpected<KernelError>(platformRange.Error());
-  }
-  manifest.compatiblePlatformRange = platformRange.Value();
-
-  auto compatibility = ReadCompatibility(*root, "package",
-                                         manifest.operatingSystems,
-                                         manifest.architectures);
-  if (!compatibility) {
-    return NGIN::Utilities::Unexpected<KernelError>(compatibility.Error());
-  }
-
-  if (const auto *dependenciesElement = FindChild(*root, "Dependencies")) {
-    for (const auto *dependencyElement :
-         ChildElements(*dependenciesElement, "Dependency")) {
-      auto reference =
-          ParsePackageReference(*dependencyElement, "package.Dependencies");
-      if (!reference) {
-        return NGIN::Utilities::Unexpected<KernelError>(reference.Error());
-      }
-      manifest.dependencies.push_back(reference.Value());
-    }
-  }
-
-  if (const auto *bootstrapElement = FindChild(*root, "Bootstrap")) {
-    auto modeText =
-        RequireAttribute(*bootstrapElement, "Mode", "package.Bootstrap");
-    if (!modeText) {
-      return NGIN::Utilities::Unexpected<KernelError>(modeText.Error());
-    }
-    auto mode = ParsePackageBootstrapMode(modeText.Value());
-    if (!mode) {
-      return NGIN::Utilities::Unexpected<KernelError>(mode.Error());
-    }
-
-    auto entryPoint =
-        RequireAttribute(*bootstrapElement, "EntryPoint", "package.Bootstrap");
-    if (!entryPoint) {
-      return NGIN::Utilities::Unexpected<KernelError>(entryPoint.Error());
-    }
-
-    auto autoApply = OptionalBoolAttribute(
-        *bootstrapElement, "AutoApply", "package.Bootstrap.AutoApply", false);
-    if (!autoApply) {
-      return NGIN::Utilities::Unexpected<KernelError>(autoApply.Error());
-    }
-
-    manifest.bootstrap = PackageBootstrapDescriptor{
-        .mode = mode.Value(),
-        .entryPoint = entryPoint.Value(),
-        .autoApply = autoApply.Value(),
-    };
-  }
-
-  if (const auto *contentsElement = FindChild(*root, "Contents")) {
-    for (const auto *fileElement : ChildElements(*contentsElement, "File")) {
-      auto source =
-          RequireAttribute(*fileElement, "Source", "package.Contents.File");
-      if (!source) {
-        return NGIN::Utilities::Unexpected<KernelError>(source.Error());
+    [[nodiscard]] auto LoadProjectManifestFile(IoFileSystem &fileSystem,
+                                               const IoPath &filePath)
+        -> CoreResult<std::pair<ProjectManifest, IoPath>>
+    {
+      auto fileText = ReadTextFile(fileSystem, filePath, "project");
+      if (!fileText)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(fileText.Error());
       }
 
-      auto target = OptionalAttribute(*fileElement, "Target",
-                                      "package.Contents.File", {});
-      if (!target) {
-        return NGIN::Utilities::Unexpected<KernelError>(target.Error());
+      auto manifest = ParseProjectManifestText(fileText.Value());
+      if (!manifest)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(manifest.Error());
       }
 
-      auto kind = OptionalAttribute(*fileElement, "Kind",
-                                    "package.Contents.File", "other");
-      if (!kind) {
-        return NGIN::Utilities::Unexpected<KernelError>(kind.Error());
+      auto absolutePath = AbsolutePath(fileSystem, filePath);
+      if (!absolutePath)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(absolutePath.Error());
       }
 
-      manifest.contents.push_back(PackageContentFile{
-          .source = source.Value(),
-          .target = target.Value(),
-          .kind = kind.Value(),
+      return std::pair<ProjectManifest, IoPath>{
+          manifest.Value(),
+          absolutePath.Value().Parent(),
+      };
+    }
+
+    auto CollectProjectClosure(
+        IoFileSystem &fileSystem, const IoPath &filePath,
+        const std::optional<std::string> &selectedConfiguration,
+        const bool allowDefaultFallbackForSelection,
+        std::vector<ResolvedProjectUnit> &out, std::set<std::string> &visiting,
+        std::set<std::string> &visited) -> CoreResult<void>
+    {
+      auto canonicalPath = WeaklyCanonicalPath(fileSystem, filePath);
+      if (!canonicalPath)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(canonicalPath.Error());
+      }
+
+      const std::string canonicalKey = ToString(canonicalPath.Value());
+      if (visited.contains(canonicalKey))
+      {
+        return {};
+      }
+      if (visiting.contains(canonicalKey))
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(
+            MakeBuilderError("project reference cycle detected", canonicalKey,
+                             KernelErrorCode::DependencyCycle));
+      }
+      visiting.insert(canonicalKey);
+
+      auto loaded = LoadProjectManifestFile(fileSystem, canonicalPath.Value());
+      if (!loaded)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(loaded.Error());
+      }
+
+      auto manifest = std::move(loaded.Value().first);
+      auto directory = std::move(loaded.Value().second);
+
+      auto configuration = FindConfiguration(manifest, selectedConfiguration,
+                                             allowDefaultFallbackForSelection);
+      if (!configuration)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(configuration.Error());
+      }
+
+      auto environment =
+          FindEnvironment(manifest, configuration.Value().environmentName);
+      if (!environment)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(environment.Error());
+      }
+
+      auto collectReference =
+          [&](const ProjectReference &reference) -> CoreResult<void>
+      {
+        IoPath referencedPath(reference.path);
+        if (referencedPath.IsRelative() && !directory.IsEmpty())
+        {
+          referencedPath = directory.Join(referencedPath.View());
+        }
+        referencedPath = referencedPath.LexicallyNormal();
+
+        const std::optional<std::string> referencedConfiguration =
+            reference.configuration.has_value()
+                ? reference.configuration
+                : std::optional<std::string>{configuration.Value().name};
+
+        auto result =
+            CollectProjectClosure(fileSystem, referencedPath,
+                                  referencedConfiguration,
+                                  !reference.configuration.has_value(), out,
+                                  visiting, visited);
+        if (!result)
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(result.Error());
+        }
+        return {};
+      };
+
+      for (const auto &reference : manifest.projectRefs)
+      {
+        auto result = collectReference(reference);
+        if (!result)
+        {
+          return result;
+        }
+      }
+      if (environment.Value().has_value())
+      {
+        for (const auto &reference : environment.Value()->projectRefs)
+        {
+          auto result = collectReference(reference);
+          if (!result)
+          {
+            return result;
+          }
+        }
+      }
+      for (const auto &reference : configuration.Value().projectRefs)
+      {
+        auto result = collectReference(reference);
+        if (!result)
+        {
+          return result;
+        }
+      }
+
+      out.push_back(ResolvedProjectUnit{
+          .manifest = std::move(manifest),
+          .configuration = configuration.Value(),
+          .environment = environment.Value(),
+          .directory = std::move(directory),
       });
-    }
-  }
 
-  const auto *modulesElement = FindChild(*root, "Modules");
-  if (modulesElement == nullptr) {
-    return NGIN::Utilities::Unexpected<KernelError>(
-        MakeBuilderError("package must contain a <Modules> element"));
-  }
-
-  std::set<std::string> moduleNames{};
-  for (const auto *moduleElement : ChildElements(*modulesElement, "Module")) {
-    auto module =
-        ParsePackageModuleDescriptor(*moduleElement, "package.Modules.Module");
-    if (!module) {
-      return NGIN::Utilities::Unexpected<KernelError>(module.Error());
+      visiting.erase(canonicalKey);
+      visited.insert(canonicalKey);
+      return {};
     }
 
-    if (!moduleNames.insert(module.Value().name).second) {
-      return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-          "duplicate package module declaration", module.Value().name,
-          KernelErrorCode::AlreadyExists));
-    }
-
-    manifest.modules.push_back(module.Value());
-  }
-
-  if (const auto *pluginsElement = FindChild(*root, "Plugins")) {
-    std::set<std::string> pluginNames{};
-    for (const auto *pluginElement : ChildElements(*pluginsElement, "Plugin")) {
-      auto plugin =
-          ParsePackagePluginManifest(*pluginElement, "package.Plugins.Plugin");
-      if (!plugin) {
-        return NGIN::Utilities::Unexpected<KernelError>(plugin.Error());
+    [[nodiscard]] auto ParsePackageManifestText(const std::string &text)
+        -> CoreResult<PackageManifest>
+    {
+      auto loaded = LoadXmlDocument(text, "package");
+      if (!loaded)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(loaded.Error());
       }
 
-      if (!pluginNames.insert(plugin.Value().name).second) {
+      const auto *root = loaded.Value().document.Root();
+      if (root == nullptr || root->name != "Package")
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(
+            MakeBuilderError("package manifest root element must be <Package>"));
+      }
+
+      PackageManifest manifest{};
+
+      auto schemaVersion =
+          OptionalAttribute(*root, "SchemaVersion", "package", "1");
+      if (!schemaVersion)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(schemaVersion.Error());
+      }
+      auto parsedSchema =
+          ParseUInt32Value(schemaVersion.Value(), "package.SchemaVersion");
+      if (!parsedSchema)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(parsedSchema.Error());
+      }
+      manifest.schemaVersion = parsedSchema.Value();
+
+      auto name = RequireAttribute(*root, "Name", "package");
+      if (!name)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(name.Error());
+      }
+      manifest.name = name.Value();
+
+      auto version = RequireAttribute(*root, "Version", "package");
+      if (!version)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(version.Error());
+      }
+      manifest.version = version.Value();
+
+      auto platformRange =
+          RequireAttribute(*root, "CompatiblePlatformRange", "package");
+      if (!platformRange)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(platformRange.Error());
+      }
+      manifest.compatiblePlatformRange = platformRange.Value();
+
+      auto compatibility = ReadCompatibility(*root, "package",
+                                             manifest.operatingSystems,
+                                             manifest.architectures);
+      if (!compatibility)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(compatibility.Error());
+      }
+
+      if (const auto *dependenciesElement = FindChild(*root, "Dependencies"))
+      {
+        for (const auto *dependencyElement :
+             ChildElements(*dependenciesElement, "Dependency"))
+        {
+          auto reference =
+              ParsePackageReference(*dependencyElement, "package.Dependencies");
+          if (!reference)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(reference.Error());
+          }
+          manifest.dependencies.push_back(reference.Value());
+        }
+      }
+
+      if (const auto *bootstrapElement = FindChild(*root, "Bootstrap"))
+      {
+        auto modeText =
+            RequireAttribute(*bootstrapElement, "Mode", "package.Bootstrap");
+        if (!modeText)
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(modeText.Error());
+        }
+        auto mode = ParsePackageBootstrapMode(modeText.Value());
+        if (!mode)
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(mode.Error());
+        }
+
+        auto entryPoint =
+            RequireAttribute(*bootstrapElement, "EntryPoint", "package.Bootstrap");
+        if (!entryPoint)
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(entryPoint.Error());
+        }
+
+        auto autoApply = OptionalBoolAttribute(
+            *bootstrapElement, "AutoApply", "package.Bootstrap.AutoApply", false);
+        if (!autoApply)
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(autoApply.Error());
+        }
+
+        manifest.bootstrap = PackageBootstrapDescriptor{
+            .mode = mode.Value(),
+            .entryPoint = entryPoint.Value(),
+            .autoApply = autoApply.Value(),
+        };
+      }
+
+      if (const auto *contentsElement = FindChild(*root, "Contents"))
+      {
+        for (const auto *fileElement : ChildElements(*contentsElement, "File"))
+        {
+          auto source =
+              RequireAttribute(*fileElement, "Source", "package.Contents.File");
+          if (!source)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(source.Error());
+          }
+
+          auto target = OptionalAttribute(*fileElement, "Target",
+                                          "package.Contents.File", {});
+          if (!target)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(target.Error());
+          }
+
+          auto kind = OptionalAttribute(*fileElement, "Kind",
+                                        "package.Contents.File", "other");
+          if (!kind)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(kind.Error());
+          }
+
+          manifest.contents.push_back(PackageContentFile{
+              .source = source.Value(),
+              .target = target.Value(),
+              .kind = kind.Value(),
+          });
+        }
+      }
+
+      const auto *modulesElement = FindChild(*root, "Modules");
+      if (modulesElement == nullptr)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(
+            MakeBuilderError("package must contain a <Modules> element"));
+      }
+
+      std::set<std::string> moduleNames{};
+      for (const auto *moduleElement : ChildElements(*modulesElement, "Module"))
+      {
+        auto module =
+            ParsePackageModuleDescriptor(*moduleElement, "package.Modules.Module");
+        if (!module)
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(module.Error());
+        }
+
+        if (!moduleNames.insert(module.Value().name).second)
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+              "duplicate package module declaration", module.Value().name,
+              KernelErrorCode::AlreadyExists));
+        }
+
+        manifest.modules.push_back(module.Value());
+      }
+
+      if (const auto *pluginsElement = FindChild(*root, "Plugins"))
+      {
+        std::set<std::string> pluginNames{};
+        for (const auto *pluginElement : ChildElements(*pluginsElement, "Plugin"))
+        {
+          auto plugin =
+              ParsePackagePluginManifest(*pluginElement, "package.Plugins.Plugin");
+          if (!plugin)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(plugin.Error());
+          }
+
+          if (!pluginNames.insert(plugin.Value().name).second)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+                "duplicate package plugin declaration", plugin.Value().name,
+                KernelErrorCode::AlreadyExists));
+          }
+
+          manifest.plugins.push_back(plugin.Value());
+        }
+      }
+
+      return manifest;
+    }
+
+    template <typename T>
+    void AppendUnique(std::vector<T> &target, const T &value)
+    {
+      if (std::find(target.begin(), target.end(), value) == target.end())
+      {
+        target.push_back(value);
+      }
+    }
+
+    void AppendUniqueStrings(std::vector<std::string> &target,
+                             const std::vector<std::string> &values)
+    {
+      for (const auto &value : values)
+      {
+        AppendUnique(target, value);
+      }
+    }
+
+    void MergePackageReferences(std::vector<PackageReference> &target,
+                                const std::vector<PackageReference> &source)
+    {
+      std::unordered_map<std::string, std::size_t> indexByName{};
+      for (std::size_t index = 0; index < target.size(); ++index)
+      {
+        indexByName[target[index].name] = index;
+      }
+
+      for (const auto &reference : source)
+      {
+        const auto it = indexByName.find(reference.name);
+        if (it == indexByName.end())
+        {
+          indexByName.emplace(reference.name, target.size());
+          target.push_back(reference);
+          continue;
+        }
+        target[it->second] = reference;
+      }
+    }
+
+    void AppendOrReplaceModuleRegistration(
+        std::vector<StaticModuleRegistration> &registrations,
+        StaticModuleRegistration registration)
+    {
+      const auto it = std::find_if(registrations.begin(), registrations.end(),
+                                   [&](const StaticModuleRegistration &candidate)
+                                   {
+                                     return candidate.descriptor.name ==
+                                            registration.descriptor.name;
+                                   });
+
+      if (it == registrations.end())
+      {
+        registrations.push_back(std::move(registration));
+        return;
+      }
+
+      *it = std::move(registration);
+    }
+
+    [[nodiscard]] auto
+    BuildCatalogFrom(const std::vector<StaticModuleRegistration> &registrations,
+                     const std::set<std::string> &disabledModules)
+        -> CoreResult<NGIN::Memory::Shared<IModuleCatalog>>
+    {
+      auto catalog = CreateStaticModuleCatalog();
+      if (!catalog)
+      {
         return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-            "duplicate package plugin declaration", plugin.Value().name,
-            KernelErrorCode::AlreadyExists));
+            "failed to create module catalog", {}, KernelErrorCode::InternalError));
       }
 
-      manifest.plugins.push_back(plugin.Value());
-    }
-  }
-
-  return manifest;
-}
-
-template <typename T>
-void AppendUnique(std::vector<T> &target, const T &value) {
-  if (std::find(target.begin(), target.end(), value) == target.end()) {
-    target.push_back(value);
-  }
-}
-
-void AppendUniqueStrings(std::vector<std::string> &target,
-                         const std::vector<std::string> &values) {
-  for (const auto &value : values) {
-    AppendUnique(target, value);
-  }
-}
-
-void MergePackageReferences(std::vector<PackageReference> &target,
-                            const std::vector<PackageReference> &source) {
-  std::unordered_map<std::string, std::size_t> indexByName{};
-  for (std::size_t index = 0; index < target.size(); ++index) {
-    indexByName[target[index].name] = index;
-  }
-
-  for (const auto &reference : source) {
-    const auto it = indexByName.find(reference.name);
-    if (it == indexByName.end()) {
-      indexByName.emplace(reference.name, target.size());
-      target.push_back(reference);
-      continue;
-    }
-    target[it->second] = reference;
-  }
-}
-
-void AppendOrReplaceModuleRegistration(
-    std::vector<StaticModuleRegistration> &registrations,
-    StaticModuleRegistration registration) {
-  const auto it = std::find_if(registrations.begin(), registrations.end(),
-                               [&](const StaticModuleRegistration &candidate) {
-                                 return candidate.descriptor.name ==
-                                        registration.descriptor.name;
-                               });
-
-  if (it == registrations.end()) {
-    registrations.push_back(std::move(registration));
-    return;
-  }
-
-  *it = std::move(registration);
-}
-
-[[nodiscard]] auto
-BuildCatalogFrom(const std::vector<StaticModuleRegistration> &registrations,
-                 const std::set<std::string> &disabledModules)
-    -> CoreResult<NGIN::Memory::Shared<IModuleCatalog>> {
-  auto catalog = CreateStaticModuleCatalog();
-  if (!catalog) {
-    return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-        "failed to create module catalog", {}, KernelErrorCode::InternalError));
-  }
-
-  for (const auto &registration : registrations) {
-    if (disabledModules.contains(registration.descriptor.name)) {
-      continue;
-    }
-
-    auto result = catalog->Register(registration);
-    if (!result) {
-      return NGIN::Utilities::Unexpected<KernelError>(result.Error());
-    }
-  }
-
-  return catalog;
-}
-
-[[nodiscard]] auto ResolveWorkingDirectory(std::string workingDirectory,
-                                           const IoPath &projectDirectory)
-    -> std::string {
-  if (workingDirectory.empty()) {
-    return workingDirectory;
-  }
-
-  IoPath workPath(workingDirectory);
-  if (workPath.IsRelative() && !projectDirectory.IsEmpty()) {
-    return ToString(projectDirectory.Join(workPath.View()).LexicallyNormal());
-  }
-  return ToString(workPath.LexicallyNormal());
-}
-
-class PackageBootstrapRegistryImpl final : public PackageBootstrapRegistry {
-public:
-  explicit PackageBootstrapRegistryImpl(
-      std::unordered_map<std::string, std::string> defaultEntryPoints)
-      : m_defaultEntryPoints(std::move(defaultEntryPoints)) {}
-
-  auto Register(PackageBootstrapEntry entry) -> CoreResult<void> override {
-    if (entry.packageName.empty() || entry.entryPoint.empty() ||
-        entry.fn == nullptr) {
-      m_lastError =
-          MakeBuilderError("package bootstrap entry must have package name, "
-                           "entry point, and function",
-                           entry.packageName, KernelErrorCode::InvalidArgument);
-      return NGIN::Utilities::Unexpected<KernelError>(*m_lastError);
-    }
-
-    const std::string key = entry.packageName + "::" + entry.entryPoint;
-    if (m_indexByKey.contains(key)) {
-      m_lastError = MakeBuilderError("duplicate package bootstrap entry", key,
-                                     KernelErrorCode::AlreadyExists);
-      return NGIN::Utilities::Unexpected<KernelError>(*m_lastError);
-    }
-
-    m_entries.push_back(std::move(entry));
-    m_indexByKey.emplace(key, m_entries.size() - 1);
-    m_lastError.reset();
-    return {};
-  }
-
-  [[nodiscard]] auto Find(const std::string_view packageName,
-                          const std::string_view entryPoint) const noexcept
-      -> const PackageBootstrapEntry * override {
-    const auto it = m_indexByKey.find(std::string(packageName) +
-                                      "::" + std::string(entryPoint));
-    if (it == m_indexByKey.end()) {
-      return nullptr;
-    }
-    return &m_entries[it->second];
-  }
-
-  [[nodiscard]] auto
-  FindDefault(const std::string_view packageName) const noexcept
-      -> const PackageBootstrapEntry * override {
-    const auto defaultIt = m_defaultEntryPoints.find(std::string(packageName));
-    if (defaultIt != m_defaultEntryPoints.end()) {
-      return Find(packageName, defaultIt->second);
-    }
-
-    const PackageBootstrapEntry *match = nullptr;
-    for (const auto &entry : m_entries) {
-      if (entry.packageName != packageName) {
-        continue;
-      }
-
-      if (match != nullptr) {
-        return nullptr;
-      }
-      match = &entry;
-    }
-    return match;
-  }
-
-  [[nodiscard]] auto LastError() const noexcept
-      -> const std::optional<KernelError> & {
-    return m_lastError;
-  }
-
-private:
-  std::vector<PackageBootstrapEntry> m_entries{};
-  std::unordered_map<std::string, std::size_t> m_indexByKey{};
-  std::unordered_map<std::string, std::string> m_defaultEntryPoints{};
-  std::optional<KernelError> m_lastError{};
-};
-
-class ApplicationHostImpl final : public IApplicationHost {
-public:
-  ApplicationHostImpl(NGIN::Memory::Shared<IKernel> kernel,
-                      StartupReport metadataReport)
-      : m_kernel(std::move(kernel)), m_metadataReport(std::move(metadataReport)) {
-  }
-
-  auto Start() noexcept -> CoreResult<void> override {
-    return m_kernel->Start();
-  }
-
-  auto Run() noexcept -> CoreResult<void> override { return m_kernel->Run(); }
-
-  auto Tick() noexcept -> CoreResult<void> override { return m_kernel->Tick(); }
-
-  void RequestStop(std::string reason) noexcept override {
-    m_kernel->RequestStop(std::move(reason));
-  }
-
-  auto Shutdown() noexcept -> CoreResult<void> override {
-    return m_kernel->Shutdown();
-  }
-
-  [[nodiscard]] auto GetConfigurationName() const -> std::string override {
-    return m_metadataReport.targetName;
-  }
-
-  [[nodiscard]] auto GetStartupReport() const -> StartupReport override {
-    auto report = m_kernel->GetStartupReport();
-    if (report.hostName.empty()) {
-      report.hostName = m_metadataReport.hostName;
-    }
-    if (report.targetName.empty()) {
-      report.targetName = m_metadataReport.targetName;
-    }
-    if (report.hostType.empty()) {
-      report.hostType = m_metadataReport.hostType;
-    }
-
-    report.resolvedPackages = m_metadataReport.resolvedPackages;
-    report.resolvedPlugins = m_metadataReport.resolvedPlugins;
-
-    report.warnings.insert(report.warnings.end(),
-                           m_metadataReport.warnings.begin(),
-                           m_metadataReport.warnings.end());
-
-    report.failures.insert(report.failures.end(),
-                           m_metadataReport.failures.begin(),
-                           m_metadataReport.failures.end());
-
-    return report;
-  }
-
-  [[nodiscard]] auto GetServices() noexcept
-      -> NGIN::Memory::Shared<IServiceRegistry> override {
-    return m_kernel->GetServices();
-  }
-
-  [[nodiscard]] auto GetConfig() noexcept
-      -> NGIN::Memory::Shared<IConfigStore> override {
-    return m_kernel->GetConfig();
-  }
-
-private:
-  NGIN::Memory::Shared<IKernel> m_kernel{};
-  StartupReport m_metadataReport{};
-};
-
-class ApplicationBuilderImpl;
-
-class ServiceCollectionImpl final : public ServiceCollection {
-public:
-  explicit ServiceCollectionImpl(ApplicationBuilderImpl &owner)
-      : m_owner(owner) {}
-
-  auto AddSingleton(std::string key, NGIN::Utilities::Any<> service,
-                    ServiceMetadata metadata = {})
-      -> ServiceCollection & override;
-
-  auto AddFactory(std::string key, ServiceFactory factory,
-                  ServiceLifetime lifetime, ServiceMetadata metadata = {})
-      -> ServiceCollection & override;
-
-  auto AddScoped(std::string key, ServiceFactory factory,
-                 ServiceMetadata metadata = {}) -> ServiceCollection & override;
-
-  auto AddTransient(std::string key, ServiceFactory factory,
-                    ServiceMetadata metadata = {})
-      -> ServiceCollection & override;
-
-  auto AddDefaults() -> ServiceCollection & override;
-  auto AddLogging() -> ServiceCollection & override;
-  auto AddConfiguration() -> ServiceCollection & override;
-  auto Clear() -> ServiceCollection & override;
-
-private:
-  ApplicationBuilderImpl &m_owner;
-};
-
-class PackageCollectionImpl final : public PackageCollection {
-public:
-  explicit PackageCollectionImpl(ApplicationBuilderImpl &owner)
-      : m_owner(owner) {}
-
-  auto Add(PackageReference reference) -> PackageCollection & override;
-  auto AddManifest(PackageManifest manifest) -> PackageCollection & override;
-  auto AddManifestFile(std::string path) -> PackageCollection & override;
-  auto RegisterLinkedRegistrar(PackageBootstrapRegistrarFn registrar)
-      -> PackageCollection & override;
-  auto ApplyBootstrap(std::string packageName) -> PackageCollection & override;
-  auto ApplyBootstrap(std::string packageName, std::string entryPoint)
-      -> PackageCollection & override;
-  auto Clear() -> PackageCollection & override;
-
-private:
-  ApplicationBuilderImpl &m_owner;
-};
-
-class ModuleCollectionImpl final : public ModuleCollection {
-public:
-  explicit ModuleCollectionImpl(ApplicationBuilderImpl &owner)
-      : m_owner(owner) {}
-
-  auto Register(StaticModuleRegistration registration)
-      -> ModuleCollection & override;
-  auto Enable(std::string moduleName) -> ModuleCollection & override;
-  auto Disable(std::string moduleName) -> ModuleCollection & override;
-  auto Clear() -> ModuleCollection & override;
-
-private:
-  ApplicationBuilderImpl &m_owner;
-};
-
-class PluginCollectionImpl final : public PluginCollection {
-public:
-  explicit PluginCollectionImpl(ApplicationBuilderImpl &owner)
-      : m_owner(owner) {}
-
-  auto Enable(std::string pluginName) -> PluginCollection & override;
-  auto Disable(std::string pluginName) -> PluginCollection & override;
-  auto AddSearchPath(std::string path) -> PluginCollection & override;
-  auto Clear() -> PluginCollection & override;
-
-private:
-  ApplicationBuilderImpl &m_owner;
-};
-
-class ConfigurationBuilderImpl final : public ConfigurationBuilder {
-public:
-  explicit ConfigurationBuilderImpl(ApplicationBuilderImpl &owner)
-      : m_owner(owner) {}
-
-  auto AddSource(std::string path) -> ConfigurationBuilder & override;
-  auto SetEnvironmentName(std::string environmentName)
-      -> ConfigurationBuilder & override;
-  auto SetWorkingDirectory(std::string workingDirectory)
-      -> ConfigurationBuilder & override;
-  auto Clear() -> ConfigurationBuilder & override;
-
-private:
-  ApplicationBuilderImpl &m_owner;
-};
-
-class PackageBootstrapContextImpl final : public PackageBootstrapContext {
-public:
-  PackageBootstrapContextImpl(
-      std::string_view packageName, std::string_view configurationName,
-      ServiceCollection &services, PackageCollection &packages,
-      ModuleCollection &modules, PluginCollection &plugins,
-      ConfigurationBuilder &configuration)
-      : m_packageName(packageName), m_configurationName(configurationName),
-        m_services(services), m_packages(packages), m_modules(modules),
-        m_plugins(plugins), m_configuration(configuration) {
-  }
-
-  [[nodiscard]] auto PackageName() const noexcept -> std::string_view override {
-    return m_packageName;
-  }
-  [[nodiscard]] auto ConfigurationName() const noexcept
-      -> std::string_view override {
-    return m_configurationName;
-  }
-
-  [[nodiscard]] auto Services() noexcept -> ServiceCollection & override {
-    return m_services;
-  }
-  [[nodiscard]] auto Packages() noexcept -> PackageCollection & override {
-    return m_packages;
-  }
-  [[nodiscard]] auto Modules() noexcept -> ModuleCollection & override {
-    return m_modules;
-  }
-  [[nodiscard]] auto Plugins() noexcept -> PluginCollection & override {
-    return m_plugins;
-  }
-  [[nodiscard]] auto Configuration() noexcept
-      -> ConfigurationBuilder & override {
-    return m_configuration;
-  }
-
-private:
-  std::string_view m_packageName;
-  std::string_view m_configurationName;
-  ServiceCollection &m_services;
-  PackageCollection &m_packages;
-  ModuleCollection &m_modules;
-  PluginCollection &m_plugins;
-  ConfigurationBuilder &m_configuration;
-};
-
-class ApplicationBuilderImpl final : public ApplicationBuilder {
-public:
-  ApplicationBuilderImpl(const int argc, char **argv)
-      : m_services(*this), m_packages(*this), m_modules(*this),
-        m_plugins(*this), m_configuration(*this) {
-    for (int index = 1; index < argc; ++index) {
-      if (argv[index] != nullptr) {
-        m_commandLineArgs.emplace_back(argv[index]);
-      }
-    }
-  }
-
-  [[nodiscard]] auto FileSystem() -> IoFileSystem & {
-    if (!m_fileSystem) {
-      m_fileSystem =
-          NGIN::Memory::MakeSharedAs<IoFileSystem, NGIN::IO::LocalFileSystem>();
-    }
-    return *m_fileSystem;
-  }
-
-  auto UseProjectFile(std::string path) -> ApplicationBuilder & override {
-    MarkMutating();
-    if (HasStickyError()) {
-      return *this;
-    }
-
-    const IoPath filePath(path);
-    auto fileText = ReadTextFile(FileSystem(), filePath, "project");
-    if (!fileText) {
-      m_stickyError = fileText.Error();
-      return *this;
-    }
-
-    auto manifest = ParseProjectManifestText(fileText.Value());
-    if (!manifest) {
-      m_stickyError = manifest.Error();
-      return *this;
-    }
-
-    m_project = manifest.Value();
-    auto absolutePath = AbsolutePath(FileSystem(), filePath);
-    if (!absolutePath) {
-      m_stickyError = absolutePath.Error();
-      return *this;
-    }
-
-    m_projectPath = absolutePath.Value();
-    m_projectDirectory = absolutePath.Value().Parent();
-    return *this;
-  }
-
-  auto UseProject(ProjectManifest manifest) -> ApplicationBuilder & override {
-    MarkMutating();
-    if (!HasStickyError()) {
-      m_project = std::move(manifest);
-      m_projectPath = {};
-      m_projectDirectory = {};
-    }
-    return *this;
-  }
-
-  auto UseFileSystem(NGIN::Memory::Shared<NGIN::IO::IFileSystem> fileSystem)
-      -> ApplicationBuilder & override {
-    MarkMutating();
-    if (!HasStickyError()) {
-      m_fileSystem = std::move(fileSystem);
-    }
-    return *this;
-  }
-
-  auto SetApplicationName(std::string applicationName)
-      -> ApplicationBuilder & override {
-    MarkMutating();
-    if (!HasStickyError()) {
-      m_applicationName = std::move(applicationName);
-    }
-    return *this;
-  }
-
-  auto SetConfiguration(std::string configurationName)
-      -> ApplicationBuilder & override {
-    MarkMutating();
-    if (!HasStickyError()) {
-      m_configurationOverride = std::move(configurationName);
-    }
-    return *this;
-  }
-
-  [[nodiscard]] auto Services() noexcept -> ServiceCollection & override {
-    return m_services;
-  }
-  [[nodiscard]] auto Packages() noexcept -> PackageCollection & override {
-    return m_packages;
-  }
-  [[nodiscard]] auto Modules() noexcept -> ModuleCollection & override {
-    return m_modules;
-  }
-  [[nodiscard]] auto Plugins() noexcept -> PluginCollection & override {
-    return m_plugins;
-  }
-  [[nodiscard]] auto Configuration() noexcept
-      -> ConfigurationBuilder & override {
-    return m_configuration;
-  }
-
-  [[nodiscard]] auto Build()
-      -> CoreResult<std::shared_ptr<IApplicationHost>> override {
-    if (m_built) {
-      return NGIN::Utilities::Unexpected<KernelError>(
-          MakeBuilderError("Build() may only be called once", {},
-                           KernelErrorCode::InvalidState));
-    }
-    if (m_stickyError.has_value()) {
-      return NGIN::Utilities::Unexpected<KernelError>(*m_stickyError);
-    }
-
-    std::vector<ResolvedProjectUnit> projectUnits{};
-    const ResolvedProjectUnit *rootProjectUnit = nullptr;
-    if (m_project.has_value()) {
-      if (!m_projectPath.IsEmpty()) {
-        std::set<std::string> visiting{};
-        std::set<std::string> visited{};
-        auto closure = CollectProjectClosure(FileSystem(), m_projectPath,
-                                             m_configurationOverride, false,
-                                             projectUnits, visiting, visited);
-        if (!closure) {
-          return NGIN::Utilities::Unexpected<KernelError>(closure.Error());
+      for (const auto &registration : registrations)
+      {
+        if (disabledModules.contains(registration.descriptor.name))
+        {
+          continue;
         }
-      } else {
-        auto selectedConfiguration =
-            FindConfiguration(*m_project, m_configurationOverride);
-        if (!selectedConfiguration) {
+
+        auto result = catalog->Register(registration);
+        if (!result)
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(result.Error());
+        }
+      }
+
+      return catalog;
+    }
+
+    [[nodiscard]] auto ResolveWorkingDirectory(std::string workingDirectory,
+                                               const IoPath &projectDirectory)
+        -> std::string
+    {
+      if (workingDirectory.empty())
+      {
+        return workingDirectory;
+      }
+
+      IoPath workPath(workingDirectory);
+      if (workPath.IsRelative() && !projectDirectory.IsEmpty())
+      {
+        return ToString(projectDirectory.Join(workPath.View()).LexicallyNormal());
+      }
+      return ToString(workPath.LexicallyNormal());
+    }
+
+    class PackageBootstrapRegistryImpl final : public PackageBootstrapRegistry
+    {
+    public:
+      explicit PackageBootstrapRegistryImpl(
+          std::unordered_map<std::string, std::string> defaultEntryPoints)
+          : m_defaultEntryPoints(std::move(defaultEntryPoints)) {}
+
+      auto Register(PackageBootstrapEntry entry) -> CoreResult<void> override
+      {
+        if (entry.packageName.empty() || entry.entryPoint.empty() ||
+            entry.fn == nullptr)
+        {
+          m_lastError =
+              MakeBuilderError("package bootstrap entry must have package name, "
+                               "entry point, and function",
+                               entry.packageName, KernelErrorCode::InvalidArgument);
+          return NGIN::Utilities::Unexpected<KernelError>(*m_lastError);
+        }
+
+        const std::string key = entry.packageName + "::" + entry.entryPoint;
+        if (m_indexByKey.contains(key))
+        {
+          m_lastError = MakeBuilderError("duplicate package bootstrap entry", key,
+                                         KernelErrorCode::AlreadyExists);
+          return NGIN::Utilities::Unexpected<KernelError>(*m_lastError);
+        }
+
+        m_entries.push_back(std::move(entry));
+        m_indexByKey.emplace(key, m_entries.size() - 1);
+        m_lastError.reset();
+        return {};
+      }
+
+      [[nodiscard]] auto Find(const std::string_view packageName,
+                              const std::string_view entryPoint) const noexcept
+          -> const PackageBootstrapEntry * override
+      {
+        const auto it = m_indexByKey.find(std::string(packageName) +
+                                          "::" + std::string(entryPoint));
+        if (it == m_indexByKey.end())
+        {
+          return nullptr;
+        }
+        return &m_entries[it->second];
+      }
+
+      [[nodiscard]] auto
+      FindDefault(const std::string_view packageName) const noexcept
+          -> const PackageBootstrapEntry * override
+      {
+        const auto defaultIt = m_defaultEntryPoints.find(std::string(packageName));
+        if (defaultIt != m_defaultEntryPoints.end())
+        {
+          return Find(packageName, defaultIt->second);
+        }
+
+        const PackageBootstrapEntry *match = nullptr;
+        for (const auto &entry : m_entries)
+        {
+          if (entry.packageName != packageName)
+          {
+            continue;
+          }
+
+          if (match != nullptr)
+          {
+            return nullptr;
+          }
+          match = &entry;
+        }
+        return match;
+      }
+
+      [[nodiscard]] auto LastError() const noexcept
+          -> const std::optional<KernelError> &
+      {
+        return m_lastError;
+      }
+
+    private:
+      std::vector<PackageBootstrapEntry> m_entries{};
+      std::unordered_map<std::string, std::size_t> m_indexByKey{};
+      std::unordered_map<std::string, std::string> m_defaultEntryPoints{};
+      std::optional<KernelError> m_lastError{};
+    };
+
+    class ApplicationHostImpl final : public IApplicationHost
+    {
+    public:
+      ApplicationHostImpl(NGIN::Memory::Shared<IKernel> kernel,
+                          StartupReport metadataReport)
+          : m_kernel(std::move(kernel)), m_metadataReport(std::move(metadataReport))
+      {
+      }
+
+      auto Start() noexcept -> CoreResult<void> override
+      {
+        return m_kernel->Start();
+      }
+
+      auto Run() noexcept -> CoreResult<void> override { return m_kernel->Run(); }
+
+      auto Tick() noexcept -> CoreResult<void> override { return m_kernel->Tick(); }
+
+      void RequestStop(std::string reason) noexcept override
+      {
+        m_kernel->RequestStop(std::move(reason));
+      }
+
+      auto Shutdown() noexcept -> CoreResult<void> override
+      {
+        return m_kernel->Shutdown();
+      }
+
+      [[nodiscard]] auto GetConfigurationName() const -> std::string override
+      {
+        return m_metadataReport.targetName;
+      }
+
+      [[nodiscard]] auto GetStartupReport() const -> StartupReport override
+      {
+        auto report = m_kernel->GetStartupReport();
+        if (report.hostName.empty())
+        {
+          report.hostName = m_metadataReport.hostName;
+        }
+        if (report.targetName.empty())
+        {
+          report.targetName = m_metadataReport.targetName;
+        }
+        if (report.hostType.empty())
+        {
+          report.hostType = m_metadataReport.hostType;
+        }
+
+        report.resolvedPackages = m_metadataReport.resolvedPackages;
+        report.resolvedPlugins = m_metadataReport.resolvedPlugins;
+
+        report.warnings.insert(report.warnings.end(),
+                               m_metadataReport.warnings.begin(),
+                               m_metadataReport.warnings.end());
+
+        report.failures.insert(report.failures.end(),
+                               m_metadataReport.failures.begin(),
+                               m_metadataReport.failures.end());
+
+        return report;
+      }
+
+      [[nodiscard]] auto GetServices() noexcept
+          -> NGIN::Memory::Shared<IServiceRegistry> override
+      {
+        return m_kernel->GetServices();
+      }
+
+      [[nodiscard]] auto GetConfig() noexcept
+          -> NGIN::Memory::Shared<IConfigStore> override
+      {
+        return m_kernel->GetConfig();
+      }
+
+    private:
+      NGIN::Memory::Shared<IKernel> m_kernel{};
+      StartupReport m_metadataReport{};
+    };
+
+    class ApplicationBuilderImpl;
+
+    class ServiceCollectionImpl final : public ServiceCollection
+    {
+    public:
+      explicit ServiceCollectionImpl(ApplicationBuilderImpl &owner)
+          : m_owner(owner) {}
+
+      auto AddSingleton(std::string key, NGIN::Utilities::Any<> service,
+                        ServiceMetadata metadata = {})
+          -> ServiceCollection & override;
+
+      auto AddFactory(std::string key, ServiceFactory factory,
+                      ServiceLifetime lifetime, ServiceMetadata metadata = {})
+          -> ServiceCollection & override;
+
+      auto AddScoped(std::string key, ServiceFactory factory,
+                     ServiceMetadata metadata = {}) -> ServiceCollection & override;
+
+      auto AddTransient(std::string key, ServiceFactory factory,
+                        ServiceMetadata metadata = {})
+          -> ServiceCollection & override;
+
+      auto AddDefaults() -> ServiceCollection & override;
+      auto AddLogging() -> ServiceCollection & override;
+      auto AddConfiguration() -> ServiceCollection & override;
+      auto Clear() -> ServiceCollection & override;
+
+    private:
+      ApplicationBuilderImpl &m_owner;
+    };
+
+    class PackageCollectionImpl final : public PackageCollection
+    {
+    public:
+      explicit PackageCollectionImpl(ApplicationBuilderImpl &owner)
+          : m_owner(owner) {}
+
+      auto Add(PackageReference reference) -> PackageCollection & override;
+      auto AddManifest(PackageManifest manifest) -> PackageCollection & override;
+      auto AddManifestFile(std::string path) -> PackageCollection & override;
+      auto RegisterLinkedRegistrar(PackageBootstrapRegistrarFn registrar)
+          -> PackageCollection & override;
+      auto ApplyBootstrap(std::string packageName) -> PackageCollection & override;
+      auto ApplyBootstrap(std::string packageName, std::string entryPoint)
+          -> PackageCollection & override;
+      auto Clear() -> PackageCollection & override;
+
+    private:
+      ApplicationBuilderImpl &m_owner;
+    };
+
+    class ModuleCollectionImpl final : public ModuleCollection
+    {
+    public:
+      explicit ModuleCollectionImpl(ApplicationBuilderImpl &owner)
+          : m_owner(owner) {}
+
+      auto Register(StaticModuleRegistration registration)
+          -> ModuleCollection & override;
+      auto Enable(std::string moduleName) -> ModuleCollection & override;
+      auto Disable(std::string moduleName) -> ModuleCollection & override;
+      auto Clear() -> ModuleCollection & override;
+
+    private:
+      ApplicationBuilderImpl &m_owner;
+    };
+
+    class PluginCollectionImpl final : public PluginCollection
+    {
+    public:
+      explicit PluginCollectionImpl(ApplicationBuilderImpl &owner)
+          : m_owner(owner) {}
+
+      auto Enable(std::string pluginName) -> PluginCollection & override;
+      auto Disable(std::string pluginName) -> PluginCollection & override;
+      auto AddSearchPath(std::string path) -> PluginCollection & override;
+      auto Clear() -> PluginCollection & override;
+
+    private:
+      ApplicationBuilderImpl &m_owner;
+    };
+
+    class ConfigurationBuilderImpl final : public ConfigurationBuilder
+    {
+    public:
+      explicit ConfigurationBuilderImpl(ApplicationBuilderImpl &owner)
+          : m_owner(owner) {}
+
+      auto AddSource(std::string path) -> ConfigurationBuilder & override;
+      auto SetEnvironmentName(std::string environmentName)
+          -> ConfigurationBuilder & override;
+      auto SetWorkingDirectory(std::string workingDirectory)
+          -> ConfigurationBuilder & override;
+      auto Clear() -> ConfigurationBuilder & override;
+
+    private:
+      ApplicationBuilderImpl &m_owner;
+    };
+
+    class PackageBootstrapContextImpl final : public PackageBootstrapContext
+    {
+    public:
+      PackageBootstrapContextImpl(
+          std::string_view packageName, std::string_view configurationName,
+          ServiceCollection &services, PackageCollection &packages,
+          ModuleCollection &modules, PluginCollection &plugins,
+          ConfigurationBuilder &configuration)
+          : m_packageName(packageName), m_configurationName(configurationName),
+            m_services(services), m_packages(packages), m_modules(modules),
+            m_plugins(plugins), m_configuration(configuration)
+      {
+      }
+
+      [[nodiscard]] auto PackageName() const noexcept -> std::string_view override
+      {
+        return m_packageName;
+      }
+      [[nodiscard]] auto ConfigurationName() const noexcept
+          -> std::string_view override
+      {
+        return m_configurationName;
+      }
+
+      [[nodiscard]] auto Services() noexcept -> ServiceCollection & override
+      {
+        return m_services;
+      }
+      [[nodiscard]] auto Packages() noexcept -> PackageCollection & override
+      {
+        return m_packages;
+      }
+      [[nodiscard]] auto Modules() noexcept -> ModuleCollection & override
+      {
+        return m_modules;
+      }
+      [[nodiscard]] auto Plugins() noexcept -> PluginCollection & override
+      {
+        return m_plugins;
+      }
+      [[nodiscard]] auto Configuration() noexcept
+          -> ConfigurationBuilder & override
+      {
+        return m_configuration;
+      }
+
+    private:
+      std::string_view m_packageName;
+      std::string_view m_configurationName;
+      ServiceCollection &m_services;
+      PackageCollection &m_packages;
+      ModuleCollection &m_modules;
+      PluginCollection &m_plugins;
+      ConfigurationBuilder &m_configuration;
+    };
+
+    class ApplicationBuilderImpl final : public ApplicationBuilder
+    {
+    public:
+      ApplicationBuilderImpl(const int argc, char **argv)
+          : m_services(*this), m_packages(*this), m_modules(*this),
+            m_plugins(*this), m_configuration(*this)
+      {
+        for (int index = 1; index < argc; ++index)
+        {
+          if (argv[index] != nullptr)
+          {
+            m_commandLineArgs.emplace_back(argv[index]);
+          }
+        }
+      }
+
+      [[nodiscard]] auto FileSystem() -> IoFileSystem &
+      {
+        if (!m_fileSystem)
+        {
+          m_fileSystem =
+              NGIN::Memory::MakeSharedAs<IoFileSystem, NGIN::IO::LocalFileSystem>();
+        }
+        return *m_fileSystem;
+      }
+
+      auto UseProjectFile(std::string path) -> ApplicationBuilder & override
+      {
+        MarkMutating();
+        if (HasStickyError())
+        {
+          return *this;
+        }
+
+        const IoPath filePath(path);
+        auto fileText = ReadTextFile(FileSystem(), filePath, "project");
+        if (!fileText)
+        {
+          m_stickyError = fileText.Error();
+          return *this;
+        }
+
+        auto manifest = ParseProjectManifestText(fileText.Value());
+        if (!manifest)
+        {
+          m_stickyError = manifest.Error();
+          return *this;
+        }
+
+        m_project = manifest.Value();
+        auto absolutePath = AbsolutePath(FileSystem(), filePath);
+        if (!absolutePath)
+        {
+          m_stickyError = absolutePath.Error();
+          return *this;
+        }
+
+        m_projectPath = absolutePath.Value();
+        m_projectDirectory = absolutePath.Value().Parent();
+        return *this;
+      }
+
+      auto UseProject(ProjectManifest manifest) -> ApplicationBuilder & override
+      {
+        MarkMutating();
+        if (!HasStickyError())
+        {
+          m_project = std::move(manifest);
+          m_projectPath = {};
+          m_projectDirectory = {};
+        }
+        return *this;
+      }
+
+      auto UseFileSystem(NGIN::Memory::Shared<NGIN::IO::IFileSystem> fileSystem)
+          -> ApplicationBuilder & override
+      {
+        MarkMutating();
+        if (!HasStickyError())
+        {
+          m_fileSystem = std::move(fileSystem);
+        }
+        return *this;
+      }
+
+      auto SetApplicationName(std::string applicationName)
+          -> ApplicationBuilder & override
+      {
+        MarkMutating();
+        if (!HasStickyError())
+        {
+          m_applicationName = std::move(applicationName);
+        }
+        return *this;
+      }
+
+      auto SetConfiguration(std::string configurationName)
+          -> ApplicationBuilder & override
+      {
+        MarkMutating();
+        if (!HasStickyError())
+        {
+          m_configurationOverride = std::move(configurationName);
+        }
+        return *this;
+      }
+
+      [[nodiscard]] auto Services() noexcept -> ServiceCollection & override
+      {
+        return m_services;
+      }
+      [[nodiscard]] auto Packages() noexcept -> PackageCollection & override
+      {
+        return m_packages;
+      }
+      [[nodiscard]] auto Modules() noexcept -> ModuleCollection & override
+      {
+        return m_modules;
+      }
+      [[nodiscard]] auto Plugins() noexcept -> PluginCollection & override
+      {
+        return m_plugins;
+      }
+      [[nodiscard]] auto Configuration() noexcept
+          -> ConfigurationBuilder & override
+      {
+        return m_configuration;
+      }
+
+      [[nodiscard]] auto Build()
+          -> CoreResult<std::shared_ptr<IApplicationHost>> override
+      {
+        if (m_built)
+        {
           return NGIN::Utilities::Unexpected<KernelError>(
-              selectedConfiguration.Error());
+              MakeBuilderError("Build() may only be called once", {},
+                               KernelErrorCode::InvalidState));
         }
-        auto selectedEnvironment =
-            FindEnvironment(*m_project, selectedConfiguration.Value().environmentName);
-        if (!selectedEnvironment) {
-          return NGIN::Utilities::Unexpected<KernelError>(
-              selectedEnvironment.Error());
+        if (m_stickyError.has_value())
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(*m_stickyError);
         }
 
-        projectUnits.push_back(ResolvedProjectUnit{
-            .manifest = *m_project,
-            .configuration = selectedConfiguration.Value(),
-            .environment = selectedEnvironment.Value(),
-            .directory = m_projectDirectory,
+        std::vector<ResolvedProjectUnit> projectUnits{};
+        const ResolvedProjectUnit *rootProjectUnit = nullptr;
+        if (m_project.has_value())
+        {
+          if (!m_projectPath.IsEmpty())
+          {
+            std::set<std::string> visiting{};
+            std::set<std::string> visited{};
+            auto closure = CollectProjectClosure(FileSystem(), m_projectPath,
+                                                 m_configurationOverride, false,
+                                                 projectUnits, visiting, visited);
+            if (!closure)
+            {
+              return NGIN::Utilities::Unexpected<KernelError>(closure.Error());
+            }
+          }
+          else
+          {
+            auto selectedConfiguration =
+                FindConfiguration(*m_project, m_configurationOverride);
+            if (!selectedConfiguration)
+            {
+              return NGIN::Utilities::Unexpected<KernelError>(
+                  selectedConfiguration.Error());
+            }
+            auto selectedEnvironment =
+                FindEnvironment(*m_project, selectedConfiguration.Value().environmentName);
+            if (!selectedEnvironment)
+            {
+              return NGIN::Utilities::Unexpected<KernelError>(
+                  selectedEnvironment.Error());
+            }
+
+            projectUnits.push_back(ResolvedProjectUnit{
+                .manifest = *m_project,
+                .configuration = selectedConfiguration.Value(),
+                .environment = selectedEnvironment.Value(),
+                .directory = m_projectDirectory,
+            });
+          }
+
+          if (!projectUnits.empty())
+          {
+            rootProjectUnit = &projectUnits.back();
+          }
+        }
+
+        const ConfigurationDefinition *selectedConfiguration =
+            rootProjectUnit != nullptr ? &rootProjectUnit->configuration : nullptr;
+
+        if (selectedConfiguration != nullptr)
+        {
+          for (const auto &unit : projectUnits)
+          {
+            if (unit.configuration.operatingSystem !=
+                    selectedConfiguration->operatingSystem ||
+                unit.configuration.architecture !=
+                    selectedConfiguration->architecture)
+            {
+              return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+                  "referenced project target does not match the selected root "
+                  "configuration",
+                  unit.manifest.name, KernelErrorCode::SchemaValidationFailure));
+            }
+          }
+        }
+
+        const HostType hostType = HostType::ConsoleApp;
+
+        std::string configurationName = !m_configurationOverride.empty()
+                                            ? m_configurationOverride
+                                            : std::string{};
+        if (configurationName.empty() && selectedConfiguration != nullptr)
+        {
+          configurationName = selectedConfiguration->name;
+        }
+        if (configurationName.empty())
+        {
+          configurationName =
+              !m_applicationName.empty() ? m_applicationName : "NGIN.Configuration";
+        }
+
+        std::string applicationName = m_applicationName;
+        if (applicationName.empty() && rootProjectUnit != nullptr)
+        {
+          applicationName = rootProjectUnit->manifest.name;
+        }
+        if (applicationName.empty())
+        {
+          applicationName = "NGIN.Application";
+        }
+
+        std::vector<PackageReference> bootstrapPackages{};
+        for (const auto &unit : projectUnits)
+        {
+          MergePackageReferences(bootstrapPackages, unit.manifest.packageRefs);
+          if (unit.environment.has_value())
+          {
+            MergePackageReferences(bootstrapPackages, unit.environment->packageRefs);
+          }
+          MergePackageReferences(bootstrapPackages, unit.configuration.packageRefs);
+        }
+        MergePackageReferences(bootstrapPackages, m_packageReferences);
+
+        std::unordered_map<std::string, std::size_t> packageOrder{};
+        std::unordered_map<std::string, PackageReference> directPackagesByName{};
+        for (std::size_t index = 0; index < bootstrapPackages.size(); ++index)
+        {
+          packageOrder[bootstrapPackages[index].name] = index;
+          directPackagesByName[bootstrapPackages[index].name] =
+              bootstrapPackages[index];
+        }
+
+        std::unordered_map<std::string, std::string> defaultBootstrapEntryPoints{};
+        for (const auto &[packageName, manifest] : m_packageManifests)
+        {
+          if (manifest.bootstrap.has_value())
+          {
+            defaultBootstrapEntryPoints.emplace(packageName,
+                                                manifest.bootstrap->entryPoint);
+          }
+        }
+
+        PackageBootstrapRegistryImpl bootstrapRegistry(
+            std::move(defaultBootstrapEntryPoints));
+        for (const auto registrar : m_packageRegistrars)
+        {
+          registrar(bootstrapRegistry);
+          if (bootstrapRegistry.LastError().has_value())
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(
+                *bootstrapRegistry.LastError());
+          }
+        }
+
+        std::unordered_map<std::string, BootstrapCandidate> candidatesByName{};
+        std::vector<StartupWarning> bootstrapWarnings{};
+
+        auto makeWarning = [](const std::string &packageName,
+                              const std::string &detail)
+        {
+          return StartupWarning{
+              .subsystem = "ApplicationBuilder",
+              .module = packageName,
+              .message =
+                  "package bootstrap skipped for '" + packageName + "': " + detail,
+          };
+        };
+
+        for (const auto &request : m_explicitBootstrapRequests)
+        {
+          const auto packageIt = directPackagesByName.find(request.packageName);
+          if (packageIt == directPackagesByName.end())
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(
+                MakeBuilderError("explicit bootstrap requested for package that is "
+                                 "not a direct reference",
+                                 request.packageName, KernelErrorCode::NotFound));
+          }
+
+          const PackageManifest *manifest = nullptr;
+          const auto manifestIt = m_packageManifests.find(request.packageName);
+          if (manifestIt != m_packageManifests.end())
+          {
+            manifest = &manifestIt->second;
+          }
+
+          std::string entryPoint{};
+          if (request.entryPoint.has_value())
+          {
+            entryPoint = *request.entryPoint;
+          }
+          else if (manifest != nullptr && manifest->bootstrap.has_value())
+          {
+            entryPoint = manifest->bootstrap->entryPoint;
+          }
+          else
+          {
+            const auto *defaultEntry =
+                bootstrapRegistry.FindDefault(request.packageName);
+            if (defaultEntry == nullptr)
+            {
+              return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+                  "unable to resolve default bootstrap entry point for package",
+                  request.packageName, KernelErrorCode::NotFound));
+            }
+            entryPoint = defaultEntry->entryPoint;
+          }
+
+          if (bootstrapRegistry.Find(request.packageName, entryPoint) == nullptr)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+                "explicit package bootstrap entry was not registered",
+                request.packageName + "::" + entryPoint,
+                KernelErrorCode::NotFound));
+          }
+
+          candidatesByName[request.packageName] = BootstrapCandidate{
+              .reference = packageIt->second,
+              .manifest = manifest,
+              .entryPoint = std::move(entryPoint),
+              .explicitRequest = true,
+              .orderIndex = packageOrder[request.packageName],
+          };
+        }
+
+        for (const auto &reference : bootstrapPackages)
+        {
+          if (candidatesByName.contains(reference.name))
+          {
+            continue;
+          }
+
+          const auto manifestIt = m_packageManifests.find(reference.name);
+          if (manifestIt == m_packageManifests.end())
+          {
+            continue;
+          }
+
+          const PackageManifest &manifest = manifestIt->second;
+          if (!manifest.bootstrap.has_value() || !manifest.bootstrap->autoApply)
+          {
+            continue;
+          }
+
+          const auto *entry = bootstrapRegistry.Find(
+              reference.name, manifest.bootstrap->entryPoint);
+          if (entry == nullptr)
+          {
+            if (reference.optional)
+            {
+              bootstrapWarnings.push_back(
+                  makeWarning(reference.name, "manifest entry point '" +
+                                                  manifest.bootstrap->entryPoint +
+                                                  "' was not registered"));
+              continue;
+            }
+
+            return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+                "required package bootstrap entry was not registered",
+                reference.name + "::" + manifest.bootstrap->entryPoint,
+                KernelErrorCode::NotFound));
+          }
+
+          candidatesByName.emplace(reference.name,
+                                   BootstrapCandidate{
+                                       .reference = reference,
+                                       .manifest = &manifest,
+                                       .entryPoint = manifest.bootstrap->entryPoint,
+                                       .explicitRequest = false,
+                                       .orderIndex = packageOrder[reference.name],
+                                   });
+        }
+
+        std::unordered_map<std::string, std::size_t> indegree{};
+        std::unordered_map<std::string, std::vector<std::string>> adjacency{};
+        std::vector<std::string> ready{};
+        std::vector<std::string> orderedCandidateNames{};
+        orderedCandidateNames.reserve(candidatesByName.size());
+
+        for (const auto &[packageName, candidate] : candidatesByName)
+        {
+          (void)candidate;
+          indegree.emplace(packageName, 0);
+        }
+
+        for (const auto &[packageName, candidate] : candidatesByName)
+        {
+          if (candidate.manifest == nullptr)
+          {
+            continue;
+          }
+
+          for (const auto &dependency : candidate.manifest->dependencies)
+          {
+            if (!candidatesByName.contains(dependency.name))
+            {
+              continue;
+            }
+
+            adjacency[dependency.name].push_back(packageName);
+            ++indegree[packageName];
+          }
+        }
+
+        for (const auto &[packageName, count] : indegree)
+        {
+          if (count == 0)
+          {
+            ready.push_back(packageName);
+          }
+        }
+
+        auto compareByOrder = [&](const std::string &lhs, const std::string &rhs)
+        {
+          return packageOrder[lhs] < packageOrder[rhs];
+        };
+
+        std::sort(ready.begin(), ready.end(), compareByOrder);
+
+        while (!ready.empty())
+        {
+          const std::string current = ready.front();
+          ready.erase(ready.begin());
+          orderedCandidateNames.push_back(current);
+
+          auto adjacencyIt = adjacency.find(current);
+          if (adjacencyIt == adjacency.end())
+          {
+            continue;
+          }
+
+          for (const auto &dependent : adjacencyIt->second)
+          {
+            auto &count = indegree[dependent];
+            --count;
+            if (count == 0)
+            {
+              ready.push_back(dependent);
+            }
+          }
+          std::sort(ready.begin(), ready.end(), compareByOrder);
+        }
+
+        if (orderedCandidateNames.size() != candidatesByName.size())
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(
+              MakeBuilderError("package bootstrap dependency cycle detected", {},
+                               KernelErrorCode::DependencyCycle));
+        }
+
+        for (const auto &packageName : orderedCandidateNames)
+        {
+          const auto &candidate = candidatesByName.at(packageName);
+          const auto *entry = bootstrapRegistry.Find(candidate.reference.name,
+                                                     candidate.entryPoint);
+          if (entry == nullptr || entry->fn == nullptr)
+          {
+            const std::string detail =
+                "bootstrap entry '" + candidate.entryPoint + "' was not registered";
+            if (candidate.explicitRequest || !candidate.reference.optional)
+            {
+              return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+                  detail, candidate.reference.name, KernelErrorCode::NotFound));
+            }
+
+            bootstrapWarnings.push_back(
+                makeWarning(candidate.reference.name, detail));
+            continue;
+          }
+
+          PackageBootstrapContextImpl context(
+              candidate.reference.name, configurationName, m_services, m_packages,
+              m_modules, m_plugins, m_configuration);
+
+          auto bootstrapResult = entry->fn(context);
+          if (bootstrapResult)
+          {
+            continue;
+          }
+
+          if (candidate.explicitRequest || !candidate.reference.optional)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(
+                bootstrapResult.Error());
+          }
+
+          bootstrapWarnings.push_back(makeWarning(candidate.reference.name,
+                                                  bootstrapResult.Error().message));
+        }
+
+        std::vector<PackageReference> packages{};
+        for (const auto &unit : projectUnits)
+        {
+          MergePackageReferences(packages, unit.manifest.packageRefs);
+          if (unit.environment.has_value())
+          {
+            MergePackageReferences(packages, unit.environment->packageRefs);
+          }
+          MergePackageReferences(packages, unit.configuration.packageRefs);
+        }
+        MergePackageReferences(packages, m_packageReferences);
+
+        std::vector<std::string> enabledModules{};
+        for (const auto &unit : projectUnits)
+        {
+          AppendUniqueStrings(enabledModules, unit.manifest.runtime.enableModules);
+          if (unit.environment.has_value())
+          {
+            AppendUniqueStrings(enabledModules, unit.environment->runtime.enableModules);
+          }
+          AppendUniqueStrings(enabledModules, unit.configuration.runtime.enableModules);
+        }
+        AppendUniqueStrings(enabledModules, m_enabledModules);
+
+        std::vector<std::string> disabledModules{};
+        for (const auto &unit : projectUnits)
+        {
+          AppendUniqueStrings(disabledModules,
+                              unit.manifest.runtime.disableModules);
+          if (unit.environment.has_value())
+          {
+            AppendUniqueStrings(disabledModules,
+                                unit.environment->runtime.disableModules);
+          }
+          AppendUniqueStrings(disabledModules,
+                              unit.configuration.runtime.disableModules);
+        }
+        AppendUniqueStrings(disabledModules, m_disabledModules);
+        const std::set<std::string> disabledModuleSet(disabledModules.begin(),
+                                                      disabledModules.end());
+
+        enabledModules.erase(
+            std::remove_if(enabledModules.begin(), enabledModules.end(),
+                           [&](const std::string &name)
+                           {
+                             return disabledModuleSet.contains(name);
+                           }),
+            enabledModules.end());
+
+        std::vector<std::string> enabledPlugins{};
+        AppendUniqueStrings(enabledPlugins, m_enabledPlugins);
+
+        std::vector<std::string> disabledPlugins{};
+        AppendUniqueStrings(disabledPlugins, m_disabledPlugins);
+        const std::set<std::string> disabledPluginSet(disabledPlugins.begin(),
+                                                      disabledPlugins.end());
+
+        enabledPlugins.erase(
+            std::remove_if(enabledPlugins.begin(), enabledPlugins.end(),
+                           [&](const std::string &name)
+                           {
+                             return disabledPluginSet.contains(name);
+                           }),
+            enabledPlugins.end());
+
+        std::vector<std::string> configSources{};
+        for (const auto &unit : projectUnits)
+        {
+          for (const auto &source : unit.manifest.configSources)
+          {
+            const auto resolved = ResolveWorkingDirectory(source, unit.directory);
+            AppendUnique(configSources, resolved);
+          }
+          if (unit.environment.has_value())
+          {
+            for (const auto &source : unit.environment->configSources)
+            {
+              const auto resolved = ResolveWorkingDirectory(source, unit.directory);
+              AppendUnique(configSources, resolved);
+            }
+          }
+          for (const auto &source : unit.configuration.configSources)
+          {
+            const auto resolved = ResolveWorkingDirectory(source, unit.directory);
+            AppendUnique(configSources, resolved);
+          }
+        }
+        AppendUniqueStrings(configSources, m_configSources);
+
+        std::vector<std::string> pluginSearchPaths{};
+        AppendUniqueStrings(pluginSearchPaths, m_pluginSearchPaths);
+
+        std::string environmentName = m_environmentName;
+        if (environmentName.empty() && selectedConfiguration != nullptr)
+        {
+          environmentName = selectedConfiguration->environmentName;
+        }
+
+        std::string workingDirectory = m_workingDirectory;
+        if (workingDirectory.empty() && selectedConfiguration != nullptr &&
+            selectedConfiguration->launch.has_value())
+        {
+          workingDirectory = selectedConfiguration->launch->workingDirectory;
+        }
+        if (workingDirectory.empty() && !m_projectDirectory.IsEmpty())
+        {
+          workingDirectory = ToString(m_projectDirectory);
+        }
+        workingDirectory =
+            ResolveWorkingDirectory(workingDirectory, m_projectDirectory);
+
+        auto moduleCatalog =
+            BuildCatalogFrom(m_moduleRegistrations, disabledModuleSet);
+        if (!moduleCatalog)
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(moduleCatalog.Error());
+        }
+
+        StartupReport metadataReport{};
+        metadataReport.hostName = applicationName;
+        metadataReport.targetName = configurationName;
+        metadataReport.hostType = std::string(ToString(hostType));
+        metadataReport.warnings = bootstrapWarnings;
+        for (const auto &reference : packages)
+        {
+          metadataReport.resolvedPackages.push_back(reference.name);
+        }
+        metadataReport.resolvedPlugins = enabledPlugins;
+
+        KernelHostConfig hostConfig{};
+        hostConfig.hostName = applicationName;
+        hostConfig.hostType = hostType;
+        hostConfig.operatingSystemName =
+            selectedConfiguration != nullptr ? selectedConfiguration->operatingSystem
+                                             : "linux";
+        hostConfig.architectureName =
+            selectedConfiguration != nullptr ? selectedConfiguration->architecture
+                                             : "x64";
+        hostConfig.platformName =
+            hostConfig.operatingSystemName + "-" + hostConfig.architectureName;
+        hostConfig.platformVersion = SemanticVersion{0, 1, 0, {}};
+        hostConfig.targetName = configurationName;
+        hostConfig.workingDirectory = workingDirectory;
+        hostConfig.configSources = configSources;
+        hostConfig.pluginSearchPaths = pluginSearchPaths;
+        hostConfig.enableDynamicPlugins = false;
+        hostConfig.enableReflection = selectedConfiguration != nullptr
+                                          ? selectedConfiguration->enableReflection
+                                          : false;
+        hostConfig.commandLineArgs = m_commandLineArgs;
+        hostConfig.environmentName = environmentName;
+        hostConfig.requestedModules = enabledModules;
+        hostConfig.fileSystem = m_fileSystem;
+        hostConfig.moduleCatalog = moduleCatalog.Value();
+
+        const auto pendingServices = m_pendingServices;
+        const bool addDefaults = m_addDefaultServices;
+        const bool addLogging = m_addLogging;
+        const bool addConfiguration = m_addConfiguration;
+
+        hostConfig.configureServices =
+            [pendingServices, addDefaults, addLogging, addConfiguration,
+             configurationName](
+                KernelBootstrapContext &context) -> CoreResult<void>
+        {
+          ServiceScopeId hostScope = ServiceScopeId::Global();
+          const bool requiresHostScope = std::any_of(
+              pendingServices.begin(), pendingServices.end(),
+              [](const PendingServiceRegistration &registration)
+              {
+                return registration.lifetime != ServiceLifetime::Singleton;
+              });
+
+          if (requiresHostScope)
+          {
+            auto scope = context.services->BeginScope(ServiceScopeKind::Host,
+                                                      configurationName);
+            if (!scope)
+            {
+              return NGIN::Utilities::Unexpected<KernelError>(scope.Error());
+            }
+            hostScope = scope.Value();
+          }
+
+          if (addDefaults)
+          {
+            auto result = context.services->RegisterInstance(
+                "Core.Services", NGIN::Utilities::Any<>(context.services));
+            if (!result)
+            {
+              return NGIN::Utilities::Unexpected<KernelError>(result.Error());
+            }
+
+            result = context.services->RegisterInstance(
+                "Core.Events", NGIN::Utilities::Any<>(context.events));
+            if (!result)
+            {
+              return NGIN::Utilities::Unexpected<KernelError>(result.Error());
+            }
+
+            result = context.services->RegisterInstance(
+                "Core.Tasks", NGIN::Utilities::Any<>(context.tasks));
+            if (!result)
+            {
+              return NGIN::Utilities::Unexpected<KernelError>(result.Error());
+            }
+          }
+
+          if (addConfiguration)
+          {
+            auto result = context.services->RegisterInstance(
+                "Core.Configuration", NGIN::Utilities::Any<>(context.config));
+            if (!result)
+            {
+              return NGIN::Utilities::Unexpected<KernelError>(result.Error());
+            }
+          }
+
+          if (addLogging && context.loggerRegistry != nullptr)
+          {
+            auto result = context.services->RegisterInstance(
+                "Core.Logging", NGIN::Utilities::Any<>(context.loggerRegistry));
+            if (!result)
+            {
+              return NGIN::Utilities::Unexpected<KernelError>(result.Error());
+            }
+          }
+
+          for (const auto &registration : pendingServices)
+          {
+            ServiceRegistrationOptions options{};
+            options.lifetime = registration.lifetime;
+            options.ownerScope = registration.lifetime == ServiceLifetime::Singleton
+                                     ? ServiceScopeId::Global()
+                                     : hostScope;
+            options.metadata = registration.metadata;
+
+            CoreResult<void> result{};
+            if (registration.instance.has_value())
+            {
+              result = context.services->RegisterInstance(
+                  registration.key, *registration.instance, options);
+            }
+            else
+            {
+              result = context.services->RegisterFactory(
+                  registration.key, *registration.factory, options);
+            }
+
+            if (!result)
+            {
+              return NGIN::Utilities::Unexpected<KernelError>(result.Error());
+            }
+          }
+
+          return {};
+        };
+
+        auto kernel = CreateKernel(hostConfig);
+        if (!kernel)
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(kernel.Error());
+        }
+
+        m_built = true;
+        std::shared_ptr<IApplicationHost> host =
+            std::make_shared<ApplicationHostImpl>(kernel.Value(),
+                                                  std::move(metadataReport));
+        return host;
+      }
+
+      void MarkMutating()
+      {
+        if (m_built && !m_stickyError.has_value())
+        {
+          m_stickyError =
+              MakeBuilderError("builder can no longer be modified after Build()",
+                               {}, KernelErrorCode::InvalidState);
+        }
+      }
+
+      [[nodiscard]] auto HasStickyError() const noexcept -> bool
+      {
+        return m_stickyError.has_value();
+      }
+
+      std::vector<PendingServiceRegistration> m_pendingServices{};
+      std::vector<PackageReference> m_packageReferences{};
+      std::unordered_map<std::string, PackageManifest> m_packageManifests{};
+      std::vector<PackageBootstrapRegistrarFn> m_packageRegistrars{};
+      std::vector<PackageBootstrapRequest> m_explicitBootstrapRequests{};
+      std::vector<StaticModuleRegistration> m_moduleRegistrations{};
+      std::vector<std::string> m_enabledModules{};
+      std::vector<std::string> m_disabledModules{};
+      std::vector<std::string> m_enabledPlugins{};
+      std::vector<std::string> m_disabledPlugins{};
+      std::vector<std::string> m_pluginSearchPaths{};
+      std::vector<std::string> m_configSources{};
+      std::vector<std::string> m_commandLineArgs{};
+      std::optional<ProjectManifest> m_project{};
+      IoPath m_projectPath{};
+      IoPath m_projectDirectory{};
+      NGIN::Memory::Shared<IoFileSystem> m_fileSystem{};
+      std::optional<KernelError> m_stickyError{};
+      std::string m_applicationName{};
+      std::string m_configurationOverride{};
+      std::string m_environmentName{};
+      std::string m_workingDirectory{};
+      bool m_addDefaultServices{false};
+      bool m_addLogging{false};
+      bool m_addConfiguration{false};
+      bool m_built{false};
+      ServiceCollectionImpl m_services;
+      PackageCollectionImpl m_packages;
+      ModuleCollectionImpl m_modules;
+      PluginCollectionImpl m_plugins;
+      ConfigurationBuilderImpl m_configuration;
+    };
+
+    auto ServiceCollectionImpl::AddSingleton(std::string key,
+                                             NGIN::Utilities::Any<> service,
+                                             ServiceMetadata metadata)
+        -> ServiceCollection &
+    {
+      m_owner.MarkMutating();
+      if (!m_owner.HasStickyError())
+      {
+        m_owner.m_pendingServices.push_back(PendingServiceRegistration{
+            .key = std::move(key),
+            .instance = std::move(service),
+            .factory = std::nullopt,
+            .lifetime = ServiceLifetime::Singleton,
+            .metadata = std::move(metadata),
         });
       }
-
-      if (!projectUnits.empty()) {
-        rootProjectUnit = &projectUnits.back();
-      }
+      return *this;
     }
 
-    const ConfigurationDefinition *selectedConfiguration =
-        rootProjectUnit != nullptr ? &rootProjectUnit->configuration : nullptr;
-
-    if (selectedConfiguration != nullptr) {
-      for (const auto &unit : projectUnits) {
-        if (unit.configuration.operatingSystem !=
-                selectedConfiguration->operatingSystem ||
-            unit.configuration.architecture !=
-                selectedConfiguration->architecture) {
-          return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-              "referenced project target does not match the selected root "
-              "configuration",
-              unit.manifest.name, KernelErrorCode::SchemaValidationFailure));
-        }
+    auto ServiceCollectionImpl::AddFactory(std::string key, ServiceFactory factory,
+                                           const ServiceLifetime lifetime,
+                                           ServiceMetadata metadata)
+        -> ServiceCollection &
+    {
+      m_owner.MarkMutating();
+      if (!m_owner.HasStickyError())
+      {
+        m_owner.m_pendingServices.push_back(PendingServiceRegistration{
+            .key = std::move(key),
+            .instance = std::nullopt,
+            .factory = std::move(factory),
+            .lifetime = lifetime,
+            .metadata = std::move(metadata),
+        });
       }
+      return *this;
     }
 
-    const HostType hostType = HostType::ConsoleApp;
-
-    std::string configurationName = !m_configurationOverride.empty()
-                                        ? m_configurationOverride
-                                        : std::string{};
-    if (configurationName.empty() && selectedConfiguration != nullptr) {
-      configurationName = selectedConfiguration->name;
-    }
-    if (configurationName.empty()) {
-      configurationName =
-          !m_applicationName.empty() ? m_applicationName : "NGIN.Configuration";
+    auto ServiceCollectionImpl::AddScoped(std::string key, ServiceFactory factory,
+                                          ServiceMetadata metadata)
+        -> ServiceCollection &
+    {
+      return AddFactory(std::move(key), std::move(factory), ServiceLifetime::Scoped,
+                        std::move(metadata));
     }
 
-    std::string applicationName = m_applicationName;
-    if (applicationName.empty() && rootProjectUnit != nullptr) {
-      applicationName = rootProjectUnit->manifest.name;
-    }
-    if (applicationName.empty()) {
-      applicationName = "NGIN.Application";
-    }
-
-    std::vector<PackageReference> bootstrapPackages{};
-    for (const auto &unit : projectUnits) {
-      MergePackageReferences(bootstrapPackages, unit.manifest.packageRefs);
-      if (unit.environment.has_value()) {
-        MergePackageReferences(bootstrapPackages, unit.environment->packageRefs);
-      }
-      MergePackageReferences(bootstrapPackages, unit.configuration.packageRefs);
-    }
-    MergePackageReferences(bootstrapPackages, m_packageReferences);
-
-    std::unordered_map<std::string, std::size_t> packageOrder{};
-    std::unordered_map<std::string, PackageReference> directPackagesByName{};
-    for (std::size_t index = 0; index < bootstrapPackages.size(); ++index) {
-      packageOrder[bootstrapPackages[index].name] = index;
-      directPackagesByName[bootstrapPackages[index].name] =
-          bootstrapPackages[index];
+    auto ServiceCollectionImpl::AddTransient(std::string key,
+                                             ServiceFactory factory,
+                                             ServiceMetadata metadata)
+        -> ServiceCollection &
+    {
+      return AddFactory(std::move(key), std::move(factory),
+                        ServiceLifetime::Transient, std::move(metadata));
     }
 
-    std::unordered_map<std::string, std::string> defaultBootstrapEntryPoints{};
-    for (const auto &[packageName, manifest] : m_packageManifests) {
-      if (manifest.bootstrap.has_value()) {
-        defaultBootstrapEntryPoints.emplace(packageName,
-                                            manifest.bootstrap->entryPoint);
+    auto ServiceCollectionImpl::AddDefaults() -> ServiceCollection &
+    {
+      m_owner.MarkMutating();
+      if (!m_owner.HasStickyError())
+      {
+        m_owner.m_addDefaultServices = true;
       }
+      return *this;
     }
 
-    PackageBootstrapRegistryImpl bootstrapRegistry(
-        std::move(defaultBootstrapEntryPoints));
-    for (const auto registrar : m_packageRegistrars) {
-      registrar(bootstrapRegistry);
-      if (bootstrapRegistry.LastError().has_value()) {
-        return NGIN::Utilities::Unexpected<KernelError>(
-            *bootstrapRegistry.LastError());
+    auto ServiceCollectionImpl::AddLogging() -> ServiceCollection &
+    {
+      m_owner.MarkMutating();
+      if (!m_owner.HasStickyError())
+      {
+        m_owner.m_addLogging = true;
       }
+      return *this;
     }
 
-    std::unordered_map<std::string, BootstrapCandidate> candidatesByName{};
-    std::vector<StartupWarning> bootstrapWarnings{};
-
-    auto makeWarning = [](const std::string &packageName,
-                          const std::string &detail) {
-      return StartupWarning{
-          .subsystem = "ApplicationBuilder",
-          .module = packageName,
-          .message =
-              "package bootstrap skipped for '" + packageName + "': " + detail,
-      };
-    };
-
-    for (const auto &request : m_explicitBootstrapRequests) {
-      const auto packageIt = directPackagesByName.find(request.packageName);
-      if (packageIt == directPackagesByName.end()) {
-        return NGIN::Utilities::Unexpected<KernelError>(
-            MakeBuilderError("explicit bootstrap requested for package that is "
-                             "not a direct reference",
-                             request.packageName, KernelErrorCode::NotFound));
+    auto ServiceCollectionImpl::AddConfiguration() -> ServiceCollection &
+    {
+      m_owner.MarkMutating();
+      if (!m_owner.HasStickyError())
+      {
+        m_owner.m_addConfiguration = true;
       }
-
-      const PackageManifest *manifest = nullptr;
-      const auto manifestIt = m_packageManifests.find(request.packageName);
-      if (manifestIt != m_packageManifests.end()) {
-        manifest = &manifestIt->second;
-      }
-
-      std::string entryPoint{};
-      if (request.entryPoint.has_value()) {
-        entryPoint = *request.entryPoint;
-      } else if (manifest != nullptr && manifest->bootstrap.has_value()) {
-        entryPoint = manifest->bootstrap->entryPoint;
-      } else {
-        const auto *defaultEntry =
-            bootstrapRegistry.FindDefault(request.packageName);
-        if (defaultEntry == nullptr) {
-          return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-              "unable to resolve default bootstrap entry point for package",
-              request.packageName, KernelErrorCode::NotFound));
-        }
-        entryPoint = defaultEntry->entryPoint;
-      }
-
-      if (bootstrapRegistry.Find(request.packageName, entryPoint) == nullptr) {
-        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-            "explicit package bootstrap entry was not registered",
-            request.packageName + "::" + entryPoint,
-            KernelErrorCode::NotFound));
-      }
-
-      candidatesByName[request.packageName] = BootstrapCandidate{
-          .reference = packageIt->second,
-          .manifest = manifest,
-          .entryPoint = std::move(entryPoint),
-          .explicitRequest = true,
-          .orderIndex = packageOrder[request.packageName],
-      };
+      return *this;
     }
 
-    for (const auto &reference : bootstrapPackages) {
-      if (candidatesByName.contains(reference.name)) {
-        continue;
+    auto ServiceCollectionImpl::Clear() -> ServiceCollection &
+    {
+      m_owner.MarkMutating();
+      if (!m_owner.HasStickyError())
+      {
+        m_owner.m_pendingServices.clear();
+        m_owner.m_addDefaultServices = false;
+        m_owner.m_addLogging = false;
+        m_owner.m_addConfiguration = false;
       }
-
-      const auto manifestIt = m_packageManifests.find(reference.name);
-      if (manifestIt == m_packageManifests.end()) {
-        continue;
-      }
-
-      const PackageManifest &manifest = manifestIt->second;
-      if (!manifest.bootstrap.has_value() || !manifest.bootstrap->autoApply) {
-        continue;
-      }
-
-      const auto *entry = bootstrapRegistry.Find(
-          reference.name, manifest.bootstrap->entryPoint);
-      if (entry == nullptr) {
-        if (reference.optional) {
-          bootstrapWarnings.push_back(
-              makeWarning(reference.name, "manifest entry point '" +
-                                              manifest.bootstrap->entryPoint +
-                                              "' was not registered"));
-          continue;
-        }
-
-        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-            "required package bootstrap entry was not registered",
-            reference.name + "::" + manifest.bootstrap->entryPoint,
-            KernelErrorCode::NotFound));
-      }
-
-      candidatesByName.emplace(reference.name,
-                               BootstrapCandidate{
-                                   .reference = reference,
-                                   .manifest = &manifest,
-                                   .entryPoint = manifest.bootstrap->entryPoint,
-                                   .explicitRequest = false,
-                                   .orderIndex = packageOrder[reference.name],
-                               });
+      return *this;
     }
 
-    std::unordered_map<std::string, std::size_t> indegree{};
-    std::unordered_map<std::string, std::vector<std::string>> adjacency{};
-    std::vector<std::string> ready{};
-    std::vector<std::string> orderedCandidateNames{};
-    orderedCandidateNames.reserve(candidatesByName.size());
-
-    for (const auto &[packageName, candidate] : candidatesByName) {
-      (void)candidate;
-      indegree.emplace(packageName, 0);
+    auto PackageCollectionImpl::Add(PackageReference reference)
+        -> PackageCollection &
+    {
+      m_owner.MarkMutating();
+      if (!m_owner.HasStickyError())
+      {
+        m_owner.m_packageReferences.push_back(std::move(reference));
+      }
+      return *this;
     }
 
-    for (const auto &[packageName, candidate] : candidatesByName) {
-      if (candidate.manifest == nullptr) {
-        continue;
+    auto PackageCollectionImpl::AddManifest(PackageManifest manifest)
+        -> PackageCollection &
+    {
+      m_owner.MarkMutating();
+      if (m_owner.HasStickyError())
+      {
+        return *this;
       }
 
-      for (const auto &dependency : candidate.manifest->dependencies) {
-        if (!candidatesByName.contains(dependency.name)) {
-          continue;
-        }
-
-        adjacency[dependency.name].push_back(packageName);
-        ++indegree[packageName];
-      }
-    }
-
-    for (const auto &[packageName, count] : indegree) {
-      if (count == 0) {
-        ready.push_back(packageName);
-      }
-    }
-
-    auto compareByOrder = [&](const std::string &lhs, const std::string &rhs) {
-      return packageOrder[lhs] < packageOrder[rhs];
-    };
-
-    std::sort(ready.begin(), ready.end(), compareByOrder);
-
-    while (!ready.empty()) {
-      const std::string current = ready.front();
-      ready.erase(ready.begin());
-      orderedCandidateNames.push_back(current);
-
-      auto adjacencyIt = adjacency.find(current);
-      if (adjacencyIt == adjacency.end()) {
-        continue;
+      if (manifest.name.empty())
+      {
+        m_owner.m_stickyError =
+            MakeBuilderError("package manifest name must not be empty", {},
+                             KernelErrorCode::InvalidArgument);
+        return *this;
       }
 
-      for (const auto &dependent : adjacencyIt->second) {
-        auto &count = indegree[dependent];
-        --count;
-        if (count == 0) {
-          ready.push_back(dependent);
-        }
-      }
-      std::sort(ready.begin(), ready.end(), compareByOrder);
+      m_owner.m_packageManifests[manifest.name] = std::move(manifest);
+      return *this;
     }
 
-    if (orderedCandidateNames.size() != candidatesByName.size()) {
-      return NGIN::Utilities::Unexpected<KernelError>(
-          MakeBuilderError("package bootstrap dependency cycle detected", {},
-                           KernelErrorCode::DependencyCycle));
-    }
-
-    for (const auto &packageName : orderedCandidateNames) {
-      const auto &candidate = candidatesByName.at(packageName);
-      const auto *entry = bootstrapRegistry.Find(candidate.reference.name,
-                                                 candidate.entryPoint);
-      if (entry == nullptr || entry->fn == nullptr) {
-        const std::string detail =
-            "bootstrap entry '" + candidate.entryPoint + "' was not registered";
-        if (candidate.explicitRequest || !candidate.reference.optional) {
-          return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-              detail, candidate.reference.name, KernelErrorCode::NotFound));
-        }
-
-        bootstrapWarnings.push_back(
-            makeWarning(candidate.reference.name, detail));
-        continue;
+    auto PackageCollectionImpl::AddManifestFile(std::string path)
+        -> PackageCollection &
+    {
+      m_owner.MarkMutating();
+      if (m_owner.HasStickyError())
+      {
+        return *this;
       }
 
-      PackageBootstrapContextImpl context(
-          candidate.reference.name, configurationName, m_services, m_packages,
-          m_modules, m_plugins, m_configuration);
-
-      auto bootstrapResult = entry->fn(context);
-      if (bootstrapResult) {
-        continue;
+      IoPath manifestPath(path);
+      if (manifestPath.IsRelative() && !m_owner.m_projectDirectory.IsEmpty())
+      {
+        manifestPath =
+            m_owner.m_projectDirectory.Join(manifestPath.View()).LexicallyNormal();
       }
 
-      if (candidate.explicitRequest || !candidate.reference.optional) {
-        return NGIN::Utilities::Unexpected<KernelError>(
-            bootstrapResult.Error());
+      auto fileText = ReadTextFile(m_owner.FileSystem(), manifestPath, "package");
+      if (!fileText)
+      {
+        m_owner.m_stickyError = fileText.Error();
+        return *this;
       }
 
-      bootstrapWarnings.push_back(makeWarning(candidate.reference.name,
-                                              bootstrapResult.Error().message));
-    }
-
-    std::vector<PackageReference> packages{};
-    for (const auto &unit : projectUnits) {
-      MergePackageReferences(packages, unit.manifest.packageRefs);
-      if (unit.environment.has_value()) {
-        MergePackageReferences(packages, unit.environment->packageRefs);
+      auto manifest = ParsePackageManifestText(fileText.Value());
+      if (!manifest)
+      {
+        m_owner.m_stickyError = manifest.Error();
+        return *this;
       }
-      MergePackageReferences(packages, unit.configuration.packageRefs);
-    }
-    MergePackageReferences(packages, m_packageReferences);
 
-    std::vector<std::string> enabledModules{};
-    for (const auto &unit : projectUnits) {
-      AppendUniqueStrings(enabledModules, unit.manifest.runtime.enableModules);
-      if (unit.environment.has_value()) {
-        AppendUniqueStrings(enabledModules, unit.environment->runtime.enableModules);
+      m_owner.m_packageManifests[manifest.Value().name] = manifest.Value();
+      return *this;
+    }
+
+    auto PackageCollectionImpl::RegisterLinkedRegistrar(
+        PackageBootstrapRegistrarFn registrar) -> PackageCollection &
+    {
+      m_owner.MarkMutating();
+      if (m_owner.HasStickyError())
+      {
+        return *this;
       }
-      AppendUniqueStrings(enabledModules, unit.configuration.runtime.enableModules);
-    }
-    AppendUniqueStrings(enabledModules, m_enabledModules);
 
-    std::vector<std::string> disabledModules{};
-    for (const auto &unit : projectUnits) {
-      AppendUniqueStrings(disabledModules,
-                          unit.manifest.runtime.disableModules);
-      if (unit.environment.has_value()) {
-        AppendUniqueStrings(disabledModules,
-                            unit.environment->runtime.disableModules);
+      if (registrar == nullptr)
+      {
+        m_owner.m_stickyError =
+            MakeBuilderError("package bootstrap registrar must not be null", {},
+                             KernelErrorCode::InvalidArgument);
+        return *this;
       }
-      AppendUniqueStrings(disabledModules,
-                          unit.configuration.runtime.disableModules);
-    }
-    AppendUniqueStrings(disabledModules, m_disabledModules);
-    const std::set<std::string> disabledModuleSet(disabledModules.begin(),
-                                                  disabledModules.end());
 
-    enabledModules.erase(
-        std::remove_if(enabledModules.begin(), enabledModules.end(),
-                       [&](const std::string &name) {
-                         return disabledModuleSet.contains(name);
-                       }),
-        enabledModules.end());
-
-    std::vector<std::string> enabledPlugins{};
-    AppendUniqueStrings(enabledPlugins, m_enabledPlugins);
-
-    std::vector<std::string> disabledPlugins{};
-    AppendUniqueStrings(disabledPlugins, m_disabledPlugins);
-    const std::set<std::string> disabledPluginSet(disabledPlugins.begin(),
-                                                  disabledPlugins.end());
-
-    enabledPlugins.erase(
-        std::remove_if(enabledPlugins.begin(), enabledPlugins.end(),
-                       [&](const std::string &name) {
-                         return disabledPluginSet.contains(name);
-                       }),
-        enabledPlugins.end());
-
-    std::vector<std::string> configSources{};
-    for (const auto &unit : projectUnits) {
-      for (const auto &source : unit.manifest.configSources) {
-        const auto resolved = ResolveWorkingDirectory(source, unit.directory);
-        AppendUnique(configSources, resolved);
-      }
-      if (unit.environment.has_value()) {
-        for (const auto &source : unit.environment->configSources) {
-          const auto resolved = ResolveWorkingDirectory(source, unit.directory);
-          AppendUnique(configSources, resolved);
-        }
-      }
-      for (const auto &source : unit.configuration.configSources) {
-        const auto resolved = ResolveWorkingDirectory(source, unit.directory);
-        AppendUnique(configSources, resolved);
-      }
-    }
-    AppendUniqueStrings(configSources, m_configSources);
-
-    std::vector<std::string> pluginSearchPaths{};
-    AppendUniqueStrings(pluginSearchPaths, m_pluginSearchPaths);
-
-    std::string environmentName = m_environmentName;
-    if (environmentName.empty() && selectedConfiguration != nullptr) {
-      environmentName = selectedConfiguration->environmentName;
+      m_owner.m_packageRegistrars.push_back(registrar);
+      return *this;
     }
 
-    std::string workingDirectory = m_workingDirectory;
-    if (workingDirectory.empty() && selectedConfiguration != nullptr &&
-        selectedConfiguration->launch.has_value()) {
-      workingDirectory = selectedConfiguration->launch->workingDirectory;
-    }
-    if (workingDirectory.empty() && !m_projectDirectory.IsEmpty()) {
-      workingDirectory = ToString(m_projectDirectory);
-    }
-    workingDirectory =
-        ResolveWorkingDirectory(workingDirectory, m_projectDirectory);
+    auto PackageCollectionImpl::ApplyBootstrap(std::string packageName)
+        -> PackageCollection &
+    {
+      m_owner.MarkMutating();
+      if (!m_owner.HasStickyError())
+      {
+        const auto duplicate =
+            std::find_if(m_owner.m_explicitBootstrapRequests.begin(),
+                         m_owner.m_explicitBootstrapRequests.end(),
+                         [&](const PackageBootstrapRequest &request)
+                         {
+                           return request.packageName == packageName &&
+                                  !request.entryPoint.has_value();
+                         });
 
-    auto moduleCatalog =
-        BuildCatalogFrom(m_moduleRegistrations, disabledModuleSet);
-    if (!moduleCatalog) {
-      return NGIN::Utilities::Unexpected<KernelError>(moduleCatalog.Error());
-    }
-
-    StartupReport metadataReport{};
-    metadataReport.hostName = applicationName;
-    metadataReport.targetName = configurationName;
-    metadataReport.hostType = std::string(ToString(hostType));
-    metadataReport.warnings = bootstrapWarnings;
-    for (const auto &reference : packages) {
-      metadataReport.resolvedPackages.push_back(reference.name);
-    }
-    metadataReport.resolvedPlugins = enabledPlugins;
-
-    KernelHostConfig hostConfig{};
-    hostConfig.hostName = applicationName;
-    hostConfig.hostType = hostType;
-    hostConfig.operatingSystemName =
-        selectedConfiguration != nullptr ? selectedConfiguration->operatingSystem
-                                         : "linux";
-    hostConfig.architectureName =
-        selectedConfiguration != nullptr ? selectedConfiguration->architecture
-                                         : "x64";
-    hostConfig.platformName =
-        hostConfig.operatingSystemName + "-" + hostConfig.architectureName;
-    hostConfig.platformVersion = SemanticVersion{0, 1, 0, {}};
-    hostConfig.targetName = configurationName;
-    hostConfig.workingDirectory = workingDirectory;
-    hostConfig.configSources = configSources;
-    hostConfig.pluginSearchPaths = pluginSearchPaths;
-    hostConfig.enableDynamicPlugins = false;
-    hostConfig.enableReflection = selectedConfiguration != nullptr
-                                      ? selectedConfiguration->enableReflection
-                                      : false;
-    hostConfig.commandLineArgs = m_commandLineArgs;
-    hostConfig.environmentName = environmentName;
-    hostConfig.requestedModules = enabledModules;
-    hostConfig.fileSystem = m_fileSystem;
-    hostConfig.moduleCatalog = moduleCatalog.Value();
-
-    const auto pendingServices = m_pendingServices;
-    const bool addDefaults = m_addDefaultServices;
-    const bool addLogging = m_addLogging;
-    const bool addConfiguration = m_addConfiguration;
-
-    hostConfig.configureServices =
-        [pendingServices, addDefaults, addLogging, addConfiguration,
-         configurationName](
-            KernelBootstrapContext &context) -> CoreResult<void> {
-      ServiceScopeId hostScope = ServiceScopeId::Global();
-      const bool requiresHostScope = std::any_of(
-          pendingServices.begin(), pendingServices.end(),
-          [](const PendingServiceRegistration &registration) {
-            return registration.lifetime != ServiceLifetime::Singleton;
+        if (duplicate == m_owner.m_explicitBootstrapRequests.end())
+        {
+          m_owner.m_explicitBootstrapRequests.push_back(PackageBootstrapRequest{
+              .packageName = std::move(packageName),
+              .entryPoint = std::nullopt,
           });
-
-      if (requiresHostScope) {
-        auto scope = context.services->BeginScope(ServiceScopeKind::Host,
-                                                  configurationName);
-        if (!scope) {
-          return NGIN::Utilities::Unexpected<KernelError>(scope.Error());
-        }
-        hostScope = scope.Value();
-      }
-
-      if (addDefaults) {
-        auto result = context.services->RegisterInstance(
-            "Core.Services", NGIN::Utilities::Any<>(context.services));
-        if (!result) {
-          return NGIN::Utilities::Unexpected<KernelError>(result.Error());
-        }
-
-        result = context.services->RegisterInstance(
-            "Core.Events", NGIN::Utilities::Any<>(context.events));
-        if (!result) {
-          return NGIN::Utilities::Unexpected<KernelError>(result.Error());
-        }
-
-        result = context.services->RegisterInstance(
-            "Core.Tasks", NGIN::Utilities::Any<>(context.tasks));
-        if (!result) {
-          return NGIN::Utilities::Unexpected<KernelError>(result.Error());
         }
       }
-
-      if (addConfiguration) {
-        auto result = context.services->RegisterInstance(
-            "Core.Configuration", NGIN::Utilities::Any<>(context.config));
-        if (!result) {
-          return NGIN::Utilities::Unexpected<KernelError>(result.Error());
-        }
-      }
-
-      if (addLogging && context.loggerRegistry != nullptr) {
-        auto result = context.services->RegisterInstance(
-            "Core.Logging", NGIN::Utilities::Any<>(context.loggerRegistry));
-        if (!result) {
-          return NGIN::Utilities::Unexpected<KernelError>(result.Error());
-        }
-      }
-
-      for (const auto &registration : pendingServices) {
-        ServiceRegistrationOptions options{};
-        options.lifetime = registration.lifetime;
-        options.ownerScope = registration.lifetime == ServiceLifetime::Singleton
-                                 ? ServiceScopeId::Global()
-                                 : hostScope;
-        options.metadata = registration.metadata;
-
-        CoreResult<void> result{};
-        if (registration.instance.has_value()) {
-          result = context.services->RegisterInstance(
-              registration.key, *registration.instance, options);
-        } else {
-          result = context.services->RegisterFactory(
-              registration.key, *registration.factory, options);
-        }
-
-        if (!result) {
-          return NGIN::Utilities::Unexpected<KernelError>(result.Error());
-        }
-      }
-
-      return {};
-    };
-
-    auto kernel = CreateKernel(hostConfig);
-    if (!kernel) {
-      return NGIN::Utilities::Unexpected<KernelError>(kernel.Error());
+      return *this;
     }
 
-    m_built = true;
-    std::shared_ptr<IApplicationHost> host =
-        std::make_shared<ApplicationHostImpl>(kernel.Value(),
-                                              std::move(metadataReport));
-    return host;
-  }
+    auto PackageCollectionImpl::ApplyBootstrap(std::string packageName,
+                                               std::string entryPoint)
+        -> PackageCollection &
+    {
+      m_owner.MarkMutating();
+      if (!m_owner.HasStickyError())
+      {
+        const auto duplicate =
+            std::find_if(m_owner.m_explicitBootstrapRequests.begin(),
+                         m_owner.m_explicitBootstrapRequests.end(),
+                         [&](const PackageBootstrapRequest &request)
+                         {
+                           return request.packageName == packageName &&
+                                  request.entryPoint.has_value() &&
+                                  *request.entryPoint == entryPoint;
+                         });
 
-  void MarkMutating() {
-    if (m_built && !m_stickyError.has_value()) {
-      m_stickyError =
-          MakeBuilderError("builder can no longer be modified after Build()",
-                           {}, KernelErrorCode::InvalidState);
+        if (duplicate == m_owner.m_explicitBootstrapRequests.end())
+        {
+          m_owner.m_explicitBootstrapRequests.push_back(PackageBootstrapRequest{
+              .packageName = std::move(packageName),
+              .entryPoint = std::move(entryPoint),
+          });
+        }
+      }
+      return *this;
     }
-  }
 
-  [[nodiscard]] auto HasStickyError() const noexcept -> bool {
-    return m_stickyError.has_value();
-  }
-
-  std::vector<PendingServiceRegistration> m_pendingServices{};
-  std::vector<PackageReference> m_packageReferences{};
-  std::unordered_map<std::string, PackageManifest> m_packageManifests{};
-  std::vector<PackageBootstrapRegistrarFn> m_packageRegistrars{};
-  std::vector<PackageBootstrapRequest> m_explicitBootstrapRequests{};
-  std::vector<StaticModuleRegistration> m_moduleRegistrations{};
-  std::vector<std::string> m_enabledModules{};
-  std::vector<std::string> m_disabledModules{};
-  std::vector<std::string> m_enabledPlugins{};
-  std::vector<std::string> m_disabledPlugins{};
-  std::vector<std::string> m_pluginSearchPaths{};
-  std::vector<std::string> m_configSources{};
-  std::vector<std::string> m_commandLineArgs{};
-  std::optional<ProjectManifest> m_project{};
-  IoPath m_projectPath{};
-  IoPath m_projectDirectory{};
-  NGIN::Memory::Shared<IoFileSystem> m_fileSystem{};
-  std::optional<KernelError> m_stickyError{};
-  std::string m_applicationName{};
-  std::string m_configurationOverride{};
-  std::string m_environmentName{};
-  std::string m_workingDirectory{};
-  bool m_addDefaultServices{false};
-  bool m_addLogging{false};
-  bool m_addConfiguration{false};
-  bool m_built{false};
-  ServiceCollectionImpl m_services;
-  PackageCollectionImpl m_packages;
-  ModuleCollectionImpl m_modules;
-  PluginCollectionImpl m_plugins;
-  ConfigurationBuilderImpl m_configuration;
-};
-
-auto ServiceCollectionImpl::AddSingleton(std::string key,
-                                         NGIN::Utilities::Any<> service,
-                                         ServiceMetadata metadata)
-    -> ServiceCollection & {
-  m_owner.MarkMutating();
-  if (!m_owner.HasStickyError()) {
-    m_owner.m_pendingServices.push_back(PendingServiceRegistration{
-        .key = std::move(key),
-        .instance = std::move(service),
-        .factory = std::nullopt,
-        .lifetime = ServiceLifetime::Singleton,
-        .metadata = std::move(metadata),
-    });
-  }
-  return *this;
-}
-
-auto ServiceCollectionImpl::AddFactory(std::string key, ServiceFactory factory,
-                                       const ServiceLifetime lifetime,
-                                       ServiceMetadata metadata)
-    -> ServiceCollection & {
-  m_owner.MarkMutating();
-  if (!m_owner.HasStickyError()) {
-    m_owner.m_pendingServices.push_back(PendingServiceRegistration{
-        .key = std::move(key),
-        .instance = std::nullopt,
-        .factory = std::move(factory),
-        .lifetime = lifetime,
-        .metadata = std::move(metadata),
-    });
-  }
-  return *this;
-}
-
-auto ServiceCollectionImpl::AddScoped(std::string key, ServiceFactory factory,
-                                      ServiceMetadata metadata)
-    -> ServiceCollection & {
-  return AddFactory(std::move(key), std::move(factory), ServiceLifetime::Scoped,
-                    std::move(metadata));
-}
-
-auto ServiceCollectionImpl::AddTransient(std::string key,
-                                         ServiceFactory factory,
-                                         ServiceMetadata metadata)
-    -> ServiceCollection & {
-  return AddFactory(std::move(key), std::move(factory),
-                    ServiceLifetime::Transient, std::move(metadata));
-}
-
-auto ServiceCollectionImpl::AddDefaults() -> ServiceCollection & {
-  m_owner.MarkMutating();
-  if (!m_owner.HasStickyError()) {
-    m_owner.m_addDefaultServices = true;
-  }
-  return *this;
-}
-
-auto ServiceCollectionImpl::AddLogging() -> ServiceCollection & {
-  m_owner.MarkMutating();
-  if (!m_owner.HasStickyError()) {
-    m_owner.m_addLogging = true;
-  }
-  return *this;
-}
-
-auto ServiceCollectionImpl::AddConfiguration() -> ServiceCollection & {
-  m_owner.MarkMutating();
-  if (!m_owner.HasStickyError()) {
-    m_owner.m_addConfiguration = true;
-  }
-  return *this;
-}
-
-auto ServiceCollectionImpl::Clear() -> ServiceCollection & {
-  m_owner.MarkMutating();
-  if (!m_owner.HasStickyError()) {
-    m_owner.m_pendingServices.clear();
-    m_owner.m_addDefaultServices = false;
-    m_owner.m_addLogging = false;
-    m_owner.m_addConfiguration = false;
-  }
-  return *this;
-}
-
-auto PackageCollectionImpl::Add(PackageReference reference)
-    -> PackageCollection & {
-  m_owner.MarkMutating();
-  if (!m_owner.HasStickyError()) {
-    m_owner.m_packageReferences.push_back(std::move(reference));
-  }
-  return *this;
-}
-
-auto PackageCollectionImpl::AddManifest(PackageManifest manifest)
-    -> PackageCollection & {
-  m_owner.MarkMutating();
-  if (m_owner.HasStickyError()) {
-    return *this;
-  }
-
-  if (manifest.name.empty()) {
-    m_owner.m_stickyError =
-        MakeBuilderError("package manifest name must not be empty", {},
-                         KernelErrorCode::InvalidArgument);
-    return *this;
-  }
-
-  m_owner.m_packageManifests[manifest.name] = std::move(manifest);
-  return *this;
-}
-
-auto PackageCollectionImpl::AddManifestFile(std::string path)
-    -> PackageCollection & {
-  m_owner.MarkMutating();
-  if (m_owner.HasStickyError()) {
-    return *this;
-  }
-
-  IoPath manifestPath(path);
-  if (manifestPath.IsRelative() && !m_owner.m_projectDirectory.IsEmpty()) {
-    manifestPath =
-        m_owner.m_projectDirectory.Join(manifestPath.View()).LexicallyNormal();
-  }
-
-  auto fileText = ReadTextFile(m_owner.FileSystem(), manifestPath, "package");
-  if (!fileText) {
-    m_owner.m_stickyError = fileText.Error();
-    return *this;
-  }
-
-  auto manifest = ParsePackageManifestText(fileText.Value());
-  if (!manifest) {
-    m_owner.m_stickyError = manifest.Error();
-    return *this;
-  }
-
-  m_owner.m_packageManifests[manifest.Value().name] = manifest.Value();
-  return *this;
-}
-
-auto PackageCollectionImpl::RegisterLinkedRegistrar(
-    PackageBootstrapRegistrarFn registrar) -> PackageCollection & {
-  m_owner.MarkMutating();
-  if (m_owner.HasStickyError()) {
-    return *this;
-  }
-
-  if (registrar == nullptr) {
-    m_owner.m_stickyError =
-        MakeBuilderError("package bootstrap registrar must not be null", {},
-                         KernelErrorCode::InvalidArgument);
-    return *this;
-  }
-
-  m_owner.m_packageRegistrars.push_back(registrar);
-  return *this;
-}
-
-auto PackageCollectionImpl::ApplyBootstrap(std::string packageName)
-    -> PackageCollection & {
-  m_owner.MarkMutating();
-  if (!m_owner.HasStickyError()) {
-    const auto duplicate =
-        std::find_if(m_owner.m_explicitBootstrapRequests.begin(),
-                     m_owner.m_explicitBootstrapRequests.end(),
-                     [&](const PackageBootstrapRequest &request) {
-                       return request.packageName == packageName &&
-                              !request.entryPoint.has_value();
-                     });
-
-    if (duplicate == m_owner.m_explicitBootstrapRequests.end()) {
-      m_owner.m_explicitBootstrapRequests.push_back(PackageBootstrapRequest{
-          .packageName = std::move(packageName),
-          .entryPoint = std::nullopt,
-      });
+    auto PackageCollectionImpl::Clear() -> PackageCollection &
+    {
+      m_owner.MarkMutating();
+      if (!m_owner.HasStickyError())
+      {
+        m_owner.m_packageReferences.clear();
+        m_owner.m_packageManifests.clear();
+        m_owner.m_packageRegistrars.clear();
+        m_owner.m_explicitBootstrapRequests.clear();
+      }
+      return *this;
     }
-  }
-  return *this;
-}
 
-auto PackageCollectionImpl::ApplyBootstrap(std::string packageName,
-                                           std::string entryPoint)
-    -> PackageCollection & {
-  m_owner.MarkMutating();
-  if (!m_owner.HasStickyError()) {
-    const auto duplicate =
-        std::find_if(m_owner.m_explicitBootstrapRequests.begin(),
-                     m_owner.m_explicitBootstrapRequests.end(),
-                     [&](const PackageBootstrapRequest &request) {
-                       return request.packageName == packageName &&
-                              request.entryPoint.has_value() &&
-                              *request.entryPoint == entryPoint;
-                     });
+    auto ModuleCollectionImpl::Register(StaticModuleRegistration registration)
+        -> ModuleCollection &
+    {
+      m_owner.MarkMutating();
+      if (m_owner.HasStickyError())
+      {
+        return *this;
+      }
 
-    if (duplicate == m_owner.m_explicitBootstrapRequests.end()) {
-      m_owner.m_explicitBootstrapRequests.push_back(PackageBootstrapRequest{
-          .packageName = std::move(packageName),
-          .entryPoint = std::move(entryPoint),
-      });
+      if (registration.descriptor.name.empty() || !registration.factory)
+      {
+        m_owner.m_stickyError = MakeBuilderError(
+            "module registration must include a descriptor name and factory",
+            registration.descriptor.name, KernelErrorCode::InvalidArgument);
+        return *this;
+      }
+
+      AppendOrReplaceModuleRegistration(m_owner.m_moduleRegistrations,
+                                        std::move(registration));
+      return *this;
     }
+
+    auto ModuleCollectionImpl::Enable(std::string moduleName)
+        -> ModuleCollection &
+    {
+      m_owner.MarkMutating();
+      if (!m_owner.HasStickyError())
+      {
+        AppendUnique(m_owner.m_enabledModules, moduleName);
+      }
+      return *this;
+    }
+
+    auto ModuleCollectionImpl::Disable(std::string moduleName)
+        -> ModuleCollection &
+    {
+      m_owner.MarkMutating();
+      if (!m_owner.HasStickyError())
+      {
+        AppendUnique(m_owner.m_disabledModules, moduleName);
+      }
+      return *this;
+    }
+
+    auto ModuleCollectionImpl::Clear() -> ModuleCollection &
+    {
+      m_owner.MarkMutating();
+      if (!m_owner.HasStickyError())
+      {
+        m_owner.m_moduleRegistrations.clear();
+        m_owner.m_enabledModules.clear();
+        m_owner.m_disabledModules.clear();
+      }
+      return *this;
+    }
+
+    auto PluginCollectionImpl::Enable(std::string pluginName)
+        -> PluginCollection &
+    {
+      m_owner.MarkMutating();
+      if (!m_owner.HasStickyError())
+      {
+        AppendUnique(m_owner.m_enabledPlugins, pluginName);
+      }
+      return *this;
+    }
+
+    auto PluginCollectionImpl::Disable(std::string pluginName)
+        -> PluginCollection &
+    {
+      m_owner.MarkMutating();
+      if (!m_owner.HasStickyError())
+      {
+        AppendUnique(m_owner.m_disabledPlugins, pluginName);
+      }
+      return *this;
+    }
+
+    auto PluginCollectionImpl::AddSearchPath(std::string path)
+        -> PluginCollection &
+    {
+      m_owner.MarkMutating();
+      if (!m_owner.HasStickyError())
+      {
+        AppendUnique(m_owner.m_pluginSearchPaths, path);
+      }
+      return *this;
+    }
+
+    auto PluginCollectionImpl::Clear() -> PluginCollection &
+    {
+      m_owner.MarkMutating();
+      if (!m_owner.HasStickyError())
+      {
+        m_owner.m_enabledPlugins.clear();
+        m_owner.m_disabledPlugins.clear();
+        m_owner.m_pluginSearchPaths.clear();
+      }
+      return *this;
+    }
+
+    auto ConfigurationBuilderImpl::AddSource(std::string path)
+        -> ConfigurationBuilder &
+    {
+      m_owner.MarkMutating();
+      if (!m_owner.HasStickyError())
+      {
+        AppendUnique(m_owner.m_configSources, path);
+      }
+      return *this;
+    }
+
+    auto ConfigurationBuilderImpl::SetEnvironmentName(std::string environmentName)
+        -> ConfigurationBuilder &
+    {
+      m_owner.MarkMutating();
+      if (!m_owner.HasStickyError())
+      {
+        m_owner.m_environmentName = std::move(environmentName);
+      }
+      return *this;
+    }
+
+    auto ConfigurationBuilderImpl::SetWorkingDirectory(std::string workingDirectory)
+        -> ConfigurationBuilder &
+    {
+      m_owner.MarkMutating();
+      if (!m_owner.HasStickyError())
+      {
+        m_owner.m_workingDirectory = std::move(workingDirectory);
+      }
+      return *this;
+    }
+
+    auto ConfigurationBuilderImpl::Clear() -> ConfigurationBuilder &
+    {
+      m_owner.MarkMutating();
+      if (!m_owner.HasStickyError())
+      {
+        m_owner.m_configSources.clear();
+        m_owner.m_environmentName.clear();
+        m_owner.m_workingDirectory.clear();
+      }
+      return *this;
+    }
+  } // namespace
+
+  auto CreateApplicationBuilder(const int argc, char **argv)
+      -> std::unique_ptr<ApplicationBuilder>
+  {
+    return std::make_unique<ApplicationBuilderImpl>(argc, argv);
   }
-  return *this;
-}
-
-auto PackageCollectionImpl::Clear() -> PackageCollection & {
-  m_owner.MarkMutating();
-  if (!m_owner.HasStickyError()) {
-    m_owner.m_packageReferences.clear();
-    m_owner.m_packageManifests.clear();
-    m_owner.m_packageRegistrars.clear();
-    m_owner.m_explicitBootstrapRequests.clear();
-  }
-  return *this;
-}
-
-auto ModuleCollectionImpl::Register(StaticModuleRegistration registration)
-    -> ModuleCollection & {
-  m_owner.MarkMutating();
-  if (m_owner.HasStickyError()) {
-    return *this;
-  }
-
-  if (registration.descriptor.name.empty() || !registration.factory) {
-    m_owner.m_stickyError = MakeBuilderError(
-        "module registration must include a descriptor name and factory",
-        registration.descriptor.name, KernelErrorCode::InvalidArgument);
-    return *this;
-  }
-
-  AppendOrReplaceModuleRegistration(m_owner.m_moduleRegistrations,
-                                    std::move(registration));
-  return *this;
-}
-
-auto ModuleCollectionImpl::Enable(std::string moduleName)
-    -> ModuleCollection & {
-  m_owner.MarkMutating();
-  if (!m_owner.HasStickyError()) {
-    AppendUnique(m_owner.m_enabledModules, moduleName);
-  }
-  return *this;
-}
-
-auto ModuleCollectionImpl::Disable(std::string moduleName)
-    -> ModuleCollection & {
-  m_owner.MarkMutating();
-  if (!m_owner.HasStickyError()) {
-    AppendUnique(m_owner.m_disabledModules, moduleName);
-  }
-  return *this;
-}
-
-auto ModuleCollectionImpl::Clear() -> ModuleCollection & {
-  m_owner.MarkMutating();
-  if (!m_owner.HasStickyError()) {
-    m_owner.m_moduleRegistrations.clear();
-    m_owner.m_enabledModules.clear();
-    m_owner.m_disabledModules.clear();
-  }
-  return *this;
-}
-
-auto PluginCollectionImpl::Enable(std::string pluginName)
-    -> PluginCollection & {
-  m_owner.MarkMutating();
-  if (!m_owner.HasStickyError()) {
-    AppendUnique(m_owner.m_enabledPlugins, pluginName);
-  }
-  return *this;
-}
-
-auto PluginCollectionImpl::Disable(std::string pluginName)
-    -> PluginCollection & {
-  m_owner.MarkMutating();
-  if (!m_owner.HasStickyError()) {
-    AppendUnique(m_owner.m_disabledPlugins, pluginName);
-  }
-  return *this;
-}
-
-auto PluginCollectionImpl::AddSearchPath(std::string path)
-    -> PluginCollection & {
-  m_owner.MarkMutating();
-  if (!m_owner.HasStickyError()) {
-    AppendUnique(m_owner.m_pluginSearchPaths, path);
-  }
-  return *this;
-}
-
-auto PluginCollectionImpl::Clear() -> PluginCollection & {
-  m_owner.MarkMutating();
-  if (!m_owner.HasStickyError()) {
-    m_owner.m_enabledPlugins.clear();
-    m_owner.m_disabledPlugins.clear();
-    m_owner.m_pluginSearchPaths.clear();
-  }
-  return *this;
-}
-
-auto ConfigurationBuilderImpl::AddSource(std::string path)
-    -> ConfigurationBuilder & {
-  m_owner.MarkMutating();
-  if (!m_owner.HasStickyError()) {
-    AppendUnique(m_owner.m_configSources, path);
-  }
-  return *this;
-}
-
-auto ConfigurationBuilderImpl::SetEnvironmentName(std::string environmentName)
-    -> ConfigurationBuilder & {
-  m_owner.MarkMutating();
-  if (!m_owner.HasStickyError()) {
-    m_owner.m_environmentName = std::move(environmentName);
-  }
-  return *this;
-}
-
-auto ConfigurationBuilderImpl::SetWorkingDirectory(std::string workingDirectory)
-    -> ConfigurationBuilder & {
-  m_owner.MarkMutating();
-  if (!m_owner.HasStickyError()) {
-    m_owner.m_workingDirectory = std::move(workingDirectory);
-  }
-  return *this;
-}
-
-auto ConfigurationBuilderImpl::Clear() -> ConfigurationBuilder & {
-  m_owner.MarkMutating();
-  if (!m_owner.HasStickyError()) {
-    m_owner.m_configSources.clear();
-    m_owner.m_environmentName.clear();
-    m_owner.m_workingDirectory.clear();
-  }
-  return *this;
-}
-} // namespace
-
-auto CreateApplicationBuilder(const int argc, char **argv)
-    -> std::unique_ptr<ApplicationBuilder> {
-  return std::make_unique<ApplicationBuilderImpl>(argc, argv);
-}
 } // namespace NGIN::Core
