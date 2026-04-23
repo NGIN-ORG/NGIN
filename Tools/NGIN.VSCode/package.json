@@ -16,8 +16,6 @@
   ],
   "activationEvents": [
     "onDebugResolve:ngin",
-    "onView:nginOverview",
-    "onView:nginProjects",
     "workspaceContains:**/*.nginproj"
   ],
   "main": "./dist/extension.js",
@@ -84,11 +82,13 @@
       "ngin": [
         {
           "id": "nginOverview",
-          "name": "Overview"
+          "name": "Overview",
+          "icon": "./media/ngin-activity.svg"
         },
         {
           "id": "nginProjects",
-          "name": "Projects"
+          "name": "Projects",
+          "icon": "./media/ngin-activity.svg"
         }
       ]
     },
