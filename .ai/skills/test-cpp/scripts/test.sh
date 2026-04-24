@@ -5,7 +5,20 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 target="${1:-workspace}"
 cli="$repo_root/build/dev/Tools/NGIN.CLI/ngin"
-project="$repo_root/Examples/App.Basic/App.Basic.nginproj"
+
+smoke_project() {
+  local project="$1"
+  local output="$2"
+  "$cli" validate --project "$project" --configuration Runtime
+  "$cli" build --project "$project" --configuration Runtime --output "$output"
+}
+
+smoke_run_project() {
+  local project="$1"
+  local output="$2"
+  smoke_project "$project" "$output"
+  "$cli" run --project "$project" --configuration Runtime --output "$output"
+}
 
 case "$target" in
   workspace)
@@ -17,13 +30,24 @@ case "$target" in
   ngin-core)
     ctest --test-dir "$repo_root/build/ngin-core-ci" --output-on-failure -C Release
     ;;
+  app-native-minimal)
+    smoke_run_project \
+      "$repo_root/Examples/App.NativeMinimal/App.NativeMinimal.nginproj" \
+      "$repo_root/build/manual/App.NativeMinimal"
+    ;;
+  app-hosted-core)
+    smoke_run_project \
+      "$repo_root/Examples/App.HostedCore/App.HostedCore.nginproj" \
+      "$repo_root/build/manual/App.HostedCore"
+    ;;
   app-basic)
-    "$cli" validate --project "$project" --configuration Runtime
-    "$cli" build --project "$project" --configuration Runtime --output "$repo_root/build/manual/App.Basic"
+    smoke_project \
+      "$repo_root/Examples/App.Basic/App.Basic.nginproj" \
+      "$repo_root/build/manual/App.Basic"
     ;;
   *)
     echo "unknown test target: $target" >&2
-    echo "expected one of: workspace, workflow, ngin-core, app-basic" >&2
+    echo "expected one of: workspace, workflow, ngin-core, app-native-minimal, app-hosted-core, app-basic" >&2
     exit 2
     ;;
 esac
