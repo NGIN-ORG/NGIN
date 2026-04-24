@@ -666,14 +666,12 @@ namespace NGIN::CLI
 
         ParseContents(*rootElement, path, package.contents);
 
-        const auto *modules = FindChild(*rootElement, "Modules");
-        if (modules == nullptr)
+        if (const auto *modules = FindChild(*rootElement, "Modules"))
         {
-            throw std::runtime_error(path.string() + ": missing <Modules>");
-        }
-        for (const auto *node : ChildElements(*modules, "Module"))
-        {
-            package.modules.push_back(ParseModuleDefinition(*node, path));
+            for (const auto *node : ChildElements(*modules, "Module"))
+            {
+                package.modules.push_back(ParseModuleDefinition(*node, path));
+            }
         }
 
         if (const auto *plugins = FindChild(*rootElement, "Plugins"))

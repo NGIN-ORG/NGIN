@@ -1,7 +1,7 @@
 # Spec 003: Package Manifest and Runtime Contributions
 
 Status: Active
-Last updated: 2026-04-23
+Last updated: 2026-04-24
 
 ## Purpose
 
@@ -21,6 +21,9 @@ Packages contribute to composition through declared manifest sections rather tha
   - `Version`
 
 ## Supported Top-Level Sections
+
+All supported top-level sections are optional unless a narrower section contract
+explicitly says otherwise.
 
 - `Dependencies`
 - `Artifacts`
@@ -51,6 +54,15 @@ Packages continue to use `PackageRef` inside `Dependencies`:
 ## Contribution Surface
 
 The active capability surface of a package is defined by the supported top-level manifest sections in this spec. Tooling and validation should treat those sections as the declared contribution types of the package.
+
+Package dependencies and runtime module selection are separate concepts. Declaring
+a package dependency makes that package's exported artifacts available to the
+consumer, such as link libraries and their headers. It does not imply that the
+package contributes or enables a runtime module.
+
+`Modules` is reserved for runtime participants that the host should reason about
+as lifecycle, dependency-order, service, or capability nodes. Library-only
+packages should use `Artifacts` without declaring placeholder modules.
 
 At the current V2 stage, NGIN does not define a second parallel `<Capabilities>` schema. Capability clarity should come from explicit manifest sections, validation, and graph or inspection tooling.
 

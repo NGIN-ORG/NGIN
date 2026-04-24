@@ -36,10 +36,7 @@
           <OperatingSystem Name="macos" />
         </OperatingSystems>
       </Compatibility>
-      <Dependencies>
-        <Dependency Name="Core.Hosting" Optional="false" />
-        <Dependency Name="Domain.ECS" Optional="false" />
-      </Dependencies>
+      <Dependencies />
       <ProvidesServices />
       <RequiresServices />
       <Capabilities>

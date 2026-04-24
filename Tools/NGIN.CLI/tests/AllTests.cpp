@@ -107,9 +107,6 @@ TEST_CASE("workspace, project, and package manifests parse through authoring fac
         R"(<?xml version="1.0" encoding="utf-8"?>
 <Package SchemaVersion="2" Name="Sample.Package" Version="1.0.0">
   <Build Backend="CMake" Mode="Manual" />
-  <Modules>
-    <Module Name="Sample.Module" Family="Core" Type="Runtime" StartupStage="Features" />
-  </Modules>
 </Package>
 )");
     WriteFile(
@@ -143,6 +140,7 @@ TEST_CASE("workspace, project, and package manifests parse through authoring fac
     REQUIRE(workspace.name == "TempWorkspace");
     REQUIRE(project.name == "Sample.App");
     REQUIRE(package.name == "Sample.Package");
+    REQUIRE(package.modules.empty());
     REQUIRE(catalog.contains("Sample.Package"));
 }
 

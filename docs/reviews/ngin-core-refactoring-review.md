@@ -125,7 +125,7 @@ The `ModuleContext` is the primary API surface for module authors. Making it ric
 
 ### 8. Platform Abstractions Don't Belong in Core
 
-**Problem:** `Platform.hpp` defines `IWindowSystem` and `IInputSystem`. The package manifest declares `Platform.Window` and `Platform.Input` modules. These are concrete platform concerns, not core kernel infrastructure.
+**Problem:** `Platform.hpp` defines `IWindowSystem` and `IInputSystem`. Earlier package manifests modeled these platform features as runtime modules. These are concrete platform concerns, not core kernel infrastructure.
 
 **Suggestion:** Move `IWindowSystem`, `IInputSystem`, and `WindowDescriptor` out of NGIN.Core into a separate `NGIN.Platform` package (or at minimum a `Platform/` subdirectory with its own header). Core should only define the kernel, DI, events, tasks, config, and module lifecycle. Platform services should be *registered through* Core, not *defined by* Core.
 

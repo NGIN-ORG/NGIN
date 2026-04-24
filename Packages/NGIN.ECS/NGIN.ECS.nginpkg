@@ -27,30 +27,6 @@
     <Dependency Name="NGIN.Core" VersionRange=">=0.1.0 &lt;0.2.0" Optional="false" />
     <Dependency Name="NGIN.Reflection" VersionRange=">=0.1.0 &lt;0.2.0" Optional="true" />
   </Dependencies>
-  <Modules>
-    <Module Name="Domain.ECS"
-            Family="Domain"
-            Type="Runtime"
-            StartupStage="Features"
-            Version="0.2.0"
-            CompatiblePlatformRange=">=0.2.0-alpha.1 &lt;0.3.0"
-            ReflectionRequired="false">
-      <Compatibility>
-        <OperatingSystems>
-          <OperatingSystem Name="linux" />
-          <OperatingSystem Name="windows" />
-          <OperatingSystem Name="macos" />
-        </OperatingSystems>
-      </Compatibility>
-      <Dependencies>
-        <Dependency Name="Base.Foundation" Optional="false" />
-        <Dependency Name="Core.Hosting" Optional="false" />
-        <Dependency Name="Reflection.Metadata" Optional="true" />
-      </Dependencies>
-      <ProvidesServices />
-      <RequiresServices />
-      <Capabilities />
-    </Module>
-  </Modules>
+  <Modules />
   <Plugins />
 </Package>

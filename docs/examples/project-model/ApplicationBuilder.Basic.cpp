@@ -26,10 +26,6 @@ int main(int argc, char** argv)
         .RegisterLinkedRegistrar(&NGIN_RegisterPackage_NGIN_ECS)
         .ApplyBootstrap("NGIN.ECS");
 
-    builder->Modules()
-        .Enable("Core.Hosting")
-        .Enable("Domain.ECS");
-
     builder->Configuration()
         .SetEnvironmentName("Dev")
         .AddSource("config/game.xml")

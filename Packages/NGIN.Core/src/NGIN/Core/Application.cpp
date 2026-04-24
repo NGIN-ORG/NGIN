@@ -1936,31 +1936,28 @@ namespace NGIN::Core
         }
       }
 
-      const auto *modulesElement = FindChild(*root, "Modules");
-      if (modulesElement == nullptr)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(
-            MakeBuilderError("package must contain a <Modules> element"));
-      }
-
       std::set<std::string> moduleNames{};
-      for (const auto *moduleElement : ChildElements(*modulesElement, "Module"))
+      if (const auto *modulesElement = FindChild(*root, "Modules"))
       {
-        auto module =
-            ParsePackageModuleDescriptor(*moduleElement, "package.Modules.Module");
-        if (!module)
+        for (const auto *moduleElement :
+             ChildElements(*modulesElement, "Module"))
         {
-          return NGIN::Utilities::Unexpected<KernelError>(module.Error());
-        }
+          auto module = ParsePackageModuleDescriptor(
+              *moduleElement, "package.Modules.Module");
+          if (!module)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(module.Error());
+          }
 
-        if (!moduleNames.insert(module.Value().name).second)
-        {
-          return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-              "duplicate package module declaration", module.Value().name,
-              KernelErrorCode::AlreadyExists));
-        }
+          if (!moduleNames.insert(module.Value().name).second)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+                "duplicate package module declaration", module.Value().name,
+                KernelErrorCode::AlreadyExists));
+          }
 
-        manifest.modules.push_back(module.Value());
+          manifest.modules.push_back(module.Value());
+        }
       }
 
       if (const auto *pluginsElement = FindChild(*root, "Plugins"))

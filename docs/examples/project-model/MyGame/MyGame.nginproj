@@ -40,12 +40,6 @@
                    Architecture="x64"
                    Environment="Dev">
       <Launch Executable="MyGame" WorkingDirectory="." />
-      <Runtime>
-        <EnableModules>
-          <ModuleRef Name="Core.Hosting" />
-          <ModuleRef Name="Domain.ECS" />
-        </EnableModules>
-      </Runtime>
     </Configuration>
   </Configurations>
 </Project>

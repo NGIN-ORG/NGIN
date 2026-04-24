@@ -1712,27 +1712,6 @@ TEST_CASE("ApplicationBuilderExecutesExplicitPackageBootstrapFromManifestFile",
   <Bootstrap Mode="BuilderHookV1"
              EntryPoint="NGIN_Bootstrap_Samples_Package"
              AutoApply="false" />
-  <Modules>
-    <Module Name="App.PackageBootstrap"
-            Family="App"
-            Type="Runtime"
-            StartupStage="Features"
-            Version="0.1.0"
-            CompatiblePlatformRange=">=0.1.0 &lt;1.0.0"
-            ReflectionRequired="false">
-      <Compatibility>
-        <OperatingSystems>
-          <OperatingSystem Name="linux" />
-          <OperatingSystem Name="windows" />
-          <OperatingSystem Name="macos" />
-        </OperatingSystems>
-      </Compatibility>
-      <Dependencies />
-      <ProvidesServices />
-      <RequiresServices />
-      <Capabilities />
-    </Module>
-  </Modules>
   <Plugins />
 </Package>
 )");

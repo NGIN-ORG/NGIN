@@ -17,29 +17,6 @@
   <Bootstrap Mode="BuilderHookV1"
              EntryPoint="NGIN_Bootstrap_NGIN_ECS"
              AutoApply="true" />
-  <Modules>
-    <Module Name="Domain.ECS"
-            Family="Domain"
-            Type="Runtime"
-            StartupStage="Features"
-            Version="0.1.0"
-            CompatiblePlatformRange=">=0.1.0-alpha.1 &lt;0.2.0"
-            ReflectionRequired="false">
-      <Compatibility>
-        <OperatingSystems>
-          <OperatingSystem Name="linux" />
-          <OperatingSystem Name="windows" />
-          <OperatingSystem Name="macos" />
-        </OperatingSystems>
-      </Compatibility>
-      <Dependencies>
-        <Dependency Name="Base.Foundation" Optional="false" />
-        <Dependency Name="Core.Hosting" Optional="false" />
-      </Dependencies>
-      <ProvidesServices />
-      <RequiresServices />
-      <Capabilities />
-    </Module>
-  </Modules>
+  <Modules />
   <Plugins />
 </Package>

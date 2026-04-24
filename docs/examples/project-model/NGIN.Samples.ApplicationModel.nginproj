@@ -37,11 +37,6 @@
       <ConfigSources>
         <Config Source="config/cli.xml" />
       </ConfigSources>
-      <Runtime>
-        <EnableModules>
-          <ModuleRef Name="Core.Hosting" />
-        </EnableModules>
-      </Runtime>
     </Configuration>
     <Configuration Name="Tools.Diagnostics"
                    BuildConfiguration="Debug"
@@ -56,12 +51,6 @@
       <ConfigSources>
         <Config Source="config/tooling.xml" />
       </ConfigSources>
-      <Runtime>
-        <EnableModules>
-          <ModuleRef Name="Core.Hosting" />
-          <ModuleRef Name="Domain.ECS" />
-        </EnableModules>
-      </Runtime>
     </Configuration>
     <Configuration Name="Sandbox.Game"
                    BuildConfiguration="Debug"
@@ -72,12 +61,6 @@
         <Config Source="config/game.xml" />
       </ConfigSources>
       <Launch Executable="Sandbox.Game" WorkingDirectory="." />
-      <Runtime>
-        <EnableModules>
-          <ModuleRef Name="Core.Hosting" />
-          <ModuleRef Name="Domain.ECS" />
-        </EnableModules>
-      </Runtime>
     </Configuration>
   </Configurations>
 </Project>

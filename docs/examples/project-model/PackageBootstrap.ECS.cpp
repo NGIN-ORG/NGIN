@@ -4,24 +4,6 @@ namespace
 {
     using namespace NGIN::Core;
 
-    class EcsModule final : public IModule
-    {
-    };
-
-    [[nodiscard]] auto MakeDescriptor() -> ModuleDescriptor
-    {
-        ModuleDescriptor descriptor{};
-        descriptor.name = "Domain.ECS";
-        descriptor.family = ModuleFamily::Domain;
-        descriptor.type = ModuleType::Runtime;
-        descriptor.version = SemanticVersion{0, 1, 0, {}};
-        descriptor.compatiblePlatformRange = ParseVersionRange(">=0.1.0 <1.0.0").ValueUnsafe();
-        descriptor.operatingSystems = {"linux", "windows", "macos"};
-        descriptor.startupStage = StartupStage::Features;
-        descriptor.entryKind = ModuleEntryKind::Static;
-        return descriptor;
-    }
-
     auto BootstrapEcs(PackageBootstrapContext &context) -> CoreResult<void>
     {
         context.Services()
@@ -32,16 +14,6 @@ namespace
                 {
                     return NGIN::Utilities::Any<>(std::string("ecs-world"));
                 });
-
-        context.Modules()
-            .Register({
-                .descriptor = MakeDescriptor(),
-                .factory = []() -> CoreResult<NGIN::Memory::Shared<IModule>>
-                {
-                    return NGIN::Memory::MakeSharedAs<IModule, EcsModule>();
-                },
-            })
-            .Enable("Domain.ECS");
         return {};
     }
 }

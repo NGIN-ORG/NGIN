@@ -27,14 +27,6 @@
           <OperatingSystem Name="macos" />
         </OperatingSystems>
       </Compatibility>
-      <Modules>
-        <Required>
-          <ModuleRef Name="Log.Foundation" />
-        </Required>
-        <Optional>
-          <ModuleRef Name="Reflection.Metadata" />
-        </Optional>
-      </Modules>
     </Plugin>
   </Plugins>
 </Package>

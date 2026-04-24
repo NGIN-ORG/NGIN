@@ -25,28 +25,6 @@
   <Dependencies>
     <Dependency Name="NGIN.Base" VersionRange=">=0.1.0 &lt;0.2.0" Optional="false" />
   </Dependencies>
-  <Modules>
-    <Module Name="Log.Foundation"
-            Family="Core"
-            Type="Runtime"
-            StartupStage="Foundation"
-            Version="0.1.0"
-            CompatiblePlatformRange=">=0.1.0-alpha.1 &lt;0.2.0"
-            ReflectionRequired="false">
-      <Compatibility>
-        <OperatingSystems>
-          <OperatingSystem Name="linux" />
-          <OperatingSystem Name="windows" />
-          <OperatingSystem Name="macos" />
-        </OperatingSystems>
-      </Compatibility>
-      <Dependencies>
-        <Dependency Name="Base.Foundation" Optional="false" />
-      </Dependencies>
-      <ProvidesServices />
-      <RequiresServices />
-      <Capabilities />
-    </Module>
-  </Modules>
+  <Modules />
   <Plugins />
 </Package>
