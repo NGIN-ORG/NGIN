@@ -45,7 +45,7 @@
       "<?xml version=\"1.0\" encoding=\"utf-8\"?>",
       "<Package SchemaVersion=\"2\" Name=\"$1\" Version=\"$2\">",
       "  <Dependencies>",
-      "    <PackageRef Name=\"$3\" Version=\"$4\" />",
+      "    <PackageRef Name=\"$3\" VersionRange=\"$4\" />",
       "  </Dependencies>",
       "  <Artifacts>",
       "    <Libraries>",

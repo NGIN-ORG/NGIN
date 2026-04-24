@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="2"
+         Name="App.NativeMinimal"
+         Type="Application"
+         DefaultConfiguration="Runtime">
+  <SourceRoots>
+    <SourceRoot Path="src" />
+  </SourceRoots>
+  <Output Kind="Executable"
+          Name="App.NativeMinimal"
+          Target="App.NativeMinimal" />
+  <Build Backend="CMake"
+         Mode="Generated"
+         Language="CXX"
+         LanguageStandard="23" />
+  <Environments>
+    <Environment Name="local" />
+  </Environments>
+  <Configurations>
+    <Configuration Name="Runtime"
+                   BuildConfiguration="Debug"
+                   OperatingSystem="linux"
+                   Architecture="x64"
+                   Environment="local">
+      <Launch Executable="App.NativeMinimal" WorkingDirectory="." />
+    </Configuration>
+  </Configurations>
+</Project>

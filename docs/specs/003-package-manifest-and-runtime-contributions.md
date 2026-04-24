@@ -41,7 +41,7 @@ Packages continue to use `PackageRef` inside `Dependencies`:
 
 ```xml
 <Dependencies>
-  <PackageRef Name="NGIN.Base" Version="0.1.0" Optional="false" />
+    <PackageRef Name="NGIN.Base" VersionRange=">=0.1.0 &lt;0.2.0" Optional="false" />
 </Dependencies>
 ```
 
@@ -59,6 +59,10 @@ Package dependencies and runtime module selection are separate concepts. Declari
 a package dependency makes that package's exported artifacts available to the
 consumer, such as link libraries and their headers. It does not imply that the
 package contributes or enables a runtime module.
+
+Package dependencies use `PackageRef`. Module dependency descriptors may still
+use `Dependency` under module-specific sections; those are runtime module edges,
+not package references.
 
 `Modules` is reserved for runtime participants that the host should reason about
 as lifecycle, dependency-order, service, or capability nodes. Library-only

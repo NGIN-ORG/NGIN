@@ -28,6 +28,8 @@ add_subdirectory(Tools)
 
 set(NGIN_WORKSPACE_MANIFEST_PATH "${CMAKE_CURRENT_SOURCE_DIR}/NGIN.ngin")
 set(NGIN_WORKSPACE_STAGE_DIR "${CMAKE_BINARY_DIR}/stage")
+set(NGIN_APP_NATIVE_MINIMAL_PROJECT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/Examples/App.NativeMinimal/App.NativeMinimal.nginproj")
+set(NGIN_APP_HOSTED_CORE_PROJECT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/Examples/App.HostedCore/App.HostedCore.nginproj")
 set(NGIN_APP_BASIC_PROJECT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/Examples/App.Basic/App.Basic.nginproj")
 set(NGIN_APP_BASIC_BUILD_OUTPUT "${NGIN_WORKSPACE_STAGE_DIR}/App.Basic/Runtime")
 set(NGIN_PROJECTREF_CONFIG_PROJECT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/Examples/ProjectRef.Config/Root/ProjectRef.Config.Root.nginproj")
@@ -99,6 +101,14 @@ add_test(NAME ngin.package.show.core
 
 add_test(NAME ngin.validate.workspace
   COMMAND $<TARGET_FILE:ngin_cli> validate --project "${NGIN_APP_BASIC_PROJECT_PATH}" --configuration Runtime
+)
+
+add_test(NAME ngin.validate.native_minimal
+  COMMAND $<TARGET_FILE:ngin_cli> validate --project "${NGIN_APP_NATIVE_MINIMAL_PROJECT_PATH}" --configuration Runtime
+)
+
+add_test(NAME ngin.validate.hosted_core
+  COMMAND $<TARGET_FILE:ngin_cli> validate --project "${NGIN_APP_HOSTED_CORE_PROJECT_PATH}" --configuration Runtime
 )
 
 add_test(NAME ngin.graph.workspace

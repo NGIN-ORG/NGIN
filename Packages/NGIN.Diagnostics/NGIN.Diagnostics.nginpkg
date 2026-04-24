@@ -11,8 +11,8 @@
     </OperatingSystems>
   </Compatibility>
   <Dependencies>
-    <Dependency Name="NGIN.Log" VersionRange=">=0.1.0 &lt;0.2.0" Optional="false" />
-    <Dependency Name="NGIN.Reflection" VersionRange=">=0.1.0 &lt;0.2.0" Optional="true" />
+    <PackageRef Name="NGIN.Log" VersionRange=">=0.1.0 &lt;0.2.0" Optional="false" />
+    <PackageRef Name="NGIN.Reflection" VersionRange=">=0.1.0 &lt;0.2.0" Optional="true" />
   </Dependencies>
   <Contents>
     <File Source="config/diagnostics.defaults.xml" Target="config/diagnostics.defaults.xml" Kind="config" />

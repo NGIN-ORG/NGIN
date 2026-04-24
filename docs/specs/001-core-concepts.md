@@ -1,7 +1,7 @@
 # Spec 001: Core Concepts and Vocabulary
 
 Status: Active
-Last updated: 2026-04-23
+Last updated: 2026-04-24
 
 ## Purpose
 
@@ -19,7 +19,7 @@ One named setup of a project. A configuration may select build configuration, op
 
 ### Composition
 
-The resolved runtime shape produced from one selected project configuration, optional workspace context, and all resolved project and package contributions. Composition determines what is launchable, what is staged, and what the host/runtime sees.
+The resolved application shape produced from one selected project configuration, optional workspace context, and all resolved project and package contributions. Composition determines what is launchable, what is staged, and what optional runtime metadata is available.
 
 ### Package
 
@@ -31,7 +31,7 @@ An optional authored repo-level container. Workspaces are authored in `.ngin`.
 
 ### Launch Manifest
 
-Generated build output that represents the staged, launchable serialization of a resolved composition. Launch manifests are written as `.nginlaunch`.
+Generated tooling metadata that represents the staged, launchable serialization of a resolved composition. Launch manifests are written as `.nginlaunch` and are not required production runtime inputs.
 
 ## Modeling Rule
 

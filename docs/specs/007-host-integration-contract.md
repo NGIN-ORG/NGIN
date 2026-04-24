@@ -1,11 +1,15 @@
 # Spec 007: Host Integration Contract
 
 Status: Active
-Last updated: 2026-03-21
+Last updated: 2026-04-24
 
 ## Purpose
 
-This spec defines how `NGIN.Core` consumes the authored V2 model and generated launch manifest.
+This spec defines how `NGIN.Core` relates to the authored V2 model and generated
+tooling metadata.
+
+`NGIN.Core` is optional. Plain native applications may be built and staged by
+NGIN without linking or using `NGIN.Core`.
 
 ## Application Builder Contract
 
@@ -18,12 +22,18 @@ Public application APIs use configuration terminology:
 
 ## Host Inputs
 
-The host must derive runtime launch behavior from:
+The host may derive development-time launch behavior from:
 
 - selected configuration
 - generated launch manifest
 
-The host must honor:
+The host must be usable without source manifests or `.nginlaunch` at production
+runtime. Hosted applications should be able to configure startup from code,
+staged config/content, command line arguments, environment variables, and
+explicit runtime metadata chosen by the application.
+
+When the host consumes selected configuration or generated launch metadata, it
+must honor:
 
 - `Environment`
 - `WorkingDirectory`

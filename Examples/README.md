@@ -8,17 +8,21 @@ If you are learning the repo, this directory is the shortest path from “I unde
 
 The easiest reading order is:
 
-1. `App.Basic/`
-2. `App.Showcase/`
-3. `Game.Engine/`, `Game.Client/`, and `Game.Server/`
-4. `ProjectRef.Config/`
-5. `Workspace/NGIN.Workspace.ngin`
+1. `App.NativeMinimal/`
+2. `App.HostedCore/`
+3. `App.Basic/`
+4. `App.Showcase/`
+5. `Game.Engine/`, `Game.Client/`, and `Game.Server/`
+6. `ProjectRef.Config/`
+7. `Workspace/NGIN.Workspace.ngin`
 
-That order starts with the smallest runnable app, then introduces richer configuration behavior, then shows how separate executables are split into separate projects, and finally shows project-reference and workspace-level composition behavior.
+That order starts with the plain tooling-only path, then introduces the optional hosted runtime, then moves into richer configuration behavior, separate executables, and project-reference plus workspace-level composition behavior.
 
 ## What Each Example Shows
 
-- `App.Basic/` is the smallest real application project in the repo. It owns its `main.cpp`, project manifest, config, and executable output.
+- `App.NativeMinimal/` is the smallest plain native executable. It does not reference `NGIN.Core`.
+- `App.HostedCore/` shows the optional `NGIN.Core` hosted runtime using code-first startup and staged config without loading a source project manifest at runtime.
+- `App.Basic/` is a compact hosted application project that also demonstrates project-owned runtime metadata.
 - `App.Showcase/` is the richer application example. It demonstrates multiple configurations in one project, configuration-level package and config overlays, and project-owned runtime metadata.
 - `Game.Engine/` is a small local library project used by the game samples.
 - `Game.Client/` is a separate executable project that references `Game.Engine`.
@@ -28,7 +32,9 @@ That order starts with the smallest runnable app, then introduces richer configu
 
 ## Minimal Versus Advanced
 
-If you want the smallest normal application path, use `App.Basic`.
+If you want the smallest normal application path without the hosted runtime, use `App.NativeMinimal`.
+
+If you want the smallest hosted application path, use `App.HostedCore`.
 
 If you want to see how the same project can take on several runtime shapes through named configurations, use `App.Showcase`.
 
@@ -42,6 +48,6 @@ That is the clearest way to see the difference between “another buildable thin
 
 ## Suggested Learning Path
 
-Start by validating and running `App.Basic`. Then read `App.Showcase` to see what changes when configurations start adding overlays. After that, inspect `Game.Client` and `Game.Server` to understand why those are modeled as separate projects instead of as extra configurations.
+Start by validating and running `App.NativeMinimal`, then compare it with `App.HostedCore`. Then read `App.Showcase` to see what changes when configurations start adding overlays. After that, inspect `Game.Client` and `Game.Server` to understand why those are modeled as separate projects instead of as extra configurations.
 
 Once that model feels natural, `ProjectRef.Config` and the sample workspace file become much easier to read.

@@ -1,11 +1,16 @@
 # Spec 005: Launch Manifest
 
 Status: Active
-Last updated: 2026-03-21
+Last updated: 2026-04-24
 
 ## Purpose
 
 This spec defines the `.nginlaunch` file emitted by `ngin build`.
+
+The launch manifest is generated tooling metadata. It is used for local run,
+debug, inspection, editor integration, and smoke tests. It is not an authored
+input file and it is not a required production runtime dependency for shipped
+applications.
 
 ## File Contract
 

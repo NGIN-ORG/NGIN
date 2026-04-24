@@ -23,7 +23,7 @@
     </OperatingSystems>
   </Compatibility>
   <Dependencies>
-    <Dependency Name="NGIN.Base" VersionRange=">=0.1.0 &lt;0.2.0" Optional="false" />
+    <PackageRef Name="NGIN.Base" VersionRange=">=0.1.0 &lt;0.2.0" Optional="false" />
   </Dependencies>
   <Modules />
   <Plugins />

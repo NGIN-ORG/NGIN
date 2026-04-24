@@ -211,7 +211,7 @@ TEST_CASE("resolution reports package dependency cycles")
         R"(<?xml version="1.0" encoding="utf-8"?>
 <Package SchemaVersion="2" Name="Package.A" Version="1.0.0">
   <Dependencies>
-    <Dependency Name="Package.B" />
+    <PackageRef Name="Package.B" />
   </Dependencies>
   <Build Backend="CMake" Mode="Manual" />
   <Modules>
@@ -224,7 +224,7 @@ TEST_CASE("resolution reports package dependency cycles")
         R"(<?xml version="1.0" encoding="utf-8"?>
 <Package SchemaVersion="2" Name="Package.B" Version="1.0.0">
   <Dependencies>
-    <Dependency Name="Package.A" />
+    <PackageRef Name="Package.A" />
   </Dependencies>
   <Build Backend="CMake" Mode="Manual" />
   <Modules>

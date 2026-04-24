@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="2"
+         Name="App.HostedCore"
+         Type="Application"
+         DefaultConfiguration="Runtime">
+  <SourceRoots>
+    <SourceRoot Path="src" />
+  </SourceRoots>
+  <Output Kind="Executable"
+          Name="App.HostedCore"
+          Target="App.HostedCore" />
+  <Build Backend="CMake"
+         Mode="Generated"
+         Language="CXX"
+         LanguageStandard="23" />
+  <References>
+    <Package Name="NGIN.Core" Version=">=0.1.0 &lt;0.2.0" Optional="false" />
+  </References>
+  <ConfigSources>
+    <Config Source="config/app.cfg" />
+  </ConfigSources>
+  <Environments>
+    <Environment Name="local" />
+  </Environments>
+  <Configurations>
+    <Configuration Name="Runtime"
+                   BuildConfiguration="Debug"
+                   OperatingSystem="linux"
+                   Architecture="x64"
+                   Environment="local">
+      <Launch Executable="App.HostedCore" WorkingDirectory="." />
+    </Configuration>
+  </Configurations>
+</Project>

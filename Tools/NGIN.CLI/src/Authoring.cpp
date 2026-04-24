@@ -641,11 +641,15 @@ namespace NGIN::CLI
 
         if (const auto *deps = FindChild(*rootElement, "Dependencies"))
         {
-            for (const auto *node : ChildElements(*deps, "Dependency"))
+            if (FindChild(*deps, "Dependency") != nullptr)
+            {
+                throw std::runtime_error(path.string() + ": package <Dependencies> uses legacy <Dependency>; use <PackageRef>");
+            }
+            for (const auto *node : ChildElements(*deps, "PackageRef"))
             {
                 PackageDependency dependency{};
                 dependency.name = RequireAttribute(*node, "Name", path);
-                dependency.versionRange = Attribute(*node, "VersionRange").value_or("");
+                dependency.versionRange = Attribute(*node, "VersionRange").value_or(Attribute(*node, "Version").value_or(""));
                 dependency.optional = BoolAttribute(*node, "Optional");
                 package.dependencies.push_back(std::move(dependency));
             }

@@ -1,10 +1,17 @@
 # NGIN
 
-NGIN is a modular application platform for modern C++. It gives C++ projects a clearer authored shape: optional workspace files to organize a repo, project files that own the buildable app or library boundary, package files for reusable capabilities, and a generated launch manifest that bridges tooling and runtime.
+NGIN is a modular application platform for modern C++. It gives C++ projects a clearer authored shape: optional workspace files to organize a repo, project files that own the buildable app or library boundary, package files for reusable capabilities, and generated tooling metadata for staged run/debug flows.
 
 NGIN is not trying to replace CMake or pretend C++ should work like a managed runtime. The goal is narrower: make application composition, startup shape, and staged output more explicit than the usual mix of handwritten build logic, scattered initialization, and implicit runtime wiring.
 
 The center of gravity is composition: a selected project configuration, together with resolved project and package contributions, produces a concrete runtime shape that can be validated, graphed, staged, and launched.
+
+NGIN has two separable layers:
+
+- NGIN tooling: manifests, resolution, build generation, staging, validation, graphing, local run/debug, and package workflows
+- `NGIN.Core`: an optional hosted application runtime for services, configuration, modules, plugins, lifecycle, reflection, and diagnostics
+
+Plain C++ applications can be built and staged by NGIN without linking `NGIN.Core`. Applications use `NGIN.Core` only when they want the hosted startup model.
 
 ## Why NGIN Exists
 
@@ -77,9 +84,9 @@ As a practical rule: keep something as a project while it is a local buildable u
 
 ### Launch Manifest
 
-`ngin build` emits `<Project>.<Configuration>.nginlaunch` in the staged output directory. That file captures the resolved launchable result: the selected executable, working directory, staged files, and the resolved runtime composition that the tooling and host care about.
+`ngin build` emits `<Project>.<Configuration>.nginlaunch` in the staged output directory. That file captures the resolved launchable result for local tooling: the selected executable, working directory, staged files, and resolved composition metadata.
 
-You should think of `.nginlaunch` as the serialized launchable form of the resolved composition, not as another authored input file.
+You should think of `.nginlaunch` as generated local tooling metadata, not as another authored input file and not as a required production runtime dependency. It exists for `ngin run`, editor debug integration, inspection, and smoke tests. A shipped application is still a normal native layout: executable, required libraries, assets, config, plugins, and content.
 
 ## Example Project
 
@@ -164,8 +171,8 @@ At the current state of the repo, NGIN can:
 - validate configuration selection and launchability
 - generate backend input for generated project builds
 - stage outputs, content, and config into a launchable directory
-- emit `.nginlaunch` as the build/runtime handoff artifact
-- run applications through `NGIN.Core`
+- emit `.nginlaunch` as the local tooling handoff artifact
+- run plain native applications or applications that use the optional `NGIN.Core` hosted runtime
 
 NGIN prefers explicit validation failure over implicit or ambiguous runtime resolution. If authored inputs do not resolve to a clear launchable result, validation should fail instead of silently inventing behavior.
 
@@ -233,6 +240,8 @@ Build and run a staged example:
 
 If you want to see how separate executables are modeled in V2, inspect `Examples/Game.Engine`, `Examples/Game.Client`, and `Examples/Game.Server` next.
 
+If you want to see the difference between NGIN tooling and the optional hosted runtime, inspect `Examples/App.NativeMinimal` and `Examples/App.HostedCore`.
+
 ## Repository Layout
 
 - `Tools/NGIN.CLI/` native `ngin` command line tool
@@ -258,3 +267,4 @@ The active contracts live in:
 - [007-host-integration-contract.md](/home/berggrenmille/NGIN/docs/specs/007-host-integration-contract.md)
 - [010-workspace-and-project-model.md](/home/berggrenmille/NGIN/docs/specs/010-workspace-and-project-model.md)
 - [011-workspace-manifest.md](/home/berggrenmille/NGIN/docs/specs/011-workspace-manifest.md)
+- [012-tooling-and-runtime-boundary.md](/home/berggrenmille/NGIN/docs/specs/012-tooling-and-runtime-boundary.md)

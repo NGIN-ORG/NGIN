@@ -1855,8 +1855,14 @@ namespace NGIN::Core
 
       if (const auto *dependenciesElement = FindChild(*root, "Dependencies"))
       {
+        if (FindChild(*dependenciesElement, "Dependency") != nullptr)
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(
+              MakeBuilderError("package dependencies use legacy <Dependency>; use <PackageRef>",
+                               "package.Dependencies", KernelErrorCode::InvalidArgument));
+        }
         for (const auto *dependencyElement :
-             ChildElements(*dependenciesElement, "Dependency"))
+             ChildElements(*dependenciesElement, "PackageRef"))
         {
           auto reference =
               ParsePackageReference(*dependencyElement, "package.Dependencies");

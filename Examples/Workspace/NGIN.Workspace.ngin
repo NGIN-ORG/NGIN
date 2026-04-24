@@ -8,6 +8,8 @@
     <PackageProvider Name="NGIN.ECS" Root="../../Dependencies/NGIN/NGIN.ECS" />
   </PackageProviders>
   <Projects>
+    <Project Path="../App.NativeMinimal/App.NativeMinimal.nginproj" />
+    <Project Path="../App.HostedCore/App.HostedCore.nginproj" />
     <Project Path="../App.Basic/App.Basic.nginproj" />
     <Project Path="../ProjectRef.Config/Root/ProjectRef.Config.Root.nginproj" />
     <Project Path="../Game.Engine/Game.Engine.nginproj" />

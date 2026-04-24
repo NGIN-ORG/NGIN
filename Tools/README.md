@@ -2,7 +2,7 @@
 
 `Tools/` contains the contributor-facing tooling layer for the authored NGIN model. In practice that means two things: the native `ngin` CLI and the in-repo VS Code extension that drives the same workflows from the editor.
 
-The important part is that both tools now speak the same V2 model. They operate on projects and configurations, they stage output into a predictable directory, and they treat `.nginlaunch` as the generated handoff artifact instead of inventing a parallel editor-only flow.
+The important part is that both tools now speak the same V2 model. They operate on projects and configurations, they stage output into a predictable directory, and they treat `.nginlaunch` as generated tooling metadata instead of inventing a parallel editor-only flow.
 
 ## Native CLI Overview
 
@@ -45,7 +45,7 @@ Those commands all resolve the same authored concepts. The difference is whether
 
 `ngin build` stages project output, package contents, and config sources into one output directory. It also emits a launch manifest named `<Project>.<Configuration>.nginlaunch`.
 
-That generated file is the bridge between tooling and runtime. It records:
+That generated file is the bridge between CLI/editor tooling and the staged output. It records:
 
 - which project and configuration were selected
 - which executable was chosen
