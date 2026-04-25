@@ -1,53 +1,93 @@
 # Examples
 
-`Examples/` contains the canonical authored examples for the active NGIN model. They exist to show what the V2 project-first shape looks like in practice, not just in specs: how a small app is authored, how a richer app adds configuration-level overlays, and how separate executables are modeled as separate projects.
+`Examples/` is the best place to learn the active NGIN model. Each example is a
+small authored project that you can validate, graph, build, stage, and run with
+the same CLI commands used by real projects.
 
-If you are learning the repo, this directory is the shortest path from “I understand the words in the spec” to “I can see how those words map to real project files.”
+Build the CLI first from the repository root:
+
+```bash
+cmake --preset dev
+cmake --build build/dev --target ngin_cli
+```
 
 ## Recommended Order
 
-The easiest reading order is:
+Read and run the examples in this order:
 
-1. `App.NativeMinimal/`
-2. `App.HostedCore/`
-3. `App.Basic/`
-4. `App.Showcase/`
-5. `Game.Engine/`, `Game.Client/`, and `Game.Server/`
-6. `ProjectRef.Config/`
+1. [`App.NativeMinimal`](App.NativeMinimal/README.md)
+   Smallest plain native executable. No `NGIN.Core`, no hosted runtime.
+2. [`App.HostedCore`](App.HostedCore/README.md)
+   Adds the optional `NGIN.Core` hosted runtime with code-first startup.
+3. [`App.Basic`](App.Basic/README.md)
+   Adds project-owned runtime metadata while staying compact.
+4. [`App.Showcase`](App.Showcase/README.md)
+   Shows configuration overlays, optional packages, and richer runtime metadata.
+5. `Game.Engine`, `Game.Client`, and `Game.Server`
+   Show the rule that separate executables should usually be separate projects.
+6. `ProjectRef.Config`
+   Focused manifests for project-reference configuration resolution.
 7. `Workspace/NGIN.Workspace.ngin`
+   A minimal sample workspace file.
 
-That order starts with the plain tooling-only path, then introduces the optional hosted runtime, then moves into richer configuration behavior, separate executables, and project-reference plus workspace-level composition behavior.
+That path starts with the tooling-only case, then introduces the hosted runtime,
+then moves into richer configuration and composition behavior.
 
 ## What Each Example Shows
 
-- `App.NativeMinimal/` is the smallest plain native executable. It does not reference `NGIN.Core`.
-- `App.HostedCore/` shows the optional `NGIN.Core` hosted runtime using code-first startup and staged config without loading a source project manifest at runtime.
-- `App.Basic/` is a compact hosted application project that also demonstrates project-owned runtime metadata.
-- `App.Showcase/` is the richer application example. It demonstrates multiple configurations in one project, configuration-level package and config overlays, and project-owned runtime metadata.
+- `App.NativeMinimal/` is a normal C++ executable described by an `.nginproj`.
+- `App.HostedCore/` links `NGIN.Core`, loads staged config, and starts from code.
+- `App.Basic/` demonstrates a compact hosted application with manifest-owned
+  runtime metadata.
+- `App.Showcase/` demonstrates several configurations in one project, including
+  config overlays, package overlays, module enable/disable behavior, and
+  reflection-gated composition.
 - `Game.Engine/` is a small local library project used by the game samples.
 - `Game.Client/` is a separate executable project that references `Game.Engine`.
-- `Game.Server/` is a separate headless executable project that also references `Game.Engine`.
-- `ProjectRef.Config/` is a focused set of manifests for project-reference resolution, including configuration inheritance and collision scenarios.
-- `Workspace/NGIN.Workspace.ngin` is a minimal sample workspace file that points at the examples and demonstrates the optional `.ngin` workspace layer.
+- `Game.Server/` is a separate headless executable project that also references
+  `Game.Engine`.
+- `ProjectRef.Config/` captures configuration inheritance and collision cases
+  for project references.
+- `Workspace/NGIN.Workspace.ngin` shows the optional workspace layer.
+
+## One Command Pattern
+
+Every launchable example follows the same command shape:
+
+```bash
+./build/dev/Tools/NGIN.CLI/ngin validate \
+  --project <path-to-project.nginproj> \
+  --configuration <Configuration>
+
+./build/dev/Tools/NGIN.CLI/ngin graph \
+  --project <path-to-project.nginproj> \
+  --configuration <Configuration>
+
+./build/dev/Tools/NGIN.CLI/ngin build \
+  --project <path-to-project.nginproj> \
+  --configuration <Configuration> \
+  --output build/manual/<ExampleName>
+
+./build/dev/Tools/NGIN.CLI/ngin run \
+  --project <path-to-project.nginproj> \
+  --configuration <Configuration> \
+  --output build/manual/<ExampleName>
+```
+
+`validate` answers whether the selected project/configuration is coherent.
+`graph` shows the resolved composition. `build` creates a staged runnable
+directory. `run` launches from the generated `.nginlaunch`.
 
 ## Minimal Versus Advanced
 
-If you want the smallest normal application path without the hosted runtime, use `App.NativeMinimal`.
+Use `App.NativeMinimal` when you want to understand NGIN as a build/stage/run
+tool for a plain native executable.
 
-If you want the smallest hosted application path, use `App.HostedCore`.
+Use `App.HostedCore` when you want the smallest example of the optional hosted
+runtime.
 
-If you want to see how the same project can take on several runtime shapes through named configurations, use `App.Showcase`.
+Use `App.Showcase` when you want to understand how much variation can live in
+configurations before a second buildable unit should become another project.
 
-If you want to understand the V2 rule that separate executables should usually be separate projects, use the game samples. They are intentionally split into:
-
-- one engine/library project
-- one game client project
-- one headless server project
-
-That is the clearest way to see the difference between “another buildable thing” and “another configuration of the same thing.”
-
-## Suggested Learning Path
-
-Start by validating and running `App.NativeMinimal`, then compare it with `App.HostedCore`. Then read `App.Showcase` to see what changes when configurations start adding overlays. After that, inspect `Game.Client` and `Game.Server` to understand why those are modeled as separate projects instead of as extra configurations.
-
-Once that model feels natural, `ProjectRef.Config` and the sample workspace file become much easier to read.
+Use the game samples when you want to see the opposite case: a shared library,
+a client executable, and a server executable modeled as separate projects.

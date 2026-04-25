@@ -1,39 +1,74 @@
 # Tools
 
-This directory contains the NGIN tooling layer used to work with authored projects:
+`Tools/` contains the NGIN tooling layer used to work with authored projects:
 
 - the native `ngin` CLI
 - the in-repo VS Code extension
+- optional bundled CMake/Ninja payload metadata and fetch scripts
 
-Both tools operate on the same workspace, project, package, and configuration model. This document focuses on how to build and use those tools as a contributor.
+Both the CLI and the VS Code extension use the same workspace, project, package,
+configuration, staged-output, and `.nginlaunch` model. The CLI is the source of
+truth; the extension is an editor front end over that CLI behavior.
 
-For the authored model and overall platform concepts, see the root [README.md](/home/berggrenmille/NGIN/README.md).
+For platform concepts and the first-run flow, start with the root
+[`README.md`](../README.md).
 
-## Tooling Overview
+## Build the CLI
 
-NGIN tooling operates on:
+Prerequisites for building this repository:
 
-- workspaces
-- projects
-- configurations
-- staged output directories
+- CMake 3.20 or newer
+- Ninja
+- a C++23-capable compiler
 
-The CLI and VS Code extension both resolve these concepts and execute the same underlying commands.
+Configure the workspace and build the native CLI:
 
-## Typical CLI Workflow
+```bash
+cmake --preset dev
+cmake --build build/dev --target ngin_cli
+```
 
-1. open or author a `.nginproj`
-2. select a configuration
-3. `ngin validate`
-4. `ngin graph`
-5. `ngin build`
-6. `ngin run`
+The built CLI is:
 
-Use `clean` or `rebuild` when you need to reset generated artifacts.
+```text
+build/dev/Tools/NGIN.CLI/ngin
+```
+
+## Typical CLI Flow
+
+The normal project loop is:
+
+1. choose a `.nginproj`
+2. choose a configuration
+3. validate the selected composition
+4. inspect the graph when needed
+5. build a staged output directory
+6. run from the generated `.nginlaunch`
+
+Minimal example:
+
+```bash
+./build/dev/Tools/NGIN.CLI/ngin validate \
+  --project Examples/App.NativeMinimal/App.NativeMinimal.nginproj \
+  --configuration Runtime
+
+./build/dev/Tools/NGIN.CLI/ngin build \
+  --project Examples/App.NativeMinimal/App.NativeMinimal.nginproj \
+  --configuration Runtime \
+  --output build/manual/App.NativeMinimal
+
+./build/dev/Tools/NGIN.CLI/ngin run \
+  --project Examples/App.NativeMinimal/App.NativeMinimal.nginproj \
+  --configuration Runtime \
+  --output build/manual/App.NativeMinimal
+```
+
+Use `clean` or `rebuild` when you need to reset generated artifacts for the
+selected project/configuration/output scope.
 
 ## CLI Commands
 
-Common project commands:
+Project commands:
 
 - `ngin validate`
 - `ngin graph`
@@ -50,21 +85,30 @@ Workspace and package inspection:
 - `ngin package list`
 - `ngin package show <Package>`
 
-For full CLI behavior, see [docs/specs/006-cli-contract.md](/home/berggrenmille/NGIN/docs/specs/006-cli-contract.md).
+For the complete active command contract, see
+[`../docs/specs/006-cli-contract.md`](../docs/specs/006-cli-contract.md).
 
-## Build Backend
+## Build Backend Tools
 
-NGIN generates build input for CMake and prefers Ninja when Ninja is available.
+NGIN currently generates backend input for CMake and prefers Ninja when Ninja is
+available.
 
-The CLI resolves build backend tools in this order:
+The CLI resolves backend tools in this order:
 
-1. explicit environment overrides: `NGIN_CMAKE`, `NGIN_NINJA`, or `NGIN_THIRD_PARTY_TOOLS_ROOT`
+1. explicit environment overrides: `NGIN_CMAKE`, `NGIN_NINJA`, or
+   `NGIN_THIRD_PARTY_TOOLS_ROOT`
 2. bundled tools under `Tools/ThirdParty/BuildTools`
 3. tools available on `PATH`
 
+The bundled tools are for CLI-driven generated builds. Building the NGIN CLI
+itself from this checkout still requires enough system tooling to run
+`cmake --preset dev`.
+
 ## Bundled Build Tools
 
-Bundled CMake and Ninja payloads are optional generated files. They are kept out of normal git history, but can be fetched when a checkout or release package needs local build backend tools.
+Bundled CMake and Ninja payloads are optional generated files. They are kept out
+of normal git history, but can be fetched when a checkout or release package
+needs local backend tools for generated project builds.
 
 Fetch the current host payload:
 
@@ -72,21 +116,25 @@ Fetch the current host payload:
 Tools/scripts/fetch-bundled-tools.sh
 ```
 
-On Windows without a POSIX shell, use:
+On Windows without a POSIX shell:
 
 ```powershell
 Tools\scripts\fetch-bundled-tools.ps1
 ```
 
-Fetch all currently pinned host payloads from a POSIX shell:
+Fetch all currently pinned host payloads:
 
 ```bash
 Tools/scripts/fetch-bundled-tools.sh --all
 ```
 
-Pinned tool versions and upstream URLs live in [toolchains.json](/home/berggrenmille/NGIN/Tools/ThirdParty/BuildTools/toolchains.json). License and notice requirements live in [THIRD_PARTY_TOOLS.md](/home/berggrenmille/NGIN/Tools/ThirdParty/BuildTools/notices/THIRD_PARTY_TOOLS.md).
+Pinned versions and upstream URLs live in
+[`ThirdParty/BuildTools/toolchains.json`](ThirdParty/BuildTools/toolchains.json).
+License and notice requirements live in
+[`ThirdParty/BuildTools/notices/THIRD_PARTY_TOOLS.md`](ThirdParty/BuildTools/notices/THIRD_PARTY_TOOLS.md).
 
-Keep upstream license files inside each extracted payload when publishing bundled tool archives.
+Keep upstream license files inside each extracted payload when publishing
+bundled tool archives.
 
 ## Staged Output
 
@@ -103,11 +151,13 @@ Default location:
 .ngin/build/<Project>/<Configuration>/
 ```
 
-The `.nginlaunch` file is used by tooling such as `ngin run` and VS Code debug integration. It is generated output, not an authored input.
+`ngin run` and the VS Code extension use `.nginlaunch` for local launch/debug
+resolution. It is generated tooling metadata, not an authored input file.
 
 ## VS Code Extension
 
-The extension in `Tools/NGIN.VSCode` uses the CLI as its backend.
+The extension in [`NGIN.VSCode`](NGIN.VSCode/) uses the native CLI as its
+backend.
 
 It provides:
 
@@ -116,33 +166,6 @@ It provides:
 - `.nginlaunch`-based run and debug resolution
 - C/C++ compile database discovery for `ms-vscode.cpptools`
 
-The editor workflow mirrors the CLI workflow.
-
-## Building The CLI
-
-Configure the workspace and build the native CLI:
-
-```bash
-cmake --preset dev
-cmake --build build/dev --target ngin_cli
-```
-
-## Minimal Example Flow
-
-Validate, build, and run the canonical example:
-
-```bash
-./build/dev/Tools/NGIN.CLI/ngin validate \
-  --project Examples/App.Basic/App.Basic.nginproj \
-  --configuration Runtime
-
-./build/dev/Tools/NGIN.CLI/ngin build \
-  --project Examples/App.Basic/App.Basic.nginproj \
-  --configuration Runtime \
-  --output build/manual/App.Basic
-
-./build/dev/Tools/NGIN.CLI/ngin run \
-  --project Examples/App.Basic/App.Basic.nginproj \
-  --configuration Runtime \
-  --output build/manual/App.Basic
-```
+The editor workflow mirrors the CLI workflow. See
+[`NGIN.VSCode/README.md`](NGIN.VSCode/README.md) for build, install, and
+extension-development details.

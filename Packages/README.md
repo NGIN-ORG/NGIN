@@ -1,25 +1,44 @@
 # Packages
 
-`Packages/` is the authoritative NGIN consumption layer in the umbrella workspace.
+`Packages/` is the package consumption layer for the umbrella workspace. Most
+files here are package manifests or wrappers: they describe reusable identity and
+what a package contributes to a resolved NGIN composition.
 
-Each package wrapper defines:
+The important distinction is ownership:
 
-- package identity and exposed version
-- exposed dependency and build-integration metadata
-- exposed artifacts such as libraries and executables
+- `Packages/*.nginpkg` files expose packages to NGIN tooling.
+- Source code usually lives elsewhere.
+- [`NGIN.Core`](NGIN.Core/) is the locally owned hosted runtime package and does
+  contain source code.
+- First-party library source trees usually live under `../Dependencies/NGIN/`.
+- Third-party source trees usually live under `../Dependencies/ThirdParty/`.
+
+## What A Package Wrapper Describes
+
+A package wrapper may declare:
+
+- package name and version
+- package dependencies
+- build integration metadata
+- exported artifacts such as libraries or executables
 - runtime modules and plugins
-- staged content
+- staged config, content, or other files
 - optional backend build hints
 
-Source code does not live here by default. Source-backed packages point at either:
+Package wrappers describe reusable behavior. Workspace-local source ownership is
+resolved through the workspace file and its `PackageSources` and
+`PackageProviders`.
 
-- `Packages/NGIN.Core/` for first-class local platform code
-- `Dependencies/NGIN/*` for first-party libraries developed externally
-- `Dependencies/ThirdParty/*` for vendored third-party source trees
-- a backend package name such as `SDL2` for imported CMake packages
+## CMake Integration Modes
 
-For CMake-backed integration, package wrappers may use:
+For CMake-backed packages, wrappers may use:
 
-- `Mode="AddSubdirectory"` to wrap local or synced source trees
-- `Mode="FindPackage"` to wrap installed/exported CMake packages
-- `Mode="Manual"` to preserve a handwritten compatibility wrapper
+- `Mode="AddSubdirectory"` for local or synced source trees
+- `Mode="FindPackage"` for installed/exported CMake packages
+- `Mode="Manual"` for handwritten compatibility wrappers
+- `Mode="Generated"` when NGIN owns generated backend input
+
+For the active package contract, see
+[`../docs/specs/003-package-manifest-and-runtime-contributions.md`](../docs/specs/003-package-manifest-and-runtime-contributions.md).
+For workspace package discovery and providers, see
+[`../docs/specs/011-workspace-manifest.md`](../docs/specs/011-workspace-manifest.md).
