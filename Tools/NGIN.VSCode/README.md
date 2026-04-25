@@ -1,82 +1,106 @@
-# NGIN Tools
+# VS Code Extension
 
-`NGIN Tools` is the in-repo VS Code extension for working with NGIN projects from the editor without leaving the CLI-first model behind. It exists so contributors can use build, clean, rebuild, validate, graph, run, and debug flows inside VS Code while still going through the same project/configuration surface that the native `ngin` command uses.
+`Tools/NGIN.VSCode` contains the in-repo VS Code extension for NGIN projects.
+It is an editor front end over the native `ngin` CLI, not a separate project
+model or build system.
 
-The extension is not a second build system. It is a front end over the authored NGIN model and the native CLI that already lives in this repo.
+Use it when you want to select projects and configurations, build, run, debug,
+validate, inspect graphs, or generate metadata from VS Code while keeping the
+same behavior as the terminal commands.
 
-## What It Integrates With
+## What It Provides
 
-The extension is built around a few concrete repo pieces:
+- NGIN activity-bar views for workspace, project, and configuration navigation
+- status bar items for the selected workspace, project, and configuration
+- commands for build, clean, rebuild, run, debug, validate, graph, and MetaGen
+- generated VS Code tasks for known project/configuration pairs
+- `.nginlaunch`-based run and debug resolution
+- a custom `ngin` debug type that launches native C/C++ debug sessions
+- C/C++ configuration-provider support for `ms-vscode.cpptools`
+- file registration and snippets for `.ngin`, `.nginproj`, `.nginpkg`, and
+  `.nginlaunch`
 
-- the native CLI in `Tools/NGIN.CLI`
-- workspace and project manifests under the repo root and `Examples/`
-- generated staged output and `.nginlaunch`
-- `ms-vscode.cpptools` for C/C++ debug and configuration-provider support
+The CLI remains the source of truth. If a command works in the terminal, the
+extension should call the same command with the selected project and
+configuration.
 
-That makes it contributor-oriented by design. It is most useful when you are already working inside this repo and want the editor to understand the same selected project and configuration that the CLI understands.
+## Command Mapping
 
-## Main Features
+The extension mirrors the CLI directly:
 
-The extension currently provides:
+- selected project maps to `--project`
+- selected configuration maps to `--configuration`
+- Build maps to `ngin build`
+- Clean maps to `ngin clean`
+- Rebuild maps to `ngin rebuild`
+- Run maps to `ngin run`
+- Validate maps to `ngin validate`
+- Graph maps to `ngin graph`
+- Generate Metadata maps to `ngin metagen`
 
-- a dedicated `NGIN` activity-bar view with workspace overview and project/configuration navigation
-- bottom status bar items for workspace, project, configuration, build, run, and debug
-- project and configuration selection from workspace manifests
-- `validate`, `graph`, `build`, `clean`, `rebuild`, `run`, and `debug` commands backed by the CLI
-- generated `.nginlaunch` resolution for run and debug
-- auto-provided VS Code tasks for build, clean, rebuild, validate, and graph
-- a custom `ngin` debug type that resolves to native C/C++ debug sessions
-- custom C/C++ configuration-provider support for `ms-vscode.cpptools` backed by staged compile databases
-- snippets and file registration for `.ngin`, `.nginproj`, `.nginpkg`, and `.nginlaunch`
-- optional validate-on-save
+Run and debug use the staged `.nginlaunch` file produced by `ngin build`. When
+debugging, the extension can build first if the launch manifest is missing or
+stale.
 
-## How It Maps To The V2 CLI
+## Build And Install
 
-The editor surface mirrors the CLI directly:
+Prerequisites:
 
-- selected project in the extension maps to `--project`
-- selected configuration in the extension maps to `--configuration`
-- build uses `ngin build`
-- clean uses `ngin clean`
-- rebuild uses `ngin rebuild`
-- validation uses `ngin validate`
-- graph inspection uses `ngin graph`
-- run/debug resolve from the staged `.nginlaunch`
+- Node.js
+- npm
+- VS Code command-line launcher: `code`
 
-That is the intended contract. If you understand the terminal command, the editor should feel familiar instead of inventing new concepts.
-
-## Build and Install
-
-This extension expects Node.js and npm to be installed locally.
-
-Install dependencies:
+From this directory:
 
 ```bash
 cd Tools/NGIN.VSCode
 npm ci
-```
-
-Build the extension bundle:
-
-```bash
 npm run build
 ```
 
-Package and install it locally:
+Package and install the extension locally:
 
 ```bash
 VERSION=$(node -p "require('./package.json').version")
-npx @vscode/vsce package --out "ngin-tools-${VERSION}.vsix"
-code --install-extension "./ngin-tools-${VERSION}.vsix" --force
+npx @vscode/vsce package --out "ngin-vscode-${VERSION}.vsix"
+code --install-extension "./ngin-vscode-${VERSION}.vsix" --force
 ```
 
-The repo may also already contain a checked-in `.vsix` built from the current package version. That is useful when you just want to install the extension quickly and do not need to rebuild it first.
-
-## Development Host Workflow
-
-Run unit tests:
+Reload VS Code after installing:
 
 ```bash
+code --reuse-window /home/berggrenmille/NGIN
+```
+
+## Daily Use
+
+Open the repository root in VS Code. The extension activates when it finds
+`.nginproj` files.
+
+Typical flow:
+
+1. Open the NGIN activity-bar view.
+2. Select a project.
+3. Select a configuration.
+4. Run Validate, Build, Run, Debug, Graph, or Generate Metadata.
+
+The same flow is available from the command palette with commands such as:
+
+```text
+NGIN: Select Project
+NGIN: Select Configuration
+NGIN: Build
+NGIN: Run
+NGIN: Debug
+NGIN: Generate Metadata
+```
+
+## Development
+
+Run type checks and unit tests:
+
+```bash
+npm run typecheck
 npm run test:unit
 ```
 
@@ -86,15 +110,16 @@ Run integration tests:
 npm run test:integration
 ```
 
-For active extension development, open `Tools/NGIN.VSCode` in VS Code and launch the extension host target from the extension debugging workflow. The checked-in launch configuration under `.vscode/launch.json` opens the repository root as the test workspace and uses the extension build step before starting the host.
+For active extension development, open `Tools/NGIN.VSCode` in VS Code and launch
+the extension host target from the checked-in debugging configuration. The
+extension host opens the repository root as the test workspace and builds the
+extension before launch.
 
-## Debug, Tasks, and Configuration Behavior
+## Notes
 
-The custom `ngin` debug type expects:
-
-- `project`
-- `configuration`
-
-When a launch is requested, the extension either reuses an existing staged `.nginlaunch` or triggers `ngin build` first, depending on the debug configuration and what is already present on disk.
-
-Task generation follows the same rule. The extension enumerates known projects and configurations from the workspace, then creates build, validate, and graph tasks for those combinations rather than inventing editor-only task definitions by hand.
+- The extension expects the native CLI to be available from the repository build
+  output or configured extension settings.
+- Build outputs, launch manifests, compile databases, and MetaGen output are
+  generated artifacts.
+- The extension should not invent editor-only behavior that disagrees with the
+  CLI contract.
