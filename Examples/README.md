@@ -21,13 +21,15 @@ Read and run the examples in this order:
    Adds the optional `NGIN.Core` hosted runtime with code-first startup.
 3. [`App.Basic`](App.Basic/README.md)
    Adds project-owned runtime metadata while staying compact.
-4. [`App.Showcase`](App.Showcase/README.md)
+4. [`App.ReflectionMetaGen`](App.ReflectionMetaGen/README.md)
+   Shows the first `ngin metagen` workflow for annotated reflection metadata.
+5. [`App.Showcase`](App.Showcase/README.md)
    Shows configuration overlays, optional packages, and richer runtime metadata.
-5. `Game.Engine`, `Game.Client`, and `Game.Server`
+6. `Game.Engine`, `Game.Client`, and `Game.Server`
    Show the rule that separate executables should usually be separate projects.
-6. `ProjectRef.Config`
+7. `ProjectRef.Config`
    Focused manifests for project-reference configuration resolution.
-7. `Workspace/NGIN.Workspace.ngin`
+8. `Workspace/NGIN.Workspace.ngin`
    A minimal sample workspace file.
 
 That path starts with the tooling-only case, then introduces the hosted runtime,
@@ -39,6 +41,8 @@ then moves into richer configuration and composition behavior.
 - `App.HostedCore/` links `NGIN.Core`, loads staged config, and starts from code.
 - `App.Basic/` demonstrates a compact hosted application with manifest-owned
   runtime metadata.
+- `App.ReflectionMetaGen/` demonstrates annotation-driven reflection metadata
+  generation with `ngin metagen`.
 - `App.Showcase/` demonstrates several configurations in one project, including
   config overlays, package overlays, module enable/disable behavior, and
   reflection-gated composition.

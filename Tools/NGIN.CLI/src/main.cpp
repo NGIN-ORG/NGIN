@@ -18,6 +18,7 @@ namespace
             << "  workspace doctor\n"
             << "  validate [--project <file.nginproj>] [--configuration <name>]\n"
             << "  graph [--project <file.nginproj>] [--configuration <name>]\n"
+            << "  metagen [--project <file.nginproj>] [--configuration <name>] [--output <dir>]\n"
             << "  clean [--project <file.nginproj>] [--configuration <name>] [--output <dir>]\n"
             << "  build [--project <file.nginproj>] [--configuration <name>] [--output <dir>]\n"
             << "  rebuild [--project <file.nginproj>] [--configuration <name>] [--output <dir>]\n"
@@ -96,6 +97,10 @@ auto main(int argc, char **argv) -> int
         if (command == "graph")
         {
             return NGIN::CLI::CmdGraph(root, NGIN::CLI::ParseCommonArgs(argc, argv, 2));
+        }
+        if (command == "metagen")
+        {
+            return NGIN::CLI::CmdMetaGen(root, NGIN::CLI::ParseCommonArgs(argc, argv, 2));
         }
         if (command == "clean")
         {

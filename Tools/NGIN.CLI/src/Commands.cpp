@@ -3,6 +3,7 @@
 #include "Authoring.hpp"
 #include "Build.hpp"
 #include "Diagnostics.hpp"
+#include "MetaGen.hpp"
 #include "Resolution.hpp"
 #include "Support.hpp"
 
@@ -489,6 +490,12 @@ namespace NGIN::CLI
         }
         PrintDiagnostics(resolved.diagnostics, "Graph", std::cout);
         return 0;
+    }
+
+    auto CmdMetaGen(const fs::path &root, const ParsedArgs &args) -> int
+    {
+        const auto invocation = ResolveInvocation(args);
+        return RunMetaGen(root, invocation.project, invocation.configuration, args.outputPath);
     }
 
     auto CmdClean(const fs::path &root, const ParsedArgs &args) -> int

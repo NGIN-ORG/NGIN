@@ -10,6 +10,7 @@
   <Projects>
     <Project Path="Examples/App.NativeMinimal/App.NativeMinimal.nginproj" />
     <Project Path="Examples/App.HostedCore/App.HostedCore.nginproj" />
+    <Project Path="Examples/App.ReflectionMetaGen/App.ReflectionMetaGen.nginproj" />
     <Project Path="Examples/App.Basic/App.Basic.nginproj" />
     <Project Path="Examples/ProjectRef.Config/Root/ProjectRef.Config.Root.nginproj" />
     <Project Path="Examples/Game.Engine/Game.Engine.nginproj" />

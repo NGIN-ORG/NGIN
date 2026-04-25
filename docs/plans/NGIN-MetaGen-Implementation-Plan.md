@@ -18,7 +18,7 @@ Initial decisions:
 - User command: `ngin metagen`
 - First output: `NGIN.Reflection` metadata
 - First input model: C++ attributes through NGIN macros
-- First parser backend: Clang LibTooling
+- First parser backend: Clang public tooling APIs, starting with `libclang`
 - Clang dependency: optional for building the normal CLI
 - Clang fork: no fork
 - Binary distribution: provide prebuilt MetaGen-capable tooling later, do not
@@ -129,7 +129,9 @@ integration call the same code path.
 
 ### Clang Integration
 
-Use Clang LibTooling against the project compilation database.
+Use Clang's public tooling APIs against the project sources. The MVP starts
+with the `libclang` C API because it exposes annotation cursors with a smaller
+build and link surface than the full C++ LibTooling stack.
 
 Preferred compile command source order:
 
@@ -261,7 +263,7 @@ Rationale:
 
 Do not fork Clang.
 
-MetaGen should use supported LibTooling APIs and Clang annotations. Forking
+MetaGen should use supported Clang APIs and Clang annotations. Forking
 Clang would create long-term maintenance cost, version lag, and platform
 packaging complexity. If NGIN eventually needs syntax beyond
 `[[clang::annotate]]`, prefer macros, generated sidecar metadata, or an upstream
@@ -327,4 +329,3 @@ When implementing MetaGen:
 - Run `ngin metagen` against a small annotated fixture.
 - Compile the generated reflection file in a test target when Clang support is
   enabled.
-

@@ -1,6 +1,7 @@
 #include "Authoring.hpp"
 #include "Build.hpp"
 #include "Diagnostics.hpp"
+#include "MetaGenCommon.hpp"
 #include "Resolution.hpp"
 
 #include <catch2/catch_test_macros.hpp>
@@ -142,6 +143,18 @@ TEST_CASE("workspace, project, and package manifests parse through authoring fac
     REQUIRE(package.name == "Sample.Package");
     REQUIRE(package.modules.empty());
     REQUIRE(catalog.contains("Sample.Package"));
+}
+
+TEST_CASE("metagen annotation parser accepts macro payloads")
+{
+    const auto reflect = NGIN::CLI::MetaGen::ParseAnnotation("ngin.reflect:name = \"Demo::Player\", category = runtime");
+    REQUIRE(reflect.kind == "reflect");
+    REQUIRE(reflect.options.at("name") == "Demo::Player");
+    REQUIRE(reflect.options.at("category") == "runtime");
+
+    const auto ignore = NGIN::CLI::MetaGen::ParseAnnotation("ngin.ignore");
+    REQUIRE(ignore.kind == "ignore");
+    REQUIRE(ignore.options.empty());
 }
 
 TEST_CASE("project parsing rejects missing required output metadata")
