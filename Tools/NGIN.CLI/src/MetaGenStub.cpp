@@ -4,6 +4,20 @@
 
 namespace NGIN::CLI
 {
+    auto GenerateMetaData(
+        const fs::path &,
+        const ProjectManifest &,
+        const ConfigurationDefinition &,
+        const fs::path &) -> MetaGenResult
+    {
+        return MetaGenResult{
+            .available = false,
+            .diagnostics = {
+                "ngin metagen was built without Clang support. Install LLVM/Clang development packages and configure with NGIN_CLI_ENABLE_METAGEN=ON.",
+            },
+        };
+    }
+
     auto RunMetaGen(
         const fs::path &,
         const ProjectManifest &,

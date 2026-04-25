@@ -49,6 +49,20 @@ Valid pairings:
 - `Tool` -> `Executable`
 - `Library` -> `StaticLibrary|SharedLibrary`
 
+## Build
+
+Generated CMake projects may opt into MetaGen under `Build`.
+
+```xml
+<Build Backend="CMake" Mode="Generated" Language="CXX" LanguageStandard="23">
+  <MetaGen Enabled="true" />
+</Build>
+```
+
+When enabled, `ngin build` runs MetaGen before generated CMake emission and
+compiles the generated reflection source as part of the project target. Reflected
+types must be declared in includable headers, not compiled source files.
+
 ## References
 
 Projects use one unified `References` surface:

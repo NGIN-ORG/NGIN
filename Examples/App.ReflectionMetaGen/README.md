@@ -1,13 +1,11 @@
 # App.ReflectionMetaGen
 
 `App.ReflectionMetaGen` is a focused example for the first `ngin metagen`
-workflow. It uses NGIN annotation macros in normal C++ source and generates a
-reflection metadata `.cpp` file.
+workflow. It uses NGIN annotation macros in normal C++ headers and opts into
+MetaGen from the project manifest. `ngin build` generates and compiles the
+reflection metadata automatically.
 
-The current MetaGen slice generates reflection source for inspection. Generated
-files are not wired into `ngin build` yet.
-
-## Generate Reflection Metadata
+## Build And Run The App
 
 From the repository root:
 
@@ -15,39 +13,24 @@ From the repository root:
 cmake --preset dev
 cmake --build build/dev --target ngin_cli
 
-./build/dev/Tools/NGIN.CLI/ngin metagen \
-  --project Examples/App.ReflectionMetaGen/App.ReflectionMetaGen.nginproj \
-  --configuration Runtime \
-  --output build/manual/App.ReflectionMetaGen/metagen
-```
-
-The generated file is:
-
-```text
-build/manual/App.ReflectionMetaGen/metagen/App.ReflectionMetaGen.reflection.generated.cpp
-```
-
-It should contain generated `NGIN::Reflection::Describe<T>` specializations for
-the annotated `Demo::Entity` and `Demo::Player` types.
-
-## Build And Run The App
-
-The app itself is still a normal generated-mode NGIN project:
-
-```bash
 ./build/dev/Tools/NGIN.CLI/ngin build \
   --project Examples/App.ReflectionMetaGen/App.ReflectionMetaGen.nginproj \
-  --configuration Runtime \
-  --output build/manual/App.ReflectionMetaGen/stage
+  --configuration Runtime
 
 ./build/dev/Tools/NGIN.CLI/ngin run \
   --project Examples/App.ReflectionMetaGen/App.ReflectionMetaGen.nginproj \
-  --configuration Runtime \
-  --output build/manual/App.ReflectionMetaGen/stage
+  --configuration Runtime
 ```
 
 Expected output:
 
 ```text
 App.ReflectionMetaGen: Ada score=70
+Reflected type: Demo::Player fields=1 methods=1 display_name=Ada score=70
+```
+
+The generated source is a build artifact under:
+
+```text
+.ngin/metagen/App.ReflectionMetaGen/Runtime/App.ReflectionMetaGen.reflection.generated.cpp
 ```

@@ -11,3 +11,5 @@ package-lock.json
 Tools/ThirdParty/BuildTools/downloads/
 Tools/ThirdParty/BuildTools/cmake/*/
 Tools/ThirdParty/BuildTools/ninja/*/
+
+.ngin/*

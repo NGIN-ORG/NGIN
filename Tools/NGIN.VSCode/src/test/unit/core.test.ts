@@ -252,6 +252,7 @@ test('overview sections describe the current workspace selection and actions', (
   assert.equal(sections[3].children[0].command, 'ngin.build');
   assert.equal(sections[3].children[1].command, 'ngin.rebuild');
   assert.equal(sections[3].children[2].command, 'ngin.clean');
+  assert.equal(sections[3].children.some((entry) => entry.command === 'ngin.metagen'), true);
   assert.equal(sections[4].children[1].label, 'Open Last Launch Manifest');
 });
 

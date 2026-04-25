@@ -2,6 +2,7 @@
 
 #include "Authoring.hpp"
 #include "Diagnostics.hpp"
+#include "MetaGen.hpp"
 #include "Resolution.hpp"
 #include "Support.hpp"
 
@@ -471,6 +472,14 @@ namespace NGIN::CLI
             return ResolveBuildRoot(resolved) / ".ngin" / "build" / resolved.project.name / resolved.configuration.name;
         }
 
+        [[nodiscard]] auto ResolveMetaGenOutputDir(
+            const ResolvedLaunch &resolved,
+            const ProjectManifest &project,
+            const ConfigurationDefinition &configuration) -> fs::path
+        {
+            return ResolveBuildRoot(resolved) / ".ngin" / "metagen" / project.name / configuration.name;
+        }
+
         [[nodiscard]] auto PackageExposesSelectedExecutable(const PackageManifest &manifest, const std::optional<ExecutableArtifact> &selectedExecutable) -> bool
         {
             if (!selectedExecutable.has_value())
@@ -688,6 +697,37 @@ namespace NGIN::CLI
             return sources;
         }
 
+        auto AddGeneratedMetaSources(
+            const ResolvedLaunch &resolved,
+            const ResolvedProjectUnit &unit,
+            std::vector<fs::path> &sources,
+            DiagnosticReport &report) -> void
+        {
+            if (!unit.project.build.metaGenEnabled)
+            {
+                return;
+            }
+
+            const auto outputDir = ResolveMetaGenOutputDir(resolved, unit.project, unit.configuration);
+            const auto result = GenerateMetaData(ResolveBuildRoot(resolved), unit.project, unit.configuration, outputDir);
+            if (!result.available)
+            {
+                AddError(
+                    report,
+                    "project '" + unit.project.name + "' enables MetaGen, but this ngin CLI was built without Clang support. Install LLVM/Clang development packages and configure with NGIN_CLI_ENABLE_METAGEN=ON.");
+                return;
+            }
+            for (const auto &diagnostic : result.diagnostics)
+            {
+                AddError(report, "MetaGen for project '" + unit.project.name + "': " + diagnostic);
+            }
+            if (report.HasErrors())
+            {
+                return;
+            }
+            sources.insert(sources.end(), result.generatedFiles.begin(), result.generatedFiles.end());
+        }
+
         auto EmitTargetChecks(std::ostream &out, const PackageManifest &manifest) -> void
         {
             for (const auto &artifact : manifest.artifacts.libraries)
@@ -767,6 +807,11 @@ namespace NGIN::CLI
                     AddError(report, "project '" + unit.project.name + "' uses unsupported build mode '" + buildMode + "'");
                     continue;
                 }
+                if (unit.project.build.metaGenEnabled && buildMode != "Generated")
+                {
+                    AddError(report, "project '" + unit.project.name + "' enables MetaGen, which is currently supported only for generated build mode");
+                    continue;
+                }
                 if (Lower(unit.project.build.backend) != "cmake")
                 {
                     AddError(report, "project '" + unit.project.name + "' uses unsupported build backend '" + unit.project.build.backend + "'");
@@ -785,6 +830,11 @@ namespace NGIN::CLI
                         AddError(report, "project '" + unit.project.name + "' generated build resolved no source files");
                         continue;
                     }
+                    for (const auto &source : sources)
+                    {
+                        languages.insert(SourceLanguageFor(source));
+                    }
+                    AddGeneratedMetaSources(resolved, unit, sources, report);
                     for (const auto &source : sources)
                     {
                         languages.insert(SourceLanguageFor(source));
@@ -1614,7 +1664,10 @@ namespace NGIN::CLI
         fs::remove_all(generatedPaths.sourceDir, error);
         error.clear();
         fs::remove_all(generatedPaths.buildDir, error);
+        error.clear();
+        fs::remove_all(ResolveMetaGenOutputDir(*resolved.value, project, configuration), error);
         PruneEmptyDirectories(cacheRoot, ResolveBuildRoot(*resolved.value) / ".ngin");
+        PruneEmptyDirectories(ResolveBuildRoot(*resolved.value) / ".ngin" / "metagen", ResolveBuildRoot(*resolved.value) / ".ngin");
 
         result.value = resolvedOutputDir;
         return result;

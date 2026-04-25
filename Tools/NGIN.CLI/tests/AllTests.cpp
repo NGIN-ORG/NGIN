@@ -157,6 +157,34 @@ TEST_CASE("metagen annotation parser accepts macro payloads")
     REQUIRE(ignore.options.empty());
 }
 
+TEST_CASE("project build descriptor parses metagen opt in")
+{
+    TempDir temp{};
+    const auto projectPath = temp.path() / "App.nginproj";
+    WriteFile(
+        projectPath,
+        R"(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="2" Name="Meta.App" Type="Application" DefaultConfiguration="Runtime">
+  <SourceRoots>
+    <SourceRoot Path="src" />
+  </SourceRoots>
+  <Output Kind="Executable" Name="Meta.App" Target="MetaApp" />
+  <Build Backend="CMake" Mode="Generated" Language="CXX" LanguageStandard="23">
+    <MetaGen Enabled="true" />
+  </Build>
+  <Environments>
+    <Environment Name="dev" />
+  </Environments>
+  <Configurations>
+    <Configuration Name="Runtime" BuildConfiguration="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev" />
+  </Configurations>
+</Project>
+)");
+
+    const auto project = LoadProjectManifest(projectPath);
+    REQUIRE(project.build.metaGenEnabled);
+}
+
 TEST_CASE("project parsing rejects missing required output metadata")
 {
     TempDir temp{};

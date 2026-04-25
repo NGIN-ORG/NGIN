@@ -41,7 +41,7 @@ interface CliRunResult {
 }
 
 interface NginTaskDefinition extends vscode.TaskDefinition {
-  command: 'build' | 'clean' | 'rebuild' | 'validate' | 'graph' | 'workspaceStatus' | 'workspaceDoctor';
+  command: 'build' | 'clean' | 'rebuild' | 'validate' | 'graph' | 'metagen' | 'workspaceStatus' | 'workspaceDoctor';
   project?: string;
   configuration?: string;
   output?: string;
@@ -102,6 +102,7 @@ class NginController implements vscode.Disposable {
       vscode.commands.registerCommand('ngin.debug', (arg) => this.runHandled(() => this.debugCommand(this.asCommandTarget(arg)))),
       vscode.commands.registerCommand('ngin.validate', (arg) => this.runHandled(() => this.validateCommand(this.asCommandTarget(arg)))),
       vscode.commands.registerCommand('ngin.graph', (arg) => this.runHandled(() => this.graphCommand(this.asCommandTarget(arg)))),
+      vscode.commands.registerCommand('ngin.metagen', (arg) => this.runHandled(() => this.metaGenCommand(this.asCommandTarget(arg)))),
       vscode.commands.registerCommand('ngin.workspaceStatus', () => this.runHandled(() => this.workspaceCommand('status'))),
       vscode.commands.registerCommand('ngin.workspaceDoctor', () => this.runHandled(() => this.workspaceCommand('doctor'))),
       vscode.commands.registerCommand('ngin.openLastLaunchManifest', () => this.runHandled(() => this.openLastLaunchManifest())),
@@ -498,6 +499,38 @@ class NginController implements vscode.Disposable {
     }
   }
 
+  private async metaGenCommand(target?: NginCommandTarget): Promise<void> {
+    const context = await this.resolveCommandContext(target);
+    if (!context) {
+      return;
+    }
+
+    const result = await this.runCli(
+      context.workspace.root,
+      ['metagen', '--project', context.project.path, '--configuration', context.configuration.name],
+      vscode.Uri.file(context.project.path)
+    );
+
+    if (result.exitCode !== 0) {
+      throw new Error(`ngin metagen failed for ${context.project.name} [${context.configuration.name}]`);
+    }
+
+    const generatedPath = this.extractGeneratedPath(result.output);
+    if (generatedPath) {
+      void vscode.window.showInformationMessage(
+        `Generated metadata for ${context.project.name} [${context.configuration.name}]`,
+        'Open Generated File'
+      ).then((choice) => {
+        if (choice === 'Open Generated File') {
+          void this.openPathCommand(path.isAbsolute(generatedPath) ? generatedPath : path.resolve(context.workspace.root, generatedPath));
+        }
+      });
+      return;
+    }
+
+    void vscode.window.showInformationMessage(`Generated metadata for ${context.project.name} [${context.configuration.name}]`);
+  }
+
   private async workspaceCommand(subcommand: 'status' | 'doctor'): Promise<void> {
     const workspaceInfo = await this.workspaceState.getWorkspaceInfo();
     if (!workspaceInfo) {
@@ -757,6 +790,11 @@ class NginController implements vscode.Disposable {
     return result;
   }
 
+  private extractGeneratedPath(output: string): string | undefined {
+    const line = output.split(/\r?\n/).find((entry) => entry.startsWith('generated: '));
+    return line?.slice('generated: '.length).trim() || undefined;
+  }
+
   private applyDiagnostics(output: string, fallbackResource?: vscode.Uri): void {
     const parsed = parseCliDiagnostics(output);
     this.diagnostics.clear();
@@ -940,6 +978,12 @@ class NginTaskProvider implements vscode.TaskProvider {
       tasks.push(await this.controller.createTask({
         type: 'ngin',
         command: 'graph',
+        project: context.project.path,
+        configuration: context.configuration.name
+      }, scopedFolder));
+      tasks.push(await this.controller.createTask({
+        type: 'ngin',
+        command: 'metagen',
         project: context.project.path,
         configuration: context.configuration.name
       }, scopedFolder));

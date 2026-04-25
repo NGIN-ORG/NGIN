@@ -111,6 +111,7 @@ namespace NGIN::CLI
         std::string mode{"Generated"};
         std::string language{"CXX"};
         std::string languageStandard{"23"};
+        bool metaGenEnabled{false};
         std::vector<std::string> sources{};
         std::vector<BuildSetting> includeDirectories{};
         std::vector<BuildSetting> compileDefinitions{};

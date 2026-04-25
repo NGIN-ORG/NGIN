@@ -325,6 +325,10 @@ namespace NGIN::CLI
             {
                 build.languageStandard = *languageStandard;
             }
+            if (const auto *metaGen = FindChild(*buildElement, "MetaGen"))
+            {
+                build.metaGenEnabled = BoolAttribute(*metaGen, "Enabled");
+            }
 
             if (const auto *sources = FindChild(*buildElement, "Sources"))
             {

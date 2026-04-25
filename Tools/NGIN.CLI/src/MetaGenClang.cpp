@@ -54,6 +54,7 @@ namespace NGIN::CLI
             std::string cppName{};
             std::string reflectionName{};
             std::string kind{};
+            fs::path declarationFile{};
             std::vector<MetaGenMember> fields{};
             std::vector<MetaGenMember> methods{};
             std::vector<MetaGenMember> constructors{};
@@ -65,6 +66,7 @@ namespace NGIN::CLI
         {
             std::vector<fs::path> sourceFiles{};
             std::vector<fs::path> sourceRoots{};
+            std::vector<fs::path> includeFiles{};
             std::vector<MetaGenType> types{};
             std::vector<std::string> diagnostics{};
         };
@@ -302,6 +304,9 @@ namespace NGIN::CLI
                 &type);
         }
 
+        [[nodiscard]] auto IsCompiledSourceExtension(const fs::path &path) -> bool;
+        [[nodiscard]] auto IsHeaderSourceExtension(const fs::path &path) -> bool;
+
         auto VisitTranslationUnit(CXCursor cursor, ScanContext &context) -> void
         {
             clang_visitChildren(
@@ -321,10 +326,37 @@ namespace NGIN::CLI
                         const auto *reflect = FindAnnotation(annotations, "reflect");
                         if (reflect != nullptr && !IsIgnored(annotations))
                         {
+                            const auto declarationFile = CursorFile(child);
+                            if (IsCompiledSourceExtension(declarationFile))
+                            {
+                                context->diagnostics.push_back(
+                                    "annotated type '" + QualifiedName(child) + "' is declared in compiled source file '" +
+                                    declarationFile.string() + "'. Move reflected types to an includable header for MetaGen.");
+                                return CXChildVisit_Continue;
+                            }
+                            if (!IsHeaderSourceExtension(declarationFile))
+                            {
+                                context->diagnostics.push_back(
+                                    "annotated type '" + QualifiedName(child) + "' is declared in unsupported file '" +
+                                    declarationFile.string() + "'. Move reflected types to a .h/.hpp/.hh/.hxx header for MetaGen.");
+                                return CXChildVisit_Continue;
+                            }
+                            if (std::any_of(
+                                    context->types.begin(),
+                                    context->types.end(),
+                                    [&](const MetaGenType &existing)
+                                    {
+                                        return existing.cppName == QualifiedName(child);
+                                    }))
+                            {
+                                return CXChildVisit_Continue;
+                            }
+
                             MetaGenType type{};
                             type.cppName = QualifiedName(child);
                             type.reflectionName = OptionOr(reflect, "name", type.cppName);
                             type.kind = kind == CXCursor_EnumDecl ? "enum" : "record";
+                            type.declarationFile = declarationFile;
                             if (type.kind == "enum")
                             {
                                 CollectEnumValues(child, type);
@@ -332,6 +364,17 @@ namespace NGIN::CLI
                             else
                             {
                                 CollectRecordMembers(child, type);
+                            }
+                            if (std::none_of(
+                                    context->includeFiles.begin(),
+                                    context->includeFiles.end(),
+                                    [&](const fs::path &includeFile)
+                                    {
+                                        std::error_code error;
+                                        return fs::equivalent(includeFile, declarationFile, error);
+                                    }))
+                            {
+                                context->includeFiles.push_back(declarationFile);
                             }
                             context->types.push_back(std::move(type));
                             return CXChildVisit_Continue;
@@ -346,6 +389,12 @@ namespace NGIN::CLI
         {
             const auto extension = Lower(path.extension().string());
             return extension == ".c" || extension == ".cc" || extension == ".cpp" || extension == ".cxx" || extension == ".m" || extension == ".mm";
+        }
+
+        [[nodiscard]] auto IsHeaderSourceExtension(const fs::path &path) -> bool
+        {
+            const auto extension = Lower(path.extension().string());
+            return extension == ".h" || extension == ".hh" || extension == ".hpp" || extension == ".hxx";
         }
 
         [[nodiscard]] auto ResolveProjectPathValue(const std::string &value, const ProjectManifest &project) -> fs::path
@@ -491,7 +540,7 @@ namespace NGIN::CLI
             out << "// Generated by ngin metagen. Do not edit by hand.\n";
             out << "// </auto-generated>\n\n";
             out << "#include <NGIN/Reflection/Reflection.hpp>\n\n";
-            for (const auto &source : context.sourceFiles)
+            for (const auto &source : context.includeFiles)
             {
                 out << "#include \"" << MetaGen::EscapeCppString(source.string()) << "\"\n";
             }
@@ -550,18 +599,69 @@ namespace NGIN::CLI
             }
             out << "} // namespace NGIN::Reflection\n\n";
 
-            out << "extern \"C\" bool " << functionName << "()\n";
+            out << "namespace\n";
             out << "{\n";
-            out << "  NGIN::Reflection::ModuleRegistration module{\"" << MetaGen::EscapeCppString(project.name)
-                << ".Reflection\"};\n";
+            out << "  bool RegisterGeneratedReflectionModule()\n";
+            out << "  {\n";
+            out << "    return NGIN::Reflection::EnsureModuleInitialized(\n";
+            out << "      \"" << MetaGen::EscapeCppString(project.name) << ".Reflection\",\n";
+            out << "      [](NGIN::Reflection::ModuleRegistration &module)\n";
+            out << "      {\n";
             for (const auto &type : context.types)
             {
-                out << "  module.RegisterType<" << type.cppName << ">();\n";
+                out << "        module.RegisterType<" << type.cppName << ">();\n";
             }
-            out << "  return module.Commit();\n";
+            out << "      });\n";
+            out << "  }\n\n";
+            out << "  [[maybe_unused]] const bool g_registeredGeneratedReflectionModule = RegisterGeneratedReflectionModule();\n";
+            out << "} // namespace\n\n";
+
+            out << "extern \"C\" bool " << functionName << "()\n";
+            out << "{\n";
+            out << "  return RegisterGeneratedReflectionModule();\n";
             out << "}\n";
             return out.str();
         }
+    }
+
+    auto GenerateMetaData(
+        const fs::path &root,
+        const ProjectManifest &project,
+        const ConfigurationDefinition &configuration,
+        const fs::path &outputDir) -> MetaGenResult
+    {
+        (void)root;
+        MetaGenResult result{};
+        ScanContext context{};
+        context.sourceFiles = CollectSourceFiles(project);
+        context.sourceRoots = CollectSourceRoots(project);
+        if (context.sourceFiles.empty())
+        {
+            result.diagnostics.push_back("project '" + project.name + "' has no C++ source files to scan");
+            return result;
+        }
+
+        ScanSources(root, project, context);
+        if (!context.diagnostics.empty())
+        {
+            result.diagnostics = std::move(context.diagnostics);
+            return result;
+        }
+
+        fs::create_directories(outputDir);
+        const auto outputFile = outputDir / (project.name + ".reflection.generated.cpp");
+        const auto generated = EmitGeneratedCpp(project, configuration, context);
+        std::ofstream out(outputFile);
+        if (!out)
+        {
+            result.diagnostics.push_back("failed to write generated file '" + outputFile.string() + "'");
+            return result;
+        }
+        out << generated;
+
+        result.generatedFiles.push_back(outputFile);
+        result.reflectedTypeCount = context.types.size();
+        return result;
     }
 
     auto RunMetaGen(
@@ -570,39 +670,22 @@ namespace NGIN::CLI
         const ConfigurationDefinition &configuration,
         const std::optional<std::string> &outputPath) -> int
     {
-        ScanContext context{};
-        context.sourceFiles = CollectSourceFiles(project);
-        context.sourceRoots = CollectSourceRoots(project);
-        if (context.sourceFiles.empty())
+        const auto outputDir = outputPath.has_value() ? fs::path(*outputPath) : DefaultOutputDir(project, configuration);
+        auto result = GenerateMetaData(root, project, configuration, outputDir);
+        if (!result.available || !result.diagnostics.empty())
         {
-            std::cerr << "error: project '" << project.name << "' has no C++ source files to scan\n";
-            return 1;
-        }
-
-        ScanSources(root, project, context);
-        if (!context.diagnostics.empty())
-        {
-            for (const auto &diagnostic : context.diagnostics)
+            for (const auto &diagnostic : result.diagnostics)
             {
                 std::cerr << "error: " << diagnostic << "\n";
             }
             return 1;
         }
 
-        const auto outputDir = outputPath.has_value() ? fs::path(*outputPath) : DefaultOutputDir(project, configuration);
-        fs::create_directories(outputDir);
-        const auto outputFile = outputDir / (project.name + ".reflection.generated.cpp");
-        const auto generated = EmitGeneratedCpp(project, configuration, context);
-        std::ofstream out(outputFile);
-        if (!out)
+        for (const auto &generatedFile : result.generatedFiles)
         {
-            std::cerr << "error: failed to write generated file '" << outputFile.string() << "'\n";
-            return 1;
+            std::cout << "generated: " << generatedFile.string() << "\n";
         }
-        out << generated;
-
-        std::cout << "generated: " << outputFile.string() << "\n";
-        std::cout << "reflected types: " << context.types.size() << "\n";
+        std::cout << "reflected types: " << result.reflectedTypeCount << "\n";
         return 0;
     }
 }

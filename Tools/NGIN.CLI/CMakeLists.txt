@@ -84,6 +84,8 @@ if(_ngin_cli_metagen_real)
 endif()
 _ngin_cli_apply_defaults(ngin_cli_metagen)
 
+target_link_libraries(ngin_cli_build PUBLIC ngin_cli_metagen)
+
 add_library(ngin_cli_commands STATIC
   src/Commands.cpp
 )
