@@ -19,6 +19,7 @@ export interface OverviewSectionModel {
 }
 
 export interface ProjectTreeProjectModel {
+  kind: 'project';
   label: string;
   description?: string;
   tooltip?: string;
@@ -26,7 +27,28 @@ export interface ProjectTreeProjectModel {
   selected: boolean;
 }
 
+export interface ProjectTreeManifestModel {
+  kind: 'manifest';
+  label: string;
+  tooltip?: string;
+  projectPath: string;
+  filePath: string;
+}
+
+export type ProjectTreeGroupKind = 'source' | 'config' | 'generated' | 'configurations';
+
+export interface ProjectTreeGroupModel {
+  kind: 'group';
+  id: string;
+  label: string;
+  tooltip?: string;
+  icon: string;
+  projectPath: string;
+  group: ProjectTreeGroupKind;
+}
+
 export interface ProjectTreeConfigurationModel {
+  kind: 'configuration';
   label: string;
   description?: string;
   tooltip?: string;
@@ -35,10 +57,13 @@ export interface ProjectTreeConfigurationModel {
   selected: boolean;
 }
 
+export type ProjectTreeChildModel = ProjectTreeManifestModel | ProjectTreeGroupModel | ProjectTreeConfigurationModel;
+
 export interface ProjectTreeModels {
   workspaceLabel?: string;
   workspaceDescription?: string;
   projects: ProjectTreeProjectModel[];
+  childrenByProject: Map<string, ProjectTreeChildModel[]>;
   configurationsByProject: Map<string, ProjectTreeConfigurationModel[]>;
 }
 
@@ -236,15 +261,17 @@ export function buildOverviewSections(snapshot: NginWorkspaceSnapshot): Overview
 
 export function buildProjectTreeModels(snapshot: NginWorkspaceSnapshot): ProjectTreeModels {
   const projects: ProjectTreeProjectModel[] = [];
+  const childrenByProject = new Map<string, ProjectTreeChildModel[]>();
   const configurationsByProject = new Map<string, ProjectTreeConfigurationModel[]>();
 
   if (!snapshot.workspace) {
-    return { projects, configurationsByProject };
+    return { projects, childrenByProject, configurationsByProject };
   }
 
   for (const project of snapshot.workspace.projects) {
     const selectedProject = snapshot.context?.project.path === project.path;
     projects.push({
+      kind: 'project',
       label: project.name,
       description: selectedProject ? 'Selected' : path.relative(snapshot.workspace.root, project.path),
       tooltip: project.path,
@@ -252,7 +279,54 @@ export function buildProjectTreeModels(snapshot: NginWorkspaceSnapshot): Project
       selected: selectedProject
     });
 
-    configurationsByProject.set(project.path, project.configurations.map((configuration) => ({
+    const children: ProjectTreeChildModel[] = [
+      {
+        kind: 'manifest',
+        label: path.basename(project.path),
+        tooltip: project.path,
+        projectPath: project.path,
+        filePath: project.path
+      }
+    ];
+
+    if (project.sourceRoots.length > 0 || project.buildSources.length > 0) {
+      children.push({
+        kind: 'group',
+        id: `${project.path}:source`,
+        label: 'Source',
+        tooltip: 'Declared source roots and explicit build sources.',
+        icon: 'folder-library',
+        projectPath: project.path,
+        group: 'source'
+      });
+    }
+
+    const hasConfigSources = project.configSources.length > 0
+      || project.configurations.some((configuration) => configuration.configSources.length > 0);
+    if (hasConfigSources) {
+      children.push({
+        kind: 'group',
+        id: `${project.path}:config`,
+        label: 'Config',
+        tooltip: 'Declared root and configuration config sources.',
+        icon: 'settings',
+        projectPath: project.path,
+        group: 'config'
+      });
+    }
+
+    children.push({
+      kind: 'group',
+      id: `${project.path}:generated`,
+      label: 'Generated',
+      tooltip: 'Existing generated output and staged artifacts.',
+      icon: 'symbol-misc',
+      projectPath: project.path,
+      group: 'generated'
+    });
+
+    const configurations = project.configurations.map((configuration) => ({
+      kind: 'configuration' as const,
       label: configuration.name,
       description: snapshot.context?.project.path === project.path && snapshot.context.configuration.name === configuration.name
         ? 'Current'
@@ -261,13 +335,29 @@ export function buildProjectTreeModels(snapshot: NginWorkspaceSnapshot): Project
       projectPath: project.path,
       configurationName: configuration.name,
       selected: snapshot.context?.project.path === project.path && snapshot.context.configuration.name === configuration.name
-    })));
+    }));
+    configurationsByProject.set(project.path, configurations);
+
+    if (configurations.length > 0) {
+      children.push({
+        kind: 'group',
+        id: `${project.path}:configurations`,
+        label: 'Configurations',
+        tooltip: 'Project configurations. Click one to make it current.',
+        icon: 'symbol-enum',
+        projectPath: project.path,
+        group: 'configurations'
+      });
+    }
+
+    childrenByProject.set(project.path, children);
   }
 
   return {
     workspaceLabel: snapshot.workspace.workspace.name,
     workspaceDescription: snapshot.workspace.root,
     projects,
+    childrenByProject,
     configurationsByProject
   };
 }

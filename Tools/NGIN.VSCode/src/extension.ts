@@ -15,6 +15,7 @@ import {
   getWorkingDirectoryCandidates,
   parseCliDiagnostics
 } from './core/helpers';
+import { addRootConfigSource, relativeManifestPath, removeConfigSources, renameConfigSources } from './core/projectAuthoring';
 import { createNativeDebugConfiguration, quoteShellArgument } from './core/debug';
 import { LaunchManifest } from './core/types';
 import { parseLaunchManifest } from './core/xml';
@@ -55,6 +56,12 @@ interface NginDebugConfiguration extends vscode.DebugConfiguration {
   programArgs?: string[];
   env?: Record<string, string>;
   preBuild?: boolean;
+}
+
+interface ProjectExplorerTarget extends NginCommandTarget {
+  fsPath?: string;
+  role?: 'manifest' | 'source' | 'config' | 'generated';
+  isDirectory?: boolean;
 }
 
 function comparablePath(value: string): string {
@@ -106,6 +113,15 @@ class NginController implements vscode.Disposable {
       vscode.commands.registerCommand('ngin.workspaceStatus', () => this.runHandled(() => this.workspaceCommand('status'))),
       vscode.commands.registerCommand('ngin.workspaceDoctor', () => this.runHandled(() => this.workspaceCommand('doctor'))),
       vscode.commands.registerCommand('ngin.openLastLaunchManifest', () => this.runHandled(() => this.openLastLaunchManifest())),
+      vscode.commands.registerCommand('ngin.openProjectManifest', (arg) => this.runHandled(() => this.openProjectManifestCommand(this.asExplorerTarget(arg)))),
+      vscode.commands.registerCommand('ngin.setActiveProject', (arg) => this.runHandled(() => this.selectProjectCommand(this.asCommandTarget(arg)))),
+      vscode.commands.registerCommand('ngin.projectNewSourceFile', (arg) => this.runHandled(() => this.createProjectFileCommand(this.asExplorerTarget(arg), 'source'))),
+      vscode.commands.registerCommand('ngin.projectNewConfigFile', (arg) => this.runHandled(() => this.createProjectFileCommand(this.asExplorerTarget(arg), 'config'))),
+      vscode.commands.registerCommand('ngin.projectNewFolder', (arg) => this.runHandled(() => this.createProjectFolderCommand(this.asExplorerTarget(arg)))),
+      vscode.commands.registerCommand('ngin.projectCopy', (arg) => this.runHandled(() => this.copyProjectPathCommand(this.asExplorerTarget(arg)))),
+      vscode.commands.registerCommand('ngin.projectDuplicate', (arg) => this.runHandled(() => this.duplicateProjectPathCommand(this.asExplorerTarget(arg)))),
+      vscode.commands.registerCommand('ngin.projectRename', (arg) => this.runHandled(() => this.renameProjectPathCommand(this.asExplorerTarget(arg)))),
+      vscode.commands.registerCommand('ngin.projectDelete', (arg) => this.runHandled(() => this.deleteProjectPathCommand(this.asExplorerTarget(arg)))),
       vscode.commands.registerCommand('ngin.refresh', () => this.runHandled(() => this.refreshUi())),
       vscode.commands.registerCommand('ngin.internal.pickProject', (arg) => this.runHandled(() => this.pickProjectFromStatusBar(this.asCommandTarget(arg)))),
       vscode.commands.registerCommand('ngin.internal.pickConfiguration', (arg) => this.runHandled(() => this.pickConfigurationFromStatusBar(this.asCommandTarget(arg)))),
@@ -266,6 +282,26 @@ class NginController implements vscode.Disposable {
     };
   }
 
+  private asExplorerTarget(value: unknown): ProjectExplorerTarget | undefined {
+    if (!value || typeof value !== 'object') {
+      return undefined;
+    }
+
+    const candidate = value as ProjectExplorerTarget;
+    if (!candidate.projectPath && !candidate.configurationName && !candidate.preferredUri && !candidate.fsPath) {
+      return undefined;
+    }
+
+    return {
+      preferredUri: candidate.preferredUri,
+      projectPath: candidate.projectPath,
+      configurationName: candidate.configurationName,
+      fsPath: candidate.fsPath,
+      role: candidate.role,
+      isDirectory: candidate.isDirectory
+    };
+  }
+
   private async refreshUi(preferredUri?: vscode.Uri): Promise<void> {
     const snapshot = await this.workspaceState.getSnapshot(preferredUri);
     this.sidebar.refresh(snapshot);
@@ -310,7 +346,9 @@ class NginController implements vscode.Disposable {
     if (target?.projectPath) {
       const context = await this.resolveCommandContext(target, false);
       if (context) {
+        await this.workspaceState.rememberSelection(context);
         await this.refreshUi(target.preferredUri);
+        void vscode.window.showInformationMessage(`Selected NGIN project: ${context.project.name}`);
       }
       return;
     }
@@ -331,6 +369,7 @@ class NginController implements vscode.Disposable {
       return;
     }
 
+    await this.workspaceState.rememberSelection(context);
     await this.refreshUi(target?.preferredUri);
     void vscode.window.showInformationMessage(`Selected NGIN project: ${context.project.name}`);
   }
@@ -619,6 +658,393 @@ class NginController implements vscode.Disposable {
     } catch {
       await vscode.env.openExternal(targetUri);
     }
+  }
+
+  private async openProjectManifestCommand(target?: ProjectExplorerTarget): Promise<void> {
+    const manifestPath = target?.fsPath ?? target?.projectPath ?? (await this.resolveExplorerProject(target))?.project.path;
+    if (!manifestPath) {
+      return;
+    }
+    await this.openPathCommand(manifestPath);
+  }
+
+  private async createProjectFileCommand(target: ProjectExplorerTarget | undefined, kind: 'source' | 'config'): Promise<void> {
+    const resolved = await this.resolveExplorerProject(target);
+    if (!resolved) {
+      return;
+    }
+
+    const baseDir = await this.resolveCreationBaseDirectory(resolved.project, target, kind);
+    if (!baseDir) {
+      return;
+    }
+
+    const relativePath = await vscode.window.showInputBox({
+      title: kind === 'source' ? 'New source file' : 'New config file',
+      prompt: `Path relative to ${path.relative(resolved.project.directory, baseDir) || '.'}`,
+      validateInput: (value) => {
+        const trimmed = value.trim();
+        if (!trimmed) {
+          return 'Enter a file name.';
+        }
+        if (path.isAbsolute(trimmed)) {
+          return 'Enter a relative path.';
+        }
+        if (trimmed.split(/[\\/]/).some((part) => part === '..')) {
+          return 'Parent directory segments are not allowed.';
+        }
+        return undefined;
+      }
+    });
+    if (!relativePath) {
+      return;
+    }
+
+    const filePath = path.resolve(baseDir, relativePath.trim());
+    if (await pathExists(filePath)) {
+      void vscode.window.showErrorMessage(`File already exists: ${filePath}`);
+      return;
+    }
+
+    await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(filePath)));
+    await vscode.workspace.fs.writeFile(vscode.Uri.file(filePath), Buffer.from('', 'utf8'));
+
+    if (kind === 'config') {
+      await this.addConfigSourceToProjectManifest(resolved.project.path, resolved.project.directory, filePath);
+    }
+
+    await this.refreshUi(resolved.workspace.folder?.uri);
+    await this.openPathCommand(filePath);
+  }
+
+  private async createProjectFolderCommand(target?: ProjectExplorerTarget): Promise<void> {
+    if (target?.role === 'generated') {
+      void vscode.window.showErrorMessage('Generated output is read-only from the NGIN Projects view.');
+      return;
+    }
+
+    const resolved = await this.resolveExplorerProject(target);
+    if (!resolved) {
+      return;
+    }
+
+    const role = target?.role === 'config' ? 'config' : 'source';
+    const baseDir = await this.resolveCreationBaseDirectory(resolved.project, target, role);
+    if (!baseDir) {
+      return;
+    }
+
+    const folderName = await vscode.window.showInputBox({
+      title: 'New folder',
+      prompt: `Folder path relative to ${path.relative(resolved.project.directory, baseDir) || '.'}`,
+      validateInput: (value) => {
+        const trimmed = value.trim();
+        if (!trimmed) {
+          return 'Enter a folder name.';
+        }
+        if (path.isAbsolute(trimmed)) {
+          return 'Enter a relative path.';
+        }
+        if (trimmed.split(/[\\/]/).some((part) => part === '..')) {
+          return 'Parent directory segments are not allowed.';
+        }
+        return undefined;
+      }
+    });
+    if (!folderName) {
+      return;
+    }
+
+    const folderPath = path.resolve(baseDir, folderName.trim());
+    await vscode.workspace.fs.createDirectory(vscode.Uri.file(folderPath));
+    await this.refreshUi(resolved.workspace.folder?.uri);
+  }
+
+  private async copyProjectPathCommand(target?: ProjectExplorerTarget): Promise<void> {
+    const resolved = await this.resolveMutableProjectPath(target);
+    if (!resolved) {
+      return;
+    }
+
+    const suggested = await this.nextCopyPath(resolved.fsPath);
+    const destinationInput = await vscode.window.showInputBox({
+      title: resolved.isDirectory ? 'Copy folder' : 'Copy file',
+      value: path.relative(path.dirname(resolved.fsPath), suggested),
+      prompt: `Destination path relative to ${path.dirname(resolved.fsPath)}`,
+      validateInput: (value) => this.validateRelativeFileSystemPath(value)
+    });
+    if (!destinationInput) {
+      return;
+    }
+
+    const destination = path.resolve(path.dirname(resolved.fsPath), destinationInput.trim());
+    await this.copyAuthoredPath(resolved, destination);
+  }
+
+  private async duplicateProjectPathCommand(target?: ProjectExplorerTarget): Promise<void> {
+    const resolved = await this.resolveMutableProjectPath(target);
+    if (!resolved) {
+      return;
+    }
+
+    await this.copyAuthoredPath(resolved, await this.nextCopyPath(resolved.fsPath));
+  }
+
+  private async renameProjectPathCommand(target?: ProjectExplorerTarget): Promise<void> {
+    const resolved = await this.resolveMutableProjectPath(target);
+    if (!resolved) {
+      return;
+    }
+
+    const newName = await vscode.window.showInputBox({
+      title: resolved.isDirectory ? 'Rename folder' : 'Rename file',
+      value: path.basename(resolved.fsPath),
+      validateInput: (value) => {
+        const trimmed = value.trim();
+        if (!trimmed) {
+          return 'Enter a name.';
+        }
+        if (path.isAbsolute(trimmed) || trimmed.includes('/') || trimmed.includes('\\')) {
+          return 'Enter a name, not a path.';
+        }
+        return undefined;
+      }
+    });
+    if (!newName || newName === path.basename(resolved.fsPath)) {
+      return;
+    }
+
+    const destination = path.join(path.dirname(resolved.fsPath), newName.trim());
+    if (await pathExists(destination)) {
+      void vscode.window.showErrorMessage(`Path already exists: ${destination}`);
+      return;
+    }
+
+    await vscode.workspace.fs.rename(vscode.Uri.file(resolved.fsPath), vscode.Uri.file(destination), { overwrite: false });
+    if (resolved.role === 'config') {
+      await this.renameConfigSourcePaths(resolved.project.path, resolved.project.directory, resolved.fsPath, destination, resolved.isDirectory);
+    }
+    await this.refreshUi(resolved.workspace.folder?.uri);
+  }
+
+  private async deleteProjectPathCommand(target?: ProjectExplorerTarget): Promise<void> {
+    const resolved = await this.resolveMutableProjectPath(target);
+    if (!resolved) {
+      return;
+    }
+
+    const choice = await vscode.window.showWarningMessage(
+      `Delete ${path.basename(resolved.fsPath)}?`,
+      { modal: true },
+      'Delete'
+    );
+    if (choice !== 'Delete') {
+      return;
+    }
+
+    await vscode.workspace.fs.delete(vscode.Uri.file(resolved.fsPath), { recursive: resolved.isDirectory, useTrash: true });
+    if (resolved.role === 'config') {
+      await this.removeConfigSourcePaths(resolved.project.path, resolved.project.directory, resolved.fsPath, resolved.isDirectory);
+    }
+    await this.refreshUi(resolved.workspace.folder?.uri);
+  }
+
+  private async copyAuthoredPath(
+    resolved: { workspace: ResolvedWorkspaceInfo; project: ResolvedCommandContext['project']; fsPath: string; role: 'source' | 'config'; isDirectory: boolean },
+    destination: string
+  ): Promise<void> {
+    if (await pathExists(destination)) {
+      void vscode.window.showErrorMessage(`Path already exists: ${destination}`);
+      return;
+    }
+
+    await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(destination)));
+    await vscode.workspace.fs.copy(vscode.Uri.file(resolved.fsPath), vscode.Uri.file(destination), { overwrite: false });
+    if (resolved.role === 'config') {
+      if (resolved.isDirectory) {
+        await this.duplicateConfigSourceFolderPaths(resolved.project.path, resolved.project.directory, resolved.fsPath, destination);
+      } else {
+        await this.addConfigSourceToProjectManifest(resolved.project.path, resolved.project.directory, destination);
+      }
+    }
+    await this.refreshUi(resolved.workspace.folder?.uri);
+  }
+
+  private async resolveMutableProjectPath(target?: ProjectExplorerTarget): Promise<{ workspace: ResolvedWorkspaceInfo; project: ResolvedCommandContext['project']; fsPath: string; role: 'source' | 'config'; isDirectory: boolean } | undefined> {
+    if (!target?.fsPath || (target.role !== 'source' && target.role !== 'config')) {
+      void vscode.window.showErrorMessage('Select a source or config file/folder.');
+      return undefined;
+    }
+
+    const resolved = await this.resolveExplorerProject(target);
+    if (!resolved) {
+      return undefined;
+    }
+
+    const stat = await vscode.workspace.fs.stat(vscode.Uri.file(target.fsPath));
+    return {
+      ...resolved,
+      fsPath: target.fsPath,
+      role: target.role,
+      isDirectory: Boolean(stat.type & vscode.FileType.Directory)
+    };
+  }
+
+  private validateRelativeFileSystemPath(value: string): string | undefined {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return 'Enter a path.';
+    }
+    if (path.isAbsolute(trimmed)) {
+      return 'Enter a relative path.';
+    }
+    if (trimmed.split(/[\\/]/).some((part) => part === '..')) {
+      return 'Parent directory segments are not allowed.';
+    }
+    return undefined;
+  }
+
+  private async nextCopyPath(sourcePath: string): Promise<string> {
+    const directory = path.dirname(sourcePath);
+    const extension = path.extname(sourcePath);
+    const stem = extension ? path.basename(sourcePath, extension) : path.basename(sourcePath);
+    let candidate = path.join(directory, `${stem}.copy${extension}`);
+    let index = 2;
+    while (await pathExists(candidate)) {
+      candidate = path.join(directory, `${stem}.copy${index}${extension}`);
+      index += 1;
+    }
+    return candidate;
+  }
+
+  private async resolveExplorerProject(target?: ProjectExplorerTarget): Promise<{ workspace: ResolvedWorkspaceInfo; project: ResolvedCommandContext['project'] } | undefined> {
+    const workspaceInfo = await this.workspaceState.getWorkspaceInfo(target?.preferredUri);
+    if (!workspaceInfo) {
+      void vscode.window.showErrorMessage('NGIN workspace not found.');
+      return undefined;
+    }
+
+    const project = target?.projectPath
+      ? this.workspaceState.findProject(workspaceInfo, target.projectPath)
+      : (await this.workspaceState.resolveCommandContext({ preferredUri: target?.preferredUri, promptIfNeeded: false }))?.project;
+    if (!project) {
+      void vscode.window.showErrorMessage('Unable to resolve the selected NGIN project.');
+      return undefined;
+    }
+
+    return { workspace: workspaceInfo, project };
+  }
+
+  private async resolveCreationBaseDirectory(
+    project: ResolvedCommandContext['project'],
+    target: ProjectExplorerTarget | undefined,
+    kind: 'source' | 'config'
+  ): Promise<string | undefined> {
+    if (target?.role === 'generated') {
+      void vscode.window.showErrorMessage('Generated output is read-only from the NGIN Projects view.');
+      return undefined;
+    }
+
+    if (target?.fsPath && target.role === kind) {
+      try {
+        const stat = await vscode.workspace.fs.stat(vscode.Uri.file(target.fsPath));
+        return stat.type & vscode.FileType.Directory ? target.fsPath : path.dirname(target.fsPath);
+      } catch {
+        return target.isDirectory ? target.fsPath : path.dirname(target.fsPath);
+      }
+    }
+
+    if (kind === 'source') {
+      const roots = project.sourceRoots.map((root) => path.isAbsolute(root) ? root : path.resolve(project.directory, root));
+      return this.pickDirectory(roots, project.directory, 'Select source root');
+    }
+
+    const configDirs = Array.from(new Set([
+      ...project.configSources,
+      ...project.configurations.flatMap((configuration) => configuration.configSources)
+    ].map((source) => path.dirname(source) === '.' ? project.directory : path.resolve(project.directory, path.dirname(source)))));
+
+    if (configDirs.length === 0) {
+      void vscode.window.showErrorMessage('This project has no existing config-source directories.');
+      return undefined;
+    }
+
+    return this.pickDirectory(configDirs, project.directory, 'Select config directory');
+  }
+
+  private async pickDirectory(directories: string[], projectDirectory: string, title: string): Promise<string | undefined> {
+    if (directories.length === 0) {
+      void vscode.window.showErrorMessage('No eligible directory is declared by this project.');
+      return undefined;
+    }
+
+    const unique = Array.from(new Set(directories.map((directory) => path.normalize(directory))));
+    if (unique.length === 1) {
+      return unique[0];
+    }
+
+    const picked = await vscode.window.showQuickPick(unique.map((directory) => ({
+      label: path.relative(projectDirectory, directory) || '.',
+      description: directory,
+      directory
+    })), { title });
+
+    return picked?.directory;
+  }
+
+  private async addConfigSourceToProjectManifest(projectPath: string, projectDirectory: string, filePath: string): Promise<void> {
+    const manifestXml = await readTextFile(projectPath);
+    const result = addRootConfigSource(manifestXml, relativeManifestPath(projectDirectory, filePath));
+    if (!result.changed) {
+      return;
+    }
+    await vscode.workspace.fs.writeFile(vscode.Uri.file(projectPath), Buffer.from(result.xml, 'utf8'));
+  }
+
+  private async renameConfigSourcePaths(projectPath: string, projectDirectory: string, fromPath: string, toPath: string, includeChildren: boolean): Promise<void> {
+    const manifestXml = await readTextFile(projectPath);
+    const result = renameConfigSources(
+      manifestXml,
+      relativeManifestPath(projectDirectory, fromPath),
+      relativeManifestPath(projectDirectory, toPath),
+      includeChildren
+    );
+    if (!result.changed) {
+      return;
+    }
+    await vscode.workspace.fs.writeFile(vscode.Uri.file(projectPath), Buffer.from(result.xml, 'utf8'));
+  }
+
+  private async removeConfigSourcePaths(projectPath: string, projectDirectory: string, sourcePath: string, includeChildren: boolean): Promise<void> {
+    const manifestXml = await readTextFile(projectPath);
+    const result = removeConfigSources(manifestXml, relativeManifestPath(projectDirectory, sourcePath), includeChildren);
+    if (!result.changed) {
+      return;
+    }
+    await vscode.workspace.fs.writeFile(vscode.Uri.file(projectPath), Buffer.from(result.xml, 'utf8'));
+  }
+
+  private async duplicateConfigSourceFolderPaths(projectPath: string, projectDirectory: string, fromPath: string, toPath: string): Promise<void> {
+    const manifestXml = await readTextFile(projectPath);
+    const renamed = renameConfigSources(
+      manifestXml,
+      relativeManifestPath(projectDirectory, fromPath),
+      relativeManifestPath(projectDirectory, toPath),
+      true
+    );
+    if (!renamed.changed) {
+      return;
+    }
+
+    let nextXml = manifestXml;
+    const configPattern = /<Config\b[^>]*\bSource=(["'])(.*?)\1[^>]*\/?>/g;
+    for (const match of renamed.xml.matchAll(configPattern)) {
+      const source = match[2];
+      if (source.startsWith(`${relativeManifestPath(projectDirectory, toPath)}/`)) {
+        nextXml = addRootConfigSource(nextXml, source).xml;
+      }
+    }
+    await vscode.workspace.fs.writeFile(vscode.Uri.file(projectPath), Buffer.from(nextXml, 'utf8'));
   }
 
   private async openLastLaunchManifest(): Promise<void> {

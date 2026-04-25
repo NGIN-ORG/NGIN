@@ -16,6 +16,13 @@ function asArray<T>(value: T | T[] | undefined): T[] {
   return Array.isArray(value) ? value : [value];
 }
 
+function parseConfigSources(node: unknown): string[] {
+  const parent = node as { ConfigSources?: { Config?: unknown } } | undefined;
+  return asArray(parent?.ConfigSources?.Config)
+    .map((entry) => (entry as { Source?: string } | undefined)?.Source)
+    .filter((entry): entry is string => Boolean(entry));
+}
+
 export function parseWorkspaceManifest(xml: string, manifestPath: string): WorkspaceManifest {
   const document = parser.parse(xml);
   const root = document.Workspace;
@@ -52,14 +59,25 @@ export function parseProjectManifest(xml: string, manifestPath: string): Project
     architecture: entry?.Architecture,
     environment: entry?.Environment,
     launchExecutable: entry?.Launch?.Executable,
-    launchWorkingDirectory: entry?.Launch?.WorkingDirectory
+    launchWorkingDirectory: entry?.Launch?.WorkingDirectory,
+    configSources: parseConfigSources(entry)
   })).filter((entry) => Boolean(entry.name));
+
+  const sourceRoots = asArray(root.SourceRoots?.SourceRoot)
+    .map((entry) => entry?.Path as string | undefined)
+    .filter((entry): entry is string => Boolean(entry));
+  const buildSources = asArray(root.Build?.Sources?.Source)
+    .map((entry) => entry?.Path as string | undefined)
+    .filter((entry): entry is string => Boolean(entry));
 
   return {
     path: manifestPath,
     directory: path.dirname(manifestPath),
     name: root.Name ?? path.basename(manifestPath, path.extname(manifestPath)),
     defaultConfiguration: root.DefaultConfiguration,
+    sourceRoots,
+    configSources: parseConfigSources(root),
+    buildSources,
     configurations
   };
 }

@@ -16,6 +16,7 @@ import {
   getWorkingDirectoryCandidates,
   parseCliDiagnostics
 } from '../../core/helpers';
+import { addRootConfigSource, relativeManifestPath, removeConfigSources, renameConfigSources } from '../../core/projectAuthoring';
 import { buildOverviewSections, buildProjectTreeModels, buildStatusBarModel } from '../../ui/models';
 import { parseLaunchManifest, parseProjectManifest, parseWorkspaceManifest } from '../../core/xml';
 
@@ -69,11 +70,15 @@ test('workspace manifests parse project paths relative to the workspace manifest
 
 test('project manifests parse configurations and launch metadata', () => {
   const project = parseProjectManifest(
-    '<?xml version="1.0" encoding="utf-8"?><Project Name="App.Basic" DefaultConfiguration="Runtime"><Configurations><Configuration Name="Runtime" BuildConfiguration="Debug" OperatingSystem="linux" Architecture="x64" Environment="development"><Launch Executable="App.Basic" WorkingDirectory="." /></Configuration></Configurations></Project>',
+    '<?xml version="1.0" encoding="utf-8"?><Project Name="App.Basic" DefaultConfiguration="Runtime"><SourceRoots><SourceRoot Path="src" /></SourceRoots><Build><Sources><Source Path="src/main.cpp" /></Sources></Build><ConfigSources><Config Source="config/app.cfg" /></ConfigSources><Configurations><Configuration Name="Runtime" BuildConfiguration="Debug" OperatingSystem="linux" Architecture="x64" Environment="development"><Launch Executable="App.Basic" WorkingDirectory="." /><ConfigSources><Config Source="config/runtime.cfg" /></ConfigSources></Configuration></Configurations></Project>',
     '/repo/Examples/App.Basic/App.Basic.nginproj'
   );
 
   assert.equal(project.defaultConfiguration, 'Runtime');
+  assert.deepEqual(project.sourceRoots, ['src']);
+  assert.deepEqual(project.buildSources, ['src/main.cpp']);
+  assert.deepEqual(project.configSources, ['config/app.cfg']);
+  assert.deepEqual(project.configurations[0].configSources, ['config/runtime.cfg']);
   assert.equal(project.configurations[0].launchExecutable, 'App.Basic');
   assert.equal(project.configurations[0].operatingSystem, 'linux');
   assert.equal(project.configurations[0].architecture, 'x64');
@@ -89,6 +94,50 @@ test('launch manifests surface selected executable and staged files', () => {
   assert.equal(launch.configuration, 'Runtime');
   assert.equal(launch.selectedExecutable?.name, 'App.Basic');
   assert.equal(launch.stagedFiles[0].kind, 'executable');
+});
+
+test('config source authoring inserts root config sources once', () => {
+  const xml = [
+    '<?xml version="1.0" encoding="utf-8"?>',
+    '<Project Name="App.Basic">',
+    '  <SourceRoots>',
+    '    <SourceRoot Path="src" />',
+    '  </SourceRoots>',
+    '  <Configurations />',
+    '</Project>'
+  ].join('\n');
+
+  const added = addRootConfigSource(xml, 'config/new.cfg');
+  assert.equal(added.changed, true);
+  assert.match(added.xml, /<ConfigSources>\n    <Config Source="config\/new.cfg" \/>\n  <\/ConfigSources>/);
+
+  const duplicate = addRootConfigSource(added.xml, 'config/new.cfg');
+  assert.equal(duplicate.changed, false);
+  assert.equal((duplicate.xml.match(/config\/new\.cfg/g) ?? []).length, 1);
+});
+
+test('relativeManifestPath uses project-relative slash paths', () => {
+  assert.equal(relativeManifestPath('/repo/Examples/App.Basic', '/repo/Examples/App.Basic/config/new.cfg'), 'config/new.cfg');
+});
+
+test('config source authoring renames and removes nested config sources', () => {
+  const xml = [
+    '<Project Name="App.Basic">',
+    '  <ConfigSources>',
+    '    <Config Source="config/app.cfg" />',
+    '    <Config Source="config/nested/dev.cfg" />',
+    '  </ConfigSources>',
+    '</Project>'
+  ].join('\n');
+
+  const renamed = renameConfigSources(xml, 'config/nested', 'config/copy', true);
+  assert.equal(renamed.changed, true);
+  assert.match(renamed.xml, /Source="config\/copy\/dev\.cfg"/);
+
+  const removed = removeConfigSources(renamed.xml, 'config/copy', true);
+  assert.equal(removed.changed, true);
+  assert.doesNotMatch(removed.xml, /config\/copy\/dev\.cfg/);
+  assert.match(removed.xml, /config\/app\.cfg/);
 });
 
 test('executable resolution prefers staged manifest entries before bin fallback', () => {
@@ -228,8 +277,8 @@ test('overview sections describe the current workspace selection and actions', (
         projects: [],
         root: '/repo'
       },
-      project: { path: '/repo/Examples/App.Basic/App.Basic.nginproj', directory: '/repo/Examples/App.Basic', name: 'App.Basic', configurations: [] },
-      configuration: { name: 'Runtime', operatingSystem: 'linux', architecture: 'x64', environment: 'development' }
+      project: { path: '/repo/Examples/App.Basic/App.Basic.nginproj', directory: '/repo/Examples/App.Basic', name: 'App.Basic', sourceRoots: [], configSources: [], buildSources: [], configurations: [] },
+      configuration: { name: 'Runtime', operatingSystem: 'linux', architecture: 'x64', environment: 'development', configSources: [] }
     },
     outputDir: '/repo/.ngin/build/App.Basic/Runtime',
     launchManifestPath: '/repo/.ngin/build/App.Basic/Runtime/App.Basic.Runtime.nginlaunch',
@@ -266,7 +315,10 @@ test('project tree models mark the selected project and configuration', () => {
           directory: '/repo/Examples/App.Basic',
           name: 'App.Basic',
           defaultConfiguration: 'Runtime',
-          configurations: [{ name: 'Runtime', operatingSystem: 'linux', architecture: 'x64', environment: 'development' }]
+          sourceRoots: ['src'],
+          configSources: ['config/app.cfg'],
+          buildSources: [],
+          configurations: [{ name: 'Runtime', operatingSystem: 'linux', architecture: 'x64', environment: 'development', configSources: [] }]
         }
       ],
       root: '/repo'
@@ -282,15 +334,25 @@ test('project tree models mark the selected project and configuration', () => {
         directory: '/repo/Examples/App.Basic',
         name: 'App.Basic',
         defaultConfiguration: 'Runtime',
-        configurations: [{ name: 'Runtime', operatingSystem: 'linux', architecture: 'x64', environment: 'development' }]
+        sourceRoots: ['src'],
+        configSources: ['config/app.cfg'],
+        buildSources: [],
+        configurations: [{ name: 'Runtime', operatingSystem: 'linux', architecture: 'x64', environment: 'development', configSources: [] }]
       },
-      configuration: { name: 'Runtime', operatingSystem: 'linux', architecture: 'x64', environment: 'development' }
+      configuration: { name: 'Runtime', operatingSystem: 'linux', architecture: 'x64', environment: 'development', configSources: [] }
     },
     launchManifestExists: false,
     stagedCompileCommandsAvailable: false
   });
 
   assert.equal(models.projects[0].selected, true);
+  assert.deepEqual(models.childrenByProject.get('/repo/Examples/App.Basic/App.Basic.nginproj')?.map((entry) => entry.kind === 'group' ? entry.group : entry.kind), [
+    'manifest',
+    'source',
+    'config',
+    'generated',
+    'configurations'
+  ]);
   assert.equal(models.configurationsByProject.get('/repo/Examples/App.Basic/App.Basic.nginproj')?.[0].selected, true);
 });
 
@@ -307,8 +369,8 @@ test('status bar models expose the compact NGIN bottom-bar actions', () => {
         projects: [],
         root: '/repo'
       },
-      project: { path: '/repo/Examples/App.Basic/App.Basic.nginproj', directory: '/repo/Examples/App.Basic', name: 'App.Basic', configurations: [] },
-      configuration: { name: 'Runtime', operatingSystem: 'linux', architecture: 'x64', environment: 'development' }
+      project: { path: '/repo/Examples/App.Basic/App.Basic.nginproj', directory: '/repo/Examples/App.Basic', name: 'App.Basic', sourceRoots: [], configSources: [], buildSources: [], configurations: [] },
+      configuration: { name: 'Runtime', operatingSystem: 'linux', architecture: 'x64', environment: 'development', configSources: [] }
     },
     outputDir: '/repo/.ngin/build/App.Basic/Runtime',
     launchManifestExists: false,

@@ -31,6 +31,7 @@ export interface ResolvedCommandContext {
 export interface NginWorkspaceSnapshot {
   workspace?: ResolvedWorkspaceInfo;
   context?: ResolvedCommandContext;
+  buildOutputRoot?: string;
   outputDir?: string;
   launchManifestPath?: string;
   launchManifestExists: boolean;
@@ -255,8 +256,9 @@ export class WorkspaceStateService implements vscode.Disposable {
     if (!workspace) {
       return snapshot;
     }
+    snapshot.buildOutputRoot = this.getConfiguredBuildOutputRoot(workspace.folder);
 
-    const project = await this.resolveProject(workspace, undefined, preferredUri, false);
+    const project = this.resolveStoredProject(workspace);
     if (!project) {
       return snapshot;
     }
@@ -313,6 +315,22 @@ export class WorkspaceStateService implements vscode.Disposable {
 
   private fireDidChange(): void {
     this.onDidChangeEmitter.fire();
+  }
+
+  private resolveStoredProject(workspaceInfo: ResolvedWorkspaceInfo): ProjectManifest | undefined {
+    const lastProjectPath = this.context.workspaceState.get<string>(LAST_PROJECT_KEY);
+    if (lastProjectPath) {
+      const lastProject = workspaceInfo.projects.find((project) => comparablePath(project.path) === comparablePath(lastProjectPath));
+      if (lastProject) {
+        return lastProject;
+      }
+    }
+
+    if (workspaceInfo.projects.length === 1) {
+      return workspaceInfo.projects[0];
+    }
+
+    return undefined;
   }
 
   private async resolveProject(

@@ -159,6 +159,51 @@
         "category": "NGIN"
       },
       {
+        "command": "ngin.openProjectManifest",
+        "title": "Open Project Manifest",
+        "category": "NGIN"
+      },
+      {
+        "command": "ngin.setActiveProject",
+        "title": "Set Active Project",
+        "category": "NGIN"
+      },
+      {
+        "command": "ngin.projectNewSourceFile",
+        "title": "New Source File",
+        "category": "NGIN"
+      },
+      {
+        "command": "ngin.projectNewConfigFile",
+        "title": "New Config File",
+        "category": "NGIN"
+      },
+      {
+        "command": "ngin.projectNewFolder",
+        "title": "New Folder",
+        "category": "NGIN"
+      },
+      {
+        "command": "ngin.projectCopy",
+        "title": "Copy",
+        "category": "NGIN"
+      },
+      {
+        "command": "ngin.projectDuplicate",
+        "title": "Duplicate",
+        "category": "NGIN"
+      },
+      {
+        "command": "ngin.projectRename",
+        "title": "Rename",
+        "category": "NGIN"
+      },
+      {
+        "command": "ngin.projectDelete",
+        "title": "Delete",
+        "category": "NGIN"
+      },
+      {
         "command": "ngin.refresh",
         "title": "Refresh",
         "category": "NGIN",
@@ -183,44 +228,99 @@
       ],
       "view/item/context": [
         {
+          "command": "ngin.workspaceStatus",
+          "when": "view == nginProjects && viewItem == nginWorkspace",
+          "group": "navigation@1"
+        },
+        {
+          "command": "ngin.workspaceDoctor",
+          "when": "view == nginProjects && viewItem == nginWorkspace",
+          "group": "navigation@2"
+        },
+        {
+          "command": "ngin.openProjectManifest",
+          "when": "view == nginProjects && viewItem =~ /^(nginProject|nginProjectManifest)$/",
+          "group": "navigation@1"
+        },
+        {
+          "command": "ngin.setActiveProject",
+          "when": "view == nginProjects && viewItem == nginProject",
+          "group": "navigation@2"
+        },
+        {
           "command": "ngin.build",
-          "when": "view == nginProjects && viewItem == nginConfiguration",
-          "group": "inline"
+          "when": "view == nginProjects && viewItem =~ /^(nginProject|nginConfiguration)$/",
+          "group": "ngin.actions@1"
         },
         {
           "command": "ngin.rebuild",
-          "when": "view == nginProjects && viewItem == nginConfiguration",
-          "group": "inline"
+          "when": "view == nginProjects && viewItem =~ /^(nginProject|nginConfiguration)$/",
+          "group": "ngin.actions@2"
         },
         {
           "command": "ngin.run",
-          "when": "view == nginProjects && viewItem == nginConfiguration",
-          "group": "inline"
+          "when": "view == nginProjects && viewItem =~ /^(nginProject|nginConfiguration)$/",
+          "group": "ngin.actions@3"
         },
         {
           "command": "ngin.debug",
-          "when": "view == nginProjects && viewItem == nginConfiguration",
-          "group": "inline"
+          "when": "view == nginProjects && viewItem =~ /^(nginProject|nginConfiguration)$/",
+          "group": "ngin.actions@4"
         },
         {
           "command": "ngin.validate",
-          "when": "view == nginProjects && viewItem == nginConfiguration",
-          "group": "navigation"
+          "when": "view == nginProjects && viewItem =~ /^(nginProject|nginConfiguration)$/",
+          "group": "ngin.inspect@1"
         },
         {
           "command": "ngin.graph",
-          "when": "view == nginProjects && viewItem == nginConfiguration",
-          "group": "navigation"
+          "when": "view == nginProjects && viewItem =~ /^(nginProject|nginConfiguration)$/",
+          "group": "ngin.inspect@2"
         },
         {
           "command": "ngin.metagen",
-          "when": "view == nginProjects && viewItem == nginConfiguration",
-          "group": "navigation"
+          "when": "view == nginProjects && viewItem =~ /^(nginProject|nginConfiguration)$/",
+          "group": "ngin.inspect@3"
         },
         {
           "command": "ngin.clean",
-          "when": "view == nginProjects && viewItem == nginConfiguration",
-          "group": "navigation"
+          "when": "view == nginProjects && viewItem =~ /^(nginProject|nginConfiguration)$/",
+          "group": "ngin.inspect@4"
+        },
+        {
+          "command": "ngin.projectNewSourceFile",
+          "when": "view == nginProjects && viewItem =~ /^(nginProject|nginProjectSourceFolder)$/",
+          "group": "ngin.new@1"
+        },
+        {
+          "command": "ngin.projectNewConfigFile",
+          "when": "view == nginProjects && viewItem =~ /^(nginProject|nginProjectConfigFolder)$/",
+          "group": "ngin.new@2"
+        },
+        {
+          "command": "ngin.projectNewFolder",
+          "when": "view == nginProjects && viewItem =~ /^(nginProjectSourceFolder|nginProjectConfigFolder)$/",
+          "group": "ngin.new@3"
+        },
+        {
+          "command": "ngin.projectCopy",
+          "when": "view == nginProjects && viewItem =~ /^(nginProjectSourceFile|nginProjectSourceFolder|nginProjectConfigFile|nginProjectConfigFolder)$/",
+          "group": "ngin.edit@1"
+        },
+        {
+          "command": "ngin.projectDuplicate",
+          "when": "view == nginProjects && viewItem =~ /^(nginProjectSourceFile|nginProjectSourceFolder|nginProjectConfigFile|nginProjectConfigFolder)$/",
+          "group": "ngin.edit@2"
+        },
+        {
+          "command": "ngin.projectRename",
+          "when": "view == nginProjects && viewItem =~ /^(nginProjectSourceFile|nginProjectSourceFolder|nginProjectConfigFile|nginProjectConfigFolder)$/",
+          "group": "ngin.edit@3"
+        },
+        {
+          "command": "ngin.projectDelete",
+          "when": "view == nginProjects && viewItem =~ /^(nginProjectSourceFile|nginProjectSourceFolder|nginProjectConfigFile|nginProjectConfigFolder)$/",
+          "group": "ngin.edit@4"
         }
       ]
     },

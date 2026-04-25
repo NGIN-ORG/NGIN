@@ -14,6 +14,7 @@ export interface ProjectConfiguration {
   environment?: string;
   launchExecutable?: string;
   launchWorkingDirectory?: string;
+  configSources: string[];
 }
 
 export interface ProjectManifest {
@@ -21,6 +22,9 @@ export interface ProjectManifest {
   directory: string;
   name: string;
   defaultConfiguration?: string;
+  sourceRoots: string[];
+  configSources: string[];
+  buildSources: string[];
   configurations: ProjectConfiguration[];
 }
 
