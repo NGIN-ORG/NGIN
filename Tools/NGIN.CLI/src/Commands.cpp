@@ -118,6 +118,21 @@ namespace NGIN::CLI
         std::cout << "NGIN workspace doctor\n";
         std::cout << "  root: " << root << "\n";
         std::cout << "  workspace manifest: " << WorkspaceFilePath(root).value_or(root / "<missing>") << "\n";
+        const auto reportTool = [&root, &fail](const std::string &tool, const bool required)
+        {
+            const auto resolved = ResolveToolPath(tool, root);
+            if (!resolved.has_value())
+            {
+                std::cout << (required ? "[error] " : "[warn] ") << "missing tool: " << tool << "\n";
+                if (required)
+                {
+                    fail = 1;
+                }
+                return;
+            }
+            std::cout << "[ok] tool: " << tool << " (" << resolved->source << ") " << resolved->path.string() << "\n";
+        };
+
         if (!ToolExists("git"))
         {
             std::cout << "[error] missing tool: git\n";
@@ -127,15 +142,8 @@ namespace NGIN::CLI
         {
             std::cout << "[ok] tool: git\n";
         }
-        if (!ToolExists("cmake"))
-        {
-            std::cout << "[error] missing tool: cmake\n";
-            fail = 1;
-        }
-        else
-        {
-            std::cout << "[ok] tool: cmake\n";
-        }
+        reportTool("cmake", true);
+        reportTool("ninja", false);
         std::optional<WorkspaceManifest> workspace{};
         try
         {

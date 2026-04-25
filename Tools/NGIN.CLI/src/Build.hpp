@@ -8,7 +8,19 @@
 
 namespace NGIN::CLI
 {
-    [[nodiscard]] auto ToolExists(const std::string &tool) -> bool;
+    struct ToolResolution
+    {
+        fs::path path{};
+        std::string source{};
+    };
+
+    [[nodiscard]] auto ResolveToolPath(
+        const std::string &tool,
+        const std::optional<fs::path> &searchRoot = std::nullopt) -> std::optional<ToolResolution>;
+
+    [[nodiscard]] auto ToolExists(
+        const std::string &tool,
+        const std::optional<fs::path> &searchRoot = std::nullopt) -> bool;
 
     [[nodiscard]] auto RunProcess(
         const fs::path &executable,

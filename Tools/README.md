@@ -20,6 +20,36 @@ The normal authored loop is:
 
 If `--project` is omitted, the CLI can work from the current directory and discover the nearest project where that flow is supported.
 
+## Bundled Build Backend Tools
+
+The generated project build path uses CMake, and it prefers Ninja when Ninja is available. NGIN can use bundled third-party copies from `Tools/ThirdParty/BuildTools` so contributors and release users do not need CMake or Ninja preinstalled on the system.
+
+Fetch the current host payload:
+
+```bash
+Tools/scripts/fetch-bundled-tools.sh
+```
+
+On Windows without a POSIX shell, use:
+
+```powershell
+Tools\scripts\fetch-bundled-tools.ps1
+```
+
+Fetch all currently pinned host payloads from a POSIX shell:
+
+```bash
+Tools/scripts/fetch-bundled-tools.sh --all
+```
+
+The CLI resolves build backend tools in this order:
+
+1. explicit environment override: `NGIN_CMAKE`, `NGIN_NINJA`, or `NGIN_THIRD_PARTY_TOOLS_ROOT`
+2. bundled tools under `Tools/ThirdParty/BuildTools`
+3. tools available on `PATH`
+
+Pinned tool versions and upstream URLs live in `Tools/ThirdParty/BuildTools/toolchains.json`. License and notice requirements live in `Tools/ThirdParty/BuildTools/notices/THIRD_PARTY_TOOLS.md`. Keep the upstream license files inside each extracted payload when publishing bundled tool archives.
+
 ## Command Surface By Task
 
 Workspace and package inspection:

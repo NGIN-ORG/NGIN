@@ -367,5 +367,7 @@ TEST_CASE("build facade writes launch manifests and preserves unrelated output f
 
 TEST_CASE("process execution helper runs tools directly without a shell")
 {
-    REQUIRE(RunProcess("cmake", {"--version"}) == 0);
+    const auto cmake = ResolveToolPath("cmake", RepoRoot());
+    REQUIRE(cmake.has_value());
+    REQUIRE(RunProcess(cmake->path, {"--version"}) == 0);
 }

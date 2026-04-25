@@ -8,3 +8,6 @@ __pycache__/
 package-lock.json
 .ngin/workspace.overrides.json
 .ngin/build/
+Tools/ThirdParty/BuildTools/downloads/
+Tools/ThirdParty/BuildTools/cmake/*/
+Tools/ThirdParty/BuildTools/ninja/*/

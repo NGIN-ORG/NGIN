@@ -31,7 +31,9 @@
 
 namespace NGIN::CLI
 {
-    auto ToolExists(const std::string &tool) -> bool;
+    auto ResolveToolPath(
+        const std::string &tool,
+        const std::optional<fs::path> &searchRoot) -> std::optional<ToolResolution>;
 
     namespace
     {
@@ -95,7 +97,174 @@ namespace NGIN::CLI
 #endif
         }
 
-        [[nodiscard]] auto FindToolPath(const std::string &tool) -> std::optional<fs::path>
+        [[nodiscard]] auto ToolOverrideEnvironmentName(const std::string &tool) -> std::string
+        {
+            std::string name{"NGIN_"};
+            for (const auto ch : tool)
+            {
+                if (std::isalnum(static_cast<unsigned char>(ch)))
+                {
+                    name.push_back(static_cast<char>(std::toupper(static_cast<unsigned char>(ch))));
+                }
+                else
+                {
+                    name.push_back('_');
+                }
+            }
+            return name;
+        }
+
+        [[nodiscard]] auto CurrentHostId() -> std::optional<std::string>
+        {
+#if defined(_WIN32)
+#if defined(_M_ARM64) || defined(__aarch64__)
+            return std::string{"windows-arm64"};
+#elif defined(_M_X64) || defined(_M_AMD64) || defined(__x86_64__)
+            return std::string{"windows-x86_64"};
+#else
+            return std::nullopt;
+#endif
+#elif defined(__linux__)
+#if defined(__aarch64__)
+            return std::string{"linux-aarch64"};
+#elif defined(__x86_64__)
+            return std::string{"linux-x86_64"};
+#else
+            return std::nullopt;
+#endif
+#else
+            return std::nullopt;
+#endif
+        }
+
+        [[nodiscard]] auto NativeExecutableName(const std::string &tool) -> std::string
+        {
+            std::string executable = tool == "ninja-build" ? "ninja" : tool;
+#if defined(_WIN32)
+            if (Lower(fs::path(executable).extension().string()) != ".exe")
+            {
+                executable += ".exe";
+            }
+#endif
+            return executable;
+        }
+
+        [[nodiscard]] auto BundledToolRootCandidates(const std::optional<fs::path> &searchRoot) -> std::vector<fs::path>
+        {
+            std::vector<fs::path> roots{};
+            if (const auto *overrideRoot = std::getenv("NGIN_THIRD_PARTY_TOOLS_ROOT");
+                overrideRoot != nullptr && std::string_view(overrideRoot).size() > 0)
+            {
+                roots.emplace_back(overrideRoot);
+            }
+            if (const auto *legacyOverrideRoot = std::getenv("NGIN_BUNDLED_TOOLS_ROOT");
+                legacyOverrideRoot != nullptr && std::string_view(legacyOverrideRoot).size() > 0)
+            {
+                roots.emplace_back(legacyOverrideRoot);
+            }
+            if (searchRoot.has_value())
+            {
+                roots.push_back(*searchRoot / "Tools" / "ThirdParty" / "BuildTools");
+            }
+
+            auto current = fs::current_path();
+            while (!current.empty())
+            {
+                roots.push_back(current / "Tools" / "ThirdParty" / "BuildTools");
+                const auto parent = current.parent_path();
+                if (parent == current)
+                {
+                    break;
+                }
+                current = parent;
+            }
+
+            std::vector<fs::path> uniqueRoots{};
+            for (const auto &root : roots)
+            {
+                const auto normalized = root.lexically_normal();
+                if (std::find(uniqueRoots.begin(), uniqueRoots.end(), normalized) == uniqueRoots.end())
+                {
+                    uniqueRoots.push_back(normalized);
+                }
+            }
+            return uniqueRoots;
+        }
+
+        [[nodiscard]] auto VersionDirectories(const fs::path &root) -> std::vector<fs::path>
+        {
+            std::vector<fs::path> directories{};
+            std::error_code error;
+            if (!fs::exists(root, error) || !fs::is_directory(root, error))
+            {
+                return directories;
+            }
+            for (const auto &entry : fs::directory_iterator(root, error))
+            {
+                if (error)
+                {
+                    break;
+                }
+                if (entry.is_directory(error))
+                {
+                    directories.push_back(entry.path());
+                }
+            }
+            std::sort(
+                directories.begin(),
+                directories.end(),
+                [](const fs::path &left, const fs::path &right)
+                {
+                    return left.filename().string() > right.filename().string();
+                });
+            return directories;
+        }
+
+        [[nodiscard]] auto FindBundledToolPath(
+            const std::string &tool,
+            const std::optional<fs::path> &searchRoot) -> std::optional<ToolResolution>
+        {
+            const auto host = CurrentHostId();
+            if (!host.has_value())
+            {
+                return std::nullopt;
+            }
+
+            const auto executable = NativeExecutableName(tool);
+            for (const auto &root : BundledToolRootCandidates(searchRoot))
+            {
+                std::vector<fs::path> candidates{};
+                if (tool == "cmake")
+                {
+                    for (const auto &versionDir : VersionDirectories(root / "cmake"))
+                    {
+                        candidates.push_back(versionDir / *host / "bin" / executable);
+                    }
+                }
+                else if (tool == "ninja" || tool == "ninja-build")
+                {
+                    for (const auto &versionDir : VersionDirectories(root / "ninja"))
+                    {
+                        candidates.push_back(versionDir / *host / executable);
+                        candidates.push_back(versionDir / *host / "bin" / executable);
+                    }
+                }
+
+                for (const auto &candidate : candidates)
+                {
+                    if (IsExecutableCandidate(candidate))
+                    {
+                        return ToolResolution{
+                            .path = candidate,
+                            .source = "bundled:" + *host,
+                        };
+                    }
+                }
+            }
+            return std::nullopt;
+        }
+
+        [[nodiscard]] auto FindPathToolPath(const std::string &tool) -> std::optional<fs::path>
         {
             if (tool.empty())
             {
@@ -148,6 +317,23 @@ namespace NGIN::CLI
                 start = end + 1;
             }
 
+            return std::nullopt;
+        }
+
+        [[nodiscard]] auto BuildToolSearchRoot(const ResolvedLaunch &resolved) -> std::optional<fs::path>
+        {
+            if (resolved.workspace.has_value())
+            {
+                return resolved.workspace->path.parent_path();
+            }
+            if (!resolved.project.path.empty())
+            {
+                if (const auto root = RootDirFrom(resolved.project.path.parent_path()); root.has_value())
+                {
+                    return root;
+                }
+                return resolved.project.path.parent_path();
+            }
             return std::nullopt;
         }
 
@@ -936,6 +1122,13 @@ namespace NGIN::CLI
 
             const auto buildConfiguration = resolved.configuration.buildConfiguration.empty() ? "Debug" : resolved.configuration.buildConfiguration;
             const auto cmakeCachePath = generatedPaths.buildDir / "CMakeCache.txt";
+            const auto toolSearchRoot = BuildToolSearchRoot(resolved);
+            const auto cmakeTool = ResolveToolPath("cmake", toolSearchRoot);
+            if (!cmakeTool.has_value())
+            {
+                AddError(report, "missing tool: cmake. Install CMake, set NGIN_CMAKE, or fetch bundled tools into Tools/ThirdParty/BuildTools.");
+                return;
+            }
             if (cmakeProjectChanged || !fs::exists(cmakeCachePath))
             {
                 std::vector<std::string> configureArguments{
@@ -945,16 +1138,16 @@ namespace NGIN::CLI
                     generatedPaths.buildDir.string(),
                     "-DCMAKE_BUILD_TYPE=" + buildConfiguration,
                 };
-                if (const auto ninjaPath = FindToolPath("ninja").or_else([]()
-                                                                         { return FindToolPath("ninja-build"); });
+                if (const auto ninjaPath = ResolveToolPath("ninja", toolSearchRoot).or_else([&toolSearchRoot]()
+                                                                         { return ResolveToolPath("ninja-build", toolSearchRoot); });
                     ninjaPath.has_value())
                 {
                     configureArguments.push_back("-G");
                     configureArguments.push_back("Ninja");
-                    configureArguments.push_back("-DCMAKE_MAKE_PROGRAM=" + ninjaPath->string());
+                    configureArguments.push_back("-DCMAKE_MAKE_PROGRAM=" + ninjaPath->path.string());
                 }
                 if (RunProcess(
-                        "cmake",
+                        cmakeTool->path,
                         configureArguments) != 0)
                 {
                     AddError(report, "failed to configure generated CMake build project for configuration '" + resolved.configuration.name + "' with build configuration '" + buildConfiguration + "'");
@@ -962,7 +1155,7 @@ namespace NGIN::CLI
                 }
             }
             if (RunProcess(
-                    "cmake",
+                    cmakeTool->path,
                     {
                         "--build",
                         generatedPaths.buildDir.string(),
@@ -1027,9 +1220,46 @@ namespace NGIN::CLI
         }
     }
 
-    auto ToolExists(const std::string &tool) -> bool
+    auto ResolveToolPath(
+        const std::string &tool,
+        const std::optional<fs::path> &searchRoot) -> std::optional<ToolResolution>
     {
-        return FindToolPath(tool).has_value();
+        const auto overrideName = ToolOverrideEnvironmentName(tool);
+        if (const auto *overrideValue = std::getenv(overrideName.c_str());
+            overrideValue != nullptr && std::string_view(overrideValue).size() > 0)
+        {
+            for (const auto &candidate : SearchExecutableCandidates(fs::path(overrideValue)))
+            {
+                if (IsExecutableCandidate(candidate))
+                {
+                    return ToolResolution{
+                        .path = candidate,
+                        .source = overrideName,
+                    };
+                }
+            }
+            return std::nullopt;
+        }
+
+        if (const auto bundled = FindBundledToolPath(tool, searchRoot); bundled.has_value())
+        {
+            return bundled;
+        }
+        if (const auto pathTool = FindPathToolPath(tool); pathTool.has_value())
+        {
+            return ToolResolution{
+                .path = *pathTool,
+                .source = "PATH",
+            };
+        }
+        return std::nullopt;
+    }
+
+    auto ToolExists(
+        const std::string &tool,
+        const std::optional<fs::path> &searchRoot) -> bool
+    {
+        return ResolveToolPath(tool, searchRoot).has_value();
     }
 
     auto RunProcess(

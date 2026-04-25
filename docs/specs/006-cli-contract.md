@@ -1,7 +1,7 @@
 # Spec 006: CLI Contract
 
 Status: Active
-Last updated: 2026-04-23
+Last updated: 2026-04-25
 
 ## Purpose
 
@@ -34,6 +34,7 @@ Removed commands:
 - build configuration comes from the selected project configuration’s `BuildConfiguration`
 - `ngin build` emits `.nginlaunch`
 - `ngin build` remains incremental and should not aggressively remove unrelated files outside NGIN-owned stale outputs
+- generated CMake builds may resolve backend tools from explicit environment overrides, bundled tools under `Tools/ThirdParty/BuildTools`, or `PATH`
 - `ngin clean` removes NGIN-owned generated artifacts for the selected build scope
 - `ngin rebuild` is equivalent to `ngin clean` followed by `ngin build`
 - `ngin run` consumes the generated `.nginlaunch`
