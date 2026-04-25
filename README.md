@@ -1,16 +1,47 @@
 # NGIN
 
-NGIN is a C++ application composition and staging toolchain. It gives a native
-project an authored shape: a project manifest says what the buildable unit is,
-which packages or local projects it references, how it should be configured, and
-what a runnable staged output should contain.
+NGIN is a C++ application composition and staging toolchain.
 
-NGIN is not a replacement for CMake. The current build backend is CMake, and the
-normal application path lets a `.nginproj` generate the backend build input
-instead of requiring every application project to carry a handwritten
-`CMakeLists.txt`.
+It exists because in many native codebases, the shape of the application gets
+spread across build scripts, runtime code, config files, staged folders, and
+tribal knowledge. What should be a clear answer to "what is this app?" turns
+into archaeology.
 
-There are two separate layers:
+NGIN makes that shape explicit.
+
+A project manifest describes:
+
+- what the buildable unit is
+- what it depends on, including local projects and reusable packages
+- how it is configured
+- what a runnable output should contain
+
+The same authored model can then be validated, inspected, built, staged, and
+run without guessing how the pieces fit together.
+
+NGIN separates what your application is from how it happens to be built and
+staged.
+
+## Who This Is For
+
+NGIN is for teams and projects where:
+
+- build logic, runtime wiring, package contents, and staging have started to
+  blur together
+- adding a feature means touching build scripts, config, and startup code in
+  different places
+- it is no longer obvious what ends up in the final runnable output
+- multiple applications, tools, packages, or runtime modes need one inspectable
+  source of truth
+
+If your project still fits comfortably in a single handwritten `CMakeLists.txt`,
+you probably do not need NGIN.
+
+If it does not, that is where NGIN starts to pay off.
+
+## What NGIN Is
+
+NGIN has two separate layers:
 
 - NGIN tooling: manifests, resolution, build generation, validation, graphing,
   staging, local run/debug, workspace inspection, and package workflows.
@@ -20,12 +51,18 @@ There are two separate layers:
 Plain C++ applications can use the tooling layer without linking `NGIN.Core`.
 Applications link `NGIN.Core` only when they want the hosted startup model.
 
+NGIN is not a replacement for CMake. It sits above it.
+
+CMake remains the current build backend. NGIN generates the build input so
+normal application projects can be described by `.nginproj` metadata instead of
+hand-authored project `CMakeLists.txt` files.
+
 ## Quick Start
 
-This repository builds the native `ngin` CLI from source, then uses it to
+This checkout builds the native `ngin` CLI from source, then uses it to
 validate, build, stage, and run an example application.
 
-Prerequisites for building from this checkout:
+Prerequisites:
 
 - CMake 3.20 or newer
 - Ninja
@@ -73,18 +110,18 @@ Build and run it from a staged output directory:
   --output build/manual/App.NativeMinimal
 ```
 
-That flow proves the core tooling path: a `.nginproj` can describe a normal C++
-executable, generate backend build input, produce a runnable staged directory,
-and emit local launch metadata.
+That flow proves the core path: a `.nginproj` describes a normal C++
+executable, generates backend build input, produces a runnable staged directory,
+and emits local launch metadata.
 
-## What Just Happened
+## From Manifest to Running App
 
 `ngin validate` checks that the selected project configuration resolves to a
 clear composition. A composition is the concrete application shape produced from
 one project configuration plus its referenced projects, packages, config,
 content, runtime metadata, and launch settings.
 
-`ngin graph` prints the resolved structure so you can inspect what contributed to
+`ngin graph` prints the resolved structure so you can see what contributed to
 that composition.
 
 `ngin build` does more than compile a binary. It materializes a staged directory
@@ -116,14 +153,18 @@ See [`Examples/README.md`](Examples/README.md) for the full example map.
 
 ## Why NGIN Exists
 
-In many native codebases, build dependencies, runtime wiring, startup order,
-environment selection, staged files, and reusable feature boundaries gradually
-blur together. That makes simple questions harder than they should be:
+Native applications are rarely just "some sources and a compiler invocation."
+They usually have build dependencies, runtime wiring, startup order, environment
+selection, staged files, reusable feature boundaries, and local launch rules.
+
+Over time, those concerns inevitably blur together. That turns simple questions
+into guesswork:
 
 - what is the buildable unit here?
 - which features belong to this app, and which belong to reusable packages?
 - which configuration decides the runtime shape?
 - what files are supposed to be in the runnable output?
+- what does the tool actually run when I press debug?
 
 NGIN makes those answers explicit in authored manifests:
 
@@ -132,8 +173,8 @@ NGIN makes those answers explicit in authored manifests:
 - `.nginpkg` for a reusable package
 - `.nginlaunch` for generated staged launch metadata
 
-The result is a workflow where the same authored model can be validated,
-graphed, built, staged, launched, and consumed by editor tooling.
+That gives native applications a single, inspectable source of truth for their
+shape.
 
 ## Core Model
 
@@ -141,7 +182,7 @@ graphed, built, staged, launched, and consumed by editor tooling.
 
 A workspace is an optional repo-level container. It lists projects, package
 source roots, and local package providers. Single-project authoring does not
-require a workspace file, but this umbrella repo uses [`NGIN.ngin`](NGIN.ngin) to
+require a workspace file, but this repository uses [`NGIN.ngin`](NGIN.ngin) to
 tie examples, package wrappers, and local dependency trees together.
 
 ### Project
