@@ -56,9 +56,8 @@ auto BootstrapSamplePackage(NGIN::Core::PackageBootstrapContext &context)
     -> NGIN::Core::CoreResult<void> {
   using namespace NGIN::Core;
 
-  context.Services().AddSingleton(
-      "Samples.Package.Message",
-      NGIN::Utilities::Any<>(std::string("package-ready")));
+  context.Services().AddSingletonValue<std::string>(
+      "Samples.Package.Message", "package-ready");
 
   context.Modules()
       .Register(StaticModuleRegistration{
@@ -104,8 +103,8 @@ int main(int argc, char **argv) {
       std::string(sampleDir.Join("NGIN.Core.BasicHost.nginproj").View()));
   builder->SetApplicationName("NGIN.Core.BasicHost");
   builder->SetConfiguration("Samples.BasicHost");
-  builder->Services().AddDefaults().AddConfiguration().AddSingleton(
-      "App.Message", NGIN::Utilities::Any<>(std::string("builder-ready")));
+  builder->Services().AddDefaults().AddConfiguration().AddSingletonValue<std::string>(
+      "App.Message", "builder-ready");
   builder->Modules()
       .Register(StaticModuleRegistration{
           .descriptor = MakeDescriptor("App.BasicHost"),
@@ -138,14 +137,14 @@ int main(int argc, char **argv) {
     return 3;
   }
 
-  auto resolvedMessage = services->ResolveRequired("App.Message");
+  auto resolvedMessage = services->ResolveRequired<std::string>("App.Message");
   if (!resolvedMessage) {
     std::cerr << "failed to resolve App.Message: "
               << resolvedMessage.Error().message << "\n";
     return 4;
   }
 
-  auto packageMessage = services->ResolveRequired("Samples.Package.Message");
+  auto packageMessage = services->ResolveRequired<std::string>("Samples.Package.Message");
   if (!packageMessage) {
     std::cerr << "failed to resolve Samples.Package.Message: "
               << packageMessage.Error().message << "\n";

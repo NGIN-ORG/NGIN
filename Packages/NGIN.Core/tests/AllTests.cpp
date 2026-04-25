@@ -36,6 +36,36 @@ void RemovePath(const NGIN::IO::Path &path) {
   REQUIRE(fs.RemoveAll(path, options).HasValue());
 }
 
+struct AutoConstructedService {
+  inline static NGIN::UInt32 constructed{0};
+
+  AutoConstructedService() { ++constructed; }
+};
+
+struct ProviderDependencyService {
+  inline static NGIN::UInt32 constructed{0};
+  NGIN::UInt32 value{7};
+
+  ProviderDependencyService() { ++constructed; }
+};
+
+struct ProviderConsumerService {
+  inline static NGIN::UInt32 constructed{0};
+
+  explicit ProviderConsumerService(
+      NGIN::Memory::Shared<NGIN::Core::IServiceProvider> provider)
+      : services(std::move(provider)) {
+    ++constructed;
+    auto resolved = services->ResolveRequired<ProviderDependencyService>();
+    if (resolved.HasValue()) {
+      dependency = resolved.Value();
+    }
+  }
+
+  NGIN::Memory::Shared<NGIN::Core::IServiceProvider> services{};
+  NGIN::Memory::Shared<ProviderDependencyService> dependency{};
+};
+
 [[nodiscard]] auto
 MakeMountedVirtualFileSystem(const NGIN::IO::Path &realRoot,
                              const NGIN::IO::Path &virtualPrefix)
@@ -222,10 +252,11 @@ public:
 
   auto OnRegister(NGIN::Core::ModuleContext &context) noexcept
       -> NGIN::Core::CoreResult<void> override {
-    return context.RegisterFactory(
+    return context.RegisterFactory<NGIN::UInt32>(
         m_key,
-        []() -> NGIN::Core::CoreResult<NGIN::Utilities::Any<>> {
-          return NGIN::Utilities::Any<>(NGIN::UInt32{42});
+        [](NGIN::Core::ServiceResolutionContext &)
+            -> NGIN::Core::CoreResult<NGIN::Memory::Shared<NGIN::UInt32>> {
+          return NGIN::Memory::MakeShared<NGIN::UInt32>(42);
         },
         NGIN::Core::ServiceLifetime::Scoped);
   }
@@ -240,8 +271,7 @@ public:
 
   auto OnRegister(NGIN::Core::ModuleContext &context) noexcept
       -> NGIN::Core::CoreResult<void> override {
-    return context.RegisterSingleton(
-        m_key, NGIN::Utilities::Any<>(std::string("provided")));
+    return context.RegisterSingletonValue<std::string>(m_key, "provided");
   }
 
 private:
@@ -355,9 +385,8 @@ auto BootstrapSamplesPackage(NGIN::Core::PackageBootstrapContext &context)
     -> NGIN::Core::CoreResult<void> {
   using namespace NGIN::Core;
 
-  context.Services().AddSingleton(
-      "Samples.Package.Message",
-      NGIN::Utilities::Any<>(std::string("bootstrapped")));
+  context.Services().AddSingletonValue<std::string>(
+      "Samples.Package.Message", "bootstrapped");
 
   context.Modules()
       .Register(MakeRegistration(
@@ -376,9 +405,8 @@ auto BootstrapSamplesPackage(NGIN::Core::PackageBootstrapContext &context)
 
 auto BootstrapSamplesPackageAlt(NGIN::Core::PackageBootstrapContext &context)
     -> NGIN::Core::CoreResult<void> {
-  context.Services().AddSingleton(
-      "Samples.Package.Message",
-      NGIN::Utilities::Any<>(std::string("bootstrapped-alt")));
+  context.Services().AddSingletonValue<std::string>(
+      "Samples.Package.Message", "bootstrapped-alt");
   return {};
 }
 
@@ -780,11 +808,12 @@ TEST_CASE("ServiceRegistrySupportsSingletonScopedTransient",
   NGIN::UInt32 transientCounter = 0;
 
   REQUIRE(registry
-              ->RegisterFactory(
+              ->RegisterFactory<NGIN::UInt32>(
                   "Svc.Singleton",
-                  [&]() -> NGIN::Core::CoreResult<NGIN::Utilities::Any<>> {
+                  [&](NGIN::Core::ServiceResolutionContext &)
+                      -> NGIN::Core::CoreResult<NGIN::Memory::Shared<NGIN::UInt32>> {
                     ++singletonCounter;
-                    return NGIN::Utilities::Any<>(singletonCounter);
+                    return NGIN::Memory::MakeShared<NGIN::UInt32>(singletonCounter);
                   },
                   NGIN::Core::ServiceRegistrationOptions{
                       .lifetime = NGIN::Core::ServiceLifetime::Singleton,
@@ -793,11 +822,12 @@ TEST_CASE("ServiceRegistrySupportsSingletonScopedTransient",
               .HasValue());
 
   REQUIRE(registry
-              ->RegisterFactory(
+              ->RegisterFactory<NGIN::UInt32>(
                   "Svc.Scoped",
-                  [&]() -> NGIN::Core::CoreResult<NGIN::Utilities::Any<>> {
+                  [&](NGIN::Core::ServiceResolutionContext &)
+                      -> NGIN::Core::CoreResult<NGIN::Memory::Shared<NGIN::UInt32>> {
                     ++scopedCounter;
-                    return NGIN::Utilities::Any<>(scopedCounter);
+                    return NGIN::Memory::MakeShared<NGIN::UInt32>(scopedCounter);
                   },
                   NGIN::Core::ServiceRegistrationOptions{
                       .lifetime = NGIN::Core::ServiceLifetime::Scoped,
@@ -806,11 +836,12 @@ TEST_CASE("ServiceRegistrySupportsSingletonScopedTransient",
               .HasValue());
 
   REQUIRE(registry
-              ->RegisterFactory(
+              ->RegisterFactory<NGIN::UInt32>(
                   "Svc.Transient",
-                  [&]() -> NGIN::Core::CoreResult<NGIN::Utilities::Any<>> {
+                  [&](NGIN::Core::ServiceResolutionContext &)
+                      -> NGIN::Core::CoreResult<NGIN::Memory::Shared<NGIN::UInt32>> {
                     ++transientCounter;
-                    return NGIN::Utilities::Any<>(transientCounter);
+                    return NGIN::Memory::MakeShared<NGIN::UInt32>(transientCounter);
                   },
                   NGIN::Core::ServiceRegistrationOptions{
                       .lifetime = NGIN::Core::ServiceLifetime::Transient,
@@ -818,35 +849,120 @@ TEST_CASE("ServiceRegistrySupportsSingletonScopedTransient",
                   })
               .HasValue());
 
-  auto s1 = registry->ResolveRequired("Svc.Singleton");
-  auto s2 = registry->ResolveRequired("Svc.Singleton");
+  auto s1 = registry->ResolveRequired<NGIN::UInt32>("Svc.Singleton");
+  auto s2 = registry->ResolveRequired<NGIN::UInt32>("Svc.Singleton");
   REQUIRE(s1.HasValue());
   REQUIRE(s2.HasValue());
-  REQUIRE(*s1.Value().TryCast<NGIN::UInt32>() == 1);
-  REQUIRE(*s2.Value().TryCast<NGIN::UInt32>() == 1);
+  REQUIRE(s1.Value().Get() == s2.Value().Get());
+  REQUIRE(*s1.Value() == 1);
+  REQUIRE(*s2.Value() == 1);
 
-  auto scopedA1 = registry->ResolveRequired("Svc.Scoped", scopeA.Value());
-  auto scopedA2 = registry->ResolveRequired("Svc.Scoped", scopeA.Value());
-  auto scopedB1 = registry->ResolveRequired("Svc.Scoped", scopeB.Value());
+  auto scopedA1 = registry->ResolveRequired<NGIN::UInt32>("Svc.Scoped", scopeA.Value());
+  auto scopedA2 = registry->ResolveRequired<NGIN::UInt32>("Svc.Scoped", scopeA.Value());
+  auto scopedB1 = registry->ResolveRequired<NGIN::UInt32>("Svc.Scoped", scopeB.Value());
   REQUIRE(scopedA1.HasValue());
   REQUIRE(scopedA2.HasValue());
   REQUIRE(scopedB1.HasValue());
-  REQUIRE(*scopedA1.Value().TryCast<NGIN::UInt32>() ==
-          *scopedA2.Value().TryCast<NGIN::UInt32>());
-  REQUIRE(*scopedB1.Value().TryCast<NGIN::UInt32>() !=
-          *scopedA1.Value().TryCast<NGIN::UInt32>());
+  REQUIRE(scopedA1.Value().Get() == scopedA2.Value().Get());
+  REQUIRE(scopedB1.Value().Get() != scopedA1.Value().Get());
 
-  auto t1 = registry->ResolveRequired("Svc.Transient", scopeA.Value());
-  auto t2 = registry->ResolveRequired("Svc.Transient", scopeA.Value());
+  auto t1 = registry->ResolveRequired<NGIN::UInt32>("Svc.Transient", scopeA.Value());
+  auto t2 = registry->ResolveRequired<NGIN::UInt32>("Svc.Transient", scopeA.Value());
   REQUIRE(t1.HasValue());
   REQUIRE(t2.HasValue());
-  REQUIRE(*t1.Value().TryCast<NGIN::UInt32>() !=
-          *t2.Value().TryCast<NGIN::UInt32>());
+  REQUIRE(t1.Value().Get() != t2.Value().Get());
 
   REQUIRE(registry->EndScope(scopeA.Value()).HasValue());
-  auto scopedAfterEnd = registry->ResolveOptional("Svc.Scoped", scopeA.Value());
+  auto scopedAfterEnd = registry->ResolveOptional<NGIN::UInt32>("Svc.Scoped", scopeA.Value());
   REQUIRE(scopedAfterEnd.HasValue());
   REQUIRE_FALSE(scopedAfterEnd.Value().has_value());
+}
+
+TEST_CASE("ServiceRegistryAutoConstructsLazyServices",
+          "[runtime][services]") {
+  AutoConstructedService::constructed = 0;
+
+  auto registry = NGIN::Core::CreateServiceRegistry();
+  REQUIRE(static_cast<bool>(registry));
+
+  REQUIRE(registry->RegisterSingleton<AutoConstructedService>().HasValue());
+  REQUIRE(AutoConstructedService::constructed == 0);
+
+  auto first = registry->ResolveRequired<AutoConstructedService>();
+  auto second = registry->ResolveRequired<AutoConstructedService>();
+  REQUIRE(first.HasValue());
+  REQUIRE(second.HasValue());
+  REQUIRE(AutoConstructedService::constructed == 1);
+  REQUIRE(first.Value().Get() == second.Value().Get());
+
+  auto scopeA =
+      registry->BeginScope(NGIN::Core::ServiceScopeKind::Module, "Auto.A");
+  auto scopeB =
+      registry->BeginScope(NGIN::Core::ServiceScopeKind::Module, "Auto.B");
+  REQUIRE(scopeA.HasValue());
+  REQUIRE(scopeB.HasValue());
+
+  REQUIRE(registry
+              ->RegisterScoped<ProviderDependencyService>(
+                  NGIN::Core::ServiceRegistrationOptions{
+                      .lifetime = NGIN::Core::ServiceLifetime::Scoped,
+                      .ownerScope = scopeA.Value(),
+                  })
+              .HasValue());
+  REQUIRE(registry
+              ->RegisterTransient<ProviderConsumerService>(
+                  NGIN::Core::ServiceRegistrationOptions{
+                      .lifetime = NGIN::Core::ServiceLifetime::Transient,
+                      .ownerScope = scopeA.Value(),
+                  })
+              .HasValue());
+
+  ProviderDependencyService::constructed = 0;
+  ProviderConsumerService::constructed = 0;
+
+  auto consumerA1 =
+      registry->ResolveRequired<ProviderConsumerService>(scopeA.Value());
+  auto consumerA2 =
+      registry->ResolveRequired<ProviderConsumerService>(scopeA.Value());
+  REQUIRE(consumerA1.HasValue());
+  REQUIRE(consumerA2.HasValue());
+  REQUIRE(consumerA1.Value().Get() != consumerA2.Value().Get());
+  REQUIRE(ProviderConsumerService::constructed == 2);
+  REQUIRE(ProviderDependencyService::constructed == 1);
+  REQUIRE(consumerA1.Value()->dependency.Get() ==
+          consumerA2.Value()->dependency.Get());
+  REQUIRE(consumerA1.Value()->dependency->value == 7);
+
+  auto consumerB =
+      registry->ResolveRequired<ProviderConsumerService>(scopeB.Value());
+  REQUIRE(consumerB.HasValue());
+  REQUIRE(ProviderDependencyService::constructed == 2);
+  REQUIRE(consumerB.Value()->dependency.Get() !=
+          consumerA1.Value()->dependency.Get());
+}
+
+TEST_CASE("ServiceRegistryReportsTypedResolutionErrors",
+          "[runtime][services]") {
+  auto registry = NGIN::Core::CreateServiceRegistry();
+  REQUIRE(static_cast<bool>(registry));
+
+  REQUIRE(registry
+              ->RegisterSingletonValue<std::string>("Svc.Message", "hello")
+              .HasValue());
+
+  auto wrongType = registry->ResolveRequired<NGIN::UInt32>("Svc.Message");
+  REQUIRE_FALSE(wrongType.HasValue());
+  REQUIRE(wrongType.Error().code ==
+          NGIN::Core::KernelErrorCode::InvalidArgument);
+
+  auto missingOptional = registry->ResolveOptional<std::string>("Svc.Missing");
+  REQUIRE(missingOptional.HasValue());
+  REQUIRE_FALSE(missingOptional.Value().has_value());
+
+  auto missingRequired = registry->ResolveRequired<std::string>("Svc.Missing");
+  REQUIRE_FALSE(missingRequired.HasValue());
+  REQUIRE(missingRequired.Error().code ==
+          NGIN::Core::KernelErrorCode::NotFound);
 }
 
 TEST_CASE("ModuleRequiredServiceContractsAreEnforcedBeforeInit",
@@ -1343,8 +1459,8 @@ TEST_CASE("ApplicationBuilderBuildsHostFromCode", "[builder][host]") {
   auto builder = NGIN::Core::CreateApplicationBuilder(0, nullptr);
   builder->SetApplicationName("Builder.Tests");
   builder->SetConfiguration("Builder.Target");
-  builder->Services().AddDefaults().AddConfiguration().AddSingleton(
-      "App.Message", NGIN::Utilities::Any<>(std::string("hello-builder")));
+  builder->Services().AddDefaults().AddConfiguration().AddSingletonValue<std::string>(
+      "App.Message", "hello-builder");
   builder->Modules()
       .Register(MakeRegistration(
           MakeDescriptor("App.Builder", NGIN::Core::ModuleFamily::App,
@@ -1370,10 +1486,9 @@ TEST_CASE("ApplicationBuilderBuildsHostFromCode", "[builder][host]") {
   auto services = app.Value()->GetServices();
   REQUIRE(static_cast<bool>(services));
 
-  auto resolved = services->ResolveRequired("App.Message");
+  auto resolved = services->ResolveRequired<std::string>("App.Message");
   REQUIRE(resolved.HasValue());
-  REQUIRE(resolved.Value().template TryCast<std::string>() != nullptr);
-  REQUIRE(*resolved.Value().template TryCast<std::string>() == "hello-builder");
+  REQUIRE(*resolved.Value() == "hello-builder");
 
   auto config = app.Value()->GetConfig();
   REQUIRE(static_cast<bool>(config));
@@ -1737,10 +1852,9 @@ TEST_CASE("ApplicationBuilderExecutesExplicitPackageBootstrapFromManifestFile",
   auto services = app.Value()->GetServices();
   REQUIRE(static_cast<bool>(services));
 
-  auto message = services->ResolveRequired("Samples.Package.Message");
+  auto message = services->ResolveRequired<std::string>("Samples.Package.Message");
   REQUIRE(message.HasValue());
-  REQUIRE(message.Value().template TryCast<std::string>() != nullptr);
-  REQUIRE(*message.Value().template TryCast<std::string>() == "bootstrapped");
+  REQUIRE(*message.Value() == "bootstrapped");
 
   auto config = app.Value()->GetConfig();
   REQUIRE(static_cast<bool>(config));
@@ -1792,11 +1906,9 @@ TEST_CASE("ApplicationBuilderExecutesNamedPackageBootstrapEntry",
   auto services = app.Value()->GetServices();
   REQUIRE(static_cast<bool>(services));
 
-  auto message = services->ResolveRequired("Samples.Package.Message");
+  auto message = services->ResolveRequired<std::string>("Samples.Package.Message");
   REQUIRE(message.HasValue());
-  REQUIRE(message.Value().template TryCast<std::string>() != nullptr);
-  REQUIRE(*message.Value().template TryCast<std::string>() ==
-          "bootstrapped-alt");
+  REQUIRE(*message.Value() == "bootstrapped-alt");
 
   REQUIRE(app.Value()->Shutdown().HasValue());
 }

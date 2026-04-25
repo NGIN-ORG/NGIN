@@ -32,7 +32,7 @@ namespace
                     rec.Message("App.HostedCore runtime module started");
                 });
             }
-            return context.RegisterSingleton("App.HostedCore.Ready", NGIN::Utilities::Any<>(true));
+            return context.RegisterSingletonValue<bool>("App.HostedCore.Ready", true);
         }
     };
 }
@@ -101,7 +101,7 @@ int main(int argc, char** argv)
         std::cerr << "Service registry unavailable\n";
         return 6;
     }
-    auto ready = services->ResolveOptional("App.HostedCore.Ready");
+    auto ready = services->ResolveOptional<bool>("App.HostedCore.Ready");
     if (!ready || !ready.Value().has_value())
     {
         std::cerr << "Hosted module service was not registered\n";

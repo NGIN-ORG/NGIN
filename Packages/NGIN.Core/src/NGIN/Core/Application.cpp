@@ -27,11 +27,7 @@ namespace NGIN::Core
 
     struct PendingServiceRegistration
     {
-      std::string key{};
-      std::optional<NGIN::Utilities::Any<>> instance{};
-      std::optional<ServiceFactory> factory{};
-      ServiceLifetime lifetime{ServiceLifetime::Singleton};
-      ServiceMetadata metadata{};
+      std::shared_ptr<detail::ServiceProviderBase> provider{};
     };
 
     struct PackageBootstrapRequest
@@ -2272,27 +2268,15 @@ namespace NGIN::Core
       explicit ServiceCollectionImpl(ApplicationBuilderImpl &owner)
           : m_owner(owner) {}
 
-      auto AddSingleton(std::string key, NGIN::Utilities::Any<> service,
-                        ServiceMetadata metadata = {})
-          -> ServiceCollection & override;
-
-      auto AddFactory(std::string key, ServiceFactory factory,
-                      ServiceLifetime lifetime, ServiceMetadata metadata = {})
-          -> ServiceCollection & override;
-
-      auto AddScoped(std::string key, ServiceFactory factory,
-                     ServiceMetadata metadata = {}) -> ServiceCollection & override;
-
-      auto AddTransient(std::string key, ServiceFactory factory,
-                        ServiceMetadata metadata = {})
-          -> ServiceCollection & override;
-
       auto AddDefaults() -> ServiceCollection & override;
       auto AddLogging() -> ServiceCollection & override;
       auto AddConfiguration() -> ServiceCollection & override;
       auto Clear() -> ServiceCollection & override;
 
     private:
+      auto AddProvider(std::shared_ptr<detail::ServiceProviderBase> provider)
+          -> ServiceCollection & override;
+
       ApplicationBuilderImpl &m_owner;
     };
 
@@ -3104,7 +3088,9 @@ namespace NGIN::Core
               pendingServices.begin(), pendingServices.end(),
               [](const PendingServiceRegistration &registration)
               {
-                return registration.lifetime != ServiceLifetime::Singleton;
+                return registration.provider &&
+                       registration.provider->Options().lifetime !=
+                           ServiceLifetime::Singleton;
               });
 
           if (requiresHostScope)
@@ -3120,22 +3106,32 @@ namespace NGIN::Core
 
           if (addDefaults)
           {
-            auto result = context.services->RegisterInstance(
-                "Core.Services", NGIN::Utilities::Any<>(context.services));
+            auto serviceProvider =
+                NGIN::Memory::MakeSharedAs<IServiceProvider, detail::ServiceProviderReference>(
+                    context.services.Get(), ServiceScopeId::Global());
+            auto result = context.services->RegisterSingleton<IServiceProvider>(
+                "Core.Services", serviceProvider);
             if (!result)
             {
               return NGIN::Utilities::Unexpected<KernelError>(result.Error());
             }
 
-            result = context.services->RegisterInstance(
-                "Core.Events", NGIN::Utilities::Any<>(context.events));
+            result = context.services->RegisterSingleton<IServiceRegistry>(
+                "Core.ServiceRegistry", context.services);
             if (!result)
             {
               return NGIN::Utilities::Unexpected<KernelError>(result.Error());
             }
 
-            result = context.services->RegisterInstance(
-                "Core.Tasks", NGIN::Utilities::Any<>(context.tasks));
+            result = context.services->RegisterSingleton<IEventBus>(
+                "Core.Events", context.events);
+            if (!result)
+            {
+              return NGIN::Utilities::Unexpected<KernelError>(result.Error());
+            }
+
+            result = context.services->RegisterSingleton<ITaskRuntime>(
+                "Core.Tasks", context.tasks);
             if (!result)
             {
               return NGIN::Utilities::Unexpected<KernelError>(result.Error());
@@ -3144,8 +3140,8 @@ namespace NGIN::Core
 
           if (addConfiguration)
           {
-            auto result = context.services->RegisterInstance(
-                "Core.Configuration", NGIN::Utilities::Any<>(context.config));
+            auto result = context.services->RegisterSingleton<IConfigStore>(
+                "Core.Configuration", context.config);
             if (!result)
             {
               return NGIN::Utilities::Unexpected<KernelError>(result.Error());
@@ -3154,8 +3150,8 @@ namespace NGIN::Core
 
           if (addLogging && context.loggerRegistry != nullptr)
           {
-            auto result = context.services->RegisterInstance(
-                "Core.Logging", NGIN::Utilities::Any<>(context.loggerRegistry));
+            auto result = context.services->RegisterSingletonValue<NGIN::Log::LoggerRegistry *>(
+                "Core.Logging", context.loggerRegistry);
             if (!result)
             {
               return NGIN::Utilities::Unexpected<KernelError>(result.Error());
@@ -3164,24 +3160,20 @@ namespace NGIN::Core
 
           for (const auto &registration : pendingServices)
           {
+            if (!registration.provider)
+            {
+              continue;
+            }
+
             ServiceRegistrationOptions options{};
-            options.lifetime = registration.lifetime;
-            options.ownerScope = registration.lifetime == ServiceLifetime::Singleton
+            options.lifetime = registration.provider->Options().lifetime;
+            options.ownerScope = options.lifetime == ServiceLifetime::Singleton
                                      ? ServiceScopeId::Global()
                                      : hostScope;
-            options.metadata = registration.metadata;
+            options.metadata = registration.provider->Options().metadata;
 
-            CoreResult<void> result{};
-            if (registration.instance.has_value())
-            {
-              result = context.services->RegisterInstance(
-                  registration.key, *registration.instance, options);
-            }
-            else
-            {
-              result = context.services->RegisterFactory(
-                  registration.key, *registration.factory, options);
-            }
+            auto result = context.services->RegisterProvider(
+                registration.provider->CloneWithOptions(std::move(options)));
 
             if (!result)
             {
@@ -3253,59 +3245,18 @@ namespace NGIN::Core
       ConfigurationBuilderImpl m_configuration;
     };
 
-    auto ServiceCollectionImpl::AddSingleton(std::string key,
-                                             NGIN::Utilities::Any<> service,
-                                             ServiceMetadata metadata)
+    auto ServiceCollectionImpl::AddProvider(
+        std::shared_ptr<detail::ServiceProviderBase> provider)
         -> ServiceCollection &
     {
       m_owner.MarkMutating();
       if (!m_owner.HasStickyError())
       {
         m_owner.m_pendingServices.push_back(PendingServiceRegistration{
-            .key = std::move(key),
-            .instance = std::move(service),
-            .factory = std::nullopt,
-            .lifetime = ServiceLifetime::Singleton,
-            .metadata = std::move(metadata),
+            .provider = std::move(provider),
         });
       }
       return *this;
-    }
-
-    auto ServiceCollectionImpl::AddFactory(std::string key, ServiceFactory factory,
-                                           const ServiceLifetime lifetime,
-                                           ServiceMetadata metadata)
-        -> ServiceCollection &
-    {
-      m_owner.MarkMutating();
-      if (!m_owner.HasStickyError())
-      {
-        m_owner.m_pendingServices.push_back(PendingServiceRegistration{
-            .key = std::move(key),
-            .instance = std::nullopt,
-            .factory = std::move(factory),
-            .lifetime = lifetime,
-            .metadata = std::move(metadata),
-        });
-      }
-      return *this;
-    }
-
-    auto ServiceCollectionImpl::AddScoped(std::string key, ServiceFactory factory,
-                                          ServiceMetadata metadata)
-        -> ServiceCollection &
-    {
-      return AddFactory(std::move(key), std::move(factory), ServiceLifetime::Scoped,
-                        std::move(metadata));
-    }
-
-    auto ServiceCollectionImpl::AddTransient(std::string key,
-                                             ServiceFactory factory,
-                                             ServiceMetadata metadata)
-        -> ServiceCollection &
-    {
-      return AddFactory(std::move(key), std::move(factory),
-                        ServiceLifetime::Transient, std::move(metadata));
     }
 
     auto ServiceCollectionImpl::AddDefaults() -> ServiceCollection &

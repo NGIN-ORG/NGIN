@@ -49,7 +49,7 @@ namespace
                 });
             }
 
-            return context.RegisterSingleton(m_serviceKey, NGIN::Utilities::Any<>(std::string("ready")));
+            return context.RegisterSingletonValue<std::string>(m_serviceKey, "ready");
         }
 
     private:
@@ -104,13 +104,7 @@ namespace
 
     [[nodiscard]] auto HasService(NGIN::Core::IServiceRegistry& services, const std::string_view key) -> CoreResult<bool>
     {
-        auto value = services.ResolveOptional(key);
-        if (!value)
-        {
-            return NGIN::Utilities::Unexpected<NGIN::Core::KernelError>(value.ErrorUnsafe());
-        }
-
-        return value.ValueUnsafe().has_value();
+        return services.HasServiceContract(key);
     }
 
     [[nodiscard]] auto GetExpectations(const std::string_view configuration) -> std::optional<ConfigurationExpectations>

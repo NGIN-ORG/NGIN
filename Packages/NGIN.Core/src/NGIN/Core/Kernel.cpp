@@ -1132,12 +1132,7 @@ private:
     for (std::size_t index = 0; index < m_resolvedModules.size(); ++index) {
       const auto &descriptor = m_resolvedModules[index].registration.descriptor;
       for (const auto &requiredService : descriptor.requiresServices) {
-        auto resolved =
-            m_services->ResolveOptional(requiredService, m_moduleScopes[index]);
-        if (!resolved) {
-          return NGIN::Utilities::Unexpected<KernelError>(resolved.Error());
-        }
-        if (!resolved.Value().has_value()) {
+        if (!m_services->HasServiceContract(requiredService)) {
           return NGIN::Utilities::Unexpected<KernelError>(MakeKernelError(
               KernelErrorCode::MissingRequiredDependency, "Services",
               descriptor.name,

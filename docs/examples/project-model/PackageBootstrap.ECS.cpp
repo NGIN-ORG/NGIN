@@ -7,12 +7,12 @@ namespace
     auto BootstrapEcs(PackageBootstrapContext &context) -> CoreResult<void>
     {
         context.Services()
-            .AddSingleton("NGIN.ECS.Registry", NGIN::Utilities::Any<>(std::string("ecs-registry")))
-            .AddScoped(
+            .AddSingletonValue<std::string>("NGIN.ECS.Registry", "ecs-registry")
+            .AddScoped<std::string>(
                 "NGIN.ECS.WorldFactory",
-                []() -> CoreResult<NGIN::Utilities::Any<>>
+                [](ServiceResolutionContext &) -> CoreResult<NGIN::Memory::Shared<std::string>>
                 {
-                    return NGIN::Utilities::Any<>(std::string("ecs-world"));
+                    return NGIN::Memory::MakeShared<std::string>("ecs-world");
                 });
         return {};
     }

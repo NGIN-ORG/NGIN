@@ -14,7 +14,7 @@ int main(int argc, char** argv)
         .AddDefaults()
         .AddLogging()
         .AddConfiguration()
-        .AddSingleton("Game.Name", NGIN::Utilities::Any<>(std::string("Sandbox.Game")));
+        .AddSingletonValue<std::string>("Game.Name", "Sandbox.Game");
 
     builder->Packages().Add({
         .name = "NGIN.ECS",

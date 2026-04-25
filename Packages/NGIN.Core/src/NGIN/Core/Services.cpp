@@ -45,8 +45,8 @@ namespace NGIN::Core
 
         for (auto entryIt = m_entries.begin(); entryIt != m_entries.end();)
         {
-            entryIt->second.scopedCache.erase(scopeId.value);
-            if (entryIt->second.options.ownerScope == scopeId)
+            entryIt->second->RemoveScope(scopeId);
+            if (entryIt->second->Options().ownerScope == scopeId)
             {
                 entryIt = m_entries.erase(entryIt);
             }
@@ -80,194 +80,107 @@ namespace NGIN::Core
         return CoreResult<void> {};
     }
 
-    auto ServiceRegistry::RegisterInstance(
-        std::string key,
-        NGIN::Utilities::Any<> service,
-        ServiceRegistrationOptions options) noexcept -> CoreResult<void>
+    auto ServiceRegistry::RegisterProvider(std::shared_ptr<detail::ServiceProviderBase> provider) noexcept -> CoreResult<void>
     {
-        if (key.empty())
+        if (!provider)
         {
             return NGIN::Utilities::Unexpected<KernelError>(
-                MakeKernelError(KernelErrorCode::InvalidArgument, "Services", {}, "service key cannot be empty"));
+                MakeKernelError(KernelErrorCode::InvalidArgument, "Services", {}, "service provider cannot be null"));
+        }
+
+        if (provider->Key().typeId == 0 || provider->Key().typeName.empty())
+        {
+            return NGIN::Utilities::Unexpected<KernelError>(
+                MakeKernelError(KernelErrorCode::InvalidArgument, "Services", provider->Key().ContractName(), "service key cannot be empty"));
         }
 
         std::lock_guard<std::mutex> lock(m_mutex);
-        if (auto valid = ValidateOptions(options); !valid)
+        if (auto valid = ValidateOptions(provider->Options()); !valid)
         {
             return NGIN::Utilities::Unexpected<KernelError>(valid.Error());
         }
 
-        if (options.lifetime != ServiceLifetime::Singleton)
+        if (m_entries.contains(provider->Key()))
         {
             return NGIN::Utilities::Unexpected<KernelError>(
-                MakeKernelError(
-                    KernelErrorCode::InvalidArgument,
-                    "Services",
-                    key,
-                    "RegisterInstance currently supports singleton lifetime only"));
+                MakeKernelError(KernelErrorCode::AlreadyExists, "Services", provider->Key().ContractName(), "service key already registered: " + provider->Key().ContractName()));
         }
 
-        if (m_entries.contains(key))
+        if (!provider->Key().name.empty())
         {
-            return NGIN::Utilities::Unexpected<KernelError>(
-                MakeKernelError(KernelErrorCode::AlreadyExists, "Services", {}, "service key already registered: " + key));
+            const auto contractName = provider->Key().ContractName();
+            const auto contractIt = std::find_if(
+                m_entries.begin(),
+                m_entries.end(),
+                [&contractName](const auto& entry)
+                {
+                    return entry.second->MatchesContract(contractName);
+                });
+            if (contractIt != m_entries.end())
+            {
+                return NGIN::Utilities::Unexpected<KernelError>(
+                    MakeKernelError(KernelErrorCode::AlreadyExists, "Services", contractName, "service contract already registered: " + contractName));
+            }
         }
 
-        Entry entry {};
-        entry.singletonInstance.emplace(std::move(service));
-        entry.options = std::move(options);
-        m_entries.emplace(std::move(key), std::move(entry));
+        m_entries.emplace(provider->Key(), std::move(provider));
         return CoreResult<void> {};
     }
 
-    auto ServiceRegistry::RegisterFactory(
-        std::string key,
-        ServiceFactory factory,
-        ServiceRegistrationOptions options) noexcept -> CoreResult<void>
+    auto ServiceRegistry::FindProvider(const ServiceKey& key) noexcept -> std::shared_ptr<detail::ServiceProviderBase>
     {
-        if (key.empty())
-        {
-            return NGIN::Utilities::Unexpected<KernelError>(
-                MakeKernelError(KernelErrorCode::InvalidArgument, "Services", {}, "service key cannot be empty"));
-        }
-        if (!factory)
-        {
-            return NGIN::Utilities::Unexpected<KernelError>(
-                MakeKernelError(KernelErrorCode::InvalidArgument, "Services", {}, "service factory cannot be empty"));
-        }
-
         std::lock_guard<std::mutex> lock(m_mutex);
-        if (auto valid = ValidateOptions(options); !valid)
-        {
-            return NGIN::Utilities::Unexpected<KernelError>(valid.Error());
-        }
-
-        if (m_entries.contains(key))
-        {
-            return NGIN::Utilities::Unexpected<KernelError>(
-                MakeKernelError(KernelErrorCode::AlreadyExists, "Services", {}, "service key already registered: " + key));
-        }
-
-        Entry entry {};
-        entry.factory.emplace(std::move(factory));
-        entry.options = std::move(options);
-        m_entries.emplace(std::move(key), std::move(entry));
-        return CoreResult<void> {};
-    }
-
-    auto ServiceRegistry::ResolveOptional(const std::string_view key, const ServiceScopeId resolveScope) noexcept
-        -> CoreResult<std::optional<NGIN::Utilities::Any<>>>
-    {
-        ServiceFactory factory {};
-        ServiceLifetime lifetime = ServiceLifetime::Singleton;
-        ServiceScopeId ownerScope = ServiceScopeId::Global();
-
-        {
-            std::lock_guard<std::mutex> lock(m_mutex);
-            const auto it = m_entries.find(std::string(key));
-            if (it == m_entries.end())
-            {
-                return std::optional<NGIN::Utilities::Any<>> {};
-            }
-
-            lifetime = it->second.options.lifetime;
-            ownerScope = it->second.options.ownerScope;
-
-            if (lifetime == ServiceLifetime::Singleton && it->second.singletonInstance.has_value())
-            {
-                return it->second.singletonInstance;
-            }
-
-            if (lifetime == ServiceLifetime::Scoped)
-            {
-                const ServiceScopeId activeScope = resolveScope.IsGlobal() ? ownerScope : resolveScope;
-                if (activeScope.IsGlobal())
-                {
-                    return NGIN::Utilities::Unexpected<KernelError>(
-                        MakeKernelError(KernelErrorCode::InvalidArgument, "Services", std::string(key), "scoped resolve requires non-global scope"));
-                }
-                if (!m_scopes.contains(activeScope.value))
-                {
-                    return NGIN::Utilities::Unexpected<KernelError>(
-                        MakeKernelError(KernelErrorCode::NotFound, "Services", std::string(key), "resolve scope not found"));
-                }
-                const auto cacheIt = it->second.scopedCache.find(activeScope.value);
-                if (cacheIt != it->second.scopedCache.end())
-                {
-                    return std::optional<NGIN::Utilities::Any<>> {cacheIt->second};
-                }
-            }
-
-            if (!it->second.factory.has_value())
-            {
-                return std::optional<NGIN::Utilities::Any<>> {};
-            }
-            factory = *it->second.factory;
-        }
-
-        auto created = factory();
-        if (!created)
-        {
-            return NGIN::Utilities::Unexpected<KernelError>(created.Error());
-        }
-
-        std::lock_guard<std::mutex> lock(m_mutex);
-        auto it = m_entries.find(std::string(key));
+        const auto it = m_entries.find(key);
         if (it == m_entries.end())
         {
-            return std::optional<NGIN::Utilities::Any<>> {created.Value()};
+            return {};
         }
-
-        switch (lifetime)
-        {
-            case ServiceLifetime::Singleton:
-                if (!it->second.singletonInstance.has_value())
-                {
-                    it->second.singletonInstance.emplace(created.Value());
-                }
-                return it->second.singletonInstance;
-            case ServiceLifetime::Scoped:
-            {
-                const ServiceScopeId activeScope = resolveScope.IsGlobal() ? ownerScope : resolveScope;
-                if (activeScope.IsGlobal())
-                {
-                    return NGIN::Utilities::Unexpected<KernelError>(
-                        MakeKernelError(KernelErrorCode::InvalidArgument, "Services", std::string(key), "scoped resolve requires non-global scope"));
-                }
-                if (!m_scopes.contains(activeScope.value))
-                {
-                    return NGIN::Utilities::Unexpected<KernelError>(
-                        MakeKernelError(KernelErrorCode::NotFound, "Services", std::string(key), "resolve scope not found"));
-                }
-                auto cacheIt = it->second.scopedCache.find(activeScope.value);
-                if (cacheIt == it->second.scopedCache.end())
-                {
-                    cacheIt = it->second.scopedCache.emplace(activeScope.value, created.Value()).first;
-                }
-                return std::optional<NGIN::Utilities::Any<>> {cacheIt->second};
-            }
-            case ServiceLifetime::Transient:
-                return std::optional<NGIN::Utilities::Any<>> {created.Value()};
-        }
-
-        return std::optional<NGIN::Utilities::Any<>> {created.Value()};
+        return it->second;
     }
 
-    auto ServiceRegistry::ResolveRequired(const std::string_view key, const ServiceScopeId resolveScope) noexcept -> CoreResult<NGIN::Utilities::Any<>>
+    auto ServiceRegistry::EffectiveResolveScope(
+        const detail::ServiceProviderBase& provider,
+        const ServiceScopeId requestedScope) const noexcept -> ServiceScopeId
     {
-        auto optionalValue = ResolveOptional(key, resolveScope);
-        if (!optionalValue)
+        return requestedScope.IsGlobal() ? provider.Options().ownerScope : requestedScope;
+    }
+
+    auto ServiceRegistry::ValidateResolve(
+        const detail::ServiceProviderBase& provider,
+        const ServiceScopeId resolveScope) const noexcept -> CoreResult<void>
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        const auto& options = provider.Options();
+        if (options.lifetime == ServiceLifetime::Singleton)
         {
-            return NGIN::Utilities::Unexpected<KernelError>(optionalValue.Error());
+            return CoreResult<void> {};
         }
 
-        if (!optionalValue.Value().has_value())
+        const ServiceScopeId activeScope = resolveScope.IsGlobal() ? options.ownerScope : resolveScope;
+        if (activeScope.IsGlobal())
         {
             return NGIN::Utilities::Unexpected<KernelError>(
-                MakeKernelError(KernelErrorCode::NotFound, "Services", {}, "service not found: " + std::string(key)));
+                MakeKernelError(KernelErrorCode::InvalidArgument, "Services", provider.Key().ContractName(), "scoped resolve requires non-global scope"));
+        }
+        if (!m_scopes.contains(activeScope.value))
+        {
+            return NGIN::Utilities::Unexpected<KernelError>(
+                MakeKernelError(KernelErrorCode::NotFound, "Services", provider.Key().ContractName(), "resolve scope not found"));
         }
 
-        return *optionalValue.Value();
+        return CoreResult<void> {};
+    }
+
+    auto ServiceRegistry::HasServiceContract(const std::string_view contractName) const noexcept -> bool
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        return std::any_of(
+            m_entries.begin(),
+            m_entries.end(),
+            [contractName](const auto& entry)
+            {
+                return entry.second->MatchesContract(contractName);
+            });
     }
 
     auto ServiceRegistry::EnumerateKeys() const -> std::vector<std::string>
@@ -275,9 +188,9 @@ namespace NGIN::Core
         std::lock_guard<std::mutex> lock(m_mutex);
         std::vector<std::string> keys;
         keys.reserve(m_entries.size());
-        for (const auto& [key, _] : m_entries)
+        for (const auto& [_, entry] : m_entries)
         {
-            keys.push_back(key);
+            keys.push_back(entry->Key().ContractName());
         }
         std::sort(keys.begin(), keys.end());
         return keys;

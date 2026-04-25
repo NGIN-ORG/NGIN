@@ -11,12 +11,12 @@
 #include <NGIN/Core/Loader.hpp>
 #include <NGIN/Core/Services.hpp>
 #include <NGIN/Memory/SmartPointers.hpp>
-#include <NGIN/Utilities/Any.hpp>
 
 #include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <vector>
 
 namespace NGIN::IO {
@@ -183,27 +183,137 @@ class ServiceCollection {
 public:
   virtual ~ServiceCollection() = default;
 
-  virtual auto AddSingleton(std::string key, NGIN::Utilities::Any<> service,
-                            ServiceMetadata metadata = {})
-      -> ServiceCollection & = 0;
+  template <typename T>
+  auto AddSingleton(ServiceMetadata metadata = {}) -> ServiceCollection & {
+    return AddFactory<T>({}, detail::MakeAutoFactory<T>(),
+                         ServiceLifetime::Singleton, std::move(metadata));
+  }
 
-  virtual auto AddFactory(std::string key, ServiceFactory factory,
-                          ServiceLifetime lifetime,
-                          ServiceMetadata metadata = {})
-      -> ServiceCollection & = 0;
+  template <typename T>
+  auto AddSingleton(std::string name, ServiceMetadata metadata = {})
+      -> ServiceCollection & {
+    return AddFactory<T>(std::move(name), detail::MakeAutoFactory<T>(),
+                         ServiceLifetime::Singleton, std::move(metadata));
+  }
 
-  virtual auto AddScoped(std::string key, ServiceFactory factory,
-                         ServiceMetadata metadata = {})
-      -> ServiceCollection & = 0;
+  template <typename T>
+  auto AddSingleton(NGIN::Memory::Shared<std::remove_cvref_t<T>> service,
+                    ServiceMetadata metadata = {}) -> ServiceCollection & {
+    return AddSingleton<T>({}, std::move(service), std::move(metadata));
+  }
 
-  virtual auto AddTransient(std::string key, ServiceFactory factory,
-                            ServiceMetadata metadata = {})
-      -> ServiceCollection & = 0;
+  template <typename T>
+  auto AddSingleton(std::string name,
+                    NGIN::Memory::Shared<std::remove_cvref_t<T>> service,
+                    ServiceMetadata metadata = {}) -> ServiceCollection & {
+    ServiceRegistrationOptions options{};
+    options.lifetime = ServiceLifetime::Singleton;
+    options.metadata = std::move(metadata);
+    return AddProvider(detail::MakeInstanceProvider<T>(
+        std::move(name), std::move(service), std::move(options)));
+  }
+
+  template <typename T>
+  auto AddSingletonValue(T value, ServiceMetadata metadata = {})
+      -> ServiceCollection & {
+    using ServiceType = std::remove_cvref_t<T>;
+    return AddSingleton<ServiceType>(
+        {}, NGIN::Memory::MakeShared<ServiceType>(std::move(value)),
+        std::move(metadata));
+  }
+
+  template <typename T>
+  auto AddSingletonValue(std::string name, T value, ServiceMetadata metadata = {})
+      -> ServiceCollection & {
+    using ServiceType = std::remove_cvref_t<T>;
+    return AddSingleton<ServiceType>(
+        std::move(name), NGIN::Memory::MakeShared<ServiceType>(std::move(value)),
+        std::move(metadata));
+  }
+
+  template <typename T>
+  auto AddFactory(ServiceProviderFactory<std::remove_cvref_t<T>> factory,
+                  ServiceLifetime lifetime, ServiceMetadata metadata = {})
+      -> ServiceCollection & {
+    return AddFactory<T>({}, std::move(factory), lifetime, std::move(metadata));
+  }
+
+  template <typename T>
+  auto AddFactory(std::string name,
+                  ServiceProviderFactory<std::remove_cvref_t<T>> factory,
+                  ServiceLifetime lifetime, ServiceMetadata metadata = {})
+      -> ServiceCollection & {
+    ServiceRegistrationOptions options{};
+    options.lifetime = lifetime;
+    options.metadata = std::move(metadata);
+    return AddProvider(detail::MakeFactoryProvider<T>(
+        std::move(name), std::move(factory), std::move(options)));
+  }
+
+  template <typename T>
+  auto AddScoped(ServiceMetadata metadata = {}) -> ServiceCollection & {
+    return AddFactory<T>({}, detail::MakeAutoFactory<T>(),
+                         ServiceLifetime::Scoped, std::move(metadata));
+  }
+
+  template <typename T>
+  auto AddScoped(std::string name, ServiceMetadata metadata = {})
+      -> ServiceCollection & {
+    return AddFactory<T>(std::move(name), detail::MakeAutoFactory<T>(),
+                         ServiceLifetime::Scoped, std::move(metadata));
+  }
+
+  template <typename T>
+  auto AddScoped(ServiceProviderFactory<std::remove_cvref_t<T>> factory,
+                 ServiceMetadata metadata = {}) -> ServiceCollection & {
+    return AddFactory<T>({}, std::move(factory), ServiceLifetime::Scoped,
+                         std::move(metadata));
+  }
+
+  template <typename T>
+  auto AddScoped(std::string name,
+                 ServiceProviderFactory<std::remove_cvref_t<T>> factory,
+                 ServiceMetadata metadata = {}) -> ServiceCollection & {
+    return AddFactory<T>(std::move(name), std::move(factory),
+                         ServiceLifetime::Scoped, std::move(metadata));
+  }
+
+  template <typename T>
+  auto AddTransient(ServiceMetadata metadata = {}) -> ServiceCollection & {
+    return AddFactory<T>({}, detail::MakeAutoFactory<T>(),
+                         ServiceLifetime::Transient, std::move(metadata));
+  }
+
+  template <typename T>
+  auto AddTransient(std::string name, ServiceMetadata metadata = {})
+      -> ServiceCollection & {
+    return AddFactory<T>(std::move(name), detail::MakeAutoFactory<T>(),
+                         ServiceLifetime::Transient, std::move(metadata));
+  }
+
+  template <typename T>
+  auto AddTransient(ServiceProviderFactory<std::remove_cvref_t<T>> factory,
+                    ServiceMetadata metadata = {}) -> ServiceCollection & {
+    return AddFactory<T>({}, std::move(factory), ServiceLifetime::Transient,
+                         std::move(metadata));
+  }
+
+  template <typename T>
+  auto AddTransient(std::string name,
+                    ServiceProviderFactory<std::remove_cvref_t<T>> factory,
+                    ServiceMetadata metadata = {}) -> ServiceCollection & {
+    return AddFactory<T>(std::move(name), std::move(factory),
+                         ServiceLifetime::Transient, std::move(metadata));
+  }
 
   virtual auto AddDefaults() -> ServiceCollection & = 0;
   virtual auto AddLogging() -> ServiceCollection & = 0;
   virtual auto AddConfiguration() -> ServiceCollection & = 0;
   virtual auto Clear() -> ServiceCollection & = 0;
+
+protected:
+  virtual auto AddProvider(std::shared_ptr<detail::ServiceProviderBase> provider)
+      -> ServiceCollection & = 0;
 };
 
 class PackageCollection {
