@@ -14,6 +14,8 @@ import {
   OverviewSectionModel,
   ProjectTreeChildModel,
   ProjectTreeConfigurationModel,
+  ProjectTreeDependencyKind,
+  ProjectTreeDependencyModel,
   ProjectTreeGroupKind,
   ProjectTreeGroupModel,
   ProjectTreeManifestModel,
@@ -144,6 +146,43 @@ class ProjectGroupTreeItem extends vscode.TreeItem {
     this.tooltip = model.tooltip;
     this.iconPath = new vscode.ThemeIcon(model.icon);
     this.contextValue = `nginProjectGroup.${model.group}`;
+  }
+}
+
+class ProjectDependencyGroupTreeItem extends vscode.TreeItem {
+  readonly projectPath: string;
+  readonly dependencyKind: ProjectTreeDependencyKind;
+
+  constructor(projectPath: string, dependencyKind: ProjectTreeDependencyKind, label: string) {
+    super(label, vscode.TreeItemCollapsibleState.Collapsed);
+    this.projectPath = projectPath;
+    this.dependencyKind = dependencyKind;
+    this.iconPath = new vscode.ThemeIcon(dependencyKind === 'projects' ? 'project' : 'package');
+    this.contextValue = `nginProjectDependencyGroup.${dependencyKind}`;
+  }
+}
+
+class ProjectDependencyTreeItem extends vscode.TreeItem {
+  readonly projectPath: string;
+  readonly dependencyKind: ProjectTreeDependencyKind;
+  readonly targetPath?: string;
+
+  constructor(model: ProjectTreeDependencyModel) {
+    super(model.label, vscode.TreeItemCollapsibleState.None);
+    this.projectPath = model.projectPath;
+    this.dependencyKind = model.kind;
+    this.targetPath = model.targetPath;
+    this.description = model.description;
+    this.tooltip = model.tooltip;
+    this.iconPath = new vscode.ThemeIcon(model.kind === 'projects' ? 'project' : 'package');
+    this.contextValue = model.targetPath ? 'nginProjectDependency' : 'nginProjectDependency.unresolved';
+    if (model.targetPath) {
+      this.command = {
+        command: 'ngin.internal.openPath',
+        title: model.label,
+        arguments: [model.targetPath]
+      };
+    }
   }
 }
 
@@ -352,6 +391,8 @@ type ProjectsTreeElement =
   | ProjectTreeItem
   | ProjectManifestTreeItem
   | ProjectGroupTreeItem
+  | ProjectDependencyGroupTreeItem
+  | ProjectDependencyTreeItem
   | ProjectFolderTreeItem
   | ProjectFileTreeItem
   | ProjectConfigFolderTreeItem
@@ -404,6 +445,20 @@ class ProjectsTreeDataProvider implements vscode.TreeDataProvider<ProjectsTreeEl
       if (element.group === 'config') {
         return directConfigChildren(project, project.path, '', allConfigSources(project));
       }
+      if (element.group === 'dependencies') {
+        const dependencies = model.dependenciesByProject.get(element.projectPath);
+        if (!dependencies) {
+          return [];
+        }
+        const items: ProjectsTreeElement[] = [];
+        if (dependencies.projects.length > 0) {
+          items.push(new ProjectDependencyGroupTreeItem(element.projectPath, 'projects', 'Projects'));
+        }
+        if (dependencies.packages.length > 0) {
+          items.push(new ProjectDependencyGroupTreeItem(element.projectPath, 'packages', 'Packages'));
+        }
+        return items;
+      }
       if (element.group === 'generated') {
         return this.getGeneratedConfigurationChildren(project);
       }
@@ -415,6 +470,14 @@ class ProjectsTreeDataProvider implements vscode.TreeDataProvider<ProjectsTreeEl
     if (element instanceof ProjectConfigFolderTreeItem) {
       const project = this.findProject(element.projectPath);
       return project ? directConfigChildren(project, project.path, element.relativePath, allConfigSources(project)) : [];
+    }
+
+    if (element instanceof ProjectDependencyGroupTreeItem) {
+      const dependencies = model.dependenciesByProject.get(element.projectPath);
+      if (!dependencies) {
+        return [];
+      }
+      return dependencies[element.dependencyKind].map((dependency) => new ProjectDependencyTreeItem(dependency));
     }
 
     if (element instanceof ProjectFolderTreeItem) {

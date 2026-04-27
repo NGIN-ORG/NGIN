@@ -1,6 +1,16 @@
 import * as path from 'node:path';
 import { XMLParser } from 'fast-xml-parser';
-import { LaunchManifest, LaunchDescriptor, ProjectConfiguration, ProjectManifest, StagedFile, WorkspaceManifest } from './types';
+import {
+  LaunchManifest,
+  LaunchDescriptor,
+  PackageManifest,
+  PackageReference,
+  ProjectConfiguration,
+  ProjectManifest,
+  ProjectReference,
+  StagedFile,
+  WorkspaceManifest
+} from './types';
 
 const parser = new XMLParser({
   ignoreAttributes: false,
@@ -23,6 +33,39 @@ function parseConfigSources(node: unknown): string[] {
     .filter((entry): entry is string => Boolean(entry));
 }
 
+function parseProjectReferences(node: unknown, baseDirectory: string): ProjectReference[] {
+  const parent = node as { References?: { Project?: unknown } } | undefined;
+  return asArray(parent?.References?.Project)
+    .map((entry): ProjectReference | undefined => {
+      const ref = entry as { Path?: string; Configuration?: string } | undefined;
+      if (!ref?.Path) {
+        return undefined;
+      }
+      return {
+        path: path.resolve(baseDirectory, ref.Path),
+        configuration: ref.Configuration
+      };
+    })
+    .filter((entry): entry is ProjectReference => Boolean(entry));
+}
+
+function parsePackageReferences(node: unknown): PackageReference[] {
+  const parent = node as { References?: { Package?: unknown } } | undefined;
+  return asArray(parent?.References?.Package)
+    .map((entry): PackageReference | undefined => {
+      const ref = entry as { Name?: string; Version?: string; Optional?: string | boolean } | undefined;
+      if (!ref?.Name) {
+        return undefined;
+      }
+      return {
+        name: ref.Name,
+        version: ref.Version,
+        optional: ref.Optional === true || ref.Optional === 'true'
+      };
+    })
+    .filter((entry): entry is PackageReference => Boolean(entry));
+}
+
 export function parseWorkspaceManifest(xml: string, manifestPath: string): WorkspaceManifest {
   const document = parser.parse(xml);
   const root = document.Workspace;
@@ -35,13 +78,18 @@ export function parseWorkspaceManifest(xml: string, manifestPath: string): Works
     .map((entry) => entry?.Path as string | undefined)
     .filter((entry): entry is string => Boolean(entry))
     .map((entry) => path.resolve(directory, entry));
+  const packageSources = asArray(root.PackageSources?.PackageSource)
+    .map((entry) => entry?.Path as string | undefined)
+    .filter((entry): entry is string => Boolean(entry))
+    .map((entry) => path.resolve(directory, entry));
 
   return {
     path: manifestPath,
     directory,
     name: root.Name ?? path.basename(manifestPath, path.extname(manifestPath)),
     platformVersion: root.PlatformVersion,
-    projectPaths: projects
+    projectPaths: projects,
+    packageSourcePaths: packageSources
   };
 }
 
@@ -60,7 +108,9 @@ export function parseProjectManifest(xml: string, manifestPath: string): Project
     environment: entry?.Environment,
     launchExecutable: entry?.Launch?.Executable,
     launchWorkingDirectory: entry?.Launch?.WorkingDirectory,
-    configSources: parseConfigSources(entry)
+    configSources: parseConfigSources(entry),
+    projectRefs: parseProjectReferences(entry, path.dirname(manifestPath)),
+    packageRefs: parsePackageReferences(entry)
   })).filter((entry) => Boolean(entry.name));
 
   const sourceRoots = asArray(root.SourceRoots?.SourceRoot)
@@ -78,7 +128,24 @@ export function parseProjectManifest(xml: string, manifestPath: string): Project
     sourceRoots,
     configSources: parseConfigSources(root),
     buildSources,
+    projectRefs: parseProjectReferences(root, path.dirname(manifestPath)),
+    packageRefs: parsePackageReferences(root),
     configurations
+  };
+}
+
+export function parsePackageManifest(xml: string, manifestPath: string): PackageManifest {
+  const document = parser.parse(xml);
+  const root = document.Package;
+  if (!root) {
+    throw new Error(`${manifestPath}: root element must be <Package>`);
+  }
+
+  return {
+    path: manifestPath,
+    directory: path.dirname(manifestPath),
+    name: root.Name ?? path.basename(manifestPath, path.extname(manifestPath)),
+    version: root.Version
   };
 }
 

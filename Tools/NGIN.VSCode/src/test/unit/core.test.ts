@@ -60,17 +60,18 @@ test('parseCliDiagnostics extracts structured file and generic errors', () => {
 
 test('workspace manifests parse project paths relative to the workspace manifest', () => {
   const workspace = parseWorkspaceManifest(
-    '<?xml version="1.0" encoding="utf-8"?><Workspace Name="NGIN"><Projects><Project Path="Examples/App.Basic/App.Basic.nginproj" /></Projects></Workspace>',
+    '<?xml version="1.0" encoding="utf-8"?><Workspace Name="NGIN"><PackageSources><PackageSource Path="Packages" /></PackageSources><Projects><Project Path="Examples/App.Basic/App.Basic.nginproj" /></Projects></Workspace>',
     '/repo/NGIN.ngin'
   );
 
   assert.equal(workspace.name, 'NGIN');
   assert.deepEqual(workspace.projectPaths, ['/repo/Examples/App.Basic/App.Basic.nginproj']);
+  assert.deepEqual(workspace.packageSourcePaths, ['/repo/Packages']);
 });
 
 test('project manifests parse configurations and launch metadata', () => {
   const project = parseProjectManifest(
-    '<?xml version="1.0" encoding="utf-8"?><Project Name="App.Basic" DefaultConfiguration="Runtime"><SourceRoots><SourceRoot Path="src" /></SourceRoots><Build><Sources><Source Path="src/main.cpp" /></Sources></Build><ConfigSources><Config Source="config/app.cfg" /></ConfigSources><Configurations><Configuration Name="Runtime" BuildConfiguration="Debug" OperatingSystem="linux" Architecture="x64" Environment="development"><Launch Executable="App.Basic" WorkingDirectory="." /><ConfigSources><Config Source="config/runtime.cfg" /></ConfigSources></Configuration></Configurations></Project>',
+    '<?xml version="1.0" encoding="utf-8"?><Project Name="App.Basic" DefaultConfiguration="Runtime"><SourceRoots><SourceRoot Path="src" /></SourceRoots><Build><Sources><Source Path="src/main.cpp" /></Sources></Build><References><Project Path="../Game.Engine/Game.Engine.nginproj" /><Package Name="NGIN.Core" /></References><ConfigSources><Config Source="config/app.cfg" /></ConfigSources><Configurations><Configuration Name="Runtime" BuildConfiguration="Debug" OperatingSystem="linux" Architecture="x64" Environment="development"><Launch Executable="App.Basic" WorkingDirectory="." /><References><Package Name="NGIN.Reflection" Optional="true" /></References><ConfigSources><Config Source="config/runtime.cfg" /></ConfigSources></Configuration></Configurations></Project>',
     '/repo/Examples/App.Basic/App.Basic.nginproj'
   );
 
@@ -78,7 +79,10 @@ test('project manifests parse configurations and launch metadata', () => {
   assert.deepEqual(project.sourceRoots, ['src']);
   assert.deepEqual(project.buildSources, ['src/main.cpp']);
   assert.deepEqual(project.configSources, ['config/app.cfg']);
+  assert.deepEqual(project.projectRefs, [{ path: '/repo/Examples/Game.Engine/Game.Engine.nginproj', configuration: undefined }]);
+  assert.deepEqual(project.packageRefs, [{ name: 'NGIN.Core', version: undefined, optional: false }]);
   assert.deepEqual(project.configurations[0].configSources, ['config/runtime.cfg']);
+  assert.deepEqual(project.configurations[0].packageRefs, [{ name: 'NGIN.Reflection', version: undefined, optional: true }]);
   assert.equal(project.configurations[0].launchExecutable, 'App.Basic');
   assert.equal(project.configurations[0].operatingSystem, 'linux');
   assert.equal(project.configurations[0].architecture, 'x64');
@@ -319,9 +323,24 @@ test('project tree models mark the selected project and configuration', () => {
           sourceRoots: ['src'],
           configSources: ['config/app.cfg'],
           buildSources: [],
+          projectRefs: [{ path: '/repo/Examples/Game.Engine/Game.Engine.nginproj' }],
+          packageRefs: [{ name: 'NGIN.Core' }],
           configurations: [{ name: 'Runtime', operatingSystem: 'linux', architecture: 'x64', environment: 'development', configSources: [] }]
+        },
+        {
+          path: '/repo/Examples/Game.Engine/Game.Engine.nginproj',
+          directory: '/repo/Examples/Game.Engine',
+          name: 'Game.Engine',
+          defaultConfiguration: 'Runtime',
+          sourceRoots: [],
+          configSources: [],
+          buildSources: [],
+          configurations: []
         }
       ],
+      packageCatalog: {
+        'NGIN.Core': { name: 'NGIN.Core', path: '/repo/Packages/NGIN.Core/NGIN.Core.nginpkg', directory: '/repo/Packages/NGIN.Core' }
+      },
       root: '/repo'
     },
     context: {
@@ -338,6 +357,8 @@ test('project tree models mark the selected project and configuration', () => {
         sourceRoots: ['src'],
         configSources: ['config/app.cfg'],
         buildSources: [],
+        projectRefs: [{ path: '/repo/Examples/Game.Engine/Game.Engine.nginproj' }],
+        packageRefs: [{ name: 'NGIN.Core' }],
         configurations: [{ name: 'Runtime', operatingSystem: 'linux', architecture: 'x64', environment: 'development', configSources: [] }]
       },
       configuration: { name: 'Runtime', operatingSystem: 'linux', architecture: 'x64', environment: 'development', configSources: [] }
@@ -351,10 +372,65 @@ test('project tree models mark the selected project and configuration', () => {
     'manifest',
     'source',
     'config',
+    'dependencies',
     'generated',
     'configurations'
   ]);
+  assert.deepEqual(models.dependenciesByProject.get('/repo/Examples/App.Basic/App.Basic.nginproj')?.projects.map((entry) => entry.label), ['Game.Engine']);
+  assert.deepEqual(models.dependenciesByProject.get('/repo/Examples/App.Basic/App.Basic.nginproj')?.packages.map((entry) => entry.label), ['NGIN.Core']);
   assert.equal(models.configurationsByProject.get('/repo/Examples/App.Basic/App.Basic.nginproj')?.[0].selected, true);
+});
+
+test('project tree dependency models group mixed references and deduplicate owners', () => {
+  const models = buildProjectTreeModels({
+    workspace: {
+      workspace: { path: '/repo/NGIN.ngin', directory: '/repo', name: 'NGIN', projectPaths: [] },
+      projects: [
+        {
+          path: '/repo/App/App.nginproj',
+          directory: '/repo/App',
+          name: 'App',
+          defaultConfiguration: 'Runtime',
+          sourceRoots: [],
+          configSources: [],
+          buildSources: [],
+          projectRefs: [{ path: '/repo/Game.Engine/Game.Engine.nginproj' }],
+          packageRefs: [{ name: 'NGIN.Core' }],
+          configurations: [
+            {
+              name: 'Runtime',
+              environment: 'development',
+              configSources: [],
+              projectRefs: [{ path: '/repo/Game.Engine/Game.Engine.nginproj' }],
+              packageRefs: [{ name: 'NGIN.Core' }, { name: 'NGIN.Reflection' }]
+            }
+          ]
+        },
+        {
+          path: '/repo/Game.Engine/Game.Engine.nginproj',
+          directory: '/repo/Game.Engine',
+          name: 'Game.Engine',
+          sourceRoots: [],
+          configSources: [],
+          buildSources: [],
+          configurations: []
+        }
+      ],
+      packageCatalog: {
+        'NGIN.Core': { name: 'NGIN.Core', path: '/repo/Packages/NGIN.Core/NGIN.Core.nginpkg', directory: '/repo/Packages/NGIN.Core' }
+      },
+      root: '/repo'
+    },
+    launchManifestExists: false,
+    stagedCompileCommandsAvailable: false
+  });
+
+  const dependencies = models.dependenciesByProject.get('/repo/App/App.nginproj');
+  assert.deepEqual(dependencies?.projects.map((entry) => `${entry.label}:${entry.description}`), ['Game.Engine:Project, Runtime']);
+  assert.deepEqual(dependencies?.packages.map((entry) => `${entry.label}:${entry.description}:${entry.targetPath ?? 'unresolved'}`), [
+    'NGIN.Core:Project, Runtime:/repo/Packages/NGIN.Core/NGIN.Core.nginpkg',
+    'NGIN.Reflection:Runtime:unresolved'
+  ]);
 });
 
 test('status bar models expose the compact NGIN bottom-bar actions', () => {

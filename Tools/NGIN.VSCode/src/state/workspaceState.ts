@@ -3,7 +3,7 @@ import * as vscode from 'vscode';
 import { computeCompileCommandsPath, getFallbackCompileCommandsPath } from '../core/compileCommands';
 import { computeLaunchManifestPath, computeOutputDir } from '../core/helpers';
 import { findNearestWorkspaceManifest, loadWorkspaceProjects, pathExists } from '../core/discovery';
-import { ProjectConfiguration, ProjectManifest, WorkspaceManifest } from '../core/types';
+import { PackageCatalogEntry, ProjectConfiguration, ProjectManifest, WorkspaceManifest } from '../core/types';
 
 const LAST_PROJECT_KEY = 'ngin.lastProject';
 const LAST_LAUNCH_MANIFEST_KEY = 'ngin.lastLaunchManifest';
@@ -18,6 +18,7 @@ export interface NginCommandTarget {
 export interface ResolvedWorkspaceInfo {
   workspace: WorkspaceManifest;
   projects: ProjectManifest[];
+  packageCatalog?: Record<string, PackageCatalogEntry>;
   root: string;
   folder?: vscode.WorkspaceFolder;
 }
@@ -133,11 +134,12 @@ export class WorkspaceStateService implements vscode.Disposable {
         continue;
       }
 
-      const { workspace, projects } = await loadWorkspaceProjects(manifestPath);
+      const { workspace, projects, packageCatalog } = await loadWorkspaceProjects(manifestPath);
       const root = path.dirname(manifestPath);
       return {
         workspace,
         projects,
+        packageCatalog,
         root,
         folder: vscode.workspace.getWorkspaceFolder(vscode.Uri.file(root))
       };

@@ -35,7 +35,7 @@ export interface ProjectTreeManifestModel {
   filePath: string;
 }
 
-export type ProjectTreeGroupKind = 'source' | 'config' | 'generated' | 'configurations';
+export type ProjectTreeGroupKind = 'source' | 'config' | 'dependencies' | 'generated' | 'configurations';
 
 export interface ProjectTreeGroupModel {
   kind: 'group';
@@ -57,6 +57,22 @@ export interface ProjectTreeConfigurationModel {
   selected: boolean;
 }
 
+export type ProjectTreeDependencyKind = 'projects' | 'packages';
+
+export interface ProjectTreeDependencyModel {
+  kind: ProjectTreeDependencyKind;
+  label: string;
+  description?: string;
+  tooltip?: string;
+  projectPath: string;
+  targetPath?: string;
+}
+
+export interface ProjectTreeDependenciesModel {
+  projects: ProjectTreeDependencyModel[];
+  packages: ProjectTreeDependencyModel[];
+}
+
 export type ProjectTreeChildModel = ProjectTreeManifestModel | ProjectTreeGroupModel | ProjectTreeConfigurationModel;
 
 export interface ProjectTreeModels {
@@ -65,6 +81,7 @@ export interface ProjectTreeModels {
   projects: ProjectTreeProjectModel[];
   childrenByProject: Map<string, ProjectTreeChildModel[]>;
   configurationsByProject: Map<string, ProjectTreeConfigurationModel[]>;
+  dependenciesByProject: Map<string, ProjectTreeDependenciesModel>;
 }
 
 export interface StatusBarEntryModel {
@@ -119,6 +136,95 @@ function configurationDescription(snapshot: NginWorkspaceSnapshot): string | und
   }
 
   return environment ?? undefined;
+}
+
+function comparablePath(value: string): string {
+  const normalized = path.normalize(value);
+  return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+}
+
+function ownerDescription(owners: Set<string>): string | undefined {
+  return Array.from(owners).sort().join(', ') || undefined;
+}
+
+function buildProjectDependencies(snapshot: NginWorkspaceSnapshot, projectPath: string): ProjectTreeDependenciesModel {
+  const workspace = snapshot.workspace;
+  const project = workspace?.projects.find((candidate) => comparablePath(candidate.path) === comparablePath(projectPath));
+  if (!workspace || !project) {
+    return { projects: [], packages: [] };
+  }
+
+  const projectRefs = new Map<string, { path: string; owners: Set<string> }>();
+  const packageRefs = new Map<string, { name: string; owners: Set<string> }>();
+
+  const addProjectRef = (referencePath: string, owner: string): void => {
+    const key = comparablePath(referencePath);
+    const existing = projectRefs.get(key);
+    if (existing) {
+      existing.owners.add(owner);
+      return;
+    }
+    projectRefs.set(key, { path: referencePath, owners: new Set([owner]) });
+  };
+
+  const addPackageRef = (name: string, owner: string): void => {
+    const existing = packageRefs.get(name);
+    if (existing) {
+      existing.owners.add(owner);
+      return;
+    }
+    packageRefs.set(name, { name, owners: new Set([owner]) });
+  };
+
+  for (const reference of project.projectRefs ?? []) {
+    addProjectRef(reference.path, 'Project');
+  }
+  for (const reference of project.packageRefs ?? []) {
+    addPackageRef(reference.name, 'Project');
+  }
+  for (const configuration of project.configurations) {
+    for (const reference of configuration.projectRefs ?? []) {
+      addProjectRef(reference.path, configuration.name);
+    }
+    for (const reference of configuration.packageRefs ?? []) {
+      addPackageRef(reference.name, configuration.name);
+    }
+  }
+
+  const projectDependencies = Array.from(projectRefs.values())
+    .map((reference): ProjectTreeDependencyModel => {
+      const resolved = workspace.projects.find((candidate) => comparablePath(candidate.path) === comparablePath(reference.path));
+      const label = resolved?.name ?? path.basename(reference.path, path.extname(reference.path));
+      return {
+        kind: 'projects',
+        label,
+        description: ownerDescription(reference.owners),
+        tooltip: reference.path,
+        projectPath: project.path,
+        targetPath: reference.path
+      };
+    })
+    .sort((left, right) => left.label.localeCompare(right.label));
+
+  const packageCatalog = workspace.packageCatalog ?? {};
+  const packageDependencies = Array.from(packageRefs.values())
+    .map((reference): ProjectTreeDependencyModel => {
+      const resolved = packageCatalog[reference.name];
+      return {
+        kind: 'packages',
+        label: reference.name,
+        description: ownerDescription(reference.owners),
+        tooltip: resolved?.path ?? reference.name,
+        projectPath: project.path,
+        targetPath: resolved?.path
+      };
+    })
+    .sort((left, right) => left.label.localeCompare(right.label));
+
+  return {
+    projects: projectDependencies,
+    packages: packageDependencies
+  };
 }
 
 function artifactStatusIcon(status: 'ready' | 'fallback' | 'missing'): string {
@@ -265,9 +371,10 @@ export function buildProjectTreeModels(snapshot: NginWorkspaceSnapshot): Project
   const projects: ProjectTreeProjectModel[] = [];
   const childrenByProject = new Map<string, ProjectTreeChildModel[]>();
   const configurationsByProject = new Map<string, ProjectTreeConfigurationModel[]>();
+  const dependenciesByProject = new Map<string, ProjectTreeDependenciesModel>();
 
   if (!snapshot.workspace) {
-    return { projects, childrenByProject, configurationsByProject };
+    return { projects, childrenByProject, configurationsByProject, dependenciesByProject };
   }
 
   for (const project of snapshot.workspace.projects) {
@@ -317,6 +424,20 @@ export function buildProjectTreeModels(snapshot: NginWorkspaceSnapshot): Project
       });
     }
 
+    const dependencies = buildProjectDependencies(snapshot, project.path);
+    dependenciesByProject.set(project.path, dependencies);
+    if (dependencies.projects.length > 0 || dependencies.packages.length > 0) {
+      children.push({
+        kind: 'group',
+        id: `${project.path}:dependencies`,
+        label: 'Dependencies',
+        tooltip: 'Referenced projects and packages.',
+        icon: 'references',
+        projectPath: project.path,
+        group: 'dependencies'
+      });
+    }
+
     children.push({
       kind: 'group',
       id: `${project.path}:generated`,
@@ -360,7 +481,8 @@ export function buildProjectTreeModels(snapshot: NginWorkspaceSnapshot): Project
     workspaceDescription: snapshot.workspace.root,
     projects,
     childrenByProject,
-    configurationsByProject
+    configurationsByProject,
+    dependenciesByProject
   };
 }
 

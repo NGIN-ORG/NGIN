@@ -4,6 +4,31 @@ export interface WorkspaceManifest {
   name: string;
   platformVersion?: string;
   projectPaths: string[];
+  packageSourcePaths?: string[];
+}
+
+export interface PackageCatalogEntry {
+  name: string;
+  path: string;
+  directory: string;
+}
+
+export interface PackageManifest {
+  path: string;
+  directory: string;
+  name: string;
+  version?: string;
+}
+
+export interface ProjectReference {
+  path: string;
+  configuration?: string;
+}
+
+export interface PackageReference {
+  name: string;
+  version?: string;
+  optional?: boolean;
 }
 
 export interface ProjectConfiguration {
@@ -15,6 +40,8 @@ export interface ProjectConfiguration {
   launchExecutable?: string;
   launchWorkingDirectory?: string;
   configSources: string[];
+  projectRefs?: ProjectReference[];
+  packageRefs?: PackageReference[];
 }
 
 export interface ProjectManifest {
@@ -25,6 +52,8 @@ export interface ProjectManifest {
   sourceRoots: string[];
   configSources: string[];
   buildSources: string[];
+  projectRefs?: ProjectReference[];
+  packageRefs?: PackageReference[];
   configurations: ProjectConfiguration[];
 }
 

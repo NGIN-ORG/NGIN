@@ -1,7 +1,7 @@
 import * as path from 'node:path';
 import { promises as fs } from 'node:fs';
-import { ProjectManifest, WorkspaceManifest } from './types';
-import { parseProjectManifest, parseWorkspaceManifest } from './xml';
+import { PackageCatalogEntry, ProjectManifest, WorkspaceManifest } from './types';
+import { parsePackageManifest, parseProjectManifest, parseWorkspaceManifest } from './xml';
 
 export async function pathExists(candidate: string): Promise<boolean> {
   try {
@@ -56,12 +56,58 @@ export async function loadProjectManifest(manifestPath: string): Promise<Project
   return parseProjectManifest(xml, manifestPath);
 }
 
+async function collectPackageManifestPaths(root: string): Promise<string[]> {
+  const manifests: string[] = [];
+  async function visit(directory: string): Promise<void> {
+    let entries: import('node:fs').Dirent[];
+    try {
+      entries = await fs.readdir(directory, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
+      const entryPath = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        await visit(entryPath);
+        continue;
+      }
+      if (entry.isFile() && entry.name.endsWith('.nginpkg')) {
+        manifests.push(entryPath);
+      }
+    }
+  }
+
+  await visit(root);
+  return manifests.sort();
+}
+
+export async function loadPackageCatalog(workspace: WorkspaceManifest): Promise<Record<string, PackageCatalogEntry>> {
+  const catalog: Record<string, PackageCatalogEntry> = {};
+  for (const sourceRoot of workspace.packageSourcePaths ?? []) {
+    for (const manifestPath of await collectPackageManifestPaths(sourceRoot)) {
+      const manifest = parsePackageManifest(await readTextFile(manifestPath), manifestPath);
+      if (catalog[manifest.name]) {
+        continue;
+      }
+      catalog[manifest.name] = {
+        name: manifest.name,
+        path: manifestPath,
+        directory: path.dirname(manifestPath)
+      };
+    }
+  }
+  return catalog;
+}
+
 export async function loadWorkspaceProjects(workspaceManifestPath: string): Promise<{
   workspace: WorkspaceManifest;
   projects: ProjectManifest[];
+  packageCatalog: Record<string, PackageCatalogEntry>;
 }> {
   const workspace = await loadWorkspaceManifest(workspaceManifestPath);
   const projects: ProjectManifest[] = [];
+  const packageCatalog = await loadPackageCatalog(workspace);
 
   for (const projectPath of workspace.projectPaths) {
     if (!(await pathExists(projectPath))) {
@@ -70,5 +116,5 @@ export async function loadWorkspaceProjects(workspaceManifestPath: string): Prom
     projects.push(await loadProjectManifest(projectPath));
   }
 
-  return { workspace, projects };
+  return { workspace, projects, packageCatalog };
 }
