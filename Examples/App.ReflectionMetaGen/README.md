@@ -25,8 +25,13 @@ cmake --build build/dev --target ngin_cli
 Expected output:
 
 ```text
-App.ReflectionMetaGen: Ada score=70
-Reflected type: Demo::Player fields=1 methods=1 display_name=Ada score=70
+Reflected type: Demo::Player
+fields=1
+properties=1
+methods=0
+display_name=Ada
+score=70
+updated_score=84
 ```
 
 The generated source is a build artifact under:

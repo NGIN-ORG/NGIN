@@ -19,10 +19,7 @@ namespace NGIN::CLI
     {
         struct ClangString
         {
-            explicit ClangString(CXString value) noexcept
-                : value(value)
-            {
-            }
+            explicit ClangString(CXString value) noexcept : value(value) {}
 
             ~ClangString()
             {
@@ -49,6 +46,13 @@ namespace NGIN::CLI
             std::vector<std::string> parameterTypes{};
         };
 
+        struct MetaGenProperty
+        {
+            std::string reflectionName{};
+            std::string getterName{};
+            std::string setterName{};
+        };
+
         struct MetaGenType
         {
             std::string cppName{};
@@ -56,10 +60,17 @@ namespace NGIN::CLI
             std::string kind{};
             fs::path declarationFile{};
             std::vector<MetaGenMember> fields{};
+            std::vector<MetaGenProperty> properties{};
             std::vector<MetaGenMember> methods{};
             std::vector<MetaGenMember> constructors{};
             std::vector<MetaGenMember> enumValues{};
             std::vector<std::string> bases{};
+        };
+
+        struct RecordCollectContext
+        {
+            MetaGenType *type{};
+            std::vector<std::string> *diagnostics{};
         };
 
         struct ScanContext
@@ -170,13 +181,12 @@ namespace NGIN::CLI
         [[nodiscard]] auto FindAnnotation(const std::vector<MetaGen::Annotation> &annotations, std::string_view kind)
             -> const MetaGen::Annotation *
         {
-            const auto it = std::find_if(
-                annotations.begin(),
-                annotations.end(),
-                [&](const MetaGen::Annotation &annotation)
-                {
-                    return annotation.kind == kind;
-                });
+            const auto it = std::find_if(annotations.begin(),
+                                         annotations.end(),
+                                         [&](const MetaGen::Annotation &annotation)
+                                         {
+                                             return annotation.kind == kind;
+                                         });
             return it == annotations.end() ? nullptr : &*it;
         }
 
@@ -202,13 +212,83 @@ namespace NGIN::CLI
             return it == annotation->options.end() || it->second.empty() ? fallback : it->second;
         }
 
-        auto CollectRecordMembers(CXCursor recordCursor, MetaGenType &type) -> void
+        [[nodiscard]] auto FindProperty(std::vector<MetaGenProperty> &properties, std::string_view name)
+            -> MetaGenProperty *
         {
+            const auto it = std::find_if(properties.begin(),
+                                         properties.end(),
+                                         [&](const MetaGenProperty &property)
+                                         {
+                                             return property.reflectionName == name;
+                                         });
+            return it == properties.end() ? nullptr : &*it;
+        }
+
+        [[nodiscard]] auto IsVoidType(CXType type) -> bool
+        {
+            return type.kind == CXType_Void;
+        }
+
+        auto AddPropertyMethod(MetaGenType &type,
+                               CXCursor cursor,
+                               const MetaGen::Annotation &annotation,
+                               std::vector<std::string> &diagnostics) -> void
+        {
+            const auto cppName = CursorSpelling(cursor);
+            const auto reflectionName = OptionOr(&annotation, "name", cppName);
+            const auto parameterCount = clang_Cursor_getNumArguments(cursor);
+            const auto returnsVoid = IsVoidType(clang_getCursorResultType(cursor));
+
+            const bool isGetter = parameterCount == 0 && !returnsVoid;
+            const bool isSetter = parameterCount == 1 && returnsVoid;
+            if (!isGetter && !isSetter)
+            {
+                diagnostics.push_back("property method '" + type.cppName + "::" + cppName +
+                                      "' must be a getter with no parameters and a non-void return, or a "
+                                      "setter with one parameter and void return");
+                return;
+            }
+
+            auto *property = FindProperty(type.properties, reflectionName);
+            if (property == nullptr)
+            {
+                type.properties.push_back(MetaGenProperty{.reflectionName = reflectionName});
+                property = &type.properties.back();
+            }
+
+            auto &slot = isGetter ? property->getterName : property->setterName;
+            if (!slot.empty())
+            {
+                diagnostics.push_back("property '" + reflectionName + "' on type '" + type.cppName +
+                                      "' has duplicate " + (isGetter ? std::string("getter") : std::string("setter")) +
+                                      " annotations");
+                return;
+            }
+            slot = cppName;
+        }
+
+        auto ValidateProperties(const MetaGenType &type, std::vector<std::string> &diagnostics) -> void
+        {
+            for (const auto &property : type.properties)
+            {
+                if (property.getterName.empty())
+                {
+                    diagnostics.push_back("property '" + property.reflectionName + "' on type '" + type.cppName +
+                                          "' has a setter but no getter");
+                }
+            }
+        }
+
+        auto CollectRecordMembers(CXCursor recordCursor, MetaGenType &type, std::vector<std::string> &diagnostics)
+            -> void
+        {
+            RecordCollectContext context{.type = &type, .diagnostics = &diagnostics};
             clang_visitChildren(
                 recordCursor,
                 [](CXCursor child, CXCursor, CXClientData data)
                 {
-                    auto *type = static_cast<MetaGenType *>(data);
+                    auto *context = static_cast<RecordCollectContext *>(data);
+                    auto *type = context->type;
                     const auto kind = clang_getCursorKind(child);
                     auto annotations = DirectAnnotations(child);
                     if (IsIgnored(annotations))
@@ -234,12 +314,23 @@ namespace NGIN::CLI
                         return CXChildVisit_Continue;
                     }
 
-                    if (kind == CXCursor_CXXMethod && FindAnnotation(annotations, "method") != nullptr)
+                    if (kind == CXCursor_CXXMethod)
                     {
+                        if (const auto *property = FindAnnotation(annotations, "property"))
+                        {
+                            AddPropertyMethod(*type, child, *property, *context->diagnostics);
+                        }
+
+                        const auto *method = FindAnnotation(annotations, "method");
+                        if (method == nullptr)
+                        {
+                            return CXChildVisit_Continue;
+                        }
+
                         const auto cppName = CursorSpelling(child);
                         type->methods.push_back(MetaGenMember{
                             .cppName = cppName,
-                            .reflectionName = OptionOr(FindAnnotation(annotations, "method"), "name", cppName),
+                            .reflectionName = OptionOr(method, "name", cppName),
                             .kind = "method",
                         });
                         return CXChildVisit_Continue;
@@ -273,7 +364,8 @@ namespace NGIN::CLI
 
                     return CXChildVisit_Continue;
                 },
-                &type);
+                &context);
+            ValidateProperties(type, diagnostics);
         }
 
         auto CollectEnumValues(CXCursor enumCursor, MetaGenType &type) -> void
@@ -329,25 +421,28 @@ namespace NGIN::CLI
                             const auto declarationFile = CursorFile(child);
                             if (IsCompiledSourceExtension(declarationFile))
                             {
-                                context->diagnostics.push_back(
-                                    "annotated type '" + QualifiedName(child) + "' is declared in compiled source file '" +
-                                    declarationFile.string() + "'. Move reflected types to an includable header for MetaGen.");
+                                context->diagnostics.push_back("annotated type '" + QualifiedName(child) +
+                                                               "' is declared in compiled source file '" +
+                                                               declarationFile.string() +
+                                                               "'. Move reflected types to an includable header for "
+                                                               "MetaGen.");
                                 return CXChildVisit_Continue;
                             }
                             if (!IsHeaderSourceExtension(declarationFile))
                             {
                                 context->diagnostics.push_back(
                                     "annotated type '" + QualifiedName(child) + "' is declared in unsupported file '" +
-                                    declarationFile.string() + "'. Move reflected types to a .h/.hpp/.hh/.hxx header for MetaGen.");
+                                    declarationFile.string() +
+                                    "'. Move reflected types to a .h/.hpp/.hh/.hxx header for "
+                                    "MetaGen.");
                                 return CXChildVisit_Continue;
                             }
-                            if (std::any_of(
-                                    context->types.begin(),
-                                    context->types.end(),
-                                    [&](const MetaGenType &existing)
-                                    {
-                                        return existing.cppName == QualifiedName(child);
-                                    }))
+                            if (std::any_of(context->types.begin(),
+                                            context->types.end(),
+                                            [&](const MetaGenType &existing)
+                                            {
+                                                return existing.cppName == QualifiedName(child);
+                                            }))
                             {
                                 return CXChildVisit_Continue;
                             }
@@ -363,16 +458,15 @@ namespace NGIN::CLI
                             }
                             else
                             {
-                                CollectRecordMembers(child, type);
+                                CollectRecordMembers(child, type, context->diagnostics);
                             }
-                            if (std::none_of(
-                                    context->includeFiles.begin(),
-                                    context->includeFiles.end(),
-                                    [&](const fs::path &includeFile)
-                                    {
-                                        std::error_code error;
-                                        return fs::equivalent(includeFile, declarationFile, error);
-                                    }))
+                            if (std::none_of(context->includeFiles.begin(),
+                                             context->includeFiles.end(),
+                                             [&](const fs::path &includeFile)
+                                             {
+                                                 std::error_code error;
+                                                 return fs::equivalent(includeFile, declarationFile, error);
+                                             }))
                             {
                                 context->includeFiles.push_back(declarationFile);
                             }
@@ -388,7 +482,8 @@ namespace NGIN::CLI
         [[nodiscard]] auto IsCompiledSourceExtension(const fs::path &path) -> bool
         {
             const auto extension = Lower(path.extension().string());
-            return extension == ".c" || extension == ".cc" || extension == ".cpp" || extension == ".cxx" || extension == ".m" || extension == ".mm";
+            return extension == ".c" || extension == ".cc" || extension == ".cpp" || extension == ".cxx" ||
+                   extension == ".m" || extension == ".mm";
         }
 
         [[nodiscard]] auto IsHeaderSourceExtension(const fs::path &path) -> bool
@@ -414,8 +509,8 @@ namespace NGIN::CLI
             auto add = [&](const fs::path &candidate)
             {
                 const auto normalized = candidate.lexically_normal();
-                if (fs::exists(normalized) && fs::is_regular_file(normalized) && IsCompiledSourceExtension(normalized) &&
-                    unique.insert(normalized).second)
+                if (fs::exists(normalized) && fs::is_regular_file(normalized) &&
+                    IsCompiledSourceExtension(normalized) && unique.insert(normalized).second)
                 {
                     sources.push_back(normalized);
                 }
@@ -460,18 +555,20 @@ namespace NGIN::CLI
             return roots;
         }
 
-        [[nodiscard]] auto DefaultOutputDir(const ProjectManifest &project, const ConfigurationDefinition &configuration)
-            -> fs::path
+        [[nodiscard]] auto DefaultOutputDir(const ProjectManifest &project,
+                                            const ConfigurationDefinition &configuration) -> fs::path
         {
             return fs::current_path() / ".ngin" / "metagen" / project.name / configuration.name;
         }
 
-        [[nodiscard]] auto BuildClangArguments(const fs::path &root, const ProjectManifest &project) -> std::vector<std::string>
+        [[nodiscard]] auto BuildClangArguments(const fs::path &root, const ProjectManifest &project)
+            -> std::vector<std::string>
         {
             std::vector<std::string> args{
                 "-x",
                 "c++",
-                "-std=c++" + (project.build.languageStandard.empty() ? std::string("23") : project.build.languageStandard),
+                "-std=c++" +
+                    (project.build.languageStandard.empty() ? std::string("23") : project.build.languageStandard),
                 "-DNGIN_METAGEN_SCAN=1",
             };
 
@@ -507,15 +604,14 @@ namespace NGIN::CLI
             for (const auto &source : context.sourceFiles)
             {
                 CXTranslationUnit unit{};
-                const auto error = clang_parseTranslationUnit2(
-                    index,
-                    source.string().c_str(),
-                    rawArgs.data(),
-                    static_cast<int>(rawArgs.size()),
-                    nullptr,
-                    0,
-                    CXTranslationUnit_SkipFunctionBodies,
-                    &unit);
+                const auto error = clang_parseTranslationUnit2(index,
+                                                               source.string().c_str(),
+                                                               rawArgs.data(),
+                                                               static_cast<int>(rawArgs.size()),
+                                                               nullptr,
+                                                               0,
+                                                               CXTranslationUnit_SkipFunctionBodies,
+                                                               &unit);
                 if (error != CXError_Success || unit == nullptr)
                 {
                     context.diagnostics.push_back("failed to parse source file '" + source.string() + "'");
@@ -527,10 +623,9 @@ namespace NGIN::CLI
             clang_disposeIndex(index);
         }
 
-        [[nodiscard]] auto EmitGeneratedCpp(
-            const ProjectManifest &project,
-            const ConfigurationDefinition &configuration,
-            const ScanContext &context) -> std::string
+        [[nodiscard]] auto EmitGeneratedCpp(const ProjectManifest &project,
+                                            const ConfigurationDefinition &configuration,
+                                            const ScanContext &context) -> std::string
         {
             std::ostringstream out{};
             const auto functionName = "Register_" + MetaGen::SanitizeIdentifier(project.name) + "_" +
@@ -560,8 +655,8 @@ namespace NGIN::CLI
                 {
                     for (const auto &value : type.enumValues)
                     {
-                        out << "      type.EnumValue(\"" << MetaGen::EscapeCppString(value.reflectionName)
-                            << "\", " << type.cppName << "::" << value.cppName << ");\n";
+                        out << "      type.EnumValue(\"" << MetaGen::EscapeCppString(value.reflectionName) << "\", "
+                            << type.cppName << "::" << value.cppName << ");\n";
                     }
                 }
                 else
@@ -574,6 +669,15 @@ namespace NGIN::CLI
                     {
                         out << "      type.Field<&" << type.cppName << "::" << field.cppName << ">(\""
                             << MetaGen::EscapeCppString(field.reflectionName) << "\");\n";
+                    }
+                    for (const auto &property : type.properties)
+                    {
+                        out << "      type.Property<&" << type.cppName << "::" << property.getterName;
+                        if (!property.setterName.empty())
+                        {
+                            out << ", &" << type.cppName << "::" << property.setterName;
+                        }
+                        out << ">(\"" << MetaGen::EscapeCppString(property.reflectionName) << "\");\n";
                     }
                     for (const auto &method : type.methods)
                     {
@@ -613,7 +717,8 @@ namespace NGIN::CLI
             }
             out << "      });\n";
             out << "  }\n\n";
-            out << "  [[maybe_unused]] const bool g_registeredGeneratedReflectionModule = RegisterGeneratedReflectionModule();\n";
+            out << "  [[maybe_unused]] const bool g_registeredGeneratedReflectionModule "
+                   "= RegisterGeneratedReflectionModule();\n";
             out << "} // namespace\n\n";
 
             out << "extern \"C\" bool " << functionName << "()\n";
@@ -622,13 +727,12 @@ namespace NGIN::CLI
             out << "}\n";
             return out.str();
         }
-    }
+    } // namespace
 
-    auto GenerateMetaData(
-        const fs::path &root,
-        const ProjectManifest &project,
-        const ConfigurationDefinition &configuration,
-        const fs::path &outputDir) -> MetaGenResult
+    auto GenerateMetaData(const fs::path &root,
+                          const ProjectManifest &project,
+                          const ConfigurationDefinition &configuration,
+                          const fs::path &outputDir) -> MetaGenResult
     {
         (void)root;
         MetaGenResult result{};
@@ -664,13 +768,13 @@ namespace NGIN::CLI
         return result;
     }
 
-    auto RunMetaGen(
-        const fs::path &root,
-        const ProjectManifest &project,
-        const ConfigurationDefinition &configuration,
-        const std::optional<std::string> &outputPath) -> int
+    auto RunMetaGen(const fs::path &root,
+                    const ProjectManifest &project,
+                    const ConfigurationDefinition &configuration,
+                    const std::optional<std::string> &outputPath) -> int
     {
-        const auto outputDir = outputPath.has_value() ? fs::path(*outputPath) : DefaultOutputDir(project, configuration);
+        const auto outputDir =
+            outputPath.has_value() ? fs::path(*outputPath) : DefaultOutputDir(project, configuration);
         auto result = GenerateMetaData(root, project, configuration, outputDir);
         if (!result.available || !result.diagnostics.empty())
         {
@@ -688,4 +792,4 @@ namespace NGIN::CLI
         std::cout << "reflected types: " << result.reflectedTypeCount << "\n";
         return 0;
     }
-}
+} // namespace NGIN::CLI

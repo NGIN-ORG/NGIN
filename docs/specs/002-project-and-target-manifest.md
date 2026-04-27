@@ -63,6 +63,23 @@ When enabled, `ngin build` runs MetaGen before generated CMake emission and
 compiles the generated reflection source as part of the project target. Reflected
 types must be declared in includable headers, not compiled source files.
 
+MetaGen property methods use `NGIN_PROPERTY(...)` on public member functions.
+A getter has zero parameters and a non-void return. A setter has one parameter
+and returns `void`. Getter and setter methods are paired by their reflected
+`name` option:
+
+```cpp
+NGIN_PROPERTY(name = "score")
+int GetScore() const;
+
+NGIN_PROPERTY(name = "score")
+void SetScore(int value);
+```
+
+Getter-only properties are supported. If a getter returns a mutable lvalue
+reference, the reflection runtime can write through that reference. Setter-only
+properties and invalid property method signatures are rejected by MetaGen.
+
 ## References
 
 Projects use one unified `References` surface:

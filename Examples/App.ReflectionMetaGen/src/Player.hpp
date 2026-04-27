@@ -9,24 +9,33 @@ namespace Demo
     struct NGIN_REFLECT(name = "Demo::Entity") Entity
     {
         NGIN_FIELD(name = "id")
-        int id {7};
+        int id{7};
     };
 
     struct NGIN_REFLECT(name = "Demo::Player") Player : Entity
     {
         NGIN_FIELD(name = "display_name")
-        std::string displayName {"Ada"};
+        std::string displayName{"Ada"};
 
         NGIN_IGNORE
-        int transientDebugCounter {0};
+        int transientDebugCounter{0};
+
+        NGIN_IGNORE
+        int score{70};
 
         NGIN_CTOR()
         Player() = default;
 
-        NGIN_METHOD(name = "score")
-        int Score() const
+        NGIN_PROPERTY(name = "score")
+        int GetScore() const
         {
-            return id * 10;
+            return score;
+        }
+
+        NGIN_PROPERTY(name = "score")
+        void SetScore(int value)
+        {
+            score = value;
         }
     };
-}
+} // namespace Demo

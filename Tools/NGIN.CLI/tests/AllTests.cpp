@@ -1,17 +1,20 @@
 #include "Authoring.hpp"
 #include "Build.hpp"
 #include "Diagnostics.hpp"
+#include "MetaGen.hpp"
 #include "MetaGenCommon.hpp"
 #include "Resolution.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -24,8 +27,7 @@ namespace
     class ScopedCurrentPath
     {
     public:
-        explicit ScopedCurrentPath(const fs::path &path)
-            : previous_(fs::current_path())
+        explicit ScopedCurrentPath(const fs::path &path) : previous_(fs::current_path())
         {
             fs::current_path(path);
         }
@@ -46,7 +48,8 @@ namespace
         TempDir()
         {
             const auto now = std::chrono::steady_clock::now().time_since_epoch().count();
-            path_ = fs::temp_directory_path() / ("ngin-cli-tests-" + std::to_string(now) + "-" + std::to_string(std::rand()));
+            path_ = fs::temp_directory_path() /
+                    ("ngin-cli-tests-" + std::to_string(now) + "-" + std::to_string(std::rand()));
             fs::create_directories(path_);
         }
 
@@ -86,14 +89,60 @@ namespace
         }
         return messages;
     }
-}
 
-TEST_CASE("workspace, project, and package manifests parse through authoring facades")
+    [[nodiscard]] auto ReadFile(const fs::path &path) -> std::string
+    {
+        std::ifstream input(path);
+        std::ostringstream content{};
+        content << input.rdbuf();
+        return content.str();
+    }
+
+    [[nodiscard]] auto ContainsDiagnostic(const std::vector<std::string> &diagnostics, std::string_view text) -> bool
+    {
+        return std::any_of(diagnostics.begin(),
+                           diagnostics.end(),
+                           [&](const std::string &diagnostic)
+                           {
+                               return diagnostic.find(text) != std::string::npos;
+                           });
+    }
+
+    auto WriteMetaGenFixture(TempDir &temp, const std::string &header) -> fs::path
+    {
+        const auto projectPath = temp.path() / "App/App.nginproj";
+        WriteFile(projectPath,
+                  R"(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="2" Name="Meta.Property.App" Type="Application" DefaultConfiguration="Runtime">
+  <SourceRoots>
+    <SourceRoot Path="src" />
+  </SourceRoots>
+  <Output Kind="Executable" Name="Meta.Property.App" Target="MetaPropertyApp" />
+  <Build Backend="CMake" Mode="Generated" Language="CXX" LanguageStandard="23">
+    <MetaGen Enabled="true" />
+  </Build>
+  <Environments>
+    <Environment Name="dev" />
+  </Environments>
+  <Configurations>
+    <Configuration Name="Runtime" BuildConfiguration="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev" />
+  </Configurations>
+</Project>
+)");
+        WriteFile(temp.path() / "App/src/Player.hpp", header);
+        WriteFile(temp.path() / "App/src/main.cpp", R"(#include "Player.hpp"
+int main() { return 0; }
+)");
+        return projectPath;
+    }
+} // namespace
+
+TEST_CASE("workspace, project, and package manifests parse through authoring "
+          "facades")
 {
     TempDir temp{};
-    WriteFile(
-        temp.path() / "Workspace.ngin",
-        R"(<?xml version="1.0" encoding="utf-8"?>
+    WriteFile(temp.path() / "Workspace.ngin",
+              R"(<?xml version="1.0" encoding="utf-8"?>
 <Workspace SchemaVersion="2" Name="TempWorkspace" PlatformVersion="0.1.0">
   <PackageSources>
     <PackageSource Path="Packages" />
@@ -103,16 +152,14 @@ TEST_CASE("workspace, project, and package manifests parse through authoring fac
   </Projects>
 </Workspace>
 )");
-    WriteFile(
-        temp.path() / "Packages/Sample/Sample.nginpkg",
-        R"(<?xml version="1.0" encoding="utf-8"?>
+    WriteFile(temp.path() / "Packages/Sample/Sample.nginpkg",
+              R"(<?xml version="1.0" encoding="utf-8"?>
 <Package SchemaVersion="2" Name="Sample.Package" Version="1.0.0">
   <Build Backend="CMake" Mode="Manual" />
 </Package>
 )");
-    WriteFile(
-        temp.path() / "App/App.nginproj",
-        R"(<?xml version="1.0" encoding="utf-8"?>
+    WriteFile(temp.path() / "App/App.nginproj",
+              R"(<?xml version="1.0" encoding="utf-8"?>
 <Project SchemaVersion="2" Name="Sample.App" Type="Application" DefaultConfiguration="Runtime">
   <SourceRoots>
     <SourceRoot Path="src" />
@@ -147,7 +194,8 @@ TEST_CASE("workspace, project, and package manifests parse through authoring fac
 
 TEST_CASE("metagen annotation parser accepts macro payloads")
 {
-    const auto reflect = NGIN::CLI::MetaGen::ParseAnnotation("ngin.reflect:name = \"Demo::Player\", category = runtime");
+    const auto reflect =
+        NGIN::CLI::MetaGen::ParseAnnotation("ngin.reflect:name = \"Demo::Player\", category = runtime");
     REQUIRE(reflect.kind == "reflect");
     REQUIRE(reflect.options.at("name") == "Demo::Player");
     REQUIRE(reflect.options.at("category") == "runtime");
@@ -157,13 +205,96 @@ TEST_CASE("metagen annotation parser accepts macro payloads")
     REQUIRE(ignore.options.empty());
 }
 
+TEST_CASE("metagen emits method-backed properties")
+{
+    TempDir temp{};
+    const auto projectPath = WriteMetaGenFixture(temp,
+                                                 R"(#pragma once
+#include <NGIN/MetaGen/Annotations.hpp>
+namespace Demo {
+struct NGIN_REFLECT(name = "Demo::Player") Player {
+    int score{7};
+    int readOnly{3};
+    NGIN_PROPERTY(name = "score")
+    int GetScore() const { return score; }
+    NGIN_PROPERTY(name = "score")
+    void SetScore(int value) { score = value; }
+    NGIN_PROPERTY(name = "read_only")
+    int GetReadOnly() const { return readOnly; }
+};
+}
+)");
+
+    const auto project = LoadProjectManifest(projectPath);
+    const auto result =
+        GenerateMetaData(RepoRoot(), project, project.configurations.front(), temp.path() / "generated");
+    if (!result.available)
+    {
+        SKIP("MetaGen was built without Clang support");
+    }
+    REQUIRE(result.diagnostics.empty());
+    REQUIRE(result.generatedFiles.size() == 1);
+
+    const auto generated = ReadFile(result.generatedFiles.front());
+    REQUIRE_THAT(generated,
+                 ContainsSubstring(R"(type.Property<&Demo::Player::GetScore, &Demo::Player::SetScore>("score");)"));
+    REQUIRE_THAT(generated, ContainsSubstring(R"(type.Property<&Demo::Player::GetReadOnly>("read_only");)"));
+}
+
+TEST_CASE("metagen rejects invalid property method signatures")
+{
+    TempDir temp{};
+    const auto projectPath = WriteMetaGenFixture(temp,
+                                                 R"(#pragma once
+#include <NGIN/MetaGen/Annotations.hpp>
+namespace Demo {
+struct NGIN_REFLECT(name = "Demo::Player") Player {
+    NGIN_PROPERTY(name = "score")
+    int SetScore(int value) { return value; }
+};
+}
+)");
+
+    const auto project = LoadProjectManifest(projectPath);
+    const auto result =
+        GenerateMetaData(RepoRoot(), project, project.configurations.front(), temp.path() / "generated");
+    if (!result.available)
+    {
+        SKIP("MetaGen was built without Clang support");
+    }
+    REQUIRE(ContainsDiagnostic(result.diagnostics, "must be a getter with no parameters and a non-void return"));
+}
+
+TEST_CASE("metagen rejects setter-only properties")
+{
+    TempDir temp{};
+    const auto projectPath = WriteMetaGenFixture(temp,
+                                                 R"(#pragma once
+#include <NGIN/MetaGen/Annotations.hpp>
+namespace Demo {
+struct NGIN_REFLECT(name = "Demo::Player") Player {
+    NGIN_PROPERTY(name = "score")
+    void SetScore(int value) { (void)value; }
+};
+}
+)");
+
+    const auto project = LoadProjectManifest(projectPath);
+    const auto result =
+        GenerateMetaData(RepoRoot(), project, project.configurations.front(), temp.path() / "generated");
+    if (!result.available)
+    {
+        SKIP("MetaGen was built without Clang support");
+    }
+    REQUIRE(ContainsDiagnostic(result.diagnostics, "has a setter but no getter"));
+}
+
 TEST_CASE("project build descriptor parses metagen opt in")
 {
     TempDir temp{};
     const auto projectPath = temp.path() / "App.nginproj";
-    WriteFile(
-        projectPath,
-        R"(<?xml version="1.0" encoding="utf-8"?>
+    WriteFile(projectPath,
+              R"(<?xml version="1.0" encoding="utf-8"?>
 <Project SchemaVersion="2" Name="Meta.App" Type="Application" DefaultConfiguration="Runtime">
   <SourceRoots>
     <SourceRoot Path="src" />
@@ -189,9 +320,8 @@ TEST_CASE("project parsing rejects missing required output metadata")
 {
     TempDir temp{};
     const auto projectPath = temp.path() / "Invalid.nginproj";
-    WriteFile(
-        projectPath,
-        R"(<?xml version="1.0" encoding="utf-8"?>
+    WriteFile(projectPath,
+              R"(<?xml version="1.0" encoding="utf-8"?>
 <Project SchemaVersion="2" Name="Invalid" Type="Application" DefaultConfiguration="Runtime">
   <Environments>
     <Environment Name="dev" />
@@ -202,18 +332,15 @@ TEST_CASE("project parsing rejects missing required output metadata")
 </Project>
 )");
 
-    REQUIRE_THROWS_WITH(
-        LoadProjectManifest(projectPath),
-        ContainsSubstring("missing <Output>"));
+    REQUIRE_THROWS_WITH(LoadProjectManifest(projectPath), ContainsSubstring("missing <Output>"));
 }
 
 TEST_CASE("project autodiscovery resolves nearest nginproj in the current tree")
 {
     TempDir temp{};
     const auto projectPath = temp.path() / "Nested/App.nginproj";
-    WriteFile(
-        projectPath,
-        R"(<?xml version="1.0" encoding="utf-8"?>
+    WriteFile(projectPath,
+              R"(<?xml version="1.0" encoding="utf-8"?>
 <Project SchemaVersion="2" Name="Nested" Type="Application" DefaultConfiguration="Runtime">
   <Output Kind="Executable" Name="Nested" Target="NestedTarget" />
   <Environments>
@@ -235,9 +362,8 @@ TEST_CASE("project autodiscovery resolves nearest nginproj in the current tree")
 TEST_CASE("resolution reports package dependency cycles")
 {
     TempDir temp{};
-    WriteFile(
-        temp.path() / "Workspace.ngin",
-        R"(<?xml version="1.0" encoding="utf-8"?>
+    WriteFile(temp.path() / "Workspace.ngin",
+              R"(<?xml version="1.0" encoding="utf-8"?>
 <Workspace SchemaVersion="2" Name="CycleWorkspace">
   <PackageSources>
     <PackageSource Path="Packages" />
@@ -247,9 +373,8 @@ TEST_CASE("resolution reports package dependency cycles")
   </Projects>
 </Workspace>
 )");
-    WriteFile(
-        temp.path() / "Packages/A/A.nginpkg",
-        R"(<?xml version="1.0" encoding="utf-8"?>
+    WriteFile(temp.path() / "Packages/A/A.nginpkg",
+              R"(<?xml version="1.0" encoding="utf-8"?>
 <Package SchemaVersion="2" Name="Package.A" Version="1.0.0">
   <Dependencies>
     <PackageRef Name="Package.B" />
@@ -260,9 +385,8 @@ TEST_CASE("resolution reports package dependency cycles")
   </Modules>
 </Package>
 )");
-    WriteFile(
-        temp.path() / "Packages/B/B.nginpkg",
-        R"(<?xml version="1.0" encoding="utf-8"?>
+    WriteFile(temp.path() / "Packages/B/B.nginpkg",
+              R"(<?xml version="1.0" encoding="utf-8"?>
 <Package SchemaVersion="2" Name="Package.B" Version="1.0.0">
   <Dependencies>
     <PackageRef Name="Package.A" />
@@ -273,9 +397,8 @@ TEST_CASE("resolution reports package dependency cycles")
   </Modules>
 </Package>
 )");
-    WriteFile(
-        temp.path() / "App/App.nginproj",
-        R"(<?xml version="1.0" encoding="utf-8"?>
+    WriteFile(temp.path() / "App/App.nginproj",
+              R"(<?xml version="1.0" encoding="utf-8"?>
 <Project SchemaVersion="2" Name="Cycle.App" Type="Application" DefaultConfiguration="Runtime">
   <Output Kind="Executable" Name="Cycle.App" Target="CycleApp" />
   <References>
@@ -301,7 +424,8 @@ TEST_CASE("resolution reports package dependency cycles")
 
 TEST_CASE("resolution reports project config source collisions")
 {
-    const auto projectPath = RepoRoot() / "Examples/ProjectRef.Config/CollisionRoot/ProjectRef.Config.CollisionRoot.nginproj";
+    const auto projectPath = RepoRoot() / "Examples/ProjectRef.Config/CollisionRoot/"
+                                          "ProjectRef.Config.CollisionRoot.nginproj";
     REQUIRE(fs::exists(projectPath));
 
     const auto project = LoadProjectManifest(projectPath);
@@ -323,7 +447,8 @@ TEST_CASE("resolution reports project config source collisions")
     REQUIRE(foundCollision);
 }
 
-TEST_CASE("build facade writes launch manifests and preserves unrelated output files")
+TEST_CASE("build facade writes launch manifests and preserves unrelated output "
+          "files")
 {
     const auto projectPath = RepoRoot() / "Examples/App.Basic/App.Basic.nginproj";
     REQUIRE(fs::exists(projectPath));
@@ -351,8 +476,9 @@ TEST_CASE("build facade writes launch manifests and preserves unrelated output f
     REQUIRE(*summary.selectedExecutable == "App.Basic");
 }
 
-  TEST_CASE("clean facade removes owned generated artifacts and preserves unrelated files")
-  {
+TEST_CASE("clean facade removes owned generated artifacts and preserves "
+          "unrelated files")
+{
     const auto projectPath = RepoRoot() / "Examples/App.Basic/App.Basic.nginproj";
     REQUIRE(fs::exists(projectPath));
 
@@ -374,10 +500,10 @@ TEST_CASE("build facade writes launch manifests and preserves unrelated output f
     REQUIRE(fs::exists(outputDir / "keep.txt"));
     REQUIRE_FALSE(fs::exists(outputDir / "App.Basic.Runtime.nginlaunch"));
     REQUIRE_FALSE(fs::exists(outputDir / "bin" / "App.Basic"));
-  }
+}
 
-  TEST_CASE("rebuild semantics can be expressed as clean followed by build")
-  {
+TEST_CASE("rebuild semantics can be expressed as clean followed by build")
+{
     const auto projectPath = RepoRoot() / "Examples/App.Basic/App.Basic.nginproj";
     REQUIRE(fs::exists(projectPath));
 
@@ -404,7 +530,7 @@ TEST_CASE("build facade writes launch manifests and preserves unrelated output f
     REQUIRE(summary.configurationName == "Runtime");
     REQUIRE(summary.selectedExecutable.has_value());
     REQUIRE(*summary.selectedExecutable == "App.Basic");
-  }
+}
 
 TEST_CASE("process execution helper runs tools directly without a shell")
 {
