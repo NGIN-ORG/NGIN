@@ -42,8 +42,9 @@ The normal project loop is:
 2. choose a configuration
 3. validate the selected composition
 4. inspect the graph when needed
-5. build a staged output directory
-6. run from the generated `.nginlaunch`
+5. configure generated build metadata when needed
+6. build a staged output directory
+7. run from the generated `.nginlaunch`
 
 Minimal example:
 
@@ -51,6 +52,11 @@ Minimal example:
 ./build/dev/Tools/NGIN.CLI/ngin validate \
   --project Examples/App.NativeMinimal/App.NativeMinimal.nginproj \
   --configuration Runtime
+
+./build/dev/Tools/NGIN.CLI/ngin configure \
+  --project Examples/App.NativeMinimal/App.NativeMinimal.nginproj \
+  --configuration Runtime \
+  --output build/manual/App.NativeMinimal
 
 ./build/dev/Tools/NGIN.CLI/ngin build \
   --project Examples/App.NativeMinimal/App.NativeMinimal.nginproj \
@@ -72,6 +78,7 @@ Project commands:
 
 - `ngin validate`
 - `ngin graph`
+- `ngin configure`
 - `ngin build`
 - `ngin run`
 - `ngin clean`
@@ -137,6 +144,9 @@ Keep upstream license files inside each extracted payload when publishing
 bundled tool archives.
 
 ## Staged Output
+
+`ngin configure` prepares the generated CMake build tree and compile database
+without building or staging artifacts.
 
 `ngin build` produces a staged output directory containing:
 

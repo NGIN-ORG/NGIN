@@ -299,8 +299,9 @@ test('overview sections describe the current workspace selection and actions', (
   assert.equal(sections[2].children[0].label, 'Output Folder');
   assert.equal(sections[2].children[0].command, 'ngin.internal.revealPath');
   assert.equal(sections[3].children[0].command, 'ngin.build');
-  assert.equal(sections[3].children[1].command, 'ngin.rebuild');
-  assert.equal(sections[3].children[2].command, 'ngin.clean');
+  assert.equal(sections[3].children[1].command, 'ngin.configure');
+  assert.equal(sections[3].children[2].command, 'ngin.rebuild');
+  assert.equal(sections[3].children[3].command, 'ngin.clean');
   assert.equal(sections[3].children.some((entry) => entry.command === 'ngin.metagen'), true);
   assert.equal(sections[4].children[1].label, 'Open Last Launch Manifest');
 });
@@ -382,6 +383,7 @@ test('status bar models expose the compact NGIN bottom-bar actions', () => {
   assert.equal(model.project?.command, 'ngin.internal.pickProject');
   assert.equal(model.configuration?.command, 'ngin.internal.pickConfiguration');
   assert.match(model.configuration?.text ?? '', /\$\(symbol-enum\) Runtime/);
+  assert.equal(model.configure?.command, 'ngin.configure');
   assert.equal(model.build?.command, 'ngin.build');
   assert.equal(model.run?.command, 'ngin.run');
   assert.equal(model.debug?.command, 'ngin.debug');

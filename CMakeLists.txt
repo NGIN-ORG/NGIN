@@ -115,6 +115,15 @@ add_test(NAME ngin.graph.workspace
   COMMAND $<TARGET_FILE:ngin_cli> graph --project "${NGIN_APP_BASIC_PROJECT_PATH}" --configuration Runtime
 )
 
+add_test(NAME ngin.configure.native_minimal
+  COMMAND ${CMAKE_COMMAND}
+    -DCLI=$<TARGET_FILE:ngin_cli>
+    -DPROJECT=${NGIN_APP_NATIVE_MINIMAL_PROJECT_PATH}
+    -DCONFIGURATION=Runtime
+    -DOUTPUT=${CMAKE_BINARY_DIR}/test-stage/App.NativeMinimal/Configure
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunNGINConfigureCheck.cmake"
+)
+
 add_test(NAME ngin.build.workspace
   COMMAND ${CMAKE_COMMAND}
     -DCLI=$<TARGET_FILE:ngin_cli>

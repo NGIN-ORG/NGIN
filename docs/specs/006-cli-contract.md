@@ -1,7 +1,7 @@
 # Spec 006: CLI Contract
 
 Status: Active
-Last updated: 2026-04-25
+Last updated: 2026-04-27
 
 ## Purpose
 
@@ -12,6 +12,7 @@ This spec defines the active user-facing surface of the native `ngin` CLI.
 Stable active commands:
 
 - `ngin build [--project <file>] [--configuration <name>] [--output <dir>]`
+- `ngin configure [--project <file>] [--configuration <name>] [--output <dir>]`
 - `ngin clean [--project <file>] [--configuration <name>] [--output <dir>]`
 - `ngin rebuild [--project <file>] [--configuration <name>] [--output <dir>]`
 - `ngin run [--project <file>] [--configuration <name>] [--output <dir>] [-- <args...>]`
@@ -32,7 +33,9 @@ Removed commands:
 
 - `--configuration` always selects the project configuration
 - build configuration comes from the selected project configuration’s `BuildConfiguration`
+- `ngin configure` resolves the selected composition, generates backend CMake input, runs CMake configure, and emits generated build metadata such as `compile_commands.json` without staging runtime outputs
 - `ngin build` emits `.nginlaunch`
+- `ngin build` configures the generated backend build when needed before building and staging artifacts
 - `ngin build` remains incremental and should not aggressively remove unrelated files outside NGIN-owned stale outputs
 - generated CMake builds may resolve backend tools from explicit environment overrides, bundled tools under `Tools/ThirdParty/BuildTools`, or `PATH`
 - `ngin clean` removes NGIN-owned generated artifacts for the selected build scope

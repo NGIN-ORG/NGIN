@@ -519,6 +519,36 @@ namespace NGIN::CLI
         return 0;
     }
 
+    auto CmdConfigure(const fs::path &root, const ParsedArgs &args) -> int
+    {
+        (void)root;
+        const auto invocation = ResolveInvocation(args);
+        const auto configured = ConfigureLaunch(
+            invocation.project,
+            invocation.configuration,
+            args.outputPath.has_value() ? std::optional<fs::path>{*args.outputPath} : std::nullopt);
+        if (!configured.value.has_value() || configured.diagnostics.HasErrors())
+        {
+            PrintDiagnostics(configured.diagnostics, "Configure", std::cout);
+            return 1;
+        }
+
+        std::cout << "Configured build metadata: " << invocation.configuration.name << "\n";
+        std::cout << "  project: " << invocation.project.name << "\n";
+        std::cout << "  output: " << configured.value->outputDir << "\n";
+        if (configured.value->configured)
+        {
+            std::cout << "  build directory: " << *configured.value->buildDir << "\n";
+            std::cout << "  compile commands: " << *configured.value->compileCommandsPath << "\n";
+        }
+        else
+        {
+            std::cout << "  generated native build: (none)\n";
+        }
+        PrintDiagnostics(configured.diagnostics, "Configure", std::cout);
+        return 0;
+    }
+
     auto CmdBuild(const fs::path &root, const ParsedArgs &args) -> int
     {
         (void)root;

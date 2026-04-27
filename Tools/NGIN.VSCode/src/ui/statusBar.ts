@@ -6,14 +6,16 @@ export class NginStatusBarController implements vscode.Disposable {
   private readonly workspaceItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
   private readonly projectItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 99);
   private readonly configurationItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 98);
-  private readonly buildItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 97);
-  private readonly runItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 96);
-  private readonly debugItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 95);
+  private readonly configureItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 97);
+  private readonly buildItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 96);
+  private readonly runItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 95);
+  private readonly debugItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 94);
 
   dispose(): void {
     this.workspaceItem.dispose();
     this.projectItem.dispose();
     this.configurationItem.dispose();
+    this.configureItem.dispose();
     this.buildItem.dispose();
     this.runItem.dispose();
     this.debugItem.dispose();
@@ -31,6 +33,7 @@ export class NginStatusBarController implements vscode.Disposable {
     this.apply(this.workspaceItem, model.workspace);
     this.apply(this.projectItem, model.project);
     this.apply(this.configurationItem, model.configuration);
+    this.apply(this.configureItem, model.configure);
     this.apply(this.buildItem, model.build);
     this.apply(this.runItem, model.run);
     this.apply(this.debugItem, model.debug);
@@ -58,6 +61,7 @@ export class NginStatusBarController implements vscode.Disposable {
     this.workspaceItem.hide();
     this.projectItem.hide();
     this.configurationItem.hide();
+    this.configureItem.hide();
     this.buildItem.hide();
     this.runItem.hide();
     this.debugItem.hide();

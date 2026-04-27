@@ -79,6 +79,7 @@ export interface StatusBarModel {
   workspace?: StatusBarEntryModel;
   project?: StatusBarEntryModel;
   configuration?: StatusBarEntryModel;
+  configure?: StatusBarEntryModel;
   build?: StatusBarEntryModel;
   run?: StatusBarEntryModel;
   debug?: StatusBarEntryModel;
@@ -240,6 +241,7 @@ export function buildOverviewSections(snapshot: NginWorkspaceSnapshot): Overview
       label: 'Actions',
       children: [
         { id: 'action-build', label: 'Build', tooltip: 'Build the selected project and configuration.', command: 'ngin.build', arguments: target ? [target] : undefined, icon: 'gear' },
+        { id: 'action-configure', label: 'Configure', tooltip: 'Generate backend build metadata for the selected project and configuration.', command: 'ngin.configure', arguments: target ? [target] : undefined, icon: 'settings' },
         { id: 'action-rebuild', label: 'Rebuild', tooltip: 'Clean and rebuild the selected project and configuration.', command: 'ngin.rebuild', arguments: target ? [target] : undefined, icon: 'tools' },
         { id: 'action-clean', label: 'Clean', tooltip: 'Remove NGIN-owned generated artifacts for the selected project and configuration.', command: 'ngin.clean', arguments: target ? [target] : undefined, icon: 'trash' },
         { id: 'action-run', label: 'Run', tooltip: 'Run the selected project and configuration.', command: 'ngin.run', arguments: target ? [target] : undefined, icon: 'play' },
@@ -385,6 +387,12 @@ export function buildStatusBarModel(snapshot: NginWorkspaceSnapshot): StatusBarM
       text: `$(symbol-enum) ${snapshot.context.configuration.name}`,
       tooltip: `${selectionLabel}\nTarget: ${[snapshot.context.configuration.operatingSystem, snapshot.context.configuration.architecture].filter(Boolean).join('/') || 'n/a'}`,
       command: 'ngin.internal.pickConfiguration'
+    },
+    configure: {
+      text: '$(settings) Configure',
+      tooltip: `Configure build metadata for ${selectionLabel}\n${snapshot.outputDir ?? ''}`.trim(),
+      command: 'ngin.configure',
+      arguments: target ? [target] : undefined
     },
     build: {
       text: '$(gear) Build',

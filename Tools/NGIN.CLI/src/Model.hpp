@@ -316,6 +316,14 @@ namespace NGIN::CLI
         fs::path manifestPath{};
     };
 
+    struct ConfiguredBuildPaths
+    {
+        fs::path outputDir{};
+        std::optional<fs::path> buildDir{};
+        std::optional<fs::path> compileCommandsPath{};
+        bool configured{false};
+    };
+
     struct LaunchManifestSummary
     {
         fs::path manifestPath{};

@@ -258,7 +258,7 @@ export class WorkspaceStateService implements vscode.Disposable {
     }
     snapshot.buildOutputRoot = this.getConfiguredBuildOutputRoot(workspace.folder);
 
-    const project = this.resolveStoredProject(workspace);
+    const project = await this.resolveProject(workspace, undefined, preferredUri, false);
     if (!project) {
       return snapshot;
     }

@@ -400,20 +400,6 @@ namespace NGIN::CLI
             return value;
         }
 
-        [[nodiscard]] auto HashString(std::string_view value) -> std::string
-        {
-            std::uint64_t hash = 14695981039346656037ull;
-            for (const unsigned char ch : value)
-            {
-                hash ^= ch;
-                hash *= 1099511628211ull;
-            }
-
-            std::ostringstream stream{};
-            stream << std::hex << hash;
-            return stream.str();
-        }
-
         [[nodiscard]] auto ReadTextFile(const fs::path &path) -> std::optional<std::string>
         {
             std::ifstream input(path, std::ios::binary);
@@ -447,10 +433,8 @@ namespace NGIN::CLI
 
         [[nodiscard]] auto ResolveGeneratedBuildPaths(const ResolvedLaunch &resolved, const fs::path &outputDir) -> GeneratedBuildPaths
         {
-            const auto buildRoot = resolved.workspace.has_value() ? resolved.workspace->path.parent_path() : resolved.project.path.parent_path();
-            const auto cacheKey = HashString(fs::absolute(outputDir).lexically_normal().string());
-            const auto buildConfiguration = resolved.configuration.buildConfiguration.empty() ? "Debug" : resolved.configuration.buildConfiguration;
-            const auto cacheRoot = buildRoot / ".ngin" / "cache" / "build" / resolved.project.name / resolved.configuration.name / buildConfiguration / cacheKey;
+            (void)resolved;
+            const auto cacheRoot = outputDir / ".ngin";
             return {
                 .sourceDir = cacheRoot / "cmake-src",
                 .buildDir = cacheRoot / "cmake-build",
@@ -1156,30 +1140,31 @@ namespace NGIN::CLI
             return WriteTextFileIfChanged(generatedSourceDir / "CMakeLists.txt", content.str());
         }
 
-        auto BuildArtifacts(const ResolvedLaunch &resolved, const fs::path &outputDir, DiagnosticReport &report) -> void
+        [[nodiscard]] auto ConfigureGeneratedBuild(const ResolvedLaunch &resolved, const fs::path &outputDir, DiagnosticReport &report) -> std::optional<GeneratedBuildPaths>
         {
             if (!HasArtifactTargetsToBuild(resolved))
             {
-                return;
+                return std::nullopt;
             }
 
             const auto generatedPaths = ResolveGeneratedBuildPaths(resolved, outputDir);
             const auto cmakeProjectChanged = WriteGeneratedBuildProject(resolved, outputDir, generatedPaths, report);
             if (report.HasErrors())
             {
-                return;
+                return std::nullopt;
             }
 
             const auto buildConfiguration = resolved.configuration.buildConfiguration.empty() ? "Debug" : resolved.configuration.buildConfiguration;
             const auto cmakeCachePath = generatedPaths.buildDir / "CMakeCache.txt";
+            const auto compileCommandsPath = generatedPaths.buildDir / "compile_commands.json";
             const auto toolSearchRoot = BuildToolSearchRoot(resolved);
             const auto cmakeTool = ResolveToolPath("cmake", toolSearchRoot);
             if (!cmakeTool.has_value())
             {
                 AddError(report, "missing tool: cmake. Install CMake, set NGIN_CMAKE, or fetch bundled tools into Tools/ThirdParty/BuildTools.");
-                return;
+                return std::nullopt;
             }
-            if (cmakeProjectChanged || !fs::exists(cmakeCachePath))
+            if (cmakeProjectChanged || !fs::exists(cmakeCachePath) || !fs::exists(compileCommandsPath))
             {
                 std::vector<std::string> configureArguments{
                     "-S",
@@ -1187,6 +1172,7 @@ namespace NGIN::CLI
                     "-B",
                     generatedPaths.buildDir.string(),
                     "-DCMAKE_BUILD_TYPE=" + buildConfiguration,
+                    "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON",
                 };
                 if (const auto ninjaPath = ResolveToolPath("ninja", toolSearchRoot).or_else([&toolSearchRoot]()
                                                                          { return ResolveToolPath("ninja-build", toolSearchRoot); });
@@ -1201,14 +1187,33 @@ namespace NGIN::CLI
                         configureArguments) != 0)
                 {
                     AddError(report, "failed to configure generated CMake build project for configuration '" + resolved.configuration.name + "' with build configuration '" + buildConfiguration + "'");
-                    return;
+                    return std::nullopt;
                 }
+            }
+            return generatedPaths;
+        }
+
+        auto BuildArtifacts(const ResolvedLaunch &resolved, const fs::path &outputDir, DiagnosticReport &report) -> void
+        {
+            const auto generatedPaths = ConfigureGeneratedBuild(resolved, outputDir, report);
+            if (!generatedPaths.has_value() || report.HasErrors())
+            {
+                return;
+            }
+
+            const auto buildConfiguration = resolved.configuration.buildConfiguration.empty() ? "Debug" : resolved.configuration.buildConfiguration;
+            const auto toolSearchRoot = BuildToolSearchRoot(resolved);
+            const auto cmakeTool = ResolveToolPath("cmake", toolSearchRoot);
+            if (!cmakeTool.has_value())
+            {
+                AddError(report, "missing tool: cmake. Install CMake, set NGIN_CMAKE, or fetch bundled tools into Tools/ThirdParty/BuildTools.");
+                return;
             }
             if (RunProcess(
                     cmakeTool->path,
                     {
                         "--build",
-                        generatedPaths.buildDir.string(),
+                        generatedPaths->buildDir.string(),
                         "--config",
                         buildConfiguration,
                         "--target",
@@ -1622,11 +1627,6 @@ namespace NGIN::CLI
             }
         }
 
-        const auto legacyGeneratedDir = outputDir / ".ngin";
-        std::error_code legacyError;
-        fs::remove_all(legacyGeneratedDir / "cmake-src", legacyError);
-        legacyError.clear();
-        fs::remove_all(legacyGeneratedDir / "cmake-build", legacyError);
     }
 
     auto CleanLaunch(
@@ -1666,10 +1666,55 @@ namespace NGIN::CLI
         fs::remove_all(generatedPaths.buildDir, error);
         error.clear();
         fs::remove_all(ResolveMetaGenOutputDir(*resolved.value, project, configuration), error);
-        PruneEmptyDirectories(cacheRoot, ResolveBuildRoot(*resolved.value) / ".ngin");
+        PruneEmptyDirectories(cacheRoot, resolvedOutputDir);
         PruneEmptyDirectories(ResolveBuildRoot(*resolved.value) / ".ngin" / "metagen", ResolveBuildRoot(*resolved.value) / ".ngin");
 
         result.value = resolvedOutputDir;
+        return result;
+    }
+
+    auto ConfigureLaunch(
+        const ProjectManifest &project,
+        const ConfigurationDefinition &configuration,
+        const std::optional<fs::path> &outputPath) -> DiagnosticResult<ConfiguredBuildPaths>
+    {
+        DiagnosticResult<ConfiguredBuildPaths> result{};
+
+        if (!IsSupportedBuildConfiguration(configuration.buildConfiguration))
+        {
+            AddError(
+                result.diagnostics,
+                "unsupported build configuration '" + configuration.buildConfiguration + "' in configuration '" + configuration.name + "'. Expected one of: Debug, Release, RelWithDebInfo, MinSizeRel");
+            return result;
+        }
+
+        const auto resolved = ResolveLaunch(project, configuration);
+        AppendDiagnostics(result.diagnostics, resolved.diagnostics);
+        if (!resolved.value.has_value() || result.diagnostics.HasErrors())
+        {
+            return result;
+        }
+
+        const auto resolvedOutputDir = ResolveOutputDir(*resolved.value, outputPath);
+        fs::create_directories(resolvedOutputDir);
+
+        ConfiguredBuildPaths configured{
+            .outputDir = resolvedOutputDir,
+        };
+
+        const auto generatedPaths = ConfigureGeneratedBuild(*resolved.value, resolvedOutputDir, result.diagnostics);
+        if (result.diagnostics.HasErrors())
+        {
+            return result;
+        }
+        if (generatedPaths.has_value())
+        {
+            configured.buildDir = generatedPaths->buildDir;
+            configured.compileCommandsPath = generatedPaths->buildDir / "compile_commands.json";
+            configured.configured = true;
+        }
+
+        result.value = configured;
         return result;
     }
 

@@ -39,6 +39,11 @@ namespace NGIN::CLI
         const ConfigurationDefinition &configuration,
         const std::optional<fs::path> &outputPath) -> DiagnosticResult<fs::path>;
 
+    [[nodiscard]] auto ConfigureLaunch(
+        const ProjectManifest &project,
+        const ConfigurationDefinition &configuration,
+        const std::optional<fs::path> &outputPath) -> DiagnosticResult<ConfiguredBuildPaths>;
+
     [[nodiscard]] auto BuildLaunch(
         const ProjectManifest &project,
         const ConfigurationDefinition &configuration,

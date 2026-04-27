@@ -114,6 +114,11 @@
         "category": "NGIN"
       },
       {
+        "command": "ngin.configure",
+        "title": "Configure",
+        "category": "NGIN"
+      },
+      {
         "command": "ngin.clean",
         "title": "Clean",
         "category": "NGIN"
@@ -258,19 +263,24 @@
           "group": "ngin.actions@1"
         },
         {
-          "command": "ngin.rebuild",
+          "command": "ngin.configure",
           "when": "view == nginProjects && viewItem =~ /^(nginProject|nginConfiguration)$/",
           "group": "ngin.actions@2"
         },
         {
-          "command": "ngin.run",
+          "command": "ngin.rebuild",
           "when": "view == nginProjects && viewItem =~ /^(nginProject|nginConfiguration)$/",
           "group": "ngin.actions@3"
         },
         {
-          "command": "ngin.debug",
+          "command": "ngin.run",
           "when": "view == nginProjects && viewItem =~ /^(nginProject|nginConfiguration)$/",
           "group": "ngin.actions@4"
+        },
+        {
+          "command": "ngin.debug",
+          "when": "view == nginProjects && viewItem =~ /^(nginProject|nginConfiguration)$/",
+          "group": "ngin.actions@5"
         },
         {
           "command": "ngin.validate",
@@ -384,6 +394,7 @@
           "command": {
             "type": "string",
             "enum": [
+              "configure",
               "build",
               "clean",
               "rebuild",

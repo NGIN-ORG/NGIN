@@ -4,15 +4,16 @@
 It is an editor front end over the native `ngin` CLI, not a separate project
 model or build system.
 
-Use it when you want to select projects and configurations, build, run, debug,
-validate, inspect graphs, or generate metadata from VS Code while keeping the
-same behavior as the terminal commands.
+Use it when you want to select projects and configurations, configure build
+metadata, build, run, debug, validate, inspect graphs, or generate metadata from
+VS Code while keeping the same behavior as the terminal commands.
 
 ## What It Provides
 
 - NGIN activity-bar views for workspace, project, and configuration navigation
 - status bar items for the selected workspace, project, and configuration
-- commands for build, clean, rebuild, run, debug, validate, graph, and MetaGen
+- commands for configure, build, clean, rebuild, run, debug, validate, graph,
+  and MetaGen
 - generated VS Code tasks for known project/configuration pairs
 - `.nginlaunch`-based run and debug resolution
 - a custom `ngin` debug type that launches native C/C++ debug sessions
@@ -30,6 +31,7 @@ The extension mirrors the CLI directly:
 
 - selected project maps to `--project`
 - selected configuration maps to `--configuration`
+- Configure maps to `ngin configure`
 - Build maps to `ngin build`
 - Clean maps to `ngin clean`
 - Rebuild maps to `ngin rebuild`
@@ -38,9 +40,10 @@ The extension mirrors the CLI directly:
 - Graph maps to `ngin graph`
 - Generate Metadata maps to `ngin metagen`
 
-Run and debug use the staged `.nginlaunch` file produced by `ngin build`. When
-debugging, the extension can build first if the launch manifest is missing or
-stale.
+Configure generates backend build metadata such as `compile_commands.json`
+without producing a `.nginlaunch` file. Run and debug use the staged
+`.nginlaunch` file produced by `ngin build`. When debugging, the extension can
+build first if the launch manifest is missing or stale.
 
 ## Build And Install
 
