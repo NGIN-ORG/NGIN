@@ -1,0 +1,4 @@
+UNLICENSED
+
+This VS Code extension is distributed as part of the NGIN repository and is
+not published under an open-source license.
