@@ -21,6 +21,11 @@ If you are trying to understand NGIN as a user:
 4. Read `Examples/App.Showcase` for configuration overlays.
 5. Read the specs below when you need exact contracts.
 
+## Guides
+
+- [`guides/nginproj-authoring.md`](guides/nginproj-authoring.md)
+  Concise developer guide for authoring `.nginproj` files.
+
 ## Active Specs
 
 - [`specs/001-core-concepts.md`](specs/001-core-concepts.md)  

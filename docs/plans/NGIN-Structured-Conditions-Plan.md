@@ -4,7 +4,7 @@
 
 NGIN manifests need a powerful condition model for selecting authored inputs
 based on the active build and runtime configuration. The model should be more
-toolable and less stringly typed than `.csproj`-style inline expressions.
+toolable and less stringly typed than free-form inline expressions.
 
 This plan introduces a root-level `<Conditions>` section with named, structured
 conditions. Manifest items can reference those conditions through `When="..."`.
@@ -30,7 +30,7 @@ after the condition contract is settled.
 ## Non-Goals
 
 - Do not implement source visibility changes in this plan.
-- Do not make `.csproj`-style string expressions the default condition model.
+- Do not make free-form string expressions the default condition model.
 - Do not support arbitrary scripting.
 - Do not add package restore or dependency resolution conditions yet.
 - Do not export project conditions to referenced projects or packages.

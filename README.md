@@ -95,18 +95,9 @@ package outputs, copied libraries, and generated launch metadata.
 
 ---
 
-## What NGIN Is Similar To
+## The Developer Workflow
 
-If you come from .NET, the closest mental comparison is:
-
-```text
-.csproj + dotnet build + dotnet run + NuGet-style package thinking
-```
-
-but for native C++ projects.
-
-NGIN is not trying to make C++ become .NET. The comparison is only about the
-developer workflow:
+NGIN is built around a direct project workflow:
 
 - one project file describes the project
 - a CLI understands that project file
