@@ -338,8 +338,8 @@ selection context.
 
 Conditions should initially match stable authored selection state such as:
 
-- `Configuration`
-- `BuildConfiguration`
+- `Profile`
+- `BuildType`
 - `OperatingSystem`
 - `Architecture`
 - `Environment`
@@ -378,7 +378,7 @@ The first inspection command should answer what the selected project actually
 resolved:
 
 ```bash
-ngin variables explain --project Examples/App.Basic/App.Basic.nginproj --configuration Runtime
+ngin variables explain --project Examples/App.Basic/App.Basic.nginproj --profile Runtime
 ```
 
 Example output:

@@ -19,7 +19,7 @@
     "prefix": "ngin-project",
     "body": [
       "<?xml version=\"1.0\" encoding=\"utf-8\"?>",
-      "<Project SchemaVersion=\"2\" Name=\"$1\" Type=\"Application\" DefaultConfiguration=\"$2\">",
+      "<Project SchemaVersion=\"3\" Name=\"$1\" DefaultProfile=\"$2\">",
       "  <Sources>",
       "    <Private>",
       "      <Root Path=\"src\" />",
@@ -32,11 +32,11 @@
       "  <Environments>",
       "    <Environment Name=\"$5\" />",
       "  </Environments>",
-      "  <Configurations>",
-      "    <Configuration Name=\"$2\" BuildConfiguration=\"Debug\" OperatingSystem=\"$6\" Architecture=\"$7\" Environment=\"$5\">",
+      "  <Profiles>",
+      "    <Profile Name=\"$2\" BuildType=\"Debug\" Platform=\"$6\" Environment=\"$5\">",
       "      <Launch Executable=\"$1\" WorkingDirectory=\".\" />",
-      "    </Configuration>",
-      "  </Configurations>",
+      "    </Profile>",
+      "  </Profiles>",
       "</Project>"
     ]
   },
@@ -60,13 +60,13 @@
       "</Package>"
     ]
   },
-  "Configuration": {
+  "Profile": {
     "scope": "ngin",
-    "prefix": "ngin-configuration",
+    "prefix": "ngin-profile",
     "body": [
-      "<Configuration Name=\"$1\" BuildConfiguration=\"Debug\" OperatingSystem=\"$2\" Architecture=\"$3\" Environment=\"$4\">",
-      "  <Launch Executable=\"$5\" WorkingDirectory=\".\" />",
-      "</Configuration>"
+      "<Profile Name=\"$1\" BuildType=\"Debug\" Platform=\"$2\" Environment=\"$3\">",
+      "  <Launch Executable=\"$4\" WorkingDirectory=\".\" />",
+      "</Profile>"
     ]
   },
   "PackageReference": {

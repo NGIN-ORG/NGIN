@@ -9,22 +9,22 @@ export function basenameWithoutExtension(filePath: string): string {
 export function computeOutputDir(
   workspaceRoot: string,
   projectName: string,
-  configurationName: string,
+  profileName: string,
   configuredOutputRoot?: string
 ): string {
   if (!configuredOutputRoot) {
-    return path.join(workspaceRoot, '.ngin', 'build', projectName, configurationName);
+    return path.join(workspaceRoot, '.ngin', 'build', projectName, profileName);
   }
 
   const outputRoot = path.isAbsolute(configuredOutputRoot)
     ? configuredOutputRoot
     : path.resolve(workspaceRoot, configuredOutputRoot);
 
-  return path.join(outputRoot, projectName, configurationName);
+  return path.join(outputRoot, projectName, profileName);
 }
 
-export function computeLaunchManifestPath(outputDir: string, projectName: string, configurationName: string): string {
-  return path.join(outputDir, `${projectName}.${configurationName}.nginlaunch`);
+export function computeLaunchManifestPath(outputDir: string, projectName: string, profileName: string): string {
+  return path.join(outputDir, `${projectName}.${profileName}.nginlaunch`);
 }
 
 export function looksLikePath(value: string): boolean {

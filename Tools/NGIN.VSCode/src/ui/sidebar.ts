@@ -13,7 +13,7 @@ import {
   OverviewEntryModel,
   OverviewSectionModel,
   ProjectTreeChildModel,
-  ProjectTreeConfigurationModel,
+  ProjectTreeProfileModel,
   ProjectTreeDependencyKind,
   ProjectTreeDependencyModel,
   ProjectTreeGroupKind,
@@ -90,7 +90,7 @@ class WorkspaceTreeItem extends vscode.TreeItem {
 
 interface ProjectExplorerTarget {
   projectPath?: string;
-  configurationName?: string;
+  profileName?: string;
   fsPath?: string;
   role?: 'manifest' | 'source' | 'config' | 'generated';
   isDirectory?: boolean;
@@ -253,20 +253,20 @@ class ProjectConfigFileTreeItem extends ProjectFileTreeItem {
   }
 }
 
-class GeneratedConfigurationTreeItem extends vscode.TreeItem {
+class GeneratedProfileTreeItem extends vscode.TreeItem {
   readonly projectPath: string;
-  readonly configurationName: string;
+  readonly profileName: string;
   readonly outputDir: string;
 
-  constructor(projectPath: string, configurationName: string, outputDir: string) {
-    super(configurationName, vscode.TreeItemCollapsibleState.Collapsed);
+  constructor(projectPath: string, profileName: string, outputDir: string) {
+    super(profileName, vscode.TreeItemCollapsibleState.Collapsed);
     this.projectPath = projectPath;
-    this.configurationName = configurationName;
+    this.profileName = profileName;
     this.outputDir = outputDir;
     this.description = path.basename(outputDir);
     this.tooltip = outputDir;
     this.iconPath = new vscode.ThemeIcon('archive');
-    this.contextValue = 'nginProjectGeneratedConfiguration';
+    this.contextValue = 'nginProjectGeneratedProfile';
   }
 }
 
@@ -285,22 +285,22 @@ class GeneratedStagedFilesTreeItem extends vscode.TreeItem {
   }
 }
 
-class ConfigurationTreeItem extends vscode.TreeItem {
+class ProfileTreeItem extends vscode.TreeItem {
   readonly projectPath: string;
-  readonly configurationName: string;
+  readonly profileName: string;
 
-  constructor(model: ProjectTreeConfigurationModel) {
+  constructor(model: ProjectTreeProfileModel) {
     super(model.label, vscode.TreeItemCollapsibleState.None);
     this.projectPath = model.projectPath;
-    this.configurationName = model.configurationName;
+    this.profileName = model.profileName;
     this.description = model.description;
     this.tooltip = model.tooltip;
     this.iconPath = new vscode.ThemeIcon(model.selected ? 'play-circle' : 'symbol-enum');
-    this.contextValue = 'nginConfiguration';
+    this.contextValue = 'nginProfile';
     this.command = {
-      command: 'ngin.selectConfiguration',
+      command: 'ngin.selectProfile',
       title: model.label,
-      arguments: [{ projectPath: model.projectPath, configurationName: model.configurationName }]
+      arguments: [{ projectPath: model.projectPath, profileName: model.profileName }]
     };
   }
 }
@@ -314,12 +314,12 @@ function resolveProjectPath(project: ProjectManifest, value: string): string {
   return path.isAbsolute(value) ? path.normalize(value) : path.resolve(project.directory, value);
 }
 
-function allConfigSources(project: ProjectManifest): Array<{ source: string; owner: string }> {
+function allConfigInputs(project: ProjectManifest): Array<{ source: string; owner: string }> {
   return [
-    ...project.configSources.map((source) => ({ source, owner: 'Project' })),
-    ...project.configurations.flatMap((configuration) => configuration.configSources.map((source) => ({
+    ...project.configInputs.map((source) => ({ source, owner: 'Project' })),
+    ...project.profiles.flatMap((profile) => profile.configInputs.map((source) => ({
       source,
-      owner: configuration.name
+      owner: profile.name
     })))
   ];
 }
@@ -397,9 +397,9 @@ type ProjectsTreeElement =
   | ProjectFileTreeItem
   | ProjectConfigFolderTreeItem
   | ProjectConfigFileTreeItem
-  | GeneratedConfigurationTreeItem
+  | GeneratedProfileTreeItem
   | GeneratedStagedFilesTreeItem
-  | ConfigurationTreeItem;
+  | ProfileTreeItem;
 
 class ProjectsTreeDataProvider implements vscode.TreeDataProvider<ProjectsTreeElement> {
   private readonly onDidChangeTreeDataEmitter = new vscode.EventEmitter<void>();
@@ -443,7 +443,7 @@ class ProjectsTreeDataProvider implements vscode.TreeDataProvider<ProjectsTreeEl
         return this.getSourceChildren(project);
       }
       if (element.group === 'config') {
-        return directConfigChildren(project, project.path, '', allConfigSources(project));
+        return directConfigChildren(project, project.path, '', allConfigInputs(project));
       }
       if (element.group === 'dependencies') {
         const dependencies = model.dependenciesByProject.get(element.projectPath);
@@ -460,16 +460,16 @@ class ProjectsTreeDataProvider implements vscode.TreeDataProvider<ProjectsTreeEl
         return items;
       }
       if (element.group === 'generated') {
-        return this.getGeneratedConfigurationChildren(project);
+        return this.getGeneratedProfileChildren(project);
       }
-      if (element.group === 'configurations') {
-        return (model.configurationsByProject.get(element.projectPath) ?? []).map((configuration) => new ConfigurationTreeItem(configuration));
+      if (element.group === 'profiles') {
+        return (model.profilesByProject.get(element.projectPath) ?? []).map((profile) => new ProfileTreeItem(profile));
       }
     }
 
     if (element instanceof ProjectConfigFolderTreeItem) {
       const project = this.findProject(element.projectPath);
-      return project ? directConfigChildren(project, project.path, element.relativePath, allConfigSources(project)) : [];
+      return project ? directConfigChildren(project, project.path, element.relativePath, allConfigInputs(project)) : [];
     }
 
     if (element instanceof ProjectDependencyGroupTreeItem) {
@@ -484,7 +484,7 @@ class ProjectsTreeDataProvider implements vscode.TreeDataProvider<ProjectsTreeEl
       return readDirectoryItems(element.projectPath, element.fsPath, element.role === 'generated' ? 'generated' : 'source');
     }
 
-    if (element instanceof GeneratedConfigurationTreeItem) {
+    if (element instanceof GeneratedProfileTreeItem) {
       return this.getGeneratedArtifactChildren(element);
     }
 
@@ -502,7 +502,7 @@ class ProjectsTreeDataProvider implements vscode.TreeDataProvider<ProjectsTreeEl
     if (model.kind === 'group') {
       return new ProjectGroupTreeItem(model);
     }
-    return new ConfigurationTreeItem(model);
+    return new ProfileTreeItem(model);
   }
 
   private findProject(projectPath: string): ProjectManifest | undefined {
@@ -531,31 +531,31 @@ class ProjectsTreeDataProvider implements vscode.TreeDataProvider<ProjectsTreeEl
     return items;
   }
 
-  private async getGeneratedConfigurationChildren(project: ProjectManifest): Promise<ProjectsTreeElement[]> {
+  private async getGeneratedProfileChildren(project: ProjectManifest): Promise<ProjectsTreeElement[]> {
     const workspace = this.snapshot.workspace;
     if (!workspace) {
       return [];
     }
 
     const items: ProjectsTreeElement[] = [];
-    for (const configuration of project.configurations) {
-      const outputDir = computeOutputDir(workspace.root, project.name, configuration.name, this.snapshot.buildOutputRoot);
-      const launchManifestPath = computeLaunchManifestPath(outputDir, project.name, configuration.name);
+    for (const profile of project.profiles) {
+      const outputDir = computeOutputDir(workspace.root, project.name, profile.name, this.snapshot.buildOutputRoot);
+      const launchManifestPath = computeLaunchManifestPath(outputDir, project.name, profile.name);
       const compileCommandsPath = computeCompileCommandsPath(outputDir);
       if (await pathExists(outputDir) || await pathExists(launchManifestPath) || await pathExists(compileCommandsPath)) {
-        items.push(new GeneratedConfigurationTreeItem(project.path, configuration.name, outputDir));
+        items.push(new GeneratedProfileTreeItem(project.path, profile.name, outputDir));
       }
     }
     return items;
   }
 
-  private async getGeneratedArtifactChildren(element: GeneratedConfigurationTreeItem): Promise<ProjectsTreeElement[]> {
+  private async getGeneratedArtifactChildren(element: GeneratedProfileTreeItem): Promise<ProjectsTreeElement[]> {
     const project = this.findProject(element.projectPath);
     if (!project) {
       return [];
     }
 
-    const launchManifestPath = computeLaunchManifestPath(element.outputDir, project.name, element.configurationName);
+    const launchManifestPath = computeLaunchManifestPath(element.outputDir, project.name, element.profileName);
     const compileCommandsPath = computeCompileCommandsPath(element.outputDir);
     const items: ProjectsTreeElement[] = [];
     if (await pathExists(launchManifestPath)) {

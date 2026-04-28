@@ -95,7 +95,7 @@ See [Spec 003: Package Manifest and Runtime Contributions](/home/berggrenmille/N
 `KernelHostConfig` fields are applied during startup:
 
 - `workingDirectory` for relative-path resolution
-- `configSources` layered into config store
+- `configInputs` layered into config store
 - `commandLineArgs` (`--Key=Value`) command-line overrides
 - `environmentName` environment-layer kernel key
 - `pluginSearchPaths` for default filesystem plugin descriptor discovery

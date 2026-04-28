@@ -107,9 +107,9 @@ namespace
         return services.HasServiceContract(key);
     }
 
-    [[nodiscard]] auto GetExpectations(const std::string_view configuration) -> std::optional<ConfigurationExpectations>
+    [[nodiscard]] auto GetExpectations(const std::string_view profile) -> std::optional<ConfigurationExpectations>
     {
-        if (configuration == "Runtime")
+        if (profile == "Runtime")
         {
             return ConfigurationExpectations {
                 .mode = "runtime",
@@ -128,7 +128,7 @@ namespace
             };
         }
 
-        if (configuration == "Runtime.DevTools")
+        if (profile == "Runtime.DevTools")
         {
             return ConfigurationExpectations {
                 .mode = "runtime-devtools",
@@ -147,7 +147,7 @@ namespace
             };
         }
 
-        if (configuration == "Runtime.Diagnostics")
+        if (profile == "Runtime.Diagnostics")
         {
             return ConfigurationExpectations {
                 .mode = "runtime-diagnostics",
@@ -166,7 +166,7 @@ namespace
             };
         }
 
-        if (configuration == "Runtime.Reflection")
+        if (profile == "Runtime.Reflection")
         {
             return ConfigurationExpectations {
                 .mode = "runtime-reflection",
@@ -185,7 +185,7 @@ namespace
             };
         }
 
-        if (configuration == "Service")
+        if (profile == "Service")
         {
             return ConfigurationExpectations {
                 .mode = "service",
@@ -221,12 +221,12 @@ namespace
         }
         if (!appMode || *appMode != expectations.mode)
         {
-            std::cerr << "App.Mode did not match the selected configuration\n";
+            std::cerr << "App.Mode did not match the selected profile\n";
             return false;
         }
         if (!appEnvironment || *appEnvironment != expectations.environment)
         {
-            std::cerr << "App.Environment did not match the selected configuration\n";
+            std::cerr << "App.Environment did not match the selected profile\n";
             return false;
         }
 
@@ -280,7 +280,7 @@ namespace
             }
             if (present.ValueUnsafe())
             {
-                std::cerr << "service '" << serviceName << "' should not be active for the selected configuration\n";
+                std::cerr << "service '" << serviceName << "' should not be active for the selected profile\n";
                 return false;
             }
         }
@@ -289,7 +289,7 @@ namespace
     }
 
     void PrintSummary(
-        const std::string& configurationName,
+        const std::string& profileName,
         const StartupReport& report,
         NGIN::Core::IConfigStore& config)
     {
@@ -297,7 +297,7 @@ namespace
         const auto environment = ReadConfigValue(config, "App.Environment").value_or("<missing>");
         const auto features = ReadConfigValue(config, "App.Features").value_or("<missing>");
 
-        std::cout << "App.Showcase configuration: " << configurationName << "\n";
+        std::cout << "App.Showcase profile: " << profileName << "\n";
         std::cout << "  mode: " << mode << "\n";
         std::cout << "  environment: " << environment << "\n";
         std::cout << "  features: " << features << "\n";
@@ -412,11 +412,11 @@ int main(int argc, char** argv)
         return 2;
     }
 
-    const auto configurationName = host->GetConfigurationName();
-    const auto expectations = GetExpectations(configurationName);
+    const auto profileName = host->GetProfileName();
+    const auto expectations = GetExpectations(profileName);
     if (!expectations.has_value())
     {
-        std::cerr << "No expectations defined for configuration '" << configurationName << "'\n";
+        std::cerr << "No expectations defined for profile '" << profileName << "'\n";
         return 3;
     }
 
@@ -450,7 +450,7 @@ int main(int argc, char** argv)
         return 8;
     }
 
-    PrintSummary(configurationName, report, *config);
+    PrintSummary(profileName, report, *config);
 
     host->RequestStop("example complete");
 

@@ -35,7 +35,7 @@ export interface ProjectTreeManifestModel {
   filePath: string;
 }
 
-export type ProjectTreeGroupKind = 'source' | 'config' | 'dependencies' | 'generated' | 'configurations';
+export type ProjectTreeGroupKind = 'source' | 'config' | 'dependencies' | 'generated' | 'profiles';
 
 export interface ProjectTreeGroupModel {
   kind: 'group';
@@ -47,13 +47,13 @@ export interface ProjectTreeGroupModel {
   group: ProjectTreeGroupKind;
 }
 
-export interface ProjectTreeConfigurationModel {
-  kind: 'configuration';
+export interface ProjectTreeProfileModel {
+  kind: 'profile';
   label: string;
   description?: string;
   tooltip?: string;
   projectPath: string;
-  configurationName: string;
+  profileName: string;
   selected: boolean;
 }
 
@@ -73,14 +73,14 @@ export interface ProjectTreeDependenciesModel {
   packages: ProjectTreeDependencyModel[];
 }
 
-export type ProjectTreeChildModel = ProjectTreeManifestModel | ProjectTreeGroupModel | ProjectTreeConfigurationModel;
+export type ProjectTreeChildModel = ProjectTreeManifestModel | ProjectTreeGroupModel | ProjectTreeProfileModel;
 
 export interface ProjectTreeModels {
   workspaceLabel?: string;
   workspaceDescription?: string;
   projects: ProjectTreeProjectModel[];
   childrenByProject: Map<string, ProjectTreeChildModel[]>;
-  configurationsByProject: Map<string, ProjectTreeConfigurationModel[]>;
+  profilesByProject: Map<string, ProjectTreeProfileModel[]>;
   dependenciesByProject: Map<string, ProjectTreeDependenciesModel>;
 }
 
@@ -95,7 +95,7 @@ export interface StatusBarModel {
   visible: boolean;
   workspace?: StatusBarEntryModel;
   project?: StatusBarEntryModel;
-  configuration?: StatusBarEntryModel;
+  profile?: StatusBarEntryModel;
   configure?: StatusBarEntryModel;
   build?: StatusBarEntryModel;
   run?: StatusBarEntryModel;
@@ -109,7 +109,7 @@ function createTarget(snapshot: NginWorkspaceSnapshot): NginCommandTarget | unde
 
   return {
     projectPath: snapshot.context.project.path,
-    configurationName: snapshot.context.configuration.name
+    profileName: snapshot.context.profile.name
   };
 }
 
@@ -122,10 +122,10 @@ function relativeLabel(rootPath: string, targetPath?: string): string | undefine
   return relativePath.length > 0 ? relativePath : '.';
 }
 
-function configurationDescription(snapshot: NginWorkspaceSnapshot): string | undefined {
-  const operatingSystem = snapshot.context?.configuration.operatingSystem;
-  const architecture = snapshot.context?.configuration.architecture;
-  const environment = snapshot.context?.configuration.environment;
+function profileDescription(snapshot: NginWorkspaceSnapshot): string | undefined {
+  const operatingSystem = snapshot.context?.profile.operatingSystem;
+  const architecture = snapshot.context?.profile.architecture;
+  const environment = snapshot.context?.profile.environment;
 
   if (operatingSystem && architecture && environment) {
     return `${operatingSystem}/${architecture} • ${environment}`;
@@ -182,12 +182,12 @@ function buildProjectDependencies(snapshot: NginWorkspaceSnapshot, projectPath: 
   for (const reference of project.packageRefs ?? []) {
     addPackageRef(reference.name, 'Project');
   }
-  for (const configuration of project.configurations) {
-    for (const reference of configuration.projectRefs ?? []) {
-      addProjectRef(reference.path, configuration.name);
+  for (const profile of project.profiles) {
+    for (const reference of profile.projectRefs ?? []) {
+      addProjectRef(reference.path, profile.name);
     }
-    for (const reference of configuration.packageRefs ?? []) {
-      addPackageRef(reference.name, configuration.name);
+    for (const reference of profile.packageRefs ?? []) {
+      addPackageRef(reference.name, profile.name);
     }
   }
 
@@ -263,7 +263,7 @@ export function buildOverviewSections(snapshot: NginWorkspaceSnapshot): Overview
     ? `Generated launch manifest\n${snapshot.launchManifestPath}`
     : 'Launch manifest is not available yet. Run Build to generate it.';
   const outputTooltip = snapshot.outputDir ?? 'Output folder has not been resolved yet.';
-  const contextDescription = configurationDescription(snapshot);
+  const contextDescription = profileDescription(snapshot);
 
   return [
     {
@@ -300,11 +300,11 @@ export function buildOverviewSections(snapshot: NginWorkspaceSnapshot): Overview
           arguments: []
         },
         {
-          id: 'context-configuration',
-          label: `Configuration: ${snapshot.context.configuration.name}`,
+          id: 'context-profile',
+          label: `Profile: ${snapshot.context.profile.name}`,
           description: contextDescription,
-          tooltip: `${snapshot.context.project.name} [${snapshot.context.configuration.name}]`,
-          command: 'ngin.selectConfiguration',
+          tooltip: `${snapshot.context.project.name} [${snapshot.context.profile.name}]`,
+          command: 'ngin.selectProfile',
           icon: 'symbol-enum'
         }
       ]
@@ -346,14 +346,14 @@ export function buildOverviewSections(snapshot: NginWorkspaceSnapshot): Overview
       id: 'actions',
       label: 'Actions',
       children: [
-        { id: 'action-build', label: 'Build', tooltip: 'Build the selected project and configuration.', command: 'ngin.build', arguments: target ? [target] : undefined, icon: 'gear' },
-        { id: 'action-configure', label: 'Configure', tooltip: 'Generate backend build metadata for the selected project and configuration.', command: 'ngin.configure', arguments: target ? [target] : undefined, icon: 'settings' },
-        { id: 'action-rebuild', label: 'Rebuild', tooltip: 'Clean and rebuild the selected project and configuration.', command: 'ngin.rebuild', arguments: target ? [target] : undefined, icon: 'tools' },
-        { id: 'action-clean', label: 'Clean', tooltip: 'Remove NGIN-owned generated artifacts for the selected project and configuration.', command: 'ngin.clean', arguments: target ? [target] : undefined, icon: 'trash' },
-        { id: 'action-run', label: 'Run', tooltip: 'Run the selected project and configuration.', command: 'ngin.run', arguments: target ? [target] : undefined, icon: 'play' },
-        { id: 'action-debug', label: 'Debug', tooltip: 'Debug the selected project and configuration.', command: 'ngin.debug', arguments: target ? [target] : undefined, icon: 'bug' },
-        { id: 'action-validate', label: 'Validate', tooltip: 'Validate the selected project and configuration.', command: 'ngin.validate', arguments: target ? [target] : undefined, icon: 'check' },
-        { id: 'action-metagen', label: 'Generate Metadata', tooltip: 'Run ngin metagen for the selected project and configuration.', command: 'ngin.metagen', arguments: target ? [target] : undefined, icon: 'symbol-structure' }
+        { id: 'action-build', label: 'Build', tooltip: 'Build the selected project and profile.', command: 'ngin.build', arguments: target ? [target] : undefined, icon: 'gear' },
+        { id: 'action-configure', label: 'Configure', tooltip: 'Generate backend build metadata for the selected project and profile.', command: 'ngin.configure', arguments: target ? [target] : undefined, icon: 'settings' },
+        { id: 'action-rebuild', label: 'Rebuild', tooltip: 'Clean and rebuild the selected project and profile.', command: 'ngin.rebuild', arguments: target ? [target] : undefined, icon: 'tools' },
+        { id: 'action-clean', label: 'Clean', tooltip: 'Remove NGIN-owned generated artifacts for the selected project and profile.', command: 'ngin.clean', arguments: target ? [target] : undefined, icon: 'trash' },
+        { id: 'action-run', label: 'Run', tooltip: 'Run the selected project and profile.', command: 'ngin.run', arguments: target ? [target] : undefined, icon: 'play' },
+        { id: 'action-debug', label: 'Debug', tooltip: 'Debug the selected project and profile.', command: 'ngin.debug', arguments: target ? [target] : undefined, icon: 'bug' },
+        { id: 'action-validate', label: 'Validate', tooltip: 'Validate the selected project and profile.', command: 'ngin.validate', arguments: target ? [target] : undefined, icon: 'check' },
+        { id: 'action-metagen', label: 'Generate Metadata', tooltip: 'Run ngin metagen for the selected project and profile.', command: 'ngin.metagen', arguments: target ? [target] : undefined, icon: 'symbol-structure' }
       ]
     },
     {
@@ -370,11 +370,11 @@ export function buildOverviewSections(snapshot: NginWorkspaceSnapshot): Overview
 export function buildProjectTreeModels(snapshot: NginWorkspaceSnapshot): ProjectTreeModels {
   const projects: ProjectTreeProjectModel[] = [];
   const childrenByProject = new Map<string, ProjectTreeChildModel[]>();
-  const configurationsByProject = new Map<string, ProjectTreeConfigurationModel[]>();
+  const profilesByProject = new Map<string, ProjectTreeProfileModel[]>();
   const dependenciesByProject = new Map<string, ProjectTreeDependenciesModel>();
 
   if (!snapshot.workspace) {
-    return { projects, childrenByProject, configurationsByProject, dependenciesByProject };
+    return { projects, childrenByProject, profilesByProject, dependenciesByProject };
   }
 
   for (const project of snapshot.workspace.projects) {
@@ -410,14 +410,14 @@ export function buildProjectTreeModels(snapshot: NginWorkspaceSnapshot): Project
       });
     }
 
-    const hasConfigSources = project.configSources.length > 0
-      || project.configurations.some((configuration) => configuration.configSources.length > 0);
-    if (hasConfigSources) {
+    const hasConfigInputs = project.configInputs.length > 0
+      || project.profiles.some((profile) => profile.configInputs.length > 0);
+    if (hasConfigInputs) {
       children.push({
         kind: 'group',
         id: `${project.path}:config`,
         label: 'Config',
-        tooltip: 'Declared root and configuration config sources.',
+        tooltip: 'Declared root and profile config inputs.',
         icon: 'settings',
         projectPath: project.path,
         group: 'config'
@@ -448,28 +448,28 @@ export function buildProjectTreeModels(snapshot: NginWorkspaceSnapshot): Project
       group: 'generated'
     });
 
-    const configurations = project.configurations.map((configuration) => ({
-      kind: 'configuration' as const,
-      label: configuration.name,
-      description: snapshot.context?.project.path === project.path && snapshot.context.configuration.name === configuration.name
+    const profiles = project.profiles.map((profile) => ({
+      kind: 'profile' as const,
+      label: profile.name,
+      description: snapshot.context?.project.path === project.path && snapshot.context.profile.name === profile.name
         ? 'Current'
-        : configuration.environment || [configuration.operatingSystem, configuration.architecture].filter(Boolean).join('/'),
-      tooltip: `${project.name} [${configuration.name}]`,
+        : profile.environment || [profile.operatingSystem, profile.architecture].filter(Boolean).join('/'),
+      tooltip: `${project.name} [${profile.name}]`,
       projectPath: project.path,
-      configurationName: configuration.name,
-      selected: snapshot.context?.project.path === project.path && snapshot.context.configuration.name === configuration.name
+      profileName: profile.name,
+      selected: snapshot.context?.project.path === project.path && snapshot.context.profile.name === profile.name
     }));
-    configurationsByProject.set(project.path, configurations);
+    profilesByProject.set(project.path, profiles);
 
-    if (configurations.length > 0) {
+    if (profiles.length > 0) {
       children.push({
         kind: 'group',
-        id: `${project.path}:configurations`,
-        label: 'Configurations',
-        tooltip: 'Project configurations. Click one to make it current.',
+        id: `${project.path}:profiles`,
+        label: 'Profiles',
+        tooltip: 'Project profiles. Click one to make it current.',
         icon: 'symbol-enum',
         projectPath: project.path,
-        group: 'configurations'
+        group: 'profiles'
       });
     }
 
@@ -481,7 +481,7 @@ export function buildProjectTreeModels(snapshot: NginWorkspaceSnapshot): Project
     workspaceDescription: snapshot.workspace.root,
     projects,
     childrenByProject,
-    configurationsByProject,
+    profilesByProject,
     dependenciesByProject
   };
 }
@@ -492,7 +492,7 @@ export function buildStatusBarModel(snapshot: NginWorkspaceSnapshot): StatusBarM
   }
 
   const target = createTarget(snapshot);
-  const selectionLabel = `${snapshot.context.project.name} [${snapshot.context.configuration.name}]`;
+  const selectionLabel = `${snapshot.context.project.name} [${snapshot.context.profile.name}]`;
   return {
     visible: true,
     workspace: {
@@ -505,10 +505,10 @@ export function buildStatusBarModel(snapshot: NginWorkspaceSnapshot): StatusBarM
       tooltip: snapshot.context.project.path,
       command: 'ngin.internal.pickProject'
     },
-    configuration: {
-      text: `$(symbol-enum) ${snapshot.context.configuration.name}`,
-      tooltip: `${selectionLabel}\nTarget: ${[snapshot.context.configuration.operatingSystem, snapshot.context.configuration.architecture].filter(Boolean).join('/') || 'n/a'}`,
-      command: 'ngin.internal.pickConfiguration'
+    profile: {
+      text: `$(symbol-enum) ${snapshot.context.profile.name}`,
+      tooltip: `${selectionLabel}\nTarget: ${[snapshot.context.profile.operatingSystem, snapshot.context.profile.architecture].filter(Boolean).join('/') || 'n/a'}`,
+      command: 'ngin.internal.pickProfile'
     },
     configure: {
       text: '$(settings) Configure',

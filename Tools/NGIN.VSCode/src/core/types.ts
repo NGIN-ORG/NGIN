@@ -22,7 +22,7 @@ export interface PackageManifest {
 
 export interface ProjectReference {
   path: string;
-  configuration?: string;
+  profile?: string;
 }
 
 export interface PackageReference {
@@ -31,15 +31,16 @@ export interface PackageReference {
   optional?: boolean;
 }
 
-export interface ProjectConfiguration {
+export interface ProjectProfile {
   name: string;
-  buildConfiguration?: string;
+  buildType?: string;
+  platform?: string;
   operatingSystem?: string;
   architecture?: string;
   environment?: string;
   launchExecutable?: string;
   launchWorkingDirectory?: string;
-  configSources: string[];
+  configInputs: string[];
   projectRefs?: ProjectReference[];
   packageRefs?: PackageReference[];
 }
@@ -48,14 +49,14 @@ export interface ProjectManifest {
   path: string;
   directory: string;
   name: string;
-  defaultConfiguration?: string;
+  defaultProfile?: string;
   sourceRoots: string[];
-  configSources: string[];
+  configInputs: string[];
   localSettingsImports?: string[];
   buildSources: string[];
   projectRefs?: ProjectReference[];
   packageRefs?: PackageReference[];
-  configurations: ProjectConfiguration[];
+  profiles: ProjectProfile[];
 }
 
 export interface LocalSettingEntry {
@@ -93,9 +94,10 @@ export interface LaunchManifest {
   path: string;
   directory: string;
   project: string;
-  configuration: string;
+  profile: string;
   type?: string;
-  buildConfiguration?: string;
+  buildType?: string;
+  platform?: string;
   operatingSystem?: string;
   architecture?: string;
   environmentName?: string;

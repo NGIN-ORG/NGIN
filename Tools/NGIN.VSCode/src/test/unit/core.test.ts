@@ -20,7 +20,7 @@ import {
   getWorkingDirectoryCandidates,
   parseCliDiagnostics
 } from '../../core/helpers';
-import { addRootConfigSource, relativeManifestPath, removeConfigSources, renameConfigSources } from '../../core/projectAuthoring';
+import { addRootConfigInput, relativeManifestPath, removeConfigInputs, renameConfigInputs } from '../../core/projectAuthoring';
 import { buildOverviewSections, buildProjectTreeModels, buildStatusBarModel } from '../../ui/models';
 import { parseLaunchManifest, parseLocalSettingsManifest, parseProjectManifest, parseWorkspaceManifest } from '../../core/xml';
 
@@ -29,7 +29,7 @@ test('computeOutputDir uses the CLI default layout when no root override is conf
   assert.equal(outputDir, '/workspace/.ngin/build/App.Basic/Runtime');
 });
 
-test('computeOutputDir appends project and configuration beneath a configured output root', () => {
+test('computeOutputDir appends project and profile beneath a configured output root', () => {
   const outputDir = computeOutputDir('/workspace', 'App.Basic', 'Runtime', 'build/out');
   assert.equal(outputDir, '/workspace/build/out/App.Basic/Runtime');
 });
@@ -54,7 +54,7 @@ test('parseCliDiagnostics extracts structured file and generic errors', () => {
     'Validation errors:',
     '  - /tmp/App.Basic.nginproj: failed to parse XML: unexpected token',
     '  - /tmp/user.nginsettings: duplicate local setting key',
-    'error: unknown configuration `Editor`'
+    'error: unknown profile `Editor`'
   ].join('\n'));
 
   assert.equal(diagnostics.length, 3);
@@ -62,7 +62,7 @@ test('parseCliDiagnostics extracts structured file and generic errors', () => {
   assert.match(diagnostics[0].message, /failed to parse XML/);
   assert.equal(diagnostics[1].file, '/tmp/user.nginsettings');
   assert.match(diagnostics[1].message, /duplicate local setting key/);
-  assert.equal(diagnostics[2].message, 'unknown configuration `Editor`');
+  assert.equal(diagnostics[2].message, 'unknown profile `Editor`');
 });
 
 test('settings init output exposes the initialized settings path', () => {
@@ -96,33 +96,33 @@ test('workspace manifests parse project paths relative to the workspace manifest
   assert.deepEqual(workspace.packageSourcePaths, ['/repo/Packages']);
 });
 
-test('project manifests parse configurations, launch metadata, and local settings imports', () => {
+test('project manifests parse profiles, launch metadata, and local settings imports', () => {
   const project = parseProjectManifest(
-    '<?xml version="1.0" encoding="utf-8"?><Project Name="App.Basic" DefaultConfiguration="Runtime"><SourceRoots><SourceRoot Path="src" /></SourceRoots><Build><Sources><Source Path="src/main.cpp" /></Sources></Build><References><Project Path="../Game.Engine/Game.Engine.nginproj" /><Package Name="NGIN.Core" /></References><ConfigSources><Config Source="config/app.cfg" /></ConfigSources><LocalSettings><Import Path=".ngin/local/user.nginsettings" Optional="true" /></LocalSettings><Configurations><Configuration Name="Runtime" BuildConfiguration="Debug" OperatingSystem="linux" Architecture="x64" Environment="development"><Launch Executable="App.Basic" WorkingDirectory="." /><References><Package Name="NGIN.Reflection" Optional="true" /></References><ConfigSources><Config Source="config/runtime.cfg" /></ConfigSources></Configuration></Configurations></Project>',
+    '<?xml version="1.0" encoding="utf-8"?><Project Name="App.Basic" DefaultProfile="Runtime"><SourceRoots><SourceRoot Path="src" /></SourceRoots><Build><Sources><Source Path="src/main.cpp" /></Sources></Build><References><Project Path="../Game.Engine/Game.Engine.nginproj" /><Package Name="NGIN.Core" /></References><Inputs><Config Path="config/app.cfg" /></Inputs><LocalSettings><Import Path=".ngin/local/user.nginsettings" Optional="true" /></LocalSettings><Profiles><Profile Name="Runtime" BuildType="Debug" OperatingSystem="linux" Architecture="x64" Environment="development"><Launch Executable="App.Basic" WorkingDirectory="." /><References><Package Name="NGIN.Reflection" Optional="true" /></References><Inputs><Config Path="config/runtime.cfg" /></Inputs></Profile></Profiles></Project>',
     '/repo/Examples/App.Basic/App.Basic.nginproj'
   );
 
-  assert.equal(project.defaultConfiguration, 'Runtime');
+  assert.equal(project.defaultProfile, 'Runtime');
   assert.deepEqual(project.sourceRoots, ['src']);
   assert.deepEqual(project.buildSources, ['src/main.cpp']);
-  assert.deepEqual(project.configSources, ['config/app.cfg']);
+  assert.deepEqual(project.configInputs, ['config/app.cfg']);
   assert.deepEqual(project.localSettingsImports, ['/repo/Examples/App.Basic/.ngin/local/user.nginsettings']);
-  assert.deepEqual(project.projectRefs, [{ path: '/repo/Examples/Game.Engine/Game.Engine.nginproj', configuration: undefined }]);
+  assert.deepEqual(project.projectRefs, [{ path: '/repo/Examples/Game.Engine/Game.Engine.nginproj', profile: undefined }]);
   assert.deepEqual(project.packageRefs, [{ name: 'NGIN.Core', version: undefined, optional: false }]);
-  assert.deepEqual(project.configurations[0].configSources, ['config/runtime.cfg']);
-  assert.deepEqual(project.configurations[0].packageRefs, [{ name: 'NGIN.Reflection', version: undefined, optional: true }]);
-  assert.equal(project.configurations[0].launchExecutable, 'App.Basic');
-  assert.equal(project.configurations[0].operatingSystem, 'linux');
-  assert.equal(project.configurations[0].architecture, 'x64');
+  assert.deepEqual(project.profiles[0].configInputs, ['config/runtime.cfg']);
+  assert.deepEqual(project.profiles[0].packageRefs, [{ name: 'NGIN.Reflection', version: undefined, optional: true }]);
+  assert.equal(project.profiles[0].launchExecutable, 'App.Basic');
+  assert.equal(project.profiles[0].operatingSystem, 'linux');
+  assert.equal(project.profiles[0].architecture, 'x64');
 });
 
 test('project manifests parse typed source roots and files', () => {
   const project = parseProjectManifest(
     [
-      '<?xml version="1.0" encoding="utf-8"?><Project Name="Typed" DefaultConfiguration="Runtime"><Sources><Public><Root Path="include" /><File Path="include/Typed/App.hpp" /></Public><Private><Root Path="src" /><File Path="src/main.cpp" /><Files>',
+      '<?xml version="1.0" encoding="utf-8"?><Project Name="Typed" DefaultProfile="Runtime"><Sources><Public><Root Path="include" /><File Path="include/Typed/App.hpp" /></Public><Private><Root Path="src" /><File Path="src/main.cpp" /><Files>',
       'src/a.cpp',
       'src/b.cpp',
-      '</Files></Private></Sources><Configurations><Configuration Name="Runtime" /></Configurations></Project>'
+      '</Files></Private></Sources><Profiles><Profile Name="Runtime" /></Profiles></Project>'
     ].join('\n'),
     '/repo/Typed.nginproj'
   );
@@ -159,32 +159,32 @@ test('extension manifest and snippets register local settings support', () => {
 
 test('launch manifests surface selected executable and staged files', () => {
   const launch = parseLaunchManifest(
-    '<?xml version="1.0" encoding="utf-8"?><LaunchManifest Project="App.Basic" Configuration="Runtime" Type="Application" BuildConfiguration="Debug" OperatingSystem="linux" Architecture="x64"><Launch Executable="App.Basic" WorkingDirectory="." /><Environment Name="development"><Variables /><Features /></Environment><StagedFiles><File Kind="executable" Destination="/repo/out/bin/App.Basic" RelativeDestination="bin/App.Basic" /></StagedFiles></LaunchManifest>',
+    '<?xml version="1.0" encoding="utf-8"?><LaunchManifest Project="App.Basic" Profile="Runtime" Type="Application" BuildType="Debug" OperatingSystem="linux" Architecture="x64"><Launch Executable="App.Basic" WorkingDirectory="." /><Environment Name="development"><Variables /><Features /></Environment><StagedFiles><File Kind="executable" Destination="/repo/out/bin/App.Basic" RelativeDestination="bin/App.Basic" /></StagedFiles></LaunchManifest>',
     '/repo/out/App.Basic.Runtime.nginlaunch'
   );
 
   assert.equal(launch.project, 'App.Basic');
-  assert.equal(launch.configuration, 'Runtime');
+  assert.equal(launch.profile, 'Runtime');
   assert.equal(launch.selectedExecutable?.name, 'App.Basic');
   assert.equal(launch.stagedFiles[0].kind, 'executable');
 });
 
-test('config source authoring inserts root config sources once', () => {
+test('config input authoring inserts root config inputs once', () => {
   const xml = [
     '<?xml version="1.0" encoding="utf-8"?>',
     '<Project Name="App.Basic">',
     '  <SourceRoots>',
     '    <SourceRoot Path="src" />',
     '  </SourceRoots>',
-    '  <Configurations />',
+    '  <Profiles />',
     '</Project>'
   ].join('\n');
 
-  const added = addRootConfigSource(xml, 'config/new.cfg');
+  const added = addRootConfigInput(xml, 'config/new.cfg');
   assert.equal(added.changed, true);
-  assert.match(added.xml, /<ConfigSources>\n    <Config Source="config\/new.cfg" \/>\n  <\/ConfigSources>/);
+  assert.match(added.xml, /<Inputs>\n    <Config Path="config\/new.cfg" \/>\n  <\/Inputs>/);
 
-  const duplicate = addRootConfigSource(added.xml, 'config/new.cfg');
+  const duplicate = addRootConfigInput(added.xml, 'config/new.cfg');
   assert.equal(duplicate.changed, false);
   assert.equal((duplicate.xml.match(/config\/new\.cfg/g) ?? []).length, 1);
 });
@@ -193,21 +193,21 @@ test('relativeManifestPath uses project-relative slash paths', () => {
   assert.equal(relativeManifestPath('/repo/Examples/App.Basic', '/repo/Examples/App.Basic/config/new.cfg'), 'config/new.cfg');
 });
 
-test('config source authoring renames and removes nested config sources', () => {
+test('config input authoring renames and removes nested config inputs', () => {
   const xml = [
     '<Project Name="App.Basic">',
-    '  <ConfigSources>',
-    '    <Config Source="config/app.cfg" />',
-    '    <Config Source="config/nested/dev.cfg" />',
-    '  </ConfigSources>',
+    '  <Inputs>',
+    '    <Config Path="config/app.cfg" />',
+    '    <Config Path="config/nested/dev.cfg" />',
+    '  </Inputs>',
     '</Project>'
   ].join('\n');
 
-  const renamed = renameConfigSources(xml, 'config/nested', 'config/copy', true);
+  const renamed = renameConfigInputs(xml, 'config/nested', 'config/copy', true);
   assert.equal(renamed.changed, true);
-  assert.match(renamed.xml, /Source="config\/copy\/dev\.cfg"/);
+  assert.match(renamed.xml, /Path="config\/copy\/dev\.cfg"/);
 
-  const removed = removeConfigSources(renamed.xml, 'config/copy', true);
+  const removed = removeConfigInputs(renamed.xml, 'config/copy', true);
   assert.equal(removed.changed, true);
   assert.doesNotMatch(removed.xml, /config\/copy\/dev\.cfg/);
   assert.match(removed.xml, /config\/app\.cfg/);
@@ -219,7 +219,7 @@ test('executable resolution prefers staged manifest entries before bin fallback'
       path: '/repo/out/App.Basic.Runtime.nginlaunch',
       directory: '/repo/out',
       project: 'App.Basic',
-      configuration: 'Runtime',
+      profile: 'Runtime',
       launch: { workingDirectory: '.' },
       selectedExecutable: { name: 'App.Basic' },
       stagedFiles: [
@@ -243,7 +243,7 @@ test('working directory resolution checks staged and project-relative candidates
       path: '/repo/out/App.Basic.Runtime.nginlaunch',
       directory: '/repo/out',
       project: 'App.Basic',
-      configuration: 'Runtime',
+      profile: 'Runtime',
       launch: { workingDirectory: 'config' },
       stagedFiles: []
     },
@@ -350,8 +350,8 @@ test('overview sections describe the current workspace selection and actions', (
         projects: [],
         root: '/repo'
       },
-      project: { path: '/repo/Examples/App.Basic/App.Basic.nginproj', directory: '/repo/Examples/App.Basic', name: 'App.Basic', sourceRoots: [], configSources: [], buildSources: [], configurations: [] },
-      configuration: { name: 'Runtime', operatingSystem: 'linux', architecture: 'x64', environment: 'development', configSources: [] }
+      project: { path: '/repo/Examples/App.Basic/App.Basic.nginproj', directory: '/repo/Examples/App.Basic', name: 'App.Basic', sourceRoots: [], configInputs: [], buildSources: [], profiles: [] },
+      profile: { name: 'Runtime', operatingSystem: 'linux', architecture: 'x64', environment: 'development', configInputs: [] }
     },
     outputDir: '/repo/.ngin/build/App.Basic/Runtime',
     launchManifestPath: '/repo/.ngin/build/App.Basic/Runtime/App.Basic.Runtime.nginlaunch',
@@ -366,8 +366,8 @@ test('overview sections describe the current workspace selection and actions', (
   assert.equal(sections.length, 5);
   assert.equal(sections[1].label, 'Current Context');
   assert.equal(sections[1].children[0].label, 'Project: App.Basic');
-  assert.equal(sections[1].children[1].label, 'Configuration: Runtime');
-  assert.equal(sections[1].children[1].command, 'ngin.selectConfiguration');
+  assert.equal(sections[1].children[1].label, 'Profile: Runtime');
+  assert.equal(sections[1].children[1].command, 'ngin.selectProfile');
   assert.equal(sections[2].label, 'Build Artifacts');
   assert.equal(sections[2].children[0].label, 'Output Folder');
   assert.equal(sections[2].children[0].command, 'ngin.internal.revealPath');
@@ -379,7 +379,7 @@ test('overview sections describe the current workspace selection and actions', (
   assert.equal(sections[4].children[1].label, 'Open Last Launch Manifest');
 });
 
-test('project tree models mark the selected project and configuration', () => {
+test('project tree models mark the selected project and profile', () => {
   const models = buildProjectTreeModels({
     workspace: {
       workspace: { path: '/repo/NGIN.ngin', directory: '/repo', name: 'NGIN', projectPaths: [] },
@@ -388,23 +388,23 @@ test('project tree models mark the selected project and configuration', () => {
           path: '/repo/Examples/App.Basic/App.Basic.nginproj',
           directory: '/repo/Examples/App.Basic',
           name: 'App.Basic',
-          defaultConfiguration: 'Runtime',
+          defaultProfile: 'Runtime',
           sourceRoots: ['src'],
-          configSources: ['config/app.cfg'],
+          configInputs: ['config/app.cfg'],
           buildSources: [],
           projectRefs: [{ path: '/repo/Examples/Game.Engine/Game.Engine.nginproj' }],
           packageRefs: [{ name: 'NGIN.Core' }],
-          configurations: [{ name: 'Runtime', operatingSystem: 'linux', architecture: 'x64', environment: 'development', configSources: [] }]
+          profiles: [{ name: 'Runtime', operatingSystem: 'linux', architecture: 'x64', environment: 'development', configInputs: [] }]
         },
         {
           path: '/repo/Examples/Game.Engine/Game.Engine.nginproj',
           directory: '/repo/Examples/Game.Engine',
           name: 'Game.Engine',
-          defaultConfiguration: 'Runtime',
+          defaultProfile: 'Runtime',
           sourceRoots: [],
-          configSources: [],
+          configInputs: [],
           buildSources: [],
-          configurations: []
+          profiles: []
         }
       ],
       packageCatalog: {
@@ -422,15 +422,15 @@ test('project tree models mark the selected project and configuration', () => {
         path: '/repo/Examples/App.Basic/App.Basic.nginproj',
         directory: '/repo/Examples/App.Basic',
         name: 'App.Basic',
-        defaultConfiguration: 'Runtime',
+        defaultProfile: 'Runtime',
         sourceRoots: ['src'],
-        configSources: ['config/app.cfg'],
+        configInputs: ['config/app.cfg'],
         buildSources: [],
         projectRefs: [{ path: '/repo/Examples/Game.Engine/Game.Engine.nginproj' }],
         packageRefs: [{ name: 'NGIN.Core' }],
-        configurations: [{ name: 'Runtime', operatingSystem: 'linux', architecture: 'x64', environment: 'development', configSources: [] }]
+        profiles: [{ name: 'Runtime', operatingSystem: 'linux', architecture: 'x64', environment: 'development', configInputs: [] }]
       },
-      configuration: { name: 'Runtime', operatingSystem: 'linux', architecture: 'x64', environment: 'development', configSources: [] }
+      profile: { name: 'Runtime', operatingSystem: 'linux', architecture: 'x64', environment: 'development', configInputs: [] }
     },
     launchManifestExists: false,
     stagedCompileCommandsAvailable: false
@@ -443,11 +443,11 @@ test('project tree models mark the selected project and configuration', () => {
     'config',
     'dependencies',
     'generated',
-    'configurations'
+    'profiles'
   ]);
   assert.deepEqual(models.dependenciesByProject.get('/repo/Examples/App.Basic/App.Basic.nginproj')?.projects.map((entry) => entry.label), ['Game.Engine']);
   assert.deepEqual(models.dependenciesByProject.get('/repo/Examples/App.Basic/App.Basic.nginproj')?.packages.map((entry) => entry.label), ['NGIN.Core']);
-  assert.equal(models.configurationsByProject.get('/repo/Examples/App.Basic/App.Basic.nginproj')?.[0].selected, true);
+  assert.equal(models.profilesByProject.get('/repo/Examples/App.Basic/App.Basic.nginproj')?.[0].selected, true);
 });
 
 test('project tree dependency models group mixed references and deduplicate owners', () => {
@@ -459,17 +459,17 @@ test('project tree dependency models group mixed references and deduplicate owne
           path: '/repo/App/App.nginproj',
           directory: '/repo/App',
           name: 'App',
-          defaultConfiguration: 'Runtime',
+          defaultProfile: 'Runtime',
           sourceRoots: [],
-          configSources: [],
+          configInputs: [],
           buildSources: [],
           projectRefs: [{ path: '/repo/Game.Engine/Game.Engine.nginproj' }],
           packageRefs: [{ name: 'NGIN.Core' }],
-          configurations: [
+          profiles: [
             {
               name: 'Runtime',
               environment: 'development',
-              configSources: [],
+              configInputs: [],
               projectRefs: [{ path: '/repo/Game.Engine/Game.Engine.nginproj' }],
               packageRefs: [{ name: 'NGIN.Core' }, { name: 'NGIN.Reflection' }]
             }
@@ -480,9 +480,9 @@ test('project tree dependency models group mixed references and deduplicate owne
           directory: '/repo/Game.Engine',
           name: 'Game.Engine',
           sourceRoots: [],
-          configSources: [],
+          configInputs: [],
           buildSources: [],
-          configurations: []
+          profiles: []
         }
       ],
       packageCatalog: {
@@ -515,8 +515,8 @@ test('status bar models expose the compact NGIN bottom-bar actions', () => {
         projects: [],
         root: '/repo'
       },
-      project: { path: '/repo/Examples/App.Basic/App.Basic.nginproj', directory: '/repo/Examples/App.Basic', name: 'App.Basic', sourceRoots: [], configSources: [], buildSources: [], configurations: [] },
-      configuration: { name: 'Runtime', operatingSystem: 'linux', architecture: 'x64', environment: 'development', configSources: [] }
+      project: { path: '/repo/Examples/App.Basic/App.Basic.nginproj', directory: '/repo/Examples/App.Basic', name: 'App.Basic', sourceRoots: [], configInputs: [], buildSources: [], profiles: [] },
+      profile: { name: 'Runtime', operatingSystem: 'linux', architecture: 'x64', environment: 'development', configInputs: [] }
     },
     outputDir: '/repo/.ngin/build/App.Basic/Runtime',
     launchManifestExists: false,
@@ -526,8 +526,8 @@ test('status bar models expose the compact NGIN bottom-bar actions', () => {
   assert.equal(model.visible, true);
   assert.match(model.workspace?.text ?? '', /\$\(folder-library\)/);
   assert.equal(model.project?.command, 'ngin.internal.pickProject');
-  assert.equal(model.configuration?.command, 'ngin.internal.pickConfiguration');
-  assert.match(model.configuration?.text ?? '', /\$\(symbol-enum\) Runtime/);
+  assert.equal(model.profile?.command, 'ngin.internal.pickProfile');
+  assert.match(model.profile?.text ?? '', /\$\(symbol-enum\) Runtime/);
   assert.equal(model.configure?.command, 'ngin.configure');
   assert.equal(model.build?.command, 'ngin.build');
   assert.equal(model.run?.command, 'ngin.run');

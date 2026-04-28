@@ -4,14 +4,14 @@
 
 namespace NGIN::CLI
 {
-    [[nodiscard]] auto IsSupportedBuildConfiguration(std::string_view value) -> bool;
+    [[nodiscard]] auto IsSupportedBuildType(std::string_view value) -> bool;
     [[nodiscard]] auto IsSupportedProjectBuildMode(std::string_view value) -> bool;
     [[nodiscard]] auto IsValidOperatingSystem(std::string_view value) -> bool;
     [[nodiscard]] auto IsValidArchitecture(std::string_view value) -> bool;
     [[nodiscard]] auto IsSupportedProjectType(std::string_view value) -> bool;
     [[nodiscard]] auto IsSupportedOutputKind(std::string_view value) -> bool;
     [[nodiscard]] auto IsValidProjectOutputPairing(std::string_view projectType, std::string_view outputKind) -> bool;
-    [[nodiscard]] auto SelectionMatches(const ProjectManifest &project, const SelectorSet &selectors, const ConfigurationDefinition &configuration) -> bool;
+    [[nodiscard]] auto SelectionMatches(const ProjectManifest &project, const SelectorSet &selectors, const ProfileDefinition &profile) -> bool;
 
     [[nodiscard]] auto WorkspaceFilePath(const fs::path &root) -> std::optional<fs::path>;
     [[nodiscard]] auto RootDirFrom(const fs::path &start) -> std::optional<fs::path>;
@@ -28,5 +28,5 @@ namespace NGIN::CLI
 
     [[nodiscard]] auto FindProjectFile(const fs::path &start) -> std::optional<fs::path>;
     [[nodiscard]] auto ResolveProjectPath(const std::optional<std::string> &explicitPath) -> fs::path;
-    [[nodiscard]] auto ConfigurationByName(const ProjectManifest &project, const std::optional<std::string> &configurationName) -> const ConfigurationDefinition &;
+    [[nodiscard]] auto ProfileByName(const ProjectManifest &project, const std::optional<std::string> &profileName) -> const ProfileDefinition &;
 }

@@ -95,14 +95,14 @@ should use one canonical string format so the parser is simple and stable.
 Add:
 
 ```bash
-ngin metagen --project <file.nginproj> --configuration <name> --output <dir>
+ngin metagen --project <file.nginproj> --profile <name> --output <dir>
 ```
 
 Behavior:
 
-- `--project` and `--configuration` resolve the same way as `validate`, `build`,
+- `--project` and `--profile` resolve the same way as `validate`, `build`,
   and `graph`.
-- `--output` defaults to `.ngin/metagen/<Project>/<Configuration>/`.
+- `--output` defaults to `.ngin/metagen/<Project>/<Profile>/`.
 - The command scans the selected project only in the first slice.
 - The command emits `<Project>.reflection.generated.cpp`.
 - The command prints generated file paths on success.

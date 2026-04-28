@@ -1,16 +1,16 @@
-if(NOT DEFINED CLI OR NOT DEFINED PROJECT OR NOT DEFINED CONFIGURATION OR NOT DEFINED OUTPUT)
-  message(FATAL_ERROR "CLI, PROJECT, CONFIGURATION, and OUTPUT must be defined")
+if(NOT DEFINED CLI OR NOT DEFINED PROJECT OR NOT DEFINED PROFILE OR NOT DEFINED OUTPUT)
+  message(FATAL_ERROR "CLI, PROJECT, PROFILE, and OUTPUT must be defined")
 endif()
 
 string(REPLACE "\"" "" CLI "${CLI}")
 string(REPLACE "\"" "" PROJECT "${PROJECT}")
-string(REPLACE "\"" "" CONFIGURATION "${CONFIGURATION}")
+string(REPLACE "\"" "" PROFILE "${PROFILE}")
 string(REPLACE "\"" "" OUTPUT "${OUTPUT}")
 
 file(REMOVE_RECURSE "${OUTPUT}")
 
 execute_process(
-  COMMAND "${CLI}" configure --project "${PROJECT}" --configuration "${CONFIGURATION}" --output "${OUTPUT}"
+  COMMAND "${CLI}" configure --project "${PROJECT}" --profile "${PROFILE}" --output "${OUTPUT}"
   RESULT_VARIABLE ngin_configure_result
   OUTPUT_VARIABLE ngin_configure_stdout
   ERROR_VARIABLE ngin_configure_stderr
@@ -27,7 +27,7 @@ endif()
 
 get_filename_component(_project_name "${PROJECT}" NAME)
 string(REGEX REPLACE "\\.nginproj$" "" _project_stem "${_project_name}")
-set(_manifest "${OUTPUT}/${_project_stem}.${CONFIGURATION}.nginlaunch")
+set(_manifest "${OUTPUT}/${_project_stem}.${PROFILE}.nginlaunch")
 if(EXISTS "${_manifest}")
   message(FATAL_ERROR "configure should not produce launch manifest '${_manifest}'")
 endif()

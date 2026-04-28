@@ -7,7 +7,7 @@
 - optional bundled CMake/Ninja payload metadata and fetch scripts
 
 Both the CLI and the VS Code extension use the same workspace, project, package,
-configuration, staged-output, and `.nginlaunch` model. The CLI is the source of
+profile, staged-output, and `.nginlaunch` model. The CLI is the source of
 truth; the extension is an editor front end over that CLI behavior.
 
 For platform concepts and the first-run flow, start with the root
@@ -39,7 +39,7 @@ build/dev/Tools/NGIN.CLI/ngin
 The normal project loop is:
 
 1. choose a `.nginproj`
-2. choose a configuration
+2. choose a profile
 3. validate the selected composition
 4. inspect the graph when needed
 5. configure generated build metadata when needed
@@ -51,26 +51,26 @@ Minimal example:
 ```bash
 ./build/dev/Tools/NGIN.CLI/ngin validate \
   --project Examples/App.NativeMinimal/App.NativeMinimal.nginproj \
-  --configuration Runtime
+  --profile Runtime
 
 ./build/dev/Tools/NGIN.CLI/ngin configure \
   --project Examples/App.NativeMinimal/App.NativeMinimal.nginproj \
-  --configuration Runtime \
+  --profile Runtime \
   --output build/manual/App.NativeMinimal
 
 ./build/dev/Tools/NGIN.CLI/ngin build \
   --project Examples/App.NativeMinimal/App.NativeMinimal.nginproj \
-  --configuration Runtime \
+  --profile Runtime \
   --output build/manual/App.NativeMinimal
 
 ./build/dev/Tools/NGIN.CLI/ngin run \
   --project Examples/App.NativeMinimal/App.NativeMinimal.nginproj \
-  --configuration Runtime \
+  --profile Runtime \
   --output build/manual/App.NativeMinimal
 ```
 
 Use `clean` or `rebuild` when you need to reset generated artifacts for the
-selected project/configuration/output scope.
+selected project/profile/output scope.
 
 ## CLI Commands
 
@@ -160,7 +160,7 @@ without building or staging artifacts.
 Default location:
 
 ```text
-.ngin/build/<Project>/<Configuration>/
+.ngin/build/<Project>/<Profile>/
 ```
 
 `ngin run` and the VS Code extension use `.nginlaunch` for local launch/debug
@@ -179,10 +179,10 @@ Create the default ignored local settings file:
 ngin settings init --project Examples/App.Basic/App.Basic.nginproj
 ```
 
-Inspect resolved variables for a configuration:
+Inspect resolved variables for a profile:
 
 ```bash
-ngin variables explain --project Examples/App.Basic/App.Basic.nginproj --configuration Runtime
+ngin variables explain --project Examples/App.Basic/App.Basic.nginproj --profile Runtime
 ```
 
 Secret values are redacted in CLI output and are not written as raw values to
@@ -195,7 +195,7 @@ backend.
 
 It provides:
 
-- project and configuration selection
+- project and profile selection
 - build, run, debug, validate, graph, clean, and rebuild commands
 - `.nginlaunch`-based run and debug resolution
 - C/C++ compile database discovery for `ms-vscode.cpptools`

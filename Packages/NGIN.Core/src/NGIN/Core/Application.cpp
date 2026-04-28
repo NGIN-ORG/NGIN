@@ -742,14 +742,14 @@ namespace NGIN::Core
       }
       reference.path = path.Value();
 
-      auto configuration = OptionalAttribute(element, "Configuration", context, {});
-      if (!configuration)
+      auto profile = OptionalAttribute(element, "Profile", context, {});
+      if (!profile)
       {
-        return NGIN::Utilities::Unexpected<KernelError>(configuration.Error());
+        return NGIN::Utilities::Unexpected<KernelError>(profile.Error());
       }
-      if (!configuration.Value().empty())
+      if (!profile.Value().empty())
       {
-        reference.configuration = configuration.Value();
+        reference.profile = profile.Value();
       }
 
       return reference;
@@ -783,6 +783,38 @@ namespace NGIN::Core
       output.target = target.Value();
 
       return output;
+    }
+
+    auto ParseConfigInputs(const XmlElement &element, const std::string_view context,
+                           std::vector<std::string> &out) -> CoreResult<void>
+    {
+      if (const auto *inputs = FindChild(element, "Inputs"))
+      {
+        for (const auto *configElement : ChildElements(*inputs, "Config"))
+        {
+          auto source = OptionalAttribute(*configElement, "Path", context, {});
+          if (!source)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(source.Error());
+          }
+          if (source.Value().empty())
+          {
+            source = OptionalAttribute(*configElement, "Pattern", context, {});
+            if (!source)
+            {
+              return NGIN::Utilities::Unexpected<KernelError>(source.Error());
+            }
+          }
+          if (source.Value().empty())
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+                std::string(context) + ".Inputs.Config requires Path or Pattern",
+                {}, KernelErrorCode::SchemaValidationFailure));
+          }
+          out.push_back(source.Value());
+        }
+      }
+      return {};
     }
 
     [[nodiscard]] auto ParseBuildSetting(const XmlElement &element,
@@ -1019,18 +1051,10 @@ namespace NGIN::Core
         }
       }
 
-      if (const auto *configSources = FindChild(element, "ConfigSources"))
+      if (auto configInputs = ParseConfigInputs(element, context, environment.configInputs);
+          !configInputs)
       {
-        for (const auto *configElement : ChildElements(*configSources, "Config"))
-        {
-          auto source = RequireAttribute(*configElement, "Source",
-                                         std::string(context) + ".ConfigSources");
-          if (!source)
-          {
-            return NGIN::Utilities::Unexpected<KernelError>(source.Error());
-          }
-          environment.configSources.push_back(source.Value());
-        }
+        return NGIN::Utilities::Unexpected<KernelError>(configInputs.Error());
       }
 
       if (const auto *contents = FindChild(element, "Contents"))
@@ -1133,82 +1157,105 @@ namespace NGIN::Core
       return environment;
     }
 
-    [[nodiscard]] auto ParseConfigurationDefinition(const XmlElement &element,
-                                                    const std::string_view context)
-        -> CoreResult<ConfigurationDefinition>
+    [[nodiscard]] auto ParseProfileDefinition(const XmlElement &element,
+                                                    const std::string_view context,
+                                                    const ProfileDefinition *base = nullptr)
+        -> CoreResult<ProfileDefinition>
     {
-      ConfigurationDefinition configuration{};
+      ProfileDefinition profile = base != nullptr
+                                                ? *base
+                                                : ProfileDefinition{};
 
       auto name = RequireAttribute(element, "Name", context);
       if (!name)
       {
         return NGIN::Utilities::Unexpected<KernelError>(name.Error());
       }
-      configuration.name = name.Value();
+      profile.name = name.Value();
 
-      auto buildConfiguration =
-          OptionalAttribute(element, "BuildConfiguration", context, "Debug");
-      if (!buildConfiguration)
+      auto buildType = OptionalAttribute(
+          element, "BuildType", context,
+          base != nullptr ? profile.buildType : "Debug");
+      if (!buildType)
       {
-        return NGIN::Utilities::Unexpected<KernelError>(buildConfiguration.Error());
+        return NGIN::Utilities::Unexpected<KernelError>(buildType.Error());
       }
-      configuration.buildConfiguration = buildConfiguration.Value();
+      profile.buildType = buildType.Value();
 
-      if (element.FindAttribute("HostProfile") != nullptr ||
-          element.FindAttribute("Platform") != nullptr ||
-          element.FindAttribute("WorkingDirectory") != nullptr)
+      if (const auto platform = Attribute(element, "Platform");
+          platform.has_value() || base == nullptr)
       {
-        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-            std::string(context) +
-                " uses legacy HostProfile/Platform/WorkingDirectory attributes",
-            {}, KernelErrorCode::SchemaValidationFailure));
+        profile.platform = platform.value_or("linux-x64");
+
+        std::string defaultOperatingSystem = "linux";
+        std::string defaultArchitecture = "x64";
+        if (profile.platform == "windows-x64")
+        {
+          defaultOperatingSystem = "windows";
+        }
+        else if (profile.platform == "macos-x64")
+        {
+          defaultOperatingSystem = "macos";
+        }
+        else if (profile.platform == "macos-arm64")
+        {
+          defaultOperatingSystem = "macos";
+          defaultArchitecture = "arm64";
+        }
+        profile.operatingSystem = defaultOperatingSystem;
+        profile.architecture = defaultArchitecture;
       }
 
       auto operatingSystem =
-          OptionalAttribute(element, "OperatingSystem", context, "linux");
+          OptionalAttribute(element, "OperatingSystem", context, profile.operatingSystem);
       if (!operatingSystem)
       {
         return NGIN::Utilities::Unexpected<KernelError>(operatingSystem.Error());
       }
-      configuration.operatingSystem = operatingSystem.Value();
-      if (!IsValidOperatingSystem(configuration.operatingSystem))
+      profile.operatingSystem = operatingSystem.Value();
+      if (!IsValidOperatingSystem(profile.operatingSystem))
       {
         return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-            "configuration uses unknown operating system",
-            configuration.operatingSystem,
+            "profile uses unknown operating system",
+            profile.operatingSystem,
             KernelErrorCode::SchemaValidationFailure));
       }
 
       auto architecture =
-          OptionalAttribute(element, "Architecture", context, "x64");
+          OptionalAttribute(element, "Architecture", context, profile.architecture);
       if (!architecture)
       {
         return NGIN::Utilities::Unexpected<KernelError>(architecture.Error());
       }
-      configuration.architecture = architecture.Value();
-      if (!IsValidArchitecture(configuration.architecture))
+      profile.architecture = architecture.Value();
+      if (!IsValidArchitecture(profile.architecture))
       {
         return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-            "configuration uses unknown architecture", configuration.architecture,
+            "profile uses unknown architecture", profile.architecture,
             KernelErrorCode::SchemaValidationFailure));
       }
 
-      auto reflection =
-          OptionalBoolAttribute(element, "EnableReflection",
-                                std::string(context) + ".EnableReflection", false);
-      if (!reflection)
+      if (element.FindAttribute("EnableReflection") != nullptr || base == nullptr)
       {
-        return NGIN::Utilities::Unexpected<KernelError>(reflection.Error());
+        auto reflection =
+            OptionalBoolAttribute(element, "EnableReflection",
+                                  std::string(context) + ".EnableReflection",
+                                  profile.enableReflection);
+        if (!reflection)
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(reflection.Error());
+        }
+        profile.enableReflection = reflection.Value();
       }
-      configuration.enableReflection = reflection.Value();
 
-      auto environment = OptionalAttribute(element, "Environment", context, {});
+      auto environment = OptionalAttribute(element, "Environment", context,
+                                           profile.environmentName);
       if (!environment)
       {
         return NGIN::Utilities::Unexpected<KernelError>(environment.Error());
       }
-      configuration.environmentName = environment.Value();
-      if (configuration.environmentName.empty())
+      profile.environmentName = environment.Value();
+      if (profile.environmentName.empty())
       {
         return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
             std::string(context) + " must define Environment", {},
@@ -1230,7 +1277,7 @@ namespace NGIN::Core
         {
           return NGIN::Utilities::Unexpected<KernelError>(workingDirectory.Error());
         }
-        configuration.launch = LaunchDefinition{
+        profile.launch = LaunchDefinition{
             .executable = executable.Value(),
             .workingDirectory = workingDirectory.Value(),
         };
@@ -1249,7 +1296,7 @@ namespace NGIN::Core
           {
             return NGIN::Utilities::Unexpected<KernelError>(project.Error());
           }
-          configuration.projectRefs.push_back(project.Value());
+          profile.projectRefs.push_back(project.Value());
         }
         for (const auto *packageElement :
              ChildElements(*referencesElement, "Package"))
@@ -1260,22 +1307,14 @@ namespace NGIN::Core
           {
             return NGIN::Utilities::Unexpected<KernelError>(package.Error());
           }
-          configuration.packageRefs.push_back(package.Value());
+          profile.packageRefs.push_back(package.Value());
         }
       }
 
-      if (const auto *configSources = FindChild(element, "ConfigSources"))
+      if (auto configInputs = ParseConfigInputs(element, context, profile.configInputs);
+          !configInputs)
       {
-        for (const auto *configElement : ChildElements(*configSources, "Config"))
-        {
-          auto source = RequireAttribute(*configElement, "Source",
-                                         std::string(context) + ".ConfigSources");
-          if (!source)
-          {
-            return NGIN::Utilities::Unexpected<KernelError>(source.Error());
-          }
-          configuration.configSources.push_back(source.Value());
-        }
+        return NGIN::Utilities::Unexpected<KernelError>(configInputs.Error());
       }
 
       if (FindChild(element, "EnableModules") != nullptr ||
@@ -1288,16 +1327,28 @@ namespace NGIN::Core
             {}, KernelErrorCode::SchemaValidationFailure));
       }
 
-      auto runtime =
-          ParseRuntimeDefinition(FindChild(element, "Runtime"),
-                                 std::string(context) + ".Runtime");
-      if (!runtime)
+      if (const auto *runtimeElement = FindChild(element, "Runtime"))
       {
-        return NGIN::Utilities::Unexpected<KernelError>(runtime.Error());
+        auto runtime =
+            ParseRuntimeDefinition(runtimeElement, std::string(context) + ".Runtime");
+        if (!runtime)
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(runtime.Error());
+        }
+        profile.runtime.modules.insert(profile.runtime.modules.end(),
+                                             runtime.Value().modules.begin(),
+                                             runtime.Value().modules.end());
+        profile.runtime.enableModules.insert(
+            profile.runtime.enableModules.end(),
+            runtime.Value().enableModules.begin(),
+            runtime.Value().enableModules.end());
+        profile.runtime.disableModules.insert(
+            profile.runtime.disableModules.end(),
+            runtime.Value().disableModules.begin(),
+            runtime.Value().disableModules.end());
       }
-      configuration.runtime = std::move(runtime.Value());
 
-      return configuration;
+      return profile;
     }
 
     [[nodiscard]] auto ParseProjectManifestText(const std::string &text)
@@ -1331,7 +1382,7 @@ namespace NGIN::Core
         return NGIN::Utilities::Unexpected<KernelError>(parsedSchema.Error());
       }
       manifest.schemaVersion = parsedSchema.Value();
-      if (manifest.schemaVersion != 2)
+      if (manifest.schemaVersion != 3)
       {
         return NGIN::Utilities::Unexpected<KernelError>(
             MakeBuilderError("unsupported project schema version",
@@ -1346,21 +1397,39 @@ namespace NGIN::Core
       }
       manifest.name = name.Value();
 
-      auto type = OptionalAttribute(*root, "Type", "project", "Application");
+      auto type = OptionalAttribute(*root, "Type", "project", {});
       if (!type)
       {
         return NGIN::Utilities::Unexpected<KernelError>(type.Error());
       }
-      manifest.type = type.Value();
+      if (!type.Value().empty())
+      {
+        manifest.type = type.Value();
+      }
+      else
+      {
+        auto projectTemplate =
+            OptionalAttribute(*root, "Template", "project", "Application");
+        if (!projectTemplate)
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(projectTemplate.Error());
+        }
+        manifest.type = projectTemplate.Value() == "Library"
+                            ? "Library"
+                            : projectTemplate.Value() == "Tool" ? "Tool"
+                                                                  : "Application";
+      }
 
-      auto defaultConfiguration =
-          RequireAttribute(*root, "DefaultConfiguration", "project");
-      if (!defaultConfiguration)
+      auto defaultProfile =
+          OptionalAttribute(*root, "DefaultProfile", "project", {});
+      if (!defaultProfile)
       {
         return NGIN::Utilities::Unexpected<KernelError>(
-            defaultConfiguration.Error());
+            defaultProfile.Error());
       }
-      manifest.defaultConfiguration = defaultConfiguration.Value();
+      manifest.defaultProfile = defaultProfile.Value().empty()
+                                          ? "Runtime"
+                                          : defaultProfile.Value();
 
       const auto *sourceRootsElement = FindChild(*root, "SourceRoots");
       const auto *sourcesElement = FindChild(*root, "Sources");
@@ -1509,18 +1578,10 @@ namespace NGIN::Core
         }
       }
 
-      if (const auto *configSources = FindChild(*root, "ConfigSources"))
+      if (auto configInputs = ParseConfigInputs(*root, "project", manifest.configInputs);
+          !configInputs)
       {
-        for (const auto *configElement : ChildElements(*configSources, "Config"))
-        {
-          auto source =
-              RequireAttribute(*configElement, "Source", "project.ConfigSources");
-          if (!source)
-          {
-            return NGIN::Utilities::Unexpected<KernelError>(source.Error());
-          }
-          manifest.configSources.push_back(source.Value());
-        }
+        return NGIN::Utilities::Unexpected<KernelError>(configInputs.Error());
       }
 
       if (const auto *environmentsElement = FindChild(*root, "Environments"))
@@ -1555,55 +1616,78 @@ namespace NGIN::Core
       }
       manifest.runtime = std::move(runtime.Value());
 
-      const auto *configurationsElement = FindChild(*root, "Configurations");
-      if (configurationsElement == nullptr)
+      const auto *profilesElement = FindChild(*root, "Profiles");
+      if (profilesElement == nullptr)
       {
         return NGIN::Utilities::Unexpected<KernelError>(
-            MakeBuilderError("project must contain a <Configurations> element"));
+            MakeBuilderError("project must contain a <Profiles> element"));
       }
 
-      std::set<std::string> configurationNames{};
+      std::unordered_map<std::string, std::size_t> profileIndexes{};
       std::size_t index = 0;
       for (const auto *configurationElement :
-           ChildElements(*configurationsElement, "Configuration"))
+           ChildElements(*profilesElement, "Profile"))
       {
-        auto configuration = ParseConfigurationDefinition(
-            *configurationElement,
-            "project.Configurations[" + std::to_string(index++) + "]");
-        if (!configuration)
+        auto profileName =
+            RequireAttribute(*configurationElement, "Name",
+                             "project.Profiles[" + std::to_string(index) + "]");
+        if (!profileName)
         {
-          return NGIN::Utilities::Unexpected<KernelError>(configuration.Error());
+          return NGIN::Utilities::Unexpected<KernelError>(profileName.Error());
         }
-        if (!configurationNames.insert(configuration.Value().name).second)
+        if (profileIndexes.contains(profileName.Value()))
         {
           return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-              "duplicate configuration name", configuration.Value().name,
+              "duplicate profile name", profileName.Value(),
               KernelErrorCode::AlreadyExists));
         }
-        if (!configuration.Value().environmentName.empty())
+        const ProfileDefinition *baseProfile = nullptr;
+        if (const auto extends = Attribute(*configurationElement, "Extends");
+            extends.has_value() && !extends->empty())
+        {
+          const auto parent = profileIndexes.find(*extends);
+          if (parent == profileIndexes.end())
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+                "profile extends unknown or later profile", *extends,
+                KernelErrorCode::SchemaValidationFailure));
+          }
+          baseProfile = &manifest.profiles[parent->second];
+        }
+        auto profile = ParseProfileDefinition(
+            *configurationElement,
+            "project.Profiles[" + std::to_string(index++) + "]",
+            baseProfile);
+        if (!profile)
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(profile.Error());
+        }
+        if (!profile.Value().environmentName.empty())
         {
           const auto environmentIt = std::find_if(
               manifest.environments.begin(), manifest.environments.end(),
               [&](const EnvironmentDefinition &environment)
               {
-                return environment.name == configuration.Value().environmentName;
+                return environment.name == profile.Value().environmentName;
               });
           if (environmentIt == manifest.environments.end())
           {
             return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-                "configuration selects unknown environment",
-                configuration.Value().environmentName,
+                "profile selects unknown environment",
+                profile.Value().environmentName,
                 KernelErrorCode::SchemaValidationFailure));
           }
         }
-        if (manifest.type == "Library" && configuration.Value().launch.has_value())
+        if (manifest.type == "Library" && profile.Value().launch.has_value())
         {
           return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-              "library configurations may not define <Launch>",
-              configuration.Value().name,
+              "library profiles may not define <Launch>",
+              profile.Value().name,
               KernelErrorCode::SchemaValidationFailure));
         }
-        manifest.configurations.push_back(configuration.Value());
+        profileIndexes.emplace(profile.Value().name,
+                                     manifest.profiles.size());
+        manifest.profiles.push_back(profile.Value());
       }
 
       return manifest;
@@ -1612,7 +1696,7 @@ namespace NGIN::Core
     struct ResolvedProjectUnit
     {
       ProjectManifest manifest{};
-      ConfigurationDefinition configuration{};
+      ProfileDefinition profile{};
       std::optional<EnvironmentDefinition> environment{};
       IoPath directory{};
     };
@@ -1642,31 +1726,31 @@ namespace NGIN::Core
       return std::optional<EnvironmentDefinition>{*it};
     }
 
-    [[nodiscard]] auto FindConfiguration(
+    [[nodiscard]] auto FindProfile(
         const ProjectManifest &manifest,
-        const std::optional<std::string> &overrideConfiguration = std::nullopt,
+        const std::optional<std::string> &overrideProfile = std::nullopt,
         const bool allowDefaultFallback = false)
-        -> CoreResult<ConfigurationDefinition>
+        -> CoreResult<ProfileDefinition>
     {
       auto findByName = [&](const std::string &name)
-          -> std::optional<ConfigurationDefinition>
+          -> std::optional<ProfileDefinition>
       {
         const auto it =
-            std::find_if(manifest.configurations.begin(), manifest.configurations.end(),
-                         [&](const ConfigurationDefinition &candidate)
+            std::find_if(manifest.profiles.begin(), manifest.profiles.end(),
+                         [&](const ProfileDefinition &candidate)
                          {
                            return candidate.name == name;
                          });
-        if (it == manifest.configurations.end())
+        if (it == manifest.profiles.end())
         {
           return std::nullopt;
         }
         return *it;
       };
 
-      if (overrideConfiguration.has_value() && !overrideConfiguration->empty())
+      if (overrideProfile.has_value() && !overrideProfile->empty())
       {
-        if (const auto selected = findByName(*overrideConfiguration);
+        if (const auto selected = findByName(*overrideProfile);
             selected.has_value())
         {
           return *selected;
@@ -1674,34 +1758,34 @@ namespace NGIN::Core
         if (!allowDefaultFallback)
         {
           return NGIN::Utilities::Unexpected<KernelError>(
-              MakeBuilderError("selected configuration was not found",
-                               *overrideConfiguration,
+              MakeBuilderError("selected profile was not found",
+                               *overrideProfile,
                                KernelErrorCode::NotFound));
         }
       }
 
-      if (manifest.defaultConfiguration.empty())
+      if (manifest.defaultProfile.empty())
       {
         return NGIN::Utilities::Unexpected<KernelError>(
-            MakeBuilderError("project has no selected configuration", manifest.name,
+            MakeBuilderError("project has no selected profile", manifest.name,
                              KernelErrorCode::InvalidArgument));
       }
 
-      if (const auto selected = findByName(manifest.defaultConfiguration);
+      if (const auto selected = findByName(manifest.defaultProfile);
           selected.has_value())
       {
         return *selected;
       }
 
-      if (overrideConfiguration.has_value() && !overrideConfiguration->empty())
+      if (overrideProfile.has_value() && !overrideProfile->empty())
       {
         return NGIN::Utilities::Unexpected<KernelError>(
-            MakeBuilderError("selected configuration was not found",
-                             *overrideConfiguration, KernelErrorCode::NotFound));
+            MakeBuilderError("selected profile was not found",
+                             *overrideProfile, KernelErrorCode::NotFound));
       }
       return NGIN::Utilities::Unexpected<KernelError>(
-          MakeBuilderError("selected configuration was not found",
-                           manifest.defaultConfiguration,
+          MakeBuilderError("selected profile was not found",
+                           manifest.defaultProfile,
                            KernelErrorCode::NotFound));
     }
 
@@ -1735,7 +1819,7 @@ namespace NGIN::Core
 
     auto CollectProjectClosure(
         IoFileSystem &fileSystem, const IoPath &filePath,
-        const std::optional<std::string> &selectedConfiguration,
+        const std::optional<std::string> &selectedProfile,
         const bool allowDefaultFallbackForSelection,
         std::vector<ResolvedProjectUnit> &out, std::set<std::string> &visiting,
         std::set<std::string> &visited) -> CoreResult<void>
@@ -1768,15 +1852,15 @@ namespace NGIN::Core
       auto manifest = std::move(loaded.Value().first);
       auto directory = std::move(loaded.Value().second);
 
-      auto configuration = FindConfiguration(manifest, selectedConfiguration,
+      auto profile = FindProfile(manifest, selectedProfile,
                                              allowDefaultFallbackForSelection);
-      if (!configuration)
+      if (!profile)
       {
-        return NGIN::Utilities::Unexpected<KernelError>(configuration.Error());
+        return NGIN::Utilities::Unexpected<KernelError>(profile.Error());
       }
 
       auto environment =
-          FindEnvironment(manifest, configuration.Value().environmentName);
+          FindEnvironment(manifest, profile.Value().environmentName);
       if (!environment)
       {
         return NGIN::Utilities::Unexpected<KernelError>(environment.Error());
@@ -1792,15 +1876,15 @@ namespace NGIN::Core
         }
         referencedPath = referencedPath.LexicallyNormal();
 
-        const std::optional<std::string> referencedConfiguration =
-            reference.configuration.has_value()
-                ? reference.configuration
-                : std::optional<std::string>{configuration.Value().name};
+        const std::optional<std::string> referencedProfile =
+            reference.profile.has_value()
+                ? reference.profile
+                : std::optional<std::string>{profile.Value().name};
 
         auto result =
             CollectProjectClosure(fileSystem, referencedPath,
-                                  referencedConfiguration,
-                                  !reference.configuration.has_value(), out,
+                                  referencedProfile,
+                                  !reference.profile.has_value(), out,
                                   visiting, visited);
         if (!result)
         {
@@ -1828,7 +1912,7 @@ namespace NGIN::Core
           }
         }
       }
-      for (const auto &reference : configuration.Value().projectRefs)
+      for (const auto &reference : profile.Value().projectRefs)
       {
         auto result = collectReference(reference);
         if (!result)
@@ -1839,7 +1923,7 @@ namespace NGIN::Core
 
       out.push_back(ResolvedProjectUnit{
           .manifest = std::move(manifest),
-          .configuration = configuration.Value(),
+          .profile = profile.Value(),
           .environment = environment.Value(),
           .directory = std::move(directory),
       });
@@ -2270,7 +2354,7 @@ namespace NGIN::Core
         return m_kernel->Shutdown();
       }
 
-      [[nodiscard]] auto GetConfigurationName() const -> std::string override
+      [[nodiscard]] auto GetProfileName() const -> std::string override
       {
         return m_metadataReport.targetName;
       }
@@ -2414,11 +2498,11 @@ namespace NGIN::Core
     {
     public:
       PackageBootstrapContextImpl(
-          std::string_view packageName, std::string_view configurationName,
+          std::string_view packageName, std::string_view profileName,
           ServiceCollection &services, PackageCollection &packages,
           ModuleCollection &modules, PluginCollection &plugins,
           ConfigurationBuilder &configuration)
-          : m_packageName(packageName), m_configurationName(configurationName),
+          : m_packageName(packageName), m_profileName(profileName),
             m_services(services), m_packages(packages), m_modules(modules),
             m_plugins(plugins), m_configuration(configuration)
       {
@@ -2428,10 +2512,10 @@ namespace NGIN::Core
       {
         return m_packageName;
       }
-      [[nodiscard]] auto ConfigurationName() const noexcept
+      [[nodiscard]] auto ProfileName() const noexcept
           -> std::string_view override
       {
-        return m_configurationName;
+        return m_profileName;
       }
 
       [[nodiscard]] auto Services() noexcept -> ServiceCollection & override
@@ -2458,7 +2542,7 @@ namespace NGIN::Core
 
     private:
       std::string_view m_packageName;
-      std::string_view m_configurationName;
+      std::string_view m_profileName;
       ServiceCollection &m_services;
       PackageCollection &m_packages;
       ModuleCollection &m_modules;
@@ -2562,13 +2646,13 @@ namespace NGIN::Core
         return *this;
       }
 
-      auto SetConfiguration(std::string configurationName)
+      auto SetProfile(std::string profileName)
           -> ApplicationBuilder & override
       {
         MarkMutating();
         if (!HasStickyError())
         {
-          m_configurationOverride = std::move(configurationName);
+          m_profileOverride = std::move(profileName);
         }
         return *this;
       }
@@ -2618,7 +2702,7 @@ namespace NGIN::Core
             std::set<std::string> visiting{};
             std::set<std::string> visited{};
             auto closure = CollectProjectClosure(FileSystem(), m_projectPath,
-                                                 m_configurationOverride, false,
+                                                 m_profileOverride, false,
                                                  projectUnits, visiting, visited);
             if (!closure)
             {
@@ -2627,15 +2711,15 @@ namespace NGIN::Core
           }
           else
           {
-            auto selectedConfiguration =
-                FindConfiguration(*m_project, m_configurationOverride);
-            if (!selectedConfiguration)
+            auto selectedProfile =
+                FindProfile(*m_project, m_profileOverride);
+            if (!selectedProfile)
             {
               return NGIN::Utilities::Unexpected<KernelError>(
-                  selectedConfiguration.Error());
+                  selectedProfile.Error());
             }
             auto selectedEnvironment =
-                FindEnvironment(*m_project, selectedConfiguration.Value().environmentName);
+                FindEnvironment(*m_project, selectedProfile.Value().environmentName);
             if (!selectedEnvironment)
             {
               return NGIN::Utilities::Unexpected<KernelError>(
@@ -2644,7 +2728,7 @@ namespace NGIN::Core
 
             projectUnits.push_back(ResolvedProjectUnit{
                 .manifest = *m_project,
-                .configuration = selectedConfiguration.Value(),
+                .profile = selectedProfile.Value(),
                 .environment = selectedEnvironment.Value(),
                 .directory = m_projectDirectory,
             });
@@ -2656,21 +2740,21 @@ namespace NGIN::Core
           }
         }
 
-        const ConfigurationDefinition *selectedConfiguration =
-            rootProjectUnit != nullptr ? &rootProjectUnit->configuration : nullptr;
+        const ProfileDefinition *selectedProfile =
+            rootProjectUnit != nullptr ? &rootProjectUnit->profile : nullptr;
 
-        if (selectedConfiguration != nullptr)
+        if (selectedProfile != nullptr)
         {
           for (const auto &unit : projectUnits)
           {
-            if (unit.configuration.operatingSystem !=
-                    selectedConfiguration->operatingSystem ||
-                unit.configuration.architecture !=
-                    selectedConfiguration->architecture)
+            if (unit.profile.operatingSystem !=
+                    selectedProfile->operatingSystem ||
+                unit.profile.architecture !=
+                    selectedProfile->architecture)
             {
               return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
                   "referenced project target does not match the selected root "
-                  "configuration",
+                  "profile",
                   unit.manifest.name, KernelErrorCode::SchemaValidationFailure));
             }
           }
@@ -2678,16 +2762,16 @@ namespace NGIN::Core
 
         const HostType hostType = HostType::ConsoleApp;
 
-        std::string configurationName = !m_configurationOverride.empty()
-                                            ? m_configurationOverride
+        std::string profileName = !m_profileOverride.empty()
+                                            ? m_profileOverride
                                             : std::string{};
-        if (configurationName.empty() && selectedConfiguration != nullptr)
+        if (profileName.empty() && selectedProfile != nullptr)
         {
-          configurationName = selectedConfiguration->name;
+          profileName = selectedProfile->name;
         }
-        if (configurationName.empty())
+        if (profileName.empty())
         {
-          configurationName =
+          profileName =
               !m_applicationName.empty() ? m_applicationName : "NGIN.Configuration";
         }
 
@@ -2709,7 +2793,7 @@ namespace NGIN::Core
           {
             MergePackageReferences(bootstrapPackages, unit.environment->packageRefs);
           }
-          MergePackageReferences(bootstrapPackages, unit.configuration.packageRefs);
+          MergePackageReferences(bootstrapPackages, unit.profile.packageRefs);
         }
         MergePackageReferences(bootstrapPackages, m_packageReferences);
 
@@ -2961,7 +3045,7 @@ namespace NGIN::Core
           }
 
           PackageBootstrapContextImpl context(
-              candidate.reference.name, configurationName, m_services, m_packages,
+              candidate.reference.name, profileName, m_services, m_packages,
               m_modules, m_plugins, m_configuration);
 
           auto bootstrapResult = entry->fn(context);
@@ -2988,7 +3072,7 @@ namespace NGIN::Core
           {
             MergePackageReferences(packages, unit.environment->packageRefs);
           }
-          MergePackageReferences(packages, unit.configuration.packageRefs);
+          MergePackageReferences(packages, unit.profile.packageRefs);
         }
         MergePackageReferences(packages, m_packageReferences);
 
@@ -3000,7 +3084,7 @@ namespace NGIN::Core
           {
             AppendUniqueStrings(enabledModules, unit.environment->runtime.enableModules);
           }
-          AppendUniqueStrings(enabledModules, unit.configuration.runtime.enableModules);
+          AppendUniqueStrings(enabledModules, unit.profile.runtime.enableModules);
         }
         AppendUniqueStrings(enabledModules, m_enabledModules);
 
@@ -3015,7 +3099,7 @@ namespace NGIN::Core
                                 unit.environment->runtime.disableModules);
           }
           AppendUniqueStrings(disabledModules,
-                              unit.configuration.runtime.disableModules);
+                              unit.profile.runtime.disableModules);
         }
         AppendUniqueStrings(disabledModules, m_disabledModules);
         const std::set<std::string> disabledModuleSet(disabledModules.begin(),
@@ -3045,44 +3129,44 @@ namespace NGIN::Core
                            }),
             enabledPlugins.end());
 
-        std::vector<std::string> configSources{};
+        std::vector<std::string> configInputs{};
         for (const auto &unit : projectUnits)
         {
-          for (const auto &source : unit.manifest.configSources)
+          for (const auto &source : unit.manifest.configInputs)
           {
             const auto resolved = ResolveWorkingDirectory(source, unit.directory);
-            AppendUnique(configSources, resolved);
+            AppendUnique(configInputs, resolved);
           }
           if (unit.environment.has_value())
           {
-            for (const auto &source : unit.environment->configSources)
+            for (const auto &source : unit.environment->configInputs)
             {
               const auto resolved = ResolveWorkingDirectory(source, unit.directory);
-              AppendUnique(configSources, resolved);
+              AppendUnique(configInputs, resolved);
             }
           }
-          for (const auto &source : unit.configuration.configSources)
+          for (const auto &source : unit.profile.configInputs)
           {
             const auto resolved = ResolveWorkingDirectory(source, unit.directory);
-            AppendUnique(configSources, resolved);
+            AppendUnique(configInputs, resolved);
           }
         }
-        AppendUniqueStrings(configSources, m_configSources);
+        AppendUniqueStrings(configInputs, m_configInputs);
 
         std::vector<std::string> pluginSearchPaths{};
         AppendUniqueStrings(pluginSearchPaths, m_pluginSearchPaths);
 
         std::string environmentName = m_environmentName;
-        if (environmentName.empty() && selectedConfiguration != nullptr)
+        if (environmentName.empty() && selectedProfile != nullptr)
         {
-          environmentName = selectedConfiguration->environmentName;
+          environmentName = selectedProfile->environmentName;
         }
 
         std::string workingDirectory = m_workingDirectory;
-        if (workingDirectory.empty() && selectedConfiguration != nullptr &&
-            selectedConfiguration->launch.has_value())
+        if (workingDirectory.empty() && selectedProfile != nullptr &&
+            selectedProfile->launch.has_value())
         {
-          workingDirectory = selectedConfiguration->launch->workingDirectory;
+          workingDirectory = selectedProfile->launch->workingDirectory;
         }
         if (workingDirectory.empty() && !m_projectDirectory.IsEmpty())
         {
@@ -3100,7 +3184,7 @@ namespace NGIN::Core
 
         StartupReport metadataReport{};
         metadataReport.hostName = applicationName;
-        metadataReport.targetName = configurationName;
+        metadataReport.targetName = profileName;
         metadataReport.hostType = std::string(ToString(hostType));
         metadataReport.warnings = bootstrapWarnings;
         for (const auto &reference : packages)
@@ -3113,21 +3197,21 @@ namespace NGIN::Core
         hostConfig.hostName = applicationName;
         hostConfig.hostType = hostType;
         hostConfig.operatingSystemName =
-            selectedConfiguration != nullptr ? selectedConfiguration->operatingSystem
+            selectedProfile != nullptr ? selectedProfile->operatingSystem
                                              : "linux";
         hostConfig.architectureName =
-            selectedConfiguration != nullptr ? selectedConfiguration->architecture
+            selectedProfile != nullptr ? selectedProfile->architecture
                                              : "x64";
         hostConfig.platformName =
             hostConfig.operatingSystemName + "-" + hostConfig.architectureName;
         hostConfig.platformVersion = SemanticVersion{0, 1, 0, {}};
-        hostConfig.targetName = configurationName;
+        hostConfig.targetName = profileName;
         hostConfig.workingDirectory = workingDirectory;
-        hostConfig.configSources = configSources;
+        hostConfig.configInputs = configInputs;
         hostConfig.pluginSearchPaths = pluginSearchPaths;
         hostConfig.enableDynamicPlugins = false;
-        hostConfig.enableReflection = selectedConfiguration != nullptr
-                                          ? selectedConfiguration->enableReflection
+        hostConfig.enableReflection = selectedProfile != nullptr
+                                          ? selectedProfile->enableReflection
                                           : false;
         hostConfig.commandLineArgs = m_commandLineArgs;
         hostConfig.environmentName = environmentName;
@@ -3142,7 +3226,7 @@ namespace NGIN::Core
 
         hostConfig.configureServices =
             [pendingServices, addDefaults, addLogging, addConfiguration,
-             configurationName](
+             profileName](
                 KernelBootstrapContext &context) -> CoreResult<void>
         {
           ServiceScopeId hostScope = ServiceScopeId::Global();
@@ -3158,7 +3242,7 @@ namespace NGIN::Core
           if (requiresHostScope)
           {
             auto scope = context.services->BeginScope(ServiceScopeKind::Host,
-                                                      configurationName);
+                                                      profileName);
             if (!scope)
             {
               return NGIN::Utilities::Unexpected<KernelError>(scope.Error());
@@ -3285,7 +3369,7 @@ namespace NGIN::Core
       std::vector<std::string> m_enabledPlugins{};
       std::vector<std::string> m_disabledPlugins{};
       std::vector<std::string> m_pluginSearchPaths{};
-      std::vector<std::string> m_configSources{};
+      std::vector<std::string> m_configInputs{};
       std::vector<std::string> m_commandLineArgs{};
       std::optional<ProjectManifest> m_project{};
       IoPath m_projectPath{};
@@ -3293,7 +3377,7 @@ namespace NGIN::Core
       NGIN::Memory::Shared<IoFileSystem> m_fileSystem{};
       std::optional<KernelError> m_stickyError{};
       std::string m_applicationName{};
-      std::string m_configurationOverride{};
+      std::string m_profileOverride{};
       std::string m_environmentName{};
       std::string m_workingDirectory{};
       bool m_addDefaultServices{false};
@@ -3625,7 +3709,7 @@ namespace NGIN::Core
       m_owner.MarkMutating();
       if (!m_owner.HasStickyError())
       {
-        AppendUnique(m_owner.m_configSources, path);
+        AppendUnique(m_owner.m_configInputs, path);
       }
       return *this;
     }
@@ -3657,7 +3741,7 @@ namespace NGIN::Core
       m_owner.MarkMutating();
       if (!m_owner.HasStickyError())
       {
-        m_owner.m_configSources.clear();
+        m_owner.m_configInputs.clear();
         m_owner.m_environmentName.clear();
         m_owner.m_workingDirectory.clear();
       }

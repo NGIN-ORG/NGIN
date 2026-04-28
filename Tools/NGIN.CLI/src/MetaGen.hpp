@@ -18,12 +18,12 @@ namespace NGIN::CLI
     [[nodiscard]] auto GenerateMetaData(
         const fs::path &root,
         const ProjectManifest &project,
-        const ConfigurationDefinition &configuration,
+        const ProfileDefinition &profile,
         const fs::path &outputDir) -> MetaGenResult;
 
     [[nodiscard]] auto RunMetaGen(
         const fs::path &root,
         const ProjectManifest &project,
-        const ConfigurationDefinition &configuration,
+        const ProfileDefinition &profile,
         const std::optional<std::string> &outputPath) -> int;
 }

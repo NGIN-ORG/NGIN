@@ -34,7 +34,7 @@ This document summarizes the API-breaking hardening changes introduced in the Sp
   - `apiThreadPolicy`
   - `configureServices(IServiceRegistry&)`
   - `moduleCatalog`
-- Existing fields (`workingDirectory`, `configSources`, `pluginSearchPaths`, `commandLineArgs`, `environmentName`, `schedulerPolicy.enableRenderLane`) are now applied during startup.
+- Existing fields (`workingDirectory`, `configInputs`, `pluginSearchPaths`, `commandLineArgs`, `environmentName`, `schedulerPolicy.enableRenderLane`) are now applied during startup.
 
 ## Events
 

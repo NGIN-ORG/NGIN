@@ -1,8 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="2"
+<Project SchemaVersion="3"
          Name="MyGame"
-         Type="Application"
-         DefaultConfiguration="Game">
+         DefaultProfile="Game">
   <Sources>
     <Private>
       <Root Path="src" />
@@ -16,9 +15,9 @@
     <Package Name="NGIN.ECS" Version=">=0.1.0 &lt;0.2.0" />
     <Package Name="SDL2" Version=">=2.30.0 &lt;3.0.0" />
   </References>
-  <ConfigSources>
-    <Config Source="config/game.xml" />
-  </ConfigSources>
+  <Inputs>
+    <Config Path="config/game.xml" />
+  </Inputs>
   <Environments>
     <Environment Name="Dev" />
   </Environments>
@@ -35,13 +34,12 @@
       <ModuleRef Name="App.GameRuntime" />
     </EnableModules>
   </Runtime>
-  <Configurations>
-    <Configuration Name="Game"
-                   BuildConfiguration="Debug"
-                   OperatingSystem="linux"
-                   Architecture="x64"
+  <Profiles>
+    <Profile Name="Game"
+                   BuildType="Debug"
+                   Platform="linux-x64"
                    Environment="Dev">
       <Launch Executable="MyGame" WorkingDirectory="." />
-    </Configuration>
-  </Configurations>
+    </Profile>
+  </Profiles>
 </Project>

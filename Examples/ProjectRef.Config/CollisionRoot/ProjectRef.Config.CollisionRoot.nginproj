@@ -1,8 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="2"
+<Project SchemaVersion="3"
          Name="ProjectRef.Config.CollisionRoot"
-         Type="Application"
-         DefaultConfiguration="Runtime">
+         DefaultProfile="Runtime">
   <Sources>
     <Private>
       <Root Path="src" />
@@ -18,13 +17,12 @@
   <Environments>
     <Environment Name="development" />
   </Environments>
-  <Configurations>
-    <Configuration Name="Runtime"
-             BuildConfiguration="Debug"
-             OperatingSystem="linux"
-             Architecture="x64"
+  <Profiles>
+    <Profile Name="Runtime"
+             BuildType="Debug"
+             Platform="linux-x64"
              Environment="development">
       <Launch Executable="ProjectRef.Config.CollisionRoot" WorkingDirectory="." />
-    </Configuration>
-  </Configurations>
+    </Profile>
+  </Profiles>
 </Project>

@@ -55,7 +55,7 @@ namespace NGIN::Core
 
     struct StartupReport
     {
-        std::string                 configurationName {};
+        std::string                 profileName {};
         std::string                 hostType {};
         std::vector<std::string>    resolvedPackages {};
         std::vector<std::string>    resolvedModules {};
@@ -146,22 +146,22 @@ namespace NGIN::Core
         std::string                    name {};
         std::vector<ProjectReference>  projectRefs {};
         std::vector<PackageReference>  packageRefs {};
-        std::vector<std::string>       configSources {};
+        std::vector<std::string>       configInputs {};
         std::vector<EnvironmentVariable> variables {};
         std::vector<FeatureFlag>       features {};
         RuntimeDefinition              runtime {};
     };
 
-    struct ConfigurationDefinition
+    struct ProfileDefinition
     {
         std::string                   name {};
-        std::string                   buildConfiguration {"Debug"};
+        std::string                   buildType {"Debug"};
         std::string                   operatingSystem {"linux"};
         std::string                   architecture {"x64"};
         bool                          enableReflection {false};
         std::vector<PackageReference> packageRefs {};
         std::string                   environmentName {};
-        std::vector<std::string>      configSources {};
+        std::vector<std::string>      configInputs {};
         std::optional<LaunchDefinition> launch {};
         RuntimeDefinition             runtime {};
     };
@@ -171,16 +171,16 @@ namespace NGIN::Core
         int                             schemaVersion {2};
         std::string                     name {};
         std::string                     type {};
-        std::string                     defaultConfiguration {};
+        std::string                     defaultProfile {};
         std::vector<std::string>        sourceRoots {};
         OutputDefinition                primaryOutput {};
         ProjectBuildDescriptor          build {};
         std::vector<ProjectReference>   projectRefs {};
         std::vector<PackageReference>   packageRefs {};
-        std::vector<std::string>        configSources {};
+        std::vector<std::string>        configInputs {};
         std::vector<EnvironmentDefinition> environments {};
         RuntimeDefinition               runtime {};
-        std::vector<ConfigurationDefinition> configurations {};
+        std::vector<ProfileDefinition> profiles {};
     };
 
     class PackageBootstrapRegistry
@@ -259,7 +259,7 @@ namespace NGIN::Core
         virtual ~PackageBootstrapContext() = default;
 
         [[nodiscard]] virtual auto PackageName() const noexcept -> std::string_view = 0;
-        [[nodiscard]] virtual auto ConfigurationName() const noexcept -> std::string_view = 0;
+        [[nodiscard]] virtual auto ProfileName() const noexcept -> std::string_view = 0;
 
         [[nodiscard]] virtual auto Services() noexcept -> ServiceCollection& = 0;
         [[nodiscard]] virtual auto Packages() noexcept -> PackageCollection& = 0;
@@ -279,7 +279,7 @@ namespace NGIN::Core
         virtual void RequestStop(std::string reason) noexcept = 0;
         virtual auto Shutdown() noexcept -> CoreResult<void> = 0;
 
-        [[nodiscard]] virtual auto GetConfigurationName() const -> std::string = 0;
+        [[nodiscard]] virtual auto GetProfileName() const -> std::string = 0;
         [[nodiscard]] virtual auto GetStartupReport() const -> StartupReport = 0;
     };
 
@@ -291,7 +291,7 @@ namespace NGIN::Core
         virtual auto UseProjectFile(std::string path) -> ApplicationBuilder& = 0;
         virtual auto UseProject(ProjectManifest manifest) -> ApplicationBuilder& = 0;
         virtual auto SetApplicationName(std::string applicationName) -> ApplicationBuilder& = 0;
-        virtual auto SetConfiguration(std::string configurationName) -> ApplicationBuilder& = 0;
+        virtual auto SetProfile(std::string profileName) -> ApplicationBuilder& = 0;
 
         [[nodiscard]] virtual auto Services() noexcept -> ServiceCollection& = 0;
         [[nodiscard]] virtual auto Packages() noexcept -> PackageCollection& = 0;

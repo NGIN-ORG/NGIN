@@ -15,7 +15,7 @@ The project is just normal C++ source plus an `.nginproj` file:
 - generated-mode CMake backend input
 - no package references
 - no `NGIN.Core`
-- one `Runtime` configuration
+- one `Runtime` profile
 - one named condition used by a conditional compile definition
 - one generated staged output directory
 
@@ -28,17 +28,17 @@ The manifest includes a small `LocalDebug` condition:
 <Conditions>
   <Condition Name="LocalDebug"
              Environment="local"
-             BuildConfiguration="Debug" />
+             BuildType="Debug" />
 </Conditions>
 ```
 
-The generated build uses that condition through `When`:
+The generated build uses that condition through `Condition`:
 
 ```xml
 <CompileDefinitions>
   <Definition Value="APP_NATIVE_MINIMAL_LOCAL_DEBUG"
               Visibility="Private"
-              When="LocalDebug" />
+              Condition="LocalDebug" />
 </CompileDefinitions>
 ```
 
@@ -59,7 +59,7 @@ Validate the project:
 ```bash
 ./build/dev/Tools/NGIN.CLI/ngin validate \
   --project Examples/App.NativeMinimal/App.NativeMinimal.nginproj \
-  --configuration Runtime
+  --profile Runtime
 ```
 
 Inspect the resolved graph:
@@ -67,7 +67,7 @@ Inspect the resolved graph:
 ```bash
 ./build/dev/Tools/NGIN.CLI/ngin graph \
   --project Examples/App.NativeMinimal/App.NativeMinimal.nginproj \
-  --configuration Runtime
+  --profile Runtime
 ```
 
 Build a staged output:
@@ -75,7 +75,7 @@ Build a staged output:
 ```bash
 ./build/dev/Tools/NGIN.CLI/ngin build \
   --project Examples/App.NativeMinimal/App.NativeMinimal.nginproj \
-  --configuration Runtime \
+  --profile Runtime \
   --output build/manual/App.NativeMinimal
 ```
 
@@ -84,7 +84,7 @@ Run from the staged launch:
 ```bash
 ./build/dev/Tools/NGIN.CLI/ngin run \
   --project Examples/App.NativeMinimal/App.NativeMinimal.nginproj \
-  --configuration Runtime \
+  --profile Runtime \
   --output build/manual/App.NativeMinimal
 ```
 

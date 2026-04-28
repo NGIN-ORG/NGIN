@@ -162,7 +162,7 @@ Build settings can use the same selector attributes:
                 OperatingSystem="windows" />
     <Definition Value="NGIN_DEBUG_TOOLS"
                 Visibility="Private"
-                BuildConfiguration="Debug" />
+                BuildType="Debug" />
   </CompileDefinitions>
 </Build>
 ```
@@ -174,7 +174,7 @@ configurations:
 
 - `OperatingSystem`
 - `Architecture`
-- `BuildConfiguration`
+- `BuildType`
 
 An item with no selector attributes applies to every selected configuration.
 
@@ -184,7 +184,7 @@ selectors match the active configuration. This is an AND model:
 ```xml
 <File Path="src/platform/LinuxDebug.cpp"
       OperatingSystem="linux"
-      BuildConfiguration="Debug" />
+      BuildType="Debug" />
 ```
 
 The first implementation should use exact string matching against the selected
@@ -251,10 +251,10 @@ The project root surface would become:
 - `Output`
 - `Build`
 - `References`
-- `ConfigSources`
+- `ConfigInputs`
 - `Runtime`
 - `Environments`
-- `Configurations`
+- `Profiles`
 
 `SourceRoots` is documented as the legacy-compatible source declaration
 surface. `Sources` is documented as the preferred source declaration
@@ -290,7 +290,7 @@ root `Include` / `Exclude` glob attributes.
   configuration.
 - A non-selected `OperatingSystem="windows"` root is omitted for a linux
   configuration.
-- A `BuildConfiguration="Debug"` compile definition is emitted only for Debug.
+- A `BuildType="Debug"` compile definition is emitted only for Debug.
 - A manifest that mixes `<SourceRoots>` and `<Sources>` reports a clear error.
 - Duplicate files selected through multiple entries are emitted once.
 
@@ -302,5 +302,5 @@ root `Include` / `Exclude` glob attributes.
   or should generated CMake list public headers in the target source list?
 - Should selector values be case-sensitive to match the existing manifest style,
   or should they be normalized before matching?
-- Should typed selectors also apply to `References`, `ConfigSources`, and
+- Should typed selectors also apply to `References`, `ConfigInputs`, and
   runtime entries later, or remain focused on build authoring?

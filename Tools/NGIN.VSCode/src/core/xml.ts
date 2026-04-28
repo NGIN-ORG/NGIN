@@ -6,7 +6,7 @@ import {
   PackageManifest,
   PackageReference,
   LocalSettingsManifest,
-  ProjectConfiguration,
+  ProjectProfile,
   ProjectManifest,
   ProjectReference,
   StagedFile,
@@ -27,10 +27,13 @@ function asArray<T>(value: T | T[] | undefined): T[] {
   return Array.isArray(value) ? value : [value];
 }
 
-function parseConfigSources(node: unknown): string[] {
-  const parent = node as { ConfigSources?: { Config?: unknown } } | undefined;
-  return asArray(parent?.ConfigSources?.Config)
-    .map((entry) => (entry as { Source?: string } | undefined)?.Source)
+function parseConfigInputs(node: unknown): string[] {
+  const parent = node as { Inputs?: { Config?: unknown } } | undefined;
+  return asArray(parent?.Inputs?.Config)
+    .map((entry) => {
+      const config = entry as { Path?: string; Pattern?: string } | undefined;
+      return config?.Path ?? config?.Pattern;
+    })
     .filter((entry): entry is string => Boolean(entry));
 }
 
@@ -64,13 +67,13 @@ function parseProjectReferences(node: unknown, baseDirectory: string): ProjectRe
   const parent = node as { References?: { Project?: unknown } } | undefined;
   return asArray(parent?.References?.Project)
     .map((entry): ProjectReference | undefined => {
-      const ref = entry as { Path?: string; Configuration?: string } | undefined;
+      const ref = entry as { Path?: string; Profile?: string } | undefined;
       if (!ref?.Path) {
         return undefined;
       }
       return {
         path: path.resolve(baseDirectory, ref.Path),
-        configuration: ref.Configuration
+        profile: ref.Profile
       };
     })
     .filter((entry): entry is ProjectReference => Boolean(entry));
@@ -127,15 +130,16 @@ export function parseProjectManifest(xml: string, manifestPath: string): Project
     throw new Error(`${manifestPath}: root element must be <Project>`);
   }
 
-  const configurations = asArray(root.Configurations?.Configuration).map((entry): ProjectConfiguration => ({
+  const profiles = asArray(root.Profiles?.Profile).map((entry): ProjectProfile => ({
     name: entry?.Name,
-    buildConfiguration: entry?.BuildConfiguration,
+    buildType: entry?.BuildType,
+    platform: entry?.Platform,
     operatingSystem: entry?.OperatingSystem,
     architecture: entry?.Architecture,
     environment: entry?.Environment,
     launchExecutable: entry?.Launch?.Executable,
     launchWorkingDirectory: entry?.Launch?.WorkingDirectory,
-    configSources: parseConfigSources(entry),
+    configInputs: parseConfigInputs(entry),
     projectRefs: parseProjectReferences(entry, path.dirname(manifestPath)),
     packageRefs: parsePackageReferences(entry)
   })).filter((entry) => Boolean(entry.name));
@@ -167,14 +171,14 @@ export function parseProjectManifest(xml: string, manifestPath: string): Project
     path: manifestPath,
     directory: path.dirname(manifestPath),
     name: root.Name ?? path.basename(manifestPath, path.extname(manifestPath)),
-    defaultConfiguration: root.DefaultConfiguration,
+    defaultProfile: root.DefaultProfile,
     sourceRoots: [...sourceRoots, ...typedSourceRoots],
-    configSources: parseConfigSources(root),
+    configInputs: parseConfigInputs(root),
     localSettingsImports: parseLocalSettingsImports(root, path.dirname(manifestPath)),
     buildSources: [...buildSources, ...typedSourceFiles, ...typedSourceFileLists],
     projectRefs: parseProjectReferences(root, path.dirname(manifestPath)),
     packageRefs: parsePackageReferences(root),
-    configurations
+    profiles
   };
 }
 
@@ -245,9 +249,10 @@ export function parseLaunchManifest(xml: string, manifestPath: string): LaunchMa
     path: manifestPath,
     directory: path.dirname(manifestPath),
     project: root.Project,
-    configuration: root.Configuration,
+    profile: root.Profile,
     type: root.Type,
-    buildConfiguration: root.BuildConfiguration,
+    buildType: root.BuildType,
+    platform: root.Platform,
     operatingSystem: root.OperatingSystem,
     architecture: root.Architecture,
     environmentName: root.Environment?.Name,

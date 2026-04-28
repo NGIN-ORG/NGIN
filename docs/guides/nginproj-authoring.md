@@ -6,15 +6,15 @@ the full spec first.
 
 An `.nginproj` describes one C++ project. CMake still performs the backend
 build. NGIN owns the higher-level project shape: sources, output artifact,
-dependencies, configurations, and local run metadata.
+dependencies, profiles, and local run metadata.
 
 ## Minimal Project
 
 ```xml
-<Project SchemaVersion="2"
+<Project SchemaVersion="3"
          Name="MyTool"
-         Type="Tool"
-         DefaultConfiguration="Runtime">
+         Template="Tool"
+         DefaultProfile="Runtime">
   <Sources>
     <Private>
       <Root Path="src" />
@@ -32,15 +32,14 @@ dependencies, configurations, and local run metadata.
     <Environment Name="local" />
   </Environments>
 
-  <Configurations>
-    <Configuration Name="Runtime"
-                   BuildConfiguration="Debug"
-                   OperatingSystem="linux"
-                   Architecture="x64"
-                   Environment="local">
+  <Profiles>
+    <Profile Name="Runtime"
+             BuildType="Debug"
+             Platform="linux-x64"
+             Environment="local">
       <Launch Executable="MyTool" WorkingDirectory="." />
-    </Configuration>
-  </Configurations>
+    </Profile>
+  </Profiles>
 </Project>
 ```
 
@@ -52,9 +51,23 @@ dependencies, configurations, and local run metadata.
 | `Output` | Artifact type, name, and backend target |
 | `Build` | Backend mode, language, standard, and build settings |
 | `References` | Project and package dependencies |
-| `ConfigSources` | Runtime config files contributed by the project |
+| `Inputs` | Runtime config files contributed by the project |
 | `Environments` | Named environment layers |
-| `Configurations` | Selectable project configurations |
+| `Profiles` | Selectable project profiles |
+
+Profiles can reuse an earlier profile with `Extends`:
+
+```xml
+<Profiles>
+  <Profile Name="Runtime"
+           BuildType="Debug"
+           Platform="linux-x64"
+           Environment="local" />
+  <Profile Name="Shipping"
+           Extends="Runtime"
+           BuildType="Release" />
+</Profiles>
+```
 
 ## Sources
 
@@ -107,7 +120,7 @@ Patterns are relative to the root and support `*`, `?`, and `**`.
 
 ## Selection
 
-Source entries and build settings can be selected by project configuration
+Source entries and build settings can be selected by project profile
 values. Simple local selection uses typed selector attributes.
 
 ```xml
@@ -117,7 +130,7 @@ values. Simple local selection uses typed selector attributes.
     <Root Path="src/platform/windows" OperatingSystem="windows" />
     <Root Path="src/platform/linux" OperatingSystem="linux" />
 
-    <Files BuildConfiguration="Debug">
+    <Files BuildType="Debug">
       src/debug_overlay.cpp
       src/debug_trace.cpp
     </Files>
@@ -125,17 +138,17 @@ values. Simple local selection uses typed selector attributes.
 </Sources>
 ```
 
-An item with no selector applies to every configuration. An item with selectors
-applies only when all selectors match the active configuration. If a
+An item with no selector applies to every profile. An item with selectors
+applies only when all selectors match the active profile. If a
 non-selected typed path is nested under a broader selected root, NGIN excludes
 that nested path from source scanning.
 
 Supported selectors:
 
-- `Configuration`
+- `Profile`
 - `OperatingSystem`
 - `Architecture`
-- `BuildConfiguration`
+- `BuildType`
 - `Environment`
 
 The same selectors can be used on build settings:
@@ -145,7 +158,7 @@ The same selectors can be used on build settings:
   <CompileDefinitions>
     <Definition Value="MYTOOL_DEBUG"
                 Visibility="Private"
-                BuildConfiguration="Debug" />
+                BuildType="Debug" />
   </CompileDefinitions>
 </Build>
 ```
@@ -164,16 +177,16 @@ Reusable or non-trivial selection can use named conditions:
 </Conditions>
 ```
 
-Use `When` to reference a named condition. `When` and direct selectors can be
+Use `Condition` to reference a named condition. `Condition` and direct selectors can be
 combined and are evaluated as AND:
 
 ```xml
 <Build Backend="CMake" Mode="Generated" Language="CXX" LanguageStandard="23">
-  <CompileDefinitions When="Desktop">
+  <CompileDefinitions Condition="Desktop">
     <Definition Value="MYTOOL_DESKTOP" Visibility="Private" />
     <Definition Value="MYTOOL_DESKTOP_DEBUG"
                 Visibility="Private"
-                BuildConfiguration="Debug" />
+                BuildType="Debug" />
   </CompileDefinitions>
 </Build>
 ```
@@ -198,7 +211,7 @@ Project references:
 
 ```xml
 <References>
-  <Project Path="../Engine/Engine.nginproj" Configuration="Runtime" />
+  <Project Path="../Engine/Engine.nginproj" Profile="Runtime" />
 </References>
 ```
 
@@ -210,20 +223,19 @@ Package references:
 </References>
 ```
 
-## Configurations
+## Profiles
 
-NGIN separates the project configuration name from the backend build
-configuration.
+NGIN separates the project profile name from the backend build
+profile.
 
 ```xml
-<Configuration Name="Runtime"
-               BuildConfiguration="Debug"
-               OperatingSystem="linux"
-               Architecture="x64"
+<Profile Name="Runtime"
+               BuildType="Debug"
+               Platform="linux-x64"
                Environment="local" />
 ```
 
-`Name` selects the authored project configuration. `BuildConfiguration` maps to
+`Name` selects the authored project profile. `BuildType` maps to
 the backend build type such as `Debug` or `Release`.
 
 Executable projects can add launch metadata:
@@ -235,8 +247,8 @@ Executable projects can add launch metadata:
 ## Useful Commands
 
 ```bash
-ngin validate --project Examples/App.NativeMinimal/App.NativeMinimal.nginproj --configuration Runtime
-ngin graph --project Examples/App.NativeMinimal/App.NativeMinimal.nginproj --configuration Runtime
-ngin build --project Examples/App.NativeMinimal/App.NativeMinimal.nginproj --configuration Runtime
-ngin run --project Examples/App.NativeMinimal/App.NativeMinimal.nginproj --configuration Runtime
+ngin validate --project Examples/App.NativeMinimal/App.NativeMinimal.nginproj --profile Runtime
+ngin graph --project Examples/App.NativeMinimal/App.NativeMinimal.nginproj --profile Runtime
+ngin build --project Examples/App.NativeMinimal/App.NativeMinimal.nginproj --profile Runtime
+ngin run --project Examples/App.NativeMinimal/App.NativeMinimal.nginproj --profile Runtime
 ```

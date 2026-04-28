@@ -13,12 +13,12 @@ This spec defines the authored model split between workspace, project, and packa
 - `.nginpkg` is the reusable dependency unit
 - `.ngin` is optional
 - separate executables should usually be separate projects
-- configurations should hold narrow selection and override data
-- NGIN does not model application category as a configuration property
+- profiles should hold narrow selection and override data
+- NGIN does not model application category as a profile property
 - launch metadata belongs to launchable projects
 
 ## Consequences
 
 - engine library, game client, and headless server are usually separate projects
-- `Debug`, `Shipping`, `Diagnostics`, and similar modes are configurations
+- `Debug`, `Shipping`, `Diagnostics`, and similar modes are profiles
 - package-local source binding is not part of the active reusable contract

@@ -3,7 +3,7 @@
 `App.Basic` is a compact hosted application example. It is still small enough to
 read in one pass, but it shows more of the authored model than
 `App.HostedCore`: the manifest owns source roots, output, config, package
-references, configurations, and project-owned runtime metadata.
+references, profiles, and project-owned runtime metadata.
 
 Start here after `App.NativeMinimal` and `App.HostedCore`.
 
@@ -15,9 +15,9 @@ Start here after `App.NativeMinimal` and `App.HostedCore`.
 - one package reference to `NGIN.Core`
 - one config file consumed through `NGIN.Core`
 - one project-owned runtime module declared and enabled from the manifest
-- two configurations: `Runtime` and `Diagnostics`
+- two profiles: `Runtime` and `Diagnostics`
 
-The important modeling point is that both configurations are still the same
+The important modeling point is that both profiles are still the same
 project. `Diagnostics` adds extra package/plugin behavior, but it does not
 become a separate executable identity.
 
@@ -36,12 +36,12 @@ cmake --preset dev
 cmake --build build/dev --target ngin_cli
 ```
 
-Validate the default runtime configuration:
+Validate the default runtime profile:
 
 ```bash
 ./build/dev/Tools/NGIN.CLI/ngin validate \
   --project Examples/App.Basic/App.Basic.nginproj \
-  --configuration Runtime
+  --profile Runtime
 ```
 
 Inspect the resolved graph:
@@ -49,7 +49,7 @@ Inspect the resolved graph:
 ```bash
 ./build/dev/Tools/NGIN.CLI/ngin graph \
   --project Examples/App.Basic/App.Basic.nginproj \
-  --configuration Runtime
+  --profile Runtime
 ```
 
 Build a staged output:
@@ -57,7 +57,7 @@ Build a staged output:
 ```bash
 ./build/dev/Tools/NGIN.CLI/ngin build \
   --project Examples/App.Basic/App.Basic.nginproj \
-  --configuration Runtime \
+  --profile Runtime \
   --output build/manual/App.Basic
 ```
 
@@ -66,17 +66,17 @@ Run from the staged launch:
 ```bash
 ./build/dev/Tools/NGIN.CLI/ngin run \
   --project Examples/App.Basic/App.Basic.nginproj \
-  --configuration Runtime \
+  --profile Runtime \
   --output build/manual/App.Basic
 ```
 
 To compare the alternate setup, run the same flow with
-`--configuration Diagnostics` and a separate output directory such as
+`--profile Diagnostics` and a separate output directory such as
 `build/manual/App.Basic.Diagnostics`.
 
 ## What To Inspect Next
 
 After `App.Basic`, read
 [`../App.Showcase/README.md`](../App.Showcase/README.md). It keeps the same
-core model, then adds richer configuration overlays and advanced runtime
+core model, then adds richer profile overlays and advanced runtime
 metadata.

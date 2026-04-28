@@ -179,7 +179,7 @@ namespace
         const auto projectPath = temp.path() / "App/App.nginproj";
         WriteFile(projectPath,
                   R"(<?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="2" Name="Meta.Property.App" Type="Application" DefaultConfiguration="Runtime">
+<Project SchemaVersion="3" Name="Meta.Property.App" Type="Application" DefaultProfile="Runtime">
   <SourceRoots>
     <SourceRoot Path="src" />
   </SourceRoots>
@@ -190,9 +190,9 @@ namespace
   <Environments>
     <Environment Name="dev" />
   </Environments>
-  <Configurations>
-    <Configuration Name="Runtime" BuildConfiguration="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev" />
-  </Configurations>
+  <Profiles>
+    <Profile Name="Runtime" BuildType="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev" />
+  </Profiles>
 </Project>
 )");
         WriteFile(temp.path() / "App/src/Player.hpp", header);
@@ -226,7 +226,7 @@ TEST_CASE("workspace, project, and package manifests parse through authoring "
 )");
     WriteFile(temp.path() / "App/App.nginproj",
               R"(<?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="2" Name="Sample.App" Type="Application" DefaultConfiguration="Runtime">
+<Project SchemaVersion="3" Name="Sample.App" Type="Application" DefaultProfile="Runtime">
   <SourceRoots>
     <SourceRoot Path="src" />
   </SourceRoots>
@@ -237,11 +237,11 @@ TEST_CASE("workspace, project, and package manifests parse through authoring "
   <Environments>
     <Environment Name="dev" />
   </Environments>
-  <Configurations>
-    <Configuration Name="Runtime" BuildConfiguration="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev">
+  <Profiles>
+    <Profile Name="Runtime" BuildType="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev">
       <Launch Executable="Sample.App" WorkingDirectory="." />
-    </Configuration>
-  </Configurations>
+    </Profile>
+  </Profiles>
 </Project>
 )");
     WriteFile(temp.path() / "App/src/main.cpp", "int main() { return 0; }\n");
@@ -293,7 +293,7 @@ struct NGIN_REFLECT(name = "Demo::Player") Player {
 
     const auto project = LoadProjectManifest(projectPath);
     const auto result =
-        GenerateMetaData(RepoRoot(), project, project.configurations.front(), temp.path() / "generated");
+        GenerateMetaData(RepoRoot(), project, project.profiles.front(), temp.path() / "generated");
     if (!result.available)
     {
         SKIP("MetaGen was built without Clang support");
@@ -323,7 +323,7 @@ struct NGIN_REFLECT(name = "Demo::Player") Player {
 
     const auto project = LoadProjectManifest(projectPath);
     const auto result =
-        GenerateMetaData(RepoRoot(), project, project.configurations.front(), temp.path() / "generated");
+        GenerateMetaData(RepoRoot(), project, project.profiles.front(), temp.path() / "generated");
     if (!result.available)
     {
         SKIP("MetaGen was built without Clang support");
@@ -347,7 +347,7 @@ struct NGIN_REFLECT(name = "Demo::Player") Player {
 
     const auto project = LoadProjectManifest(projectPath);
     const auto result =
-        GenerateMetaData(RepoRoot(), project, project.configurations.front(), temp.path() / "generated");
+        GenerateMetaData(RepoRoot(), project, project.profiles.front(), temp.path() / "generated");
     if (!result.available)
     {
         SKIP("MetaGen was built without Clang support");
@@ -361,7 +361,7 @@ TEST_CASE("project build descriptor parses metagen opt in")
     const auto projectPath = temp.path() / "App.nginproj";
     WriteFile(projectPath,
               R"(<?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="2" Name="Meta.App" Type="Application" DefaultConfiguration="Runtime">
+<Project SchemaVersion="3" Name="Meta.App" Type="Application" DefaultProfile="Runtime">
   <SourceRoots>
     <SourceRoot Path="src" />
   </SourceRoots>
@@ -372,9 +372,9 @@ TEST_CASE("project build descriptor parses metagen opt in")
   <Environments>
     <Environment Name="dev" />
   </Environments>
-  <Configurations>
-    <Configuration Name="Runtime" BuildConfiguration="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev" />
-  </Configurations>
+  <Profiles>
+    <Profile Name="Runtime" BuildType="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev" />
+  </Profiles>
 </Project>
 )");
 
@@ -388,7 +388,7 @@ TEST_CASE("typed project sources parse selector metadata and reject mixed legacy
     const auto projectPath = temp.path() / "Typed.nginproj";
     WriteFile(projectPath,
               R"(<?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="2" Name="Typed" Type="Application" DefaultConfiguration="Runtime">
+<Project SchemaVersion="3" Name="Typed" Type="Application" DefaultProfile="Runtime">
   <Sources>
     <Public>
       <Root Path="include" />
@@ -397,7 +397,7 @@ TEST_CASE("typed project sources parse selector metadata and reject mixed legacy
     <Private>
       <Root Path="src" />
       <Root Path="src/linux" OperatingSystem="linux" Architecture="x64" />
-      <File Path="src/debug.cpp" BuildConfiguration="Debug" />
+      <File Path="src/debug.cpp" BuildType="Debug" />
       <Files OperatingSystem="linux">
         src/listed.cpp
       </Files>
@@ -407,9 +407,9 @@ TEST_CASE("typed project sources parse selector metadata and reject mixed legacy
   <Environments>
     <Environment Name="dev" />
   </Environments>
-  <Configurations>
-    <Configuration Name="Runtime" BuildConfiguration="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev" />
-  </Configurations>
+  <Profiles>
+    <Profile Name="Runtime" BuildType="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev" />
+  </Profiles>
 </Project>
 )");
 
@@ -421,14 +421,14 @@ TEST_CASE("typed project sources parse selector metadata and reject mixed legacy
     REQUIRE(project.sources->privateSources.files.size() == 2);
     REQUIRE(project.sources->privateSources.roots.back().selectors.operatingSystem == "linux");
     REQUIRE(project.sources->privateSources.roots.back().selectors.architecture == "x64");
-    REQUIRE(project.sources->privateSources.files.front().selectors.buildConfiguration == "Debug");
+    REQUIRE(project.sources->privateSources.files.front().selectors.buildType == "Debug");
     REQUIRE(project.sources->privateSources.files.back().path == "src/listed.cpp");
     REQUIRE(project.sources->privateSources.files.back().selectors.operatingSystem == "linux");
 
     const auto mixedPath = temp.path() / "Mixed.nginproj";
     WriteFile(mixedPath,
               R"(<?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="2" Name="Mixed" Type="Application" DefaultConfiguration="Runtime">
+<Project SchemaVersion="3" Name="Mixed" Type="Application" DefaultProfile="Runtime">
   <SourceRoots>
     <SourceRoot Path="src" />
   </SourceRoots>
@@ -441,9 +441,9 @@ TEST_CASE("typed project sources parse selector metadata and reject mixed legacy
   <Environments>
     <Environment Name="dev" />
   </Environments>
-  <Configurations>
-    <Configuration Name="Runtime" BuildConfiguration="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev" />
-  </Configurations>
+  <Profiles>
+    <Profile Name="Runtime" BuildType="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev" />
+  </Profiles>
 </Project>
 )");
     REQUIRE_THROWS_WITH(LoadProjectManifest(mixedPath), ContainsSubstring("may not declare both <SourceRoots> and <Sources>"));
@@ -455,7 +455,7 @@ TEST_CASE("structured conditions normalize with direct selectors and inherited g
     const auto projectPath = temp.path() / "Conditions.nginproj";
     WriteFile(projectPath,
               R"(<?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="2" Name="Conditions" Type="Application" DefaultConfiguration="Runtime">
+<Project SchemaVersion="3" Name="Conditions" Type="Application" DefaultProfile="Runtime">
   <Conditions>
     <Condition Name="Desktop">
       <Any>
@@ -463,7 +463,7 @@ TEST_CASE("structured conditions normalize with direct selectors and inherited g
         <Match OperatingSystem="windows" />
       </Any>
     </Condition>
-    <Condition Name="DebugBuild" BuildConfiguration="Debug" />
+    <Condition Name="DebugBuild" BuildType="Debug" />
     <Condition Name="DesktopDebug">
       <All>
         <ConditionRef Name="Desktop" />
@@ -472,69 +472,69 @@ TEST_CASE("structured conditions normalize with direct selectors and inherited g
     </Condition>
   </Conditions>
   <Sources>
-    <Private When="Desktop">
-      <Root Path="src" BuildConfiguration="Debug" />
-      <Files When="DebugBuild">
+    <Private Condition="Desktop">
+      <Root Path="src" BuildType="Debug" />
+      <Files Condition="DebugBuild">
         src/listed.cpp
       </Files>
     </Private>
   </Sources>
   <Output Kind="Executable" Name="Conditions" Target="Conditions" />
   <Build Backend="CMake" Mode="Generated" Language="CXX" LanguageStandard="23">
-    <CompileDefinitions When="Desktop">
+    <CompileDefinitions Condition="Desktop">
       <Definition Value="CONDITIONS_DESKTOP" Visibility="Private" />
-      <Definition Value="CONDITIONS_DESKTOP_DEBUG" Visibility="Private" BuildConfiguration="Debug" />
-      <Definition Value="CONDITIONS_DESKTOP_RELEASE" Visibility="Private" BuildConfiguration="Release" />
-      <Definition Value="CONDITIONS_DESKTOP_DEBUG_REF" Visibility="Private" When="DebugBuild" />
+      <Definition Value="CONDITIONS_DESKTOP_DEBUG" Visibility="Private" BuildType="Debug" />
+      <Definition Value="CONDITIONS_DESKTOP_RELEASE" Visibility="Private" BuildType="Release" />
+      <Definition Value="CONDITIONS_DESKTOP_DEBUG_REF" Visibility="Private" Condition="DebugBuild" />
     </CompileDefinitions>
   </Build>
   <Environments>
     <Environment Name="dev" />
   </Environments>
-  <Configurations>
-    <Configuration Name="Runtime" BuildConfiguration="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev" />
-  </Configurations>
+  <Profiles>
+    <Profile Name="Runtime" BuildType="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev" />
+  </Profiles>
 </Project>
 )");
 
     const auto project = LoadProjectManifest(projectPath);
-    const std::optional<std::string> configurationName{"Runtime"};
-    const auto &configuration = ConfigurationByName(project, configurationName);
+    const std::optional<std::string> profileName{"Runtime"};
+    const auto &profile = ProfileByName(project, profileName);
     REQUIRE(project.conditions.size() == 3);
     REQUIRE(project.sources.has_value());
     REQUIRE(project.sources->privateSources.roots.front().selectors.conditionRefs.size() == 1);
-    REQUIRE(project.sources->privateSources.roots.front().selectors.buildConfiguration == "Debug");
-    REQUIRE(SelectionMatches(project, project.sources->privateSources.roots.front().selectors, configuration));
-    REQUIRE(SelectionMatches(project, project.sources->privateSources.files.front().selectors, configuration));
-    REQUIRE(SelectionMatches(project, project.build.compileDefinitions[0].selectors, configuration));
-    REQUIRE(SelectionMatches(project, project.build.compileDefinitions[1].selectors, configuration));
-    REQUIRE_FALSE(SelectionMatches(project, project.build.compileDefinitions[2].selectors, configuration));
-    REQUIRE(SelectionMatches(project, project.build.compileDefinitions[3].selectors, configuration));
+    REQUIRE(project.sources->privateSources.roots.front().selectors.buildType == "Debug");
+    REQUIRE(SelectionMatches(project, project.sources->privateSources.roots.front().selectors, profile));
+    REQUIRE(SelectionMatches(project, project.sources->privateSources.files.front().selectors, profile));
+    REQUIRE(SelectionMatches(project, project.build.compileDefinitions[0].selectors, profile));
+    REQUIRE(SelectionMatches(project, project.build.compileDefinitions[1].selectors, profile));
+    REQUIRE_FALSE(SelectionMatches(project, project.build.compileDefinitions[2].selectors, profile));
+    REQUIRE(SelectionMatches(project, project.build.compileDefinitions[3].selectors, profile));
 
     const auto unknownPath = temp.path() / "Unknown.nginproj";
     WriteFile(unknownPath,
               R"(<?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="2" Name="Unknown" Type="Application" DefaultConfiguration="Runtime">
+<Project SchemaVersion="3" Name="Unknown" Type="Application" DefaultProfile="Runtime">
   <Sources>
     <Private>
-      <Root Path="src" When="Missing" />
+      <Root Path="src" Condition="Missing" />
     </Private>
   </Sources>
   <Output Kind="Executable" Name="Unknown" Target="Unknown" />
   <Environments>
     <Environment Name="dev" />
   </Environments>
-  <Configurations>
-    <Configuration Name="Runtime" BuildConfiguration="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev" />
-  </Configurations>
+  <Profiles>
+    <Profile Name="Runtime" BuildType="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev" />
+  </Profiles>
 </Project>
 )");
-    REQUIRE_THROWS_WITH(LoadProjectManifest(unknownPath), ContainsSubstring("unknown When condition 'Missing'"));
+    REQUIRE_THROWS_WITH(LoadProjectManifest(unknownPath), ContainsSubstring("unknown condition 'Missing'"));
 
     const auto cyclePath = temp.path() / "Cycle.nginproj";
     WriteFile(cyclePath,
               R"(<?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="2" Name="Cycle" Type="Application" DefaultConfiguration="Runtime">
+<Project SchemaVersion="3" Name="Cycle" Type="Application" DefaultProfile="Runtime">
   <Conditions>
     <Condition Name="A"><ConditionRef Name="B" /></Condition>
     <Condition Name="B"><ConditionRef Name="A" /></Condition>
@@ -548,12 +548,69 @@ TEST_CASE("structured conditions normalize with direct selectors and inherited g
   <Environments>
     <Environment Name="dev" />
   </Environments>
-  <Configurations>
-    <Configuration Name="Runtime" BuildConfiguration="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev" />
-  </Configurations>
+  <Profiles>
+    <Profile Name="Runtime" BuildType="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev" />
+  </Profiles>
 </Project>
 )");
     REQUIRE_THROWS_WITH(LoadProjectManifest(cyclePath), ContainsSubstring("condition reference cycle"));
+}
+
+TEST_CASE("profiles inherit scalar settings and append authored contributions")
+{
+    TempDir temp{};
+    const auto projectPath = temp.path() / "Profiles.nginproj";
+    WriteFile(projectPath,
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="3" Name="Profiles" Template="Application" DefaultProfile="Runtime">
+  <Defaults BuildType="Debug" Platform="linux-x64" Environment="dev" />
+  <Output Kind="Executable" Name="Profiles" Target="Profiles" />
+  <Inputs>
+    <Config Path="config/project.cfg" />
+  </Inputs>
+  <Environments>
+    <Environment Name="dev" />
+  </Environments>
+  <Profiles>
+    <Profile Name="Base">
+      <Launch Executable="$(OutputName)" WorkingDirectory="." />
+      <References>
+        <Package Name="Profile.Base" />
+      </References>
+      <Inputs>
+        <Config Path="config/profile-base.cfg" />
+      </Inputs>
+    </Profile>
+    <Profile Name="Runtime" Extends="Base" BuildType="Release">
+      <References>
+        <Package Name="Profile.Runtime" />
+      </References>
+      <Inputs>
+        <Config Path="config/runtime.cfg" />
+      </Inputs>
+    </Profile>
+  </Profiles>
+</Project>
+)xml");
+
+    const auto project = LoadProjectManifest(projectPath);
+    const std::optional<std::string> profileName{"Runtime"};
+    const auto &profile = ProfileByName(project, profileName);
+
+    REQUIRE(project.profiles.size() == 2);
+    REQUIRE(profile.name == "Runtime");
+    REQUIRE(profile.buildType == "Release");
+    REQUIRE(profile.platform == "linux-x64");
+    REQUIRE(profile.operatingSystem == "linux");
+    REQUIRE(profile.architecture == "x64");
+    REQUIRE(profile.environmentName == "dev");
+    REQUIRE(profile.launch.executable == "Profiles");
+    REQUIRE(profile.configInputs.size() == 2);
+    REQUIRE(profile.configInputs[0] == "config/profile-base.cfg");
+    REQUIRE(profile.configInputs[1] == "config/runtime.cfg");
+    REQUIRE(profile.packageRefs.size() == 2);
+    REQUIRE(profile.packageRefs[0].name == "Profile.Base");
+    REQUIRE(profile.packageRefs[1].name == "Profile.Runtime");
 }
 
 TEST_CASE("generated CMake applies typed source selectors and selected build settings")
@@ -562,7 +619,7 @@ TEST_CASE("generated CMake applies typed source selectors and selected build set
     const auto projectPath = temp.path() / "Library/Typed.Library.nginproj";
     WriteFile(projectPath,
               R"(<?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="2" Name="Typed.Library" Type="Library" DefaultConfiguration="Runtime">
+<Project SchemaVersion="3" Name="Typed.Library" Type="Library" DefaultProfile="Runtime">
   <Conditions>
     <Condition Name="LinuxDesktop" OperatingSystem="linux" />
   </Conditions>
@@ -575,8 +632,8 @@ TEST_CASE("generated CMake applies typed source selectors and selected build set
       <Root Path="src" Include="**/*.cpp" Exclude="**/*.generated.cpp" />
       <Root Path="src/linux" OperatingSystem="linux" />
       <Root Path="src/windows" OperatingSystem="windows" />
-      <Root Path="src/conditional-enabled" When="LinuxDesktop" BuildConfiguration="Debug" />
-      <Root Path="src/conditional-disabled" When="LinuxDesktop" BuildConfiguration="Release" />
+      <Root Path="src/conditional-enabled" Condition="LinuxDesktop" BuildType="Debug" />
+      <Root Path="src/conditional-disabled" Condition="LinuxDesktop" BuildType="Release" />
       <Files>
         manual/manual.cpp
       </Files>
@@ -588,22 +645,22 @@ TEST_CASE("generated CMake applies typed source selectors and selected build set
       <Definition Value="TYPED_LIBRARY_BUILD" Visibility="Private" />
       <Definition Value="TYPED_LIBRARY_LINUX" Visibility="Private" OperatingSystem="linux" />
       <Definition Value="TYPED_LIBRARY_WINDOWS" Visibility="Private" OperatingSystem="windows" />
-      <Definition Value="TYPED_LIBRARY_DEBUG" Visibility="Private" BuildConfiguration="Debug" />
-      <Definition Value="TYPED_LIBRARY_WHEN" Visibility="Private" When="LinuxDesktop" />
-      <Definition Value="TYPED_LIBRARY_WHEN_DEBUG" Visibility="Private" When="LinuxDesktop" BuildConfiguration="Debug" />
-      <Definition Value="TYPED_LIBRARY_WHEN_RELEASE" Visibility="Private" When="LinuxDesktop" BuildConfiguration="Release" />
+      <Definition Value="TYPED_LIBRARY_DEBUG" Visibility="Private" BuildType="Debug" />
+      <Definition Value="TYPED_LIBRARY_WHEN" Visibility="Private" Condition="LinuxDesktop" />
+      <Definition Value="TYPED_LIBRARY_WHEN_DEBUG" Visibility="Private" Condition="LinuxDesktop" BuildType="Debug" />
+      <Definition Value="TYPED_LIBRARY_WHEN_RELEASE" Visibility="Private" Condition="LinuxDesktop" BuildType="Release" />
     </CompileDefinitions>
-    <CompileOptions When="LinuxDesktop">
-      <Option Value="-DTYPED_GROUP_OPTION" Visibility="Private" BuildConfiguration="Debug" />
-      <Option Value="-DTYPED_GROUP_RELEASE_OPTION" Visibility="Private" BuildConfiguration="Release" />
+    <CompileOptions Condition="LinuxDesktop">
+      <Option Value="-DTYPED_GROUP_OPTION" Visibility="Private" BuildType="Debug" />
+      <Option Value="-DTYPED_GROUP_RELEASE_OPTION" Visibility="Private" BuildType="Release" />
     </CompileOptions>
   </Build>
   <Environments>
     <Environment Name="dev" />
   </Environments>
-  <Configurations>
-    <Configuration Name="Runtime" BuildConfiguration="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev" />
-  </Configurations>
+  <Profiles>
+    <Profile Name="Runtime" BuildType="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev" />
+  </Profiles>
 </Project>
 )");
     WriteFile(temp.path() / "Library/include/Typed/Library.hpp", "#pragma once\nvoid typed_library();\n");
@@ -616,9 +673,9 @@ TEST_CASE("generated CMake applies typed source selectors and selected build set
     WriteFile(temp.path() / "Library/manual/manual.cpp", "void typed_library_manual() {}\n");
 
     const auto project = LoadProjectManifest(projectPath);
-    const std::optional<std::string> configurationName{"Runtime"};
-    const auto &configuration = ConfigurationByName(project, configurationName);
-    const auto configured = ConfigureLaunch(project, configuration, temp.path() / "stage");
+    const std::optional<std::string> profileName{"Runtime"};
+    const auto &profile = ProfileByName(project, profileName);
+    const auto configured = ConfigureLaunch(project, profile, temp.path() / "stage");
     REQUIRE(configured.value.has_value());
     REQUIRE_FALSE(configured.diagnostics.HasErrors());
 
@@ -669,7 +726,7 @@ TEST_CASE("environment variables resolve from explicit value, process environmen
 )");
     WriteFile(temp.path() / "App/App.nginproj",
               R"(<?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="2" Name="Settings.App" Type="Application" DefaultConfiguration="Runtime">
+<Project SchemaVersion="3" Name="Settings.App" Type="Application" DefaultProfile="Runtime">
   <Output Kind="Executable" Name="Settings.App" Target="SettingsApp" />
   <LocalSettings>
     <Import Path=".ngin/local/user.nginsettings" Optional="false" />
@@ -684,16 +741,16 @@ TEST_CASE("environment variables resolve from explicit value, process environmen
       </Variables>
     </Environment>
   </Environments>
-  <Configurations>
-    <Configuration Name="Runtime" BuildConfiguration="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev" />
-  </Configurations>
+  <Profiles>
+    <Profile Name="Runtime" BuildType="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev" />
+  </Profiles>
 </Project>
 )");
 
     const auto project = LoadProjectManifest(temp.path() / "App/App.nginproj");
-    const std::optional<std::string> configurationName{"Runtime"};
-    const auto &configuration = ConfigurationByName(project, configurationName);
-    const auto resolved = ResolveLaunch(project, configuration);
+    const std::optional<std::string> profileName{"Runtime"};
+    const auto &profile = ProfileByName(project, profileName);
+    const auto resolved = ResolveLaunch(project, profile);
 
     REQUIRE(resolved.value.has_value());
     REQUIRE_FALSE(resolved.diagnostics.HasErrors());
@@ -719,7 +776,7 @@ TEST_CASE("environment variables resolve from user-global settings when repo-loc
 )");
     WriteFile(temp.path() / "App/App.nginproj",
               R"(<?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="2" Name="Global.Settings.App" Type="Application" DefaultConfiguration="Runtime">
+<Project SchemaVersion="3" Name="Global.Settings.App" Type="Application" DefaultProfile="Runtime">
   <Output Kind="Executable" Name="Global.Settings.App" Target="GlobalSettingsApp" />
   <Environments>
     <Environment Name="dev">
@@ -728,16 +785,16 @@ TEST_CASE("environment variables resolve from user-global settings when repo-loc
       </Variables>
     </Environment>
   </Environments>
-  <Configurations>
-    <Configuration Name="Runtime" BuildConfiguration="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev" />
-  </Configurations>
+  <Profiles>
+    <Profile Name="Runtime" BuildType="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev" />
+  </Profiles>
 </Project>
 )");
 
     const auto project = LoadProjectManifest(temp.path() / "App/App.nginproj");
-    const std::optional<std::string> configurationName{"Runtime"};
-    const auto &configuration = ConfigurationByName(project, configurationName);
-    const auto resolved = ResolveLaunch(project, configuration);
+    const std::optional<std::string> profileName{"Runtime"};
+    const auto &profile = ProfileByName(project, profileName);
+    const auto resolved = ResolveLaunch(project, profile);
 
     REQUIRE(resolved.value.has_value());
     REQUIRE_FALSE(resolved.diagnostics.HasErrors());
@@ -752,7 +809,7 @@ TEST_CASE("missing required variable sources are reported without values")
     ScopedUnsetEnvironmentVariable missingToken("NGIN_TEST_MISSING_TOKEN");
     WriteFile(temp.path() / "App/App.nginproj",
               R"(<?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="2" Name="Missing.Settings.App" Type="Application" DefaultConfiguration="Runtime">
+<Project SchemaVersion="3" Name="Missing.Settings.App" Type="Application" DefaultProfile="Runtime">
   <Output Kind="Executable" Name="Missing.Settings.App" Target="MissingSettingsApp" />
   <Environments>
     <Environment Name="dev">
@@ -761,16 +818,16 @@ TEST_CASE("missing required variable sources are reported without values")
       </Variables>
     </Environment>
   </Environments>
-  <Configurations>
-    <Configuration Name="Runtime" BuildConfiguration="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev" />
-  </Configurations>
+  <Profiles>
+    <Profile Name="Runtime" BuildType="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev" />
+  </Profiles>
 </Project>
 )");
 
     const auto project = LoadProjectManifest(temp.path() / "App/App.nginproj");
-    const std::optional<std::string> configurationName{"Runtime"};
-    const auto &configuration = ConfigurationByName(project, configurationName);
-    const auto resolved = ResolveLaunch(project, configuration);
+    const std::optional<std::string> profileName{"Runtime"};
+    const auto &profile = ProfileByName(project, profileName);
+    const auto resolved = ResolveLaunch(project, profile);
 
     REQUIRE_FALSE(resolved.value.has_value());
     REQUIRE(ContainsDiagnostic(DiagnosticMessages(resolved.diagnostics), "missing required secret variable 'API_TOKEN'"));
@@ -782,7 +839,7 @@ TEST_CASE("variable declarations reject conflicting sources and literal secrets"
     const auto projectPath = temp.path() / "Invalid.nginproj";
     WriteFile(projectPath,
               R"(<?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="2" Name="Invalid.Settings.App" Type="Application" DefaultConfiguration="Runtime">
+<Project SchemaVersion="3" Name="Invalid.Settings.App" Type="Application" DefaultProfile="Runtime">
   <Output Kind="Executable" Name="Invalid.Settings.App" Target="InvalidSettingsApp" />
   <Environments>
     <Environment Name="dev">
@@ -791,16 +848,16 @@ TEST_CASE("variable declarations reject conflicting sources and literal secrets"
       </Variables>
     </Environment>
   </Environments>
-  <Configurations>
-    <Configuration Name="Runtime" BuildConfiguration="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev" />
-  </Configurations>
+  <Profiles>
+    <Profile Name="Runtime" BuildType="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev" />
+  </Profiles>
 </Project>
 )");
     REQUIRE_THROWS_WITH(LoadProjectManifest(projectPath), ContainsSubstring("must declare exactly one"));
 
     WriteFile(projectPath,
               R"(<?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="2" Name="Invalid.Settings.App" Type="Application" DefaultConfiguration="Runtime">
+<Project SchemaVersion="3" Name="Invalid.Settings.App" Type="Application" DefaultProfile="Runtime">
   <Output Kind="Executable" Name="Invalid.Settings.App" Target="InvalidSettingsApp" />
   <Environments>
     <Environment Name="dev">
@@ -809,9 +866,9 @@ TEST_CASE("variable declarations reject conflicting sources and literal secrets"
       </Variables>
     </Environment>
   </Environments>
-  <Configurations>
-    <Configuration Name="Runtime" BuildConfiguration="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev" />
-  </Configurations>
+  <Profiles>
+    <Profile Name="Runtime" BuildType="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev" />
+  </Profiles>
 </Project>
 )");
     REQUIRE_THROWS_WITH(LoadProjectManifest(projectPath), ContainsSubstring("may not combine Secret"));
@@ -823,11 +880,11 @@ TEST_CASE("launch manifests redact resolved secret variables")
     ResolvedLaunch launch{};
     launch.project.name = "Secret.App";
     launch.project.type = "Application";
-    launch.configuration.name = "Runtime";
-    launch.configuration.buildConfiguration = "Debug";
-    launch.configuration.operatingSystem = "linux";
-    launch.configuration.architecture = "x64";
-    launch.configuration.environmentName = "dev";
+    launch.profile.name = "Runtime";
+    launch.profile.buildType = "Debug";
+    launch.profile.operatingSystem = "linux";
+    launch.profile.architecture = "x64";
+    launch.profile.environmentName = "dev";
     launch.environmentVariables.push_back(EnvironmentVariable{
         .name = "API_TOKEN",
         .value = "super-secret",
@@ -846,23 +903,26 @@ TEST_CASE("launch manifests redact resolved secret variables")
     REQUIRE_THAT(manifest, !ContainsSubstring("super-secret"));
 }
 
-TEST_CASE("project parsing rejects missing required output metadata")
+TEST_CASE("project parsing infers output metadata for vnext manifests")
 {
     TempDir temp{};
     const auto projectPath = temp.path() / "Invalid.nginproj";
     WriteFile(projectPath,
               R"(<?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="2" Name="Invalid" Type="Application" DefaultConfiguration="Runtime">
+<Project SchemaVersion="3" Name="Invalid" Type="Application" DefaultProfile="Runtime">
   <Environments>
     <Environment Name="dev" />
   </Environments>
-  <Configurations>
-    <Configuration Name="Runtime" BuildConfiguration="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev" />
-  </Configurations>
+  <Profiles>
+    <Profile Name="Runtime" BuildType="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev" />
+  </Profiles>
 </Project>
 )");
 
-    REQUIRE_THROWS_WITH(LoadProjectManifest(projectPath), ContainsSubstring("missing <Output>"));
+    const auto project = LoadProjectManifest(projectPath);
+    REQUIRE(project.output.kind == "Executable");
+    REQUIRE(project.output.name == "Invalid");
+    REQUIRE(project.output.target == "Invalid");
 }
 
 TEST_CASE("project autodiscovery resolves nearest nginproj in the current tree")
@@ -871,14 +931,14 @@ TEST_CASE("project autodiscovery resolves nearest nginproj in the current tree")
     const auto projectPath = temp.path() / "Nested/App.nginproj";
     WriteFile(projectPath,
               R"(<?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="2" Name="Nested" Type="Application" DefaultConfiguration="Runtime">
+<Project SchemaVersion="3" Name="Nested" Type="Application" DefaultProfile="Runtime">
   <Output Kind="Executable" Name="Nested" Target="NestedTarget" />
   <Environments>
     <Environment Name="dev" />
   </Environments>
-  <Configurations>
-    <Configuration Name="Runtime" BuildConfiguration="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev" />
-  </Configurations>
+  <Profiles>
+    <Profile Name="Runtime" BuildType="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev" />
+  </Profiles>
 </Project>
 )");
     fs::create_directories(temp.path() / "Nested/Deep/Deeper");
@@ -929,7 +989,7 @@ TEST_CASE("resolution reports package dependency cycles")
 )");
     WriteFile(temp.path() / "App/App.nginproj",
               R"(<?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="2" Name="Cycle.App" Type="Application" DefaultConfiguration="Runtime">
+<Project SchemaVersion="3" Name="Cycle.App" Type="Application" DefaultProfile="Runtime">
   <Output Kind="Executable" Name="Cycle.App" Target="CycleApp" />
   <References>
     <Package Name="Package.A" />
@@ -937,38 +997,38 @@ TEST_CASE("resolution reports package dependency cycles")
   <Environments>
     <Environment Name="dev" />
   </Environments>
-  <Configurations>
-    <Configuration Name="Runtime" BuildConfiguration="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev" />
-  </Configurations>
+  <Profiles>
+    <Profile Name="Runtime" BuildType="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev" />
+  </Profiles>
 </Project>
 )");
 
     const auto project = LoadProjectManifest(temp.path() / "App/App.nginproj");
-    const std::optional<std::string> configurationName{"Runtime"};
-    const auto &configuration = ConfigurationByName(project, configurationName);
-    const auto resolved = ResolveLaunch(project, configuration);
+    const std::optional<std::string> profileName{"Runtime"};
+    const auto &profile = ProfileByName(project, profileName);
+    const auto resolved = ResolveLaunch(project, profile);
 
     REQUIRE_FALSE(resolved.value.has_value());
     REQUIRE_THAT(resolved.diagnostics.entries.front().message, ContainsSubstring("dependency cycle"));
 }
 
-TEST_CASE("resolution reports project config source collisions")
+TEST_CASE("resolution reports project config input collisions")
 {
     const auto projectPath = RepoRoot() / "Examples/ProjectRef.Config/CollisionRoot/"
                                           "ProjectRef.Config.CollisionRoot.nginproj";
     REQUIRE(fs::exists(projectPath));
 
     const auto project = LoadProjectManifest(projectPath);
-    const std::optional<std::string> configurationName{"Runtime"};
-    const auto &configuration = ConfigurationByName(project, configurationName);
-    const auto resolved = ResolveLaunch(project, configuration);
+    const std::optional<std::string> profileName{"Runtime"};
+    const auto &profile = ProfileByName(project, profileName);
+    const auto resolved = ResolveLaunch(project, profile);
 
     REQUIRE_FALSE(resolved.value.has_value());
 
     bool foundCollision = false;
     for (const auto &message : DiagnosticMessages(resolved.diagnostics))
     {
-        if (message.find("config source destination collision") != std::string::npos)
+        if (message.find("config input destination collision") != std::string::npos)
         {
             foundCollision = true;
             break;
@@ -984,24 +1044,24 @@ TEST_CASE("build facade writes launch manifests and preserves unrelated output "
     REQUIRE(fs::exists(projectPath));
 
     const auto project = LoadProjectManifest(projectPath);
-    const std::optional<std::string> configurationName{"Runtime"};
-    const auto &configuration = ConfigurationByName(project, configurationName);
+    const std::optional<std::string> profileName{"Runtime"};
+    const auto &profile = ProfileByName(project, profileName);
     TempDir temp{};
     const auto outputDir = temp.path() / "stage";
 
-    const auto firstBuild = BuildLaunch(project, configuration, outputDir);
+    const auto firstBuild = BuildLaunch(project, profile, outputDir);
     REQUIRE(firstBuild.value.has_value());
     REQUIRE_FALSE(firstBuild.diagnostics.HasErrors());
 
     WriteFile(outputDir / "keep.txt", "preserve me\n");
 
-    const auto secondBuild = BuildLaunch(project, configuration, outputDir);
+    const auto secondBuild = BuildLaunch(project, profile, outputDir);
     REQUIRE(secondBuild.value.has_value());
     REQUIRE_FALSE(secondBuild.diagnostics.HasErrors());
     REQUIRE(fs::exists(outputDir / "keep.txt"));
 
     const auto summary = LoadLaunchManifestSummary(secondBuild.value->manifestPath);
-    REQUIRE(summary.configurationName == "Runtime");
+    REQUIRE(summary.profileName == "Runtime");
     REQUIRE(summary.selectedExecutable.has_value());
     REQUIRE(*summary.selectedExecutable == "App.Basic");
 }
@@ -1013,18 +1073,18 @@ TEST_CASE("clean facade removes owned generated artifacts and preserves "
     REQUIRE(fs::exists(projectPath));
 
     const auto project = LoadProjectManifest(projectPath);
-    const std::optional<std::string> configurationName{"Runtime"};
-    const auto &configuration = ConfigurationByName(project, configurationName);
+    const std::optional<std::string> profileName{"Runtime"};
+    const auto &profile = ProfileByName(project, profileName);
     TempDir temp{};
     const auto outputDir = temp.path() / "stage";
 
-    const auto build = BuildLaunch(project, configuration, outputDir);
+    const auto build = BuildLaunch(project, profile, outputDir);
     REQUIRE(build.value.has_value());
     REQUIRE_FALSE(build.diagnostics.HasErrors());
 
     WriteFile(outputDir / "keep.txt", "preserve me\n");
 
-    const auto cleaned = CleanLaunch(project, configuration, outputDir);
+    const auto cleaned = CleanLaunch(project, profile, outputDir);
     REQUIRE(cleaned.value.has_value());
     REQUIRE_FALSE(cleaned.diagnostics.HasErrors());
     REQUIRE(fs::exists(outputDir / "keep.txt"));
@@ -1038,26 +1098,26 @@ TEST_CASE("rebuild semantics can be expressed as clean followed by build")
     REQUIRE(fs::exists(projectPath));
 
     const auto project = LoadProjectManifest(projectPath);
-    const std::optional<std::string> configurationName{"Runtime"};
-    const auto &configuration = ConfigurationByName(project, configurationName);
+    const std::optional<std::string> profileName{"Runtime"};
+    const auto &profile = ProfileByName(project, profileName);
     TempDir temp{};
     const auto outputDir = temp.path() / "stage";
 
-    const auto firstBuild = BuildLaunch(project, configuration, outputDir);
+    const auto firstBuild = BuildLaunch(project, profile, outputDir);
     REQUIRE(firstBuild.value.has_value());
     REQUIRE_FALSE(firstBuild.diagnostics.HasErrors());
 
-    const auto cleaned = CleanLaunch(project, configuration, outputDir);
+    const auto cleaned = CleanLaunch(project, profile, outputDir);
     REQUIRE(cleaned.value.has_value());
     REQUIRE_FALSE(cleaned.diagnostics.HasErrors());
 
-    const auto rebuilt = BuildLaunch(project, configuration, outputDir);
+    const auto rebuilt = BuildLaunch(project, profile, outputDir);
     REQUIRE(rebuilt.value.has_value());
     REQUIRE_FALSE(rebuilt.diagnostics.HasErrors());
     REQUIRE(fs::exists(rebuilt.value->manifestPath));
 
     const auto summary = LoadLaunchManifestSummary(rebuilt.value->manifestPath);
-    REQUIRE(summary.configurationName == "Runtime");
+    REQUIRE(summary.profileName == "Runtime");
     REQUIRE(summary.selectedExecutable.has_value());
     REQUIRE(*summary.selectedExecutable == "App.Basic");
 }

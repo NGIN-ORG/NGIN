@@ -27,7 +27,7 @@ The output of this process is a resolved composition that determines selected la
 4. merge root, environment, and configuration-level references
 5. resolve project references recursively
 6. resolve package references
-7. apply config source, content, module, plugin, variable, and feature overlays
+7. apply config input, content, module, plugin, variable, and feature overlays
 8. determine output and launch selection
 
 ## Conflict Rule
@@ -40,7 +40,7 @@ Project-level authored selection or override data is the intended escape hatch f
 
 ## Provenance Expectation
 
-Resolved composition data should preserve enough provenance for tooling to explain why a package, module, plugin, config source, staged file, or launch selection is present.
+Resolved composition data should preserve enough provenance for tooling to explain why a package, module, plugin, config input, staged file, or launch selection is present.
 
 `ngin graph` is the current structural inspection surface. Future inspection commands may expose more direct causal or "why is this here" views over the same composition data.
 

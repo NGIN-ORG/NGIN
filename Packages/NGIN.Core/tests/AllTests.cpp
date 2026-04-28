@@ -990,7 +990,7 @@ TEST_CASE("ModuleRequiredServiceContractsAreEnforcedBeforeInit",
           NGIN::Core::KernelErrorCode::MissingRequiredDependency);
 }
 
-TEST_CASE("HostConfigSourcesCliAndEnvironmentAreApplied", "[runtime][config]") {
+TEST_CASE("HostConfigInputsCliAndEnvironmentAreApplied", "[runtime][config]") {
   auto catalog = NGIN::Core::CreateStaticModuleCatalog();
   auto desc = MakeDescriptor("Core.ConfigModule");
   REQUIRE(
@@ -1010,7 +1010,7 @@ TEST_CASE("HostConfigSourcesCliAndEnvironmentAreApplied", "[runtime][config]") {
   auto cfg = MakeHostConfig(catalog);
   cfg.workingDirectory = ToString(tempRoot);
   cfg.environmentName = "TestEnv";
-  cfg.configSources = {"base.cfg"};
+  cfg.configInputs = {"base.cfg"};
   cfg.commandLineArgs = {"--App.Value=cli"};
 
   auto kernel = NGIN::Core::CreateKernel(cfg).Value();
@@ -1458,7 +1458,7 @@ TEST_CASE("ThreadPoliciesAreEnforced", "[runtime][threading]") {
 TEST_CASE("ApplicationBuilderBuildsHostFromCode", "[builder][host]") {
   auto builder = NGIN::Core::CreateApplicationBuilder(0, nullptr);
   builder->SetApplicationName("Builder.Tests");
-  builder->SetConfiguration("Builder.Target");
+  builder->SetProfile("Builder.Target");
   builder->Services().AddDefaults().AddConfiguration().AddSingletonValue<std::string>(
       "App.Message", "hello-builder");
   builder->Modules()
@@ -1474,7 +1474,7 @@ TEST_CASE("ApplicationBuilderBuildsHostFromCode", "[builder][host]") {
 
   auto app = builder->Build();
   REQUIRE(app.HasValue());
-  REQUIRE(app.Value()->GetConfigurationName() == "Builder.Target");
+  REQUIRE(app.Value()->GetProfileName() == "Builder.Target");
 
   auto report = app.Value()->GetStartupReport();
   REQUIRE(report.targetName == "Builder.Target");
@@ -1508,12 +1508,13 @@ TEST_CASE("ApplicationBuilderLoadsProjectManifestAndConfig",
   const auto tempDir = MakeTempDir("ngin-core-builder-manifest");
 
   WriteTextFile(tempDir.Join("app.cfg"), "App.Mode=manifest\n");
+  WriteTextFile(tempDir.Join("derived.cfg"), "App.Profile=derived\n");
   WriteTextFile(tempDir.Join("Manifest.Tests.nginproj"),
                 R"(<?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="2"
+<Project SchemaVersion="3"
          Name="Manifest.Tests"
          Type="Application"
-         DefaultConfiguration="Samples.Manifest">
+         DefaultProfile="Samples.Derived">
   <Sources>
     <Private>
       <Root Path="src" />
@@ -1533,9 +1534,9 @@ TEST_CASE("ApplicationBuilderLoadsProjectManifestAndConfig",
   <References>
     <Package Name="NGIN.ECS" Version=">=0.1.0 &lt;1.0.0" />
   </References>
-  <ConfigSources>
-    <Config Source="app.cfg" />
-  </ConfigSources>
+  <Inputs>
+    <Config Path="app.cfg" />
+  </Inputs>
   <Environments>
     <Environment Name="Dev" />
   </Environments>
@@ -1547,15 +1548,21 @@ TEST_CASE("ApplicationBuilderLoadsProjectManifestAndConfig",
       <ModuleRef Name="App.Disabled" />
     </DisableModules>
   </Runtime>
-  <Configurations>
-    <Configuration Name="Samples.Manifest"
-             BuildConfiguration="Debug"
-             OperatingSystem="linux"
-             Architecture="x64"
+  <Profiles>
+    <Profile Name="Samples.Manifest"
+             BuildType="Debug"
+             Platform="linux-x64"
              Environment="Dev">
       <Launch Executable="Manifest.Tests" WorkingDirectory="." />
-    </Configuration>
-  </Configurations>
+    </Profile>
+    <Profile Name="Samples.Derived"
+             Extends="Samples.Manifest"
+             BuildType="Release">
+      <Inputs>
+        <Config Path="derived.cfg" />
+      </Inputs>
+    </Profile>
+  </Profiles>
 </Project>
 )");
 
@@ -1585,7 +1592,7 @@ TEST_CASE("ApplicationBuilderLoadsProjectManifestAndConfig",
   REQUIRE(app.Value()->Start().HasValue());
 
   auto report = app.Value()->GetStartupReport();
-  REQUIRE(report.targetName == "Samples.Manifest");
+  REQUIRE(report.targetName == "Samples.Derived");
   REQUIRE(std::find(report.resolvedPackages.begin(),
                     report.resolvedPackages.end(),
                     "NGIN.ECS") != report.resolvedPackages.end());
@@ -1600,6 +1607,8 @@ TEST_CASE("ApplicationBuilderLoadsProjectManifestAndConfig",
   REQUIRE(static_cast<bool>(config));
   REQUIRE(config->GetRaw("App.Mode").HasValue());
   REQUIRE(config->GetRaw("App.Mode").Value() == "manifest");
+  REQUIRE(config->GetRaw("App.Profile").HasValue());
+  REQUIRE(config->GetRaw("App.Profile").Value() == "derived");
   REQUIRE(config->GetRaw("Kernel.EnvironmentName").HasValue());
   REQUIRE(config->GetRaw("Kernel.EnvironmentName").Value() == "Dev");
 
@@ -1613,16 +1622,16 @@ TEST_CASE("ApplicationBuilderLoadsProjectManifestFromInjectedFilesystem",
   WriteTextFile(realRoot.Join("app.cfg"), "App.Mode=virtual\n");
   WriteTextFile(realRoot.Join("Virtual.Manifest.nginproj"),
                 R"(<?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="2"
+<Project SchemaVersion="3"
          Name="Virtual.Manifest"
          Type="Application"
-         DefaultConfiguration="Samples.Virtual">
+         DefaultProfile="Samples.Virtual">
   <Output Kind="Executable"
           Name="Virtual.Manifest"
           Target="Virtual.Manifest" />
-  <ConfigSources>
-    <Config Source="app.cfg" />
-  </ConfigSources>
+  <Inputs>
+    <Config Path="app.cfg" />
+  </Inputs>
   <Environments>
     <Environment Name="Virtual" />
   </Environments>
@@ -1631,15 +1640,14 @@ TEST_CASE("ApplicationBuilderLoadsProjectManifestFromInjectedFilesystem",
       <ModuleRef Name="App.VirtualManifest" />
     </EnableModules>
   </Runtime>
-  <Configurations>
-    <Configuration Name="Samples.Virtual"
-             BuildConfiguration="Debug"
-             OperatingSystem="linux"
-             Architecture="x64"
+  <Profiles>
+    <Profile Name="Samples.Virtual"
+             BuildType="Debug"
+             Platform="linux-x64"
              Environment="Virtual">
       <Launch Executable="Virtual.Manifest" WorkingDirectory="." />
-    </Configuration>
-  </Configurations>
+    </Profile>
+  </Profiles>
 </Project>
 )");
 
@@ -1680,10 +1688,10 @@ TEST_CASE("ApplicationBuilderTargetOverrideBeatsProjectDefault",
 
   WriteTextFile(tempDir.Join("Manifest.Override.nginproj"),
                 R"(<?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="2"
+<Project SchemaVersion="3"
          Name="Manifest.Override"
          Type="Application"
-         DefaultConfiguration="Default.Target">
+         DefaultProfile="Default.Target">
   <Sources>
     <Private>
       <Root Path="src" />
@@ -1696,11 +1704,10 @@ TEST_CASE("ApplicationBuilderTargetOverrideBeatsProjectDefault",
     <Environment Name="Default" />
     <Environment Name="Override" />
   </Environments>
-  <Configurations>
-    <Configuration Name="Default.Target"
-             BuildConfiguration="Debug"
-             OperatingSystem="linux"
-             Architecture="x64"
+  <Profiles>
+    <Profile Name="Default.Target"
+             BuildType="Debug"
+             Platform="linux-x64"
              Environment="Default">
       <Launch Executable="Manifest.Override" WorkingDirectory="." />
       <Runtime>
@@ -1708,11 +1715,10 @@ TEST_CASE("ApplicationBuilderTargetOverrideBeatsProjectDefault",
           <ModuleRef Name="App.Default" />
         </EnableModules>
       </Runtime>
-    </Configuration>
-    <Configuration Name="Override.Target"
-             BuildConfiguration="Release"
-             OperatingSystem="linux"
-             Architecture="x64"
+    </Profile>
+    <Profile Name="Override.Target"
+             BuildType="Release"
+             Platform="linux-x64"
              Environment="Override">
       <Launch Executable="Manifest.Override" WorkingDirectory="." />
       <Runtime>
@@ -1720,14 +1726,14 @@ TEST_CASE("ApplicationBuilderTargetOverrideBeatsProjectDefault",
           <ModuleRef Name="App.Override" />
         </EnableModules>
       </Runtime>
-    </Configuration>
-  </Configurations>
+    </Profile>
+  </Profiles>
 </Project>
 )");
 
   auto builder = NGIN::Core::CreateApplicationBuilder(0, nullptr);
   builder->UseProjectFile(ToString(tempDir.Join("Manifest.Override.nginproj")));
-  builder->SetConfiguration("Override.Target");
+  builder->SetProfile("Override.Target");
   builder->Modules()
       .Register(MakeRegistration(
           MakeDescriptor("App.Default", NGIN::Core::ModuleFamily::App,
@@ -1773,10 +1779,10 @@ TEST_CASE("ApplicationBuilderRejectsUnknownTarget", "[builder][manifest]") {
 
   WriteTextFile(tempDir.Join("Manifest.Invalid.nginproj"),
                 R"(<?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="2"
+<Project SchemaVersion="3"
          Name="Manifest.Invalid"
          Type="Application"
-         DefaultConfiguration="Samples.Default">
+         DefaultProfile="Samples.Default">
   <Sources>
     <Private>
       <Root Path="src" />
@@ -1788,21 +1794,20 @@ TEST_CASE("ApplicationBuilderRejectsUnknownTarget", "[builder][manifest]") {
   <Environments>
     <Environment Name="Default" />
   </Environments>
-  <Configurations>
-    <Configuration Name="Samples.Default"
-             BuildConfiguration="Debug"
-             OperatingSystem="linux"
-             Architecture="x64"
+  <Profiles>
+    <Profile Name="Samples.Default"
+             BuildType="Debug"
+             Platform="linux-x64"
              Environment="Default">
       <Launch Executable="Manifest.Invalid" WorkingDirectory="." />
-    </Configuration>
-  </Configurations>
+    </Profile>
+  </Profiles>
 </Project>
 )");
 
   auto builder = NGIN::Core::CreateApplicationBuilder(0, nullptr);
   builder->UseProjectFile(ToString(tempDir.Join("Manifest.Invalid.nginproj")));
-  builder->SetConfiguration("Missing.Target");
+  builder->SetProfile("Missing.Target");
 
   auto app = builder->Build();
   REQUIRE_FALSE(app.HasValue());
@@ -1839,7 +1844,7 @@ TEST_CASE("ApplicationBuilderExecutesExplicitPackageBootstrapFromManifestFile",
 
   auto builder = NGIN::Core::CreateApplicationBuilder(0, nullptr);
   builder->SetApplicationName("Builder.Package");
-  builder->SetConfiguration("Builder.Package.Target");
+  builder->SetProfile("Builder.Package.Target");
   builder->Configuration().SetWorkingDirectory(ToString(tempDir));
   builder->Packages()
       .Add({
@@ -1878,7 +1883,7 @@ TEST_CASE("ApplicationBuilderExecutesNamedPackageBootstrapEntry",
           "[builder][bootstrap]") {
   auto builder = NGIN::Core::CreateApplicationBuilder(0, nullptr);
   builder->SetApplicationName("Builder.NamedBootstrap");
-  builder->SetConfiguration("Builder.NamedBootstrap.Target");
+  builder->SetProfile("Builder.NamedBootstrap.Target");
   builder->Packages()
       .Add({
           .name = "Samples.Package",
@@ -1926,7 +1931,7 @@ TEST_CASE("ApplicationBuilderAutoAppliesPackagesInDependencyOrder",
 
   auto builder = NGIN::Core::CreateApplicationBuilder(0, nullptr);
   builder->SetApplicationName("Builder.AutoApply");
-  builder->SetConfiguration("Builder.AutoApply.Target");
+  builder->SetProfile("Builder.AutoApply.Target");
   builder->Packages()
       .Add({
           .name = "Samples.PackageB",
@@ -1994,7 +1999,7 @@ TEST_CASE("ApplicationBuilderFailsOnMissingRequiredAutoAppliedPackageBootstrap",
           "[builder][bootstrap]") {
   auto builder = NGIN::Core::CreateApplicationBuilder(0, nullptr);
   builder->SetApplicationName("Builder.RequiredFailure");
-  builder->SetConfiguration("Builder.RequiredFailure.Target");
+  builder->SetProfile("Builder.RequiredFailure.Target");
   builder->Packages()
       .Add({
           .name = "Samples.RequiredPackage",
@@ -2028,7 +2033,7 @@ TEST_CASE("ApplicationBuilderSkipsOptionalAutoAppliedPackageWithWarning",
           "[builder][bootstrap]") {
   auto builder = NGIN::Core::CreateApplicationBuilder(0, nullptr);
   builder->SetApplicationName("Builder.OptionalWarning");
-  builder->SetConfiguration("Builder.OptionalWarning.Target");
+  builder->SetProfile("Builder.OptionalWarning.Target");
   builder->Packages()
       .Add({
           .name = "Samples.OptionalPackage",
@@ -2068,7 +2073,7 @@ TEST_CASE("ApplicationBuilderFailsOnDuplicatePackageBootstrapEntry",
           "[builder][bootstrap]") {
   auto builder = NGIN::Core::CreateApplicationBuilder(0, nullptr);
   builder->SetApplicationName("Builder.DuplicateBootstrap");
-  builder->SetConfiguration("Builder.DuplicateBootstrap.Target");
+  builder->SetProfile("Builder.DuplicateBootstrap.Target");
   builder->Packages()
       .Add({
           .name = "Samples.Package",

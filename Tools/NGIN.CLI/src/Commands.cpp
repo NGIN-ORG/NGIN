@@ -21,16 +21,16 @@ namespace NGIN::CLI
         struct LoadedInvocation
         {
             ProjectManifest project{};
-            ConfigurationDefinition configuration{};
+            ProfileDefinition profile{};
         };
 
         [[nodiscard]] auto ResolveInvocation(const ParsedArgs &args) -> LoadedInvocation
         {
             const auto project = LoadProjectManifest(ResolveProjectPath(args.projectPath));
-            const auto &configuration = ConfigurationByName(project, args.configurationName);
+            const auto &profile = ProfileByName(project, args.profileName);
             return LoadedInvocation{
                 .project = project,
-                .configuration = configuration,
+                .profile = profile,
             };
         }
 
@@ -62,8 +62,8 @@ namespace NGIN::CLI
 
         [[nodiscard]] auto HasSelection(const SelectorSet &selectors) -> bool
         {
-            return selectors.impossible || selectors.configuration.has_value() || selectors.operatingSystem.has_value()
-                   || selectors.architecture.has_value() || selectors.buildConfiguration.has_value()
+            return selectors.impossible || selectors.profile.has_value() || selectors.operatingSystem.has_value()
+                   || selectors.platform.has_value() || selectors.architecture.has_value() || selectors.buildType.has_value()
                    || selectors.environment.has_value() || !selectors.conditionRefs.empty();
         }
 
@@ -89,13 +89,14 @@ namespace NGIN::CLI
                 {
                     std::cout << ", ";
                 }
-                std::cout << "When=\"" << condition << "\"";
+                std::cout << "Condition=\"" << condition << "\"";
                 first = false;
             }
-            append("Configuration", selectors.configuration);
+            append("Profile", selectors.profile);
+            append("Platform", selectors.platform);
             append("OperatingSystem", selectors.operatingSystem);
             append("Architecture", selectors.architecture);
-            append("BuildConfiguration", selectors.buildConfiguration);
+            append("BuildType", selectors.buildType);
             append("Environment", selectors.environment);
             if (selectors.impossible)
             {
@@ -110,7 +111,7 @@ namespace NGIN::CLI
         auto PrintConditionalBuildSettings(
             const std::string_view label,
             const ProjectManifest &project,
-            const ConfigurationDefinition &configuration,
+            const ProfileDefinition &profile,
             const std::vector<BuildSetting> &settings) -> void
         {
             bool printedHeader = false;
@@ -126,7 +127,7 @@ namespace NGIN::CLI
                     printedHeader = true;
                 }
                 std::cout << "      - " << setting.value << " "
-                          << (SelectionMatches(project, setting.selectors, configuration) ? "included" : "excluded")
+                          << (SelectionMatches(project, setting.selectors, profile) ? "included" : "excluded")
                           << " (";
                 PrintSelectorSummary(setting.selectors);
                 std::cout << ")\n";
@@ -144,9 +145,9 @@ namespace NGIN::CLI
             {
                 args.projectPath = argv[++index];
             }
-            else if ((current == "--configuration" || current == "--config") && index + 1 < argc)
+            else if (current == "--profile" && index + 1 < argc)
             {
-                args.configurationName = argv[++index];
+                args.profileName = argv[++index];
             }
             else if (current == "--")
             {
@@ -514,14 +515,14 @@ namespace NGIN::CLI
     {
         (void)root;
         const auto invocation = ResolveInvocation(args);
-        const auto resolved = ResolveLaunch(invocation.project, invocation.configuration);
+        const auto resolved = ResolveLaunch(invocation.project, invocation.profile);
         if (!resolved.value.has_value() || resolved.diagnostics.HasErrors())
         {
             PrintDiagnostics(resolved.diagnostics, "Variables", std::cout);
             return 1;
         }
 
-        std::cout << "Variables for configuration: " << resolved.value->configuration.name << "\n";
+        std::cout << "Variables for profile: " << resolved.value->profile.name << "\n";
         if (resolved.value->environmentVariables.empty())
         {
             std::cout << "  (none)\n";
@@ -551,13 +552,13 @@ namespace NGIN::CLI
     {
         (void)root;
         const auto invocation = ResolveInvocation(args);
-        const auto resolved = ResolveLaunch(invocation.project, invocation.configuration);
+        const auto resolved = ResolveLaunch(invocation.project, invocation.profile);
         if (!resolved.value.has_value() || resolved.diagnostics.HasErrors())
         {
             PrintDiagnostics(resolved.diagnostics, "Validation", std::cout);
             return 1;
         }
-        std::cout << "Validated configuration: " << resolved.value->configuration.name << "\n";
+        std::cout << "Validated profile: " << resolved.value->profile.name << "\n";
         std::cout << "  project: " << resolved.value->project.name << "\n";
         std::cout << "  packages: " << resolved.value->orderedPackages.size() << "\n";
         std::cout << "  required modules: " << resolved.value->requiredModules.size() << "\n";
@@ -573,16 +574,16 @@ namespace NGIN::CLI
     {
         (void)root;
         const auto invocation = ResolveInvocation(args);
-        const auto resolved = ResolveLaunch(invocation.project, invocation.configuration);
+        const auto resolved = ResolveLaunch(invocation.project, invocation.profile);
         if (!resolved.value.has_value() || resolved.diagnostics.HasErrors())
         {
             PrintDiagnostics(resolved.diagnostics, "Graph", std::cout);
             return 1;
         }
-        std::cout << "Graph for configuration: " << resolved.value->configuration.name << "\n\nProjects:\n";
+        std::cout << "Graph for profile: " << resolved.value->profile.name << "\n\nProjects:\n";
         for (const auto &unit : resolved.value->projectUnits)
         {
-            std::cout << "  - " << unit.project.name << " [" << unit.configuration.name << "]\n";
+            std::cout << "  - " << unit.project.name << " [" << unit.profile.name << "]\n";
         }
         std::cout << "\nPackages:\n";
         for (const auto &package : resolved.value->orderedPackages)
@@ -684,7 +685,7 @@ namespace NGIN::CLI
                 SelectorSet selector{};
                 selector.conditionRefs.push_back(condition.name);
                 std::cout << "    " << condition.name << ": "
-                          << (SelectionMatches(unit.project, selector, unit.configuration) ? "matched" : "not matched")
+                          << (SelectionMatches(unit.project, selector, unit.profile) ? "matched" : "not matched")
                           << "\n";
             }
         }
@@ -711,10 +712,10 @@ namespace NGIN::CLI
                 printedBuildSettingsHeader = true;
             }
             std::cout << "  - " << unit.project.name << ":\n";
-            PrintConditionalBuildSettings("IncludeDirectories", unit.project, unit.configuration, unit.project.build.includeDirectories);
-            PrintConditionalBuildSettings("CompileDefinitions", unit.project, unit.configuration, unit.project.build.compileDefinitions);
-            PrintConditionalBuildSettings("CompileOptions", unit.project, unit.configuration, unit.project.build.compileOptions);
-            PrintConditionalBuildSettings("LinkOptions", unit.project, unit.configuration, unit.project.build.linkOptions);
+            PrintConditionalBuildSettings("IncludeDirectories", unit.project, unit.profile, unit.project.build.includeDirectories);
+            PrintConditionalBuildSettings("CompileDefinitions", unit.project, unit.profile, unit.project.build.compileDefinitions);
+            PrintConditionalBuildSettings("CompileOptions", unit.project, unit.profile, unit.project.build.compileOptions);
+            PrintConditionalBuildSettings("LinkOptions", unit.project, unit.profile, unit.project.build.linkOptions);
         }
         PrintDiagnostics(resolved.diagnostics, "Graph", std::cout);
         return 0;
@@ -723,7 +724,7 @@ namespace NGIN::CLI
     auto CmdMetaGen(const fs::path &root, const ParsedArgs &args) -> int
     {
         const auto invocation = ResolveInvocation(args);
-        return RunMetaGen(root, invocation.project, invocation.configuration, args.outputPath);
+        return RunMetaGen(root, invocation.project, invocation.profile, args.outputPath);
     }
 
     auto CmdClean(const fs::path &root, const ParsedArgs &args) -> int
@@ -732,7 +733,7 @@ namespace NGIN::CLI
         const auto invocation = ResolveInvocation(args);
         const auto cleaned = CleanLaunch(
             invocation.project,
-            invocation.configuration,
+            invocation.profile,
             args.outputPath.has_value() ? std::optional<fs::path>{*args.outputPath} : std::nullopt);
         if (!cleaned.value.has_value() || cleaned.diagnostics.HasErrors())
         {
@@ -740,7 +741,7 @@ namespace NGIN::CLI
             return 1;
         }
 
-        std::cout << "Cleaned configuration: " << invocation.configuration.name << "\n";
+        std::cout << "Cleaned profile: " << invocation.profile.name << "\n";
         std::cout << "  project: " << invocation.project.name << "\n";
         std::cout << "  output: " << *cleaned.value << "\n";
         PrintDiagnostics(cleaned.diagnostics, "Clean", std::cout);
@@ -753,7 +754,7 @@ namespace NGIN::CLI
         const auto invocation = ResolveInvocation(args);
         const auto configured = ConfigureLaunch(
             invocation.project,
-            invocation.configuration,
+            invocation.profile,
             args.outputPath.has_value() ? std::optional<fs::path>{*args.outputPath} : std::nullopt);
         if (!configured.value.has_value() || configured.diagnostics.HasErrors())
         {
@@ -761,7 +762,7 @@ namespace NGIN::CLI
             return 1;
         }
 
-        std::cout << "Configured build metadata: " << invocation.configuration.name << "\n";
+        std::cout << "Configured build metadata for profile: " << invocation.profile.name << "\n";
         std::cout << "  project: " << invocation.project.name << "\n";
         std::cout << "  output: " << configured.value->outputDir << "\n";
         if (configured.value->configured)
@@ -783,7 +784,7 @@ namespace NGIN::CLI
         const auto invocation = ResolveInvocation(args);
         auto built = BuildLaunch(
             invocation.project,
-            invocation.configuration,
+            invocation.profile,
             args.outputPath.has_value() ? std::optional<fs::path>{*args.outputPath} : std::nullopt);
         if (!built.value.has_value() || built.diagnostics.HasErrors())
         {
@@ -792,7 +793,7 @@ namespace NGIN::CLI
         }
 
         const auto summary = LoadLaunchManifestSummary(built.value->manifestPath);
-        std::cout << "Built configuration: " << invocation.configuration.name << "\n";
+        std::cout << "Built profile: " << invocation.profile.name << "\n";
         std::cout << "  project: " << invocation.project.name << "\n";
         std::cout << "  output: " << built.value->outputDir << "\n";
         std::cout << "  launch manifest: " << built.value->manifestPath << "\n";
@@ -807,7 +808,7 @@ namespace NGIN::CLI
         const auto invocation = ResolveInvocation(args);
         const auto cleanResult = CleanLaunch(
             invocation.project,
-            invocation.configuration,
+            invocation.profile,
             args.outputPath.has_value() ? std::optional<fs::path>{*args.outputPath} : std::nullopt);
         if (!cleanResult.value.has_value() || cleanResult.diagnostics.HasErrors())
         {
@@ -817,7 +818,7 @@ namespace NGIN::CLI
 
         auto built = BuildLaunch(
             invocation.project,
-            invocation.configuration,
+            invocation.profile,
             args.outputPath.has_value() ? std::optional<fs::path>{*args.outputPath} : std::nullopt);
         AppendDiagnostics(built.diagnostics, cleanResult.diagnostics);
         if (!built.value.has_value() || built.diagnostics.HasErrors())
@@ -827,7 +828,7 @@ namespace NGIN::CLI
         }
 
         const auto summary = LoadLaunchManifestSummary(built.value->manifestPath);
-        std::cout << "Rebuilt configuration: " << invocation.configuration.name << "\n";
+        std::cout << "Rebuilt profile: " << invocation.profile.name << "\n";
         std::cout << "  project: " << invocation.project.name << "\n";
         std::cout << "  output: " << built.value->outputDir << "\n";
         std::cout << "  launch manifest: " << built.value->manifestPath << "\n";
@@ -842,7 +843,7 @@ namespace NGIN::CLI
         const auto invocation = ResolveInvocation(args);
         const auto built = BuildLaunch(
             invocation.project,
-            invocation.configuration,
+            invocation.profile,
             args.outputPath.has_value() ? std::optional<fs::path>{*args.outputPath} : std::nullopt);
         if (!built.value.has_value() || built.diagnostics.HasErrors())
         {

@@ -42,7 +42,7 @@ shared, has OR/NOT logic, or benefits from a meaningful name.
 - Do not replace direct typed selectors with mandatory named conditions.
 - Do not introduce arbitrary scripting.
 - Do not make free-form string expressions the default condition model.
-- Do not let conditions select or mutate the active project configuration.
+- Do not let conditions select or mutate the active project profile.
 - Do not add package restore or dependency resolution conditions in the first
   implementation.
 - Do not export project conditions to referenced projects or packages in the
@@ -59,7 +59,7 @@ Simple AND-only selection should use direct selector attributes:
 ```xml
 <Definition Value="NGIN_DEBUG_TOOLS"
             Visibility="Private"
-            BuildConfiguration="Debug" />
+            BuildType="Debug" />
 ```
 
 Multiple direct selector attributes are combined with AND:
@@ -67,7 +67,7 @@ Multiple direct selector attributes are combined with AND:
 ```xml
 <File Path="src/platform/LinuxDebug.cpp"
       OperatingSystem="linux"
-      BuildConfiguration="Debug" />
+      BuildType="Debug" />
 ```
 
 ### Reusable Named Selection
@@ -99,7 +99,7 @@ implicit AND:
 <Definition Value="NGIN_DESKTOP_DEBUG"
             Visibility="Private"
             When="Desktop"
-            BuildConfiguration="Debug" />
+            BuildType="Debug" />
 ```
 
 That item is equivalent to:
@@ -107,7 +107,7 @@ That item is equivalent to:
 ```xml
 <All>
   <ConditionRef Name="Desktop" />
-  <Match BuildConfiguration="Debug" />
+  <Match BuildType="Debug" />
 </All>
 ```
 
@@ -123,12 +123,12 @@ group-level condition is inherited by every child as an implicit AND.
 <CompileDefinitions When="Desktop">
   <Definition Value="NGIN_DESKTOP" />
   <Definition Value="NGIN_DESKTOP_DEBUG"
-              BuildConfiguration="Debug" />
+              BuildType="Debug" />
 </CompileDefinitions>
 ```
 
 The second definition is selected only when both `Desktop` and
-`BuildConfiguration="Debug"` match.
+`BuildType="Debug"` match.
 
 `<Files>` already behaves like a group for line-separated file lists:
 
@@ -159,7 +159,7 @@ A project may define reusable named conditions:
   </Condition>
 
   <Condition Name="DebugBuild">
-    <Match BuildConfiguration="Debug" />
+    <Match BuildType="Debug" />
   </Condition>
 
   <Condition Name="LinuxDebugBuild">
@@ -177,7 +177,7 @@ Simple single-match conditions can use selector attributes directly on
 ```xml
 <Conditions>
   <Condition Name="Windows" OperatingSystem="windows" />
-  <Condition Name="Shipping" BuildConfiguration="Shipping" />
+  <Condition Name="Shipping" BuildType="Shipping" />
 </Conditions>
 ```
 
@@ -212,7 +212,7 @@ Conditions support five core node types:
 ```xml
 <Match OperatingSystem="linux"
        Architecture="x64"
-       BuildConfiguration="Debug" />
+       BuildType="Debug" />
 ```
 
 Multiple attributes on one `Match` are combined with AND.
@@ -222,7 +222,7 @@ Multiple attributes on one `Match` are combined with AND.
 ```xml
 <All>
   <Match OperatingSystem="linux" />
-  <Match BuildConfiguration="Debug" />
+  <Match BuildType="Debug" />
 </All>
 ```
 
@@ -240,7 +240,7 @@ Multiple attributes on one `Match` are combined with AND.
 
 ```xml
 <Not>
-  <Match BuildConfiguration="Shipping" />
+  <Match BuildType="Shipping" />
 </Not>
 ```
 
@@ -295,14 +295,14 @@ An item with direct selectors becomes one `Match`:
 ```xml
 <Definition Value="NGIN_LINUX_DEBUG"
             OperatingSystem="linux"
-            BuildConfiguration="Debug" />
+            BuildType="Debug" />
 ```
 
 Normalized form:
 
 ```xml
 <Match OperatingSystem="linux"
-       BuildConfiguration="Debug" />
+       BuildType="Debug" />
 ```
 
 An item with only `When` becomes one `ConditionRef`:
@@ -323,7 +323,7 @@ An item with both direct selectors and `When` becomes an `All`:
 ```xml
 <Definition Value="NGIN_DESKTOP_DEBUG"
             When="Desktop"
-            BuildConfiguration="Debug" />
+            BuildType="Debug" />
 ```
 
 Normalized form:
@@ -331,7 +331,7 @@ Normalized form:
 ```xml
 <All>
   <ConditionRef Name="Desktop" />
-  <Match BuildConfiguration="Debug" />
+  <Match BuildType="Debug" />
 </All>
 ```
 
@@ -378,7 +378,7 @@ This mixed form is invalid:
 
 ```xml
 <Condition Name="Mixed" OperatingSystem="linux">
-  <Match BuildConfiguration="Debug" />
+  <Match BuildType="Debug" />
 </Condition>
 ```
 
@@ -424,28 +424,28 @@ filesystem, and CLI behavior.
 ## Selection Context
 
 The first implementation should match against fields already present in the
-selected project configuration and that do not create circular build semantics:
+selected project profile and that do not create circular build semantics:
 
-- `Configuration`
-- `BuildConfiguration`
+- `Profile`
+- `BuildType`
 - `OperatingSystem`
 - `Architecture`
 - `Environment`
 
-`Configuration` matches the selected project configuration name.
+`Profile` matches the selected project profile name.
 
-`Configuration` and `BuildConfiguration` are distinct:
+`Profile` and `BuildType` are distinct:
 
 ```xml
-<Configuration Name="Runtime"
-               BuildConfiguration="Debug"
+<Profile Name="Runtime"
+               BuildType="Debug"
                OperatingSystem="linux"
                Architecture="x64"
                Environment="local" />
 ```
 
-In that example, `Configuration="Runtime"` matches the NGIN configuration name,
-while `BuildConfiguration="Debug"` matches the backend/native build
+In that example, `Profile="Runtime"` matches the NGIN profile name,
+while `BuildType="Debug"` matches the backend/native build
 configuration.
 
 Selector attribute names are schema-defined and case-sensitive. Known selector
@@ -469,7 +469,7 @@ capability flags that may influence generated build behavior.
 
 Condition evaluation is pure and side-effect-free.
 
-Selection is evaluated after the selected project configuration has already
+Selection is evaluated after the selected project profile has already
 been resolved. Selection does not choose the configuration, mutate the
 configuration, change package resolution, or change runtime metadata. It only
 determines whether a supported authored item is included in the resolved project
@@ -537,7 +537,7 @@ validation semantics are clear.
 Potential later consumers:
 
 - project and package references
-- config sources
+- config inputs
 - content files
 - runtime module enables
 - environment features
@@ -571,7 +571,7 @@ The same rule applies when `When` participates in the effective condition:
     <Root Path="src" />
     <Root Path="src/tools/debug"
           When="DeveloperTools"
-          BuildConfiguration="Debug" />
+          BuildType="Debug" />
   </Private>
 </Sources>
 ```
@@ -622,7 +622,7 @@ ConditionEvaluationResult
       ConditionRef named "Linux" matched:
         OperatingSystem expected "linux", actual "linux"
       ConditionRef named "DebugBuild" failed:
-        BuildConfiguration expected "Debug", actual "Release"
+        BuildType expected "Debug", actual "Release"
 ```
 
 Graph or verbose diagnostic output should be able to show declared conditions,
@@ -640,7 +640,7 @@ Build settings:
       When="Desktop" matched
     NGIN_DESKTOP_DEBUG excluded:
       When="Desktop" matched
-      BuildConfiguration expected "Debug", actual "Release"
+      BuildType expected "Debug", actual "Release"
 ```
 
 ## Expression Escape Hatch
@@ -652,7 +652,7 @@ than scattered across individual manifest items:
 
 ```xml
 <Condition Name="CustomLegacyCase"
-           Expression="OperatingSystem == 'linux' and BuildConfiguration != 'Shipping'" />
+           Expression="OperatingSystem == 'linux' and BuildType != 'Shipping'" />
 ```
 
 Expression conditions should be treated as an escape hatch. They require a
@@ -673,11 +673,11 @@ The project root surface would become:
 - `Output`
 - `Build`
 - `References`
-- `ConfigSources`
+- `ConfigInputs`
 - `LocalSettings`
 - `Runtime`
 - `Environments`
-- `Configurations`
+- `Profiles`
 
 The spec should define:
 
@@ -700,7 +700,7 @@ The spec should define:
 - `Name` is the only non-selector attribute allowed on `Condition`
 - `When` and `ConditionRef` resolve only against project-local conditions in the
   first implementation
-- condition matching happens against the selected project configuration
+- condition matching happens against the selected project profile
 - condition evaluation is pure and side-effect-free
 - a condition must have exactly one body
 - `ConditionRef` is a condition node and forward references are allowed
@@ -718,7 +718,7 @@ The spec should define:
 4. Parse root-level `<Conditions>` from `.nginproj`.
 5. Validate condition names, body shapes, selector attributes, references, and
    cycles.
-6. Add condition evaluation against `ConfigurationDefinition` with trace output.
+6. Add condition evaluation against `ProfileDefinition` with trace output.
 7. Refactor existing direct selector matching to use the shared selection
    engine.
 8. Apply the shared selection engine to source entries while preserving

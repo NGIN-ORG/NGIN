@@ -5,7 +5,7 @@ import { buildStatusBarModel } from './models';
 export class NginStatusBarController implements vscode.Disposable {
   private readonly workspaceItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
   private readonly projectItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 99);
-  private readonly configurationItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 98);
+  private readonly profileItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 98);
   private readonly configureItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 97);
   private readonly buildItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 96);
   private readonly runItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 95);
@@ -14,7 +14,7 @@ export class NginStatusBarController implements vscode.Disposable {
   dispose(): void {
     this.workspaceItem.dispose();
     this.projectItem.dispose();
-    this.configurationItem.dispose();
+    this.profileItem.dispose();
     this.configureItem.dispose();
     this.buildItem.dispose();
     this.runItem.dispose();
@@ -32,7 +32,7 @@ export class NginStatusBarController implements vscode.Disposable {
 
     this.apply(this.workspaceItem, model.workspace);
     this.apply(this.projectItem, model.project);
-    this.apply(this.configurationItem, model.configuration);
+    this.apply(this.profileItem, model.profile);
     this.apply(this.configureItem, model.configure);
     this.apply(this.buildItem, model.build);
     this.apply(this.runItem, model.run);
@@ -60,7 +60,7 @@ export class NginStatusBarController implements vscode.Disposable {
   private hideAll(): void {
     this.workspaceItem.hide();
     this.projectItem.hide();
-    this.configurationItem.hide();
+    this.profileItem.hide();
     this.configureItem.hide();
     this.buildItem.hide();
     this.runItem.hide();

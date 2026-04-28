@@ -19,13 +19,13 @@ case "$target" in
   app-native-minimal)
     "$cli" build \
       --project "$repo_root/Examples/App.NativeMinimal/App.NativeMinimal.nginproj" \
-      --configuration Runtime \
+      --profile Runtime \
       --output "$repo_root/build/manual/App.NativeMinimal"
     ;;
   app-hosted-core)
     "$cli" build \
       --project "$repo_root/Examples/App.HostedCore/App.HostedCore.nginproj" \
-      --configuration Runtime \
+      --profile Runtime \
       --output "$repo_root/build/manual/App.HostedCore"
     ;;
   *)

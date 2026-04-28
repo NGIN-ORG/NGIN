@@ -502,7 +502,7 @@ namespace NGIN::CLI
             return path.lexically_normal();
         }
 
-        [[nodiscard]] auto CollectSourceFiles(const ProjectManifest &project, const ConfigurationDefinition &configuration) -> std::vector<fs::path>
+        [[nodiscard]] auto CollectSourceFiles(const ProjectManifest &project, const ProfileDefinition &profile) -> std::vector<fs::path>
         {
             std::set<fs::path> unique{};
             std::vector<fs::path> sources{};
@@ -531,14 +531,14 @@ namespace NGIN::CLI
                 {
                     for (const auto &root : group.roots)
                     {
-                        if (!SelectionMatches(project, root.selectors, configuration))
+                        if (!SelectionMatches(project, root.selectors, profile))
                         {
                             excludedRoots.push_back(ResolveProjectPathValue(root.path, project));
                         }
                     }
                     for (const auto &file : group.files)
                     {
-                        if (!SelectionMatches(project, file.selectors, configuration))
+                        if (!SelectionMatches(project, file.selectors, profile))
                         {
                             excludedFiles.push_back(ResolveProjectPathValue(file.path, project));
                         }
@@ -588,28 +588,28 @@ namespace NGIN::CLI
                 };
                 for (const auto &root : project.sources->publicSources.roots)
                 {
-                    if (SelectionMatches(project, root.selectors, configuration))
+                    if (SelectionMatches(project, root.selectors, profile))
                     {
                         addRoot(root);
                     }
                 }
                 for (const auto &root : project.sources->privateSources.roots)
                 {
-                    if (SelectionMatches(project, root.selectors, configuration))
+                    if (SelectionMatches(project, root.selectors, profile))
                     {
                         addRoot(root);
                     }
                 }
                 for (const auto &file : project.sources->publicSources.files)
                 {
-                    if (SelectionMatches(project, file.selectors, configuration))
+                    if (SelectionMatches(project, file.selectors, profile))
                     {
                         add(ResolveProjectPathValue(file.path, project));
                     }
                 }
                 for (const auto &file : project.sources->privateSources.files)
                 {
-                    if (SelectionMatches(project, file.selectors, configuration))
+                    if (SelectionMatches(project, file.selectors, profile))
                     {
                         add(ResolveProjectPathValue(file.path, project));
                     }
@@ -637,7 +637,7 @@ namespace NGIN::CLI
             return sources;
         }
 
-        [[nodiscard]] auto CollectSourceRoots(const ProjectManifest &project, const ConfigurationDefinition &configuration) -> std::vector<fs::path>
+        [[nodiscard]] auto CollectSourceRoots(const ProjectManifest &project, const ProfileDefinition &profile) -> std::vector<fs::path>
         {
             std::vector<fs::path> roots{};
             for (const auto &root : project.sourceRoots)
@@ -648,14 +648,14 @@ namespace NGIN::CLI
             {
                 for (const auto &root : project.sources->publicSources.roots)
                 {
-                    if (SelectionMatches(project, root.selectors, configuration))
+                    if (SelectionMatches(project, root.selectors, profile))
                     {
                         roots.push_back(ResolveProjectPathValue(root.path, project));
                     }
                 }
                 for (const auto &root : project.sources->privateSources.roots)
                 {
-                    if (SelectionMatches(project, root.selectors, configuration))
+                    if (SelectionMatches(project, root.selectors, profile))
                     {
                         roots.push_back(ResolveProjectPathValue(root.path, project));
                     }
@@ -665,12 +665,12 @@ namespace NGIN::CLI
         }
 
         [[nodiscard]] auto DefaultOutputDir(const ProjectManifest &project,
-                                            const ConfigurationDefinition &configuration) -> fs::path
+                                            const ProfileDefinition &profile) -> fs::path
         {
-            return fs::current_path() / ".ngin" / "metagen" / project.name / configuration.name;
+            return fs::current_path() / ".ngin" / "metagen" / project.name / profile.name;
         }
 
-        [[nodiscard]] auto BuildClangArguments(const fs::path &root, const ProjectManifest &project, const ConfigurationDefinition &configuration)
+        [[nodiscard]] auto BuildClangArguments(const fs::path &root, const ProjectManifest &project, const ProfileDefinition &profile)
             -> std::vector<std::string>
         {
             std::vector<std::string> args{
@@ -687,7 +687,7 @@ namespace NGIN::CLI
             };
 
             include(project.path.parent_path());
-            for (const auto &rootPath : CollectSourceRoots(project, configuration))
+            for (const auto &rootPath : CollectSourceRoots(project, profile))
             {
                 include(rootPath);
             }
@@ -701,10 +701,10 @@ namespace NGIN::CLI
 
         auto ScanSources(const fs::path &root,
                          const ProjectManifest &project,
-                         const ConfigurationDefinition &configuration,
+                         const ProfileDefinition &profile,
                          ScanContext &context) -> void
         {
-            auto clangArgs = BuildClangArguments(root, project, configuration);
+            auto clangArgs = BuildClangArguments(root, project, profile);
             std::vector<const char *> rawArgs{};
             rawArgs.reserve(clangArgs.size());
             for (const auto &arg : clangArgs)
@@ -736,12 +736,12 @@ namespace NGIN::CLI
         }
 
         [[nodiscard]] auto EmitGeneratedCpp(const ProjectManifest &project,
-                                            const ConfigurationDefinition &configuration,
+                                            const ProfileDefinition &profile,
                                             const ScanContext &context) -> std::string
         {
             std::ostringstream out{};
             const auto functionName = "Register_" + MetaGen::SanitizeIdentifier(project.name) + "_" +
-                                      MetaGen::SanitizeIdentifier(configuration.name) + "_Reflection";
+                                      MetaGen::SanitizeIdentifier(profile.name) + "_Reflection";
 
             out << "// <auto-generated>\n";
             out << "// Generated by ngin metagen. Do not edit by hand.\n";
@@ -843,21 +843,21 @@ namespace NGIN::CLI
 
     auto GenerateMetaData(const fs::path &root,
                           const ProjectManifest &project,
-                          const ConfigurationDefinition &configuration,
+                          const ProfileDefinition &profile,
                           const fs::path &outputDir) -> MetaGenResult
     {
         (void)root;
         MetaGenResult result{};
         ScanContext context{};
-        context.sourceFiles = CollectSourceFiles(project, configuration);
-        context.sourceRoots = CollectSourceRoots(project, configuration);
+        context.sourceFiles = CollectSourceFiles(project, profile);
+        context.sourceRoots = CollectSourceRoots(project, profile);
         if (context.sourceFiles.empty())
         {
             result.diagnostics.push_back("project '" + project.name + "' has no C++ source files to scan");
             return result;
         }
 
-        ScanSources(root, project, configuration, context);
+        ScanSources(root, project, profile, context);
         if (!context.diagnostics.empty())
         {
             result.diagnostics = std::move(context.diagnostics);
@@ -866,7 +866,7 @@ namespace NGIN::CLI
 
         fs::create_directories(outputDir);
         const auto outputFile = outputDir / (project.name + ".reflection.generated.cpp");
-        const auto generated = EmitGeneratedCpp(project, configuration, context);
+        const auto generated = EmitGeneratedCpp(project, profile, context);
         std::ofstream out(outputFile);
         if (!out)
         {
@@ -882,12 +882,12 @@ namespace NGIN::CLI
 
     auto RunMetaGen(const fs::path &root,
                     const ProjectManifest &project,
-                    const ConfigurationDefinition &configuration,
+                    const ProfileDefinition &profile,
                     const std::optional<std::string> &outputPath) -> int
     {
         const auto outputDir =
-            outputPath.has_value() ? fs::path(*outputPath) : DefaultOutputDir(project, configuration);
-        auto result = GenerateMetaData(root, project, configuration, outputDir);
+            outputPath.has_value() ? fs::path(*outputPath) : DefaultOutputDir(project, profile);
+        auto result = GenerateMetaData(root, project, profile, outputDir);
         if (!result.available || !result.diagnostics.empty())
         {
             for (const auto &diagnostic : result.diagnostics)

@@ -14,14 +14,14 @@ applications.
 
 ## File Contract
 
-- filename: `<Project>.<Configuration>.nginlaunch`
+- filename: `<Project>.<Profile>.nginlaunch`
 - root element: `<LaunchManifest>`
 - required root attributes:
-  - `SchemaVersion="2"`
+  - `SchemaVersion="3"`
   - `Project`
-  - `Configuration`
+  - `Profile`
   - `Type`
-  - `BuildConfiguration`
+  - `BuildType`
   - `OperatingSystem`
   - `Architecture`
 
@@ -29,11 +29,11 @@ applications.
 
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
-<LaunchManifest SchemaVersion="2"
+<LaunchManifest SchemaVersion="3"
                 Project="App.Basic"
-                Configuration="Runtime"
+                Profile="Runtime"
                 Type="Application"
-                BuildConfiguration="Debug"
+                BuildType="Debug"
                 OperatingSystem="linux"
                 Architecture="x64">
   <Launch Executable="App.Basic" Target="App.Basic" WorkingDirectory="." />
@@ -41,6 +41,11 @@ applications.
     <Variables />
     <Features />
   </Environment>
+  <Inputs>
+    <Config Path="config/app.cfg"
+            Project="App.Basic"
+            Destination="config/app.cfg" />
+  </Inputs>
   <StagedFiles>
     <File Kind="executable"
           Destination="/repo/.ngin/build/App.Basic/Runtime/bin/App.Basic"
@@ -54,12 +59,12 @@ applications.
 The launch manifest must capture:
 
 - selected project identity
-- selected configuration identity
-- resolved build configuration
+- selected profile identity
+- resolved build profile
 - resolved operating system and architecture
 - resolved launch working directory and selected executable
 - resolved environment variables and features
-- resolved packages, modules, plugins, and config sources
+- resolved packages, modules, plugins, and config inputs
 - staged files
 
 Secret environment variable values must not be serialized into the launch

@@ -71,10 +71,11 @@ namespace NGIN::CLI
 
     struct SelectorSet
     {
-        std::optional<std::string> configuration{};
+        std::optional<std::string> profile{};
+        std::optional<std::string> platform{};
         std::optional<std::string> operatingSystem{};
         std::optional<std::string> architecture{};
-        std::optional<std::string> buildConfiguration{};
+        std::optional<std::string> buildType{};
         std::optional<std::string> environment{};
         std::vector<std::string> conditionRefs{};
         bool impossible{false};
@@ -242,7 +243,7 @@ namespace NGIN::CLI
         std::vector<PluginDescriptor> plugins{};
     };
 
-    struct ResolvedConfigSource
+    struct ResolvedConfigInput
     {
         std::string ownerProjectName{};
         fs::path ownerProjectDirectory{};
@@ -276,7 +277,7 @@ namespace NGIN::CLI
     struct ProjectReference
     {
         fs::path path{};
-        std::optional<std::string> configuration{};
+        std::optional<std::string> profile{};
     };
 
     struct OutputDefinition
@@ -306,17 +307,18 @@ namespace NGIN::CLI
         std::string name{};
         std::vector<ProjectReference> projectRefs{};
         std::vector<PackageReference> packageRefs{};
-        std::vector<std::string> configSources{};
+        std::vector<std::string> configInputs{};
         std::vector<ContentFile> contents{};
         std::vector<EnvironmentVariable> variables{};
         std::vector<FeatureFlag> features{};
         RuntimeDefinition runtime{};
     };
 
-    struct ConfigurationDefinition
+    struct ProfileDefinition
     {
         std::string name{};
-        std::string buildConfiguration{"Debug"};
+        std::string buildType{"Debug"};
+        std::string platform{"linux-x64"};
         std::string operatingSystem{"linux"};
         std::string architecture{"x64"};
         bool enableReflection{false};
@@ -324,7 +326,7 @@ namespace NGIN::CLI
         LaunchDefinition launch{};
         std::vector<ProjectReference> projectRefs{};
         std::vector<PackageReference> packageRefs{};
-        std::vector<std::string> configSources{};
+        std::vector<std::string> configInputs{};
         RuntimeDefinition runtime{};
     };
 
@@ -333,7 +335,7 @@ namespace NGIN::CLI
         fs::path path{};
         std::string name{};
         std::string type{};
-        std::string defaultConfiguration{};
+        std::string defaultProfile{};
         std::vector<std::string> sourceRoots{};
         std::optional<ProjectSources> sources{};
         std::vector<ConditionDefinition> conditions{};
@@ -341,17 +343,17 @@ namespace NGIN::CLI
         ProjectBuildDescriptor build{};
         std::vector<ProjectReference> projectRefs{};
         std::vector<PackageReference> packageRefs{};
-        std::vector<std::string> configSources{};
+        std::vector<std::string> configInputs{};
         std::vector<LocalSettingsImport> localSettingsImports{};
         RuntimeDefinition runtime{};
         std::vector<EnvironmentDefinition> environments{};
-        std::vector<ConfigurationDefinition> configurations{};
+        std::vector<ProfileDefinition> profiles{};
     };
 
     struct ResolvedProjectUnit
     {
         ProjectManifest project{};
-        ConfigurationDefinition configuration{};
+        ProfileDefinition profile{};
         std::optional<EnvironmentDefinition> environment{};
     };
 
@@ -376,9 +378,9 @@ namespace NGIN::CLI
     {
         std::optional<WorkspaceManifest> workspace{};
         ProjectManifest project{};
-        ConfigurationDefinition configuration{};
+        ProfileDefinition profile{};
         std::vector<ResolvedProjectUnit> projectUnits{};
-        std::vector<ResolvedConfigSource> configSources{};
+        std::vector<ResolvedConfigInput> configInputs{};
         std::vector<ResolvedContentSource> environmentContents{};
         std::vector<EnvironmentVariable> environmentVariables{};
         std::vector<FeatureFlag> environmentFeatures{};
@@ -411,7 +413,7 @@ namespace NGIN::CLI
     struct LaunchManifestSummary
     {
         fs::path manifestPath{};
-        std::string configurationName{};
+        std::string profileName{};
         std::string workingDirectory{"."};
         std::optional<std::string> selectedExecutable{};
     };

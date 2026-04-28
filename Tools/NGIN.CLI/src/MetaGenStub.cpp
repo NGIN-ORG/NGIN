@@ -7,7 +7,7 @@ namespace NGIN::CLI
     auto GenerateMetaData(
         const fs::path &,
         const ProjectManifest &,
-        const ConfigurationDefinition &,
+        const ProfileDefinition &,
         const fs::path &) -> MetaGenResult
     {
         return MetaGenResult{
@@ -21,7 +21,7 @@ namespace NGIN::CLI
     auto RunMetaGen(
         const fs::path &,
         const ProjectManifest &,
-        const ConfigurationDefinition &,
+        const ProfileDefinition &,
         const std::optional<std::string> &) -> int
     {
         std::cerr

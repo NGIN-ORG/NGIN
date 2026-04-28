@@ -1,8 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="2"
+<Project SchemaVersion="3"
          Name="App.Showcase"
-         Type="Application"
-         DefaultConfiguration="Runtime">
+         DefaultProfile="Runtime">
   <Sources>
     <Private>
       <Root Path="src" />
@@ -23,9 +22,9 @@
   <References>
     <Package Name="NGIN.Core" Version=">=0.1.0 &lt;0.2.0" Optional="false" />
   </References>
-  <ConfigSources>
-    <Config Source="config/app.cfg" />
-  </ConfigSources>
+  <Inputs>
+    <Config Path="config/app.cfg" />
+  </Inputs>
   <Environments>
     <Environment Name="Dev" />
     <Environment Name="Diagnostics">
@@ -165,72 +164,67 @@
       <ModuleRef Name="App.Showcase.ConsoleBanner" />
     </EnableModules>
   </Runtime>
-  <Configurations>
-    <Configuration Name="Runtime"
-                   BuildConfiguration="Debug"
-                   OperatingSystem="linux"
-                   Architecture="x64"
+  <Profiles>
+    <Profile Name="Runtime"
+                   BuildType="Debug"
+                   Platform="linux-x64"
                    Environment="Dev">
       <Launch Executable="App.Showcase" WorkingDirectory="." />
-      <ConfigSources>
-        <Config Source="config/configurations/runtime.cfg" />
-      </ConfigSources>
-    </Configuration>
-    <Configuration Name="Runtime.DevTools"
-                   BuildConfiguration="Debug"
-                   OperatingSystem="linux"
-                   Architecture="x64"
+      <Inputs>
+        <Config Path="config/configurations/runtime.cfg" />
+      </Inputs>
+    </Profile>
+    <Profile Name="Runtime.DevTools"
+                   BuildType="Debug"
+                   Platform="linux-x64"
                    Environment="Dev">
       <Launch Executable="App.Showcase" WorkingDirectory="." />
-      <ConfigSources>
-        <Config Source="config/configurations/runtime.devtools.cfg" />
-      </ConfigSources>
+      <Inputs>
+        <Config Path="config/configurations/runtime.devtools.cfg" />
+      </Inputs>
       <Runtime>
         <EnableModules>
           <ModuleRef Name="App.Showcase.DevTools" />
         </EnableModules>
       </Runtime>
-    </Configuration>
-    <Configuration Name="Runtime.Diagnostics"
-                   BuildConfiguration="Debug"
-                   OperatingSystem="linux"
-                   Architecture="x64"
+    </Profile>
+    <Profile Name="Runtime.Diagnostics"
+                   BuildType="Debug"
+                   Platform="linux-x64"
                    Environment="Diagnostics">
       <Launch Executable="App.Showcase" WorkingDirectory="." />
-      <ConfigSources>
-        <Config Source="config/configurations/runtime.diagnostics.cfg" />
-      </ConfigSources>
+      <Inputs>
+        <Config Path="config/configurations/runtime.diagnostics.cfg" />
+      </Inputs>
       <Runtime>
         <EnableModules>
           <ModuleRef Name="App.Showcase.Diagnostics" />
         </EnableModules>
       </Runtime>
-    </Configuration>
-    <Configuration Name="Runtime.Reflection"
-                   BuildConfiguration="Debug"
-                   OperatingSystem="linux"
-                   Architecture="x64"
+    </Profile>
+    <Profile Name="Runtime.Reflection"
+                   BuildType="Debug"
+                   Platform="linux-x64"
                    Environment="Research"
                    EnableReflection="true">
       <Launch Executable="App.Showcase" WorkingDirectory="." />
-      <ConfigSources>
-        <Config Source="config/configurations/runtime.reflection.cfg" />
-      </ConfigSources>
+      <Inputs>
+        <Config Path="config/configurations/runtime.reflection.cfg" />
+      </Inputs>
       <Runtime>
         <EnableModules>
           <ModuleRef Name="App.Showcase.Reflection" />
         </EnableModules>
       </Runtime>
-    </Configuration>
-    <Configuration Name="Service"
-                   BuildConfiguration="Debug"
-                   OperatingSystem="linux"
-                   Architecture="x64"
+    </Profile>
+    <Profile Name="Service"
+                   BuildType="Debug"
+                   Platform="linux-x64"
                    Environment="Staging">
       <Launch Executable="App.Showcase" WorkingDirectory="." />
-      <ConfigSources>
-        <Config Source="config/configurations/service.cfg" />
-      </ConfigSources>
+      <Inputs>
+        <Config Path="config/configurations/service.cfg" />
+      </Inputs>
       <Runtime>
         <EnableModules>
           <ModuleRef Name="App.Showcase.Service" />
@@ -239,6 +233,6 @@
           <ModuleRef Name="App.Showcase.ConsoleBanner" />
         </DisableModules>
       </Runtime>
-    </Configuration>
-  </Configurations>
+    </Profile>
+  </Profiles>
 </Project>

@@ -1,8 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="2"
+<Project SchemaVersion="3"
          Name="NGIN.Samples.ApplicationModel"
-         Type="Application"
-         DefaultConfiguration="Sandbox.Game">
+         DefaultProfile="Sandbox.Game">
   <Sources>
     <Private>
       <Root Path="src" />
@@ -30,39 +29,36 @@
       <ModuleRef Name="App.SandboxGame" />
     </EnableModules>
   </Runtime>
-  <Configurations>
-    <Configuration Name="Tools.Cli"
-                   BuildConfiguration="Debug"
-                   OperatingSystem="linux"
-                   Architecture="x64"
+  <Profiles>
+    <Profile Name="Tools.Cli"
+                   BuildType="Debug"
+                   Platform="linux-x64"
                    Environment="Dev">
-      <ConfigSources>
-        <Config Source="config/cli.xml" />
-      </ConfigSources>
-    </Configuration>
-    <Configuration Name="Tools.Diagnostics"
-                   BuildConfiguration="Debug"
-                   OperatingSystem="linux"
-                   Architecture="x64"
+      <Inputs>
+        <Config Path="config/cli.xml" />
+      </Inputs>
+    </Profile>
+    <Profile Name="Tools.Diagnostics"
+                   BuildType="Debug"
+                   Platform="linux-x64"
                    Environment="Dev"
                    EnableReflection="true">
       <References>
         <Package Name="NGIN.Reflection" Version=">=0.1.0 &lt;1.0.0" />
         <Package Name="NGIN.Diagnostics" Version=">=0.1.0 &lt;1.0.0" />
       </References>
-      <ConfigSources>
-        <Config Source="config/tooling.xml" />
-      </ConfigSources>
-    </Configuration>
-    <Configuration Name="Sandbox.Game"
-                   BuildConfiguration="Debug"
-                   OperatingSystem="linux"
-                   Architecture="x64"
+      <Inputs>
+        <Config Path="config/tooling.xml" />
+      </Inputs>
+    </Profile>
+    <Profile Name="Sandbox.Game"
+                   BuildType="Debug"
+                   Platform="linux-x64"
                    Environment="Dev">
-      <ConfigSources>
-        <Config Source="config/game.xml" />
-      </ConfigSources>
+      <Inputs>
+        <Config Path="config/game.xml" />
+      </Inputs>
       <Launch Executable="Sandbox.Game" WorkingDirectory="." />
-    </Configuration>
-  </Configurations>
+    </Profile>
+  </Profiles>
 </Project>

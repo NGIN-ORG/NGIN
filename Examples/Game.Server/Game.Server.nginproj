@@ -1,8 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="2"
+<Project SchemaVersion="3"
          Name="Game.Server"
-         Type="Application"
-         DefaultConfiguration="Runtime">
+         DefaultProfile="Runtime">
   <Sources>
     <Private>
       <Root Path="src" />
@@ -15,27 +14,25 @@
     <Project Path="../Game.Engine/Game.Engine.nginproj" />
     <Package Name="NGIN.Core" Version=">=0.1.0 &lt;0.2.0" Optional="false" />
   </References>
-  <ConfigSources>
-    <Config Source="config/server.cfg" />
-  </ConfigSources>
+  <Inputs>
+    <Config Path="config/server.cfg" />
+  </Inputs>
   <Environments>
     <Environment Name="development" />
     <Environment Name="production" />
   </Environments>
-  <Configurations>
-    <Configuration Name="Runtime"
-                   BuildConfiguration="Debug"
-                   OperatingSystem="linux"
-                   Architecture="x64"
+  <Profiles>
+    <Profile Name="Runtime"
+                   BuildType="Debug"
+                   Platform="linux-x64"
                    Environment="development">
       <Launch Executable="Game.Server" WorkingDirectory="." />
-    </Configuration>
-    <Configuration Name="Shipping"
-                   BuildConfiguration="Release"
-                   OperatingSystem="linux"
-                   Architecture="x64"
+    </Profile>
+    <Profile Name="Shipping"
+                   BuildType="Release"
+                   Platform="linux-x64"
                    Environment="production">
       <Launch Executable="Game.Server" WorkingDirectory="." />
-    </Configuration>
-  </Configurations>
+    </Profile>
+  </Profiles>
 </Project>

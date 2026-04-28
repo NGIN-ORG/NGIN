@@ -354,10 +354,10 @@ This is the intended simplicity target, not a final schema.
     <Project Path="../MyEngine/MyEngine.nginproj" />
     <Package Name="NGIN.Core" Version="2.*" />
   </References>
-  <Configurations>
-    <Configuration Name="Debug" />
-    <Configuration Name="Release" />
-  </Configurations>
+  <Profiles>
+    <Profile Name="Debug" />
+    <Profile Name="Release" />
+  </Profiles>
 </Project>
 ```
 
@@ -374,10 +374,10 @@ This is the intended simplicity target, not a final schema.
     <Project Path="../MyEngine/MyEngine.nginproj" />
     <Package Name="NGIN.Core" Version="2.*" />
   </References>
-  <Configurations>
-    <Configuration Name="Debug" />
-    <Configuration Name="Release" />
-  </Configurations>
+  <Profiles>
+    <Profile Name="Debug" />
+    <Profile Name="Release" />
+  </Profiles>
 </Project>
 ```
 

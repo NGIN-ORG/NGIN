@@ -108,8 +108,8 @@ struct ResolvedModule {
                           ? KernelErrorCode::NotFound
                           : KernelErrorCode::ConfigFailure;
     const auto message = text.Error().code == IoErrorCode::NotFound
-                             ? "failed to open config source"
-                             : "failed to read config source";
+                             ? "failed to open config input"
+                             : "failed to read config input";
     return NGIN::Utilities::Unexpected<KernelError>(
         MakeKernelError(code, "Config", ToString(path), message));
   }
@@ -581,7 +581,7 @@ private:
               m_effectivePluginPaths, m_config.fileSystem);
     }
 
-    for (const auto &source : m_config.configSources) {
+    for (const auto &source : m_config.configInputs) {
       if (source.empty()) {
         continue;
       }

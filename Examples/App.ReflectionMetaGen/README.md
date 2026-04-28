@@ -15,11 +15,11 @@ cmake --build build/dev --target ngin_cli
 
 ./build/dev/Tools/NGIN.CLI/ngin build \
   --project Examples/App.ReflectionMetaGen/App.ReflectionMetaGen.nginproj \
-  --configuration Runtime
+  --profile Runtime
 
 ./build/dev/Tools/NGIN.CLI/ngin run \
   --project Examples/App.ReflectionMetaGen/App.ReflectionMetaGen.nginproj \
-  --configuration Runtime
+  --profile Runtime
 ```
 
 Expected output:

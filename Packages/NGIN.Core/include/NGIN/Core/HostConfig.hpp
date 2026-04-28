@@ -72,7 +72,7 @@ namespace NGIN::Core
     SemanticVersion platformVersion{0, 1, 0, {}};
     std::string targetName{};
     std::string workingDirectory{};
-    std::vector<std::string> configSources{};
+    std::vector<std::string> configInputs{};
     std::vector<std::string> pluginSearchPaths{};
     bool enableDynamicPlugins{false};
     bool enableReflection{false};

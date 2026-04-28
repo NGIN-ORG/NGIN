@@ -11,17 +11,17 @@ This spec defines the active user-facing surface of the native `ngin` CLI.
 
 Stable active commands:
 
-- `ngin build [--project <file>] [--configuration <name>] [--output <dir>]`
-- `ngin configure [--project <file>] [--configuration <name>] [--output <dir>]`
-- `ngin clean [--project <file>] [--configuration <name>] [--output <dir>]`
-- `ngin rebuild [--project <file>] [--configuration <name>] [--output <dir>]`
-- `ngin run [--project <file>] [--configuration <name>] [--output <dir>] [-- <args...>]`
-- `ngin validate [--project <file>] [--configuration <name>]`
-- `ngin graph [--project <file>] [--configuration <name>]`
+- `ngin build [--project <file>] [--profile <name>] [--output <dir>]`
+- `ngin configure [--project <file>] [--profile <name>] [--output <dir>]`
+- `ngin clean [--project <file>] [--profile <name>] [--output <dir>]`
+- `ngin rebuild [--project <file>] [--profile <name>] [--output <dir>]`
+- `ngin run [--project <file>] [--profile <name>] [--output <dir>] [-- <args...>]`
+- `ngin validate [--project <file>] [--profile <name>]`
+- `ngin graph [--project <file>] [--profile <name>]`
 - `ngin package list`
 - `ngin package show <Package>`
 - `ngin settings init [--project <file>]`
-- `ngin variables explain [--project <file>] [--configuration <name>]`
+- `ngin variables explain [--project <file>] [--profile <name>]`
 - `ngin workspace list`
 - `ngin workspace status`
 - `ngin workspace doctor`
@@ -33,8 +33,8 @@ Removed commands:
 
 ## Behavior
 
-- `--configuration` always selects the project configuration
-- build configuration comes from the selected project configuration’s `BuildConfiguration`
+- `--profile` always selects the project profile
+- backend build type comes from the selected project profile’s `BuildType`
 - `ngin configure` resolves the selected composition, generates backend CMake input, runs CMake configure, and emits generated build metadata such as `compile_commands.json` without staging runtime outputs
 - `ngin build` emits `.nginlaunch`
 - `ngin build` configures the generated backend build when needed before building and staging artifacts

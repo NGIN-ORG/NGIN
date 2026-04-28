@@ -1,6 +1,46 @@
 # NGIN Project Model VNext Freeform Plan
 
-Status: Proposed
+Status: V3 Foundation Implemented; Runtime Compatibility Removed; Strategic Backlog Remains
+
+## Implementation Progress
+
+Implemented so far:
+
+- V3 `.nginproj` parsing in the CLI, normalized into the existing internal
+  build model.
+- V3 `.nginproj` parsing in `NGIN.Core` for hosted-runtime project loading.
+- `DefaultProfile`, `Profiles`, `Profile`, `BuildType`, `Platform`,
+  `Condition`, `Template`, and inferred `Output` support.
+- Ordered profile inheritance through `Profile Extends="..."`.
+- Root/profile/environment config inputs through `<Inputs><Config Path="..." />`.
+- `--profile` CLI selection.
+- V3 `.nginlaunch` emission with `Profile`, `BuildType`, `Platform`, and
+  config metadata under `<Inputs>`.
+- Removal of project-model compatibility aliases for authored V2 vocabulary in
+  the CLI, NGIN.Core project parser, and VS Code manifest parser.
+- Repository-authored `.nginproj` examples migrated to V3 vocabulary.
+- VS Code manifest parsing, project authoring helpers, snippets, task/debug
+  schema, status UI model, and unit tests updated for profile/input vocabulary.
+- Public NGIN.Core project APIs moved from configuration terminology to profile
+  terminology (`ProfileDefinition`, `SetProfile`, `GetProfileName`,
+  `ProfileName`).
+- CMake test harnesses and repository smoke paths moved from `CONFIGURATION`
+  variables to `PROFILE` variables where they mean NGIN project profiles.
+- Legacy authored aliases and compatibility parser paths removed from active
+  CLI, NGIN.Core, and VS Code project/launch handling.
+- Active project, CLI, launch-manifest, and authoring docs moved toward V3.
+- Verification completed against workspace tests, NGIN.Core tests, VS Code unit
+  tests, NGIN.Core BasicHost example build, repository stale-vocabulary scans,
+  and the App.NativeMinimal/App.HostedCore/App.Basic smoke paths.
+
+Still remaining from the broader plan:
+
+- Shared model includes.
+- Full project input model beyond config inputs.
+- Dependency version policy and package feature/capability expansion.
+- Pipeline phase contributions.
+- `ngin explain`, `ngin create`, format, one-way offline migration, and
+  schema-file tooling.
 
 ## Summary
 
@@ -121,7 +161,7 @@ Proposed change:
 
 - `Configurations` becomes `Profiles`
 - `Configuration` becomes `Profile`
-- CLI `--configuration` can eventually become `--profile`
+- CLI selection uses `--profile`
 - generated launch metadata can still record the selected profile
 
 Example:
@@ -133,7 +173,7 @@ Example:
 </Profiles>
 ```
 
-### Rename BuildConfiguration To BuildType
+### Build Type Vocabulary
 
 `BuildType` better matches CMake's single-config terminology and avoids
 confusion with project profile selection.
@@ -398,7 +438,7 @@ model includes with known semantics, not invisible magic.
 
 ### Motivation
 
-The current model has separate concepts for sources, config sources, contents,
+The current model has separate concepts for sources, config inputs, contents,
 and build settings. That is readable, but it can produce schema growth when new
 file-like things appear.
 
@@ -519,16 +559,16 @@ string expressions the default.
 
 ### Rename When To Condition
 
-Consider replacing `When="..."` with `Condition="..."` for clearer
-cross-tooling familiarity.
+Implemented in the V3 project model: selectable entries use
+`Condition="..."` for clearer cross-tooling familiarity.
 
-Current:
+V2 form:
 
 ```xml
 <Definition Value="APP_DEBUG" When="LocalDebug" />
 ```
 
-Proposed:
+V3 form:
 
 ```xml
 <Definition Value="APP_DEBUG" Condition="LocalDebug" />
@@ -960,9 +1000,11 @@ ngin format --project App.nginproj
 Formatting should preserve comments where practical and enforce canonical
 attribute ordering.
 
-### Migration
+### One-Way Offline Migration
 
-Add migration tooling.
+Add explicit offline migration tooling for old repository snapshots. This
+should not imply runtime parser compatibility in the active CLI, Core, or editor
+tooling.
 
 ```text
 ngin migrate --project App.nginproj --to-schema 3
@@ -971,11 +1013,12 @@ ngin migrate --project App.nginproj --to-schema 3
 Migration should:
 
 - rename `Configurations` to `Profiles`
-- rename `BuildConfiguration` to `BuildType`
+- use `BuildType` for backend build type
 - convert repeated OS/architecture to platforms
-- convert `ConfigSources` and `Contents` to inputs where appropriate
+- convert `ConfigInputs` and `Contents` to inputs where appropriate
 - move repeated launch metadata to root defaults
-- preserve old behavior in normalized output
+- compare normalized output against the old tree before the compatibility code
+  is removed from the migration tool itself
 - produce a report of manual follow-up work
 
 ### Project Templates
@@ -1127,7 +1170,7 @@ The diagnostics feature can expand to:
 - package reference to `NGIN.Diagnostics`
 - plugin enablement
 - optional compile definition
-- optional config source
+- optional config input
 - optional runtime module enablement
 
 ## Example: Shared Workspace Defaults
@@ -1155,79 +1198,137 @@ The diagnostics feature can expand to:
 
 ## Implementation Phases
 
-### Phase 1: Normalized Model Spike
+The remaining work should be grouped by dependency order. Each phase should be
+split into its own focused implementation plan before coding starts.
 
-- Define an internal normalized project model separate from V2 XML structs.
-- Add provenance tracking for values.
-- Add a read-only normalizer for current V2 manifests.
-- Add JSON dump support for normalized manifests.
+### Phase A: Model Factoring
 
-### Phase 2: Profiles And Defaults
+Purpose: reduce repetition and make larger manifests manageable.
 
-- Add VNext `Profiles`.
-- Add `BuildType`.
-- Add root defaults.
-- Add platform definitions.
-- Add project-level launch defaults.
-- Implement profile inheritance.
-- Add diagnostics for inheritance cycles and ambiguous overrides.
-
-### Phase 3: Shared Models And Templates
-
-- Add shared model file format.
+- Add shared model includes.
 - Add include resolution and cycle detection.
-- Add project template declaration support.
-- Represent templates as known shared models with provenance.
 - Add workspace defaults.
+- Add project defaults.
+- Add project-level launch defaults.
+- Add project template declaration support.
+- Decide the final semantics of `Template="..."`.
+- Represent templates as known shared models with provenance.
+- Add reusable profile templates.
 
-### Phase 4: Input Model
+This phase should come first because later features need a clean way to share
+and explain declarations.
+
+### Phase B: Unified Input Model
+
+Purpose: make sources, config, content, generated files, assets, and tool inputs
+use one normalized model.
 
 - Add normalized input model.
-- Normalize `Sources`, `ConfigSources`, and `Contents` to inputs.
+- Normalize `Sources`, `ConfigInputs`, and `Contents` to inputs.
 - Add input metadata.
+- Add input sets.
 - Add input-set metadata inheritance.
 - Add input exclude/override operations.
-- Add input explanation diagnostics.
+- Decide whether and when to remove `SourceRoots`.
+- Preserve input provenance for tooling.
 
-### Phase 5: Package Features
+This phase should land before generators and pipelines because those systems
+need typed inputs and outputs.
 
-- Add package capabilities or features.
+### Phase C: Selection And Conditions
+
+Purpose: make selection logic explicit, reusable, and explainable.
+
+- Complete the `When` to `Condition` direction.
+- Add predefined conditions.
+- Define condition scopes.
+- Apply conditions consistently to inputs, references, build settings, runtime
+  entries, and package feature selections.
+- Add diagnostics that explain inclusion and exclusion.
+- Add condition explanation support.
+
+This phase can overlap with the unified input model, but complex package and
+pipeline behavior should wait until selection semantics are stable.
+
+### Phase D: Package Extension Model
+
+Purpose: make packages the primary reusable behavior unit.
+
+- Add package capabilities.
+- Add package features.
 - Add explicit feature opt-in from projects and profiles.
+- Add package defaults.
+- Add package policy.
 - Add dependency version policy.
-- Add package feature explanation output.
+- Add version resolution policy.
 - Add package lock file design.
+- Add package feature explanation output.
 
-### Phase 6: Build Extensions
+This phase should land before package-provided generators, asset processors, or
+runtime templates.
+
+### Phase E: Build Extensions
+
+Purpose: add controlled build extensibility without turning `.nginproj` into a
+general script engine.
 
 - Add controlled pipeline phase model.
-- Add custom command schema with inputs and outputs.
-- Generalize MetaGen under generator contributions.
+- Add custom command schema with declared inputs and outputs.
+- Add the general `<Generators>` model.
+- Convert MetaGen from a special-case `<Build><MetaGen />` feature into a
+  generator contribution.
 - Add package-provided generators.
 - Add package-provided asset processors.
 
-### Phase 7: Runtime Simplification
+This phase depends heavily on unified inputs, stable conditions, and package
+features.
 
-- Add runtime templates through project templates or features.
-- Add concise module syntax.
+### Phase F: Runtime Simplification
+
+Purpose: make hosted/runtime applications less verbose.
+
+- Add concise app module syntax.
+- Add runtime templates through project templates or package features.
 - Move common NGIN.Core wiring into package features or template defaults.
 - Add profile-aware runtime feature selection.
+- Clarify the runtime/build boundary.
 
-### Phase 8: Tooling
+This phase depends on model factoring, package features, and template semantics.
+
+### Phase G: Tooling And Inspection
+
+Purpose: make the model safe to use at scale.
 
 - Add `ngin explain`.
-- Add `ngin format`.
-- Add `ngin migrate --to-schema 3`.
+- Add input explanation.
+- Add condition explanation.
+- Add package feature explanation.
+- Add canonical normalized model output.
+- Add schema-aware formatting.
 - Add validation levels.
 - Add graph output formats.
-- Publish schema files for editor tooling.
+
+Some of this tooling can start earlier, but it becomes most valuable after
+inputs, conditions, and packages are normalized.
+
+### Phase H: Migration And Editor Support
+
+Purpose: polish adoption and authoring.
+
+- Add `ngin migrate --to-schema 3` as explicit offline tooling only.
+- Add `ngin create`.
+- Publish machine-readable schema files for editor completion and validation.
+- Add editor support for templates, inputs, conditions, package features, and
+  generators.
+- Enforce the final case policy.
 
 ## Priorities
 
 The first three changes should be:
 
-1. Profile inheritance and defaults.
-2. Shared model includes and template-based projects.
-3. Generalized project input model.
+1. Shared model includes and template-based projects.
+2. Generalized project input model.
+3. Package features and dependency version policy.
 
 These have the best ratio of authoring improvement to conceptual risk. They
 make `.nginproj` feel more powerful and less repetitive without immediately
@@ -1245,8 +1346,9 @@ extension model will be hard to debug.
 
 ## Open Questions
 
-- Should `Profile` fully replace `Configuration`, or should both terms remain
-  visible in different contexts?
+- Should any remaining user-facing term use `Configuration` for runtime config
+  files only, or should those surfaces prefer `Settings`/`Inputs` to avoid
+  confusing them with project profiles?
 - Should project templates live as package assets, built-in CLI metadata, or
   workspace shared model files?
 - Should dependency version policy live in `.ngin`, a separate
@@ -1264,14 +1366,16 @@ extension model will be hard to debug.
 
 ## Compatibility Position
 
-This plan intentionally ignores compatibility as a design constraint. If any of
-these ideas become active work, they should be split into smaller plans and
-converted into specs with migration rules.
+This plan intentionally ignores runtime compatibility as a design constraint.
+The active repository should accept the current V3 vocabulary only. If any
+remaining backlog ideas become active work, they should be split into smaller
+plans and converted into specs with migration rules.
 
-The expected migration path from V2 to VNext would require:
+Any optional V2-to-V3 migration path should be a separate, explicit offline
+tooling path, not hidden fallback behavior in normal parsing or resolution. Such
+a tool would require:
 
 - automated manifest migration
-- compatibility aliases for CLI options
 - normalized-model comparison tests
 - side-by-side examples
 - deprecation documentation

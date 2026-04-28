@@ -10,7 +10,7 @@ It has two main parts:
 
 2. **`NGIN.Core`**
    An optional C++ runtime library for applications that want a structured
-   startup model with services, configuration, modules, plugins, lifecycle hooks,
+   startup model with services, profile, modules, plugins, lifecycle hooks,
    reflection, and diagnostics.
 
 You can use the CLI without using `NGIN.Core`.
@@ -45,7 +45,7 @@ of the application gets spread across many places:
 ```text
 MyGame/
   CMakeLists.txt          build targets, include paths, link rules
-  config/dev.json         runtime configuration
+  config/dev.json         runtime profile
   scripts/stage.sh        copy files into a runnable folder
   scripts/run-dev.sh      local launch command
   packages/               reusable libraries or feature bundles
@@ -56,7 +56,7 @@ After a while, simple questions become hard to answer:
 
 - What applications exist in this repository?
 - What does each application depend on?
-- Which configuration am I building?
+- Which profile am I building?
 - Which files should be copied next to the executable?
 - What does the local run command actually run?
 - Which parts are project-specific, and which parts are reusable packages?
@@ -75,7 +75,7 @@ That file can describe things like:
 - output type, such as an executable or library
 - dependencies on other projects or packages
 - build backend settings
-- named configurations
+- named profiles
 - files that should be copied into the runnable output folder
 - local run settings
 
@@ -120,7 +120,7 @@ It is responsible for the project workflow:
 
 - reading `.nginproj`, `.nginpkg`, and workspace files
 - resolving project and package references
-- validating project configurations
+- validating project profiles
 - generating CMake input
 - configuring generated build metadata
 - building projects
@@ -142,7 +142,7 @@ It can provide:
 
 - application lifecycle
 - service registration
-- configuration loading
+- profile loading
 - modules
 - plugins
 - reflection
@@ -154,7 +154,7 @@ This is sometimes called a **hosted runtime** in the NGIN documentation.
 In plain language, that means:
 
 > Your `main()` starts an NGIN application host, and the host coordinates app
-> startup, services, modules, configuration, and shutdown.
+> startup, services, modules, profile, and shutdown.
 
 You do not need `NGIN.Core` for a normal executable. It is only for applications
 that want that structured runtime model.
@@ -190,7 +190,7 @@ This is useful when your app needs:
 - service-based architecture
 - modules that can be registered and started consistently
 - plugin loading
-- shared configuration infrastructure
+- shared profile infrastructure
 - lifecycle hooks
 - diagnostics and reflection support
 - a common startup pattern across multiple applications
@@ -265,7 +265,7 @@ cmake --build build/dev --target ngin_cli
 ```bash
 ./build/dev/Tools/NGIN.CLI/ngin validate \
   --project Examples/App.NativeMinimal/App.NativeMinimal.nginproj \
-  --configuration Runtime
+  --profile Runtime
 ```
 
 ### 5. Inspect the resolved project
@@ -273,7 +273,7 @@ cmake --build build/dev --target ngin_cli
 ```bash
 ./build/dev/Tools/NGIN.CLI/ngin graph \
   --project Examples/App.NativeMinimal/App.NativeMinimal.nginproj \
-  --configuration Runtime
+  --profile Runtime
 ```
 
 ### 6. Configure generated build metadata
@@ -281,7 +281,7 @@ cmake --build build/dev --target ngin_cli
 ```bash
 ./build/dev/Tools/NGIN.CLI/ngin configure \
   --project Examples/App.NativeMinimal/App.NativeMinimal.nginproj \
-  --configuration Runtime \
+  --profile Runtime \
   --output build/manual/App.NativeMinimal
 ```
 
@@ -293,7 +293,7 @@ staging the application.
 ```bash
 ./build/dev/Tools/NGIN.CLI/ngin build \
   --project Examples/App.NativeMinimal/App.NativeMinimal.nginproj \
-  --configuration Runtime \
+  --profile Runtime \
   --output build/manual/App.NativeMinimal
 ```
 
@@ -304,7 +304,7 @@ This builds the executable and creates a runnable output folder.
 ```bash
 ./build/dev/Tools/NGIN.CLI/ngin run \
   --project Examples/App.NativeMinimal/App.NativeMinimal.nginproj \
-  --configuration Runtime \
+  --profile Runtime \
   --output build/manual/App.NativeMinimal
 ```
 
@@ -329,10 +329,10 @@ A small `.nginproj` file looks like this:
 
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="2"
+<Project SchemaVersion="3"
          Name="MyApp"
          Type="Application"
-         DefaultConfiguration="Runtime">
+         DefaultProfile="Runtime">
   <Sources>
     <Private>
       <Root Path="src" />
@@ -342,7 +342,7 @@ A small `.nginproj` file looks like this:
   <Conditions>
     <Condition Name="LocalDebug"
                Environment="local"
-               BuildConfiguration="Debug" />
+               BuildType="Debug" />
   </Conditions>
 
   <Output Kind="Executable"
@@ -356,7 +356,7 @@ A small `.nginproj` file looks like this:
     <CompileDefinitions>
       <Definition Value="MYAPP_LOCAL_DEBUG"
                   Visibility="Private"
-                  When="LocalDebug" />
+                  Condition="LocalDebug" />
     </CompileDefinitions>
   </Build>
 
@@ -364,15 +364,15 @@ A small `.nginproj` file looks like this:
     <Environment Name="local" />
   </Environments>
 
-  <Configurations>
-    <Configuration Name="Runtime"
-                   BuildConfiguration="Debug"
+  <Profiles>
+    <Profile Name="Runtime"
+                   BuildType="Debug"
                    OperatingSystem="linux"
                    Architecture="x64"
                    Environment="local">
       <Launch Executable="MyApp" WorkingDirectory="." />
-    </Configuration>
-  </Configurations>
+    </Profile>
+  </Profiles>
 </Project>
 ```
 
@@ -383,8 +383,8 @@ This says:
 - `LocalDebug` names the local debug selection rule
 - the output is an executable
 - CMake input should be generated
-- the default configuration is `Runtime`
-- the `Runtime` configuration builds a debug Linux x64 executable
+- the default profile is `Runtime`
+- the `Runtime` profile builds a debug Linux x64 executable
 - `MYAPP_LOCAL_DEBUG` is emitted only when `LocalDebug` matches
 - local runs should launch `MyApp` from the staged folder
 
@@ -464,9 +464,9 @@ Game.Client
 Game.Server
 ```
 
-### Configuration
+### Profile
 
-A configuration is one named way to build or run the same project.
+A profile is one named way to build or run the same project.
 
 Examples:
 
@@ -480,10 +480,10 @@ Local
 Shipping
 ```
 
-Configurations are useful when the same project needs different settings for
+Profiles are useful when the same project needs different settings for
 different situations.
 
-A configuration can select things like:
+A profile can select things like:
 
 - build type
 - operating system
@@ -541,7 +541,7 @@ The examples are arranged so each one adds one idea.
    Compact hosted application with project-owned runtime metadata.
 
 4. [`Examples/App.Showcase`](Examples/App.Showcase/README.md)
-   Richer configuration overlays, optional package references, and runtime
+   Richer profile overlays, optional package references, and runtime
    module variation.
 
 5. `Examples/Game.Engine`, `Examples/Game.Client`, and `Examples/Game.Server`
@@ -556,13 +556,13 @@ See [`Examples/README.md`](Examples/README.md) for the full example map.
 ### Project commands
 
 ```text
-ngin validate [--project <file>] [--configuration <name>]
-ngin graph    [--project <file>] [--configuration <name>]
-ngin configure [--project <file>] [--configuration <name>] [--output <dir>]
-ngin build    [--project <file>] [--configuration <name>] [--output <dir>]
-ngin run      [--project <file>] [--configuration <name>] [--output <dir>] [-- <args...>]
-ngin clean    [--project <file>] [--configuration <name>] [--output <dir>]
-ngin rebuild  [--project <file>] [--configuration <name>] [--output <dir>]
+ngin validate [--project <file>] [--profile <name>]
+ngin graph    [--project <file>] [--profile <name>]
+ngin configure [--project <file>] [--profile <name>] [--output <dir>]
+ngin build    [--project <file>] [--profile <name>] [--output <dir>]
+ngin run      [--project <file>] [--profile <name>] [--output <dir>] [-- <args...>]
+ngin clean    [--project <file>] [--profile <name>] [--output <dir>]
+ngin rebuild  [--project <file>] [--profile <name>] [--output <dir>]
 ```
 
 ### Workspace commands

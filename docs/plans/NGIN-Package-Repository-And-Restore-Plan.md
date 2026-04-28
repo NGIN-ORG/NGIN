@@ -109,7 +109,7 @@ The project file would describe build ownership:
 <Project SchemaVersion="2"
          Name="NGIN.Core"
          Type="Library"
-         DefaultConfiguration="Runtime">
+         DefaultProfile="Runtime">
   <Sources>
     <Public>
       <Root Path="include" />
@@ -478,7 +478,7 @@ Initial commands:
 ngin package pack --package Packages/NGIN.Core/NGIN.Core.nginpkg --output artifacts/
 ngin package inspect artifacts/NGIN.Core.0.1.0.nginpack
 ngin package install artifacts/NGIN.Core.0.1.0.nginpack
-ngin package restore --project Examples/App.Basic/App.Basic.nginproj --configuration Runtime
+ngin package restore --project Examples/App.Basic/App.Basic.nginproj --profile Runtime
 ```
 
 Later commands:
@@ -495,7 +495,7 @@ missing:
 
 ```text
 package 'NGIN.Core' could not be resolved.
-Run 'ngin package restore --project ... --configuration ...'.
+Run 'ngin package restore --project ... --profile ...'.
 ```
 
 Automatic restore during build can be considered later, but explicit restore

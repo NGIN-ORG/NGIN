@@ -36,17 +36,17 @@ namespace NGIN::CLI
 
     [[nodiscard]] auto CleanLaunch(
         const ProjectManifest &project,
-        const ConfigurationDefinition &configuration,
+        const ProfileDefinition &profile,
         const std::optional<fs::path> &outputPath) -> DiagnosticResult<fs::path>;
 
     [[nodiscard]] auto ConfigureLaunch(
         const ProjectManifest &project,
-        const ConfigurationDefinition &configuration,
+        const ProfileDefinition &profile,
         const std::optional<fs::path> &outputPath) -> DiagnosticResult<ConfiguredBuildPaths>;
 
     [[nodiscard]] auto BuildLaunch(
         const ProjectManifest &project,
-        const ConfigurationDefinition &configuration,
+        const ProfileDefinition &profile,
         const std::optional<fs::path> &outputPath) -> DiagnosticResult<GeneratedLaunchPaths>;
 
     [[nodiscard]] auto LoadLaunchManifestSummary(const fs::path &manifestPath) -> LaunchManifestSummary;

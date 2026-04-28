@@ -106,7 +106,7 @@ struct ModuleSelection {
 
 struct ProjectReference {
   std::string path{};
-  std::optional<std::string> configuration{};
+  std::optional<std::string> profile{};
 };
 
 struct OutputDefinition {
@@ -142,41 +142,42 @@ struct EnvironmentDefinition {
   std::string name{};
   std::vector<ProjectReference> projectRefs{};
   std::vector<PackageReference> packageRefs{};
-  std::vector<std::string> configSources{};
+  std::vector<std::string> configInputs{};
   std::vector<PackageContentFile> contents{};
   std::vector<EnvironmentVariable> variables{};
   std::vector<FeatureFlag> features{};
   RuntimeDefinition runtime{};
 };
 
-struct ConfigurationDefinition {
+struct ProfileDefinition {
   std::string name{};
-  std::string buildConfiguration{"Debug"};
+  std::string buildType{"Debug"};
+  std::string platform{"linux-x64"};
   std::string operatingSystem{"linux"};
   std::string architecture{"x64"};
   bool enableReflection{false};
   std::string environmentName{};
   std::vector<ProjectReference> projectRefs{};
   std::vector<PackageReference> packageRefs{};
-  std::vector<std::string> configSources{};
+  std::vector<std::string> configInputs{};
   std::optional<LaunchDefinition> launch{};
   RuntimeDefinition runtime{};
 };
 
 struct ProjectManifest {
-  NGIN::UInt32 schemaVersion{2};
+  NGIN::UInt32 schemaVersion{3};
   std::string name{};
   std::string type{};
-  std::string defaultConfiguration{};
+  std::string defaultProfile{};
   std::vector<std::string> sourceRoots{};
   OutputDefinition output{};
   ProjectBuildDescriptor build{};
   std::vector<ProjectReference> projectRefs{};
   std::vector<PackageReference> packageRefs{};
-  std::vector<std::string> configSources{};
+  std::vector<std::string> configInputs{};
   std::vector<EnvironmentDefinition> environments{};
   RuntimeDefinition runtime{};
-  std::vector<ConfigurationDefinition> configurations{};
+  std::vector<ProfileDefinition> profiles{};
 };
 
 class ServiceCollection {
@@ -371,7 +372,7 @@ public:
 
   [[nodiscard]] virtual auto PackageName() const noexcept
       -> std::string_view = 0;
-  [[nodiscard]] virtual auto ConfigurationName() const noexcept
+  [[nodiscard]] virtual auto ProfileName() const noexcept
       -> std::string_view = 0;
 
   [[nodiscard]] virtual auto Services() noexcept -> ServiceCollection & = 0;
@@ -405,7 +406,7 @@ public:
   virtual void RequestStop(std::string reason) noexcept = 0;
   virtual auto Shutdown() noexcept -> CoreResult<void> = 0;
 
-  [[nodiscard]] virtual auto GetConfigurationName() const -> std::string = 0;
+  [[nodiscard]] virtual auto GetProfileName() const -> std::string = 0;
   [[nodiscard]] virtual auto GetStartupReport() const -> StartupReport = 0;
 
   [[nodiscard]] virtual auto GetServices() noexcept
@@ -422,7 +423,7 @@ public:
   virtual auto UseProject(ProjectManifest manifest) -> ApplicationBuilder & = 0;
   virtual auto SetApplicationName(std::string applicationName)
       -> ApplicationBuilder & = 0;
-  virtual auto SetConfiguration(std::string configurationName)
+  virtual auto SetProfile(std::string profileName)
       -> ApplicationBuilder & = 0;
   virtual auto
   UseFileSystem(NGIN::Memory::Shared<NGIN::IO::IFileSystem> fileSystem)

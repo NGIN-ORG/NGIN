@@ -17,7 +17,7 @@ import {
   getWorkingDirectoryCandidates,
   parseCliDiagnostics
 } from './core/helpers';
-import { addRootConfigSource, relativeManifestPath, removeConfigSources, renameConfigSources } from './core/projectAuthoring';
+import { addRootConfigInput, relativeManifestPath, removeConfigInputs, renameConfigInputs } from './core/projectAuthoring';
 import { createNativeDebugConfiguration, quoteShellArgument } from './core/debug';
 import { LaunchManifest, ProjectManifest } from './core/types';
 import { parseLaunchManifest, parseLocalSettingsManifest, parseProjectManifest } from './core/xml';
@@ -46,13 +46,13 @@ interface CliRunResult {
 interface NginTaskDefinition extends vscode.TaskDefinition {
   command: 'configure' | 'build' | 'clean' | 'rebuild' | 'validate' | 'graph' | 'metagen' | 'workspaceStatus' | 'workspaceDoctor';
   project?: string;
-  configuration?: string;
+  profile?: string;
   output?: string;
 }
 
 interface NginDebugConfiguration extends vscode.DebugConfiguration {
   project?: string;
-  configuration?: string;
+  profile?: string;
   cliPath?: string;
   outputDir?: string;
   programArgs?: string[];
@@ -247,7 +247,7 @@ class NginController implements vscode.Disposable {
   register(): vscode.Disposable[] {
     return [
       vscode.commands.registerCommand('ngin.selectProject', (arg) => this.runHandled(() => this.selectProjectCommand(this.asCommandTarget(arg)))),
-      vscode.commands.registerCommand('ngin.selectConfiguration', (arg) => this.runHandled(() => this.selectConfigurationCommand(this.asCommandTarget(arg)))),
+      vscode.commands.registerCommand('ngin.selectProfile', (arg) => this.runHandled(() => this.selectProfileCommand(this.asCommandTarget(arg)))),
       vscode.commands.registerCommand('ngin.configure', (arg) => this.runHandled(() => this.configureCommand(this.asCommandTarget(arg)))),
       vscode.commands.registerCommand('ngin.build', (arg) => this.runHandled(() => this.buildCommand(this.asCommandTarget(arg)))),
       vscode.commands.registerCommand('ngin.clean', (arg) => this.runHandled(() => this.cleanCommand(this.asCommandTarget(arg)))),
@@ -273,7 +273,7 @@ class NginController implements vscode.Disposable {
       vscode.commands.registerCommand('ngin.projectDelete', (arg) => this.runHandled(() => this.deleteProjectPathCommand(this.asExplorerTarget(arg)))),
       vscode.commands.registerCommand('ngin.refresh', () => this.runHandled(() => this.refreshUi())),
       vscode.commands.registerCommand('ngin.internal.pickProject', (arg) => this.runHandled(() => this.pickProjectFromStatusBar(this.asCommandTarget(arg)))),
-      vscode.commands.registerCommand('ngin.internal.pickConfiguration', (arg) => this.runHandled(() => this.pickConfigurationFromStatusBar(this.asCommandTarget(arg)))),
+      vscode.commands.registerCommand('ngin.internal.pickProfile', (arg) => this.runHandled(() => this.pickProfileFromStatusBar(this.asCommandTarget(arg)))),
       vscode.commands.registerCommand('ngin.internal.openPath', (filePath) => this.runHandled(() => this.openPathCommand(filePath))),
       vscode.commands.registerCommand('ngin.internal.revealPath', (filePath) => this.runHandled(() => this.revealPathCommand(filePath))),
       vscode.workspace.registerTextDocumentContentProvider('ngin-variables', this.variableDocumentProvider),
@@ -321,16 +321,16 @@ class NginController implements vscode.Disposable {
 
   async resolveDebugConfiguration(
     folder: vscode.WorkspaceFolder | undefined,
-    configuration: NginDebugConfiguration
+    profileConfiguration: NginDebugConfiguration
   ): Promise<vscode.DebugConfiguration | undefined> {
     const context = await this.resolveCommandContext({
       preferredUri: folder?.uri,
-      projectPath: configuration.project,
-      configurationName: configuration.configuration
+      projectPath: profileConfiguration.project,
+      profileName: profileConfiguration.profile
     }, false);
 
     if (!context) {
-      void vscode.window.showErrorMessage('Unable to resolve the NGIN project and configuration for debugging.');
+      void vscode.window.showErrorMessage('Unable to resolve the NGIN project and profile for debugging.');
       return undefined;
     }
 
@@ -341,9 +341,9 @@ class NginController implements vscode.Disposable {
     }
 
     const buildResult = await this.getLaunchBuildResult(context, {
-      cliOverride: configuration.cliPath,
-      outputDirOverride: configuration.outputDir,
-      forceBuild: configuration.preBuild === true
+      cliOverride: profileConfiguration.cliPath,
+      outputDirOverride: profileConfiguration.outputDir,
+      forceBuild: profileConfiguration.preBuild === true
     });
 
     const launchManifest = await this.readLaunchManifest(buildResult.launchManifestPath);
@@ -353,41 +353,41 @@ class NginController implements vscode.Disposable {
       platform: process.platform,
       program: launch.program,
       cwd: launch.cwd,
-      args: configuration.programArgs ?? [],
-      env: configuration.env ?? {},
+      args: profileConfiguration.programArgs ?? [],
+      env: profileConfiguration.env ?? {},
       miDebuggerPath: this.getConfiguration(context.workspace.folder).get<string>('debug.miDebuggerPath')?.trim() || undefined
     });
 
-    native.name = configuration.name ?? `NGIN: Debug ${context.project.name} [${context.configuration.name}]`;
+    native.name = profileConfiguration.name ?? `NGIN: Debug ${context.project.name} [${context.profile.name}]`;
     return native as vscode.DebugConfiguration;
   }
 
-  async provideDebugConfigurations(folder: vscode.WorkspaceFolder | undefined): Promise<vscode.DebugConfiguration[]> {
+  async provideDebugProfiles(folder: vscode.WorkspaceFolder | undefined): Promise<vscode.DebugConfiguration[]> {
     const workspaceInfo = await this.workspaceState.getWorkspaceInfo(folder?.uri);
     if (!workspaceInfo) {
       return [];
     }
 
-    const configurations: vscode.DebugConfiguration[] = [];
+    const profiles: vscode.DebugConfiguration[] = [];
     for (const project of workspaceInfo.projects) {
-      const configurationName = project.defaultConfiguration ?? project.configurations[0]?.name;
-      if (!configurationName) {
+      const profileName = project.defaultProfile ?? project.profiles[0]?.name;
+      if (!profileName) {
         continue;
       }
 
-      configurations.push({
+      profiles.push({
         type: 'ngin',
         request: 'launch',
-        name: `NGIN: Debug ${project.name} [${configurationName}]`,
+        name: `NGIN: Debug ${project.name} [${profileName}]`,
         project: project.path,
-        configuration: configurationName,
+        profile: profileName,
         preBuild: false,
         programArgs: [],
         env: {}
       });
     }
 
-    return configurations;
+    return profiles;
   }
 
   async createTask(definition: NginTaskDefinition, scope?: vscode.WorkspaceFolder): Promise<vscode.Task> {
@@ -428,14 +428,14 @@ class NginController implements vscode.Disposable {
     }
 
     const candidate = value as NginCommandTarget;
-    if (!candidate.preferredUri && !candidate.projectPath && !candidate.configurationName) {
+    if (!candidate.preferredUri && !candidate.projectPath && !candidate.profileName) {
       return undefined;
     }
 
     return {
       preferredUri: candidate.preferredUri,
       projectPath: candidate.projectPath,
-      configurationName: candidate.configurationName
+      profileName: candidate.profileName
     };
   }
 
@@ -445,14 +445,14 @@ class NginController implements vscode.Disposable {
     }
 
     const candidate = value as ProjectExplorerTarget;
-    if (!candidate.projectPath && !candidate.configurationName && !candidate.preferredUri && !candidate.fsPath) {
+    if (!candidate.projectPath && !candidate.profileName && !candidate.preferredUri && !candidate.fsPath) {
       return undefined;
     }
 
     return {
       preferredUri: candidate.preferredUri,
       projectPath: candidate.projectPath,
-      configurationName: candidate.configurationName,
+      profileName: candidate.profileName,
       fsPath: candidate.fsPath,
       role: candidate.role,
       isDirectory: candidate.isDirectory
@@ -481,7 +481,7 @@ class NginController implements vscode.Disposable {
     const context = await this.workspaceState.resolveCommandContext({
       preferredUri: target?.preferredUri,
       explicitProjectPath: target?.projectPath,
-      explicitConfiguration: target?.configurationName,
+      explicitProfile: target?.profileName,
       promptIfNeeded
     });
 
@@ -492,8 +492,8 @@ class NginController implements vscode.Disposable {
     const workspaceInfo = await this.workspaceState.getWorkspaceInfo(target?.preferredUri);
     if (!workspaceInfo) {
       void vscode.window.showErrorMessage('NGIN workspace not found. Open a folder with a .ngin workspace manifest.');
-    } else if (target?.projectPath || target?.configurationName) {
-      void vscode.window.showErrorMessage('Unable to resolve the selected NGIN project or configuration.');
+    } else if (target?.projectPath || target?.profileName) {
+      void vscode.window.showErrorMessage('Unable to resolve the selected NGIN project or profile.');
     }
 
     return undefined;
@@ -531,8 +531,8 @@ class NginController implements vscode.Disposable {
     void vscode.window.showInformationMessage(`Selected NGIN project: ${context.project.name}`);
   }
 
-  private async selectConfigurationCommand(target?: NginCommandTarget): Promise<void> {
-    if (target?.projectPath && target?.configurationName) {
+  private async selectProfileCommand(target?: NginCommandTarget): Promise<void> {
+    if (target?.projectPath && target?.profileName) {
       const context = await this.resolveCommandContext(target, false);
       if (context) {
         await this.refreshUi(target.preferredUri);
@@ -558,14 +558,14 @@ class NginController implements vscode.Disposable {
       return;
     }
 
-    const configuration = await this.workspaceState.pickConfiguration(project);
-    if (!configuration) {
+    const profile = await this.workspaceState.pickProfile(project);
+    if (!profile) {
       return;
     }
 
-    await this.workspaceState.rememberSelection({ workspace: workspaceInfo, project, configuration });
+    await this.workspaceState.rememberSelection({ workspace: workspaceInfo, project, profile });
     await this.refreshUi(target?.preferredUri);
-    void vscode.window.showInformationMessage(`Selected NGIN configuration: ${project.name} [${configuration.name}]`);
+    void vscode.window.showInformationMessage(`Selected NGIN profile: ${project.name} [${profile.name}]`);
   }
 
   private async pickProjectFromStatusBar(target?: NginCommandTarget): Promise<void> {
@@ -580,37 +580,37 @@ class NginController implements vscode.Disposable {
       return;
     }
 
-    const configuration = await this.workspaceState.resolveStoredConfiguration(project)
-      ?? await this.workspaceState.promptForConfiguration(project);
-    if (!configuration) {
+    const profile = await this.workspaceState.resolveStoredProfile(project)
+      ?? await this.workspaceState.promptForProfile(project);
+    if (!profile) {
       return;
     }
 
-    const context = { workspace: workspaceInfo, project, configuration };
+    const context = { workspace: workspaceInfo, project, profile };
     await this.workspaceState.rememberSelection(context);
     await this.refreshUi(target?.preferredUri);
     void vscode.window.showInformationMessage(`Selected NGIN project: ${context.project.name}`);
   }
 
-  private async pickConfigurationFromStatusBar(target?: NginCommandTarget): Promise<void> {
+  private async pickProfileFromStatusBar(target?: NginCommandTarget): Promise<void> {
     const snapshot = await this.workspaceState.getSnapshot(target?.preferredUri);
     if (!snapshot.workspace || !snapshot.context) {
       void vscode.window.showErrorMessage('NGIN workspace not found.');
       return;
     }
 
-    const configuration = await this.workspaceState.promptForConfiguration(snapshot.context.project);
-    if (!configuration) {
+    const profile = await this.workspaceState.promptForProfile(snapshot.context.project);
+    if (!profile) {
       return;
     }
 
     await this.workspaceState.rememberSelection({
       workspace: snapshot.workspace,
       project: snapshot.context.project,
-      configuration
+      profile
     });
     await this.refreshUi(target?.preferredUri);
-    void vscode.window.showInformationMessage(`Selected NGIN configuration: ${snapshot.context.project.name} [${configuration.name}]`);
+    void vscode.window.showInformationMessage(`Selected NGIN profile: ${snapshot.context.project.name} [${profile.name}]`);
   }
 
   private async configureCommand(target?: NginCommandTarget): Promise<void> {
@@ -622,16 +622,16 @@ class NginController implements vscode.Disposable {
     const outputDir = this.workspaceState.computeOutputDirectory(context);
     const result = await this.runCli(
       context.workspace.root,
-      ['configure', '--project', context.project.path, '--configuration', context.configuration.name, '--output', outputDir],
+      ['configure', '--project', context.project.path, '--profile', context.profile.name, '--output', outputDir],
       vscode.Uri.file(context.project.path)
     );
 
     if (result.exitCode !== 0) {
-      throw new Error(`ngin configure failed for ${context.project.name} [${context.configuration.name}]`);
+      throw new Error(`ngin configure failed for ${context.project.name} [${context.profile.name}]`);
     }
 
     await this.refreshUi(context.workspace.folder?.uri);
-    void vscode.window.showInformationMessage(`Configured ${context.project.name} [${context.configuration.name}]`);
+    void vscode.window.showInformationMessage(`Configured ${context.project.name} [${context.profile.name}]`);
   }
 
   private async buildCommand(target?: NginCommandTarget): Promise<void> {
@@ -650,20 +650,20 @@ class NginController implements vscode.Disposable {
     }
 
     const outputDir = this.workspaceState.computeOutputDirectory(context);
-    const launchManifestPath = computeLaunchManifestPath(outputDir, context.project.name, context.configuration.name);
+    const launchManifestPath = computeLaunchManifestPath(outputDir, context.project.name, context.profile.name);
     const result = await this.runCli(
       context.workspace.root,
-      ['clean', '--project', context.project.path, '--configuration', context.configuration.name, '--output', outputDir],
+      ['clean', '--project', context.project.path, '--profile', context.profile.name, '--output', outputDir],
       vscode.Uri.file(context.project.path)
     );
 
     if (result.exitCode !== 0) {
-      throw new Error(`ngin clean failed for ${context.project.name} [${context.configuration.name}]`);
+      throw new Error(`ngin clean failed for ${context.project.name} [${context.profile.name}]`);
     }
 
     await this.workspaceState.clearLastLaunchManifestPath(launchManifestPath);
     await this.refreshUi(context.workspace.folder?.uri);
-    void vscode.window.showInformationMessage(`Cleaned ${context.project.name} [${context.configuration.name}]`);
+    void vscode.window.showInformationMessage(`Cleaned ${context.project.name} [${context.profile.name}]`);
   }
 
   private async rebuildCommand(target?: NginCommandTarget): Promise<void> {
@@ -683,7 +683,7 @@ class NginController implements vscode.Disposable {
 
     const result = await this.runCli(
       context.workspace.root,
-      ['validate', '--project', context.project.path, '--configuration', context.configuration.name],
+      ['validate', '--project', context.project.path, '--profile', context.profile.name],
       vscode.Uri.file(context.project.path)
     );
 
@@ -691,12 +691,12 @@ class NginController implements vscode.Disposable {
       if (options?.silent) {
         return;
       }
-      throw new Error(`ngin validate failed for ${context.project.name} [${context.configuration.name}]`);
+      throw new Error(`ngin validate failed for ${context.project.name} [${context.profile.name}]`);
     }
 
     await this.warnIfLocalSettingsNotIgnored(context);
     if (!options?.silent) {
-      void vscode.window.showInformationMessage(`Validated ${context.project.name} [${context.configuration.name}]`);
+      void vscode.window.showInformationMessage(`Validated ${context.project.name} [${context.profile.name}]`);
     }
   }
 
@@ -708,12 +708,12 @@ class NginController implements vscode.Disposable {
 
     const result = await this.runCli(
       context.workspace.root,
-      ['graph', '--project', context.project.path, '--configuration', context.configuration.name],
+      ['graph', '--project', context.project.path, '--profile', context.profile.name],
       vscode.Uri.file(context.project.path)
     );
 
     if (result.exitCode !== 0) {
-      throw new Error(`ngin graph failed for ${context.project.name} [${context.configuration.name}]`);
+      throw new Error(`ngin graph failed for ${context.project.name} [${context.profile.name}]`);
     }
   }
 
@@ -725,16 +725,16 @@ class NginController implements vscode.Disposable {
 
     const result = await this.runCli(
       context.workspace.root,
-      ['variables', 'explain', '--project', context.project.path, '--configuration', context.configuration.name],
+      ['variables', 'explain', '--project', context.project.path, '--profile', context.profile.name],
       vscode.Uri.file(context.project.path)
     );
 
     if (result.exitCode !== 0) {
-      throw new Error(`ngin variables explain failed for ${context.project.name} [${context.configuration.name}]`);
+      throw new Error(`ngin variables explain failed for ${context.project.name} [${context.profile.name}]`);
     }
 
     await this.openVirtualVariablesDocument(
-      `NGIN Variables - ${context.project.name} [${context.configuration.name}]`,
+      `NGIN Variables - ${context.project.name} [${context.profile.name}]`,
       result.output
     );
     await this.warnIfLocalSettingsNotIgnored(context);
@@ -772,18 +772,18 @@ class NginController implements vscode.Disposable {
 
     const result = await this.runCli(
       context.workspace.root,
-      ['metagen', '--project', context.project.path, '--configuration', context.configuration.name],
+      ['metagen', '--project', context.project.path, '--profile', context.profile.name],
       vscode.Uri.file(context.project.path)
     );
 
     if (result.exitCode !== 0) {
-      throw new Error(`ngin metagen failed for ${context.project.name} [${context.configuration.name}]`);
+      throw new Error(`ngin metagen failed for ${context.project.name} [${context.profile.name}]`);
     }
 
     const generatedPath = this.extractGeneratedPath(result.output);
     if (generatedPath) {
       void vscode.window.showInformationMessage(
-        `Generated metadata for ${context.project.name} [${context.configuration.name}]`,
+        `Generated metadata for ${context.project.name} [${context.profile.name}]`,
         'Open Generated File'
       ).then((choice) => {
         if (choice === 'Open Generated File') {
@@ -793,7 +793,7 @@ class NginController implements vscode.Disposable {
       return;
     }
 
-    void vscode.window.showInformationMessage(`Generated metadata for ${context.project.name} [${context.configuration.name}]`);
+    void vscode.window.showInformationMessage(`Generated metadata for ${context.project.name} [${context.profile.name}]`);
   }
 
   private async workspaceCommand(subcommand: 'status' | 'doctor'): Promise<void> {
@@ -840,18 +840,18 @@ class NginController implements vscode.Disposable {
       return;
     }
 
-    const configuration: NginDebugConfiguration = {
+    const debugConfiguration: NginDebugConfiguration = {
       type: 'ngin',
       request: 'launch',
-      name: `NGIN: Debug ${context.project.name} [${context.configuration.name}]`,
+      name: `NGIN: Debug ${context.project.name} [${context.profile.name}]`,
       project: context.project.path,
-      configuration: context.configuration.name,
+      profile: context.profile.name,
       preBuild: false,
       programArgs: [],
       env: {}
     };
 
-    await vscode.debug.startDebugging(context.workspace.folder, configuration);
+    await vscode.debug.startDebugging(context.workspace.folder, debugConfiguration);
   }
 
   private async openPathCommand(filePath: unknown): Promise<void> {
@@ -979,7 +979,7 @@ class NginController implements vscode.Disposable {
     await vscode.workspace.fs.writeFile(vscode.Uri.file(filePath), Buffer.from('', 'utf8'));
 
     if (kind === 'config') {
-      await this.addConfigSourceToProjectManifest(resolved.project.path, resolved.project.directory, filePath);
+      await this.addConfigInputToProjectManifest(resolved.project.path, resolved.project.directory, filePath);
     }
 
     await this.refreshUi(resolved.workspace.folder?.uri);
@@ -1091,7 +1091,7 @@ class NginController implements vscode.Disposable {
 
     await vscode.workspace.fs.rename(vscode.Uri.file(resolved.fsPath), vscode.Uri.file(destination), { overwrite: false });
     if (resolved.role === 'config') {
-      await this.renameConfigSourcePaths(resolved.project.path, resolved.project.directory, resolved.fsPath, destination, resolved.isDirectory);
+      await this.renameConfigInputPaths(resolved.project.path, resolved.project.directory, resolved.fsPath, destination, resolved.isDirectory);
     }
     await this.refreshUi(resolved.workspace.folder?.uri);
   }
@@ -1113,7 +1113,7 @@ class NginController implements vscode.Disposable {
 
     await vscode.workspace.fs.delete(vscode.Uri.file(resolved.fsPath), { recursive: resolved.isDirectory, useTrash: true });
     if (resolved.role === 'config') {
-      await this.removeConfigSourcePaths(resolved.project.path, resolved.project.directory, resolved.fsPath, resolved.isDirectory);
+      await this.removeConfigInputPaths(resolved.project.path, resolved.project.directory, resolved.fsPath, resolved.isDirectory);
     }
     await this.refreshUi(resolved.workspace.folder?.uri);
   }
@@ -1131,9 +1131,9 @@ class NginController implements vscode.Disposable {
     await vscode.workspace.fs.copy(vscode.Uri.file(resolved.fsPath), vscode.Uri.file(destination), { overwrite: false });
     if (resolved.role === 'config') {
       if (resolved.isDirectory) {
-        await this.duplicateConfigSourceFolderPaths(resolved.project.path, resolved.project.directory, resolved.fsPath, destination);
+        await this.duplicateConfigInputFolderPaths(resolved.project.path, resolved.project.directory, resolved.fsPath, destination);
       } else {
-        await this.addConfigSourceToProjectManifest(resolved.project.path, resolved.project.directory, destination);
+        await this.addConfigInputToProjectManifest(resolved.project.path, resolved.project.directory, destination);
       }
     }
     await this.refreshUi(resolved.workspace.folder?.uri);
@@ -1229,12 +1229,12 @@ class NginController implements vscode.Disposable {
     }
 
     const configDirs = Array.from(new Set([
-      ...project.configSources,
-      ...project.configurations.flatMap((configuration) => configuration.configSources)
+      ...project.configInputs,
+      ...project.profiles.flatMap((profile) => profile.configInputs)
     ].map((source) => path.dirname(source) === '.' ? project.directory : path.resolve(project.directory, path.dirname(source)))));
 
     if (configDirs.length === 0) {
-      void vscode.window.showErrorMessage('This project has no existing config-source directories.');
+      void vscode.window.showErrorMessage('This project has no existing config input directories.');
       return undefined;
     }
 
@@ -1261,18 +1261,18 @@ class NginController implements vscode.Disposable {
     return picked?.directory;
   }
 
-  private async addConfigSourceToProjectManifest(projectPath: string, projectDirectory: string, filePath: string): Promise<void> {
+  private async addConfigInputToProjectManifest(projectPath: string, projectDirectory: string, filePath: string): Promise<void> {
     const manifestXml = await readTextFile(projectPath);
-    const result = addRootConfigSource(manifestXml, relativeManifestPath(projectDirectory, filePath));
+    const result = addRootConfigInput(manifestXml, relativeManifestPath(projectDirectory, filePath));
     if (!result.changed) {
       return;
     }
     await vscode.workspace.fs.writeFile(vscode.Uri.file(projectPath), Buffer.from(result.xml, 'utf8'));
   }
 
-  private async renameConfigSourcePaths(projectPath: string, projectDirectory: string, fromPath: string, toPath: string, includeChildren: boolean): Promise<void> {
+  private async renameConfigInputPaths(projectPath: string, projectDirectory: string, fromPath: string, toPath: string, includeChildren: boolean): Promise<void> {
     const manifestXml = await readTextFile(projectPath);
-    const result = renameConfigSources(
+    const result = renameConfigInputs(
       manifestXml,
       relativeManifestPath(projectDirectory, fromPath),
       relativeManifestPath(projectDirectory, toPath),
@@ -1284,18 +1284,18 @@ class NginController implements vscode.Disposable {
     await vscode.workspace.fs.writeFile(vscode.Uri.file(projectPath), Buffer.from(result.xml, 'utf8'));
   }
 
-  private async removeConfigSourcePaths(projectPath: string, projectDirectory: string, sourcePath: string, includeChildren: boolean): Promise<void> {
+  private async removeConfigInputPaths(projectPath: string, projectDirectory: string, sourcePath: string, includeChildren: boolean): Promise<void> {
     const manifestXml = await readTextFile(projectPath);
-    const result = removeConfigSources(manifestXml, relativeManifestPath(projectDirectory, sourcePath), includeChildren);
+    const result = removeConfigInputs(manifestXml, relativeManifestPath(projectDirectory, sourcePath), includeChildren);
     if (!result.changed) {
       return;
     }
     await vscode.workspace.fs.writeFile(vscode.Uri.file(projectPath), Buffer.from(result.xml, 'utf8'));
   }
 
-  private async duplicateConfigSourceFolderPaths(projectPath: string, projectDirectory: string, fromPath: string, toPath: string): Promise<void> {
+  private async duplicateConfigInputFolderPaths(projectPath: string, projectDirectory: string, fromPath: string, toPath: string): Promise<void> {
     const manifestXml = await readTextFile(projectPath);
-    const renamed = renameConfigSources(
+    const renamed = renameConfigInputs(
       manifestXml,
       relativeManifestPath(projectDirectory, fromPath),
       relativeManifestPath(projectDirectory, toPath),
@@ -1306,11 +1306,11 @@ class NginController implements vscode.Disposable {
     }
 
     let nextXml = manifestXml;
-    const configPattern = /<Config\b[^>]*\bSource=(["'])(.*?)\1[^>]*\/?>/g;
+    const configPattern = /<Config\b[^>]*\bPath=(["'])(.*?)\1[^>]*\/?>/g;
     for (const match of renamed.xml.matchAll(configPattern)) {
       const source = match[2];
       if (source.startsWith(`${relativeManifestPath(projectDirectory, toPath)}/`)) {
-        nextXml = addRootConfigSource(nextXml, source).xml;
+        nextXml = addRootConfigInput(nextXml, source).xml;
       }
     }
     await vscode.workspace.fs.writeFile(vscode.Uri.file(projectPath), Buffer.from(nextXml, 'utf8'));
@@ -1351,8 +1351,8 @@ class NginController implements vscode.Disposable {
       options?.command ?? 'build',
       '--project',
       context.project.path,
-      '--configuration',
-      context.configuration.name,
+      '--profile',
+      context.profile.name,
       '--output',
       outputDir
     ];
@@ -1365,10 +1365,10 @@ class NginController implements vscode.Disposable {
     );
 
     if (result.exitCode !== 0) {
-      throw new Error(`ngin ${options?.command ?? 'build'} failed for ${context.project.name} [${context.configuration.name}]`);
+      throw new Error(`ngin ${options?.command ?? 'build'} failed for ${context.project.name} [${context.profile.name}]`);
     }
 
-    const launchManifestPath = computeLaunchManifestPath(outputDir, context.project.name, context.configuration.name);
+    const launchManifestPath = computeLaunchManifestPath(outputDir, context.project.name, context.profile.name);
     if (!(await pathExists(launchManifestPath))) {
       throw new Error(`Expected launch manifest was not produced: ${launchManifestPath}`);
     }
@@ -1385,7 +1385,7 @@ class NginController implements vscode.Disposable {
     options?: { cliOverride?: string; outputDirOverride?: string; forceBuild?: boolean }
   ): Promise<BuildResult> {
     const outputDir = this.workspaceState.computeOutputDirectory(context, options?.outputDirOverride);
-    const launchManifestPath = computeLaunchManifestPath(outputDir, context.project.name, context.configuration.name);
+    const launchManifestPath = computeLaunchManifestPath(outputDir, context.project.name, context.profile.name);
 
     if (!options?.forceBuild && await pathExists(launchManifestPath)) {
       try {
@@ -1600,9 +1600,9 @@ class NginController implements vscode.Disposable {
     const resolvedProject = definition.project && workspaceInfo
       ? workspaceInfo.projects.find((project) => comparablePath(project.path) === comparablePath(definition.project))
       : undefined;
-    const configuration = definition.configuration || resolvedProject?.defaultConfiguration;
-    if (configuration) {
-      args.push('--configuration', configuration);
+    const profile = definition.profile || resolvedProject?.defaultProfile;
+    if (profile) {
+      args.push('--profile', profile);
     }
 
     if ((definition.command === 'configure' || definition.command === 'build' || definition.command === 'clean' || definition.command === 'rebuild') && definition.output) {
@@ -1621,8 +1621,8 @@ class NginController implements vscode.Disposable {
     }
 
     const command = definition.command.charAt(0).toUpperCase() + definition.command.slice(1);
-    if (definition.project && definition.configuration) {
-      return `NGIN: ${command} ${path.basename(definition.project, path.extname(definition.project))} [${definition.configuration}]`;
+    if (definition.project && definition.profile) {
+      return `NGIN: ${command} ${path.basename(definition.project, path.extname(definition.project))} [${definition.profile}]`;
     }
     return `NGIN: ${command}`;
   }
@@ -1640,55 +1640,55 @@ class NginTaskProvider implements vscode.TaskProvider {
       const configuredOutputRoot = this.controller.getConfiguredBuildOutputRoot(scopedFolder);
       const outputDir = configuredOutputRoot
         ? path.isAbsolute(configuredOutputRoot)
-          ? path.join(configuredOutputRoot, context.project.name, context.configuration.name)
-          : path.join(context.workspace.root, configuredOutputRoot, context.project.name, context.configuration.name)
+          ? path.join(configuredOutputRoot, context.project.name, context.profile.name)
+          : path.join(context.workspace.root, configuredOutputRoot, context.project.name, context.profile.name)
         : undefined;
 
       tasks.push(await this.controller.createTask({
         type: 'ngin',
         command: 'configure',
         project: context.project.path,
-        configuration: context.configuration.name,
+        profile: context.profile.name,
         output: outputDir
       }, scopedFolder));
       tasks.push(await this.controller.createTask({
         type: 'ngin',
         command: 'build',
         project: context.project.path,
-        configuration: context.configuration.name,
+        profile: context.profile.name,
         output: outputDir
       }, scopedFolder));
       tasks.push(await this.controller.createTask({
         type: 'ngin',
         command: 'rebuild',
         project: context.project.path,
-        configuration: context.configuration.name,
+        profile: context.profile.name,
         output: outputDir
       }, scopedFolder));
       tasks.push(await this.controller.createTask({
         type: 'ngin',
         command: 'clean',
         project: context.project.path,
-        configuration: context.configuration.name,
+        profile: context.profile.name,
         output: outputDir
       }, scopedFolder));
       tasks.push(await this.controller.createTask({
         type: 'ngin',
         command: 'validate',
         project: context.project.path,
-        configuration: context.configuration.name
+        profile: context.profile.name
       }, scopedFolder));
       tasks.push(await this.controller.createTask({
         type: 'ngin',
         command: 'graph',
         project: context.project.path,
-        configuration: context.configuration.name
+        profile: context.profile.name
       }, scopedFolder));
       tasks.push(await this.controller.createTask({
         type: 'ngin',
         command: 'metagen',
         project: context.project.path,
-        configuration: context.configuration.name
+        profile: context.profile.name
       }, scopedFolder));
     }
 
@@ -1704,8 +1704,8 @@ class NginTaskProvider implements vscode.TaskProvider {
 class NginDebugConfigurationProvider implements vscode.DebugConfigurationProvider {
   constructor(private readonly controller: NginController) {}
 
-  async provideDebugConfigurations(folder: vscode.WorkspaceFolder | undefined): Promise<vscode.DebugConfiguration[]> {
-    return this.controller.provideDebugConfigurations(folder);
+  async provideDebugProfiles(folder: vscode.WorkspaceFolder | undefined): Promise<vscode.DebugConfiguration[]> {
+    return this.controller.provideDebugProfiles(folder);
   }
 
   async resolveDebugConfiguration(

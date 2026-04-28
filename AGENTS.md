@@ -112,8 +112,8 @@ ctest --test-dir build/ngin-core-ci --output-on-failure -C Release
 Smoke-test the example project:
 
 ```bash
-./build/dev/Tools/NGIN.CLI/ngin validate --project Examples/App.Basic/App.Basic.nginproj --configuration Runtime
-./build/dev/Tools/NGIN.CLI/ngin build --project Examples/App.Basic/App.Basic.nginproj --configuration Runtime --output build/manual/App.Basic
+./build/dev/Tools/NGIN.CLI/ngin validate --project Examples/App.Basic/App.Basic.nginproj --profile Runtime
+./build/dev/Tools/NGIN.CLI/ngin build --project Examples/App.Basic/App.Basic.nginproj --profile Runtime --output build/manual/App.Basic
 ```
 
 ## Working Rules

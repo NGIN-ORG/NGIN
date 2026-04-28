@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="2"
+<Project SchemaVersion="3"
          Name="Game.Engine"
-         Type="Library"
-         DefaultConfiguration="Debug">
+         Template="Library"
+         DefaultProfile="Debug">
   <Sources>
     <Private>
       <Root Path="src" />
@@ -15,16 +15,14 @@
     <Environment Name="development" />
     <Environment Name="production" />
   </Environments>
-  <Configurations>
-    <Configuration Name="Debug"
-                   BuildConfiguration="Debug"
-                   OperatingSystem="linux"
-                   Architecture="x64"
+  <Profiles>
+    <Profile Name="Debug"
+                   BuildType="Debug"
+                   Platform="linux-x64"
                    Environment="development" />
-    <Configuration Name="Release"
-                   BuildConfiguration="Release"
-                   OperatingSystem="linux"
-                   Architecture="x64"
+    <Profile Name="Release"
+                   BuildType="Release"
+                   Platform="linux-x64"
                    Environment="production" />
-  </Configurations>
+  </Profiles>
 </Project>

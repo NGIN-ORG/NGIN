@@ -9,15 +9,15 @@ cli="$repo_root/build/dev/Tools/NGIN.CLI/ngin"
 smoke_project() {
   local project="$1"
   local output="$2"
-  "$cli" validate --project "$project" --configuration Runtime
-  "$cli" build --project "$project" --configuration Runtime --output "$output"
+  "$cli" validate --project "$project" --profile Runtime
+  "$cli" build --project "$project" --profile Runtime --output "$output"
 }
 
 smoke_run_project() {
   local project="$1"
   local output="$2"
   smoke_project "$project" "$output"
-  "$cli" run --project "$project" --configuration Runtime --output "$output"
+  "$cli" run --project "$project" --profile Runtime --output "$output"
 }
 
 case "$target" in

@@ -5,39 +5,40 @@ Last updated: 2026-04-28
 
 ## Purpose
 
-This spec defines the active V2 `.nginproj` contract.
+This spec defines the active V3 `.nginproj` contract.
 
 ## File Contract
 
 - filename: `<ProjectName>.nginproj`
 - root element: `<Project>`
 - required root attributes:
-  - `SchemaVersion="2"`
+  - `SchemaVersion="3"`
   - `Name`
+- optional root attributes:
+  - `Template`
   - `Type`
-  - `DefaultConfiguration`
+  - `DefaultProfile`
 
 ## Root Surface
 
 Supported root sections:
 
 - `Sources`
-- `SourceRoots`
 - `Conditions`
+- `Defaults`
+- `Platforms`
 - `Output`
 - `Build`
 - `References`
-- `ConfigSources`
+- `Inputs`
 - `LocalSettings`
 - `Runtime`
 - `Environments`
-- `Configurations`
+- `Profiles`
 
 `Runtime` is optional advanced metadata. It is not required for normal application authoring.
 
-`Sources` is the preferred source declaration surface for generated-mode projects.
-`SourceRoots` remains valid as the legacy-compatible surface. A project may not
-declare both `Sources` and `SourceRoots`.
+`Sources` is the source declaration surface for generated-mode projects.
 
 ## Sources
 
@@ -72,20 +73,21 @@ path before target emission.
 
 Source roots and files may use typed selectors:
 
-- `Configuration`
+- `Profile`
+- `Platform`
 - `OperatingSystem`
 - `Architecture`
-- `BuildConfiguration`
+- `BuildType`
 - `Environment`
 
-An entry with no selector attributes and no `When` applies to all
-configurations. An entry with one or more selectors applies only when every
-provided selector exactly matches the selected configuration.
+An entry with no selector attributes and no `Condition` applies to all
+profiles. An entry with one or more selectors applies only when every
+provided selector exactly matches the selected profile.
 When a non-selected typed root or file is nested under a broader selected root,
 the non-selected path is excluded from generated source scanning.
 
-Source entries may also use `When` to reference a named condition declared in
-the project-local `Conditions` section. Direct selectors and `When` may be
+Source entries may also use `Condition` to reference a named condition declared in
+the project-local `Conditions` section. Direct selectors and `Condition` may be
 combined on the same entry and are evaluated as implicit AND.
 
 `Root` may constrain recursive discovery with `Include` and `Exclude` glob
@@ -103,25 +105,14 @@ files matching at least one include pattern, then remove files matching
           Include="**/*.cpp;**/*.hpp"
           Exclude="**/*.generated.cpp" />
     <Root Path="src/linux" OperatingSystem="linux" />
-    <File Path="src/debug_tools.cpp" BuildConfiguration="Debug" />
-    <Files BuildConfiguration="Debug">
+    <File Path="src/debug_tools.cpp" BuildType="Debug" />
+    <Files BuildType="Debug">
       src/debug_overlay.cpp
       src/debug_trace.cpp
     </Files>
   </Private>
 </Sources>
 ```
-
-`SourceRoots` remains supported for older manifests:
-
-```xml
-<SourceRoots>
-  <SourceRoot Path="src" />
-</SourceRoots>
-```
-
-Generated CMake treats legacy `SourceRoot` entries as private source roots and
-private include directories.
 
 ## Conditions
 
@@ -147,23 +138,25 @@ Supported condition nodes:
 - `Not`
 - `ConditionRef`
 
-`Condition` may use selector attributes as shorthand for a single `Match`.
-`When` references one project-local condition name. Direct selectors and `When`
+`Condition` definitions may use selector attributes as shorthand for a single `Match`.
+Selectable entries use `Condition` to reference one project-local condition name. Direct selectors and `Condition`
 may be combined on a selectable item as implicit AND:
 
 ```xml
 <Definition Value="MYAPP_DESKTOP_DEBUG"
-            When="Desktop"
-            BuildConfiguration="Debug" />
+            Condition="Desktop"
+            BuildType="Debug" />
 ```
 
 Condition names must be unique manifest identifiers. Names that differ only by
-case are rejected. Unknown `When` and `ConditionRef` names are validation
+case are rejected. Unknown `Condition` and `ConditionRef` names are validation
 errors, and condition reference cycles are validation errors.
 
 ## Output
 
-Projects own one `Output` definition. `Type` is the authored project class and `Output Kind` is the artifact form.
+Projects may declare one `Output` definition. When omitted, NGIN infers the
+output from the project name and project template/type. `Type` is the normalized
+project class and `Output Kind` is the artifact form.
 
 ```xml
 <Output Kind="Executable|StaticLibrary|SharedLibrary"
@@ -188,7 +181,7 @@ Generated CMake projects may opt into MetaGen under `Build`.
   <CompileDefinitions>
     <Definition Value="MYAPP_DEBUG_TOOLS"
                 Visibility="Private"
-                BuildConfiguration="Debug" />
+                BuildType="Debug" />
   </CompileDefinitions>
 </Build>
 ```
@@ -216,9 +209,9 @@ properties and invalid property method signatures are rejected by MetaGen.
 
 Build settings under `IncludeDirectories`, `CompileDefinitions`,
 `CompileOptions`, and `LinkOptions` may use the same typed selector attributes
-and `When` references as `Sources` entries. Selected settings are emitted only
-when their effective condition matches the active project configuration. Build
-setting groups may also use selectors and `When`; group selection is inherited
+and `Condition` references as `Sources` entries. Selected settings are emitted only
+when their effective condition matches the active project profile. Build
+setting groups may also use selectors and `Condition`; group selection is inherited
 by child entries as implicit AND.
 
 ## References
@@ -227,46 +220,55 @@ Projects use one unified `References` surface:
 
 ```xml
 <References>
-  <Project Path="../Game.Engine/Game.Engine.nginproj" Configuration="Runtime" />
+  <Project Path="../Game.Engine/Game.Engine.nginproj" Profile="Runtime" />
   <Package Name="NGIN.Core" Version="0.1.0" Optional="false" />
 </References>
 ```
 
 Reference resolution rules:
 
-- explicit referenced project `Configuration` wins
-- otherwise try the selected root project configuration name in the referenced project
-- otherwise use the referenced project `DefaultConfiguration`
+- explicit referenced project `Profile` wins
+- otherwise try the selected root project profile name in the referenced project
+- otherwise use the referenced project `DefaultProfile`
 
-## Configurations
+## Profiles
 
-Projects declare configurations under `Configurations`.
+Projects declare profiles under `Profiles`.
 
 ```xml
-<Configurations>
-  <Configuration Name="Runtime"
-                 BuildConfiguration="Debug"
-                 OperatingSystem="linux"
-                 Architecture="x64"
-                 Environment="development">
+<Profiles>
+  <Profile Name="Runtime"
+           BuildType="Debug"
+           Platform="linux-x64"
+           Environment="development">
     <Launch Executable="MyApp" WorkingDirectory="." />
-  </Configuration>
-</Configurations>
+  </Profile>
+  <Profile Name="Shipping"
+           Extends="Runtime"
+           BuildType="Release" />
+</Profiles>
 ```
 
-Supported configuration attributes:
+Supported profile attributes:
 
 - `Name` required
-- `BuildConfiguration` optional
+- `Extends` optional
+- `BuildType` optional
+- `Platform` optional
 - `OperatingSystem` optional
 - `Architecture` optional
 - `Environment` required
 - `EnableReflection` optional
 
-Supported configuration child sections:
+`Extends` copies an earlier profile's resolved scalar settings and authored
+profile contributions. The extending profile may override scalar attributes and
+append child-section contributions. Forward references and cycles are rejected
+by requiring the base profile to appear first.
+
+Supported profile child sections:
 
 - `References`
-- `ConfigSources`
+- `Inputs`
 - `Launch`
 - `Runtime`
 
@@ -279,7 +281,7 @@ Projects may define named environment layers under `Environments`.
 Each environment may contribute:
 
 - `References`
-- `ConfigSources`
+- `Inputs`
 - `Variables`
 - `Features`
 - `Contents`
@@ -356,10 +358,9 @@ Project variable names and local setting keys are separate namespaces.
 
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="2"
+<Project SchemaVersion="3"
          Name="App.Basic"
-         Type="Application"
-         DefaultConfiguration="Runtime">
+         DefaultProfile="Runtime">
   <Sources>
     <Private>
       <Root Path="src" />
@@ -372,14 +373,13 @@ Project variable names and local setting keys are separate namespaces.
   <Environments>
     <Environment Name="development" />
   </Environments>
-  <Configurations>
-    <Configuration Name="Runtime"
-                   BuildConfiguration="Debug"
-                   OperatingSystem="linux"
-                   Architecture="x64"
+  <Profiles>
+    <Profile Name="Runtime"
+                   BuildType="Debug"
+                   Platform="linux-x64"
                    Environment="development">
       <Launch Executable="App.Basic" WorkingDirectory="." />
-    </Configuration>
-  </Configurations>
+    </Profile>
+  </Profiles>
 </Project>
 ```

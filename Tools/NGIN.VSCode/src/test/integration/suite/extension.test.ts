@@ -10,13 +10,13 @@ function repoRoot(): string {
   return folder;
 }
 
-function sampleTarget(): { preferredUri: vscode.Uri; projectPath: string; configurationName: string } {
+function sampleTarget(): { preferredUri: vscode.Uri; projectPath: string; profileName: string } {
   const root = repoRoot();
   const projectPath = path.join(root, 'Examples/App.Basic/App.Basic.nginproj');
   return {
     preferredUri: vscode.Uri.file(projectPath),
     projectPath,
-    configurationName: 'Runtime'
+    profileName: 'Runtime'
   };
 }
 
@@ -78,7 +78,7 @@ suite('NGIN Tools Extension', () => {
     await vscode.commands.executeCommand('ngin.variablesExplain', sampleTarget());
 
     const document = await waitForActiveDocument((candidate) => candidate.uri.scheme === 'ngin-variables');
-    assert.match(document.getText(), /Variables for configuration: Runtime/);
+    assert.match(document.getText(), /Variables for profile: Runtime/);
     assert.match(document.getText(), /APP_BASIC_API_TOKEN = <missing>/);
     assert.doesNotMatch(document.getText(), /local-development-token|secret-token/);
   });
@@ -106,21 +106,21 @@ suite('NGIN Tools Extension', () => {
       ].join('\n'));
       await fs.writeFile(projectPath, [
         '<?xml version="1.0" encoding="utf-8"?>',
-        '<Project SchemaVersion="2" Name="Temp.App" Type="Application" DefaultConfiguration="Runtime">',
+        '<Project SchemaVersion="3" Name="Temp.App" Type="Application" DefaultProfile="Runtime">',
         '  <Output Kind="Executable" Name="Temp.App" Target="TempApp" />',
         '  <Environments>',
         '    <Environment Name="dev" />',
         '  </Environments>',
-        '  <Configurations>',
-        '    <Configuration Name="Runtime" BuildConfiguration="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev" />',
-        '  </Configurations>',
+        '  <Profiles>',
+        '    <Profile Name="Runtime" BuildType="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev" />',
+        '  </Profiles>',
         '</Project>'
       ].join('\n'));
 
       await vscode.commands.executeCommand('ngin.settingsInit', {
         preferredUri: vscode.Uri.file(projectPath),
         projectPath,
-        configurationName: 'Runtime'
+        profileName: 'Runtime'
       });
 
       const settingsPath = path.join(tempRoot, '.ngin/local/user.nginsettings');

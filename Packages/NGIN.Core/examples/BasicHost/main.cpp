@@ -102,7 +102,7 @@ int main(int argc, char **argv) {
   builder->UseProjectFile(
       std::string(sampleDir.Join("NGIN.Core.BasicHost.nginproj").View()));
   builder->SetApplicationName("NGIN.Core.BasicHost");
-  builder->SetConfiguration("Samples.BasicHost");
+  builder->SetProfile("Samples.BasicHost");
   builder->Services().AddDefaults().AddConfiguration().AddSingletonValue<std::string>(
       "App.Message", "builder-ready");
   builder->Modules()

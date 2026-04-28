@@ -106,8 +106,8 @@
         "category": "NGIN"
       },
       {
-        "command": "ngin.selectConfiguration",
-        "title": "Select Configuration",
+        "command": "ngin.selectProfile",
+        "title": "Select Profile",
         "category": "NGIN"
       },
       {
@@ -271,57 +271,57 @@
         },
         {
           "command": "ngin.build",
-          "when": "view == nginProjects && viewItem =~ /^(nginProject|nginConfiguration)$/",
+          "when": "view == nginProjects && viewItem =~ /^(nginProject|nginProfile)$/",
           "group": "ngin.actions@1"
         },
         {
           "command": "ngin.configure",
-          "when": "view == nginProjects && viewItem =~ /^(nginProject|nginConfiguration)$/",
+          "when": "view == nginProjects && viewItem =~ /^(nginProject|nginProfile)$/",
           "group": "ngin.actions@2"
         },
         {
           "command": "ngin.rebuild",
-          "when": "view == nginProjects && viewItem =~ /^(nginProject|nginConfiguration)$/",
+          "when": "view == nginProjects && viewItem =~ /^(nginProject|nginProfile)$/",
           "group": "ngin.actions@3"
         },
         {
           "command": "ngin.run",
-          "when": "view == nginProjects && viewItem =~ /^(nginProject|nginConfiguration)$/",
+          "when": "view == nginProjects && viewItem =~ /^(nginProject|nginProfile)$/",
           "group": "ngin.actions@4"
         },
         {
           "command": "ngin.debug",
-          "when": "view == nginProjects && viewItem =~ /^(nginProject|nginConfiguration)$/",
+          "when": "view == nginProjects && viewItem =~ /^(nginProject|nginProfile)$/",
           "group": "ngin.actions@5"
         },
         {
           "command": "ngin.validate",
-          "when": "view == nginProjects && viewItem =~ /^(nginProject|nginConfiguration)$/",
+          "when": "view == nginProjects && viewItem =~ /^(nginProject|nginProfile)$/",
           "group": "ngin.inspect@1"
         },
         {
           "command": "ngin.graph",
-          "when": "view == nginProjects && viewItem =~ /^(nginProject|nginConfiguration)$/",
+          "when": "view == nginProjects && viewItem =~ /^(nginProject|nginProfile)$/",
           "group": "ngin.inspect@2"
         },
         {
           "command": "ngin.variablesExplain",
-          "when": "view == nginProjects && viewItem =~ /^(nginProject|nginConfiguration)$/",
+          "when": "view == nginProjects && viewItem =~ /^(nginProject|nginProfile)$/",
           "group": "ngin.inspect@3"
         },
         {
           "command": "ngin.settingsInit",
-          "when": "view == nginProjects && viewItem =~ /^(nginProject|nginConfiguration)$/",
+          "when": "view == nginProjects && viewItem =~ /^(nginProject|nginProfile)$/",
           "group": "ngin.inspect@4"
         },
         {
           "command": "ngin.metagen",
-          "when": "view == nginProjects && viewItem =~ /^(nginProject|nginConfiguration)$/",
+          "when": "view == nginProjects && viewItem =~ /^(nginProject|nginProfile)$/",
           "group": "ngin.inspect@5"
         },
         {
           "command": "ngin.clean",
-          "when": "view == nginProjects && viewItem =~ /^(nginProject|nginConfiguration)$/",
+          "when": "view == nginProjects && viewItem =~ /^(nginProject|nginProfile)$/",
           "group": "ngin.inspect@6"
         },
         {
@@ -372,7 +372,7 @@
         "ngin.build.outputRoot": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Optional staged output root. When set, build output is written to `<outputRoot>/<project>/<configuration>`."
+          "markdownDescription": "Optional staged output root. When set, build output is written to `<outputRoot>/<project>/<profile>`."
         },
         "ngin.validate.onSave": {
           "type": "boolean",
@@ -402,7 +402,7 @@
         "ngin.ui.statusBar.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Show the NGIN workspace, project, configuration, build, run, and debug items in the bottom status bar."
+          "description": "Show the NGIN workspace, project, profile, build, run, and debug items in the bottom status bar."
         }
       }
     },
@@ -429,7 +429,7 @@
           "project": {
             "type": "string"
           },
-          "configuration": {
+          "profile": {
             "type": "string"
           },
           "output": {
@@ -459,16 +459,16 @@
           "launch": {
             "required": [
               "project",
-              "configuration"
+              "profile"
             ],
             "properties": {
               "project": {
                 "type": "string",
                 "description": "Path to the .nginproj file."
               },
-              "configuration": {
+              "profile": {
                 "type": "string",
-                "description": "Project configuration to build and debug."
+                "description": "Project profile to build and debug."
               },
               "cliPath": {
                 "type": "string",
@@ -503,7 +503,7 @@
             "request": "launch",
             "name": "NGIN: Debug App.Basic [Runtime]",
             "project": "Examples/App.Basic/App.Basic.nginproj",
-            "configuration": "Runtime",
+            "profile": "Runtime",
             "preBuild": false,
             "programArgs": [],
             "env": {}

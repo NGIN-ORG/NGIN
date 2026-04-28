@@ -18,7 +18,7 @@ The design ambition is solid: a modular kernel with DI, events, tasks, config la
 **Problem:** `Application.cpp` is a monolith containing: XML manifest parsing for projects, packages, modules, configurations, build descriptors; the builder implementation; the host implementation; and all the bootstrap/registrar machinery. This is the single biggest maintainability problem.
 
 **Suggestion:** Split into:
-- `ManifestParsing.cpp` / `ManifestParsing.hpp` (internal) — all the `ParseProjectManifest`, `ParsePackageManifest`, `ParseModuleDescriptor`, `ParseConfigurationDefinition` functions
+- `ManifestParsing.cpp` / `ManifestParsing.hpp` (internal) — all the `ParseProjectManifest`, `ParsePackageManifest`, `ParseModuleDescriptor`, `ParseProfileDefinition` functions
 - `ApplicationBuilder.cpp` — the builder implementation only
 - `ApplicationHost.cpp` — the host implementation only
 
@@ -26,11 +26,11 @@ This also makes it testable in isolation. Right now you can't test manifest pars
 
 ---
 
-### 2. Eliminate the HostType / HostProfile Duplication
+### 2. Eliminate the HostType / Host category Duplication
 
-**Problem:** `Types.hpp:14` defines `HostType` (GuiApp, Game, Editor, Service, ConsoleApp, TestHost) and `Application.hpp:27` defines `HostProfile` with the exact same values. There's a `ToHostType(HostProfile)` conversion function in Application.cpp. This is confusing for users — which one do they use?
+**Problem:** `Types.hpp:14` defines `HostType` (GuiApp, Game, Editor, Service, ConsoleApp, TestHost) and `Application.hpp:27` defines `Host category` with the exact same values. There's a `ToHostType(Host category)` conversion function in Application.cpp. This is confusing for users — which one do they use?
 
-**Suggestion:** Kill `HostProfile` entirely. Use `HostType` everywhere. The kernel and the builder should speak the same vocabulary.
+**Suggestion:** Kill `Host category` entirely. Use `HostType` everywhere. The kernel and the builder should speak the same vocabulary.
 
 ---
 
@@ -82,7 +82,7 @@ This would cut Application.cpp and Kernel.cpp size by 30-40% and make the actual
 
 ### 6. Application.hpp Is a God Header — Separate Manifest Types
 
-**Problem:** `Application.hpp` defines ~30 types: `ProjectManifest`, `PackageManifest`, `ConfigurationDefinition`, `ProjectBuildDescriptor`, `BuildSetting`, `OutputDefinition`, `RuntimeDefinition`, `PackageReference`, `PluginReference`, `ModuleSelection`, `PackageBootstrapContext`, `PackageBootstrapRegistry`, `ServiceCollection`, `PackageCollection`, `ModuleCollection`, `PluginCollection`, `ConfigurationBuilder`, `IApplicationHost`, `ApplicationBuilder`, etc. This is a lot of unrelated concepts in one header.
+**Problem:** `Application.hpp` defines ~30 types: `ProjectManifest`, `PackageManifest`, `ProfileDefinition`, `ProjectBuildDescriptor`, `BuildSetting`, `OutputDefinition`, `RuntimeDefinition`, `PackageReference`, `PluginReference`, `ModuleSelection`, `PackageBootstrapContext`, `PackageBootstrapRegistry`, `ServiceCollection`, `PackageCollection`, `ModuleCollection`, `PluginCollection`, `ConfigurationBuilder`, `IApplicationHost`, `ApplicationBuilder`, etc. This is a lot of unrelated concepts in one header.
 
 **Suggestion:** Split into:
 - `Manifests.hpp` — `ProjectManifest`, `PackageManifest`, and all their sub-types
@@ -202,5 +202,5 @@ If picking the top 5 most impactful changes:
 1. **Error propagation macro/monadic helpers** (#5) — Immediately makes all existing code 30-40% shorter and all future code easier to write
 2. **Split Application.cpp and Application.hpp** (#1, #6) — Unblocks maintainability for everything else
 3. **Typed events** (#3) — Biggest user-facing API improvement
-4. **Kill HostType/HostProfile duplication** (#2) — Quick win, removes confusion
+4. **Kill HostType/Host category duplication** (#2) — Quick win, removes confusion
 5. **Richer ModuleContext** (#7) — Makes module authoring genuinely pleasant

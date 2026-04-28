@@ -3,16 +3,16 @@ import * as vscode from 'vscode';
 import { computeCompileCommandsPath, getFallbackCompileCommandsPath } from '../core/compileCommands';
 import { computeLaunchManifestPath, computeOutputDir } from '../core/helpers';
 import { findNearestWorkspaceManifest, loadWorkspaceProjects, pathExists } from '../core/discovery';
-import { PackageCatalogEntry, ProjectConfiguration, ProjectManifest, WorkspaceManifest } from '../core/types';
+import { PackageCatalogEntry, ProjectProfile, ProjectManifest, WorkspaceManifest } from '../core/types';
 
 const LAST_PROJECT_KEY = 'ngin.lastProject';
 const LAST_LAUNCH_MANIFEST_KEY = 'ngin.lastLaunchManifest';
-const LAST_CONFIGURATION_PREFIX = 'ngin.lastConfiguration:';
+const LAST_PROFILE_PREFIX = 'ngin.lastProfile:';
 
 export interface NginCommandTarget {
   preferredUri?: vscode.Uri;
   projectPath?: string;
-  configurationName?: string;
+  profileName?: string;
 }
 
 export interface ResolvedWorkspaceInfo {
@@ -26,7 +26,7 @@ export interface ResolvedWorkspaceInfo {
 export interface ResolvedCommandContext {
   workspace: ResolvedWorkspaceInfo;
   project: ProjectManifest;
-  configuration: ProjectConfiguration;
+  profile: ProjectProfile;
 }
 
 export interface NginWorkspaceSnapshot {
@@ -48,8 +48,8 @@ function comparablePath(value: string): string {
   return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
 }
 
-function projectConfigurationKey(projectPath: string): string {
-  return `${LAST_CONFIGURATION_PREFIX}${comparablePath(projectPath)}`;
+function projectProfileKey(projectPath: string): string {
+  return `${LAST_PROFILE_PREFIX}${comparablePath(projectPath)}`;
 }
 
 export class WorkspaceStateService implements vscode.Disposable {
@@ -106,7 +106,7 @@ export class WorkspaceStateService implements vscode.Disposable {
 
   async rememberSelection(context: ResolvedCommandContext): Promise<void> {
     await this.context.workspaceState.update(LAST_PROJECT_KEY, context.project.path);
-    await this.context.workspaceState.update(projectConfigurationKey(context.project.path), context.configuration.name);
+    await this.context.workspaceState.update(projectProfileKey(context.project.path), context.profile.name);
     this.fireDidChange();
   }
 
@@ -151,7 +151,7 @@ export class WorkspaceStateService implements vscode.Disposable {
   async resolveCommandContext(options?: {
     preferredUri?: vscode.Uri;
     explicitProjectPath?: string;
-    explicitConfiguration?: string;
+    explicitProfile?: string;
     promptIfNeeded?: boolean;
   }): Promise<ResolvedCommandContext | undefined> {
     const promptIfNeeded = options?.promptIfNeeded ?? true;
@@ -165,15 +165,15 @@ export class WorkspaceStateService implements vscode.Disposable {
       return undefined;
     }
 
-    const configuration = await this.resolveConfiguration(project, options?.explicitConfiguration, promptIfNeeded);
-    if (!configuration) {
+    const profile = await this.resolveProfile(project, options?.explicitProfile, promptIfNeeded);
+    if (!profile) {
       return undefined;
     }
 
     const context: ResolvedCommandContext = {
       workspace: workspaceInfo,
       project,
-      configuration
+      profile
     };
 
     await this.rememberSelection(context);
@@ -186,10 +186,10 @@ export class WorkspaceStateService implements vscode.Disposable {
       return [];
     }
 
-    return workspaceInfo.projects.flatMap((project) => project.configurations.map((configuration) => ({
+    return workspaceInfo.projects.flatMap((project) => project.profiles.map((profile) => ({
       workspace: workspaceInfo,
       project,
-      configuration
+      profile
     })));
   }
 
@@ -200,20 +200,20 @@ export class WorkspaceStateService implements vscode.Disposable {
     return workspaceInfo.projects.find((project) => comparablePath(project.path) === comparablePath(resolvedPath));
   }
 
-  findConfiguration(project: ProjectManifest, configurationName: string): ProjectConfiguration | undefined {
-    return project.configurations.find((configuration) => configuration.name === configurationName);
+  findProfile(project: ProjectManifest, profileName: string): ProjectProfile | undefined {
+    return project.profiles.find((profile) => profile.name === profileName);
   }
 
   async pickProject(workspaceInfo: ResolvedWorkspaceInfo): Promise<ProjectManifest | undefined> {
     return this.resolveProject(workspaceInfo, undefined, undefined, true);
   }
 
-  async pickConfiguration(project: ProjectManifest): Promise<ProjectConfiguration | undefined> {
-    return this.resolveConfiguration(project, undefined, true);
+  async pickProfile(project: ProjectManifest): Promise<ProjectProfile | undefined> {
+    return this.resolveProfile(project, undefined, true);
   }
 
-  async resolveStoredConfiguration(project: ProjectManifest): Promise<ProjectConfiguration | undefined> {
-    return this.resolveConfiguration(project, undefined, false);
+  async resolveStoredProfile(project: ProjectManifest): Promise<ProjectProfile | undefined> {
+    return this.resolveProfile(project, undefined, false);
   }
 
   async promptForProject(workspaceInfo: ResolvedWorkspaceInfo): Promise<ProjectManifest | undefined> {
@@ -231,19 +231,19 @@ export class WorkspaceStateService implements vscode.Disposable {
     return picked?.project;
   }
 
-  async promptForConfiguration(project: ProjectManifest): Promise<ProjectConfiguration | undefined> {
+  async promptForProfile(project: ProjectManifest): Promise<ProjectProfile | undefined> {
     const picked = await vscode.window.showQuickPick(
-      project.configurations.map((configuration) => ({
-        label: configuration.name,
-        description: configuration.environment ?? [configuration.operatingSystem, configuration.architecture].filter(Boolean).join('/'),
-        configuration
+      project.profiles.map((profile) => ({
+        label: profile.name,
+        description: profile.environment ?? [profile.operatingSystem, profile.architecture].filter(Boolean).join('/'),
+        profile
       })),
       {
-        title: `Select configuration for ${project.name}`
+        title: `Select profile for ${project.name}`
       }
     );
 
-    return picked?.configuration;
+    return picked?.profile;
   }
 
   async getSnapshot(preferredUri?: vscode.Uri): Promise<NginWorkspaceSnapshot> {
@@ -265,14 +265,14 @@ export class WorkspaceStateService implements vscode.Disposable {
       return snapshot;
     }
 
-    const configuration = await this.resolveConfiguration(project, undefined, false);
-    if (!configuration) {
+    const profile = await this.resolveProfile(project, undefined, false);
+    if (!profile) {
       return snapshot;
     }
 
-    const context: ResolvedCommandContext = { workspace, project, configuration };
+    const context: ResolvedCommandContext = { workspace, project, profile };
     const outputDir = this.computeOutputDirectory(context);
-    const launchManifestPath = computeLaunchManifestPath(outputDir, project.name, configuration.name);
+    const launchManifestPath = computeLaunchManifestPath(outputDir, project.name, profile.name);
     const stagedCompileCommandsPath = computeCompileCommandsPath(outputDir);
     const fallbackCompileCommandsPath = getFallbackCompileCommandsPath(workspace.root);
     const stagedCompileCommandsAvailable = await pathExists(stagedCompileCommandsPath);
@@ -310,7 +310,7 @@ export class WorkspaceStateService implements vscode.Disposable {
     return computeOutputDir(
       context.workspace.root,
       context.project.name,
-      context.configuration.name,
+      context.profile.name,
       this.getConfiguredBuildOutputRoot(context.workspace.folder)
     );
   }
@@ -384,38 +384,38 @@ export class WorkspaceStateService implements vscode.Disposable {
     return this.promptForProject(workspaceInfo);
   }
 
-  private async resolveConfiguration(
+  private async resolveProfile(
     project: ProjectManifest,
-    explicitConfiguration?: string,
+    explicitProfile?: string,
     promptIfNeeded = true
-  ): Promise<ProjectConfiguration | undefined> {
-    if (explicitConfiguration) {
-      return project.configurations.find((configuration) => configuration.name === explicitConfiguration);
+  ): Promise<ProjectProfile | undefined> {
+    if (explicitProfile) {
+      return project.profiles.find((profile) => profile.name === explicitProfile);
     }
 
-    const storedConfiguration = this.context.workspaceState.get<string>(projectConfigurationKey(project.path));
-    if (storedConfiguration) {
-      const matched = project.configurations.find((configuration) => configuration.name === storedConfiguration);
+    const storedProfile = this.context.workspaceState.get<string>(projectProfileKey(project.path));
+    if (storedProfile) {
+      const matched = project.profiles.find((profile) => profile.name === storedProfile);
       if (matched) {
         return matched;
       }
     }
 
-    if (project.defaultConfiguration) {
-      const matched = project.configurations.find((configuration) => configuration.name === project.defaultConfiguration);
+    if (project.defaultProfile) {
+      const matched = project.profiles.find((profile) => profile.name === project.defaultProfile);
       if (matched) {
         return matched;
       }
     }
 
-    if (project.configurations.length === 1) {
-      return project.configurations[0];
+    if (project.profiles.length === 1) {
+      return project.profiles[0];
     }
 
     if (!promptIfNeeded) {
       return undefined;
     }
 
-    return this.promptForConfiguration(project);
+    return this.promptForProfile(project);
   }
 }

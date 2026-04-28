@@ -1,14 +1,14 @@
-if(NOT DEFINED CLI OR NOT DEFINED PROJECT OR NOT DEFINED CONFIGURATION OR NOT DEFINED OUTPUT)
-  message(FATAL_ERROR "CLI, PROJECT, CONFIGURATION, and OUTPUT must be defined")
+if(NOT DEFINED CLI OR NOT DEFINED PROJECT OR NOT DEFINED PROFILE OR NOT DEFINED OUTPUT)
+  message(FATAL_ERROR "CLI, PROJECT, PROFILE, and OUTPUT must be defined")
 endif()
 
 string(REPLACE "\"" "" CLI "${CLI}")
 string(REPLACE "\"" "" PROJECT "${PROJECT}")
-string(REPLACE "\"" "" CONFIGURATION "${CONFIGURATION}")
+string(REPLACE "\"" "" PROFILE "${PROFILE}")
 string(REPLACE "\"" "" OUTPUT "${OUTPUT}")
 
 execute_process(
-  COMMAND "${CLI}" build --project "${PROJECT}" --configuration "${CONFIGURATION}" --output "${OUTPUT}"
+  COMMAND "${CLI}" build --project "${PROJECT}" --profile "${PROFILE}" --output "${OUTPUT}"
   RESULT_VARIABLE ngin_build_result
   OUTPUT_VARIABLE ngin_build_stdout
   ERROR_VARIABLE ngin_build_stderr
@@ -18,7 +18,7 @@ if(NOT ngin_build_result EQUAL 0)
   message(FATAL_ERROR "ngin build failed\nstdout:\n${ngin_build_stdout}\nstderr:\n${ngin_build_stderr}")
 endif()
 
-set(_manifest "${OUTPUT}/ProjectRef.Config.Root.${CONFIGURATION}.nginlaunch")
+set(_manifest "${OUTPUT}/ProjectRef.Config.Root.${PROFILE}.nginlaunch")
 if(NOT EXISTS "${_manifest}")
   message(FATAL_ERROR "expected launch manifest '${_manifest}' was not produced")
 endif()
@@ -42,9 +42,9 @@ if(NOT _library_text MATCHES "library-config-from-referenced-project")
 endif()
 
 file(READ "${_manifest}" _manifest_text)
-if(NOT _manifest_text MATCHES "<Config Source=\"config/root.cfg\" Project=\"ProjectRef.Config.Root\" Destination=\"config/root.cfg\" />")
+if(NOT _manifest_text MATCHES "<Config Path=\"config/root.cfg\" Project=\"ProjectRef.Config.Root\" Destination=\"config/root.cfg\" />")
   message(FATAL_ERROR "root config metadata was not written to the launch manifest\n${_manifest_text}")
 endif()
-if(NOT _manifest_text MATCHES "<Config Source=\"config/library.cfg\" Project=\"ProjectRef.Config.Library\" Destination=\"config/library.cfg\" />")
+if(NOT _manifest_text MATCHES "<Config Path=\"config/library.cfg\" Project=\"ProjectRef.Config.Library\" Destination=\"config/library.cfg\" />")
   message(FATAL_ERROR "referenced project config metadata was not written to the launch manifest\n${_manifest_text}")
 endif()

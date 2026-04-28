@@ -4,33 +4,33 @@
 It is an editor front end over the native `ngin` CLI, not a separate project
 model or build system.
 
-Use it when you want to select projects and configurations, configure build
+Use it when you want to select projects and profiles, configure build
 metadata, build, run, debug, validate, inspect graphs, or generate metadata from
 VS Code while keeping the same behavior as the terminal commands.
 
 ## What It Provides
 
-- NGIN activity-bar views for workspace, project, and configuration navigation
-- status bar items for the selected workspace, project, and configuration
+- NGIN activity-bar views for workspace, project, and profile navigation
+- status bar items for the selected workspace, project, and profile
 - commands for configure, build, clean, rebuild, run, debug, validate, graph,
   variable explanation, local settings initialization, and MetaGen
-- generated VS Code tasks for known project/configuration pairs
+- generated VS Code tasks for known project/profile pairs
 - `.nginlaunch`-based run and debug resolution
 - a custom `ngin` debug type that launches native C/C++ debug sessions
-- C/C++ configuration-provider support for `ms-vscode.cpptools`
+- C/C++ profile-provider support for `ms-vscode.cpptools`
 - file registration and snippets for `.ngin`, `.nginproj`, `.nginpkg`,
   `.nginlaunch`, and `.nginsettings`
 
 The CLI remains the source of truth. If a command works in the terminal, the
 extension should call the same command with the selected project and
-configuration.
+profile.
 
 ## Command Mapping
 
 The extension mirrors the CLI directly:
 
 - selected project maps to `--project`
-- selected configuration maps to `--configuration`
+- selected profile maps to `--profile`
 - Configure maps to `ngin configure`
 - Build maps to `ngin build`
 - Clean maps to `ngin clean`
@@ -93,14 +93,14 @@ Typical flow:
 
 1. Open the NGIN activity-bar view.
 2. Select a project.
-3. Select a configuration.
+3. Select a profile.
 4. Run Validate, Build, Run, Debug, Graph, or Generate Metadata.
 
 The same flow is available from the command palette with commands such as:
 
 ```text
 NGIN: Select Project
-NGIN: Select Configuration
+NGIN: Select Profile
 NGIN: Build
 NGIN: Run
 NGIN: Debug
@@ -125,7 +125,7 @@ npm run test:integration
 ```
 
 For active extension development, open `Tools/NGIN.VSCode` in VS Code and launch
-the extension host target from the checked-in debugging configuration. The
+the extension host target from the checked-in debugging profile. The
 extension host opens the repository root as the test workspace and builds the
 extension before launch.
 

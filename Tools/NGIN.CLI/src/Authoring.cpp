@@ -13,13 +13,28 @@ namespace NGIN::CLI
 {
     namespace
     {
-        auto ValidateSchemaVersion(const XmlElement &node, const fs::path &path) -> void
+        [[nodiscard]] auto SchemaVersion(const XmlElement &node, const fs::path &path) -> std::string
         {
-            const auto schemaVersion = RequireAttribute(node, "SchemaVersion", path);
-            if (schemaVersion != "2")
+            return RequireAttribute(node, "SchemaVersion", path);
+        }
+
+        auto ValidateSchemaVersion(const XmlElement &node, const fs::path &path, const std::string_view expected = "2") -> void
+        {
+            const auto schemaVersion = SchemaVersion(node, path);
+            if (schemaVersion != expected)
             {
-                throw std::runtime_error(path.string() + ": unsupported SchemaVersion '" + schemaVersion + "' (expected '2')");
+                throw std::runtime_error(path.string() + ": unsupported SchemaVersion '" + schemaVersion + "' (expected '" + std::string(expected) + "')");
             }
+        }
+
+        auto ValidateProjectSchemaVersion(const XmlElement &node, const fs::path &path) -> std::string
+        {
+            const auto schemaVersion = SchemaVersion(node, path);
+            if (schemaVersion != "3")
+            {
+                throw std::runtime_error(path.string() + ": unsupported project SchemaVersion '" + schemaVersion + "' (expected '3')");
+            }
+            return schemaVersion;
         }
 
         auto ValidateLocalSettingsSchemaVersion(const XmlElement &node, const fs::path &path) -> void
@@ -53,7 +68,8 @@ namespace NGIN::CLI
 
         [[nodiscard]] auto IsSelectorAttribute(const std::string_view name) -> bool
         {
-            return name == "Configuration" || name == "OperatingSystem" || name == "Architecture" || name == "BuildConfiguration" || name == "Environment";
+            return name == "Profile" || name == "Platform" || name == "OperatingSystem" || name == "Architecture"
+                   || name == "BuildType" || name == "Environment";
         }
 
         [[nodiscard]] auto IsValidManifestIdentifier(const std::string_view value) -> bool
@@ -109,13 +125,22 @@ namespace NGIN::CLI
         [[nodiscard]] auto ParseSelectors(const XmlElement &node, const fs::path &path) -> SelectorSet
         {
             SelectorSet selectors{};
-            if (const auto value = Attribute(node, "Configuration"); value.has_value() && !value->empty())
+            const auto profileSelector = Attribute(node, "Profile").value_or("");
+            if (!profileSelector.empty())
+            {
+                if (!IsValidManifestIdentifier(profileSelector))
+                {
+                    throw std::runtime_error(path.string() + ": invalid profile selector '" + profileSelector + "'");
+                }
+                selectors.profile = profileSelector;
+            }
+            if (const auto value = Attribute(node, "Platform"); value.has_value() && !value->empty())
             {
                 if (!IsValidManifestIdentifier(*value))
                 {
-                    throw std::runtime_error(path.string() + ": invalid configuration selector '" + *value + "'");
+                    throw std::runtime_error(path.string() + ": invalid platform selector '" + *value + "'");
                 }
-                selectors.configuration = *value;
+                selectors.platform = *value;
             }
             if (const auto value = Attribute(node, "OperatingSystem"); value.has_value() && !value->empty())
             {
@@ -133,13 +158,14 @@ namespace NGIN::CLI
                 }
                 selectors.architecture = *value;
             }
-            if (const auto value = Attribute(node, "BuildConfiguration"); value.has_value() && !value->empty())
+            const auto buildTypeSelector = Attribute(node, "BuildType").value_or("");
+            if (!buildTypeSelector.empty())
             {
-                if (!IsSupportedBuildConfiguration(*value))
+                if (!IsSupportedBuildType(buildTypeSelector))
                 {
-                    throw std::runtime_error(path.string() + ": unknown build configuration '" + *value + "'");
+                    throw std::runtime_error(path.string() + ": unknown build type '" + buildTypeSelector + "'");
                 }
-                selectors.buildConfiguration = *value;
+                selectors.buildType = buildTypeSelector;
             }
             if (const auto value = Attribute(node, "Environment"); value.has_value() && !value->empty())
             {
@@ -154,13 +180,14 @@ namespace NGIN::CLI
 
         auto AddWhenSelector(const XmlElement &node, const fs::path &path, SelectorSet &selectors) -> void
         {
-            if (const auto when = Attribute(node, "When"); when.has_value() && !when->empty())
+            const auto condition = Attribute(node, "Condition").value_or("");
+            if (!condition.empty())
             {
-                if (!IsValidManifestIdentifier(*when))
+                if (!IsValidManifestIdentifier(condition))
                 {
-                    throw std::runtime_error(path.string() + ": invalid When condition name '" + *when + "'");
+                    throw std::runtime_error(path.string() + ": invalid condition name '" + condition + "'");
                 }
-                selectors.conditionRefs.push_back(*when);
+                selectors.conditionRefs.push_back(condition);
             }
         }
 
@@ -187,10 +214,11 @@ namespace NGIN::CLI
         [[nodiscard]] auto MergeSelectors(SelectorSet left, const SelectorSet &right) -> SelectorSet
         {
             left.impossible = left.impossible || right.impossible;
-            MergeStringSelector(left.configuration, right.configuration, left.impossible);
+            MergeStringSelector(left.profile, right.profile, left.impossible);
+            MergeStringSelector(left.platform, right.platform, left.impossible);
             MergeStringSelector(left.operatingSystem, right.operatingSystem, left.impossible);
             MergeStringSelector(left.architecture, right.architecture, left.impossible);
-            MergeStringSelector(left.buildConfiguration, right.buildConfiguration, left.impossible);
+            MergeStringSelector(left.buildType, right.buildType, left.impossible);
             MergeStringSelector(left.environment, right.environment, left.impossible);
             left.conditionRefs.insert(left.conditionRefs.end(), right.conditionRefs.begin(), right.conditionRefs.end());
             return left;
@@ -309,13 +337,18 @@ namespace NGIN::CLI
             return compatibility;
         }
 
-        auto ParseConfigSources(const XmlElement &parent, const fs::path &path, std::vector<std::string> &out) -> void
+        auto ParseConfigInputs(const XmlElement &parent, const fs::path &path, std::vector<std::string> &out) -> void
         {
-            if (const auto *config = FindChild(parent, "ConfigSources"))
+            if (const auto *inputs = FindChild(parent, "Inputs"))
             {
-                for (const auto *item : ChildElements(*config, "Config"))
+                for (const auto *config : ChildElements(*inputs, "Config"))
                 {
-                    out.push_back(RequireAttribute(*item, "Source", path));
+                    const auto source = Attribute(*config, "Path").value_or(Attribute(*config, "Pattern").value_or(""));
+                    if (source.empty())
+                    {
+                        throw std::runtime_error(path.string() + ": <Inputs><Config> requires Path or Pattern");
+                    }
+                    out.push_back(source);
                 }
             }
         }
@@ -658,7 +691,7 @@ namespace NGIN::CLI
             ConditionNode parsed{};
             if (node.name == "Match")
             {
-                ValidateAllowedAttributes(node, path, {"Configuration", "OperatingSystem", "Architecture", "BuildConfiguration", "Environment"});
+                ValidateAllowedAttributes(node, path, {"Profile", "Platform", "OperatingSystem", "Architecture", "BuildType", "Environment"});
                 if (!HasSelectorAttributes(node))
                 {
                     throw std::runtime_error(path.string() + ": <Match> must declare at least one selector attribute");
@@ -712,7 +745,7 @@ namespace NGIN::CLI
                 throw std::runtime_error(path.string() + ": invalid condition name '" + condition.name + "'");
             }
 
-            std::vector<std::string_view> allowedAttributes{"Name", "Configuration", "OperatingSystem", "Architecture", "BuildConfiguration", "Environment"};
+            std::vector<std::string_view> allowedAttributes{"Name", "Profile", "Platform", "OperatingSystem", "Architecture", "BuildType", "Environment"};
             ValidateAllowedAttributes(node, path, allowedAttributes);
 
             const auto hasSelectors = HasSelectorAttributes(node);
@@ -916,7 +949,7 @@ namespace NGIN::CLI
             {
                 if (!conditions.contains(conditionName))
                 {
-                    throw std::runtime_error(path.string() + ": unknown When condition '" + conditionName + "'");
+                    throw std::runtime_error(path.string() + ": unknown condition '" + conditionName + "'");
                 }
             }
         }
@@ -1004,29 +1037,33 @@ namespace NGIN::CLI
             ValidateBuildSettingConditionRefs(project.build.linkOptions, conditions, path);
         }
 
-        [[nodiscard]] auto DirectSelectorsMatch(const SelectorSet &selectors, const ConfigurationDefinition &configuration) -> bool
+        [[nodiscard]] auto DirectSelectorsMatch(const SelectorSet &selectors, const ProfileDefinition &profile) -> bool
         {
             if (selectors.impossible)
             {
                 return false;
             }
-            if (selectors.configuration.has_value() && *selectors.configuration != configuration.name)
+            if (selectors.profile.has_value() && *selectors.profile != profile.name)
             {
                 return false;
             }
-            if (selectors.operatingSystem.has_value() && *selectors.operatingSystem != configuration.operatingSystem)
+            if (selectors.platform.has_value() && *selectors.platform != profile.platform)
             {
                 return false;
             }
-            if (selectors.architecture.has_value() && *selectors.architecture != configuration.architecture)
+            if (selectors.operatingSystem.has_value() && *selectors.operatingSystem != profile.operatingSystem)
             {
                 return false;
             }
-            if (selectors.buildConfiguration.has_value() && *selectors.buildConfiguration != configuration.buildConfiguration)
+            if (selectors.architecture.has_value() && *selectors.architecture != profile.architecture)
             {
                 return false;
             }
-            if (selectors.environment.has_value() && *selectors.environment != configuration.environmentName)
+            if (selectors.buildType.has_value() && *selectors.buildType != profile.buildType)
+            {
+                return false;
+            }
+            if (selectors.environment.has_value() && *selectors.environment != profile.environmentName)
             {
                 return false;
             }
@@ -1036,13 +1073,13 @@ namespace NGIN::CLI
         [[nodiscard]] auto ConditionNodeMatches(
             const ConditionNode &node,
             const ProjectManifest &project,
-            const ConfigurationDefinition &configuration,
+            const ProfileDefinition &profile,
             const std::unordered_map<std::string, const ConditionDefinition *> &conditions) -> bool;
 
         [[nodiscard]] auto ConditionRefMatches(
             const std::string &name,
             const ProjectManifest &project,
-            const ConfigurationDefinition &configuration,
+            const ProfileDefinition &profile,
             const std::unordered_map<std::string, const ConditionDefinition *> &conditions) -> bool
         {
             const auto it = conditions.find(name);
@@ -1050,41 +1087,41 @@ namespace NGIN::CLI
             {
                 return false;
             }
-            return ConditionNodeMatches(it->second->body, project, configuration, conditions);
+            return ConditionNodeMatches(it->second->body, project, profile, conditions);
         }
 
         [[nodiscard]] auto ConditionNodeMatches(
             const ConditionNode &node,
             const ProjectManifest &project,
-            const ConfigurationDefinition &configuration,
+            const ProfileDefinition &profile,
             const std::unordered_map<std::string, const ConditionDefinition *> &conditions) -> bool
         {
             switch (node.kind)
             {
             case ConditionNode::Kind::Match:
-                return DirectSelectorsMatch(node.match, configuration);
+                return DirectSelectorsMatch(node.match, profile);
             case ConditionNode::Kind::All:
                 return std::all_of(
                     node.children.begin(),
                     node.children.end(),
                     [&](const ConditionNode &child)
-                    { return ConditionNodeMatches(child, project, configuration, conditions); });
+                    { return ConditionNodeMatches(child, project, profile, conditions); });
             case ConditionNode::Kind::Any:
                 return std::any_of(
                     node.children.begin(),
                     node.children.end(),
                     [&](const ConditionNode &child)
-                    { return ConditionNodeMatches(child, project, configuration, conditions); });
+                    { return ConditionNodeMatches(child, project, profile, conditions); });
             case ConditionNode::Kind::Not:
-                return node.children.size() == 1 && !ConditionNodeMatches(node.children.front(), project, configuration, conditions);
+                return node.children.size() == 1 && !ConditionNodeMatches(node.children.front(), project, profile, conditions);
             case ConditionNode::Kind::ConditionRef:
-                return ConditionRefMatches(node.conditionName, project, configuration, conditions);
+                return ConditionRefMatches(node.conditionName, project, profile, conditions);
             }
             return false;
         }
     }
 
-    [[nodiscard]] auto IsSupportedBuildConfiguration(std::string_view value) -> bool
+    [[nodiscard]] auto IsSupportedBuildType(std::string_view value) -> bool
     {
         return value == "Debug" || value == "Release" || value == "RelWithDebInfo" || value == "MinSizeRel";
     }
@@ -1127,9 +1164,9 @@ namespace NGIN::CLI
         return false;
     }
 
-    [[nodiscard]] auto SelectionMatches(const ProjectManifest &project, const SelectorSet &selectors, const ConfigurationDefinition &configuration) -> bool
+    [[nodiscard]] auto SelectionMatches(const ProjectManifest &project, const SelectorSet &selectors, const ProfileDefinition &profile) -> bool
     {
-        if (!DirectSelectorsMatch(selectors, configuration))
+        if (!DirectSelectorsMatch(selectors, profile))
         {
             return false;
         }
@@ -1138,7 +1175,7 @@ namespace NGIN::CLI
             selectors.conditionRefs.begin(),
             selectors.conditionRefs.end(),
             [&](const std::string &conditionName)
-            { return ConditionRefMatches(conditionName, project, configuration, conditions); });
+            { return ConditionRefMatches(conditionName, project, profile, conditions); });
     }
 
     [[nodiscard]] auto WorkspaceFilePath(const fs::path &root) -> std::optional<fs::path>
@@ -1453,6 +1490,110 @@ namespace NGIN::CLI
         return localSettings;
     }
 
+    namespace
+    {
+        struct ProjectDefaults
+        {
+            std::string buildType{"Debug"};
+            std::string platform{"linux-x64"};
+            std::string environment{};
+            std::string language{};
+            std::string languageStandard{};
+            std::string backend{};
+            std::string buildMode{};
+        };
+
+        struct PlatformDefinition
+        {
+            std::string name{};
+            std::string operatingSystem{"linux"};
+            std::string architecture{"x64"};
+        };
+
+        [[nodiscard]] auto ProjectTypeFromTemplate(const std::string &projectTemplate) -> std::string
+        {
+            if (projectTemplate == "Tool")
+            {
+                return "Tool";
+            }
+            if (projectTemplate == "Library")
+            {
+                return "Library";
+            }
+            return "Application";
+        }
+
+        [[nodiscard]] auto DefaultOutputKindForProjectType(const std::string &projectType) -> std::string
+        {
+            return projectType == "Library" ? "StaticLibrary" : "Executable";
+        }
+
+        [[nodiscard]] auto ParseProjectDefaults(const XmlElement &root, const fs::path &path) -> ProjectDefaults
+        {
+            ProjectDefaults defaults{};
+            if (const auto *defaultsElement = FindChild(root, "Defaults"))
+            {
+                defaults.buildType = Attribute(*defaultsElement, "BuildType").value_or(defaults.buildType);
+                defaults.platform = Attribute(*defaultsElement, "Platform").value_or(defaults.platform);
+                defaults.environment = Attribute(*defaultsElement, "Environment").value_or(defaults.environment);
+                defaults.language = Attribute(*defaultsElement, "Language").value_or(defaults.language);
+                defaults.languageStandard = Attribute(*defaultsElement, "LanguageStandard").value_or(defaults.languageStandard);
+                defaults.backend = Attribute(*defaultsElement, "Backend").value_or(defaults.backend);
+                defaults.buildMode = Attribute(*defaultsElement, "BuildMode").value_or(defaults.buildMode);
+                if (!IsSupportedBuildType(defaults.buildType))
+                {
+                    throw std::runtime_error(path.string() + ": unknown default build type '" + defaults.buildType + "'");
+                }
+            }
+            return defaults;
+        }
+
+        [[nodiscard]] auto ParsePlatforms(const XmlElement &root, const fs::path &path) -> std::unordered_map<std::string, PlatformDefinition>
+        {
+            std::unordered_map<std::string, PlatformDefinition> platforms{};
+            platforms.emplace("linux-x64", PlatformDefinition{.name = "linux-x64", .operatingSystem = "linux", .architecture = "x64"});
+            platforms.emplace("windows-x64", PlatformDefinition{.name = "windows-x64", .operatingSystem = "windows", .architecture = "x64"});
+            platforms.emplace("macos-x64", PlatformDefinition{.name = "macos-x64", .operatingSystem = "macos", .architecture = "x64"});
+            platforms.emplace("macos-arm64", PlatformDefinition{.name = "macos-arm64", .operatingSystem = "macos", .architecture = "arm64"});
+
+            if (const auto *platformsElement = FindChild(root, "Platforms"))
+            {
+                for (const auto *node : ChildElements(*platformsElement, "Platform"))
+                {
+                    PlatformDefinition platform{};
+                    platform.name = RequireAttribute(*node, "Name", path);
+                    platform.operatingSystem = RequireAttribute(*node, "OperatingSystem", path);
+                    platform.architecture = RequireAttribute(*node, "Architecture", path);
+                    if (!IsValidManifestIdentifier(platform.name))
+                    {
+                        throw std::runtime_error(path.string() + ": invalid platform name '" + platform.name + "'");
+                    }
+                    if (!IsValidOperatingSystem(platform.operatingSystem))
+                    {
+                        throw std::runtime_error(path.string() + ": unknown operating system '" + platform.operatingSystem + "'");
+                    }
+                    if (!IsValidArchitecture(platform.architecture))
+                    {
+                        throw std::runtime_error(path.string() + ": unknown architecture '" + platform.architecture + "'");
+                    }
+                    platforms[platform.name] = std::move(platform);
+                }
+            }
+            return platforms;
+        }
+
+        auto ApplyPlatform(ProfileDefinition &profile, const std::unordered_map<std::string, PlatformDefinition> &platforms, const fs::path &path) -> void
+        {
+            const auto it = platforms.find(profile.platform);
+            if (it == platforms.end())
+            {
+                throw std::runtime_error(path.string() + ": profile '" + profile.name + "' selects unknown platform '" + profile.platform + "'");
+            }
+            profile.operatingSystem = it->second.operatingSystem;
+            profile.architecture = it->second.architecture;
+        }
+    }
+
     [[nodiscard]] auto LoadProjectManifest(const fs::path &path) -> ProjectManifest
     {
         const auto doc = LoadXml(path);
@@ -1461,13 +1602,15 @@ namespace NGIN::CLI
         {
             throw std::runtime_error(path.string() + ": root element must be <Project>");
         }
-        ValidateSchemaVersion(*rootElement, path);
+        ValidateProjectSchemaVersion(*rootElement, path);
+        const auto defaults = ParseProjectDefaults(*rootElement, path);
+        const auto platforms = ParsePlatforms(*rootElement, path);
 
         ProjectManifest project{};
         project.path = path;
         project.name = RequireAttribute(*rootElement, "Name", path);
-        project.type = RequireAttribute(*rootElement, "Type", path);
-        project.defaultConfiguration = RequireAttribute(*rootElement, "DefaultConfiguration", path);
+        project.type = Attribute(*rootElement, "Type").value_or(ProjectTypeFromTemplate(Attribute(*rootElement, "Template").value_or("Application")));
+        project.defaultProfile = Attribute(*rootElement, "DefaultProfile").value_or("Runtime");
         if (!IsSupportedProjectType(project.type))
         {
             throw std::runtime_error(path.string() + ": unknown project type '" + project.type + "'");
@@ -1498,13 +1641,9 @@ namespace NGIN::CLI
         }
 
         const auto *output = FindChild(*rootElement, "Output");
-        if (output == nullptr)
-        {
-            throw std::runtime_error(path.string() + ": missing <Output>");
-        }
-        project.output.kind = RequireAttribute(*output, "Kind", path);
-        project.output.name = RequireAttribute(*output, "Name", path);
-        project.output.target = RequireAttribute(*output, "Target", path);
+        project.output.kind = output != nullptr ? Attribute(*output, "Kind").value_or(DefaultOutputKindForProjectType(project.type)) : DefaultOutputKindForProjectType(project.type);
+        project.output.name = output != nullptr ? Attribute(*output, "Name").value_or(project.name) : project.name;
+        project.output.target = output != nullptr ? Attribute(*output, "Target").value_or(project.name) : project.name;
         if (!IsSupportedOutputKind(project.output.kind))
         {
             throw std::runtime_error(path.string() + ": unknown output kind '" + project.output.kind + "'");
@@ -1515,6 +1654,26 @@ namespace NGIN::CLI
         }
 
         LoadProjectBuildDescriptor(project.build, FindChild(*rootElement, "Build"), path);
+        if (!defaults.backend.empty())
+        {
+            project.build.backend = defaults.backend;
+        }
+        if (!defaults.buildMode.empty())
+        {
+            project.build.mode = defaults.buildMode;
+        }
+        if (!defaults.language.empty())
+        {
+            project.build.language = defaults.language;
+        }
+        if (!defaults.languageStandard.empty())
+        {
+            project.build.languageStandard = defaults.languageStandard;
+        }
+        if (!IsSupportedProjectBuildMode(project.build.mode))
+        {
+            throw std::runtime_error(path.string() + ": unknown project build mode '" + project.build.mode + "'");
+        }
 
         auto parseReferences = [&](const XmlElement &referencesElement, std::vector<ProjectReference> &projectRefs, std::vector<PackageReference> &packageRefs)
         {
@@ -1522,9 +1681,10 @@ namespace NGIN::CLI
             {
                 ProjectReference reference{};
                 reference.path = (path.parent_path() / RequireAttribute(*node, "Path", path)).lexically_normal();
-                if (const auto configuration = Attribute(*node, "Configuration"); configuration.has_value() && !configuration->empty())
+                const auto profile = Attribute(*node, "Profile").value_or("");
+                if (!profile.empty())
                 {
-                    reference.configuration = *configuration;
+                    reference.profile = profile;
                 }
                 projectRefs.push_back(std::move(reference));
             }
@@ -1543,7 +1703,7 @@ namespace NGIN::CLI
             parseReferences(*references, project.projectRefs, project.packageRefs);
         }
 
-        ParseConfigSources(*rootElement, path, project.configSources);
+        ParseConfigInputs(*rootElement, path, project.configInputs);
         ParseLocalSettingsImports(*rootElement, path, project.localSettingsImports);
 
         if (const auto *runtime = FindChild(*rootElement, "Runtime"))
@@ -1561,7 +1721,7 @@ namespace NGIN::CLI
                 {
                     parseReferences(*references, environment.projectRefs, environment.packageRefs);
                 }
-                ParseConfigSources(*node, path, environment.configSources);
+                ParseConfigInputs(*node, path, environment.configInputs);
                 ParseContents(*node, path, environment.contents);
                 ParseVariables(*node, path, environment.variables);
                 ParseFeatures(*node, path, environment.features);
@@ -1573,72 +1733,109 @@ namespace NGIN::CLI
             }
         }
 
-        const auto *configurationsNode = FindChild(*rootElement, "Configurations");
-        if (configurationsNode == nullptr)
+        const auto *profilesNode = FindChild(*rootElement, "Profiles");
+        if (profilesNode == nullptr)
         {
-            throw std::runtime_error(path.string() + ": missing <Configurations>");
+            throw std::runtime_error(path.string() + ": missing <Profiles>");
         }
-        for (const auto *node : ChildElements(*configurationsNode, "Configuration"))
+        const auto rootLaunch = FindChild(*rootElement, "Launch");
+        std::unordered_map<std::string, std::size_t> profileIndexes{};
+        for (const auto *node : ChildElements(*profilesNode, "Profile"))
         {
-            ConfigurationDefinition configuration{};
-            configuration.name = RequireAttribute(*node, "Name", path);
-            configuration.buildConfiguration = Attribute(*node, "BuildConfiguration").value_or("Debug");
-            if (!IsSupportedBuildConfiguration(configuration.buildConfiguration))
+            ValidateAllowedAttributes(*node, path, {"Name", "Extends", "BuildType", "Platform", "OperatingSystem", "Architecture", "Environment", "EnableReflection"});
+            ProfileDefinition profile{};
+            const auto profileName = RequireAttribute(*node, "Name", path);
+            if (!IsValidManifestIdentifier(profileName))
             {
-                throw std::runtime_error(path.string() + ": unknown build configuration '" + configuration.buildConfiguration + "'");
+                throw std::runtime_error(path.string() + ": invalid profile name '" + profileName + "'");
             }
-            if (Attribute(*node, "HostProfile").has_value())
+            if (profileIndexes.contains(profileName))
             {
-                throw std::runtime_error(path.string() + ": legacy configuration attribute 'HostProfile' is no longer supported");
+                throw std::runtime_error(path.string() + ": duplicate profile '" + profileName + "'");
             }
-            if (Attribute(*node, "Platform").has_value())
+            if (const auto extends = Attribute(*node, "Extends"); extends.has_value() && !extends->empty())
             {
-                throw std::runtime_error(path.string() + ": legacy configuration attribute 'Platform' is no longer supported");
+                const auto parent = profileIndexes.find(*extends);
+                if (parent == profileIndexes.end())
+                {
+                    throw std::runtime_error(path.string() + ": profile '" + profileName + "' extends unknown or later profile '" + *extends + "'");
+                }
+                profile = project.profiles[parent->second];
             }
-            if (Attribute(*node, "WorkingDirectory").has_value())
+            else
             {
-                throw std::runtime_error(path.string() + ": legacy configuration attribute 'WorkingDirectory' is no longer supported");
+                profile.buildType = defaults.buildType;
+                profile.platform = defaults.platform;
+                ApplyPlatform(profile, platforms, path);
+                profile.environmentName = defaults.environment;
+                if (rootLaunch != nullptr)
+                {
+                    if (const auto executable = Attribute(*rootLaunch, "Executable"); executable.has_value() && !executable->empty())
+                    {
+                        profile.launch.executable = *executable == "$(OutputName)" ? project.output.name : *executable;
+                    }
+                    profile.launch.workingDirectory = Attribute(*rootLaunch, "WorkingDirectory").value_or(".");
+                }
             }
-            configuration.operatingSystem = Attribute(*node, "OperatingSystem").value_or("linux");
-            configuration.architecture = Attribute(*node, "Architecture").value_or("x64");
-            if (!IsValidOperatingSystem(configuration.operatingSystem))
+            profile.name = profileName;
+            profile.buildType = Attribute(*node, "BuildType").value_or(profile.buildType);
+            if (!IsSupportedBuildType(profile.buildType))
             {
-                throw std::runtime_error(path.string() + ": unknown operating system '" + configuration.operatingSystem + "'");
+                throw std::runtime_error(path.string() + ": unknown build type '" + profile.buildType + "'");
             }
-            if (!IsValidArchitecture(configuration.architecture))
+            if (const auto platform = Attribute(*node, "Platform"); platform.has_value() && !platform->empty())
             {
-                throw std::runtime_error(path.string() + ": unknown architecture '" + configuration.architecture + "'");
+                profile.platform = *platform;
+                ApplyPlatform(profile, platforms, path);
             }
-            configuration.enableReflection = BoolAttribute(*node, "EnableReflection");
-            configuration.environmentName = RequireAttribute(*node, "Environment", path);
+            profile.operatingSystem = Attribute(*node, "OperatingSystem").value_or(profile.operatingSystem);
+            profile.architecture = Attribute(*node, "Architecture").value_or(profile.architecture);
+            if (!IsValidOperatingSystem(profile.operatingSystem))
+            {
+                throw std::runtime_error(path.string() + ": unknown operating system '" + profile.operatingSystem + "'");
+            }
+            if (!IsValidArchitecture(profile.architecture))
+            {
+                throw std::runtime_error(path.string() + ": unknown architecture '" + profile.architecture + "'");
+            }
+            if (Attribute(*node, "EnableReflection").has_value())
+            {
+                profile.enableReflection = BoolAttribute(*node, "EnableReflection");
+            }
+            profile.environmentName = Attribute(*node, "Environment").value_or(profile.environmentName);
+            if (profile.environmentName.empty())
+            {
+                throw std::runtime_error(path.string() + ": profile '" + profile.name + "' must select an Environment or inherit one from <Defaults>");
+            }
 
             if (const auto *launch = FindChild(*node, "Launch"))
             {
                 if (const auto executable = Attribute(*launch, "Executable"); executable.has_value() && !executable->empty())
                 {
-                    configuration.launch.executable = *executable;
+                    profile.launch.executable = *executable == "$(OutputName)" ? project.output.name : *executable;
                 }
-                configuration.launch.workingDirectory = Attribute(*launch, "WorkingDirectory").value_or(".");
+                profile.launch.workingDirectory = Attribute(*launch, "WorkingDirectory").value_or(profile.launch.workingDirectory);
             }
             if (FindChild(*node, "EnableModules") != nullptr || FindChild(*node, "DisableModules") != nullptr
                 || FindChild(*node, "EnablePlugins") != nullptr || FindChild(*node, "DisablePlugins") != nullptr)
             {
-                throw std::runtime_error(path.string() + ": legacy configuration runtime sections must be nested under <Runtime>");
+                throw std::runtime_error(path.string() + ": profile runtime selections must be nested under <Runtime>");
             }
-            ParseConfigSources(*node, path, configuration.configSources);
+            ParseConfigInputs(*node, path, profile.configInputs);
             if (const auto *references = FindChild(*node, "References"))
             {
-                parseReferences(*references, configuration.projectRefs, configuration.packageRefs);
+                parseReferences(*references, profile.projectRefs, profile.packageRefs);
             }
             if (const auto *runtime = FindChild(*node, "Runtime"))
             {
-                ParseRuntimeDefinition(*runtime, path, configuration.runtime, true);
+                ParseRuntimeDefinition(*runtime, path, profile.runtime, true);
             }
             if (Lower(project.type) == "library" && FindChild(*node, "Launch") != nullptr)
             {
-                throw std::runtime_error(path.string() + ": library projects may not declare <Launch> in configurations");
+                throw std::runtime_error(path.string() + ": library projects may not declare <Launch> in profiles");
             }
-            project.configurations.push_back(std::move(configuration));
+            profileIndexes.emplace(profile.name, project.profiles.size());
+            project.profiles.push_back(std::move(profile));
         }
 
         std::set<std::string> knownEnvironments{};
@@ -1649,11 +1846,11 @@ namespace NGIN::CLI
                 throw std::runtime_error(path.string() + ": duplicate environment '" + environment.name + "'");
             }
         }
-        for (const auto &configuration : project.configurations)
+        for (const auto &profile : project.profiles)
         {
-            if (!knownEnvironments.contains(configuration.environmentName))
+            if (!knownEnvironments.contains(profile.environmentName))
             {
-                throw std::runtime_error(path.string() + ": configuration '" + configuration.name + "' selects unknown environment '" + configuration.environmentName + "'");
+                throw std::runtime_error(path.string() + ": profile '" + profile.name + "' selects unknown environment '" + profile.environmentName + "'");
             }
         }
         ValidateConditionReferences(project, path);
@@ -1704,16 +1901,16 @@ namespace NGIN::CLI
         throw std::runtime_error("no project manifest specified and no .nginproj file found in the current directory tree");
     }
 
-    [[nodiscard]] auto ConfigurationByName(const ProjectManifest &project, const std::optional<std::string> &configurationName) -> const ConfigurationDefinition &
+    [[nodiscard]] auto ProfileByName(const ProjectManifest &project, const std::optional<std::string> &profileName) -> const ProfileDefinition &
     {
-        const auto desired = configurationName.value_or(project.defaultConfiguration);
-        for (const auto &configuration : project.configurations)
+        const auto desired = profileName.value_or(project.defaultProfile);
+        for (const auto &profile : project.profiles)
         {
-            if (configuration.name == desired)
+            if (profile.name == desired)
             {
-                return configuration;
+                return profile;
             }
         }
-        throw std::runtime_error("unknown configuration '" + desired + "'");
+        throw std::runtime_error("unknown profile '" + desired + "'");
     }
 }

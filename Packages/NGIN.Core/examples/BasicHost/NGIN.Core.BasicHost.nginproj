@@ -1,8 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="2"
+<Project SchemaVersion="3"
          Name="NGIN.Core.BasicHost"
-         Type="Application"
-         DefaultConfiguration="Samples.BasicHost">
+         DefaultProfile="Samples.BasicHost">
   <Sources>
     <Private>
       <Root Path="." />
@@ -14,9 +13,9 @@
   <References>
     <Package Name="Samples.DemoPackage" Version=">=0.1.0 &lt;1.0.0" Optional="false" />
   </References>
-  <ConfigSources>
-    <Config Source="app.cfg" />
-  </ConfigSources>
+  <Inputs>
+    <Config Path="app.cfg" />
+  </Inputs>
   <Runtime>
     <EnableModules>
       <ModuleRef Name="App.BasicHost" />
@@ -25,13 +24,12 @@
   <Environments>
     <Environment Name="development" />
   </Environments>
-  <Configurations>
-    <Configuration Name="Samples.BasicHost"
-             BuildConfiguration="Debug"
-             OperatingSystem="linux"
-             Architecture="x64"
+  <Profiles>
+    <Profile Name="Samples.BasicHost"
+             BuildType="Debug"
+             Platform="linux-x64"
              Environment="development">
       <Launch Executable="NGIN.Core.BasicHost" WorkingDirectory="." />
-    </Configuration>
-  </Configurations>
+    </Profile>
+  </Profiles>
 </Project>

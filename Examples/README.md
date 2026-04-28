@@ -24,16 +24,16 @@ Read and run the examples in this order:
 4. [`App.ReflectionMetaGen`](App.ReflectionMetaGen/README.md)
    Shows the first `ngin metagen` workflow for annotated reflection metadata.
 5. [`App.Showcase`](App.Showcase/README.md)
-   Shows configuration overlays, optional packages, and richer runtime metadata.
+   Shows profile overlays, optional packages, and richer runtime metadata.
 6. `Game.Engine`, `Game.Client`, and `Game.Server`
    Show the rule that separate executables should usually be separate projects.
 7. `ProjectRef.Config`
-   Focused manifests for project-reference configuration resolution.
+   Focused manifests for project-reference profile resolution.
 8. `Workspace/NGIN.Workspace.ngin`
    A minimal sample workspace file.
 
 That path starts with the tooling-only case, then introduces the hosted runtime,
-then moves into richer configuration and composition behavior.
+then moves into richer profile and composition behavior.
 
 ## What Each Example Shows
 
@@ -43,14 +43,14 @@ then moves into richer configuration and composition behavior.
   runtime metadata.
 - `App.ReflectionMetaGen/` demonstrates annotation-driven reflection metadata
   generation with `ngin metagen`.
-- `App.Showcase/` demonstrates several configurations in one project, including
+- `App.Showcase/` demonstrates several profiles in one project, including
   config overlays, package overlays, module enable/disable behavior, and
   reflection-gated composition.
 - `Game.Engine/` is a small local library project used by the game samples.
 - `Game.Client/` is a separate executable project that references `Game.Engine`.
 - `Game.Server/` is a separate headless executable project that also references
   `Game.Engine`.
-- `ProjectRef.Config/` captures configuration inheritance and collision cases
+- `ProjectRef.Config/` captures profile inheritance and collision cases
   for project references.
 - `Workspace/NGIN.Workspace.ngin` shows the optional workspace layer.
 
@@ -61,24 +61,24 @@ Every launchable example follows the same command shape:
 ```bash
 ./build/dev/Tools/NGIN.CLI/ngin validate \
   --project <path-to-project.nginproj> \
-  --configuration <Configuration>
+  --profile <Profile>
 
 ./build/dev/Tools/NGIN.CLI/ngin graph \
   --project <path-to-project.nginproj> \
-  --configuration <Configuration>
+  --profile <Profile>
 
 ./build/dev/Tools/NGIN.CLI/ngin build \
   --project <path-to-project.nginproj> \
-  --configuration <Configuration> \
+  --profile <Profile> \
   --output build/manual/<ExampleName>
 
 ./build/dev/Tools/NGIN.CLI/ngin run \
   --project <path-to-project.nginproj> \
-  --configuration <Configuration> \
+  --profile <Profile> \
   --output build/manual/<ExampleName>
 ```
 
-`validate` answers whether the selected project/configuration is coherent.
+`validate` answers whether the selected project/profile is coherent.
 `graph` shows the resolved composition. `build` creates a staged runnable
 directory. `run` launches from the generated `.nginlaunch`.
 
@@ -91,7 +91,7 @@ Use `App.HostedCore` when you want the smallest example of the optional hosted
 runtime.
 
 Use `App.Showcase` when you want to understand how much variation can live in
-configurations before a second buildable unit should become another project.
+profiles before a second buildable unit should become another project.
 
 Use the game samples when you want to see the opposite case: a shared library,
 a client executable, and a server executable modeled as separate projects.

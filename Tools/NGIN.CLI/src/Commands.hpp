@@ -7,7 +7,7 @@ namespace NGIN::CLI
     struct ParsedArgs
     {
         std::optional<std::string> projectPath{};
-        std::optional<std::string> configurationName{};
+        std::optional<std::string> profileName{};
         std::optional<std::string> outputPath{};
         std::optional<std::string> targetDir{};
         std::optional<std::string> packageName{};

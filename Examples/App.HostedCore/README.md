@@ -17,7 +17,7 @@ needs:
 - one project-owned executable
 - generated-mode CMake backend input
 - a package reference to `NGIN.Core`
-- staged config through `ConfigSources`
+- staged config through `<Inputs><Config Path="..." />`
 - code-first hosted startup
 - no project-owned runtime module metadata in the manifest
 
@@ -38,7 +38,7 @@ Validate the project:
 ```bash
 ./build/dev/Tools/NGIN.CLI/ngin validate \
   --project Examples/App.HostedCore/App.HostedCore.nginproj \
-  --configuration Runtime
+  --profile Runtime
 ```
 
 Inspect the resolved graph:
@@ -46,7 +46,7 @@ Inspect the resolved graph:
 ```bash
 ./build/dev/Tools/NGIN.CLI/ngin graph \
   --project Examples/App.HostedCore/App.HostedCore.nginproj \
-  --configuration Runtime
+  --profile Runtime
 ```
 
 Build a staged output:
@@ -54,7 +54,7 @@ Build a staged output:
 ```bash
 ./build/dev/Tools/NGIN.CLI/ngin build \
   --project Examples/App.HostedCore/App.HostedCore.nginproj \
-  --configuration Runtime \
+  --profile Runtime \
   --output build/manual/App.HostedCore
 ```
 
@@ -63,7 +63,7 @@ Run from the staged launch:
 ```bash
 ./build/dev/Tools/NGIN.CLI/ngin run \
   --project Examples/App.HostedCore/App.HostedCore.nginproj \
-  --configuration Runtime \
+  --profile Runtime \
   --output build/manual/App.HostedCore
 ```
 

@@ -51,7 +51,7 @@ add_custom_target(ngin.validate
   COMMAND $<TARGET_FILE:ngin_cli>
     validate
     --project "${NGIN_APP_BASIC_PROJECT_PATH}"
-    --configuration Runtime
+    --profile Runtime
   DEPENDS ngin_cli
   COMMENT "Validate the App.Basic Runtime configuration"
   VERBATIM
@@ -61,7 +61,7 @@ add_custom_target(ngin.graph.core
   COMMAND $<TARGET_FILE:ngin_cli>
     graph
     --project "${NGIN_APP_BASIC_PROJECT_PATH}"
-    --configuration Runtime
+    --profile Runtime
   DEPENDS ngin_cli
   COMMENT "Print the resolved package and module graph for App.Basic"
   VERBATIM
@@ -72,7 +72,7 @@ add_custom_target(ngin.build.core
   COMMAND $<TARGET_FILE:ngin_cli>
     build
     --project "${NGIN_APP_BASIC_PROJECT_PATH}"
-    --configuration Runtime
+    --profile Runtime
     --output "${NGIN_APP_BASIC_BUILD_OUTPUT}"
   DEPENDS ngin_cli
   COMMENT "Build the staged layout for App.Basic"
@@ -100,26 +100,26 @@ add_test(NAME ngin.package.show.core
 )
 
 add_test(NAME ngin.validate.workspace
-  COMMAND $<TARGET_FILE:ngin_cli> validate --project "${NGIN_APP_BASIC_PROJECT_PATH}" --configuration Runtime
+  COMMAND $<TARGET_FILE:ngin_cli> validate --project "${NGIN_APP_BASIC_PROJECT_PATH}" --profile Runtime
 )
 
 add_test(NAME ngin.validate.native_minimal
-  COMMAND $<TARGET_FILE:ngin_cli> validate --project "${NGIN_APP_NATIVE_MINIMAL_PROJECT_PATH}" --configuration Runtime
+  COMMAND $<TARGET_FILE:ngin_cli> validate --project "${NGIN_APP_NATIVE_MINIMAL_PROJECT_PATH}" --profile Runtime
 )
 
 add_test(NAME ngin.validate.hosted_core
-  COMMAND $<TARGET_FILE:ngin_cli> validate --project "${NGIN_APP_HOSTED_CORE_PROJECT_PATH}" --configuration Runtime
+  COMMAND $<TARGET_FILE:ngin_cli> validate --project "${NGIN_APP_HOSTED_CORE_PROJECT_PATH}" --profile Runtime
 )
 
 add_test(NAME ngin.graph.workspace
-  COMMAND $<TARGET_FILE:ngin_cli> graph --project "${NGIN_APP_BASIC_PROJECT_PATH}" --configuration Runtime
+  COMMAND $<TARGET_FILE:ngin_cli> graph --project "${NGIN_APP_BASIC_PROJECT_PATH}" --profile Runtime
 )
 
 add_test(NAME ngin.configure.native_minimal
   COMMAND ${CMAKE_COMMAND}
     -DCLI=$<TARGET_FILE:ngin_cli>
     -DPROJECT=${NGIN_APP_NATIVE_MINIMAL_PROJECT_PATH}
-    -DCONFIGURATION=Runtime
+    -DPROFILE=Runtime
     -DOUTPUT=${CMAKE_BINARY_DIR}/test-stage/App.NativeMinimal/Configure
     -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunNGINConfigureCheck.cmake"
 )
@@ -128,7 +128,7 @@ add_test(NAME ngin.build.workspace
   COMMAND ${CMAKE_COMMAND}
     -DCLI=$<TARGET_FILE:ngin_cli>
     -DPROJECT=${NGIN_APP_BASIC_PROJECT_PATH}
-    -DCONFIGURATION=Runtime
+    -DPROFILE=Runtime
     -DOUTPUT=${CMAKE_BINARY_DIR}/test-stage/App.Basic/Runtime
     -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunNGINBuildCheck.cmake"
 )
@@ -137,7 +137,7 @@ add_test(NAME ngin.projectref.config.build
   COMMAND ${CMAKE_COMMAND}
     -DCLI=$<TARGET_FILE:ngin_cli>
     -DPROJECT=${NGIN_PROJECTREF_CONFIG_PROJECT_PATH}
-    -DCONFIGURATION=Runtime
+    -DPROFILE=Runtime
     -DOUTPUT=${CMAKE_BINARY_DIR}/test-stage/ProjectRef.Config/Runtime
     -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunNGINProjectRefConfigCheck.cmake"
 )
@@ -146,7 +146,7 @@ add_test(NAME ngin.projectref.config.collision
   COMMAND ${CMAKE_COMMAND}
     -DCLI=$<TARGET_FILE:ngin_cli>
     -DPROJECT=${NGIN_PROJECTREF_CONFIG_COLLISION_PROJECT_PATH}
-    -DCONFIGURATION=Runtime
+    -DPROFILE=Runtime
     -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunNGINProjectRefConfigCollisionCheck.cmake"
 )
 
@@ -161,7 +161,7 @@ add_test(NAME ngin.build.output.preserve
   COMMAND ${CMAKE_COMMAND}
     -DCLI=$<TARGET_FILE:ngin_cli>
     -DPROJECT=${NGIN_APP_BASIC_PROJECT_PATH}
-    -DCONFIGURATION=Runtime
+    -DPROFILE=Runtime
     -DOUTPUT=${CMAKE_BINARY_DIR}/test-stage/App.Basic/Preserve
     -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunNGINOutputPreserveCheck.cmake"
 )

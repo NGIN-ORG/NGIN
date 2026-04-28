@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="2"
+<Project SchemaVersion="3"
          Name="ProjectRef.Config.CollisionLibA"
-         Type="Library"
-         DefaultConfiguration="Runtime">
+         Template="Library"
+         DefaultProfile="Runtime">
   <Sources>
     <Private>
       <Root Path="src" />
@@ -11,17 +11,16 @@
   <Output Kind="StaticLibrary"
                  Name="ProjectRef.Config.CollisionLibA"
                  Target="ProjectRefConfigCollisionLibA" />
-  <ConfigSources>
-    <Config Source="config/shared.cfg" />
-  </ConfigSources>
+  <Inputs>
+    <Config Path="config/shared.cfg" />
+  </Inputs>
   <Environments>
     <Environment Name="development" />
   </Environments>
-  <Configurations>
-    <Configuration Name="Runtime"
-             BuildConfiguration="Debug"
-             OperatingSystem="linux"
-             Architecture="x64"
+  <Profiles>
+    <Profile Name="Runtime"
+             BuildType="Debug"
+             Platform="linux-x64"
              Environment="development" />
-  </Configurations>
+  </Profiles>
 </Project>

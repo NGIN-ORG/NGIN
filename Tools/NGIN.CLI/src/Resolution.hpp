@@ -6,5 +6,5 @@ namespace NGIN::CLI
 {
     [[nodiscard]] auto ResolveLaunch(
         const ProjectManifest &project,
-        const ConfigurationDefinition &configuration) -> DiagnosticResult<ResolvedLaunch>;
+        const ProfileDefinition &profile) -> DiagnosticResult<ResolvedLaunch>;
 }
