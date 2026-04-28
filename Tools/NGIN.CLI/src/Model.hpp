@@ -68,10 +68,38 @@ namespace NGIN::CLI
         std::vector<ExecutableArtifact> executables{};
     };
 
+    struct SelectorSet
+    {
+        std::optional<std::string> operatingSystem{};
+        std::optional<std::string> architecture{};
+        std::optional<std::string> buildConfiguration{};
+    };
+
     struct BuildSetting
     {
         std::string value{};
         std::string visibility{"Private"};
+        SelectorSet selectors{};
+    };
+
+    struct SourceEntry
+    {
+        std::string path{};
+        SelectorSet selectors{};
+        std::vector<std::string> includePatterns{};
+        std::vector<std::string> excludePatterns{};
+    };
+
+    struct SourceGroup
+    {
+        std::vector<SourceEntry> roots{};
+        std::vector<SourceEntry> files{};
+    };
+
+    struct ProjectSources
+    {
+        SourceGroup publicSources{};
+        SourceGroup privateSources{};
     };
 
     struct BuildVariable
@@ -279,6 +307,7 @@ namespace NGIN::CLI
         std::string type{};
         std::string defaultConfiguration{};
         std::vector<std::string> sourceRoots{};
+        std::optional<ProjectSources> sources{};
         OutputDefinition output{};
         ProjectBuildDescriptor build{};
         std::vector<ProjectReference> projectRefs{};

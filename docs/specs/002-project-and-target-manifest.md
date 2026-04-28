@@ -21,6 +21,7 @@ This spec defines the active V2 `.nginproj` contract.
 
 Supported root sections:
 
+- `Sources`
 - `SourceRoots`
 - `Output`
 - `Build`
@@ -32,6 +33,88 @@ Supported root sections:
 - `Configurations`
 
 `Runtime` is optional advanced metadata. It is not required for normal application authoring.
+
+`Sources` is the preferred source declaration surface for generated-mode projects.
+`SourceRoots` remains valid as the legacy-compatible surface. A project may not
+declare both `Sources` and `SourceRoots`.
+
+## Sources
+
+Projects may declare public and private source ownership under `Sources`.
+
+```xml
+<Sources>
+  <Public>
+    <Root Path="include" />
+  </Public>
+  <Private>
+    <Root Path="src" />
+  </Private>
+</Sources>
+```
+
+Supported source groups:
+
+- `Public`
+- `Private`
+
+Supported source entries:
+
+- `Root Path="..."`
+- `File Path="..."`
+- `Files` line-separated file list
+
+Generated CMake maps selected public roots to `PUBLIC` include directories and
+selected private roots to `PRIVATE` include directories. Source files discovered
+under selected roots and selected explicit files are deduplicated by resolved
+path before target emission.
+
+Source roots and files may use typed selectors:
+
+- `OperatingSystem`
+- `Architecture`
+- `BuildConfiguration`
+
+An entry with no selector attributes applies to all configurations. An entry
+with one or more selectors applies only when every provided selector exactly
+matches the selected configuration.
+When a non-selected typed root or file is nested under a broader selected root,
+the non-selected path is excluded from generated source scanning.
+
+`Root` may constrain recursive discovery with `Include` and `Exclude` glob
+patterns. Patterns are relative to the root path, use `/` separators, and
+support `*`, `?`, and `**`. Multiple patterns may be separated by semicolons,
+commas, or line breaks. Without `Include`, roots discover compilable source
+files under the root. With `Include`, roots discover supported source/header
+files matching at least one include pattern, then remove files matching
+`Exclude`.
+
+```xml
+<Sources>
+  <Private>
+    <Root Path="src"
+          Include="**/*.cpp;**/*.hpp"
+          Exclude="**/*.generated.cpp" />
+    <Root Path="src/linux" OperatingSystem="linux" />
+    <File Path="src/debug_tools.cpp" BuildConfiguration="Debug" />
+    <Files BuildConfiguration="Debug">
+      src/debug_overlay.cpp
+      src/debug_trace.cpp
+    </Files>
+  </Private>
+</Sources>
+```
+
+`SourceRoots` remains supported for older manifests:
+
+```xml
+<SourceRoots>
+  <SourceRoot Path="src" />
+</SourceRoots>
+```
+
+Generated CMake treats legacy `SourceRoot` entries as private source roots and
+private include directories.
 
 ## Output
 
@@ -57,6 +140,11 @@ Generated CMake projects may opt into MetaGen under `Build`.
 ```xml
 <Build Backend="CMake" Mode="Generated" Language="CXX" LanguageStandard="23">
   <MetaGen Enabled="true" />
+  <CompileDefinitions>
+    <Definition Value="MYAPP_DEBUG_TOOLS"
+                Visibility="Private"
+                BuildConfiguration="Debug" />
+  </CompileDefinitions>
 </Build>
 ```
 
@@ -80,6 +168,11 @@ void SetScore(int value);
 Getter-only properties are supported. If a getter returns a mutable lvalue
 reference, the reflection runtime can write through that reference. Setter-only
 properties and invalid property method signatures are rejected by MetaGen.
+
+Build settings under `IncludeDirectories`, `CompileDefinitions`,
+`CompileOptions`, and `LinkOptions` may use the same typed selector attributes
+as `Sources` entries. Selected settings are emitted only when every provided
+selector matches the active project configuration.
 
 ## References
 
@@ -220,9 +313,11 @@ Project variable names and local setting keys are separate namespaces.
          Name="App.Basic"
          Type="Application"
          DefaultConfiguration="Runtime">
-  <SourceRoots>
-    <SourceRoot Path="src" />
-  </SourceRoots>
+  <Sources>
+    <Private>
+      <Root Path="src" />
+    </Private>
+  </Sources>
   <Output Kind="Executable" Name="App.Basic" Target="App.Basic" />
   <References>
     <Package Name="NGIN.Core" Version="0.1.0" />

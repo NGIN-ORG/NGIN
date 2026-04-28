@@ -3,6 +3,7 @@
 #include "Support.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <set>
 #include <sstream>
 #include <unordered_map>
@@ -47,6 +48,101 @@ namespace NGIN::CLI
         [[nodiscard]] auto IsSupportedPackageBuildMode(const std::string_view value) -> bool
         {
             return value == "Manual" || value == "FindPackage" || value == "AddSubdirectory";
+        }
+
+        [[nodiscard]] auto ParseSelectors(const XmlElement &node, const fs::path &path) -> SelectorSet
+        {
+            SelectorSet selectors{};
+            if (const auto value = Attribute(node, "OperatingSystem"); value.has_value() && !value->empty())
+            {
+                if (!IsValidOperatingSystem(*value))
+                {
+                    throw std::runtime_error(path.string() + ": unknown operating system '" + *value + "'");
+                }
+                selectors.operatingSystem = *value;
+            }
+            if (const auto value = Attribute(node, "Architecture"); value.has_value() && !value->empty())
+            {
+                if (!IsValidArchitecture(*value))
+                {
+                    throw std::runtime_error(path.string() + ": unknown architecture '" + *value + "'");
+                }
+                selectors.architecture = *value;
+            }
+            if (const auto value = Attribute(node, "BuildConfiguration"); value.has_value() && !value->empty())
+            {
+                if (!IsSupportedBuildConfiguration(*value))
+                {
+                    throw std::runtime_error(path.string() + ": unknown build configuration '" + *value + "'");
+                }
+                selectors.buildConfiguration = *value;
+            }
+            return selectors;
+        }
+
+        [[nodiscard]] auto Trim(std::string value) -> std::string
+        {
+            auto first = value.begin();
+            while (first != value.end() && std::isspace(static_cast<unsigned char>(*first)))
+            {
+                ++first;
+            }
+            auto last = value.end();
+            while (last != first && std::isspace(static_cast<unsigned char>(*(last - 1))))
+            {
+                --last;
+            }
+            return std::string(first, last);
+        }
+
+        [[nodiscard]] auto SplitPathList(std::string_view text) -> std::vector<std::string>
+        {
+            std::vector<std::string> entries{};
+            std::string current{};
+            auto flush = [&]()
+            {
+                auto value = Trim(current);
+                if (!value.empty())
+                {
+                    entries.push_back(std::move(value));
+                }
+                current.clear();
+            };
+
+            for (const char ch : text)
+            {
+                if (ch == '\n' || ch == '\r' || ch == ';' || ch == ',')
+                {
+                    flush();
+                    continue;
+                }
+                current.push_back(ch);
+            }
+            flush();
+            return entries;
+        }
+
+        [[nodiscard]] auto OptionalPathListAttribute(const XmlElement &node, const std::string_view key) -> std::vector<std::string>
+        {
+            if (const auto value = Attribute(node, key); value.has_value())
+            {
+                return SplitPathList(*value);
+            }
+            return {};
+        }
+
+        [[nodiscard]] auto TextContent(const XmlElement &node) -> std::string
+        {
+            std::string text{};
+            for (NGIN::UIntSize index = 0; index < node.children.Size(); ++index)
+            {
+                const auto &child = node.children[index];
+                if (child.type == XmlNode::Type::Text || child.type == XmlNode::Type::CData)
+                {
+                    text.append(child.text.data(), child.text.size());
+                }
+            }
+            return text;
         }
 
         [[nodiscard]] auto ParseCompatibility(const XmlElement &node, const fs::path &path) -> CompatibilityDefinition
@@ -342,7 +438,85 @@ namespace NGIN::CLI
             {
                 throw std::runtime_error(path.string() + ": unknown build visibility '" + setting.visibility + "'");
             }
+            setting.selectors = ParseSelectors(node, path);
             return setting;
+        }
+
+        [[nodiscard]] auto ParseSourceEntry(const XmlElement &node, const fs::path &path) -> SourceEntry
+        {
+            SourceEntry entry{};
+            entry.path = RequireAttribute(node, "Path", path);
+            entry.selectors = ParseSelectors(node, path);
+            entry.includePatterns = OptionalPathListAttribute(node, "Include");
+            entry.excludePatterns = OptionalPathListAttribute(node, "Exclude");
+            return entry;
+        }
+
+        [[nodiscard]] auto ParseSourceFiles(const XmlElement &node, const fs::path &path) -> std::vector<SourceEntry>
+        {
+            if (!ChildElements(node).empty())
+            {
+                throw std::runtime_error(path.string() + ": <Files> may contain only a line-separated file list");
+            }
+
+            std::vector<SourceEntry> entries{};
+            const auto selectors = ParseSelectors(node, path);
+            for (const auto &filePath : SplitPathList(TextContent(node)))
+            {
+                SourceEntry entry{};
+                entry.path = filePath;
+                entry.selectors = selectors;
+                entries.push_back(std::move(entry));
+            }
+            if (entries.empty())
+            {
+                throw std::runtime_error(path.string() + ": <Files> must contain at least one file path");
+            }
+            return entries;
+        }
+
+        auto ParseSourceGroup(const XmlElement &group, const fs::path &path, SourceGroup &out) -> void
+        {
+            for (const auto *child : ChildElements(group))
+            {
+                if (child->name == "Root")
+                {
+                    out.roots.push_back(ParseSourceEntry(*child, path));
+                    continue;
+                }
+                if (child->name == "File")
+                {
+                    out.files.push_back(ParseSourceEntry(*child, path));
+                    continue;
+                }
+                if (child->name == "Files")
+                {
+                    auto entries = ParseSourceFiles(*child, path);
+                    out.files.insert(out.files.end(), entries.begin(), entries.end());
+                    continue;
+                }
+                throw std::runtime_error(path.string() + ": unsupported <Sources><" + std::string(group.name) + "> child <" + std::string(child->name) + ">");
+            }
+        }
+
+        [[nodiscard]] auto ParseProjectSources(const XmlElement &sources, const fs::path &path) -> ProjectSources
+        {
+            ProjectSources parsed{};
+            for (const auto *child : ChildElements(sources))
+            {
+                if (child->name == "Public")
+                {
+                    ParseSourceGroup(*child, path, parsed.publicSources);
+                    continue;
+                }
+                if (child->name == "Private")
+                {
+                    ParseSourceGroup(*child, path, parsed.privateSources);
+                    continue;
+                }
+                throw std::runtime_error(path.string() + ": unsupported <Sources> child <" + std::string(child->name) + ">");
+            }
+            return parsed;
         }
 
         auto LoadProjectBuildDescriptor(ProjectBuildDescriptor &build, const XmlElement *buildElement, const fs::path &path) -> void
@@ -822,12 +996,23 @@ namespace NGIN::CLI
             throw std::runtime_error(path.string() + ": legacy <Host> is no longer supported");
         }
 
-        if (const auto *sourceRoots = FindChild(*rootElement, "SourceRoots"))
+        const auto *sourceRoots = FindChild(*rootElement, "SourceRoots");
+        const auto *sources = FindChild(*rootElement, "Sources");
+        if (sourceRoots != nullptr && sources != nullptr)
+        {
+            throw std::runtime_error(path.string() + ": project may not declare both <SourceRoots> and <Sources>; use one source declaration model");
+        }
+
+        if (sourceRoots != nullptr)
         {
             for (const auto *node : ChildElements(*sourceRoots, "SourceRoot"))
             {
                 project.sourceRoots.push_back(RequireAttribute(*node, "Path", path));
             }
+        }
+        if (sources != nullptr)
+        {
+            project.sources = ParseProjectSources(*sources, path);
         }
 
         const auto *output = FindChild(*rootElement, "Output");

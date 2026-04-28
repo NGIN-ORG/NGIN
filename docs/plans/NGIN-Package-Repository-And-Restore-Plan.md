@@ -110,10 +110,14 @@ The project file would describe build ownership:
          Name="NGIN.Core"
          Type="Library"
          DefaultConfiguration="Runtime">
-  <SourceRoots>
-    <SourceRoot Path="src" />
-    <SourceRoot Path="include" />
-  </SourceRoots>
+  <Sources>
+    <Public>
+      <Root Path="include" />
+    </Public>
+    <Private>
+      <Root Path="src" />
+    </Private>
+  </Sources>
   <Output Kind="Library"
           Name="NGIN.Core"
           Target="NGIN::Core" />

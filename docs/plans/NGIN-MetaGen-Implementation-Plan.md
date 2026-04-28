@@ -149,7 +149,8 @@ harder to reason about.
 Use the selected project manifest:
 
 - If `<Build><Sources>` is present, scan those files.
-- Otherwise scan compiled source files under `<SourceRoots>`.
+- Otherwise scan selected typed `<Sources>` entries, falling back to legacy
+  `<SourceRoots>` when present.
 - Do not scan dependency packages or referenced projects in the first slice.
 - Do not scan generated output directories.
 

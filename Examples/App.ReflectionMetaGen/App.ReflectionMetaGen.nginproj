@@ -3,9 +3,11 @@
          Name="App.ReflectionMetaGen"
          Type="Application"
          DefaultConfiguration="Runtime">
-  <SourceRoots>
-    <SourceRoot Path="src" />
-  </SourceRoots>
+  <Sources>
+    <Private>
+      <Root Path="src" />
+    </Private>
+  </Sources>
   <Output Kind="Executable"
           Name="App.ReflectionMetaGen"
           Target="App.ReflectionMetaGen" />

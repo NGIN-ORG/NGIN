@@ -502,7 +502,24 @@ namespace NGIN::CLI
             return path.lexically_normal();
         }
 
-        [[nodiscard]] auto CollectSourceFiles(const ProjectManifest &project) -> std::vector<fs::path>
+        [[nodiscard]] auto SelectorsMatch(const SelectorSet &selectors, const ConfigurationDefinition &configuration) -> bool
+        {
+            if (selectors.operatingSystem.has_value() && *selectors.operatingSystem != configuration.operatingSystem)
+            {
+                return false;
+            }
+            if (selectors.architecture.has_value() && *selectors.architecture != configuration.architecture)
+            {
+                return false;
+            }
+            if (selectors.buildConfiguration.has_value() && *selectors.buildConfiguration != configuration.buildConfiguration)
+            {
+                return false;
+            }
+            return true;
+        }
+
+        [[nodiscard]] auto CollectSourceFiles(const ProjectManifest &project, const ConfigurationDefinition &configuration) -> std::vector<fs::path>
         {
             std::set<fs::path> unique{};
             std::vector<fs::path> sources{};
@@ -521,6 +538,98 @@ namespace NGIN::CLI
                 for (const auto &source : project.build.sources)
                 {
                     add(ResolveProjectPathValue(source, project));
+                }
+            }
+            else if (project.sources.has_value())
+            {
+                std::vector<fs::path> excludedRoots{};
+                std::vector<fs::path> excludedFiles{};
+                auto collectExclusions = [&](const SourceGroup &group)
+                {
+                    for (const auto &root : group.roots)
+                    {
+                        if (!SelectorsMatch(root.selectors, configuration))
+                        {
+                            excludedRoots.push_back(ResolveProjectPathValue(root.path, project));
+                        }
+                    }
+                    for (const auto &file : group.files)
+                    {
+                        if (!SelectorsMatch(file.selectors, configuration))
+                        {
+                            excludedFiles.push_back(ResolveProjectPathValue(file.path, project));
+                        }
+                    }
+                };
+                collectExclusions(project.sources->publicSources);
+                collectExclusions(project.sources->privateSources);
+
+                auto isExcluded = [&](const fs::path &candidate)
+                {
+                    const auto normalized = candidate.lexically_normal();
+                    for (const auto &root : excludedRoots)
+                    {
+                        if (IsPathWithinDirectory(normalized, root))
+                        {
+                            return true;
+                        }
+                    }
+                    return std::find(excludedFiles.begin(), excludedFiles.end(), normalized) != excludedFiles.end();
+                };
+
+                auto addRoot = [&](const SourceEntry &root)
+                {
+                    const auto sourceRoot = ResolveProjectPathValue(root.path, project);
+                    if (!fs::exists(sourceRoot) || !fs::is_directory(sourceRoot))
+                    {
+                        return;
+                    }
+                    for (const auto &entry : fs::recursive_directory_iterator(sourceRoot))
+                    {
+                        if (!entry.is_regular_file() || isExcluded(entry.path()))
+                        {
+                            continue;
+                        }
+                        const auto normalized = entry.path().lexically_normal();
+                        const auto relativePath = normalized.lexically_relative(sourceRoot);
+                        if (!root.includePatterns.empty() && !AnyGlobMatches(root.includePatterns, relativePath))
+                        {
+                            continue;
+                        }
+                        if (!root.excludePatterns.empty() && AnyGlobMatches(root.excludePatterns, relativePath))
+                        {
+                            continue;
+                        }
+                        add(entry.path());
+                    }
+                };
+                for (const auto &root : project.sources->publicSources.roots)
+                {
+                    if (SelectorsMatch(root.selectors, configuration))
+                    {
+                        addRoot(root);
+                    }
+                }
+                for (const auto &root : project.sources->privateSources.roots)
+                {
+                    if (SelectorsMatch(root.selectors, configuration))
+                    {
+                        addRoot(root);
+                    }
+                }
+                for (const auto &file : project.sources->publicSources.files)
+                {
+                    if (SelectorsMatch(file.selectors, configuration))
+                    {
+                        add(ResolveProjectPathValue(file.path, project));
+                    }
+                }
+                for (const auto &file : project.sources->privateSources.files)
+                {
+                    if (SelectorsMatch(file.selectors, configuration))
+                    {
+                        add(ResolveProjectPathValue(file.path, project));
+                    }
                 }
             }
             else
@@ -545,12 +654,29 @@ namespace NGIN::CLI
             return sources;
         }
 
-        [[nodiscard]] auto CollectSourceRoots(const ProjectManifest &project) -> std::vector<fs::path>
+        [[nodiscard]] auto CollectSourceRoots(const ProjectManifest &project, const ConfigurationDefinition &configuration) -> std::vector<fs::path>
         {
             std::vector<fs::path> roots{};
             for (const auto &root : project.sourceRoots)
             {
                 roots.push_back(ResolveProjectPathValue(root, project));
+            }
+            if (project.sources.has_value())
+            {
+                for (const auto &root : project.sources->publicSources.roots)
+                {
+                    if (SelectorsMatch(root.selectors, configuration))
+                    {
+                        roots.push_back(ResolveProjectPathValue(root.path, project));
+                    }
+                }
+                for (const auto &root : project.sources->privateSources.roots)
+                {
+                    if (SelectorsMatch(root.selectors, configuration))
+                    {
+                        roots.push_back(ResolveProjectPathValue(root.path, project));
+                    }
+                }
             }
             return roots;
         }
@@ -561,7 +687,7 @@ namespace NGIN::CLI
             return fs::current_path() / ".ngin" / "metagen" / project.name / configuration.name;
         }
 
-        [[nodiscard]] auto BuildClangArguments(const fs::path &root, const ProjectManifest &project)
+        [[nodiscard]] auto BuildClangArguments(const fs::path &root, const ProjectManifest &project, const ConfigurationDefinition &configuration)
             -> std::vector<std::string>
         {
             std::vector<std::string> args{
@@ -578,7 +704,7 @@ namespace NGIN::CLI
             };
 
             include(project.path.parent_path());
-            for (const auto &rootPath : CollectSourceRoots(project))
+            for (const auto &rootPath : CollectSourceRoots(project, configuration))
             {
                 include(rootPath);
             }
@@ -590,9 +716,12 @@ namespace NGIN::CLI
             return args;
         }
 
-        auto ScanSources(const fs::path &root, const ProjectManifest &project, ScanContext &context) -> void
+        auto ScanSources(const fs::path &root,
+                         const ProjectManifest &project,
+                         const ConfigurationDefinition &configuration,
+                         ScanContext &context) -> void
         {
-            auto clangArgs = BuildClangArguments(root, project);
+            auto clangArgs = BuildClangArguments(root, project, configuration);
             std::vector<const char *> rawArgs{};
             rawArgs.reserve(clangArgs.size());
             for (const auto &arg : clangArgs)
@@ -737,15 +866,15 @@ namespace NGIN::CLI
         (void)root;
         MetaGenResult result{};
         ScanContext context{};
-        context.sourceFiles = CollectSourceFiles(project);
-        context.sourceRoots = CollectSourceRoots(project);
+        context.sourceFiles = CollectSourceFiles(project, configuration);
+        context.sourceRoots = CollectSourceRoots(project, configuration);
         if (context.sourceFiles.empty())
         {
             result.diagnostics.push_back("project '" + project.name + "' has no C++ source files to scan");
             return result;
         }
 
-        ScanSources(root, project, context);
+        ScanSources(root, project, configuration, context);
         if (!context.diagnostics.empty())
         {
             result.diagnostics = std::move(context.diagnostics);

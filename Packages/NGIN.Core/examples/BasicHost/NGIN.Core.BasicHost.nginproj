@@ -3,9 +3,11 @@
          Name="NGIN.Core.BasicHost"
          Type="Application"
          DefaultConfiguration="Samples.BasicHost">
-  <SourceRoots>
-    <SourceRoot Path="." />
-  </SourceRoots>
+  <Sources>
+    <Private>
+      <Root Path="." />
+    </Private>
+  </Sources>
   <Output Kind="Executable"
                  Name="NGIN.Core.BasicHost"
                  Target="NGINCoreBasicHost" />

@@ -3,9 +3,11 @@
          Name="MyGame"
          Type="Application"
          DefaultConfiguration="Game">
-  <SourceRoots>
-    <SourceRoot Path="src" />
-  </SourceRoots>
+  <Sources>
+    <Private>
+      <Root Path="src" />
+    </Private>
+  </Sources>
   <Output Kind="Executable"
           Name="MyGame"
           Target="MyGame" />

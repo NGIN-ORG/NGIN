@@ -1362,7 +1362,17 @@ namespace NGIN::Core
       }
       manifest.defaultConfiguration = defaultConfiguration.Value();
 
-      if (const auto *sourceRootsElement = FindChild(*root, "SourceRoots"))
+      const auto *sourceRootsElement = FindChild(*root, "SourceRoots");
+      const auto *sourcesElement = FindChild(*root, "Sources");
+      if (sourceRootsElement != nullptr && sourcesElement != nullptr)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+            "project may not declare both <SourceRoots> and <Sources>",
+            {},
+            KernelErrorCode::SchemaValidationFailure));
+      }
+
+      if (sourceRootsElement != nullptr)
       {
         for (const auto *sourceRootElement :
              ChildElements(*sourceRootsElement, "SourceRoot"))
@@ -1374,6 +1384,58 @@ namespace NGIN::Core
             return NGIN::Utilities::Unexpected<KernelError>(path.Error());
           }
           manifest.sourceRoots.push_back(path.Value());
+        }
+      }
+      if (sourcesElement != nullptr)
+      {
+        for (const auto *groupElement : ChildElements(*sourcesElement))
+        {
+          if (groupElement->name != "Public" && groupElement->name != "Private")
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+                "project.Sources contains unsupported child element",
+                std::string(groupElement->name),
+                KernelErrorCode::SchemaValidationFailure));
+          }
+          for (const auto *entryElement : ChildElements(*groupElement))
+          {
+            if (entryElement->name == "Root")
+            {
+              auto path =
+                  RequireAttribute(*entryElement, "Path", "project.Sources");
+              if (!path)
+              {
+                return NGIN::Utilities::Unexpected<KernelError>(path.Error());
+              }
+              manifest.sourceRoots.push_back(path.Value());
+              continue;
+            }
+            if (entryElement->name == "File")
+            {
+              auto path =
+                  RequireAttribute(*entryElement, "Path", "project.Sources");
+              if (!path)
+              {
+                return NGIN::Utilities::Unexpected<KernelError>(path.Error());
+              }
+              continue;
+            }
+            if (entryElement->name == "Files")
+            {
+              if (!ChildElements(*entryElement).empty())
+              {
+                return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+                    "project.Sources <Files> may contain only text",
+                    {},
+                    KernelErrorCode::SchemaValidationFailure));
+              }
+              continue;
+            }
+            return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+                "project.Sources contains unsupported source entry",
+                std::string(entryElement->name),
+                KernelErrorCode::SchemaValidationFailure));
+          }
         }
       }
 

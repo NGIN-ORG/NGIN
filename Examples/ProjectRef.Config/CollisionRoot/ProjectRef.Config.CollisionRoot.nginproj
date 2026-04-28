@@ -3,9 +3,11 @@
          Name="ProjectRef.Config.CollisionRoot"
          Type="Application"
          DefaultConfiguration="Runtime">
-  <SourceRoots>
-    <SourceRoot Path="src" />
-  </SourceRoots>
+  <Sources>
+    <Private>
+      <Root Path="src" />
+    </Private>
+  </Sources>
   <Output Kind="Executable"
                  Name="ProjectRef.Config.CollisionRoot"
                  Target="ProjectRefConfigCollisionRoot" />

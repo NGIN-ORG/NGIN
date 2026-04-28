@@ -342,9 +342,11 @@ A small `.nginproj` file looks like this:
          Name="MyApp"
          Type="Application"
          DefaultConfiguration="Runtime">
-  <SourceRoots>
-    <SourceRoot Path="src" />
-  </SourceRoots>
+  <Sources>
+    <Private>
+      <Root Path="src" />
+    </Private>
+  </Sources>
 
   <Output Kind="Executable"
           Name="MyApp"

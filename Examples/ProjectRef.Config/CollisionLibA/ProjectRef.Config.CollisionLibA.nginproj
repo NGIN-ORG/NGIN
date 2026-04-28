@@ -3,9 +3,11 @@
          Name="ProjectRef.Config.CollisionLibA"
          Type="Library"
          DefaultConfiguration="Runtime">
-  <SourceRoots>
-    <SourceRoot Path="src" />
-  </SourceRoots>
+  <Sources>
+    <Private>
+      <Root Path="src" />
+    </Private>
+  </Sources>
   <Output Kind="StaticLibrary"
                  Name="ProjectRef.Config.CollisionLibA"
                  Target="ProjectRefConfigCollisionLibA" />

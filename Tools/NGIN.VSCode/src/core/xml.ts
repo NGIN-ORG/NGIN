@@ -34,6 +34,24 @@ function parseConfigSources(node: unknown): string[] {
     .filter((entry): entry is string => Boolean(entry));
 }
 
+function splitPathList(text: string | undefined): string[] {
+  if (!text) {
+    return [];
+  }
+  return text
+    .split(/[\r\n;,]+/)
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+}
+
+function textContent(node: unknown): string | undefined {
+  if (typeof node === 'string') {
+    return node;
+  }
+  const entry = node as { '#text'?: string } | undefined;
+  return entry?.['#text'];
+}
+
 function parseLocalSettingsImports(node: unknown, baseDirectory: string): string[] {
   const parent = node as { LocalSettings?: { Import?: unknown } } | undefined;
   return asArray(parent?.LocalSettings?.Import)
@@ -125,19 +143,35 @@ export function parseProjectManifest(xml: string, manifestPath: string): Project
   const sourceRoots = asArray(root.SourceRoots?.SourceRoot)
     .map((entry) => entry?.Path as string | undefined)
     .filter((entry): entry is string => Boolean(entry));
+  const typedSourceRoots = [
+    ...asArray(root.Sources?.Public?.Root),
+    ...asArray(root.Sources?.Private?.Root)
+  ]
+    .map((entry) => entry?.Path as string | undefined)
+    .filter((entry): entry is string => Boolean(entry));
   const buildSources = asArray(root.Build?.Sources?.Source)
     .map((entry) => entry?.Path as string | undefined)
     .filter((entry): entry is string => Boolean(entry));
+  const typedSourceFiles = [
+    ...asArray(root.Sources?.Public?.File),
+    ...asArray(root.Sources?.Private?.File)
+  ]
+    .map((entry) => entry?.Path as string | undefined)
+    .filter((entry): entry is string => Boolean(entry));
+  const typedSourceFileLists = [
+    ...asArray(root.Sources?.Public?.Files),
+    ...asArray(root.Sources?.Private?.Files)
+  ].flatMap((entry) => splitPathList(textContent(entry)));
 
   return {
     path: manifestPath,
     directory: path.dirname(manifestPath),
     name: root.Name ?? path.basename(manifestPath, path.extname(manifestPath)),
     defaultConfiguration: root.DefaultConfiguration,
-    sourceRoots,
+    sourceRoots: [...sourceRoots, ...typedSourceRoots],
     configSources: parseConfigSources(root),
     localSettingsImports: parseLocalSettingsImports(root, path.dirname(manifestPath)),
-    buildSources,
+    buildSources: [...buildSources, ...typedSourceFiles, ...typedSourceFileLists],
     projectRefs: parseProjectReferences(root, path.dirname(manifestPath)),
     packageRefs: parsePackageReferences(root),
     configurations

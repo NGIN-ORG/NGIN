@@ -1,5 +1,7 @@
 # NGIN Typed Source Selectors Plan
 
+Status: Implemented
+
 ## Summary
 
 NGIN project manifests should make source ownership and simple build selection
@@ -89,6 +91,29 @@ Specific files can be included explicitly:
 </Sources>
 ```
 
+For manually curated source lists, files can also be declared as a
+line-separated block:
+
+```xml
+<Sources>
+  <Private>
+    <Files>
+      src/a.cpp
+      src/b.cpp
+      src/c.cpp
+    </Files>
+
+    <Files OperatingSystem="windows">
+      src/platform/WinMain.cpp
+      src/platform/WindowsWindow.cpp
+    </Files>
+  </Private>
+</Sources>
+```
+
+`<Files>` is authoring sugar for repeated `<File Path="..." />` entries. The
+selector attributes on `<Files>` apply to every path in the block.
+
 Typed selectors can be attached directly to roots or files:
 
 ```xml
@@ -105,6 +130,22 @@ Typed selectors can be attached directly to roots or files:
   </Private>
 </Sources>
 ```
+
+Roots can use simple include and exclude glob patterns to constrain recursive
+discovery:
+
+```xml
+<Sources>
+  <Private>
+    <Root Path="src"
+          Include="**/*.cpp;**/*.hpp"
+          Exclude="**/*.generated.cpp" />
+  </Private>
+</Sources>
+```
+
+`Include` and `Exclude` patterns are relative to the root path and support `*`,
+`?`, and `**`.
 
 Build settings can use the same selector attributes:
 
@@ -150,6 +191,9 @@ The first implementation should use exact string matching against the selected
 configuration values after existing validation has normalized or accepted those
 values. Wildcards, negation, OR groups, version ranges, and expression syntax
 are deferred.
+
+When a non-selected typed root or file is nested under a broader selected root,
+generated source scanning excludes the non-selected path.
 
 ## Source Semantics
 
@@ -197,7 +241,7 @@ existing projects.
 
 ## Manifest Contract Changes
 
-`docs/specs/002-project-and-target-manifest.md` should be updated to add
+`docs/specs/002-project-and-target-manifest.md` has been updated to add
 `Sources` as a supported root section.
 
 The project root surface would become:
@@ -212,9 +256,12 @@ The project root surface would become:
 - `Environments`
 - `Configurations`
 
-`SourceRoots` should be documented as the legacy-compatible source declaration
-surface. `Sources` should be documented as the preferred source declaration
+`SourceRoots` is documented as the legacy-compatible source declaration
+surface. `Sources` is documented as the preferred source declaration
 surface for new generated-mode projects.
+
+The implemented source entry surface also includes `<Files>` batch entries and
+root `Include` / `Exclude` glob attributes.
 
 ## Implementation Plan
 

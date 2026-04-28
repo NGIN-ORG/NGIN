@@ -3,9 +3,11 @@
          Name="NGIN.Samples.ApplicationModel"
          Type="Application"
          DefaultConfiguration="Sandbox.Game">
-  <SourceRoots>
-    <SourceRoot Path="src" />
-  </SourceRoots>
+  <Sources>
+    <Private>
+      <Root Path="src" />
+    </Private>
+  </Sources>
   <Output Kind="Executable"
           Name="Sandbox.Game"
           Target="Sandbox.Game" />

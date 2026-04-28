@@ -162,6 +162,18 @@ namespace
                            });
     }
 
+    [[nodiscard]] auto CountOccurrences(const std::string &text, const std::string &needle) -> std::size_t
+    {
+        std::size_t count = 0;
+        std::size_t offset = 0;
+        while ((offset = text.find(needle, offset)) != std::string::npos)
+        {
+            ++count;
+            offset += needle.size();
+        }
+        return count;
+    }
+
     auto WriteMetaGenFixture(TempDir &temp, const std::string &header) -> fs::path
     {
         const auto projectPath = temp.path() / "App/App.nginproj";
@@ -368,6 +380,140 @@ TEST_CASE("project build descriptor parses metagen opt in")
 
     const auto project = LoadProjectManifest(projectPath);
     REQUIRE(project.build.metaGenEnabled);
+}
+
+TEST_CASE("typed project sources parse selector metadata and reject mixed legacy roots")
+{
+    TempDir temp{};
+    const auto projectPath = temp.path() / "Typed.nginproj";
+    WriteFile(projectPath,
+              R"(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="2" Name="Typed" Type="Application" DefaultConfiguration="Runtime">
+  <Sources>
+    <Public>
+      <Root Path="include" />
+      <File Path="include/Typed/App.hpp" />
+    </Public>
+    <Private>
+      <Root Path="src" />
+      <Root Path="src/linux" OperatingSystem="linux" Architecture="x64" />
+      <File Path="src/debug.cpp" BuildConfiguration="Debug" />
+      <Files OperatingSystem="linux">
+        src/listed.cpp
+      </Files>
+    </Private>
+  </Sources>
+  <Output Kind="Executable" Name="Typed" Target="Typed" />
+  <Environments>
+    <Environment Name="dev" />
+  </Environments>
+  <Configurations>
+    <Configuration Name="Runtime" BuildConfiguration="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev" />
+  </Configurations>
+</Project>
+)");
+
+    const auto project = LoadProjectManifest(projectPath);
+    REQUIRE(project.sources.has_value());
+    REQUIRE(project.sources->publicSources.roots.size() == 1);
+    REQUIRE(project.sources->publicSources.files.size() == 1);
+    REQUIRE(project.sources->privateSources.roots.size() == 2);
+    REQUIRE(project.sources->privateSources.files.size() == 2);
+    REQUIRE(project.sources->privateSources.roots.back().selectors.operatingSystem == "linux");
+    REQUIRE(project.sources->privateSources.roots.back().selectors.architecture == "x64");
+    REQUIRE(project.sources->privateSources.files.front().selectors.buildConfiguration == "Debug");
+    REQUIRE(project.sources->privateSources.files.back().path == "src/listed.cpp");
+    REQUIRE(project.sources->privateSources.files.back().selectors.operatingSystem == "linux");
+
+    const auto mixedPath = temp.path() / "Mixed.nginproj";
+    WriteFile(mixedPath,
+              R"(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="2" Name="Mixed" Type="Application" DefaultConfiguration="Runtime">
+  <SourceRoots>
+    <SourceRoot Path="src" />
+  </SourceRoots>
+  <Sources>
+    <Private>
+      <Root Path="src" />
+    </Private>
+  </Sources>
+  <Output Kind="Executable" Name="Mixed" Target="Mixed" />
+  <Environments>
+    <Environment Name="dev" />
+  </Environments>
+  <Configurations>
+    <Configuration Name="Runtime" BuildConfiguration="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev" />
+  </Configurations>
+</Project>
+)");
+    REQUIRE_THROWS_WITH(LoadProjectManifest(mixedPath), ContainsSubstring("may not declare both <SourceRoots> and <Sources>"));
+}
+
+TEST_CASE("generated CMake applies typed source selectors and selected build settings")
+{
+    TempDir temp{};
+    const auto projectPath = temp.path() / "Library/Typed.Library.nginproj";
+    WriteFile(projectPath,
+              R"(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="2" Name="Typed.Library" Type="Library" DefaultConfiguration="Runtime">
+  <Sources>
+    <Public>
+      <Root Path="include" />
+      <File Path="include/Typed/Library.hpp" />
+    </Public>
+    <Private>
+      <Root Path="src" Include="**/*.cpp" Exclude="**/*.generated.cpp" />
+      <Root Path="src/linux" OperatingSystem="linux" />
+      <Root Path="src/windows" OperatingSystem="windows" />
+      <Files>
+        manual/manual.cpp
+      </Files>
+    </Private>
+  </Sources>
+  <Output Kind="StaticLibrary" Name="Typed.Library" Target="TypedLibrary" />
+  <Build Backend="CMake" Mode="Generated" Language="CXX" LanguageStandard="23">
+    <CompileDefinitions>
+      <Definition Value="TYPED_LIBRARY_BUILD" Visibility="Private" />
+      <Definition Value="TYPED_LIBRARY_LINUX" Visibility="Private" OperatingSystem="linux" />
+      <Definition Value="TYPED_LIBRARY_WINDOWS" Visibility="Private" OperatingSystem="windows" />
+      <Definition Value="TYPED_LIBRARY_DEBUG" Visibility="Private" BuildConfiguration="Debug" />
+    </CompileDefinitions>
+  </Build>
+  <Environments>
+    <Environment Name="dev" />
+  </Environments>
+  <Configurations>
+    <Configuration Name="Runtime" BuildConfiguration="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev" />
+  </Configurations>
+</Project>
+)");
+    WriteFile(temp.path() / "Library/include/Typed/Library.hpp", "#pragma once\nvoid typed_library();\n");
+    WriteFile(temp.path() / "Library/src/core.cpp", "#include <Typed/Library.hpp>\nvoid typed_library() {}\n");
+    WriteFile(temp.path() / "Library/src/ignored.generated.cpp", "void typed_library_generated() {}\n");
+    WriteFile(temp.path() / "Library/src/linux/linux.cpp", "void typed_library_linux() {}\n");
+    WriteFile(temp.path() / "Library/src/windows/windows.cpp", "void typed_library_windows() {}\n");
+    WriteFile(temp.path() / "Library/manual/manual.cpp", "void typed_library_manual() {}\n");
+
+    const auto project = LoadProjectManifest(projectPath);
+    const std::optional<std::string> configurationName{"Runtime"};
+    const auto &configuration = ConfigurationByName(project, configurationName);
+    const auto configured = ConfigureLaunch(project, configuration, temp.path() / "stage");
+    REQUIRE(configured.value.has_value());
+    REQUIRE_FALSE(configured.diagnostics.HasErrors());
+
+    const auto generated = ReadFile(temp.path() / "stage/.ngin/cmake-src/CMakeLists.txt");
+    REQUIRE_THAT(generated, ContainsSubstring("target_include_directories(\"TypedLibrary\" PUBLIC \"" + (temp.path() / "Library/include").generic_string() + "\")"));
+    REQUIRE_THAT(generated, ContainsSubstring("target_include_directories(\"TypedLibrary\" PRIVATE \"" + (temp.path() / "Library/src").generic_string() + "\")"));
+    REQUIRE_THAT(generated, ContainsSubstring("target_include_directories(\"TypedLibrary\" PRIVATE \"" + (temp.path() / "Library/src/linux").generic_string() + "\")"));
+    REQUIRE_THAT(generated, !ContainsSubstring((temp.path() / "Library/src/windows").generic_string()));
+    REQUIRE_THAT(generated, ContainsSubstring("TYPED_LIBRARY_LINUX"));
+    REQUIRE_THAT(generated, ContainsSubstring("TYPED_LIBRARY_DEBUG"));
+    REQUIRE_THAT(generated, !ContainsSubstring("TYPED_LIBRARY_WINDOWS"));
+    REQUIRE(CountOccurrences(generated, (temp.path() / "Library/src/core.cpp").generic_string()) == 1);
+    REQUIRE(CountOccurrences(generated, (temp.path() / "Library/src/linux/linux.cpp").generic_string()) == 1);
+    REQUIRE(CountOccurrences(generated, (temp.path() / "Library/src/windows/windows.cpp").generic_string()) == 0);
+    REQUIRE(CountOccurrences(generated, (temp.path() / "Library/src/ignored.generated.cpp").generic_string()) == 0);
+    REQUIRE(CountOccurrences(generated, (temp.path() / "Library/manual/manual.cpp").generic_string()) == 1);
 }
 
 TEST_CASE("environment variables resolve from explicit value, process environment, and local settings")

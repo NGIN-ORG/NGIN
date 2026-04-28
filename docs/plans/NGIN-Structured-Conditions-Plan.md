@@ -230,7 +230,7 @@ An empty `<Conditions />` section is valid and has no effect.
 
 A project manifest may contain at most one root-level `<Conditions>` section.
 When present, the canonical root order places `<Conditions>` after
-`<SourceRoots>` and before `<Output>`.
+`<Sources>` or legacy `<SourceRoots>` and before `<Output>`.
 
 `All`, `Any`, and `Not` may contain only supported condition nodes. Unknown
 child elements are validation errors. Non-whitespace text content inside
@@ -558,6 +558,7 @@ belong in the contract.
 
 The project root surface would become:
 
+- `Sources`
 - `SourceRoots`
 - `Conditions`
 - `Output`

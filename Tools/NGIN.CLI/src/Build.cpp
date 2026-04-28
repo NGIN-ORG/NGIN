@@ -525,6 +525,17 @@ namespace NGIN::CLI
             return ext == ".c" || ext == ".cc" || ext == ".cpp" || ext == ".cxx" || ext == ".m" || ext == ".mm";
         }
 
+        [[nodiscard]] auto IsHeaderSourceExtension(const fs::path &path) -> bool
+        {
+            const auto ext = Lower(path.extension().string());
+            return ext == ".h" || ext == ".hh" || ext == ".hpp" || ext == ".hxx" || ext == ".ipp" || ext == ".inl";
+        }
+
+        [[nodiscard]] auto IsTargetSourceExtension(const fs::path &path) -> bool
+        {
+            return IsCompiledSourceExtension(path) || IsHeaderSourceExtension(path);
+        }
+
         [[nodiscard]] auto SourceLanguageFor(const fs::path &path) -> std::string
         {
             const auto ext = Lower(path.extension().string());
@@ -565,6 +576,43 @@ namespace NGIN::CLI
                 return "INTERFACE";
             }
             return "PRIVATE";
+        }
+
+        [[nodiscard]] auto SelectorsMatch(const SelectorSet &selectors, const ConfigurationDefinition &configuration) -> bool
+        {
+            if (selectors.operatingSystem.has_value() && *selectors.operatingSystem != configuration.operatingSystem)
+            {
+                return false;
+            }
+            if (selectors.architecture.has_value() && *selectors.architecture != configuration.architecture)
+            {
+                return false;
+            }
+            if (selectors.buildConfiguration.has_value() && *selectors.buildConfiguration != configuration.buildConfiguration)
+            {
+                return false;
+            }
+            return true;
+        }
+
+        [[nodiscard]] auto SelectedTypedSourceRoots(const ProjectManifest &project, const ConfigurationDefinition &configuration, const bool publicRoots)
+            -> std::vector<SourceEntry>
+        {
+            std::vector<SourceEntry> roots{};
+            if (!project.sources.has_value())
+            {
+                return roots;
+            }
+
+            const auto &group = publicRoots ? project.sources->publicSources : project.sources->privateSources;
+            for (const auto &root : group.roots)
+            {
+                if (SelectorsMatch(root.selectors, configuration))
+                {
+                    roots.push_back(root);
+                }
+            }
+            return roots;
         }
 
         [[nodiscard]] auto EffectivePackageBuildMode(const ResolvedPackage &package) -> std::string
@@ -612,10 +660,12 @@ namespace NGIN::CLI
         [[nodiscard]] auto CollectGeneratedProjectSources(
             const std::optional<WorkspaceManifest> &workspace,
             const ProjectManifest &project,
+            const ConfigurationDefinition &configuration,
             DiagnosticReport &report) -> std::vector<fs::path>
         {
             std::vector<fs::path> sources{};
             std::set<fs::path> unique{};
+            std::size_t compiledSourceCount = 0;
 
             auto addSource = [&](const fs::path &candidate)
             {
@@ -630,7 +680,7 @@ namespace NGIN::CLI
                     AddError(report, "project '" + project.name + "' source path '" + normalized.string() + "' is not a file");
                     return;
                 }
-                if (!IsCompiledSourceExtension(normalized))
+                if (!IsTargetSourceExtension(normalized))
                 {
                     AddError(report, "project '" + project.name + "' source file '" + normalized.string() + "' has an unsupported extension");
                     return;
@@ -638,6 +688,10 @@ namespace NGIN::CLI
                 if (unique.insert(normalized).second)
                 {
                     sources.push_back(normalized);
+                    if (IsCompiledSourceExtension(normalized))
+                    {
+                        ++compiledSourceCount;
+                    }
                 }
             };
 
@@ -646,6 +700,112 @@ namespace NGIN::CLI
                 for (const auto &item : project.build.sources)
                 {
                     addSource(ResolveProjectPathValue(item, project, workspace));
+                }
+            }
+            else if (project.sources.has_value())
+            {
+                std::vector<fs::path> excludedRoots{};
+                std::vector<fs::path> excludedFiles{};
+                auto collectExclusions = [&](const SourceGroup &group)
+                {
+                    for (const auto &root : group.roots)
+                    {
+                        if (!SelectorsMatch(root.selectors, configuration))
+                        {
+                            excludedRoots.push_back(ResolveProjectPathValue(root.path, project, workspace));
+                        }
+                    }
+                    for (const auto &file : group.files)
+                    {
+                        if (!SelectorsMatch(file.selectors, configuration))
+                        {
+                            excludedFiles.push_back(ResolveProjectPathValue(file.path, project, workspace));
+                        }
+                    }
+                };
+                collectExclusions(project.sources->publicSources);
+                collectExclusions(project.sources->privateSources);
+
+                auto isExcluded = [&](const fs::path &candidate)
+                {
+                    const auto normalized = candidate.lexically_normal();
+                    for (const auto &root : excludedRoots)
+                    {
+                        if (IsPathWithinDirectory(normalized, root))
+                        {
+                            return true;
+                        }
+                    }
+                    return std::find(excludedFiles.begin(), excludedFiles.end(), normalized) != excludedFiles.end();
+                };
+
+                auto addRootSources = [&](const SourceEntry &root)
+                {
+                    const auto sourceRoot = ResolveProjectPathValue(root.path, project, workspace);
+                    if (!fs::exists(sourceRoot))
+                    {
+                        AddError(report, "project '" + project.name + "' source root '" + sourceRoot.string() + "' does not exist");
+                        return;
+                    }
+                    if (!fs::is_directory(sourceRoot))
+                    {
+                        AddError(report, "project '" + project.name + "' source root '" + sourceRoot.string() + "' is not a directory");
+                        return;
+                    }
+                    for (const auto &entry : fs::recursive_directory_iterator(sourceRoot))
+                    {
+                        if (!entry.is_regular_file() || isExcluded(entry.path()))
+                        {
+                            continue;
+                        }
+                        const auto normalized = entry.path().lexically_normal();
+                        const auto relativePath = normalized.lexically_relative(sourceRoot);
+                        if (!root.includePatterns.empty())
+                        {
+                            if (!IsTargetSourceExtension(normalized) || !AnyGlobMatches(root.includePatterns, relativePath))
+                            {
+                                continue;
+                            }
+                        }
+                        else if (!IsCompiledSourceExtension(normalized))
+                        {
+                            continue;
+                        }
+                        if (!root.excludePatterns.empty() && AnyGlobMatches(root.excludePatterns, relativePath))
+                        {
+                            continue;
+                        }
+                        addSource(entry.path());
+                    }
+                };
+
+                for (const auto &root : project.sources->publicSources.roots)
+                {
+                    if (SelectorsMatch(root.selectors, configuration))
+                    {
+                        addRootSources(root);
+                    }
+                }
+                for (const auto &root : project.sources->privateSources.roots)
+                {
+                    if (SelectorsMatch(root.selectors, configuration))
+                    {
+                        addRootSources(root);
+                    }
+                }
+                for (const auto &file : project.sources->publicSources.files)
+                {
+                    if (SelectorsMatch(file.selectors, configuration))
+                    {
+                        addSource(ResolveProjectPathValue(file.path, project, workspace));
+                    }
+                }
+                for (const auto &file : project.sources->privateSources.files)
+                {
+                    if (SelectorsMatch(file.selectors, configuration))
+                    {
+                        addSource(ResolveProjectPathValue(file.path, project, workspace));
+                    }
                 }
             }
             else
@@ -669,15 +829,16 @@ namespace NGIN::CLI
                         {
                             continue;
                         }
-                        if (unique.insert(entry.path()).second)
-                        {
-                            sources.push_back(entry.path());
-                        }
+                        addSource(entry.path());
                     }
                 }
             }
 
             std::sort(sources.begin(), sources.end());
+            if (!sources.empty() && compiledSourceCount == 0)
+            {
+                AddError(report, "project '" + project.name + "' generated build resolved no compilable source files");
+            }
             return sources;
         }
 
@@ -808,21 +969,27 @@ namespace NGIN::CLI
                         AddError(report, "project '" + unit.project.name + "' generated build currently supports only Language=\"CXX\"");
                         continue;
                     }
-                    auto sources = CollectGeneratedProjectSources(resolved.workspace, unit.project, report);
+                    auto sources = CollectGeneratedProjectSources(resolved.workspace, unit.project, unit.configuration, report);
                     if (sources.empty())
                     {
                         AddError(report, "project '" + unit.project.name + "' generated build resolved no source files");
                         continue;
                     }
-                    for (const auto &source : sources)
+                for (const auto &source : sources)
+                {
+                    if (IsCompiledSourceExtension(source))
                     {
                         languages.insert(SourceLanguageFor(source));
                     }
-                    AddGeneratedMetaSources(resolved, unit, sources, report);
-                    for (const auto &source : sources)
+                }
+                AddGeneratedMetaSources(resolved, unit, sources, report);
+                for (const auto &source : sources)
+                {
+                    if (IsCompiledSourceExtension(source))
                     {
                         languages.insert(SourceLanguageFor(source));
                     }
+                }
                     generatedSourcesByProject.emplace(unit.project.name, std::move(sources));
                 }
             }
@@ -991,24 +1158,50 @@ namespace NGIN::CLI
                     const auto includeDir = ResolveProjectPathValue(sourceRoot, unit.project, resolved.workspace);
                     out << "target_include_directories(\"" << EscapeCMake(targetName) << "\" PRIVATE \"" << ToCMakePath(includeDir) << "\")\n";
                 }
+                for (const auto &sourceRoot : SelectedTypedSourceRoots(unit.project, unit.configuration, true))
+                {
+                    const auto includeDir = ResolveProjectPathValue(sourceRoot.path, unit.project, resolved.workspace);
+                    out << "target_include_directories(\"" << EscapeCMake(targetName) << "\" PUBLIC \"" << ToCMakePath(includeDir) << "\")\n";
+                }
+                for (const auto &sourceRoot : SelectedTypedSourceRoots(unit.project, unit.configuration, false))
+                {
+                    const auto includeDir = ResolveProjectPathValue(sourceRoot.path, unit.project, resolved.workspace);
+                    out << "target_include_directories(\"" << EscapeCMake(targetName) << "\" PRIVATE \"" << ToCMakePath(includeDir) << "\")\n";
+                }
                 for (const auto &setting : unit.project.build.includeDirectories)
                 {
+                    if (!SelectorsMatch(setting.selectors, unit.configuration))
+                    {
+                        continue;
+                    }
                     const auto includeDir = ResolveProjectPathValue(setting.value, unit.project, resolved.workspace);
                     out << "target_include_directories(\"" << EscapeCMake(targetName) << "\" " << ToCMakeVisibility(setting.visibility)
                         << " \"" << ToCMakePath(includeDir) << "\")\n";
                 }
                 for (const auto &setting : unit.project.build.compileDefinitions)
                 {
+                    if (!SelectorsMatch(setting.selectors, unit.configuration))
+                    {
+                        continue;
+                    }
                     out << "target_compile_definitions(\"" << EscapeCMake(targetName) << "\" " << ToCMakeVisibility(setting.visibility)
                         << " \"" << EscapeCMake(ExpandProjectVariables(setting.value, unit.project, resolved.workspace)) << "\")\n";
                 }
                 for (const auto &setting : unit.project.build.compileOptions)
                 {
+                    if (!SelectorsMatch(setting.selectors, unit.configuration))
+                    {
+                        continue;
+                    }
                     out << "target_compile_options(\"" << EscapeCMake(targetName) << "\" " << ToCMakeVisibility(setting.visibility)
                         << " \"" << EscapeCMake(ExpandProjectVariables(setting.value, unit.project, resolved.workspace)) << "\")\n";
                 }
                 for (const auto &setting : unit.project.build.linkOptions)
                 {
+                    if (!SelectorsMatch(setting.selectors, unit.configuration))
+                    {
+                        continue;
+                    }
                     out << "target_link_options(\"" << EscapeCMake(targetName) << "\" " << ToCMakeVisibility(setting.visibility)
                         << " \"" << EscapeCMake(ExpandProjectVariables(setting.value, unit.project, resolved.workspace)) << "\")\n";
                 }

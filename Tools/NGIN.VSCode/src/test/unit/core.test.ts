@@ -116,6 +116,21 @@ test('project manifests parse configurations, launch metadata, and local setting
   assert.equal(project.configurations[0].architecture, 'x64');
 });
 
+test('project manifests parse typed source roots and files', () => {
+  const project = parseProjectManifest(
+    [
+      '<?xml version="1.0" encoding="utf-8"?><Project Name="Typed" DefaultConfiguration="Runtime"><Sources><Public><Root Path="include" /><File Path="include/Typed/App.hpp" /></Public><Private><Root Path="src" /><File Path="src/main.cpp" /><Files>',
+      'src/a.cpp',
+      'src/b.cpp',
+      '</Files></Private></Sources><Configurations><Configuration Name="Runtime" /></Configurations></Project>'
+    ].join('\n'),
+    '/repo/Typed.nginproj'
+  );
+
+  assert.deepEqual(project.sourceRoots, ['include', 'src']);
+  assert.deepEqual(project.buildSources, ['include/Typed/App.hpp', 'src/main.cpp', 'src/a.cpp', 'src/b.cpp']);
+});
+
 test('local settings manifests expose keys without values', () => {
   const settings = parseLocalSettingsManifest(
     '<?xml version="1.0" encoding="utf-8"?><LocalSettings SchemaVersion="1"><Settings><Setting Key="feeds.private.token" Value="secret" Secret="true" /><Setting Key="sdk.vulkan.root" Value="/opt/vulkan" /></Settings></LocalSettings>',

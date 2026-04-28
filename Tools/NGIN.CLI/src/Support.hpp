@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <fstream>
 #include <optional>
+#include <regex>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -199,5 +200,66 @@ struct LoadedXml {
     }
   }
   return directoryIt == normalizedDirectory.end();
+}
+
+[[nodiscard]] inline auto NormalizeGlobPattern(std::string pattern)
+    -> std::string {
+  std::replace(pattern.begin(), pattern.end(), '\\', '/');
+  return pattern;
+}
+
+[[nodiscard]] inline auto GlobToRegex(std::string_view pattern) -> std::string {
+  std::string regex;
+  regex.reserve(pattern.size() * 2 + 2);
+  regex += '^';
+  for (std::size_t index = 0; index < pattern.size(); ++index) {
+    const char ch = pattern[index];
+    if (ch == '*') {
+      if (index + 1 < pattern.size() && pattern[index + 1] == '*') {
+        index += 1;
+        if (index + 1 < pattern.size() && pattern[index + 1] == '/') {
+          regex += "(?:.*/)?";
+          index += 1;
+        } else {
+          regex += ".*";
+        }
+      } else {
+        regex += "[^/]*";
+      }
+      continue;
+    }
+    if (ch == '?') {
+      regex += "[^/]";
+      continue;
+    }
+    if (std::string_view(".^$+{}()[]|").find(ch) != std::string_view::npos) {
+      regex.push_back('\\');
+    }
+    regex.push_back(ch);
+  }
+  regex += '$';
+  return regex;
+}
+
+[[nodiscard]] inline auto GlobMatches(std::string_view pattern,
+                                      std::string_view path) -> bool {
+  const auto normalizedPattern = NormalizeGlobPattern(std::string(pattern));
+  auto normalizedPath = std::string(path);
+  std::replace(normalizedPath.begin(), normalizedPath.end(), '\\', '/');
+  try {
+    return std::regex_match(normalizedPath, std::regex(GlobToRegex(normalizedPattern)));
+  } catch (const std::regex_error &) {
+    return false;
+  }
+}
+
+[[nodiscard]] inline auto AnyGlobMatches(const std::vector<std::string> &patterns,
+                                         const fs::path &relativePath)
+    -> bool {
+  const auto value = relativePath.generic_string();
+  return std::any_of(patterns.begin(), patterns.end(),
+                     [&](const std::string &pattern) {
+                       return GlobMatches(pattern, value);
+                     });
 }
 } // namespace NGIN::CLI

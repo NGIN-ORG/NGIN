@@ -1514,9 +1514,11 @@ TEST_CASE("ApplicationBuilderLoadsProjectManifestAndConfig",
          Name="Manifest.Tests"
          Type="Application"
          DefaultConfiguration="Samples.Manifest">
-  <SourceRoots>
-    <SourceRoot Path="src" />
-  </SourceRoots>
+  <Sources>
+    <Private>
+      <Root Path="src" />
+    </Private>
+  </Sources>
   <Output Kind="Executable"
           Name="Manifest.Tests"
           Target="Manifest.Tests" />
@@ -1682,9 +1684,11 @@ TEST_CASE("ApplicationBuilderTargetOverrideBeatsProjectDefault",
          Name="Manifest.Override"
          Type="Application"
          DefaultConfiguration="Default.Target">
-  <SourceRoots>
-    <SourceRoot Path="src" />
-  </SourceRoots>
+  <Sources>
+    <Private>
+      <Root Path="src" />
+    </Private>
+  </Sources>
   <Output Kind="Executable"
           Name="Manifest.Override"
           Target="Manifest.Override" />
@@ -1773,9 +1777,11 @@ TEST_CASE("ApplicationBuilderRejectsUnknownTarget", "[builder][manifest]") {
          Name="Manifest.Invalid"
          Type="Application"
          DefaultConfiguration="Samples.Default">
-  <SourceRoots>
-    <SourceRoot Path="src" />
-  </SourceRoots>
+  <Sources>
+    <Private>
+      <Root Path="src" />
+    </Private>
+  </Sources>
   <Output Kind="Executable"
           Name="Manifest.Invalid"
           Target="Manifest.Invalid" />
