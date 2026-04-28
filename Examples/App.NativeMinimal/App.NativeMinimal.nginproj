@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project SchemaVersion="3"
          Name="App.NativeMinimal"
+         Template="Application"
          DefaultProfile="Runtime">
   <Sources>
     <Private>
@@ -12,13 +13,8 @@
                Environment="local"
                BuildType="Debug" />
   </Conditions>
-  <Output Kind="Executable"
-          Name="App.NativeMinimal"
-          Target="App.NativeMinimal" />
-  <Build Backend="CMake"
-         Mode="Generated"
-         Language="CXX"
-         LanguageStandard="23">
+  <Launch Executable="$(OutputName)" WorkingDirectory="." />
+  <Build>
     <CompileDefinitions>
       <Definition Value="APP_NATIVE_MINIMAL_LOCAL_DEBUG"
                   Visibility="Private"
@@ -29,11 +25,6 @@
     <Environment Name="local" />
   </Environments>
   <Profiles>
-    <Profile Name="Runtime"
-                   BuildType="Debug"
-                   Platform="linux-x64"
-                   Environment="local">
-      <Launch Executable="App.NativeMinimal" WorkingDirectory="." />
-    </Profile>
+    <Profile Name="Runtime" Template="LocalRuntime" />
   </Profiles>
 </Project>

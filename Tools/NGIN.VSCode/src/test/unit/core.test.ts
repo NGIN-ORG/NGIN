@@ -22,7 +22,7 @@ import {
 } from '../../core/helpers';
 import { addRootConfigInput, relativeManifestPath, removeConfigInputs, renameConfigInputs } from '../../core/projectAuthoring';
 import { buildOverviewSections, buildProjectTreeModels, buildStatusBarModel } from '../../ui/models';
-import { parseLaunchManifest, parseLocalSettingsManifest, parseProjectManifest, parseWorkspaceManifest } from '../../core/xml';
+import { parseLaunchManifest, parseLocalSettingsManifest, parseModelManifest, parseProjectManifest, parseWorkspaceManifest } from '../../core/xml';
 
 test('computeOutputDir uses the CLI default layout when no root override is configured', () => {
   const outputDir = computeOutputDir('/workspace', 'App.Basic', 'Runtime');
@@ -87,13 +87,44 @@ test('local settings warnings are extracted from CLI output', () => {
 
 test('workspace manifests parse project paths relative to the workspace manifest', () => {
   const workspace = parseWorkspaceManifest(
-    '<?xml version="1.0" encoding="utf-8"?><Workspace Name="NGIN"><PackageSources><PackageSource Path="Packages" /></PackageSources><Projects><Project Path="Examples/App.Basic/App.Basic.nginproj" /></Projects></Workspace>',
+    '<?xml version="1.0" encoding="utf-8"?><Workspace SchemaVersion="3" Name="NGIN"><Includes><Include Path="Examples/Common.nginmodel" /></Includes><Defaults BuildType="Debug" Platform="linux-x64" /><PackageSources><PackageSource Path="Packages" /></PackageSources><Projects><Project Path="Examples/App.Basic/App.Basic.nginproj" /></Projects></Workspace>',
     '/repo/NGIN.ngin'
   );
 
   assert.equal(workspace.name, 'NGIN');
+  assert.deepEqual(workspace.modelIncludes, ['/repo/Examples/Common.nginmodel']);
+  assert.equal(workspace.defaults?.buildType, 'Debug');
   assert.deepEqual(workspace.projectPaths, ['/repo/Examples/App.Basic/App.Basic.nginproj']);
   assert.deepEqual(workspace.packageSourcePaths, ['/repo/Packages']);
+});
+
+test('model and project parsing apply V3 defaults and profile templates', () => {
+  const model = parseModelManifest(
+    [
+      '<?xml version="1.0" encoding="utf-8"?>',
+      '<Model SchemaVersion="3" Name="Common">',
+      '  <Defaults BuildType="Debug" Platform="linux-x64" Environment="dev" />',
+      '  <ProfileTemplates>',
+      '    <ProfileTemplate Name="RuntimeDefaults">',
+      '      <Launch Executable="$(OutputName)" WorkingDirectory="." />',
+      '      <Inputs><Config Path="config/template.cfg" /></Inputs>',
+      '    </ProfileTemplate>',
+      '  </ProfileTemplates>',
+      '</Model>'
+    ].join(''),
+    '/repo/Examples/Common.nginmodel'
+  );
+  const project = parseProjectManifest(
+    '<?xml version="1.0" encoding="utf-8"?><Project SchemaVersion="3" Name="App.Basic" DefaultProfile="Runtime"><Output Kind="Executable" Name="App.Basic" Target="App.Basic" /><Environments><Environment Name="dev" /></Environments><Profiles><Profile Name="Runtime" Template="RuntimeDefaults" /></Profiles></Project>',
+    '/repo/Examples/App.Basic/App.Basic.nginproj',
+    { defaults: model.defaults, profileTemplates: model.profileTemplates }
+  );
+
+  assert.equal(project.profiles[0].buildType, 'Debug');
+  assert.equal(project.profiles[0].platform, 'linux-x64');
+  assert.equal(project.profiles[0].environment, 'dev');
+  assert.equal(project.profiles[0].launchExecutable, 'App.Basic');
+  assert.deepEqual(project.profiles[0].configInputs, ['config/template.cfg']);
 });
 
 test('project manifests parse profiles, launch metadata, and local settings imports', () => {
@@ -147,6 +178,7 @@ test('extension manifest and snippets register local settings support', () => {
   const packageJson = JSON.parse(readFileSync(path.join(process.cwd(), 'package.json'), 'utf8'));
   const language = packageJson.contributes.languages.find((entry: { id?: string }) => entry.id === 'ngin');
   assert.ok(language.extensions.includes('.nginsettings'));
+  assert.ok(language.extensions.includes('.nginmodel'));
 
   const commandIds = packageJson.contributes.commands.map((entry: { command: string }) => entry.command);
   assert.ok(commandIds.includes('ngin.variablesExplain'));
@@ -155,6 +187,7 @@ test('extension manifest and snippets register local settings support', () => {
   const snippets = JSON.parse(readFileSync(path.join(process.cwd(), 'snippets/ngin.code-snippets'), 'utf8'));
   assert.ok(snippets['Local Settings File']);
   assert.ok(snippets['Variable From Local Setting']);
+  assert.ok(snippets['Model']);
 });
 
 test('launch manifests surface selected executable and staged files', () => {

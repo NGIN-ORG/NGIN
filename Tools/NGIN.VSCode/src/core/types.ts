@@ -3,8 +3,34 @@ export interface WorkspaceManifest {
   directory: string;
   name: string;
   platformVersion?: string;
+  modelIncludes?: string[];
+  defaults?: ModelDefaults;
+  profileTemplates?: Record<string, ProjectProfileTemplate>;
   projectPaths: string[];
   packageSourcePaths?: string[];
+}
+
+export interface ModelDefaults {
+  buildType?: string;
+  platform?: string;
+  operatingSystem?: string;
+  architecture?: string;
+  environment?: string;
+}
+
+export interface ProjectProfileTemplate {
+  name: string;
+  extends?: string;
+  buildType?: string;
+  platform?: string;
+  operatingSystem?: string;
+  architecture?: string;
+  environment?: string;
+  launchExecutable?: string;
+  launchWorkingDirectory?: string;
+  configInputs: string[];
+  projectRefs?: ProjectReference[];
+  packageRefs?: PackageReference[];
 }
 
 export interface PackageCatalogEntry {
@@ -50,6 +76,8 @@ export interface ProjectManifest {
   directory: string;
   name: string;
   defaultProfile?: string;
+  modelIncludes?: string[];
+  defaults?: ModelDefaults;
   sourceRoots: string[];
   configInputs: string[];
   localSettingsImports?: string[];

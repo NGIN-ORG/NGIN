@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Model SchemaVersion="3" Name="NGIN.Examples.Common">
+  <Defaults BuildType="Debug"
+            Platform="linux-x64"
+            Backend="CMake"
+            BuildMode="Generated"
+            Language="CXX"
+            LanguageStandard="23" />
+  <ProfileTemplates>
+    <ProfileTemplate Name="LocalRuntime" Environment="local">
+      <Launch Executable="$(OutputName)" WorkingDirectory="." />
+    </ProfileTemplate>
+    <ProfileTemplate Name="DevelopmentRuntime" Environment="development">
+      <Launch Executable="$(OutputName)" WorkingDirectory="." />
+    </ProfileTemplate>
+    <ProfileTemplate Name="DevelopmentLibrary" Environment="development" />
+    <ProfileTemplate Name="ProductionLibrary"
+                     BuildType="Release"
+                     Environment="production" />
+  </ProfileTemplates>
+</Model>

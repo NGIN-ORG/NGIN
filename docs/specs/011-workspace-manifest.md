@@ -1,7 +1,7 @@
 # Spec 011: Workspace Manifest
 
 Status: Active
-Last updated: 2026-03-21
+Last updated: 2026-04-28
 
 ## Purpose
 
@@ -12,14 +12,41 @@ This spec defines the optional `.ngin` workspace manifest.
 - filename: `<Name>.ngin`
 - root element: `<Workspace>`
 - required root attributes:
-  - `SchemaVersion="2"`
+  - `SchemaVersion="3"`
   - `Name`
 
 ## Supported Sections
 
+- `Includes`
+- `Defaults`
+- `Platforms`
+- `ProjectTemplates`
+- `ProfileTemplates`
 - `PackageSources`
 - `PackageProviders`
 - `Projects`
+
+## Model Contributions
+
+Workspace V3 may include shared `.nginmodel` files and may declare model
+contributions directly:
+
+```xml
+<Workspace SchemaVersion="3" Name="Examples">
+  <Includes>
+    <Include Path="Common.nginmodel" />
+  </Includes>
+  <Defaults BuildType="Debug" Platform="linux-x64" />
+</Workspace>
+```
+
+Included model paths are relative to the declaring workspace or model file.
+Includes resolve depth-first in declaration order. Missing include files and
+include cycles are hard validation errors.
+
+Workspace model contributions apply to projects loaded through workspace
+resolution. Project-local includes, defaults, templates, and explicit profile
+values override workspace-provided defaults where scalar values conflict.
 
 ## Package Providers
 

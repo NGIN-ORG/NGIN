@@ -16,13 +16,7 @@
     <Environment Name="production" />
   </Environments>
   <Profiles>
-    <Profile Name="Debug"
-                   BuildType="Debug"
-                   Platform="linux-x64"
-                   Environment="development" />
-    <Profile Name="Release"
-                   BuildType="Release"
-                   Platform="linux-x64"
-                   Environment="production" />
+    <Profile Name="Debug" Template="DevelopmentLibrary" />
+    <Profile Name="Release" Template="ProductionLibrary" />
   </Profiles>
 </Project>

@@ -209,7 +209,7 @@ TEST_CASE("workspace, project, and package manifests parse through authoring "
     TempDir temp{};
     WriteFile(temp.path() / "Workspace.ngin",
               R"(<?xml version="1.0" encoding="utf-8"?>
-<Workspace SchemaVersion="2" Name="TempWorkspace" PlatformVersion="0.1.0">
+<Workspace SchemaVersion="3" Name="TempWorkspace" PlatformVersion="0.1.0">
   <PackageSources>
     <PackageSource Path="Packages" />
   </PackageSources>
@@ -613,6 +613,194 @@ TEST_CASE("profiles inherit scalar settings and append authored contributions")
     REQUIRE(profile.packageRefs[1].name == "Profile.Runtime");
 }
 
+TEST_CASE("model defaults and templates resolve through workspace and project includes")
+{
+    TempDir temp{};
+    WriteFile(temp.path() / "Workspace.ngin",
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Workspace SchemaVersion="3" Name="Model.Workspace">
+  <Includes>
+    <Include Path="workspace.nginmodel" />
+  </Includes>
+  <Projects>
+    <Project Path="App/App.nginproj" />
+  </Projects>
+</Workspace>
+)xml");
+    WriteFile(temp.path() / "workspace.nginmodel",
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Model SchemaVersion="3" Name="Workspace.Model">
+  <Defaults BuildType="Debug" Platform="linux-x64" Environment="workspace" />
+  <ProfileTemplates>
+    <ProfileTemplate Name="WorkspaceRuntime">
+      <Launch Executable="$(OutputName)" WorkingDirectory="." />
+      <References>
+        <Package Name="Workspace.Template" />
+      </References>
+    </ProfileTemplate>
+  </ProfileTemplates>
+</Model>
+)xml");
+    WriteFile(temp.path() / "App/project.nginmodel",
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Model SchemaVersion="3" Name="Project.Model">
+  <Defaults Environment="project" />
+  <ProjectTemplates>
+    <ProjectTemplate Name="AuthoredTool" Type="Tool" OutputKind="Executable" />
+  </ProjectTemplates>
+  <ProfileTemplates>
+    <ProfileTemplate Name="ProjectRuntime" Extends="WorkspaceRuntime">
+      <Inputs>
+        <Config Path="config/template.cfg" />
+      </Inputs>
+    </ProfileTemplate>
+  </ProfileTemplates>
+</Model>
+)xml");
+    WriteFile(temp.path() / "App/App.nginproj",
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="3" Name="Model.App" Template="AuthoredTool" DefaultProfile="Runtime">
+  <Includes>
+    <Include Path="project.nginmodel" />
+  </Includes>
+  <Environments>
+    <Environment Name="workspace" />
+    <Environment Name="project" />
+  </Environments>
+  <Profiles>
+    <Profile Name="Runtime" Template="ProjectRuntime" />
+  </Profiles>
+</Project>
+)xml");
+
+    const auto project = LoadProjectManifest(temp.path() / "App/App.nginproj");
+    const std::optional<std::string> runtimeProfile{"Runtime"};
+    const auto &profile = ProfileByName(project, runtimeProfile);
+
+    REQUIRE(project.type == "Tool");
+    REQUIRE(project.output.kind == "Executable");
+    REQUIRE(project.output.name == "Model.App");
+    REQUIRE(project.build.backend == "CMake");
+    REQUIRE(project.build.mode == "Generated");
+    REQUIRE(profile.buildType == "Debug");
+    REQUIRE(profile.platform == "linux-x64");
+    REQUIRE(profile.environmentName == "project");
+    REQUIRE(profile.launch.executable == "Model.App");
+    REQUIRE(profile.packageRefs.size() == 1);
+    REQUIRE(profile.packageRefs[0].name == "Workspace.Template");
+    REQUIRE(profile.configInputs.size() == 1);
+    REQUIRE(profile.configInputs[0] == "config/template.cfg");
+}
+
+TEST_CASE("project local profile values override profile templates")
+{
+    TempDir temp{};
+    const auto projectPath = temp.path() / "App.nginproj";
+    WriteFile(projectPath,
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="3" Name="Override.App" Template="Application" DefaultProfile="Runtime">
+  <Defaults BuildType="Debug" Platform="linux-x64" Environment="template-env" />
+  <ProfileTemplates>
+    <ProfileTemplate Name="RuntimeTemplate" BuildType="Release" Environment="template-env">
+      <Launch Executable="$(OutputName)" WorkingDirectory="." />
+    </ProfileTemplate>
+  </ProfileTemplates>
+  <Environments>
+    <Environment Name="template-env" />
+    <Environment Name="local-env" />
+  </Environments>
+  <Profiles>
+    <Profile Name="Runtime"
+             Template="RuntimeTemplate"
+             BuildType="Debug"
+             Environment="local-env" />
+  </Profiles>
+</Project>
+)xml");
+
+    const auto project = LoadProjectManifest(projectPath);
+    const std::optional<std::string> runtimeProfile{"Runtime"};
+    const auto &profile = ProfileByName(project, runtimeProfile);
+
+    REQUIRE(profile.buildType == "Debug");
+    REQUIRE(profile.environmentName == "local-env");
+    REQUIRE(profile.launch.executable == "Override.App");
+}
+
+TEST_CASE("model include diagnostics report missing files and cycles")
+{
+    TempDir temp{};
+    const auto missingPath = temp.path() / "Missing.nginproj";
+    WriteFile(missingPath,
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="3" Name="Missing.Model" Template="Application" DefaultProfile="Runtime">
+  <Includes>
+    <Include Path="missing.nginmodel" />
+  </Includes>
+  <Environments>
+    <Environment Name="dev" />
+  </Environments>
+  <Profiles>
+    <Profile Name="Runtime" Environment="dev" />
+  </Profiles>
+</Project>
+)xml");
+    REQUIRE_THROWS_WITH(LoadProjectManifest(missingPath), ContainsSubstring("included model file does not exist"));
+
+    WriteFile(temp.path() / "a.nginmodel",
+              R"xml(<Model SchemaVersion="3" Name="A"><Includes><Include Path="b.nginmodel" /></Includes></Model>)xml");
+    WriteFile(temp.path() / "b.nginmodel",
+              R"xml(<Model SchemaVersion="3" Name="B"><Includes><Include Path="a.nginmodel" /></Includes></Model>)xml");
+    const auto cyclePath = temp.path() / "Cycle.nginproj";
+    WriteFile(cyclePath,
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="3" Name="Cycle.Model" Template="Application" DefaultProfile="Runtime">
+  <Includes>
+    <Include Path="a.nginmodel" />
+  </Includes>
+  <Environments>
+    <Environment Name="dev" />
+  </Environments>
+  <Profiles>
+    <Profile Name="Runtime" Environment="dev" />
+  </Profiles>
+</Project>
+)xml");
+    REQUIRE_THROWS_WITH(LoadProjectManifest(cyclePath), ContainsSubstring("model include cycle"));
+}
+
+TEST_CASE("unknown project and profile templates fail validation")
+{
+    TempDir temp{};
+    const auto projectTemplatePath = temp.path() / "UnknownProjectTemplate.nginproj";
+    WriteFile(projectTemplatePath,
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="3" Name="Unknown.Project.Template" Template="Missing" DefaultProfile="Runtime">
+  <Environments>
+    <Environment Name="dev" />
+  </Environments>
+  <Profiles>
+    <Profile Name="Runtime" Environment="dev" />
+  </Profiles>
+</Project>
+)xml");
+    REQUIRE_THROWS_WITH(LoadProjectManifest(projectTemplatePath), ContainsSubstring("unknown project template"));
+
+    const auto profileTemplatePath = temp.path() / "UnknownProfileTemplate.nginproj";
+    WriteFile(profileTemplatePath,
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="3" Name="Unknown.Profile.Template" Template="Application" DefaultProfile="Runtime">
+  <Environments>
+    <Environment Name="dev" />
+  </Environments>
+  <Profiles>
+    <Profile Name="Runtime" Template="Missing" Environment="dev" />
+  </Profiles>
+</Project>
+)xml");
+    REQUIRE_THROWS_WITH(LoadProjectManifest(profileTemplatePath), ContainsSubstring("unknown profile template"));
+}
+
 TEST_CASE("generated CMake applies typed source selectors and selected build settings")
 {
     TempDir temp{};
@@ -954,7 +1142,7 @@ TEST_CASE("resolution reports package dependency cycles")
     TempDir temp{};
     WriteFile(temp.path() / "Workspace.ngin",
               R"(<?xml version="1.0" encoding="utf-8"?>
-<Workspace SchemaVersion="2" Name="CycleWorkspace">
+<Workspace SchemaVersion="3" Name="CycleWorkspace">
   <PackageSources>
     <PackageSource Path="Packages" />
   </PackageSources>

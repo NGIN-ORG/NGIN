@@ -1,6 +1,6 @@
 # NGIN Project Model VNext Freeform Plan
 
-Status: V3 Foundation Implemented; Runtime Compatibility Removed; Strategic Backlog Remains
+Status: V3 Foundation And Phase A Model Factoring Implemented; Strategic Backlog Remains
 
 ## Implementation Progress
 
@@ -28,6 +28,15 @@ Implemented so far:
   variables to `PROFILE` variables where they mean NGIN project profiles.
 - Legacy authored aliases and compatibility parser paths removed from active
   CLI, NGIN.Core, and VS Code project/launch handling.
+- Phase A model factoring implemented across CLI, NGIN.Core, VS Code, examples,
+  docs, and tests:
+  - `.nginmodel` shared model files
+  - workspace/project includes with missing-file and cycle diagnostics
+  - workspace and project defaults
+  - root project launch defaults with `$(OutputName)`
+  - built-in and authored project templates
+  - reusable profile templates
+  - V3 workspace manifests
 - Active project, CLI, launch-manifest, and authoring docs moved toward V3.
 - Verification completed against workspace tests, NGIN.Core tests, VS Code unit
   tests, NGIN.Core BasicHost example build, repository stale-vocabulary scans,
@@ -35,7 +44,6 @@ Implemented so far:
 
 Still remaining from the broader plan:
 
-- Shared model includes.
 - Full project input model beyond config inputs.
 - Dependency version policy and package feature/capability expansion.
 - Pipeline phase contributions.
@@ -1203,17 +1211,21 @@ split into its own focused implementation plan before coding starts.
 
 ### Phase A: Model Factoring
 
+Status: implemented.
+
 Purpose: reduce repetition and make larger manifests manageable.
 
-- Add shared model includes.
-- Add include resolution and cycle detection.
-- Add workspace defaults.
-- Add project defaults.
-- Add project-level launch defaults.
-- Add project template declaration support.
-- Decide the final semantics of `Template="..."`.
-- Represent templates as known shared models with provenance.
-- Add reusable profile templates.
+- Implemented shared model includes through `.nginmodel`.
+- Implemented include resolution and cycle detection.
+- Implemented workspace defaults.
+- Implemented project defaults.
+- Implemented project-level launch defaults.
+- Implemented built-in and authored project templates.
+- Finalized Phase A `Template="..."` semantics for `Application`, `Library`,
+  `Tool`, and authored templates.
+- Implemented reusable profile templates.
+- Updated CLI, NGIN.Core, VS Code tooling, examples, specs, guide docs, and
+  tests.
 
 This phase should come first because later features need a clean way to share
 and explain declarations.
@@ -1324,11 +1336,11 @@ Purpose: polish adoption and authoring.
 
 ## Priorities
 
-The first three changes should be:
+With Phase A complete, the next three changes should be:
 
-1. Shared model includes and template-based projects.
-2. Generalized project input model.
-3. Package features and dependency version policy.
+1. Generalized project input model.
+2. Package features and dependency version policy.
+3. `ngin explain` for resolved model inspection.
 
 These have the best ratio of authoring improvement to conceptual risk. They
 make `.nginproj` feel more powerful and less repetitive without immediately

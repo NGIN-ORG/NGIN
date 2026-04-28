@@ -1,19 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project SchemaVersion="3"
          Name="App.Basic"
+         Template="Application"
          DefaultProfile="Runtime">
   <Sources>
     <Private>
       <Root Path="src" />
     </Private>
   </Sources>
-  <Output Kind="Executable"
-                 Name="App.Basic"
-                 Target="App.Basic" />
-  <Build Backend="CMake"
-         Mode="Generated"
-         Language="CXX"
-         LanguageStandard="23">
+  <Launch Executable="$(OutputName)" WorkingDirectory="." />
+  <Build>
     <CompileDefinitions>
       <Definition Value="APP_BASIC_EXAMPLE_ROOT=&quot;${ProjectDir}&quot;"
                   Visibility="Private" />
@@ -65,17 +61,8 @@
     </Environment>
   </Environments>
   <Profiles>
-    <Profile Name="Runtime"
-             BuildType="Debug"
-             Platform="linux-x64"
-             Environment="development">
-      <Launch Executable="App.Basic" WorkingDirectory="." />
-    </Profile>
-    <Profile Name="Diagnostics"
-             BuildType="Debug"
-             Platform="linux-x64"
-             Environment="development">
-      <Launch Executable="App.Basic" WorkingDirectory="." />
+    <Profile Name="Runtime" Template="DevelopmentRuntime" />
+    <Profile Name="Diagnostics" Template="DevelopmentRuntime">
       <References>
         <Package Name="NGIN.Diagnostics" Version=">=0.1.0 &lt;0.2.0" Optional="false" />
       </References>

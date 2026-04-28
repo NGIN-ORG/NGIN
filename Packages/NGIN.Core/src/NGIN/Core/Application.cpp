@@ -5,8 +5,10 @@
 #include <NGIN/Serialization/XML/XmlParser.hpp>
 
 #include <algorithm>
+#include <filesystem>
 #include <optional>
 #include <set>
+#include <sstream>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -1010,6 +1012,785 @@ namespace NGIN::Core
       return runtime;
     }
 
+    struct ProjectDefaults
+    {
+      std::optional<std::string> buildType{};
+      std::optional<std::string> platform{};
+      std::optional<std::string> environment{};
+      std::optional<std::string> backend{};
+      std::optional<std::string> buildMode{};
+      std::optional<std::string> language{};
+      std::optional<std::string> languageStandard{};
+    };
+
+    struct PlatformDefinition
+    {
+      std::string name{};
+      std::string operatingSystem{};
+      std::string architecture{};
+      bool builtIn{false};
+    };
+
+    struct ProjectTemplateDefinition
+    {
+      std::string name{};
+      std::string type{"Application"};
+      std::string outputKind{"Executable"};
+      bool builtIn{false};
+      ProjectDefaults defaults{};
+    };
+
+    struct ProfileTemplateDefinition
+    {
+      std::string name{};
+      std::optional<std::string> extends{};
+      std::optional<std::string> buildType{};
+      std::optional<std::string> platform{};
+      std::optional<std::string> operatingSystem{};
+      std::optional<std::string> architecture{};
+      std::optional<std::string> environment{};
+      std::optional<bool> enableReflection{};
+      std::optional<LaunchDefinition> launch{};
+      std::vector<ProjectReference> projectRefs{};
+      std::vector<PackageReference> packageRefs{};
+      std::vector<std::string> configInputs{};
+      RuntimeDefinition runtime{};
+    };
+
+    struct ModelContext
+    {
+      ProjectDefaults defaults{};
+      std::unordered_map<std::string, PlatformDefinition> platforms{};
+      std::unordered_map<std::string, ProjectTemplateDefinition> projectTemplates{};
+      std::unordered_map<std::string, ProfileTemplateDefinition> profileTemplates{};
+    };
+
+    auto MergeRuntime(RuntimeDefinition &target, const RuntimeDefinition &source)
+        -> void
+    {
+      target.modules.insert(target.modules.end(), source.modules.begin(),
+                            source.modules.end());
+      target.enableModules.insert(target.enableModules.end(),
+                                  source.enableModules.begin(),
+                                  source.enableModules.end());
+      target.disableModules.insert(target.disableModules.end(),
+                                   source.disableModules.begin(),
+                                   source.disableModules.end());
+    }
+
+    [[nodiscard]] auto ResolveChildPath(const IoPath &baseDirectory,
+                                        const std::string &includePath) -> IoPath
+    {
+      const IoPath path(includePath);
+      if (path.IsAbsolute())
+      {
+        return path;
+      }
+      return baseDirectory.Join(includePath);
+    }
+
+    auto MergeDefaultsFromElement(const XmlElement &element, ModelContext &context)
+        -> CoreResult<void>
+    {
+      if (const auto value = Attribute(element, "BuildType"))
+      {
+        context.defaults.buildType = *value;
+      }
+      if (const auto value = Attribute(element, "Platform"))
+      {
+        context.defaults.platform = *value;
+      }
+      if (const auto value = Attribute(element, "Environment"))
+      {
+        context.defaults.environment = *value;
+      }
+      if (const auto value = Attribute(element, "Backend"))
+      {
+        context.defaults.backend = *value;
+      }
+      if (const auto value = Attribute(element, "BuildMode"))
+      {
+        context.defaults.buildMode = *value;
+      }
+      if (const auto value = Attribute(element, "Mode"))
+      {
+        context.defaults.buildMode = *value;
+      }
+      if (const auto value = Attribute(element, "Language"))
+      {
+        context.defaults.language = *value;
+      }
+      if (const auto value = Attribute(element, "LanguageStandard"))
+      {
+        context.defaults.languageStandard = *value;
+      }
+      return {};
+    }
+
+    auto AddPlatform(ModelContext &context, PlatformDefinition platform)
+        -> CoreResult<void>
+    {
+      if (auto it = context.platforms.find(platform.name);
+          it != context.platforms.end())
+      {
+        if (!it->second.builtIn)
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+              "duplicate platform definition", platform.name,
+              KernelErrorCode::AlreadyExists));
+        }
+      }
+      context.platforms[platform.name] = std::move(platform);
+      return {};
+    }
+
+    auto ParsePlatformsInto(const XmlElement &root, ModelContext &context)
+        -> CoreResult<void>
+    {
+      const auto *platforms = FindChild(root, "Platforms");
+      if (platforms == nullptr)
+      {
+        return {};
+      }
+      for (const auto *platformElement : ChildElements(*platforms, "Platform"))
+      {
+        auto name = RequireAttribute(*platformElement, "Name", "model.Platform");
+        if (!name)
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(name.Error());
+        }
+        auto operatingSystem = RequireAttribute(*platformElement, "OperatingSystem",
+                                                "model.Platform");
+        if (!operatingSystem)
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(operatingSystem.Error());
+        }
+        auto architecture =
+            RequireAttribute(*platformElement, "Architecture", "model.Platform");
+        if (!architecture)
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(architecture.Error());
+        }
+        auto added = AddPlatform(context, PlatformDefinition{
+                                              .name = name.Value(),
+                                              .operatingSystem = operatingSystem.Value(),
+                                              .architecture = architecture.Value(),
+                                              .builtIn = false});
+        if (!added)
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(added.Error());
+        }
+      }
+      return {};
+    }
+
+    auto AddProjectTemplate(ModelContext &context,
+                            ProjectTemplateDefinition projectTemplate)
+        -> CoreResult<void>
+    {
+      if (auto it = context.projectTemplates.find(projectTemplate.name);
+          it != context.projectTemplates.end())
+      {
+        if (!it->second.builtIn)
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+              "duplicate project template", projectTemplate.name,
+              KernelErrorCode::AlreadyExists));
+        }
+      }
+      context.projectTemplates[projectTemplate.name] = std::move(projectTemplate);
+      return {};
+    }
+
+    auto ParseProjectTemplatesInto(const XmlElement &root, ModelContext &context)
+        -> CoreResult<void>
+    {
+      const auto *templates = FindChild(root, "ProjectTemplates");
+      if (templates == nullptr)
+      {
+        return {};
+      }
+      for (const auto *templateElement :
+           ChildElements(*templates, "ProjectTemplate"))
+      {
+        auto name =
+            RequireAttribute(*templateElement, "Name", "model.ProjectTemplate");
+        if (!name)
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(name.Error());
+        }
+        ProjectTemplateDefinition projectTemplate{};
+        projectTemplate.name = name.Value();
+        projectTemplate.defaults = context.defaults;
+        projectTemplate.type =
+            Attribute(*templateElement, "Type").value_or("Application");
+        projectTemplate.outputKind =
+            Attribute(*templateElement, "OutputKind").value_or(
+                projectTemplate.type == "Library" ? "StaticLibrary"
+                                                  : "Executable");
+        if (const auto *outputElement = FindChild(*templateElement, "Output"))
+        {
+          if (const auto kind = Attribute(*outputElement, "Kind"))
+          {
+            projectTemplate.outputKind = *kind;
+          }
+        }
+        if (const auto *defaults = FindChild(*templateElement, "Defaults"))
+        {
+          ModelContext local{.defaults = projectTemplate.defaults};
+          auto merged = MergeDefaultsFromElement(*defaults, local);
+          if (!merged)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(merged.Error());
+          }
+          projectTemplate.defaults = local.defaults;
+        }
+        auto added = AddProjectTemplate(context, std::move(projectTemplate));
+        if (!added)
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(added.Error());
+        }
+      }
+      return {};
+    }
+
+    [[nodiscard]] auto ParseLaunchDefinition(const XmlElement &element,
+                                             const std::string_view context)
+        -> CoreResult<LaunchDefinition>
+    {
+      auto executable = RequireAttribute(element, "Executable", context);
+      if (!executable)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(executable.Error());
+      }
+      auto workingDirectory =
+          OptionalAttribute(element, "WorkingDirectory", context, ".");
+      if (!workingDirectory)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(workingDirectory.Error());
+      }
+      return LaunchDefinition{.executable = executable.Value(),
+                              .workingDirectory = workingDirectory.Value()};
+    }
+
+    [[nodiscard]] auto ParseProfileTemplateDefinition(
+        const XmlElement &element, const std::string_view context)
+        -> CoreResult<ProfileTemplateDefinition>
+    {
+      ProfileTemplateDefinition profileTemplate{};
+      auto name = RequireAttribute(element, "Name", context);
+      if (!name)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(name.Error());
+      }
+      profileTemplate.name = name.Value();
+      if (const auto extends = Attribute(element, "Extends");
+          extends.has_value() && !extends->empty())
+      {
+        profileTemplate.extends = *extends;
+      }
+      profileTemplate.buildType = Attribute(element, "BuildType");
+      profileTemplate.platform = Attribute(element, "Platform");
+      profileTemplate.operatingSystem = Attribute(element, "OperatingSystem");
+      profileTemplate.architecture = Attribute(element, "Architecture");
+      profileTemplate.environment = Attribute(element, "Environment");
+      if (const auto reflection = Attribute(element, "EnableReflection"))
+      {
+        auto parsed = ParseBoolValue(*reflection,
+                                     std::string(context) + ".EnableReflection");
+        if (!parsed)
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(parsed.Error());
+        }
+        profileTemplate.enableReflection = parsed.Value();
+      }
+      if (const auto *launch = FindChild(element, "Launch"))
+      {
+        auto parsedLaunch =
+            ParseLaunchDefinition(*launch, std::string(context) + ".Launch");
+        if (!parsedLaunch)
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(parsedLaunch.Error());
+        }
+        profileTemplate.launch = parsedLaunch.Value();
+      }
+      if (const auto *references = FindChild(element, "References"))
+      {
+        for (const auto *projectElement : ChildElements(*references, "Project"))
+        {
+          auto reference = ParseProjectReference(
+              *projectElement, std::string(context) + ".References.Project");
+          if (!reference)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(reference.Error());
+          }
+          profileTemplate.projectRefs.push_back(reference.Value());
+        }
+        for (const auto *packageElement : ChildElements(*references, "Package"))
+        {
+          auto package = ParsePackageReference(
+              *packageElement, std::string(context) + ".References.Package");
+          if (!package)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(package.Error());
+          }
+          profileTemplate.packageRefs.push_back(package.Value());
+        }
+      }
+      if (auto inputs =
+              ParseConfigInputs(element, context, profileTemplate.configInputs);
+          !inputs)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(inputs.Error());
+      }
+      auto runtime =
+          ParseRuntimeDefinition(FindChild(element, "Runtime"),
+                                 std::string(context) + ".Runtime");
+      if (!runtime)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(runtime.Error());
+      }
+      profileTemplate.runtime = std::move(runtime.Value());
+      return profileTemplate;
+    }
+
+    auto AddProfileTemplate(ModelContext &context,
+                            ProfileTemplateDefinition profileTemplate)
+        -> CoreResult<void>
+    {
+      if (context.profileTemplates.contains(profileTemplate.name))
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+            "duplicate profile template", profileTemplate.name,
+            KernelErrorCode::AlreadyExists));
+      }
+      context.profileTemplates[profileTemplate.name] = std::move(profileTemplate);
+      return {};
+    }
+
+    auto ParseProfileTemplatesInto(const XmlElement &root, ModelContext &context)
+        -> CoreResult<void>
+    {
+      const auto *templates = FindChild(root, "ProfileTemplates");
+      if (templates == nullptr)
+      {
+        return {};
+      }
+      std::size_t index = 0;
+      for (const auto *templateElement :
+           ChildElements(*templates, "ProfileTemplate"))
+      {
+        auto profileTemplate = ParseProfileTemplateDefinition(
+            *templateElement,
+            "model.ProfileTemplates[" + std::to_string(index++) + "]");
+        if (!profileTemplate)
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(profileTemplate.Error());
+        }
+        auto added = AddProfileTemplate(context, std::move(profileTemplate.Value()));
+        if (!added)
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(added.Error());
+        }
+      }
+      return {};
+    }
+
+    [[nodiscard]] auto BuiltinModelContext() -> ModelContext
+    {
+      ModelContext context{};
+      (void)AddPlatform(context, {"linux-x64", "linux", "x64", true});
+      (void)AddPlatform(context, {"windows-x64", "windows", "x64", true});
+      (void)AddPlatform(context, {"macos-x64", "macos", "x64", true});
+      (void)AddPlatform(context, {"macos-arm64", "macos", "arm64", true});
+      (void)AddProjectTemplate(context, {"Application", "Application",
+                                         "Executable", true, context.defaults});
+      (void)AddProjectTemplate(context, {"Library", "Library",
+                                         "StaticLibrary", true,
+                                         context.defaults});
+      (void)AddProjectTemplate(context,
+                               {"Tool", "Tool", "Executable", true,
+                                context.defaults});
+      return context;
+    }
+
+    auto ParseModelContributionsInto(const XmlElement &root, ModelContext &context,
+                                     const bool includeDefaults) -> CoreResult<void>
+    {
+      if (includeDefaults)
+      {
+        if (const auto *defaults = FindChild(root, "Defaults"))
+        {
+          auto merged = MergeDefaultsFromElement(*defaults, context);
+          if (!merged)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(merged.Error());
+          }
+        }
+      }
+      if (auto platforms = ParsePlatformsInto(root, context); !platforms)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(platforms.Error());
+      }
+      if (auto projectTemplates = ParseProjectTemplatesInto(root, context);
+          !projectTemplates)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(projectTemplates.Error());
+      }
+      if (auto profileTemplates = ParseProfileTemplatesInto(root, context);
+          !profileTemplates)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(profileTemplates.Error());
+      }
+      return {};
+    }
+
+    auto LoadIncludesInto(IoFileSystem &fileSystem, const XmlElement &root,
+                          const IoPath &declaringDirectory, ModelContext &context,
+                          std::vector<std::string> &includeStack)
+        -> CoreResult<void>;
+
+    auto LoadModelFileInto(IoFileSystem &fileSystem, const IoPath &modelPath,
+                           ModelContext &context,
+                           std::vector<std::string> &includeStack)
+        -> CoreResult<void>
+    {
+      auto canonical = WeaklyCanonicalPath(fileSystem, modelPath);
+      if (!canonical)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(canonical.Error());
+      }
+      const auto key = ToString(canonical.Value());
+      if (std::find(includeStack.begin(), includeStack.end(), key) !=
+          includeStack.end())
+      {
+        std::ostringstream chain{};
+        for (const auto &entry : includeStack)
+        {
+          chain << entry << " -> ";
+        }
+        chain << key;
+        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+            "model include cycle: " + chain.str(), key,
+            KernelErrorCode::SchemaValidationFailure));
+      }
+
+      auto text = ReadTextFile(fileSystem, canonical.Value(), "model");
+      if (!text)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(text.Error());
+      }
+      auto loaded = LoadXmlDocument(text.Value(), "model");
+      if (!loaded)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(loaded.Error());
+      }
+      const auto *root = loaded.Value().document.Root();
+      if (root == nullptr || root->name != "Model")
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+            "model manifest root element must be <Model>", key,
+            KernelErrorCode::SchemaValidationFailure));
+      }
+      auto schemaVersion = OptionalAttribute(*root, "SchemaVersion", "model", "3");
+      if (!schemaVersion)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(schemaVersion.Error());
+      }
+      if (schemaVersion.Value() != "3")
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+            "unsupported model schema version", schemaVersion.Value(),
+            KernelErrorCode::SchemaValidationFailure));
+      }
+
+      includeStack.push_back(key);
+      auto includes = LoadIncludesInto(fileSystem, *root, canonical.Value().Parent(),
+                                       context, includeStack);
+      if (!includes)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(includes.Error());
+      }
+      auto contributions = ParseModelContributionsInto(*root, context, true);
+      includeStack.pop_back();
+      if (!contributions)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(contributions.Error());
+      }
+      return {};
+    }
+
+    auto LoadIncludesInto(IoFileSystem &fileSystem, const XmlElement &root,
+                          const IoPath &declaringDirectory, ModelContext &context,
+                          std::vector<std::string> &includeStack)
+        -> CoreResult<void>
+    {
+      const auto *includes = FindChild(root, "Includes");
+      if (includes == nullptr)
+      {
+        return {};
+      }
+      for (const auto *includeElement : ChildElements(*includes, "Include"))
+      {
+        auto includePath =
+            RequireAttribute(*includeElement, "Path", "model.Includes.Include");
+        if (!includePath)
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(includePath.Error());
+        }
+        auto loaded = LoadModelFileInto(
+            fileSystem, ResolveChildPath(declaringDirectory, includePath.Value()),
+            context, includeStack);
+        if (!loaded)
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(loaded.Error());
+        }
+      }
+      return {};
+    }
+
+    auto LoadWorkspaceModelInto(IoFileSystem &fileSystem,
+                                const IoPath &workspacePath,
+                                ModelContext &context) -> CoreResult<void>
+    {
+      auto text = ReadTextFile(fileSystem, workspacePath, "workspace");
+      if (!text)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(text.Error());
+      }
+      auto loaded = LoadXmlDocument(text.Value(), "workspace");
+      if (!loaded)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(loaded.Error());
+      }
+      const auto *root = loaded.Value().document.Root();
+      if (root == nullptr || root->name != "Workspace")
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(
+            MakeBuilderError("workspace manifest root element must be <Workspace>"));
+      }
+      std::vector<std::string> includeStack{};
+      if (auto includes = LoadIncludesInto(fileSystem, *root, workspacePath.Parent(),
+                                           context, includeStack);
+          !includes)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(includes.Error());
+      }
+      return ParseModelContributionsInto(*root, context, true);
+    }
+
+    [[nodiscard]] auto FindNearestWorkspaceManifest(const IoPath &projectPath)
+        -> std::optional<IoPath>
+    {
+      try
+      {
+        std::filesystem::path current(ToString(projectPath.Parent()));
+        while (!current.empty())
+        {
+          std::vector<std::filesystem::path> candidates{};
+          for (const auto &entry : std::filesystem::directory_iterator(current))
+          {
+            if (entry.is_regular_file() && entry.path().extension() == ".ngin")
+            {
+              candidates.push_back(entry.path());
+            }
+          }
+          if (!candidates.empty())
+          {
+            std::sort(candidates.begin(), candidates.end());
+            return IoPath(candidates.front().string());
+          }
+          const auto parent = current.parent_path();
+          if (parent == current)
+          {
+            break;
+          }
+          current = parent;
+        }
+      }
+      catch (...)
+      {
+      }
+      return std::nullopt;
+    }
+
+    auto ResolveProjectModelContext(IoFileSystem *fileSystem,
+                                    const IoPath *projectPath,
+                                    const XmlElement &projectRoot)
+        -> CoreResult<ModelContext>
+    {
+      auto context = BuiltinModelContext();
+      if (fileSystem != nullptr && projectPath != nullptr)
+      {
+        if (const auto workspacePath = FindNearestWorkspaceManifest(*projectPath);
+            workspacePath.has_value())
+        {
+          if (auto workspace =
+                  LoadWorkspaceModelInto(*fileSystem, *workspacePath, context);
+              !workspace)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(workspace.Error());
+          }
+        }
+        std::vector<std::string> includeStack{};
+        if (auto includes = LoadIncludesInto(*fileSystem, projectRoot,
+                                             projectPath->Parent(), context,
+                                             includeStack);
+            !includes)
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(includes.Error());
+        }
+      }
+      if (auto projectContributions =
+              ParseModelContributionsInto(projectRoot, context, false);
+          !projectContributions)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(
+            projectContributions.Error());
+      }
+      if (const auto *defaults = FindChild(projectRoot, "Defaults"))
+      {
+        auto merged = MergeDefaultsFromElement(*defaults, context);
+        if (!merged)
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(merged.Error());
+        }
+      }
+      return context;
+    }
+
+    auto ApplyProjectDefaults(ProjectManifest &manifest,
+                              ProjectBuildDescriptor &build,
+                              const ProjectDefaults &defaults) -> void
+    {
+      if (defaults.backend)
+      {
+        build.backend = *defaults.backend;
+      }
+      if (defaults.buildMode)
+      {
+        build.mode = *defaults.buildMode;
+      }
+      if (defaults.language)
+      {
+        build.language = *defaults.language;
+      }
+      if (defaults.languageStandard)
+      {
+        build.languageStandard = *defaults.languageStandard;
+      }
+      (void)manifest;
+    }
+
+    auto ApplyProfileDefaults(ProfileDefinition &profile,
+                              const ProjectDefaults &defaults) -> void
+    {
+      if (defaults.buildType)
+      {
+        profile.buildType = *defaults.buildType;
+      }
+      if (defaults.platform)
+      {
+        profile.platform = *defaults.platform;
+      }
+      if (defaults.environment)
+      {
+        profile.environmentName = *defaults.environment;
+      }
+    }
+
+    auto ApplyPlatformDefinition(ProfileDefinition &profile,
+                                 const ModelContext &context) -> void
+    {
+      const auto platform = context.platforms.find(profile.platform);
+      if (platform == context.platforms.end())
+      {
+        return;
+      }
+      profile.operatingSystem = platform->second.operatingSystem;
+      profile.architecture = platform->second.architecture;
+    }
+
+    auto ApplyProfileTemplate(ProfileDefinition &profile,
+                              const ProfileTemplateDefinition &profileTemplate,
+                              const ModelContext &context,
+                              std::vector<std::string> &templateStack)
+        -> CoreResult<void>
+    {
+      if (std::find(templateStack.begin(), templateStack.end(),
+                    profileTemplate.name) != templateStack.end())
+      {
+        std::ostringstream chain{};
+        for (const auto &entry : templateStack)
+        {
+          chain << entry << " -> ";
+        }
+        chain << profileTemplate.name;
+        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+            "profile template cycle: " + chain.str(), profileTemplate.name,
+            KernelErrorCode::SchemaValidationFailure));
+      }
+      templateStack.push_back(profileTemplate.name);
+      if (profileTemplate.extends)
+      {
+        const auto parent = context.profileTemplates.find(*profileTemplate.extends);
+        if (parent == context.profileTemplates.end())
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+              "profile template extends unknown template",
+              *profileTemplate.extends,
+              KernelErrorCode::SchemaValidationFailure));
+        }
+        auto applied =
+            ApplyProfileTemplate(profile, parent->second, context, templateStack);
+        if (!applied)
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(applied.Error());
+        }
+      }
+      if (profileTemplate.buildType)
+      {
+        profile.buildType = *profileTemplate.buildType;
+      }
+      if (profileTemplate.platform)
+      {
+        profile.platform = *profileTemplate.platform;
+        ApplyPlatformDefinition(profile, context);
+      }
+      if (profileTemplate.operatingSystem)
+      {
+        profile.operatingSystem = *profileTemplate.operatingSystem;
+      }
+      if (profileTemplate.architecture)
+      {
+        profile.architecture = *profileTemplate.architecture;
+      }
+      if (profileTemplate.environment)
+      {
+        profile.environmentName = *profileTemplate.environment;
+      }
+      if (profileTemplate.enableReflection)
+      {
+        profile.enableReflection = *profileTemplate.enableReflection;
+      }
+      if (profileTemplate.launch)
+      {
+        profile.launch = *profileTemplate.launch;
+      }
+      profile.projectRefs.insert(profile.projectRefs.end(),
+                                 profileTemplate.projectRefs.begin(),
+                                 profileTemplate.projectRefs.end());
+      profile.packageRefs.insert(profile.packageRefs.end(),
+                                 profileTemplate.packageRefs.begin(),
+                                 profileTemplate.packageRefs.end());
+      profile.configInputs.insert(profile.configInputs.end(),
+                                  profileTemplate.configInputs.begin(),
+                                  profileTemplate.configInputs.end());
+      MergeRuntime(profile.runtime, profileTemplate.runtime);
+      templateStack.pop_back();
+      return {};
+    }
+
     [[nodiscard]] auto ParseEnvironmentDefinition(const XmlElement &element,
                                                   const std::string_view context)
         -> CoreResult<EnvironmentDefinition>
@@ -1351,7 +2132,9 @@ namespace NGIN::Core
       return profile;
     }
 
-    [[nodiscard]] auto ParseProjectManifestText(const std::string &text)
+    [[nodiscard]] auto ParseProjectManifestText(const std::string &text,
+                                                IoFileSystem *fileSystem = nullptr,
+                                                const IoPath *manifestPath = nullptr)
         -> CoreResult<ProjectManifest>
     {
       auto loaded = LoadXmlDocument(text, "project");
@@ -1397,6 +2180,30 @@ namespace NGIN::Core
       }
       manifest.name = name.Value();
 
+      auto modelContext =
+          ResolveProjectModelContext(fileSystem, manifestPath, *root);
+      if (!modelContext)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(modelContext.Error());
+      }
+
+      auto projectTemplateName =
+          OptionalAttribute(*root, "Template", "project", "Application");
+      if (!projectTemplateName)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(
+            projectTemplateName.Error());
+      }
+      const auto projectTemplateIt =
+          modelContext.Value().projectTemplates.find(projectTemplateName.Value());
+      if (projectTemplateIt == modelContext.Value().projectTemplates.end())
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+            "project uses unknown template", projectTemplateName.Value(),
+            KernelErrorCode::SchemaValidationFailure));
+      }
+      const auto &projectTemplate = projectTemplateIt->second;
+
       auto type = OptionalAttribute(*root, "Type", "project", {});
       if (!type)
       {
@@ -1408,16 +2215,7 @@ namespace NGIN::Core
       }
       else
       {
-        auto projectTemplate =
-            OptionalAttribute(*root, "Template", "project", "Application");
-        if (!projectTemplate)
-        {
-          return NGIN::Utilities::Unexpected<KernelError>(projectTemplate.Error());
-        }
-        manifest.type = projectTemplate.Value() == "Library"
-                            ? "Library"
-                            : projectTemplate.Value() == "Tool" ? "Tool"
-                                                                  : "Application";
+        manifest.type = projectTemplate.type;
       }
 
       auto defaultProfile =
@@ -1518,15 +2316,21 @@ namespace NGIN::Core
       const auto *outputElement = FindChild(*root, "Output");
       if (outputElement == nullptr)
       {
-        return NGIN::Utilities::Unexpected<KernelError>(
-            MakeBuilderError("project must contain an <Output> element"));
+        manifest.output = OutputDefinition{
+            .kind = projectTemplate.outputKind,
+            .name = manifest.name,
+            .target = manifest.name,
+        };
       }
-      auto output = ParseOutputDefinition(*outputElement, "project.Output");
-      if (!output)
+      else
       {
-        return NGIN::Utilities::Unexpected<KernelError>(output.Error());
+        auto output = ParseOutputDefinition(*outputElement, "project.Output");
+        if (!output)
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(output.Error());
+        }
+        manifest.output = output.Value();
       }
-      manifest.output = output.Value();
 
       const bool validPairing =
           ((manifest.type == "Application" || manifest.type == "Tool") &&
@@ -1542,13 +2346,44 @@ namespace NGIN::Core
             KernelErrorCode::SchemaValidationFailure));
       }
 
-      auto build =
-          ParseProjectBuildDescriptor(FindChild(*root, "Build"), "project.Build");
-      if (!build)
+      ProjectBuildDescriptor effectiveBuild{};
+      ApplyProjectDefaults(manifest, effectiveBuild, projectTemplate.defaults);
+      ApplyProjectDefaults(manifest, effectiveBuild, modelContext.Value().defaults);
+      const auto *buildElement = FindChild(*root, "Build");
+      auto parsedBuild =
+          ParseProjectBuildDescriptor(buildElement, "project.Build");
+      if (!parsedBuild)
       {
-        return NGIN::Utilities::Unexpected<KernelError>(build.Error());
+        return NGIN::Utilities::Unexpected<KernelError>(parsedBuild.Error());
       }
-      manifest.build = std::move(build.Value());
+      if (buildElement != nullptr)
+      {
+        if (Attribute(*buildElement, "Backend"))
+        {
+          effectiveBuild.backend = parsedBuild.Value().backend;
+        }
+        if (Attribute(*buildElement, "Mode"))
+        {
+          effectiveBuild.mode = parsedBuild.Value().mode;
+        }
+        if (Attribute(*buildElement, "Language"))
+        {
+          effectiveBuild.language = parsedBuild.Value().language;
+        }
+        if (Attribute(*buildElement, "LanguageStandard"))
+        {
+          effectiveBuild.languageStandard = parsedBuild.Value().languageStandard;
+        }
+        effectiveBuild.sources = std::move(parsedBuild.Value().sources);
+        effectiveBuild.includeDirectories =
+            std::move(parsedBuild.Value().includeDirectories);
+        effectiveBuild.compileDefinitions =
+            std::move(parsedBuild.Value().compileDefinitions);
+        effectiveBuild.compileOptions =
+            std::move(parsedBuild.Value().compileOptions);
+        effectiveBuild.linkOptions = std::move(parsedBuild.Value().linkOptions);
+      }
+      manifest.build = std::move(effectiveBuild);
 
       if (const auto *referencesElement = FindChild(*root, "References"))
       {
@@ -1616,6 +2451,24 @@ namespace NGIN::Core
       }
       manifest.runtime = std::move(runtime.Value());
 
+      std::optional<LaunchDefinition> rootLaunch{};
+      if (const auto *launchElement = FindChild(*root, "Launch"))
+      {
+        if (manifest.type == "Library")
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+              "library projects may not define root <Launch>", manifest.name,
+              KernelErrorCode::SchemaValidationFailure));
+        }
+        auto parsedLaunch =
+            ParseLaunchDefinition(*launchElement, "project.Launch");
+        if (!parsedLaunch)
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(parsedLaunch.Error());
+        }
+        rootLaunch = parsedLaunch.Value();
+      }
+
       const auto *profilesElement = FindChild(*root, "Profiles");
       if (profilesElement == nullptr)
       {
@@ -1654,13 +2507,51 @@ namespace NGIN::Core
           }
           baseProfile = &manifest.profiles[parent->second];
         }
+        ProfileDefinition effectiveBase =
+            baseProfile != nullptr ? *baseProfile : ProfileDefinition{};
+        if (baseProfile == nullptr)
+        {
+          ApplyProfileDefaults(effectiveBase, modelContext.Value().defaults);
+          ApplyPlatformDefinition(effectiveBase, modelContext.Value());
+        }
+        if (const auto profileTemplateName =
+                Attribute(*configurationElement, "Template");
+            profileTemplateName.has_value() && !profileTemplateName->empty())
+        {
+          const auto profileTemplateIt =
+              modelContext.Value().profileTemplates.find(*profileTemplateName);
+          if (profileTemplateIt == modelContext.Value().profileTemplates.end())
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+                "profile uses unknown template", *profileTemplateName,
+                KernelErrorCode::SchemaValidationFailure));
+          }
+          std::vector<std::string> templateStack{};
+          auto applied = ApplyProfileTemplate(effectiveBase,
+                                              profileTemplateIt->second,
+                                              modelContext.Value(),
+                                              templateStack);
+          if (!applied)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(applied.Error());
+          }
+        }
         auto profile = ParseProfileDefinition(
             *configurationElement,
             "project.Profiles[" + std::to_string(index++) + "]",
-            baseProfile);
+            &effectiveBase);
         if (!profile)
         {
           return NGIN::Utilities::Unexpected<KernelError>(profile.Error());
+        }
+        if (!profile.Value().launch.has_value() && rootLaunch.has_value())
+        {
+          profile.Value().launch = rootLaunch;
+        }
+        if (profile.Value().launch.has_value() &&
+            profile.Value().launch->executable == "$(OutputName)")
+        {
+          profile.Value().launch->executable = manifest.output.name;
         }
         if (!profile.Value().environmentName.empty())
         {
@@ -1799,16 +2690,18 @@ namespace NGIN::Core
         return NGIN::Utilities::Unexpected<KernelError>(fileText.Error());
       }
 
-      auto manifest = ParseProjectManifestText(fileText.Value());
-      if (!manifest)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(manifest.Error());
-      }
-
       auto absolutePath = AbsolutePath(fileSystem, filePath);
       if (!absolutePath)
       {
         return NGIN::Utilities::Unexpected<KernelError>(absolutePath.Error());
+      }
+
+      auto manifest =
+          ParseProjectManifestText(fileText.Value(), &fileSystem,
+                                   &absolutePath.Value());
+      if (!manifest)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(manifest.Error());
       }
 
       return std::pair<ProjectManifest, IoPath>{
@@ -2592,14 +3485,6 @@ namespace NGIN::Core
           return *this;
         }
 
-        auto manifest = ParseProjectManifestText(fileText.Value());
-        if (!manifest)
-        {
-          m_stickyError = manifest.Error();
-          return *this;
-        }
-
-        m_project = manifest.Value();
         auto absolutePath = AbsolutePath(FileSystem(), filePath);
         if (!absolutePath)
         {
@@ -2607,6 +3492,16 @@ namespace NGIN::Core
           return *this;
         }
 
+        auto manifest =
+            ParseProjectManifestText(fileText.Value(), &FileSystem(),
+                                     &absolutePath.Value());
+        if (!manifest)
+        {
+          m_stickyError = manifest.Error();
+          return *this;
+        }
+
+        m_project = manifest.Value();
         m_projectPath = absolutePath.Value();
         m_projectDirectory = absolutePath.Value().Parent();
         return *this;

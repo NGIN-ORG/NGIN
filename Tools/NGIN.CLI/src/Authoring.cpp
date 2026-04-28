@@ -353,6 +353,34 @@ namespace NGIN::CLI
             }
         }
 
+        auto ParseReferences(
+            const XmlElement &referencesElement,
+            const fs::path &baseDirectory,
+            const fs::path &path,
+            std::vector<ProjectReference> &projectRefs,
+            std::vector<PackageReference> &packageRefs) -> void
+        {
+            for (const auto *node : ChildElements(referencesElement, "Project"))
+            {
+                ProjectReference reference{};
+                reference.path = (baseDirectory / RequireAttribute(*node, "Path", path)).lexically_normal();
+                const auto profile = Attribute(*node, "Profile").value_or("");
+                if (!profile.empty())
+                {
+                    reference.profile = profile;
+                }
+                projectRefs.push_back(std::move(reference));
+            }
+            for (const auto *node : ChildElements(referencesElement, "Package"))
+            {
+                PackageReference packageReference{};
+                packageReference.name = RequireAttribute(*node, "Name", path);
+                packageReference.versionRange = Attribute(*node, "Version").value_or(Attribute(*node, "VersionRange").value_or(""));
+                packageReference.optional = BoolAttribute(*node, "Optional");
+                packageRefs.push_back(std::move(packageReference));
+            }
+        }
+
         auto ParseLocalSettingsImports(const XmlElement &parent, const fs::path &path, std::vector<LocalSettingsImport> &out) -> void
         {
             if (const auto *localSettings = FindChild(parent, "LocalSettings"))
@@ -1248,7 +1276,7 @@ namespace NGIN::CLI
         {
             throw std::runtime_error(path->string() + ": root element must be <Workspace>");
         }
-        ValidateSchemaVersion(*rootElement, *path);
+        ValidateSchemaVersion(*rootElement, *path, "3");
 
         WorkspaceManifest workspace{};
         workspace.path = fs::weakly_canonical(*path);
@@ -1510,6 +1538,42 @@ namespace NGIN::CLI
             std::string architecture{"x64"};
         };
 
+        struct ProjectTemplateDefinition
+        {
+            std::string name{};
+            std::string type{"Application"};
+            std::string outputKind{"Executable"};
+            ProjectDefaults defaults{};
+        };
+
+        struct ProfileTemplateDefinition
+        {
+            std::string name{};
+            std::string extends{};
+            std::optional<std::string> buildType{};
+            std::optional<std::string> platform{};
+            std::optional<std::string> operatingSystem{};
+            std::optional<std::string> architecture{};
+            std::optional<std::string> environmentName{};
+            std::optional<bool> enableReflection{};
+            std::optional<LaunchDefinition> launch{};
+            std::vector<ProjectReference> projectRefs{};
+            std::vector<PackageReference> packageRefs{};
+            std::vector<std::string> configInputs{};
+            RuntimeDefinition runtime{};
+        };
+
+        struct ModelContext
+        {
+            ProjectDefaults defaults{};
+            std::unordered_map<std::string, PlatformDefinition> platforms{};
+            std::unordered_map<std::string, ProjectTemplateDefinition> projectTemplates{};
+            std::unordered_map<std::string, ProfileTemplateDefinition> profileTemplates{};
+            std::set<std::string> authoredPlatforms{};
+            std::set<std::string> authoredProjectTemplates{};
+            std::set<std::string> authoredProfileTemplates{};
+        };
+
         [[nodiscard]] auto ProjectTypeFromTemplate(const std::string &projectTemplate) -> std::string
         {
             if (projectTemplate == "Tool")
@@ -1528,34 +1592,53 @@ namespace NGIN::CLI
             return projectType == "Library" ? "StaticLibrary" : "Executable";
         }
 
-        [[nodiscard]] auto ParseProjectDefaults(const XmlElement &root, const fs::path &path) -> ProjectDefaults
+        auto MergeRuntime(RuntimeDefinition &target, const RuntimeDefinition &source) -> void
         {
-            ProjectDefaults defaults{};
-            if (const auto *defaultsElement = FindChild(root, "Defaults"))
-            {
-                defaults.buildType = Attribute(*defaultsElement, "BuildType").value_or(defaults.buildType);
-                defaults.platform = Attribute(*defaultsElement, "Platform").value_or(defaults.platform);
-                defaults.environment = Attribute(*defaultsElement, "Environment").value_or(defaults.environment);
-                defaults.language = Attribute(*defaultsElement, "Language").value_or(defaults.language);
-                defaults.languageStandard = Attribute(*defaultsElement, "LanguageStandard").value_or(defaults.languageStandard);
-                defaults.backend = Attribute(*defaultsElement, "Backend").value_or(defaults.backend);
-                defaults.buildMode = Attribute(*defaultsElement, "BuildMode").value_or(defaults.buildMode);
-                if (!IsSupportedBuildType(defaults.buildType))
-                {
-                    throw std::runtime_error(path.string() + ": unknown default build type '" + defaults.buildType + "'");
-                }
-            }
-            return defaults;
+            target.modules.insert(target.modules.end(), source.modules.begin(), source.modules.end());
+            target.enableModules.insert(target.enableModules.end(), source.enableModules.begin(), source.enableModules.end());
+            target.disableModules.insert(target.disableModules.end(), source.disableModules.begin(), source.disableModules.end());
+            target.enablePlugins.insert(target.enablePlugins.end(), source.enablePlugins.begin(), source.enablePlugins.end());
+            target.disablePlugins.insert(target.disablePlugins.end(), source.disablePlugins.begin(), source.disablePlugins.end());
         }
 
-        [[nodiscard]] auto ParsePlatforms(const XmlElement &root, const fs::path &path) -> std::unordered_map<std::string, PlatformDefinition>
+        auto ParseDefaultsElement(const XmlElement &defaultsElement, const fs::path &path, ProjectDefaults &defaults) -> void
         {
-            std::unordered_map<std::string, PlatformDefinition> platforms{};
-            platforms.emplace("linux-x64", PlatformDefinition{.name = "linux-x64", .operatingSystem = "linux", .architecture = "x64"});
-            platforms.emplace("windows-x64", PlatformDefinition{.name = "windows-x64", .operatingSystem = "windows", .architecture = "x64"});
-            platforms.emplace("macos-x64", PlatformDefinition{.name = "macos-x64", .operatingSystem = "macos", .architecture = "x64"});
-            platforms.emplace("macos-arm64", PlatformDefinition{.name = "macos-arm64", .operatingSystem = "macos", .architecture = "arm64"});
+            defaults.buildType = Attribute(defaultsElement, "BuildType").value_or(defaults.buildType);
+            defaults.platform = Attribute(defaultsElement, "Platform").value_or(defaults.platform);
+            defaults.environment = Attribute(defaultsElement, "Environment").value_or(defaults.environment);
+            defaults.language = Attribute(defaultsElement, "Language").value_or(defaults.language);
+            defaults.languageStandard = Attribute(defaultsElement, "LanguageStandard").value_or(defaults.languageStandard);
+            defaults.backend = Attribute(defaultsElement, "Backend").value_or(defaults.backend);
+            defaults.buildMode = Attribute(defaultsElement, "BuildMode").value_or(defaults.buildMode);
+            if (!IsSupportedBuildType(defaults.buildType))
+            {
+                throw std::runtime_error(path.string() + ": unknown default build type '" + defaults.buildType + "'");
+            }
+        }
 
+        auto AddPlatform(ModelContext &context, PlatformDefinition platform, const fs::path &path, const bool builtin = false) -> void
+        {
+            if (!IsValidManifestIdentifier(platform.name))
+            {
+                throw std::runtime_error(path.string() + ": invalid platform name '" + platform.name + "'");
+            }
+            if (!IsValidOperatingSystem(platform.operatingSystem))
+            {
+                throw std::runtime_error(path.string() + ": unknown operating system '" + platform.operatingSystem + "'");
+            }
+            if (!IsValidArchitecture(platform.architecture))
+            {
+                throw std::runtime_error(path.string() + ": unknown architecture '" + platform.architecture + "'");
+            }
+            if (!builtin && !context.authoredPlatforms.insert(platform.name).second)
+            {
+                throw std::runtime_error(path.string() + ": duplicate platform '" + platform.name + "'");
+            }
+            context.platforms[platform.name] = std::move(platform);
+        }
+
+        auto ParsePlatformsInto(const XmlElement &root, const fs::path &path, ModelContext &context) -> void
+        {
             if (const auto *platformsElement = FindChild(root, "Platforms"))
             {
                 for (const auto *node : ChildElements(*platformsElement, "Platform"))
@@ -1564,22 +1647,231 @@ namespace NGIN::CLI
                     platform.name = RequireAttribute(*node, "Name", path);
                     platform.operatingSystem = RequireAttribute(*node, "OperatingSystem", path);
                     platform.architecture = RequireAttribute(*node, "Architecture", path);
-                    if (!IsValidManifestIdentifier(platform.name))
-                    {
-                        throw std::runtime_error(path.string() + ": invalid platform name '" + platform.name + "'");
-                    }
-                    if (!IsValidOperatingSystem(platform.operatingSystem))
-                    {
-                        throw std::runtime_error(path.string() + ": unknown operating system '" + platform.operatingSystem + "'");
-                    }
-                    if (!IsValidArchitecture(platform.architecture))
-                    {
-                        throw std::runtime_error(path.string() + ": unknown architecture '" + platform.architecture + "'");
-                    }
-                    platforms[platform.name] = std::move(platform);
+                    AddPlatform(context, std::move(platform), path);
                 }
             }
-            return platforms;
+        }
+
+        auto AddProjectTemplate(ModelContext &context, ProjectTemplateDefinition projectTemplate, const fs::path &path, const bool builtin = false) -> void
+        {
+            if (!IsValidManifestIdentifier(projectTemplate.name))
+            {
+                throw std::runtime_error(path.string() + ": invalid project template name '" + projectTemplate.name + "'");
+            }
+            if (!IsSupportedProjectType(projectTemplate.type))
+            {
+                throw std::runtime_error(path.string() + ": project template '" + projectTemplate.name + "' uses unknown project type '" + projectTemplate.type + "'");
+            }
+            if (!IsSupportedOutputKind(projectTemplate.outputKind))
+            {
+                throw std::runtime_error(path.string() + ": project template '" + projectTemplate.name + "' uses unknown output kind '" + projectTemplate.outputKind + "'");
+            }
+            if (!IsValidProjectOutputPairing(projectTemplate.type, projectTemplate.outputKind))
+            {
+                throw std::runtime_error(path.string() + ": project template '" + projectTemplate.name + "' has incompatible type/output pairing");
+            }
+            if (!builtin && !context.authoredProjectTemplates.insert(projectTemplate.name).second)
+            {
+                throw std::runtime_error(path.string() + ": duplicate project template '" + projectTemplate.name + "'");
+            }
+            context.projectTemplates[projectTemplate.name] = std::move(projectTemplate);
+        }
+
+        auto ParseProjectTemplatesInto(const XmlElement &root, const fs::path &path, ModelContext &context) -> void
+        {
+            if (const auto *templates = FindChild(root, "ProjectTemplates"))
+            {
+                for (const auto *node : ChildElements(*templates, "ProjectTemplate"))
+                {
+                    ProjectTemplateDefinition projectTemplate{};
+                    projectTemplate.name = RequireAttribute(*node, "Name", path);
+                    projectTemplate.type = Attribute(*node, "Type").value_or(ProjectTypeFromTemplate(projectTemplate.name));
+                    projectTemplate.outputKind = Attribute(*node, "OutputKind").value_or(DefaultOutputKindForProjectType(projectTemplate.type));
+                    projectTemplate.defaults = context.defaults;
+                    if (const auto *defaults = FindChild(*node, "Defaults"))
+                    {
+                        ParseDefaultsElement(*defaults, path, projectTemplate.defaults);
+                    }
+                    AddProjectTemplate(context, std::move(projectTemplate), path);
+                }
+            }
+        }
+
+        [[nodiscard]] auto ParseProfileTemplate(const XmlElement &node, const fs::path &path) -> ProfileTemplateDefinition
+        {
+            ProfileTemplateDefinition profileTemplate{};
+            profileTemplate.name = RequireAttribute(node, "Name", path);
+            if (!IsValidManifestIdentifier(profileTemplate.name))
+            {
+                throw std::runtime_error(path.string() + ": invalid profile template name '" + profileTemplate.name + "'");
+            }
+            profileTemplate.extends = Attribute(node, "Extends").value_or("");
+            profileTemplate.buildType = Attribute(node, "BuildType");
+            profileTemplate.platform = Attribute(node, "Platform");
+            profileTemplate.operatingSystem = Attribute(node, "OperatingSystem");
+            profileTemplate.architecture = Attribute(node, "Architecture");
+            profileTemplate.environmentName = Attribute(node, "Environment");
+            if (Attribute(node, "EnableReflection").has_value())
+            {
+                profileTemplate.enableReflection = BoolAttribute(node, "EnableReflection");
+            }
+            if (profileTemplate.buildType.has_value() && !IsSupportedBuildType(*profileTemplate.buildType))
+            {
+                throw std::runtime_error(path.string() + ": unknown build type '" + *profileTemplate.buildType + "'");
+            }
+            if (profileTemplate.operatingSystem.has_value() && !IsValidOperatingSystem(*profileTemplate.operatingSystem))
+            {
+                throw std::runtime_error(path.string() + ": unknown operating system '" + *profileTemplate.operatingSystem + "'");
+            }
+            if (profileTemplate.architecture.has_value() && !IsValidArchitecture(*profileTemplate.architecture))
+            {
+                throw std::runtime_error(path.string() + ": unknown architecture '" + *profileTemplate.architecture + "'");
+            }
+            if (const auto *launch = FindChild(node, "Launch"))
+            {
+                LaunchDefinition parsedLaunch{};
+                if (const auto executable = Attribute(*launch, "Executable"); executable.has_value() && !executable->empty())
+                {
+                    parsedLaunch.executable = *executable;
+                }
+                parsedLaunch.workingDirectory = Attribute(*launch, "WorkingDirectory").value_or(".");
+                profileTemplate.launch = std::move(parsedLaunch);
+            }
+            if (const auto *references = FindChild(node, "References"))
+            {
+                ParseReferences(*references, path.parent_path(), path, profileTemplate.projectRefs, profileTemplate.packageRefs);
+            }
+            ParseConfigInputs(node, path, profileTemplate.configInputs);
+            if (const auto *runtime = FindChild(node, "Runtime"))
+            {
+                ParseRuntimeDefinition(*runtime, path, profileTemplate.runtime, true);
+            }
+            return profileTemplate;
+        }
+
+        auto AddProfileTemplate(ModelContext &context, ProfileTemplateDefinition profileTemplate, const fs::path &path) -> void
+        {
+            if (!context.authoredProfileTemplates.insert(profileTemplate.name).second)
+            {
+                throw std::runtime_error(path.string() + ": duplicate profile template '" + profileTemplate.name + "'");
+            }
+            context.profileTemplates[profileTemplate.name] = std::move(profileTemplate);
+        }
+
+        auto ParseProfileTemplatesInto(const XmlElement &root, const fs::path &path, ModelContext &context) -> void
+        {
+            if (const auto *templates = FindChild(root, "ProfileTemplates"))
+            {
+                for (const auto *node : ChildElements(*templates, "ProfileTemplate"))
+                {
+                    AddProfileTemplate(context, ParseProfileTemplate(*node, path), path);
+                }
+            }
+        }
+
+        auto ParseModelContributionsInto(const XmlElement &root, const fs::path &path, ModelContext &context, const bool includeDefaults) -> void
+        {
+            if (includeDefaults)
+            {
+                if (const auto *defaults = FindChild(root, "Defaults"))
+                {
+                    ParseDefaultsElement(*defaults, path, context.defaults);
+                }
+            }
+            ParsePlatformsInto(root, path, context);
+            ParseProjectTemplatesInto(root, path, context);
+            ParseProfileTemplatesInto(root, path, context);
+        }
+
+        [[nodiscard]] auto BuiltinModelContext() -> ModelContext
+        {
+            ModelContext context{};
+            AddPlatform(context, PlatformDefinition{.name = "linux-x64", .operatingSystem = "linux", .architecture = "x64"}, {}, true);
+            AddPlatform(context, PlatformDefinition{.name = "windows-x64", .operatingSystem = "windows", .architecture = "x64"}, {}, true);
+            AddPlatform(context, PlatformDefinition{.name = "macos-x64", .operatingSystem = "macos", .architecture = "x64"}, {}, true);
+            AddPlatform(context, PlatformDefinition{.name = "macos-arm64", .operatingSystem = "macos", .architecture = "arm64"}, {}, true);
+            AddProjectTemplate(context, ProjectTemplateDefinition{.name = "Application", .type = "Application", .outputKind = "Executable", .defaults = context.defaults}, {}, true);
+            AddProjectTemplate(context, ProjectTemplateDefinition{.name = "Library", .type = "Library", .outputKind = "StaticLibrary", .defaults = context.defaults}, {}, true);
+            AddProjectTemplate(context, ProjectTemplateDefinition{.name = "Tool", .type = "Tool", .outputKind = "Executable", .defaults = context.defaults}, {}, true);
+            return context;
+        }
+
+        auto LoadModelFileInto(const fs::path &path, ModelContext &context, std::vector<fs::path> &stack) -> void;
+
+        auto LoadIncludesInto(const XmlElement &root, const fs::path &path, ModelContext &context, std::vector<fs::path> &stack) -> void
+        {
+            if (const auto *includes = FindChild(root, "Includes"))
+            {
+                for (const auto *include : ChildElements(*includes, "Include"))
+                {
+                    const auto includePath = (path.parent_path() / RequireAttribute(*include, "Path", path)).lexically_normal();
+                    if (!fs::exists(includePath))
+                    {
+                        throw std::runtime_error(path.string() + ": included model file does not exist: " + includePath.string());
+                    }
+                    LoadModelFileInto(fs::weakly_canonical(includePath), context, stack);
+                }
+            }
+        }
+
+        auto LoadModelFileInto(const fs::path &path, ModelContext &context, std::vector<fs::path> &stack) -> void
+        {
+            if (std::find(stack.begin(), stack.end(), path) != stack.end())
+            {
+                std::ostringstream chain{};
+                for (const auto &entry : stack)
+                {
+                    if (!chain.str().empty())
+                    {
+                        chain << " -> ";
+                    }
+                    chain << entry.string();
+                }
+                chain << " -> " << path.string();
+                throw std::runtime_error(path.string() + ": model include cycle: " + chain.str());
+            }
+            stack.push_back(path);
+            const auto doc = LoadXml(path);
+            const auto *root = doc.document.Root();
+            if (root == nullptr || root->name != "Model")
+            {
+                throw std::runtime_error(path.string() + ": root element must be <Model>");
+            }
+            ValidateSchemaVersion(*root, path, "3");
+            LoadIncludesInto(*root, path, context, stack);
+            ParseModelContributionsInto(*root, path, context, true);
+            stack.pop_back();
+        }
+
+        auto LoadWorkspaceModelInto(const fs::path &workspacePath, ModelContext &context) -> void
+        {
+            const auto doc = LoadXml(workspacePath);
+            const auto *root = doc.document.Root();
+            if (root == nullptr || root->name != "Workspace")
+            {
+                throw std::runtime_error(workspacePath.string() + ": root element must be <Workspace>");
+            }
+            ValidateSchemaVersion(*root, workspacePath, "3");
+            std::vector<fs::path> stack{fs::weakly_canonical(workspacePath)};
+            LoadIncludesInto(*root, workspacePath, context, stack);
+            ParseModelContributionsInto(*root, workspacePath, context, true);
+        }
+
+        [[nodiscard]] auto ResolveProjectModelContext(const fs::path &projectPath, const XmlElement &projectRoot) -> ModelContext
+        {
+            auto context = BuiltinModelContext();
+            if (const auto workspaceRoot = RootDirFrom(projectPath); workspaceRoot.has_value())
+            {
+                if (const auto workspacePath = WorkspaceFilePath(*workspaceRoot); workspacePath.has_value())
+                {
+                    LoadWorkspaceModelInto(fs::weakly_canonical(*workspacePath), context);
+                }
+            }
+
+            std::vector<fs::path> stack{fs::weakly_canonical(projectPath)};
+            LoadIncludesInto(projectRoot, projectPath, context, stack);
+            ParseModelContributionsInto(projectRoot, projectPath, context, false);
+            return context;
         }
 
         auto ApplyPlatform(ProfileDefinition &profile, const std::unordered_map<std::string, PlatformDefinition> &platforms, const fs::path &path) -> void
@@ -1592,6 +1884,80 @@ namespace NGIN::CLI
             profile.operatingSystem = it->second.operatingSystem;
             profile.architecture = it->second.architecture;
         }
+
+        auto ApplyProfileTemplate(
+            ProfileDefinition &profile,
+            const std::string &templateName,
+            const ModelContext &context,
+            const fs::path &path,
+            std::vector<std::string> &stack) -> void
+        {
+            const auto it = context.profileTemplates.find(templateName);
+            if (it == context.profileTemplates.end())
+            {
+                throw std::runtime_error(path.string() + ": unknown profile template '" + templateName + "'");
+            }
+            if (std::find(stack.begin(), stack.end(), templateName) != stack.end())
+            {
+                std::ostringstream chain{};
+                for (const auto &entry : stack)
+                {
+                    if (!chain.str().empty())
+                    {
+                        chain << " -> ";
+                    }
+                    chain << entry;
+                }
+                chain << " -> " << templateName;
+                throw std::runtime_error(path.string() + ": profile template cycle: " + chain.str());
+            }
+            stack.push_back(templateName);
+            const auto &profileTemplate = it->second;
+            if (!profileTemplate.extends.empty())
+            {
+                ApplyProfileTemplate(profile, profileTemplate.extends, context, path, stack);
+            }
+            if (profileTemplate.buildType.has_value())
+            {
+                profile.buildType = *profileTemplate.buildType;
+            }
+            if (profileTemplate.platform.has_value())
+            {
+                profile.platform = *profileTemplate.platform;
+                ApplyPlatform(profile, context.platforms, path);
+            }
+            if (profileTemplate.operatingSystem.has_value())
+            {
+                profile.operatingSystem = *profileTemplate.operatingSystem;
+            }
+            if (profileTemplate.architecture.has_value())
+            {
+                profile.architecture = *profileTemplate.architecture;
+            }
+            if (profileTemplate.environmentName.has_value())
+            {
+                profile.environmentName = *profileTemplate.environmentName;
+            }
+            if (profileTemplate.enableReflection.has_value())
+            {
+                profile.enableReflection = *profileTemplate.enableReflection;
+            }
+            if (profileTemplate.launch.has_value())
+            {
+                profile.launch = *profileTemplate.launch;
+            }
+            profile.projectRefs.insert(profile.projectRefs.end(), profileTemplate.projectRefs.begin(), profileTemplate.projectRefs.end());
+            profile.packageRefs.insert(profile.packageRefs.end(), profileTemplate.packageRefs.begin(), profileTemplate.packageRefs.end());
+            profile.configInputs.insert(profile.configInputs.end(), profileTemplate.configInputs.begin(), profileTemplate.configInputs.end());
+            MergeRuntime(profile.runtime, profileTemplate.runtime);
+            stack.pop_back();
+        }
+
+        auto ApplyProfileTemplate(ProfileDefinition &profile, const std::string &templateName, const ModelContext &context, const fs::path &path) -> void
+        {
+            std::vector<std::string> stack{};
+            ApplyProfileTemplate(profile, templateName, context, path, stack);
+        }
     }
 
     [[nodiscard]] auto LoadProjectManifest(const fs::path &path) -> ProjectManifest
@@ -1603,17 +1969,32 @@ namespace NGIN::CLI
             throw std::runtime_error(path.string() + ": root element must be <Project>");
         }
         ValidateProjectSchemaVersion(*rootElement, path);
-        const auto defaults = ParseProjectDefaults(*rootElement, path);
-        const auto platforms = ParsePlatforms(*rootElement, path);
+        const auto context = ResolveProjectModelContext(path, *rootElement);
+        const auto requestedTemplate = Attribute(*rootElement, "Template").value_or("Application");
+        const auto templateIt = context.projectTemplates.find(requestedTemplate);
+        if (templateIt == context.projectTemplates.end())
+        {
+            throw std::runtime_error(path.string() + ": unknown project template '" + requestedTemplate + "'");
+        }
+        const auto &projectTemplate = templateIt->second;
+        auto defaults = projectTemplate.defaults;
+        if (const auto *defaultsElement = FindChild(*rootElement, "Defaults"))
+        {
+            ParseDefaultsElement(*defaultsElement, path, defaults);
+        }
 
         ProjectManifest project{};
         project.path = path;
         project.name = RequireAttribute(*rootElement, "Name", path);
-        project.type = Attribute(*rootElement, "Type").value_or(ProjectTypeFromTemplate(Attribute(*rootElement, "Template").value_or("Application")));
+        project.type = Attribute(*rootElement, "Type").value_or(projectTemplate.type);
         project.defaultProfile = Attribute(*rootElement, "DefaultProfile").value_or("Runtime");
         if (!IsSupportedProjectType(project.type))
         {
             throw std::runtime_error(path.string() + ": unknown project type '" + project.type + "'");
+        }
+        if (Lower(project.type) == "library" && FindChild(*rootElement, "Launch") != nullptr)
+        {
+            throw std::runtime_error(path.string() + ": library projects may not declare root <Launch>");
         }
         if (FindChild(*rootElement, "Host") != nullptr)
         {
@@ -1641,7 +2022,7 @@ namespace NGIN::CLI
         }
 
         const auto *output = FindChild(*rootElement, "Output");
-        project.output.kind = output != nullptr ? Attribute(*output, "Kind").value_or(DefaultOutputKindForProjectType(project.type)) : DefaultOutputKindForProjectType(project.type);
+        project.output.kind = output != nullptr ? Attribute(*output, "Kind").value_or(projectTemplate.outputKind) : projectTemplate.outputKind;
         project.output.name = output != nullptr ? Attribute(*output, "Name").value_or(project.name) : project.name;
         project.output.target = output != nullptr ? Attribute(*output, "Target").value_or(project.name) : project.name;
         if (!IsSupportedOutputKind(project.output.kind))
@@ -1653,7 +2034,6 @@ namespace NGIN::CLI
             throw std::runtime_error(path.string() + ": project type '" + project.type + "' is not compatible with output kind '" + project.output.kind + "'");
         }
 
-        LoadProjectBuildDescriptor(project.build, FindChild(*rootElement, "Build"), path);
         if (!defaults.backend.empty())
         {
             project.build.backend = defaults.backend;
@@ -1670,37 +2050,15 @@ namespace NGIN::CLI
         {
             project.build.languageStandard = defaults.languageStandard;
         }
+        LoadProjectBuildDescriptor(project.build, FindChild(*rootElement, "Build"), path);
         if (!IsSupportedProjectBuildMode(project.build.mode))
         {
             throw std::runtime_error(path.string() + ": unknown project build mode '" + project.build.mode + "'");
         }
 
-        auto parseReferences = [&](const XmlElement &referencesElement, std::vector<ProjectReference> &projectRefs, std::vector<PackageReference> &packageRefs)
-        {
-            for (const auto *node : ChildElements(referencesElement, "Project"))
-            {
-                ProjectReference reference{};
-                reference.path = (path.parent_path() / RequireAttribute(*node, "Path", path)).lexically_normal();
-                const auto profile = Attribute(*node, "Profile").value_or("");
-                if (!profile.empty())
-                {
-                    reference.profile = profile;
-                }
-                projectRefs.push_back(std::move(reference));
-            }
-            for (const auto *node : ChildElements(referencesElement, "Package"))
-            {
-                PackageReference packageReference{};
-                packageReference.name = RequireAttribute(*node, "Name", path);
-                packageReference.versionRange = Attribute(*node, "Version").value_or(Attribute(*node, "VersionRange").value_or(""));
-                packageReference.optional = BoolAttribute(*node, "Optional");
-                packageRefs.push_back(std::move(packageReference));
-            }
-        };
-
         if (const auto *references = FindChild(*rootElement, "References"))
         {
-            parseReferences(*references, project.projectRefs, project.packageRefs);
+            ParseReferences(*references, path.parent_path(), path, project.projectRefs, project.packageRefs);
         }
 
         ParseConfigInputs(*rootElement, path, project.configInputs);
@@ -1719,7 +2077,7 @@ namespace NGIN::CLI
                 environment.name = RequireAttribute(*node, "Name", path);
                 if (const auto *references = FindChild(*node, "References"))
                 {
-                    parseReferences(*references, environment.projectRefs, environment.packageRefs);
+                    ParseReferences(*references, path.parent_path(), path, environment.projectRefs, environment.packageRefs);
                 }
                 ParseConfigInputs(*node, path, environment.configInputs);
                 ParseContents(*node, path, environment.contents);
@@ -1742,7 +2100,7 @@ namespace NGIN::CLI
         std::unordered_map<std::string, std::size_t> profileIndexes{};
         for (const auto *node : ChildElements(*profilesNode, "Profile"))
         {
-            ValidateAllowedAttributes(*node, path, {"Name", "Extends", "BuildType", "Platform", "OperatingSystem", "Architecture", "Environment", "EnableReflection"});
+            ValidateAllowedAttributes(*node, path, {"Name", "Extends", "Template", "BuildType", "Platform", "OperatingSystem", "Architecture", "Environment", "EnableReflection"});
             ProfileDefinition profile{};
             const auto profileName = RequireAttribute(*node, "Name", path);
             if (!IsValidManifestIdentifier(profileName))
@@ -1766,7 +2124,7 @@ namespace NGIN::CLI
             {
                 profile.buildType = defaults.buildType;
                 profile.platform = defaults.platform;
-                ApplyPlatform(profile, platforms, path);
+                ApplyPlatform(profile, context.platforms, path);
                 profile.environmentName = defaults.environment;
                 if (rootLaunch != nullptr)
                 {
@@ -1777,6 +2135,10 @@ namespace NGIN::CLI
                     profile.launch.workingDirectory = Attribute(*rootLaunch, "WorkingDirectory").value_or(".");
                 }
             }
+            if (const auto profileTemplate = Attribute(*node, "Template"); profileTemplate.has_value() && !profileTemplate->empty())
+            {
+                ApplyProfileTemplate(profile, *profileTemplate, context, path);
+            }
             profile.name = profileName;
             profile.buildType = Attribute(*node, "BuildType").value_or(profile.buildType);
             if (!IsSupportedBuildType(profile.buildType))
@@ -1786,7 +2148,7 @@ namespace NGIN::CLI
             if (const auto platform = Attribute(*node, "Platform"); platform.has_value() && !platform->empty())
             {
                 profile.platform = *platform;
-                ApplyPlatform(profile, platforms, path);
+                ApplyPlatform(profile, context.platforms, path);
             }
             profile.operatingSystem = Attribute(*node, "OperatingSystem").value_or(profile.operatingSystem);
             profile.architecture = Attribute(*node, "Architecture").value_or(profile.architecture);
@@ -1824,11 +2186,15 @@ namespace NGIN::CLI
             ParseConfigInputs(*node, path, profile.configInputs);
             if (const auto *references = FindChild(*node, "References"))
             {
-                parseReferences(*references, profile.projectRefs, profile.packageRefs);
+                ParseReferences(*references, path.parent_path(), path, profile.projectRefs, profile.packageRefs);
             }
             if (const auto *runtime = FindChild(*node, "Runtime"))
             {
                 ParseRuntimeDefinition(*runtime, path, profile.runtime, true);
+            }
+            if (profile.launch.executable.has_value() && *profile.launch.executable == "$(OutputName)")
+            {
+                profile.launch.executable = project.output.name;
             }
             if (Lower(project.type) == "library" && FindChild(*node, "Launch") != nullptr)
             {

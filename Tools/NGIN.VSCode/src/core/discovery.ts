@@ -1,7 +1,7 @@
 import * as path from 'node:path';
 import { promises as fs } from 'node:fs';
-import { PackageCatalogEntry, ProjectManifest, WorkspaceManifest } from './types';
-import { parsePackageManifest, parseProjectManifest, parseWorkspaceManifest } from './xml';
+import { ModelDefaults, PackageCatalogEntry, ProjectManifest, ProjectProfileTemplate, WorkspaceManifest } from './types';
+import { parseModelManifest, parsePackageManifest, parseProjectManifest, parseProjectModelIncludes, parseWorkspaceManifest } from './xml';
 
 export async function pathExists(candidate: string): Promise<boolean> {
   try {
@@ -56,6 +56,45 @@ export async function loadProjectManifest(manifestPath: string): Promise<Project
   return parseProjectManifest(xml, manifestPath);
 }
 
+interface ModelContext {
+  defaults?: ModelDefaults;
+  profileTemplates?: Record<string, ProjectProfileTemplate>;
+}
+
+function mergeModelContext(base: ModelContext, next: ModelContext): ModelContext {
+  return {
+    defaults: { ...(base.defaults ?? {}), ...(next.defaults ?? {}) },
+    profileTemplates: { ...(base.profileTemplates ?? {}), ...(next.profileTemplates ?? {}) }
+  };
+}
+
+async function loadModelFileInto(modelPath: string, context: ModelContext, stack: string[]): Promise<ModelContext> {
+  const resolved = path.resolve(modelPath);
+  if (stack.includes(resolved)) {
+    throw new Error(`model include cycle: ${[...stack, resolved].join(' -> ')}`);
+  }
+  if (!(await pathExists(resolved))) {
+    throw new Error(`included model file does not exist: ${resolved}`);
+  }
+  const model = parseModelManifest(await readTextFile(resolved), resolved);
+  let current = context;
+  for (const includePath of model.modelIncludes) {
+    current = await loadModelFileInto(includePath, current, [...stack, resolved]);
+  }
+  return mergeModelContext(current, {
+    defaults: model.defaults,
+    profileTemplates: model.profileTemplates
+  });
+}
+
+async function loadIncludesInto(includePaths: string[] | undefined, context: ModelContext): Promise<ModelContext> {
+  let current = context;
+  for (const includePath of includePaths ?? []) {
+    current = await loadModelFileInto(includePath, current, []);
+  }
+  return current;
+}
+
 async function collectPackageManifestPaths(root: string): Promise<string[]> {
   const manifests: string[] = [];
   async function visit(directory: string): Promise<void> {
@@ -108,12 +147,18 @@ export async function loadWorkspaceProjects(workspaceManifestPath: string): Prom
   const workspace = await loadWorkspaceManifest(workspaceManifestPath);
   const projects: ProjectManifest[] = [];
   const packageCatalog = await loadPackageCatalog(workspace);
+  const workspaceModel = await loadIncludesInto(workspace.modelIncludes, {
+    defaults: workspace.defaults,
+    profileTemplates: workspace.profileTemplates
+  });
 
   for (const projectPath of workspace.projectPaths) {
     if (!(await pathExists(projectPath))) {
       continue;
     }
-    projects.push(await loadProjectManifest(projectPath));
+    const projectXml = await readTextFile(projectPath);
+    const projectModel = await loadIncludesInto(parseProjectModelIncludes(projectXml, projectPath), workspaceModel);
+    projects.push(parseProjectManifest(projectXml, projectPath, projectModel));
   }
 
   return { workspace, projects, packageCatalog };

@@ -6,7 +6,9 @@ import {
   PackageManifest,
   PackageReference,
   LocalSettingsManifest,
+  ModelDefaults,
   ProjectProfile,
+  ProjectProfileTemplate,
   ProjectManifest,
   ProjectReference,
   StagedFile,
@@ -96,6 +98,141 @@ function parsePackageReferences(node: unknown): PackageReference[] {
     .filter((entry): entry is PackageReference => Boolean(entry));
 }
 
+function parseModelIncludes(root: { Includes?: { Include?: unknown } } | undefined, baseDirectory: string): string[] {
+  return asArray(root?.Includes?.Include)
+    .map((entry) => (entry as { Path?: string } | undefined)?.Path)
+    .filter((entry): entry is string => Boolean(entry))
+    .map((entry) => path.isAbsolute(entry) ? entry : path.resolve(baseDirectory, entry));
+}
+
+function parseDefaults(root: { Defaults?: unknown } | undefined): ModelDefaults | undefined {
+  const defaults = root?.Defaults as {
+    BuildType?: string;
+    Platform?: string;
+    OperatingSystem?: string;
+    Architecture?: string;
+    Environment?: string;
+  } | undefined;
+  if (!defaults) {
+    return undefined;
+  }
+  return {
+    buildType: defaults.BuildType,
+    platform: defaults.Platform,
+    operatingSystem: defaults.OperatingSystem,
+    architecture: defaults.Architecture,
+    environment: defaults.Environment
+  };
+}
+
+function mergeDefaults(base: ModelDefaults | undefined, override: ModelDefaults | undefined): ModelDefaults | undefined {
+  if (!base && !override) {
+    return undefined;
+  }
+  return { ...(base ?? {}), ...(override ?? {}) };
+}
+
+function parseProfileTemplates(root: { ProfileTemplates?: { ProfileTemplate?: unknown } } | undefined, baseDirectory: string): Record<string, ProjectProfileTemplate> {
+  const templates: Record<string, ProjectProfileTemplate> = {};
+  for (const entry of asArray(root?.ProfileTemplates?.ProfileTemplate)) {
+    const node = entry as {
+      Name?: string;
+      Extends?: string;
+      BuildType?: string;
+      Platform?: string;
+      OperatingSystem?: string;
+      Architecture?: string;
+      Environment?: string;
+      Launch?: { Executable?: string; WorkingDirectory?: string };
+    } | undefined;
+    if (!node?.Name) {
+      continue;
+    }
+    templates[node.Name] = {
+      name: node.Name,
+      extends: node.Extends,
+      buildType: node.BuildType,
+      platform: node.Platform,
+      operatingSystem: node.OperatingSystem,
+      architecture: node.Architecture,
+      environment: node.Environment,
+      launchExecutable: node.Launch?.Executable,
+      launchWorkingDirectory: node.Launch?.WorkingDirectory,
+      configInputs: parseConfigInputs(entry),
+      projectRefs: parseProjectReferences(entry, baseDirectory),
+      packageRefs: parsePackageReferences(entry)
+    };
+  }
+  return templates;
+}
+
+function mergeProfileTemplateMaps(
+  base: Record<string, ProjectProfileTemplate> | undefined,
+  override: Record<string, ProjectProfileTemplate> | undefined
+): Record<string, ProjectProfileTemplate> | undefined {
+  if (!base && !override) {
+    return undefined;
+  }
+  return { ...(base ?? {}), ...(override ?? {}) };
+}
+
+function applyProfileTemplate(
+  target: ProjectProfile,
+  templateName: string | undefined,
+  templates: Record<string, ProjectProfileTemplate> | undefined,
+  stack: string[] = []
+): void {
+  if (!templateName || !templates?.[templateName] || stack.includes(templateName)) {
+    return;
+  }
+  const template = templates[templateName];
+  applyProfileTemplate(target, template.extends, templates, [...stack, templateName]);
+  target.buildType = template.buildType ?? target.buildType;
+  target.platform = template.platform ?? target.platform;
+  target.operatingSystem = template.operatingSystem ?? target.operatingSystem;
+  target.architecture = template.architecture ?? target.architecture;
+  target.environment = template.environment ?? target.environment;
+  target.launchExecutable = template.launchExecutable ?? target.launchExecutable;
+  target.launchWorkingDirectory = template.launchWorkingDirectory ?? target.launchWorkingDirectory;
+  target.configInputs = [...(target.configInputs ?? []), ...template.configInputs];
+  target.projectRefs = [...(target.projectRefs ?? []), ...(template.projectRefs ?? [])];
+  target.packageRefs = [...(target.packageRefs ?? []), ...(template.packageRefs ?? [])];
+}
+
+export interface ModelManifest {
+  path: string;
+  directory: string;
+  modelIncludes: string[];
+  defaults?: ModelDefaults;
+  profileTemplates?: Record<string, ProjectProfileTemplate>;
+}
+
+export function parseModelManifest(xml: string, manifestPath: string): ModelManifest {
+  const document = parser.parse(xml);
+  const root = document.Model;
+  if (!root) {
+    throw new Error(`${manifestPath}: root element must be <Model>`);
+  }
+  const directory = path.dirname(manifestPath);
+  return {
+    path: manifestPath,
+    directory,
+    modelIncludes: parseModelIncludes(root, directory),
+    defaults: parseDefaults(root),
+    profileTemplates: parseProfileTemplates(root, directory)
+  };
+}
+
+export function parseProjectModelIncludes(xml: string, manifestPath: string): string[] {
+  const document = parser.parse(xml);
+  return parseModelIncludes(document.Project, path.dirname(manifestPath));
+}
+
+export interface ProjectParseOptions {
+  defaults?: ModelDefaults;
+  profileTemplates?: Record<string, ProjectProfileTemplate>;
+}
+
 export function parseWorkspaceManifest(xml: string, manifestPath: string): WorkspaceManifest {
   const document = parser.parse(xml);
   const root = document.Workspace;
@@ -118,31 +255,60 @@ export function parseWorkspaceManifest(xml: string, manifestPath: string): Works
     directory,
     name: root.Name ?? path.basename(manifestPath, path.extname(manifestPath)),
     platformVersion: root.PlatformVersion,
+    modelIncludes: parseModelIncludes(root, directory),
+    defaults: parseDefaults(root),
+    profileTemplates: parseProfileTemplates(root, directory),
     projectPaths: projects,
     packageSourcePaths: packageSources
   };
 }
 
-export function parseProjectManifest(xml: string, manifestPath: string): ProjectManifest {
+export function parseProjectManifest(xml: string, manifestPath: string, options: ProjectParseOptions = {}): ProjectManifest {
   const document = parser.parse(xml);
   const root = document.Project;
   if (!root) {
     throw new Error(`${manifestPath}: root element must be <Project>`);
   }
 
-  const profiles = asArray(root.Profiles?.Profile).map((entry): ProjectProfile => ({
-    name: entry?.Name,
-    buildType: entry?.BuildType,
-    platform: entry?.Platform,
-    operatingSystem: entry?.OperatingSystem,
-    architecture: entry?.Architecture,
-    environment: entry?.Environment,
-    launchExecutable: entry?.Launch?.Executable,
-    launchWorkingDirectory: entry?.Launch?.WorkingDirectory,
-    configInputs: parseConfigInputs(entry),
-    projectRefs: parseProjectReferences(entry, path.dirname(manifestPath)),
-    packageRefs: parsePackageReferences(entry)
-  })).filter((entry) => Boolean(entry.name));
+  const projectDefaults = mergeDefaults(options.defaults, parseDefaults(root));
+  const profileTemplates = mergeProfileTemplateMaps(options.profileTemplates, parseProfileTemplates(root, path.dirname(manifestPath)));
+  const rootLaunch = root.Launch as { Executable?: string; WorkingDirectory?: string } | undefined;
+  const profiles = asArray(root.Profiles?.Profile).map((entry): ProjectProfile => {
+    const profile = entry as {
+      Name?: string;
+      Template?: string;
+      BuildType?: string;
+      Platform?: string;
+      OperatingSystem?: string;
+      Architecture?: string;
+      Environment?: string;
+      Launch?: { Executable?: string; WorkingDirectory?: string };
+    } | undefined;
+    const result: ProjectProfile = {
+      name: profile?.Name,
+      buildType: projectDefaults?.buildType,
+      platform: projectDefaults?.platform,
+      operatingSystem: projectDefaults?.operatingSystem,
+      architecture: projectDefaults?.architecture,
+      environment: projectDefaults?.environment,
+      configInputs: []
+    };
+    applyProfileTemplate(result, profile?.Template, profileTemplates);
+    result.buildType = profile?.BuildType ?? result.buildType;
+    result.platform = profile?.Platform ?? result.platform;
+    result.operatingSystem = profile?.OperatingSystem ?? result.operatingSystem;
+    result.architecture = profile?.Architecture ?? result.architecture;
+    result.environment = profile?.Environment ?? result.environment;
+    result.launchExecutable = profile?.Launch?.Executable ?? result.launchExecutable ?? rootLaunch?.Executable;
+    result.launchWorkingDirectory = profile?.Launch?.WorkingDirectory ?? result.launchWorkingDirectory ?? rootLaunch?.WorkingDirectory;
+    if (result.launchExecutable === '$(OutputName)') {
+      result.launchExecutable = root.Output?.Name ?? root.Name;
+    }
+    result.configInputs = [...result.configInputs, ...parseConfigInputs(entry)];
+    result.projectRefs = [...(result.projectRefs ?? []), ...parseProjectReferences(entry, path.dirname(manifestPath))];
+    result.packageRefs = [...(result.packageRefs ?? []), ...parsePackageReferences(entry)];
+    return result;
+  }).filter((entry) => Boolean(entry.name));
 
   const sourceRoots = asArray(root.SourceRoots?.SourceRoot)
     .map((entry) => entry?.Path as string | undefined)
@@ -172,6 +338,8 @@ export function parseProjectManifest(xml: string, manifestPath: string): Project
     directory: path.dirname(manifestPath),
     name: root.Name ?? path.basename(manifestPath, path.extname(manifestPath)),
     defaultProfile: root.DefaultProfile,
+    modelIncludes: parseModelIncludes(root, path.dirname(manifestPath)),
+    defaults: projectDefaults,
     sourceRoots: [...sourceRoots, ...typedSourceRoots],
     configInputs: parseConfigInputs(root),
     localSettingsImports: parseLocalSettingsImports(root, path.dirname(manifestPath)),

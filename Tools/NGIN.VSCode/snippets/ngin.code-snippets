@@ -4,14 +4,33 @@
     "prefix": "ngin-workspace",
     "body": [
       "<?xml version=\"1.0\" encoding=\"utf-8\"?>",
-      "<Workspace SchemaVersion=\"2\" Name=\"$1\" PlatformVersion=\"$2\">",
+      "<Workspace SchemaVersion=\"3\" Name=\"$1\" PlatformVersion=\"$2\">",
+      "  <Includes>",
+      "    <Include Path=\"$3\" />",
+      "  </Includes>",
+      "  <Defaults BuildType=\"Debug\" Platform=\"linux-x64\" />",
       "  <PackageSources>",
-      "    <PackageSource Path=\"$3\" />",
+      "    <PackageSource Path=\"$4\" />",
       "  </PackageSources>",
       "  <Projects>",
-      "    <Project Path=\"$4\" />",
+      "    <Project Path=\"$5\" />",
       "  </Projects>",
       "</Workspace>"
+    ]
+  },
+  "Model": {
+    "scope": "ngin",
+    "prefix": "ngin-model",
+    "body": [
+      "<?xml version=\"1.0\" encoding=\"utf-8\"?>",
+      "<Model SchemaVersion=\"3\" Name=\"$1\">",
+      "  <Defaults BuildType=\"Debug\" Platform=\"linux-x64\" />",
+      "  <ProfileTemplates>",
+      "    <ProfileTemplate Name=\"$2\" Environment=\"$3\">",
+      "      <Launch Executable=\"$(OutputName)\" WorkingDirectory=\".\" />",
+      "    </ProfileTemplate>",
+      "  </ProfileTemplates>",
+      "</Model>"
     ]
   },
   "Project": {

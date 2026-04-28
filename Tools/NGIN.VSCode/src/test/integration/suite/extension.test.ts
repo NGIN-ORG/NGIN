@@ -95,7 +95,7 @@ suite('NGIN Tools Extension', () => {
       await fs.mkdir(projectDir, { recursive: true });
       await fs.writeFile(path.join(tempRoot, 'Workspace.ngin'), [
         '<?xml version="1.0" encoding="utf-8"?>',
-        '<Workspace SchemaVersion="2" Name="TempWorkspace">',
+        '<Workspace SchemaVersion="3" Name="TempWorkspace">',
         '  <PackageSources>',
         '    <PackageSource Path="Packages" />',
         '  </PackageSources>',

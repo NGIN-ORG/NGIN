@@ -1682,6 +1682,101 @@ TEST_CASE("ApplicationBuilderLoadsProjectManifestFromInjectedFilesystem",
   RemovePath(realRoot);
 }
 
+TEST_CASE("ApplicationBuilderLoadsProjectManifestWithModelDefaults",
+          "[builder][manifest][model]") {
+  const auto tempDir = MakeTempDir("ngin-core-builder-model");
+
+  WriteTextFile(tempDir.Join("common.nginmodel"),
+                R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Model SchemaVersion="3" Name="Core.Model">
+  <Defaults BuildType="Release" Platform="linux-x64" Environment="Dev" />
+  <ProfileTemplates>
+    <ProfileTemplate Name="Hosted">
+      <Launch Executable="$(OutputName)" WorkingDirectory="." />
+      <Inputs>
+        <Config Path="model.cfg" />
+      </Inputs>
+    </ProfileTemplate>
+  </ProfileTemplates>
+</Model>
+)xml");
+  WriteTextFile(tempDir.Join("model.cfg"), "Model.Mode=template\n");
+  WriteTextFile(tempDir.Join("Model.App.nginproj"),
+                R"(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="3"
+         Name="Model.App"
+         Template="Application"
+         DefaultProfile="Runtime">
+  <Includes>
+    <Include Path="common.nginmodel" />
+  </Includes>
+  <Environments>
+    <Environment Name="Dev" />
+  </Environments>
+  <Profiles>
+    <Profile Name="Runtime" Template="Hosted" />
+  </Profiles>
+</Project>
+)");
+
+  auto builder = NGIN::Core::CreateApplicationBuilder(0, nullptr);
+  builder->UseProjectFile(ToString(tempDir.Join("Model.App.nginproj")));
+  builder->Services().AddConfiguration();
+
+  auto app = builder->Build();
+  REQUIRE(app.HasValue());
+  REQUIRE(app.Value()->Start().HasValue());
+
+  auto config = app.Value()->GetConfig();
+  REQUIRE(static_cast<bool>(config));
+  REQUIRE(config->GetRaw("Kernel.EnvironmentName").Value() == "Dev");
+  REQUIRE(config->GetRaw("Model.Mode").Value() == "template");
+
+  REQUIRE(app.Value()->Shutdown().HasValue());
+  RemovePath(tempDir);
+}
+
+TEST_CASE("ApplicationBuilderAppliesWorkspaceModelDefaults",
+          "[builder][manifest][model]") {
+  const auto tempDir = MakeTempDir("ngin-core-builder-workspace-model");
+
+  WriteTextFile(tempDir.Join("NGIN.ngin"),
+                R"(<?xml version="1.0" encoding="utf-8"?>
+<Workspace SchemaVersion="3" Name="Core.Workspace">
+  <Defaults BuildType="Debug" Platform="linux-x64" Environment="WorkspaceEnv" />
+</Workspace>
+)");
+  WriteTextFile(tempDir.Join("apps/Workspace.App.nginproj"),
+                R"(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="3"
+         Name="Workspace.App"
+         Template="Application"
+         DefaultProfile="Runtime">
+  <Environments>
+    <Environment Name="WorkspaceEnv" />
+  </Environments>
+  <Profiles>
+    <Profile Name="Runtime" />
+  </Profiles>
+</Project>
+)");
+
+  auto builder = NGIN::Core::CreateApplicationBuilder(0, nullptr);
+  builder->UseProjectFile(ToString(tempDir.Join("apps/Workspace.App.nginproj")));
+  builder->Services().AddConfiguration();
+
+  auto app = builder->Build();
+  REQUIRE(app.HasValue());
+  REQUIRE(app.Value()->Start().HasValue());
+
+  auto config = app.Value()->GetConfig();
+  REQUIRE(static_cast<bool>(config));
+  REQUIRE(config->GetRaw("Kernel.EnvironmentName").Value() == "WorkspaceEnv");
+
+  REQUIRE(app.Value()->Shutdown().HasValue());
+  RemovePath(tempDir);
+}
+
 TEST_CASE("ApplicationBuilderTargetOverrideBeatsProjectDefault",
           "[builder][manifest]") {
   const auto tempDir = MakeTempDir("ngin-core-builder-target");

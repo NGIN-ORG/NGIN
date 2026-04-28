@@ -24,6 +24,7 @@ This spec defines the active V3 `.nginproj` contract.
 Supported root sections:
 
 - `Sources`
+- `Includes`
 - `Conditions`
 - `Defaults`
 - `Platforms`
@@ -39,6 +40,51 @@ Supported root sections:
 `Runtime` is optional advanced metadata. It is not required for normal application authoring.
 
 `Sources` is the source declaration surface for generated-mode projects.
+
+## Shared Model Factoring
+
+Projects may include shared `.nginmodel` files:
+
+```xml
+<Includes>
+  <Include Path="../Common.nginmodel" />
+</Includes>
+```
+
+Include paths are relative to the declaring project or model file. Includes are
+resolved depth-first in declaration order after the built-in model layer and
+after any containing workspace model layer. Missing includes and include cycles
+are validation errors.
+
+Project root declarations may also contribute `Defaults`, `Platforms`,
+`ProjectTemplates`, and `ProfileTemplates`. These declarations are project-local
+model contributions, not build steps or scripts.
+
+`Defaults` may provide scalar values that otherwise repeat across profiles and
+build declarations:
+
+```xml
+<Defaults BuildType="Debug"
+          Platform="linux-x64"
+          Environment="local"
+          Backend="CMake"
+          BuildMode="Generated"
+          Language="CXX"
+          LanguageStandard="23" />
+```
+
+Nearest declaration wins for scalar defaults. Explicit local project/profile
+values override defaults.
+
+Built-in project templates:
+
+- `Application` -> `Type="Application"` and executable output
+- `Library` -> `Type="Library"` and static-library output
+- `Tool` -> `Type="Tool"` and executable output
+
+Authored project templates are declared under `ProjectTemplates`; unknown
+template names are validation errors. Explicit project attributes and sections
+override template-provided values.
 
 ## Sources
 
@@ -253,6 +299,7 @@ Supported profile attributes:
 
 - `Name` required
 - `Extends` optional
+- `Template` optional
 - `BuildType` optional
 - `Platform` optional
 - `OperatingSystem` optional
@@ -265,6 +312,17 @@ profile contributions. The extending profile may override scalar attributes and
 append child-section contributions. Forward references and cycles are rejected
 by requiring the base profile to appear first.
 
+`Template` applies a profile template declared by the built-in/workspace/project
+model context. Profile resolution order is:
+
+1. inherited profile via `Extends`
+2. profile template contributions
+3. local profile attributes and children
+
+Profile templates may provide scalar profile attributes, `Launch`, `References`,
+`Inputs`, and `Runtime`. Unknown profile templates and profile template cycles
+are validation errors.
+
 Supported profile child sections:
 
 - `References`
@@ -273,6 +331,10 @@ Supported profile child sections:
 - `Runtime`
 
 `<Launch>` is launch-only metadata. Library projects may not declare it.
+Launchable projects may declare a root `<Launch>` directly under `<Project>`;
+that launch metadata applies to profiles that do not declare their own
+profile-level `<Launch>`. `$(OutputName)` in launch executable metadata resolves
+to the selected project output name.
 
 ## Environments
 
@@ -360,13 +422,14 @@ Project variable names and local setting keys are separate namespaces.
 <?xml version="1.0" encoding="utf-8"?>
 <Project SchemaVersion="3"
          Name="App.Basic"
+         Template="Application"
          DefaultProfile="Runtime">
   <Sources>
     <Private>
       <Root Path="src" />
     </Private>
   </Sources>
-  <Output Kind="Executable" Name="App.Basic" Target="App.Basic" />
+  <Launch Executable="$(OutputName)" WorkingDirectory="." />
   <References>
     <Package Name="NGIN.Core" Version="0.1.0" />
   </References>
@@ -375,11 +438,9 @@ Project variable names and local setting keys are separate namespaces.
   </Environments>
   <Profiles>
     <Profile Name="Runtime"
-                   BuildType="Debug"
-                   Platform="linux-x64"
-                   Environment="development">
-      <Launch Executable="App.Basic" WorkingDirectory="." />
-    </Profile>
+             BuildType="Debug"
+             Platform="linux-x64"
+             Environment="development" />
   </Profiles>
 </Project>
 ```

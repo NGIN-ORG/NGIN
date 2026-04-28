@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Workspace SchemaVersion="2" Name="NGIN" PlatformVersion="0.1.0">
+<Workspace SchemaVersion="3" Name="NGIN" PlatformVersion="0.1.0">
+  <Includes>
+    <Include Path="Examples/Common.nginmodel" />
+  </Includes>
   <PackageSources>
     <PackageSource Path="Packages" />
   </PackageSources>

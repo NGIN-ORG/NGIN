@@ -15,30 +15,22 @@ dependencies, profiles, and local run metadata.
          Name="MyTool"
          Template="Tool"
          DefaultProfile="Runtime">
+  <Defaults BuildType="Debug" Platform="linux-x64" Environment="local" />
+
   <Sources>
     <Private>
       <Root Path="src" />
     </Private>
   </Sources>
 
-  <Output Kind="Executable" Name="MyTool" Target="MyTool" />
-
-  <Build Backend="CMake"
-         Mode="Generated"
-         Language="CXX"
-         LanguageStandard="23" />
+  <Launch Executable="$(OutputName)" WorkingDirectory="." />
 
   <Environments>
     <Environment Name="local" />
   </Environments>
 
   <Profiles>
-    <Profile Name="Runtime"
-             BuildType="Debug"
-             Platform="linux-x64"
-             Environment="local">
-      <Launch Executable="MyTool" WorkingDirectory="." />
-    </Profile>
+    <Profile Name="Runtime" />
   </Profiles>
 </Project>
 ```
@@ -47,8 +39,10 @@ dependencies, profiles, and local run metadata.
 
 | Section | Purpose |
 | --- | --- |
+| `Includes` | Shared `.nginmodel` files |
+| `Defaults` | Local scalar defaults for build/profile values |
 | `Sources` | Public and private source ownership |
-| `Output` | Artifact type, name, and backend target |
+| `Output` | Optional artifact type, name, and backend target |
 | `Build` | Backend mode, language, standard, and build settings |
 | `References` | Project and package dependencies |
 | `Inputs` | Runtime config files contributed by the project |
@@ -67,6 +61,27 @@ Profiles can reuse an earlier profile with `Extends`:
            Extends="Runtime"
            BuildType="Release" />
 </Profiles>
+```
+
+Shared model files reduce repeated defaults across projects:
+
+```xml
+<Model SchemaVersion="3" Name="Common">
+  <Defaults BuildType="Debug" Platform="linux-x64" />
+  <ProfileTemplates>
+    <ProfileTemplate Name="LocalRuntime" Environment="local">
+      <Launch Executable="$(OutputName)" WorkingDirectory="." />
+    </ProfileTemplate>
+  </ProfileTemplates>
+</Model>
+```
+
+Projects include them with paths relative to the declaring file:
+
+```xml
+<Includes>
+  <Include Path="../Common.nginmodel" />
+</Includes>
 ```
 
 ## Sources
@@ -205,6 +220,11 @@ Valid project/output pairings:
 - `Tool` -> `Executable`
 - `Library` -> `StaticLibrary` or `SharedLibrary`
 
+When `Output` is omitted, `Template="Application"` and `Template="Tool"` infer an
+executable output using the project name. `Template="Library"` infers a static
+library output. Explicit `Output` remains useful when the backend target name
+should differ from the project name.
+
 ## References
 
 Project references:
@@ -241,8 +261,11 @@ the backend build type such as `Debug` or `Release`.
 Executable projects can add launch metadata:
 
 ```xml
-<Launch Executable="MyTool" WorkingDirectory="." />
+<Launch Executable="$(OutputName)" WorkingDirectory="." />
 ```
+
+A root project `Launch` applies to launchable profiles that do not declare their
+own profile launch. Library projects may not declare launch metadata.
 
 ## Useful Commands
 

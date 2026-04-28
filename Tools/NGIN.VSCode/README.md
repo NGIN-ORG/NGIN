@@ -18,8 +18,11 @@ VS Code while keeping the same behavior as the terminal commands.
 - `.nginlaunch`-based run and debug resolution
 - a custom `ngin` debug type that launches native C/C++ debug sessions
 - C/C++ profile-provider support for `ms-vscode.cpptools`
-- file registration and snippets for `.ngin`, `.nginproj`, `.nginpkg`,
-  `.nginlaunch`, and `.nginsettings`
+- file registration and snippets for `.ngin`, `.nginproj`, `.nginmodel`,
+  `.nginpkg`, `.nginlaunch`, and `.nginsettings`
+- V3 workspace/project parsing for `.nginmodel` includes, defaults, and profile
+  templates so project trees, tasks, debug profiles, and status items use
+  effective profile data
 
 The CLI remains the source of truth. If a command works in the terminal, the
 extension should call the same command with the selected project and
