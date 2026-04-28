@@ -10,23 +10,24 @@ should be treated as a strategic design backlog, not an approved implementation
 contract.
 
 The main direction is to keep `.nginproj` as a declarative project manifest
-rather than turning it into a general build engine, while borrowing the best
-parts of `.csproj` and MSBuild authoring:
+rather than turning it into a general build engine, while borrowing broad
+authoring lessons from mature project-file ecosystems without copying their
+public vocabulary:
 
 - concise defaults for common projects
-- reusable imports and SDK-style project templates
+- reusable shared model files and project templates
 - profile inheritance instead of repeated configuration blocks
-- a generalized item model with metadata
+- a generalized project input model with metadata
 - package-driven extension points
 - stronger inspectability and migration tooling
 
 The highest-value changes are:
 
 - add profile inheritance and project/workspace defaults
-- add imports and SDK-style project declarations
-- generalize source, config, content, and generated files into typed items
+- add shared model includes and template-based project declarations
+- generalize source, config, content, and generated files into typed inputs
 - make packages the primary extension mechanism
-- add controlled lifecycle hooks without exposing arbitrary build scripting as
+- add controlled pipeline phases without exposing arbitrary build scripting as
   the core model
 
 ## Goals
@@ -67,12 +68,12 @@ reason about the manifest before backend generation runs.
 ### Small Common Case
 
 A minimal app should stay compact. Most common values should be inferred from
-project defaults, workspace defaults, selected SDK, or conventions.
+project defaults, workspace defaults, selected template, or conventions.
 
 ### Explicit Escape Hatches
 
 Escape hatches should exist, but they should be structured. The preferred shape
-is "declare inputs, outputs, command, environment, and lifecycle point" rather
+is "declare inputs, outputs, command, environment, phase, and timing point" rather
 than opaque script blobs.
 
 ### Package-Oriented Extensibility
@@ -82,7 +83,7 @@ features and contributions explicitly.
 
 ### Inspectable Resolution
 
-Every inherited default, imported item, selected package feature, generated
+Every inherited default, included input, selected package feature, generated
 source, copied asset, runtime module, and launch decision should be explainable
 by tooling.
 
@@ -95,7 +96,7 @@ Example direction:
 
 ```xml
 <Project SchemaVersion="3"
-         Sdk="NGIN.Application/3"
+         Template="Application"
          Name="App.NativeMinimal">
   <Sources>
     <Private>
@@ -105,7 +106,7 @@ Example direction:
 </Project>
 ```
 
-The SDK, workspace defaults, and inferred output would provide the usual
+The template, workspace defaults, and inferred output would provide the usual
 application defaults. The expanded normalized model would still contain output,
 build backend, language, profile, launch, and staging information.
 
@@ -208,9 +209,9 @@ Possible workspace defaults:
 - language standard
 - warning policy
 - package feeds
-- central package versions
-- common imports
-- common project SDK version
+- dependency version policy
+- common shared model files
+- common project template version
 
 ### Inferred Output
 
@@ -221,7 +222,7 @@ Example:
 
 ```xml
 <Project SchemaVersion="3"
-         Sdk="NGIN.Application/3"
+         Template="Application"
          Name="App.NativeMinimal" />
 ```
 
@@ -281,14 +282,14 @@ differences.
 Inheritance rules should be explicit:
 
 - scalar attributes override parent values
-- item collections append by default
+- input collections append by default
 - removals use explicit remove syntax
 - conflicts are diagnostics, not silent behavior
 - cycles are validation errors
 
 ### Reusable Profile Definitions
 
-Allow reusable profile templates at project, workspace, or imported file scope.
+Allow reusable profile templates at project, workspace, or shared model scope.
 
 Examples:
 
@@ -329,22 +330,23 @@ Consider making important profile axes visible as separate concepts:
 
 The selected profile resolves those axes into one final selection context.
 
-## Imports And SDK-Style Projects
+## Shared Models And Project Templates
 
-### Imports
+### Shared Model Includes
 
-Add import support for shared project fragments.
+Add include support for shared project fragments without using MSBuild-style
+`.props` terminology.
 
 ```xml
-<Import Project="../build/common.nginprops" />
+<Include Model="../build/common.nginpart" />
 ```
 
-Possible imported content:
+Possible included content:
 
 - defaults
 - platforms
 - conditions
-- item groups
+- input sets
 - build settings
 - package versions
 - profile templates
@@ -352,34 +354,34 @@ Possible imported content:
 
 Rules:
 
-- imports are resolved relative to the importing file
-- import order is deterministic
+- includes are resolved relative to the including file
+- include order is deterministic
 - duplicate definitions are either explicit overrides or validation errors
-- imported values preserve provenance for `ngin explain`
-- import cycles are validation errors
+- included values preserve provenance for `ngin explain`
+- include cycles are validation errors
 
-### SDK-Style Projects
+### Project Templates
 
-Add SDK-style project declarations for common project kinds.
+Add template-based project declarations for common project kinds.
 
 ```xml
 <Project SchemaVersion="3"
-         Sdk="NGIN.Application/3"
+         Template="Application"
          Name="App.Basic" />
 ```
 
-Candidate SDKs:
+Candidate templates:
 
-- `NGIN.Application`
-- `NGIN.Tool`
-- `NGIN.Library`
-- `NGIN.HostedApplication`
-- `NGIN.PluginHost`
-- `NGIN.Service`
-- `NGIN.GameClient`
-- `NGIN.GameServer`
+- `Application`
+- `Tool`
+- `Library`
+- `HostedApplication`
+- `PluginHost`
+- `Service`
+- `GameClient`
+- `GameServer`
 
-SDKs can provide:
+Templates can provide:
 
 - default output kind
 - default build backend
@@ -389,10 +391,10 @@ SDKs can provide:
 - common package references
 - default runtime model behavior
 
-SDKs must remain inspectable. They should behave like explicit imports with
-known semantics, not invisible magic.
+Templates must remain inspectable. They should behave like explicit shared
+model includes with known semantics, not invisible magic.
 
-## Generalized Item Model
+## Generalized Project Input Model
 
 ### Motivation
 
@@ -400,12 +402,14 @@ The current model has separate concepts for sources, config sources, contents,
 and build settings. That is readable, but it can produce schema growth when new
 file-like things appear.
 
-Introduce an internal item model similar in spirit to MSBuild items, but keep
-domain-specific aliases for author readability.
+Introduce an internal project input model for files and generated artifacts, but
+avoid public `Item` and `ItemGroup` names. The authored vocabulary should sound
+like NGIN: sources, configs, assets, generated inputs, staging inputs, and
+input sets.
 
-### Item Kinds
+### Input Kinds
 
-Potential built-in item kinds:
+Potential built-in input kinds:
 
 - `Compile`
 - `Header`
@@ -433,28 +437,27 @@ Keep readable surfaces where they make sense:
 </Sources>
 ```
 
-Normalize internally to item declarations.
+Normalize internally to input declarations.
 
 Generic form:
 
 ```xml
-<Items>
-  <Item Kind="Compile" Include="src/**/*.cpp" />
-  <Item Kind="Config"
-        Include="config/app.cfg"
-        TargetPath="config/app.cfg" />
-</Items>
+<Inputs>
+  <Source Pattern="src/**/*.cpp" />
+  <Config Path="config/app.cfg"
+          StagePath="config/app.cfg" />
+</Inputs>
 ```
 
-### Item Metadata
+### Input Metadata
 
-Support metadata on items:
+Support metadata on inputs:
 
 - `Kind`
-- `Include`
-- `Exclude`
 - `Path`
-- `TargetPath`
+- `Pattern`
+- `Exclude`
+- `StagePath`
 - `CopyToOutput`
 - `Visibility`
 - `Generator`
@@ -468,42 +471,42 @@ Support metadata on items:
 Example:
 
 ```xml
-<Item Kind="Content"
-      Include="assets/**/*.png"
-      TargetPath="assets/%(RecursiveDir)%(Filename)%(Extension)"
-      CopyToOutput="PreserveNewest" />
+<Content Pattern="assets/**/*.png"
+         StagePath="assets/{relativePath}"
+         CopyToOutput="PreserveNewest" />
 ```
 
-### Item Groups
+### Input Sets
 
-Item groups should carry inherited selectors and metadata.
+Input sets should carry inherited selectors and metadata.
 
 ```xml
-<ItemGroup Platform="linux-x64">
-  <Item Kind="Compile" Include="src/platform/linux/**/*.cpp" />
-  <Item Kind="Content" Include="assets/linux/**" />
-</ItemGroup>
+<InputSet Platform="linux-x64">
+  <Source Pattern="src/platform/linux/**/*.cpp" />
+  <Content Pattern="assets/linux/**" />
+</InputSet>
 ```
 
-Group metadata applies to child items as implicit AND or inherited metadata.
+Set metadata applies to child inputs as implicit AND or inherited metadata.
 
-### Item Removal And Update
+### Input Exclusion And Override
 
-Large imported/default item sets need explicit mutation operations.
+Large included/default input sets need explicit exclusion and override
+operations. Avoid MSBuild-style `Update` semantics in the public vocabulary.
 
 Potential operations:
 
 ```xml
-<Item Kind="Compile" Remove="src/experimental/**" />
-<Item Kind="Content" Update="assets/**/*.png" CopyToOutput="Always" />
+<Exclude Kind="Compile" Pattern="src/experimental/**" />
+<Override Kind="Content" Pattern="assets/**/*.png" CopyToOutput="Always" />
 ```
 
-Rules should be strict and inspectable. Removing or updating nothing should be a
-warning in strict validation mode.
+Rules should be strict and inspectable. Excluding or overriding nothing should
+be a warning in strict validation mode.
 
 ### Remove Legacy SourceRoots
 
-In a breaking schema, remove `SourceRoots`. `Sources` and the normalized item
+In a breaking schema, remove `SourceRoots`. `Sources` and the normalized input
 model replace it.
 
 ## Conditions And Selection
@@ -558,8 +561,8 @@ explain them.
 Allow conditions at multiple scopes:
 
 - workspace
-- imported file
-- SDK
+- shared model file
+- template
 - package
 - project
 
@@ -573,7 +576,7 @@ Add diagnostics that explain inclusion and exclusion.
 Examples:
 
 ```text
-ngin explain item src/platform/linux/window.cpp --profile Runtime
+ngin explain input src/platform/linux/window.cpp --profile Runtime
 ngin explain condition LocalDebug --profile Runtime
 ```
 
@@ -581,7 +584,7 @@ The output should show:
 
 - selected profile context
 - condition source file
-- inherited group conditions
+- inherited input-set conditions
 - final match result
 - why each branch matched or failed
 
@@ -619,25 +622,23 @@ Example:
 </Backend>
 ```
 
-### Controlled Lifecycle Hooks
+### Controlled Pipeline Phases
 
-Add lifecycle hooks, but keep them constrained.
+Add pipeline phases, but keep them constrained.
 
-Possible hooks:
+Possible phases:
 
-- `BeforeRestore`
-- `AfterRestore`
-- `BeforeConfigure`
-- `AfterConfigure`
-- `BeforeGenerate`
-- `AfterGenerate`
-- `BeforeBuild`
-- `AfterBuild`
-- `BeforeStage`
-- `AfterStage`
-- `BeforeRun`
+- `Restore`
+- `Configure`
+- `Generate`
+- `Compile`
+- `Stage`
+- `Launch`
 
-Project usage should usually enable package-provided hooks:
+Contributions can run at a specific phase and timing point without using
+MSBuild-style `Before...` and `After...` names.
+
+Project usage should usually enable package-provided pipeline contributions:
 
 ```xml
 <Use Feature="ShaderCompilation" />
@@ -646,13 +647,15 @@ Project usage should usually enable package-provided hooks:
 Direct custom command escape hatch:
 
 ```xml
-<Hook Name="BeforeStage">
-  <Command Name="CompileShaders"
-           Tool="shaderc"
-           Inputs="shaders/**/*.hlsl"
-           Outputs="$(IntermediateDir)/shaders/*.spv"
-           WorkingDirectory="$(ProjectDir)" />
-</Hook>
+<Pipeline>
+  <Step Name="CompileShaders"
+        Phase="Stage"
+        Timing="Before"
+        Tool="shaderc"
+        Inputs="shaders/**/*.hlsl"
+        Outputs="$(IntermediateDir)/shaders/*.spv"
+        WorkingDirectory="$(ProjectDir)" />
+</Pipeline>
 ```
 
 Required fields:
@@ -662,7 +665,7 @@ Required fields:
 - command/tool
 - working directory
 - environment
-- lifecycle point
+- phase and timing point
 
 This keeps incremental behavior and graph inspection possible.
 
@@ -706,9 +709,9 @@ Example:
 
 ```xml
 <Assets>
-  <Asset Include="assets/textures/**/*.png"
+  <Asset Pattern="assets/textures/**/*.png"
          Processor="TextureCompiler"
-         TargetPath="assets/textures" />
+         StagePath="assets/textures" />
 </Assets>
 ```
 
@@ -719,7 +722,8 @@ Asset processors should normally come from packages.
 ### Packages As Primary Extension Mechanism
 
 Packages should declare reusable identity, artifacts, content, runtime
-participants, code generators, asset processors, hooks, defaults, and features.
+participants, code generators, asset processors, pipeline contributions,
+defaults, and features.
 
 Projects should opt into those contributions explicitly.
 
@@ -758,7 +762,7 @@ Package features should support:
 - plugins
 - content files
 - generators
-- hooks
+- pipeline contributions
 - environment variables
 - config files
 
@@ -781,15 +785,18 @@ Modes:
 - `SafeDefaults`: non-invasive defaults apply
 - `PackageDefault`: package decides
 
-### Central Package Versions
+### Dependency Version Policy
 
-Move common package versions to workspace or central package metadata.
+Move common package versions to workspace dependency policy metadata. The goal
+is central version management without adopting NuGet/.NET terminology.
 
 ```xml
-<PackageVersions>
-  <Package Name="NGIN.Core" Version=">=0.1.0 &lt;0.2.0" />
-  <Package Name="NGIN.Diagnostics" Version=">=0.1.0 &lt;0.2.0" />
-</PackageVersions>
+<DependencyPolicy>
+  <Versions>
+    <Package Name="NGIN.Core" Version=">=0.1.0 &lt;0.2.0" />
+    <Package Name="NGIN.Diagnostics" Version=">=0.1.0 &lt;0.2.0" />
+  </Versions>
+</DependencyPolicy>
 ```
 
 Project reference can then be shorter:
@@ -843,9 +850,9 @@ Add a concise app-module declaration for common application-owned modules.
 
 Expanded metadata can still exist when needed.
 
-### Runtime Presets
+### Runtime Templates
 
-SDKs or runtime presets should cover common host shapes.
+Project templates or runtime templates should cover common host shapes.
 
 Candidates:
 
@@ -859,7 +866,7 @@ Candidates:
 Example:
 
 ```xml
-<Project Sdk="NGIN.HostedApplication/3" Name="App.Basic" />
+<Project Template="HostedApplication" Name="App.Basic" />
 ```
 
 This could imply the right NGIN.Core feature, basic bootstrap behavior, and
@@ -898,29 +905,29 @@ It should explain:
 
 - selected profile
 - inherited defaults
-- imports and SDKs
+- shared model files and templates
 - selected platform
 - selected environment
 - package references
 - package features
-- source items
-- generated items
+- source inputs
+- generated inputs
 - config and content staging
 - runtime modules and plugins
 - launch metadata
 - backend settings
 
-### Item Explanation
+### Input Explanation
 
-Add item-level diagnostics.
+Add input-level diagnostics.
 
 ```text
-ngin explain item src/main.cpp --project App.nginproj --profile Runtime
+ngin explain input src/main.cpp --project App.nginproj --profile Runtime
 ```
 
 It should show:
 
-- item kind
+- input kind
 - declaring file
 - selectors and conditions
 - inherited metadata
@@ -966,7 +973,7 @@ Migration should:
 - rename `Configurations` to `Profiles`
 - rename `BuildConfiguration` to `BuildType`
 - convert repeated OS/architecture to platforms
-- convert `ConfigSources` and `Contents` to items where appropriate
+- convert `ConfigSources` and `Contents` to inputs where appropriate
 - move repeated launch metadata to root defaults
 - preserve old behavior in normalized output
 - produce a report of manual follow-up work
@@ -976,16 +983,16 @@ Migration should:
 Add first-class project creation commands.
 
 ```text
-ngin new app
-ngin new lib
-ngin new tool
-ngin new hosted-app
-ngin new service
-ngin new game-client
-ngin new game-server
+ngin create app
+ngin create lib
+ngin create tool
+ngin create hosted-app
+ngin create service
+ngin create game-client
+ngin create game-server
 ```
 
-Templates should use SDK-style projects and concise defaults.
+Templates should use template-based projects and concise defaults.
 
 ### Validation Levels
 
@@ -1000,13 +1007,13 @@ ngin validate --level release
 Possible strict diagnostics:
 
 - unused conditions
-- unused imports
+- unused shared model includes
 - unused profile templates
 - unused package references
 - unused environment variables
-- removed item pattern matched nothing
-- update item pattern matched nothing
-- duplicate item target paths
+- excluded input pattern matched nothing
+- overridden input pattern matched nothing
+- duplicate staged input paths
 - launch executable mismatch
 - package feature enabled but no contribution selected
 
@@ -1055,7 +1062,7 @@ Make case sensitivity rules explicit for:
 - environment names
 - package names
 - feature names
-- item kinds
+- input kinds
 
 Prefer case-preserving names with validation against ambiguous case-only
 duplicates.
@@ -1067,7 +1074,7 @@ Authored:
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
 <Project SchemaVersion="3"
-         Sdk="NGIN.Application/3"
+         Template="Application"
          Name="App.NativeMinimal">
   <Sources>
     <Private>
@@ -1085,17 +1092,17 @@ Normalized concepts:
 - backend: CMake
 - build mode: generated
 - language: CXX
-- language standard: workspace or SDK default
+- language standard: workspace or template default
 - default profile: `Runtime`
 - default platform: workspace default
-- default environment: workspace or SDK default
+- default environment: workspace or template default
 - launch executable: output executable
 
 ## Example: Diagnostics Profile
 
 ```xml
 <Project SchemaVersion="3"
-         Sdk="NGIN.HostedApplication/3"
+         Template="HostedApplication"
          Name="App.Basic">
   <Sources>
     <Private>
@@ -1137,10 +1144,12 @@ The diagnostics feature can expand to:
               Architecture="x64" />
   </Platforms>
 
-  <PackageVersions>
-    <Package Name="NGIN.Core" Version=">=0.1.0 &lt;0.2.0" />
-    <Package Name="NGIN.Diagnostics" Version=">=0.1.0 &lt;0.2.0" />
-  </PackageVersions>
+  <DependencyPolicy>
+    <Versions>
+      <Package Name="NGIN.Core" Version=">=0.1.0 &lt;0.2.0" />
+      <Package Name="NGIN.Diagnostics" Version=">=0.1.0 &lt;0.2.0" />
+    </Versions>
+  </DependencyPolicy>
 </Workspace>
 ```
 
@@ -1163,34 +1172,34 @@ The diagnostics feature can expand to:
 - Implement profile inheritance.
 - Add diagnostics for inheritance cycles and ambiguous overrides.
 
-### Phase 3: Imports And SDKs
+### Phase 3: Shared Models And Templates
 
-- Add import file format.
-- Add import resolution and cycle detection.
-- Add SDK declaration support.
-- Represent SDKs as known imports with provenance.
+- Add shared model file format.
+- Add include resolution and cycle detection.
+- Add project template declaration support.
+- Represent templates as known shared models with provenance.
 - Add workspace defaults.
 
-### Phase 4: Item Model
+### Phase 4: Input Model
 
-- Add normalized item model.
-- Normalize `Sources`, `ConfigSources`, and `Contents` to items.
-- Add item metadata.
-- Add item group metadata inheritance.
-- Add item remove/update operations.
-- Add item explanation diagnostics.
+- Add normalized input model.
+- Normalize `Sources`, `ConfigSources`, and `Contents` to inputs.
+- Add input metadata.
+- Add input-set metadata inheritance.
+- Add input exclude/override operations.
+- Add input explanation diagnostics.
 
 ### Phase 5: Package Features
 
 - Add package capabilities or features.
 - Add explicit feature opt-in from projects and profiles.
-- Add central package versions.
+- Add dependency version policy.
 - Add package feature explanation output.
 - Add package lock file design.
 
 ### Phase 6: Build Extensions
 
-- Add controlled lifecycle hook model.
+- Add controlled pipeline phase model.
 - Add custom command schema with inputs and outputs.
 - Generalize MetaGen under generator contributions.
 - Add package-provided generators.
@@ -1198,9 +1207,9 @@ The diagnostics feature can expand to:
 
 ### Phase 7: Runtime Simplification
 
-- Add runtime presets through SDKs or features.
+- Add runtime templates through project templates or features.
 - Add concise module syntax.
-- Move common NGIN.Core wiring into package features or SDK defaults.
+- Move common NGIN.Core wiring into package features or template defaults.
 - Add profile-aware runtime feature selection.
 
 ### Phase 8: Tooling
@@ -1217,8 +1226,8 @@ The diagnostics feature can expand to:
 The first three changes should be:
 
 1. Profile inheritance and defaults.
-2. Imports and SDK-style projects.
-3. Generalized item model.
+2. Shared model includes and template-based projects.
+3. Generalized project input model.
 
 These have the best ratio of authoring improvement to conceptual risk. They
 make `.nginproj` feel more powerful and less repetitive without immediately
@@ -1226,23 +1235,23 @@ opening the door to arbitrary build scripting.
 
 The next tier should be:
 
-1. Package features and central versions.
+1. Package features and dependency version policy.
 2. `ngin explain`.
 3. Migration tooling.
 
-Build hooks and asset/codegen extensibility should come after the normalized
-model, provenance, and explanation tooling exist. Otherwise the extension model
-will be hard to debug.
+Pipeline contributions and asset/codegen extensibility should come after the
+normalized model, provenance, and explanation tooling exist. Otherwise the
+extension model will be hard to debug.
 
 ## Open Questions
 
 - Should `Profile` fully replace `Configuration`, or should both terms remain
   visible in different contexts?
-- Should SDKs live as package assets, built-in CLI metadata, or workspace
-  imports?
-- Should central package versions live in `.ngin`, a separate
+- Should project templates live as package assets, built-in CLI metadata, or
+  workspace shared model files?
+- Should dependency version policy live in `.ngin`, a separate
   `packages.nginversions`, or both?
-- Should item metadata use XML attributes only, child metadata elements, or
+- Should input metadata use XML attributes only, child metadata elements, or
   both?
 - How much package default behavior is acceptable before package use becomes
   surprising?
