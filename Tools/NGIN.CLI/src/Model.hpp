@@ -84,6 +84,31 @@ namespace NGIN::CLI
     {
         std::string name{};
         std::string value{};
+        std::string fromEnvironment{};
+        std::string fromLocalSetting{};
+        bool required{false};
+        bool secret{false};
+        bool resolved{false};
+        std::string resolvedSource{};
+    };
+
+    struct LocalSettingsImport
+    {
+        std::string path{};
+        bool optional{false};
+    };
+
+    struct LocalSetting
+    {
+        std::string key{};
+        std::string value{};
+        bool secret{false};
+    };
+
+    struct LocalSettingsManifest
+    {
+        fs::path path{};
+        std::vector<LocalSetting> settings{};
     };
 
     struct FeatureFlag
@@ -259,6 +284,7 @@ namespace NGIN::CLI
         std::vector<ProjectReference> projectRefs{};
         std::vector<PackageReference> packageRefs{};
         std::vector<std::string> configSources{};
+        std::vector<LocalSettingsImport> localSettingsImports{};
         RuntimeDefinition runtime{};
         std::vector<EnvironmentDefinition> environments{};
         std::vector<ConfigurationDefinition> configurations{};

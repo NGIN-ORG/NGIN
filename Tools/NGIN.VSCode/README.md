@@ -13,13 +13,13 @@ VS Code while keeping the same behavior as the terminal commands.
 - NGIN activity-bar views for workspace, project, and configuration navigation
 - status bar items for the selected workspace, project, and configuration
 - commands for configure, build, clean, rebuild, run, debug, validate, graph,
-  and MetaGen
+  variable explanation, local settings initialization, and MetaGen
 - generated VS Code tasks for known project/configuration pairs
 - `.nginlaunch`-based run and debug resolution
 - a custom `ngin` debug type that launches native C/C++ debug sessions
 - C/C++ configuration-provider support for `ms-vscode.cpptools`
-- file registration and snippets for `.ngin`, `.nginproj`, `.nginpkg`, and
-  `.nginlaunch`
+- file registration and snippets for `.ngin`, `.nginproj`, `.nginpkg`,
+  `.nginlaunch`, and `.nginsettings`
 
 The CLI remains the source of truth. If a command works in the terminal, the
 extension should call the same command with the selected project and
@@ -38,7 +38,16 @@ The extension mirrors the CLI directly:
 - Run maps to `ngin run`
 - Validate maps to `ngin validate`
 - Graph maps to `ngin graph`
+- Explain Variables maps to `ngin variables explain`
+- Initialize Local Settings maps to `ngin settings init`
 - Generate Metadata maps to `ngin metagen`
+
+`NGIN: Explain Variables` opens the redacted explanation in a readonly editor
+document. `NGIN: Initialize Local Settings` opens the initialized
+`.ngin/local/user.nginsettings` file. The editor also completes
+`FromLocalSetting` keys from loaded `.nginsettings` files and completes
+`FromEnvironment` names from the current process environment without storing
+values.
 
 Configure generates backend build metadata such as `compile_commands.json`
 without producing a `.nginlaunch` file. Run and debug use the staged
@@ -95,6 +104,8 @@ NGIN: Select Configuration
 NGIN: Build
 NGIN: Run
 NGIN: Debug
+NGIN: Explain Variables
+NGIN: Initialize Local Settings
 NGIN: Generate Metadata
 ```
 

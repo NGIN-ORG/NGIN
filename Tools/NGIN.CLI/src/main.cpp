@@ -16,6 +16,8 @@ namespace
             << "  workspace list\n"
             << "  workspace status\n"
             << "  workspace doctor\n"
+            << "  settings init [--project <file.nginproj>]\n"
+            << "  variables explain [--project <file.nginproj>] [--configuration <name>]\n"
             << "  validate [--project <file.nginproj>] [--configuration <name>]\n"
             << "  graph [--project <file.nginproj>] [--configuration <name>]\n"
             << "  metagen [--project <file.nginproj>] [--configuration <name>] [--output <dir>]\n"
@@ -78,6 +80,32 @@ auto main(int argc, char **argv) -> int
                 return NGIN::CLI::CmdPackageShow(root, NGIN::CLI::ParseCommonArgs(argc, argv, 3));
             }
             throw std::runtime_error("unknown package subcommand '" + subcommand + "'");
+        }
+        if (command == "settings")
+        {
+            if (argc < 3)
+            {
+                throw std::runtime_error("settings requires a subcommand");
+            }
+            const std::string subcommand = argv[2];
+            if (subcommand == "init")
+            {
+                return NGIN::CLI::CmdSettingsInit(root, NGIN::CLI::ParseCommonArgs(argc, argv, 3));
+            }
+            throw std::runtime_error("unknown settings subcommand '" + subcommand + "'");
+        }
+        if (command == "variables")
+        {
+            if (argc < 3)
+            {
+                throw std::runtime_error("variables requires a subcommand");
+            }
+            const std::string subcommand = argv[2];
+            if (subcommand == "explain")
+            {
+                return NGIN::CLI::CmdVariablesExplain(root, NGIN::CLI::ParseCommonArgs(argc, argv, 3));
+            }
+            throw std::runtime_error("unknown variables subcommand '" + subcommand + "'");
         }
         if (command == "list")
         {

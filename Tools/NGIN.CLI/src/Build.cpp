@@ -1450,8 +1450,24 @@ namespace NGIN::CLI
         out << "    <Variables>\n";
         for (const auto &variable : resolved.environmentVariables)
         {
-            out << "      <Variable Name=\"" << EscapeXml(variable.name)
-                << "\" Value=\"" << EscapeXml(variable.value) << "\" />\n";
+            if (!variable.resolved)
+            {
+                continue;
+            }
+            out << "      <Variable Name=\"" << EscapeXml(variable.name) << "\"";
+            if (variable.secret)
+            {
+                out << " Secret=\"true\"";
+                if (!variable.fromEnvironment.empty())
+                {
+                    out << " FromEnvironment=\"" << EscapeXml(variable.fromEnvironment) << "\"";
+                }
+            }
+            else
+            {
+                out << " Value=\"" << EscapeXml(variable.value) << "\"";
+            }
+            out << " />\n";
         }
         out << "    </Variables>\n";
         out << "    <Features>\n";

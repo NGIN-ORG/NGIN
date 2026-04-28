@@ -22,6 +22,7 @@ namespace NGIN::CLI
         const std::optional<WorkspaceManifest> &workspace,
         const fs::path &projectPath) -> std::unordered_map<std::string, PackageCatalogEntry>;
     [[nodiscard]] auto LoadPackageManifest(const fs::path &path) -> PackageManifest;
+    [[nodiscard]] auto LoadLocalSettingsManifest(const fs::path &path) -> LocalSettingsManifest;
     [[nodiscard]] auto LoadProjectManifest(const fs::path &path) -> ProjectManifest;
 
     [[nodiscard]] auto FindProjectFile(const fs::path &start) -> std::optional<fs::path>;

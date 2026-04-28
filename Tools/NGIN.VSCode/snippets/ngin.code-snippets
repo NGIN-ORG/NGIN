@@ -93,5 +93,54 @@
     "body": [
       "<Launch Executable=\"$1\" />"
     ]
+  },
+  "Local Settings Import": {
+    "scope": "ngin",
+    "prefix": "ngin-local-settings-import",
+    "body": [
+      "<LocalSettings>",
+      "  <Import Path=\"$1\" Optional=\"true\" />",
+      "</LocalSettings>"
+    ]
+  },
+  "Local Settings File": {
+    "scope": "ngin",
+    "prefix": "ngin-settings-file",
+    "body": [
+      "<?xml version=\"1.0\" encoding=\"utf-8\"?>",
+      "<LocalSettings SchemaVersion=\"1\">",
+      "  <Settings>",
+      "    <Setting Key=\"$1\" Value=\"$2\" Secret=\"$3\" />",
+      "  </Settings>",
+      "</LocalSettings>"
+    ]
+  },
+  "Local Setting": {
+    "scope": "ngin",
+    "prefix": "ngin-setting",
+    "body": [
+      "<Setting Key=\"$1\" Value=\"$2\" Secret=\"$3\" />"
+    ]
+  },
+  "Variable Literal": {
+    "scope": "ngin",
+    "prefix": "ngin-variable-value",
+    "body": [
+      "<Variable Name=\"$1\" Value=\"$2\" />"
+    ]
+  },
+  "Variable From Environment": {
+    "scope": "ngin",
+    "prefix": "ngin-variable-env",
+    "body": [
+      "<Variable Name=\"$1\" FromEnvironment=\"$2\" Required=\"$3\" Secret=\"$4\" />"
+    ]
+  },
+  "Variable From Local Setting": {
+    "scope": "ngin",
+    "prefix": "ngin-variable-local",
+    "body": [
+      "<Variable Name=\"$1\" FromLocalSetting=\"$2\" Required=\"$3\" Secret=\"$4\" />"
+    ]
   }
 }

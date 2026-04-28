@@ -11,14 +11,16 @@ import {
 import { pathExists, readTextFile } from './core/discovery';
 import {
   computeLaunchManifestPath,
+  extractInitializedSettingsPath,
+  extractLocalSettingsWarnings,
   getExecutableCandidatePaths,
   getWorkingDirectoryCandidates,
   parseCliDiagnostics
 } from './core/helpers';
 import { addRootConfigSource, relativeManifestPath, removeConfigSources, renameConfigSources } from './core/projectAuthoring';
 import { createNativeDebugConfiguration, quoteShellArgument } from './core/debug';
-import { LaunchManifest } from './core/types';
-import { parseLaunchManifest } from './core/xml';
+import { LaunchManifest, ProjectManifest } from './core/types';
+import { parseLaunchManifest, parseLocalSettingsManifest, parseProjectManifest } from './core/xml';
 import {
   NginCommandTarget,
   ResolvedCommandContext,
@@ -69,14 +71,157 @@ function comparablePath(value: string): string {
   return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
 }
 
+function isPathWithinDirectory(candidate: string, directory: string): boolean {
+  const relative = path.relative(directory, candidate);
+  return relative === '' || Boolean(relative) && !relative.startsWith('..') && !path.isAbsolute(relative);
+}
+
+function homeLocalSettingsPath(): string | undefined {
+  const home = process.env.HOME || process.env.USERPROFILE;
+  return home ? path.join(home, '.ngin', 'settings.nginsettings') : undefined;
+}
+
+function hasGitignoreEntry(text: string, entry: string): boolean {
+  return text.split(/\r?\n/).some((line) => line.trim() === entry);
+}
+
+function isLocalSettingsIgnoredByGitignore(text: string): boolean {
+  return hasGitignoreEntry(text, '.ngin/local/')
+    || hasGitignoreEntry(text, '.ngin/local/*')
+    || hasGitignoreEntry(text, '.ngin/*')
+    || hasGitignoreEntry(text, '.ngin/');
+}
+
+class NginVirtualDocumentProvider implements vscode.TextDocumentContentProvider, vscode.Disposable {
+  private readonly onDidChangeEmitter = new vscode.EventEmitter<vscode.Uri>();
+  private readonly contents = new Map<string, string>();
+
+  readonly onDidChange = this.onDidChangeEmitter.event;
+
+  createDocument(title: string, content: string): vscode.Uri {
+    const uri = vscode.Uri.from({
+      scheme: 'ngin-variables',
+      path: `/${title}.txt`,
+      query: String(Date.now())
+    });
+    this.contents.set(uri.toString(), content);
+    this.onDidChangeEmitter.fire(uri);
+    return uri;
+  }
+
+  provideTextDocumentContent(uri: vscode.Uri): string {
+    return this.contents.get(uri.toString()) ?? '';
+  }
+
+  dispose(): void {
+    this.contents.clear();
+    this.onDidChangeEmitter.dispose();
+  }
+}
+
+class NginLocalSettingsCompletionProvider implements vscode.CompletionItemProvider {
+  constructor(private readonly workspaceProvider: (preferredUri?: vscode.Uri) => Promise<ResolvedWorkspaceInfo | undefined>) {}
+
+  async provideCompletionItems(document: vscode.TextDocument, position: vscode.Position): Promise<vscode.CompletionItem[] | undefined> {
+    const linePrefix = document.lineAt(position).text.slice(0, position.character);
+    if (/FromEnvironment\s*=\s*["'][^"']*$/.test(linePrefix)) {
+      return Object.keys(process.env)
+        .sort((left, right) => left.localeCompare(right))
+        .map((name) => {
+          const item = new vscode.CompletionItem(name, vscode.CompletionItemKind.Variable);
+          item.detail = 'environment variable';
+          return item;
+        });
+    }
+
+    if (/FromLocalSetting\s*=\s*["'][^"']*$/.test(linePrefix)) {
+      const keys = await this.collectLocalSettingKeys(document);
+      return [...keys].sort((left, right) => left.localeCompare(right)).map((key) => {
+        const item = new vscode.CompletionItem(key, vscode.CompletionItemKind.Property);
+        item.detail = 'local setting key';
+        return item;
+      });
+    }
+
+    return undefined;
+  }
+
+  private async collectLocalSettingKeys(document: vscode.TextDocument): Promise<Set<string>> {
+    const keys = new Set<string>();
+    if (document.uri.scheme === 'file' && document.uri.fsPath.endsWith('.nginsettings')) {
+      this.addLocalSettingKeys(keys, document.getText(), document.uri.fsPath);
+    }
+
+    const project = await this.resolveProjectForDocument(document);
+    if (project) {
+      for (const settingsPath of project.localSettingsImports ?? []) {
+        await this.addLocalSettingKeysFromFile(keys, settingsPath);
+      }
+    }
+
+    const globalSettings = homeLocalSettingsPath();
+    if (globalSettings) {
+      await this.addLocalSettingKeysFromFile(keys, globalSettings);
+    }
+
+    return keys;
+  }
+
+  private async resolveProjectForDocument(document: vscode.TextDocument): Promise<ProjectManifest | undefined> {
+    if (document.uri.scheme === 'file' && document.uri.fsPath.endsWith('.nginproj')) {
+      try {
+        return parseProjectManifest(document.getText(), document.uri.fsPath);
+      } catch {
+        return undefined;
+      }
+    }
+
+    const workspaceInfo = await this.workspaceProvider(document.uri);
+    if (!workspaceInfo || document.uri.scheme !== 'file') {
+      return undefined;
+    }
+
+    const documentPath = comparablePath(document.uri.fsPath);
+    return workspaceInfo.projects.find((project) => {
+      const projectPath = comparablePath(project.path);
+      const projectDirectory = comparablePath(project.directory) + path.sep;
+      return documentPath === projectPath || documentPath.startsWith(projectDirectory);
+    });
+  }
+
+  private async addLocalSettingKeysFromFile(keys: Set<string>, settingsPath: string): Promise<void> {
+    if (!(await pathExists(settingsPath))) {
+      return;
+    }
+    try {
+      this.addLocalSettingKeys(keys, await readTextFile(settingsPath), settingsPath);
+    } catch {
+      return;
+    }
+  }
+
+  private addLocalSettingKeys(keys: Set<string>, xml: string, settingsPath: string): void {
+    try {
+      const manifest = parseLocalSettingsManifest(xml, settingsPath);
+      for (const setting of manifest.settings) {
+        keys.add(setting.key);
+      }
+    } catch {
+      return;
+    }
+  }
+}
+
 class NginController implements vscode.Disposable {
   private readonly outputChannel = vscode.window.createOutputChannel('NGIN');
   private readonly diagnostics = vscode.languages.createDiagnosticCollection('ngin');
+  private readonly variableDocumentProvider = new NginVirtualDocumentProvider();
   private readonly workspaceState: WorkspaceStateService;
   private readonly sidebar: NginSidebarController;
   private readonly statusBar: NginStatusBarController;
   private readonly cppToolsProvider: NginCppToolsProviderService;
   private staleWarningShown = false;
+  private readonly shownLocalSettingsWarnings = new Set<string>();
 
   constructor(private readonly context: vscode.ExtensionContext) {
     this.workspaceState = new WorkspaceStateService(context);
@@ -96,6 +241,7 @@ class NginController implements vscode.Disposable {
     this.workspaceState.dispose();
     this.outputChannel.dispose();
     this.diagnostics.dispose();
+    this.variableDocumentProvider.dispose();
   }
 
   register(): vscode.Disposable[] {
@@ -110,6 +256,8 @@ class NginController implements vscode.Disposable {
       vscode.commands.registerCommand('ngin.debug', (arg) => this.runHandled(() => this.debugCommand(this.asCommandTarget(arg)))),
       vscode.commands.registerCommand('ngin.validate', (arg) => this.runHandled(() => this.validateCommand(this.asCommandTarget(arg)))),
       vscode.commands.registerCommand('ngin.graph', (arg) => this.runHandled(() => this.graphCommand(this.asCommandTarget(arg)))),
+      vscode.commands.registerCommand('ngin.variablesExplain', (arg) => this.runHandled(() => this.variablesExplainCommand(this.asCommandTarget(arg)))),
+      vscode.commands.registerCommand('ngin.settingsInit', (arg) => this.runHandled(() => this.settingsInitCommand(this.asCommandTarget(arg)))),
       vscode.commands.registerCommand('ngin.metagen', (arg) => this.runHandled(() => this.metaGenCommand(this.asCommandTarget(arg)))),
       vscode.commands.registerCommand('ngin.workspaceStatus', () => this.runHandled(() => this.workspaceCommand('status'))),
       vscode.commands.registerCommand('ngin.workspaceDoctor', () => this.runHandled(() => this.workspaceCommand('doctor'))),
@@ -128,6 +276,14 @@ class NginController implements vscode.Disposable {
       vscode.commands.registerCommand('ngin.internal.pickConfiguration', (arg) => this.runHandled(() => this.pickConfigurationFromStatusBar(this.asCommandTarget(arg)))),
       vscode.commands.registerCommand('ngin.internal.openPath', (filePath) => this.runHandled(() => this.openPathCommand(filePath))),
       vscode.commands.registerCommand('ngin.internal.revealPath', (filePath) => this.runHandled(() => this.revealPathCommand(filePath))),
+      vscode.workspace.registerTextDocumentContentProvider('ngin-variables', this.variableDocumentProvider),
+      vscode.languages.registerCompletionItemProvider(
+        { language: SUPPORTED_LANGUAGE_ID },
+        new NginLocalSettingsCompletionProvider(() => this.workspaceState.getWorkspaceInfo()),
+        '"',
+        "'",
+        '.'
+      ),
       vscode.workspace.onDidSaveTextDocument((document) => this.handleDocumentSaved(document)),
       vscode.tasks.registerTaskProvider('ngin', new NginTaskProvider(this)),
       vscode.debug.registerDebugConfigurationProvider('ngin', new NginDebugConfigurationProvider(this)),
@@ -538,6 +694,7 @@ class NginController implements vscode.Disposable {
       throw new Error(`ngin validate failed for ${context.project.name} [${context.configuration.name}]`);
     }
 
+    await this.warnIfLocalSettingsNotIgnored(context);
     if (!options?.silent) {
       void vscode.window.showInformationMessage(`Validated ${context.project.name} [${context.configuration.name}]`);
     }
@@ -558,6 +715,53 @@ class NginController implements vscode.Disposable {
     if (result.exitCode !== 0) {
       throw new Error(`ngin graph failed for ${context.project.name} [${context.configuration.name}]`);
     }
+  }
+
+  private async variablesExplainCommand(target?: NginCommandTarget): Promise<void> {
+    const context = await this.resolveCommandContext(target);
+    if (!context) {
+      return;
+    }
+
+    const result = await this.runCli(
+      context.workspace.root,
+      ['variables', 'explain', '--project', context.project.path, '--configuration', context.configuration.name],
+      vscode.Uri.file(context.project.path)
+    );
+
+    if (result.exitCode !== 0) {
+      throw new Error(`ngin variables explain failed for ${context.project.name} [${context.configuration.name}]`);
+    }
+
+    await this.openVirtualVariablesDocument(
+      `NGIN Variables - ${context.project.name} [${context.configuration.name}]`,
+      result.output
+    );
+    await this.warnIfLocalSettingsNotIgnored(context);
+  }
+
+  private async settingsInitCommand(target?: NginCommandTarget): Promise<void> {
+    const context = await this.resolveCommandContext(target);
+    if (!context) {
+      return;
+    }
+
+    const result = await this.runCli(
+      context.workspace.root,
+      ['settings', 'init', '--project', context.project.path],
+      vscode.Uri.file(context.project.path)
+    );
+
+    if (result.exitCode !== 0) {
+      throw new Error(`ngin settings init failed for ${context.project.name}`);
+    }
+
+    await this.refreshUi(context.workspace.folder?.uri);
+    const initializedPath = extractInitializedSettingsPath(result.output)
+      ?? path.join(context.workspace.root, '.ngin', 'local', 'user.nginsettings');
+    await this.warnIfLocalSettingsNotIgnored(context);
+    await this.openPathCommand(initializedPath);
+    void vscode.window.showInformationMessage(`Initialized local settings for ${context.project.name}`);
   }
 
   private async metaGenCommand(target?: NginCommandTarget): Promise<void> {
@@ -680,6 +884,49 @@ class NginController implements vscode.Disposable {
     } catch {
       await vscode.env.openExternal(targetUri);
     }
+  }
+
+  private async openVirtualVariablesDocument(title: string, content: string): Promise<void> {
+    const uri = this.variableDocumentProvider.createDocument(title, content);
+    const document = await vscode.workspace.openTextDocument(uri);
+    await vscode.window.showTextDocument(document, { preview: false });
+  }
+
+  private surfaceLocalSettingsWarnings(output: string): void {
+    for (const warning of extractLocalSettingsWarnings(output)) {
+      if (this.shownLocalSettingsWarnings.has(warning)) {
+        continue;
+      }
+      this.shownLocalSettingsWarnings.add(warning);
+      void vscode.window.showWarningMessage(warning);
+    }
+  }
+
+  private async warnIfLocalSettingsNotIgnored(context: ResolvedCommandContext): Promise<void> {
+    const localSettingsRoot = path.join(context.workspace.root, '.ngin', 'local');
+    const imports = context.project.localSettingsImports ?? [];
+    if (!imports.some((settingsPath) => isPathWithinDirectory(settingsPath, localSettingsRoot))) {
+      return;
+    }
+
+    const gitignorePath = path.join(context.workspace.root, '.gitignore');
+    let gitignore = '';
+    try {
+      gitignore = await readTextFile(gitignorePath);
+    } catch {
+      gitignore = '';
+    }
+
+    if (isLocalSettingsIgnoredByGitignore(gitignore)) {
+      return;
+    }
+
+    const warning = `${gitignorePath}: .ngin/local/ is not ignored; local settings can contain machine-specific values or secrets`;
+    if (this.shownLocalSettingsWarnings.has(warning)) {
+      return;
+    }
+    this.shownLocalSettingsWarnings.add(warning);
+    void vscode.window.showWarningMessage(warning);
   }
 
   private async openProjectManifestCommand(target?: ProjectExplorerTarget): Promise<void> {
@@ -1235,6 +1482,7 @@ class NginController implements vscode.Disposable {
     });
 
     this.applyDiagnostics(result.output, diagnosticsResource);
+    this.surfaceLocalSettingsWarnings(result.output);
     return result;
   }
 

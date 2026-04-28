@@ -42,6 +42,60 @@ namespace
         fs::path previous_{};
     };
 
+    class ScopedEnvironmentVariable
+    {
+    public:
+        ScopedEnvironmentVariable(const std::string &name, const std::string &value) : name_(name)
+        {
+            if (const auto *existing = std::getenv(name.c_str()); existing != nullptr)
+            {
+                previous_ = existing;
+            }
+            setenv(name.c_str(), value.c_str(), 1);
+        }
+
+        ~ScopedEnvironmentVariable()
+        {
+            if (previous_.has_value())
+            {
+                setenv(name_.c_str(), previous_->c_str(), 1);
+            }
+            else
+            {
+                unsetenv(name_.c_str());
+            }
+        }
+
+    private:
+        std::string name_{};
+        std::optional<std::string> previous_{};
+    };
+
+    class ScopedUnsetEnvironmentVariable
+    {
+    public:
+        explicit ScopedUnsetEnvironmentVariable(const std::string &name) : name_(name)
+        {
+            if (const auto *existing = std::getenv(name.c_str()); existing != nullptr)
+            {
+                previous_ = existing;
+            }
+            unsetenv(name.c_str());
+        }
+
+        ~ScopedUnsetEnvironmentVariable()
+        {
+            if (previous_.has_value())
+            {
+                setenv(name_.c_str(), previous_->c_str(), 1);
+            }
+        }
+
+    private:
+        std::string name_{};
+        std::optional<std::string> previous_{};
+    };
+
     class TempDir
     {
     public:
@@ -314,6 +368,208 @@ TEST_CASE("project build descriptor parses metagen opt in")
 
     const auto project = LoadProjectManifest(projectPath);
     REQUIRE(project.build.metaGenEnabled);
+}
+
+TEST_CASE("environment variables resolve from explicit value, process environment, and local settings")
+{
+    TempDir temp{};
+    ScopedEnvironmentVariable home("HOME", (temp.path() / "Home").string());
+    ScopedEnvironmentVariable token("NGIN_TEST_ENV_TOKEN", "from-process");
+
+    WriteFile(temp.path() / "Home/.ngin/settings.nginsettings",
+              R"(<?xml version="1.0" encoding="utf-8"?>
+<LocalSettings SchemaVersion="1">
+  <Settings>
+    <Setting Key="sdk.vulkan.root" Value="/global/vulkan" />
+  </Settings>
+</LocalSettings>
+)");
+    WriteFile(temp.path() / "App/.ngin/local/user.nginsettings",
+              R"(<?xml version="1.0" encoding="utf-8"?>
+<LocalSettings SchemaVersion="1">
+  <Settings>
+    <Setting Key="feeds.private.token" Value="local-secret" Secret="true" />
+    <Setting Key="sdk.vulkan.root" Value="/local/vulkan" />
+  </Settings>
+</LocalSettings>
+)");
+    WriteFile(temp.path() / "App/App.nginproj",
+              R"(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="2" Name="Settings.App" Type="Application" DefaultConfiguration="Runtime">
+  <Output Kind="Executable" Name="Settings.App" Target="SettingsApp" />
+  <LocalSettings>
+    <Import Path=".ngin/local/user.nginsettings" Optional="false" />
+  </LocalSettings>
+  <Environments>
+    <Environment Name="dev">
+      <Variables>
+        <Variable Name="API_ENDPOINT" Value="https://dev.example.com" />
+        <Variable Name="API_TOKEN" FromLocalSetting="feeds.private.token" Required="true" Secret="true" />
+        <Variable Name="VULKAN_SDK" FromLocalSetting="sdk.vulkan.root" Required="true" />
+        <Variable Name="ENV_TOKEN" FromEnvironment="NGIN_TEST_ENV_TOKEN" Required="true" />
+      </Variables>
+    </Environment>
+  </Environments>
+  <Configurations>
+    <Configuration Name="Runtime" BuildConfiguration="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev" />
+  </Configurations>
+</Project>
+)");
+
+    const auto project = LoadProjectManifest(temp.path() / "App/App.nginproj");
+    const std::optional<std::string> configurationName{"Runtime"};
+    const auto &configuration = ConfigurationByName(project, configurationName);
+    const auto resolved = ResolveLaunch(project, configuration);
+
+    REQUIRE(resolved.value.has_value());
+    REQUIRE_FALSE(resolved.diagnostics.HasErrors());
+    REQUIRE(resolved.value->environmentVariables.size() == 4);
+    REQUIRE(resolved.value->environmentVariables[0].value == "https://dev.example.com");
+    REQUIRE(resolved.value->environmentVariables[1].value == "local-secret");
+    REQUIRE(resolved.value->environmentVariables[1].secret);
+    REQUIRE(resolved.value->environmentVariables[2].value == "/local/vulkan");
+    REQUIRE(resolved.value->environmentVariables[3].value == "from-process");
+}
+
+TEST_CASE("environment variables resolve from user-global settings when repo-local values are absent")
+{
+    TempDir temp{};
+    ScopedEnvironmentVariable home("HOME", (temp.path() / "Home").string());
+    WriteFile(temp.path() / "Home/.ngin/settings.nginsettings",
+              R"(<?xml version="1.0" encoding="utf-8"?>
+<LocalSettings SchemaVersion="1">
+  <Settings>
+    <Setting Key="sdk.vulkan.root" Value="/global/vulkan" />
+  </Settings>
+</LocalSettings>
+)");
+    WriteFile(temp.path() / "App/App.nginproj",
+              R"(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="2" Name="Global.Settings.App" Type="Application" DefaultConfiguration="Runtime">
+  <Output Kind="Executable" Name="Global.Settings.App" Target="GlobalSettingsApp" />
+  <Environments>
+    <Environment Name="dev">
+      <Variables>
+        <Variable Name="VULKAN_SDK" FromLocalSetting="sdk.vulkan.root" Required="true" />
+      </Variables>
+    </Environment>
+  </Environments>
+  <Configurations>
+    <Configuration Name="Runtime" BuildConfiguration="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev" />
+  </Configurations>
+</Project>
+)");
+
+    const auto project = LoadProjectManifest(temp.path() / "App/App.nginproj");
+    const std::optional<std::string> configurationName{"Runtime"};
+    const auto &configuration = ConfigurationByName(project, configurationName);
+    const auto resolved = ResolveLaunch(project, configuration);
+
+    REQUIRE(resolved.value.has_value());
+    REQUIRE_FALSE(resolved.diagnostics.HasErrors());
+    REQUIRE(resolved.value->environmentVariables.front().value == "/global/vulkan");
+    REQUIRE_THAT(resolved.value->environmentVariables.front().resolvedSource, ContainsSubstring("user-global"));
+}
+
+TEST_CASE("missing required variable sources are reported without values")
+{
+    TempDir temp{};
+    ScopedEnvironmentVariable home("HOME", (temp.path() / "Home").string());
+    ScopedUnsetEnvironmentVariable missingToken("NGIN_TEST_MISSING_TOKEN");
+    WriteFile(temp.path() / "App/App.nginproj",
+              R"(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="2" Name="Missing.Settings.App" Type="Application" DefaultConfiguration="Runtime">
+  <Output Kind="Executable" Name="Missing.Settings.App" Target="MissingSettingsApp" />
+  <Environments>
+    <Environment Name="dev">
+      <Variables>
+        <Variable Name="API_TOKEN" FromEnvironment="NGIN_TEST_MISSING_TOKEN" Required="true" Secret="true" />
+      </Variables>
+    </Environment>
+  </Environments>
+  <Configurations>
+    <Configuration Name="Runtime" BuildConfiguration="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev" />
+  </Configurations>
+</Project>
+)");
+
+    const auto project = LoadProjectManifest(temp.path() / "App/App.nginproj");
+    const std::optional<std::string> configurationName{"Runtime"};
+    const auto &configuration = ConfigurationByName(project, configurationName);
+    const auto resolved = ResolveLaunch(project, configuration);
+
+    REQUIRE_FALSE(resolved.value.has_value());
+    REQUIRE(ContainsDiagnostic(DiagnosticMessages(resolved.diagnostics), "missing required secret variable 'API_TOKEN'"));
+}
+
+TEST_CASE("variable declarations reject conflicting sources and literal secrets")
+{
+    TempDir temp{};
+    const auto projectPath = temp.path() / "Invalid.nginproj";
+    WriteFile(projectPath,
+              R"(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="2" Name="Invalid.Settings.App" Type="Application" DefaultConfiguration="Runtime">
+  <Output Kind="Executable" Name="Invalid.Settings.App" Target="InvalidSettingsApp" />
+  <Environments>
+    <Environment Name="dev">
+      <Variables>
+        <Variable Name="BAD" Value="literal" FromEnvironment="BAD" />
+      </Variables>
+    </Environment>
+  </Environments>
+  <Configurations>
+    <Configuration Name="Runtime" BuildConfiguration="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev" />
+  </Configurations>
+</Project>
+)");
+    REQUIRE_THROWS_WITH(LoadProjectManifest(projectPath), ContainsSubstring("must declare exactly one"));
+
+    WriteFile(projectPath,
+              R"(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="2" Name="Invalid.Settings.App" Type="Application" DefaultConfiguration="Runtime">
+  <Output Kind="Executable" Name="Invalid.Settings.App" Target="InvalidSettingsApp" />
+  <Environments>
+    <Environment Name="dev">
+      <Variables>
+        <Variable Name="BAD_SECRET" Value="literal" Secret="true" />
+      </Variables>
+    </Environment>
+  </Environments>
+  <Configurations>
+    <Configuration Name="Runtime" BuildConfiguration="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev" />
+  </Configurations>
+</Project>
+)");
+    REQUIRE_THROWS_WITH(LoadProjectManifest(projectPath), ContainsSubstring("may not combine Secret"));
+}
+
+TEST_CASE("launch manifests redact resolved secret variables")
+{
+    TempDir temp{};
+    ResolvedLaunch launch{};
+    launch.project.name = "Secret.App";
+    launch.project.type = "Application";
+    launch.configuration.name = "Runtime";
+    launch.configuration.buildConfiguration = "Debug";
+    launch.configuration.operatingSystem = "linux";
+    launch.configuration.architecture = "x64";
+    launch.configuration.environmentName = "dev";
+    launch.environmentVariables.push_back(EnvironmentVariable{
+        .name = "API_TOKEN",
+        .value = "super-secret",
+        .required = true,
+        .secret = true,
+        .resolved = true,
+        .resolvedSource = "local setting feeds.private.token",
+    });
+    fs::create_directories(temp.path() / "stage");
+
+    const auto manifestPath = WriteLaunchManifest(launch, temp.path() / "stage", {});
+    const auto manifest = ReadFile(manifestPath);
+
+    REQUIRE_THAT(manifest, ContainsSubstring(R"(Name="API_TOKEN")"));
+    REQUIRE_THAT(manifest, ContainsSubstring(R"(Secret="true")"));
+    REQUIRE_THAT(manifest, !ContainsSubstring("super-secret"));
 }
 
 TEST_CASE("project parsing rejects missing required output metadata")

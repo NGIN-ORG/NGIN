@@ -1,7 +1,7 @@
 # Spec 005: Launch Manifest
 
 Status: Active
-Last updated: 2026-04-24
+Last updated: 2026-04-28
 
 ## Purpose
 
@@ -61,3 +61,8 @@ The launch manifest must capture:
 - resolved environment variables and features
 - resolved packages, modules, plugins, and config sources
 - staged files
+
+Secret environment variable values must not be serialized into the launch
+manifest. A secret variable may be present only with redacted metadata such as
+`Secret="true"` and, when applicable, `FromEnvironment`; raw secret values are
+omitted.

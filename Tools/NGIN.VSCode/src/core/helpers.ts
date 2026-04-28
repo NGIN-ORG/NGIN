@@ -91,6 +91,26 @@ export function parseCliDiagnostics(output: string): ParsedCliDiagnostic[] {
   return diagnostics;
 }
 
+export function extractInitializedSettingsPath(output: string): string | undefined {
+  for (const line of output.split(/\r?\n/)) {
+    const match = line.match(/^\s*settings:\s+("?)(.*?)\1\s+\[(?:created|exists)\]\s*$/);
+    if (match?.[2]) {
+      return match[2].trim();
+    }
+  }
+  return undefined;
+}
+
+export function extractLocalSettingsWarnings(output: string): string[] {
+  return output
+    .split(/\r?\n/)
+    .map((line) => line.trim().replace(/^\-\s+/, ''))
+    .filter((line) =>
+      /local settings/i.test(line) &&
+      (/tracked by git/i.test(line) || /should be ignored/i.test(line) || /not ignored/i.test(line))
+    );
+}
+
 export function getExecutableCandidatePaths(
   manifest: LaunchManifest,
   outputDir: string,

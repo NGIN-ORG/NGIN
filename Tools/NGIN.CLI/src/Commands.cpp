@@ -8,7 +8,9 @@
 #include "Support.hpp"
 
 #include <algorithm>
+#include <fstream>
 #include <iostream>
+#include <sstream>
 #include <stdexcept>
 #include <unordered_map>
 
@@ -30,6 +32,32 @@ namespace NGIN::CLI
                 .project = project,
                 .configuration = configuration,
             };
+        }
+
+        [[nodiscard]] auto ReadTextIfExists(const fs::path &path) -> std::string
+        {
+            std::ifstream input(path);
+            if (!input)
+            {
+                return {};
+            }
+            std::ostringstream content{};
+            content << input.rdbuf();
+            return content.str();
+        }
+
+        [[nodiscard]] auto ContainsGitignoreEntry(const std::string &text, std::string_view entry) -> bool
+        {
+            std::istringstream lines(text);
+            std::string line;
+            while (std::getline(lines, line))
+            {
+                if (line == entry)
+                {
+                    return true;
+                }
+            }
+            return false;
         }
     }
 
@@ -366,6 +394,83 @@ namespace NGIN::CLI
             }
             std::cout << "\n";
         }
+        return 0;
+    }
+
+    auto CmdSettingsInit(const fs::path &root, const ParsedArgs &args) -> int
+    {
+        const auto projectPath = ResolveProjectPath(args.projectPath);
+        (void)root;
+        const auto projectRoot = RootDirFrom(projectPath.parent_path()).value_or(projectPath.parent_path());
+        const auto settingsPath = projectRoot / ".ngin/local/user.nginsettings";
+        bool createdSettings = false;
+        if (!fs::exists(settingsPath))
+        {
+            fs::create_directories(settingsPath.parent_path());
+            std::ofstream out(settingsPath);
+            out << "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+                << "<LocalSettings SchemaVersion=\"1\">\n"
+                << "  <Settings>\n"
+                << "  </Settings>\n"
+                << "</LocalSettings>\n";
+            createdSettings = true;
+        }
+
+        const auto gitignorePath = projectRoot / ".gitignore";
+        bool updatedGitignore = false;
+        const auto gitignoreText = ReadTextIfExists(gitignorePath);
+        if (!ContainsGitignoreEntry(gitignoreText, ".ngin/local/") && !ContainsGitignoreEntry(gitignoreText, ".ngin/*"))
+        {
+            std::ofstream out(gitignorePath, std::ios::app);
+            if (!gitignoreText.empty() && gitignoreText.back() != '\n')
+            {
+                out << "\n";
+            }
+            out << ".ngin/local/\n";
+            updatedGitignore = true;
+        }
+
+        std::cout << "Initialized local settings\n";
+        std::cout << "  settings: " << settingsPath << (createdSettings ? " [created]" : " [exists]") << "\n";
+        std::cout << "  gitignore: " << gitignorePath << (updatedGitignore ? " [updated]" : " [ok]") << "\n";
+        std::cout << "  import from project manifests with a path relative to the project file\n";
+        return 0;
+    }
+
+    auto CmdVariablesExplain(const fs::path &root, const ParsedArgs &args) -> int
+    {
+        (void)root;
+        const auto invocation = ResolveInvocation(args);
+        const auto resolved = ResolveLaunch(invocation.project, invocation.configuration);
+        if (!resolved.value.has_value() || resolved.diagnostics.HasErrors())
+        {
+            PrintDiagnostics(resolved.diagnostics, "Variables", std::cout);
+            return 1;
+        }
+
+        std::cout << "Variables for configuration: " << resolved.value->configuration.name << "\n";
+        if (resolved.value->environmentVariables.empty())
+        {
+            std::cout << "  (none)\n";
+        }
+        for (const auto &variable : resolved.value->environmentVariables)
+        {
+            std::cout << "  " << variable.name << " = ";
+            if (!variable.resolved)
+            {
+                std::cout << "<missing>";
+            }
+            else if (variable.secret)
+            {
+                std::cout << "<secret>";
+            }
+            else
+            {
+                std::cout << variable.value;
+            }
+            std::cout << "    source: " << variable.resolvedSource << "\n";
+        }
+        PrintDiagnostics(resolved.diagnostics, "Variables", std::cout);
         return 0;
     }
 

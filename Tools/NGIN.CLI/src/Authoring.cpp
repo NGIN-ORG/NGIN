@@ -20,6 +20,15 @@ namespace NGIN::CLI
             }
         }
 
+        auto ValidateLocalSettingsSchemaVersion(const XmlElement &node, const fs::path &path) -> void
+        {
+            const auto schemaVersion = RequireAttribute(node, "SchemaVersion", path);
+            if (schemaVersion != "1")
+            {
+                throw std::runtime_error(path.string() + ": unsupported local settings SchemaVersion '" + schemaVersion + "' (expected '1')");
+            }
+        }
+
         [[nodiscard]] auto IsValidStartupStage(const std::string_view value) -> bool
         {
             return value == "Foundation" || value == "Platform" || value == "Services" || value == "Features" || value == "Presentation";
@@ -92,6 +101,20 @@ namespace NGIN::CLI
             }
         }
 
+        auto ParseLocalSettingsImports(const XmlElement &parent, const fs::path &path, std::vector<LocalSettingsImport> &out) -> void
+        {
+            if (const auto *localSettings = FindChild(parent, "LocalSettings"))
+            {
+                for (const auto *item : ChildElements(*localSettings, "Import"))
+                {
+                    LocalSettingsImport import{};
+                    import.path = RequireAttribute(*item, "Path", path);
+                    import.optional = BoolAttribute(*item, "Optional");
+                    out.push_back(std::move(import));
+                }
+            }
+        }
+
         auto ParseContents(const XmlElement &parent, const fs::path &path, std::vector<ContentFile> &out) -> void
         {
             if (const auto *contents = FindChild(parent, "Contents"))
@@ -115,7 +138,31 @@ namespace NGIN::CLI
                 {
                     EnvironmentVariable variable{};
                     variable.name = RequireAttribute(*node, "Name", path);
-                    variable.value = RequireAttribute(*node, "Value", path);
+                    variable.value = Attribute(*node, "Value").value_or("");
+                    variable.fromEnvironment = Attribute(*node, "FromEnvironment").value_or("");
+                    variable.fromLocalSetting = Attribute(*node, "FromLocalSetting").value_or("");
+                    variable.required = BoolAttribute(*node, "Required");
+                    variable.secret = BoolAttribute(*node, "Secret");
+
+                    const auto sourceCount = static_cast<int>(Attribute(*node, "Value").has_value())
+                                             + static_cast<int>(Attribute(*node, "FromEnvironment").has_value())
+                                             + static_cast<int>(Attribute(*node, "FromLocalSetting").has_value());
+                    if (sourceCount != 1)
+                    {
+                        throw std::runtime_error(path.string() + ": variable '" + variable.name + "' must declare exactly one of Value, FromEnvironment, or FromLocalSetting");
+                    }
+                    if (Attribute(*node, "FromEnvironment").has_value() && variable.fromEnvironment.empty())
+                    {
+                        throw std::runtime_error(path.string() + ": variable '" + variable.name + "' has empty FromEnvironment");
+                    }
+                    if (Attribute(*node, "FromLocalSetting").has_value() && variable.fromLocalSetting.empty())
+                    {
+                        throw std::runtime_error(path.string() + ": variable '" + variable.name + "' has empty FromLocalSetting");
+                    }
+                    if (variable.secret && Attribute(*node, "Value").has_value())
+                    {
+                        throw std::runtime_error(path.string() + ": variable '" + variable.name + "' may not combine Secret=\"true\" with a literal Value in a project manifest");
+                    }
                     out.push_back(std::move(variable));
                 }
             }
@@ -716,6 +763,41 @@ namespace NGIN::CLI
         return package;
     }
 
+    [[nodiscard]] auto LoadLocalSettingsManifest(const fs::path &path) -> LocalSettingsManifest
+    {
+        const auto doc = LoadXml(path);
+        const auto *rootElement = doc.document.Root();
+        if (rootElement == nullptr || rootElement->name != "LocalSettings")
+        {
+            throw std::runtime_error(path.string() + ": root element must be <LocalSettings>");
+        }
+        ValidateLocalSettingsSchemaVersion(*rootElement, path);
+
+        LocalSettingsManifest localSettings{};
+        localSettings.path = path;
+        const auto *settings = FindChild(*rootElement, "Settings");
+        if (settings == nullptr)
+        {
+            return localSettings;
+        }
+
+        std::set<std::string> seenKeys{};
+        for (const auto *node : ChildElements(*settings, "Setting"))
+        {
+            LocalSetting setting{};
+            setting.key = RequireAttribute(*node, "Key", path);
+            setting.value = RequireAttribute(*node, "Value", path);
+            setting.secret = BoolAttribute(*node, "Secret");
+            if (!seenKeys.insert(setting.key).second)
+            {
+                throw std::runtime_error(path.string() + ": duplicate local setting key '" + setting.key + "'");
+            }
+            localSettings.settings.push_back(std::move(setting));
+        }
+
+        return localSettings;
+    }
+
     [[nodiscard]] auto LoadProjectManifest(const fs::path &path) -> ProjectManifest
     {
         const auto doc = LoadXml(path);
@@ -795,6 +877,7 @@ namespace NGIN::CLI
         }
 
         ParseConfigSources(*rootElement, path, project.configSources);
+        ParseLocalSettingsImports(*rootElement, path, project.localSettingsImports);
 
         if (const auto *runtime = FindChild(*rootElement, "Runtime"))
         {

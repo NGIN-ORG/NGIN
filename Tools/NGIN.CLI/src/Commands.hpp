@@ -21,6 +21,8 @@ namespace NGIN::CLI
     auto CmdDoctor(const fs::path &root, const ParsedArgs &args) -> int;
     auto CmdPackageList(const fs::path &root) -> int;
     auto CmdPackageShow(const fs::path &root, const ParsedArgs &args) -> int;
+    auto CmdSettingsInit(const fs::path &root, const ParsedArgs &args) -> int;
+    auto CmdVariablesExplain(const fs::path &root, const ParsedArgs &args) -> int;
     auto CmdValidate(const fs::path &root, const ParsedArgs &args) -> int;
     auto CmdGraph(const fs::path &root, const ParsedArgs &args) -> int;
     auto CmdMetaGen(const fs::path &root, const ParsedArgs &args) -> int;

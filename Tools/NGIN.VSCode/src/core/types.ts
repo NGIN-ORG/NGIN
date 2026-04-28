@@ -51,10 +51,22 @@ export interface ProjectManifest {
   defaultConfiguration?: string;
   sourceRoots: string[];
   configSources: string[];
+  localSettingsImports?: string[];
   buildSources: string[];
   projectRefs?: ProjectReference[];
   packageRefs?: PackageReference[];
   configurations: ProjectConfiguration[];
+}
+
+export interface LocalSettingEntry {
+  key: string;
+  secret?: boolean;
+}
+
+export interface LocalSettingsManifest {
+  path: string;
+  directory: string;
+  settings: LocalSettingEntry[];
 }
 
 export interface LaunchDescriptor {

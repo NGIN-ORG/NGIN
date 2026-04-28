@@ -19,6 +19,8 @@ suite('NGIN Tools Extension', () => {
     assert.ok(commands.includes('ngin.clean'));
     assert.ok(commands.includes('ngin.rebuild'));
     assert.ok(commands.includes('ngin.metagen'));
+    assert.ok(commands.includes('ngin.variablesExplain'));
+    assert.ok(commands.includes('ngin.settingsInit'));
   });
 
   test('validate command can execute in the sample workspace', async () => {

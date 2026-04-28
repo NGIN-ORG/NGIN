@@ -91,6 +91,8 @@ Workspace and package inspection:
 - `ngin workspace doctor`
 - `ngin package list`
 - `ngin package show <Package>`
+- `ngin settings init`
+- `ngin variables explain`
 
 For the complete active command contract, see
 [`../docs/specs/006-cli-contract.md`](../docs/specs/006-cli-contract.md).
@@ -163,6 +165,28 @@ Default location:
 
 `ngin run` and the VS Code extension use `.nginlaunch` for local launch/debug
 resolution. It is generated tooling metadata, not an authored input file.
+
+## Local Settings And Secrets
+
+Projects can declare environment variables that resolve from literal manifest
+values, operating system environment variables, or explicitly imported local
+settings. Local settings live in `.nginsettings` files and are intended for
+machine-specific paths and secrets that should not be committed.
+
+Create the default ignored local settings file:
+
+```bash
+ngin settings init --project Examples/App.Basic/App.Basic.nginproj
+```
+
+Inspect resolved variables for a configuration:
+
+```bash
+ngin variables explain --project Examples/App.Basic/App.Basic.nginproj --configuration Runtime
+```
+
+Secret values are redacted in CLI output and are not written as raw values to
+generated launch manifests.
 
 ## VS Code Extension
 

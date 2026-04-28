@@ -24,6 +24,9 @@
   <ConfigSources>
     <Config Source="config/app.cfg" />
   </ConfigSources>
+  <LocalSettings>
+    <Import Path=".ngin/local/user.nginsettings" Optional="true" />
+  </LocalSettings>
   <Runtime>
     <Modules>
       <Module Name="App.Basic.Runtime"
@@ -46,7 +49,19 @@
     </EnableModules>
   </Runtime>
   <Environments>
-    <Environment Name="development" />
+    <Environment Name="development">
+      <Variables>
+        <Variable Name="APP_BASIC_ENDPOINT"
+                  Value="https://dev.example.invalid" />
+        <Variable Name="APP_BASIC_SDK_ROOT"
+                  FromEnvironment="APP_BASIC_SDK_ROOT"
+                  Required="false" />
+        <Variable Name="APP_BASIC_API_TOKEN"
+                  FromLocalSetting="examples.app-basic.api-token"
+                  Required="false"
+                  Secret="true" />
+      </Variables>
+    </Environment>
   </Environments>
   <Configurations>
     <Configuration Name="Runtime"

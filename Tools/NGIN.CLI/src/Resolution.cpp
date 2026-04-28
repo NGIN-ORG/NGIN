@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdlib>
 #include <map>
 #include <set>
 #include <sstream>
@@ -70,6 +71,206 @@ namespace NGIN::CLI
                 }
             }
             return nullptr;
+        }
+
+        struct LoadedSetting
+        {
+            std::string value{};
+            bool secret{false};
+            std::string source{};
+        };
+
+        [[nodiscard]] auto UserGlobalSettingsPath() -> std::optional<fs::path>
+        {
+            if (const auto *home = std::getenv("HOME"); home != nullptr && std::string_view(home).size() > 0)
+            {
+                return fs::path(home) / ".ngin/settings.nginsettings";
+            }
+#ifdef _WIN32
+            if (const auto *profile = std::getenv("USERPROFILE"); profile != nullptr && std::string_view(profile).size() > 0)
+            {
+                return fs::path(profile) / ".ngin/settings.nginsettings";
+            }
+#endif
+            return std::nullopt;
+        }
+
+        auto MergeLocalSettingsFile(
+            const fs::path &settingsPath,
+            const std::string &sourceLabel,
+            std::unordered_map<std::string, LoadedSetting> &settings,
+            DiagnosticReport &report) -> void
+        {
+            try
+            {
+                const auto manifest = LoadLocalSettingsManifest(settingsPath);
+                for (const auto &setting : manifest.settings)
+                {
+                    settings[setting.key] = LoadedSetting{
+                        .value = setting.value,
+                        .secret = setting.secret,
+                        .source = sourceLabel,
+                    };
+                }
+            }
+            catch (const std::exception &ex)
+            {
+                AddError(report, ex.what());
+            }
+        }
+
+        [[nodiscard]] auto ShellQuote(const fs::path &path) -> std::string
+        {
+            const auto text = path.string();
+            std::string quoted{"'"};
+            for (const char ch : text)
+            {
+                if (ch == '\'')
+                {
+                    quoted += "'\\''";
+                }
+                else
+                {
+                    quoted.push_back(ch);
+                }
+            }
+            quoted.push_back('\'');
+            return quoted;
+        }
+
+        [[nodiscard]] auto IsTrackedByGit(const fs::path &workspaceRoot, const fs::path &path) -> bool
+        {
+#ifdef _WIN32
+            (void)workspaceRoot;
+            (void)path;
+            return false;
+#else
+            if (!fs::exists(workspaceRoot / ".git"))
+            {
+                return false;
+            }
+            const auto relative = fs::relative(path, workspaceRoot);
+            const auto command = "git -C " + ShellQuote(workspaceRoot)
+                                 + " ls-files --error-unmatch -- "
+                                 + ShellQuote(relative) + " >/dev/null 2>&1";
+            return std::system(command.c_str()) == 0;
+#endif
+        }
+
+        auto WarnForTrackedLocalSettings(
+            const fs::path &settingsPath,
+            const std::optional<fs::path> &workspaceRoot,
+            std::set<fs::path> &warnedTrackedSettings,
+            DiagnosticReport &report) -> void
+        {
+            if (!workspaceRoot.has_value())
+            {
+                return;
+            }
+            const auto localRoot = (*workspaceRoot / ".ngin/local").lexically_normal();
+            const auto normalized = NormalizePath(settingsPath);
+            if (!IsPathWithinDirectory(normalized, localRoot))
+            {
+                return;
+            }
+            if (!warnedTrackedSettings.insert(normalized).second)
+            {
+                return;
+            }
+            if (IsTrackedByGit(*workspaceRoot, normalized))
+            {
+                AddWarning(report, "repository-local settings file '" + normalized.string() + "' is tracked by git; local settings under .ngin/local should be ignored");
+            }
+        }
+
+        [[nodiscard]] auto LoadImportedSettings(
+            const ProjectManifest &project,
+            const std::set<std::string> &requestedLocalSettingKeys,
+            const std::optional<fs::path> &workspaceRoot,
+            std::set<fs::path> &warnedTrackedSettings,
+            DiagnosticReport &report) -> std::unordered_map<std::string, LoadedSetting>
+        {
+            std::unordered_map<std::string, LoadedSetting> settings{};
+            for (const auto &import : project.localSettingsImports)
+            {
+                const auto declaredPath = fs::path(import.path);
+                const auto settingsPath = declaredPath.is_absolute()
+                                              ? declaredPath.lexically_normal()
+                                              : (project.path.parent_path() / declaredPath).lexically_normal();
+                if (!fs::exists(settingsPath))
+                {
+                    if (!import.optional)
+                    {
+                        AddError(report, "local settings import '" + settingsPath.string() + "' does not exist");
+                    }
+                    continue;
+                }
+                WarnForTrackedLocalSettings(settingsPath, workspaceRoot, warnedTrackedSettings, report);
+                MergeLocalSettingsFile(settingsPath, "local setting file " + settingsPath.string(), settings, report);
+            }
+
+            const auto needsUserGlobal = std::any_of(
+                requestedLocalSettingKeys.begin(),
+                requestedLocalSettingKeys.end(),
+                [&](const std::string &key)
+                { return !settings.contains(key); });
+            if (needsUserGlobal)
+            {
+                if (const auto userSettingsPath = UserGlobalSettingsPath(); userSettingsPath.has_value() && fs::exists(*userSettingsPath))
+                {
+                    std::unordered_map<std::string, LoadedSetting> userSettings{};
+                    MergeLocalSettingsFile(*userSettingsPath, "user-global settings " + userSettingsPath->string(), userSettings, report);
+                    for (const auto &[key, setting] : userSettings)
+                    {
+                        settings.try_emplace(key, setting);
+                    }
+                }
+            }
+
+            return settings;
+        }
+
+        [[nodiscard]] auto ResolveVariable(
+            EnvironmentVariable variable,
+            const std::unordered_map<std::string, LoadedSetting> &settings,
+            DiagnosticReport &report) -> EnvironmentVariable
+        {
+            if (!variable.fromEnvironment.empty())
+            {
+                if (const auto *value = std::getenv(variable.fromEnvironment.c_str()); value != nullptr)
+                {
+                    variable.value = value;
+                    variable.resolved = true;
+                }
+                variable.resolvedSource = "environment " + variable.fromEnvironment;
+            }
+            else if (!variable.fromLocalSetting.empty())
+            {
+                if (const auto it = settings.find(variable.fromLocalSetting); it != settings.end())
+                {
+                    variable.value = it->second.value;
+                    variable.secret = variable.secret || it->second.secret;
+                    variable.resolved = true;
+                    variable.resolvedSource = it->second.source + " key " + variable.fromLocalSetting;
+                }
+                else
+                {
+                    variable.resolvedSource = "local setting " + variable.fromLocalSetting;
+                }
+            }
+            else
+            {
+                variable.resolved = true;
+                variable.resolvedSource = "project Value";
+            }
+
+            if (variable.required && !variable.resolved)
+            {
+                AddError(report, std::string("missing required ")
+                                     + (variable.secret ? "secret " : "")
+                                     + "variable '" + variable.name + "'");
+            }
+            return variable;
         }
 
         [[nodiscard]] auto DefaultArtifactOrigin(const PackageManifest &manifest) -> std::string
@@ -657,6 +858,7 @@ namespace NGIN::CLI
         const auto workspaceRoot = RootDirFrom(project.path.parent_path());
         const auto workspace = workspaceRoot.has_value() ? TryLoadWorkspaceManifest(*workspaceRoot) : std::nullopt;
         const auto packageCatalog = LoadPackageCatalog(workspace, project.path);
+        std::set<fs::path> warnedTrackedSettings{};
 
         std::vector<ResolvedProjectUnit> projectUnits{};
         std::set<fs::path> visiting{};
@@ -1125,16 +1327,26 @@ namespace NGIN::CLI
                     continue;
                 }
                 const auto ownerProjectDirectory = unit.project.path.parent_path();
+                std::set<std::string> requestedLocalSettingKeys{};
                 for (const auto &variable : unit.environment->variables)
                 {
-                    if (const auto it = variableIndex.find(variable.name); it != variableIndex.end())
+                    if (!variable.fromLocalSetting.empty())
                     {
-                        resolved.environmentVariables[it->second] = variable;
+                        requestedLocalSettingKeys.insert(variable.fromLocalSetting);
+                    }
+                }
+                const auto localSettings = LoadImportedSettings(unit.project, requestedLocalSettingKeys, workspaceRoot, warnedTrackedSettings, result.diagnostics);
+                for (const auto &variable : unit.environment->variables)
+                {
+                    auto resolvedVariable = ResolveVariable(variable, localSettings, result.diagnostics);
+                    if (const auto it = variableIndex.find(resolvedVariable.name); it != variableIndex.end())
+                    {
+                        resolved.environmentVariables[it->second] = std::move(resolvedVariable);
                     }
                     else
                     {
-                        variableIndex[variable.name] = resolved.environmentVariables.size();
-                        resolved.environmentVariables.push_back(variable);
+                        variableIndex[resolvedVariable.name] = resolved.environmentVariables.size();
+                        resolved.environmentVariables.push_back(std::move(resolvedVariable));
                     }
                 }
                 for (const auto &feature : unit.environment->features)

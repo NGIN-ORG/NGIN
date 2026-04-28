@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import {
   computeCompileCommandsPath,
   createBrowseConfiguration,
@@ -12,13 +14,15 @@ import {
   basenameWithoutExtension,
   computeLaunchManifestPath,
   computeOutputDir,
+  extractInitializedSettingsPath,
+  extractLocalSettingsWarnings,
   getExecutableCandidatePaths,
   getWorkingDirectoryCandidates,
   parseCliDiagnostics
 } from '../../core/helpers';
 import { addRootConfigSource, relativeManifestPath, removeConfigSources, renameConfigSources } from '../../core/projectAuthoring';
 import { buildOverviewSections, buildProjectTreeModels, buildStatusBarModel } from '../../ui/models';
-import { parseLaunchManifest, parseProjectManifest, parseWorkspaceManifest } from '../../core/xml';
+import { parseLaunchManifest, parseLocalSettingsManifest, parseProjectManifest, parseWorkspaceManifest } from '../../core/xml';
 
 test('computeOutputDir uses the CLI default layout when no root override is configured', () => {
   const outputDir = computeOutputDir('/workspace', 'App.Basic', 'Runtime');
@@ -49,13 +53,36 @@ test('parseCliDiagnostics extracts structured file and generic errors', () => {
   const diagnostics = parseCliDiagnostics([
     'Validation errors:',
     '  - /tmp/App.Basic.nginproj: failed to parse XML: unexpected token',
+    '  - /tmp/user.nginsettings: duplicate local setting key',
     'error: unknown configuration `Editor`'
   ].join('\n'));
 
-  assert.equal(diagnostics.length, 2);
+  assert.equal(diagnostics.length, 3);
   assert.equal(diagnostics[0].file, '/tmp/App.Basic.nginproj');
   assert.match(diagnostics[0].message, /failed to parse XML/);
-  assert.equal(diagnostics[1].message, 'unknown configuration `Editor`');
+  assert.equal(diagnostics[1].file, '/tmp/user.nginsettings');
+  assert.match(diagnostics[1].message, /duplicate local setting key/);
+  assert.equal(diagnostics[2].message, 'unknown configuration `Editor`');
+});
+
+test('settings init output exposes the initialized settings path', () => {
+  const output = [
+    'Initialized local settings',
+    '  settings: "/repo/.ngin/local/user.nginsettings" [created]',
+    '  gitignore: "/repo/.gitignore" [ok]'
+  ].join('\n');
+
+  assert.equal(extractInitializedSettingsPath(output), '/repo/.ngin/local/user.nginsettings');
+});
+
+test('local settings warnings are extracted from CLI output', () => {
+  const warnings = extractLocalSettingsWarnings([
+    'Warnings:',
+    '  - repository-local settings file \'/repo/.ngin/local/user.nginsettings\' is tracked by git; local settings under .ngin/local should be ignored'
+  ].join('\n'));
+
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /tracked by git/);
 });
 
 test('workspace manifests parse project paths relative to the workspace manifest', () => {
@@ -69,9 +96,9 @@ test('workspace manifests parse project paths relative to the workspace manifest
   assert.deepEqual(workspace.packageSourcePaths, ['/repo/Packages']);
 });
 
-test('project manifests parse configurations and launch metadata', () => {
+test('project manifests parse configurations, launch metadata, and local settings imports', () => {
   const project = parseProjectManifest(
-    '<?xml version="1.0" encoding="utf-8"?><Project Name="App.Basic" DefaultConfiguration="Runtime"><SourceRoots><SourceRoot Path="src" /></SourceRoots><Build><Sources><Source Path="src/main.cpp" /></Sources></Build><References><Project Path="../Game.Engine/Game.Engine.nginproj" /><Package Name="NGIN.Core" /></References><ConfigSources><Config Source="config/app.cfg" /></ConfigSources><Configurations><Configuration Name="Runtime" BuildConfiguration="Debug" OperatingSystem="linux" Architecture="x64" Environment="development"><Launch Executable="App.Basic" WorkingDirectory="." /><References><Package Name="NGIN.Reflection" Optional="true" /></References><ConfigSources><Config Source="config/runtime.cfg" /></ConfigSources></Configuration></Configurations></Project>',
+    '<?xml version="1.0" encoding="utf-8"?><Project Name="App.Basic" DefaultConfiguration="Runtime"><SourceRoots><SourceRoot Path="src" /></SourceRoots><Build><Sources><Source Path="src/main.cpp" /></Sources></Build><References><Project Path="../Game.Engine/Game.Engine.nginproj" /><Package Name="NGIN.Core" /></References><ConfigSources><Config Source="config/app.cfg" /></ConfigSources><LocalSettings><Import Path=".ngin/local/user.nginsettings" Optional="true" /></LocalSettings><Configurations><Configuration Name="Runtime" BuildConfiguration="Debug" OperatingSystem="linux" Architecture="x64" Environment="development"><Launch Executable="App.Basic" WorkingDirectory="." /><References><Package Name="NGIN.Reflection" Optional="true" /></References><ConfigSources><Config Source="config/runtime.cfg" /></ConfigSources></Configuration></Configurations></Project>',
     '/repo/Examples/App.Basic/App.Basic.nginproj'
   );
 
@@ -79,6 +106,7 @@ test('project manifests parse configurations and launch metadata', () => {
   assert.deepEqual(project.sourceRoots, ['src']);
   assert.deepEqual(project.buildSources, ['src/main.cpp']);
   assert.deepEqual(project.configSources, ['config/app.cfg']);
+  assert.deepEqual(project.localSettingsImports, ['/repo/Examples/App.Basic/.ngin/local/user.nginsettings']);
   assert.deepEqual(project.projectRefs, [{ path: '/repo/Examples/Game.Engine/Game.Engine.nginproj', configuration: undefined }]);
   assert.deepEqual(project.packageRefs, [{ name: 'NGIN.Core', version: undefined, optional: false }]);
   assert.deepEqual(project.configurations[0].configSources, ['config/runtime.cfg']);
@@ -86,6 +114,32 @@ test('project manifests parse configurations and launch metadata', () => {
   assert.equal(project.configurations[0].launchExecutable, 'App.Basic');
   assert.equal(project.configurations[0].operatingSystem, 'linux');
   assert.equal(project.configurations[0].architecture, 'x64');
+});
+
+test('local settings manifests expose keys without values', () => {
+  const settings = parseLocalSettingsManifest(
+    '<?xml version="1.0" encoding="utf-8"?><LocalSettings SchemaVersion="1"><Settings><Setting Key="feeds.private.token" Value="secret" Secret="true" /><Setting Key="sdk.vulkan.root" Value="/opt/vulkan" /></Settings></LocalSettings>',
+    '/repo/.ngin/local/user.nginsettings'
+  );
+
+  assert.deepEqual(settings.settings, [
+    { key: 'feeds.private.token', secret: true },
+    { key: 'sdk.vulkan.root', secret: false }
+  ]);
+});
+
+test('extension manifest and snippets register local settings support', () => {
+  const packageJson = JSON.parse(readFileSync(path.join(process.cwd(), 'package.json'), 'utf8'));
+  const language = packageJson.contributes.languages.find((entry: { id?: string }) => entry.id === 'ngin');
+  assert.ok(language.extensions.includes('.nginsettings'));
+
+  const commandIds = packageJson.contributes.commands.map((entry: { command: string }) => entry.command);
+  assert.ok(commandIds.includes('ngin.variablesExplain'));
+  assert.ok(commandIds.includes('ngin.settingsInit'));
+
+  const snippets = JSON.parse(readFileSync(path.join(process.cwd(), 'snippets/ngin.code-snippets'), 'utf8'));
+  assert.ok(snippets['Local Settings File']);
+  assert.ok(snippets['Variable From Local Setting']);
 });
 
 test('launch manifests surface selected executable and staged files', () => {

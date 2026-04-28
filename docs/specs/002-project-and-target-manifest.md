@@ -1,7 +1,7 @@
 # Spec 002: Project Manifest
 
 Status: Active
-Last updated: 2026-03-21
+Last updated: 2026-04-28
 
 ## Purpose
 
@@ -26,6 +26,7 @@ Supported root sections:
 - `Build`
 - `References`
 - `ConfigSources`
+- `LocalSettings`
 - `Runtime`
 - `Environments`
 - `Configurations`
@@ -143,6 +144,73 @@ Each environment may contribute:
 - `Features`
 - `Contents`
 - `Runtime`
+
+### Variables
+
+Environment variables use exactly one value source:
+
+- `Value`
+- `FromEnvironment`
+- `FromLocalSetting`
+
+`Value` is a literal committed manifest value. `FromEnvironment` reads one
+operating system environment variable. `FromLocalSetting` reads one key from
+loaded local settings.
+
+Supported variable attributes:
+
+- `Name` required
+- `Value` optional source selector
+- `FromEnvironment` optional source selector
+- `FromLocalSetting` optional source selector
+- `Required` optional
+- `Secret` optional
+
+`Secret="true"` may not be combined with a literal `Value` in a committed
+project manifest. Secret variables must use `FromEnvironment` or
+`FromLocalSetting`.
+
+## Local Settings
+
+Projects may declare imported repository-local settings under a root
+`LocalSettings` section:
+
+```xml
+<LocalSettings>
+  <Import Path=".ngin/local/user.nginsettings" Optional="true" />
+</LocalSettings>
+```
+
+Supported import attributes:
+
+- `Path` required
+- `Optional` optional
+
+Imported paths are resolved relative to the project manifest unless the path is
+absolute. User-global settings at `~/.ngin/settings.nginsettings` are also
+available as an inert fallback source for variables that explicitly use
+`FromLocalSetting`.
+
+Local settings files use the `.nginsettings` extension:
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<LocalSettings SchemaVersion="1">
+  <Settings>
+    <Setting Key="feeds.private.token" Value="..." Secret="true" />
+    <Setting Key="sdk.vulkan.root" Value="/opt/vulkan-sdk" />
+  </Settings>
+</LocalSettings>
+```
+
+Supported local settings attributes:
+
+- root `SchemaVersion="1"` required
+- `Setting Key` required
+- `Setting Value` required
+- `Setting Secret` optional
+
+Project variable names and local setting keys are separate namespaces.
 
 ## Example
 

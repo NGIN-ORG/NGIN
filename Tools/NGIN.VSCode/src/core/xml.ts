@@ -5,6 +5,7 @@ import {
   LaunchDescriptor,
   PackageManifest,
   PackageReference,
+  LocalSettingsManifest,
   ProjectConfiguration,
   ProjectManifest,
   ProjectReference,
@@ -31,6 +32,14 @@ function parseConfigSources(node: unknown): string[] {
   return asArray(parent?.ConfigSources?.Config)
     .map((entry) => (entry as { Source?: string } | undefined)?.Source)
     .filter((entry): entry is string => Boolean(entry));
+}
+
+function parseLocalSettingsImports(node: unknown, baseDirectory: string): string[] {
+  const parent = node as { LocalSettings?: { Import?: unknown } } | undefined;
+  return asArray(parent?.LocalSettings?.Import)
+    .map((entry) => (entry as { Path?: string } | undefined)?.Path)
+    .filter((entry): entry is string => Boolean(entry))
+    .map((entry) => path.isAbsolute(entry) ? entry : path.resolve(baseDirectory, entry));
 }
 
 function parseProjectReferences(node: unknown, baseDirectory: string): ProjectReference[] {
@@ -127,10 +136,38 @@ export function parseProjectManifest(xml: string, manifestPath: string): Project
     defaultConfiguration: root.DefaultConfiguration,
     sourceRoots,
     configSources: parseConfigSources(root),
+    localSettingsImports: parseLocalSettingsImports(root, path.dirname(manifestPath)),
     buildSources,
     projectRefs: parseProjectReferences(root, path.dirname(manifestPath)),
     packageRefs: parsePackageReferences(root),
     configurations
+  };
+}
+
+export function parseLocalSettingsManifest(xml: string, manifestPath: string): LocalSettingsManifest {
+  const document = parser.parse(xml);
+  const root = document.LocalSettings;
+  if (!root) {
+    throw new Error(`${manifestPath}: root element must be <LocalSettings>`);
+  }
+
+  const settings = asArray(root.Settings?.Setting)
+    .map((entry): { key: string; secret?: boolean } | undefined => {
+      const setting = entry as { Key?: string; Secret?: string | boolean } | undefined;
+      if (!setting?.Key) {
+        return undefined;
+      }
+      return {
+        key: setting.Key,
+        secret: setting.Secret === true || setting.Secret === 'true'
+      };
+    })
+    .filter((entry): entry is { key: string; secret?: boolean } => Boolean(entry));
+
+  return {
+    path: manifestPath,
+    directory: path.dirname(manifestPath),
+    settings
   };
 }
 

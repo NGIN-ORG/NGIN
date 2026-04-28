@@ -5,6 +5,19 @@
 NGIN projects need a way to declare required local values, machine-specific
 settings, and secrets without committing those values into project manifests.
 
+## Implementation Status
+
+Implemented on 2026-04-28.
+
+The v1 policy is:
+
+- repository-local settings are loaded only through explicit project imports
+- user-global settings at `~/.ngin/settings.nginsettings` are an inert fallback
+  for variables that explicitly use `FromLocalSetting`
+- `ngin variables explain` is the first inspection command
+- `ngin settings init` initializes the default ignored local settings file
+- project manifest variables using `Secret="true"` may not use literal `Value`
+
 The active project model already has `Environments` and environment
 `Variables`, but those are authored project data. They are appropriate for
 committed defaults and non-secret runtime values. They are not enough for local

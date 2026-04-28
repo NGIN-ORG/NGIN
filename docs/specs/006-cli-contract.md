@@ -1,7 +1,7 @@
 # Spec 006: CLI Contract
 
 Status: Active
-Last updated: 2026-04-27
+Last updated: 2026-04-28
 
 ## Purpose
 
@@ -20,6 +20,8 @@ Stable active commands:
 - `ngin graph [--project <file>] [--configuration <name>]`
 - `ngin package list`
 - `ngin package show <Package>`
+- `ngin settings init [--project <file>]`
+- `ngin variables explain [--project <file>] [--configuration <name>]`
 - `ngin workspace list`
 - `ngin workspace status`
 - `ngin workspace doctor`
@@ -47,4 +49,8 @@ Removed commands:
 
 - `ngin graph` is the active structural inspection command for resolved composition
 - package inspection commands expose reusable package identity and declared package data
-- future CLI inspection may add more direct provenance or explanation commands without changing the authored model split
+- `ngin variables explain` shows the selected project environment variables,
+  their resolved value source, and redacts secret values as `<secret>`
+- `ngin settings init` creates `.ngin/local/user.nginsettings` under the
+  workspace root and ensures local settings are ignored by source control
+- future CLI inspection may add more direct provenance commands without changing the authored model split
