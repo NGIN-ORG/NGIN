@@ -16,10 +16,34 @@ The project is just normal C++ source plus an `.nginproj` file:
 - no package references
 - no `NGIN.Core`
 - one `Runtime` configuration
+- one named condition used by a conditional compile definition
 - one generated staged output directory
 
 This is the first example to read if you want to separate the NGIN tooling layer
 from the optional hosted runtime.
+
+The manifest includes a small `LocalDebug` condition:
+
+```xml
+<Conditions>
+  <Condition Name="LocalDebug"
+             Environment="local"
+             BuildConfiguration="Debug" />
+</Conditions>
+```
+
+The generated build uses that condition through `When`:
+
+```xml
+<CompileDefinitions>
+  <Definition Value="APP_NATIVE_MINIMAL_LOCAL_DEBUG"
+              Visibility="Private"
+              When="LocalDebug" />
+</CompileDefinitions>
+```
+
+This demonstrates reusable manifest selection without changing the program's
+runtime behavior.
 
 ## Validate, Graph, Build, and Run
 

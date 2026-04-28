@@ -8,13 +8,24 @@
       <Root Path="src" />
     </Private>
   </Sources>
+  <Conditions>
+    <Condition Name="LocalDebug"
+               Environment="local"
+               BuildConfiguration="Debug" />
+  </Conditions>
   <Output Kind="Executable"
           Name="App.NativeMinimal"
           Target="App.NativeMinimal" />
   <Build Backend="CMake"
          Mode="Generated"
          Language="CXX"
-         LanguageStandard="23" />
+         LanguageStandard="23">
+    <CompileDefinitions>
+      <Definition Value="APP_NATIVE_MINIMAL_LOCAL_DEBUG"
+                  Visibility="Private"
+                  When="LocalDebug" />
+    </CompileDefinitions>
+  </Build>
   <Environments>
     <Environment Name="local" />
   </Environments>

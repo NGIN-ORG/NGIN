@@ -339,6 +339,12 @@ A small `.nginproj` file looks like this:
     </Private>
   </Sources>
 
+  <Conditions>
+    <Condition Name="LocalDebug"
+               Environment="local"
+               BuildConfiguration="Debug" />
+  </Conditions>
+
   <Output Kind="Executable"
           Name="MyApp"
           Target="MyApp" />
@@ -346,7 +352,13 @@ A small `.nginproj` file looks like this:
   <Build Backend="CMake"
          Mode="Generated"
          Language="CXX"
-         LanguageStandard="23" />
+         LanguageStandard="23">
+    <CompileDefinitions>
+      <Definition Value="MYAPP_LOCAL_DEBUG"
+                  Visibility="Private"
+                  When="LocalDebug" />
+    </CompileDefinitions>
+  </Build>
 
   <Environments>
     <Environment Name="local" />
@@ -368,10 +380,12 @@ This says:
 
 - the project is named `MyApp`
 - source files are under `src`
+- `LocalDebug` names the local debug selection rule
 - the output is an executable
 - CMake input should be generated
 - the default configuration is `Runtime`
 - the `Runtime` configuration builds a debug Linux x64 executable
+- `MYAPP_LOCAL_DEBUG` is emitted only when `LocalDebug` matches
 - local runs should launch `MyApp` from the staged folder
 
 ---
