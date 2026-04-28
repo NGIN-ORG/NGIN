@@ -502,23 +502,6 @@ namespace NGIN::CLI
             return path.lexically_normal();
         }
 
-        [[nodiscard]] auto SelectorsMatch(const SelectorSet &selectors, const ConfigurationDefinition &configuration) -> bool
-        {
-            if (selectors.operatingSystem.has_value() && *selectors.operatingSystem != configuration.operatingSystem)
-            {
-                return false;
-            }
-            if (selectors.architecture.has_value() && *selectors.architecture != configuration.architecture)
-            {
-                return false;
-            }
-            if (selectors.buildConfiguration.has_value() && *selectors.buildConfiguration != configuration.buildConfiguration)
-            {
-                return false;
-            }
-            return true;
-        }
-
         [[nodiscard]] auto CollectSourceFiles(const ProjectManifest &project, const ConfigurationDefinition &configuration) -> std::vector<fs::path>
         {
             std::set<fs::path> unique{};
@@ -548,14 +531,14 @@ namespace NGIN::CLI
                 {
                     for (const auto &root : group.roots)
                     {
-                        if (!SelectorsMatch(root.selectors, configuration))
+                        if (!SelectionMatches(project, root.selectors, configuration))
                         {
                             excludedRoots.push_back(ResolveProjectPathValue(root.path, project));
                         }
                     }
                     for (const auto &file : group.files)
                     {
-                        if (!SelectorsMatch(file.selectors, configuration))
+                        if (!SelectionMatches(project, file.selectors, configuration))
                         {
                             excludedFiles.push_back(ResolveProjectPathValue(file.path, project));
                         }
@@ -605,28 +588,28 @@ namespace NGIN::CLI
                 };
                 for (const auto &root : project.sources->publicSources.roots)
                 {
-                    if (SelectorsMatch(root.selectors, configuration))
+                    if (SelectionMatches(project, root.selectors, configuration))
                     {
                         addRoot(root);
                     }
                 }
                 for (const auto &root : project.sources->privateSources.roots)
                 {
-                    if (SelectorsMatch(root.selectors, configuration))
+                    if (SelectionMatches(project, root.selectors, configuration))
                     {
                         addRoot(root);
                     }
                 }
                 for (const auto &file : project.sources->publicSources.files)
                 {
-                    if (SelectorsMatch(file.selectors, configuration))
+                    if (SelectionMatches(project, file.selectors, configuration))
                     {
                         add(ResolveProjectPathValue(file.path, project));
                     }
                 }
                 for (const auto &file : project.sources->privateSources.files)
                 {
-                    if (SelectorsMatch(file.selectors, configuration))
+                    if (SelectionMatches(project, file.selectors, configuration))
                     {
                         add(ResolveProjectPathValue(file.path, project));
                     }
@@ -665,14 +648,14 @@ namespace NGIN::CLI
             {
                 for (const auto &root : project.sources->publicSources.roots)
                 {
-                    if (SelectorsMatch(root.selectors, configuration))
+                    if (SelectionMatches(project, root.selectors, configuration))
                     {
                         roots.push_back(ResolveProjectPathValue(root.path, project));
                     }
                 }
                 for (const auto &root : project.sources->privateSources.roots)
                 {
-                    if (SelectorsMatch(root.selectors, configuration))
+                    if (SelectionMatches(project, root.selectors, configuration))
                     {
                         roots.push_back(ResolveProjectPathValue(root.path, project));
                     }

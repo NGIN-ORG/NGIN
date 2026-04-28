@@ -4,6 +4,7 @@
 
 #include <filesystem>
 #include <map>
+#include <memory>
 #include <optional>
 #include <set>
 #include <string>
@@ -70,9 +71,36 @@ namespace NGIN::CLI
 
     struct SelectorSet
     {
+        std::optional<std::string> configuration{};
         std::optional<std::string> operatingSystem{};
         std::optional<std::string> architecture{};
         std::optional<std::string> buildConfiguration{};
+        std::optional<std::string> environment{};
+        std::vector<std::string> conditionRefs{};
+        bool impossible{false};
+    };
+
+    struct ConditionNode
+    {
+        enum class Kind
+        {
+            Match,
+            All,
+            Any,
+            Not,
+            ConditionRef
+        };
+
+        Kind kind{Kind::Match};
+        SelectorSet match{};
+        std::vector<ConditionNode> children{};
+        std::string conditionName{};
+    };
+
+    struct ConditionDefinition
+    {
+        std::string name{};
+        ConditionNode body{};
     };
 
     struct BuildSetting
@@ -308,6 +336,7 @@ namespace NGIN::CLI
         std::string defaultConfiguration{};
         std::vector<std::string> sourceRoots{};
         std::optional<ProjectSources> sources{};
+        std::vector<ConditionDefinition> conditions{};
         OutputDefinition output{};
         ProjectBuildDescriptor build{};
         std::vector<ProjectReference> projectRefs{};

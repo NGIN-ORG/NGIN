@@ -23,6 +23,7 @@ Supported root sections:
 
 - `Sources`
 - `SourceRoots`
+- `Conditions`
 - `Output`
 - `Build`
 - `References`
@@ -71,15 +72,21 @@ path before target emission.
 
 Source roots and files may use typed selectors:
 
+- `Configuration`
 - `OperatingSystem`
 - `Architecture`
 - `BuildConfiguration`
+- `Environment`
 
-An entry with no selector attributes applies to all configurations. An entry
-with one or more selectors applies only when every provided selector exactly
-matches the selected configuration.
+An entry with no selector attributes and no `When` applies to all
+configurations. An entry with one or more selectors applies only when every
+provided selector exactly matches the selected configuration.
 When a non-selected typed root or file is nested under a broader selected root,
 the non-selected path is excluded from generated source scanning.
+
+Source entries may also use `When` to reference a named condition declared in
+the project-local `Conditions` section. Direct selectors and `When` may be
+combined on the same entry and are evaluated as implicit AND.
 
 `Root` may constrain recursive discovery with `Include` and `Exclude` glob
 patterns. Patterns are relative to the root path, use `/` separators, and
@@ -115,6 +122,44 @@ files matching at least one include pattern, then remove files matching
 
 Generated CMake treats legacy `SourceRoot` entries as private source roots and
 private include directories.
+
+## Conditions
+
+Projects may declare reusable named conditions under `Conditions`.
+
+```xml
+<Conditions>
+  <Condition Name="Desktop">
+    <Any>
+      <Match OperatingSystem="windows" />
+      <Match OperatingSystem="linux" />
+      <Match OperatingSystem="macos" />
+    </Any>
+  </Condition>
+</Conditions>
+```
+
+Supported condition nodes:
+
+- `Match`
+- `All`
+- `Any`
+- `Not`
+- `ConditionRef`
+
+`Condition` may use selector attributes as shorthand for a single `Match`.
+`When` references one project-local condition name. Direct selectors and `When`
+may be combined on a selectable item as implicit AND:
+
+```xml
+<Definition Value="MYAPP_DESKTOP_DEBUG"
+            When="Desktop"
+            BuildConfiguration="Debug" />
+```
+
+Condition names must be unique manifest identifiers. Names that differ only by
+case are rejected. Unknown `When` and `ConditionRef` names are validation
+errors, and condition reference cycles are validation errors.
 
 ## Output
 
@@ -171,8 +216,10 @@ properties and invalid property method signatures are rejected by MetaGen.
 
 Build settings under `IncludeDirectories`, `CompileDefinitions`,
 `CompileOptions`, and `LinkOptions` may use the same typed selector attributes
-as `Sources` entries. Selected settings are emitted only when every provided
-selector matches the active project configuration.
+and `When` references as `Sources` entries. Selected settings are emitted only
+when their effective condition matches the active project configuration. Build
+setting groups may also use selectors and `When`; group selection is inherited
+by child entries as implicit AND.
 
 ## References
 

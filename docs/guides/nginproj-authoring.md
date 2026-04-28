@@ -105,10 +105,10 @@ For root scanning with glob filters:
 
 Patterns are relative to the root and support `*`, `?`, and `**`.
 
-## Typed Selection
+## Selection
 
 Source entries and build settings can be selected by project configuration
-values.
+values. Simple local selection uses typed selector attributes.
 
 ```xml
 <Sources>
@@ -132,9 +132,11 @@ that nested path from source scanning.
 
 Supported selectors:
 
+- `Configuration`
 - `OperatingSystem`
 - `Architecture`
 - `BuildConfiguration`
+- `Environment`
 
 The same selectors can be used on build settings:
 
@@ -142,6 +144,34 @@ The same selectors can be used on build settings:
 <Build Backend="CMake" Mode="Generated" Language="CXX" LanguageStandard="23">
   <CompileDefinitions>
     <Definition Value="MYTOOL_DEBUG"
+                Visibility="Private"
+                BuildConfiguration="Debug" />
+  </CompileDefinitions>
+</Build>
+```
+
+Reusable or non-trivial selection can use named conditions:
+
+```xml
+<Conditions>
+  <Condition Name="Desktop">
+    <Any>
+      <Match OperatingSystem="windows" />
+      <Match OperatingSystem="linux" />
+      <Match OperatingSystem="macos" />
+    </Any>
+  </Condition>
+</Conditions>
+```
+
+Use `When` to reference a named condition. `When` and direct selectors can be
+combined and are evaluated as AND:
+
+```xml
+<Build Backend="CMake" Mode="Generated" Language="CXX" LanguageStandard="23">
+  <CompileDefinitions When="Desktop">
+    <Definition Value="MYTOOL_DESKTOP" Visibility="Private" />
+    <Definition Value="MYTOOL_DESKTOP_DEBUG"
                 Visibility="Private"
                 BuildConfiguration="Debug" />
   </CompileDefinitions>
@@ -210,4 +240,3 @@ ngin graph --project Examples/App.NativeMinimal/App.NativeMinimal.nginproj --con
 ngin build --project Examples/App.NativeMinimal/App.NativeMinimal.nginproj --configuration Runtime
 ngin run --project Examples/App.NativeMinimal/App.NativeMinimal.nginproj --configuration Runtime
 ```
-

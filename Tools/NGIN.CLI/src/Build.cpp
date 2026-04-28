@@ -578,23 +578,6 @@ namespace NGIN::CLI
             return "PRIVATE";
         }
 
-        [[nodiscard]] auto SelectorsMatch(const SelectorSet &selectors, const ConfigurationDefinition &configuration) -> bool
-        {
-            if (selectors.operatingSystem.has_value() && *selectors.operatingSystem != configuration.operatingSystem)
-            {
-                return false;
-            }
-            if (selectors.architecture.has_value() && *selectors.architecture != configuration.architecture)
-            {
-                return false;
-            }
-            if (selectors.buildConfiguration.has_value() && *selectors.buildConfiguration != configuration.buildConfiguration)
-            {
-                return false;
-            }
-            return true;
-        }
-
         [[nodiscard]] auto SelectedTypedSourceRoots(const ProjectManifest &project, const ConfigurationDefinition &configuration, const bool publicRoots)
             -> std::vector<SourceEntry>
         {
@@ -607,7 +590,7 @@ namespace NGIN::CLI
             const auto &group = publicRoots ? project.sources->publicSources : project.sources->privateSources;
             for (const auto &root : group.roots)
             {
-                if (SelectorsMatch(root.selectors, configuration))
+                if (SelectionMatches(project, root.selectors, configuration))
                 {
                     roots.push_back(root);
                 }
@@ -710,14 +693,14 @@ namespace NGIN::CLI
                 {
                     for (const auto &root : group.roots)
                     {
-                        if (!SelectorsMatch(root.selectors, configuration))
+                        if (!SelectionMatches(project, root.selectors, configuration))
                         {
                             excludedRoots.push_back(ResolveProjectPathValue(root.path, project, workspace));
                         }
                     }
                     for (const auto &file : group.files)
                     {
-                        if (!SelectorsMatch(file.selectors, configuration))
+                        if (!SelectionMatches(project, file.selectors, configuration))
                         {
                             excludedFiles.push_back(ResolveProjectPathValue(file.path, project, workspace));
                         }
@@ -781,28 +764,28 @@ namespace NGIN::CLI
 
                 for (const auto &root : project.sources->publicSources.roots)
                 {
-                    if (SelectorsMatch(root.selectors, configuration))
+                    if (SelectionMatches(project, root.selectors, configuration))
                     {
                         addRootSources(root);
                     }
                 }
                 for (const auto &root : project.sources->privateSources.roots)
                 {
-                    if (SelectorsMatch(root.selectors, configuration))
+                    if (SelectionMatches(project, root.selectors, configuration))
                     {
                         addRootSources(root);
                     }
                 }
                 for (const auto &file : project.sources->publicSources.files)
                 {
-                    if (SelectorsMatch(file.selectors, configuration))
+                    if (SelectionMatches(project, file.selectors, configuration))
                     {
                         addSource(ResolveProjectPathValue(file.path, project, workspace));
                     }
                 }
                 for (const auto &file : project.sources->privateSources.files)
                 {
-                    if (SelectorsMatch(file.selectors, configuration))
+                    if (SelectionMatches(project, file.selectors, configuration))
                     {
                         addSource(ResolveProjectPathValue(file.path, project, workspace));
                     }
@@ -1170,7 +1153,7 @@ namespace NGIN::CLI
                 }
                 for (const auto &setting : unit.project.build.includeDirectories)
                 {
-                    if (!SelectorsMatch(setting.selectors, unit.configuration))
+                    if (!SelectionMatches(unit.project, setting.selectors, unit.configuration))
                     {
                         continue;
                     }
@@ -1180,7 +1163,7 @@ namespace NGIN::CLI
                 }
                 for (const auto &setting : unit.project.build.compileDefinitions)
                 {
-                    if (!SelectorsMatch(setting.selectors, unit.configuration))
+                    if (!SelectionMatches(unit.project, setting.selectors, unit.configuration))
                     {
                         continue;
                     }
@@ -1189,7 +1172,7 @@ namespace NGIN::CLI
                 }
                 for (const auto &setting : unit.project.build.compileOptions)
                 {
-                    if (!SelectorsMatch(setting.selectors, unit.configuration))
+                    if (!SelectionMatches(unit.project, setting.selectors, unit.configuration))
                     {
                         continue;
                     }
@@ -1198,7 +1181,7 @@ namespace NGIN::CLI
                 }
                 for (const auto &setting : unit.project.build.linkOptions)
                 {
-                    if (!SelectorsMatch(setting.selectors, unit.configuration))
+                    if (!SelectionMatches(unit.project, setting.selectors, unit.configuration))
                     {
                         continue;
                     }

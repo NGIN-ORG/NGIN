@@ -59,6 +59,79 @@ namespace NGIN::CLI
             }
             return false;
         }
+
+        [[nodiscard]] auto HasSelection(const SelectorSet &selectors) -> bool
+        {
+            return selectors.impossible || selectors.configuration.has_value() || selectors.operatingSystem.has_value()
+                   || selectors.architecture.has_value() || selectors.buildConfiguration.has_value()
+                   || selectors.environment.has_value() || !selectors.conditionRefs.empty();
+        }
+
+        auto PrintSelectorSummary(const SelectorSet &selectors) -> void
+        {
+            bool first = true;
+            const auto append = [&](const std::string &name, const std::optional<std::string> &value)
+            {
+                if (!value.has_value())
+                {
+                    return;
+                }
+                if (!first)
+                {
+                    std::cout << ", ";
+                }
+                std::cout << name << "=\"" << *value << "\"";
+                first = false;
+            };
+            for (const auto &condition : selectors.conditionRefs)
+            {
+                if (!first)
+                {
+                    std::cout << ", ";
+                }
+                std::cout << "When=\"" << condition << "\"";
+                first = false;
+            }
+            append("Configuration", selectors.configuration);
+            append("OperatingSystem", selectors.operatingSystem);
+            append("Architecture", selectors.architecture);
+            append("BuildConfiguration", selectors.buildConfiguration);
+            append("Environment", selectors.environment);
+            if (selectors.impossible)
+            {
+                if (!first)
+                {
+                    std::cout << ", ";
+                }
+                std::cout << "contradictory";
+            }
+        }
+
+        auto PrintConditionalBuildSettings(
+            const std::string_view label,
+            const ProjectManifest &project,
+            const ConfigurationDefinition &configuration,
+            const std::vector<BuildSetting> &settings) -> void
+        {
+            bool printedHeader = false;
+            for (const auto &setting : settings)
+            {
+                if (!HasSelection(setting.selectors))
+                {
+                    continue;
+                }
+                if (!printedHeader)
+                {
+                    std::cout << "    " << label << ":\n";
+                    printedHeader = true;
+                }
+                std::cout << "      - " << setting.value << " "
+                          << (SelectionMatches(project, setting.selectors, configuration) ? "included" : "excluded")
+                          << " (";
+                PrintSelectorSummary(setting.selectors);
+                std::cout << ")\n";
+            }
+        }
     }
 
     auto ParseCommonArgs(int argc, char **argv, int startIndex) -> ParsedArgs
@@ -592,6 +665,56 @@ namespace NGIN::CLI
                 std::cout << " selected";
             }
             std::cout << "\n";
+        }
+        bool printedConditionsHeader = false;
+        for (const auto &unit : resolved.value->projectUnits)
+        {
+            if (unit.project.conditions.empty())
+            {
+                continue;
+            }
+            if (!printedConditionsHeader)
+            {
+                std::cout << "\nConditions:\n";
+                printedConditionsHeader = true;
+            }
+            std::cout << "  - " << unit.project.name << ":\n";
+            for (const auto &condition : unit.project.conditions)
+            {
+                SelectorSet selector{};
+                selector.conditionRefs.push_back(condition.name);
+                std::cout << "    " << condition.name << ": "
+                          << (SelectionMatches(unit.project, selector, unit.configuration) ? "matched" : "not matched")
+                          << "\n";
+            }
+        }
+
+        bool printedBuildSettingsHeader = false;
+        for (const auto &unit : resolved.value->projectUnits)
+        {
+            const auto hasConditionalBuildSettings =
+                std::any_of(unit.project.build.includeDirectories.begin(), unit.project.build.includeDirectories.end(), [](const BuildSetting &setting)
+                            { return HasSelection(setting.selectors); })
+                || std::any_of(unit.project.build.compileDefinitions.begin(), unit.project.build.compileDefinitions.end(), [](const BuildSetting &setting)
+                               { return HasSelection(setting.selectors); })
+                || std::any_of(unit.project.build.compileOptions.begin(), unit.project.build.compileOptions.end(), [](const BuildSetting &setting)
+                               { return HasSelection(setting.selectors); })
+                || std::any_of(unit.project.build.linkOptions.begin(), unit.project.build.linkOptions.end(), [](const BuildSetting &setting)
+                               { return HasSelection(setting.selectors); });
+            if (!hasConditionalBuildSettings)
+            {
+                continue;
+            }
+            if (!printedBuildSettingsHeader)
+            {
+                std::cout << "\nConditional build settings:\n";
+                printedBuildSettingsHeader = true;
+            }
+            std::cout << "  - " << unit.project.name << ":\n";
+            PrintConditionalBuildSettings("IncludeDirectories", unit.project, unit.configuration, unit.project.build.includeDirectories);
+            PrintConditionalBuildSettings("CompileDefinitions", unit.project, unit.configuration, unit.project.build.compileDefinitions);
+            PrintConditionalBuildSettings("CompileOptions", unit.project, unit.configuration, unit.project.build.compileOptions);
+            PrintConditionalBuildSettings("LinkOptions", unit.project, unit.configuration, unit.project.build.linkOptions);
         }
         PrintDiagnostics(resolved.diagnostics, "Graph", std::cout);
         return 0;

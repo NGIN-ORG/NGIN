@@ -449,6 +449,113 @@ TEST_CASE("typed project sources parse selector metadata and reject mixed legacy
     REQUIRE_THROWS_WITH(LoadProjectManifest(mixedPath), ContainsSubstring("may not declare both <SourceRoots> and <Sources>"));
 }
 
+TEST_CASE("structured conditions normalize with direct selectors and inherited group selection")
+{
+    TempDir temp{};
+    const auto projectPath = temp.path() / "Conditions.nginproj";
+    WriteFile(projectPath,
+              R"(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="2" Name="Conditions" Type="Application" DefaultConfiguration="Runtime">
+  <Conditions>
+    <Condition Name="Desktop">
+      <Any>
+        <Match OperatingSystem="linux" />
+        <Match OperatingSystem="windows" />
+      </Any>
+    </Condition>
+    <Condition Name="DebugBuild" BuildConfiguration="Debug" />
+    <Condition Name="DesktopDebug">
+      <All>
+        <ConditionRef Name="Desktop" />
+        <ConditionRef Name="DebugBuild" />
+      </All>
+    </Condition>
+  </Conditions>
+  <Sources>
+    <Private When="Desktop">
+      <Root Path="src" BuildConfiguration="Debug" />
+      <Files When="DebugBuild">
+        src/listed.cpp
+      </Files>
+    </Private>
+  </Sources>
+  <Output Kind="Executable" Name="Conditions" Target="Conditions" />
+  <Build Backend="CMake" Mode="Generated" Language="CXX" LanguageStandard="23">
+    <CompileDefinitions When="Desktop">
+      <Definition Value="CONDITIONS_DESKTOP" Visibility="Private" />
+      <Definition Value="CONDITIONS_DESKTOP_DEBUG" Visibility="Private" BuildConfiguration="Debug" />
+      <Definition Value="CONDITIONS_DESKTOP_RELEASE" Visibility="Private" BuildConfiguration="Release" />
+      <Definition Value="CONDITIONS_DESKTOP_DEBUG_REF" Visibility="Private" When="DebugBuild" />
+    </CompileDefinitions>
+  </Build>
+  <Environments>
+    <Environment Name="dev" />
+  </Environments>
+  <Configurations>
+    <Configuration Name="Runtime" BuildConfiguration="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev" />
+  </Configurations>
+</Project>
+)");
+
+    const auto project = LoadProjectManifest(projectPath);
+    const std::optional<std::string> configurationName{"Runtime"};
+    const auto &configuration = ConfigurationByName(project, configurationName);
+    REQUIRE(project.conditions.size() == 3);
+    REQUIRE(project.sources.has_value());
+    REQUIRE(project.sources->privateSources.roots.front().selectors.conditionRefs.size() == 1);
+    REQUIRE(project.sources->privateSources.roots.front().selectors.buildConfiguration == "Debug");
+    REQUIRE(SelectionMatches(project, project.sources->privateSources.roots.front().selectors, configuration));
+    REQUIRE(SelectionMatches(project, project.sources->privateSources.files.front().selectors, configuration));
+    REQUIRE(SelectionMatches(project, project.build.compileDefinitions[0].selectors, configuration));
+    REQUIRE(SelectionMatches(project, project.build.compileDefinitions[1].selectors, configuration));
+    REQUIRE_FALSE(SelectionMatches(project, project.build.compileDefinitions[2].selectors, configuration));
+    REQUIRE(SelectionMatches(project, project.build.compileDefinitions[3].selectors, configuration));
+
+    const auto unknownPath = temp.path() / "Unknown.nginproj";
+    WriteFile(unknownPath,
+              R"(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="2" Name="Unknown" Type="Application" DefaultConfiguration="Runtime">
+  <Sources>
+    <Private>
+      <Root Path="src" When="Missing" />
+    </Private>
+  </Sources>
+  <Output Kind="Executable" Name="Unknown" Target="Unknown" />
+  <Environments>
+    <Environment Name="dev" />
+  </Environments>
+  <Configurations>
+    <Configuration Name="Runtime" BuildConfiguration="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev" />
+  </Configurations>
+</Project>
+)");
+    REQUIRE_THROWS_WITH(LoadProjectManifest(unknownPath), ContainsSubstring("unknown When condition 'Missing'"));
+
+    const auto cyclePath = temp.path() / "Cycle.nginproj";
+    WriteFile(cyclePath,
+              R"(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="2" Name="Cycle" Type="Application" DefaultConfiguration="Runtime">
+  <Conditions>
+    <Condition Name="A"><ConditionRef Name="B" /></Condition>
+    <Condition Name="B"><ConditionRef Name="A" /></Condition>
+  </Conditions>
+  <Sources>
+    <Private>
+      <Root Path="src" />
+    </Private>
+  </Sources>
+  <Output Kind="Executable" Name="Cycle" Target="Cycle" />
+  <Environments>
+    <Environment Name="dev" />
+  </Environments>
+  <Configurations>
+    <Configuration Name="Runtime" BuildConfiguration="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev" />
+  </Configurations>
+</Project>
+)");
+    REQUIRE_THROWS_WITH(LoadProjectManifest(cyclePath), ContainsSubstring("condition reference cycle"));
+}
+
 TEST_CASE("generated CMake applies typed source selectors and selected build settings")
 {
     TempDir temp{};
@@ -456,6 +563,9 @@ TEST_CASE("generated CMake applies typed source selectors and selected build set
     WriteFile(projectPath,
               R"(<?xml version="1.0" encoding="utf-8"?>
 <Project SchemaVersion="2" Name="Typed.Library" Type="Library" DefaultConfiguration="Runtime">
+  <Conditions>
+    <Condition Name="LinuxDesktop" OperatingSystem="linux" />
+  </Conditions>
   <Sources>
     <Public>
       <Root Path="include" />
@@ -465,6 +575,8 @@ TEST_CASE("generated CMake applies typed source selectors and selected build set
       <Root Path="src" Include="**/*.cpp" Exclude="**/*.generated.cpp" />
       <Root Path="src/linux" OperatingSystem="linux" />
       <Root Path="src/windows" OperatingSystem="windows" />
+      <Root Path="src/conditional-enabled" When="LinuxDesktop" BuildConfiguration="Debug" />
+      <Root Path="src/conditional-disabled" When="LinuxDesktop" BuildConfiguration="Release" />
       <Files>
         manual/manual.cpp
       </Files>
@@ -477,7 +589,14 @@ TEST_CASE("generated CMake applies typed source selectors and selected build set
       <Definition Value="TYPED_LIBRARY_LINUX" Visibility="Private" OperatingSystem="linux" />
       <Definition Value="TYPED_LIBRARY_WINDOWS" Visibility="Private" OperatingSystem="windows" />
       <Definition Value="TYPED_LIBRARY_DEBUG" Visibility="Private" BuildConfiguration="Debug" />
+      <Definition Value="TYPED_LIBRARY_WHEN" Visibility="Private" When="LinuxDesktop" />
+      <Definition Value="TYPED_LIBRARY_WHEN_DEBUG" Visibility="Private" When="LinuxDesktop" BuildConfiguration="Debug" />
+      <Definition Value="TYPED_LIBRARY_WHEN_RELEASE" Visibility="Private" When="LinuxDesktop" BuildConfiguration="Release" />
     </CompileDefinitions>
+    <CompileOptions When="LinuxDesktop">
+      <Option Value="-DTYPED_GROUP_OPTION" Visibility="Private" BuildConfiguration="Debug" />
+      <Option Value="-DTYPED_GROUP_RELEASE_OPTION" Visibility="Private" BuildConfiguration="Release" />
+    </CompileOptions>
   </Build>
   <Environments>
     <Environment Name="dev" />
@@ -492,6 +611,8 @@ TEST_CASE("generated CMake applies typed source selectors and selected build set
     WriteFile(temp.path() / "Library/src/ignored.generated.cpp", "void typed_library_generated() {}\n");
     WriteFile(temp.path() / "Library/src/linux/linux.cpp", "void typed_library_linux() {}\n");
     WriteFile(temp.path() / "Library/src/windows/windows.cpp", "void typed_library_windows() {}\n");
+    WriteFile(temp.path() / "Library/src/conditional-enabled/enabled.cpp", "void typed_library_conditional_enabled() {}\n");
+    WriteFile(temp.path() / "Library/src/conditional-disabled/disabled.cpp", "void typed_library_conditional_disabled() {}\n");
     WriteFile(temp.path() / "Library/manual/manual.cpp", "void typed_library_manual() {}\n");
 
     const auto project = LoadProjectManifest(projectPath);
@@ -508,10 +629,17 @@ TEST_CASE("generated CMake applies typed source selectors and selected build set
     REQUIRE_THAT(generated, !ContainsSubstring((temp.path() / "Library/src/windows").generic_string()));
     REQUIRE_THAT(generated, ContainsSubstring("TYPED_LIBRARY_LINUX"));
     REQUIRE_THAT(generated, ContainsSubstring("TYPED_LIBRARY_DEBUG"));
+    REQUIRE_THAT(generated, ContainsSubstring("TYPED_LIBRARY_WHEN"));
+    REQUIRE_THAT(generated, ContainsSubstring("TYPED_LIBRARY_WHEN_DEBUG"));
     REQUIRE_THAT(generated, !ContainsSubstring("TYPED_LIBRARY_WINDOWS"));
+    REQUIRE_THAT(generated, !ContainsSubstring("TYPED_LIBRARY_WHEN_RELEASE"));
+    REQUIRE_THAT(generated, ContainsSubstring("-DTYPED_GROUP_OPTION"));
+    REQUIRE_THAT(generated, !ContainsSubstring("-DTYPED_GROUP_RELEASE_OPTION"));
     REQUIRE(CountOccurrences(generated, (temp.path() / "Library/src/core.cpp").generic_string()) == 1);
     REQUIRE(CountOccurrences(generated, (temp.path() / "Library/src/linux/linux.cpp").generic_string()) == 1);
     REQUIRE(CountOccurrences(generated, (temp.path() / "Library/src/windows/windows.cpp").generic_string()) == 0);
+    REQUIRE(CountOccurrences(generated, (temp.path() / "Library/src/conditional-enabled/enabled.cpp").generic_string()) == 1);
+    REQUIRE(CountOccurrences(generated, (temp.path() / "Library/src/conditional-disabled/disabled.cpp").generic_string()) == 0);
     REQUIRE(CountOccurrences(generated, (temp.path() / "Library/src/ignored.generated.cpp").generic_string()) == 0);
     REQUIRE(CountOccurrences(generated, (temp.path() / "Library/manual/manual.cpp").generic_string()) == 1);
 }

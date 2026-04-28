@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <functional>
 #include <set>
 #include <sstream>
 #include <unordered_map>
@@ -50,9 +51,72 @@ namespace NGIN::CLI
             return value == "Manual" || value == "FindPackage" || value == "AddSubdirectory";
         }
 
+        [[nodiscard]] auto IsSelectorAttribute(const std::string_view name) -> bool
+        {
+            return name == "Configuration" || name == "OperatingSystem" || name == "Architecture" || name == "BuildConfiguration" || name == "Environment";
+        }
+
+        [[nodiscard]] auto IsValidManifestIdentifier(const std::string_view value) -> bool
+        {
+            if (value.empty())
+            {
+                return false;
+            }
+            const auto first = static_cast<unsigned char>(value.front());
+            if (!std::isalpha(first) && value.front() != '_')
+            {
+                return false;
+            }
+            return std::all_of(
+                value.begin() + 1,
+                value.end(),
+                [](const char ch)
+                {
+                    const auto value = static_cast<unsigned char>(ch);
+                    return std::isalnum(value) || ch == '_' || ch == '.' || ch == '-';
+                });
+        }
+
+        [[nodiscard]] auto HasSelectorAttributes(const XmlElement &node) -> bool
+        {
+            for (NGIN::UIntSize index = 0; index < node.attributes.Size(); ++index)
+            {
+                if (IsSelectorAttribute(node.attributes[index].name))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        auto ValidateAllowedAttributes(const XmlElement &node, const fs::path &path, const std::vector<std::string_view> &allowed) -> void
+        {
+            for (NGIN::UIntSize index = 0; index < node.attributes.Size(); ++index)
+            {
+                const auto name = node.attributes[index].name;
+                const auto isAllowed = std::any_of(
+                    allowed.begin(),
+                    allowed.end(),
+                    [name](const std::string_view allowedName)
+                    { return name == allowedName; });
+                if (!isAllowed)
+                {
+                    throw std::runtime_error(path.string() + ": unsupported attribute '" + std::string(name) + "' on <" + std::string(node.name) + ">");
+                }
+            }
+        }
+
         [[nodiscard]] auto ParseSelectors(const XmlElement &node, const fs::path &path) -> SelectorSet
         {
             SelectorSet selectors{};
+            if (const auto value = Attribute(node, "Configuration"); value.has_value() && !value->empty())
+            {
+                if (!IsValidManifestIdentifier(*value))
+                {
+                    throw std::runtime_error(path.string() + ": invalid configuration selector '" + *value + "'");
+                }
+                selectors.configuration = *value;
+            }
             if (const auto value = Attribute(node, "OperatingSystem"); value.has_value() && !value->empty())
             {
                 if (!IsValidOperatingSystem(*value))
@@ -77,6 +141,65 @@ namespace NGIN::CLI
                 }
                 selectors.buildConfiguration = *value;
             }
+            if (const auto value = Attribute(node, "Environment"); value.has_value() && !value->empty())
+            {
+                if (!IsValidManifestIdentifier(*value))
+                {
+                    throw std::runtime_error(path.string() + ": invalid environment selector '" + *value + "'");
+                }
+                selectors.environment = *value;
+            }
+            return selectors;
+        }
+
+        auto AddWhenSelector(const XmlElement &node, const fs::path &path, SelectorSet &selectors) -> void
+        {
+            if (const auto when = Attribute(node, "When"); when.has_value() && !when->empty())
+            {
+                if (!IsValidManifestIdentifier(*when))
+                {
+                    throw std::runtime_error(path.string() + ": invalid When condition name '" + *when + "'");
+                }
+                selectors.conditionRefs.push_back(*when);
+            }
+        }
+
+        auto MergeStringSelector(
+            std::optional<std::string> &target,
+            const std::optional<std::string> &source,
+            bool &impossible) -> void
+        {
+            if (!source.has_value())
+            {
+                return;
+            }
+            if (!target.has_value())
+            {
+                target = source;
+                return;
+            }
+            if (*target != *source)
+            {
+                impossible = true;
+            }
+        }
+
+        [[nodiscard]] auto MergeSelectors(SelectorSet left, const SelectorSet &right) -> SelectorSet
+        {
+            left.impossible = left.impossible || right.impossible;
+            MergeStringSelector(left.configuration, right.configuration, left.impossible);
+            MergeStringSelector(left.operatingSystem, right.operatingSystem, left.impossible);
+            MergeStringSelector(left.architecture, right.architecture, left.impossible);
+            MergeStringSelector(left.buildConfiguration, right.buildConfiguration, left.impossible);
+            MergeStringSelector(left.environment, right.environment, left.impossible);
+            left.conditionRefs.insert(left.conditionRefs.end(), right.conditionRefs.begin(), right.conditionRefs.end());
+            return left;
+        }
+
+        [[nodiscard]] auto ParseSelection(const XmlElement &node, const fs::path &path) -> SelectorSet
+        {
+            auto selectors = ParseSelectors(node, path);
+            AddWhenSelector(node, path, selectors);
             return selectors;
         }
 
@@ -429,7 +552,7 @@ namespace NGIN::CLI
             return module;
         }
 
-        [[nodiscard]] auto ParseBuildSetting(const XmlElement &node, const fs::path &path, std::string_view valueAttribute) -> BuildSetting
+        [[nodiscard]] auto ParseBuildSetting(const XmlElement &node, const fs::path &path, std::string_view valueAttribute, const SelectorSet &inheritedSelection = {}) -> BuildSetting
         {
             BuildSetting setting{};
             setting.value = RequireAttribute(node, valueAttribute, path);
@@ -438,21 +561,21 @@ namespace NGIN::CLI
             {
                 throw std::runtime_error(path.string() + ": unknown build visibility '" + setting.visibility + "'");
             }
-            setting.selectors = ParseSelectors(node, path);
+            setting.selectors = MergeSelectors(inheritedSelection, ParseSelection(node, path));
             return setting;
         }
 
-        [[nodiscard]] auto ParseSourceEntry(const XmlElement &node, const fs::path &path) -> SourceEntry
+        [[nodiscard]] auto ParseSourceEntry(const XmlElement &node, const fs::path &path, const SelectorSet &inheritedSelection = {}) -> SourceEntry
         {
             SourceEntry entry{};
             entry.path = RequireAttribute(node, "Path", path);
-            entry.selectors = ParseSelectors(node, path);
+            entry.selectors = MergeSelectors(inheritedSelection, ParseSelection(node, path));
             entry.includePatterns = OptionalPathListAttribute(node, "Include");
             entry.excludePatterns = OptionalPathListAttribute(node, "Exclude");
             return entry;
         }
 
-        [[nodiscard]] auto ParseSourceFiles(const XmlElement &node, const fs::path &path) -> std::vector<SourceEntry>
+        [[nodiscard]] auto ParseSourceFiles(const XmlElement &node, const fs::path &path, const SelectorSet &inheritedSelection = {}) -> std::vector<SourceEntry>
         {
             if (!ChildElements(node).empty())
             {
@@ -460,7 +583,7 @@ namespace NGIN::CLI
             }
 
             std::vector<SourceEntry> entries{};
-            const auto selectors = ParseSelectors(node, path);
+            const auto selectors = MergeSelectors(inheritedSelection, ParseSelection(node, path));
             for (const auto &filePath : SplitPathList(TextContent(node)))
             {
                 SourceEntry entry{};
@@ -477,21 +600,22 @@ namespace NGIN::CLI
 
         auto ParseSourceGroup(const XmlElement &group, const fs::path &path, SourceGroup &out) -> void
         {
+            const auto inheritedSelection = ParseSelection(group, path);
             for (const auto *child : ChildElements(group))
             {
                 if (child->name == "Root")
                 {
-                    out.roots.push_back(ParseSourceEntry(*child, path));
+                    out.roots.push_back(ParseSourceEntry(*child, path, inheritedSelection));
                     continue;
                 }
                 if (child->name == "File")
                 {
-                    out.files.push_back(ParseSourceEntry(*child, path));
+                    out.files.push_back(ParseSourceEntry(*child, path, inheritedSelection));
                     continue;
                 }
                 if (child->name == "Files")
                 {
-                    auto entries = ParseSourceFiles(*child, path);
+                    auto entries = ParseSourceFiles(*child, path, inheritedSelection);
                     out.files.insert(out.files.end(), entries.begin(), entries.end());
                     continue;
                 }
@@ -517,6 +641,147 @@ namespace NGIN::CLI
                 throw std::runtime_error(path.string() + ": unsupported <Sources> child <" + std::string(child->name) + ">");
             }
             return parsed;
+        }
+
+        [[nodiscard]] auto IsConditionNodeName(const std::string_view name) -> bool
+        {
+            return name == "Match" || name == "All" || name == "Any" || name == "Not" || name == "ConditionRef";
+        }
+
+        [[nodiscard]] auto ParseConditionNode(const XmlElement &node, const fs::path &path) -> ConditionNode
+        {
+            if (!Trim(TextContent(node)).empty())
+            {
+                throw std::runtime_error(path.string() + ": <" + std::string(node.name) + "> condition nodes may not contain text");
+            }
+
+            ConditionNode parsed{};
+            if (node.name == "Match")
+            {
+                ValidateAllowedAttributes(node, path, {"Configuration", "OperatingSystem", "Architecture", "BuildConfiguration", "Environment"});
+                if (!HasSelectorAttributes(node))
+                {
+                    throw std::runtime_error(path.string() + ": <Match> must declare at least one selector attribute");
+                }
+                parsed.kind = ConditionNode::Kind::Match;
+                parsed.match = ParseSelectors(node, path);
+                return parsed;
+            }
+            if (node.name == "ConditionRef")
+            {
+                ValidateAllowedAttributes(node, path, {"Name"});
+                parsed.kind = ConditionNode::Kind::ConditionRef;
+                parsed.conditionName = RequireAttribute(node, "Name", path);
+                if (!IsValidManifestIdentifier(parsed.conditionName))
+                {
+                    throw std::runtime_error(path.string() + ": invalid condition reference '" + parsed.conditionName + "'");
+                }
+                return parsed;
+            }
+            if (node.name == "All" || node.name == "Any" || node.name == "Not")
+            {
+                ValidateAllowedAttributes(node, path, {});
+                parsed.kind = node.name == "All" ? ConditionNode::Kind::All : node.name == "Any" ? ConditionNode::Kind::Any : ConditionNode::Kind::Not;
+                for (const auto *child : ChildElements(node))
+                {
+                    if (!IsConditionNodeName(child->name))
+                    {
+                        throw std::runtime_error(path.string() + ": unsupported condition child <" + std::string(child->name) + ">");
+                    }
+                    parsed.children.push_back(ParseConditionNode(*child, path));
+                }
+                if ((parsed.kind == ConditionNode::Kind::All || parsed.kind == ConditionNode::Kind::Any) && parsed.children.empty())
+                {
+                    throw std::runtime_error(path.string() + ": <" + std::string(node.name) + "> must contain at least one condition node");
+                }
+                if (parsed.kind == ConditionNode::Kind::Not && parsed.children.size() != 1)
+                {
+                    throw std::runtime_error(path.string() + ": <Not> must contain exactly one condition node");
+                }
+                return parsed;
+            }
+            throw std::runtime_error(path.string() + ": unsupported condition node <" + std::string(node.name) + ">");
+        }
+
+        [[nodiscard]] auto ParseConditionDefinition(const XmlElement &node, const fs::path &path) -> ConditionDefinition
+        {
+            ConditionDefinition condition{};
+            condition.name = RequireAttribute(node, "Name", path);
+            if (!IsValidManifestIdentifier(condition.name))
+            {
+                throw std::runtime_error(path.string() + ": invalid condition name '" + condition.name + "'");
+            }
+
+            std::vector<std::string_view> allowedAttributes{"Name", "Configuration", "OperatingSystem", "Architecture", "BuildConfiguration", "Environment"};
+            ValidateAllowedAttributes(node, path, allowedAttributes);
+
+            const auto hasSelectors = HasSelectorAttributes(node);
+            const auto children = ChildElements(node);
+            if (hasSelectors && !children.empty())
+            {
+                throw std::runtime_error(path.string() + ": condition '" + condition.name + "' may not mix selector attributes with child condition nodes");
+            }
+            if (!hasSelectors && children.empty())
+            {
+                throw std::runtime_error(path.string() + ": condition '" + condition.name + "' must define exactly one body");
+            }
+            if (children.size() > 1)
+            {
+                throw std::runtime_error(path.string() + ": condition '" + condition.name + "' must define exactly one body");
+            }
+            if (!Trim(TextContent(node)).empty())
+            {
+                throw std::runtime_error(path.string() + ": <Condition> may not contain text");
+            }
+
+            if (hasSelectors)
+            {
+                condition.body.kind = ConditionNode::Kind::Match;
+                condition.body.match = ParseSelectors(node, path);
+                return condition;
+            }
+
+            if (!IsConditionNodeName(children.front()->name))
+            {
+                throw std::runtime_error(path.string() + ": unsupported <Condition> child <" + std::string(children.front()->name) + ">");
+            }
+            condition.body = ParseConditionNode(*children.front(), path);
+            return condition;
+        }
+
+        [[nodiscard]] auto ParseConditions(const XmlElement &root, const fs::path &path) -> std::vector<ConditionDefinition>
+        {
+            const auto conditionSections = ChildElements(root, "Conditions");
+            if (conditionSections.size() > 1)
+            {
+                throw std::runtime_error(path.string() + ": project may declare at most one <Conditions> section");
+            }
+            if (conditionSections.empty())
+            {
+                return {};
+            }
+
+            std::vector<ConditionDefinition> conditions{};
+            std::set<std::string> seen{};
+            std::set<std::string> seenLower{};
+            for (const auto *child : ChildElements(*conditionSections.front()))
+            {
+                if (child->name != "Condition")
+                {
+                    throw std::runtime_error(path.string() + ": unsupported <Conditions> child <" + std::string(child->name) + ">");
+                }
+                auto condition = ParseConditionDefinition(*child, path);
+                if (!seen.insert(condition.name).second)
+                {
+                    throw std::runtime_error(path.string() + ": duplicate condition name '" + condition.name + "'");
+                }
+                if (!seenLower.insert(Lower(condition.name)).second)
+                {
+                    throw std::runtime_error(path.string() + ": condition names may not differ only by case");
+                }
+                conditions.push_back(std::move(condition));
+            }
+            return conditions;
         }
 
         auto LoadProjectBuildDescriptor(ProjectBuildDescriptor &build, const XmlElement *buildElement, const fs::path &path) -> void
@@ -561,33 +826,37 @@ namespace NGIN::CLI
 
             if (const auto *includeDirectories = FindChild(*buildElement, "IncludeDirectories"))
             {
+                const auto inheritedSelection = ParseSelection(*includeDirectories, path);
                 for (const auto *item : ChildElements(*includeDirectories, "IncludeDirectory"))
                 {
-                    build.includeDirectories.push_back(ParseBuildSetting(*item, path, "Path"));
+                    build.includeDirectories.push_back(ParseBuildSetting(*item, path, "Path", inheritedSelection));
                 }
             }
 
             if (const auto *compileDefinitions = FindChild(*buildElement, "CompileDefinitions"))
             {
+                const auto inheritedSelection = ParseSelection(*compileDefinitions, path);
                 for (const auto *item : ChildElements(*compileDefinitions, "Definition"))
                 {
-                    build.compileDefinitions.push_back(ParseBuildSetting(*item, path, "Value"));
+                    build.compileDefinitions.push_back(ParseBuildSetting(*item, path, "Value", inheritedSelection));
                 }
             }
 
             if (const auto *compileOptions = FindChild(*buildElement, "CompileOptions"))
             {
+                const auto inheritedSelection = ParseSelection(*compileOptions, path);
                 for (const auto *item : ChildElements(*compileOptions, "Option"))
                 {
-                    build.compileOptions.push_back(ParseBuildSetting(*item, path, "Value"));
+                    build.compileOptions.push_back(ParseBuildSetting(*item, path, "Value", inheritedSelection));
                 }
             }
 
             if (const auto *linkOptions = FindChild(*buildElement, "LinkOptions"))
             {
+                const auto inheritedSelection = ParseSelection(*linkOptions, path);
                 for (const auto *item : ChildElements(*linkOptions, "Option"))
                 {
-                    build.linkOptions.push_back(ParseBuildSetting(*item, path, "Value"));
+                    build.linkOptions.push_back(ParseBuildSetting(*item, path, "Value", inheritedSelection));
                 }
             }
         }
@@ -614,6 +883,204 @@ namespace NGIN::CLI
                     build.options.push_back(std::move(variable));
                 }
             }
+        }
+
+        [[nodiscard]] auto ConditionMap(const ProjectManifest &project) -> std::unordered_map<std::string, const ConditionDefinition *>
+        {
+            std::unordered_map<std::string, const ConditionDefinition *> conditions{};
+            for (const auto &condition : project.conditions)
+            {
+                conditions.emplace(condition.name, &condition);
+            }
+            return conditions;
+        }
+
+        auto CollectConditionRefs(const ConditionNode &node, std::vector<std::string> &refs) -> void
+        {
+            if (node.kind == ConditionNode::Kind::ConditionRef)
+            {
+                refs.push_back(node.conditionName);
+            }
+            for (const auto &child : node.children)
+            {
+                CollectConditionRefs(child, refs);
+            }
+        }
+
+        auto ValidateSelectionConditionRefs(
+            const SelectorSet &selectors,
+            const std::unordered_map<std::string, const ConditionDefinition *> &conditions,
+            const fs::path &path) -> void
+        {
+            for (const auto &conditionName : selectors.conditionRefs)
+            {
+                if (!conditions.contains(conditionName))
+                {
+                    throw std::runtime_error(path.string() + ": unknown When condition '" + conditionName + "'");
+                }
+            }
+        }
+
+        auto ValidateSourceGroupConditionRefs(
+            const SourceGroup &group,
+            const std::unordered_map<std::string, const ConditionDefinition *> &conditions,
+            const fs::path &path) -> void
+        {
+            for (const auto &root : group.roots)
+            {
+                ValidateSelectionConditionRefs(root.selectors, conditions, path);
+            }
+            for (const auto &file : group.files)
+            {
+                ValidateSelectionConditionRefs(file.selectors, conditions, path);
+            }
+        }
+
+        auto ValidateBuildSettingConditionRefs(
+            const std::vector<BuildSetting> &settings,
+            const std::unordered_map<std::string, const ConditionDefinition *> &conditions,
+            const fs::path &path) -> void
+        {
+            for (const auto &setting : settings)
+            {
+                ValidateSelectionConditionRefs(setting.selectors, conditions, path);
+            }
+        }
+
+        auto ValidateConditionReferences(const ProjectManifest &project, const fs::path &path) -> void
+        {
+            const auto conditions = ConditionMap(project);
+            for (const auto &condition : project.conditions)
+            {
+                std::vector<std::string> refs{};
+                CollectConditionRefs(condition.body, refs);
+                for (const auto &ref : refs)
+                {
+                    if (!conditions.contains(ref))
+                    {
+                        throw std::runtime_error(path.string() + ": condition '" + condition.name + "' references unknown condition '" + ref + "'");
+                    }
+                }
+            }
+
+            enum class VisitState
+            {
+                Visiting,
+                Visited
+            };
+            std::unordered_map<std::string, VisitState> state{};
+            std::function<void(const std::string &)> visit = [&](const std::string &name)
+            {
+                if (const auto it = state.find(name); it != state.end())
+                {
+                    if (it->second == VisitState::Visiting)
+                    {
+                        throw std::runtime_error(path.string() + ": condition reference cycle involving '" + name + "'");
+                    }
+                    return;
+                }
+                state.emplace(name, VisitState::Visiting);
+                std::vector<std::string> refs{};
+                CollectConditionRefs(conditions.at(name)->body, refs);
+                for (const auto &ref : refs)
+                {
+                    visit(ref);
+                }
+                state[name] = VisitState::Visited;
+            };
+            for (const auto &condition : project.conditions)
+            {
+                visit(condition.name);
+            }
+
+            if (project.sources.has_value())
+            {
+                ValidateSourceGroupConditionRefs(project.sources->publicSources, conditions, path);
+                ValidateSourceGroupConditionRefs(project.sources->privateSources, conditions, path);
+            }
+            ValidateBuildSettingConditionRefs(project.build.includeDirectories, conditions, path);
+            ValidateBuildSettingConditionRefs(project.build.compileDefinitions, conditions, path);
+            ValidateBuildSettingConditionRefs(project.build.compileOptions, conditions, path);
+            ValidateBuildSettingConditionRefs(project.build.linkOptions, conditions, path);
+        }
+
+        [[nodiscard]] auto DirectSelectorsMatch(const SelectorSet &selectors, const ConfigurationDefinition &configuration) -> bool
+        {
+            if (selectors.impossible)
+            {
+                return false;
+            }
+            if (selectors.configuration.has_value() && *selectors.configuration != configuration.name)
+            {
+                return false;
+            }
+            if (selectors.operatingSystem.has_value() && *selectors.operatingSystem != configuration.operatingSystem)
+            {
+                return false;
+            }
+            if (selectors.architecture.has_value() && *selectors.architecture != configuration.architecture)
+            {
+                return false;
+            }
+            if (selectors.buildConfiguration.has_value() && *selectors.buildConfiguration != configuration.buildConfiguration)
+            {
+                return false;
+            }
+            if (selectors.environment.has_value() && *selectors.environment != configuration.environmentName)
+            {
+                return false;
+            }
+            return true;
+        }
+
+        [[nodiscard]] auto ConditionNodeMatches(
+            const ConditionNode &node,
+            const ProjectManifest &project,
+            const ConfigurationDefinition &configuration,
+            const std::unordered_map<std::string, const ConditionDefinition *> &conditions) -> bool;
+
+        [[nodiscard]] auto ConditionRefMatches(
+            const std::string &name,
+            const ProjectManifest &project,
+            const ConfigurationDefinition &configuration,
+            const std::unordered_map<std::string, const ConditionDefinition *> &conditions) -> bool
+        {
+            const auto it = conditions.find(name);
+            if (it == conditions.end())
+            {
+                return false;
+            }
+            return ConditionNodeMatches(it->second->body, project, configuration, conditions);
+        }
+
+        [[nodiscard]] auto ConditionNodeMatches(
+            const ConditionNode &node,
+            const ProjectManifest &project,
+            const ConfigurationDefinition &configuration,
+            const std::unordered_map<std::string, const ConditionDefinition *> &conditions) -> bool
+        {
+            switch (node.kind)
+            {
+            case ConditionNode::Kind::Match:
+                return DirectSelectorsMatch(node.match, configuration);
+            case ConditionNode::Kind::All:
+                return std::all_of(
+                    node.children.begin(),
+                    node.children.end(),
+                    [&](const ConditionNode &child)
+                    { return ConditionNodeMatches(child, project, configuration, conditions); });
+            case ConditionNode::Kind::Any:
+                return std::any_of(
+                    node.children.begin(),
+                    node.children.end(),
+                    [&](const ConditionNode &child)
+                    { return ConditionNodeMatches(child, project, configuration, conditions); });
+            case ConditionNode::Kind::Not:
+                return node.children.size() == 1 && !ConditionNodeMatches(node.children.front(), project, configuration, conditions);
+            case ConditionNode::Kind::ConditionRef:
+                return ConditionRefMatches(node.conditionName, project, configuration, conditions);
+            }
+            return false;
         }
     }
 
@@ -658,6 +1125,20 @@ namespace NGIN::CLI
             return outputKind == "StaticLibrary" || outputKind == "SharedLibrary";
         }
         return false;
+    }
+
+    [[nodiscard]] auto SelectionMatches(const ProjectManifest &project, const SelectorSet &selectors, const ConfigurationDefinition &configuration) -> bool
+    {
+        if (!DirectSelectorsMatch(selectors, configuration))
+        {
+            return false;
+        }
+        const auto conditions = ConditionMap(project);
+        return std::all_of(
+            selectors.conditionRefs.begin(),
+            selectors.conditionRefs.end(),
+            [&](const std::string &conditionName)
+            { return ConditionRefMatches(conditionName, project, configuration, conditions); });
     }
 
     [[nodiscard]] auto WorkspaceFilePath(const fs::path &root) -> std::optional<fs::path>
@@ -995,6 +1476,7 @@ namespace NGIN::CLI
         {
             throw std::runtime_error(path.string() + ": legacy <Host> is no longer supported");
         }
+        project.conditions = ParseConditions(*rootElement, path);
 
         const auto *sourceRoots = FindChild(*rootElement, "SourceRoots");
         const auto *sources = FindChild(*rootElement, "Sources");
@@ -1174,6 +1656,7 @@ namespace NGIN::CLI
                 throw std::runtime_error(path.string() + ": configuration '" + configuration.name + "' selects unknown environment '" + configuration.environmentName + "'");
             }
         }
+        ValidateConditionReferences(project, path);
 
         return project;
     }

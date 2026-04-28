@@ -1,45 +1,156 @@
 # NGIN Structured Conditions Plan
 
+Status: Implemented
+
 ## Summary
 
-NGIN manifests need a powerful condition model for selecting authored inputs
-based on the active build and runtime configuration. The model should be more
-toolable and less stringly typed than free-form inline expressions.
+NGIN manifests need one coherent selection model for authored inputs. Direct
+typed selectors and named conditions should not be separate systems. They should
+normalize into the same structured condition model and evaluate against the same
+resolved selection context.
 
-This plan introduces a root-level `<Conditions>` section with named, structured
-conditions. Manifest items can reference those conditions through `When="..."`.
-Simple typed selectors can still exist later, but reusable named conditions
-should be the first-class model for non-trivial selection.
+This plan introduces project-local named conditions through a root-level
+`<Conditions>` section and refactors manifest selection so all supported item
+selection uses one engine:
 
-Source ownership changes, including `<Sources><Public>` and
-`<Sources><Private>`, are intentionally deferred. This plan defines conditions
-as a general manifest capability first, then source selection can consume it
-after the condition contract is settled.
+- direct selector attributes for simple local AND-only selection
+- `When="..."` for reusable named conditions
+- direct selector attributes plus `When` on the same item as implicit AND
+- structured `All`, `Any`, `Not`, `Match`, and `ConditionRef` nodes for
+  reusable non-trivial logic
+
+The user-facing goal is a simple ladder of complexity. Authors should write the
+short form for common cases and use named conditions only when the condition is
+shared, has OR/NOT logic, or benefits from a meaningful name.
 
 ## Goals
 
+- Unify direct typed selectors and `When` under one manifest selection engine.
 - Add reusable named conditions to `.nginproj`.
-- Support AND, OR, and NOT logic without introducing a free-form expression
-  language as the primary model.
-- Keep conditions schema-validatable and inspectable by tooling.
-- Make diagnostics explain why a conditional item was included or excluded.
-- Match against existing configuration concepts such as operating system,
-  architecture, build configuration, environment, and configuration name.
+- Allow direct selectors and `When` on the same item as implicit AND.
+- Support AND, OR, and NOT logic without making free-form string expressions
+  the primary model.
+- Keep condition authoring schema-validatable and inspectable by tooling.
+- Make diagnostics explain why a selected item was included or excluded.
+- Preserve concise direct selectors for simple local conditions.
+- Reuse the same selection semantics across sources, build settings, and later
+  manifest surfaces where selection is appropriate.
 - Leave room for a later expression escape hatch without depending on it.
 
 ## Non-Goals
 
-- Do not implement source visibility changes in this plan.
+- Do not replace direct typed selectors with mandatory named conditions.
+- Do not introduce arbitrary scripting.
 - Do not make free-form string expressions the default condition model.
-- Do not support arbitrary scripting.
-- Do not add package restore or dependency resolution conditions yet.
-- Do not export project conditions to referenced projects or packages.
+- Do not let conditions select or mutate the active project configuration.
+- Do not add package restore or dependency resolution conditions in the first
+  implementation.
+- Do not export project conditions to referenced projects or packages in the
+  first implementation.
 - Do not allow packages to contribute conditions to consuming projects yet.
 - Do not remove existing configuration-specific manifest sections.
 
-## User-Facing Model
+## Authoring Model
 
-A project can define named conditions:
+### Simple Local Selection
+
+Simple AND-only selection should use direct selector attributes:
+
+```xml
+<Definition Value="NGIN_DEBUG_TOOLS"
+            Visibility="Private"
+            BuildConfiguration="Debug" />
+```
+
+Multiple direct selector attributes are combined with AND:
+
+```xml
+<File Path="src/platform/LinuxDebug.cpp"
+      OperatingSystem="linux"
+      BuildConfiguration="Debug" />
+```
+
+### Reusable Named Selection
+
+Reusable conditions are declared once and referenced by name:
+
+```xml
+<Conditions>
+  <Condition Name="Desktop">
+    <Any>
+      <Match OperatingSystem="windows" />
+      <Match OperatingSystem="linux" />
+      <Match OperatingSystem="macos" />
+    </Any>
+  </Condition>
+</Conditions>
+
+<Definition Value="NGIN_DESKTOP"
+            Visibility="Private"
+            When="Desktop" />
+```
+
+### Combined Local And Reusable Selection
+
+`When` and direct selectors may be used together. The effective selection is an
+implicit AND:
+
+```xml
+<Definition Value="NGIN_DESKTOP_DEBUG"
+            Visibility="Private"
+            When="Desktop"
+            BuildConfiguration="Debug" />
+```
+
+That item is equivalent to:
+
+```xml
+<All>
+  <ConditionRef Name="Desktop" />
+  <Match BuildConfiguration="Debug" />
+</All>
+```
+
+This avoids tiny one-off named conditions when only part of the condition needs
+to be reusable.
+
+### Group Selection
+
+Groups may carry selection when the group has clear containment semantics. A
+group-level condition is inherited by every child as an implicit AND.
+
+```xml
+<CompileDefinitions When="Desktop">
+  <Definition Value="NGIN_DESKTOP" />
+  <Definition Value="NGIN_DESKTOP_DEBUG"
+              BuildConfiguration="Debug" />
+</CompileDefinitions>
+```
+
+The second definition is selected only when both `Desktop` and
+`BuildConfiguration="Debug"` match.
+
+`<Files>` already behaves like a group for line-separated file lists:
+
+```xml
+<Files OperatingSystem="linux">
+  src/platform/linux_window.cpp
+  src/platform/linux_entry.cpp
+</Files>
+```
+
+The same inheritance rule should apply if `When` is added to `<Files>`:
+
+```xml
+<Files When="Desktop" OperatingSystem="linux">
+  src/platform/linux_window.cpp
+  src/platform/linux_entry.cpp
+</Files>
+```
+
+## Conditions Section
+
+A project may define reusable named conditions:
 
 ```xml
 <Conditions>
@@ -60,23 +171,8 @@ A project can define named conditions:
 </Conditions>
 ```
 
-Items can reference a named condition:
-
-```xml
-<Build Backend="CMake"
-       Mode="Generated"
-       Language="CXX"
-       LanguageStandard="23">
-  <CompileDefinitions>
-    <Definition Value="NGIN_LINUX_DEBUG"
-                Visibility="Private"
-                When="LinuxDebugBuild" />
-  </CompileDefinitions>
-</Build>
-```
-
-Simple single-match conditions can use attributes directly on `<Condition>` as
-shorthand:
+Simple single-match conditions can use selector attributes directly on
+`<Condition>` as shorthand:
 
 ```xml
 <Conditions>
@@ -97,9 +193,9 @@ Selector attributes on `Condition` are shorthand for one `Match` node. Multiple
 selector attributes on `Condition` are combined with AND, exactly like multiple
 attributes on `Match`.
 
-On `Condition`, `Name` is the only non-selector attribute in v1. Any other
-attribute must be a known selector attribute. Unknown attributes are validation
-errors.
+On `Condition`, `Name` is the only non-selector attribute in the base model.
+Any other attribute must be a known selector attribute. Unknown attributes are
+validation errors.
 
 ## Structured Logic
 
@@ -159,10 +255,10 @@ Named conditions can be reused through `ConditionRef`:
 </Condition>
 ```
 
-Forward references should be allowed. A condition may reference another
-condition that is declared later in the same `<Conditions>` section. Tooling
-should collect all condition names before validating `ConditionRef` references
-and cycles.
+Forward references are allowed. A condition may reference another condition
+that is declared later in the same `<Conditions>` section. Tooling should
+collect all condition names before validating `ConditionRef` references and
+cycles.
 
 `ConditionRef` resolves only against the current project manifest's
 `<Conditions>` section in the first implementation. Workspace conditions,
@@ -178,12 +274,76 @@ one condition to alias another condition:
 </Condition>
 ```
 
+## Selection Normalization
+
+Every selectable item should normalize to an effective condition tree.
+
+An item with no direct selectors and no `When` is unconditional:
+
+```xml
+<Definition Value="NGIN_ALWAYS_ON" />
+```
+
+Normalized form:
+
+```text
+Always
+```
+
+An item with direct selectors becomes one `Match`:
+
+```xml
+<Definition Value="NGIN_LINUX_DEBUG"
+            OperatingSystem="linux"
+            BuildConfiguration="Debug" />
+```
+
+Normalized form:
+
+```xml
+<Match OperatingSystem="linux"
+       BuildConfiguration="Debug" />
+```
+
+An item with only `When` becomes one `ConditionRef`:
+
+```xml
+<Definition Value="NGIN_DESKTOP"
+            When="Desktop" />
+```
+
+Normalized form:
+
+```xml
+<ConditionRef Name="Desktop" />
+```
+
+An item with both direct selectors and `When` becomes an `All`:
+
+```xml
+<Definition Value="NGIN_DESKTOP_DEBUG"
+            When="Desktop"
+            BuildConfiguration="Debug" />
+```
+
+Normalized form:
+
+```xml
+<All>
+  <ConditionRef Name="Desktop" />
+  <Match BuildConfiguration="Debug" />
+</All>
+```
+
+If a parent group has a selection condition, the child effective condition is
+the AND of all ancestor selection conditions and the child selection condition.
+
 ## Condition Body Rules
 
-A `Condition` must define exactly one condition body:
+A `Condition` must define exactly one body:
 
 - selector attributes on the `Condition` element, or
-- exactly one child node.
+- exactly one child condition node.
 
 Supported child nodes are:
 
@@ -214,7 +374,7 @@ These forms are valid:
 </Condition>
 ```
 
-This mixed form should be invalid:
+This mixed form is invalid:
 
 ```xml
 <Condition Name="Mixed" OperatingSystem="linux">
@@ -229,8 +389,8 @@ selector attribute.
 An empty `<Conditions />` section is valid and has no effect.
 
 A project manifest may contain at most one root-level `<Conditions>` section.
-When present, the canonical root order places `<Conditions>` after
-`<Sources>` or legacy `<SourceRoots>` and before `<Output>`.
+When present, the canonical root order places `<Conditions>` after `<Sources>`
+or legacy `<SourceRoots>` and before `<Output>`.
 
 `All`, `Any`, and `Not` may contain only supported condition nodes. Unknown
 child elements are validation errors. Non-whitespace text content inside
@@ -257,9 +417,9 @@ Condition names should be manifest identifiers:
 [A-Za-z_][A-Za-z0-9_.-]*
 ```
 
-Condition references are exact. Validation should also reject condition names
-that differ only by case, such as `Linux` and `linux`, to avoid confusing
-editor, filesystem, and CLI behavior.
+Condition references are exact. Validation should reject condition names that
+differ only by case, such as `Linux` and `linux`, to avoid confusing editor,
+filesystem, and CLI behavior.
 
 ## Selection Context
 
@@ -272,7 +432,7 @@ selected project configuration and that do not create circular build semantics:
 - `Architecture`
 - `Environment`
 
-`Configuration` should match the selected configuration name.
+`Configuration` matches the selected project configuration name.
 
 `Configuration` and `BuildConfiguration` are distinct:
 
@@ -294,121 +454,37 @@ or user-authored domains should remain exact unless their owning contract says
 otherwise. `Environment` should match only the environment name in the first
 implementation.
 
-All first-version selector fields must be present on the resolved configuration
-before condition evaluation. If a required field is absent, configuration
-resolution or validation should fail before conditions are evaluated.
+Only selector fields used by the effective condition need to be present on the
+resolved configuration. If an item or condition uses a selector whose value is
+absent from the selected configuration, validation or evaluation should fail
+with an actionable diagnostic for that selector. Conditions should not make
+currently optional configuration attributes globally required.
 
 `EnableReflection` is intentionally left out of the first selection context. It
 is a useful project capability flag, but it can also affect build generation.
 Conditions should start with stable selection fields before matching against
 capability flags that may influence generated build behavior.
 
-Example:
-
-```xml
-<Condition Name="RuntimeConfiguration"
-           Configuration="Runtime" />
-
-<Condition Name="DebugBuild"
-           BuildConfiguration="Debug" />
-
-<Condition Name="RuntimeLinux"
-           Configuration="Runtime"
-           OperatingSystem="linux" />
-```
-
 ## Evaluation Semantics
 
-Condition evaluation should be pure and side-effect-free.
+Condition evaluation is pure and side-effect-free.
 
-Conditions are evaluated after the selected project configuration has already
-been resolved. They do not select the configuration, mutate the configuration,
-change package resolution, or change runtime metadata. They only determine
-whether a supported conditional authored item is included in the resolved
-project model.
+Selection is evaluated after the selected project configuration has already
+been resolved. Selection does not choose the configuration, mutate the
+configuration, change package resolution, or change runtime metadata. It only
+determines whether a supported authored item is included in the resolved project
+model.
 
 Validation should collect all condition declarations first, then validate
-references, then validate cycles, then evaluate conditions.
+references, validate cycles, normalize selectable items, and evaluate effective
+conditions for the selected configuration.
 
 Each named condition should be evaluated at most once per selected
 configuration for inclusion decisions, with results reused by `ConditionRef`
 evaluation. Trace-producing evaluation should still be able to collect child
 results for all children of `All` and `Any` so explanations are complete.
 
-## Item Usage
-
-Conditional item support should be added incrementally.
-
-The first implementation should support `When` on leaf build setting items:
-
-```xml
-<CompileDefinitions>
-  <Definition Value="NGIN_DEBUG_TOOLS"
-              Visibility="Private"
-              When="DebugBuild" />
-</CompileDefinitions>
-```
-
-If a supported item does not specify `When`, it is unconditional and is included
-for every selected configuration:
-
-```xml
-<CompileDefinitions>
-  <Definition Value="NGIN_ALWAYS_ON" />
-  <Definition Value="NGIN_DEBUG_ONLY" When="DebugBuild" />
-</CompileDefinitions>
-```
-
-`When` should reference exactly one named condition. If an item needs multiple
-requirements, authors should define a named condition using `All`:
-
-```xml
-<Conditions>
-  <Condition Name="LinuxDebugBuild">
-    <All>
-      <ConditionRef Name="Linux" />
-      <ConditionRef Name="DebugBuild" />
-    </All>
-  </Condition>
-</Conditions>
-```
-
-`When` is not a list, expression, or inline selector:
-
-```xml
-<!-- Invalid -->
-<Definition Value="A" When="Linux;Debug" />
-
-<!-- Invalid -->
-<Definition Value="A" When="Linux Debug" />
-
-<!-- Invalid -->
-<Definition Value="A" When="Linux && Debug" />
-```
-
-The first implementation should not allow direct selector attributes on
-conditional items. This keeps item syntax narrow and makes named conditions the
-single place where conditional logic lives:
-
-```xml
-<!-- Preferred -->
-<Definition Value="NGIN_LINUX" When="Linux" />
-
-<!-- Deferred -->
-<Definition Value="NGIN_LINUX" OperatingSystem="linux" />
-```
-
-Group-level `When` should be deferred:
-
-```xml
-<!-- Deferred -->
-<CompileDefinitions When="DebugBuild">
-  <Definition Value="A" />
-  <Definition Value="B" />
-</CompileDefinitions>
-```
-
-Condition filtering must preserve the authored order of included items.
+Selection filtering must preserve the authored order of included items.
 Excluded items are removed without sorting, grouping, or reordering the
 remaining items.
 
@@ -427,45 +503,81 @@ If `DebugBuild` does not match, the resolved option order is:
 -Werror
 ```
 
-The first build-setting surfaces should be:
+## Supported Surfaces
 
+The first complete selection engine should cover the surfaces that already have
+direct typed selector support plus `When` on those same surfaces.
+
+Initial selectable source entries:
+
+- `Sources/Public/Root`
+- `Sources/Public/File`
+- `Sources/Public/Files`
+- `Sources/Private/Root`
+- `Sources/Private/File`
+- `Sources/Private/Files`
+
+Initial selectable build setting entries:
+
+- `IncludeDirectories/Directory`
+- `CompileDefinitions/Definition`
+- `CompileOptions/Option`
+- `LinkOptions/Option`
+
+Initial selectable build setting groups:
+
+- `IncludeDirectories`
 - `CompileDefinitions`
 - `CompileOptions`
 - `LinkOptions`
-- `IncludeDirectories`
 
-Other manifest areas can adopt `When` later after their merge and validation
-semantics are clear.
+Other manifest areas can adopt the same selection model after their merge and
+validation semantics are clear.
 
 Potential later consumers:
 
-- source roots and explicit files
 - project and package references
 - config sources
 - content files
 - runtime module enables
 - environment features
 
-## Deferred Selectors
+## Source Selection Semantics
 
-The first selector set is intentionally limited to stable project
-configuration fields. C++ build authoring will likely need toolchain-aware
-selectors later, but only after the CLI has a stable resolved compiler and
-toolchain identity before condition evaluation.
+Source selection must keep the existing nested-root exclusion behavior.
 
-Potential later selector fields:
+If a selected source root contains a nested source root or file entry whose
+effective condition does not match, generated source scanning must exclude the
+non-selected nested path from the broader root scan.
 
-- `Compiler`
-- `CompilerVersion`
-- `Toolchain`
-- `Generator`
-- `PlatformSdk`
-- `RuntimeLibrary`
-- environment feature flags
+```xml
+<Sources>
+  <Private>
+    <Root Path="src" />
+    <Root Path="src/platform/windows" OperatingSystem="windows" />
+    <Root Path="src/platform/linux" OperatingSystem="linux" />
+  </Private>
+</Sources>
+```
 
-NGIN should continue to prefer `OperatingSystem` and `Architecture` over a
-generic `Platform` selector unless a separate first-class platform concept is
-introduced.
+For a linux configuration, `src/platform/windows` is excluded from the broad
+`src` scan and `src/platform/linux` is included.
+
+The same rule applies when `When` participates in the effective condition:
+
+```xml
+<Sources>
+  <Private>
+    <Root Path="src" />
+    <Root Path="src/tools/debug"
+          When="DeveloperTools"
+          BuildConfiguration="Debug" />
+  </Private>
+</Sources>
+```
+
+If the effective condition for `src/tools/debug` does not match, that nested
+path is excluded from the broad `src` scan.
 
 ## Diagnostics
 
@@ -489,10 +601,13 @@ Validation should report:
 - non-whitespace text content inside condition nodes
 - empty `Match` nodes
 - invalid selector values when the value domain is known
+- selector fields used by an effective condition but absent from the selected
+  configuration
 - `Not` with zero or multiple child nodes
 - `All` or `Any` with no child nodes
 - `When` values that are lists, expressions, inline selectors, or invalid
   condition names
+- `When` on a manifest surface that has not adopted selection
 
 Condition evaluation should return trace information from the first
 implementation, even if detailed traces are initially exposed only through
@@ -510,29 +625,22 @@ ConditionEvaluationResult
         BuildConfiguration expected "Debug", actual "Release"
 ```
 
-That trace can power user-facing explanations:
-
-```text
-Definition NGIN_LINUX_DEBUG excluded:
-  When="LinuxDebugBuild" did not match
-  OperatingSystem was "linux"
-  BuildConfiguration was "Release"
-```
-
 Graph or verbose diagnostic output should be able to show declared conditions,
-whether each condition matched, and conditional build items with their
-included/excluded state:
+effective item conditions, and included/excluded state:
 
 ```text
 Conditions:
-  Linux: matched
+  Desktop: matched
   DebugBuild: not matched
-  LinuxDebugBuild: not matched
+  DesktopDebugBuild: not matched
 
 Build settings:
   CompileDefinitions:
-    NGIN_PLATFORM_LINUX included, When="Linux"
-    NGIN_LINUX_DEBUG excluded, When="LinuxDebugBuild"
+    NGIN_DESKTOP included:
+      When="Desktop" matched
+    NGIN_DESKTOP_DEBUG excluded:
+      When="Desktop" matched
+      BuildConfiguration expected "Debug", actual "Release"
 ```
 
 ## Expression Escape Hatch
@@ -554,7 +662,8 @@ belong in the contract.
 ## Manifest Contract Changes
 
 `docs/specs/002-project-and-target-manifest.md` should be updated to add
-`Conditions` as a supported root section.
+`Conditions` as a supported root section and to define selection as a shared
+manifest concept.
 
 The project root surface would become:
 
@@ -565,6 +674,7 @@ The project root surface would become:
 - `Build`
 - `References`
 - `ConfigSources`
+- `LocalSettings`
 - `Runtime`
 - `Environments`
 - `Configurations`
@@ -575,10 +685,16 @@ The spec should define:
 - condition names must be valid manifest identifiers
 - condition names that differ only by case are rejected
 - `When` references one project-local condition name
-- `When` is supported only on leaf build setting items in the first
-  implementation
-- items without `When` are unconditional
-- condition filtering preserves authored item order
+- direct typed selectors remain supported on selectable source entries and
+  build setting entries
+- direct typed selectors and `When` may be combined on the same selectable item
+  as implicit AND
+- selectable groups may provide inherited selection when the group surface
+  explicitly supports it
+- items without `When`, direct selector attributes, or inherited group
+  selection are unconditional
+- effective condition filtering preserves authored item order
+- source selection preserves nested-root exclusion semantics
 - a project manifest may contain at most one root-level `Conditions` section
 - `Condition` selector attributes are shorthand for one `Match` node
 - `Name` is the only non-selector attribute allowed on `Condition`
@@ -595,21 +711,31 @@ The spec should define:
 
 ## Implementation Plan
 
-1. Add condition authoring and evaluation model types.
-2. Parse root-level `<Conditions>` from `.nginproj`.
-3. Validate condition names, body shapes, selector attributes, references, and
+1. Introduce shared manifest selection model types.
+2. Represent direct selector attributes, `When`, and inherited group selection
+   as one normalized condition tree.
+3. Add condition authoring and evaluation model types.
+4. Parse root-level `<Conditions>` from `.nginproj`.
+5. Validate condition names, body shapes, selector attributes, references, and
    cycles.
-4. Add condition evaluation against `ConfigurationDefinition` with trace output.
-5. Add focused tests for validation and evaluation before build integration.
-6. Add `When` support to leaf build setting authoring models.
-7. Filter generated CMake build settings according to evaluated conditions.
-8. Add generated CMake tests for conditional build settings.
-9. Add verbose diagnostic or graph output powered by condition evaluation
-   traces.
-10. Update project manifest spec documentation and README examples.
+6. Add condition evaluation against `ConfigurationDefinition` with trace output.
+7. Refactor existing direct selector matching to use the shared selection
+   engine.
+8. Apply the shared selection engine to source entries while preserving
+   nested-root exclusion behavior.
+9. Apply the shared selection engine to build setting entries and supported
+   build setting groups.
+10. Add focused tests for validation, normalization, and evaluation before
+    broad build integration.
+11. Add generated CMake tests for conditional source and build setting
+    selection.
+12. Add verbose diagnostic or graph output powered by selection traces.
+13. Update project manifest spec documentation and README/guide examples.
 
 ## Suggested Test Cases
 
+- A simple direct selector matches `OperatingSystem="linux"`.
+- A direct selector does not match a different operating system.
 - A simple shorthand condition matches `OperatingSystem="linux"`.
 - A shorthand condition does not match a different operating system.
 - `All` matches only when all child nodes match.
@@ -624,32 +750,57 @@ The spec should define:
 - Duplicate condition names fail validation.
 - Condition names that differ only by case fail validation.
 - Invalid condition names fail validation.
-- Mixed selector attributes and child nodes fail validation.
+- Mixed selector attributes and child nodes on `Condition` fail validation.
 - Unknown child elements inside condition nodes fail validation.
 - Non-whitespace text content inside condition nodes fails validation.
 - Empty `Match` nodes fail validation.
 - An empty `<Conditions />` section is valid and has no effect.
 - Multiple root-level `<Conditions>` sections fail validation.
-- Items without `When` are included unconditionally.
+- Items without `When`, direct selectors, or inherited group selectors are
+  included unconditionally.
+- A build setting item with both `When` and direct selectors is normalized as
+  implicit AND.
+- A source entry with both `When` and direct selectors is normalized as
+  implicit AND.
+- A group with `When` passes an inherited condition to child entries.
+- A child entry with direct selectors and inherited group `When` is normalized
+  as implicit AND.
 - `When` values containing lists or expressions fail validation.
 - Contradictory condition logic is valid and evaluates to false.
 - `When` on `CompileDefinitions` includes matching definitions.
 - `When` on `CompileDefinitions` omits non-matching definitions.
+- Direct selectors on build settings continue to emit the same generated CMake
+  as before.
 - A non-matching conditional compile definition is absent from generated CMake
   input, not emitted behind a CMake generator expression.
 - Filtering conditional build settings preserves authored item order.
-- Group-level `When` fails validation in the first implementation.
 - `When` on include directories, compile options, and link options follows the
   same evaluation path.
-- Evaluation records enough trace information to explain why a condition matched
-  or did not match.
+- `When` on source roots includes matching roots.
+- `When` on source roots excludes non-matching nested roots from broader
+  selected root scans.
+- Evaluation records enough trace information to explain why an item matched or
+  did not match.
+
+## Migration And Compatibility
+
+Existing manifests that use direct typed selectors remain valid.
+
+The implementation should preserve the behavior of existing direct selector
+attributes by routing them through the new shared selection engine. Generated
+CMake output for existing manifests should remain behaviorally unchanged.
+
+New manifests can adopt named conditions incrementally. Authors do not need to
+rewrite simple direct selector attributes into named conditions.
 
 ## Open Questions
 
-- Should a later version add workspace-level shared condition aliases?
-- Should a later version add environment feature flag selectors?
-- Should a later version allow direct typed selector attributes on build setting
-  items, or should conditional item usage continue to go through `When`?
+- Should group-level selection be available on all build setting groups in the
+  first implementation, or should it start with leaf entries and `<Files>` only?
+- Should later workspace-level shared condition aliases be supported?
+- Should later environment feature flag selectors be supported?
+- Should `When` ever accept more than one condition name, or should authors
+  continue using named `All` conditions for that case?
 
 ## Decisions For Later Versions
 
@@ -668,9 +819,8 @@ only the selected environment name. Feature matching should only be added after
 environment features are first-class, typed, and resolved before condition
 evaluation.
 
-### Direct Selectors On Items
+### Expression Conditions
 
-Direct typed selector attributes on build setting items should remain deferred
-and are not preferred. Conditional item usage should continue to go through
-`When` and named conditions unless a strong future usability need justifies
-adding a second syntax.
+Expression conditions are deferred. If added later, expression syntax should
+live only inside named conditions and should normalize to the same evaluation
+trace model as structured conditions.

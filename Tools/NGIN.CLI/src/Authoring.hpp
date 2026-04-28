@@ -11,6 +11,7 @@ namespace NGIN::CLI
     [[nodiscard]] auto IsSupportedProjectType(std::string_view value) -> bool;
     [[nodiscard]] auto IsSupportedOutputKind(std::string_view value) -> bool;
     [[nodiscard]] auto IsValidProjectOutputPairing(std::string_view projectType, std::string_view outputKind) -> bool;
+    [[nodiscard]] auto SelectionMatches(const ProjectManifest &project, const SelectorSet &selectors, const ConfigurationDefinition &configuration) -> bool;
 
     [[nodiscard]] auto WorkspaceFilePath(const fs::path &root) -> std::optional<fs::path>;
     [[nodiscard]] auto RootDirFrom(const fs::path &start) -> std::optional<fs::path>;
