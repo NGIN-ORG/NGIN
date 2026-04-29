@@ -62,7 +62,8 @@ Implemented so far:
 
 Still remaining from the broader plan:
 
-- Dependency version policy and package feature/capability expansion.
+- Remote package repository discovery, package update workflows, and richer
+  package-aware editor tooling.
 - Pipeline phase contributions.
 - `ngin explain`, `ngin create`, format, one-way offline migration, and
   schema-file tooling.
@@ -1324,6 +1325,9 @@ Purpose: make the model safe to use at scale.
 - Add condition explanation.
 - Add package feature explanation.
 - Add canonical normalized model output.
+- Add structured package-state output for editor/tooling consumption, including
+  resolved packages, direct/transitive edges, selected/excluded features,
+  capability providers, lock-file status, and update candidates.
 - Add schema-aware formatting.
 - Add validation levels.
 - Add graph output formats.
@@ -1340,6 +1344,19 @@ Purpose: polish adoption and authoring.
 - Publish machine-readable schema files for editor completion and validation.
 - Add editor support for templates, inputs, conditions, package features, and
   generators.
+- Add a dedicated VS Code project package viewer:
+  - searchable resolved package/dependency tree for the active project/profile
+  - direct vs transitive package indicators and "required by" provenance
+  - feature list per package with selected, disabled, and condition-excluded
+    states
+  - actions to use/disable package features by editing the correct manifest
+    scope
+  - capability provider/requirement view with conflict and missing-capability
+    diagnostics
+  - lock-file status plus generate/verify/update actions
+  - future remote repository search, install, and package update actions
+  - implementation backed by CLI structured output rather than duplicating the
+    resolver in the extension
 - Enforce the final case policy.
 
 ## Priorities
