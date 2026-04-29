@@ -115,6 +115,53 @@
       "</Features>"
     ]
   },
+  "Package Generator Tool": {
+    "scope": "ngin",
+    "prefix": "ngin-tool-generator",
+    "body": [
+      "<Tools>",
+      "  <Tool Name=\"$1\" Kind=\"Generator\" Executable=\"$2\" />",
+      "</Tools>"
+    ]
+  },
+  "MetaGen Generator": {
+    "scope": "ngin",
+    "prefix": "ngin-generator-metagen",
+    "body": [
+      "<Generators>",
+      "  <Generator Name=\"ReflectionMetaGen\" Kind=\"MetaGen\" Package=\"NGIN.Reflection\" Tool=\"MetaGen\">",
+      "    <Outputs>",
+      "      <Generated Role=\"Source\" Path=\"$(GeneratedDir)/reflection/$(ProjectName).reflection.generated.cpp\" />",
+      "    </Outputs>",
+      "  </Generator>",
+      "</Generators>"
+    ]
+  },
+  "Command Generator": {
+    "scope": "ngin",
+    "prefix": "ngin-generator-command",
+    "body": [
+      "<Generators>",
+      "  <Generator Name=\"$1\" Kind=\"Command\">",
+      "    <Tool Executable=\"$2\" />",
+      "    <Arguments>",
+      "      <Arg Value=\"--input\" />",
+      "      <Arg Path=\"$3\" />",
+      "      <Arg Value=\"--output\" />",
+      "      <Arg Path=\"$(GeneratedDir)/$4\" />",
+      "    </Arguments>",
+      "    <Inputs>",
+      "      <ToolInputs>",
+      "        $3",
+      "      </ToolInputs>",
+      "    </Inputs>",
+      "    <Outputs>",
+      "      <Generated Role=\"Source\" Path=\"$(GeneratedDir)/$4\" />",
+      "    </Outputs>",
+      "  </Generator>",
+      "</Generators>"
+    ]
+  },
   "Dependency Policy": {
     "scope": "ngin",
     "prefix": "ngin-dependency-policy",

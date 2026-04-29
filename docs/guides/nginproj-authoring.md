@@ -42,6 +42,7 @@ dependencies, profiles, and local run metadata.
 | `Inputs` | Source, config, content, asset, generated, and tool inputs |
 | `Output` | Optional artifact type, name, and backend target |
 | `Build` | Backend mode, language, standard, and build settings |
+| `Generators` | Pre-build generated source/content/tool metadata |
 | `References` | Project and package dependencies |
 | `Environments` | Named environment layers |
 | `Profiles` | Selectable project profiles |
@@ -230,6 +231,59 @@ When `Output` is omitted, `Template="Application"` and `Template="Tool"` infer a
 executable output using the project name. `Template="Library"` infers a static
 library output. Explicit `Output` remains useful when the backend target name
 should differ from the project name.
+
+## Generators
+
+Use `Generators` when project source or staged data is produced before backend
+CMake generation. Generator outputs are explicit and become typed generated
+inputs.
+
+MetaGen is now a generator, not a `<Build>` child or standalone `ngin metagen`
+command:
+
+```xml
+<Generators>
+  <Generator Name="ReflectionMetaGen"
+             Kind="MetaGen"
+             Package="NGIN.Reflection"
+             Tool="MetaGen">
+    <Outputs>
+      <Generated Role="Source"
+                 Path="$(GeneratedDir)/reflection/$(ProjectName).reflection.generated.cpp" />
+    </Outputs>
+  </Generator>
+</Generators>
+```
+
+Local command generators are structured executable plus argument declarations;
+NGIN does not run shell command strings.
+
+```xml
+<Generators>
+  <Generator Name="SchemaCodegen" Kind="Command">
+    <Tool Executable="tools/schema-compiler" />
+    <Arguments>
+      <Arg Value="--input" />
+      <Arg Path="schemas/app.schema.json" />
+      <Arg Value="--output" />
+      <Arg Path="$(GeneratedDir)/schema/app_schema.cpp" />
+    </Arguments>
+    <Inputs>
+      <ToolInputs>
+        schemas/app.schema.json
+      </ToolInputs>
+    </Inputs>
+    <Outputs>
+      <Generated Role="Source" Path="$(GeneratedDir)/schema/app_schema.cpp" />
+    </Outputs>
+  </Generator>
+</Generators>
+```
+
+`ngin configure` and `ngin build` run selected generators before generated CMake
+emission. Use `ngin explain generator <Name> --project App.nginproj --profile
+Runtime` to inspect the selected declaration, tool, inputs, outputs, and
+arguments.
 
 ## References
 

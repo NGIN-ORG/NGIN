@@ -11,9 +11,18 @@
   <Build Backend="CMake"
          Mode="Generated"
          Language="CXX"
-         LanguageStandard="23">
-    <MetaGen Enabled="true" />
-  </Build>
+         LanguageStandard="23" />
+  <Generators>
+    <Generator Name="ReflectionMetaGen"
+               Kind="MetaGen"
+               Package="NGIN.Reflection"
+               Tool="MetaGen">
+      <Outputs>
+        <Generated Role="Source"
+                   Path="$(GeneratedDir)/reflection/$(ProjectName).reflection.generated.cpp" />
+      </Outputs>
+    </Generator>
+  </Generators>
   <References>
     <Package Name="NGIN.Reflection" Version=">=0.1.0 &lt;0.2.0" Optional="false" />
   </References>

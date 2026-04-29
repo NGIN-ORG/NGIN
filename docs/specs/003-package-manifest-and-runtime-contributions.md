@@ -1,7 +1,7 @@
 # Spec 003: Package Manifest and Runtime Contributions
 
 Status: Active
-Last updated: 2026-04-28
+Last updated: 2026-04-30
 
 ## Purpose
 
@@ -28,6 +28,7 @@ explicitly says otherwise.
 - `Dependencies`
 - `Artifacts`
 - `Build`
+- `Tools`
 - `Modules`
 - `Plugins`
 - `Inputs`
@@ -97,6 +98,14 @@ Packages may declare explicit opt-in features under `Features`.
         <Definition Value="NGIN_CORE_FEATURE_REFLECTION" Visibility="Public" />
       </CompileDefinitions>
     </Build>
+    <Generators>
+      <Generator Name="ReflectionMetaGen" Kind="MetaGen" Tool="MetaGen">
+        <Outputs>
+          <Generated Role="Source"
+                     Path="$(GeneratedDir)/reflection/$(ProjectName).reflection.generated.cpp" />
+        </Outputs>
+      </Generator>
+    </Generators>
     <Runtime>
       <EnableModules>
         <ModuleRef Name="NGIN.Reflection" />
@@ -113,10 +122,10 @@ Feature contributions are selected only when a project, profile, or environment
 uses the feature. Package defaults are explicit-only in Phase D; package
 features never auto-apply.
 
-Supported feature contributions are package refs, typed inputs, build settings,
-runtime declarations, environment variables, and capability metadata. Capability
-requirements are validated after selected feature closure. Multiple providers
-for the same capability are allowed unless a provider declares
+Supported feature contributions are package refs, typed inputs, generators,
+build settings, runtime declarations, environment variables, and capability
+metadata. Capability requirements are validated after selected feature closure.
+Multiple providers for the same capability are allowed unless a provider declares
 `Exclusive="true"`.
 
 Package policy is explicit:
@@ -143,6 +152,26 @@ Supported package input blocks are `Configs`, `Contents`, `Assets`,
 `Generated`, and `ToolInputs`. Package configs, contents, assets, and generated
 staged roles flow through the common input pipeline; tool inputs are validated
 and exposed as metadata only.
+
+## Tools And Generators
+
+Packages may declare named tools for selected feature generators:
+
+```xml
+<Tools>
+  <Tool Name="MetaGen" Kind="Generator" BuiltIn="MetaGen" />
+  <Tool Name="SchemaCompiler" Kind="Generator" Executable="bin/schema-compiler" />
+</Tools>
+```
+
+Tool paths resolve relative to the provider root when one is present; otherwise
+they resolve relative to the package manifest directory. Built-in tools are
+implemented by the CLI. Phase E supports `BuiltIn="MetaGen"` and executable
+generator tools.
+
+Feature-contributed generators apply only when the consuming project selects
+that package feature. Generator outputs must be explicit and become typed
+`Generated` inputs in the selected build.
 
 ## Conditions
 

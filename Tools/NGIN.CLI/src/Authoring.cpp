@@ -397,7 +397,7 @@ namespace NGIN::CLI
 
         [[nodiscard]] auto IsSupportedGeneratedRole(const std::string_view value) -> bool
         {
-            return value == "Source" || value == "Content" || value == "Asset" || value == "ToolInput";
+            return value == "Source" || value == "Header" || value == "Content" || value == "Asset" || value == "ToolInput";
         }
 
         [[nodiscard]] auto IsTypedInputBlock(const std::string_view name) -> bool
@@ -1013,6 +1013,168 @@ namespace NGIN::CLI
             }
         }
 
+        [[nodiscard]] auto ParseToolDeclaration(const XmlElement &node, const fs::path &path, const bool requireName) -> ToolDeclaration
+        {
+            ValidateAllowedAttributes(node, path, {"Name", "Kind", "BuiltIn", "Executable", "Profile", "Platform", "OperatingSystem", "Architecture", "BuildType", "Environment", "Condition"});
+            ToolDeclaration tool{};
+            if (requireName)
+            {
+                tool.name = RequireAttribute(node, "Name", path);
+                if (!IsValidManifestIdentifier(tool.name))
+                {
+                    throw std::runtime_error(path.string() + ": invalid tool name '" + tool.name + "'");
+                }
+            }
+            else
+            {
+                tool.name = Attribute(node, "Name").value_or("");
+            }
+            tool.kind = Attribute(node, "Kind").value_or("Generator");
+            tool.builtIn = Attribute(node, "BuiltIn").value_or("");
+            tool.executable = Attribute(node, "Executable").value_or("");
+            tool.selectors = ParseSelection(node, path);
+            if (tool.kind != "Generator")
+            {
+                throw std::runtime_error(path.string() + ": unsupported tool kind '" + tool.kind + "'");
+            }
+            if (tool.builtIn.empty() && tool.executable.empty())
+            {
+                throw std::runtime_error(path.string() + ": tool '" + (tool.name.empty() ? std::string{"<inline>"} : tool.name) + "' must declare BuiltIn or Executable");
+            }
+            if (!tool.builtIn.empty() && !tool.executable.empty())
+            {
+                throw std::runtime_error(path.string() + ": tool '" + (tool.name.empty() ? std::string{"<inline>"} : tool.name) + "' may not declare both BuiltIn and Executable");
+            }
+            if (!tool.builtIn.empty() && tool.builtIn != "MetaGen")
+            {
+                throw std::runtime_error(path.string() + ": unsupported built-in tool '" + tool.builtIn + "'");
+            }
+            return tool;
+        }
+
+        auto ParsePackageTools(const XmlElement &parent, const fs::path &path, PackageManifest &package) -> void
+        {
+            const auto *tools = FindChild(parent, "Tools");
+            if (tools == nullptr)
+            {
+                return;
+            }
+            std::set<std::string> names{};
+            for (const auto *node : ChildElements(*tools, "Tool"))
+            {
+                auto tool = ParseToolDeclaration(*node, path, true);
+                if (!names.insert(tool.name).second)
+                {
+                    throw std::runtime_error(path.string() + ": duplicate package tool '" + tool.name + "'");
+                }
+                package.tools.push_back(std::move(tool));
+            }
+        }
+
+        [[nodiscard]] auto ParseGeneratorOutput(const XmlElement &node, const fs::path &path, const std::string &declaringScope) -> InputDeclaration
+        {
+            if (node.name != "Generated")
+            {
+                throw std::runtime_error(path.string() + ": unsupported <Outputs> child <" + std::string(node.name) + ">");
+            }
+            ValidateAllowedAttributes(node, path, {"Name", "Role", "Path", "Visibility", "Target", "TargetRoot", "ContentKind", "Required", "Profile", "Platform", "OperatingSystem", "Architecture", "BuildType", "Environment", "Condition"});
+            InputDeclaration output{};
+            output.kind = "Generated";
+            output.role = RequireAttribute(node, "Role", path);
+            if (!IsSupportedGeneratedRole(output.role))
+            {
+                throw std::runtime_error(path.string() + ": unsupported generated output role '" + output.role + "'");
+            }
+            output.path = RequireAttribute(node, "Path", path);
+            output.mode = "File";
+            output.visibility = output.role == "Header" ? "Public" : "Private";
+            output.required = BoolAttribute(node, "Required", true);
+            output.declaringScope = declaringScope;
+            ReadCommonInputAttributes(output, node, path, false);
+            if (output.role == "Header")
+            {
+                output.visibility = Attribute(node, "Visibility").value_or(output.visibility);
+            }
+            ValidateInputDeclaration(output, path);
+            return output;
+        }
+
+        auto ParseGenerators(const XmlElement &parent, const fs::path &path, std::vector<GeneratorDeclaration> &out, const std::string &declaringScope) -> void
+        {
+            const auto *generators = FindChild(parent, "Generators");
+            if (generators == nullptr)
+            {
+                return;
+            }
+            std::set<std::string> names{};
+            for (const auto *node : ChildElements(*generators, "Generator"))
+            {
+                ValidateAllowedAttributes(*node, path, {"Name", "Kind", "Package", "Tool", "Profile", "Platform", "OperatingSystem", "Architecture", "BuildType", "Environment", "Condition"});
+                GeneratorDeclaration generator{};
+                generator.name = RequireAttribute(*node, "Name", path);
+                generator.kind = RequireAttribute(*node, "Kind", path);
+                generator.packageName = Attribute(*node, "Package").value_or("");
+                generator.toolName = Attribute(*node, "Tool").value_or("");
+                generator.selectors = ParseSelection(*node, path);
+                if (!IsValidManifestIdentifier(generator.name))
+                {
+                    throw std::runtime_error(path.string() + ": invalid generator name '" + generator.name + "'");
+                }
+                if (!names.insert(generator.name).second)
+                {
+                    throw std::runtime_error(path.string() + ": duplicate generator '" + generator.name + "'");
+                }
+                if (generator.kind != "MetaGen" && generator.kind != "Command")
+                {
+                    throw std::runtime_error(path.string() + ": unsupported generator kind '" + generator.kind + "'");
+                }
+                if (const auto *tool = FindChild(*node, "Tool"))
+                {
+                    generator.inlineTool = ParseToolDeclaration(*tool, path, false);
+                    generator.hasInlineTool = true;
+                }
+                if (generator.kind == "Command" && generator.toolName.empty() && !generator.hasInlineTool)
+                {
+                    throw std::runtime_error(path.string() + ": command generator '" + generator.name + "' must declare Tool or inline <Tool>");
+                }
+                if (generator.kind == "MetaGen" && generator.toolName.empty())
+                {
+                    generator.toolName = "MetaGen";
+                }
+                if (const auto *arguments = FindChild(*node, "Arguments"))
+                {
+                    for (const auto *arg : ChildElements(*arguments, "Arg"))
+                    {
+                        ValidateAllowedAttributes(*arg, path, {"Value", "Path", "Profile", "Platform", "OperatingSystem", "Architecture", "BuildType", "Environment", "Condition"});
+                        GeneratorArgument argument{};
+                        argument.value = Attribute(*arg, "Value").value_or("");
+                        argument.path = Attribute(*arg, "Path").value_or("");
+                        argument.selectors = ParseSelection(*arg, path);
+                        if (argument.value.empty() == argument.path.empty())
+                        {
+                            throw std::runtime_error(path.string() + ": generator argument must declare exactly one of Value or Path");
+                        }
+                        generator.arguments.push_back(std::move(argument));
+                    }
+                }
+                ApplyInputBlock(*node, path, generator.inputs, declaringScope + ":" + generator.name);
+                const auto *outputs = FindChild(*node, "Outputs");
+                if (outputs == nullptr)
+                {
+                    throw std::runtime_error(path.string() + ": generator '" + generator.name + "' must declare <Outputs>");
+                }
+                for (const auto *output : ChildElements(*outputs))
+                {
+                    generator.outputs.push_back(ParseGeneratorOutput(*output, path, declaringScope + ":" + generator.name));
+                }
+                if (generator.outputs.empty())
+                {
+                    throw std::runtime_error(path.string() + ": generator '" + generator.name + "' must declare at least one output");
+                }
+                out.push_back(std::move(generator));
+            }
+        }
+
         auto ParseDependencyPolicy(const XmlElement &parent,
                                    const fs::path &path,
                                    std::unordered_map<std::string, std::string> &versions,
@@ -1447,7 +1609,8 @@ namespace NGIN::CLI
             }
             if (const auto *metaGen = FindChild(*buildElement, "MetaGen"))
             {
-                build.metaGenEnabled = BoolAttribute(*metaGen, "Enabled");
+                (void)metaGen;
+                throw std::runtime_error(path.string() + ": <Build><MetaGen> is no longer supported; use <Generators><Generator Kind=\"MetaGen\">");
             }
 
             if (const auto *sources = FindChild(*buildElement, "Sources"))
@@ -1572,6 +1735,7 @@ namespace NGIN::CLI
                 }
                 ApplyInputBlock(*node, path, feature.inputs, "package-feature:" + package.name + ":" + feature.name);
                 LoadProjectBuildDescriptor(feature.build, FindChild(*node, "Build"), path);
+                ParseGenerators(*node, path, feature.generators, "package-feature:" + package.name + ":" + feature.name);
                 ParseVariables(*node, path, feature.variables);
                 if (const auto *runtime = FindChild(*node, "Runtime"))
                 {
@@ -1691,6 +1855,27 @@ namespace NGIN::CLI
             }
         }
 
+        auto ValidateGeneratorConditionRefs(
+            const std::vector<GeneratorDeclaration> &generators,
+            const std::unordered_map<std::string, const ConditionDefinition *> &conditions,
+            const fs::path &path) -> void
+        {
+            for (const auto &generator : generators)
+            {
+                ValidateSelectionConditionRefs(generator.selectors, conditions, path);
+                if (generator.hasInlineTool)
+                {
+                    ValidateSelectionConditionRefs(generator.inlineTool.selectors, conditions, path);
+                }
+                for (const auto &argument : generator.arguments)
+                {
+                    ValidateSelectionConditionRefs(argument.selectors, conditions, path);
+                }
+                ValidateInputConditionRefs(generator.inputs, conditions, path);
+                ValidateInputConditionRefs(generator.outputs, conditions, path);
+            }
+        }
+
         auto ValidateReferenceConditionRefs(
             const std::vector<ProjectReference> &projectRefs,
             const std::vector<PackageReference> &packageRefs,
@@ -1798,12 +1983,14 @@ namespace NGIN::CLI
             const auto conditions = ConditionMap(project.conditions);
 
             ValidateInputConditionRefs(project.inputs, conditions, path);
+            ValidateGeneratorConditionRefs(project.generators, conditions, path);
             ValidateReferenceConditionRefs(project.projectRefs, project.packageRefs, conditions, path);
             ValidatePackageFeatureUseConditionRefs(project.packageFeatureUses, conditions, path);
             ValidateRuntimeConditionRefs(project.runtime, conditions, path);
             for (const auto &environment : project.environments)
             {
                 ValidateInputConditionRefs(environment.inputs, conditions, path);
+                ValidateGeneratorConditionRefs(environment.generators, conditions, path);
                 ValidateReferenceConditionRefs(environment.projectRefs, environment.packageRefs, conditions, path);
                 ValidatePackageFeatureUseConditionRefs(environment.packageFeatureUses, conditions, path);
                 ValidateFeatureConditionRefs(environment.features, conditions, path);
@@ -1812,6 +1999,7 @@ namespace NGIN::CLI
             for (const auto &profile : project.profiles)
             {
                 ValidateInputConditionRefs(profile.inputs, conditions, path);
+                ValidateGeneratorConditionRefs(profile.generators, conditions, path);
                 ValidateReferenceConditionRefs(profile.projectRefs, profile.packageRefs, conditions, path);
                 ValidatePackageFeatureUseConditionRefs(profile.packageFeatureUses, conditions, path);
                 ValidateRuntimeConditionRefs(profile.runtime, conditions, path);
@@ -2217,6 +2405,7 @@ namespace NGIN::CLI
         }
 
         LoadPackageBuildDescriptor(package.build, FindChild(*rootElement, "Build"), path);
+        ParsePackageTools(*rootElement, path, package);
         package.compatibility = ParseCompatibility(*rootElement, path);
 
         if (const auto *deps = FindChild(*rootElement, "Dependencies"))
@@ -2297,6 +2486,10 @@ namespace NGIN::CLI
         {
             const auto conditions = ConditionMap(package.conditions);
             ValidateInputConditionRefs(package.inputs, conditions, path);
+            for (const auto &tool : package.tools)
+            {
+                ValidateSelectionConditionRefs(tool.selectors, conditions, path);
+            }
             for (const auto &module : package.modules)
             {
                 ValidateSelectionConditionRefs(module.selectors, conditions, path);
@@ -2315,6 +2508,7 @@ namespace NGIN::CLI
                 ValidateBuildSettingConditionRefs(feature.build.compileOptions, conditions, path);
                 ValidateBuildSettingConditionRefs(feature.build.linkOptions, conditions, path);
                 ValidateRuntimeConditionRefs(feature.runtime, conditions, path);
+                ValidateGeneratorConditionRefs(feature.generators, conditions, path);
             }
         }
 
@@ -2943,6 +3137,7 @@ namespace NGIN::CLI
         {
             throw std::runtime_error(path.string() + ": unknown project build mode '" + project.build.mode + "'");
         }
+        ParseGenerators(*rootElement, path, project.generators, "project");
 
         if (const auto *references = FindChild(*rootElement, "References"))
         {
@@ -2971,6 +3166,7 @@ namespace NGIN::CLI
                 ParseVariables(*node, path, environment.variables);
                 ParseFeatures(*node, path, environment.features);
                 ParsePackageFeatureUses(*node, path, environment.packageFeatureUses);
+                ParseGenerators(*node, path, environment.generators, "environment:" + environment.name);
                 if (const auto *runtime = FindChild(*node, "Runtime"))
                 {
                     ParseRuntimeDefinition(*runtime, path, environment.runtime, true);
@@ -3077,6 +3273,7 @@ namespace NGIN::CLI
                 ParseReferences(*references, path.parent_path(), path, profile.projectRefs, profile.packageRefs);
             }
             ParsePackageFeatureUses(*node, path, profile.packageFeatureUses);
+            ParseGenerators(*node, path, profile.generators, "profile:" + profile.name);
             if (const auto *runtime = FindChild(*node, "Runtime"))
             {
                 ParseRuntimeDefinition(*runtime, path, profile.runtime, true);

@@ -1,7 +1,7 @@
 # Spec 006: CLI Contract
 
 Status: Active
-Last updated: 2026-04-28
+Last updated: 2026-04-30
 
 ## Purpose
 
@@ -24,6 +24,7 @@ Stable active commands:
 - `ngin package verify-lock [--project <file>] [--profile <name>] [--lock <file>]`
 - `ngin explain condition <Name> [--project <file>] [--profile <name>]`
 - `ngin explain package-feature <Package> <Feature> [--project <file>] [--profile <name>]`
+- `ngin explain generator <Name> [--project <file>] [--profile <name>]`
 - `ngin settings init [--project <file>]`
 - `ngin variables explain [--project <file>] [--profile <name>]`
 - `ngin workspace list`
@@ -34,12 +35,13 @@ Removed commands:
 
 - `ngin project ...`
 - `ngin workspace sync`
+- `ngin metagen`
 
 ## Behavior
 
 - `--profile` always selects the project profile
 - backend build type comes from the selected project profile’s `BuildType`
-- `ngin configure` resolves the selected composition, generates backend CMake input, runs CMake configure, and emits generated build metadata such as `compile_commands.json` without staging runtime outputs
+- `ngin configure` resolves the selected composition, runs selected generators, generates backend CMake input, runs CMake configure, and emits generated build metadata such as `compile_commands.json` without staging runtime outputs
 - `ngin build` emits `.nginlaunch`
 - `ngin build` configures the generated backend build when needed before building and staging artifacts
 - `ngin build` remains incremental and should not aggressively remove unrelated files outside NGIN-owned stale outputs
@@ -58,6 +60,8 @@ Removed commands:
   resolution with that file
 - `ngin explain package-feature` explains feature selection, dependencies,
   capabilities, and contribution counts for one package feature
+- `ngin explain generator` explains a selected generator declaration, its
+  owner, tool origin, declared inputs, outputs, and arguments
 - `ngin variables explain` shows the selected project environment variables,
   their resolved value source, and redacts secret values as `<secret>`
 - `ngin settings init` creates `.ngin/local/user.nginsettings` under the

@@ -13,7 +13,7 @@ namespace NGIN::CLI
         return MetaGenResult{
             .available = false,
             .diagnostics = {
-                "ngin metagen was built without Clang support. Install LLVM/Clang development packages and configure with NGIN_CLI_ENABLE_METAGEN=ON.",
+                "MetaGen generator support was built without Clang support. Install LLVM/Clang development packages and configure with NGIN_CLI_ENABLE_METAGEN=ON.",
             },
         };
     }
@@ -25,7 +25,7 @@ namespace NGIN::CLI
         const std::optional<std::string> &) -> int
     {
         std::cerr
-            << "error: ngin metagen was built without Clang support\n"
+            << "error: MetaGen generator support was built without Clang support\n"
             << "hint: install LLVM/Clang development packages and configure with NGIN_CLI_ENABLE_METAGEN=ON\n";
         return 1;
     }

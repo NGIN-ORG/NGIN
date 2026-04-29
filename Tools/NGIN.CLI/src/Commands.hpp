@@ -29,9 +29,9 @@ namespace NGIN::CLI
     auto CmdVariablesExplain(const fs::path &root, const ParsedArgs &args) -> int;
     auto CmdExplainCondition(const fs::path &root, const ParsedArgs &args) -> int;
     auto CmdExplainPackageFeature(const fs::path &root, const ParsedArgs &args) -> int;
+    auto CmdExplainGenerator(const fs::path &root, const ParsedArgs &args) -> int;
     auto CmdValidate(const fs::path &root, const ParsedArgs &args) -> int;
     auto CmdGraph(const fs::path &root, const ParsedArgs &args) -> int;
-    auto CmdMetaGen(const fs::path &root, const ParsedArgs &args) -> int;
     auto CmdClean(const fs::path &root, const ParsedArgs &args) -> int;
     auto CmdConfigure(const fs::path &root, const ParsedArgs &args) -> int;
     auto CmdBuild(const fs::path &root, const ParsedArgs &args) -> int;

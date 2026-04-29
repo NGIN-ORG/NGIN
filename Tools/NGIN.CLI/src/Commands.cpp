@@ -3,7 +3,6 @@
 #include "Authoring.hpp"
 #include "Build.hpp"
 #include "Diagnostics.hpp"
-#include "MetaGen.hpp"
 #include "Resolution.hpp"
 #include "Support.hpp"
 
@@ -1132,6 +1131,71 @@ namespace NGIN::CLI
         return 0;
     }
 
+    auto CmdExplainGenerator(const fs::path &root, const ParsedArgs &args) -> int
+    {
+        (void)root;
+        if (!args.packageName.has_value())
+        {
+            throw std::runtime_error("explain generator requires a generator name");
+        }
+        const auto invocation = ResolveInvocation(args);
+        const auto resolved = ResolveLaunch(invocation.project, invocation.profile);
+        if (!resolved.value.has_value() || resolved.diagnostics.HasErrors())
+        {
+            PrintDiagnostics(resolved.diagnostics, "Generator", std::cout);
+            return 1;
+        }
+        const auto generatorIt = std::find_if(
+            resolved.value->generators.begin(), resolved.value->generators.end(),
+            [&](const ResolvedGenerator &generator)
+            {
+                return generator.declaration.name == *args.packageName;
+            });
+        if (generatorIt == resolved.value->generators.end())
+        {
+            throw std::runtime_error("generator '" + *args.packageName + "' is not selected");
+        }
+        const auto &generator = *generatorIt;
+        std::cout << "Generator: " << generator.declaration.name << "\n";
+        std::cout << "  result: selected\n";
+        std::cout << "  kind: " << generator.declaration.kind << "\n";
+        std::cout << "  owner: " << generator.ownerKind << " " << generator.ownerName << "\n";
+        std::cout << "  manifest: " << generator.manifestPath << "\n";
+        if (!generator.declaration.packageName.empty())
+        {
+            std::cout << "  package: " << generator.declaration.packageName << "\n";
+        }
+        if (!generator.declaration.toolName.empty())
+        {
+            std::cout << "  tool: " << generator.declaration.toolName << "\n";
+        }
+        if (generator.declaration.hasInlineTool)
+        {
+            std::cout << "  inline tool:";
+            if (!generator.declaration.inlineTool.builtIn.empty())
+            {
+                std::cout << " built-in=" << generator.declaration.inlineTool.builtIn;
+            }
+            if (!generator.declaration.inlineTool.executable.empty())
+            {
+                std::cout << " executable=" << generator.declaration.inlineTool.executable;
+            }
+            std::cout << "\n";
+        }
+        std::cout << "  inputs: " << generator.declaration.inputs.size() << "\n";
+        for (const auto &input : generator.declaration.inputs)
+        {
+            std::cout << "    - " << input.kind << " " << input.path << "\n";
+        }
+        std::cout << "  outputs: " << generator.declaration.outputs.size() << "\n";
+        for (const auto &output : generator.declaration.outputs)
+        {
+            std::cout << "    - " << output.kind << " Role=" << output.role << " Path=" << output.path << "\n";
+        }
+        std::cout << "  arguments: " << generator.declaration.arguments.size() << "\n";
+        return 0;
+    }
+
     auto CmdValidate(const fs::path &root, const ParsedArgs &args) -> int
     {
         (void)root;
@@ -1201,6 +1265,22 @@ namespace NGIN::CLI
         for (const auto &feature : resolved.value->selectedPackageFeatures)
         {
             std::cout << "  - " << feature.packageName << "::" << feature.featureName << "\n";
+        }
+        std::cout << "\nGenerators:\n";
+        if (resolved.value->generators.empty())
+        {
+            std::cout << "  (none)\n";
+        }
+        for (const auto &generator : resolved.value->generators)
+        {
+            std::cout << "  - " << generator.declaration.name
+                      << " kind=" << generator.declaration.kind
+                      << " owner=" << generator.ownerKind << ":" << generator.ownerName;
+            if (!generator.declaration.toolName.empty())
+            {
+                std::cout << " tool=" << generator.declaration.toolName;
+            }
+            std::cout << "\n";
         }
         std::cout << "\nCapabilities:\n";
         if (resolved.value->capabilityProviders.empty())
@@ -1382,12 +1462,6 @@ namespace NGIN::CLI
         }
         PrintDiagnostics(resolved.diagnostics, "Graph", std::cout);
         return 0;
-    }
-
-    auto CmdMetaGen(const fs::path &root, const ParsedArgs &args) -> int
-    {
-        const auto invocation = ResolveInvocation(args);
-        return RunMetaGen(root, invocation.project, invocation.profile, args.outputPath);
     }
 
     auto CmdClean(const fs::path &root, const ParsedArgs &args) -> int

@@ -7,6 +7,8 @@ import {
   PackageFeature,
   PackageFeatureUse,
   PackageReference,
+  GeneratorArgument,
+  GeneratorDeclaration,
   ConditionDefinition,
   LocalSettingsManifest,
   ModelDefaults,
@@ -16,6 +18,7 @@ import {
   ProjectManifest,
   ProjectReference,
   StagedFile,
+  ToolDeclaration,
   WorkspaceManifest
 } from './types';
 
@@ -222,6 +225,135 @@ function parseInputs(node: unknown): InputDeclaration[] {
     }
   }
   return result;
+}
+
+function applySelectorFields<T extends object>(target: T, node: {
+  Profile?: string;
+  Platform?: string;
+  OperatingSystem?: string;
+  Architecture?: string;
+  BuildType?: string;
+  Environment?: string;
+  Condition?: string;
+} | undefined): T {
+  const selected = target as T & {
+    profile?: string;
+    platform?: string;
+    operatingSystem?: string;
+    architecture?: string;
+    buildType?: string;
+    environment?: string;
+    condition?: string;
+  };
+  if (node?.Profile) { selected.profile = node.Profile; }
+  if (node?.Platform) { selected.platform = node.Platform; }
+  if (node?.OperatingSystem) { selected.operatingSystem = node.OperatingSystem; }
+  if (node?.Architecture) { selected.architecture = node.Architecture; }
+  if (node?.BuildType) { selected.buildType = node.BuildType; }
+  if (node?.Environment) { selected.environment = node.Environment; }
+  if (node?.Condition) { selected.condition = node.Condition; }
+  return selected;
+}
+
+function parseToolDeclaration(entry: unknown, requireName: boolean): ToolDeclaration | undefined {
+  const node = entry as {
+    Name?: string;
+    Kind?: string;
+    BuiltIn?: string;
+    Executable?: string;
+    Profile?: string;
+    Platform?: string;
+    OperatingSystem?: string;
+    Architecture?: string;
+    BuildType?: string;
+    Environment?: string;
+    Condition?: string;
+  } | undefined;
+  if (!node || (requireName && !node.Name)) {
+    return undefined;
+  }
+  return applySelectorFields({
+    name: node.Name,
+    kind: node.Kind ?? 'Generator',
+    builtIn: node.BuiltIn,
+    executable: node.Executable
+  }, node);
+}
+
+function parseGeneratorOutputs(node: unknown): InputDeclaration[] {
+  const parent = node as { Outputs?: { Generated?: unknown } } | undefined;
+  return asArray(parent?.Outputs?.Generated)
+    .map((entry): InputDeclaration | undefined => {
+      const output = entry as TypedInputNode | undefined;
+      if (!output?.Path || !output.Role) {
+        return undefined;
+      }
+      return parseInputEntry({ ...output, Mode: 'File' }, {
+        kind: 'Generated',
+        role: output.Role,
+        visibility: output.Visibility ?? (output.Role === 'Header' ? 'Public' : 'Private')
+      });
+    })
+    .filter((entry): entry is InputDeclaration => Boolean(entry));
+}
+
+function parseGenerators(node: unknown): GeneratorDeclaration[] {
+  const parent = node as { Generators?: { Generator?: unknown } } | undefined;
+  return asArray(parent?.Generators?.Generator)
+    .map((entry): GeneratorDeclaration | undefined => {
+      const generator = entry as {
+        Name?: string;
+        Kind?: string;
+        Package?: string;
+        Tool?: string | Record<string, unknown>;
+        Profile?: string;
+        Platform?: string;
+        OperatingSystem?: string;
+        Architecture?: string;
+        BuildType?: string;
+        Environment?: string;
+        Condition?: string;
+        Arguments?: { Arg?: unknown };
+      } | undefined;
+      if (!generator?.Name || !generator.Kind) {
+        return undefined;
+      }
+      const parsed: GeneratorDeclaration = applySelectorFields({
+        name: generator.Name,
+        kind: generator.Kind,
+        packageName: typeof generator.Package === 'string' ? generator.Package : undefined,
+        toolName: typeof generator.Tool === 'string' ? generator.Tool : undefined,
+        inputs: parseInputs(entry),
+        outputs: parseGeneratorOutputs(entry),
+        arguments: asArray(generator.Arguments?.Arg)
+          .map((arg): GeneratorArgument | undefined => {
+            const value = arg as {
+              Value?: string;
+              Path?: string;
+              Profile?: string;
+              Platform?: string;
+              OperatingSystem?: string;
+              Architecture?: string;
+              BuildType?: string;
+              Environment?: string;
+              Condition?: string;
+            } | undefined;
+            if (!value?.Value && !value?.Path) {
+              return undefined;
+            }
+            return applySelectorFields({ value: value.Value, path: value.Path }, value);
+          })
+          .filter((arg): arg is GeneratorArgument => Boolean(arg))
+      }, generator);
+      const inlineTool = typeof (entry as { Tool?: unknown }).Tool === 'object'
+        ? parseToolDeclaration((entry as { Tool?: unknown }).Tool, false)
+        : undefined;
+      if (inlineTool) {
+        parsed.inlineTool = inlineTool;
+      }
+      return parsed;
+    })
+    .filter((entry): entry is GeneratorDeclaration => Boolean(entry));
 }
 
 function configInputsFrom(inputs: InputDeclaration[]): string[] {
@@ -571,6 +703,7 @@ export function parseProjectManifest(xml: string, manifestPath: string, options:
     result.projectRefs = [...(result.projectRefs ?? []), ...parseProjectReferences(entry, path.dirname(manifestPath))];
     result.packageRefs = [...(result.packageRefs ?? []), ...parsePackageReferences(entry)];
     result.packageFeatureUses = [...(result.packageFeatureUses ?? []), ...parsePackageFeatureUses(entry)];
+    result.generators = [...(result.generators ?? []), ...parseGenerators(entry)];
     return result;
   }).filter((entry) => Boolean(entry.name));
 
@@ -595,6 +728,7 @@ export function parseProjectManifest(xml: string, manifestPath: string, options:
     projectRefs: parseProjectReferences(root, path.dirname(manifestPath)),
     packageRefs: parsePackageReferences(root),
     packageFeatureUses: parsePackageFeatureUses(root),
+    generators: parseGenerators(root),
     profiles
   };
 }
@@ -642,7 +776,8 @@ export function parsePackageManifest(xml: string, manifestPath: string): Package
       const parsed: PackageFeature = {
         name: feature.Name,
         description: feature.Description,
-        inputs: parseInputs(entry)
+        inputs: parseInputs(entry),
+        generators: parseGenerators(entry)
       };
       if (feature.Profile) { parsed.profile = feature.Profile; }
       if (feature.Platform) { parsed.platform = feature.Platform; }
@@ -679,6 +814,9 @@ export function parsePackageManifest(xml: string, manifestPath: string): Package
     name: root.Name ?? path.basename(manifestPath, path.extname(manifestPath)),
     version: root.Version,
     conditions: parseConditions(root),
+    tools: asArray(root.Tools?.Tool)
+      .map((entry) => parseToolDeclaration(entry, true))
+      .filter((entry): entry is ToolDeclaration => Boolean(entry)),
     features
   };
 }

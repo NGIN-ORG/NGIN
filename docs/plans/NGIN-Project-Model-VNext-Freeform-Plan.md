@@ -728,10 +728,15 @@ Generalize MetaGen as one generator in a larger generator model.
 
 ```xml
 <Generators>
-  <Generator Name="MetaGen"
-             Enabled="true"
-             Inputs="include/**/*.hpp"
-             Output="$(GeneratedDir)/reflection.cpp" />
+  <Generator Name="ReflectionMetaGen"
+             Kind="MetaGen"
+             Package="NGIN.Reflection"
+             Tool="MetaGen">
+    <Outputs>
+      <Generated Role="Source"
+                 Path="$(GeneratedDir)/reflection/$(ProjectName).reflection.generated.cpp" />
+    </Outputs>
+  </Generator>
 </Generators>
 ```
 
@@ -1288,18 +1293,30 @@ Purpose: make packages the primary reusable behavior unit.
 This phase should land before package-provided generators, asset processors, or
 runtime templates.
 
-### Phase E: Build Extensions
+### Phase E: Generator-First Build Extensions
+
+Status: Implemented as generator-first v1.
 
 Purpose: add controlled build extensibility without turning `.nginproj` into a
 general script engine.
 
-- Add controlled pipeline phase model.
-- Add custom command schema with declared inputs and outputs.
-- Add the general `<Generators>` model.
-- Convert MetaGen from a special-case `<Build><MetaGen />` feature into a
+- Implemented project/profile/environment/package-feature `<Generators>`.
+- Implemented package `<Tools>`.
+- Converted MetaGen from a special-case `<Build><MetaGen />` feature into a
   generator contribution.
-- Add package-provided generators.
-- Add package-provided asset processors.
+- Removed the public `ngin metagen` command.
+- Added structured `Kind="Command"` generators with executable/argument
+  declarations and explicit outputs.
+- Generator outputs now become typed `Generated` inputs for source compilation,
+  staging, and launch metadata.
+- Added `ngin explain generator` and generator output in `ngin graph`.
+
+Deferred:
+
+- Full pipeline phase model.
+- Asset processors.
+- Incremental backend custom-command scheduling.
+- Generator-specific VS Code UI.
 
 This phase depends heavily on unified inputs, stable conditions, and package
 features.

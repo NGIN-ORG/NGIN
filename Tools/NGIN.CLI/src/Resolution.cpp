@@ -1042,6 +1042,7 @@ namespace NGIN::CLI
                     selected.build = featureIt->build;
                     selected.runtime = featureIt->runtime;
                     selected.variables = featureIt->variables;
+                    selected.generators = featureIt->generators;
                     result.selectedFeatures.push_back(std::move(selected));
                 }
 
@@ -1913,6 +1914,45 @@ namespace NGIN::CLI
         }
 
         resolved.orderedPackages = std::move(orderedPackages);
+        auto collectGenerators = [&](const std::vector<GeneratorDeclaration> &generators,
+                                     const std::string &ownerKind,
+                                     const std::string &ownerName,
+                                     const fs::path &ownerDirectory,
+                                     const fs::path &manifestPath,
+                                     const std::vector<ConditionDefinition> &conditions,
+                                     const std::string &packageName = {},
+                                     const fs::path &packageDirectory = {},
+                                     const fs::path &providerRoot = {})
+        {
+            for (const auto &generator : generators)
+            {
+                if (!SelectionMatches(conditions, generator.selectors, resolved.profile))
+                {
+                    continue;
+                }
+                resolved.generators.push_back(ResolvedGenerator{
+                    .declaration = generator,
+                    .ownerKind = ownerKind,
+                    .ownerName = ownerName,
+                    .ownerDirectory = ownerDirectory,
+                    .manifestPath = manifestPath,
+                    .conditions = conditions,
+                    .packageName = packageName,
+                    .packageDirectory = packageDirectory,
+                    .providerRoot = providerRoot,
+                });
+            }
+        };
+        for (const auto &unit : resolved.projectUnits)
+        {
+            const auto ownerProjectDirectory = unit.project.path.parent_path();
+            collectGenerators(unit.project.generators, "project", unit.project.name, ownerProjectDirectory, unit.project.path, unit.project.conditions);
+            if (unit.environment.has_value())
+            {
+                collectGenerators(unit.environment->generators, "project", unit.project.name, ownerProjectDirectory, unit.project.path, unit.project.conditions);
+            }
+            collectGenerators(unit.profile.generators, "project", unit.project.name, ownerProjectDirectory, unit.project.path, unit.project.conditions);
+        }
         std::unordered_map<std::string, const PackageManifest *> resolvedPackageByName{};
         for (const auto &package : resolved.orderedPackages)
         {
@@ -1931,6 +1971,15 @@ namespace NGIN::CLI
             collectInputs(feature.inputs, "package-feature", feature.packageName + "::" + feature.featureName,
                           packageIt->second->path.parent_path(), packageIt->second->path,
                           &packageIt->second->conditions, &resolved.profile);
+            collectGenerators(feature.generators,
+                              "package-feature",
+                              feature.packageName + "::" + feature.featureName,
+                              packageIt->second->path.parent_path(),
+                              packageIt->second->path,
+                              packageIt->second->conditions,
+                              feature.packageName,
+                              packageIt->second->path.parent_path(),
+                              feature.providerRoot);
         }
         if (result.diagnostics.HasErrors())
         {

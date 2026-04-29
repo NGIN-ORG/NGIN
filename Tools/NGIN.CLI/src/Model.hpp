@@ -244,12 +244,41 @@ namespace NGIN::CLI
         std::string mode{"Generated"};
         std::string language{"CXX"};
         std::string languageStandard{"23"};
-        bool metaGenEnabled{false};
         std::vector<std::string> sources{};
         std::vector<BuildSetting> includeDirectories{};
         std::vector<BuildSetting> compileDefinitions{};
         std::vector<BuildSetting> compileOptions{};
         std::vector<BuildSetting> linkOptions{};
+    };
+
+    struct ToolDeclaration
+    {
+        std::string name{};
+        std::string kind{"Generator"};
+        std::string builtIn{};
+        std::string executable{};
+        SelectorSet selectors{};
+    };
+
+    struct GeneratorArgument
+    {
+        std::string value{};
+        std::string path{};
+        SelectorSet selectors{};
+    };
+
+    struct GeneratorDeclaration
+    {
+        std::string name{};
+        std::string kind{};
+        std::string packageName{};
+        std::string toolName{};
+        ToolDeclaration inlineTool{};
+        bool hasInlineTool{false};
+        SelectorSet selectors{};
+        std::vector<GeneratorArgument> arguments{};
+        std::vector<InputDeclaration> inputs{};
+        std::vector<InputDeclaration> outputs{};
     };
 
     struct ModuleDescriptor
@@ -319,6 +348,7 @@ namespace NGIN::CLI
         std::vector<ConditionDefinition> conditions{};
         std::vector<ModuleDescriptor> modules{};
         std::vector<PluginDescriptor> plugins{};
+        std::vector<ToolDeclaration> tools{};
         struct Feature
         {
             std::string name{};
@@ -331,6 +361,7 @@ namespace NGIN::CLI
             ProjectBuildDescriptor build{};
             RuntimeDefinition runtime{};
             std::vector<EnvironmentVariable> variables{};
+            std::vector<GeneratorDeclaration> generators{};
         };
         std::vector<Feature> features{};
     };
@@ -396,6 +427,7 @@ namespace NGIN::CLI
         std::vector<ProjectReference> projectRefs{};
         std::vector<PackageReference> packageRefs{};
         std::vector<PackageFeatureUse> packageFeatureUses{};
+        std::vector<GeneratorDeclaration> generators{};
         std::vector<InputDeclaration> inputs{};
         std::vector<EnvironmentVariable> variables{};
         std::vector<FeatureFlag> features{};
@@ -415,6 +447,7 @@ namespace NGIN::CLI
         std::vector<ProjectReference> projectRefs{};
         std::vector<PackageReference> packageRefs{};
         std::vector<PackageFeatureUse> packageFeatureUses{};
+        std::vector<GeneratorDeclaration> generators{};
         std::vector<InputDeclaration> inputs{};
         RuntimeDefinition runtime{};
     };
@@ -433,6 +466,7 @@ namespace NGIN::CLI
         std::string lockFile{"Optional"};
         OutputDefinition output{};
         ProjectBuildDescriptor build{};
+        std::vector<GeneratorDeclaration> generators{};
         std::vector<ProjectReference> projectRefs{};
         std::vector<PackageReference> packageRefs{};
         std::vector<PackageFeatureUse> packageFeatureUses{};
@@ -472,6 +506,20 @@ namespace NGIN::CLI
         ProjectBuildDescriptor build{};
         RuntimeDefinition runtime{};
         std::vector<EnvironmentVariable> variables{};
+        std::vector<GeneratorDeclaration> generators{};
+    };
+
+    struct ResolvedGenerator
+    {
+        GeneratorDeclaration declaration{};
+        std::string ownerKind{};
+        std::string ownerName{};
+        fs::path ownerDirectory{};
+        fs::path manifestPath{};
+        std::vector<ConditionDefinition> conditions{};
+        std::string packageName{};
+        fs::path packageDirectory{};
+        fs::path providerRoot{};
     };
 
     struct ResolvedCapabilityProvider
@@ -492,6 +540,7 @@ namespace NGIN::CLI
         std::vector<EnvironmentVariable> environmentVariables{};
         std::vector<FeatureFlag> environmentFeatures{};
         std::vector<SelectedPackageFeature> selectedPackageFeatures{};
+        std::vector<ResolvedGenerator> generators{};
         std::vector<ResolvedCapabilityProvider> capabilityProviders{};
         std::vector<ResolvedBootstrap> bootstraps{};
         std::vector<ResolvedPackage> orderedPackages{};

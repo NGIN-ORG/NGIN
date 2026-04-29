@@ -162,11 +162,6 @@
         "category": "NGIN"
       },
       {
-        "command": "ngin.metagen",
-        "title": "Generate Metadata",
-        "category": "NGIN"
-      },
-      {
         "command": "ngin.workspaceStatus",
         "title": "Workspace Status",
         "category": "NGIN"
@@ -314,11 +309,6 @@
           "command": "ngin.settingsInit",
           "when": "view == nginProjects && viewItem =~ /^(nginProject|nginProfile)$/",
           "group": "ngin.inspect@4"
-        },
-        {
-          "command": "ngin.metagen",
-          "when": "view == nginProjects && viewItem =~ /^(nginProject|nginProfile)$/",
-          "group": "ngin.inspect@5"
         },
         {
           "command": "ngin.clean",

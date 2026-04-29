@@ -20,9 +20,9 @@ namespace
             << "  variables explain [--project <file.nginproj>] [--profile <name>]\n"
             << "  explain condition <Name> [--project <file.nginproj>] [--profile <name>]\n"
             << "  explain package-feature <PackageName> <FeatureName> [--project <file.nginproj>] [--profile <name>]\n"
+            << "  explain generator <Name> [--project <file.nginproj>] [--profile <name>]\n"
             << "  validate [--project <file.nginproj>] [--profile <name>]\n"
             << "  graph [--project <file.nginproj>] [--profile <name>]\n"
-            << "  metagen [--project <file.nginproj>] [--profile <name>] [--output <dir>]\n"
             << "  configure [--project <file.nginproj>] [--profile <name>] [--output <dir>]\n"
             << "  clean [--project <file.nginproj>] [--profile <name>] [--output <dir>]\n"
             << "  build [--project <file.nginproj>] [--profile <name>] [--output <dir>]\n"
@@ -134,6 +134,10 @@ auto main(int argc, char **argv) -> int
             {
                 return NGIN::CLI::CmdExplainPackageFeature(root, NGIN::CLI::ParseCommonArgs(argc, argv, 3));
             }
+            if (subcommand == "generator")
+            {
+                return NGIN::CLI::CmdExplainGenerator(root, NGIN::CLI::ParseCommonArgs(argc, argv, 3));
+            }
             throw std::runtime_error("unknown explain subcommand '" + subcommand + "'");
         }
         if (command == "list")
@@ -155,10 +159,6 @@ auto main(int argc, char **argv) -> int
         if (command == "graph")
         {
             return NGIN::CLI::CmdGraph(root, NGIN::CLI::ParseCommonArgs(argc, argv, 2));
-        }
-        if (command == "metagen")
-        {
-            return NGIN::CLI::CmdMetaGen(root, NGIN::CLI::ParseCommonArgs(argc, argv, 2));
         }
         if (command == "clean")
         {

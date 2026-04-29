@@ -186,9 +186,7 @@ namespace
     <Sources Path="src" />
   </Inputs>
   <Output Kind="Executable" Name="Meta.Property.App" Target="MetaPropertyApp" />
-  <Build Backend="CMake" Mode="Generated" Language="CXX" LanguageStandard="23">
-    <MetaGen Enabled="true" />
-  </Build>
+  <Build Backend="CMake" Mode="Generated" Language="CXX" LanguageStandard="23" />
   <Environments>
     <Environment Name="dev" />
   </Environments>
@@ -300,7 +298,7 @@ struct NGIN_REFLECT(name = "Demo::Player") Player {
 
     const auto project = LoadProjectManifest(projectPath);
     const auto result =
-        GenerateMetaData(RepoRoot(), project, project.profiles.front(), temp.path() / "generated");
+        GenerateMetaData(RepoRoot(), project, project.profiles.front(), temp.path() / "generated/Meta.Property.App.reflection.generated.cpp");
     if (!result.available)
     {
         SKIP("MetaGen was built without Clang support");
@@ -330,7 +328,7 @@ struct NGIN_REFLECT(name = "Demo::Player") Player {
 
     const auto project = LoadProjectManifest(projectPath);
     const auto result =
-        GenerateMetaData(RepoRoot(), project, project.profiles.front(), temp.path() / "generated");
+        GenerateMetaData(RepoRoot(), project, project.profiles.front(), temp.path() / "generated/Meta.Property.App.reflection.generated.cpp");
     if (!result.available)
     {
         SKIP("MetaGen was built without Clang support");
@@ -354,7 +352,7 @@ struct NGIN_REFLECT(name = "Demo::Player") Player {
 
     const auto project = LoadProjectManifest(projectPath);
     const auto result =
-        GenerateMetaData(RepoRoot(), project, project.profiles.front(), temp.path() / "generated");
+        GenerateMetaData(RepoRoot(), project, project.profiles.front(), temp.path() / "generated/Meta.Property.App.reflection.generated.cpp");
     if (!result.available)
     {
         SKIP("MetaGen was built without Clang support");
@@ -362,7 +360,7 @@ struct NGIN_REFLECT(name = "Demo::Player") Player {
     REQUIRE(ContainsDiagnostic(result.diagnostics, "has a setter but no getter"));
 }
 
-TEST_CASE("project build descriptor parses metagen opt in")
+TEST_CASE("project generators parse and legacy metagen opt in is rejected")
 {
     TempDir temp{};
     const auto projectPath = temp.path() / "App.nginproj";
@@ -373,9 +371,14 @@ TEST_CASE("project build descriptor parses metagen opt in")
     <Sources Path="src" />
   </Inputs>
   <Output Kind="Executable" Name="Meta.App" Target="MetaApp" />
-  <Build Backend="CMake" Mode="Generated" Language="CXX" LanguageStandard="23">
-    <MetaGen Enabled="true" />
-  </Build>
+  <Build Backend="CMake" Mode="Generated" Language="CXX" LanguageStandard="23" />
+  <Generators>
+    <Generator Name="ReflectionMetaGen" Kind="MetaGen" Package="NGIN.Reflection" Tool="MetaGen">
+      <Outputs>
+        <Generated Role="Source" Path="$(GeneratedDir)/reflection/$(ProjectName).reflection.generated.cpp" />
+      </Outputs>
+    </Generator>
+  </Generators>
   <Environments>
     <Environment Name="dev" />
   </Environments>
@@ -386,7 +389,103 @@ TEST_CASE("project build descriptor parses metagen opt in")
 )");
 
     const auto project = LoadProjectManifest(projectPath);
-    REQUIRE(project.build.metaGenEnabled);
+    REQUIRE(project.generators.size() == 1);
+    REQUIRE(project.generators.front().name == "ReflectionMetaGen");
+    REQUIRE(project.generators.front().outputs.size() == 1);
+
+    WriteFile(temp.path() / "Legacy.nginproj",
+              R"(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="3" Name="Legacy.Meta.App" Type="Application" DefaultProfile="Runtime">
+  <Inputs>
+    <Sources Path="src" />
+  </Inputs>
+  <Output Kind="Executable" Name="Legacy.Meta.App" Target="LegacyMetaApp" />
+  <Build Backend="CMake" Mode="Generated">
+    <MetaGen Enabled="true" />
+  </Build>
+  <Environments>
+    <Environment Name="dev" />
+  </Environments>
+  <Profiles>
+    <Profile Name="Runtime" BuildType="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev" />
+  </Profiles>
+</Project>
+)");
+    REQUIRE_THROWS_WITH(LoadProjectManifest(temp.path() / "Legacy.nginproj"), ContainsSubstring("<Build><MetaGen> is no longer supported"));
+}
+
+TEST_CASE("package tools and command generators parse")
+{
+    TempDir temp{};
+    const auto packagePath = temp.path() / "Generated.Tools.nginpkg";
+    WriteFile(packagePath,
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Package SchemaVersion="3" Name="Generated.Tools" Version="0.1.0">
+  <Tools>
+    <Tool Name="SchemaCompiler" Kind="Generator" Executable="bin/schema-compiler" />
+  </Tools>
+  <Features>
+    <Feature Name="Schema">
+      <Generators>
+        <Generator Name="SchemaCodegen" Kind="Command" Tool="SchemaCompiler">
+          <Arguments>
+            <Arg Value="--input" />
+            <Arg Path="schemas/app.schema.json" />
+            <Arg Value="--output" />
+            <Arg Path="$(GeneratedDir)/schema/app_schema.cpp" />
+          </Arguments>
+          <Inputs>
+            <ToolInputs>
+              schemas/app.schema.json
+            </ToolInputs>
+          </Inputs>
+          <Outputs>
+            <Generated Role="Source" Path="$(GeneratedDir)/schema/app_schema.cpp" />
+          </Outputs>
+        </Generator>
+      </Generators>
+    </Feature>
+  </Features>
+</Package>
+)xml");
+
+    const auto package = LoadPackageManifest(packagePath);
+    REQUIRE(package.tools.size() == 1);
+    REQUIRE(package.tools.front().name == "SchemaCompiler");
+    REQUIRE(package.features.size() == 1);
+    REQUIRE(package.features.front().generators.size() == 1);
+    const auto &generator = package.features.front().generators.front();
+    REQUIRE(generator.name == "SchemaCodegen");
+    REQUIRE(generator.kind == "Command");
+    REQUIRE(generator.toolName == "SchemaCompiler");
+    REQUIRE(generator.arguments.size() == 4);
+    REQUIRE(generator.inputs.size() == 1);
+    REQUIRE(generator.outputs.size() == 1);
+    REQUIRE(generator.outputs.front().role == "Source");
+}
+
+TEST_CASE("generator declarations require explicit outputs")
+{
+    TempDir temp{};
+    const auto projectPath = temp.path() / "Missing.Output.nginproj";
+    WriteFile(projectPath,
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="3" Name="Missing.Output" Template="Application" DefaultProfile="Runtime">
+  <Generators>
+    <Generator Name="NoOutputs" Kind="Command">
+      <Tool Executable="tools/schema-compiler" />
+    </Generator>
+  </Generators>
+  <Environments>
+    <Environment Name="dev" />
+  </Environments>
+  <Profiles>
+    <Profile Name="Runtime" BuildType="Debug" Platform="linux-x64" Environment="dev" />
+  </Profiles>
+</Project>
+)xml");
+
+    REQUIRE_THROWS_WITH(LoadProjectManifest(projectPath), ContainsSubstring("must declare <Outputs>"));
 }
 
 TEST_CASE("normalized project inputs parse selector metadata and reject legacy roots")

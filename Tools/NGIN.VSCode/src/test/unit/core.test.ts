@@ -22,7 +22,7 @@ import {
 } from '../../core/helpers';
 import { addRootConfigInput, relativeManifestPath, removeConfigInputs, renameConfigInputs } from '../../core/projectAuthoring';
 import { buildOverviewSections, buildProjectTreeModels, buildStatusBarModel } from '../../ui/models';
-import { parseLaunchManifest, parseLocalSettingsManifest, parseModelManifest, parseProjectManifest, parseWorkspaceManifest } from '../../core/xml';
+import { parseLaunchManifest, parseLocalSettingsManifest, parseModelManifest, parsePackageManifest, parseProjectManifest, parseWorkspaceManifest } from '../../core/xml';
 
 test('computeOutputDir uses the CLI default layout when no root override is configured', () => {
   const outputDir = computeOutputDir('/workspace', 'App.Basic', 'Runtime');
@@ -159,6 +159,52 @@ test('project manifests parse normalized source roots and files', () => {
   assert.deepEqual(project.buildSources, ['include/Typed/App.hpp', 'src/main.cpp', 'src/a.cpp', 'src/b.cpp']);
 });
 
+test('project and package manifests parse generator declarations', () => {
+  const project = parseProjectManifest(
+    [
+      '<?xml version="1.0" encoding="utf-8"?>',
+      '<Project SchemaVersion="3" Name="Generated.App" DefaultProfile="Runtime">',
+      '  <Generators>',
+      '    <Generator Name="ReflectionMetaGen" Kind="MetaGen" Package="NGIN.Reflection" Tool="MetaGen">',
+      '      <Outputs>',
+      '        <Generated Role="Source" Path="$(GeneratedDir)/reflection/Generated.App.reflection.generated.cpp" />',
+      '      </Outputs>',
+      '    </Generator>',
+      '  </Generators>',
+      '  <Profiles><Profile Name="Runtime" /></Profiles>',
+      '</Project>'
+    ].join('\n'),
+    '/repo/Generated.App.nginproj'
+  );
+  assert.equal(project.generators?.[0].name, 'ReflectionMetaGen');
+  assert.equal(project.generators?.[0].outputs?.[0].role, 'Source');
+
+  const packageManifest = parsePackageManifest(
+    [
+      '<?xml version="1.0" encoding="utf-8"?>',
+      '<Package SchemaVersion="3" Name="Generated.Tools" Version="0.1.0">',
+      '  <Tools>',
+      '    <Tool Name="SchemaCompiler" Kind="Generator" Executable="bin/schema-compiler" />',
+      '  </Tools>',
+      '  <Features>',
+      '    <Feature Name="Schema">',
+      '      <Generators>',
+      '        <Generator Name="SchemaCodegen" Kind="Command" Tool="SchemaCompiler">',
+      '          <Arguments><Arg Value="--version" /></Arguments>',
+      '          <Outputs><Generated Role="Header" Path="$(GeneratedDir)/schema/app_schema.hpp" /></Outputs>',
+      '        </Generator>',
+      '      </Generators>',
+      '    </Feature>',
+      '  </Features>',
+      '</Package>'
+    ].join('\n'),
+    '/repo/Packages/Generated.Tools/Generated.Tools.nginpkg'
+  );
+  assert.equal(packageManifest.tools?.[0].name, 'SchemaCompiler');
+  assert.equal(packageManifest.features?.[0].generators?.[0].name, 'SchemaCodegen');
+  assert.equal(packageManifest.features?.[0].generators?.[0].outputs?.[0].role, 'Header');
+});
+
 test('local settings manifests expose keys without values', () => {
   const settings = parseLocalSettingsManifest(
     '<?xml version="1.0" encoding="utf-8"?><LocalSettings SchemaVersion="1"><Settings><Setting Key="feeds.private.token" Value="secret" Secret="true" /><Setting Key="sdk.vulkan.root" Value="/opt/vulkan" /></Settings></LocalSettings>',
@@ -180,11 +226,14 @@ test('extension manifest and snippets register local settings support', () => {
   const commandIds = packageJson.contributes.commands.map((entry: { command: string }) => entry.command);
   assert.ok(commandIds.includes('ngin.variablesExplain'));
   assert.ok(commandIds.includes('ngin.settingsInit'));
+  assert.equal(commandIds.includes('ngin.metagen'), false);
 
   const snippets = JSON.parse(readFileSync(path.join(process.cwd(), 'snippets/ngin.code-snippets'), 'utf8'));
   assert.ok(snippets['Local Settings File']);
   assert.ok(snippets['Variable From Local Setting']);
   assert.ok(snippets['Model']);
+  assert.ok(snippets['MetaGen Generator']);
+  assert.ok(snippets['Command Generator']);
 });
 
 test('launch manifests surface selected executable and staged files', () => {
@@ -407,7 +456,7 @@ test('overview sections describe the current workspace selection and actions', (
   assert.equal(sections[3].children[1].command, 'ngin.configure');
   assert.equal(sections[3].children[2].command, 'ngin.rebuild');
   assert.equal(sections[3].children[3].command, 'ngin.clean');
-  assert.equal(sections[3].children.some((entry) => entry.command === 'ngin.metagen'), true);
+  assert.equal(sections[3].children.some((entry) => entry.command === 'ngin.metagen'), false);
   assert.equal(sections[4].children[1].label, 'Open Last Launch Manifest');
 });
 

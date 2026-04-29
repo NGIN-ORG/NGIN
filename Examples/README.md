@@ -22,7 +22,7 @@ Read and run the examples in this order:
 3. [`App.Basic`](App.Basic/README.md)
    Adds project-owned runtime metadata while staying compact.
 4. [`App.ReflectionMetaGen`](App.ReflectionMetaGen/README.md)
-   Shows the first `ngin metagen` workflow for annotated reflection metadata.
+   Shows generator-backed annotated reflection metadata.
 5. [`App.Showcase`](App.Showcase/README.md)
    Shows profile overlays, optional packages, and richer runtime metadata.
 6. `Game.Engine`, `Game.Client`, and `Game.Server`
@@ -42,7 +42,7 @@ then moves into richer profile and composition behavior.
 - `App.Basic/` demonstrates a compact hosted application with manifest-owned
   runtime metadata.
 - `App.ReflectionMetaGen/` demonstrates annotation-driven reflection metadata
-  generation with `ngin metagen`.
+  generation through the project generator model.
 - `App.Showcase/` demonstrates several profiles in one project, including
   config overlays, package overlays, module enable/disable behavior, and
   reflection-gated composition.

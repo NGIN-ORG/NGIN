@@ -247,11 +247,11 @@ Valid pairings:
 
 ## Build
 
-Generated CMake projects may opt into MetaGen under `Build`.
+Generated CMake projects declare backend build settings under `Build`.
+Generator-backed source production is declared separately under `Generators`.
 
 ```xml
 <Build Backend="CMake" Mode="Generated" Language="CXX" LanguageStandard="23">
-  <MetaGen Enabled="true" />
   <CompileDefinitions>
     <Definition Value="MYAPP_DEBUG_TOOLS"
                 Visibility="Private"
@@ -260,9 +260,65 @@ Generated CMake projects may opt into MetaGen under `Build`.
 </Build>
 ```
 
-When enabled, `ngin build` runs MetaGen before generated CMake emission and
-compiles the generated reflection source as part of the project target. Reflected
-types must be declared in includable headers, not compiled source files.
+Authored `<Build><MetaGen /></Build>` is removed. Use `Generators` instead.
+
+## Generators
+
+Projects, profiles, environments, and selected package features may contribute
+generators. `ngin configure` and `ngin build` execute selected generators before
+generated CMake emission, validate declared outputs, and feed generated outputs
+back into the typed input pipeline.
+
+```xml
+<Generators>
+  <Generator Name="ReflectionMetaGen"
+             Kind="MetaGen"
+             Package="NGIN.Reflection"
+             Tool="MetaGen">
+    <Outputs>
+      <Generated Role="Source"
+                 Path="$(GeneratedDir)/reflection/$(ProjectName).reflection.generated.cpp" />
+    </Outputs>
+  </Generator>
+</Generators>
+```
+
+Phase E supports:
+
+- `Kind="MetaGen"` for the built-in reflection metadata backend
+- `Kind="Command"` for structured executable/argument generators
+- output roles `Source`, `Header`, `Content`, `Asset`, and `ToolInput`
+- path macros `$(ProjectDir)`, `$(ProjectName)`, `$(ProfileName)`,
+  `$(GeneratedDir)`, and `$(OutputDir)`
+
+Command generators do not use a shell. Arguments are passed exactly in authored
+order after macro expansion:
+
+```xml
+<Generators>
+  <Generator Name="SchemaCodegen" Kind="Command">
+    <Tool Executable="tools/schema-compiler" />
+    <Arguments>
+      <Arg Value="--input" />
+      <Arg Path="schemas/app.schema.json" />
+      <Arg Value="--output" />
+      <Arg Path="$(GeneratedDir)/schema/app_schema.cpp" />
+    </Arguments>
+    <Inputs>
+      <ToolInputs>
+        schemas/app.schema.json
+      </ToolInputs>
+    </Inputs>
+    <Outputs>
+      <Generated Role="Source" Path="$(GeneratedDir)/schema/app_schema.cpp" />
+    </Outputs>
+  </Generator>
+</Generators>
+```
+
+MetaGen scans selected source/header inputs and writes the declared generated
+source output. Reflected types must be declared in includable headers, not
+compiled source files.
 
 MetaGen property methods use `NGIN_PROPERTY(...)` on public member functions.
 A getter has zero parameters and a non-void return. A setter has one parameter

@@ -1532,6 +1532,13 @@ TEST_CASE("ApplicationBuilderLoadsProjectManifestAndConfig",
       <Definition Value="MANIFEST_TESTS=1" Visibility="Private" />
     </CompileDefinitions>
   </Build>
+  <Generators>
+    <Generator Name="ReflectionMetaGen" Kind="MetaGen" Package="NGIN.Reflection" Tool="MetaGen">
+      <Outputs>
+        <Generated Role="Source" Path="$(GeneratedDir)/reflection/Manifest.Tests.reflection.generated.cpp" />
+      </Outputs>
+    </Generator>
+  </Generators>
   <References>
     <Package Name="NGIN.ECS" Version=">=0.1.0 &lt;1.0.0" />
   </References>

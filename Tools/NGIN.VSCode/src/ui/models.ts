@@ -352,8 +352,7 @@ export function buildOverviewSections(snapshot: NginWorkspaceSnapshot): Overview
         { id: 'action-clean', label: 'Clean', tooltip: 'Remove NGIN-owned generated artifacts for the selected project and profile.', command: 'ngin.clean', arguments: target ? [target] : undefined, icon: 'trash' },
         { id: 'action-run', label: 'Run', tooltip: 'Run the selected project and profile.', command: 'ngin.run', arguments: target ? [target] : undefined, icon: 'play' },
         { id: 'action-debug', label: 'Debug', tooltip: 'Debug the selected project and profile.', command: 'ngin.debug', arguments: target ? [target] : undefined, icon: 'bug' },
-        { id: 'action-validate', label: 'Validate', tooltip: 'Validate the selected project and profile.', command: 'ngin.validate', arguments: target ? [target] : undefined, icon: 'check' },
-        { id: 'action-metagen', label: 'Generate Metadata', tooltip: 'Run ngin metagen for the selected project and profile.', command: 'ngin.metagen', arguments: target ? [target] : undefined, icon: 'symbol-structure' }
+        { id: 'action-validate', label: 'Validate', tooltip: 'Validate the selected project and profile.', command: 'ngin.validate', arguments: target ? [target] : undefined, icon: 'check' }
       ]
     },
     {

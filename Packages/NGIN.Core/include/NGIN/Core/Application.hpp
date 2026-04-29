@@ -135,6 +135,50 @@ struct CapabilityProvision {
   bool exclusive{false};
 };
 
+struct ToolDeclaration {
+  std::string name{};
+  std::string kind{"Generator"};
+  std::string builtIn{};
+  std::string executable{};
+  std::string profile{};
+  std::string platform{};
+  std::string operatingSystem{};
+  std::string architecture{};
+  std::string buildType{};
+  std::string environment{};
+  std::string condition{};
+};
+
+struct GeneratorArgument {
+  std::string value{};
+  std::string path{};
+  std::string profile{};
+  std::string platform{};
+  std::string operatingSystem{};
+  std::string architecture{};
+  std::string buildType{};
+  std::string environment{};
+  std::string condition{};
+};
+
+struct GeneratorDeclaration {
+  std::string name{};
+  std::string kind{};
+  std::string packageName{};
+  std::string toolName{};
+  std::optional<ToolDeclaration> inlineTool{};
+  std::string profile{};
+  std::string platform{};
+  std::string operatingSystem{};
+  std::string architecture{};
+  std::string buildType{};
+  std::string environment{};
+  std::string condition{};
+  std::vector<GeneratorArgument> arguments{};
+  std::vector<InputDeclaration> inputs{};
+  std::vector<InputDeclaration> outputs{};
+};
+
 struct PackagePluginManifest {
   std::string name{};
   std::vector<std::string> operatingSystems{};
@@ -189,6 +233,7 @@ struct PackageManifest {
   std::vector<ConditionDefinition> conditions{};
   std::vector<ModuleDescriptor> modules{};
   std::vector<PackagePluginManifest> plugins{};
+  std::vector<ToolDeclaration> tools{};
   struct Feature {
     std::string name{};
     std::string description{};
@@ -205,6 +250,7 @@ struct PackageManifest {
     std::vector<InputDeclaration> inputs{};
     RuntimeDefinition runtime{};
     std::vector<EnvironmentVariable> variables{};
+    std::vector<GeneratorDeclaration> generators{};
   };
   std::vector<Feature> features{};
 };
@@ -258,6 +304,7 @@ struct EnvironmentDefinition {
   std::vector<ProjectReference> projectRefs{};
   std::vector<PackageReference> packageRefs{};
   std::vector<PackageFeatureUse> packageFeatureUses{};
+  std::vector<GeneratorDeclaration> generators{};
   std::vector<InputDeclaration> inputs{};
   std::vector<EnvironmentVariable> variables{};
   std::vector<FeatureFlag> features{};
@@ -275,6 +322,7 @@ struct ProfileDefinition {
   std::vector<ProjectReference> projectRefs{};
   std::vector<PackageReference> packageRefs{};
   std::vector<PackageFeatureUse> packageFeatureUses{};
+  std::vector<GeneratorDeclaration> generators{};
   std::vector<InputDeclaration> inputs{};
   std::optional<LaunchDefinition> launch{};
   RuntimeDefinition runtime{};
@@ -289,6 +337,7 @@ struct ProjectManifest {
   std::vector<ConditionDefinition> conditions{};
   OutputDefinition output{};
   ProjectBuildDescriptor build{};
+  std::vector<GeneratorDeclaration> generators{};
   std::vector<ProjectReference> projectRefs{};
   std::vector<PackageReference> packageRefs{};
   std::vector<PackageFeatureUse> packageFeatureUses{};

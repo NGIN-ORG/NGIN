@@ -924,8 +924,8 @@ namespace NGIN::Core
 
     [[nodiscard]] auto IsSupportedGeneratedRole(const std::string &role) -> bool
     {
-      return role == "Source" || role == "Content" || role == "Asset" ||
-             role == "ToolInput";
+      return role == "Source" || role == "Header" || role == "Content" ||
+             role == "Asset" || role == "ToolInput";
     }
 
     [[nodiscard]] auto IsTypedInputBlock(const std::string_view name) -> bool
@@ -1385,6 +1385,222 @@ namespace NGIN::Core
       return {};
     }
 
+    [[nodiscard]] auto ParseToolDeclaration(const XmlElement &element,
+                                            const std::string_view context,
+                                            const bool requireName)
+        -> CoreResult<ToolDeclaration>
+    {
+      ToolDeclaration tool{};
+      if (requireName)
+      {
+        auto name = RequireAttribute(element, "Name", context);
+        if (!name)
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(name.Error());
+        }
+        tool.name = name.Value();
+      }
+      else
+      {
+        tool.name = Attribute(element, "Name").value_or("");
+      }
+      tool.kind = Attribute(element, "Kind").value_or("Generator");
+      tool.builtIn = Attribute(element, "BuiltIn").value_or("");
+      tool.executable = Attribute(element, "Executable").value_or("");
+      tool.profile = Attribute(element, "Profile").value_or("");
+      tool.platform = Attribute(element, "Platform").value_or("");
+      tool.operatingSystem = Attribute(element, "OperatingSystem").value_or("");
+      tool.architecture = Attribute(element, "Architecture").value_or("");
+      tool.buildType = Attribute(element, "BuildType").value_or("");
+      tool.environment = Attribute(element, "Environment").value_or("");
+      tool.condition = Attribute(element, "Condition").value_or("");
+
+      if (tool.kind != "Generator")
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+            std::string(context) + " uses unsupported tool kind",
+            tool.kind, KernelErrorCode::SchemaValidationFailure));
+      }
+      if (tool.builtIn.empty() && tool.executable.empty())
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+            std::string(context) + " must declare BuiltIn or Executable",
+            tool.name, KernelErrorCode::SchemaValidationFailure));
+      }
+      if (!tool.builtIn.empty() && !tool.executable.empty())
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+            std::string(context) + " may not declare both BuiltIn and Executable",
+            tool.name, KernelErrorCode::SchemaValidationFailure));
+      }
+      return tool;
+    }
+
+    [[nodiscard]] auto ParseGeneratorOutput(const XmlElement &element,
+                                            const std::string_view context)
+        -> CoreResult<InputDeclaration>
+    {
+      if (element.name != "Generated")
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+            std::string(context) + ".Outputs contains unsupported child",
+            std::string(element.name), KernelErrorCode::SchemaValidationFailure));
+      }
+      InputDeclaration output{};
+      output.kind = "Generated";
+      output.role = Attribute(element, "Role").value_or("");
+      output.mode = "File";
+      output.visibility = output.role == "Header" ? "Public" : "Private";
+      auto parsed = ReadInputAttributes(element, context, output);
+      if (!parsed)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(parsed.Error());
+      }
+      output = std::move(parsed.Value());
+      if (output.role.empty())
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+            std::string(context) + ".Generated requires Role", {},
+            KernelErrorCode::SchemaValidationFailure));
+      }
+      if (output.path.empty())
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+            std::string(context) + ".Generated requires Path", {},
+            KernelErrorCode::SchemaValidationFailure));
+      }
+      output.declaringScope = std::string(context);
+      if (auto validated = ValidateInputDeclaration(output, context); !validated)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(validated.Error());
+      }
+      return output;
+    }
+
+    auto ParseGenerators(const XmlElement &element,
+                         const std::string_view context,
+                         std::vector<GeneratorDeclaration> &out)
+        -> CoreResult<void>
+    {
+      const auto *generatorsElement = FindChild(element, "Generators");
+      if (generatorsElement == nullptr)
+      {
+        return {};
+      }
+
+      std::set<std::string> names{};
+      for (const auto *generatorElement : ChildElements(*generatorsElement, "Generator"))
+      {
+        auto name = RequireAttribute(*generatorElement, "Name", context);
+        if (!name)
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(name.Error());
+        }
+        GeneratorDeclaration generator{};
+        generator.name = name.Value();
+        generator.kind = Attribute(*generatorElement, "Kind").value_or("");
+        generator.packageName = Attribute(*generatorElement, "Package").value_or("");
+        generator.toolName = Attribute(*generatorElement, "Tool").value_or("");
+        generator.profile = Attribute(*generatorElement, "Profile").value_or("");
+        generator.platform = Attribute(*generatorElement, "Platform").value_or("");
+        generator.operatingSystem = Attribute(*generatorElement, "OperatingSystem").value_or("");
+        generator.architecture = Attribute(*generatorElement, "Architecture").value_or("");
+        generator.buildType = Attribute(*generatorElement, "BuildType").value_or("");
+        generator.environment = Attribute(*generatorElement, "Environment").value_or("");
+        generator.condition = Attribute(*generatorElement, "Condition").value_or("");
+
+        if (!names.insert(generator.name).second)
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+              std::string(context) + " has duplicate generator",
+              generator.name, KernelErrorCode::AlreadyExists));
+        }
+        if (generator.kind != "MetaGen" && generator.kind != "Command")
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+              std::string(context) + " uses unsupported generator kind",
+              generator.kind, KernelErrorCode::SchemaValidationFailure));
+        }
+        if (const auto *toolElement = FindChild(*generatorElement, "Tool"))
+        {
+          auto tool = ParseToolDeclaration(*toolElement,
+                                           std::string(context) + ".Generator.Tool",
+                                           false);
+          if (!tool)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(tool.Error());
+          }
+          generator.inlineTool = tool.Value();
+        }
+        if (generator.kind == "Command" && generator.toolName.empty() &&
+            !generator.inlineTool.has_value())
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+              std::string(context) + " command generator must declare Tool or inline <Tool>",
+              generator.name, KernelErrorCode::SchemaValidationFailure));
+        }
+        if (generator.kind == "MetaGen" && generator.toolName.empty())
+        {
+          generator.toolName = "MetaGen";
+        }
+        if (const auto *argumentsElement = FindChild(*generatorElement, "Arguments"))
+        {
+          for (const auto *argumentElement : ChildElements(*argumentsElement, "Arg"))
+          {
+            GeneratorArgument argument{};
+            argument.value = Attribute(*argumentElement, "Value").value_or("");
+            argument.path = Attribute(*argumentElement, "Path").value_or("");
+            argument.profile = Attribute(*argumentElement, "Profile").value_or("");
+            argument.platform = Attribute(*argumentElement, "Platform").value_or("");
+            argument.operatingSystem = Attribute(*argumentElement, "OperatingSystem").value_or("");
+            argument.architecture = Attribute(*argumentElement, "Architecture").value_or("");
+            argument.buildType = Attribute(*argumentElement, "BuildType").value_or("");
+            argument.environment = Attribute(*argumentElement, "Environment").value_or("");
+            argument.condition = Attribute(*argumentElement, "Condition").value_or("");
+            if (argument.value.empty() == argument.path.empty())
+            {
+              return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+                  std::string(context) + ".Arguments.Arg must declare exactly one of Value or Path",
+                  generator.name, KernelErrorCode::SchemaValidationFailure));
+            }
+            generator.arguments.push_back(std::move(argument));
+          }
+        }
+        if (auto inputs = ParseInputDeclarations(*generatorElement,
+                                                 std::string(context) + ".Generator.Inputs",
+                                                 generator.inputs);
+            !inputs)
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(inputs.Error());
+        }
+        const auto *outputsElement = FindChild(*generatorElement, "Outputs");
+        if (outputsElement == nullptr)
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+              std::string(context) + " generator must declare <Outputs>",
+              generator.name, KernelErrorCode::SchemaValidationFailure));
+        }
+        for (const auto *outputElement : ChildElements(*outputsElement))
+        {
+          auto output = ParseGeneratorOutput(*outputElement,
+                                             std::string(context) + ".Generator.Outputs");
+          if (!output)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(output.Error());
+          }
+          generator.outputs.push_back(output.Value());
+        }
+        if (generator.outputs.empty())
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+              std::string(context) + " generator must declare at least one output",
+              generator.name, KernelErrorCode::SchemaValidationFailure));
+        }
+        out.push_back(std::move(generator));
+      }
+      return {};
+    }
+
     [[nodiscard]] auto ParseBuildSetting(const XmlElement &element,
                                          const std::string_view context,
                                          const std::string_view valueAttribute)
@@ -1459,6 +1675,13 @@ namespace NGIN::Core
         return NGIN::Utilities::Unexpected<KernelError>(languageStandard.Error());
       }
       build.languageStandard = languageStandard.Value();
+
+      if (FindChild(*buildElement, "MetaGen") != nullptr)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+            std::string(context) + ".MetaGen is no longer supported; use <Generators><Generator Kind=\"MetaGen\">",
+            {}, KernelErrorCode::SchemaValidationFailure));
+      }
 
       if (const auto *sourcesElement = FindChild(*buildElement, "Sources"))
       {
@@ -2403,6 +2626,11 @@ namespace NGIN::Core
       {
         return NGIN::Utilities::Unexpected<KernelError>(inputs.Error());
       }
+      if (auto generators = ParseGenerators(element, context, environment.generators);
+          !generators)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(generators.Error());
+      }
       if (auto featureUses = ParsePackageFeatureUses(element, context);
           !featureUses)
       {
@@ -2645,6 +2873,11 @@ namespace NGIN::Core
       {
         return NGIN::Utilities::Unexpected<KernelError>(inputs.Error());
       }
+      if (auto generators = ParseGenerators(element, context, profile.generators);
+          !generators)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(generators.Error());
+      }
       if (auto featureUses = ParsePackageFeatureUses(element, context);
           !featureUses)
       {
@@ -2791,6 +3024,11 @@ namespace NGIN::Core
           !inputs)
       {
         return NGIN::Utilities::Unexpected<KernelError>(inputs.Error());
+      }
+      if (auto generators = ParseGenerators(*root, "project", manifest.generators);
+          !generators)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(generators.Error());
       }
 
       if (FindChild(*root, "Host") != nullptr)
@@ -3460,6 +3698,26 @@ namespace NGIN::Core
         return NGIN::Utilities::Unexpected<KernelError>(inputs.Error());
       }
 
+      if (const auto *toolsElement = FindChild(*root, "Tools"))
+      {
+        std::set<std::string> toolNames{};
+        for (const auto *toolElement : ChildElements(*toolsElement, "Tool"))
+        {
+          auto tool = ParseToolDeclaration(*toolElement, "package.Tools.Tool", true);
+          if (!tool)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(tool.Error());
+          }
+          if (!toolNames.insert(tool.Value().name).second)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+                "duplicate package tool declaration", tool.Value().name,
+                KernelErrorCode::AlreadyExists));
+          }
+          manifest.tools.push_back(tool.Value());
+        }
+      }
+
       std::set<std::string> moduleNames{};
       if (const auto *modulesElement = FindChild(*root, "Modules"))
       {
@@ -3578,6 +3836,13 @@ namespace NGIN::Core
               !inputs)
           {
             return NGIN::Utilities::Unexpected<KernelError>(inputs.Error());
+          }
+          if (auto generators = ParseGenerators(*featureElement,
+                                                "package.Features.Feature",
+                                                feature.generators);
+              !generators)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(generators.Error());
           }
           if (const auto *runtimeElement = FindChild(*featureElement, "Runtime"))
           {

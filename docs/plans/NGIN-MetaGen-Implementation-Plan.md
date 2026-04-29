@@ -1,5 +1,10 @@
 # NGIN.MetaGen Implementation Plan
 
+> Superseded by Phase E of the V3 project model: MetaGen is now invoked through
+> `<Generators><Generator Kind="MetaGen">` during `ngin configure`/`ngin build`.
+> The standalone public `ngin metagen` command and `<Build><MetaGen />` opt-in
+> described below are obsolete historical notes.
+
 ## Summary
 
 NGIN.MetaGen should become the opt-in code generation path for authored C++

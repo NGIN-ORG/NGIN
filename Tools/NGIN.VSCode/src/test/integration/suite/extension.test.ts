@@ -52,12 +52,10 @@ suite('NGIN Tools Extension', () => {
     assert.ok(tasks.some((task) => task.name.startsWith('NGIN: Rebuild')));
     assert.ok(tasks.some((task) => task.name.startsWith('NGIN: Clean')));
     assert.ok(tasks.some((task) => task.name.startsWith('NGIN: Validate')));
-    assert.ok(tasks.some((task) => task.name.startsWith('NGIN: Metagen')));
 
     const commands = await vscode.commands.getCommands(true);
     assert.ok(commands.includes('ngin.clean'));
     assert.ok(commands.includes('ngin.rebuild'));
-    assert.ok(commands.includes('ngin.metagen'));
     assert.ok(commands.includes('ngin.variablesExplain'));
     assert.ok(commands.includes('ngin.settingsInit'));
   });

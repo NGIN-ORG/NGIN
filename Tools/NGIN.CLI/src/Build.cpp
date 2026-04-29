@@ -456,14 +456,6 @@ namespace NGIN::CLI
             return ResolveBuildRoot(resolved) / ".ngin" / "build" / resolved.project.name / resolved.profile.name;
         }
 
-        [[nodiscard]] auto ResolveMetaGenOutputDir(
-            const ResolvedLaunch &resolved,
-            const ProjectManifest &project,
-            const ProfileDefinition &profile) -> fs::path
-        {
-            return ResolveBuildRoot(resolved) / ".ngin" / "metagen" / project.name / profile.name;
-        }
-
         [[nodiscard]] auto PackageExposesSelectedExecutable(const PackageManifest &manifest, const std::optional<ExecutableArtifact> &selectedExecutable) -> bool
         {
             if (!selectedExecutable.has_value())
@@ -868,35 +860,354 @@ namespace NGIN::CLI
             return sources;
         }
 
-        auto AddGeneratedMetaSources(
-            const ResolvedLaunch &resolved,
-            const ResolvedProjectUnit &unit,
-            std::vector<fs::path> &sources,
-            DiagnosticReport &report) -> void
+        [[nodiscard]] auto ResolveGeneratedDir(const ResolvedLaunch &resolved, const fs::path &outputDir) -> fs::path
         {
-            if (!unit.project.build.metaGenEnabled)
+            return outputDir / ".ngin" / "generated" / resolved.project.name / resolved.profile.name;
+        }
+
+        [[nodiscard]] auto ExpandGeneratorMacros(
+            std::string value,
+            const ResolvedLaunch &resolved,
+            const fs::path &outputDir,
+            const fs::path &projectDir) -> std::string
+        {
+            value = ReplaceAll(value, "$(ProjectDir)", projectDir.string());
+            value = ReplaceAll(value, "$(ProjectName)", resolved.project.name);
+            value = ReplaceAll(value, "$(ProfileName)", resolved.profile.name);
+            value = ReplaceAll(value, "$(GeneratedDir)", ResolveGeneratedDir(resolved, outputDir).string());
+            value = ReplaceAll(value, "$(OutputDir)", outputDir.string());
+            return value;
+        }
+
+        [[nodiscard]] auto ResolveGeneratorPath(
+            const std::string &value,
+            const ResolvedLaunch &resolved,
+            const ResolvedGenerator &generator,
+            const fs::path &outputDir,
+            const fs::path &baseDir) -> fs::path
+        {
+            fs::path path{ExpandGeneratorMacros(value, resolved, outputDir, generator.ownerDirectory)};
+            if (path.is_relative())
             {
-                return;
+                path = baseDir / path;
+            }
+            return path.lexically_normal();
+        }
+
+        [[nodiscard]] auto SelectedGeneratorOutputs(
+            const ResolvedLaunch &resolved,
+            const ResolvedGenerator &generator) -> std::vector<InputDeclaration>
+        {
+            std::vector<InputDeclaration> outputs{};
+            for (auto output : generator.declaration.outputs)
+            {
+                if (SelectionMatches(generator.conditions, output.selectors, resolved.profile))
+                {
+                    outputs.push_back(std::move(output));
+                }
+            }
+            return outputs;
+        }
+
+        [[nodiscard]] auto GeneratedOutputTarget(const ResolvedInput &input, const fs::path &generatedDir) -> fs::path
+        {
+            if (!input.target.empty())
+            {
+                return fs::path(input.target).lexically_normal();
+            }
+            auto fileName = input.absoluteSourcePath.filename();
+            if (!input.targetRoot.empty())
+            {
+                return (fs::path(input.targetRoot) / fileName).lexically_normal();
+            }
+            auto relative = input.absoluteSourcePath.lexically_relative(generatedDir);
+            const auto relativeText = relative.string();
+            if (relative.empty() || relativeText == "." || relativeText.starts_with(".."))
+            {
+                relative = fileName;
+            }
+            return relative.lexically_normal();
+        }
+
+        auto AddGeneratedOutputInput(
+            ResolvedLaunch &resolved,
+            const ResolvedGenerator &generator,
+            const InputDeclaration &output,
+            const fs::path &absoluteOutput,
+            const fs::path &generatedDir) -> void
+        {
+            ResolvedInput input{};
+            input.ownerKind = "generator";
+            input.ownerName = generator.declaration.name;
+            input.ownerDirectory = generator.ownerDirectory;
+            input.manifestPath = generator.manifestPath;
+            input.declaringScope = output.declaringScope;
+            input.setName = output.setName;
+            input.name = output.name;
+            input.kind = output.kind;
+            input.role = output.role;
+            input.source = absoluteOutput.string();
+            input.mode = "File";
+            input.visibility = output.visibility;
+            input.target = output.target;
+            input.targetRoot = output.targetRoot;
+            input.basePath = output.basePath;
+            input.contentKind = output.contentKind;
+            input.required = output.required;
+            input.absoluteSourcePath = absoluteOutput;
+            input.metadata = output.metadata;
+            if (IsStagedResolvedInput(input))
+            {
+                input.stagedRelativePath = GeneratedOutputTarget(input, generatedDir);
+            }
+            resolved.inputs.push_back(std::move(input));
+        }
+
+        [[nodiscard]] auto FindProjectUnitForGenerator(const ResolvedLaunch &resolved, const ResolvedGenerator &generator) -> const ResolvedProjectUnit *
+        {
+            if (generator.ownerKind == "project")
+            {
+                for (const auto &unit : resolved.projectUnits)
+                {
+                    if (fs::weakly_canonical(unit.project.path) == fs::weakly_canonical(generator.manifestPath))
+                    {
+                        return &unit;
+                    }
+                }
+            }
+            return resolved.projectUnits.empty() ? nullptr : &resolved.projectUnits.back();
+        }
+
+        [[nodiscard]] auto ResolvePackageTool(const ResolvedLaunch &resolved, const ResolvedGenerator &generator, DiagnosticReport &report) -> std::optional<ToolDeclaration>
+        {
+            const auto packageName = generator.declaration.packageName.empty() ? generator.packageName : generator.declaration.packageName;
+            if (packageName.empty())
+            {
+                AddError(report, "generator '" + generator.declaration.name + "' references tool '" + generator.declaration.toolName + "' without a package");
+                return std::nullopt;
+            }
+            const auto packageIt = std::find_if(
+                resolved.orderedPackages.begin(), resolved.orderedPackages.end(),
+                [&](const ResolvedPackage &package)
+                {
+                    return package.manifest.name == packageName;
+                });
+            if (packageIt == resolved.orderedPackages.end())
+            {
+                AddError(report, "generator '" + generator.declaration.name + "' references unknown package '" + packageName + "'");
+                return std::nullopt;
+            }
+            const auto toolIt = std::find_if(
+                packageIt->manifest.tools.begin(), packageIt->manifest.tools.end(),
+                [&](const ToolDeclaration &tool)
+                {
+                    return tool.name == generator.declaration.toolName
+                           && SelectionMatches(packageIt->manifest.conditions, tool.selectors, resolved.profile);
+                });
+            if (toolIt == packageIt->manifest.tools.end())
+            {
+                AddError(report, "generator '" + generator.declaration.name + "' references unknown package tool '" + packageName + "::" + generator.declaration.toolName + "'");
+                return std::nullopt;
+            }
+            return *toolIt;
+        }
+
+        [[nodiscard]] auto ResolveGeneratorTool(
+            const ResolvedLaunch &resolved,
+            const ResolvedGenerator &generator,
+            const fs::path &outputDir,
+            DiagnosticReport &report) -> std::optional<ToolResolution>
+        {
+            if (generator.declaration.hasInlineTool)
+            {
+                const auto &tool = generator.declaration.inlineTool;
+                if (!SelectionMatches(generator.conditions, tool.selectors, resolved.profile))
+                {
+                    AddError(report, "generator '" + generator.declaration.name + "' inline tool is not selected for profile '" + resolved.profile.name + "'");
+                    return std::nullopt;
+                }
+                if (!tool.builtIn.empty())
+                {
+                    return ToolResolution{.path = tool.builtIn, .source = "built-in"};
+                }
+                return ToolResolution{
+                    .path = ResolveGeneratorPath(tool.executable, resolved, generator, outputDir, generator.ownerDirectory),
+                    .source = "inline",
+                };
             }
 
-            const auto outputDir = ResolveMetaGenOutputDir(resolved, unit.project, unit.profile);
-            const auto result = GenerateMetaData(ResolveBuildRoot(resolved), unit.project, unit.profile, outputDir);
-            if (!result.available)
+            if (generator.declaration.toolName.empty())
             {
-                AddError(
-                    report,
-                    "project '" + unit.project.name + "' enables MetaGen, but this ngin CLI was built without Clang support. Install LLVM/Clang development packages and configure with NGIN_CLI_ENABLE_METAGEN=ON.");
-                return;
+                AddError(report, "generator '" + generator.declaration.name + "' does not declare Tool");
+                return std::nullopt;
             }
-            for (const auto &diagnostic : result.diagnostics)
+            const auto tool = ResolvePackageTool(resolved, generator, report);
+            if (!tool.has_value())
             {
-                AddError(report, "MetaGen for project '" + unit.project.name + "': " + diagnostic);
+                return std::nullopt;
             }
-            if (report.HasErrors())
+            if (!tool->builtIn.empty())
             {
-                return;
+                return ToolResolution{.path = tool->builtIn, .source = "package"};
             }
-            sources.insert(sources.end(), result.generatedFiles.begin(), result.generatedFiles.end());
+            fs::path base = generator.providerRoot.empty() ? generator.packageDirectory : generator.providerRoot;
+            return ToolResolution{
+                .path = ResolveGeneratorPath(tool->executable, resolved, generator, outputDir, base),
+                .source = "package",
+            };
+        }
+
+        auto ValidateGeneratorInputs(
+            const ResolvedLaunch &resolved,
+            const ResolvedGenerator &generator,
+            const fs::path &outputDir,
+            DiagnosticReport &report) -> void
+        {
+            for (const auto &input : generator.declaration.inputs)
+            {
+                if (!SelectionMatches(generator.conditions, input.selectors, resolved.profile) || !input.required || input.path.empty())
+                {
+                    continue;
+                }
+                const auto path = ResolveGeneratorPath(input.path, resolved, generator, outputDir, generator.ownerDirectory);
+                if (!fs::exists(path))
+                {
+                    AddError(report, "generator '" + generator.declaration.name + "' input '" + input.path + "' does not exist");
+                }
+            }
+        }
+
+        auto ExecuteGenerators(ResolvedLaunch &resolved, const fs::path &outputDir, DiagnosticReport &report) -> void
+        {
+            const auto generatedDir = ResolveGeneratedDir(resolved, outputDir);
+            for (const auto &generator : resolved.generators)
+            {
+                const auto outputs = SelectedGeneratorOutputs(resolved, generator);
+                if (outputs.empty())
+                {
+                    AddError(report, "generator '" + generator.declaration.name + "' resolved no selected outputs");
+                    continue;
+                }
+                ValidateGeneratorInputs(resolved, generator, outputDir, report);
+                const auto tool = ResolveGeneratorTool(resolved, generator, outputDir, report);
+                if (!tool.has_value())
+                {
+                    continue;
+                }
+
+                std::vector<fs::path> absoluteOutputs{};
+                for (const auto &output : outputs)
+                {
+                    absoluteOutputs.push_back(ResolveGeneratorPath(output.path, resolved, generator, outputDir, generatedDir));
+                }
+
+                if (generator.declaration.kind == "MetaGen")
+                {
+                    const auto *unit = FindProjectUnitForGenerator(resolved, generator);
+                    if (unit == nullptr)
+                    {
+                        AddError(report, "generator '" + generator.declaration.name + "' could not resolve owning project");
+                        continue;
+                    }
+                    const auto result = GenerateMetaData(ResolveBuildRoot(resolved), unit->project, unit->profile, absoluteOutputs.front());
+                    if (!result.available)
+                    {
+                        AddError(report, "generator '" + generator.declaration.name + "' requires MetaGen, but this ngin CLI was built without Clang support. Install LLVM/Clang development packages and configure with NGIN_CLI_ENABLE_METAGEN=ON.");
+                        continue;
+                    }
+                    for (const auto &diagnostic : result.diagnostics)
+                    {
+                        AddError(report, "generator '" + generator.declaration.name + "': " + diagnostic);
+                    }
+                }
+                else if (generator.declaration.kind == "Command")
+                {
+                    if (!fs::exists(tool->path))
+                    {
+                        AddError(report, "generator '" + generator.declaration.name + "' executable '" + tool->path.string() + "' does not exist");
+                        continue;
+                    }
+                    std::vector<std::string> arguments{};
+                    for (const auto &argument : generator.declaration.arguments)
+                    {
+                        if (!SelectionMatches(generator.conditions, argument.selectors, resolved.profile))
+                        {
+                            continue;
+                        }
+                        if (!argument.value.empty())
+                        {
+                            arguments.push_back(ExpandGeneratorMacros(argument.value, resolved, outputDir, generator.ownerDirectory));
+                        }
+                        else
+                        {
+                            arguments.push_back(ResolveGeneratorPath(argument.path, resolved, generator, outputDir, generator.ownerDirectory).string());
+                        }
+                    }
+                    if (RunProcess(tool->path, arguments, generator.ownerDirectory) != 0)
+                    {
+                        AddError(report, "generator '" + generator.declaration.name + "' command failed");
+                    }
+                }
+                else
+                {
+                    AddError(report, "unsupported generator kind '" + generator.declaration.kind + "'");
+                }
+                if (report.HasErrors())
+                {
+                    continue;
+                }
+                for (std::size_t index = 0; index < outputs.size(); ++index)
+                {
+                    const auto &absoluteOutput = absoluteOutputs[index];
+                    if (!fs::exists(absoluteOutput))
+                    {
+                        if (outputs[index].required)
+                        {
+                            AddError(report, "generator '" + generator.declaration.name + "' did not produce declared output '" + absoluteOutput.string() + "'");
+                        }
+                        continue;
+                    }
+                    AddGeneratedOutputInput(resolved, generator, outputs[index], absoluteOutput, generatedDir);
+                }
+            }
+        }
+
+        auto AddGeneratedOutputSources(
+            const ResolvedLaunch &resolved,
+            const ResolvedProjectUnit &unit,
+            std::vector<fs::path> &sources) -> void
+        {
+            std::set<fs::path> existing(sources.begin(), sources.end());
+            for (const auto &input : resolved.inputs)
+            {
+                if (input.kind != "Generated" || input.role != "Source" || input.ownerKind != "generator")
+                {
+                    continue;
+                }
+                const auto generatorIt = std::find_if(
+                    resolved.generators.begin(), resolved.generators.end(),
+                    [&](const ResolvedGenerator &generator)
+                    {
+                        return generator.declaration.name == input.ownerName;
+                    });
+                if (generatorIt == resolved.generators.end())
+                {
+                    continue;
+                }
+                if (generatorIt->ownerKind == "project"
+                    && fs::weakly_canonical(generatorIt->manifestPath) != fs::weakly_canonical(unit.project.path))
+                {
+                    continue;
+                }
+                if (generatorIt->ownerKind != "project" && fs::weakly_canonical(unit.project.path) != fs::weakly_canonical(resolved.project.path))
+                {
+                    continue;
+                }
+                if (existing.insert(input.absoluteSourcePath).second)
+                {
+                    sources.push_back(input.absoluteSourcePath);
+                }
+            }
         }
 
         auto EmitTargetChecks(std::ostream &out, const PackageManifest &manifest) -> void
@@ -978,11 +1289,6 @@ namespace NGIN::CLI
                     AddError(report, "project '" + unit.project.name + "' uses unsupported build mode '" + buildMode + "'");
                     continue;
                 }
-                if (unit.project.build.metaGenEnabled && buildMode != "Generated")
-                {
-                    AddError(report, "project '" + unit.project.name + "' enables MetaGen, which is currently supported only for generated build mode");
-                    continue;
-                }
                 if (Lower(unit.project.build.backend) != "cmake")
                 {
                     AddError(report, "project '" + unit.project.name + "' uses unsupported build backend '" + unit.project.build.backend + "'");
@@ -1008,7 +1314,7 @@ namespace NGIN::CLI
                         languages.insert(SourceLanguageFor(source));
                     }
                 }
-                AddGeneratedMetaSources(resolved, unit, sources, report);
+                AddGeneratedOutputSources(resolved, unit, sources);
                 for (const auto &source : sources)
                 {
                     if (IsCompiledSourceExtension(source))
@@ -1992,9 +2298,8 @@ namespace NGIN::CLI
         error.clear();
         fs::remove_all(generatedPaths.buildDir, error);
         error.clear();
-        fs::remove_all(ResolveMetaGenOutputDir(*resolved.value, project, profile), error);
+        fs::remove_all(ResolveGeneratedDir(*resolved.value, resolvedOutputDir), error);
         PruneEmptyDirectories(cacheRoot, resolvedOutputDir);
-        PruneEmptyDirectories(ResolveBuildRoot(*resolved.value) / ".ngin" / "metagen", ResolveBuildRoot(*resolved.value) / ".ngin");
 
         result.value = resolvedOutputDir;
         return result;
@@ -2015,21 +2320,27 @@ namespace NGIN::CLI
             return result;
         }
 
-        const auto resolved = ResolveLaunch(project, profile);
-        AppendDiagnostics(result.diagnostics, resolved.diagnostics);
-        if (!resolved.value.has_value() || result.diagnostics.HasErrors())
+        auto resolvedResult = ResolveLaunch(project, profile);
+        AppendDiagnostics(result.diagnostics, resolvedResult.diagnostics);
+        if (!resolvedResult.value.has_value() || result.diagnostics.HasErrors())
         {
             return result;
         }
 
-        const auto resolvedOutputDir = ResolveOutputDir(*resolved.value, outputPath);
+        auto resolved = std::move(*resolvedResult.value);
+        const auto resolvedOutputDir = ResolveOutputDir(resolved, outputPath);
         fs::create_directories(resolvedOutputDir);
+        ExecuteGenerators(resolved, resolvedOutputDir, result.diagnostics);
+        if (result.diagnostics.HasErrors())
+        {
+            return result;
+        }
 
         ConfiguredBuildPaths configured{
             .outputDir = resolvedOutputDir,
         };
 
-        const auto generatedPaths = ConfigureGeneratedBuild(*resolved.value, resolvedOutputDir, result.diagnostics);
+        const auto generatedPaths = ConfigureGeneratedBuild(resolved, resolvedOutputDir, result.diagnostics);
         if (result.diagnostics.HasErrors())
         {
             return result;
@@ -2060,14 +2371,15 @@ namespace NGIN::CLI
             return result;
         }
 
-        const auto resolved = ResolveLaunch(project, profile);
-        AppendDiagnostics(result.diagnostics, resolved.diagnostics);
-        if (!resolved.value.has_value() || result.diagnostics.HasErrors())
+        auto resolvedResult = ResolveLaunch(project, profile);
+        AppendDiagnostics(result.diagnostics, resolvedResult.diagnostics);
+        if (!resolvedResult.value.has_value() || result.diagnostics.HasErrors())
         {
             return result;
         }
 
-        const auto resolvedOutputDir = ResolveOutputDir(*resolved.value, outputPath);
+        auto resolved = std::move(*resolvedResult.value);
+        const auto resolvedOutputDir = ResolveOutputDir(resolved, outputPath);
 
         CleanupPreviousStage(resolvedOutputDir, result.diagnostics);
         if (result.diagnostics.HasErrors())
@@ -2079,7 +2391,13 @@ namespace NGIN::CLI
         std::map<fs::path, std::string> collisions{};
         std::vector<std::tuple<std::string, fs::path, fs::path>> staged{};
 
-        BuildArtifacts(*resolved.value, resolvedOutputDir, result.diagnostics);
+        ExecuteGenerators(resolved, resolvedOutputDir, result.diagnostics);
+        if (result.diagnostics.HasErrors())
+        {
+            return result;
+        }
+
+        BuildArtifacts(resolved, resolvedOutputDir, result.diagnostics);
         if (result.diagnostics.HasErrors())
         {
             return result;
@@ -2091,7 +2409,7 @@ namespace NGIN::CLI
             return result;
         }
 
-        for (const auto &content : resolved.value->inputs)
+        for (const auto &content : resolved.inputs)
         {
             if (!IsStagedResolvedInput(content))
             {
@@ -2123,7 +2441,7 @@ namespace NGIN::CLI
 
         result.value = GeneratedLaunchPaths{
             .outputDir = resolvedOutputDir,
-            .manifestPath = WriteLaunchManifest(*resolved.value, resolvedOutputDir, staged),
+            .manifestPath = WriteLaunchManifest(resolved, resolvedOutputDir, staged),
         };
         return result;
     }

@@ -46,6 +46,7 @@ export interface PackageManifest {
   name: string;
   version?: string;
   conditions?: ConditionDefinition[];
+  tools?: ToolDeclaration[];
   features?: PackageFeature[];
 }
 
@@ -93,6 +94,30 @@ export interface PackageFeature extends SelectorFields {
   requires?: PackageCapability[];
   dependencies?: PackageReference[];
   inputs?: InputDeclaration[];
+  generators?: GeneratorDeclaration[];
+}
+
+export interface ToolDeclaration extends SelectorFields {
+  name?: string;
+  kind?: string;
+  builtIn?: string;
+  executable?: string;
+}
+
+export interface GeneratorArgument extends SelectorFields {
+  value?: string;
+  path?: string;
+}
+
+export interface GeneratorDeclaration extends SelectorFields {
+  name: string;
+  kind: string;
+  packageName?: string;
+  toolName?: string;
+  inlineTool?: ToolDeclaration;
+  inputs?: InputDeclaration[];
+  outputs?: InputDeclaration[];
+  arguments?: GeneratorArgument[];
 }
 
 export interface ProjectProfile {
@@ -109,6 +134,7 @@ export interface ProjectProfile {
   projectRefs?: ProjectReference[];
   packageRefs?: PackageReference[];
   packageFeatureUses?: PackageFeatureUse[];
+  generators?: GeneratorDeclaration[];
 }
 
 export interface ProjectManifest {
@@ -127,6 +153,7 @@ export interface ProjectManifest {
   projectRefs?: ProjectReference[];
   packageRefs?: PackageReference[];
   packageFeatureUses?: PackageFeatureUse[];
+  generators?: GeneratorDeclaration[];
   profiles: ProjectProfile[];
 }
 

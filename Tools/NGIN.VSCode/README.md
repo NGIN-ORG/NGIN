@@ -43,7 +43,6 @@ The extension mirrors the CLI directly:
 - Graph maps to `ngin graph`
 - Explain Variables maps to `ngin variables explain`
 - Initialize Local Settings maps to `ngin settings init`
-- Generate Metadata maps to `ngin metagen`
 
 `NGIN: Explain Variables` opens the redacted explanation in a readonly editor
 document. `NGIN: Initialize Local Settings` opens the initialized
@@ -97,7 +96,7 @@ Typical flow:
 1. Open the NGIN activity-bar view.
 2. Select a project.
 3. Select a profile.
-4. Run Validate, Build, Run, Debug, Graph, or Generate Metadata.
+4. Run Validate, Build, Run, Debug, or Graph.
 
 The same flow is available from the command palette with commands such as:
 
@@ -109,7 +108,6 @@ NGIN: Run
 NGIN: Debug
 NGIN: Explain Variables
 NGIN: Initialize Local Settings
-NGIN: Generate Metadata
 ```
 
 ## Development
