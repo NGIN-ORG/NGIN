@@ -346,6 +346,7 @@ namespace NGIN::CLI
         {
             for (const auto *node : ChildElements(referencesElement, "Project"))
             {
+                ValidateAllowedAttributes(*node, path, {"Path", "Profile", "Platform", "OperatingSystem", "Architecture", "BuildType", "Environment", "Condition"});
                 ProjectReference reference{};
                 reference.path = (baseDirectory / RequireAttribute(*node, "Path", path)).lexically_normal();
                 const auto profile = Attribute(*node, "Profile").value_or("");
@@ -353,14 +354,18 @@ namespace NGIN::CLI
                 {
                     reference.profile = profile;
                 }
+                reference.selectors = ParseSelection(*node, path);
+                reference.selectors.profile.reset();
                 projectRefs.push_back(std::move(reference));
             }
             for (const auto *node : ChildElements(referencesElement, "Package"))
             {
+                ValidateAllowedAttributes(*node, path, {"Name", "Version", "VersionRange", "Optional", "Profile", "Platform", "OperatingSystem", "Architecture", "BuildType", "Environment", "Condition"});
                 PackageReference packageReference{};
                 packageReference.name = RequireAttribute(*node, "Name", path);
                 packageReference.versionRange = Attribute(*node, "Version").value_or(Attribute(*node, "VersionRange").value_or(""));
                 packageReference.optional = BoolAttribute(*node, "Optional");
+                packageReference.selectors = ParseSelection(*node, path);
                 packageRefs.push_back(std::move(packageReference));
             }
         }
@@ -972,9 +977,11 @@ namespace NGIN::CLI
             {
                 for (const auto *node : ChildElements(*features, "Feature"))
                 {
+                    ValidateAllowedAttributes(*node, path, {"Name", "Enabled", "Profile", "Platform", "OperatingSystem", "Architecture", "BuildType", "Environment", "Condition"});
                     FeatureFlag feature{};
                     feature.name = RequireAttribute(*node, "Name", path);
                     feature.enabled = !Attribute(*node, "Enabled").has_value() || BoolAttribute(*node, "Enabled", true);
+                    feature.selectors = ParseSelection(*node, path);
                     out.push_back(std::move(feature));
                 }
             }
@@ -984,6 +991,14 @@ namespace NGIN::CLI
 
         auto ParseRuntimeDefinition(const XmlElement &runtime, const fs::path &path, RuntimeDefinition &target, const bool allowModules) -> void
         {
+            const auto parseRuntimeRef = [&](const XmlElement &node) -> RuntimeReference
+            {
+                ValidateAllowedAttributes(node, path, {"Name", "Profile", "Platform", "OperatingSystem", "Architecture", "BuildType", "Environment", "Condition"});
+                RuntimeReference ref{};
+                ref.name = RequireAttribute(node, "Name", path);
+                ref.selectors = ParseSelection(node, path);
+                return ref;
+            };
             if (allowModules)
             {
                 if (const auto *modules = FindChild(runtime, "Modules"))
@@ -998,28 +1013,28 @@ namespace NGIN::CLI
             {
                 for (const auto *node : ChildElements(*enableModules, "ModuleRef"))
                 {
-                    target.enableModules.push_back(RequireAttribute(*node, "Name", path));
+                    target.enableModules.push_back(parseRuntimeRef(*node));
                 }
             }
             if (const auto *disableModules = FindChild(runtime, "DisableModules"))
             {
                 for (const auto *node : ChildElements(*disableModules, "ModuleRef"))
                 {
-                    target.disableModules.push_back(RequireAttribute(*node, "Name", path));
+                    target.disableModules.push_back(parseRuntimeRef(*node));
                 }
             }
             if (const auto *enablePlugins = FindChild(runtime, "EnablePlugins"))
             {
                 for (const auto *node : ChildElements(*enablePlugins, "PluginRef"))
                 {
-                    target.enablePlugins.push_back(RequireAttribute(*node, "Name", path));
+                    target.enablePlugins.push_back(parseRuntimeRef(*node));
                 }
             }
             if (const auto *disablePlugins = FindChild(runtime, "DisablePlugins"))
             {
                 for (const auto *node : ChildElements(*disablePlugins, "PluginRef"))
                 {
-                    target.disablePlugins.push_back(RequireAttribute(*node, "Name", path));
+                    target.disablePlugins.push_back(parseRuntimeRef(*node));
                 }
             }
         }
@@ -1077,6 +1092,7 @@ namespace NGIN::CLI
 
         [[nodiscard]] auto ParseModuleDefinition(const XmlElement &node, const fs::path &path) -> ModuleDescriptor
         {
+            ValidateAllowedAttributes(node, path, {"Name", "Family", "Type", "StartupStage", "Version", "CompatiblePlatformRange", "ReflectionRequired", "Profile", "Platform", "OperatingSystem", "Architecture", "BuildType", "Environment", "Condition"});
             ModuleDescriptor module{};
             module.name = RequireAttribute(node, "Name", path);
             module.family = Attribute(node, "Family").value_or("App");
@@ -1085,6 +1101,7 @@ namespace NGIN::CLI
             module.version = Attribute(node, "Version").value_or("");
             module.compatiblePlatformRange = Attribute(node, "CompatiblePlatformRange").value_or("");
             module.requiresReflection = BoolAttribute(node, "ReflectionRequired");
+            module.selectors = ParseSelection(node, path);
             ValidateModuleDescriptor(module, path);
             module.compatibility = ParseCompatibility(node, path);
 
@@ -1272,6 +1289,9 @@ namespace NGIN::CLI
                     throw std::runtime_error(path.string() + ": unsupported <Conditions> child <" + std::string(child->name) + ">");
                 }
                 auto condition = ParseConditionDefinition(*child, path);
+                condition.manifestPath = path;
+                condition.sourceKind = std::string(root.name);
+                condition.sourceName = Attribute(root, "Name").value_or("");
                 if (!seen.insert(condition.name).second)
                 {
                     throw std::runtime_error(path.string() + ": duplicate condition name '" + condition.name + "'");
@@ -1283,6 +1303,44 @@ namespace NGIN::CLI
                 conditions.push_back(std::move(condition));
             }
             return conditions;
+        }
+
+        [[nodiscard]] auto MatchCondition(
+            std::string name,
+            const std::optional<std::string> &profile = {},
+            const std::optional<std::string> &platform = {},
+            const std::optional<std::string> &operatingSystem = {},
+            const std::optional<std::string> &architecture = {},
+            const std::optional<std::string> &buildType = {},
+            const std::optional<std::string> &environment = {}) -> ConditionDefinition
+        {
+            ConditionDefinition condition{};
+            condition.name = std::move(name);
+            condition.builtin = true;
+            condition.sourceKind = "built-in";
+            condition.sourceName = "V3";
+            condition.body.kind = ConditionNode::Kind::Match;
+            condition.body.match.profile = profile;
+            condition.body.match.platform = platform;
+            condition.body.match.operatingSystem = operatingSystem;
+            condition.body.match.architecture = architecture;
+            condition.body.match.buildType = buildType;
+            condition.body.match.environment = environment;
+            return condition;
+        }
+
+        [[nodiscard]] auto DesktopCondition() -> ConditionDefinition
+        {
+            ConditionDefinition condition{};
+            condition.name = "Desktop";
+            condition.builtin = true;
+            condition.sourceKind = "built-in";
+            condition.sourceName = "V3";
+            condition.body.kind = ConditionNode::Kind::Any;
+            condition.body.children.push_back(MatchCondition("", {}, {}, "windows").body);
+            condition.body.children.push_back(MatchCondition("", {}, {}, "linux").body);
+            condition.body.children.push_back(MatchCondition("", {}, {}, "macos").body);
+            return condition;
         }
 
         auto LoadProjectBuildDescriptor(ProjectBuildDescriptor &build, const XmlElement *buildElement, const fs::path &path) -> void
@@ -1386,14 +1444,19 @@ namespace NGIN::CLI
             }
         }
 
-        [[nodiscard]] auto ConditionMap(const ProjectManifest &project) -> std::unordered_map<std::string, const ConditionDefinition *>
+        [[nodiscard]] auto ConditionMap(const std::vector<ConditionDefinition> &source) -> std::unordered_map<std::string, const ConditionDefinition *>
         {
             std::unordered_map<std::string, const ConditionDefinition *> conditions{};
-            for (const auto &condition : project.conditions)
+            for (const auto &condition : source)
             {
                 conditions.emplace(condition.name, &condition);
             }
             return conditions;
+        }
+
+        [[nodiscard]] auto ConditionMap(const ProjectManifest &project) -> std::unordered_map<std::string, const ConditionDefinition *>
+        {
+            return ConditionMap(project.conditions);
         }
 
         auto CollectConditionRefs(const ConditionNode &node, std::vector<std::string> &refs) -> void
@@ -1413,11 +1476,31 @@ namespace NGIN::CLI
             const std::unordered_map<std::string, const ConditionDefinition *> &conditions,
             const fs::path &path) -> void
         {
+            const auto availableNames = [&]()
+            {
+                std::vector<std::string> names{};
+                names.reserve(conditions.size());
+                for (const auto &[name, _] : conditions)
+                {
+                    names.push_back(name);
+                }
+                std::sort(names.begin(), names.end());
+                std::ostringstream text{};
+                for (std::size_t index = 0; index < names.size(); ++index)
+                {
+                    if (index != 0)
+                    {
+                        text << ", ";
+                    }
+                    text << names[index];
+                }
+                return text.str();
+            };
             for (const auto &conditionName : selectors.conditionRefs)
             {
                 if (!conditions.contains(conditionName))
                 {
-                    throw std::runtime_error(path.string() + ": unknown condition '" + conditionName + "'");
+                    throw std::runtime_error(path.string() + ": unknown condition '" + conditionName + "' (available: " + availableNames() + ")");
                 }
             }
         }
@@ -1444,10 +1527,64 @@ namespace NGIN::CLI
             }
         }
 
-        auto ValidateConditionReferences(const ProjectManifest &project, const fs::path &path) -> void
+        auto ValidateRuntimeConditionRefs(
+            const RuntimeDefinition &runtime,
+            const std::unordered_map<std::string, const ConditionDefinition *> &conditions,
+            const fs::path &path) -> void
         {
-            const auto conditions = ConditionMap(project);
-            for (const auto &condition : project.conditions)
+            for (const auto &module : runtime.modules)
+            {
+                ValidateSelectionConditionRefs(module.selectors, conditions, path);
+            }
+            for (const auto &ref : runtime.enableModules)
+            {
+                ValidateSelectionConditionRefs(ref.selectors, conditions, path);
+            }
+            for (const auto &ref : runtime.disableModules)
+            {
+                ValidateSelectionConditionRefs(ref.selectors, conditions, path);
+            }
+            for (const auto &ref : runtime.enablePlugins)
+            {
+                ValidateSelectionConditionRefs(ref.selectors, conditions, path);
+            }
+            for (const auto &ref : runtime.disablePlugins)
+            {
+                ValidateSelectionConditionRefs(ref.selectors, conditions, path);
+            }
+        }
+
+        auto ValidateReferenceConditionRefs(
+            const std::vector<ProjectReference> &projectRefs,
+            const std::vector<PackageReference> &packageRefs,
+            const std::unordered_map<std::string, const ConditionDefinition *> &conditions,
+            const fs::path &path) -> void
+        {
+            for (const auto &reference : projectRefs)
+            {
+                ValidateSelectionConditionRefs(reference.selectors, conditions, path);
+            }
+            for (const auto &reference : packageRefs)
+            {
+                ValidateSelectionConditionRefs(reference.selectors, conditions, path);
+            }
+        }
+
+        auto ValidateFeatureConditionRefs(
+            const std::vector<FeatureFlag> &features,
+            const std::unordered_map<std::string, const ConditionDefinition *> &conditions,
+            const fs::path &path) -> void
+        {
+            for (const auto &feature : features)
+            {
+                ValidateSelectionConditionRefs(feature.selectors, conditions, path);
+            }
+        }
+
+        auto ValidateConditionReferences(const std::vector<ConditionDefinition> &conditionDefinitions, const fs::path &path) -> void
+        {
+            const auto conditions = ConditionMap(conditionDefinitions);
+            for (const auto &condition : conditionDefinitions)
             {
                 std::vector<std::string> refs{};
                 CollectConditionRefs(condition.body, refs);
@@ -1455,7 +1592,9 @@ namespace NGIN::CLI
                 {
                     if (!conditions.contains(ref))
                     {
-                        throw std::runtime_error(path.string() + ": condition '" + condition.name + "' references unknown condition '" + ref + "'");
+                        SelectorSet selector{};
+                        selector.conditionRefs.push_back(ref);
+                        ValidateSelectionConditionRefs(selector, conditions, path);
                     }
                 }
             }
@@ -1466,38 +1605,65 @@ namespace NGIN::CLI
                 Visited
             };
             std::unordered_map<std::string, VisitState> state{};
+            std::vector<std::string> chain{};
             std::function<void(const std::string &)> visit = [&](const std::string &name)
             {
                 if (const auto it = state.find(name); it != state.end())
                 {
                     if (it->second == VisitState::Visiting)
                     {
-                        throw std::runtime_error(path.string() + ": condition reference cycle involving '" + name + "'");
+                        std::ostringstream text{};
+                        const auto begin = std::find(chain.begin(), chain.end(), name);
+                        for (auto current = begin; current != chain.end(); ++current)
+                        {
+                            if (current != begin)
+                            {
+                                text << " -> ";
+                            }
+                            text << *current;
+                        }
+                        text << " -> " << name;
+                        throw std::runtime_error(path.string() + ": condition reference cycle: " + text.str());
                     }
                     return;
                 }
                 state.emplace(name, VisitState::Visiting);
+                chain.push_back(name);
                 std::vector<std::string> refs{};
                 CollectConditionRefs(conditions.at(name)->body, refs);
                 for (const auto &ref : refs)
                 {
                     visit(ref);
                 }
+                chain.pop_back();
                 state[name] = VisitState::Visited;
             };
-            for (const auto &condition : project.conditions)
+            for (const auto &condition : conditionDefinitions)
             {
                 visit(condition.name);
             }
+        }
+
+        auto ValidateConditionReferences(const ProjectManifest &project, const fs::path &path) -> void
+        {
+            ValidateConditionReferences(project.conditions, path);
+            const auto conditions = ConditionMap(project.conditions);
 
             ValidateInputConditionRefs(project.inputs, conditions, path);
+            ValidateReferenceConditionRefs(project.projectRefs, project.packageRefs, conditions, path);
+            ValidateRuntimeConditionRefs(project.runtime, conditions, path);
             for (const auto &environment : project.environments)
             {
                 ValidateInputConditionRefs(environment.inputs, conditions, path);
+                ValidateReferenceConditionRefs(environment.projectRefs, environment.packageRefs, conditions, path);
+                ValidateFeatureConditionRefs(environment.features, conditions, path);
+                ValidateRuntimeConditionRefs(environment.runtime, conditions, path);
             }
             for (const auto &profile : project.profiles)
             {
                 ValidateInputConditionRefs(profile.inputs, conditions, path);
+                ValidateReferenceConditionRefs(profile.projectRefs, profile.packageRefs, conditions, path);
+                ValidateRuntimeConditionRefs(profile.runtime, conditions, path);
             }
             ValidateBuildSettingConditionRefs(project.build.includeDirectories, conditions, path);
             ValidateBuildSettingConditionRefs(project.build.compileDefinitions, conditions, path);
@@ -1630,6 +1796,39 @@ namespace NGIN::CLI
             return outputKind == "StaticLibrary" || outputKind == "SharedLibrary";
         }
         return false;
+    }
+
+    [[nodiscard]] auto BuiltinConditions() -> std::vector<ConditionDefinition>
+    {
+        return {
+            MatchCondition("Debug", {}, {}, {}, {}, "Debug"),
+            MatchCondition("Release", {}, {}, {}, {}, "Release"),
+            MatchCondition("RelWithDebInfo", {}, {}, {}, {}, "RelWithDebInfo"),
+            MatchCondition("MinSizeRel", {}, {}, {}, {}, "MinSizeRel"),
+            MatchCondition("Windows", {}, {}, "windows"),
+            MatchCondition("Linux", {}, {}, "linux"),
+            MatchCondition("MacOS", {}, {}, "macos"),
+            MatchCondition("X64", {}, {}, {}, "x64"),
+            MatchCondition("Arm64", {}, {}, {}, "arm64"),
+            DesktopCondition(),
+            MatchCondition("Local", {}, {}, {}, {}, {}, "local"),
+            MatchCondition("Development", {}, {}, {}, {}, {}, "development"),
+            MatchCondition("Production", {}, {}, {}, {}, {}, "production"),
+        };
+    }
+
+    [[nodiscard]] auto SelectionMatches(const std::vector<ConditionDefinition> &conditions, const SelectorSet &selectors, const ProfileDefinition &profile) -> bool
+    {
+        if (!DirectSelectorsMatch(selectors, profile))
+        {
+            return false;
+        }
+        const auto conditionMap = ConditionMap(conditions);
+        return std::all_of(
+            selectors.conditionRefs.begin(),
+            selectors.conditionRefs.end(),
+            [&](const std::string &conditionName)
+            { return ConditionRefMatches(conditionName, ProjectManifest{}, profile, conditionMap); });
     }
 
     [[nodiscard]] auto SelectionMatches(const ProjectManifest &project, const SelectorSet &selectors, const ProfileDefinition &profile) -> bool
@@ -1817,6 +2016,22 @@ namespace NGIN::CLI
         package.name = RequireAttribute(*rootElement, "Name", path);
         package.version = RequireAttribute(*rootElement, "Version", path);
         package.compatiblePlatformRange = Attribute(*rootElement, "CompatiblePlatformRange").value_or("");
+        package.conditions = BuiltinConditions();
+        {
+            std::set<std::string> builtinNames{};
+            for (const auto &condition : package.conditions)
+            {
+                builtinNames.insert(Lower(condition.name));
+            }
+            for (auto condition : ParseConditions(*rootElement, path))
+            {
+                if (builtinNames.contains(Lower(condition.name)))
+                {
+                    throw std::runtime_error(path.string() + ": condition '" + condition.name + "' cannot replace built-in condition");
+                }
+                package.conditions.push_back(std::move(condition));
+            }
+        }
 
         if (const auto *artifacts = FindChild(*rootElement, "Artifacts"))
         {
@@ -1893,9 +2108,11 @@ namespace NGIN::CLI
         {
             for (const auto *node : ChildElements(*plugins, "Plugin"))
             {
+                ValidateAllowedAttributes(*node, path, {"Name", "Optional", "Profile", "Platform", "OperatingSystem", "Architecture", "BuildType", "Environment", "Condition"});
                 PluginDescriptor plugin{};
                 plugin.name = RequireAttribute(*node, "Name", path);
                 plugin.optional = BoolAttribute(*node, "Optional");
+                plugin.selectors = ParseSelection(*node, path);
                 plugin.compatibility = ParseCompatibility(*node, path);
 
                 if (const auto *modulesElement = FindChild(*node, "Modules"))
@@ -1917,6 +2134,20 @@ namespace NGIN::CLI
                 }
 
                 package.plugins.push_back(std::move(plugin));
+            }
+        }
+
+        ValidateConditionReferences(package.conditions, path);
+        {
+            const auto conditions = ConditionMap(package.conditions);
+            ValidateInputConditionRefs(package.inputs, conditions, path);
+            for (const auto &module : package.modules)
+            {
+                ValidateSelectionConditionRefs(module.selectors, conditions, path);
+            }
+            for (const auto &plugin : package.plugins)
+            {
+                ValidateSelectionConditionRefs(plugin.selectors, conditions, path);
             }
         }
 
@@ -2009,9 +2240,12 @@ namespace NGIN::CLI
             std::unordered_map<std::string, PlatformDefinition> platforms{};
             std::unordered_map<std::string, ProjectTemplateDefinition> projectTemplates{};
             std::unordered_map<std::string, ProfileTemplateDefinition> profileTemplates{};
+            std::vector<ConditionDefinition> conditions{};
             std::set<std::string> authoredPlatforms{};
             std::set<std::string> authoredProjectTemplates{};
             std::set<std::string> authoredProfileTemplates{};
+            std::set<std::string> authoredConditionsLower{};
+            std::set<std::string> builtinConditionsLower{};
         };
 
         [[nodiscard]] auto ProjectTypeFromTemplate(const std::string &projectTemplate) -> std::string
@@ -2209,6 +2443,63 @@ namespace NGIN::CLI
             }
         }
 
+        [[nodiscard]] auto ConditionOrigin(const ConditionDefinition &condition) -> std::string
+        {
+            if (condition.builtin)
+            {
+                return "built-in";
+            }
+            auto origin = condition.sourceKind.empty() ? std::string("manifest") : condition.sourceKind;
+            if (!condition.sourceName.empty())
+            {
+                origin += " '" + condition.sourceName + "'";
+            }
+            if (!condition.manifestPath.empty())
+            {
+                origin += " in " + condition.manifestPath.string();
+            }
+            return origin;
+        }
+
+        auto AddCondition(ModelContext &context, ConditionDefinition condition, const fs::path &path, const bool builtin = false) -> void
+        {
+            if (!IsValidManifestIdentifier(condition.name))
+            {
+                throw std::runtime_error(path.string() + ": invalid condition name '" + condition.name + "'");
+            }
+            condition.builtin = builtin;
+            const auto lowerName = Lower(condition.name);
+            if (builtin)
+            {
+                context.builtinConditionsLower.insert(lowerName);
+                context.conditions.push_back(std::move(condition));
+                return;
+            }
+            if (context.builtinConditionsLower.contains(lowerName))
+            {
+                throw std::runtime_error(path.string() + ": condition '" + condition.name + "' cannot replace built-in condition");
+            }
+            if (!context.authoredConditionsLower.insert(lowerName).second)
+            {
+                const auto existing = std::find_if(
+                    context.conditions.begin(),
+                    context.conditions.end(),
+                    [&](const ConditionDefinition &candidate)
+                    { return Lower(candidate.name) == lowerName; });
+                throw std::runtime_error(path.string() + ": duplicate condition '" + condition.name + "' also declared by "
+                                         + (existing == context.conditions.end() ? std::string("another manifest") : ConditionOrigin(*existing)));
+            }
+            context.conditions.push_back(std::move(condition));
+        }
+
+        auto ParseConditionsInto(const XmlElement &root, const fs::path &path, ModelContext &context) -> void
+        {
+            for (auto condition : ParseConditions(root, path))
+            {
+                AddCondition(context, std::move(condition), path);
+            }
+        }
+
         auto ParseModelContributionsInto(const XmlElement &root, const fs::path &path, ModelContext &context, const bool includeDefaults) -> void
         {
             if (includeDefaults)
@@ -2221,6 +2512,7 @@ namespace NGIN::CLI
             ParsePlatformsInto(root, path, context);
             ParseProjectTemplatesInto(root, path, context);
             ParseProfileTemplatesInto(root, path, context);
+            ParseConditionsInto(root, path, context);
         }
 
         [[nodiscard]] auto BuiltinModelContext() -> ModelContext
@@ -2233,6 +2525,10 @@ namespace NGIN::CLI
             AddProjectTemplate(context, ProjectTemplateDefinition{.name = "Application", .type = "Application", .outputKind = "Executable", .defaults = context.defaults}, {}, true);
             AddProjectTemplate(context, ProjectTemplateDefinition{.name = "Library", .type = "Library", .outputKind = "StaticLibrary", .defaults = context.defaults}, {}, true);
             AddProjectTemplate(context, ProjectTemplateDefinition{.name = "Tool", .type = "Tool", .outputKind = "Executable", .defaults = context.defaults}, {}, true);
+            for (auto condition : BuiltinConditions())
+            {
+                AddCondition(context, std::move(condition), {}, true);
+            }
             return context;
         }
 
@@ -2440,7 +2736,7 @@ namespace NGIN::CLI
         {
             throw std::runtime_error(path.string() + ": legacy <Host> is no longer supported");
         }
-        project.conditions = ParseConditions(*rootElement, path);
+        project.conditions = context.conditions;
 
         ApplyInputBlock(*rootElement, path, project.inputs, "project");
 

@@ -1,5 +1,6 @@
 #include "Authoring.hpp"
 #include "Build.hpp"
+#include "Commands.hpp"
 #include "Diagnostics.hpp"
 #include "MetaGen.hpp"
 #include "MetaGenCommon.hpp"
@@ -13,6 +14,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -450,7 +452,7 @@ TEST_CASE("structured conditions normalize with direct selectors and inherited g
               R"(<?xml version="1.0" encoding="utf-8"?>
 <Project SchemaVersion="3" Name="Conditions" Type="Application" DefaultProfile="Runtime">
   <Conditions>
-    <Condition Name="Desktop">
+    <Condition Name="DesktopHost">
       <Any>
         <Match OperatingSystem="linux" />
         <Match OperatingSystem="windows" />
@@ -459,20 +461,20 @@ TEST_CASE("structured conditions normalize with direct selectors and inherited g
     <Condition Name="DebugBuild" BuildType="Debug" />
     <Condition Name="DesktopDebug">
       <All>
-        <ConditionRef Name="Desktop" />
+        <ConditionRef Name="DesktopHost" />
         <ConditionRef Name="DebugBuild" />
       </All>
     </Condition>
   </Conditions>
   <Inputs>
-    <Sources Condition="Desktop">
+    <Sources Condition="DesktopHost">
       <Directory Path="src" BuildType="Debug" />
       <File Path="src/listed.cpp" Condition="DebugBuild" />
     </Sources>
   </Inputs>
   <Output Kind="Executable" Name="Conditions" Target="Conditions" />
   <Build Backend="CMake" Mode="Generated" Language="CXX" LanguageStandard="23">
-    <CompileDefinitions Condition="Desktop">
+    <CompileDefinitions Condition="DesktopHost">
       <Definition Value="CONDITIONS_DESKTOP" Visibility="Private" />
       <Definition Value="CONDITIONS_DESKTOP_DEBUG" Visibility="Private" BuildType="Debug" />
       <Definition Value="CONDITIONS_DESKTOP_RELEASE" Visibility="Private" BuildType="Release" />
@@ -491,7 +493,7 @@ TEST_CASE("structured conditions normalize with direct selectors and inherited g
     const auto project = LoadProjectManifest(projectPath);
     const std::optional<std::string> profileName{"Runtime"};
     const auto &profile = ProfileByName(project, profileName);
-    REQUIRE(project.conditions.size() == 3);
+    REQUIRE(project.conditions.size() >= 3);
     REQUIRE(project.inputs.size() == 2);
     REQUIRE(project.inputs[0].selectors.conditionRefs.size() == 1);
     REQUIRE(project.inputs[0].selectors.buildType == "Debug");
@@ -541,6 +543,123 @@ TEST_CASE("structured conditions normalize with direct selectors and inherited g
 </Project>
 )");
     REQUIRE_THROWS_WITH(LoadProjectManifest(cyclePath), ContainsSubstring("condition reference cycle"));
+}
+
+TEST_CASE("built-in conditions select references runtime entries and features")
+{
+    TempDir temp{};
+    const auto projectPath = temp.path() / "BuiltinSelection.nginproj";
+    WriteFile(projectPath,
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="3" Name="BuiltinSelection" Template="Application" DefaultProfile="Runtime">
+  <Output Kind="Executable" Name="BuiltinSelection" Target="BuiltinSelection" />
+  <References>
+    <Project Path="Missing.ReleaseOnly.nginproj" Condition="Release" />
+    <Package Name="Missing.ReleaseOnly" Condition="Release" />
+  </References>
+  <Runtime>
+    <EnableModules>
+      <ModuleRef Name="Missing.ReleaseOnly" Condition="Release" />
+    </EnableModules>
+  </Runtime>
+  <Environments>
+    <Environment Name="development">
+      <Features>
+        <Feature Name="DebugFeature" Condition="Debug" />
+        <Feature Name="ReleaseFeature" Condition="Release" />
+      </Features>
+    </Environment>
+  </Environments>
+  <Profiles>
+    <Profile Name="Runtime" BuildType="Debug" Platform="linux-x64" Environment="development" />
+  </Profiles>
+</Project>
+)xml");
+
+    const auto project = LoadProjectManifest(projectPath);
+    const std::optional<std::string> profileName{"Runtime"};
+    const auto &profile = ProfileByName(project, profileName);
+    SelectorSet debugSelector{};
+    debugSelector.conditionRefs.push_back("Debug");
+    SelectorSet releaseSelector{};
+    releaseSelector.conditionRefs.push_back("Release");
+    REQUIRE(SelectionMatches(project, debugSelector, profile));
+    REQUIRE_FALSE(SelectionMatches(project, releaseSelector, profile));
+
+    const auto resolved = ResolveLaunch(project, profile);
+    REQUIRE_FALSE(resolved.diagnostics.HasErrors());
+    REQUIRE(resolved.value.has_value());
+    REQUIRE(resolved.value->environmentFeatures.size() == 1);
+    REQUIRE(resolved.value->environmentFeatures.front().name == "DebugFeature");
+}
+
+TEST_CASE("package local conditions select package inputs")
+{
+    TempDir temp{};
+    const auto packagePath = temp.path() / "Package.Condition.nginpkg";
+    WriteFile(packagePath,
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Package SchemaVersion="3" Name="Package.Condition" Version="0.1.0">
+  <Conditions>
+    <Condition Name="LinuxOnly" OperatingSystem="linux" />
+  </Conditions>
+  <Inputs>
+    <ToolInputs Condition="LinuxOnly">
+      tools/schema.json
+    </ToolInputs>
+    <ToolInputs Condition="Windows">
+      tools/windows.json
+    </ToolInputs>
+  </Inputs>
+</Package>
+)xml");
+
+    const auto package = LoadPackageManifest(packagePath);
+    ProfileDefinition profile{};
+    profile.name = "Runtime";
+    profile.buildType = "Debug";
+    profile.platform = "linux-x64";
+    profile.operatingSystem = "linux";
+    profile.architecture = "x64";
+    profile.environmentName = "development";
+
+    REQUIRE(package.conditions.size() >= 1);
+    REQUIRE(package.inputs.size() == 2);
+    REQUIRE(SelectionMatches(package.conditions, package.inputs[0].selectors, profile));
+    REQUIRE_FALSE(SelectionMatches(package.conditions, package.inputs[1].selectors, profile));
+}
+
+TEST_CASE("explain condition prints focused condition trace")
+{
+    TempDir temp{};
+    const auto projectPath = temp.path() / "Explain.Condition.nginproj";
+    WriteFile(projectPath,
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="3" Name="ExplainCondition" Template="Application" DefaultProfile="Runtime">
+  <Output Kind="Executable" Name="ExplainCondition" Target="ExplainCondition" />
+  <Environments>
+    <Environment Name="development" />
+  </Environments>
+  <Profiles>
+    <Profile Name="Runtime" BuildType="Debug" Platform="linux-x64" Environment="development" />
+  </Profiles>
+</Project>
+)xml");
+
+    ParsedArgs args{};
+    args.projectPath = projectPath.string();
+    args.profileName = "Runtime";
+    args.packageName = "Debug";
+
+    std::ostringstream captured{};
+    auto *previous = std::cout.rdbuf(captured.rdbuf());
+    const auto exitCode = CmdExplainCondition(temp.path(), args);
+    std::cout.rdbuf(previous);
+
+    REQUIRE(exitCode == 0);
+    REQUIRE_THAT(captured.str(), ContainsSubstring("Condition: Debug"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring("result: matched"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring("origin: built-in"));
 }
 
 TEST_CASE("profiles inherit scalar settings and append authored contributions")

@@ -502,6 +502,13 @@ namespace NGIN::Core
         return NGIN::Utilities::Unexpected<KernelError>(reflectionRequired.Error());
       }
       descriptor.reflectionRequired = reflectionRequired.Value();
+      descriptor.profile = Attribute(element, "Profile").value_or("");
+      descriptor.platform = Attribute(element, "Platform").value_or("");
+      descriptor.operatingSystem = Attribute(element, "OperatingSystem").value_or("");
+      descriptor.architecture = Attribute(element, "Architecture").value_or("");
+      descriptor.buildType = Attribute(element, "BuildType").value_or("");
+      descriptor.environment = Attribute(element, "Environment").value_or("");
+      descriptor.condition = Attribute(element, "Condition").value_or("");
 
       auto compatibility = ReadCompatibility(element, context,
                                              descriptor.operatingSystems,
@@ -625,6 +632,13 @@ namespace NGIN::Core
         return NGIN::Utilities::Unexpected<KernelError>(optional.Error());
       }
       plugin.optional = optional.Value();
+      plugin.profile = Attribute(element, "Profile").value_or("");
+      plugin.platform = Attribute(element, "Platform").value_or("");
+      plugin.operatingSystem = Attribute(element, "OperatingSystem").value_or("");
+      plugin.architecture = Attribute(element, "Architecture").value_or("");
+      plugin.buildType = Attribute(element, "BuildType").value_or("");
+      plugin.environment = Attribute(element, "Environment").value_or("");
+      plugin.condition = Attribute(element, "Condition").value_or("");
 
       auto compatibility = ReadCompatibility(element, context,
                                              plugin.operatingSystems,
@@ -704,6 +718,13 @@ namespace NGIN::Core
           .name = name.Value(),
           .versionRange = versionRange.Value(),
           .optional = optional.Value(),
+          .profile = Attribute(element, "Profile").value_or(""),
+          .platform = Attribute(element, "Platform").value_or(""),
+          .operatingSystem = Attribute(element, "OperatingSystem").value_or(""),
+          .architecture = Attribute(element, "Architecture").value_or(""),
+          .buildType = Attribute(element, "BuildType").value_or(""),
+          .environment = Attribute(element, "Environment").value_or(""),
+          .condition = Attribute(element, "Condition").value_or(""),
       };
     }
 
@@ -754,6 +775,12 @@ namespace NGIN::Core
       {
         reference.profile = profile.Value();
       }
+      reference.platform = Attribute(element, "Platform").value_or("");
+      reference.operatingSystem = Attribute(element, "OperatingSystem").value_or("");
+      reference.architecture = Attribute(element, "Architecture").value_or("");
+      reference.buildType = Attribute(element, "BuildType").value_or("");
+      reference.environment = Attribute(element, "Environment").value_or("");
+      reference.condition = Attribute(element, "Condition").value_or("");
 
       return reference;
     }
@@ -926,6 +953,200 @@ namespace NGIN::Core
       if (const auto include = Attribute(element, "Include"); include.has_value()) { input.includePatterns = SplitPathList(*include); }
       if (const auto exclude = Attribute(element, "Exclude"); exclude.has_value()) { input.excludePatterns = SplitPathList(*exclude); }
       return input;
+    }
+
+    [[nodiscard]] auto ReadConditionMatch(const XmlElement &element) -> ConditionNode
+    {
+      ConditionNode node{};
+      node.kind = "Match";
+      node.profile = Attribute(element, "Profile").value_or("");
+      node.platform = Attribute(element, "Platform").value_or("");
+      node.operatingSystem = Attribute(element, "OperatingSystem").value_or("");
+      node.architecture = Attribute(element, "Architecture").value_or("");
+      node.buildType = Attribute(element, "BuildType").value_or("");
+      node.environment = Attribute(element, "Environment").value_or("");
+      return node;
+    }
+
+    [[nodiscard]] auto ParseConditionNode(const XmlElement &element) -> ConditionNode
+    {
+      if (element.name == "Match")
+      {
+        return ReadConditionMatch(element);
+      }
+      ConditionNode node{};
+      node.kind = std::string(element.name);
+      if (element.name == "ConditionRef")
+      {
+        node.conditionName = Attribute(element, "Name").value_or("");
+        return node;
+      }
+      for (const auto *child : ChildElements(element))
+      {
+        if (child->name == "Match" || child->name == "All" ||
+            child->name == "Any" || child->name == "Not" ||
+            child->name == "ConditionRef")
+        {
+          node.children.push_back(ParseConditionNode(*child));
+        }
+      }
+      return node;
+    }
+
+    [[nodiscard]] auto ParseConditionDefinitions(const XmlElement &root)
+        -> std::vector<ConditionDefinition>
+    {
+      std::vector<ConditionDefinition> conditions{};
+      const auto *conditionsElement = FindChild(root, "Conditions");
+      if (conditionsElement == nullptr)
+      {
+        return conditions;
+      }
+      for (const auto *conditionElement : ChildElements(*conditionsElement, "Condition"))
+      {
+        ConditionDefinition condition{};
+        condition.name = Attribute(*conditionElement, "Name").value_or("");
+        condition.body = ReadConditionMatch(*conditionElement);
+        if (condition.body.profile.empty() && condition.body.platform.empty() &&
+            condition.body.operatingSystem.empty() && condition.body.architecture.empty() &&
+            condition.body.buildType.empty() && condition.body.environment.empty())
+        {
+          for (const auto *child : ChildElements(*conditionElement))
+          {
+            if (child->name == "Match" || child->name == "All" ||
+                child->name == "Any" || child->name == "Not" ||
+                child->name == "ConditionRef")
+            {
+              condition.body = ParseConditionNode(*child);
+              break;
+            }
+          }
+        }
+        if (!condition.name.empty())
+        {
+          conditions.push_back(std::move(condition));
+        }
+      }
+      return conditions;
+    }
+
+    [[nodiscard]] auto DirectConditionMatches(const ConditionNode &condition,
+                                              const ProfileDefinition &profile)
+        -> bool
+    {
+      return (condition.profile.empty() || condition.profile == profile.name) &&
+             (condition.platform.empty() || condition.platform == profile.platform) &&
+             (condition.operatingSystem.empty() ||
+              condition.operatingSystem == profile.operatingSystem) &&
+             (condition.architecture.empty() ||
+              condition.architecture == profile.architecture) &&
+             (condition.buildType.empty() || condition.buildType == profile.buildType) &&
+             (condition.environment.empty() ||
+              condition.environment == profile.environmentName);
+    }
+
+    [[nodiscard]] auto ConditionNodeMatches(
+        const ConditionNode &node,
+        const std::vector<ConditionDefinition> &conditions,
+        const ProfileDefinition &profile) -> bool;
+
+    [[nodiscard]] auto NamedConditionMatches(
+        const std::string &name,
+        const std::vector<ConditionDefinition> &conditions,
+        const ProfileDefinition &profile) -> bool
+    {
+      if (name.empty()) { return true; }
+      if (name == "Debug") { return profile.buildType == "Debug"; }
+      if (name == "Release") { return profile.buildType == "Release"; }
+      if (name == "RelWithDebInfo") { return profile.buildType == "RelWithDebInfo"; }
+      if (name == "MinSizeRel") { return profile.buildType == "MinSizeRel"; }
+      if (name == "Windows") { return profile.operatingSystem == "windows"; }
+      if (name == "Linux") { return profile.operatingSystem == "linux"; }
+      if (name == "MacOS") { return profile.operatingSystem == "macos"; }
+      if (name == "X64") { return profile.architecture == "x64"; }
+      if (name == "Arm64") { return profile.architecture == "arm64"; }
+      if (name == "Desktop")
+      {
+        return profile.operatingSystem == "windows" ||
+               profile.operatingSystem == "linux" ||
+               profile.operatingSystem == "macos";
+      }
+      if (name == "Local") { return profile.environmentName == "local"; }
+      if (name == "Development") { return profile.environmentName == "development"; }
+      if (name == "Production") { return profile.environmentName == "production"; }
+      const auto it = std::find_if(
+          conditions.begin(), conditions.end(),
+          [&](const ConditionDefinition &condition)
+          {
+            return condition.name == name;
+          });
+      return it != conditions.end() && ConditionNodeMatches(it->body, conditions, profile);
+    }
+
+    [[nodiscard]] auto ConditionNodeMatches(
+        const ConditionNode &node,
+        const std::vector<ConditionDefinition> &conditions,
+        const ProfileDefinition &profile) -> bool
+    {
+      if (node.kind == "Match")
+      {
+        return DirectConditionMatches(node, profile);
+      }
+      if (node.kind == "ConditionRef")
+      {
+        return NamedConditionMatches(node.conditionName, conditions, profile);
+      }
+      if (node.kind == "All")
+      {
+        return std::all_of(node.children.begin(), node.children.end(), [&](const ConditionNode &child)
+        {
+          return ConditionNodeMatches(child, conditions, profile);
+        });
+      }
+      if (node.kind == "Any")
+      {
+        return std::any_of(node.children.begin(), node.children.end(), [&](const ConditionNode &child)
+        {
+          return ConditionNodeMatches(child, conditions, profile);
+        });
+      }
+      if (node.kind == "Not")
+      {
+        return node.children.size() == 1 && !ConditionNodeMatches(node.children.front(), conditions, profile);
+      }
+      return false;
+    }
+
+    template <typename T>
+    [[nodiscard]] auto SelectorsMatch(const T &value,
+                                      const std::vector<ConditionDefinition> &conditions,
+                                      const ProfileDefinition &profile,
+                                      const bool useProfileSelector = true)
+        -> bool
+    {
+      return (!useProfileSelector || value.profile.empty() || value.profile == profile.name) &&
+             (value.platform.empty() || value.platform == profile.platform) &&
+             (value.operatingSystem.empty() || value.operatingSystem == profile.operatingSystem) &&
+             (value.architecture.empty() || value.architecture == profile.architecture) &&
+             (value.buildType.empty() || value.buildType == profile.buildType) &&
+             (value.environment.empty() || value.environment == profile.environmentName) &&
+             NamedConditionMatches(value.condition, conditions, profile);
+    }
+
+    [[nodiscard]] auto ProjectReferenceSelectorsMatch(
+        const ProjectReference &reference,
+        const std::vector<ConditionDefinition> &conditions,
+        const ProfileDefinition &profile) -> bool
+    {
+      return (reference.platform.empty() || reference.platform == profile.platform) &&
+             (reference.operatingSystem.empty() ||
+              reference.operatingSystem == profile.operatingSystem) &&
+             (reference.architecture.empty() ||
+              reference.architecture == profile.architecture) &&
+             (reference.buildType.empty() || reference.buildType == profile.buildType) &&
+             (reference.environment.empty() ||
+              reference.environment == profile.environmentName) &&
+             NamedConditionMatches(reference.condition, conditions, profile);
     }
 
     [[nodiscard]] auto ValidateInputDeclaration(const InputDeclaration &input,
@@ -2162,6 +2383,13 @@ namespace NGIN::Core
           environment.features.push_back(FeatureFlag{
               .name = featureName.Value(),
               .enabled = enabled.Value(),
+              .profile = Attribute(*featureElement, "Profile").value_or(""),
+              .platform = Attribute(*featureElement, "Platform").value_or(""),
+              .operatingSystem = Attribute(*featureElement, "OperatingSystem").value_or(""),
+              .architecture = Attribute(*featureElement, "Architecture").value_or(""),
+              .buildType = Attribute(*featureElement, "BuildType").value_or(""),
+              .environment = Attribute(*featureElement, "Environment").value_or(""),
+              .condition = Attribute(*featureElement, "Condition").value_or(""),
           });
         }
       }
@@ -2419,6 +2647,7 @@ namespace NGIN::Core
         return NGIN::Utilities::Unexpected<KernelError>(name.Error());
       }
       manifest.name = name.Value();
+      manifest.conditions = ParseConditionDefinitions(*root);
 
       auto modelContext =
           ResolveProjectModelContext(fileSystem, manifestPath, *root);
@@ -2951,6 +3180,10 @@ namespace NGIN::Core
 
       for (const auto &reference : manifest.projectRefs)
       {
+        if (!ProjectReferenceSelectorsMatch(reference, manifest.conditions, profile.Value()))
+        {
+          continue;
+        }
         auto result = collectReference(reference);
         if (!result)
         {
@@ -2961,6 +3194,10 @@ namespace NGIN::Core
       {
         for (const auto &reference : environment.Value()->projectRefs)
         {
+          if (!ProjectReferenceSelectorsMatch(reference, manifest.conditions, profile.Value()))
+          {
+            continue;
+          }
           auto result = collectReference(reference);
           if (!result)
           {
@@ -2970,6 +3207,10 @@ namespace NGIN::Core
       }
       for (const auto &reference : profile.Value().projectRefs)
       {
+        if (!ProjectReferenceSelectorsMatch(reference, manifest.conditions, profile.Value()))
+        {
+          continue;
+        }
         auto result = collectReference(reference);
         if (!result)
         {
@@ -3034,6 +3275,7 @@ namespace NGIN::Core
         return NGIN::Utilities::Unexpected<KernelError>(name.Error());
       }
       manifest.name = name.Value();
+      manifest.conditions = ParseConditionDefinitions(*root);
 
       auto version = RequireAttribute(*root, "Version", "package");
       if (!version)
@@ -3208,6 +3450,22 @@ namespace NGIN::Core
         }
         target[it->second] = reference;
       }
+    }
+
+    void MergeSelectedPackageReferences(std::vector<PackageReference> &target,
+                                        const std::vector<PackageReference> &source,
+                                        const ProjectManifest &manifest,
+                                        const ProfileDefinition &profile)
+    {
+      std::vector<PackageReference> selected{};
+      for (const auto &reference : source)
+      {
+        if (SelectorsMatch(reference, manifest.conditions, profile))
+        {
+          selected.push_back(reference);
+        }
+      }
+      MergePackageReferences(target, selected);
     }
 
     void AppendOrReplaceModuleRegistration(
@@ -3826,12 +4084,12 @@ namespace NGIN::Core
         std::vector<PackageReference> bootstrapPackages{};
         for (const auto &unit : projectUnits)
         {
-          MergePackageReferences(bootstrapPackages, unit.manifest.packageRefs);
+          MergeSelectedPackageReferences(bootstrapPackages, unit.manifest.packageRefs, unit.manifest, unit.profile);
           if (unit.environment.has_value())
           {
-            MergePackageReferences(bootstrapPackages, unit.environment->packageRefs);
+            MergeSelectedPackageReferences(bootstrapPackages, unit.environment->packageRefs, unit.manifest, unit.profile);
           }
-          MergePackageReferences(bootstrapPackages, unit.profile.packageRefs);
+          MergeSelectedPackageReferences(bootstrapPackages, unit.profile.packageRefs, unit.manifest, unit.profile);
         }
         MergePackageReferences(bootstrapPackages, m_packageReferences);
 
@@ -4105,12 +4363,12 @@ namespace NGIN::Core
         std::vector<PackageReference> packages{};
         for (const auto &unit : projectUnits)
         {
-          MergePackageReferences(packages, unit.manifest.packageRefs);
+          MergeSelectedPackageReferences(packages, unit.manifest.packageRefs, unit.manifest, unit.profile);
           if (unit.environment.has_value())
           {
-            MergePackageReferences(packages, unit.environment->packageRefs);
+            MergeSelectedPackageReferences(packages, unit.environment->packageRefs, unit.manifest, unit.profile);
           }
-          MergePackageReferences(packages, unit.profile.packageRefs);
+          MergeSelectedPackageReferences(packages, unit.profile.packageRefs, unit.manifest, unit.profile);
         }
         MergePackageReferences(packages, m_packageReferences);
 
@@ -4169,7 +4427,8 @@ namespace NGIN::Core
 
         std::vector<std::string> configInputs{};
         const auto inputMatchesProfile = [](const InputDeclaration &input,
-                                            const ProfileDefinition &profile)
+                                            const ProfileDefinition &profile,
+                                            const std::vector<ConditionDefinition> &conditions)
         {
           return (input.profile.empty() || input.profile == profile.name) &&
                  (input.platform.empty() || input.platform == profile.platform) &&
@@ -4179,17 +4438,19 @@ namespace NGIN::Core
                   input.architecture == profile.architecture) &&
                  (input.buildType.empty() || input.buildType == profile.buildType) &&
                  (input.environment.empty() ||
-                  input.environment == profile.environmentName);
+                  input.environment == profile.environmentName) &&
+                 NamedConditionMatches(input.condition, conditions, profile);
         };
         const auto appendConfigInputs =
             [&](const std::vector<InputDeclaration> &inputs,
                 const ProfileDefinition &profile,
-                const IoPath &directory)
+                const IoPath &directory,
+                const std::vector<ConditionDefinition> &conditions)
         {
           for (const auto &input : inputs)
           {
             if (input.kind != "Config" ||
-                !inputMatchesProfile(input, profile))
+                !inputMatchesProfile(input, profile, conditions))
             {
               continue;
             }
@@ -4200,12 +4461,12 @@ namespace NGIN::Core
         };
         for (const auto &unit : projectUnits)
         {
-          appendConfigInputs(unit.manifest.inputs, unit.profile, unit.directory);
+          appendConfigInputs(unit.manifest.inputs, unit.profile, unit.directory, unit.manifest.conditions);
           if (unit.environment.has_value())
           {
-            appendConfigInputs(unit.environment->inputs, unit.profile, unit.directory);
+            appendConfigInputs(unit.environment->inputs, unit.profile, unit.directory, unit.manifest.conditions);
           }
-          appendConfigInputs(unit.profile.inputs, unit.profile, unit.directory);
+          appendConfigInputs(unit.profile.inputs, unit.profile, unit.directory, unit.manifest.conditions);
         }
         if (selectedProfile != nullptr)
         {
@@ -4219,7 +4480,7 @@ namespace NGIN::Core
             const auto directory = manifestIt->second.directory.empty()
                                        ? m_projectDirectory
                                        : IoPath{manifestIt->second.directory};
-            appendConfigInputs(manifestIt->second.inputs, *selectedProfile, directory);
+            appendConfigInputs(manifestIt->second.inputs, *selectedProfile, directory, manifestIt->second.conditions);
           }
         }
         AppendUniqueStrings(configInputs, m_configInputs);

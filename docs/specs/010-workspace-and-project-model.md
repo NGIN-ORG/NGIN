@@ -49,6 +49,9 @@ Shared model files use the `.nginmodel` extension and a `Model` root.
     <Include Path="Platforms.nginmodel" />
   </Includes>
   <Defaults BuildType="Debug" Platform="linux-x64" />
+  <Conditions>
+    <Condition Name="HostedDebug" BuildType="Debug" Environment="local" />
+  </Conditions>
   <ProjectTemplates>
     <ProjectTemplate Name="ConsoleTool" Type="Tool" OutputKind="Executable" />
   </ProjectTemplates>
@@ -75,6 +78,11 @@ The effective model layer order is:
 Built-in platforms are `linux-x64`, `windows-x64`, `macos-x64`, and
 `macos-arm64`. Built-in project templates are `Application`, `Library`, and
 `Tool`.
+
+Built-in conditions are part of the model catalog. Workspace and shared model
+files may add authored conditions, and project-local conditions append after
+project includes. Duplicate authored condition names are validation errors, and
+authored conditions may not replace built-in condition names.
 
 Collection declarations append in resolution order. Duplicate authored names for
 platforms, project templates, and profile templates are validation errors, except

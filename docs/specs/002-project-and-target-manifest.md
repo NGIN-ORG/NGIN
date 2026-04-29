@@ -181,15 +181,17 @@ Scan semantics are deterministic:
 
 ## Conditions
 
-Projects may declare reusable named conditions under `Conditions`.
+Projects may declare reusable named conditions under `Conditions`. Conditions
+may also come from the built-in catalog, shared model files, and workspace
+declarations.
 
 ```xml
 <Conditions>
-  <Condition Name="Desktop">
+  <Condition Name="DesktopDebug">
     <Any>
-      <Match OperatingSystem="windows" />
-      <Match OperatingSystem="linux" />
-      <Match OperatingSystem="macos" />
+      <Match OperatingSystem="windows" BuildType="Debug" />
+      <Match OperatingSystem="linux" BuildType="Debug" />
+      <Match OperatingSystem="macos" BuildType="Debug" />
     </Any>
   </Condition>
 </Conditions>
@@ -203,9 +205,15 @@ Supported condition nodes:
 - `Not`
 - `ConditionRef`
 
-`Condition` definitions may use selector attributes as shorthand for a single `Match`.
-Selectable entries use `Condition` to reference one project-local condition name. Direct selectors and `Condition`
-may be combined on a selectable item as implicit AND:
+Built-in conditions are `Debug`, `Release`, `RelWithDebInfo`, `MinSizeRel`,
+`Windows`, `Linux`, `MacOS`, `X64`, `Arm64`, `Desktop`, `Local`,
+`Development`, and `Production`. `Local`, `Development`, and `Production`
+match environment names `local`, `development`, and `production` exactly.
+
+`Condition` definitions may use selector attributes as shorthand for a single
+`Match`. Selectable entries use `Condition` to reference one visible condition
+name. Direct selectors and `Condition` may be combined on a selectable item as
+implicit AND:
 
 ```xml
 <Definition Value="MYAPP_DESKTOP_DEBUG"
@@ -215,7 +223,8 @@ may be combined on a selectable item as implicit AND:
 
 Condition names must be unique manifest identifiers. Names that differ only by
 case are rejected. Unknown `Condition` and `ConditionRef` names are validation
-errors, and condition reference cycles are validation errors.
+errors, and condition reference cycles are validation errors. Authored
+conditions may not replace built-in condition names.
 
 ## Output
 
@@ -278,6 +287,12 @@ and `Condition` references as `Sources` entries. Selected settings are emitted o
 when their effective condition matches the active project profile. Build
 setting groups may also use selectors and `Condition`; group selection is inherited
 by child entries as implicit AND.
+
+The same selection model applies to project and package references, runtime
+module/plugin declarations, runtime enable/disable refs, and environment
+feature flags. `Project` references keep `Profile` as the referenced profile
+selector; use `Condition`, `Platform`, `OperatingSystem`, `Architecture`,
+`BuildType`, and `Environment` to select the reference itself.
 
 ## References
 

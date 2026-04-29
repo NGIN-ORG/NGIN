@@ -1214,30 +1214,15 @@ namespace NGIN::CLI
                 }
 
                 const auto linkVisibility = kind == "executable" ? "PRIVATE" : "PUBLIC";
-                std::vector<PackageReference> packageRefs = unit.project.packageRefs;
+                std::vector<PackageReference> packageRefs{};
                 {
                     std::unordered_map<std::string, std::size_t> indexByName{};
-                    for (std::size_t index = 0; index < packageRefs.size(); ++index)
+                    const auto addPackageRef = [&](const PackageReference &reference)
                     {
-                        indexByName[packageRefs[index].name] = index;
-                    }
-                    if (unit.environment.has_value())
-                    {
-                        for (const auto &reference : unit.environment->packageRefs)
+                        if (!SelectionMatches(unit.project, reference.selectors, unit.profile))
                         {
-                            if (const auto it = indexByName.find(reference.name); it != indexByName.end())
-                            {
-                                packageRefs[it->second] = reference;
-                            }
-                            else
-                            {
-                                indexByName[reference.name] = packageRefs.size();
-                                packageRefs.push_back(reference);
-                            }
+                            return;
                         }
-                    }
-                    for (const auto &reference : unit.profile.packageRefs)
-                    {
                         if (const auto it = indexByName.find(reference.name); it != indexByName.end())
                         {
                             packageRefs[it->second] = reference;
@@ -1247,6 +1232,21 @@ namespace NGIN::CLI
                             indexByName[reference.name] = packageRefs.size();
                             packageRefs.push_back(reference);
                         }
+                    };
+                    for (const auto &reference : unit.project.packageRefs)
+                    {
+                        addPackageRef(reference);
+                    }
+                    if (unit.environment.has_value())
+                    {
+                        for (const auto &reference : unit.environment->packageRefs)
+                        {
+                            addPackageRef(reference);
+                        }
+                    }
+                    for (const auto &reference : unit.profile.packageRefs)
+                    {
+                        addPackageRef(reference);
                     }
                 }
                 for (const auto &packageRef : packageRefs)
@@ -1270,12 +1270,31 @@ namespace NGIN::CLI
                     }
                 }
 
-                std::vector<ProjectReference> projectRefs = unit.project.projectRefs;
+                std::vector<ProjectReference> projectRefs{};
+                for (const auto &reference : unit.project.projectRefs)
+                {
+                    if (SelectionMatches(unit.project, reference.selectors, unit.profile))
+                    {
+                        projectRefs.push_back(reference);
+                    }
+                }
                 if (unit.environment.has_value())
                 {
-                    projectRefs.insert(projectRefs.end(), unit.environment->projectRefs.begin(), unit.environment->projectRefs.end());
+                    for (const auto &reference : unit.environment->projectRefs)
+                    {
+                        if (SelectionMatches(unit.project, reference.selectors, unit.profile))
+                        {
+                            projectRefs.push_back(reference);
+                        }
+                    }
                 }
-                projectRefs.insert(projectRefs.end(), unit.profile.projectRefs.begin(), unit.profile.projectRefs.end());
+                for (const auto &reference : unit.profile.projectRefs)
+                {
+                    if (SelectionMatches(unit.project, reference.selectors, unit.profile))
+                    {
+                        projectRefs.push_back(reference);
+                    }
+                }
                 for (const auto &projectRef : projectRefs)
                 {
                     const auto canonical = fs::weakly_canonical(projectRef.path).string();

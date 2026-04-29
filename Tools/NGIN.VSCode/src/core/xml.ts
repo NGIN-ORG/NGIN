@@ -5,6 +5,7 @@ import {
   LaunchDescriptor,
   PackageManifest,
   PackageReference,
+  ConditionDefinition,
   LocalSettingsManifest,
   ModelDefaults,
   InputDeclaration,
@@ -260,14 +261,21 @@ function parseProjectReferences(node: unknown, baseDirectory: string): ProjectRe
   const parent = node as { References?: { Project?: unknown } } | undefined;
   return asArray(parent?.References?.Project)
     .map((entry): ProjectReference | undefined => {
-      const ref = entry as { Path?: string; Profile?: string } | undefined;
+      const ref = entry as { Path?: string; Profile?: string; Platform?: string; OperatingSystem?: string; Architecture?: string; BuildType?: string; Environment?: string; Condition?: string } | undefined;
       if (!ref?.Path) {
         return undefined;
       }
-      return {
+      const parsed: ProjectReference = {
         path: path.resolve(baseDirectory, ref.Path),
         profile: ref.Profile
       };
+      if (ref.Platform) { parsed.platform = ref.Platform; }
+      if (ref.OperatingSystem) { parsed.operatingSystem = ref.OperatingSystem; }
+      if (ref.Architecture) { parsed.architecture = ref.Architecture; }
+      if (ref.BuildType) { parsed.buildType = ref.BuildType; }
+      if (ref.Environment) { parsed.environment = ref.Environment; }
+      if (ref.Condition) { parsed.condition = ref.Condition; }
+      return parsed;
     })
     .filter((entry): entry is ProjectReference => Boolean(entry));
 }
@@ -276,17 +284,47 @@ function parsePackageReferences(node: unknown): PackageReference[] {
   const parent = node as { References?: { Package?: unknown } } | undefined;
   return asArray(parent?.References?.Package)
     .map((entry): PackageReference | undefined => {
-      const ref = entry as { Name?: string; Version?: string; Optional?: string | boolean } | undefined;
+      const ref = entry as { Name?: string; Version?: string; Optional?: string | boolean; Profile?: string; Platform?: string; OperatingSystem?: string; Architecture?: string; BuildType?: string; Environment?: string; Condition?: string } | undefined;
       if (!ref?.Name) {
         return undefined;
       }
-      return {
+      const parsed: PackageReference = {
         name: ref.Name,
         version: ref.Version,
         optional: ref.Optional === true || ref.Optional === 'true'
       };
+      if (ref.Profile) { parsed.profile = ref.Profile; }
+      if (ref.Platform) { parsed.platform = ref.Platform; }
+      if (ref.OperatingSystem) { parsed.operatingSystem = ref.OperatingSystem; }
+      if (ref.Architecture) { parsed.architecture = ref.Architecture; }
+      if (ref.BuildType) { parsed.buildType = ref.BuildType; }
+      if (ref.Environment) { parsed.environment = ref.Environment; }
+      if (ref.Condition) { parsed.condition = ref.Condition; }
+      return parsed;
     })
     .filter((entry): entry is PackageReference => Boolean(entry));
+}
+
+function parseConditions(node: unknown): ConditionDefinition[] {
+  const parent = node as { Conditions?: { Condition?: unknown } } | undefined;
+  return asArray(parent?.Conditions?.Condition)
+    .map((entry): ConditionDefinition | undefined => {
+      const condition = entry as { Name?: string; Profile?: string; Platform?: string; OperatingSystem?: string; Architecture?: string; BuildType?: string; Environment?: string; Match?: { Profile?: string; Platform?: string; OperatingSystem?: string; Architecture?: string; BuildType?: string; Environment?: string } } | undefined;
+      if (!condition?.Name) {
+        return undefined;
+      }
+      const match = condition.Match;
+      return {
+        name: condition.Name,
+        profile: condition.Profile ?? match?.Profile,
+        platform: condition.Platform ?? match?.Platform,
+        operatingSystem: condition.OperatingSystem ?? match?.OperatingSystem,
+        architecture: condition.Architecture ?? match?.Architecture,
+        buildType: condition.BuildType ?? match?.BuildType,
+        environment: condition.Environment ?? match?.Environment
+      };
+    })
+    .filter((entry): entry is ConditionDefinition => Boolean(entry));
 }
 
 function parseModelIncludes(root: { Includes?: { Include?: unknown } } | undefined, baseDirectory: string): string[] {
@@ -522,6 +560,7 @@ export function parseProjectManifest(xml: string, manifestPath: string, options:
     configInputs: configInputsFrom(inputs),
     localSettingsImports: parseLocalSettingsImports(root, path.dirname(manifestPath)),
     buildSources: [...buildSources, ...buildSourcesFrom(inputs)],
+    conditions: parseConditions(root),
     projectRefs: parseProjectReferences(root, path.dirname(manifestPath)),
     packageRefs: parsePackageReferences(root),
     profiles
@@ -566,7 +605,8 @@ export function parsePackageManifest(xml: string, manifestPath: string): Package
     path: manifestPath,
     directory: path.dirname(manifestPath),
     name: root.Name ?? path.basename(manifestPath, path.extname(manifestPath)),
-    version: root.Version
+    version: root.Version,
+    conditions: parseConditions(root)
   };
 }
 

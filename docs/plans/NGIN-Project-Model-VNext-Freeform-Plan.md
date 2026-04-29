@@ -1253,13 +1253,17 @@ need typed inputs and outputs.
 
 Purpose: make selection logic explicit, reusable, and explainable.
 
-- Complete the `When` to `Condition` direction.
-- Add predefined conditions.
-- Define condition scopes.
-- Apply conditions consistently to inputs, references, build settings, runtime
-  entries, and package feature selections.
-- Add diagnostics that explain inclusion and exclusion.
-- Add condition explanation support.
+- Status: implemented.
+- `Condition` is the canonical selector spelling; `When` is not supported.
+- Added built-in conditions for build type, platform family, architecture,
+  desktop, and common environment names.
+- Added condition declarations to model/workspace/project/package scopes.
+- Applied selectors and conditions to inputs, references, build settings,
+  runtime entries, environment features, and package-local contributions.
+- Added condition provenance, stronger condition diagnostics, and focused
+  `ngin explain condition`.
+- Package feature declarations remain Phase D; Phase C only provides the
+  selected feature-flag groundwork.
 
 This phase can overlap with the unified input model, but complex package and
 pipeline behavior should wait until selection semantics are stable.

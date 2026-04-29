@@ -150,6 +150,7 @@ that nested path from source scanning.
 Supported selectors:
 
 - `Profile`
+- `Platform`
 - `OperatingSystem`
 - `Architecture`
 - `BuildType`
@@ -167,15 +168,17 @@ The same selectors can be used on build settings:
 </Build>
 ```
 
-Reusable or non-trivial selection can use named conditions:
+Reusable or non-trivial selection can use built-in or authored named
+conditions. Built-ins include `Debug`, `Release`, `Windows`, `Linux`, `MacOS`,
+`Desktop`, `Local`, `Development`, and `Production`.
 
 ```xml
 <Conditions>
-  <Condition Name="Desktop">
+  <Condition Name="DesktopDebug">
     <Any>
-      <Match OperatingSystem="windows" />
-      <Match OperatingSystem="linux" />
-      <Match OperatingSystem="macos" />
+      <Match OperatingSystem="windows" BuildType="Debug" />
+      <Match OperatingSystem="linux" BuildType="Debug" />
+      <Match OperatingSystem="macos" BuildType="Debug" />
     </Any>
   </Condition>
 </Conditions>
@@ -193,6 +196,20 @@ combined and are evaluated as AND:
                 BuildType="Debug" />
   </CompileDefinitions>
 </Build>
+```
+
+References, runtime entries, and environment feature flags use the same
+selection model:
+
+```xml
+<References>
+  <Package Name="NGIN.Diagnostics" Condition="Debug" />
+</References>
+<Runtime>
+  <EnableModules>
+    <ModuleRef Name="App.Diagnostics" Condition="Debug" />
+  </EnableModules>
+</Runtime>
 ```
 
 ## Output

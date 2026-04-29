@@ -89,6 +89,27 @@ Supported package input blocks are `Configs`, `Contents`, `Assets`,
 staged roles flow through the common input pipeline; tool inputs are validated
 and exposed as metadata only.
 
+## Conditions
+
+Packages may declare package-local conditions under `Conditions`. Package
+conditions can reference built-in conditions and other package-local conditions.
+They apply to package inputs, package runtime module declarations, and package
+plugin declarations. Project manifests cannot reference package-local condition
+names.
+
+```xml
+<Conditions>
+  <Condition Name="DesktopTools">
+    <ConditionRef Name="Desktop" />
+  </Condition>
+</Conditions>
+<Inputs>
+  <ToolInputs Condition="DesktopTools">
+    tools/schema.json
+  </ToolInputs>
+</Inputs>
+```
+
 ## Ownership Rule
 
 Packages describe reusable identity and exposed behavior.

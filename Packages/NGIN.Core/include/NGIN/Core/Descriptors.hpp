@@ -60,6 +60,13 @@ namespace NGIN::Core
         bool                              reflectionRequired {false};
         std::vector<std::string>          capabilities {};
         NGIN::Int32                       priority {0};
+        std::string                       profile {};
+        std::string                       platform {};
+        std::string                       operatingSystem {};
+        std::string                       architecture {};
+        std::string                       buildType {};
+        std::string                       environment {};
+        std::string                       condition {};
     };
 
     [[nodiscard]] constexpr auto ToString(const ModuleFamily value) noexcept -> std::string_view

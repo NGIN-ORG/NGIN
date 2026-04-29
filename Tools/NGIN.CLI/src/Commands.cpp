@@ -133,6 +133,278 @@ namespace NGIN::CLI
                 std::cout << ")\n";
             }
         }
+
+        auto PrintConditionalProjectReferences(
+            const std::string_view label,
+            const ProjectManifest &project,
+            const ProfileDefinition &profile,
+            const std::vector<ProjectReference> &references) -> void
+        {
+            bool printedHeader = false;
+            for (const auto &reference : references)
+            {
+                if (!HasSelection(reference.selectors))
+                {
+                    continue;
+                }
+                if (!printedHeader)
+                {
+                    std::cout << "    " << label << ":\n";
+                    printedHeader = true;
+                }
+                std::cout << "      - " << reference.path.string() << " "
+                          << (SelectionMatches(project, reference.selectors, profile) ? "included" : "excluded")
+                          << " (";
+                PrintSelectorSummary(reference.selectors);
+                std::cout << ")\n";
+            }
+        }
+
+        auto PrintConditionalPackageReferences(
+            const std::string_view label,
+            const ProjectManifest &project,
+            const ProfileDefinition &profile,
+            const std::vector<PackageReference> &references) -> void
+        {
+            bool printedHeader = false;
+            for (const auto &reference : references)
+            {
+                if (!HasSelection(reference.selectors))
+                {
+                    continue;
+                }
+                if (!printedHeader)
+                {
+                    std::cout << "    " << label << ":\n";
+                    printedHeader = true;
+                }
+                std::cout << "      - " << reference.name << " "
+                          << (SelectionMatches(project, reference.selectors, profile) ? "included" : "excluded")
+                          << " (";
+                PrintSelectorSummary(reference.selectors);
+                std::cout << ")\n";
+            }
+        }
+
+        auto PrintConditionalRuntimeRefs(
+            const std::string_view label,
+            const ProjectManifest &project,
+            const ProfileDefinition &profile,
+            const std::vector<RuntimeReference> &references) -> void
+        {
+            bool printedHeader = false;
+            for (const auto &reference : references)
+            {
+                if (!HasSelection(reference.selectors))
+                {
+                    continue;
+                }
+                if (!printedHeader)
+                {
+                    std::cout << "    " << label << ":\n";
+                    printedHeader = true;
+                }
+                std::cout << "      - " << reference.name << " "
+                          << (SelectionMatches(project, reference.selectors, profile) ? "included" : "excluded")
+                          << " (";
+                PrintSelectorSummary(reference.selectors);
+                std::cout << ")\n";
+            }
+        }
+
+        auto PrintConditionalFeatures(
+            const ProjectManifest &project,
+            const ProfileDefinition &profile,
+            const std::optional<EnvironmentDefinition> &environment) -> void
+        {
+            if (!environment.has_value())
+            {
+                return;
+            }
+            bool printedHeader = false;
+            for (const auto &feature : environment->features)
+            {
+                if (!HasSelection(feature.selectors))
+                {
+                    continue;
+                }
+                if (!printedHeader)
+                {
+                    std::cout << "    Features:\n";
+                    printedHeader = true;
+                }
+                std::cout << "      - " << feature.name << " "
+                          << (SelectionMatches(project, feature.selectors, profile) ? "included" : "excluded")
+                          << " (";
+                PrintSelectorSummary(feature.selectors);
+                std::cout << ")\n";
+            }
+        }
+
+        [[nodiscard]] auto DirectSelectorMatches(const SelectorSet &selectors, const ProfileDefinition &profile) -> bool
+        {
+            if (selectors.impossible)
+            {
+                return false;
+            }
+            if (selectors.profile.has_value() && *selectors.profile != profile.name)
+            {
+                return false;
+            }
+            if (selectors.platform.has_value() && *selectors.platform != profile.platform)
+            {
+                return false;
+            }
+            if (selectors.operatingSystem.has_value() && *selectors.operatingSystem != profile.operatingSystem)
+            {
+                return false;
+            }
+            if (selectors.architecture.has_value() && *selectors.architecture != profile.architecture)
+            {
+                return false;
+            }
+            if (selectors.buildType.has_value() && *selectors.buildType != profile.buildType)
+            {
+                return false;
+            }
+            if (selectors.environment.has_value() && *selectors.environment != profile.environmentName)
+            {
+                return false;
+            }
+            return true;
+        }
+
+        [[nodiscard]] auto ConditionMap(const std::vector<ConditionDefinition> &conditions)
+            -> std::unordered_map<std::string, const ConditionDefinition *>
+        {
+            std::unordered_map<std::string, const ConditionDefinition *> result{};
+            for (const auto &condition : conditions)
+            {
+                result.emplace(condition.name, &condition);
+            }
+            return result;
+        }
+
+        [[nodiscard]] auto ConditionOrigin(const ConditionDefinition &condition) -> std::string
+        {
+            if (condition.builtin)
+            {
+                return "built-in";
+            }
+            std::ostringstream text{};
+            text << (condition.sourceKind.empty() ? "manifest" : condition.sourceKind);
+            if (!condition.sourceName.empty())
+            {
+                text << " '" << condition.sourceName << "'";
+            }
+            if (!condition.manifestPath.empty())
+            {
+                text << " (" << condition.manifestPath.string() << ")";
+            }
+            return text.str();
+        }
+
+        [[nodiscard]] auto EvalConditionNode(
+            const ConditionNode &node,
+            const std::unordered_map<std::string, const ConditionDefinition *> &conditions,
+            const ProfileDefinition &profile) -> bool
+        {
+            switch (node.kind)
+            {
+            case ConditionNode::Kind::Match:
+                return DirectSelectorMatches(node.match, profile);
+            case ConditionNode::Kind::ConditionRef:
+            {
+                const auto it = conditions.find(node.conditionName);
+                return it != conditions.end() && EvalConditionNode(it->second->body, conditions, profile);
+            }
+            case ConditionNode::Kind::All:
+                return std::all_of(
+                    node.children.begin(),
+                    node.children.end(),
+                    [&](const ConditionNode &child)
+                    { return EvalConditionNode(child, conditions, profile); });
+            case ConditionNode::Kind::Any:
+                return std::any_of(
+                    node.children.begin(),
+                    node.children.end(),
+                    [&](const ConditionNode &child)
+                    { return EvalConditionNode(child, conditions, profile); });
+            case ConditionNode::Kind::Not:
+                return node.children.size() == 1 && !EvalConditionNode(node.children.front(), conditions, profile);
+            }
+            return false;
+        }
+
+        auto PrintConditionNode(
+            const ConditionNode &node,
+            const std::unordered_map<std::string, const ConditionDefinition *> &conditions,
+            const ProfileDefinition &profile,
+            const int indent) -> bool
+        {
+            const auto pad = std::string(static_cast<std::size_t>(indent), ' ');
+            switch (node.kind)
+            {
+            case ConditionNode::Kind::Match:
+            {
+                const auto matched = DirectSelectorMatches(node.match, profile);
+                std::cout << pad << "- Match: " << (matched ? "matched" : "not matched");
+                if (HasSelection(node.match))
+                {
+                    std::cout << " (";
+                    PrintSelectorSummary(node.match);
+                    std::cout << ")";
+                }
+                std::cout << "\n";
+                return matched;
+            }
+            case ConditionNode::Kind::ConditionRef:
+            {
+                const auto it = conditions.find(node.conditionName);
+                if (it == conditions.end())
+                {
+                    std::cout << pad << "- ConditionRef " << node.conditionName << ": unknown\n";
+                    return false;
+                }
+                const auto matched = EvalConditionNode(it->second->body, conditions, profile);
+                std::cout << pad << "- ConditionRef " << node.conditionName << ": "
+                          << (matched ? "matched" : "not matched") << "\n";
+                PrintConditionNode(it->second->body, conditions, profile, indent + 2);
+                return matched;
+            }
+            case ConditionNode::Kind::All:
+            {
+                std::cout << pad << "- All\n";
+                bool matched = true;
+                for (const auto &child : node.children)
+                {
+                    matched = PrintConditionNode(child, conditions, profile, indent + 2) && matched;
+                }
+                std::cout << pad << "  result: " << (matched ? "matched" : "not matched") << "\n";
+                return matched;
+            }
+            case ConditionNode::Kind::Any:
+            {
+                std::cout << pad << "- Any\n";
+                bool matched = false;
+                for (const auto &child : node.children)
+                {
+                    matched = PrintConditionNode(child, conditions, profile, indent + 2) || matched;
+                }
+                std::cout << pad << "  result: " << (matched ? "matched" : "not matched") << "\n";
+                return matched;
+            }
+            case ConditionNode::Kind::Not:
+            {
+                std::cout << pad << "- Not\n";
+                const auto childMatched = !node.children.empty() && PrintConditionNode(node.children.front(), conditions, profile, indent + 2);
+                const auto matched = !childMatched;
+                std::cout << pad << "  result: " << (matched ? "matched" : "not matched") << "\n";
+                return matched;
+            }
+            }
+            return false;
+        }
     }
 
     auto ParseCommonArgs(int argc, char **argv, int startIndex) -> ParsedArgs
@@ -556,6 +828,52 @@ namespace NGIN::CLI
         return 0;
     }
 
+    auto CmdExplainCondition(const fs::path &root, const ParsedArgs &args) -> int
+    {
+        (void)root;
+        if (!args.packageName.has_value() || args.packageName->empty())
+        {
+            throw std::runtime_error("explain condition requires a condition name");
+        }
+        const auto invocation = ResolveInvocation(args);
+        const auto conditions = ConditionMap(invocation.project.conditions);
+        const auto it = conditions.find(*args.packageName);
+        if (it == conditions.end())
+        {
+            std::vector<std::string> names{};
+            for (const auto &[name, _] : conditions)
+            {
+                names.push_back(name);
+            }
+            std::sort(names.begin(), names.end());
+            std::ostringstream available{};
+            for (std::size_t index = 0; index < names.size(); ++index)
+            {
+                if (index != 0)
+                {
+                    available << ", ";
+                }
+                available << names[index];
+            }
+            throw std::runtime_error("unknown condition '" + *args.packageName + "' (available: " + available.str() + ")");
+        }
+
+        const auto &condition = *it->second;
+        const auto matched = EvalConditionNode(condition.body, conditions, invocation.profile);
+        std::cout << "Condition: " << condition.name << "\n";
+        std::cout << "  result: " << (matched ? "matched" : "not matched") << "\n";
+        std::cout << "  origin: " << ConditionOrigin(condition) << "\n";
+        std::cout << "  profile: " << invocation.profile.name
+                  << " BuildType=" << invocation.profile.buildType
+                  << " Platform=" << invocation.profile.platform
+                  << " OperatingSystem=" << invocation.profile.operatingSystem
+                  << " Architecture=" << invocation.profile.architecture
+                  << " Environment=" << invocation.profile.environmentName << "\n";
+        std::cout << "  tree:\n";
+        PrintConditionNode(condition.body, conditions, invocation.profile, 4);
+        return 0;
+    }
+
     auto CmdValidate(const fs::path &root, const ParsedArgs &args) -> int
     {
         (void)root;
@@ -696,6 +1014,61 @@ namespace NGIN::CLI
                           << (SelectionMatches(unit.project, selector, unit.profile) ? "matched" : "not matched")
                           << "\n";
             }
+        }
+
+        bool printedSelectionHeader = false;
+        for (const auto &unit : resolved.value->projectUnits)
+        {
+            const auto hasConditionalSelections =
+                std::any_of(unit.project.projectRefs.begin(), unit.project.projectRefs.end(), [](const ProjectReference &reference)
+                            { return HasSelection(reference.selectors); })
+                || std::any_of(unit.project.packageRefs.begin(), unit.project.packageRefs.end(), [](const PackageReference &reference)
+                               { return HasSelection(reference.selectors); })
+                || (unit.environment.has_value()
+                    && (std::any_of(unit.environment->projectRefs.begin(), unit.environment->projectRefs.end(), [](const ProjectReference &reference)
+                                    { return HasSelection(reference.selectors); })
+                        || std::any_of(unit.environment->packageRefs.begin(), unit.environment->packageRefs.end(), [](const PackageReference &reference)
+                                       { return HasSelection(reference.selectors); })
+                        || std::any_of(unit.environment->features.begin(), unit.environment->features.end(), [](const FeatureFlag &feature)
+                                       { return HasSelection(feature.selectors); })))
+                || std::any_of(unit.profile.projectRefs.begin(), unit.profile.projectRefs.end(), [](const ProjectReference &reference)
+                               { return HasSelection(reference.selectors); })
+                || std::any_of(unit.profile.packageRefs.begin(), unit.profile.packageRefs.end(), [](const PackageReference &reference)
+                               { return HasSelection(reference.selectors); })
+                || std::any_of(unit.project.runtime.enableModules.begin(), unit.project.runtime.enableModules.end(), [](const RuntimeReference &reference)
+                               { return HasSelection(reference.selectors); })
+                || std::any_of(unit.project.runtime.disableModules.begin(), unit.project.runtime.disableModules.end(), [](const RuntimeReference &reference)
+                               { return HasSelection(reference.selectors); })
+                || std::any_of(unit.profile.runtime.enableModules.begin(), unit.profile.runtime.enableModules.end(), [](const RuntimeReference &reference)
+                               { return HasSelection(reference.selectors); })
+                || std::any_of(unit.profile.runtime.disableModules.begin(), unit.profile.runtime.disableModules.end(), [](const RuntimeReference &reference)
+                               { return HasSelection(reference.selectors); });
+            if (!hasConditionalSelections)
+            {
+                continue;
+            }
+            if (!printedSelectionHeader)
+            {
+                std::cout << "\nConditional selections:\n";
+                printedSelectionHeader = true;
+            }
+            std::cout << "  - " << unit.project.name << ":\n";
+            PrintConditionalProjectReferences("Project references", unit.project, unit.profile, unit.project.projectRefs);
+            PrintConditionalPackageReferences("Package references", unit.project, unit.profile, unit.project.packageRefs);
+            if (unit.environment.has_value())
+            {
+                PrintConditionalProjectReferences("Environment project references", unit.project, unit.profile, unit.environment->projectRefs);
+                PrintConditionalPackageReferences("Environment package references", unit.project, unit.profile, unit.environment->packageRefs);
+                PrintConditionalFeatures(unit.project, unit.profile, unit.environment);
+                PrintConditionalRuntimeRefs("Environment enabled modules", unit.project, unit.profile, unit.environment->runtime.enableModules);
+                PrintConditionalRuntimeRefs("Environment disabled modules", unit.project, unit.profile, unit.environment->runtime.disableModules);
+            }
+            PrintConditionalProjectReferences("Profile project references", unit.project, unit.profile, unit.profile.projectRefs);
+            PrintConditionalPackageReferences("Profile package references", unit.project, unit.profile, unit.profile.packageRefs);
+            PrintConditionalRuntimeRefs("Enabled modules", unit.project, unit.profile, unit.project.runtime.enableModules);
+            PrintConditionalRuntimeRefs("Disabled modules", unit.project, unit.profile, unit.project.runtime.disableModules);
+            PrintConditionalRuntimeRefs("Profile enabled modules", unit.project, unit.profile, unit.profile.runtime.enableModules);
+            PrintConditionalRuntimeRefs("Profile disabled modules", unit.project, unit.profile, unit.profile.runtime.disableModules);
         }
 
         bool printedBuildSettingsHeader = false;

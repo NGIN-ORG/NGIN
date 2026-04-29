@@ -45,14 +45,29 @@ export interface PackageManifest {
   directory: string;
   name: string;
   version?: string;
+  conditions?: ConditionDefinition[];
 }
 
-export interface ProjectReference {
+export interface SelectorFields {
+  profile?: string;
+  platform?: string;
+  operatingSystem?: string;
+  architecture?: string;
+  buildType?: string;
+  environment?: string;
+  condition?: string;
+}
+
+export interface ConditionDefinition extends SelectorFields {
+  name: string;
+}
+
+export interface ProjectReference extends Omit<SelectorFields, 'profile'> {
   path: string;
   profile?: string;
 }
 
-export interface PackageReference {
+export interface PackageReference extends SelectorFields {
   name: string;
   version?: string;
   optional?: boolean;
@@ -85,6 +100,7 @@ export interface ProjectManifest {
   configInputs: string[];
   localSettingsImports?: string[];
   buildSources: string[];
+  conditions?: ConditionDefinition[];
   projectRefs?: ProjectReference[];
   packageRefs?: PackageReference[];
   profiles: ProjectProfile[];

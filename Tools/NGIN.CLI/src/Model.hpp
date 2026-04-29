@@ -95,6 +95,10 @@ namespace NGIN::CLI
     {
         std::string name{};
         ConditionNode body{};
+        fs::path manifestPath{};
+        std::string sourceKind{};
+        std::string sourceName{};
+        bool builtin{false};
     };
 
     struct InputMetadataProperty
@@ -186,6 +190,7 @@ namespace NGIN::CLI
     {
         std::string name{};
         bool enabled{false};
+        SelectorSet selectors{};
     };
 
     struct CompatibilityDefinition
@@ -230,6 +235,7 @@ namespace NGIN::CLI
         std::vector<std::string> providesServices{};
         std::vector<std::string> requiresServices{};
         std::vector<std::string> capabilities{};
+        SelectorSet selectors{};
     };
 
     struct PluginDescriptor
@@ -239,6 +245,7 @@ namespace NGIN::CLI
         CompatibilityDefinition compatibility{};
         std::vector<std::string> requiredModules{};
         std::vector<std::string> optionalModules{};
+        SelectorSet selectors{};
     };
 
     struct PackageManifest
@@ -253,6 +260,7 @@ namespace NGIN::CLI
         std::vector<PackageDependency> dependencies{};
         std::optional<PackageBootstrapDescriptor> bootstrap{};
         std::vector<InputDeclaration> inputs{};
+        std::vector<ConditionDefinition> conditions{};
         std::vector<ModuleDescriptor> modules{};
         std::vector<PluginDescriptor> plugins{};
     };
@@ -304,12 +312,20 @@ namespace NGIN::CLI
         std::string name{};
         std::string versionRange{};
         bool optional{false};
+        SelectorSet selectors{};
     };
 
     struct ProjectReference
     {
         fs::path path{};
         std::optional<std::string> profile{};
+        SelectorSet selectors{};
+    };
+
+    struct RuntimeReference
+    {
+        std::string name{};
+        SelectorSet selectors{};
     };
 
     struct OutputDefinition
@@ -322,10 +338,10 @@ namespace NGIN::CLI
     struct RuntimeDefinition
     {
         std::vector<ModuleDescriptor> modules{};
-        std::vector<std::string> enableModules{};
-        std::vector<std::string> disableModules{};
-        std::vector<std::string> enablePlugins{};
-        std::vector<std::string> disablePlugins{};
+        std::vector<RuntimeReference> enableModules{};
+        std::vector<RuntimeReference> disableModules{};
+        std::vector<RuntimeReference> enablePlugins{};
+        std::vector<RuntimeReference> disablePlugins{};
     };
 
     struct LaunchDefinition

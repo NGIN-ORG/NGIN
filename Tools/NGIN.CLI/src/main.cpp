@@ -18,6 +18,7 @@ namespace
             << "  workspace doctor\n"
             << "  settings init [--project <file.nginproj>]\n"
             << "  variables explain [--project <file.nginproj>] [--profile <name>]\n"
+            << "  explain condition <Name> [--project <file.nginproj>] [--profile <name>]\n"
             << "  validate [--project <file.nginproj>] [--profile <name>]\n"
             << "  graph [--project <file.nginproj>] [--profile <name>]\n"
             << "  metagen [--project <file.nginproj>] [--profile <name>] [--output <dir>]\n"
@@ -106,6 +107,19 @@ auto main(int argc, char **argv) -> int
                 return NGIN::CLI::CmdVariablesExplain(root, NGIN::CLI::ParseCommonArgs(argc, argv, 3));
             }
             throw std::runtime_error("unknown variables subcommand '" + subcommand + "'");
+        }
+        if (command == "explain")
+        {
+            if (argc < 3)
+            {
+                throw std::runtime_error("explain requires a subcommand");
+            }
+            const std::string subcommand = argv[2];
+            if (subcommand == "condition")
+            {
+                return NGIN::CLI::CmdExplainCondition(root, NGIN::CLI::ParseCommonArgs(argc, argv, 3));
+            }
+            throw std::runtime_error("unknown explain subcommand '" + subcommand + "'");
         }
         if (command == "list")
         {

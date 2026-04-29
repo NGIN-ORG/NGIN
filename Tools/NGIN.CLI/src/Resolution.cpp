@@ -635,15 +635,43 @@ namespace NGIN::CLI
             }
         }
 
-        auto MergeStringSelection(std::set<std::string> &enabled, const std::vector<std::string> &add, const std::vector<std::string> &remove) -> void
+        auto MergeSelectedPackageReferences(
+            std::vector<PackageReference> &target,
+            const std::vector<PackageReference> &source,
+            const ProjectManifest &project,
+            const ProfileDefinition &profile) -> void
+        {
+            std::vector<PackageReference> selected{};
+            for (const auto &reference : source)
+            {
+                if (SelectionMatches(project, reference.selectors, profile))
+                {
+                    selected.push_back(reference);
+                }
+            }
+            MergePackageReferences(target, selected);
+        }
+
+        auto MergeStringSelection(
+            std::set<std::string> &enabled,
+            const std::vector<RuntimeReference> &add,
+            const std::vector<RuntimeReference> &remove,
+            const std::vector<ConditionDefinition> &conditions,
+            const ProfileDefinition &profile) -> void
         {
             for (const auto &name : add)
             {
-                enabled.insert(name);
+                if (SelectionMatches(conditions, name.selectors, profile))
+                {
+                    enabled.insert(name.name);
+                }
             }
             for (const auto &name : remove)
             {
-                enabled.erase(name);
+                if (SelectionMatches(conditions, name.selectors, profile))
+                {
+                    enabled.erase(name.name);
+                }
             }
         }
 
@@ -694,18 +722,27 @@ namespace NGIN::CLI
 
             for (const auto &reference : project.projectRefs)
             {
-                collectReference(reference);
+                if (SelectionMatches(project, reference.selectors, profile))
+                {
+                    collectReference(reference);
+                }
             }
             if (const auto *environment = FindEnvironment(project, profile.environmentName))
             {
                 for (const auto &reference : environment->projectRefs)
                 {
-                    collectReference(reference);
+                    if (SelectionMatches(project, reference.selectors, profile))
+                    {
+                        collectReference(reference);
+                    }
                 }
             }
             for (const auto &reference : profile.projectRefs)
             {
-                collectReference(reference);
+                if (SelectionMatches(project, reference.selectors, profile))
+                {
+                    collectReference(reference);
+                }
             }
 
             visiting.erase(canonicalPath);
@@ -735,12 +772,12 @@ namespace NGIN::CLI
             std::vector<PackageReference> combinedRefs{};
             for (const auto &unit : projectUnits)
             {
-                MergePackageReferences(combinedRefs, unit.project.packageRefs);
+                MergeSelectedPackageReferences(combinedRefs, unit.project.packageRefs, unit.project, unit.profile);
                 if (unit.environment.has_value())
                 {
-                    MergePackageReferences(combinedRefs, unit.environment->packageRefs);
+                    MergeSelectedPackageReferences(combinedRefs, unit.environment->packageRefs, unit.project, unit.profile);
                 }
-                MergePackageReferences(combinedRefs, unit.profile.packageRefs);
+                MergeSelectedPackageReferences(combinedRefs, unit.profile.packageRefs, unit.project, unit.profile);
             }
 
             std::unordered_map<std::string, ResolvedPackage> resolved;
@@ -1067,6 +1104,10 @@ namespace NGIN::CLI
         {
             for (const auto &module : unit.project.runtime.modules)
             {
+                if (!SelectionMatches(unit.project, module.selectors, unit.profile))
+                {
+                    continue;
+                }
                 if (!CompatibilityMatches(module.compatibility, profile.operatingSystem, profile.architecture))
                 {
                     AddError(result.diagnostics, "project '" + unit.project.name + "' provides module '" + module.name + "' that is not supported on '" + profile.operatingSystem + "/" + profile.architecture + "'");
@@ -1084,6 +1125,10 @@ namespace NGIN::CLI
             {
                 for (const auto &module : unit.environment->runtime.modules)
                 {
+                    if (!SelectionMatches(unit.project, module.selectors, unit.profile))
+                    {
+                        continue;
+                    }
                     if (!CompatibilityMatches(module.compatibility, profile.operatingSystem, profile.architecture))
                     {
                         AddError(result.diagnostics, "environment '" + unit.environment->name + "' in project '" + unit.project.name + "' provides module '" + module.name + "' that is not supported on '" + profile.operatingSystem + "/" + profile.architecture + "'");
@@ -1100,6 +1145,10 @@ namespace NGIN::CLI
             }
             for (const auto &module : unit.profile.runtime.modules)
             {
+                if (!SelectionMatches(unit.project, module.selectors, unit.profile))
+                {
+                    continue;
+                }
                 if (!CompatibilityMatches(module.compatibility, profile.operatingSystem, profile.architecture))
                 {
                     AddError(result.diagnostics, "profile '" + unit.profile.name + "' in project '" + unit.project.name + "' provides module '" + module.name + "' that is not supported on '" + profile.operatingSystem + "/" + profile.architecture + "'");
@@ -1119,6 +1168,10 @@ namespace NGIN::CLI
         {
             for (const auto &module : package.manifest.modules)
             {
+                if (!SelectionMatches(package.manifest.conditions, module.selectors, profile))
+                {
+                    continue;
+                }
                 if (!CompatibilityMatches(module.compatibility, profile.operatingSystem, profile.architecture))
                 {
                     AddError(result.diagnostics, "package '" + package.manifest.name + "' provides module '" + module.name + "' that is not supported on '" + profile.operatingSystem + "/" + profile.architecture + "'");
@@ -1134,6 +1187,10 @@ namespace NGIN::CLI
             }
             for (const auto &plugin : package.manifest.plugins)
             {
+                if (!SelectionMatches(package.manifest.conditions, plugin.selectors, profile))
+                {
+                    continue;
+                }
                 if (!CompatibilityMatches(plugin.compatibility, profile.operatingSystem, profile.architecture))
                 {
                     AddError(result.diagnostics, "package '" + package.manifest.name + "' provides plugin '" + plugin.name + "' that is not supported on '" + profile.operatingSystem + "/" + profile.architecture + "'");
@@ -1156,12 +1213,12 @@ namespace NGIN::CLI
         std::set<std::string> directModules{};
         for (const auto &unit : projectUnits)
         {
-            MergeStringSelection(directModules, unit.project.runtime.enableModules, unit.project.runtime.disableModules);
+            MergeStringSelection(directModules, unit.project.runtime.enableModules, unit.project.runtime.disableModules, unit.project.conditions, unit.profile);
             if (unit.environment.has_value())
             {
-                MergeStringSelection(directModules, unit.environment->runtime.enableModules, unit.environment->runtime.disableModules);
+                MergeStringSelection(directModules, unit.environment->runtime.enableModules, unit.environment->runtime.disableModules, unit.project.conditions, unit.profile);
             }
-            MergeStringSelection(directModules, unit.profile.runtime.enableModules, unit.profile.runtime.disableModules);
+            MergeStringSelection(directModules, unit.profile.runtime.enableModules, unit.profile.runtime.disableModules, unit.project.conditions, unit.profile);
         }
 
         std::set<std::string> directPlugins{};
@@ -1174,12 +1231,12 @@ namespace NGIN::CLI
         }
         for (const auto &unit : projectUnits)
         {
-            MergeStringSelection(directPlugins, unit.project.runtime.enablePlugins, unit.project.runtime.disablePlugins);
+            MergeStringSelection(directPlugins, unit.project.runtime.enablePlugins, unit.project.runtime.disablePlugins, unit.project.conditions, unit.profile);
             if (unit.environment.has_value())
             {
-                MergeStringSelection(directPlugins, unit.environment->runtime.enablePlugins, unit.environment->runtime.disablePlugins);
+                MergeStringSelection(directPlugins, unit.environment->runtime.enablePlugins, unit.environment->runtime.disablePlugins, unit.project.conditions, unit.profile);
             }
-            MergeStringSelection(directPlugins, unit.profile.runtime.enablePlugins, unit.profile.runtime.disablePlugins);
+            MergeStringSelection(directPlugins, unit.profile.runtime.enablePlugins, unit.profile.runtime.disablePlugins, unit.project.conditions, unit.profile);
         }
 
         for (const auto &module : directModules)
@@ -1443,13 +1500,13 @@ namespace NGIN::CLI
                                  const std::string &ownerName,
                                  const fs::path &ownerDirectory,
                                  const fs::path &manifestPath,
-                                 const ProjectManifest *selectionProject,
+                                 const std::vector<ConditionDefinition> *selectionConditions,
                                  const ProfileDefinition *selectionProfile)
         {
             for (const auto &input : inputs)
             {
-                if (selectionProject != nullptr && selectionProfile != nullptr
-                    && !SelectionMatches(*selectionProject, input.selectors, *selectionProfile))
+                if (selectionConditions != nullptr && selectionProfile != nullptr
+                    && !SelectionMatches(*selectionConditions, input.selectors, *selectionProfile))
                 {
                     continue;
                 }
@@ -1517,12 +1574,12 @@ namespace NGIN::CLI
         for (const auto &unit : resolved.projectUnits)
         {
             const auto ownerProjectDirectory = unit.project.path.parent_path();
-            collectInputs(unit.project.inputs, "project", unit.project.name, ownerProjectDirectory, unit.project.path, &unit.project, &unit.profile);
+            collectInputs(unit.project.inputs, "project", unit.project.name, ownerProjectDirectory, unit.project.path, &unit.project.conditions, &unit.profile);
             if (unit.environment.has_value())
             {
-                collectInputs(unit.environment->inputs, "project", unit.project.name, ownerProjectDirectory, unit.project.path, &unit.project, &unit.profile);
+                collectInputs(unit.environment->inputs, "project", unit.project.name, ownerProjectDirectory, unit.project.path, &unit.project.conditions, &unit.profile);
             }
-            collectInputs(unit.profile.inputs, "project", unit.project.name, ownerProjectDirectory, unit.project.path, &unit.project, &unit.profile);
+            collectInputs(unit.profile.inputs, "project", unit.project.name, ownerProjectDirectory, unit.project.path, &unit.project.conditions, &unit.profile);
         }
         if (result.diagnostics.HasErrors())
         {
@@ -1563,6 +1620,10 @@ namespace NGIN::CLI
                 }
                 for (const auto &feature : unit.environment->features)
                 {
+                    if (!SelectionMatches(unit.project.conditions, feature.selectors, unit.profile))
+                    {
+                        continue;
+                    }
                     if (const auto it = featureIndex.find(feature.name); it != featureIndex.end())
                     {
                         resolved.environmentFeatures[it->second] = feature;
@@ -1585,7 +1646,7 @@ namespace NGIN::CLI
         {
             collectInputs(package.manifest.inputs, "package", package.manifest.name,
                           package.manifest.path.parent_path(), package.manifest.path,
-                          &resolved.project, &resolved.profile);
+                          &package.manifest.conditions, &resolved.profile);
         }
         if (result.diagnostics.HasErrors())
         {

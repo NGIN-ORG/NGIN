@@ -28,6 +28,13 @@ struct PackageReference {
   std::string name{};
   std::string versionRange{};
   bool optional{false};
+  std::string profile{};
+  std::string platform{};
+  std::string operatingSystem{};
+  std::string architecture{};
+  std::string buildType{};
+  std::string environment{};
+  std::string condition{};
 };
 
 enum class PackageBootstrapMode : NGIN::UInt8 { BuilderHookV1 };
@@ -96,6 +103,13 @@ struct EnvironmentVariable {
 struct FeatureFlag {
   std::string name{};
   bool enabled{false};
+  std::string profile{};
+  std::string platform{};
+  std::string operatingSystem{};
+  std::string architecture{};
+  std::string buildType{};
+  std::string environment{};
+  std::string condition{};
 };
 
 struct PackagePluginManifest {
@@ -105,6 +119,30 @@ struct PackagePluginManifest {
   std::vector<std::string> requiredModules{};
   std::vector<std::string> optionalModules{};
   bool optional{false};
+  std::string profile{};
+  std::string platform{};
+  std::string operatingSystem{};
+  std::string architecture{};
+  std::string buildType{};
+  std::string environment{};
+  std::string condition{};
+};
+
+struct ConditionNode {
+  std::string kind{"Match"};
+  std::string profile{};
+  std::string platform{};
+  std::string operatingSystem{};
+  std::string architecture{};
+  std::string buildType{};
+  std::string environment{};
+  std::string conditionName{};
+  std::vector<ConditionNode> children{};
+};
+
+struct ConditionDefinition {
+  std::string name{};
+  ConditionNode body{};
 };
 
 struct PackageManifest {
@@ -119,6 +157,7 @@ struct PackageManifest {
   std::vector<PackageReference> dependencies{};
   std::optional<PackageBootstrapDescriptor> bootstrap{};
   std::vector<InputDeclaration> inputs{};
+  std::vector<ConditionDefinition> conditions{};
   std::vector<ModuleDescriptor> modules{};
   std::vector<PackagePluginManifest> plugins{};
 };
@@ -136,6 +175,12 @@ struct ModuleSelection {
 struct ProjectReference {
   std::string path{};
   std::optional<std::string> profile{};
+  std::string platform{};
+  std::string operatingSystem{};
+  std::string architecture{};
+  std::string buildType{};
+  std::string environment{};
+  std::string condition{};
 };
 
 struct OutputDefinition {
@@ -198,6 +243,7 @@ struct ProjectManifest {
   std::string type{};
   std::string defaultProfile{};
   std::vector<InputDeclaration> inputs{};
+  std::vector<ConditionDefinition> conditions{};
   OutputDefinition output{};
   ProjectBuildDescriptor build{};
   std::vector<ProjectReference> projectRefs{};
