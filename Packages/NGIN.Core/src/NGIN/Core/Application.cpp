@@ -728,6 +728,77 @@ namespace NGIN::Core
       };
     }
 
+    [[nodiscard]] auto ParsePackageFeatureUses(const XmlElement &element,
+                                               const std::string_view context)
+        -> CoreResult<std::vector<PackageFeatureUse>>
+    {
+      std::vector<PackageFeatureUse> uses{};
+      const auto *features = FindChild(element, "Features");
+      if (features == nullptr)
+      {
+        return uses;
+      }
+      const auto parseOne = [&](const XmlElement &node, const bool disabled)
+          -> CoreResult<PackageFeatureUse>
+      {
+        auto packageName = RequireAttribute(node, "Package", context);
+        if (!packageName)
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(packageName.Error());
+        }
+        auto featureName = RequireAttribute(node, "Feature", context);
+        if (!featureName)
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(featureName.Error());
+        }
+        auto versionRange = OptionalAttribute(node, "Version", context);
+        if (!versionRange)
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(versionRange.Error());
+        }
+        if (versionRange.Value().empty())
+        {
+          versionRange = OptionalAttribute(node, "VersionRange", context);
+        }
+        if (!versionRange)
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(versionRange.Error());
+        }
+        return PackageFeatureUse{
+            .packageName = packageName.Value(),
+            .featureName = featureName.Value(),
+            .versionRange = versionRange.Value(),
+            .disabled = disabled,
+            .profile = Attribute(node, "Profile").value_or(""),
+            .platform = Attribute(node, "Platform").value_or(""),
+            .operatingSystem = Attribute(node, "OperatingSystem").value_or(""),
+            .architecture = Attribute(node, "Architecture").value_or(""),
+            .buildType = Attribute(node, "BuildType").value_or(""),
+            .environment = Attribute(node, "Environment").value_or(""),
+            .condition = Attribute(node, "Condition").value_or(""),
+        };
+      };
+      for (const auto *node : ChildElements(*features, "Use"))
+      {
+        auto parsed = parseOne(*node, false);
+        if (!parsed)
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(parsed.Error());
+        }
+        uses.push_back(parsed.Value());
+      }
+      for (const auto *node : ChildElements(*features, "Disable"))
+      {
+        auto parsed = parseOne(*node, true);
+        if (!parsed)
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(parsed.Error());
+        }
+        uses.push_back(parsed.Value());
+      }
+      return uses;
+    }
+
     [[nodiscard]] auto ParseModuleRefs(const XmlElement *parentElement,
                                        const std::string_view childName,
                                        const std::string_view context)
@@ -2332,6 +2403,15 @@ namespace NGIN::Core
       {
         return NGIN::Utilities::Unexpected<KernelError>(inputs.Error());
       }
+      if (auto featureUses = ParsePackageFeatureUses(element, context);
+          !featureUses)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(featureUses.Error());
+      }
+      else
+      {
+        environment.packageFeatureUses = std::move(featureUses.Value());
+      }
 
       if (const auto *variables = FindChild(element, "Variables"))
       {
@@ -2564,6 +2644,15 @@ namespace NGIN::Core
           !inputs)
       {
         return NGIN::Utilities::Unexpected<KernelError>(inputs.Error());
+      }
+      if (auto featureUses = ParsePackageFeatureUses(element, context);
+          !featureUses)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(featureUses.Error());
+      }
+      else
+      {
+        profile.packageFeatureUses = std::move(featureUses.Value());
       }
 
       if (FindChild(element, "EnableModules") != nullptr ||
@@ -2809,6 +2898,15 @@ namespace NGIN::Core
           }
           manifest.packageRefs.push_back(package.Value());
         }
+      }
+      if (auto featureUses = ParsePackageFeatureUses(*root, "project");
+          !featureUses)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(featureUses.Error());
+      }
+      else
+      {
+        manifest.packageFeatureUses = std::move(featureUses.Value());
       }
 
       if (const auto *environmentsElement = FindChild(*root, "Environments"))
@@ -3409,6 +3507,108 @@ namespace NGIN::Core
         }
       }
 
+      if (const auto *featuresElement = FindChild(*root, "Features"))
+      {
+        std::set<std::string> featureNames{};
+        for (const auto *featureElement : ChildElements(*featuresElement, "Feature"))
+        {
+          auto featureName = RequireAttribute(*featureElement, "Name", "package.Features.Feature");
+          if (!featureName)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(featureName.Error());
+          }
+          PackageManifest::Feature feature{};
+          feature.name = featureName.Value();
+          feature.description = Attribute(*featureElement, "Description").value_or("");
+          feature.profile = Attribute(*featureElement, "Profile").value_or("");
+          feature.platform = Attribute(*featureElement, "Platform").value_or("");
+          feature.operatingSystem = Attribute(*featureElement, "OperatingSystem").value_or("");
+          feature.architecture = Attribute(*featureElement, "Architecture").value_or("");
+          feature.buildType = Attribute(*featureElement, "BuildType").value_or("");
+          feature.environment = Attribute(*featureElement, "Environment").value_or("");
+          feature.condition = Attribute(*featureElement, "Condition").value_or("");
+          if (!featureNames.insert(feature.name).second)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+                "duplicate package feature declaration", feature.name,
+                KernelErrorCode::AlreadyExists));
+          }
+          if (const auto *provides = FindChild(*featureElement, "Provides"))
+          {
+            for (const auto *capabilityElement : ChildElements(*provides, "Capability"))
+            {
+              auto capabilityName = RequireAttribute(*capabilityElement, "Name", "package.Features.Feature.Provides");
+              if (!capabilityName)
+              {
+                return NGIN::Utilities::Unexpected<KernelError>(capabilityName.Error());
+              }
+              auto exclusive = OptionalBoolAttribute(*capabilityElement, "Exclusive", "package.Features.Feature.Provides", false);
+              if (!exclusive)
+              {
+                return NGIN::Utilities::Unexpected<KernelError>(exclusive.Error());
+              }
+              feature.provides.push_back(CapabilityProvision{capabilityName.Value(), exclusive.Value()});
+            }
+          }
+          if (const auto *requiresElement = FindChild(*featureElement, "Requires"))
+          {
+            for (const auto *capabilityElement : ChildElements(*requiresElement, "Capability"))
+            {
+              auto capabilityName = RequireAttribute(*capabilityElement, "Name", "package.Features.Feature.Requires");
+              if (!capabilityName)
+              {
+                return NGIN::Utilities::Unexpected<KernelError>(capabilityName.Error());
+              }
+              feature.requiredCapabilities.push_back(CapabilityRequirement{capabilityName.Value()});
+            }
+          }
+          if (const auto *dependencies = FindChild(*featureElement, "Dependencies"))
+          {
+            for (const auto *dependency : ChildElements(*dependencies, "PackageRef"))
+            {
+              auto reference = ParsePackageReference(*dependency, "package.Features.Feature.Dependencies");
+              if (!reference)
+              {
+                return NGIN::Utilities::Unexpected<KernelError>(reference.Error());
+              }
+              feature.dependencies.push_back(reference.Value());
+            }
+          }
+          if (auto inputs = ParseInputDeclarations(*featureElement, "package.Features.Feature", feature.inputs);
+              !inputs)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(inputs.Error());
+          }
+          if (const auto *runtimeElement = FindChild(*featureElement, "Runtime"))
+          {
+            auto runtime = ParseRuntimeDefinition(runtimeElement, "package.Features.Feature.Runtime");
+            if (!runtime)
+            {
+              return NGIN::Utilities::Unexpected<KernelError>(runtime.Error());
+            }
+            feature.runtime = std::move(runtime.Value());
+          }
+          if (const auto *variables = FindChild(*featureElement, "Variables"))
+          {
+            for (const auto *variableElement : ChildElements(*variables, "Variable"))
+            {
+              auto variableName = RequireAttribute(*variableElement, "Name", "package.Features.Feature.Variables");
+              if (!variableName)
+              {
+                return NGIN::Utilities::Unexpected<KernelError>(variableName.Error());
+              }
+              auto variableValue = RequireAttribute(*variableElement, "Value", "package.Features.Feature.Variables");
+              if (!variableValue)
+              {
+                return NGIN::Utilities::Unexpected<KernelError>(variableValue.Error());
+              }
+              feature.variables.push_back(EnvironmentVariable{variableName.Value(), variableValue.Value()});
+            }
+          }
+          manifest.features.push_back(std::move(feature));
+        }
+      }
+
       return manifest;
     }
 
@@ -3466,6 +3666,46 @@ namespace NGIN::Core
         }
       }
       MergePackageReferences(target, selected);
+    }
+
+    void MergeSelectedPackageFeatureUses(std::vector<PackageFeatureUse> &target,
+                                         const std::vector<PackageFeatureUse> &source,
+                                         const ProjectManifest &manifest,
+                                         const ProfileDefinition &profile)
+    {
+      std::unordered_map<std::string, std::size_t> indexByKey{};
+      for (std::size_t index = 0; index < target.size(); ++index)
+      {
+        indexByKey[target[index].packageName + "::" + target[index].featureName] = index;
+      }
+      for (const auto &use : source)
+      {
+        if (!SelectorsMatch(use, manifest.conditions, profile))
+        {
+          continue;
+        }
+        const auto key = use.packageName + "::" + use.featureName;
+        if (use.disabled)
+        {
+          if (const auto it = indexByKey.find(key); it != indexByKey.end())
+          {
+            target.erase(target.begin() + static_cast<std::ptrdiff_t>(it->second));
+            indexByKey.clear();
+            for (std::size_t index = 0; index < target.size(); ++index)
+            {
+              indexByKey[target[index].packageName + "::" + target[index].featureName] = index;
+            }
+          }
+          continue;
+        }
+        if (const auto it = indexByKey.find(key); it != indexByKey.end())
+        {
+          target[it->second] = use;
+          continue;
+        }
+        indexByKey[key] = target.size();
+        target.push_back(use);
+      }
     }
 
     void AppendOrReplaceModuleRegistration(
@@ -4361,16 +4601,64 @@ namespace NGIN::Core
         }
 
         std::vector<PackageReference> packages{};
+        std::vector<PackageFeatureUse> packageFeatureUses{};
         for (const auto &unit : projectUnits)
         {
           MergeSelectedPackageReferences(packages, unit.manifest.packageRefs, unit.manifest, unit.profile);
+          MergeSelectedPackageFeatureUses(packageFeatureUses, unit.manifest.packageFeatureUses, unit.manifest, unit.profile);
           if (unit.environment.has_value())
           {
             MergeSelectedPackageReferences(packages, unit.environment->packageRefs, unit.manifest, unit.profile);
+            MergeSelectedPackageFeatureUses(packageFeatureUses, unit.environment->packageFeatureUses, unit.manifest, unit.profile);
           }
           MergeSelectedPackageReferences(packages, unit.profile.packageRefs, unit.manifest, unit.profile);
+          MergeSelectedPackageFeatureUses(packageFeatureUses, unit.profile.packageFeatureUses, unit.manifest, unit.profile);
         }
         MergePackageReferences(packages, m_packageReferences);
+
+        std::vector<const PackageManifest::Feature *> selectedPackageFeatures{};
+        std::vector<const PackageManifest *> selectedPackageFeatureManifests{};
+        for (const auto &use : packageFeatureUses)
+        {
+          PackageReference reference{};
+          reference.name = use.packageName;
+          reference.versionRange = use.versionRange;
+          MergePackageReferences(packages, {reference});
+        }
+        for (std::size_t index = 0; index < packageFeatureUses.size(); ++index)
+        {
+          const auto &use = packageFeatureUses[index];
+          const auto manifestIt = m_packageManifests.find(use.packageName);
+          if (manifestIt == m_packageManifests.end())
+          {
+            continue;
+          }
+          const auto featureIt = std::find_if(
+              manifestIt->second.features.begin(), manifestIt->second.features.end(),
+              [&](const PackageManifest::Feature &feature)
+              {
+                return feature.name == use.featureName;
+              });
+          if (featureIt == manifestIt->second.features.end())
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+                "selected package feature does not exist",
+                use.packageName + "::" + use.featureName, KernelErrorCode::NotFound));
+          }
+          if (!SelectorsMatch(*featureIt, manifestIt->second.conditions, *selectedProfile))
+          {
+            continue;
+          }
+          selectedPackageFeatures.push_back(&*featureIt);
+          selectedPackageFeatureManifests.push_back(&manifestIt->second);
+          for (const auto &dependency : featureIt->dependencies)
+          {
+            if (SelectorsMatch(dependency, manifestIt->second.conditions, *selectedProfile))
+            {
+              MergePackageReferences(packages, {dependency});
+            }
+          }
+        }
 
         std::vector<std::string> enabledModules{};
         for (const auto &unit : projectUnits)
@@ -4381,6 +4669,10 @@ namespace NGIN::Core
             AppendUniqueStrings(enabledModules, unit.environment->runtime.enableModules);
           }
           AppendUniqueStrings(enabledModules, unit.profile.runtime.enableModules);
+        }
+        for (const auto *feature : selectedPackageFeatures)
+        {
+          AppendUniqueStrings(enabledModules, feature->runtime.enableModules);
         }
         AppendUniqueStrings(enabledModules, m_enabledModules);
 
@@ -4396,6 +4688,10 @@ namespace NGIN::Core
           }
           AppendUniqueStrings(disabledModules,
                               unit.profile.runtime.disableModules);
+        }
+        for (const auto *feature : selectedPackageFeatures)
+        {
+          AppendUniqueStrings(disabledModules, feature->runtime.disableModules);
         }
         AppendUniqueStrings(disabledModules, m_disabledModules);
         const std::set<std::string> disabledModuleSet(disabledModules.begin(),
@@ -4481,6 +4777,15 @@ namespace NGIN::Core
                                        ? m_projectDirectory
                                        : IoPath{manifestIt->second.directory};
             appendConfigInputs(manifestIt->second.inputs, *selectedProfile, directory, manifestIt->second.conditions);
+          }
+          for (std::size_t index = 0; index < selectedPackageFeatures.size(); ++index)
+          {
+            const auto *feature = selectedPackageFeatures[index];
+            const auto *manifest = selectedPackageFeatureManifests[index];
+            const auto directory = manifest->directory.empty()
+                                       ? m_projectDirectory
+                                       : IoPath{manifest->directory};
+            appendConfigInputs(feature->inputs, *selectedProfile, directory, manifest->conditions);
           }
         }
         AppendUniqueStrings(configInputs, m_configInputs);

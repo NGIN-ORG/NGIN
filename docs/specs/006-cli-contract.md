@@ -20,6 +20,10 @@ Stable active commands:
 - `ngin graph [--project <file>] [--profile <name>]`
 - `ngin package list`
 - `ngin package show <Package>`
+- `ngin package lock [--project <file>] [--profile <name>] [--output <file>]`
+- `ngin package verify-lock [--project <file>] [--profile <name>] [--lock <file>]`
+- `ngin explain condition <Name> [--project <file>] [--profile <name>]`
+- `ngin explain package-feature <Package> <Feature> [--project <file>] [--profile <name>]`
 - `ngin settings init [--project <file>]`
 - `ngin variables explain [--project <file>] [--profile <name>]`
 - `ngin workspace list`
@@ -49,6 +53,11 @@ Removed commands:
 
 - `ngin graph` is the active structural inspection command for resolved composition
 - package inspection commands expose reusable package identity and declared package data
+- `ngin package lock` writes a deterministic local `ngin.lock` for the selected
+  package graph; `ngin package verify-lock` compares the current local
+  resolution with that file
+- `ngin explain package-feature` explains feature selection, dependencies,
+  capabilities, and contribution counts for one package feature
 - `ngin variables explain` shows the selected project environment variables,
   their resolved value source, and redacts secret values as `<secret>`
 - `ngin settings init` creates `.ngin/local/user.nginsettings` under the

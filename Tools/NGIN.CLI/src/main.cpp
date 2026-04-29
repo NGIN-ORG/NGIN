@@ -19,6 +19,7 @@ namespace
             << "  settings init [--project <file.nginproj>]\n"
             << "  variables explain [--project <file.nginproj>] [--profile <name>]\n"
             << "  explain condition <Name> [--project <file.nginproj>] [--profile <name>]\n"
+            << "  explain package-feature <PackageName> <FeatureName> [--project <file.nginproj>] [--profile <name>]\n"
             << "  validate [--project <file.nginproj>] [--profile <name>]\n"
             << "  graph [--project <file.nginproj>] [--profile <name>]\n"
             << "  metagen [--project <file.nginproj>] [--profile <name>] [--output <dir>]\n"
@@ -28,7 +29,9 @@ namespace
             << "  rebuild [--project <file.nginproj>] [--profile <name>] [--output <dir>]\n"
             << "  run [--project <file.nginproj>] [--profile <name>] [--output <dir>] [-- <args...>]\n"
             << "  package list\n"
-            << "  package show <PackageName>\n";
+            << "  package show <PackageName>\n"
+            << "  package lock [--project <file.nginproj>] [--profile <name>] [--output <ngin.lock>]\n"
+            << "  package verify-lock [--project <file.nginproj>] [--profile <name>] [--lock <ngin.lock>]\n";
     }
 }
 
@@ -80,6 +83,14 @@ auto main(int argc, char **argv) -> int
             {
                 return NGIN::CLI::CmdPackageShow(root, NGIN::CLI::ParseCommonArgs(argc, argv, 3));
             }
+            if (subcommand == "lock")
+            {
+                return NGIN::CLI::CmdPackageLock(root, NGIN::CLI::ParseCommonArgs(argc, argv, 3));
+            }
+            if (subcommand == "verify-lock")
+            {
+                return NGIN::CLI::CmdPackageVerifyLock(root, NGIN::CLI::ParseCommonArgs(argc, argv, 3));
+            }
             throw std::runtime_error("unknown package subcommand '" + subcommand + "'");
         }
         if (command == "settings")
@@ -118,6 +129,10 @@ auto main(int argc, char **argv) -> int
             if (subcommand == "condition")
             {
                 return NGIN::CLI::CmdExplainCondition(root, NGIN::CLI::ParseCommonArgs(argc, argv, 3));
+            }
+            if (subcommand == "package-feature")
+            {
+                return NGIN::CLI::CmdExplainPackageFeature(root, NGIN::CLI::ParseCommonArgs(argc, argv, 3));
             }
             throw std::runtime_error("unknown explain subcommand '" + subcommand + "'");
         }

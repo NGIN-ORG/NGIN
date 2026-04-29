@@ -39,6 +39,20 @@ Workspace defaults apply to projects loaded through workspace resolution.
 Project-local defaults and explicit project/profile values override workspace
 defaults.
 
+Workspaces may centralize package version ranges and package policy:
+
+```xml
+<DependencyPolicy VersionResolution="HighestCompatible">
+  <Versions>
+    <Package Name="NGIN.Core" VersionRange=">=0.1.0 &lt;0.2.0" />
+  </Versions>
+</DependencyPolicy>
+<PackagePolicy DefaultFeatures="Explicit" LockFile="Optional" />
+```
+
+Project dependency policy overrides workspace policy by package name. Phase D
+supports explicit package features only; package defaults do not auto-apply.
+
 ## Shared Model Files
 
 Shared model files use the `.nginmodel` extension and a `Model` root.

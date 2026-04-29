@@ -112,6 +112,29 @@ struct FeatureFlag {
   std::string condition{};
 };
 
+struct PackageFeatureUse {
+  std::string packageName{};
+  std::string featureName{};
+  std::string versionRange{};
+  bool disabled{false};
+  std::string profile{};
+  std::string platform{};
+  std::string operatingSystem{};
+  std::string architecture{};
+  std::string buildType{};
+  std::string environment{};
+  std::string condition{};
+};
+
+struct CapabilityRequirement {
+  std::string name{};
+};
+
+struct CapabilityProvision {
+  std::string name{};
+  bool exclusive{false};
+};
+
 struct PackagePluginManifest {
   std::string name{};
   std::vector<std::string> operatingSystems{};
@@ -145,6 +168,12 @@ struct ConditionDefinition {
   ConditionNode body{};
 };
 
+struct RuntimeDefinition {
+  std::vector<ModuleDescriptor> modules{};
+  std::vector<std::string> enableModules{};
+  std::vector<std::string> disableModules{};
+};
+
 struct PackageManifest {
   NGIN::UInt32 schemaVersion{3};
   std::string path{};
@@ -160,6 +189,24 @@ struct PackageManifest {
   std::vector<ConditionDefinition> conditions{};
   std::vector<ModuleDescriptor> modules{};
   std::vector<PackagePluginManifest> plugins{};
+  struct Feature {
+    std::string name{};
+    std::string description{};
+    std::string profile{};
+    std::string platform{};
+    std::string operatingSystem{};
+    std::string architecture{};
+    std::string buildType{};
+    std::string environment{};
+    std::string condition{};
+    std::vector<CapabilityProvision> provides{};
+    std::vector<CapabilityRequirement> requiredCapabilities{};
+    std::vector<PackageReference> dependencies{};
+    std::vector<InputDeclaration> inputs{};
+    RuntimeDefinition runtime{};
+    std::vector<EnvironmentVariable> variables{};
+  };
+  std::vector<Feature> features{};
 };
 
 struct PluginReference {
@@ -206,16 +253,11 @@ struct ProjectBuildDescriptor {
   std::vector<BuildSetting> linkOptions{};
 };
 
-struct RuntimeDefinition {
-  std::vector<ModuleDescriptor> modules{};
-  std::vector<std::string> enableModules{};
-  std::vector<std::string> disableModules{};
-};
-
 struct EnvironmentDefinition {
   std::string name{};
   std::vector<ProjectReference> projectRefs{};
   std::vector<PackageReference> packageRefs{};
+  std::vector<PackageFeatureUse> packageFeatureUses{};
   std::vector<InputDeclaration> inputs{};
   std::vector<EnvironmentVariable> variables{};
   std::vector<FeatureFlag> features{};
@@ -232,6 +274,7 @@ struct ProfileDefinition {
   std::string environmentName{};
   std::vector<ProjectReference> projectRefs{};
   std::vector<PackageReference> packageRefs{};
+  std::vector<PackageFeatureUse> packageFeatureUses{};
   std::vector<InputDeclaration> inputs{};
   std::optional<LaunchDefinition> launch{};
   RuntimeDefinition runtime{};
@@ -248,6 +291,7 @@ struct ProjectManifest {
   ProjectBuildDescriptor build{};
   std::vector<ProjectReference> projectRefs{};
   std::vector<PackageReference> packageRefs{};
+  std::vector<PackageFeatureUse> packageFeatureUses{};
   std::vector<EnvironmentDefinition> environments{};
   RuntimeDefinition runtime{};
   std::vector<ProfileDefinition> profiles{};

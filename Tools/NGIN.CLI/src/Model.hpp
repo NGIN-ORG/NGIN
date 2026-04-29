@@ -22,6 +22,10 @@ namespace NGIN::CLI
         std::string platformVersion{};
         std::vector<fs::path> packageSources{};
         std::unordered_map<std::string, fs::path> packageProviders{};
+        std::unordered_map<std::string, std::string> dependencyVersions{};
+        std::string versionResolution{"HighestCompatible"};
+        std::string defaultFeatures{"Explicit"};
+        std::string lockFile{"Optional"};
         std::vector<fs::path> projects{};
     };
 
@@ -72,6 +76,14 @@ namespace NGIN::CLI
         std::optional<std::string> environment{};
         std::vector<std::string> conditionRefs{};
         bool impossible{false};
+    };
+
+    struct PackageReference
+    {
+        std::string name{};
+        std::string versionRange{};
+        bool optional{false};
+        SelectorSet selectors{};
     };
 
     struct ConditionNode
@@ -193,6 +205,26 @@ namespace NGIN::CLI
         SelectorSet selectors{};
     };
 
+    struct PackageFeatureUse
+    {
+        std::string packageName{};
+        std::string featureName{};
+        std::string versionRange{};
+        bool disabled{false};
+        SelectorSet selectors{};
+    };
+
+    struct CapabilityRequirement
+    {
+        std::string name{};
+    };
+
+    struct CapabilityProvision
+    {
+        std::string name{};
+        bool exclusive{false};
+    };
+
     struct CompatibilityDefinition
     {
         std::vector<std::string> operatingSystems{};
@@ -248,12 +280,36 @@ namespace NGIN::CLI
         SelectorSet selectors{};
     };
 
+    struct ProjectReference
+    {
+        fs::path path{};
+        std::optional<std::string> profile{};
+        SelectorSet selectors{};
+    };
+
+    struct RuntimeReference
+    {
+        std::string name{};
+        SelectorSet selectors{};
+    };
+
+    struct RuntimeDefinition
+    {
+        std::vector<ModuleDescriptor> modules{};
+        std::vector<RuntimeReference> enableModules{};
+        std::vector<RuntimeReference> disableModules{};
+        std::vector<RuntimeReference> enablePlugins{};
+        std::vector<RuntimeReference> disablePlugins{};
+    };
+
     struct PackageManifest
     {
         fs::path path{};
         std::string name{};
         std::string version{};
         std::string compatiblePlatformRange{};
+        std::string defaultFeatures{"Explicit"};
+        std::string lockFile{"Optional"};
         ArtifactDescriptor artifacts{};
         PackageBuildDescriptor build{};
         CompatibilityDefinition compatibility{};
@@ -263,6 +319,20 @@ namespace NGIN::CLI
         std::vector<ConditionDefinition> conditions{};
         std::vector<ModuleDescriptor> modules{};
         std::vector<PluginDescriptor> plugins{};
+        struct Feature
+        {
+            std::string name{};
+            std::string description{};
+            SelectorSet selectors{};
+            std::vector<CapabilityProvision> provides{};
+            std::vector<CapabilityRequirement> requiredCapabilities{};
+            std::vector<PackageReference> packageRefs{};
+            std::vector<InputDeclaration> inputs{};
+            ProjectBuildDescriptor build{};
+            RuntimeDefinition runtime{};
+            std::vector<EnvironmentVariable> variables{};
+        };
+        std::vector<Feature> features{};
     };
 
     struct ResolvedInput
@@ -307,41 +377,11 @@ namespace NGIN::CLI
         fs::path providerRoot{};
     };
 
-    struct PackageReference
-    {
-        std::string name{};
-        std::string versionRange{};
-        bool optional{false};
-        SelectorSet selectors{};
-    };
-
-    struct ProjectReference
-    {
-        fs::path path{};
-        std::optional<std::string> profile{};
-        SelectorSet selectors{};
-    };
-
-    struct RuntimeReference
-    {
-        std::string name{};
-        SelectorSet selectors{};
-    };
-
     struct OutputDefinition
     {
         std::string kind{};
         std::string name{};
         std::string target{};
-    };
-
-    struct RuntimeDefinition
-    {
-        std::vector<ModuleDescriptor> modules{};
-        std::vector<RuntimeReference> enableModules{};
-        std::vector<RuntimeReference> disableModules{};
-        std::vector<RuntimeReference> enablePlugins{};
-        std::vector<RuntimeReference> disablePlugins{};
     };
 
     struct LaunchDefinition
@@ -355,6 +395,7 @@ namespace NGIN::CLI
         std::string name{};
         std::vector<ProjectReference> projectRefs{};
         std::vector<PackageReference> packageRefs{};
+        std::vector<PackageFeatureUse> packageFeatureUses{};
         std::vector<InputDeclaration> inputs{};
         std::vector<EnvironmentVariable> variables{};
         std::vector<FeatureFlag> features{};
@@ -373,6 +414,7 @@ namespace NGIN::CLI
         LaunchDefinition launch{};
         std::vector<ProjectReference> projectRefs{};
         std::vector<PackageReference> packageRefs{};
+        std::vector<PackageFeatureUse> packageFeatureUses{};
         std::vector<InputDeclaration> inputs{};
         RuntimeDefinition runtime{};
     };
@@ -385,10 +427,15 @@ namespace NGIN::CLI
         std::string defaultProfile{};
         std::vector<InputDeclaration> inputs{};
         std::vector<ConditionDefinition> conditions{};
+        std::unordered_map<std::string, std::string> dependencyVersions{};
+        std::string versionResolution{"HighestCompatible"};
+        std::string defaultFeatures{"Explicit"};
+        std::string lockFile{"Optional"};
         OutputDefinition output{};
         ProjectBuildDescriptor build{};
         std::vector<ProjectReference> projectRefs{};
         std::vector<PackageReference> packageRefs{};
+        std::vector<PackageFeatureUse> packageFeatureUses{};
         std::vector<LocalSettingsImport> localSettingsImports{};
         RuntimeDefinition runtime{};
         std::vector<EnvironmentDefinition> environments{};
@@ -409,6 +456,32 @@ namespace NGIN::CLI
         fs::path sourceDirectory{};
     };
 
+    struct SelectedPackageFeature
+    {
+        std::string packageName{};
+        std::string packageVersion{};
+        fs::path manifestPath{};
+        fs::path providerRoot{};
+        std::string featureName{};
+        std::string description{};
+        SelectorSet selectors{};
+        std::vector<CapabilityProvision> provides{};
+        std::vector<CapabilityRequirement> requiredCapabilities{};
+        std::vector<PackageReference> packageRefs{};
+        std::vector<InputDeclaration> inputs{};
+        ProjectBuildDescriptor build{};
+        RuntimeDefinition runtime{};
+        std::vector<EnvironmentVariable> variables{};
+    };
+
+    struct ResolvedCapabilityProvider
+    {
+        std::string capability{};
+        std::string packageName{};
+        std::string featureName{};
+        bool exclusive{false};
+    };
+
     struct ResolvedLaunch
     {
         std::optional<WorkspaceManifest> workspace{};
@@ -418,6 +491,8 @@ namespace NGIN::CLI
         std::vector<ResolvedInput> inputs{};
         std::vector<EnvironmentVariable> environmentVariables{};
         std::vector<FeatureFlag> environmentFeatures{};
+        std::vector<SelectedPackageFeature> selectedPackageFeatures{};
+        std::vector<ResolvedCapabilityProvider> capabilityProviders{};
         std::vector<ResolvedBootstrap> bootstraps{};
         std::vector<ResolvedPackage> orderedPackages{};
         std::map<std::string, std::set<std::string>> packageEdges{};

@@ -382,6 +382,21 @@ Each environment may contribute:
 - `Features`
 - `Runtime`
 
+`Features` may contain environment feature flags and package feature selections.
+Package feature selections use explicit opt-in:
+
+```xml
+<Features>
+  <Use Package="NGIN.Core" Feature="Reflection" />
+  <Disable Package="NGIN.Diagnostics" Feature="Diagnostics" />
+</Features>
+```
+
+Project-level and profile-level `Features` support the same `Use` and `Disable`
+entries. `Use` may declare `Version` or `VersionRange`; otherwise workspace or
+project dependency policy may supply the range. Phase C selectors and
+`Condition` are valid on `Use` and `Disable`.
+
 ### Variables
 
 Environment variables use exactly one value source:

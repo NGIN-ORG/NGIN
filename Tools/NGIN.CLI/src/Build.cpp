@@ -519,6 +519,16 @@ namespace NGIN::CLI
             return path.lexically_normal();
         }
 
+        [[nodiscard]] auto ResolvePackagePathValue(const std::string &input, const fs::path &manifestPath) -> fs::path
+        {
+            fs::path path{input};
+            if (path.is_relative())
+            {
+                path = manifestPath.parent_path() / path;
+            }
+            return path.lexically_normal();
+        }
+
         [[nodiscard]] auto IsCompiledSourceExtension(const fs::path &path) -> bool
         {
             const auto ext = Lower(path.extension().string());
@@ -1211,6 +1221,56 @@ namespace NGIN::CLI
                     }
                     out << "target_link_options(\"" << EscapeCMake(targetName) << "\" " << ToCMakeVisibility(setting.visibility)
                         << " \"" << EscapeCMake(ExpandProjectVariables(setting.value, unit.project, resolved.workspace)) << "\")\n";
+                }
+                for (const auto &feature : resolved.selectedPackageFeatures)
+                {
+                    const auto packageIt = std::find_if(
+                        resolved.orderedPackages.begin(), resolved.orderedPackages.end(),
+                        [&](const ResolvedPackage &package)
+                        {
+                            return package.manifest.name == feature.packageName;
+                        });
+                    if (packageIt == resolved.orderedPackages.end())
+                    {
+                        continue;
+                    }
+                    for (const auto &setting : feature.build.includeDirectories)
+                    {
+                        if (!SelectionMatches(packageIt->manifest.conditions, setting.selectors, unit.profile))
+                        {
+                            continue;
+                        }
+                        const auto includeDir = ResolvePackagePathValue(setting.value, feature.manifestPath);
+                        out << "target_include_directories(\"" << EscapeCMake(targetName) << "\" " << ToCMakeVisibility(setting.visibility)
+                            << " \"" << ToCMakePath(includeDir) << "\")\n";
+                    }
+                    for (const auto &setting : feature.build.compileDefinitions)
+                    {
+                        if (!SelectionMatches(packageIt->manifest.conditions, setting.selectors, unit.profile))
+                        {
+                            continue;
+                        }
+                        out << "target_compile_definitions(\"" << EscapeCMake(targetName) << "\" " << ToCMakeVisibility(setting.visibility)
+                            << " \"" << EscapeCMake(setting.value) << "\")\n";
+                    }
+                    for (const auto &setting : feature.build.compileOptions)
+                    {
+                        if (!SelectionMatches(packageIt->manifest.conditions, setting.selectors, unit.profile))
+                        {
+                            continue;
+                        }
+                        out << "target_compile_options(\"" << EscapeCMake(targetName) << "\" " << ToCMakeVisibility(setting.visibility)
+                            << " \"" << EscapeCMake(setting.value) << "\")\n";
+                    }
+                    for (const auto &setting : feature.build.linkOptions)
+                    {
+                        if (!SelectionMatches(packageIt->manifest.conditions, setting.selectors, unit.profile))
+                        {
+                            continue;
+                        }
+                        out << "target_link_options(\"" << EscapeCMake(targetName) << "\" " << ToCMakeVisibility(setting.visibility)
+                            << " \"" << EscapeCMake(setting.value) << "\")\n";
+                    }
                 }
 
                 const auto linkVisibility = kind == "executable" ? "PRIVATE" : "PUBLIC";

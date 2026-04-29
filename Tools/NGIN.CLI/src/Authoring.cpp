@@ -987,6 +987,81 @@ namespace NGIN::CLI
             }
         }
 
+        auto ParsePackageFeatureUses(const XmlElement &parent, const fs::path &path, std::vector<PackageFeatureUse> &out) -> void
+        {
+            if (const auto *features = FindChild(parent, "Features"))
+            {
+                const auto parseUse = [&](const XmlElement &node, const bool disabled)
+                {
+                    ValidateAllowedAttributes(node, path, {"Package", "Feature", "Version", "VersionRange", "Profile", "Platform", "OperatingSystem", "Architecture", "BuildType", "Environment", "Condition"});
+                    PackageFeatureUse use{};
+                    use.packageName = RequireAttribute(node, "Package", path);
+                    use.featureName = RequireAttribute(node, "Feature", path);
+                    use.versionRange = Attribute(node, "Version").value_or(Attribute(node, "VersionRange").value_or(""));
+                    use.disabled = disabled;
+                    use.selectors = ParseSelection(node, path);
+                    out.push_back(std::move(use));
+                };
+                for (const auto *node : ChildElements(*features, "Use"))
+                {
+                    parseUse(*node, false);
+                }
+                for (const auto *node : ChildElements(*features, "Disable"))
+                {
+                    parseUse(*node, true);
+                }
+            }
+        }
+
+        auto ParseDependencyPolicy(const XmlElement &parent,
+                                   const fs::path &path,
+                                   std::unordered_map<std::string, std::string> &versions,
+                                   std::string &versionResolution) -> void
+        {
+            const auto *policy = FindChild(parent, "DependencyPolicy");
+            if (policy == nullptr)
+            {
+                return;
+            }
+            versionResolution = Attribute(*policy, "VersionResolution").value_or(versionResolution);
+            if (versionResolution != "HighestCompatible")
+            {
+                throw std::runtime_error(path.string() + ": unsupported DependencyPolicy VersionResolution '" + versionResolution + "'");
+            }
+            if (const auto *versionsElement = FindChild(*policy, "Versions"))
+            {
+                for (const auto *node : ChildElements(*versionsElement, "Package"))
+                {
+                    const auto name = RequireAttribute(*node, "Name", path);
+                    const auto range = Attribute(*node, "VersionRange").value_or(Attribute(*node, "Version").value_or(""));
+                    if (range.empty())
+                    {
+                        throw std::runtime_error(path.string() + ": dependency policy package '" + name + "' must declare VersionRange");
+                    }
+                    versions[name] = range;
+                }
+            }
+        }
+
+        auto ParsePackagePolicy(const XmlElement &parent, const fs::path &path, std::string &defaultFeatures, std::string &lockFile) -> void
+        {
+            const auto *policy = FindChild(parent, "PackagePolicy");
+            if (policy == nullptr)
+            {
+                return;
+            }
+            defaultFeatures = Attribute(*policy, "DefaultFeatures").value_or(defaultFeatures);
+            lockFile = Attribute(*policy, "LockFile").value_or(lockFile);
+            if (defaultFeatures != "Explicit")
+            {
+                throw std::runtime_error(path.string() + ": Phase D supports only PackagePolicy DefaultFeatures=\"Explicit\"");
+            }
+            if (lockFile != "Optional" && lockFile != "Required")
+            {
+                throw std::runtime_error(path.string() + ": PackagePolicy LockFile must be Optional or Required");
+            }
+        }
+
         [[nodiscard]] auto ParseModuleDefinition(const XmlElement &node, const fs::path &path) -> ModuleDescriptor;
 
         auto ParseRuntimeDefinition(const XmlElement &runtime, const fs::path &path, RuntimeDefinition &target, const bool allowModules) -> void
@@ -1444,6 +1519,68 @@ namespace NGIN::CLI
             }
         }
 
+        auto ParsePackageFeatureDeclarations(const XmlElement &root, const fs::path &path, PackageManifest &package) -> void
+        {
+            const auto *features = FindChild(root, "Features");
+            if (features == nullptr)
+            {
+                return;
+            }
+            std::set<std::string> names{};
+            for (const auto *node : ChildElements(*features, "Feature"))
+            {
+                ValidateAllowedAttributes(*node, path, {"Name", "Description", "Profile", "Platform", "OperatingSystem", "Architecture", "BuildType", "Environment", "Condition"});
+                PackageManifest::Feature feature{};
+                feature.name = RequireAttribute(*node, "Name", path);
+                feature.description = Attribute(*node, "Description").value_or("");
+                feature.selectors = ParseSelection(*node, path);
+                if (!names.insert(feature.name).second)
+                {
+                    throw std::runtime_error(path.string() + ": duplicate package feature '" + feature.name + "'");
+                }
+                if (const auto *provides = FindChild(*node, "Provides"))
+                {
+                    for (const auto *capability : ChildElements(*provides, "Capability"))
+                    {
+                        CapabilityProvision provided{};
+                        provided.name = RequireAttribute(*capability, "Name", path);
+                        provided.exclusive = BoolAttribute(*capability, "Exclusive");
+                        feature.provides.push_back(std::move(provided));
+                    }
+                }
+                if (const auto *requiresElement = FindChild(*node, "Requires"))
+                {
+                    for (const auto *capability : ChildElements(*requiresElement, "Capability"))
+                    {
+                        CapabilityRequirement required{};
+                        required.name = RequireAttribute(*capability, "Name", path);
+                        feature.requiredCapabilities.push_back(std::move(required));
+                    }
+                }
+                if (const auto *dependencies = FindChild(*node, "Dependencies"))
+                {
+                    for (const auto *dependency : ChildElements(*dependencies, "PackageRef"))
+                    {
+                        ValidateAllowedAttributes(*dependency, path, {"Name", "Version", "VersionRange", "Optional", "Profile", "Platform", "OperatingSystem", "Architecture", "BuildType", "Environment", "Condition"});
+                        PackageReference reference{};
+                        reference.name = RequireAttribute(*dependency, "Name", path);
+                        reference.versionRange = Attribute(*dependency, "Version").value_or(Attribute(*dependency, "VersionRange").value_or(""));
+                        reference.optional = BoolAttribute(*dependency, "Optional");
+                        reference.selectors = ParseSelection(*dependency, path);
+                        feature.packageRefs.push_back(std::move(reference));
+                    }
+                }
+                ApplyInputBlock(*node, path, feature.inputs, "package-feature:" + package.name + ":" + feature.name);
+                LoadProjectBuildDescriptor(feature.build, FindChild(*node, "Build"), path);
+                ParseVariables(*node, path, feature.variables);
+                if (const auto *runtime = FindChild(*node, "Runtime"))
+                {
+                    ParseRuntimeDefinition(*runtime, path, feature.runtime, true);
+                }
+                package.features.push_back(std::move(feature));
+            }
+        }
+
         [[nodiscard]] auto ConditionMap(const std::vector<ConditionDefinition> &source) -> std::unordered_map<std::string, const ConditionDefinition *>
         {
             std::unordered_map<std::string, const ConditionDefinition *> conditions{};
@@ -1581,6 +1718,17 @@ namespace NGIN::CLI
             }
         }
 
+        auto ValidatePackageFeatureUseConditionRefs(
+            const std::vector<PackageFeatureUse> &uses,
+            const std::unordered_map<std::string, const ConditionDefinition *> &conditions,
+            const fs::path &path) -> void
+        {
+            for (const auto &use : uses)
+            {
+                ValidateSelectionConditionRefs(use.selectors, conditions, path);
+            }
+        }
+
         auto ValidateConditionReferences(const std::vector<ConditionDefinition> &conditionDefinitions, const fs::path &path) -> void
         {
             const auto conditions = ConditionMap(conditionDefinitions);
@@ -1651,11 +1799,13 @@ namespace NGIN::CLI
 
             ValidateInputConditionRefs(project.inputs, conditions, path);
             ValidateReferenceConditionRefs(project.projectRefs, project.packageRefs, conditions, path);
+            ValidatePackageFeatureUseConditionRefs(project.packageFeatureUses, conditions, path);
             ValidateRuntimeConditionRefs(project.runtime, conditions, path);
             for (const auto &environment : project.environments)
             {
                 ValidateInputConditionRefs(environment.inputs, conditions, path);
                 ValidateReferenceConditionRefs(environment.projectRefs, environment.packageRefs, conditions, path);
+                ValidatePackageFeatureUseConditionRefs(environment.packageFeatureUses, conditions, path);
                 ValidateFeatureConditionRefs(environment.features, conditions, path);
                 ValidateRuntimeConditionRefs(environment.runtime, conditions, path);
             }
@@ -1663,6 +1813,7 @@ namespace NGIN::CLI
             {
                 ValidateInputConditionRefs(profile.inputs, conditions, path);
                 ValidateReferenceConditionRefs(profile.projectRefs, profile.packageRefs, conditions, path);
+                ValidatePackageFeatureUseConditionRefs(profile.packageFeatureUses, conditions, path);
                 ValidateRuntimeConditionRefs(profile.runtime, conditions, path);
             }
             ValidateBuildSettingConditionRefs(project.build.includeDirectories, conditions, path);
@@ -1921,6 +2072,8 @@ namespace NGIN::CLI
         workspace.path = fs::weakly_canonical(*path);
         workspace.name = RequireAttribute(*rootElement, "Name", *path);
         workspace.platformVersion = Attribute(*rootElement, "PlatformVersion").value_or("0.1.0");
+        ParseDependencyPolicy(*rootElement, *path, workspace.dependencyVersions, workspace.versionResolution);
+        ParsePackagePolicy(*rootElement, *path, workspace.defaultFeatures, workspace.lockFile);
 
         const auto *packageSourcesNode = FindChild(*rootElement, "PackageSources");
         if (packageSourcesNode == nullptr)
@@ -2016,6 +2169,7 @@ namespace NGIN::CLI
         package.name = RequireAttribute(*rootElement, "Name", path);
         package.version = RequireAttribute(*rootElement, "Version", path);
         package.compatiblePlatformRange = Attribute(*rootElement, "CompatiblePlatformRange").value_or("");
+        ParsePackagePolicy(*rootElement, path, package.defaultFeatures, package.lockFile);
         package.conditions = BuiltinConditions();
         {
             std::set<std::string> builtinNames{};
@@ -2137,6 +2291,8 @@ namespace NGIN::CLI
             }
         }
 
+        ParsePackageFeatureDeclarations(*rootElement, path, package);
+
         ValidateConditionReferences(package.conditions, path);
         {
             const auto conditions = ConditionMap(package.conditions);
@@ -2148,6 +2304,17 @@ namespace NGIN::CLI
             for (const auto &plugin : package.plugins)
             {
                 ValidateSelectionConditionRefs(plugin.selectors, conditions, path);
+            }
+            for (const auto &feature : package.features)
+            {
+                ValidateSelectionConditionRefs(feature.selectors, conditions, path);
+                ValidateReferenceConditionRefs({}, feature.packageRefs, conditions, path);
+                ValidateInputConditionRefs(feature.inputs, conditions, path);
+                ValidateBuildSettingConditionRefs(feature.build.includeDirectories, conditions, path);
+                ValidateBuildSettingConditionRefs(feature.build.compileDefinitions, conditions, path);
+                ValidateBuildSettingConditionRefs(feature.build.compileOptions, conditions, path);
+                ValidateBuildSettingConditionRefs(feature.build.linkOptions, conditions, path);
+                ValidateRuntimeConditionRefs(feature.runtime, conditions, path);
             }
         }
 
@@ -2737,6 +2904,8 @@ namespace NGIN::CLI
             throw std::runtime_error(path.string() + ": legacy <Host> is no longer supported");
         }
         project.conditions = context.conditions;
+        ParseDependencyPolicy(*rootElement, path, project.dependencyVersions, project.versionResolution);
+        ParsePackagePolicy(*rootElement, path, project.defaultFeatures, project.lockFile);
 
         ApplyInputBlock(*rootElement, path, project.inputs, "project");
 
@@ -2779,6 +2948,7 @@ namespace NGIN::CLI
         {
             ParseReferences(*references, path.parent_path(), path, project.projectRefs, project.packageRefs);
         }
+        ParsePackageFeatureUses(*rootElement, path, project.packageFeatureUses);
 
         ParseLocalSettingsImports(*rootElement, path, project.localSettingsImports);
 
@@ -2800,6 +2970,7 @@ namespace NGIN::CLI
                 ApplyInputBlock(*node, path, environment.inputs, "environment:" + environment.name);
                 ParseVariables(*node, path, environment.variables);
                 ParseFeatures(*node, path, environment.features);
+                ParsePackageFeatureUses(*node, path, environment.packageFeatureUses);
                 if (const auto *runtime = FindChild(*node, "Runtime"))
                 {
                     ParseRuntimeDefinition(*runtime, path, environment.runtime, true);
@@ -2905,6 +3076,7 @@ namespace NGIN::CLI
             {
                 ParseReferences(*references, path.parent_path(), path, profile.projectRefs, profile.packageRefs);
             }
+            ParsePackageFeatureUses(*node, path, profile.packageFeatureUses);
             if (const auto *runtime = FindChild(*node, "Runtime"))
             {
                 ParseRuntimeDefinition(*runtime, path, profile.runtime, true);

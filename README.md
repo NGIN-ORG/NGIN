@@ -578,6 +578,9 @@ ngin workspace doctor
 ```text
 ngin package list
 ngin package show <Package>
+ngin package lock [--project <file>] [--profile <name>] [--output <ngin.lock>]
+ngin package verify-lock [--project <file>] [--profile <name>] [--lock <ngin.lock>]
+ngin explain package-feature <Package> <Feature> [--project <file>] [--profile <name>]
 ```
 
 For the exact command contract, see

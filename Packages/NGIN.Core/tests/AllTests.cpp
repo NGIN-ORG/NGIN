@@ -1616,6 +1616,75 @@ TEST_CASE("ApplicationBuilderLoadsProjectManifestAndConfig",
   RemovePath(tempDir);
 }
 
+TEST_CASE("ApplicationBuilderLoadsPackageFeatureConfig",
+          "[builder][manifest][packages]") {
+  const auto tempDir = MakeTempDir("ngin-core-package-feature");
+
+  WriteTextFile(tempDir.Join("feature.cfg"), "Feature.Mode=enabled\n");
+  WriteTextFile(tempDir.Join("Feature.App.nginproj"),
+                R"(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="3"
+         Name="Feature.App"
+         Type="Application"
+         DefaultProfile="Runtime">
+  <Output Kind="Executable" Name="Feature.App" Target="Feature.App" />
+  <Features>
+    <Use Package="Samples.Package" Feature="Diagnostics" />
+  </Features>
+  <Environments>
+    <Environment Name="local" />
+  </Environments>
+  <Profiles>
+    <Profile Name="Runtime"
+             BuildType="Debug"
+             Platform="linux-x64"
+             Environment="local" />
+  </Profiles>
+</Project>
+)");
+
+  auto builder = NGIN::Core::CreateApplicationBuilder(0, nullptr);
+  builder->UseProjectFile(ToString(tempDir.Join("Feature.App.nginproj")));
+  builder->Services().AddConfiguration();
+  builder->Packages().AddManifest(NGIN::Core::PackageManifest{
+      .schemaVersion = 3,
+      .directory = ToString(tempDir),
+      .name = "Samples.Package",
+      .version = "0.1.0",
+      .compatiblePlatformRange = ">=0.1.0 <1.0.0",
+      .operatingSystems = {"linux", "windows", "macos"},
+      .dependencies = {},
+      .inputs = {},
+      .conditions = {},
+      .modules = {},
+      .plugins = {},
+      .features = {
+          NGIN::Core::PackageManifest::Feature{
+              .name = "Diagnostics",
+              .provides = {NGIN::Core::CapabilityProvision{.name = "Diagnostics"}},
+              .inputs = {
+                  NGIN::Core::InputDeclaration{
+                      .kind = "Config",
+                      .path = "feature.cfg",
+                      .mode = "File",
+                  },
+              },
+          },
+      },
+  });
+
+  auto app = builder->Build();
+  REQUIRE(app.HasValue());
+  REQUIRE(app.Value()->Start().HasValue());
+
+  auto config = app.Value()->GetConfig();
+  REQUIRE(static_cast<bool>(config));
+  REQUIRE(config->GetRaw("Feature.Mode").HasValue());
+  REQUIRE(config->GetRaw("Feature.Mode").Value() == "enabled");
+  REQUIRE(app.Value()->Shutdown().HasValue());
+  RemovePath(tempDir);
+}
+
 TEST_CASE("ApplicationBuilderLoadsProjectManifestFromInjectedFilesystem",
           "[builder][manifest][filesystem]") {
   const auto realRoot = MakeTempDir("ngin-core-builder-vfs");

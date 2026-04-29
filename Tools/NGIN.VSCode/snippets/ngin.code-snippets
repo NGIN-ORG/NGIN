@@ -93,6 +93,39 @@
       "<Package Name=\"$1\" Version=\"$2\" Optional=\"$3\" />"
     ]
   },
+  "Package Feature Use": {
+    "scope": "ngin",
+    "prefix": "ngin-feature-use",
+    "body": [
+      "<Features>",
+      "  <Use Package=\"$1\" Feature=\"$2\" />",
+      "</Features>"
+    ]
+  },
+  "Package Feature": {
+    "scope": "ngin",
+    "prefix": "ngin-package-feature",
+    "body": [
+      "<Features>",
+      "  <Feature Name=\"$1\" Description=\"$2\">",
+      "    <Provides>",
+      "      <Capability Name=\"$3\" />",
+      "    </Provides>",
+      "  </Feature>",
+      "</Features>"
+    ]
+  },
+  "Dependency Policy": {
+    "scope": "ngin",
+    "prefix": "ngin-dependency-policy",
+    "body": [
+      "<DependencyPolicy VersionResolution=\"HighestCompatible\">",
+      "  <Versions>",
+      "    <Package Name=\"$1\" VersionRange=\"$2\" />",
+      "  </Versions>",
+      "</DependencyPolicy>"
+    ]
+  },
   "Module": {
     "scope": "ngin",
     "prefix": "ngin-module",

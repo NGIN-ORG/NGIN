@@ -4,6 +4,8 @@ import {
   LaunchManifest,
   LaunchDescriptor,
   PackageManifest,
+  PackageFeature,
+  PackageFeatureUse,
   PackageReference,
   ConditionDefinition,
   LocalSettingsManifest,
@@ -305,6 +307,34 @@ function parsePackageReferences(node: unknown): PackageReference[] {
     .filter((entry): entry is PackageReference => Boolean(entry));
 }
 
+function parsePackageFeatureUses(node: unknown): PackageFeatureUse[] {
+  const parent = node as { Features?: { Use?: unknown; Disable?: unknown } } | undefined;
+  const parse = (entry: unknown, disabled: boolean): PackageFeatureUse | undefined => {
+    const ref = entry as { Package?: string; Feature?: string; Version?: string; VersionRange?: string; Profile?: string; Platform?: string; OperatingSystem?: string; Architecture?: string; BuildType?: string; Environment?: string; Condition?: string } | undefined;
+    if (!ref?.Package || !ref?.Feature) {
+      return undefined;
+    }
+    const parsed: PackageFeatureUse = {
+      packageName: ref.Package,
+      featureName: ref.Feature,
+      version: ref.Version ?? ref.VersionRange,
+      disabled
+    };
+    if (ref.Profile) { parsed.profile = ref.Profile; }
+    if (ref.Platform) { parsed.platform = ref.Platform; }
+    if (ref.OperatingSystem) { parsed.operatingSystem = ref.OperatingSystem; }
+    if (ref.Architecture) { parsed.architecture = ref.Architecture; }
+    if (ref.BuildType) { parsed.buildType = ref.BuildType; }
+    if (ref.Environment) { parsed.environment = ref.Environment; }
+    if (ref.Condition) { parsed.condition = ref.Condition; }
+    return parsed;
+  };
+  return [
+    ...asArray(parent?.Features?.Use).map((entry) => parse(entry, false)),
+    ...asArray(parent?.Features?.Disable).map((entry) => parse(entry, true))
+  ].filter((entry): entry is PackageFeatureUse => Boolean(entry));
+}
+
 function parseConditions(node: unknown): ConditionDefinition[] {
   const parent = node as { Conditions?: { Condition?: unknown } } | undefined;
   return asArray(parent?.Conditions?.Condition)
@@ -540,6 +570,7 @@ export function parseProjectManifest(xml: string, manifestPath: string, options:
     result.configInputs = configInputsFrom(result.inputs);
     result.projectRefs = [...(result.projectRefs ?? []), ...parseProjectReferences(entry, path.dirname(manifestPath))];
     result.packageRefs = [...(result.packageRefs ?? []), ...parsePackageReferences(entry)];
+    result.packageFeatureUses = [...(result.packageFeatureUses ?? []), ...parsePackageFeatureUses(entry)];
     return result;
   }).filter((entry) => Boolean(entry.name));
 
@@ -563,6 +594,7 @@ export function parseProjectManifest(xml: string, manifestPath: string, options:
     conditions: parseConditions(root),
     projectRefs: parseProjectReferences(root, path.dirname(manifestPath)),
     packageRefs: parsePackageReferences(root),
+    packageFeatureUses: parsePackageFeatureUses(root),
     profiles
   };
 }
@@ -601,12 +633,53 @@ export function parsePackageManifest(xml: string, manifestPath: string): Package
     throw new Error(`${manifestPath}: root element must be <Package>`);
   }
 
+  const features = asArray(root.Features?.Feature)
+    .map((entry): PackageFeature | undefined => {
+      const feature = entry as { Name?: string; Description?: string; Profile?: string; Platform?: string; OperatingSystem?: string; Architecture?: string; BuildType?: string; Environment?: string; Condition?: string; Provides?: { Capability?: unknown }; Requires?: { Capability?: unknown }; Dependencies?: { PackageRef?: unknown } } | undefined;
+      if (!feature?.Name) {
+        return undefined;
+      }
+      const parsed: PackageFeature = {
+        name: feature.Name,
+        description: feature.Description,
+        inputs: parseInputs(entry)
+      };
+      if (feature.Profile) { parsed.profile = feature.Profile; }
+      if (feature.Platform) { parsed.platform = feature.Platform; }
+      if (feature.OperatingSystem) { parsed.operatingSystem = feature.OperatingSystem; }
+      if (feature.Architecture) { parsed.architecture = feature.Architecture; }
+      if (feature.BuildType) { parsed.buildType = feature.BuildType; }
+      if (feature.Environment) { parsed.environment = feature.Environment; }
+      if (feature.Condition) { parsed.condition = feature.Condition; }
+      parsed.provides = asArray(feature.Provides?.Capability)
+        .map((capability): PackageFeature['provides'][number] | undefined => {
+          const value = capability as { Name?: string; Exclusive?: string | boolean } | undefined;
+          return value?.Name ? { name: value.Name, exclusive: value.Exclusive === true || value.Exclusive === 'true' } : undefined;
+        })
+        .filter((entry): entry is NonNullable<PackageFeature['provides']>[number] => Boolean(entry));
+      parsed.requires = asArray(feature.Requires?.Capability)
+        .map((capability): PackageFeature['requires'][number] | undefined => {
+          const value = capability as { Name?: string } | undefined;
+          return value?.Name ? { name: value.Name } : undefined;
+        })
+        .filter((entry): entry is NonNullable<PackageFeature['requires']>[number] => Boolean(entry));
+      parsed.dependencies = asArray(feature.Dependencies?.PackageRef)
+        .map((dependency): PackageReference | undefined => {
+          const value = dependency as { Name?: string; Version?: string; VersionRange?: string; Optional?: string | boolean } | undefined;
+          return value?.Name ? { name: value.Name, version: value.Version ?? value.VersionRange, optional: value.Optional === true || value.Optional === 'true' } : undefined;
+        })
+        .filter((entry): entry is PackageReference => Boolean(entry));
+      return parsed;
+    })
+    .filter((entry): entry is PackageFeature => Boolean(entry));
+
   return {
     path: manifestPath,
     directory: path.dirname(manifestPath),
     name: root.Name ?? path.basename(manifestPath, path.extname(manifestPath)),
     version: root.Version,
-    conditions: parseConditions(root)
+    conditions: parseConditions(root),
+    features
   };
 }
 

@@ -1272,15 +1272,17 @@ pipeline behavior should wait until selection semantics are stable.
 
 Purpose: make packages the primary reusable behavior unit.
 
-- Add package capabilities.
-- Add package features.
-- Add explicit feature opt-in from projects and profiles.
-- Add package defaults.
-- Add package policy.
-- Add dependency version policy.
-- Add version resolution policy.
-- Add package lock file design.
-- Add package feature explanation output.
+- Status: implemented.
+- Package features are the public opt-in unit; capabilities are feature
+  metadata, not a separate top-level package surface.
+- Projects, profiles, and environments can use or disable package features.
+- Selected package features can contribute package refs, typed inputs, build
+  settings, runtime declarations, environment variables, and capabilities.
+- Package policy is explicit-only for Phase D.
+- Workspace and project dependency policy can supply package version ranges.
+- Added local `ngin.lock` generation and verification for provider/catalog
+  package graphs.
+- Added package feature graph and explanation output.
 
 This phase should land before package-provided generators, asset processors, or
 runtime templates.

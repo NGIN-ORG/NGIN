@@ -215,6 +215,11 @@ TEST_CASE("workspace, project, and package manifests parse through authoring "
   <PackageSources>
     <PackageSource Path="Packages" />
   </PackageSources>
+  <DependencyPolicy VersionResolution="HighestCompatible">
+    <Versions>
+      <Package Name="Package.Core" VersionRange=">=1.0.0 &lt;2.0.0" />
+    </Versions>
+  </DependencyPolicy>
   <Projects>
     <Project Path="App/App.nginproj" />
   </Projects>
@@ -1269,7 +1274,7 @@ TEST_CASE("resolution reports package dependency cycles")
               R"(<?xml version="1.0" encoding="utf-8"?>
 <Package SchemaVersion="3" Name="Package.A" Version="1.0.0">
   <Dependencies>
-    <PackageRef Name="Package.B" />
+    <PackageRef Name="Package.B" VersionRange=">=1.0.0 &lt;2.0.0" />
   </Dependencies>
   <Build Backend="CMake" Mode="Manual" />
   <Modules>
@@ -1281,7 +1286,7 @@ TEST_CASE("resolution reports package dependency cycles")
               R"(<?xml version="1.0" encoding="utf-8"?>
 <Package SchemaVersion="3" Name="Package.B" Version="1.0.0">
   <Dependencies>
-    <PackageRef Name="Package.A" />
+    <PackageRef Name="Package.A" VersionRange=">=1.0.0 &lt;2.0.0" />
   </Dependencies>
   <Build Backend="CMake" Mode="Manual" />
   <Modules>
@@ -1294,7 +1299,7 @@ TEST_CASE("resolution reports package dependency cycles")
 <Project SchemaVersion="3" Name="Cycle.App" Type="Application" DefaultProfile="Runtime">
   <Output Kind="Executable" Name="Cycle.App" Target="CycleApp" />
   <References>
-    <Package Name="Package.A" />
+    <Package Name="Package.A" VersionRange=">=1.0.0 &lt;2.0.0" />
   </References>
   <Environments>
     <Environment Name="dev" />
@@ -1312,6 +1317,202 @@ TEST_CASE("resolution reports package dependency cycles")
 
     REQUIRE_FALSE(resolved.value.has_value());
     REQUIRE_THAT(resolved.diagnostics.entries.front().message, ContainsSubstring("dependency cycle"));
+}
+
+TEST_CASE("package features select dependencies inputs variables and capabilities")
+{
+    TempDir temp{};
+    WriteFile(temp.path() / "Workspace.ngin",
+              R"(<?xml version="1.0" encoding="utf-8"?>
+<Workspace SchemaVersion="3" Name="FeatureWorkspace">
+  <PackageSources>
+    <PackageSource Path="Packages" />
+  </PackageSources>
+  <DependencyPolicy VersionResolution="HighestCompatible">
+    <Versions>
+      <Package Name="Package.Core" VersionRange=">=1.0.0 &lt;2.0.0" />
+    </Versions>
+  </DependencyPolicy>
+  <Projects>
+    <Project Path="App/App.nginproj" />
+  </Projects>
+</Workspace>
+)");
+    WriteFile(temp.path() / "Packages/Core/Core.nginpkg",
+              R"(<?xml version="1.0" encoding="utf-8"?>
+<Package SchemaVersion="3" Name="Package.Core" Version="1.0.0">
+  <Features>
+    <Feature Name="Diagnostics">
+      <Provides>
+        <Capability Name="Diagnostics" />
+      </Provides>
+      <Dependencies>
+        <PackageRef Name="Package.Tools" VersionRange=">=1.0.0 &lt;2.0.0" />
+      </Dependencies>
+      <Inputs>
+        <Configs>
+          config/diagnostics.cfg
+        </Configs>
+      </Inputs>
+      <Variables>
+        <Variable Name="DIAGNOSTICS_ENABLED" Value="1" />
+      </Variables>
+    </Feature>
+  </Features>
+</Package>
+)");
+    WriteFile(temp.path() / "Packages/Core/config/diagnostics.cfg", "enabled=true\n");
+    WriteFile(temp.path() / "Packages/Tools/Tools.nginpkg",
+              R"(<?xml version="1.0" encoding="utf-8"?>
+<Package SchemaVersion="3" Name="Package.Tools" Version="1.0.0" />
+)");
+    WriteFile(temp.path() / "App/App.nginproj",
+              R"(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="3" Name="Feature.App" Type="Application" DefaultProfile="Runtime">
+  <Output Kind="Executable" Name="Feature.App" Target="FeatureApp" />
+  <Features>
+    <Use Package="Package.Core" Feature="Diagnostics" />
+  </Features>
+  <Environments>
+    <Environment Name="local" />
+  </Environments>
+  <Profiles>
+    <Profile Name="Runtime" BuildType="Debug" OperatingSystem="linux" Architecture="x64" Environment="local" />
+  </Profiles>
+</Project>
+)");
+
+    const auto project = LoadProjectManifest(temp.path() / "App/App.nginproj");
+    const std::optional<std::string> profileName{"Runtime"};
+    const auto &profile = ProfileByName(project, profileName);
+    const auto resolved = ResolveLaunch(project, profile);
+
+    REQUIRE(resolved.value.has_value());
+    REQUIRE_FALSE(resolved.diagnostics.HasErrors());
+    REQUIRE(resolved.value->orderedPackages.size() == 2);
+    REQUIRE(resolved.value->selectedPackageFeatures.size() == 1);
+    REQUIRE(resolved.value->selectedPackageFeatures.front().featureName == "Diagnostics");
+    REQUIRE(resolved.value->capabilityProviders.size() == 1);
+    REQUIRE(resolved.value->capabilityProviders.front().capability == "Diagnostics");
+    REQUIRE(std::any_of(resolved.value->inputs.begin(), resolved.value->inputs.end(), [](const ResolvedInput &input)
+    {
+        return input.ownerKind == "package-feature" && input.kind == "Config" && input.source == "config/diagnostics.cfg";
+    }));
+    REQUIRE(std::any_of(resolved.value->environmentVariables.begin(), resolved.value->environmentVariables.end(), [](const EnvironmentVariable &variable)
+    {
+        return variable.name == "DIAGNOSTICS_ENABLED" && variable.value == "1";
+    }));
+}
+
+TEST_CASE("package feature uses require explicit version range or dependency policy")
+{
+    TempDir temp{};
+    WriteFile(temp.path() / "Workspace.ngin",
+              R"(<?xml version="1.0" encoding="utf-8"?>
+<Workspace SchemaVersion="3" Name="MissingPolicyWorkspace">
+  <PackageSources>
+    <PackageSource Path="Packages" />
+  </PackageSources>
+  <Projects>
+    <Project Path="App/App.nginproj" />
+  </Projects>
+</Workspace>
+)");
+    WriteFile(temp.path() / "Packages/Core/Core.nginpkg",
+              R"(<?xml version="1.0" encoding="utf-8"?>
+<Package SchemaVersion="3" Name="Package.Core" Version="1.0.0">
+  <Features>
+    <Feature Name="Diagnostics" />
+  </Features>
+</Package>
+)");
+    WriteFile(temp.path() / "App/App.nginproj",
+              R"(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="3" Name="MissingPolicy.App" Type="Application" DefaultProfile="Runtime">
+  <Output Kind="Executable" Name="MissingPolicy.App" Target="MissingPolicyApp" />
+  <Features>
+    <Use Package="Package.Core" Feature="Diagnostics" />
+  </Features>
+  <Environments>
+    <Environment Name="local" />
+  </Environments>
+  <Profiles>
+    <Profile Name="Runtime" BuildType="Debug" OperatingSystem="linux" Architecture="x64" Environment="local" />
+  </Profiles>
+</Project>
+)");
+
+    const auto project = LoadProjectManifest(temp.path() / "App/App.nginproj");
+    const std::optional<std::string> profileName{"Runtime"};
+    const auto &profile = ProfileByName(project, profileName);
+    const auto resolved = ResolveLaunch(project, profile);
+
+    REQUIRE_FALSE(resolved.value.has_value());
+    REQUIRE(ContainsDiagnostic(DiagnosticMessages(resolved.diagnostics),
+                               "must declare VersionRange or be covered by DependencyPolicy"));
+}
+
+TEST_CASE("package lock command writes and verifies deterministic local lock")
+{
+    TempDir temp{};
+    WriteFile(temp.path() / "Workspace.ngin",
+              R"(<?xml version="1.0" encoding="utf-8"?>
+<Workspace SchemaVersion="3" Name="LockWorkspace">
+  <PackageSources>
+    <PackageSource Path="Packages" />
+  </PackageSources>
+  <DependencyPolicy VersionResolution="HighestCompatible">
+    <Versions>
+      <Package Name="Package.Core" VersionRange=">=1.0.0 &lt;2.0.0" />
+    </Versions>
+  </DependencyPolicy>
+  <Projects>
+    <Project Path="App/App.nginproj" />
+  </Projects>
+</Workspace>
+)");
+    WriteFile(temp.path() / "Packages/Core/Core.nginpkg",
+              R"(<?xml version="1.0" encoding="utf-8"?>
+<Package SchemaVersion="3" Name="Package.Core" Version="1.0.0">
+  <Features>
+    <Feature Name="Diagnostics">
+      <Provides>
+        <Capability Name="Diagnostics" />
+      </Provides>
+    </Feature>
+  </Features>
+</Package>
+)");
+    WriteFile(temp.path() / "App/App.nginproj",
+              R"(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="3" Name="Lock.App" Type="Application" DefaultProfile="Runtime">
+  <Output Kind="Executable" Name="Lock.App" Target="LockApp" />
+  <Features>
+    <Use Package="Package.Core" Feature="Diagnostics" />
+  </Features>
+  <Environments>
+    <Environment Name="local" />
+  </Environments>
+  <Profiles>
+    <Profile Name="Runtime" BuildType="Debug" OperatingSystem="linux" Architecture="x64" Environment="local" />
+  </Profiles>
+</Project>
+)");
+
+    const auto lockPath = temp.path() / "lock/ngin.lock";
+    ParsedArgs lockArgs{};
+    lockArgs.projectPath = (temp.path() / "App/App.nginproj").string();
+    lockArgs.profileName = "Runtime";
+    lockArgs.outputPath = lockPath.string();
+    REQUIRE(CmdPackageLock(temp.path(), lockArgs) == 0);
+    REQUIRE(fs::exists(lockPath));
+    REQUIRE_THAT(ReadFile(lockPath), ContainsSubstring(R"(<Feature Package="Package.Core" Name="Diagnostics")"));
+
+    ParsedArgs verifyArgs{};
+    verifyArgs.projectPath = lockArgs.projectPath;
+    verifyArgs.profileName = lockArgs.profileName;
+    verifyArgs.lockPath = lockPath.string();
+    REQUIRE(CmdPackageVerifyLock(temp.path(), verifyArgs) == 0);
 }
 
 TEST_CASE("resolution reports project config input collisions")

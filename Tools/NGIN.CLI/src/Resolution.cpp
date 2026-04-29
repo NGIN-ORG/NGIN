@@ -652,6 +652,86 @@ namespace NGIN::CLI
             MergePackageReferences(target, selected);
         }
 
+        auto MergeSelectedPackageFeatureUses(
+            std::vector<PackageFeatureUse> &target,
+            const std::vector<PackageFeatureUse> &source,
+            const ProjectManifest &project,
+            const ProfileDefinition &profile) -> void
+        {
+            std::unordered_map<std::string, std::size_t> indexByKey{};
+            for (std::size_t index = 0; index < target.size(); ++index)
+            {
+                indexByKey[target[index].packageName + "::" + target[index].featureName] = index;
+            }
+            for (const auto &use : source)
+            {
+                if (!SelectionMatches(project, use.selectors, profile))
+                {
+                    continue;
+                }
+                const auto key = use.packageName + "::" + use.featureName;
+                if (use.disabled)
+                {
+                    if (const auto it = indexByKey.find(key); it != indexByKey.end())
+                    {
+                        target.erase(target.begin() + static_cast<std::ptrdiff_t>(it->second));
+                        indexByKey.clear();
+                        for (std::size_t index = 0; index < target.size(); ++index)
+                        {
+                            indexByKey[target[index].packageName + "::" + target[index].featureName] = index;
+                        }
+                    }
+                    continue;
+                }
+                if (const auto it = indexByKey.find(key); it != indexByKey.end())
+                {
+                    target[it->second] = use;
+                    continue;
+                }
+                indexByKey[key] = target.size();
+                target.push_back(use);
+            }
+        }
+
+        [[nodiscard]] auto EffectiveDependencyVersions(
+            const std::optional<WorkspaceManifest> &workspace,
+            const std::vector<ResolvedProjectUnit> &projectUnits) -> std::unordered_map<std::string, std::string>
+        {
+            std::unordered_map<std::string, std::string> versions{};
+            if (workspace.has_value())
+            {
+                versions = workspace->dependencyVersions;
+            }
+            for (const auto &unit : projectUnits)
+            {
+                for (const auto &[name, range] : unit.project.dependencyVersions)
+                {
+                    versions[name] = range;
+                }
+            }
+            return versions;
+        }
+
+        [[nodiscard]] auto WithDependencyPolicy(PackageReference reference, const std::unordered_map<std::string, std::string> &versions) -> PackageReference
+        {
+            if (reference.versionRange.empty())
+            {
+                if (const auto it = versions.find(reference.name); it != versions.end())
+                {
+                    reference.versionRange = it->second;
+                }
+            }
+            return reference;
+        }
+
+        struct PackageResolutionResult
+        {
+            std::vector<ResolvedPackage> orderedPackages{};
+            std::vector<SelectedPackageFeature> selectedFeatures{};
+            std::vector<ResolvedCapabilityProvider> capabilityProviders{};
+            std::map<std::string, std::set<std::string>> edges{};
+        };
+
         auto MergeStringSelection(
             std::set<std::string> &enabled,
             const std::vector<RuntimeReference> &add,
@@ -767,30 +847,59 @@ namespace NGIN::CLI
             const std::unordered_map<std::string, PackageCatalogEntry> &catalog,
             const std::string &targetOperatingSystem,
             const std::string &targetArchitecture,
-            DiagnosticReport &report) -> std::vector<ResolvedPackage>
+            const ProfileDefinition &rootProfile,
+            DiagnosticReport &report) -> PackageResolutionResult
         {
+            PackageResolutionResult result{};
+            const auto dependencyVersions = EffectiveDependencyVersions(workspace, projectUnits);
+
             std::vector<PackageReference> combinedRefs{};
+            std::vector<PackageFeatureUse> requestedFeatures{};
             for (const auto &unit : projectUnits)
             {
                 MergeSelectedPackageReferences(combinedRefs, unit.project.packageRefs, unit.project, unit.profile);
+                MergeSelectedPackageFeatureUses(requestedFeatures, unit.project.packageFeatureUses, unit.project, unit.profile);
                 if (unit.environment.has_value())
                 {
                     MergeSelectedPackageReferences(combinedRefs, unit.environment->packageRefs, unit.project, unit.profile);
+                    MergeSelectedPackageFeatureUses(requestedFeatures, unit.environment->packageFeatureUses, unit.project, unit.profile);
                 }
                 MergeSelectedPackageReferences(combinedRefs, unit.profile.packageRefs, unit.project, unit.profile);
+                MergeSelectedPackageFeatureUses(requestedFeatures, unit.profile.packageFeatureUses, unit.project, unit.profile);
+            }
+            for (const auto &use : requestedFeatures)
+            {
+                combinedRefs.push_back(PackageReference{
+                    .name = use.packageName,
+                    .versionRange = use.versionRange,
+                    .optional = false,
+                    .selectors = use.selectors,
+                });
             }
 
             std::unordered_map<std::string, ResolvedPackage> resolved;
-            std::map<std::string, std::set<std::string>> edges{};
-            std::vector<PackageReference> queue = combinedRefs;
+            std::set<std::string> selectedFeatureKeys{};
+            std::vector<PackageReference> queue{};
+            queue.reserve(combinedRefs.size());
+            for (const auto &reference : combinedRefs)
+            {
+                queue.push_back(WithDependencyPolicy(reference, dependencyVersions));
+            }
             std::vector<std::string> parents(queue.size(), "");
 
             std::size_t index = 0;
             while (index < queue.size())
             {
-                const auto ref = queue[index];
+                const auto ref = WithDependencyPolicy(queue[index], dependencyVersions);
                 const auto requiredBy = parents[index];
                 ++index;
+                if (ref.versionRange.empty())
+                {
+                    AddError(report,
+                             "package reference '" + ref.name + "' must declare VersionRange or be covered by DependencyPolicy" +
+                                 (requiredBy.empty() ? std::string{} : " (required by '" + requiredBy + "')"));
+                    continue;
+                }
 
                 const auto itCatalog = catalog.find(ref.name);
                 if (itCatalog == catalog.end())
@@ -811,7 +920,7 @@ namespace NGIN::CLI
                 {
                     if (!requiredBy.empty())
                     {
-                        edges[requiredBy].insert(ref.name);
+                        result.edges[requiredBy].insert(ref.name);
                     }
                     continue;
                 }
@@ -872,14 +981,68 @@ namespace NGIN::CLI
 
                 if (!requiredBy.empty())
                 {
-                    edges[requiredBy].insert(ref.name);
+                    result.edges[requiredBy].insert(ref.name);
                 }
-                edges[ref.name];
+                result.edges[ref.name];
                 for (const auto &dep : manifest.dependencies)
                 {
-                    queue.push_back({dep.name, dep.versionRange, dep.optional});
+                    queue.push_back(WithDependencyPolicy(PackageReference{dep.name, dep.versionRange, dep.optional}, dependencyVersions));
                     parents.push_back(ref.name);
-                    edges[ref.name].insert(dep.name);
+                    result.edges[ref.name].insert(dep.name);
+                }
+
+                for (const auto &use : requestedFeatures)
+                {
+                    if (use.packageName != ref.name)
+                    {
+                        continue;
+                    }
+                    const auto featureIt = std::find_if(
+                        manifest.features.begin(), manifest.features.end(),
+                        [&](const PackageManifest::Feature &feature)
+                        {
+                            return feature.name == use.featureName;
+                        });
+                    if (featureIt == manifest.features.end())
+                    {
+                        AddError(report, "package '" + ref.name + "' does not declare feature '" + use.featureName + "'");
+                        continue;
+                    }
+                    if (!SelectionMatches(manifest.conditions, featureIt->selectors, rootProfile))
+                    {
+                        continue;
+                    }
+                    const auto featureKey = ref.name + "::" + featureIt->name;
+                    if (!selectedFeatureKeys.insert(featureKey).second)
+                    {
+                        continue;
+                    }
+                    for (const auto &dep : featureIt->packageRefs)
+                    {
+                        if (!SelectionMatches(manifest.conditions, dep.selectors, rootProfile))
+                        {
+                            continue;
+                        }
+                        queue.push_back(WithDependencyPolicy(dep, dependencyVersions));
+                        parents.push_back(ref.name);
+                        result.edges[ref.name].insert(dep.name);
+                    }
+                    SelectedPackageFeature selected{};
+                    selected.packageName = manifest.name;
+                    selected.packageVersion = manifest.version;
+                    selected.manifestPath = manifest.path;
+                    selected.providerRoot = itCatalog->second.providerRoot;
+                    selected.featureName = featureIt->name;
+                    selected.description = featureIt->description;
+                    selected.selectors = featureIt->selectors;
+                    selected.provides = featureIt->provides;
+                    selected.requiredCapabilities = featureIt->requiredCapabilities;
+                    selected.packageRefs = featureIt->packageRefs;
+                    selected.inputs = featureIt->inputs;
+                    selected.build = featureIt->build;
+                    selected.runtime = featureIt->runtime;
+                    selected.variables = featureIt->variables;
+                    result.selectedFeatures.push_back(std::move(selected));
                 }
 
                 const auto sourceDirectory = itCatalog->second.providerRoot.empty()
@@ -894,7 +1057,7 @@ namespace NGIN::CLI
 
             if (report.HasErrors())
             {
-                return {};
+                return result;
             }
 
             std::set<std::string> nodes;
@@ -902,24 +1065,60 @@ namespace NGIN::CLI
             {
                 nodes.insert(name);
             }
-            if (const auto cycles = DetectCycles(nodes, edges); !cycles.empty())
+            if (const auto cycles = DetectCycles(nodes, result.edges); !cycles.empty())
             {
                 AddError(report, "package graph contains dependency cycle(s)");
-                return {};
+                return result;
             }
-            const auto orderedNames = TopologicalDependenciesFirst(nodes, edges);
+            const auto orderedNames = TopologicalDependenciesFirst(nodes, result.edges);
             if (!orderedNames.has_value())
             {
                 AddError(report, "package graph could not be ordered");
-                return {};
+                return result;
             }
 
-            std::vector<ResolvedPackage> ordered;
             for (const auto &name : *orderedNames)
             {
-                ordered.push_back(resolved.at(name));
+                result.orderedPackages.push_back(resolved.at(name));
             }
-            return ordered;
+            std::unordered_map<std::string, std::vector<ResolvedCapabilityProvider>> providersByCapability{};
+            for (const auto &feature : result.selectedFeatures)
+            {
+                for (const auto &provided : feature.provides)
+                {
+                    ResolvedCapabilityProvider provider{};
+                    provider.capability = provided.name;
+                    provider.packageName = feature.packageName;
+                    provider.featureName = feature.featureName;
+                    provider.exclusive = provided.exclusive;
+                    providersByCapability[provided.name].push_back(provider);
+                    result.capabilityProviders.push_back(std::move(provider));
+                }
+            }
+            for (const auto &feature : result.selectedFeatures)
+            {
+                for (const auto &required : feature.requiredCapabilities)
+                {
+                    if (!providersByCapability.contains(required.name))
+                    {
+                        AddError(report, "package feature '" + feature.packageName + "::" + feature.featureName + "' requires capability '" + required.name + "' but no selected feature provides it");
+                    }
+                }
+            }
+            for (const auto &[capability, providers] : providersByCapability)
+            {
+                const auto exclusiveCount = std::count_if(
+                    providers.begin(), providers.end(),
+                    [](const ResolvedCapabilityProvider &provider)
+                    {
+                        return provider.exclusive;
+                    });
+                if (exclusiveCount > 1 || (exclusiveCount == 1 && providers.size() > 1))
+                {
+                    AddError(report, "exclusive capability '" + capability + "' is provided by multiple selected package features");
+                }
+            }
+            return result;
         }
 
         auto ResolveArtifacts(
@@ -1089,11 +1288,12 @@ namespace NGIN::CLI
             return result;
         }
 
-        auto orderedPackages = ResolvePackages(workspace, projectUnits, packageCatalog, profile.operatingSystem, profile.architecture, result.diagnostics);
+        auto packageResolution = ResolvePackages(workspace, projectUnits, packageCatalog, profile.operatingSystem, profile.architecture, profile, result.diagnostics);
         if (result.diagnostics.HasErrors())
         {
             return result;
         }
+        auto &orderedPackages = packageResolution.orderedPackages;
 
         std::unordered_map<std::string, std::set<std::string>> providersByModule;
         std::unordered_map<std::string, std::set<std::string>> providersByPlugin;
@@ -1205,6 +1405,43 @@ namespace NGIN::CLI
                 providersByPlugin[plugin.name].insert(package.manifest.name);
             }
         }
+        const auto packageByName = [&]() {
+            std::unordered_map<std::string, const PackageManifest *> resultMap{};
+            for (const auto &package : orderedPackages)
+            {
+                resultMap.emplace(package.manifest.name, &package.manifest);
+            }
+            return resultMap;
+        }();
+        for (const auto &feature : packageResolution.selectedFeatures)
+        {
+            const auto packageIt = packageByName.find(feature.packageName);
+            if (packageIt == packageByName.end())
+            {
+                continue;
+            }
+            const auto &conditions = packageIt->second->conditions;
+            const auto owner = feature.packageName + "::" + feature.featureName;
+            for (const auto &module : feature.runtime.modules)
+            {
+                if (!SelectionMatches(conditions, module.selectors, profile))
+                {
+                    continue;
+                }
+                if (!CompatibilityMatches(module.compatibility, profile.operatingSystem, profile.architecture))
+                {
+                    AddError(result.diagnostics, "package feature '" + owner + "' provides module '" + module.name + "' that is not supported on '" + profile.operatingSystem + "/" + profile.architecture + "'");
+                    continue;
+                }
+                if (const auto providerIt = providersByModule.find(module.name); providerIt != providersByModule.end() && !providerIt->second.empty())
+                {
+                    AddError(result.diagnostics, "duplicate module declaration for '" + module.name + "' in '" + *providerIt->second.begin() + "' and package feature '" + owner + "'");
+                    continue;
+                }
+                modules.emplace(module.name, module);
+                providersByModule[module.name].insert(owner);
+            }
+        }
         if (result.diagnostics.HasErrors())
         {
             return result;
@@ -1219,6 +1456,14 @@ namespace NGIN::CLI
                 MergeStringSelection(directModules, unit.environment->runtime.enableModules, unit.environment->runtime.disableModules, unit.project.conditions, unit.profile);
             }
             MergeStringSelection(directModules, unit.profile.runtime.enableModules, unit.profile.runtime.disableModules, unit.project.conditions, unit.profile);
+        }
+        for (const auto &feature : packageResolution.selectedFeatures)
+        {
+            const auto packageIt = packageByName.find(feature.packageName);
+            if (packageIt != packageByName.end())
+            {
+                MergeStringSelection(directModules, feature.runtime.enableModules, feature.runtime.disableModules, packageIt->second->conditions, profile);
+            }
         }
 
         std::set<std::string> directPlugins{};
@@ -1237,6 +1482,14 @@ namespace NGIN::CLI
                 MergeStringSelection(directPlugins, unit.environment->runtime.enablePlugins, unit.environment->runtime.disablePlugins, unit.project.conditions, unit.profile);
             }
             MergeStringSelection(directPlugins, unit.profile.runtime.enablePlugins, unit.profile.runtime.disablePlugins, unit.project.conditions, unit.profile);
+        }
+        for (const auto &feature : packageResolution.selectedFeatures)
+        {
+            const auto packageIt = packageByName.find(feature.packageName);
+            if (packageIt != packageByName.end())
+            {
+                MergeStringSelection(directPlugins, feature.runtime.enablePlugins, feature.runtime.disablePlugins, packageIt->second->conditions, profile);
+            }
         }
 
         for (const auto &module : directModules)
@@ -1492,6 +1745,8 @@ namespace NGIN::CLI
         resolved.project = project;
         resolved.profile = profile;
         resolved.projectUnits = std::move(projectUnits);
+        resolved.selectedPackageFeatures = packageResolution.selectedFeatures;
+        resolved.capabilityProviders = packageResolution.capabilityProviders;
 
         std::map<fs::path, std::string> inputOwnersByDestination{};
         std::set<std::tuple<std::string, std::string, std::string, std::string>> seenInputDeclarations{};
@@ -1635,6 +1890,22 @@ namespace NGIN::CLI
                     }
                 }
             }
+            for (const auto &feature : resolved.selectedPackageFeatures)
+            {
+                for (const auto &variable : feature.variables)
+                {
+                    auto resolvedVariable = ResolveVariable(variable, {}, result.diagnostics);
+                    if (const auto it = variableIndex.find(resolvedVariable.name); it != variableIndex.end())
+                    {
+                        resolved.environmentVariables[it->second] = std::move(resolvedVariable);
+                    }
+                    else
+                    {
+                        variableIndex[resolvedVariable.name] = resolved.environmentVariables.size();
+                        resolved.environmentVariables.push_back(std::move(resolvedVariable));
+                    }
+                }
+            }
         }
         if (result.diagnostics.HasErrors())
         {
@@ -1642,11 +1913,24 @@ namespace NGIN::CLI
         }
 
         resolved.orderedPackages = std::move(orderedPackages);
+        std::unordered_map<std::string, const PackageManifest *> resolvedPackageByName{};
         for (const auto &package : resolved.orderedPackages)
         {
+            resolvedPackageByName.emplace(package.manifest.name, &package.manifest);
             collectInputs(package.manifest.inputs, "package", package.manifest.name,
                           package.manifest.path.parent_path(), package.manifest.path,
                           &package.manifest.conditions, &resolved.profile);
+        }
+        for (const auto &feature : resolved.selectedPackageFeatures)
+        {
+            const auto packageIt = resolvedPackageByName.find(feature.packageName);
+            if (packageIt == resolvedPackageByName.end())
+            {
+                continue;
+            }
+            collectInputs(feature.inputs, "package-feature", feature.packageName + "::" + feature.featureName,
+                          packageIt->second->path.parent_path(), packageIt->second->path,
+                          &packageIt->second->conditions, &resolved.profile);
         }
         if (result.diagnostics.HasErrors())
         {
@@ -1665,14 +1949,7 @@ namespace NGIN::CLI
                 .autoApply = package.manifest.bootstrap->autoApply,
             });
         }
-        for (const auto &package : resolved.orderedPackages)
-        {
-            resolved.packageEdges[package.manifest.name] = {};
-            for (const auto &dep : package.manifest.dependencies)
-            {
-                resolved.packageEdges[package.manifest.name].insert(dep.name);
-            }
-        }
+        resolved.packageEdges = packageResolution.edges;
         resolved.enabledPlugins.assign(directPlugins.begin(), directPlugins.end());
         for (const auto &name : orderedModules)
         {

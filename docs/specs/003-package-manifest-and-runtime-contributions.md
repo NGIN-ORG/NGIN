@@ -32,6 +32,8 @@ explicitly says otherwise.
 - `Plugins`
 - `Inputs`
 - `Bootstrap`
+- `Features`
+- `PackagePolicy`
 
 `SourceBinding` is removed from the active package contract.
 
@@ -68,7 +70,60 @@ not package references.
 as lifecycle, dependency-order, service, or capability nodes. Library-only
 packages should use `Artifacts` without declaring placeholder modules.
 
-At the current V3 stage, NGIN does not define a second parallel `<Capabilities>` schema. Capability clarity should come from explicit manifest sections, validation, and graph or inspection tooling.
+NGIN does not define a separate top-level `<Capabilities>` schema. Package
+features are the public opt-in unit; capabilities are metadata declared by
+features.
+
+## Features
+
+Packages may declare explicit opt-in features under `Features`.
+
+```xml
+<Features>
+  <Feature Name="Reflection" Description="Enable reflection metadata support.">
+    <Provides>
+      <Capability Name="Reflection" />
+    </Provides>
+    <Dependencies>
+      <PackageRef Name="NGIN.Reflection" VersionRange=">=0.1.0 &lt;0.2.0" />
+    </Dependencies>
+    <Inputs>
+      <Configs>
+        config/reflection.cfg
+      </Configs>
+    </Inputs>
+    <Build>
+      <CompileDefinitions>
+        <Definition Value="NGIN_CORE_FEATURE_REFLECTION" Visibility="Public" />
+      </CompileDefinitions>
+    </Build>
+    <Runtime>
+      <EnableModules>
+        <ModuleRef Name="NGIN.Reflection" />
+      </EnableModules>
+    </Runtime>
+    <Variables>
+      <Variable Name="NGIN_REFLECTION" Value="1" />
+    </Variables>
+  </Feature>
+</Features>
+```
+
+Feature contributions are selected only when a project, profile, or environment
+uses the feature. Package defaults are explicit-only in Phase D; package
+features never auto-apply.
+
+Supported feature contributions are package refs, typed inputs, build settings,
+runtime declarations, environment variables, and capability metadata. Capability
+requirements are validated after selected feature closure. Multiple providers
+for the same capability are allowed unless a provider declares
+`Exclusive="true"`.
+
+Package policy is explicit:
+
+```xml
+<PackagePolicy DefaultFeatures="Explicit" LockFile="Optional" />
+```
 
 ## Inputs
 

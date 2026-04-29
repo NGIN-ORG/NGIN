@@ -18,6 +18,9 @@
   <References>
     <Package Name="NGIN.Core" Version=">=0.1.0 &lt;0.2.0" Optional="false" />
   </References>
+  <Features>
+    <Use Package="NGIN.Core" Feature="Reflection" />
+  </Features>
   <Environments>
     <Environment Name="local" />
   </Environments>

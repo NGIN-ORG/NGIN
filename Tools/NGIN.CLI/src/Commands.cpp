@@ -46,6 +46,89 @@ namespace NGIN::CLI
             return content.str();
         }
 
+        [[nodiscard]] auto EscapeXml(const std::string &value) -> std::string
+        {
+            std::string escaped{};
+            for (const char ch : value)
+            {
+                switch (ch)
+                {
+                case '&': escaped += "&amp;"; break;
+                case '<': escaped += "&lt;"; break;
+                case '>': escaped += "&gt;"; break;
+                case '"': escaped += "&quot;"; break;
+                case '\'': escaped += "&apos;"; break;
+                default: escaped += ch; break;
+                }
+            }
+            return escaped;
+        }
+
+        [[nodiscard]] auto DefaultLockPath(const ResolvedLaunch &resolved) -> fs::path
+        {
+            if (resolved.workspace.has_value())
+            {
+                return resolved.workspace->path.parent_path() / "ngin.lock";
+            }
+            return resolved.project.path.parent_path() / "ngin.lock";
+        }
+
+        [[nodiscard]] auto GenerateLockFile(const ResolvedLaunch &resolved) -> std::string
+        {
+            std::ostringstream out{};
+            out << "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n";
+            out << "<LockFile SchemaVersion=\"1\" Project=\"" << EscapeXml(resolved.project.name)
+                << "\" Profile=\"" << EscapeXml(resolved.profile.name)
+                << "\" BuildType=\"" << EscapeXml(resolved.profile.buildType)
+                << "\" Platform=\"" << EscapeXml(resolved.profile.platform)
+                << "\" Environment=\"" << EscapeXml(resolved.profile.environmentName) << "\">\n";
+            out << "  <Packages>\n";
+            for (const auto &package : resolved.orderedPackages)
+            {
+                out << "    <Package Name=\"" << EscapeXml(package.manifest.name)
+                    << "\" Version=\"" << EscapeXml(package.manifest.version)
+                    << "\" Manifest=\"" << EscapeXml(package.manifest.path.string())
+                    << "\" Source=\"" << EscapeXml(package.source) << "\"";
+                if (!package.sourceDirectory.empty())
+                {
+                    out << " ProviderRoot=\"" << EscapeXml(package.sourceDirectory.string()) << "\"";
+                }
+                out << " />\n";
+            }
+            out << "  </Packages>\n";
+            out << "  <Features>\n";
+            for (const auto &feature : resolved.selectedPackageFeatures)
+            {
+                out << "    <Feature Package=\"" << EscapeXml(feature.packageName)
+                    << "\" Name=\"" << EscapeXml(feature.featureName)
+                    << "\" Version=\"" << EscapeXml(feature.packageVersion)
+                    << "\" Manifest=\"" << EscapeXml(feature.manifestPath.string()) << "\" />\n";
+            }
+            out << "  </Features>\n";
+            out << "  <Capabilities>\n";
+            for (const auto &provider : resolved.capabilityProviders)
+            {
+                out << "    <Capability Name=\"" << EscapeXml(provider.capability)
+                    << "\" Package=\"" << EscapeXml(provider.packageName)
+                    << "\" Feature=\"" << EscapeXml(provider.featureName)
+                    << "\" Exclusive=\"" << (provider.exclusive ? "true" : "false") << "\" />\n";
+            }
+            out << "  </Capabilities>\n";
+            out << "  <Dependencies>\n";
+            for (const auto &[packageName, deps] : resolved.packageEdges)
+            {
+                out << "    <Package Name=\"" << EscapeXml(packageName) << "\">\n";
+                for (const auto &dep : deps)
+                {
+                    out << "      <PackageRef Name=\"" << EscapeXml(dep) << "\" />\n";
+                }
+                out << "    </Package>\n";
+            }
+            out << "  </Dependencies>\n";
+            out << "</LockFile>\n";
+            return out.str();
+        }
+
         [[nodiscard]] auto ContainsGitignoreEntry(const std::string &text, std::string_view entry) -> bool
         {
             std::istringstream lines(text);
@@ -433,6 +516,10 @@ namespace NGIN::CLI
             {
                 args.outputPath = argv[++index];
             }
+            else if (current == "--lock" && index + 1 < argc)
+            {
+                args.lockPath = argv[++index];
+            }
             else if ((current == "--dependencies" || current == "--externals") && index + 1 < argc)
             {
                 args.targetDir = argv[++index];
@@ -444,6 +531,10 @@ namespace NGIN::CLI
             else if (!args.packageName.has_value())
             {
                 args.packageName = current;
+            }
+            else if (!args.featureName.has_value())
+            {
+                args.featureName = current;
             }
             else
             {
@@ -682,6 +773,46 @@ namespace NGIN::CLI
             }
             std::cout << "\n";
         }
+        std::cout << "  package policy: DefaultFeatures=" << manifest.defaultFeatures
+                  << " LockFile=" << manifest.lockFile << "\n";
+        std::cout << "  features: " << manifest.features.size() << "\n";
+        for (const auto &feature : manifest.features)
+        {
+            std::cout << "    - " << feature.name;
+            if (!feature.description.empty())
+            {
+                std::cout << " \"" << feature.description << "\"";
+            }
+            if (HasSelection(feature.selectors))
+            {
+                std::cout << " selectors=(";
+                PrintSelectorSummary(feature.selectors);
+                std::cout << ")";
+            }
+            std::cout << "\n";
+            for (const auto &capability : feature.provides)
+            {
+                std::cout << "      provides: " << capability.name;
+                if (capability.exclusive)
+                {
+                    std::cout << " exclusive";
+                }
+                std::cout << "\n";
+            }
+            for (const auto &capability : feature.requiredCapabilities)
+            {
+                std::cout << "      requires: " << capability.name << "\n";
+            }
+            for (const auto &dependency : feature.packageRefs)
+            {
+                std::cout << "      dependency: " << dependency.name;
+                if (!dependency.versionRange.empty())
+                {
+                    std::cout << " " << dependency.versionRange;
+                }
+                std::cout << "\n";
+            }
+        }
         std::cout << "  inputs: " << manifest.inputs.size() << "\n";
         for (const auto &input : manifest.inputs)
         {
@@ -748,6 +879,61 @@ namespace NGIN::CLI
             }
             std::cout << "\n";
         }
+        return 0;
+    }
+
+    auto CmdPackageLock(const fs::path &root, const ParsedArgs &args) -> int
+    {
+        (void)root;
+        const auto invocation = ResolveInvocation(args);
+        const auto resolved = ResolveLaunch(invocation.project, invocation.profile);
+        if (!resolved.value.has_value() || resolved.diagnostics.HasErrors())
+        {
+            PrintDiagnostics(resolved.diagnostics, "Package lock", std::cout);
+            return 1;
+        }
+        const auto lockPath = args.outputPath.has_value() ? fs::path(*args.outputPath) : DefaultLockPath(*resolved.value);
+        if (!lockPath.parent_path().empty())
+        {
+            fs::create_directories(lockPath.parent_path());
+        }
+        std::ofstream out(lockPath);
+        out << GenerateLockFile(*resolved.value);
+        std::cout << "Generated package lock\n";
+        std::cout << "  path: " << lockPath << "\n";
+        std::cout << "  packages: " << resolved.value->orderedPackages.size() << "\n";
+        std::cout << "  features: " << resolved.value->selectedPackageFeatures.size() << "\n";
+        return 0;
+    }
+
+    auto CmdPackageVerifyLock(const fs::path &root, const ParsedArgs &args) -> int
+    {
+        (void)root;
+        const auto invocation = ResolveInvocation(args);
+        const auto resolved = ResolveLaunch(invocation.project, invocation.profile);
+        if (!resolved.value.has_value() || resolved.diagnostics.HasErrors())
+        {
+            PrintDiagnostics(resolved.diagnostics, "Package lock", std::cout);
+            return 1;
+        }
+        const auto lockPath = args.lockPath.has_value() ? fs::path(*args.lockPath) : DefaultLockPath(*resolved.value);
+        const auto existing = ReadTextIfExists(lockPath);
+        if (existing.empty())
+        {
+            std::cout << "Package lock verification failed\n";
+            std::cout << "  missing: " << lockPath << "\n";
+            return 1;
+        }
+        const auto expected = GenerateLockFile(*resolved.value);
+        if (existing != expected)
+        {
+            std::cout << "Package lock verification failed\n";
+            std::cout << "  path: " << lockPath << "\n";
+            std::cout << "  reason: resolved package graph differs from lock file\n";
+            return 1;
+        }
+        std::cout << "Package lock verified\n";
+        std::cout << "  path: " << lockPath << "\n";
         return 0;
     }
 
@@ -874,6 +1060,78 @@ namespace NGIN::CLI
         return 0;
     }
 
+    auto CmdExplainPackageFeature(const fs::path &root, const ParsedArgs &args) -> int
+    {
+        (void)root;
+        if (!args.packageName.has_value() || !args.featureName.has_value())
+        {
+            throw std::runtime_error("explain package-feature requires a package name and feature name");
+        }
+        const auto invocation = ResolveInvocation(args);
+        const auto resolved = ResolveLaunch(invocation.project, invocation.profile);
+        if (!resolved.value.has_value() || resolved.diagnostics.HasErrors())
+        {
+            PrintDiagnostics(resolved.diagnostics, "Package feature", std::cout);
+            return 1;
+        }
+
+        const auto packageIt = std::find_if(
+            resolved.value->orderedPackages.begin(), resolved.value->orderedPackages.end(),
+            [&](const ResolvedPackage &package)
+            {
+                return package.manifest.name == *args.packageName;
+            });
+        if (packageIt == resolved.value->orderedPackages.end())
+        {
+            throw std::runtime_error("package '" + *args.packageName + "' is not selected");
+        }
+        const auto featureIt = std::find_if(
+            packageIt->manifest.features.begin(), packageIt->manifest.features.end(),
+            [&](const PackageManifest::Feature &feature)
+            {
+                return feature.name == *args.featureName;
+            });
+        if (featureIt == packageIt->manifest.features.end())
+        {
+            throw std::runtime_error("package '" + *args.packageName + "' does not declare feature '" + *args.featureName + "'");
+        }
+        const auto selectedIt = std::find_if(
+            resolved.value->selectedPackageFeatures.begin(), resolved.value->selectedPackageFeatures.end(),
+            [&](const SelectedPackageFeature &feature)
+            {
+                return feature.packageName == *args.packageName && feature.featureName == *args.featureName;
+            });
+        const auto matchedSelectors = SelectionMatches(packageIt->manifest.conditions, featureIt->selectors, invocation.profile);
+        std::cout << "Package feature: " << *args.packageName << "::" << *args.featureName << "\n";
+        std::cout << "  result: " << (selectedIt != resolved.value->selectedPackageFeatures.end() ? "selected" : "not selected") << "\n";
+        std::cout << "  selector result: " << (matchedSelectors ? "matched" : "not matched") << "\n";
+        std::cout << "  manifest: " << packageIt->manifest.path << "\n";
+        std::cout << "  dependencies: " << featureIt->packageRefs.size() << "\n";
+        for (const auto &dependency : featureIt->packageRefs)
+        {
+            std::cout << "    - " << dependency.name;
+            if (!dependency.versionRange.empty())
+            {
+                std::cout << " " << dependency.versionRange;
+            }
+            std::cout << "\n";
+        }
+        std::cout << "  provides: " << featureIt->provides.size() << "\n";
+        for (const auto &capability : featureIt->provides)
+        {
+            std::cout << "    - " << capability.name << (capability.exclusive ? " exclusive" : "") << "\n";
+        }
+        std::cout << "  requires: " << featureIt->requiredCapabilities.size() << "\n";
+        for (const auto &capability : featureIt->requiredCapabilities)
+        {
+            std::cout << "    - " << capability.name << "\n";
+        }
+        std::cout << "  inputs: " << featureIt->inputs.size() << "\n";
+        std::cout << "  variables: " << featureIt->variables.size() << "\n";
+        std::cout << "  runtime modules: " << featureIt->runtime.modules.size() << "\n";
+        return 0;
+    }
+
     auto CmdValidate(const fs::path &root, const ParsedArgs &args) -> int
     {
         (void)root;
@@ -932,6 +1190,30 @@ namespace NGIN::CLI
                     std::cout << dep;
                     first = false;
                 }
+            }
+            std::cout << "\n";
+        }
+        std::cout << "\nPackage features:\n";
+        if (resolved.value->selectedPackageFeatures.empty())
+        {
+            std::cout << "  (none)\n";
+        }
+        for (const auto &feature : resolved.value->selectedPackageFeatures)
+        {
+            std::cout << "  - " << feature.packageName << "::" << feature.featureName << "\n";
+        }
+        std::cout << "\nCapabilities:\n";
+        if (resolved.value->capabilityProviders.empty())
+        {
+            std::cout << "  (none)\n";
+        }
+        for (const auto &provider : resolved.value->capabilityProviders)
+        {
+            std::cout << "  - " << provider.capability << " <- "
+                      << provider.packageName << "::" << provider.featureName;
+            if (provider.exclusive)
+            {
+                std::cout << " exclusive";
             }
             std::cout << "\n";
         }

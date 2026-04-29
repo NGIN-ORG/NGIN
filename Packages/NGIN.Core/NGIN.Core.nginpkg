@@ -27,6 +27,22 @@
     <PackageRef Name="NGIN.Log" VersionRange=">=0.1.0 &lt;0.2.0" Optional="false" />
     <PackageRef Name="NGIN.Reflection" VersionRange=">=0.1.0 &lt;0.2.0" Optional="true" />
   </Dependencies>
+  <Features>
+    <Feature Name="Reflection"
+             Description="Enable NGIN.Reflection-backed runtime metadata support.">
+      <Provides>
+        <Capability Name="Reflection" />
+      </Provides>
+      <Dependencies>
+        <PackageRef Name="NGIN.Reflection" VersionRange=">=0.1.0 &lt;0.2.0" Optional="false" />
+      </Dependencies>
+      <Build>
+        <CompileDefinitions>
+          <Definition Value="NGIN_CORE_FEATURE_REFLECTION" Visibility="Public" />
+        </CompileDefinitions>
+      </Build>
+    </Feature>
+  </Features>
   <Modules />
   <Plugins />
 </Package>

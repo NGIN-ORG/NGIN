@@ -249,6 +249,35 @@ Package references:
 </References>
 ```
 
+Package features are explicit opt-ins. A project, profile, or environment can
+select a package feature:
+
+```xml
+<Features>
+  <Use Package="NGIN.Core" Feature="Reflection" />
+</Features>
+```
+
+Packages declare features as reusable contribution bundles:
+
+```xml
+<Features>
+  <Feature Name="Reflection">
+    <Provides>
+      <Capability Name="Reflection" />
+    </Provides>
+    <Dependencies>
+      <PackageRef Name="NGIN.Reflection" VersionRange=">=0.1.0 &lt;0.2.0" />
+    </Dependencies>
+  </Feature>
+</Features>
+```
+
+Use `ngin explain package-feature NGIN.Core Reflection --project App.nginproj
+--profile Runtime` to inspect selection and contributions. Use
+`ngin package lock` and `ngin package verify-lock` for local package graph
+reproducibility.
+
 ## Profiles
 
 NGIN separates the project profile name from the backend build

@@ -46,6 +46,7 @@ export interface PackageManifest {
   name: string;
   version?: string;
   conditions?: ConditionDefinition[];
+  features?: PackageFeature[];
 }
 
 export interface SelectorFields {
@@ -73,6 +74,27 @@ export interface PackageReference extends SelectorFields {
   optional?: boolean;
 }
 
+export interface PackageFeatureUse extends SelectorFields {
+  packageName: string;
+  featureName: string;
+  version?: string;
+  disabled?: boolean;
+}
+
+export interface PackageCapability {
+  name: string;
+  exclusive?: boolean;
+}
+
+export interface PackageFeature extends SelectorFields {
+  name: string;
+  description?: string;
+  provides?: PackageCapability[];
+  requires?: PackageCapability[];
+  dependencies?: PackageReference[];
+  inputs?: InputDeclaration[];
+}
+
 export interface ProjectProfile {
   name: string;
   buildType?: string;
@@ -86,6 +108,7 @@ export interface ProjectProfile {
   configInputs: string[];
   projectRefs?: ProjectReference[];
   packageRefs?: PackageReference[];
+  packageFeatureUses?: PackageFeatureUse[];
 }
 
 export interface ProjectManifest {
@@ -103,6 +126,7 @@ export interface ProjectManifest {
   conditions?: ConditionDefinition[];
   projectRefs?: ProjectReference[];
   packageRefs?: PackageReference[];
+  packageFeatureUses?: PackageFeatureUse[];
   profiles: ProjectProfile[];
 }
 
