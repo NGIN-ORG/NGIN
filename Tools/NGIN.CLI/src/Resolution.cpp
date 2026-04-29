@@ -73,6 +73,167 @@ namespace NGIN::CLI
             return nullptr;
         }
 
+        [[nodiscard]] auto InputDefaultTarget(const InputDeclaration &input, const std::string &source) -> fs::path
+        {
+            if (!input.target.empty())
+            {
+                return fs::path(input.target).lexically_normal();
+            }
+            const auto sourcePath = fs::path(source);
+            if (!input.targetRoot.empty())
+            {
+                auto preserved = sourcePath.filename();
+                const auto sourceRelative = sourcePath.lexically_normal();
+                if (input.mode == "Directory" && !input.path.empty())
+                {
+                    const auto base = fs::path(input.path).lexically_normal();
+                    const auto relative = sourceRelative.lexically_relative(base);
+                    if (!relative.empty() && relative.native().find("..") != 0)
+                    {
+                        preserved = relative;
+                    }
+                }
+                else if (!input.basePath.empty())
+                {
+                    const auto base = fs::path(input.basePath).lexically_normal();
+                    const auto relative = sourceRelative.lexically_relative(base);
+                    if (!relative.empty() && relative.native().find("..") != 0)
+                    {
+                        preserved = relative;
+                    }
+                }
+                return (fs::path(input.targetRoot) / preserved).lexically_normal();
+            }
+            return sourcePath.is_absolute() ? sourcePath.filename() : sourcePath.lexically_normal();
+        }
+
+        [[nodiscard]] auto InputIsStaged(const InputDeclaration &input) -> bool
+        {
+            return input.kind == "Config" || input.kind == "Content" || input.kind == "Asset"
+                   || (input.kind == "Generated" && (input.role == "Content" || input.role == "Asset" || !input.target.empty() || !input.targetRoot.empty()));
+        }
+
+        [[nodiscard]] auto ResolvedInputKind(const InputDeclaration &input) -> std::string
+        {
+            if (input.kind == "Config")
+            {
+                return "config-input";
+            }
+            if (input.kind == "Asset")
+            {
+                return "asset";
+            }
+            if (input.kind == "Content")
+            {
+                return input.contentKind.empty() ? "content" : input.contentKind;
+            }
+            if (input.kind == "Generated")
+            {
+                if (input.role == "Asset")
+                {
+                    return "asset";
+                }
+                if (input.role == "Content")
+                {
+                    return input.contentKind.empty() ? "content" : input.contentKind;
+                }
+                if (input.role == "ToolInput")
+                {
+                    return "tool-input";
+                }
+                return "generated";
+            }
+            if (input.kind == "ToolInput")
+            {
+                return "tool-input";
+            }
+            return Lower(input.kind);
+        }
+
+        auto ExpandInputSources(
+            const InputDeclaration &input,
+            const fs::path &ownerDirectory,
+            std::vector<std::pair<std::string, fs::path>> &out) -> void
+        {
+            if (input.mode == "File")
+            {
+                const auto declared = fs::path(input.path);
+                out.emplace_back(input.path,
+                                 declared.is_absolute() ? declared.lexically_normal()
+                                                        : (ownerDirectory / declared).lexically_normal());
+                return;
+            }
+
+            if (input.mode == "Directory")
+            {
+                const auto declared = fs::path(input.path);
+                const auto root = declared.is_absolute() ? declared.lexically_normal()
+                                                         : (ownerDirectory / declared).lexically_normal();
+                if (!InputIsStaged(input) && input.kind != "ToolInput")
+                {
+                    out.emplace_back(input.path, root);
+                    return;
+                }
+                if (!fs::exists(root) || !fs::is_directory(root))
+                {
+                    return;
+                }
+                std::vector<std::pair<std::string, fs::path>> entries{};
+                for (const auto &entry : fs::recursive_directory_iterator(root))
+                {
+                    if (!entry.is_regular_file())
+                    {
+                        continue;
+                    }
+                    const auto relative = entry.path().lexically_relative(root);
+                    if (!input.includePatterns.empty() && !AnyGlobMatches(input.includePatterns, relative))
+                    {
+                        continue;
+                    }
+                    if (!input.excludePatterns.empty() && AnyGlobMatches(input.excludePatterns, relative))
+                    {
+                        continue;
+                    }
+                    entries.emplace_back((fs::path(input.path) / relative).generic_string(), entry.path().lexically_normal());
+                }
+                std::sort(entries.begin(), entries.end(), [](const auto &left, const auto &right) { return left.first < right.first; });
+                out.insert(out.end(), entries.begin(), entries.end());
+                return;
+            }
+
+            if (input.mode != "Glob")
+            {
+                return;
+            }
+            auto globRoot = ownerDirectory;
+            if (!input.basePath.empty())
+            {
+                const fs::path base{input.basePath};
+                globRoot = (base.is_absolute() ? base : ownerDirectory / base).lexically_normal();
+            }
+            if (!fs::exists(globRoot) || !fs::is_directory(globRoot))
+            {
+                return;
+            }
+            std::vector<std::pair<std::string, fs::path>> entries{};
+            for (const auto &entry : fs::recursive_directory_iterator(globRoot))
+            {
+                if (!entry.is_regular_file())
+                {
+                    continue;
+                }
+                const auto relative = entry.path().lexically_relative(globRoot);
+                if (AnyGlobMatches(input.includePatterns, relative) &&
+                    (input.excludePatterns.empty() || !AnyGlobMatches(input.excludePatterns, relative)))
+                {
+                    const auto declared = input.basePath.empty() ? relative : fs::path(input.basePath) / relative;
+                    entries.emplace_back(declared.generic_string(), entry.path().lexically_normal());
+                }
+            }
+            std::sort(entries.begin(), entries.end(), [](const auto &left, const auto &right) { return left.first < right.first; });
+            out.insert(out.end(), entries.begin(), entries.end());
+        }
+
         struct LoadedSetting
         {
             std::string value{};
@@ -657,12 +818,18 @@ namespace NGIN::CLI
                     continue;
                 }
 
-                for (const auto &content : manifest.contents)
+                for (const auto &input : manifest.inputs)
                 {
-                    const auto resolvedPath = manifest.path.parent_path() / content.source;
-                    if (!fs::exists(resolvedPath))
+                    if (input.path.empty())
                     {
-                        AddError(report, "package '" + ref.name + "' content file '" + content.source + "' does not exist");
+                        continue;
+                    }
+                    const auto resolvedPath = fs::path(input.path).is_absolute()
+                                                  ? fs::path(input.path).lexically_normal()
+                                                  : (manifest.path.parent_path() / input.path).lexically_normal();
+                    if (input.required && !fs::exists(resolvedPath))
+                    {
+                        AddError(report, "package '" + ref.name + "' input file '" + input.path + "' does not exist");
                     }
                 }
 
@@ -1269,47 +1436,93 @@ namespace NGIN::CLI
         resolved.profile = profile;
         resolved.projectUnits = std::move(projectUnits);
 
-        std::map<fs::path, std::string> configOwnersByDestination{};
-        std::set<std::pair<std::string, std::string>> seenConfigDeclarations{};
+        std::map<fs::path, std::string> inputOwnersByDestination{};
+        std::set<std::tuple<std::string, std::string, std::string, std::string>> seenInputDeclarations{};
+        auto collectInputs = [&](const std::vector<InputDeclaration> &inputs,
+                                 const std::string &ownerKind,
+                                 const std::string &ownerName,
+                                 const fs::path &ownerDirectory,
+                                 const fs::path &manifestPath,
+                                 const ProjectManifest *selectionProject,
+                                 const ProfileDefinition *selectionProfile)
+        {
+            for (const auto &input : inputs)
+            {
+                if (selectionProject != nullptr && selectionProfile != nullptr
+                    && !SelectionMatches(*selectionProject, input.selectors, *selectionProfile))
+                {
+                    continue;
+                }
+                std::vector<std::pair<std::string, fs::path>> expandedSources{};
+                ExpandInputSources(input, ownerDirectory, expandedSources);
+                if (input.mode == "Glob" && expandedSources.empty() && input.required)
+                {
+                    AddError(result.diagnostics, ownerKind + " '" + ownerName + "' input glob '" + input.pattern + "' matched no files");
+                    continue;
+                }
+                for (const auto &[declaredSource, absoluteSource] : expandedSources)
+                {
+                    const auto declarationKey = std::make_tuple(ownerKind, ownerName, input.kind, declaredSource);
+                    if (!seenInputDeclarations.insert(declarationKey).second)
+                    {
+                        continue;
+                    }
+                    if ((input.kind == "ToolInput" || input.kind == "Generated") && input.required && !fs::exists(absoluteSource))
+                    {
+                        AddError(result.diagnostics, ownerKind + " '" + ownerName + "' input '" + declaredSource + "' does not exist");
+                        continue;
+                    }
+
+                    ResolvedInput resolvedInput{};
+                    resolvedInput.ownerKind = ownerKind;
+                    resolvedInput.ownerName = ownerName;
+                    resolvedInput.ownerDirectory = ownerDirectory;
+                    resolvedInput.manifestPath = manifestPath;
+                    resolvedInput.declaringScope = input.declaringScope;
+                    resolvedInput.setName = input.setName;
+                    resolvedInput.name = input.name;
+                    resolvedInput.kind = input.kind;
+                    resolvedInput.role = input.role;
+                    resolvedInput.source = declaredSource;
+                    resolvedInput.pattern = input.pattern;
+                    resolvedInput.mode = input.mode;
+                    resolvedInput.visibility = input.visibility;
+                    resolvedInput.target = input.target;
+                    resolvedInput.targetRoot = input.targetRoot;
+                    resolvedInput.basePath = input.basePath;
+                    resolvedInput.contentKind = ResolvedInputKind(input);
+                    resolvedInput.required = input.required;
+                    resolvedInput.absoluteSourcePath = absoluteSource;
+                    resolvedInput.includePatterns = input.includePatterns;
+                    resolvedInput.excludePatterns = input.excludePatterns;
+                    resolvedInput.metadata = input.metadata;
+
+                    if (InputIsStaged(input))
+                    {
+                        resolvedInput.stagedRelativePath = InputDefaultTarget(input, declaredSource);
+                        if (const auto it = inputOwnersByDestination.find(resolvedInput.stagedRelativePath);
+                            it != inputOwnersByDestination.end())
+                        {
+                            AddError(result.diagnostics, "input destination collision at '" + resolvedInput.stagedRelativePath.string()
+                                                              + "' between '" + it->second + "' and '" + ownerName + "'");
+                            continue;
+                        }
+                        inputOwnersByDestination[resolvedInput.stagedRelativePath] = ownerKind + ":" + ownerName;
+                    }
+                    resolved.inputs.push_back(std::move(resolvedInput));
+                }
+            }
+        };
+
         for (const auto &unit : resolved.projectUnits)
         {
             const auto ownerProjectDirectory = unit.project.path.parent_path();
-            const auto collectConfigInputs = [&](const std::vector<std::string> &configInputs)
-            {
-                for (const auto &source : configInputs)
-                {
-                    const auto declarationKey = std::make_pair(unit.project.name, source);
-                    if (!seenConfigDeclarations.insert(declarationKey).second)
-                    {
-                        continue;
-                    }
-
-                    ResolvedConfigInput configInput{};
-                    configInput.ownerProjectName = unit.project.name;
-                    configInput.ownerProjectDirectory = ownerProjectDirectory;
-                    configInput.source = source;
-
-                    const auto declaredPath = fs::path(source);
-                    configInput.stagedRelativePath = declaredPath.is_absolute() ? declaredPath.filename() : declaredPath.lexically_normal();
-                    configInput.absoluteSourcePath = declaredPath.is_absolute()
-                                                          ? declaredPath.lexically_normal()
-                                                          : (ownerProjectDirectory / declaredPath).lexically_normal();
-
-                    if (const auto it = configOwnersByDestination.find(configInput.stagedRelativePath); it != configOwnersByDestination.end())
-                    {
-                        AddError(result.diagnostics, "config input destination collision at '" + configInput.stagedRelativePath.string() + "' between projects '" + it->second + "' and '" + unit.project.name + "'");
-                        continue;
-                    }
-                    configOwnersByDestination[configInput.stagedRelativePath] = unit.project.name;
-                    resolved.configInputs.push_back(std::move(configInput));
-                }
-            };
-            collectConfigInputs(unit.project.configInputs);
+            collectInputs(unit.project.inputs, "project", unit.project.name, ownerProjectDirectory, unit.project.path, &unit.project, &unit.profile);
             if (unit.environment.has_value())
             {
-                collectConfigInputs(unit.environment->configInputs);
+                collectInputs(unit.environment->inputs, "project", unit.project.name, ownerProjectDirectory, unit.project.path, &unit.project, &unit.profile);
             }
-            collectConfigInputs(unit.profile.configInputs);
+            collectInputs(unit.profile.inputs, "project", unit.project.name, ownerProjectDirectory, unit.project.path, &unit.project, &unit.profile);
         }
         if (result.diagnostics.HasErrors())
         {
@@ -1319,7 +1532,6 @@ namespace NGIN::CLI
         {
             std::unordered_map<std::string, std::size_t> variableIndex{};
             std::unordered_map<std::string, std::size_t> featureIndex{};
-            std::map<fs::path, std::string> contentOwnersByDestination{};
             for (const auto &unit : resolved.projectUnits)
             {
                 if (!unit.environment.has_value())
@@ -1361,24 +1573,6 @@ namespace NGIN::CLI
                         resolved.environmentFeatures.push_back(feature);
                     }
                 }
-                for (const auto &content : unit.environment->contents)
-                {
-                    ResolvedContentSource resolvedContent{};
-                    resolvedContent.ownerProjectName = unit.project.name;
-                    resolvedContent.ownerProjectDirectory = ownerProjectDirectory;
-                    resolvedContent.source = content.source;
-                    resolvedContent.kind = content.kind;
-                    const auto declaredPath = fs::path(content.target.empty() ? content.source : content.target);
-                    resolvedContent.stagedRelativePath = declaredPath.is_absolute() ? declaredPath.filename() : declaredPath.lexically_normal();
-                    resolvedContent.absoluteSourcePath = (ownerProjectDirectory / fs::path(content.source)).lexically_normal();
-                    if (const auto it = contentOwnersByDestination.find(resolvedContent.stagedRelativePath); it != contentOwnersByDestination.end())
-                    {
-                        AddError(result.diagnostics, "environment content destination collision at '" + resolvedContent.stagedRelativePath.string() + "' between projects '" + it->second + "' and '" + unit.project.name + "'");
-                        continue;
-                    }
-                    contentOwnersByDestination[resolvedContent.stagedRelativePath] = unit.project.name;
-                    resolved.environmentContents.push_back(std::move(resolvedContent));
-                }
             }
         }
         if (result.diagnostics.HasErrors())
@@ -1387,6 +1581,16 @@ namespace NGIN::CLI
         }
 
         resolved.orderedPackages = std::move(orderedPackages);
+        for (const auto &package : resolved.orderedPackages)
+        {
+            collectInputs(package.manifest.inputs, "package", package.manifest.name,
+                          package.manifest.path.parent_path(), package.manifest.path,
+                          &resolved.project, &resolved.profile);
+        }
+        if (result.diagnostics.HasErrors())
+        {
+            return result;
+        }
         for (const auto &package : resolved.orderedPackages)
         {
             if (!package.manifest.bootstrap.has_value())

@@ -337,22 +337,6 @@ namespace NGIN::CLI
             return compatibility;
         }
 
-        auto ParseConfigInputs(const XmlElement &parent, const fs::path &path, std::vector<std::string> &out) -> void
-        {
-            if (const auto *inputs = FindChild(parent, "Inputs"))
-            {
-                for (const auto *config : ChildElements(*inputs, "Config"))
-                {
-                    const auto source = Attribute(*config, "Path").value_or(Attribute(*config, "Pattern").value_or(""));
-                    if (source.empty())
-                    {
-                        throw std::runtime_error(path.string() + ": <Inputs><Config> requires Path or Pattern");
-                    }
-                    out.push_back(source);
-                }
-            }
-        }
-
         auto ParseReferences(
             const XmlElement &referencesElement,
             const fs::path &baseDirectory,
@@ -395,18 +379,552 @@ namespace NGIN::CLI
             }
         }
 
-        auto ParseContents(const XmlElement &parent, const fs::path &path, std::vector<ContentFile> &out) -> void
+        [[nodiscard]] auto IsSupportedInputKind(const std::string_view value) -> bool
         {
-            if (const auto *contents = FindChild(parent, "Contents"))
+            return value == "Source" || value == "Config" || value == "Content"
+                   || value == "Asset" || value == "Generated" || value == "ToolInput";
+        }
+
+        [[nodiscard]] auto IsSupportedInputMode(const std::string_view value) -> bool
+        {
+            return value == "Directory" || value == "File" || value == "Glob";
+        }
+
+        [[nodiscard]] auto IsSupportedGeneratedRole(const std::string_view value) -> bool
+        {
+            return value == "Source" || value == "Content" || value == "Asset" || value == "ToolInput";
+        }
+
+        [[nodiscard]] auto IsTypedInputBlock(const std::string_view name) -> bool
+        {
+            return name == "Sources" || name == "Headers" || name == "Configs" || name == "Contents"
+                   || name == "Assets" || name == "Generated" || name == "ToolInputs";
+        }
+
+        [[nodiscard]] auto IsStructuredInputEntry(const std::string_view name) -> bool
+        {
+            return name == "File" || name == "Directory" || name == "Glob";
+        }
+
+        [[nodiscard]] auto JoinPathList(const std::vector<std::string> &entries) -> std::string
+        {
+            std::string joined{};
+            for (const auto &entry : entries)
             {
-                for (const auto *node : ChildElements(*contents, "File"))
+                if (!joined.empty())
                 {
-                    ContentFile content{};
-                    content.source = RequireAttribute(*node, "Source", path);
-                    content.kind = Attribute(*node, "Kind").value_or("other");
-                    content.target = Attribute(*node, "Target").value_or("");
-                    out.push_back(std::move(content));
+                    joined += ";";
                 }
+                joined += entry;
+            }
+            return joined;
+        }
+
+        [[nodiscard]] auto SplitTextPathLines(std::string_view text) -> std::vector<std::string>
+        {
+            std::vector<std::string> entries{};
+            std::string current{};
+            auto flush = [&]()
+            {
+                auto value = Trim(current);
+                current.clear();
+                if (value.empty() || value.front() == '#')
+                {
+                    return;
+                }
+                entries.push_back(std::move(value));
+            };
+
+            for (const char ch : text)
+            {
+                if (ch == '\n' || ch == '\r')
+                {
+                    flush();
+                    continue;
+                }
+                current.push_back(ch);
+            }
+            flush();
+            return entries;
+        }
+
+        [[nodiscard]] auto NormalizeRemoveKind(const std::string &kind) -> std::pair<std::string, std::string>
+        {
+            if (kind == "Header")
+            {
+                return {"Source", "Header"};
+            }
+            return {kind, {}};
+        }
+
+        auto MergeInputMetadata(std::vector<InputMetadataProperty> &target, const std::vector<InputMetadataProperty> &source) -> void
+        {
+            for (const auto &property : source)
+            {
+                const auto existing = std::find_if(
+                    target.begin(),
+                    target.end(),
+                    [&](const InputMetadataProperty &candidate)
+                    {
+                        return candidate.name == property.name;
+                    });
+                if (existing != target.end())
+                {
+                    *existing = property;
+                }
+                else
+                {
+                    target.push_back(property);
+                }
+            }
+        }
+
+        [[nodiscard]] auto ParseInputMetadata(const XmlElement &node, const fs::path &path) -> std::vector<InputMetadataProperty>
+        {
+            std::vector<InputMetadataProperty> metadata{};
+            if (const auto *metadataElement = FindChild(node, "Metadata"))
+            {
+                for (const auto *propertyElement : ChildElements(*metadataElement, "Property"))
+                {
+                    InputMetadataProperty property{};
+                    property.name = RequireAttribute(*propertyElement, "Name", path);
+                    if (!IsValidManifestIdentifier(property.name))
+                    {
+                        throw std::runtime_error(path.string() + ": invalid input metadata property name '" + property.name + "'");
+                    }
+                    property.value = RequireAttribute(*propertyElement, "Value", path);
+                    MergeInputMetadata(metadata, {property});
+                }
+            }
+            return metadata;
+        }
+
+        auto ReadCommonInputAttributes(InputDeclaration &input, const XmlElement &node, const fs::path &path, const bool allowIdentityAttributes) -> void
+        {
+            if (const auto value = Attribute(node, "Path"); value.has_value())
+            {
+                input.path = *value;
+            }
+            if (const auto value = Attribute(node, "Visibility"); value.has_value() && !value->empty())
+            {
+                input.visibility = *value;
+            }
+            if (const auto value = Attribute(node, "Target"); value.has_value())
+            {
+                input.target = *value;
+            }
+            if (const auto value = Attribute(node, "TargetRoot"); value.has_value())
+            {
+                input.targetRoot = *value;
+            }
+            if (const auto value = Attribute(node, "BasePath"); value.has_value())
+            {
+                input.basePath = *value;
+            }
+            if (const auto value = Attribute(node, "ContentKind"); value.has_value() && !value->empty())
+            {
+                input.contentKind = *value;
+            }
+            if (Attribute(node, "Required").has_value())
+            {
+                input.required = BoolAttribute(node, "Required", true);
+            }
+            input.includePatterns = OptionalPathListAttribute(node, "Include");
+            input.excludePatterns = OptionalPathListAttribute(node, "Exclude");
+            input.selectors = MergeSelectors(input.selectors, ParseSelection(node, path));
+            auto metadata = ParseInputMetadata(node, path);
+            MergeInputMetadata(input.metadata, metadata);
+            if (allowIdentityAttributes)
+            {
+                if (const auto value = Attribute(node, "Name"); value.has_value() && !value->empty())
+                {
+                    if (!IsValidManifestIdentifier(*value))
+                    {
+                        throw std::runtime_error(path.string() + ": invalid input name '" + *value + "'");
+                    }
+                    input.name = *value;
+                }
+                if (Attribute(node, "Override").has_value())
+                {
+                    input.overrideExisting = BoolAttribute(node, "Override");
+                }
+            }
+        }
+
+        auto ValidateInputDeclaration(const InputDeclaration &input, const fs::path &path) -> void
+        {
+            if (!IsSupportedInputKind(input.kind))
+            {
+                throw std::runtime_error(path.string() + ": unsupported input kind '" + input.kind + "'");
+            }
+            if (input.kind == "Generated" && !IsSupportedGeneratedRole(input.role))
+            {
+                throw std::runtime_error(path.string() + ": <Generated> requires Role=\"Source\", Role=\"Content\", Role=\"Asset\", or Role=\"ToolInput\"");
+            }
+            if (!input.mode.empty() && !IsSupportedInputMode(input.mode))
+            {
+                throw std::runtime_error(path.string() + ": unsupported input mode '" + input.mode + "'");
+            }
+            if (input.mode.empty())
+            {
+                throw std::runtime_error(path.string() + ": input declarations must resolve to Mode=\"Directory\", Mode=\"File\", or Mode=\"Glob\"");
+            }
+            if (!input.visibility.empty() && !IsSupportedBuildVisibility(input.visibility))
+            {
+                throw std::runtime_error(path.string() + ": unsupported input visibility '" + input.visibility + "'");
+            }
+            if (input.mode == "File")
+            {
+                if (input.path.empty())
+                {
+                    throw std::runtime_error(path.string() + ": <File> input entries require Path");
+                }
+                if (!input.includePatterns.empty() || !input.excludePatterns.empty() || !input.basePath.empty())
+                {
+                    throw std::runtime_error(path.string() + ": Include, Exclude, and BasePath are not valid on file input entries");
+                }
+            }
+            else if (input.mode == "Directory")
+            {
+                if (input.path.empty())
+                {
+                    throw std::runtime_error(path.string() + ": directory input entries require Path");
+                }
+                if (!input.target.empty())
+                {
+                    throw std::runtime_error(path.string() + ": Target is valid only on file input entries; use TargetRoot for directories");
+                }
+            }
+            else if (input.mode == "Glob")
+            {
+                if (input.includePatterns.empty())
+                {
+                    throw std::runtime_error(path.string() + ": glob input entries require Include");
+                }
+                if (!input.path.empty() || !input.target.empty())
+                {
+                    throw std::runtime_error(path.string() + ": glob input entries use Include/BasePath/TargetRoot, not Path or Target");
+                }
+            }
+            if (input.kind != "Content" && !(input.kind == "Generated" && input.role == "Content") && !input.contentKind.empty())
+            {
+                throw std::runtime_error(path.string() + ": ContentKind is valid only on Content inputs");
+            }
+        }
+
+        [[nodiscard]] auto InputMatchesRemove(const InputDeclaration &input, const InputRemove &remove) -> bool
+        {
+            if (!remove.name.empty())
+            {
+                return input.name == remove.name || input.setName == remove.name;
+            }
+            if (!remove.kind.empty() && input.kind != remove.kind)
+            {
+                return false;
+            }
+            if (!remove.role.empty() && input.role != remove.role)
+            {
+                return false;
+            }
+            if (!remove.path.empty() && input.path != remove.path)
+            {
+                return false;
+            }
+            if (!remove.pattern.empty() && input.pattern != remove.pattern)
+            {
+                return false;
+            }
+            if (!remove.target.empty() && input.target != remove.target)
+            {
+                return false;
+            }
+            if (!remove.mode.empty() && input.mode != remove.mode)
+            {
+                return false;
+            }
+            if (!remove.visibility.empty() && input.visibility != remove.visibility)
+            {
+                return false;
+            }
+            return !remove.kind.empty() || !remove.path.empty() || !remove.pattern.empty()
+                   || !remove.target.empty() || !remove.mode.empty() || !remove.visibility.empty();
+        }
+
+        [[nodiscard]] auto InputIdentityMatches(const InputDeclaration &left, const InputDeclaration &right) -> bool
+        {
+            if (!right.name.empty())
+            {
+                return left.name == right.name;
+            }
+            return left.kind == right.kind
+                   && left.role == right.role
+                   && left.path == right.path
+                   && left.pattern == right.pattern
+                   && left.target == right.target
+                   && left.targetRoot == right.targetRoot
+                   && left.basePath == right.basePath
+                   && left.mode == right.mode
+                   && left.visibility == right.visibility;
+        }
+
+        auto RemoveMatchingInputs(std::vector<InputDeclaration> &inputs, const InputRemove &remove) -> void
+        {
+            inputs.erase(
+                std::remove_if(
+                    inputs.begin(),
+                    inputs.end(),
+                    [&](const InputDeclaration &input)
+                    {
+                        return InputMatchesRemove(input, remove);
+                    }),
+                inputs.end());
+        }
+
+        auto AddInputDeclaration(std::vector<InputDeclaration> &inputs, InputDeclaration input) -> void
+        {
+            if (input.overrideExisting)
+            {
+                inputs.erase(
+                    std::remove_if(
+                        inputs.begin(),
+                        inputs.end(),
+                        [&](const InputDeclaration &candidate)
+                        {
+                            return InputIdentityMatches(candidate, input);
+                        }),
+                    inputs.end());
+            }
+            inputs.push_back(std::move(input));
+        }
+
+        [[nodiscard]] auto ParseInputRemove(const XmlElement &node, const fs::path &path) -> InputRemove
+        {
+            ValidateAllowedAttributes(node, path, {"Name", "Kind", "Role", "Path", "Pattern", "Mode", "Visibility", "Target"});
+            InputRemove remove{};
+            remove.name = Attribute(node, "Name").value_or("");
+            auto [kind, role] = NormalizeRemoveKind(Attribute(node, "Kind").value_or(""));
+            remove.kind = std::move(kind);
+            remove.role = Attribute(node, "Role").value_or(role);
+            remove.path = Attribute(node, "Path").value_or("");
+            remove.pattern = Attribute(node, "Pattern").value_or("");
+            remove.mode = Attribute(node, "Mode").value_or("");
+            remove.visibility = Attribute(node, "Visibility").value_or("");
+            remove.target = Attribute(node, "Target").value_or("");
+            if (!remove.name.empty() && !IsValidManifestIdentifier(remove.name))
+            {
+                throw std::runtime_error(path.string() + ": invalid input remove name '" + remove.name + "'");
+            }
+            if (!remove.kind.empty() && !IsSupportedInputKind(remove.kind))
+            {
+                throw std::runtime_error(path.string() + ": unsupported input kind '" + remove.kind + "'");
+            }
+            if (!remove.mode.empty() && !IsSupportedInputMode(remove.mode))
+            {
+                throw std::runtime_error(path.string() + ": unsupported input mode '" + remove.mode + "'");
+            }
+            if (!remove.visibility.empty() && !IsSupportedBuildVisibility(remove.visibility))
+            {
+                throw std::runtime_error(path.string() + ": unsupported input visibility '" + remove.visibility + "'");
+            }
+            if (remove.name.empty() && remove.kind.empty() && remove.path.empty() && remove.pattern.empty()
+                && remove.mode.empty() && remove.visibility.empty() && remove.target.empty())
+            {
+                throw std::runtime_error(path.string() + ": <Remove> must declare Name or at least one input matcher");
+            }
+            return remove;
+        }
+
+        [[nodiscard]] auto TypedBlockBase(const XmlElement &node, const fs::path &path) -> InputDeclaration
+        {
+            InputDeclaration input{};
+            if (node.name == "Sources")
+            {
+                input.kind = "Source";
+                input.role = "Source";
+                input.visibility = "Private";
+            }
+            else if (node.name == "Headers")
+            {
+                input.kind = "Source";
+                input.role = "Header";
+                input.visibility = "Public";
+            }
+            else if (node.name == "Configs")
+            {
+                input.kind = "Config";
+            }
+            else if (node.name == "Contents")
+            {
+                input.kind = "Content";
+            }
+            else if (node.name == "Assets")
+            {
+                input.kind = "Asset";
+            }
+            else if (node.name == "ToolInputs")
+            {
+                input.kind = "ToolInput";
+            }
+            else if (node.name == "Generated")
+            {
+                input.kind = "Generated";
+                input.role = RequireAttribute(node, "Role", path);
+                if (!IsSupportedGeneratedRole(input.role))
+                {
+                    throw std::runtime_error(path.string() + ": unsupported generated input role '" + input.role + "'");
+                }
+            }
+            if (const auto name = Attribute(node, "Name"); name.has_value() && !name->empty())
+            {
+                if (!IsValidManifestIdentifier(*name))
+                {
+                    throw std::runtime_error(path.string() + ": invalid input block name '" + *name + "'");
+                }
+                input.setName = *name;
+            }
+            ReadCommonInputAttributes(input, node, path, false);
+            return input;
+        }
+
+        auto AddTypedInput(std::vector<InputDeclaration> &inputs, InputDeclaration input, const fs::path &path, const std::string &declaringScope) -> void
+        {
+            input.declaringScope = declaringScope;
+            ValidateInputDeclaration(input, path);
+            AddInputDeclaration(inputs, std::move(input));
+        }
+
+        [[nodiscard]] auto InputFromTextLine(const std::string &line, const InputDeclaration &base) -> InputDeclaration
+        {
+            auto input = base;
+            input.path = line;
+            input.pattern.clear();
+            input.mode = "File";
+            input.name.clear();
+            input.target.clear();
+            input.overrideExisting = false;
+            return input;
+        }
+
+        [[nodiscard]] auto InputFromBlockAttributes(const InputDeclaration &base) -> std::optional<InputDeclaration>
+        {
+            const auto hasPath = !base.path.empty();
+            const auto hasInclude = !base.includePatterns.empty();
+            if (!hasPath && !hasInclude)
+            {
+                return std::nullopt;
+            }
+            auto input = base;
+            input.name.clear();
+            input.target.clear();
+            input.overrideExisting = false;
+            input.mode = hasPath ? "Directory" : "Glob";
+            if (!hasPath)
+            {
+                input.pattern = JoinPathList(input.includePatterns);
+            }
+            return input;
+        }
+
+        [[nodiscard]] auto ParseStructuredInputEntry(const XmlElement &node, const fs::path &path, const InputDeclaration &base) -> InputDeclaration
+        {
+            ValidateAllowedAttributes(node, path, {"Path", "Include", "Exclude", "BasePath", "Name", "Visibility", "Target", "TargetRoot", "ContentKind", "Required", "Override", "Profile", "Platform", "OperatingSystem", "Architecture", "BuildType", "Environment", "Condition"});
+            InputDeclaration input = base;
+            input.path.clear();
+            input.pattern.clear();
+            input.name.clear();
+            input.target.clear();
+            input.overrideExisting = false;
+            if (node.name == "File")
+            {
+                input.mode = "File";
+                input.path = RequireAttribute(node, "Path", path);
+            }
+            else if (node.name == "Directory")
+            {
+                input.mode = "Directory";
+                input.path = RequireAttribute(node, "Path", path);
+            }
+            else if (node.name == "Glob")
+            {
+                input.mode = "Glob";
+            }
+            ReadCommonInputAttributes(input, node, path, true);
+            if (input.mode == "Glob")
+            {
+                input.pattern = JoinPathList(input.includePatterns);
+            }
+            return input;
+        }
+
+        auto ApplyTypedInputBlock(const XmlElement &node, const fs::path &path, std::vector<InputDeclaration> &inputs, const std::string &declaringScope) -> void
+        {
+            ValidateAllowedAttributes(node, path, {"Name", "Role", "Path", "Include", "Exclude", "BasePath", "Visibility", "TargetRoot", "ContentKind", "Required", "Profile", "Platform", "OperatingSystem", "Architecture", "BuildType", "Environment", "Condition"});
+            auto base = TypedBlockBase(node, path);
+            if (const auto blockInput = InputFromBlockAttributes(base); blockInput.has_value())
+            {
+                AddTypedInput(inputs, *blockInput, path, declaringScope);
+            }
+            for (const auto &line : SplitTextPathLines(TextContent(node)))
+            {
+                AddTypedInput(inputs, InputFromTextLine(line, base), path, declaringScope);
+            }
+            for (const auto *child : ChildElements(node))
+            {
+                if (child->name == "Metadata")
+                {
+                    continue;
+                }
+                if (!IsStructuredInputEntry(child->name))
+                {
+                    throw std::runtime_error(path.string() + ": unsupported <" + std::string(node.name) + "> child <" + std::string(child->name) + ">");
+                }
+                AddTypedInput(inputs, ParseStructuredInputEntry(*child, path, base), path, declaringScope);
+            }
+        }
+
+        auto ApplyInputBlock(const XmlElement &parent, const fs::path &path, std::vector<InputDeclaration> &inputs, const std::string &declaringScope) -> void
+        {
+            if (FindChild(parent, "Sources") != nullptr)
+            {
+                throw std::runtime_error(path.string() + ": legacy top-level <Sources> is no longer supported; use <Inputs><Sources ... />");
+            }
+            if (FindChild(parent, "SourceRoots") != nullptr)
+            {
+                throw std::runtime_error(path.string() + ": legacy <SourceRoots> is no longer supported; use <Inputs><Sources Path=\"...\" />");
+            }
+            if (FindChild(parent, "Contents") != nullptr)
+            {
+                throw std::runtime_error(path.string() + ": legacy top-level <Contents> is no longer supported; use <Inputs><Contents ... />");
+            }
+            const auto *inputsElement = FindChild(parent, "Inputs");
+            if (inputsElement == nullptr)
+            {
+                return;
+            }
+            for (const auto *child : ChildElements(*inputsElement, "Remove"))
+            {
+                RemoveMatchingInputs(inputs, ParseInputRemove(*child, path));
+            }
+            for (const auto *child : ChildElements(*inputsElement))
+            {
+                if (child->name == "Remove")
+                {
+                    continue;
+                }
+                if (child->name == "Input" || child->name == "InputSet")
+                {
+                    throw std::runtime_error(path.string() + ": <Inputs><" + std::string(child->name) + "> is no longer supported; use typed input blocks");
+                }
+                if (child->name == "Config")
+                {
+                    throw std::runtime_error(path.string() + ": legacy <Inputs><Config> is no longer supported; use <Inputs><Configs>...</Configs></Inputs>");
+                }
+                if (IsTypedInputBlock(child->name))
+                {
+                    ApplyTypedInputBlock(*child, path, inputs, declaringScope);
+                    continue;
+                }
+                throw std::runtime_error(path.string() + ": unsupported <Inputs> child <" + std::string(child->name) + ">");
             }
         }
 
@@ -624,84 +1142,6 @@ namespace NGIN::CLI
             }
             setting.selectors = MergeSelectors(inheritedSelection, ParseSelection(node, path));
             return setting;
-        }
-
-        [[nodiscard]] auto ParseSourceEntry(const XmlElement &node, const fs::path &path, const SelectorSet &inheritedSelection = {}) -> SourceEntry
-        {
-            SourceEntry entry{};
-            entry.path = RequireAttribute(node, "Path", path);
-            entry.selectors = MergeSelectors(inheritedSelection, ParseSelection(node, path));
-            entry.includePatterns = OptionalPathListAttribute(node, "Include");
-            entry.excludePatterns = OptionalPathListAttribute(node, "Exclude");
-            return entry;
-        }
-
-        [[nodiscard]] auto ParseSourceFiles(const XmlElement &node, const fs::path &path, const SelectorSet &inheritedSelection = {}) -> std::vector<SourceEntry>
-        {
-            if (!ChildElements(node).empty())
-            {
-                throw std::runtime_error(path.string() + ": <Files> may contain only a line-separated file list");
-            }
-
-            std::vector<SourceEntry> entries{};
-            const auto selectors = MergeSelectors(inheritedSelection, ParseSelection(node, path));
-            for (const auto &filePath : SplitPathList(TextContent(node)))
-            {
-                SourceEntry entry{};
-                entry.path = filePath;
-                entry.selectors = selectors;
-                entries.push_back(std::move(entry));
-            }
-            if (entries.empty())
-            {
-                throw std::runtime_error(path.string() + ": <Files> must contain at least one file path");
-            }
-            return entries;
-        }
-
-        auto ParseSourceGroup(const XmlElement &group, const fs::path &path, SourceGroup &out) -> void
-        {
-            const auto inheritedSelection = ParseSelection(group, path);
-            for (const auto *child : ChildElements(group))
-            {
-                if (child->name == "Root")
-                {
-                    out.roots.push_back(ParseSourceEntry(*child, path, inheritedSelection));
-                    continue;
-                }
-                if (child->name == "File")
-                {
-                    out.files.push_back(ParseSourceEntry(*child, path, inheritedSelection));
-                    continue;
-                }
-                if (child->name == "Files")
-                {
-                    auto entries = ParseSourceFiles(*child, path, inheritedSelection);
-                    out.files.insert(out.files.end(), entries.begin(), entries.end());
-                    continue;
-                }
-                throw std::runtime_error(path.string() + ": unsupported <Sources><" + std::string(group.name) + "> child <" + std::string(child->name) + ">");
-            }
-        }
-
-        [[nodiscard]] auto ParseProjectSources(const XmlElement &sources, const fs::path &path) -> ProjectSources
-        {
-            ProjectSources parsed{};
-            for (const auto *child : ChildElements(sources))
-            {
-                if (child->name == "Public")
-                {
-                    ParseSourceGroup(*child, path, parsed.publicSources);
-                    continue;
-                }
-                if (child->name == "Private")
-                {
-                    ParseSourceGroup(*child, path, parsed.privateSources);
-                    continue;
-                }
-                throw std::runtime_error(path.string() + ": unsupported <Sources> child <" + std::string(child->name) + ">");
-            }
-            return parsed;
         }
 
         [[nodiscard]] auto IsConditionNodeName(const std::string_view name) -> bool
@@ -982,18 +1422,14 @@ namespace NGIN::CLI
             }
         }
 
-        auto ValidateSourceGroupConditionRefs(
-            const SourceGroup &group,
+        auto ValidateInputConditionRefs(
+            const std::vector<InputDeclaration> &inputs,
             const std::unordered_map<std::string, const ConditionDefinition *> &conditions,
             const fs::path &path) -> void
         {
-            for (const auto &root : group.roots)
+            for (const auto &input : inputs)
             {
-                ValidateSelectionConditionRefs(root.selectors, conditions, path);
-            }
-            for (const auto &file : group.files)
-            {
-                ValidateSelectionConditionRefs(file.selectors, conditions, path);
+                ValidateSelectionConditionRefs(input.selectors, conditions, path);
             }
         }
 
@@ -1054,10 +1490,14 @@ namespace NGIN::CLI
                 visit(condition.name);
             }
 
-            if (project.sources.has_value())
+            ValidateInputConditionRefs(project.inputs, conditions, path);
+            for (const auto &environment : project.environments)
             {
-                ValidateSourceGroupConditionRefs(project.sources->publicSources, conditions, path);
-                ValidateSourceGroupConditionRefs(project.sources->privateSources, conditions, path);
+                ValidateInputConditionRefs(environment.inputs, conditions, path);
+            }
+            for (const auto &profile : project.profiles)
+            {
+                ValidateInputConditionRefs(profile.inputs, conditions, path);
             }
             ValidateBuildSettingConditionRefs(project.build.includeDirectories, conditions, path);
             ValidateBuildSettingConditionRefs(project.build.compileDefinitions, conditions, path);
@@ -1370,7 +1810,7 @@ namespace NGIN::CLI
         {
             throw std::runtime_error(path.string() + ": root element must be <Package>");
         }
-        ValidateSchemaVersion(*rootElement, path);
+        ValidateSchemaVersion(*rootElement, path, "3");
 
         PackageManifest package{};
         package.path = path;
@@ -1439,7 +1879,7 @@ namespace NGIN::CLI
             package.bootstrap = std::move(descriptor);
         }
 
-        ParseContents(*rootElement, path, package.contents);
+        ApplyInputBlock(*rootElement, path, package.inputs, "package");
 
         if (const auto *modules = FindChild(*rootElement, "Modules"))
         {
@@ -1559,7 +1999,7 @@ namespace NGIN::CLI
             std::optional<LaunchDefinition> launch{};
             std::vector<ProjectReference> projectRefs{};
             std::vector<PackageReference> packageRefs{};
-            std::vector<std::string> configInputs{};
+            std::vector<InputDeclaration> inputs{};
             RuntimeDefinition runtime{};
         };
 
@@ -1741,7 +2181,7 @@ namespace NGIN::CLI
             {
                 ParseReferences(*references, path.parent_path(), path, profileTemplate.projectRefs, profileTemplate.packageRefs);
             }
-            ParseConfigInputs(node, path, profileTemplate.configInputs);
+            ApplyInputBlock(node, path, profileTemplate.inputs, "profile-template:" + profileTemplate.name);
             if (const auto *runtime = FindChild(node, "Runtime"))
             {
                 ParseRuntimeDefinition(*runtime, path, profileTemplate.runtime, true);
@@ -1948,7 +2388,7 @@ namespace NGIN::CLI
             }
             profile.projectRefs.insert(profile.projectRefs.end(), profileTemplate.projectRefs.begin(), profileTemplate.projectRefs.end());
             profile.packageRefs.insert(profile.packageRefs.end(), profileTemplate.packageRefs.begin(), profileTemplate.packageRefs.end());
-            profile.configInputs.insert(profile.configInputs.end(), profileTemplate.configInputs.begin(), profileTemplate.configInputs.end());
+            profile.inputs.insert(profile.inputs.end(), profileTemplate.inputs.begin(), profileTemplate.inputs.end());
             MergeRuntime(profile.runtime, profileTemplate.runtime);
             stack.pop_back();
         }
@@ -2002,24 +2442,7 @@ namespace NGIN::CLI
         }
         project.conditions = ParseConditions(*rootElement, path);
 
-        const auto *sourceRoots = FindChild(*rootElement, "SourceRoots");
-        const auto *sources = FindChild(*rootElement, "Sources");
-        if (sourceRoots != nullptr && sources != nullptr)
-        {
-            throw std::runtime_error(path.string() + ": project may not declare both <SourceRoots> and <Sources>; use one source declaration model");
-        }
-
-        if (sourceRoots != nullptr)
-        {
-            for (const auto *node : ChildElements(*sourceRoots, "SourceRoot"))
-            {
-                project.sourceRoots.push_back(RequireAttribute(*node, "Path", path));
-            }
-        }
-        if (sources != nullptr)
-        {
-            project.sources = ParseProjectSources(*sources, path);
-        }
+        ApplyInputBlock(*rootElement, path, project.inputs, "project");
 
         const auto *output = FindChild(*rootElement, "Output");
         project.output.kind = output != nullptr ? Attribute(*output, "Kind").value_or(projectTemplate.outputKind) : projectTemplate.outputKind;
@@ -2061,7 +2484,6 @@ namespace NGIN::CLI
             ParseReferences(*references, path.parent_path(), path, project.projectRefs, project.packageRefs);
         }
 
-        ParseConfigInputs(*rootElement, path, project.configInputs);
         ParseLocalSettingsImports(*rootElement, path, project.localSettingsImports);
 
         if (const auto *runtime = FindChild(*rootElement, "Runtime"))
@@ -2079,8 +2501,7 @@ namespace NGIN::CLI
                 {
                     ParseReferences(*references, path.parent_path(), path, environment.projectRefs, environment.packageRefs);
                 }
-                ParseConfigInputs(*node, path, environment.configInputs);
-                ParseContents(*node, path, environment.contents);
+                ApplyInputBlock(*node, path, environment.inputs, "environment:" + environment.name);
                 ParseVariables(*node, path, environment.variables);
                 ParseFeatures(*node, path, environment.features);
                 if (const auto *runtime = FindChild(*node, "Runtime"))
@@ -2183,7 +2604,7 @@ namespace NGIN::CLI
             {
                 throw std::runtime_error(path.string() + ": profile runtime selections must be nested under <Runtime>");
             }
-            ParseConfigInputs(*node, path, profile.configInputs);
+            ApplyInputBlock(*node, path, profile.inputs, "profile:" + profile.name);
             if (const auto *references = FindChild(*node, "References"))
             {
                 ParseReferences(*references, path.parent_path(), path, profile.projectRefs, profile.packageRefs);

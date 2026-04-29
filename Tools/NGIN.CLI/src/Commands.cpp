@@ -410,13 +410,21 @@ namespace NGIN::CLI
             }
             std::cout << "\n";
         }
-        std::cout << "  contents: " << manifest.contents.size() << "\n";
-        for (const auto &content : manifest.contents)
+        std::cout << "  inputs: " << manifest.inputs.size() << "\n";
+        for (const auto &input : manifest.inputs)
         {
-            std::cout << "    - " << content.source << " [" << content.kind << "]";
-            if (!content.target.empty())
+            std::cout << "    - " << (input.path.empty() ? input.pattern : input.path) << " [" << input.kind << "]";
+            if (!input.role.empty())
             {
-                std::cout << " -> " << content.target;
+                std::cout << ":" << input.role;
+            }
+            if (!input.target.empty())
+            {
+                std::cout << " -> " << input.target;
+            }
+            else if (!input.targetRoot.empty())
+            {
+                std::cout << " -> " << input.targetRoot << "/";
             }
             std::cout << "\n";
         }

@@ -17,7 +17,7 @@ import {
   getWorkingDirectoryCandidates,
   parseCliDiagnostics
 } from './core/helpers';
-import { addRootConfigInput, relativeManifestPath, removeConfigInputs, renameConfigInputs } from './core/projectAuthoring';
+import { addRootConfigInput, listConfigInputs, relativeManifestPath, removeConfigInputs, renameConfigInputs } from './core/projectAuthoring';
 import { createNativeDebugConfiguration, quoteShellArgument } from './core/debug';
 import { LaunchManifest, ProjectManifest } from './core/types';
 import { parseLaunchManifest, parseLocalSettingsManifest, parseProjectManifest } from './core/xml';
@@ -1306,9 +1306,7 @@ class NginController implements vscode.Disposable {
     }
 
     let nextXml = manifestXml;
-    const configPattern = /<Config\b[^>]*\bPath=(["'])(.*?)\1[^>]*\/?>/g;
-    for (const match of renamed.xml.matchAll(configPattern)) {
-      const source = match[2];
+    for (const source of listConfigInputs(renamed.xml)) {
       if (source.startsWith(`${relativeManifestPath(projectDirectory, toPath)}/`)) {
         nextXml = addRootConfigInput(nextXml, source).xml;
       }

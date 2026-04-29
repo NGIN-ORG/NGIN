@@ -17,6 +17,6 @@ if(ngin_validate_result EQUAL 0)
   message(FATAL_ERROR "expected ProjectRef config collision validation failure but command succeeded")
 endif()
 
-if(NOT ngin_validate_stdout MATCHES "config input destination collision")
+if(NOT ngin_validate_stdout MATCHES "input destination collision")
   message(FATAL_ERROR "expected collision message was not reported\nstdout:\n${ngin_validate_stdout}\nstderr:\n${ngin_validate_stderr}")
 endif()

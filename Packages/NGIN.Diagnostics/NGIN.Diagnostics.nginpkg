@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Package SchemaVersion="2"
+<Package SchemaVersion="3"
          Name="NGIN.Diagnostics"
          Version="0.1.0"
          CompatiblePlatformRange=">=0.1.0-alpha.1 &lt;0.2.0">
@@ -14,9 +14,12 @@
     <PackageRef Name="NGIN.Log" VersionRange=">=0.1.0 &lt;0.2.0" Optional="false" />
     <PackageRef Name="NGIN.Reflection" VersionRange=">=0.1.0 &lt;0.2.0" Optional="true" />
   </Dependencies>
-  <Contents>
-    <File Source="config/diagnostics.defaults.xml" Target="config/diagnostics.defaults.xml" Kind="config" />
-  </Contents>
+  <Inputs>
+    <Contents ContentKind="config">
+      <File Path="config/diagnostics.defaults.xml"
+            Target="config/diagnostics.defaults.xml" />
+    </Contents>
+  </Inputs>
   <Modules />
   <Plugins>
     <Plugin Name="NGIN.Diagnostics">

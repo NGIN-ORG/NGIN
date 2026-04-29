@@ -7,6 +7,7 @@ import {
   PackageReference,
   LocalSettingsManifest,
   ModelDefaults,
+  InputDeclaration,
   ProjectProfile,
   ProjectProfileTemplate,
   ProjectManifest,
@@ -29,16 +30,6 @@ function asArray<T>(value: T | T[] | undefined): T[] {
   return Array.isArray(value) ? value : [value];
 }
 
-function parseConfigInputs(node: unknown): string[] {
-  const parent = node as { Inputs?: { Config?: unknown } } | undefined;
-  return asArray(parent?.Inputs?.Config)
-    .map((entry) => {
-      const config = entry as { Path?: string; Pattern?: string } | undefined;
-      return config?.Path ?? config?.Pattern;
-    })
-    .filter((entry): entry is string => Boolean(entry));
-}
-
 function splitPathList(text: string | undefined): string[] {
   if (!text) {
     return [];
@@ -47,6 +38,206 @@ function splitPathList(text: string | undefined): string[] {
     .split(/[\r\n;,]+/)
     .map((entry) => entry.trim())
     .filter((entry) => entry.length > 0);
+}
+
+function parseBool(value: unknown, fallback = true): boolean {
+  if (value === undefined || value === null || value === '') {
+    return fallback;
+  }
+  return value === true || value === 'true' || value === '1' || value === 'yes';
+}
+
+interface TypedInputNode {
+  Name?: string;
+  Role?: string;
+  Path?: string;
+  Mode?: string;
+  Visibility?: string;
+  Target?: string;
+  TargetRoot?: string;
+  BasePath?: string;
+  ContentKind?: string;
+  Required?: string | boolean;
+  Profile?: string;
+  Platform?: string;
+  OperatingSystem?: string;
+  Architecture?: string;
+  BuildType?: string;
+  Environment?: string;
+  Condition?: string;
+  Include?: string;
+  Exclude?: string;
+  File?: unknown;
+  Directory?: unknown;
+  Glob?: unknown;
+  '#text'?: string;
+}
+
+function splitTextLines(text: string | undefined): string[] {
+  if (!text) {
+    return [];
+  }
+  return text
+    .split(/\r?\n/)
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0 && !entry.startsWith('#'));
+}
+
+function typedBlockBase(name: string, node: TypedInputNode): Partial<InputDeclaration> | undefined {
+  if (name === 'Sources') {
+    return { kind: 'Source', role: 'Source', visibility: 'Private' };
+  }
+  if (name === 'Headers') {
+    return { kind: 'Source', role: 'Header', visibility: 'Public' };
+  }
+  if (name === 'Configs') {
+    return { kind: 'Config', visibility: 'Private' };
+  }
+  if (name === 'Contents') {
+    return { kind: 'Content', visibility: 'Private' };
+  }
+  if (name === 'Assets') {
+    return { kind: 'Asset', visibility: 'Private' };
+  }
+  if (name === 'ToolInputs') {
+    return { kind: 'ToolInput', visibility: 'Private' };
+  }
+  if (name === 'Generated') {
+    return { kind: 'Generated', role: node.Role, visibility: 'Private' };
+  }
+  return undefined;
+}
+
+function parseInputEntry(entry: unknown, inherited: Partial<InputDeclaration>): InputDeclaration | undefined {
+  const node = entry as TypedInputNode | undefined;
+  const include = node?.Include ? splitPathList(node.Include) : inherited.include;
+  const mode = node?.Mode ?? inherited.mode ?? (node?.Path ? 'File' : include && include.length > 0 ? 'Glob' : undefined);
+  if (!inherited.kind || !mode) {
+    return undefined;
+  }
+  if ((mode === 'File' || mode === 'Directory') && !node?.Path && !inherited.path) {
+    return undefined;
+  }
+  if (mode === 'Glob' && (!include || include.length === 0)) {
+    return undefined;
+  }
+  return {
+    ...inherited,
+    name: node?.Name ?? inherited.name,
+    kind: inherited.kind,
+    role: inherited.role,
+    path: node?.Path ?? inherited.path,
+    pattern: mode === 'Glob' ? include.join(';') : inherited.pattern,
+    mode,
+    visibility: node?.Visibility ?? inherited.visibility ?? 'Private',
+    target: node?.Target ?? inherited.target,
+    targetRoot: node?.TargetRoot ?? inherited.targetRoot,
+    basePath: node?.BasePath ?? inherited.basePath,
+    contentKind: node?.ContentKind ?? inherited.contentKind,
+    required: parseBool(node?.Required, inherited.required ?? true),
+    profile: node?.Profile ?? inherited.profile,
+    platform: node?.Platform ?? inherited.platform,
+    operatingSystem: node?.OperatingSystem ?? inherited.operatingSystem,
+    architecture: node?.Architecture ?? inherited.architecture,
+    buildType: node?.BuildType ?? inherited.buildType,
+    environment: node?.Environment ?? inherited.environment,
+    condition: node?.Condition ?? inherited.condition,
+    include,
+    exclude: node?.Exclude ? splitPathList(node.Exclude) : inherited.exclude,
+    setName: inherited.setName
+  };
+}
+
+function parseInputs(node: unknown): InputDeclaration[] {
+  const parent = node as { Inputs?: Record<string, unknown> } | undefined;
+  const result: InputDeclaration[] = [];
+  const inputs = parent?.Inputs;
+  if (!inputs) {
+    return result;
+  }
+  for (const [blockName, blockValue] of Object.entries(inputs)) {
+    if (!typedBlockBase(blockName, {})) {
+      continue;
+    }
+    for (const block of asArray(blockValue)) {
+      const blockNode = block as TypedInputNode;
+      const base = typedBlockBase(blockName, blockNode);
+      if (!base) {
+        continue;
+      }
+      const inherited: Partial<InputDeclaration> = {
+        ...base,
+        setName: blockNode.Name,
+        visibility: blockNode.Visibility ?? base.visibility,
+        targetRoot: blockNode.TargetRoot,
+        basePath: blockNode.BasePath,
+        contentKind: blockNode.ContentKind,
+        required: parseBool(blockNode.Required, true),
+        profile: blockNode.Profile,
+        platform: blockNode.Platform,
+        operatingSystem: blockNode.OperatingSystem,
+        architecture: blockNode.Architecture,
+        buildType: blockNode.BuildType,
+        environment: blockNode.Environment,
+        condition: blockNode.Condition,
+        include: blockNode.Include ? splitPathList(blockNode.Include) : undefined,
+        exclude: blockNode.Exclude ? splitPathList(blockNode.Exclude) : undefined
+      };
+      if (blockNode.Path || inherited.include) {
+        const input = parseInputEntry(
+          { Path: blockNode.Path, Mode: blockNode.Path ? 'Directory' : 'Glob', Include: blockNode.Include, Exclude: blockNode.Exclude },
+          inherited
+        );
+        if (input) {
+          result.push(input);
+        }
+      }
+      for (const line of splitTextLines(textContent(block))) {
+        const input = parseInputEntry({ Path: line, Mode: 'File' }, inherited);
+        if (input) {
+          result.push(input);
+        }
+      }
+      for (const entry of asArray(blockNode.File)) {
+        const input = parseInputEntry({ ...(entry as object), Mode: 'File' }, inherited);
+        if (input) {
+          result.push(input);
+        }
+      }
+      for (const entry of asArray(blockNode.Directory)) {
+        const input = parseInputEntry({ ...(entry as object), Mode: 'Directory' }, inherited);
+        if (input) {
+          result.push(input);
+        }
+      }
+      for (const entry of asArray(blockNode.Glob)) {
+        const input = parseInputEntry({ ...(entry as object), Mode: 'Glob' }, inherited);
+        if (input) {
+          result.push(input);
+        }
+      }
+    }
+  }
+  return result;
+}
+
+function configInputsFrom(inputs: InputDeclaration[]): string[] {
+  return inputs
+    .filter((entry) => entry.kind === 'Config')
+    .map((entry) => entry.path ?? entry.pattern)
+    .filter((entry): entry is string => Boolean(entry));
+}
+
+function sourceRootsFrom(inputs: InputDeclaration[]): string[] {
+  return inputs
+    .filter((entry) => (entry.kind === 'Source' || (entry.kind === 'Generated' && entry.role === 'Source')) && entry.mode === 'Directory' && Boolean(entry.path))
+    .map((entry) => entry.path as string);
+}
+
+function buildSourcesFrom(inputs: InputDeclaration[]): string[] {
+  return inputs
+    .filter((entry) => (entry.kind === 'Source' || (entry.kind === 'Generated' && entry.role === 'Source')) && entry.mode === 'File' && Boolean(entry.path))
+    .map((entry) => entry.path as string);
 }
 
 function textContent(node: unknown): string | undefined {
@@ -158,7 +349,8 @@ function parseProfileTemplates(root: { ProfileTemplates?: { ProfileTemplate?: un
       environment: node.Environment,
       launchExecutable: node.Launch?.Executable,
       launchWorkingDirectory: node.Launch?.WorkingDirectory,
-      configInputs: parseConfigInputs(entry),
+      inputs: parseInputs(entry),
+      configInputs: configInputsFrom(parseInputs(entry)),
       projectRefs: parseProjectReferences(entry, baseDirectory),
       packageRefs: parsePackageReferences(entry)
     };
@@ -194,6 +386,7 @@ function applyProfileTemplate(
   target.environment = template.environment ?? target.environment;
   target.launchExecutable = template.launchExecutable ?? target.launchExecutable;
   target.launchWorkingDirectory = template.launchWorkingDirectory ?? target.launchWorkingDirectory;
+  target.inputs = [...(target.inputs ?? []), ...template.inputs];
   target.configInputs = [...(target.configInputs ?? []), ...template.configInputs];
   target.projectRefs = [...(target.projectRefs ?? []), ...(template.projectRefs ?? [])];
   target.packageRefs = [...(target.packageRefs ?? []), ...(template.packageRefs ?? [])];
@@ -291,6 +484,7 @@ export function parseProjectManifest(xml: string, manifestPath: string, options:
       operatingSystem: projectDefaults?.operatingSystem,
       architecture: projectDefaults?.architecture,
       environment: projectDefaults?.environment,
+      inputs: [],
       configInputs: []
     };
     applyProfileTemplate(result, profile?.Template, profileTemplates);
@@ -304,34 +498,17 @@ export function parseProjectManifest(xml: string, manifestPath: string, options:
     if (result.launchExecutable === '$(OutputName)') {
       result.launchExecutable = root.Output?.Name ?? root.Name;
     }
-    result.configInputs = [...result.configInputs, ...parseConfigInputs(entry)];
+    result.inputs = [...result.inputs, ...parseInputs(entry)];
+    result.configInputs = configInputsFrom(result.inputs);
     result.projectRefs = [...(result.projectRefs ?? []), ...parseProjectReferences(entry, path.dirname(manifestPath))];
     result.packageRefs = [...(result.packageRefs ?? []), ...parsePackageReferences(entry)];
     return result;
   }).filter((entry) => Boolean(entry.name));
 
-  const sourceRoots = asArray(root.SourceRoots?.SourceRoot)
-    .map((entry) => entry?.Path as string | undefined)
-    .filter((entry): entry is string => Boolean(entry));
-  const typedSourceRoots = [
-    ...asArray(root.Sources?.Public?.Root),
-    ...asArray(root.Sources?.Private?.Root)
-  ]
-    .map((entry) => entry?.Path as string | undefined)
-    .filter((entry): entry is string => Boolean(entry));
+  const inputs = parseInputs(root);
   const buildSources = asArray(root.Build?.Sources?.Source)
     .map((entry) => entry?.Path as string | undefined)
     .filter((entry): entry is string => Boolean(entry));
-  const typedSourceFiles = [
-    ...asArray(root.Sources?.Public?.File),
-    ...asArray(root.Sources?.Private?.File)
-  ]
-    .map((entry) => entry?.Path as string | undefined)
-    .filter((entry): entry is string => Boolean(entry));
-  const typedSourceFileLists = [
-    ...asArray(root.Sources?.Public?.Files),
-    ...asArray(root.Sources?.Private?.Files)
-  ].flatMap((entry) => splitPathList(textContent(entry)));
 
   return {
     path: manifestPath,
@@ -340,10 +517,11 @@ export function parseProjectManifest(xml: string, manifestPath: string, options:
     defaultProfile: root.DefaultProfile,
     modelIncludes: parseModelIncludes(root, path.dirname(manifestPath)),
     defaults: projectDefaults,
-    sourceRoots: [...sourceRoots, ...typedSourceRoots],
-    configInputs: parseConfigInputs(root),
+    inputs,
+    sourceRoots: sourceRootsFrom(inputs),
+    configInputs: configInputsFrom(inputs),
     localSettingsImports: parseLocalSettingsImports(root, path.dirname(manifestPath)),
-    buildSources: [...buildSources, ...typedSourceFiles, ...typedSourceFileLists],
+    buildSources: [...buildSources, ...buildSourcesFrom(inputs)],
     projectRefs: parseProjectReferences(root, path.dirname(manifestPath)),
     packageRefs: parsePackageReferences(root),
     profiles

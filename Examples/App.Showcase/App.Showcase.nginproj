@@ -2,11 +2,12 @@
 <Project SchemaVersion="3"
          Name="App.Showcase"
          DefaultProfile="Runtime">
-  <Sources>
-    <Private>
-      <Root Path="src" />
-    </Private>
-  </Sources>
+  <Inputs>
+    <Sources Path="src" />
+    <Configs>
+      config/app.cfg
+    </Configs>
+  </Inputs>
   <Output Kind="Executable"
           Name="App.Showcase"
           Target="App.Showcase" />
@@ -22,9 +23,6 @@
   <References>
     <Package Name="NGIN.Core" Version=">=0.1.0 &lt;0.2.0" Optional="false" />
   </References>
-  <Inputs>
-    <Config Path="config/app.cfg" />
-  </Inputs>
   <Environments>
     <Environment Name="Dev" />
     <Environment Name="Diagnostics">
@@ -171,7 +169,9 @@
                    Environment="Dev">
       <Launch Executable="App.Showcase" WorkingDirectory="." />
       <Inputs>
-        <Config Path="config/configurations/runtime.cfg" />
+        <Configs>
+          config/configurations/runtime.cfg
+        </Configs>
       </Inputs>
     </Profile>
     <Profile Name="Runtime.DevTools"
@@ -180,7 +180,9 @@
                    Environment="Dev">
       <Launch Executable="App.Showcase" WorkingDirectory="." />
       <Inputs>
-        <Config Path="config/configurations/runtime.devtools.cfg" />
+        <Configs>
+          config/configurations/runtime.devtools.cfg
+        </Configs>
       </Inputs>
       <Runtime>
         <EnableModules>
@@ -194,7 +196,9 @@
                    Environment="Diagnostics">
       <Launch Executable="App.Showcase" WorkingDirectory="." />
       <Inputs>
-        <Config Path="config/configurations/runtime.diagnostics.cfg" />
+        <Configs>
+          config/configurations/runtime.diagnostics.cfg
+        </Configs>
       </Inputs>
       <Runtime>
         <EnableModules>
@@ -209,7 +213,9 @@
                    EnableReflection="true">
       <Launch Executable="App.Showcase" WorkingDirectory="." />
       <Inputs>
-        <Config Path="config/configurations/runtime.reflection.cfg" />
+        <Configs>
+          config/configurations/runtime.reflection.cfg
+        </Configs>
       </Inputs>
       <Runtime>
         <EnableModules>
@@ -223,7 +229,9 @@
                    Environment="Staging">
       <Launch Executable="App.Showcase" WorkingDirectory="." />
       <Inputs>
-        <Config Path="config/configurations/service.cfg" />
+        <Configs>
+          config/configurations/service.cfg
+        </Configs>
       </Inputs>
       <Runtime>
         <EnableModules>

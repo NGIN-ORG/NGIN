@@ -2,11 +2,9 @@
 <Project SchemaVersion="3"
          Name="App.ReflectionMetaGen"
          DefaultProfile="Runtime">
-  <Sources>
-    <Private>
-      <Root Path="src" />
-    </Private>
-  </Sources>
+  <Inputs>
+    <Sources Path="src" />
+  </Inputs>
   <Output Kind="Executable"
           Name="App.ReflectionMetaGen"
           Target="App.ReflectionMetaGen" />

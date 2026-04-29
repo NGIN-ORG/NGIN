@@ -107,7 +107,7 @@ test('model and project parsing apply V3 defaults and profile templates', () => 
       '  <ProfileTemplates>',
       '    <ProfileTemplate Name="RuntimeDefaults">',
       '      <Launch Executable="$(OutputName)" WorkingDirectory="." />',
-      '      <Inputs><Config Path="config/template.cfg" /></Inputs>',
+      '      <Inputs><Configs>config/template.cfg</Configs></Inputs>',
       '    </ProfileTemplate>',
       '  </ProfileTemplates>',
       '</Model>'
@@ -129,7 +129,7 @@ test('model and project parsing apply V3 defaults and profile templates', () => 
 
 test('project manifests parse profiles, launch metadata, and local settings imports', () => {
   const project = parseProjectManifest(
-    '<?xml version="1.0" encoding="utf-8"?><Project Name="App.Basic" DefaultProfile="Runtime"><SourceRoots><SourceRoot Path="src" /></SourceRoots><Build><Sources><Source Path="src/main.cpp" /></Sources></Build><References><Project Path="../Game.Engine/Game.Engine.nginproj" /><Package Name="NGIN.Core" /></References><Inputs><Config Path="config/app.cfg" /></Inputs><LocalSettings><Import Path=".ngin/local/user.nginsettings" Optional="true" /></LocalSettings><Profiles><Profile Name="Runtime" BuildType="Debug" OperatingSystem="linux" Architecture="x64" Environment="development"><Launch Executable="App.Basic" WorkingDirectory="." /><References><Package Name="NGIN.Reflection" Optional="true" /></References><Inputs><Config Path="config/runtime.cfg" /></Inputs></Profile></Profiles></Project>',
+    '<?xml version="1.0" encoding="utf-8"?><Project Name="App.Basic" DefaultProfile="Runtime"><Inputs><Sources Path="src" /><Configs>config/app.cfg</Configs></Inputs><Build><Sources><Source Path="src/main.cpp" /></Sources></Build><References><Project Path="../Game.Engine/Game.Engine.nginproj" /><Package Name="NGIN.Core" /></References><LocalSettings><Import Path=".ngin/local/user.nginsettings" Optional="true" /></LocalSettings><Profiles><Profile Name="Runtime" BuildType="Debug" OperatingSystem="linux" Architecture="x64" Environment="development"><Launch Executable="App.Basic" WorkingDirectory="." /><References><Package Name="NGIN.Reflection" Optional="true" /></References><Inputs><Configs>config/runtime.cfg</Configs></Inputs></Profile></Profiles></Project>',
     '/repo/Examples/App.Basic/App.Basic.nginproj'
   );
 
@@ -147,13 +147,10 @@ test('project manifests parse profiles, launch metadata, and local settings impo
   assert.equal(project.profiles[0].architecture, 'x64');
 });
 
-test('project manifests parse typed source roots and files', () => {
+test('project manifests parse normalized source roots and files', () => {
   const project = parseProjectManifest(
     [
-      '<?xml version="1.0" encoding="utf-8"?><Project Name="Typed" DefaultProfile="Runtime"><Sources><Public><Root Path="include" /><File Path="include/Typed/App.hpp" /></Public><Private><Root Path="src" /><File Path="src/main.cpp" /><Files>',
-      'src/a.cpp',
-      'src/b.cpp',
-      '</Files></Private></Sources><Profiles><Profile Name="Runtime" /></Profiles></Project>'
+      '<?xml version="1.0" encoding="utf-8"?><Project Name="Typed" DefaultProfile="Runtime"><Inputs><Headers Path="include">include/Typed/App.hpp</Headers><Sources Path="src">src/main.cpp\nsrc/a.cpp\nsrc/b.cpp</Sources></Inputs><Profiles><Profile Name="Runtime" /></Profiles></Project>'
     ].join('\n'),
     '/repo/Typed.nginproj'
   );
@@ -206,16 +203,16 @@ test('config input authoring inserts root config inputs once', () => {
   const xml = [
     '<?xml version="1.0" encoding="utf-8"?>',
     '<Project Name="App.Basic">',
-    '  <SourceRoots>',
-    '    <SourceRoot Path="src" />',
-    '  </SourceRoots>',
+    '  <Inputs>',
+    '    <Sources Path="src" />',
+    '  </Inputs>',
     '  <Profiles />',
     '</Project>'
   ].join('\n');
 
   const added = addRootConfigInput(xml, 'config/new.cfg');
   assert.equal(added.changed, true);
-  assert.match(added.xml, /<Inputs>\n    <Config Path="config\/new.cfg" \/>\n  <\/Inputs>/);
+  assert.match(added.xml, /<Configs>[\s\S]*config\/new.cfg[\s\S]*<\/Configs>/);
 
   const duplicate = addRootConfigInput(added.xml, 'config/new.cfg');
   assert.equal(duplicate.changed, false);
@@ -230,15 +227,17 @@ test('config input authoring renames and removes nested config inputs', () => {
   const xml = [
     '<Project Name="App.Basic">',
     '  <Inputs>',
-    '    <Config Path="config/app.cfg" />',
-    '    <Config Path="config/nested/dev.cfg" />',
+    '    <Configs>',
+    '      config/app.cfg',
+    '      config/nested/dev.cfg',
+    '    </Configs>',
     '  </Inputs>',
     '</Project>'
   ].join('\n');
 
   const renamed = renameConfigInputs(xml, 'config/nested', 'config/copy', true);
   assert.equal(renamed.changed, true);
-  assert.match(renamed.xml, /Path="config\/copy\/dev\.cfg"/);
+  assert.match(renamed.xml, /config\/copy\/dev\.cfg/);
 
   const removed = removeConfigInputs(renamed.xml, 'config/copy', true);
   assert.equal(removed.changed, true);

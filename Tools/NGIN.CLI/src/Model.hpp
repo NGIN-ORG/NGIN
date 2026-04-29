@@ -32,13 +32,6 @@ namespace NGIN::CLI
         bool optional{false};
     };
 
-    struct ContentFile
-    {
-        std::string source{};
-        std::string kind{};
-        std::string target{};
-    };
-
     struct PackageBootstrapDescriptor
     {
         std::string mode{};
@@ -104,31 +97,52 @@ namespace NGIN::CLI
         ConditionNode body{};
     };
 
+    struct InputMetadataProperty
+    {
+        std::string name{};
+        std::string value{};
+    };
+
+    struct InputDeclaration
+    {
+        std::string name{};
+        std::string kind{};
+        std::string role{};
+        std::string path{};
+        std::string pattern{};
+        std::string mode{};
+        std::string visibility{"Private"};
+        std::string target{};
+        std::string targetRoot{};
+        std::string basePath{};
+        std::string contentKind{};
+        bool required{true};
+        bool overrideExisting{false};
+        SelectorSet selectors{};
+        std::vector<std::string> includePatterns{};
+        std::vector<std::string> excludePatterns{};
+        std::string setName{};
+        std::string declaringScope{};
+        std::vector<InputMetadataProperty> metadata{};
+    };
+
+    struct InputRemove
+    {
+        std::string name{};
+        std::string kind{};
+        std::string role{};
+        std::string path{};
+        std::string pattern{};
+        std::string mode{};
+        std::string visibility{};
+        std::string target{};
+    };
+
     struct BuildSetting
     {
         std::string value{};
         std::string visibility{"Private"};
         SelectorSet selectors{};
-    };
-
-    struct SourceEntry
-    {
-        std::string path{};
-        SelectorSet selectors{};
-        std::vector<std::string> includePatterns{};
-        std::vector<std::string> excludePatterns{};
-    };
-
-    struct SourceGroup
-    {
-        std::vector<SourceEntry> roots{};
-        std::vector<SourceEntry> files{};
-    };
-
-    struct ProjectSources
-    {
-        SourceGroup publicSources{};
-        SourceGroup privateSources{};
     };
 
     struct BuildVariable
@@ -238,18 +252,36 @@ namespace NGIN::CLI
         CompatibilityDefinition compatibility{};
         std::vector<PackageDependency> dependencies{};
         std::optional<PackageBootstrapDescriptor> bootstrap{};
-        std::vector<ContentFile> contents{};
+        std::vector<InputDeclaration> inputs{};
         std::vector<ModuleDescriptor> modules{};
         std::vector<PluginDescriptor> plugins{};
     };
 
-    struct ResolvedConfigInput
+    struct ResolvedInput
     {
-        std::string ownerProjectName{};
-        fs::path ownerProjectDirectory{};
+        std::string ownerKind{};
+        std::string ownerName{};
+        fs::path ownerDirectory{};
+        fs::path manifestPath{};
+        std::string declaringScope{};
+        std::string setName{};
+        std::string name{};
+        std::string kind{};
+        std::string role{};
         std::string source{};
-        fs::path stagedRelativePath{};
+        std::string pattern{};
+        std::string mode{};
+        std::string visibility{};
+        std::string target{};
+        std::string targetRoot{};
+        std::string basePath{};
+        std::string contentKind{};
+        bool required{true};
         fs::path absoluteSourcePath{};
+        fs::path stagedRelativePath{};
+        std::vector<std::string> includePatterns{};
+        std::vector<std::string> excludePatterns{};
+        std::vector<InputMetadataProperty> metadata{};
     };
 
     struct ResolvedBootstrap
@@ -307,8 +339,7 @@ namespace NGIN::CLI
         std::string name{};
         std::vector<ProjectReference> projectRefs{};
         std::vector<PackageReference> packageRefs{};
-        std::vector<std::string> configInputs{};
-        std::vector<ContentFile> contents{};
+        std::vector<InputDeclaration> inputs{};
         std::vector<EnvironmentVariable> variables{};
         std::vector<FeatureFlag> features{};
         RuntimeDefinition runtime{};
@@ -326,7 +357,7 @@ namespace NGIN::CLI
         LaunchDefinition launch{};
         std::vector<ProjectReference> projectRefs{};
         std::vector<PackageReference> packageRefs{};
-        std::vector<std::string> configInputs{};
+        std::vector<InputDeclaration> inputs{};
         RuntimeDefinition runtime{};
     };
 
@@ -336,14 +367,12 @@ namespace NGIN::CLI
         std::string name{};
         std::string type{};
         std::string defaultProfile{};
-        std::vector<std::string> sourceRoots{};
-        std::optional<ProjectSources> sources{};
+        std::vector<InputDeclaration> inputs{};
         std::vector<ConditionDefinition> conditions{};
         OutputDefinition output{};
         ProjectBuildDescriptor build{};
         std::vector<ProjectReference> projectRefs{};
         std::vector<PackageReference> packageRefs{};
-        std::vector<std::string> configInputs{};
         std::vector<LocalSettingsImport> localSettingsImports{};
         RuntimeDefinition runtime{};
         std::vector<EnvironmentDefinition> environments{};
@@ -355,16 +384,6 @@ namespace NGIN::CLI
         ProjectManifest project{};
         ProfileDefinition profile{};
         std::optional<EnvironmentDefinition> environment{};
-    };
-
-    struct ResolvedContentSource
-    {
-        std::string ownerProjectName{};
-        fs::path ownerProjectDirectory{};
-        std::string source{};
-        std::string kind{};
-        fs::path stagedRelativePath{};
-        fs::path absoluteSourcePath{};
     };
 
     struct ResolvedPackage
@@ -380,8 +399,7 @@ namespace NGIN::CLI
         ProjectManifest project{};
         ProfileDefinition profile{};
         std::vector<ResolvedProjectUnit> projectUnits{};
-        std::vector<ResolvedConfigInput> configInputs{};
-        std::vector<ResolvedContentSource> environmentContents{};
+        std::vector<ResolvedInput> inputs{};
         std::vector<EnvironmentVariable> environmentVariables{};
         std::vector<FeatureFlag> environmentFeatures{};
         std::vector<ResolvedBootstrap> bootstraps{};

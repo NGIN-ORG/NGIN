@@ -5,6 +5,7 @@
 #include <NGIN/Serialization/XML/XmlParser.hpp>
 
 #include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <optional>
 #include <set>
@@ -787,33 +788,306 @@ namespace NGIN::Core
       return output;
     }
 
-    auto ParseConfigInputs(const XmlElement &element, const std::string_view context,
-                           std::vector<std::string> &out) -> CoreResult<void>
+    [[nodiscard]] auto SplitPathList(const std::string &value)
+        -> std::vector<std::string>
     {
+      std::vector<std::string> items{};
+      std::string current{};
+      std::istringstream stream(value);
+      while (std::getline(stream, current, ','))
+      {
+        current.erase(current.begin(),
+                      std::find_if(current.begin(), current.end(),
+                                   [](const unsigned char ch)
+                                   { return !std::isspace(ch); }));
+        current.erase(std::find_if(current.rbegin(), current.rend(),
+                                   [](const unsigned char ch)
+                                   { return !std::isspace(ch); })
+                          .base(),
+                      current.end());
+        if (!current.empty())
+        {
+          items.push_back(current);
+        }
+      }
+      return items;
+    }
+
+    [[nodiscard]] auto IsSupportedInputKind(const std::string &kind) -> bool
+    {
+      return kind == "Source" || kind == "Config" || kind == "Content" ||
+             kind == "Asset" || kind == "Generated" || kind == "ToolInput";
+    }
+
+    [[nodiscard]] auto IsSupportedInputMode(const std::string &mode) -> bool
+    {
+      return mode == "Directory" || mode == "File" || mode == "Glob";
+    }
+
+    [[nodiscard]] auto IsSupportedGeneratedRole(const std::string &role) -> bool
+    {
+      return role == "Source" || role == "Content" || role == "Asset" ||
+             role == "ToolInput";
+    }
+
+    [[nodiscard]] auto IsTypedInputBlock(const std::string_view name) -> bool
+    {
+      return name == "Sources" || name == "Headers" || name == "Configs" ||
+             name == "Contents" || name == "Assets" || name == "Generated" ||
+             name == "ToolInputs";
+    }
+
+    [[nodiscard]] auto TextContent(const XmlElement &element) -> std::string
+    {
+      std::string text{};
+      for (NGIN::UIntSize index = 0; index < element.children.Size(); ++index)
+      {
+        const auto &child = element.children[index];
+        if (child.type == XmlNode::Type::Text || child.type == XmlNode::Type::CData)
+        {
+          text.append(child.text.data(), child.text.size());
+        }
+      }
+      return text;
+    }
+
+    [[nodiscard]] auto SplitTextPathLines(const std::string_view text)
+        -> std::vector<std::string>
+    {
+      std::vector<std::string> entries{};
+      std::string current{};
+      auto flush = [&]()
+      {
+        auto first = std::find_if(current.begin(), current.end(),
+                                  [](const unsigned char ch)
+                                  { return !std::isspace(ch); });
+        auto last = std::find_if(current.rbegin(), current.rend(),
+                                 [](const unsigned char ch)
+                                 { return !std::isspace(ch); })
+                        .base();
+        std::string value = first < last ? std::string(first, last) : std::string{};
+        current.clear();
+        if (!value.empty() && value.front() != '#')
+        {
+          entries.push_back(std::move(value));
+        }
+      };
+      for (const char ch : text)
+      {
+        if (ch == '\n' || ch == '\r')
+        {
+          flush();
+          continue;
+        }
+        current.push_back(ch);
+      }
+      flush();
+      return entries;
+    }
+
+    [[nodiscard]] auto JoinPathList(const std::vector<std::string> &entries)
+        -> std::string
+    {
+      std::string joined{};
+      for (const auto &entry : entries)
+      {
+        if (!joined.empty())
+        {
+          joined += ";";
+        }
+        joined += entry;
+      }
+      return joined;
+    }
+
+    [[nodiscard]] auto ReadInputAttributes(const XmlElement &element,
+                                           const std::string_view context,
+                                           InputDeclaration input = {})
+        -> CoreResult<InputDeclaration>
+    {
+      if (auto value = OptionalAttribute(element, "Path", context, input.path); !value) { return NGIN::Utilities::Unexpected<KernelError>(value.Error()); } else { input.path = value.Value(); }
+      if (auto value = OptionalAttribute(element, "Name", context, input.name); !value) { return NGIN::Utilities::Unexpected<KernelError>(value.Error()); } else { input.name = value.Value(); }
+      if (auto value = OptionalAttribute(element, "Mode", context, input.mode); !value) { return NGIN::Utilities::Unexpected<KernelError>(value.Error()); } else { input.mode = value.Value(); }
+      if (auto value = OptionalAttribute(element, "Visibility", context, input.visibility); !value) { return NGIN::Utilities::Unexpected<KernelError>(value.Error()); } else { input.visibility = value.Value().empty() ? input.visibility : value.Value(); }
+      if (auto value = OptionalAttribute(element, "Target", context, input.target); !value) { return NGIN::Utilities::Unexpected<KernelError>(value.Error()); } else { input.target = value.Value(); }
+      if (auto value = OptionalAttribute(element, "TargetRoot", context, input.targetRoot); !value) { return NGIN::Utilities::Unexpected<KernelError>(value.Error()); } else { input.targetRoot = value.Value(); }
+      if (auto value = OptionalAttribute(element, "BasePath", context, input.basePath); !value) { return NGIN::Utilities::Unexpected<KernelError>(value.Error()); } else { input.basePath = value.Value(); }
+      if (auto value = OptionalAttribute(element, "ContentKind", context, input.contentKind); !value) { return NGIN::Utilities::Unexpected<KernelError>(value.Error()); } else { input.contentKind = value.Value(); }
+      if (auto required = OptionalBoolAttribute(element, "Required", context, input.required); !required) { return NGIN::Utilities::Unexpected<KernelError>(required.Error()); } else { input.required = required.Value(); }
+      if (auto overrideExisting = OptionalBoolAttribute(element, "Override", context, input.overrideExisting); !overrideExisting) { return NGIN::Utilities::Unexpected<KernelError>(overrideExisting.Error()); } else { input.overrideExisting = overrideExisting.Value(); }
+
+      input.profile = Attribute(element, "Profile").value_or(input.profile);
+      input.platform = Attribute(element, "Platform").value_or(input.platform);
+      input.operatingSystem = Attribute(element, "OperatingSystem").value_or(input.operatingSystem);
+      input.architecture = Attribute(element, "Architecture").value_or(input.architecture);
+      input.buildType = Attribute(element, "BuildType").value_or(input.buildType);
+      input.environment = Attribute(element, "Environment").value_or(input.environment);
+      input.condition = Attribute(element, "Condition").value_or(input.condition);
+      if (const auto include = Attribute(element, "Include"); include.has_value()) { input.includePatterns = SplitPathList(*include); }
+      if (const auto exclude = Attribute(element, "Exclude"); exclude.has_value()) { input.excludePatterns = SplitPathList(*exclude); }
+      return input;
+    }
+
+    [[nodiscard]] auto ValidateInputDeclaration(const InputDeclaration &input,
+                                                const std::string_view context)
+        -> CoreResult<void>
+    {
+      if (input.kind.empty() || !IsSupportedInputKind(input.kind))
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(std::string(context) + ".Input has unsupported Kind", input.kind, KernelErrorCode::SchemaValidationFailure));
+      }
+      if (input.kind == "Generated" && !IsSupportedGeneratedRole(input.role))
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(std::string(context) + ".Generated requires Role", input.role, KernelErrorCode::SchemaValidationFailure));
+      }
+      if (input.mode.empty() || !IsSupportedInputMode(input.mode))
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(std::string(context) + ".Input has unsupported Mode", input.mode, KernelErrorCode::SchemaValidationFailure));
+      }
+      if ((input.mode == "File" || input.mode == "Directory") && input.path.empty())
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(std::string(context) + ".Input requires Path", {}, KernelErrorCode::SchemaValidationFailure));
+      }
+      if (input.mode == "Glob" && input.includePatterns.empty())
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(std::string(context) + ".Glob requires Include", {}, KernelErrorCode::SchemaValidationFailure));
+      }
+      if (input.visibility != "Public" && input.visibility != "Private" && input.visibility != "Interface")
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(std::string(context) + ".Input has unsupported Visibility", input.visibility, KernelErrorCode::SchemaValidationFailure));
+      }
+      return {};
+    }
+
+    [[nodiscard]] auto InputMatchesIdentity(const InputDeclaration &left,
+                                            const InputDeclaration &right) -> bool
+    {
+      if (!right.name.empty())
+      {
+        return left.name == right.name;
+      }
+      return left.kind == right.kind && left.role == right.role && left.path == right.path &&
+             left.pattern == right.pattern && left.mode == right.mode && left.target == right.target &&
+             left.targetRoot == right.targetRoot && left.basePath == right.basePath &&
+             left.visibility == right.visibility;
+    }
+
+    auto AddInput(std::vector<InputDeclaration> &out, InputDeclaration input) -> void
+    {
+      if (input.overrideExisting)
+      {
+        out.erase(std::remove_if(out.begin(), out.end(), [&](const InputDeclaration &existing) { return InputMatchesIdentity(existing, input); }), out.end());
+      }
+      out.push_back(std::move(input));
+    }
+
+    auto ParseInputDeclarations(const XmlElement &element,
+                                const std::string_view context,
+                                std::vector<InputDeclaration> &out)
+        -> CoreResult<void>
+    {
+      if (FindChild(element, "Sources") != nullptr || FindChild(element, "SourceRoots") != nullptr || FindChild(element, "Contents") != nullptr)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(std::string(context) + " uses removed top-level input vocabulary; use <Inputs>", {}, KernelErrorCode::SchemaValidationFailure));
+      }
       if (const auto *inputs = FindChild(element, "Inputs"))
       {
-        for (const auto *configElement : ChildElements(*inputs, "Config"))
+        for (const auto *child : ChildElements(*inputs))
         {
-          auto source = OptionalAttribute(*configElement, "Path", context, {});
-          if (!source)
+          if (child->name == "Input" || child->name == "InputSet" || child->name == "Config")
           {
-            return NGIN::Utilities::Unexpected<KernelError>(source.Error());
+            return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(std::string(context) + ".Inputs uses removed generic input vocabulary", std::string(child->name), KernelErrorCode::SchemaValidationFailure));
           }
-          if (source.Value().empty())
+          if (child->name == "Remove")
           {
-            source = OptionalAttribute(*configElement, "Pattern", context, {});
-            if (!source)
+            auto name = Attribute(*child, "Name");
+            auto kind = Attribute(*child, "Kind");
+            auto role = Attribute(*child, "Role");
+            if (kind.has_value() && *kind == "Header")
             {
-              return NGIN::Utilities::Unexpected<KernelError>(source.Error());
+              kind = "Source";
+              role = "Header";
             }
+            auto path = Attribute(*child, "Path");
+            out.erase(std::remove_if(out.begin(), out.end(), [&](const InputDeclaration &input) {
+                        if (name.has_value()) { return input.name == *name || input.setName == *name; }
+                        return (!kind.has_value() || input.kind == *kind) &&
+                               (!role.has_value() || input.role == *role) &&
+                               (!path.has_value() || input.path == *path);
+                      }), out.end());
+            continue;
           }
-          if (source.Value().empty())
+          if (!IsTypedInputBlock(child->name))
           {
-            return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-                std::string(context) + ".Inputs.Config requires Path or Pattern",
-                {}, KernelErrorCode::SchemaValidationFailure));
+            return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(std::string(context) + ".Inputs contains unsupported child element", std::string(child->name), KernelErrorCode::SchemaValidationFailure));
           }
-          out.push_back(source.Value());
+
+          InputDeclaration base{};
+          if (child->name == "Sources") { base.kind = "Source"; base.role = "Source"; base.visibility = "Private"; }
+          else if (child->name == "Headers") { base.kind = "Source"; base.role = "Header"; base.visibility = "Public"; }
+          else if (child->name == "Configs") { base.kind = "Config"; }
+          else if (child->name == "Contents") { base.kind = "Content"; }
+          else if (child->name == "Assets") { base.kind = "Asset"; }
+          else if (child->name == "ToolInputs") { base.kind = "ToolInput"; }
+          else if (child->name == "Generated") { base.kind = "Generated"; base.role = Attribute(*child, "Role").value_or({}); }
+          base.setName = Attribute(*child, "Name").value_or({});
+          auto parsedBase = ReadInputAttributes(*child, context, base);
+          if (!parsedBase) { return NGIN::Utilities::Unexpected<KernelError>(parsedBase.Error()); }
+          base = std::move(parsedBase.Value());
+
+          auto addParsed = [&](InputDeclaration input) -> CoreResult<void> {
+            input.declaringScope = std::string(context);
+            if (auto validated = ValidateInputDeclaration(input, context); !validated)
+            {
+              return NGIN::Utilities::Unexpected<KernelError>(validated.Error());
+            }
+            AddInput(out, std::move(input));
+            return {};
+          };
+
+          if (!base.path.empty() || !base.includePatterns.empty())
+          {
+            auto input = base;
+            input.name.clear();
+            input.target.clear();
+            input.overrideExisting = false;
+            input.mode = !input.path.empty() ? "Directory" : "Glob";
+            if (input.mode == "Glob") { input.pattern = JoinPathList(input.includePatterns); }
+            if (auto added = addParsed(std::move(input)); !added) { return NGIN::Utilities::Unexpected<KernelError>(added.Error()); }
+          }
+          for (const auto &line : SplitTextPathLines(TextContent(*child)))
+          {
+            auto input = base;
+            input.path = line;
+            input.pattern.clear();
+            input.mode = "File";
+            input.name.clear();
+            input.target.clear();
+            input.overrideExisting = false;
+            if (auto added = addParsed(std::move(input)); !added) { return NGIN::Utilities::Unexpected<KernelError>(added.Error()); }
+          }
+          for (const auto *entry : ChildElements(*child))
+          {
+            if (entry->name == "Metadata") { continue; }
+            if (entry->name != "File" && entry->name != "Directory" && entry->name != "Glob")
+            {
+              return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(std::string(context) + ".Inputs contains unsupported typed entry", std::string(entry->name), KernelErrorCode::SchemaValidationFailure));
+            }
+            auto input = base;
+            input.path.clear();
+            input.pattern.clear();
+            input.name.clear();
+            input.target.clear();
+            input.overrideExisting = false;
+            if (entry->name == "File") { input.mode = "File"; input.path = Attribute(*entry, "Path").value_or({}); }
+            else if (entry->name == "Directory") { input.mode = "Directory"; input.path = Attribute(*entry, "Path").value_or({}); }
+            else { input.mode = "Glob"; }
+            auto parsed = ReadInputAttributes(*entry, context, input);
+            if (!parsed) { return NGIN::Utilities::Unexpected<KernelError>(parsed.Error()); }
+            input = std::move(parsed.Value());
+            if (input.mode == "Glob") { input.pattern = JoinPathList(input.includePatterns); }
+            if (auto added = addParsed(std::move(input)); !added) { return NGIN::Utilities::Unexpected<KernelError>(added.Error()); }
+          }
         }
       }
       return {};
@@ -1053,7 +1327,7 @@ namespace NGIN::Core
       std::optional<LaunchDefinition> launch{};
       std::vector<ProjectReference> projectRefs{};
       std::vector<PackageReference> packageRefs{};
-      std::vector<std::string> configInputs{};
+      std::vector<InputDeclaration> inputs{};
       RuntimeDefinition runtime{};
     };
 
@@ -1338,7 +1612,7 @@ namespace NGIN::Core
         }
       }
       if (auto inputs =
-              ParseConfigInputs(element, context, profileTemplate.configInputs);
+              ParseInputDeclarations(element, context, profileTemplate.inputs);
           !inputs)
       {
         return NGIN::Utilities::Unexpected<KernelError>(inputs.Error());
@@ -1783,9 +2057,9 @@ namespace NGIN::Core
       profile.packageRefs.insert(profile.packageRefs.end(),
                                  profileTemplate.packageRefs.begin(),
                                  profileTemplate.packageRefs.end());
-      profile.configInputs.insert(profile.configInputs.end(),
-                                  profileTemplate.configInputs.begin(),
-                                  profileTemplate.configInputs.end());
+      profile.inputs.insert(profile.inputs.end(),
+                            profileTemplate.inputs.begin(),
+                            profileTemplate.inputs.end());
       MergeRuntime(profile.runtime, profileTemplate.runtime);
       templateStack.pop_back();
       return {};
@@ -1832,44 +2106,10 @@ namespace NGIN::Core
         }
       }
 
-      if (auto configInputs = ParseConfigInputs(element, context, environment.configInputs);
-          !configInputs)
+      if (auto inputs = ParseInputDeclarations(element, context, environment.inputs);
+          !inputs)
       {
-        return NGIN::Utilities::Unexpected<KernelError>(configInputs.Error());
-      }
-
-      if (const auto *contents = FindChild(element, "Contents"))
-      {
-        for (const auto *fileElement : ChildElements(*contents, "File"))
-        {
-          auto source = RequireAttribute(*fileElement, "Source",
-                                         std::string(context) + ".Contents.File");
-          if (!source)
-          {
-            return NGIN::Utilities::Unexpected<KernelError>(source.Error());
-          }
-
-          auto target = OptionalAttribute(*fileElement, "Target",
-                                          std::string(context) + ".Contents.File");
-          if (!target)
-          {
-            return NGIN::Utilities::Unexpected<KernelError>(target.Error());
-          }
-
-          auto kind = OptionalAttribute(*fileElement, "Kind",
-                                        std::string(context) + ".Contents.File",
-                                        "other");
-          if (!kind)
-          {
-            return NGIN::Utilities::Unexpected<KernelError>(kind.Error());
-          }
-
-          environment.contents.push_back(PackageContentFile{
-              .source = source.Value(),
-              .target = target.Value(),
-              .kind = kind.Value(),
-          });
-        }
+        return NGIN::Utilities::Unexpected<KernelError>(inputs.Error());
       }
 
       if (const auto *variables = FindChild(element, "Variables"))
@@ -2092,10 +2332,10 @@ namespace NGIN::Core
         }
       }
 
-      if (auto configInputs = ParseConfigInputs(element, context, profile.configInputs);
-          !configInputs)
+      if (auto inputs = ParseInputDeclarations(element, context, profile.inputs);
+          !inputs)
       {
-        return NGIN::Utilities::Unexpected<KernelError>(configInputs.Error());
+        return NGIN::Utilities::Unexpected<KernelError>(inputs.Error());
       }
 
       if (FindChild(element, "EnableModules") != nullptr ||
@@ -2153,7 +2393,7 @@ namespace NGIN::Core
       ProjectManifest manifest{};
 
       auto schemaVersion =
-          OptionalAttribute(*root, "SchemaVersion", "project", "2");
+          OptionalAttribute(*root, "SchemaVersion", "project", "3");
       if (!schemaVersion)
       {
         return NGIN::Utilities::Unexpected<KernelError>(schemaVersion.Error());
@@ -2229,81 +2469,10 @@ namespace NGIN::Core
                                           ? "Runtime"
                                           : defaultProfile.Value();
 
-      const auto *sourceRootsElement = FindChild(*root, "SourceRoots");
-      const auto *sourcesElement = FindChild(*root, "Sources");
-      if (sourceRootsElement != nullptr && sourcesElement != nullptr)
+      if (auto inputs = ParseInputDeclarations(*root, "project", manifest.inputs);
+          !inputs)
       {
-        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-            "project may not declare both <SourceRoots> and <Sources>",
-            {},
-            KernelErrorCode::SchemaValidationFailure));
-      }
-
-      if (sourceRootsElement != nullptr)
-      {
-        for (const auto *sourceRootElement :
-             ChildElements(*sourceRootsElement, "SourceRoot"))
-        {
-          auto path =
-              RequireAttribute(*sourceRootElement, "Path", "project.SourceRoots");
-          if (!path)
-          {
-            return NGIN::Utilities::Unexpected<KernelError>(path.Error());
-          }
-          manifest.sourceRoots.push_back(path.Value());
-        }
-      }
-      if (sourcesElement != nullptr)
-      {
-        for (const auto *groupElement : ChildElements(*sourcesElement))
-        {
-          if (groupElement->name != "Public" && groupElement->name != "Private")
-          {
-            return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-                "project.Sources contains unsupported child element",
-                std::string(groupElement->name),
-                KernelErrorCode::SchemaValidationFailure));
-          }
-          for (const auto *entryElement : ChildElements(*groupElement))
-          {
-            if (entryElement->name == "Root")
-            {
-              auto path =
-                  RequireAttribute(*entryElement, "Path", "project.Sources");
-              if (!path)
-              {
-                return NGIN::Utilities::Unexpected<KernelError>(path.Error());
-              }
-              manifest.sourceRoots.push_back(path.Value());
-              continue;
-            }
-            if (entryElement->name == "File")
-            {
-              auto path =
-                  RequireAttribute(*entryElement, "Path", "project.Sources");
-              if (!path)
-              {
-                return NGIN::Utilities::Unexpected<KernelError>(path.Error());
-              }
-              continue;
-            }
-            if (entryElement->name == "Files")
-            {
-              if (!ChildElements(*entryElement).empty())
-              {
-                return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-                    "project.Sources <Files> may contain only text",
-                    {},
-                    KernelErrorCode::SchemaValidationFailure));
-              }
-              continue;
-            }
-            return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-                "project.Sources contains unsupported source entry",
-                std::string(entryElement->name),
-                KernelErrorCode::SchemaValidationFailure));
-          }
-        }
+        return NGIN::Utilities::Unexpected<KernelError>(inputs.Error());
       }
 
       if (FindChild(*root, "Host") != nullptr)
@@ -2411,12 +2580,6 @@ namespace NGIN::Core
           }
           manifest.packageRefs.push_back(package.Value());
         }
-      }
-
-      if (auto configInputs = ParseConfigInputs(*root, "project", manifest.configInputs);
-          !configInputs)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(configInputs.Error());
       }
 
       if (const auto *environmentsElement = FindChild(*root, "Environments"))
@@ -2845,7 +3008,7 @@ namespace NGIN::Core
       PackageManifest manifest{};
 
       auto schemaVersion =
-          OptionalAttribute(*root, "SchemaVersion", "package", "1");
+          OptionalAttribute(*root, "SchemaVersion", "package", "3");
       if (!schemaVersion)
       {
         return NGIN::Utilities::Unexpected<KernelError>(schemaVersion.Error());
@@ -2857,6 +3020,13 @@ namespace NGIN::Core
         return NGIN::Utilities::Unexpected<KernelError>(parsedSchema.Error());
       }
       manifest.schemaVersion = parsedSchema.Value();
+      if (manifest.schemaVersion != 3)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(
+            MakeBuilderError("unsupported package schema version",
+                             std::to_string(manifest.schemaVersion),
+                             KernelErrorCode::InvalidArgument));
+      }
 
       auto name = RequireAttribute(*root, "Name", "package");
       if (!name)
@@ -2944,37 +3114,10 @@ namespace NGIN::Core
         };
       }
 
-      if (const auto *contentsElement = FindChild(*root, "Contents"))
+      if (auto inputs = ParseInputDeclarations(*root, "package", manifest.inputs);
+          !inputs)
       {
-        for (const auto *fileElement : ChildElements(*contentsElement, "File"))
-        {
-          auto source =
-              RequireAttribute(*fileElement, "Source", "package.Contents.File");
-          if (!source)
-          {
-            return NGIN::Utilities::Unexpected<KernelError>(source.Error());
-          }
-
-          auto target = OptionalAttribute(*fileElement, "Target",
-                                          "package.Contents.File", {});
-          if (!target)
-          {
-            return NGIN::Utilities::Unexpected<KernelError>(target.Error());
-          }
-
-          auto kind = OptionalAttribute(*fileElement, "Kind",
-                                        "package.Contents.File", "other");
-          if (!kind)
-          {
-            return NGIN::Utilities::Unexpected<KernelError>(kind.Error());
-          }
-
-          manifest.contents.push_back(PackageContentFile{
-              .source = source.Value(),
-              .target = target.Value(),
-              .kind = kind.Value(),
-          });
-        }
+        return NGIN::Utilities::Unexpected<KernelError>(inputs.Error());
       }
 
       std::set<std::string> moduleNames{};
@@ -4025,25 +4168,58 @@ namespace NGIN::Core
             enabledPlugins.end());
 
         std::vector<std::string> configInputs{};
+        const auto inputMatchesProfile = [](const InputDeclaration &input,
+                                            const ProfileDefinition &profile)
+        {
+          return (input.profile.empty() || input.profile == profile.name) &&
+                 (input.platform.empty() || input.platform == profile.platform) &&
+                 (input.operatingSystem.empty() ||
+                  input.operatingSystem == profile.operatingSystem) &&
+                 (input.architecture.empty() ||
+                  input.architecture == profile.architecture) &&
+                 (input.buildType.empty() || input.buildType == profile.buildType) &&
+                 (input.environment.empty() ||
+                  input.environment == profile.environmentName);
+        };
+        const auto appendConfigInputs =
+            [&](const std::vector<InputDeclaration> &inputs,
+                const ProfileDefinition &profile,
+                const IoPath &directory)
+        {
+          for (const auto &input : inputs)
+          {
+            if (input.kind != "Config" ||
+                !inputMatchesProfile(input, profile))
+            {
+              continue;
+            }
+            const auto source = input.path.empty() ? input.pattern : input.path;
+            const auto resolved = ResolveWorkingDirectory(source, directory);
+            AppendUnique(configInputs, resolved);
+          }
+        };
         for (const auto &unit : projectUnits)
         {
-          for (const auto &source : unit.manifest.configInputs)
-          {
-            const auto resolved = ResolveWorkingDirectory(source, unit.directory);
-            AppendUnique(configInputs, resolved);
-          }
+          appendConfigInputs(unit.manifest.inputs, unit.profile, unit.directory);
           if (unit.environment.has_value())
           {
-            for (const auto &source : unit.environment->configInputs)
-            {
-              const auto resolved = ResolveWorkingDirectory(source, unit.directory);
-              AppendUnique(configInputs, resolved);
-            }
+            appendConfigInputs(unit.environment->inputs, unit.profile, unit.directory);
           }
-          for (const auto &source : unit.profile.configInputs)
+          appendConfigInputs(unit.profile.inputs, unit.profile, unit.directory);
+        }
+        if (selectedProfile != nullptr)
+        {
+          for (const auto &reference : packages)
           {
-            const auto resolved = ResolveWorkingDirectory(source, unit.directory);
-            AppendUnique(configInputs, resolved);
+            const auto manifestIt = m_packageManifests.find(reference.name);
+            if (manifestIt == m_packageManifests.end())
+            {
+              continue;
+            }
+            const auto directory = manifestIt->second.directory.empty()
+                                       ? m_projectDirectory
+                                       : IoPath{manifestIt->second.directory};
+            appendConfigInputs(manifestIt->second.inputs, *selectedProfile, directory);
           }
         }
         AppendUniqueStrings(configInputs, m_configInputs);
@@ -4405,7 +4581,10 @@ namespace NGIN::Core
         return *this;
       }
 
-      m_owner.m_packageManifests[manifest.Value().name] = manifest.Value();
+      auto loadedManifest = manifest.Value();
+      loadedManifest.path = ToString(manifestPath);
+      loadedManifest.directory = ToString(manifestPath.Parent());
+      m_owner.m_packageManifests[loadedManifest.name] = std::move(loadedManifest);
       return *this;
     }
 

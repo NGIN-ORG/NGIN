@@ -23,7 +23,6 @@ This spec defines the active V3 `.nginproj` contract.
 
 Supported root sections:
 
-- `Sources`
 - `Includes`
 - `Conditions`
 - `Defaults`
@@ -38,8 +37,6 @@ Supported root sections:
 - `Profiles`
 
 `Runtime` is optional advanced metadata. It is not required for normal application authoring.
-
-`Sources` is the source declaration surface for generated-mode projects.
 
 ## Shared Model Factoring
 
@@ -86,38 +83,60 @@ Authored project templates are declared under `ProjectTemplates`; unknown
 template names are validation errors. Explicit project attributes and sections
 override template-provided values.
 
-## Sources
+## Inputs
 
-Projects may declare public and private source ownership under `Sources`.
+Projects, profiles, environments, profile templates, and packages use typed
+blocks under one `Inputs` surface. Authored generic `Input`, `InputSet`,
+`Form`, top-level `Sources`, `SourceRoots`, legacy `Inputs/Config`, and
+top-level `Contents` are removed from the active contract.
 
 ```xml
-<Sources>
-  <Public>
-    <Root Path="include" />
-  </Public>
-  <Private>
-    <Root Path="src" />
-  </Private>
-</Sources>
+<Inputs>
+  <Sources Path="src" Exclude="platform/**" />
+  <Headers Path="include" Visibility="Public" />
+  <Configs>
+    config/app.cfg
+  </Configs>
+  <Assets>
+    <Directory Path="assets" Include="**/*.png;**/*.wav" />
+  </Assets>
+  <Contents ContentKind="doc" TargetRoot="share/docs">
+    <File Path="docs/readme.txt" />
+  </Contents>
+  <ToolInputs>
+    tools/schema.json
+  </ToolInputs>
+</Inputs>
 ```
 
-Supported source groups:
+Supported typed blocks are:
 
-- `Public`
-- `Private`
+- `Sources`: feeds generated CMake source discovery
+- `Headers`: feeds generated CMake header/include discovery
+- `Configs`: stages to output and feeds runtime config loading
+- `Contents`: stages to output with `ContentKind` or `content`
+- `Assets`: stages like content with kind `asset`
+- `Generated Role="Source|Content|Asset|ToolInput"`: static declared generated inputs
+- `ToolInputs`: validated and emitted as metadata, not compiled or staged by default
 
-Supported source entries:
+`Sources` default to `Visibility="Private"`. `Headers` default to
+`Visibility="Public"`. Other typed blocks default to private visibility where
+visibility is meaningful. `Required` defaults to `true`.
 
-- `Root Path="..."`
-- `File Path="..."`
-- `Files` line-separated file list
+Typed blocks support three entry shapes:
 
-Generated CMake maps selected public roots to `PUBLIC` include directories and
-selected private roots to `PRIVATE` include directories. Source files discovered
-under selected roots and selected explicit files are deduplicated by resolved
-path before target emission.
+- block scan: `<Sources Path="src" />`
+- text file list: non-empty, non-comment lines inside a typed block
+- structured entries: `<File Path="..." />`, `<Directory Path="..." />`, and
+  `<Glob Include="..." BasePath="..." />`
 
-Source roots and files may use typed selectors:
+Block attributes apply to contained text and structured entries unless an
+entry overrides them. `Remove` removes inherited inputs by `Name` or declared
+filters before local inputs in the same block are applied. `Override="true"`
+on a structured entry replaces an existing effective input with the same
+identity.
+
+Inputs may use selectors:
 
 - `Profile`
 - `Platform`
@@ -125,39 +144,39 @@ Source roots and files may use typed selectors:
 - `Architecture`
 - `BuildType`
 - `Environment`
+- `Condition`
 
-An entry with no selector attributes and no `Condition` applies to all
+An input with no selector attributes and no `Condition` applies to all
 profiles. An entry with one or more selectors applies only when every
 provided selector exactly matches the selected profile.
-When a non-selected typed root or file is nested under a broader selected root,
-the non-selected path is excluded from generated source scanning.
+When a non-selected directory or file is nested under a broader selected
+source/header directory, the non-selected path is excluded from generated
+source scanning.
 
-Source entries may also use `Condition` to reference a named condition declared in
-the project-local `Conditions` section. Direct selectors and `Condition` may be
-combined on the same entry and are evaluated as implicit AND.
+Scan semantics are deterministic:
 
-`Root` may constrain recursive discovery with `Include` and `Exclude` glob
-patterns. Patterns are relative to the root path, use `/` separators, and
-support `*`, `?`, and `**`. Multiple patterns may be separated by semicolons,
-commas, or line breaks. Without `Include`, roots discover compilable source
-files under the root. With `Include`, roots discover supported source/header
-files matching at least one include pattern, then remove files matching
-`Exclude`.
+- `<Sources Path="src" />` scans directory `src`.
+- `<Sources Path="src" Include="**/*.cpp" Exclude="**/*.generated.cpp" />`
+  scans under `src`; patterns are relative to `src`.
+- `<Sources Include="src/plugins/**/*.cpp" />` is a rootless glob relative to
+  the manifest directory.
+- Directory and glob scans are sorted; explicit text and `<File>` entries
+  preserve authored order.
+- `BasePath` defines the preserved relative path root for glob staging.
+- `Target` is valid only on file entries; `TargetRoot` is valid on blocks,
+  directories, and globs.
 
 ```xml
-<Sources>
-  <Private>
-    <Root Path="src"
-          Include="**/*.cpp;**/*.hpp"
-          Exclude="**/*.generated.cpp" />
-    <Root Path="src/linux" OperatingSystem="linux" />
+<Inputs>
+  <Sources Path="src" Include="**/*.cpp;**/*.hpp" Exclude="**/*.generated.cpp" />
+  <Sources Path="src/linux" OperatingSystem="linux" />
+  <Sources>
     <File Path="src/debug_tools.cpp" BuildType="Debug" />
-    <Files BuildType="Debug">
-      src/debug_overlay.cpp
-      src/debug_trace.cpp
-    </Files>
-  </Private>
-</Sources>
+  </Sources>
+  <Assets>
+    <Glob BasePath="assets" Include="textures/**/*.png" TargetRoot="assets" />
+  </Assets>
+</Inputs>
 ```
 
 ## Conditions
@@ -346,7 +365,6 @@ Each environment may contribute:
 - `Inputs`
 - `Variables`
 - `Features`
-- `Contents`
 - `Runtime`
 
 ### Variables
@@ -424,11 +442,9 @@ Project variable names and local setting keys are separate namespaces.
          Name="App.Basic"
          Template="Application"
          DefaultProfile="Runtime">
-  <Sources>
-    <Private>
-      <Root Path="src" />
-    </Private>
-  </Sources>
+  <Inputs>
+    <Sources Path="src" />
+  </Inputs>
   <Launch Executable="$(OutputName)" WorkingDirectory="." />
   <References>
     <Package Name="NGIN.Core" Version="0.1.0" />

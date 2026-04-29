@@ -17,11 +17,9 @@ dependencies, profiles, and local run metadata.
          DefaultProfile="Runtime">
   <Defaults BuildType="Debug" Platform="linux-x64" Environment="local" />
 
-  <Sources>
-    <Private>
-      <Root Path="src" />
-    </Private>
-  </Sources>
+  <Inputs>
+    <Sources Path="src" />
+  </Inputs>
 
   <Launch Executable="$(OutputName)" WorkingDirectory="." />
 
@@ -41,11 +39,10 @@ dependencies, profiles, and local run metadata.
 | --- | --- |
 | `Includes` | Shared `.nginmodel` files |
 | `Defaults` | Local scalar defaults for build/profile values |
-| `Sources` | Public and private source ownership |
+| `Inputs` | Source, config, content, asset, generated, and tool inputs |
 | `Output` | Optional artifact type, name, and backend target |
 | `Build` | Backend mode, language, standard, and build settings |
 | `References` | Project and package dependencies |
-| `Inputs` | Runtime config files contributed by the project |
 | `Environments` | Named environment layers |
 | `Profiles` | Selectable project profiles |
 
@@ -84,73 +81,65 @@ Projects include them with paths relative to the declaring file:
 </Includes>
 ```
 
-## Sources
+## Inputs
 
-Use `Sources` to describe what belongs to the target.
+Use `Inputs` to describe what belongs to the target and what should be staged
+or exposed to tools.
 
 ```xml
-<Sources>
-  <Public>
-    <Root Path="include" />
-  </Public>
-
-  <Private>
-    <Root Path="src" />
-  </Private>
-</Sources>
+<Inputs>
+  <Headers Path="include" Visibility="Public" />
+  <Sources Path="src" />
+  <Configs>
+    config/app.cfg
+  </Configs>
+</Inputs>
 ```
 
-`Public` roots become public include directories for library targets. `Private`
-roots become private include directories and implementation source roots.
+`Headers` default to public visibility. `Sources` default to private
+visibility. Visibility can still be written explicitly when that is clearer.
 
 For manually curated source lists:
 
 ```xml
-<Sources>
-  <Private>
-    <Files>
-      src/main.cpp
-      src/app.cpp
-      src/window.cpp
-    </Files>
-  </Private>
-</Sources>
+<Inputs>
+  <Sources>
+    src/main.cpp
+    src/app.cpp
+    src/window.cpp
+  </Sources>
+</Inputs>
 ```
-
-`<Files>` is equivalent to repeated `<File Path="..." />` entries.
 
 For root scanning with glob filters:
 
 ```xml
-<Sources>
-  <Private>
-    <Root Path="src"
-          Include="**/*.cpp;**/*.hpp"
-          Exclude="**/*.generated.cpp" />
-  </Private>
-</Sources>
+<Inputs>
+  <Sources Path="src"
+           Include="**/*.cpp;**/*.hpp"
+           Exclude="**/*.generated.cpp" />
+</Inputs>
 ```
 
 Patterns are relative to the root and support `*`, `?`, and `**`.
+Rootless globs are relative to the manifest directory. For staged globs,
+`BasePath` defines which path segment is preserved under `TargetRoot`.
 
 ## Selection
 
-Source entries and build settings can be selected by project profile
+Inputs and build settings can be selected by project profile
 values. Simple local selection uses typed selector attributes.
 
 ```xml
-<Sources>
-  <Private>
-    <Root Path="src" />
-    <Root Path="src/platform/windows" OperatingSystem="windows" />
-    <Root Path="src/platform/linux" OperatingSystem="linux" />
-
-    <Files BuildType="Debug">
-      src/debug_overlay.cpp
-      src/debug_trace.cpp
-    </Files>
-  </Private>
-</Sources>
+<Inputs>
+  <Sources Path="src" Exclude="platform/**" />
+  <Sources Path="src/platform/windows" OperatingSystem="windows" />
+  <Sources Path="src/platform/linux" OperatingSystem="linux" />
+  <Sources BuildType="Debug">
+    src/debug_overlay.cpp
+    src/debug_trace.cpp
+  </Sources>
+</Inputs>
 ```
 
 An item with no selector applies to every profile. An item with selectors

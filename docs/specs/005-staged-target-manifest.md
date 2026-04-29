@@ -42,9 +42,12 @@ applications.
     <Features />
   </Environment>
   <Inputs>
-    <Config Path="config/app.cfg"
-            Project="App.Basic"
-            Destination="config/app.cfg" />
+    <Input Kind="Config"
+           Path="config/app.cfg"
+           OwnerKind="project"
+           Owner="App.Basic"
+           ContentKind="config-input"
+           Destination="config/app.cfg" />
   </Inputs>
   <StagedFiles>
     <File Kind="executable"
@@ -64,7 +67,7 @@ The launch manifest must capture:
 - resolved operating system and architecture
 - resolved launch working directory and selected executable
 - resolved environment variables and features
-- resolved packages, modules, plugins, and config inputs
+- resolved packages, modules, plugins, and normalized inputs
 - staged files
 
 Secret environment variable values must not be serialized into the launch

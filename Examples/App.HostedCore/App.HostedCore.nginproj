@@ -2,11 +2,12 @@
 <Project SchemaVersion="3"
          Name="App.HostedCore"
          DefaultProfile="Runtime">
-  <Sources>
-    <Private>
-      <Root Path="src" />
-    </Private>
-  </Sources>
+  <Inputs>
+    <Sources Path="src" />
+    <Configs>
+      config/app.cfg
+    </Configs>
+  </Inputs>
   <Output Kind="Executable"
           Name="App.HostedCore"
           Target="App.HostedCore" />
@@ -17,9 +18,6 @@
   <References>
     <Package Name="NGIN.Core" Version=">=0.1.0 &lt;0.2.0" Optional="false" />
   </References>
-  <Inputs>
-    <Config Path="config/app.cfg" />
-  </Inputs>
   <Environments>
     <Environment Name="local" />
   </Environments>

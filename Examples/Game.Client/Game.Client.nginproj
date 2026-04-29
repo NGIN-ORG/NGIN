@@ -2,11 +2,12 @@
 <Project SchemaVersion="3"
          Name="Game.Client"
          DefaultProfile="Runtime">
-  <Sources>
-    <Private>
-      <Root Path="src" />
-    </Private>
-  </Sources>
+  <Inputs>
+    <Sources Path="src" />
+    <Configs>
+      config/client.cfg
+    </Configs>
+  </Inputs>
   <Output Kind="Executable"
           Name="Game.Client"
           Target="GameClient" />
@@ -14,9 +15,6 @@
     <Project Path="../Game.Engine/Game.Engine.nginproj" />
     <Package Name="NGIN.Core" Version=">=0.1.0 &lt;0.2.0" Optional="false" />
   </References>
-  <Inputs>
-    <Config Path="config/client.cfg" />
-  </Inputs>
   <Environments>
     <Environment Name="development" />
     <Environment Name="production" />

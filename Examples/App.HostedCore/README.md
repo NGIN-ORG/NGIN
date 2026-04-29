@@ -17,7 +17,7 @@ needs:
 - one project-owned executable
 - generated-mode CMake backend input
 - a package reference to `NGIN.Core`
-- staged config through `<Inputs><Config Path="..." />`
+- staged config through `<Inputs><Configs>...</Configs></Inputs>`
 - code-first hosted startup
 - no project-owned runtime module metadata in the manifest
 

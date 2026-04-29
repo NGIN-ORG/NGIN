@@ -2,11 +2,12 @@
 <Project SchemaVersion="3"
          Name="MyGame"
          DefaultProfile="Game">
-  <Sources>
-    <Private>
-      <Root Path="src" />
-    </Private>
-  </Sources>
+  <Inputs>
+    <Sources Path="src" />
+    <Configs>
+      config/game.xml
+    </Configs>
+  </Inputs>
   <Output Kind="Executable"
           Name="MyGame"
           Target="MyGame" />
@@ -15,9 +16,6 @@
     <Package Name="NGIN.ECS" Version=">=0.1.0 &lt;0.2.0" />
     <Package Name="SDL2" Version=">=2.30.0 &lt;3.0.0" />
   </References>
-  <Inputs>
-    <Config Path="config/game.xml" />
-  </Inputs>
   <Environments>
     <Environment Name="Dev" />
   </Environments>

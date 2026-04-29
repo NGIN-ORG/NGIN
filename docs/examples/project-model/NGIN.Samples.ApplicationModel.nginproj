@@ -2,11 +2,9 @@
 <Project SchemaVersion="3"
          Name="NGIN.Samples.ApplicationModel"
          DefaultProfile="Sandbox.Game">
-  <Sources>
-    <Private>
-      <Root Path="src" />
-    </Private>
-  </Sources>
+  <Inputs>
+    <Sources Path="src" />
+  </Inputs>
   <Output Kind="Executable"
           Name="Sandbox.Game"
           Target="Sandbox.Game" />
@@ -35,7 +33,9 @@
                    Platform="linux-x64"
                    Environment="Dev">
       <Inputs>
-        <Config Path="config/cli.xml" />
+        <Configs>
+          config/cli.xml
+        </Configs>
       </Inputs>
     </Profile>
     <Profile Name="Tools.Diagnostics"
@@ -48,7 +48,9 @@
         <Package Name="NGIN.Diagnostics" Version=">=0.1.0 &lt;1.0.0" />
       </References>
       <Inputs>
-        <Config Path="config/tooling.xml" />
+        <Configs>
+          config/tooling.xml
+        </Configs>
       </Inputs>
     </Profile>
     <Profile Name="Sandbox.Game"
@@ -56,7 +58,9 @@
                    Platform="linux-x64"
                    Environment="Dev">
       <Inputs>
-        <Config Path="config/game.xml" />
+        <Configs>
+          config/game.xml
+        </Configs>
       </Inputs>
       <Launch Executable="Sandbox.Game" WorkingDirectory="." />
     </Profile>

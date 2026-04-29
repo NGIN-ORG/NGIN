@@ -2,20 +2,18 @@
 <Project SchemaVersion="3"
          Name="NGIN.Core.BasicHost"
          DefaultProfile="Samples.BasicHost">
-  <Sources>
-    <Private>
-      <Root Path="." />
-    </Private>
-  </Sources>
+  <Inputs>
+    <Sources Path="." />
+    <Configs>
+      app.cfg
+    </Configs>
+  </Inputs>
   <Output Kind="Executable"
                  Name="NGIN.Core.BasicHost"
                  Target="NGINCoreBasicHost" />
   <References>
     <Package Name="Samples.DemoPackage" Version=">=0.1.0 &lt;1.0.0" Optional="false" />
   </References>
-  <Inputs>
-    <Config Path="app.cfg" />
-  </Inputs>
   <Runtime>
     <EnableModules>
       <ModuleRef Name="App.BasicHost" />

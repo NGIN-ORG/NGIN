@@ -180,9 +180,9 @@ namespace
         WriteFile(projectPath,
                   R"(<?xml version="1.0" encoding="utf-8"?>
 <Project SchemaVersion="3" Name="Meta.Property.App" Type="Application" DefaultProfile="Runtime">
-  <SourceRoots>
-    <SourceRoot Path="src" />
-  </SourceRoots>
+  <Inputs>
+    <Sources Path="src" />
+  </Inputs>
   <Output Kind="Executable" Name="Meta.Property.App" Target="MetaPropertyApp" />
   <Build Backend="CMake" Mode="Generated" Language="CXX" LanguageStandard="23">
     <MetaGen Enabled="true" />
@@ -220,16 +220,16 @@ TEST_CASE("workspace, project, and package manifests parse through authoring "
 )");
     WriteFile(temp.path() / "Packages/Sample/Sample.nginpkg",
               R"(<?xml version="1.0" encoding="utf-8"?>
-<Package SchemaVersion="2" Name="Sample.Package" Version="1.0.0">
+<Package SchemaVersion="3" Name="Sample.Package" Version="1.0.0">
   <Build Backend="CMake" Mode="Manual" />
 </Package>
 )");
     WriteFile(temp.path() / "App/App.nginproj",
               R"(<?xml version="1.0" encoding="utf-8"?>
 <Project SchemaVersion="3" Name="Sample.App" Type="Application" DefaultProfile="Runtime">
-  <SourceRoots>
-    <SourceRoot Path="src" />
-  </SourceRoots>
+  <Inputs>
+    <Sources Path="src" />
+  </Inputs>
   <Output Kind="Executable" Name="Sample.App" Target="SampleApp" />
   <References>
     <Package Name="Sample.Package" />
@@ -362,9 +362,9 @@ TEST_CASE("project build descriptor parses metagen opt in")
     WriteFile(projectPath,
               R"(<?xml version="1.0" encoding="utf-8"?>
 <Project SchemaVersion="3" Name="Meta.App" Type="Application" DefaultProfile="Runtime">
-  <SourceRoots>
-    <SourceRoot Path="src" />
-  </SourceRoots>
+  <Inputs>
+    <Sources Path="src" />
+  </Inputs>
   <Output Kind="Executable" Name="Meta.App" Target="MetaApp" />
   <Build Backend="CMake" Mode="Generated" Language="CXX" LanguageStandard="23">
     <MetaGen Enabled="true" />
@@ -382,27 +382,24 @@ TEST_CASE("project build descriptor parses metagen opt in")
     REQUIRE(project.build.metaGenEnabled);
 }
 
-TEST_CASE("typed project sources parse selector metadata and reject mixed legacy roots")
+TEST_CASE("normalized project inputs parse selector metadata and reject legacy roots")
 {
     TempDir temp{};
     const auto projectPath = temp.path() / "Typed.nginproj";
     WriteFile(projectPath,
               R"(<?xml version="1.0" encoding="utf-8"?>
 <Project SchemaVersion="3" Name="Typed" Type="Application" DefaultProfile="Runtime">
-  <Sources>
-    <Public>
-      <Root Path="include" />
-      <File Path="include/Typed/App.hpp" />
-    </Public>
-    <Private>
-      <Root Path="src" />
-      <Root Path="src/linux" OperatingSystem="linux" Architecture="x64" />
+  <Inputs>
+    <Headers Path="include">
+      include/Typed/App.hpp
+    </Headers>
+    <Sources Path="src" />
+    <Sources Path="src/linux" OperatingSystem="linux" Architecture="x64" />
+    <Sources>
       <File Path="src/debug.cpp" BuildType="Debug" />
-      <Files OperatingSystem="linux">
-        src/listed.cpp
-      </Files>
-    </Private>
-  </Sources>
+      <File Path="src/listed.cpp" OperatingSystem="linux" />
+    </Sources>
+  </Inputs>
   <Output Kind="Executable" Name="Typed" Target="Typed" />
   <Environments>
     <Environment Name="dev" />
@@ -414,16 +411,17 @@ TEST_CASE("typed project sources parse selector metadata and reject mixed legacy
 )");
 
     const auto project = LoadProjectManifest(projectPath);
-    REQUIRE(project.sources.has_value());
-    REQUIRE(project.sources->publicSources.roots.size() == 1);
-    REQUIRE(project.sources->publicSources.files.size() == 1);
-    REQUIRE(project.sources->privateSources.roots.size() == 2);
-    REQUIRE(project.sources->privateSources.files.size() == 2);
-    REQUIRE(project.sources->privateSources.roots.back().selectors.operatingSystem == "linux");
-    REQUIRE(project.sources->privateSources.roots.back().selectors.architecture == "x64");
-    REQUIRE(project.sources->privateSources.files.front().selectors.buildType == "Debug");
-    REQUIRE(project.sources->privateSources.files.back().path == "src/listed.cpp");
-    REQUIRE(project.sources->privateSources.files.back().selectors.operatingSystem == "linux");
+    REQUIRE(project.inputs.size() == 6);
+    REQUIRE(project.inputs[0].visibility == "Public");
+    REQUIRE(project.inputs[0].mode == "Directory");
+    REQUIRE(project.inputs[0].role == "Header");
+    REQUIRE(project.inputs[1].visibility == "Public");
+    REQUIRE(project.inputs[1].mode == "File");
+    REQUIRE(project.inputs[3].selectors.operatingSystem == "linux");
+    REQUIRE(project.inputs[3].selectors.architecture == "x64");
+    REQUIRE(project.inputs[4].selectors.buildType == "Debug");
+    REQUIRE(project.inputs[5].path == "src/listed.cpp");
+    REQUIRE(project.inputs[5].selectors.operatingSystem == "linux");
 
     const auto mixedPath = temp.path() / "Mixed.nginproj";
     WriteFile(mixedPath,
@@ -432,11 +430,6 @@ TEST_CASE("typed project sources parse selector metadata and reject mixed legacy
   <SourceRoots>
     <SourceRoot Path="src" />
   </SourceRoots>
-  <Sources>
-    <Private>
-      <Root Path="src" />
-    </Private>
-  </Sources>
   <Output Kind="Executable" Name="Mixed" Target="Mixed" />
   <Environments>
     <Environment Name="dev" />
@@ -446,7 +439,7 @@ TEST_CASE("typed project sources parse selector metadata and reject mixed legacy
   </Profiles>
 </Project>
 )");
-    REQUIRE_THROWS_WITH(LoadProjectManifest(mixedPath), ContainsSubstring("may not declare both <SourceRoots> and <Sources>"));
+    REQUIRE_THROWS_WITH(LoadProjectManifest(mixedPath), ContainsSubstring("legacy <SourceRoots>"));
 }
 
 TEST_CASE("structured conditions normalize with direct selectors and inherited group selection")
@@ -471,14 +464,12 @@ TEST_CASE("structured conditions normalize with direct selectors and inherited g
       </All>
     </Condition>
   </Conditions>
-  <Sources>
-    <Private Condition="Desktop">
-      <Root Path="src" BuildType="Debug" />
-      <Files Condition="DebugBuild">
-        src/listed.cpp
-      </Files>
-    </Private>
-  </Sources>
+  <Inputs>
+    <Sources Condition="Desktop">
+      <Directory Path="src" BuildType="Debug" />
+      <File Path="src/listed.cpp" Condition="DebugBuild" />
+    </Sources>
+  </Inputs>
   <Output Kind="Executable" Name="Conditions" Target="Conditions" />
   <Build Backend="CMake" Mode="Generated" Language="CXX" LanguageStandard="23">
     <CompileDefinitions Condition="Desktop">
@@ -501,11 +492,11 @@ TEST_CASE("structured conditions normalize with direct selectors and inherited g
     const std::optional<std::string> profileName{"Runtime"};
     const auto &profile = ProfileByName(project, profileName);
     REQUIRE(project.conditions.size() == 3);
-    REQUIRE(project.sources.has_value());
-    REQUIRE(project.sources->privateSources.roots.front().selectors.conditionRefs.size() == 1);
-    REQUIRE(project.sources->privateSources.roots.front().selectors.buildType == "Debug");
-    REQUIRE(SelectionMatches(project, project.sources->privateSources.roots.front().selectors, profile));
-    REQUIRE(SelectionMatches(project, project.sources->privateSources.files.front().selectors, profile));
+    REQUIRE(project.inputs.size() == 2);
+    REQUIRE(project.inputs[0].selectors.conditionRefs.size() == 1);
+    REQUIRE(project.inputs[0].selectors.buildType == "Debug");
+    REQUIRE(SelectionMatches(project, project.inputs[0].selectors, profile));
+    REQUIRE(SelectionMatches(project, project.inputs[1].selectors, profile));
     REQUIRE(SelectionMatches(project, project.build.compileDefinitions[0].selectors, profile));
     REQUIRE(SelectionMatches(project, project.build.compileDefinitions[1].selectors, profile));
     REQUIRE_FALSE(SelectionMatches(project, project.build.compileDefinitions[2].selectors, profile));
@@ -515,11 +506,9 @@ TEST_CASE("structured conditions normalize with direct selectors and inherited g
     WriteFile(unknownPath,
               R"(<?xml version="1.0" encoding="utf-8"?>
 <Project SchemaVersion="3" Name="Unknown" Type="Application" DefaultProfile="Runtime">
-  <Sources>
-    <Private>
-      <Root Path="src" Condition="Missing" />
-    </Private>
-  </Sources>
+  <Inputs>
+    <Sources Path="src" Condition="Missing" />
+  </Inputs>
   <Output Kind="Executable" Name="Unknown" Target="Unknown" />
   <Environments>
     <Environment Name="dev" />
@@ -539,11 +528,9 @@ TEST_CASE("structured conditions normalize with direct selectors and inherited g
     <Condition Name="A"><ConditionRef Name="B" /></Condition>
     <Condition Name="B"><ConditionRef Name="A" /></Condition>
   </Conditions>
-  <Sources>
-    <Private>
-      <Root Path="src" />
-    </Private>
-  </Sources>
+  <Inputs>
+    <Sources Path="src" />
+  </Inputs>
   <Output Kind="Executable" Name="Cycle" Target="Cycle" />
   <Environments>
     <Environment Name="dev" />
@@ -566,7 +553,9 @@ TEST_CASE("profiles inherit scalar settings and append authored contributions")
   <Defaults BuildType="Debug" Platform="linux-x64" Environment="dev" />
   <Output Kind="Executable" Name="Profiles" Target="Profiles" />
   <Inputs>
-    <Config Path="config/project.cfg" />
+    <Configs>
+      config/project.cfg
+    </Configs>
   </Inputs>
   <Environments>
     <Environment Name="dev" />
@@ -578,7 +567,9 @@ TEST_CASE("profiles inherit scalar settings and append authored contributions")
         <Package Name="Profile.Base" />
       </References>
       <Inputs>
-        <Config Path="config/profile-base.cfg" />
+        <Configs>
+          config/profile-base.cfg
+        </Configs>
       </Inputs>
     </Profile>
     <Profile Name="Runtime" Extends="Base" BuildType="Release">
@@ -586,7 +577,9 @@ TEST_CASE("profiles inherit scalar settings and append authored contributions")
         <Package Name="Profile.Runtime" />
       </References>
       <Inputs>
-        <Config Path="config/runtime.cfg" />
+        <Configs>
+          config/runtime.cfg
+        </Configs>
       </Inputs>
     </Profile>
   </Profiles>
@@ -605,9 +598,11 @@ TEST_CASE("profiles inherit scalar settings and append authored contributions")
     REQUIRE(profile.architecture == "x64");
     REQUIRE(profile.environmentName == "dev");
     REQUIRE(profile.launch.executable == "Profiles");
-    REQUIRE(profile.configInputs.size() == 2);
-    REQUIRE(profile.configInputs[0] == "config/profile-base.cfg");
-    REQUIRE(profile.configInputs[1] == "config/runtime.cfg");
+    REQUIRE(profile.inputs.size() == 2);
+    REQUIRE(profile.inputs[0].kind == "Config");
+    REQUIRE(profile.inputs[0].path == "config/profile-base.cfg");
+    REQUIRE(profile.inputs[1].kind == "Config");
+    REQUIRE(profile.inputs[1].path == "config/runtime.cfg");
     REQUIRE(profile.packageRefs.size() == 2);
     REQUIRE(profile.packageRefs[0].name == "Profile.Base");
     REQUIRE(profile.packageRefs[1].name == "Profile.Runtime");
@@ -651,7 +646,9 @@ TEST_CASE("model defaults and templates resolve through workspace and project in
   <ProfileTemplates>
     <ProfileTemplate Name="ProjectRuntime" Extends="WorkspaceRuntime">
       <Inputs>
-        <Config Path="config/template.cfg" />
+        <Configs>
+          config/template.cfg
+        </Configs>
       </Inputs>
     </ProfileTemplate>
   </ProfileTemplates>
@@ -688,8 +685,9 @@ TEST_CASE("model defaults and templates resolve through workspace and project in
     REQUIRE(profile.launch.executable == "Model.App");
     REQUIRE(profile.packageRefs.size() == 1);
     REQUIRE(profile.packageRefs[0].name == "Workspace.Template");
-    REQUIRE(profile.configInputs.size() == 1);
-    REQUIRE(profile.configInputs[0] == "config/template.cfg");
+    REQUIRE(profile.inputs.size() == 1);
+    REQUIRE(profile.inputs[0].kind == "Config");
+    REQUIRE(profile.inputs[0].path == "config/template.cfg");
 }
 
 TEST_CASE("project local profile values override profile templates")
@@ -811,22 +809,19 @@ TEST_CASE("generated CMake applies typed source selectors and selected build set
   <Conditions>
     <Condition Name="LinuxDesktop" OperatingSystem="linux" />
   </Conditions>
-  <Sources>
-    <Public>
-      <Root Path="include" />
-      <File Path="include/Typed/Library.hpp" />
-    </Public>
-    <Private>
-      <Root Path="src" Include="**/*.cpp" Exclude="**/*.generated.cpp" />
-      <Root Path="src/linux" OperatingSystem="linux" />
-      <Root Path="src/windows" OperatingSystem="windows" />
-      <Root Path="src/conditional-enabled" Condition="LinuxDesktop" BuildType="Debug" />
-      <Root Path="src/conditional-disabled" Condition="LinuxDesktop" BuildType="Release" />
-      <Files>
-        manual/manual.cpp
-      </Files>
-    </Private>
-  </Sources>
+  <Inputs>
+    <Headers Path="include">
+      include/Typed/Library.hpp
+    </Headers>
+    <Sources Path="src" Include="**/*.cpp" Exclude="**/*.generated.cpp" />
+    <Sources Path="src/linux" OperatingSystem="linux" />
+    <Sources Path="src/windows" OperatingSystem="windows" />
+    <Sources Path="src/conditional-enabled" Condition="LinuxDesktop" BuildType="Debug" />
+    <Sources Path="src/conditional-disabled" Condition="LinuxDesktop" BuildType="Release" />
+    <Sources>
+      manual/manual.cpp
+    </Sources>
+  </Inputs>
   <Output Kind="StaticLibrary" Name="Typed.Library" Target="TypedLibrary" />
   <Build Backend="CMake" Mode="Generated" Language="CXX" LanguageStandard="23">
     <CompileDefinitions>
@@ -1153,7 +1148,7 @@ TEST_CASE("resolution reports package dependency cycles")
 )");
     WriteFile(temp.path() / "Packages/A/A.nginpkg",
               R"(<?xml version="1.0" encoding="utf-8"?>
-<Package SchemaVersion="2" Name="Package.A" Version="1.0.0">
+<Package SchemaVersion="3" Name="Package.A" Version="1.0.0">
   <Dependencies>
     <PackageRef Name="Package.B" />
   </Dependencies>
@@ -1165,7 +1160,7 @@ TEST_CASE("resolution reports package dependency cycles")
 )");
     WriteFile(temp.path() / "Packages/B/B.nginpkg",
               R"(<?xml version="1.0" encoding="utf-8"?>
-<Package SchemaVersion="2" Name="Package.B" Version="1.0.0">
+<Package SchemaVersion="3" Name="Package.B" Version="1.0.0">
   <Dependencies>
     <PackageRef Name="Package.A" />
   </Dependencies>
@@ -1216,7 +1211,7 @@ TEST_CASE("resolution reports project config input collisions")
     bool foundCollision = false;
     for (const auto &message : DiagnosticMessages(resolved.diagnostics))
     {
-        if (message.find("config input destination collision") != std::string::npos)
+        if (message.find("input destination collision") != std::string::npos)
         {
             foundCollision = true;
             break;

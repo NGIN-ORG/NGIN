@@ -3,11 +3,9 @@
          Name="App.NativeMinimal"
          Template="Application"
          DefaultProfile="Runtime">
-  <Sources>
-    <Private>
-      <Root Path="src" />
-    </Private>
-  </Sources>
+  <Inputs>
+    <Sources Path="src" />
+  </Inputs>
   <Conditions>
     <Condition Name="LocalDebug"
                Environment="local"

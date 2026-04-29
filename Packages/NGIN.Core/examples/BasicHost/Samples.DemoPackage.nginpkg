@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Package SchemaVersion="2"
+<Package SchemaVersion="3"
          Name="Samples.DemoPackage"
          Version="0.1.0"
          CompatiblePlatformRange=">=0.1.0 &lt;1.0.0">

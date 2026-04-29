@@ -578,24 +578,59 @@ namespace NGIN::CLI
             return "PRIVATE";
         }
 
-        [[nodiscard]] auto SelectedTypedSourceRoots(const ProjectManifest &project, const ProfileDefinition &profile, const bool publicRoots)
-            -> std::vector<SourceEntry>
+        [[nodiscard]] auto IsBuildInputKind(const InputDeclaration &input) -> bool
         {
-            std::vector<SourceEntry> roots{};
-            if (!project.sources.has_value())
-            {
-                return roots;
-            }
+            return input.kind == "Source" || (input.kind == "Generated" && input.role == "Source");
+        }
 
-            const auto &group = publicRoots ? project.sources->publicSources : project.sources->privateSources;
-            for (const auto &root : group.roots)
+        [[nodiscard]] auto SelectedBuildInputRoots(const ProjectManifest &project, const ProfileDefinition &profile)
+            -> std::vector<InputDeclaration>
+        {
+            std::vector<InputDeclaration> roots{};
+            for (const auto &input : project.inputs)
             {
-                if (SelectionMatches(project, root.selectors, profile))
+                if (IsBuildInputKind(input) && input.mode == "Directory" && !input.path.empty()
+                    && SelectionMatches(project, input.selectors, profile))
                 {
-                    roots.push_back(root);
+                    roots.push_back(input);
                 }
             }
             return roots;
+        }
+
+        [[nodiscard]] auto IsStagedResolvedInput(const ResolvedInput &input) -> bool
+        {
+            return input.kind == "Config" || input.kind == "Content" || input.kind == "Asset"
+                   || (input.kind == "Generated" && (input.role == "Content" || input.role == "Asset" || !input.target.empty() || !input.targetRoot.empty()));
+        }
+
+        [[nodiscard]] auto StagedResolvedInputKind(const ResolvedInput &input) -> std::string
+        {
+            if (input.kind == "Config")
+            {
+                return "config-input";
+            }
+            if (input.kind == "Asset")
+            {
+                return "asset";
+            }
+            if (input.kind == "Content")
+            {
+                return input.contentKind.empty() ? "content" : input.contentKind;
+            }
+            if (input.kind == "Generated")
+            {
+                if (input.role == "Asset")
+                {
+                    return "asset";
+                }
+                if (input.role == "Content")
+                {
+                    return input.contentKind.empty() ? "content" : input.contentKind;
+                }
+                return "generated";
+            }
+            return Lower(input.kind);
         }
 
         [[nodiscard]] auto EffectivePackageBuildMode(const ResolvedPackage &package) -> std::string
@@ -685,29 +720,29 @@ namespace NGIN::CLI
                     addSource(ResolveProjectPathValue(item, project, workspace));
                 }
             }
-            else if (project.sources.has_value())
+            else
             {
                 std::vector<fs::path> excludedRoots{};
                 std::vector<fs::path> excludedFiles{};
-                auto collectExclusions = [&](const SourceGroup &group)
+                for (const auto &input : project.inputs)
                 {
-                    for (const auto &root : group.roots)
+                    if (!IsBuildInputKind(input))
                     {
-                        if (!SelectionMatches(project, root.selectors, profile))
-                        {
-                            excludedRoots.push_back(ResolveProjectPathValue(root.path, project, workspace));
-                        }
+                        continue;
                     }
-                    for (const auto &file : group.files)
+                    if (SelectionMatches(project, input.selectors, profile) || input.path.empty())
                     {
-                        if (!SelectionMatches(project, file.selectors, profile))
-                        {
-                            excludedFiles.push_back(ResolveProjectPathValue(file.path, project, workspace));
-                        }
+                        continue;
                     }
-                };
-                collectExclusions(project.sources->publicSources);
-                collectExclusions(project.sources->privateSources);
+                    if (input.mode == "Directory")
+                    {
+                        excludedRoots.push_back(ResolveProjectPathValue(input.path, project, workspace));
+                    }
+                    else if (input.mode == "File")
+                    {
+                        excludedFiles.push_back(ResolveProjectPathValue(input.path, project, workspace));
+                    }
+                }
 
                 auto isExcluded = [&](const fs::path &candidate)
                 {
@@ -722,7 +757,7 @@ namespace NGIN::CLI
                     return std::find(excludedFiles.begin(), excludedFiles.end(), normalized) != excludedFiles.end();
                 };
 
-                auto addRootSources = [&](const SourceEntry &root)
+                auto addRootSources = [&](const InputDeclaration &root)
                 {
                     const auto sourceRoot = ResolveProjectPathValue(root.path, project, workspace);
                     if (!fs::exists(sourceRoot))
@@ -750,6 +785,13 @@ namespace NGIN::CLI
                                 continue;
                             }
                         }
+                        else if (root.role == "Header")
+                        {
+                            if (!IsHeaderSourceExtension(normalized))
+                            {
+                                continue;
+                            }
+                        }
                         else if (!IsCompiledSourceExtension(normalized))
                         {
                             continue;
@@ -762,57 +804,48 @@ namespace NGIN::CLI
                     }
                 };
 
-                for (const auto &root : project.sources->publicSources.roots)
+                for (const auto &input : project.inputs)
                 {
-                    if (SelectionMatches(project, root.selectors, profile))
+                    if (!IsBuildInputKind(input) || !SelectionMatches(project, input.selectors, profile))
                     {
-                        addRootSources(root);
-                    }
-                }
-                for (const auto &root : project.sources->privateSources.roots)
-                {
-                    if (SelectionMatches(project, root.selectors, profile))
-                    {
-                        addRootSources(root);
-                    }
-                }
-                for (const auto &file : project.sources->publicSources.files)
-                {
-                    if (SelectionMatches(project, file.selectors, profile))
-                    {
-                        addSource(ResolveProjectPathValue(file.path, project, workspace));
-                    }
-                }
-                for (const auto &file : project.sources->privateSources.files)
-                {
-                    if (SelectionMatches(project, file.selectors, profile))
-                    {
-                        addSource(ResolveProjectPathValue(file.path, project, workspace));
-                    }
-                }
-            }
-            else
-            {
-                for (const auto &rootPath : project.sourceRoots)
-                {
-                    const auto sourceRoot = ResolveProjectPathValue(rootPath, project, workspace);
-                    if (!fs::exists(sourceRoot))
-                    {
-                        AddError(report, "project '" + project.name + "' source root '" + sourceRoot.string() + "' does not exist");
                         continue;
                     }
-                    if (!fs::is_directory(sourceRoot))
+                    if (input.mode == "Glob")
                     {
-                        AddError(report, "project '" + project.name + "' source root '" + sourceRoot.string() + "' is not a directory");
-                        continue;
-                    }
-                    for (const auto &entry : fs::recursive_directory_iterator(sourceRoot))
-                    {
-                        if (!entry.is_regular_file() || !IsCompiledSourceExtension(entry.path()))
+                        const auto projectDir = project.path.parent_path();
+                        auto globRoot = projectDir;
+                        if (!input.basePath.empty())
                         {
+                            const fs::path base{input.basePath};
+                            globRoot = (base.is_absolute() ? base : projectDir / base).lexically_normal();
+                        }
+                        if (!fs::exists(globRoot) || !fs::is_directory(globRoot))
+                        {
+                            AddError(report, "project '" + project.name + "' input glob base path '" + globRoot.string() + "' does not exist");
                             continue;
                         }
-                        addSource(entry.path());
+                        for (const auto &entry : fs::recursive_directory_iterator(globRoot))
+                        {
+                            if (!entry.is_regular_file())
+                            {
+                                continue;
+                            }
+                            const auto relativePath = entry.path().lexically_relative(globRoot);
+                            if (!AnyGlobMatches(input.includePatterns, relativePath) ||
+                                (!input.excludePatterns.empty() && AnyGlobMatches(input.excludePatterns, relativePath)))
+                            {
+                                continue;
+                            }
+                            addSource(entry.path());
+                        }
+                    }
+                    else if (input.mode == "Directory")
+                    {
+                        addRootSources(input);
+                    }
+                    else if (input.mode == "File")
+                    {
+                        addSource(ResolveProjectPathValue(input.path, project, workspace));
                     }
                 }
             }
@@ -1136,20 +1169,11 @@ namespace NGIN::CLI
                     << EscapeCMake(unit.project.build.languageStandard)
                     << " CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)\n";
 
-                for (const auto &sourceRoot : unit.project.sourceRoots)
-                {
-                    const auto includeDir = ResolveProjectPathValue(sourceRoot, unit.project, resolved.workspace);
-                    out << "target_include_directories(\"" << EscapeCMake(targetName) << "\" PRIVATE \"" << ToCMakePath(includeDir) << "\")\n";
-                }
-                for (const auto &sourceRoot : SelectedTypedSourceRoots(unit.project, unit.profile, true))
+                for (const auto &sourceRoot : SelectedBuildInputRoots(unit.project, unit.profile))
                 {
                     const auto includeDir = ResolveProjectPathValue(sourceRoot.path, unit.project, resolved.workspace);
-                    out << "target_include_directories(\"" << EscapeCMake(targetName) << "\" PUBLIC \"" << ToCMakePath(includeDir) << "\")\n";
-                }
-                for (const auto &sourceRoot : SelectedTypedSourceRoots(unit.project, unit.profile, false))
-                {
-                    const auto includeDir = ResolveProjectPathValue(sourceRoot.path, unit.project, resolved.workspace);
-                    out << "target_include_directories(\"" << EscapeCMake(targetName) << "\" PRIVATE \"" << ToCMakePath(includeDir) << "\")\n";
+                    out << "target_include_directories(\"" << EscapeCMake(targetName) << "\" " << ToCMakeVisibility(sourceRoot.visibility)
+                        << " \"" << ToCMakePath(includeDir) << "\")\n";
                 }
                 for (const auto &setting : unit.project.build.includeDirectories)
                 {
@@ -1656,12 +1680,49 @@ namespace NGIN::CLI
         out << "    </Features>\n";
         out << "  </Environment>\n";
         out << "  <Inputs>\n";
-        for (const auto &source : resolved.configInputs)
+        for (const auto &input : resolved.inputs)
         {
-            out << "    <Config Path=\"" << EscapeXml(source.source)
-                << "\" Project=\"" << EscapeXml(source.ownerProjectName)
-                << "\" Destination=\"" << EscapeXml(source.stagedRelativePath.string())
-                << "\" />\n";
+            out << "    <Input Kind=\"" << EscapeXml(input.kind)
+                << "\" Path=\"" << EscapeXml(input.source)
+                << "\" OwnerKind=\"" << EscapeXml(input.ownerKind)
+                << "\" Owner=\"" << EscapeXml(input.ownerName) << "\"";
+            if (!input.name.empty())
+            {
+                out << " Name=\"" << EscapeXml(input.name) << "\"";
+            }
+            if (!input.role.empty())
+            {
+                out << " Role=\"" << EscapeXml(input.role) << "\"";
+            }
+            if (!input.mode.empty())
+            {
+                out << " Mode=\"" << EscapeXml(input.mode) << "\"";
+            }
+            if (!input.visibility.empty())
+            {
+                out << " Visibility=\"" << EscapeXml(input.visibility) << "\"";
+            }
+            if (!input.target.empty())
+            {
+                out << " Target=\"" << EscapeXml(input.target) << "\"";
+            }
+            if (!input.targetRoot.empty())
+            {
+                out << " TargetRoot=\"" << EscapeXml(input.targetRoot) << "\"";
+            }
+            if (!input.basePath.empty())
+            {
+                out << " BasePath=\"" << EscapeXml(input.basePath) << "\"";
+            }
+            if (!input.contentKind.empty())
+            {
+                out << " ContentKind=\"" << EscapeXml(input.contentKind) << "\"";
+            }
+            if (!input.stagedRelativePath.empty())
+            {
+                out << " Destination=\"" << EscapeXml(input.stagedRelativePath.string()) << "\"";
+            }
+            out << " />\n";
         }
         out << "  </Inputs>\n";
         out << "  <Bootstraps>\n";
@@ -1677,15 +1738,9 @@ namespace NGIN::CLI
         out << "  <Packages>\n";
         for (const auto &package : resolved.orderedPackages)
         {
-            out << "    <Package Name=\"" << EscapeXml(package.manifest.name) << "\" Version=\"" << EscapeXml(package.manifest.version) << "\" Source=\"" << EscapeXml(package.source) << "\">\n";
-            for (const auto &content : package.manifest.contents)
-            {
-                const auto rel = content.target.empty() ? content.source : content.target;
-                out << "      <Content Source=\"" << EscapeXml(content.source)
-                    << "\" Kind=\"" << EscapeXml(content.kind)
-                    << "\" Destination=\"" << EscapeXml(rel) << "\" />\n";
-            }
-            out << "    </Package>\n";
+            out << "    <Package Name=\"" << EscapeXml(package.manifest.name)
+                << "\" Version=\"" << EscapeXml(package.manifest.version)
+                << "\" Source=\"" << EscapeXml(package.source) << "\" />\n";
         }
         out << "  </Packages>\n";
         out << "  <Artifacts>\n";
@@ -1957,61 +2012,30 @@ namespace NGIN::CLI
             return result;
         }
 
-        for (const auto &package : resolved.value->orderedPackages)
+        for (const auto &content : resolved.value->inputs)
         {
-            for (const auto &content : package.manifest.contents)
+            if (!IsStagedResolvedInput(content))
             {
-                const auto source = package.manifest.path.parent_path() / content.source;
-                const auto rel = content.target.empty() ? content.source : content.target;
-                const auto dest = resolvedOutputDir / rel;
-                if (collisions.contains(dest))
-                {
-                    AddError(result.diagnostics, "build output collision at '" + rel + "' between packages '" + collisions[dest] + "' and '" + package.manifest.name + "'");
-                    continue;
-                }
-                collisions[dest] = package.manifest.name;
-                fs::create_directories(dest.parent_path());
-                fs::copy_file(source, dest, fs::copy_options::overwrite_existing);
-                staged.emplace_back(content.kind, source, dest);
-            }
-        }
-        for (const auto &config : resolved.value->configInputs)
-        {
-            const auto source = config.absoluteSourcePath;
-            if (!fs::exists(source))
-            {
-                AddError(result.diagnostics, "missing config input '" + config.source + "' declared by project '" + config.ownerProjectName + "'");
                 continue;
             }
-            const auto dest = resolvedOutputDir / config.stagedRelativePath;
-            if (collisions.contains(dest))
-            {
-                AddError(result.diagnostics, "build output collision at config input '" + config.stagedRelativePath.string() + "' declared by project '" + config.ownerProjectName + "'");
-                continue;
-            }
-            collisions[dest] = "<config>";
-            fs::create_directories(dest.parent_path());
-            fs::copy_file(source, dest, fs::copy_options::overwrite_existing);
-            staged.emplace_back("config-input", source, dest);
-        }
-        for (const auto &content : resolved.value->environmentContents)
-        {
             const auto source = content.absoluteSourcePath;
             if (!fs::exists(source))
             {
-                AddError(result.diagnostics, "missing environment content '" + content.source + "' declared by project '" + content.ownerProjectName + "'");
+                AddError(result.diagnostics, "missing " + content.kind + " input '" + content.source + "' declared by "
+                                                + content.ownerKind + " '" + content.ownerName + "'");
                 continue;
             }
             const auto dest = resolvedOutputDir / content.stagedRelativePath;
             if (collisions.contains(dest))
             {
-                AddError(result.diagnostics, "build output collision at environment content '" + content.stagedRelativePath.string() + "' declared by project '" + content.ownerProjectName + "'");
+                AddError(result.diagnostics, "build output collision at input '" + content.stagedRelativePath.string()
+                                                 + "' declared by " + content.ownerKind + " '" + content.ownerName + "'");
                 continue;
             }
-            collisions[dest] = "<environment>";
+            collisions[dest] = content.ownerKind + ":" + content.ownerName;
             fs::create_directories(dest.parent_path());
             fs::copy_file(source, dest, fs::copy_options::overwrite_existing);
-            staged.emplace_back(content.kind.empty() ? "environment-content" : content.kind, source, dest);
+            staged.emplace_back(StagedResolvedInputKind(content), source, dest);
         }
         if (result.diagnostics.HasErrors())
         {

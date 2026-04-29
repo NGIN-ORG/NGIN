@@ -28,6 +28,7 @@ export interface ProjectProfileTemplate {
   environment?: string;
   launchExecutable?: string;
   launchWorkingDirectory?: string;
+  inputs?: InputDeclaration[];
   configInputs: string[];
   projectRefs?: ProjectReference[];
   packageRefs?: PackageReference[];
@@ -66,6 +67,7 @@ export interface ProjectProfile {
   environment?: string;
   launchExecutable?: string;
   launchWorkingDirectory?: string;
+  inputs?: InputDeclaration[];
   configInputs: string[];
   projectRefs?: ProjectReference[];
   packageRefs?: PackageReference[];
@@ -78,6 +80,7 @@ export interface ProjectManifest {
   defaultProfile?: string;
   modelIncludes?: string[];
   defaults?: ModelDefaults;
+  inputs?: InputDeclaration[];
   sourceRoots: string[];
   configInputs: string[];
   localSettingsImports?: string[];
@@ -85,6 +88,31 @@ export interface ProjectManifest {
   projectRefs?: ProjectReference[];
   packageRefs?: PackageReference[];
   profiles: ProjectProfile[];
+}
+
+export interface InputDeclaration {
+  name?: string;
+  kind: 'Source' | 'Config' | 'Content' | 'Asset' | 'Generated' | 'ToolInput' | string;
+  role?: 'Source' | 'Header' | 'Content' | 'Asset' | 'ToolInput' | string;
+  path?: string;
+  pattern?: string;
+  mode?: 'Directory' | 'File' | 'Glob' | string;
+  visibility?: 'Public' | 'Private' | 'Interface' | string;
+  target?: string;
+  targetRoot?: string;
+  basePath?: string;
+  contentKind?: string;
+  required?: boolean;
+  profile?: string;
+  platform?: string;
+  operatingSystem?: string;
+  architecture?: string;
+  buildType?: string;
+  environment?: string;
+  condition?: string;
+  include?: string[];
+  exclude?: string[];
+  setName?: string;
 }
 
 export interface LocalSettingEntry {

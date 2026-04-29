@@ -502,6 +502,11 @@ namespace NGIN::CLI
             return path.lexically_normal();
         }
 
+        [[nodiscard]] auto IsBuildInputKind(const InputDeclaration &input) -> bool
+        {
+            return input.kind == "Source" || (input.kind == "Generated" && input.role == "Source");
+        }
+
         [[nodiscard]] auto CollectSourceFiles(const ProjectManifest &project, const ProfileDefinition &profile) -> std::vector<fs::path>
         {
             std::set<fs::path> unique{};
@@ -523,29 +528,25 @@ namespace NGIN::CLI
                     add(ResolveProjectPathValue(source, project));
                 }
             }
-            else if (project.sources.has_value())
+            else
             {
                 std::vector<fs::path> excludedRoots{};
                 std::vector<fs::path> excludedFiles{};
-                auto collectExclusions = [&](const SourceGroup &group)
+                for (const auto &input : project.inputs)
                 {
-                    for (const auto &root : group.roots)
+                    if (!IsBuildInputKind(input) || SelectionMatches(project, input.selectors, profile) || input.path.empty())
                     {
-                        if (!SelectionMatches(project, root.selectors, profile))
-                        {
-                            excludedRoots.push_back(ResolveProjectPathValue(root.path, project));
-                        }
+                        continue;
                     }
-                    for (const auto &file : group.files)
+                    if (input.mode == "Directory")
                     {
-                        if (!SelectionMatches(project, file.selectors, profile))
-                        {
-                            excludedFiles.push_back(ResolveProjectPathValue(file.path, project));
-                        }
+                        excludedRoots.push_back(ResolveProjectPathValue(input.path, project));
                     }
-                };
-                collectExclusions(project.sources->publicSources);
-                collectExclusions(project.sources->privateSources);
+                    else if (input.mode == "File")
+                    {
+                        excludedFiles.push_back(ResolveProjectPathValue(input.path, project));
+                    }
+                }
 
                 auto isExcluded = [&](const fs::path &candidate)
                 {
@@ -560,7 +561,7 @@ namespace NGIN::CLI
                     return std::find(excludedFiles.begin(), excludedFiles.end(), normalized) != excludedFiles.end();
                 };
 
-                auto addRoot = [&](const SourceEntry &root)
+                auto addRoot = [&](const InputDeclaration &root)
                 {
                     const auto sourceRoot = ResolveProjectPathValue(root.path, project);
                     if (!fs::exists(sourceRoot) || !fs::is_directory(sourceRoot))
@@ -586,50 +587,47 @@ namespace NGIN::CLI
                         add(entry.path());
                     }
                 };
-                for (const auto &root : project.sources->publicSources.roots)
+                for (const auto &input : project.inputs)
                 {
-                    if (SelectionMatches(project, root.selectors, profile))
-                    {
-                        addRoot(root);
-                    }
-                }
-                for (const auto &root : project.sources->privateSources.roots)
-                {
-                    if (SelectionMatches(project, root.selectors, profile))
-                    {
-                        addRoot(root);
-                    }
-                }
-                for (const auto &file : project.sources->publicSources.files)
-                {
-                    if (SelectionMatches(project, file.selectors, profile))
-                    {
-                        add(ResolveProjectPathValue(file.path, project));
-                    }
-                }
-                for (const auto &file : project.sources->privateSources.files)
-                {
-                    if (SelectionMatches(project, file.selectors, profile))
-                    {
-                        add(ResolveProjectPathValue(file.path, project));
-                    }
-                }
-            }
-            else
-            {
-                for (const auto &root : project.sourceRoots)
-                {
-                    const auto sourceRoot = ResolveProjectPathValue(root, project);
-                    if (!fs::exists(sourceRoot) || !fs::is_directory(sourceRoot))
+                    if (!IsBuildInputKind(input) || !SelectionMatches(project, input.selectors, profile))
                     {
                         continue;
                     }
-                    for (const auto &entry : fs::recursive_directory_iterator(sourceRoot))
+                    if (input.mode == "Glob")
                     {
-                        if (entry.is_regular_file())
+                        const auto projectDir = project.path.parent_path();
+                        auto globRoot = projectDir;
+                        if (!input.basePath.empty())
                         {
+                            const fs::path base{input.basePath};
+                            globRoot = (base.is_absolute() ? base : projectDir / base).lexically_normal();
+                        }
+                        if (!fs::exists(globRoot) || !fs::is_directory(globRoot))
+                        {
+                            continue;
+                        }
+                        for (const auto &entry : fs::recursive_directory_iterator(globRoot))
+                        {
+                            if (!entry.is_regular_file())
+                            {
+                                continue;
+                            }
+                            const auto relativePath = entry.path().lexically_relative(globRoot);
+                            if (!AnyGlobMatches(input.includePatterns, relativePath) ||
+                                (!input.excludePatterns.empty() && AnyGlobMatches(input.excludePatterns, relativePath)))
+                            {
+                                continue;
+                            }
                             add(entry.path());
                         }
+                    }
+                    else if (input.mode == "Directory")
+                    {
+                        addRoot(input);
+                    }
+                    else if (input.mode == "File")
+                    {
+                        add(ResolveProjectPathValue(input.path, project));
                     }
                 }
             }
@@ -640,25 +638,11 @@ namespace NGIN::CLI
         [[nodiscard]] auto CollectSourceRoots(const ProjectManifest &project, const ProfileDefinition &profile) -> std::vector<fs::path>
         {
             std::vector<fs::path> roots{};
-            for (const auto &root : project.sourceRoots)
+            for (const auto &input : project.inputs)
             {
-                roots.push_back(ResolveProjectPathValue(root, project));
-            }
-            if (project.sources.has_value())
-            {
-                for (const auto &root : project.sources->publicSources.roots)
+                if (IsBuildInputKind(input) && input.mode == "Directory" && SelectionMatches(project, input.selectors, profile))
                 {
-                    if (SelectionMatches(project, root.selectors, profile))
-                    {
-                        roots.push_back(ResolveProjectPathValue(root.path, project));
-                    }
-                }
-                for (const auto &root : project.sources->privateSources.roots)
-                {
-                    if (SelectionMatches(project, root.selectors, profile))
-                    {
-                        roots.push_back(ResolveProjectPathValue(root.path, project));
-                    }
+                    roots.push_back(ResolveProjectPathValue(input.path, project));
                 }
             }
             return roots;

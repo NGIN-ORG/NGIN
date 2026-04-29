@@ -39,11 +39,9 @@
     "body": [
       "<?xml version=\"1.0\" encoding=\"utf-8\"?>",
       "<Project SchemaVersion=\"3\" Name=\"$1\" DefaultProfile=\"$2\">",
-      "  <Sources>",
-      "    <Private>",
-      "      <Root Path=\"src\" />",
-      "    </Private>",
-      "  </Sources>",
+      "  <Inputs>",
+      "    <Sources Path=\"src\" />",
+      "  </Inputs>",
       "  <Output Kind=\"Executable\" Name=\"$1\" Target=\"$1\" />",
       "  <References>",
       "    <Package Name=\"$3\" Version=\"$4\" />",
@@ -64,7 +62,7 @@
     "prefix": "ngin-package",
     "body": [
       "<?xml version=\"1.0\" encoding=\"utf-8\"?>",
-      "<Package SchemaVersion=\"2\" Name=\"$1\" Version=\"$2\">",
+      "<Package SchemaVersion=\"3\" Name=\"$1\" Version=\"$2\">",
       "  <Dependencies>",
       "    <PackageRef Name=\"$3\" VersionRange=\"$4\" />",
       "  </Dependencies>",

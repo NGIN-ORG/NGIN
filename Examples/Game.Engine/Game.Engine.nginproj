@@ -3,11 +3,9 @@
          Name="Game.Engine"
          Template="Library"
          DefaultProfile="Debug">
-  <Sources>
-    <Private>
-      <Root Path="src" />
-    </Private>
-  </Sources>
+  <Inputs>
+    <Sources Path="src" />
+  </Inputs>
   <Output Kind="StaticLibrary"
           Name="Game.Engine"
           Target="GameEngine" />

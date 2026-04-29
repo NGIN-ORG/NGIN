@@ -3,17 +3,15 @@
          Name="ProjectRef.Config.CollisionLibA"
          Template="Library"
          DefaultProfile="Runtime">
-  <Sources>
-    <Private>
-      <Root Path="src" />
-    </Private>
-  </Sources>
+  <Inputs>
+    <Sources Path="src" />
+    <Configs>
+      config/shared.cfg
+    </Configs>
+  </Inputs>
   <Output Kind="StaticLibrary"
                  Name="ProjectRef.Config.CollisionLibA"
                  Target="ProjectRefConfigCollisionLibA" />
-  <Inputs>
-    <Config Path="config/shared.cfg" />
-  </Inputs>
   <Environments>
     <Environment Name="development" />
   </Environments>

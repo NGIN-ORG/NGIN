@@ -1,11 +1,11 @@
 # Spec 003: Package Manifest and Runtime Contributions
 
 Status: Active
-Last updated: 2026-04-24
+Last updated: 2026-04-28
 
 ## Purpose
 
-This spec defines the active V2 `.nginpkg` contract.
+This spec defines the active V3 `.nginpkg` contract.
 
 Packages are the reusable unit in NGIN.
 
@@ -16,7 +16,7 @@ Packages contribute to composition through declared manifest sections rather tha
 - filename: `<PackageName>.nginpkg`
 - root element: `<Package>`
 - required root attributes:
-  - `SchemaVersion="2"`
+  - `SchemaVersion="3"`
   - `Name`
   - `Version`
 
@@ -30,7 +30,7 @@ explicitly says otherwise.
 - `Build`
 - `Modules`
 - `Plugins`
-- `Contents`
+- `Inputs`
 - `Bootstrap`
 
 `SourceBinding` is removed from the active package contract.
@@ -68,7 +68,26 @@ not package references.
 as lifecycle, dependency-order, service, or capability nodes. Library-only
 packages should use `Artifacts` without declaring placeholder modules.
 
-At the current V2 stage, NGIN does not define a second parallel `<Capabilities>` schema. Capability clarity should come from explicit manifest sections, validation, and graph or inspection tooling.
+At the current V3 stage, NGIN does not define a second parallel `<Capabilities>` schema. Capability clarity should come from explicit manifest sections, validation, and graph or inspection tooling.
+
+## Inputs
+
+Packages use the same normalized `Inputs` surface as projects. Authored
+`Contents` is removed.
+
+```xml
+<Inputs>
+  <Contents ContentKind="config">
+    <File Path="config/defaults.xml"
+          Target="config/defaults.xml" />
+  </Contents>
+</Inputs>
+```
+
+Supported package input blocks are `Configs`, `Contents`, `Assets`,
+`Generated`, and `ToolInputs`. Package configs, contents, assets, and generated
+staged roles flow through the common input pipeline; tool inputs are validated
+and exposed as metadata only.
 
 ## Ownership Rule
 

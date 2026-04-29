@@ -50,10 +50,37 @@ struct PackageBootstrapEntry {
   PackageBootstrapFn fn{nullptr};
 };
 
-struct PackageContentFile {
-  std::string source{};
-  std::string target{};
+struct InputMetadataProperty {
+  std::string name{};
+  std::string value{};
+};
+
+struct InputDeclaration {
+  std::string name{};
   std::string kind{};
+  std::string role{};
+  std::string path{};
+  std::string pattern{};
+  std::string mode{};
+  std::string visibility{"Private"};
+  std::string target{};
+  std::string targetRoot{};
+  std::string basePath{};
+  std::string contentKind{};
+  bool required{true};
+  bool overrideExisting{false};
+  std::string profile{};
+  std::string platform{};
+  std::string operatingSystem{};
+  std::string architecture{};
+  std::string buildType{};
+  std::string environment{};
+  std::string condition{};
+  std::vector<std::string> includePatterns{};
+  std::vector<std::string> excludePatterns{};
+  std::string setName{};
+  std::string declaringScope{};
+  std::vector<InputMetadataProperty> metadata{};
 };
 
 struct LaunchDefinition {
@@ -81,7 +108,9 @@ struct PackagePluginManifest {
 };
 
 struct PackageManifest {
-  NGIN::UInt32 schemaVersion{1};
+  NGIN::UInt32 schemaVersion{3};
+  std::string path{};
+  std::string directory{};
   std::string name{};
   std::string version{};
   std::string compatiblePlatformRange{};
@@ -89,7 +118,7 @@ struct PackageManifest {
   std::vector<std::string> architectures{};
   std::vector<PackageReference> dependencies{};
   std::optional<PackageBootstrapDescriptor> bootstrap{};
-  std::vector<PackageContentFile> contents{};
+  std::vector<InputDeclaration> inputs{};
   std::vector<ModuleDescriptor> modules{};
   std::vector<PackagePluginManifest> plugins{};
 };
@@ -142,8 +171,7 @@ struct EnvironmentDefinition {
   std::string name{};
   std::vector<ProjectReference> projectRefs{};
   std::vector<PackageReference> packageRefs{};
-  std::vector<std::string> configInputs{};
-  std::vector<PackageContentFile> contents{};
+  std::vector<InputDeclaration> inputs{};
   std::vector<EnvironmentVariable> variables{};
   std::vector<FeatureFlag> features{};
   RuntimeDefinition runtime{};
@@ -159,7 +187,7 @@ struct ProfileDefinition {
   std::string environmentName{};
   std::vector<ProjectReference> projectRefs{};
   std::vector<PackageReference> packageRefs{};
-  std::vector<std::string> configInputs{};
+  std::vector<InputDeclaration> inputs{};
   std::optional<LaunchDefinition> launch{};
   RuntimeDefinition runtime{};
 };
@@ -169,12 +197,11 @@ struct ProjectManifest {
   std::string name{};
   std::string type{};
   std::string defaultProfile{};
-  std::vector<std::string> sourceRoots{};
+  std::vector<InputDeclaration> inputs{};
   OutputDefinition output{};
   ProjectBuildDescriptor build{};
   std::vector<ProjectReference> projectRefs{};
   std::vector<PackageReference> packageRefs{};
-  std::vector<std::string> configInputs{};
   std::vector<EnvironmentDefinition> environments{};
   RuntimeDefinition runtime{};
   std::vector<ProfileDefinition> profiles{};

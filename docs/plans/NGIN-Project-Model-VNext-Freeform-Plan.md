@@ -1,6 +1,6 @@
 # NGIN Project Model VNext Freeform Plan
 
-Status: V3 Foundation And Phase A Model Factoring Implemented; Strategic Backlog Remains
+Status: V3 Foundation, Phase A Model Factoring, And Phase B Unified Inputs Implemented; Strategic Backlog Remains
 
 ## Implementation Progress
 
@@ -12,7 +12,8 @@ Implemented so far:
 - `DefaultProfile`, `Profiles`, `Profile`, `BuildType`, `Platform`,
   `Condition`, `Template`, and inferred `Output` support.
 - Ordered profile inheritance through `Profile Extends="..."`.
-- Root/profile/environment config inputs through `<Inputs><Config Path="..." />`.
+- Typed root/profile/environment/template/package input blocks under
+  `<Inputs>`.
 - `--profile` CLI selection.
 - V3 `.nginlaunch` emission with `Profile`, `BuildType`, `Platform`, and
   config metadata under `<Inputs>`.
@@ -37,6 +38,23 @@ Implemented so far:
   - built-in and authored project templates
   - reusable profile templates
   - V3 workspace manifests
+- Phase B unified input model implemented across CLI, NGIN.Core, VS Code,
+  examples, packages, docs, and tests:
+  - typed input blocks: `Sources`, `Headers`, `Configs`, `Contents`, `Assets`,
+    `Generated`, and `ToolInputs`
+  - structured `File`, `Directory`, and `Glob` entries plus simple text file
+    lists
+  - `Remove`, `Override`, selectors, scan filters, staging roots, and input
+    metadata parsing
+  - active `Source`, `Config`, `Content`, `Asset`, `Generated`, and `ToolInput`
+    normalized kinds
+  - generated CMake and MetaGen source discovery from `Source`/`Generated`
+    inputs
+  - staging for `Config`, `Content`, `Asset`, and targeted `Generated` inputs
+  - package `SchemaVersion="3"` inputs replacing authored package `Contents`
+  - launch metadata emission using normalized `<Input>` entries
+  - old authored generic `Input`/`InputSet`, `Form`, `SourceRoots`,
+    `Inputs/Config`, and top-level `Contents` rejected by active parsers
 - Active project, CLI, launch-manifest, and authoring docs moved toward V3.
 - Verification completed against workspace tests, NGIN.Core tests, VS Code unit
   tests, NGIN.Core BasicHost example build, repository stale-vocabulary scans,
@@ -44,7 +62,6 @@ Implemented so far:
 
 Still remaining from the broader plan:
 
-- Full project input model beyond config inputs.
 - Dependency version policy and package feature/capability expansion.
 - Pipeline phase contributions.
 - `ngin explain`, `ngin create`, format, one-way offline migration, and
@@ -146,11 +163,9 @@ Example direction:
 <Project SchemaVersion="3"
          Template="Application"
          Name="App.NativeMinimal">
-  <Sources>
-    <Private>
-      <Root Path="src" />
-    </Private>
-  </Sources>
+  <Inputs>
+    <Sources Path="src" />
+  </Inputs>
 </Project>
 ```
 
@@ -478,22 +493,11 @@ Potential built-in input kinds:
 Keep readable surfaces where they make sense:
 
 ```xml
-<Sources>
-  <Private>
-    <Root Path="src" />
-  </Private>
-</Sources>
-```
-
-Normalize internally to input declarations.
-
-Generic form:
-
-```xml
 <Inputs>
-  <Source Pattern="src/**/*.cpp" />
-  <Config Path="config/app.cfg"
-          StagePath="config/app.cfg" />
+  <Sources Path="src" />
+  <Configs>
+    config/app.cfg
+  </Configs>
 </Inputs>
 ```
 
@@ -524,18 +528,18 @@ Example:
          CopyToOutput="PreserveNewest" />
 ```
 
-### Input Sets
+### Typed Input Blocks
 
-Input sets should carry inherited selectors and metadata.
+Typed blocks carry inherited selectors and metadata.
 
 ```xml
-<InputSet Platform="linux-x64">
-  <Source Pattern="src/platform/linux/**/*.cpp" />
-  <Content Pattern="assets/linux/**" />
-</InputSet>
+<Sources Platform="linux-x64" Include="src/platform/linux/**/*.cpp" />
+<Assets Platform="linux-x64">
+  <Glob BasePath="assets" Include="linux/**" TargetRoot="assets" />
+</Assets>
 ```
 
-Set metadata applies to child inputs as implicit AND or inherited metadata.
+Block metadata applies to child entries as implicit AND or inherited metadata.
 
 ### Input Exclusion And Override
 
@@ -1127,11 +1131,9 @@ Authored:
 <Project SchemaVersion="3"
          Template="Application"
          Name="App.NativeMinimal">
-  <Sources>
-    <Private>
-      <Root Path="src" />
-    </Private>
-  </Sources>
+  <Inputs>
+    <Sources Path="src" />
+  </Inputs>
 </Project>
 ```
 
@@ -1155,11 +1157,9 @@ Normalized concepts:
 <Project SchemaVersion="3"
          Template="HostedApplication"
          Name="App.Basic">
-  <Sources>
-    <Private>
-      <Root Path="src" />
-    </Private>
-  </Sources>
+  <Inputs>
+    <Sources Path="src" />
+  </Inputs>
 
   <Use Package="NGIN.Core" />
 
@@ -1235,14 +1235,16 @@ and explain declarations.
 Purpose: make sources, config, content, generated files, assets, and tool inputs
 use one normalized model.
 
-- Add normalized input model.
-- Normalize `Sources`, `ConfigInputs`, and `Contents` to inputs.
-- Add input metadata.
-- Add input sets.
-- Add input-set metadata inheritance.
-- Add input exclude/override operations.
-- Decide whether and when to remove `SourceRoots`.
-- Preserve input provenance for tooling.
+- Status: implemented.
+- Added typed input blocks backed by the normalized input model.
+- Normalized sources, headers, configs, package content, assets, generated
+  files, and tool inputs.
+- Added input metadata, typed entry inheritance, `Remove`, `Override`,
+  `TargetRoot`, and `BasePath`.
+- Removed active authored generic `Input`/`InputSet`, `Form`, `SourceRoots`,
+  `Inputs/Config`, and top-level `Contents` compatibility paths.
+- Preserved input provenance for launch metadata, staging diagnostics, and
+  tooling.
 
 This phase should land before generators and pipelines because those systems
 need typed inputs and outputs.

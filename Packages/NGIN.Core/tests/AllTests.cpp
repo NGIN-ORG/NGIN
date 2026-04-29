@@ -1515,11 +1515,12 @@ TEST_CASE("ApplicationBuilderLoadsProjectManifestAndConfig",
          Name="Manifest.Tests"
          Type="Application"
          DefaultProfile="Samples.Derived">
-  <Sources>
-    <Private>
-      <Root Path="src" />
-    </Private>
-  </Sources>
+  <Inputs>
+    <Sources Path="src" />
+    <Configs>
+      app.cfg
+    </Configs>
+  </Inputs>
   <Output Kind="Executable"
           Name="Manifest.Tests"
           Target="Manifest.Tests" />
@@ -1534,9 +1535,6 @@ TEST_CASE("ApplicationBuilderLoadsProjectManifestAndConfig",
   <References>
     <Package Name="NGIN.ECS" Version=">=0.1.0 &lt;1.0.0" />
   </References>
-  <Inputs>
-    <Config Path="app.cfg" />
-  </Inputs>
   <Environments>
     <Environment Name="Dev" />
   </Environments>
@@ -1559,7 +1557,9 @@ TEST_CASE("ApplicationBuilderLoadsProjectManifestAndConfig",
              Extends="Samples.Manifest"
              BuildType="Release">
       <Inputs>
-        <Config Path="derived.cfg" />
+        <Configs>
+          derived.cfg
+        </Configs>
       </Inputs>
     </Profile>
   </Profiles>
@@ -1630,7 +1630,9 @@ TEST_CASE("ApplicationBuilderLoadsProjectManifestFromInjectedFilesystem",
           Name="Virtual.Manifest"
           Target="Virtual.Manifest" />
   <Inputs>
-    <Config Path="app.cfg" />
+    <Configs>
+      app.cfg
+    </Configs>
   </Inputs>
   <Environments>
     <Environment Name="Virtual" />
@@ -1694,7 +1696,9 @@ TEST_CASE("ApplicationBuilderLoadsProjectManifestWithModelDefaults",
     <ProfileTemplate Name="Hosted">
       <Launch Executable="$(OutputName)" WorkingDirectory="." />
       <Inputs>
-        <Config Path="model.cfg" />
+        <Configs>
+          model.cfg
+        </Configs>
       </Inputs>
     </ProfileTemplate>
   </ProfileTemplates>
@@ -1787,11 +1791,9 @@ TEST_CASE("ApplicationBuilderTargetOverrideBeatsProjectDefault",
          Name="Manifest.Override"
          Type="Application"
          DefaultProfile="Default.Target">
-  <Sources>
-    <Private>
-      <Root Path="src" />
-    </Private>
-  </Sources>
+  <Inputs>
+    <Sources Path="src" />
+  </Inputs>
   <Output Kind="Executable"
           Name="Manifest.Override"
           Target="Manifest.Override" />
@@ -1878,11 +1880,9 @@ TEST_CASE("ApplicationBuilderRejectsUnknownTarget", "[builder][manifest]") {
          Name="Manifest.Invalid"
          Type="Application"
          DefaultProfile="Samples.Default">
-  <Sources>
-    <Private>
-      <Root Path="src" />
-    </Private>
-  </Sources>
+  <Inputs>
+    <Sources Path="src" />
+  </Inputs>
   <Output Kind="Executable"
           Name="Manifest.Invalid"
           Target="Manifest.Invalid" />
@@ -1918,7 +1918,7 @@ TEST_CASE("ApplicationBuilderExecutesExplicitPackageBootstrapFromManifestFile",
   WriteTextFile(tempDir.Join("package.cfg"), "Package.Mode=bootstrapped\n");
   WriteTextFile(tempDir.Join("Samples.Package.nginpkg"),
                 R"(<?xml version="1.0" encoding="utf-8"?>
-<Package SchemaVersion="1"
+<Package SchemaVersion="3"
          Name="Samples.Package"
          Version="0.1.0"
          CompatiblePlatformRange=">=0.1.0 &lt;1.0.0">
@@ -1986,7 +1986,7 @@ TEST_CASE("ApplicationBuilderExecutesNamedPackageBootstrapEntry",
           .optional = false,
       })
       .AddManifest(NGIN::Core::PackageManifest{
-          .schemaVersion = 1,
+          .schemaVersion = 3,
           .name = "Samples.Package",
           .version = "0.1.0",
           .compatiblePlatformRange = ">=0.1.0 <1.0.0",
@@ -1998,7 +1998,7 @@ TEST_CASE("ApplicationBuilderExecutesNamedPackageBootstrapEntry",
                   .entryPoint = "NGIN_Bootstrap_Samples_Package",
                   .autoApply = false,
               },
-          .contents = {},
+          .inputs = {},
           .modules = {},
           .plugins = {},
       })
@@ -2039,7 +2039,7 @@ TEST_CASE("ApplicationBuilderAutoAppliesPackagesInDependencyOrder",
           .optional = false,
       })
       .AddManifest(NGIN::Core::PackageManifest{
-          .schemaVersion = 1,
+          .schemaVersion = 3,
           .name = "Samples.PackageA",
           .version = "0.1.0",
           .compatiblePlatformRange = ">=0.1.0 <1.0.0",
@@ -2051,12 +2051,12 @@ TEST_CASE("ApplicationBuilderAutoAppliesPackagesInDependencyOrder",
                   .entryPoint = "NGIN_Bootstrap_Samples_PackageA",
                   .autoApply = true,
               },
-          .contents = {},
+          .inputs = {},
           .modules = {},
           .plugins = {},
       })
       .AddManifest(NGIN::Core::PackageManifest{
-          .schemaVersion = 1,
+          .schemaVersion = 3,
           .name = "Samples.PackageB",
           .version = "0.1.0",
           .compatiblePlatformRange = ">=0.1.0 <1.0.0",
@@ -2075,7 +2075,7 @@ TEST_CASE("ApplicationBuilderAutoAppliesPackagesInDependencyOrder",
                   .entryPoint = "NGIN_Bootstrap_Samples_PackageB",
                   .autoApply = true,
               },
-          .contents = {},
+          .inputs = {},
           .modules = {},
           .plugins = {},
       })
@@ -2102,7 +2102,7 @@ TEST_CASE("ApplicationBuilderFailsOnMissingRequiredAutoAppliedPackageBootstrap",
           .optional = false,
       })
       .AddManifest(NGIN::Core::PackageManifest{
-          .schemaVersion = 1,
+          .schemaVersion = 3,
           .name = "Samples.RequiredPackage",
           .version = "0.1.0",
           .compatiblePlatformRange = ">=0.1.0 <1.0.0",
@@ -2114,7 +2114,7 @@ TEST_CASE("ApplicationBuilderFailsOnMissingRequiredAutoAppliedPackageBootstrap",
                   .entryPoint = "NGIN_Bootstrap_Samples_Missing",
                   .autoApply = true,
               },
-          .contents = {},
+          .inputs = {},
           .modules = {},
           .plugins = {},
       });
@@ -2136,7 +2136,7 @@ TEST_CASE("ApplicationBuilderSkipsOptionalAutoAppliedPackageWithWarning",
           .optional = true,
       })
       .AddManifest(NGIN::Core::PackageManifest{
-          .schemaVersion = 1,
+          .schemaVersion = 3,
           .name = "Samples.OptionalPackage",
           .version = "0.1.0",
           .compatiblePlatformRange = ">=0.1.0 <1.0.0",
@@ -2148,7 +2148,7 @@ TEST_CASE("ApplicationBuilderSkipsOptionalAutoAppliedPackageWithWarning",
                   .entryPoint = "NGIN_Bootstrap_Samples_OptionalMissing",
                   .autoApply = true,
               },
-          .contents = {},
+          .inputs = {},
           .modules = {},
           .plugins = {},
       });
@@ -2176,7 +2176,7 @@ TEST_CASE("ApplicationBuilderFailsOnDuplicatePackageBootstrapEntry",
           .optional = false,
       })
       .AddManifest(NGIN::Core::PackageManifest{
-          .schemaVersion = 1,
+          .schemaVersion = 3,
           .name = "Samples.Package",
           .version = "0.1.0",
           .compatiblePlatformRange = ">=0.1.0 <1.0.0",
@@ -2188,7 +2188,7 @@ TEST_CASE("ApplicationBuilderFailsOnDuplicatePackageBootstrapEntry",
                   .entryPoint = "NGIN_Bootstrap_Samples_Package",
                   .autoApply = true,
               },
-          .contents = {},
+          .inputs = {},
           .modules = {},
           .plugins = {},
       })

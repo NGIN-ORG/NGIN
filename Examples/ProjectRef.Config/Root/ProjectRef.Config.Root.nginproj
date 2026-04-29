@@ -2,20 +2,18 @@
 <Project SchemaVersion="3"
          Name="ProjectRef.Config.Root"
          DefaultProfile="Runtime">
-  <Sources>
-    <Private>
-      <Root Path="src" />
-    </Private>
-  </Sources>
+  <Inputs>
+    <Sources Path="src" />
+    <Configs>
+      config/root.cfg
+    </Configs>
+  </Inputs>
   <Output Kind="Executable"
                  Name="ProjectRef.Config.Root"
                  Target="ProjectRefConfigRoot" />
   <References>
     <Project Path="../Library/ProjectRef.Config.Library.nginproj" />
   </References>
-  <Inputs>
-    <Config Path="config/root.cfg" />
-  </Inputs>
   <Environments>
     <Environment Name="development" />
   </Environments>
