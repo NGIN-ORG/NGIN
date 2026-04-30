@@ -62,11 +62,12 @@ without producing a `.nginlaunch` file. Run and debug use the staged
 build first if the launch manifest is missing or stale.
 
 The Workspace tree is project-centered. Project rows select the active project,
-manifest rows open `.nginproj` files, Profiles select the active profile, Files
-contains declared source and config inputs, Dependencies contains authored
+manifest rows open `.nginproj` files, Profiles select the active profile,
+Dependencies contains authored
 references plus resolved Packages, Features, Capabilities, Generators, Inputs,
-Launch, and Diagnostics for the active project/profile, and Generated contains
-existing staged output. Right-click context menus expose project/profile
+Launch, and Diagnostics for the active project/profile, Generated contains
+existing staged output, and Files contains declared source and config inputs.
+Right-click context menus expose project/profile
 actions, file navigation, path copying, and authored file operations. Generators
 are displayed generically; MetaGen appears only as a normal command generator
 contributed by its package feature.

@@ -487,9 +487,9 @@ test('project tree models mark the selected project and profile', () => {
   assert.deepEqual(models.childrenByProject.get('/repo/Examples/App.Basic/App.Basic.nginproj')?.map((entry) => entry.kind === 'group' ? entry.group : entry.kind), [
     'manifest',
     'profiles',
-    'files',
     'dependencies',
-    'generated'
+    'generated',
+    'files'
   ]);
   assert.deepEqual(models.dependenciesByProject.get('/repo/Examples/App.Basic/App.Basic.nginproj')?.projects.map((entry) => entry.label), ['Game.Engine']);
   assert.deepEqual(models.dependenciesByProject.get('/repo/Examples/App.Basic/App.Basic.nginproj')?.packages.map((entry) => entry.label), ['NGIN.Core']);

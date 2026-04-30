@@ -586,21 +586,6 @@ export function buildProjectTreeModels(snapshot: NginWorkspaceSnapshot): Project
       });
     }
 
-    const hasSourceInputs = project.sourceRoots.length > 0 || project.buildSources.length > 0;
-    const hasConfigInputs = project.configInputs.length > 0
-      || project.profiles.some((profile) => profile.configInputs.length > 0);
-    if (hasSourceInputs || hasConfigInputs) {
-      children.push({
-        kind: 'group',
-        id: `${project.path}:files`,
-        label: 'Files',
-        tooltip: 'Declared source and config inputs.',
-        icon: 'files',
-        projectPath: project.path,
-        group: 'files'
-      });
-    }
-
     const dependencies = buildProjectDependencies(snapshot, project.path);
     dependenciesByProject.set(project.path, dependencies);
     const inspectModel = buildInspectTreeModel(snapshot, project.path);
@@ -628,6 +613,21 @@ export function buildProjectTreeModels(snapshot: NginWorkspaceSnapshot): Project
       projectPath: project.path,
       group: 'generated'
     });
+
+    const hasSourceInputs = project.sourceRoots.length > 0 || project.buildSources.length > 0;
+    const hasConfigInputs = project.configInputs.length > 0
+      || project.profiles.some((profile) => profile.configInputs.length > 0);
+    if (hasSourceInputs || hasConfigInputs) {
+      children.push({
+        kind: 'group',
+        id: `${project.path}:files`,
+        label: 'Files',
+        tooltip: 'Declared source and config inputs.',
+        icon: 'files',
+        projectPath: project.path,
+        group: 'files'
+      });
+    }
 
     childrenByProject.set(project.path, children);
   }
