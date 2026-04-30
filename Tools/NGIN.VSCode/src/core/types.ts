@@ -238,3 +238,146 @@ export interface LaunchResolution {
   executableCandidates: string[];
   workingDirectoryCandidates: string[];
 }
+
+export interface InspectDiagnostic {
+  severity: 'error' | 'warning';
+  subject?: string;
+  message: string;
+}
+
+export interface InspectPackage {
+  name: string;
+  version?: string;
+  manifestPath?: string;
+  providerRoot?: string;
+  source?: string;
+  requiredBy?: string[];
+}
+
+export interface InspectPackageDependencyEdge {
+  from: string;
+  to: string;
+}
+
+export type InspectPackageFeatureState = 'selected' | 'available' | 'disabled' | 'conditionExcluded' | 'unavailable' | string;
+
+export interface InspectPackageFeature {
+  package: string;
+  packageVersion?: string;
+  feature: string;
+  state: InspectPackageFeatureState;
+  description?: string;
+  manifestPath?: string;
+}
+
+export interface InspectCapabilityProvider {
+  name: string;
+  package: string;
+  feature: string;
+  exclusive?: boolean;
+}
+
+export interface InspectCapabilityRequirement {
+  name: string;
+  package: string;
+  feature: string;
+  missing?: boolean;
+}
+
+export interface InspectCapabilities {
+  providers: InspectCapabilityProvider[];
+  requirements: InspectCapabilityRequirement[];
+  missingRequirements?: string[];
+  exclusiveConflicts?: string[];
+}
+
+export interface InspectGeneratorOutput {
+  role?: string;
+  path?: string;
+  target?: string;
+}
+
+export interface InspectGenerator {
+  name: string;
+  kind?: string;
+  state: 'active' | 'excluded' | string;
+  ownerKind?: string;
+  ownerName?: string;
+  package?: string;
+  tool?: string;
+  manifestPath?: string;
+  reason?: string;
+  outputs?: InspectGeneratorOutput[];
+}
+
+export interface InspectInput {
+  name?: string;
+  role?: string;
+  mode?: string;
+  source?: string;
+  absoluteSourcePath?: string;
+  visibility?: string;
+  target?: string;
+  targetRoot?: string;
+  stagedRelativePath?: string;
+  ownerKind?: string;
+  ownerName?: string;
+  manifestPath?: string;
+}
+
+export interface InspectLaunch {
+  executable?: LaunchExecutable | null;
+  workingDirectory?: string;
+}
+
+export interface InspectStagedFile {
+  kind: string;
+  source?: string;
+  relativeDestination?: string;
+}
+
+export interface InspectEnvironmentVariable {
+  name: string;
+  value?: string;
+  secret?: boolean;
+  resolved?: boolean;
+  source?: string;
+}
+
+export interface InspectLockFile {
+  path?: string | null;
+  status?: string;
+}
+
+export interface ProjectInspectPayload {
+  schemaVersion: 1;
+  project?: {
+    name?: string;
+    path?: string;
+    type?: string;
+  };
+  profile?: {
+    name?: string;
+    buildType?: string;
+    platform?: string;
+    operatingSystem?: string;
+    architecture?: string;
+    environment?: string;
+  };
+  workspace?: {
+    name?: string;
+    path?: string;
+  } | null;
+  outputDir?: string;
+  packages?: InspectPackage[];
+  packageDependencyEdges?: InspectPackageDependencyEdge[];
+  packageFeatures?: InspectPackageFeature[];
+  capabilities?: InspectCapabilities;
+  generators?: InspectGenerator[];
+  inputs?: Record<string, InspectInput[]>;
+  launch?: InspectLaunch;
+  stagedFiles?: InspectStagedFile[];
+  environmentVariables?: InspectEnvironmentVariable[];
+  lockFile?: InspectLockFile;
+  diagnostics?: InspectDiagnostic[];
+}

@@ -9,6 +9,8 @@
 #include <algorithm>
 #include <fstream>
 #include <iostream>
+#include <map>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <unordered_map>
@@ -147,6 +149,129 @@ namespace NGIN::CLI
             return selectors.impossible || selectors.profile.has_value() || selectors.operatingSystem.has_value()
                    || selectors.platform.has_value() || selectors.architecture.has_value() || selectors.buildType.has_value()
                    || selectors.environment.has_value() || !selectors.conditionRefs.empty();
+        }
+
+        [[nodiscard]] auto EscapeJson(const std::string &value) -> std::string
+        {
+            std::string escaped{};
+            escaped.reserve(value.size() + 2);
+            for (const unsigned char ch : value)
+            {
+                switch (ch)
+                {
+                case '\\': escaped += "\\\\"; break;
+                case '"': escaped += "\\\""; break;
+                case '\b': escaped += "\\b"; break;
+                case '\f': escaped += "\\f"; break;
+                case '\n': escaped += "\\n"; break;
+                case '\r': escaped += "\\r"; break;
+                case '\t': escaped += "\\t"; break;
+                default:
+                    if (ch < 0x20)
+                    {
+                        constexpr char hex[] = "0123456789abcdef";
+                        escaped += "\\u00";
+                        escaped += hex[(ch >> 4) & 0x0f];
+                        escaped += hex[ch & 0x0f];
+                    }
+                    else
+                    {
+                        escaped += static_cast<char>(ch);
+                    }
+                    break;
+                }
+            }
+            return escaped;
+        }
+
+        [[nodiscard]] auto Json(const std::string &value) -> std::string
+        {
+            return "\"" + EscapeJson(value) + "\"";
+        }
+
+        [[nodiscard]] auto JsonPath(const fs::path &path) -> std::string
+        {
+            return Json(path.string());
+        }
+
+        [[nodiscard]] auto SelectorMismatchReason(
+            const std::vector<ConditionDefinition> &conditions,
+            const SelectorSet &selectors,
+            const ProfileDefinition &profile) -> std::string
+        {
+            if (selectors.impossible)
+            {
+                return "contradictory selector";
+            }
+            const auto check = [](const std::optional<std::string> &selectorValue,
+                                  const std::string &actual,
+                                  const std::string &label) -> std::optional<std::string>
+            {
+                if (selectorValue.has_value() && *selectorValue != actual)
+                {
+                    return label + " expected '" + *selectorValue + "' but profile has '" + actual + "'";
+                }
+                return std::nullopt;
+            };
+            if (auto reason = check(selectors.profile, profile.name, "Profile"))
+            {
+                return *reason;
+            }
+            if (auto reason = check(selectors.platform, profile.platform, "Platform"))
+            {
+                return *reason;
+            }
+            if (auto reason = check(selectors.operatingSystem, profile.operatingSystem, "OperatingSystem"))
+            {
+                return *reason;
+            }
+            if (auto reason = check(selectors.architecture, profile.architecture, "Architecture"))
+            {
+                return *reason;
+            }
+            if (auto reason = check(selectors.buildType, profile.buildType, "BuildType"))
+            {
+                return *reason;
+            }
+            if (auto reason = check(selectors.environment, profile.environmentName, "Environment"))
+            {
+                return *reason;
+            }
+            if (!selectors.conditionRefs.empty() && !SelectionMatches(conditions, selectors, profile))
+            {
+                std::ostringstream reason{};
+                reason << "condition did not match";
+                if (selectors.conditionRefs.size() == 1)
+                {
+                    reason << ": " << selectors.conditionRefs.front();
+                }
+                else
+                {
+                    reason << ": ";
+                    for (std::size_t index = 0; index < selectors.conditionRefs.size(); ++index)
+                    {
+                        if (index > 0)
+                        {
+                            reason << ", ";
+                        }
+                        reason << selectors.conditionRefs[index];
+                    }
+                }
+                return reason.str();
+            }
+            return "selector did not match";
+        }
+
+        [[nodiscard]] auto InspectOutputDir(const ResolvedLaunch &resolved, const ParsedArgs &args) -> fs::path
+        {
+            if (args.outputPath.has_value())
+            {
+                return fs::absolute(fs::path(*args.outputPath));
+            }
+            const auto buildRoot = resolved.workspace.has_value()
+                                       ? resolved.workspace->path.parent_path()
+                                       : resolved.project.path.parent_path();
+            return buildRoot / ".ngin" / "build" / resolved.project.name / resolved.profile.name;
         }
 
         auto PrintSelectorSummary(const SelectorSet &selectors) -> void
@@ -518,6 +643,10 @@ namespace NGIN::CLI
             else if (current == "--lock" && index + 1 < argc)
             {
                 args.lockPath = argv[++index];
+            }
+            else if (current == "--format" && index + 1 < argc)
+            {
+                args.format = argv[++index];
             }
             else if ((current == "--dependencies" || current == "--externals") && index + 1 < argc)
             {
@@ -1190,6 +1319,530 @@ namespace NGIN::CLI
         }
         std::cout << "  arguments: " << generator.declaration.arguments.size() << "\n";
         return 0;
+    }
+
+    auto CmdInspect(const fs::path &root, const ParsedArgs &args) -> int
+    {
+        (void)root;
+        if (!args.format.has_value())
+        {
+            throw std::runtime_error("inspect requires --format json");
+        }
+        if (*args.format != "json")
+        {
+            throw std::runtime_error("inspect supports only --format json");
+        }
+
+        const auto invocation = ResolveInvocation(args);
+        const auto resolvedResult = ResolveLaunch(invocation.project, invocation.profile);
+        const auto *resolved = resolvedResult.value.has_value() ? &*resolvedResult.value : nullptr;
+
+        auto writeDiagnostics = [&](std::ostream &out, const DiagnosticReport &diagnostics)
+        {
+            out << "[";
+            for (std::size_t index = 0; index < diagnostics.entries.size(); ++index)
+            {
+                const auto &entry = diagnostics.entries[index];
+                if (index > 0)
+                {
+                    out << ",";
+                }
+                out << "{"
+                    << "\"severity\":" << Json(entry.severity == DiagnosticSeverity::Error ? "error" : "warning") << ","
+                    << "\"subject\":" << Json(entry.subject) << ","
+                    << "\"message\":" << Json(entry.message)
+                    << "}";
+            }
+            out << "]";
+        };
+
+        std::cout << "{\n";
+        std::cout << "  \"schemaVersion\": 1,\n";
+        std::cout << "  \"project\": {"
+                  << "\"name\":" << Json(invocation.project.name) << ","
+                  << "\"path\":" << JsonPath(invocation.project.path) << ","
+                  << "\"type\":" << Json(invocation.project.type)
+                  << "},\n";
+        std::cout << "  \"profile\": {"
+                  << "\"name\":" << Json(invocation.profile.name) << ","
+                  << "\"buildType\":" << Json(invocation.profile.buildType) << ","
+                  << "\"platform\":" << Json(invocation.profile.platform) << ","
+                  << "\"operatingSystem\":" << Json(invocation.profile.operatingSystem) << ","
+                  << "\"architecture\":" << Json(invocation.profile.architecture) << ","
+                  << "\"environment\":" << Json(invocation.profile.environmentName)
+                  << "},\n";
+
+        if (resolved == nullptr)
+        {
+            std::cout << "  \"packages\": [],\n"
+                      << "  \"packageDependencyEdges\": [],\n"
+                      << "  \"packageFeatures\": [],\n"
+                      << "  \"capabilities\": {\"providers\": [], \"requirements\": [], \"missingRequirements\": [], \"exclusiveConflicts\": []},\n"
+                      << "  \"generators\": [],\n"
+                      << "  \"inputs\": {},\n"
+                      << "  \"launch\": {},\n"
+                      << "  \"stagedFiles\": [],\n"
+                      << "  \"environmentVariables\": [],\n"
+                      << "  \"lockFile\": {\"path\": null, \"status\": \"unknown\"},\n"
+                      << "  \"diagnostics\": ";
+            writeDiagnostics(std::cout, resolvedResult.diagnostics);
+            std::cout << "\n}\n";
+            return 1;
+        }
+
+        const auto outputDir = InspectOutputDir(*resolved, args);
+        std::unordered_map<std::string, std::vector<std::string>> requiredBy{};
+        for (const auto &[parent, children] : resolved->packageEdges)
+        {
+            for (const auto &child : children)
+            {
+                requiredBy[child].push_back(parent);
+            }
+        }
+
+        std::cout << "  \"workspace\": ";
+        if (resolved->workspace.has_value())
+        {
+            std::cout << "{"
+                      << "\"name\":" << Json(resolved->workspace->name) << ","
+                      << "\"path\":" << JsonPath(resolved->workspace->path)
+                      << "},\n";
+        }
+        else
+        {
+            std::cout << "null,\n";
+        }
+        std::cout << "  \"outputDir\": " << JsonPath(outputDir) << ",\n";
+
+        std::cout << "  \"packages\": [";
+        for (std::size_t index = 0; index < resolved->orderedPackages.size(); ++index)
+        {
+            const auto &package = resolved->orderedPackages[index];
+            if (index > 0)
+            {
+                std::cout << ",";
+            }
+            std::cout << "{"
+                      << "\"name\":" << Json(package.manifest.name) << ","
+                      << "\"version\":" << Json(package.manifest.version) << ","
+                      << "\"manifestPath\":" << JsonPath(package.manifest.path) << ","
+                      << "\"providerRoot\":" << JsonPath(package.sourceDirectory) << ","
+                      << "\"source\":" << Json(package.source) << ","
+                      << "\"requiredBy\":[";
+            const auto itRequiredBy = requiredBy.find(package.manifest.name);
+            if (itRequiredBy == requiredBy.end() || itRequiredBy->second.empty())
+            {
+                std::cout << Json("project");
+            }
+            else
+            {
+                for (std::size_t requiredIndex = 0; requiredIndex < itRequiredBy->second.size(); ++requiredIndex)
+                {
+                    if (requiredIndex > 0)
+                    {
+                        std::cout << ",";
+                    }
+                    std::cout << Json(itRequiredBy->second[requiredIndex]);
+                }
+            }
+            std::cout << "]}";
+        }
+        std::cout << "],\n";
+
+        std::cout << "  \"packageDependencyEdges\": [";
+        bool firstEdge = true;
+        for (const auto &[packageName, deps] : resolved->packageEdges)
+        {
+            for (const auto &dep : deps)
+            {
+                if (!firstEdge)
+                {
+                    std::cout << ",";
+                }
+                firstEdge = false;
+                std::cout << "{\"from\":" << Json(packageName) << ",\"to\":" << Json(dep) << "}";
+            }
+        }
+        std::cout << "],\n";
+
+        std::set<std::string> selectedFeatureKeys{};
+        for (const auto &feature : resolved->selectedPackageFeatures)
+        {
+            selectedFeatureKeys.insert(feature.packageName + "::" + feature.featureName);
+        }
+        std::unordered_map<std::string, std::string> requestedFeatureState{};
+        for (const auto &unit : resolved->projectUnits)
+        {
+            auto collectUses = [&](const std::vector<PackageFeatureUse> &uses)
+            {
+                for (const auto &use : uses)
+                {
+                    const auto key = use.packageName + "::" + use.featureName;
+                    if (!SelectionMatches(unit.project, use.selectors, unit.profile))
+                    {
+                        requestedFeatureState.try_emplace(key, "conditionExcluded");
+                        continue;
+                    }
+                    requestedFeatureState[key] = use.disabled ? "disabled" : "requested";
+                }
+            };
+            collectUses(unit.project.packageFeatureUses);
+            if (unit.environment.has_value())
+            {
+                collectUses(unit.environment->packageFeatureUses);
+            }
+            collectUses(unit.profile.packageFeatureUses);
+        }
+
+        std::cout << "  \"packageFeatures\": [";
+        bool firstFeature = true;
+        auto writeFeature = [&](const std::string &packageName,
+                                const std::string &version,
+                                const fs::path &manifestPath,
+                                const PackageManifest::Feature &feature,
+                                const std::string &state)
+        {
+            if (!firstFeature)
+            {
+                std::cout << ",";
+            }
+            firstFeature = false;
+            std::cout << "{"
+                      << "\"package\":" << Json(packageName) << ","
+                      << "\"packageVersion\":" << Json(version) << ","
+                      << "\"feature\":" << Json(feature.name) << ","
+                      << "\"state\":" << Json(state) << ","
+                      << "\"description\":" << Json(feature.description) << ","
+                      << "\"manifestPath\":" << JsonPath(manifestPath)
+                      << "}";
+        };
+        for (const auto &package : resolved->orderedPackages)
+        {
+            for (const auto &feature : package.manifest.features)
+            {
+                const auto key = package.manifest.name + "::" + feature.name;
+                std::string state = "available";
+                if (selectedFeatureKeys.contains(key))
+                {
+                    state = "selected";
+                }
+                else if (const auto it = requestedFeatureState.find(key); it != requestedFeatureState.end())
+                {
+                    if (it->second == "disabled")
+                    {
+                        state = "disabled";
+                    }
+                    else if (it->second == "conditionExcluded" || !SelectionMatches(package.manifest.conditions, feature.selectors, resolved->profile))
+                    {
+                        state = "conditionExcluded";
+                    }
+                }
+                else if (!SelectionMatches(package.manifest.conditions, feature.selectors, resolved->profile))
+                {
+                    state = "conditionExcluded";
+                }
+                writeFeature(package.manifest.name, package.manifest.version, package.manifest.path, feature, state);
+            }
+        }
+        for (const auto &[key, state] : requestedFeatureState)
+        {
+            if (state != "requested" || selectedFeatureKeys.contains(key))
+            {
+                continue;
+            }
+            const auto separator = key.find("::");
+            if (separator == std::string::npos)
+            {
+                continue;
+            }
+            const auto packageName = key.substr(0, separator);
+            const auto featureName = key.substr(separator + 2);
+            const auto packageIt = std::find_if(resolved->orderedPackages.begin(), resolved->orderedPackages.end(), [&](const ResolvedPackage &package)
+                                                { return package.manifest.name == packageName; });
+            if (packageIt != resolved->orderedPackages.end()
+                && std::any_of(packageIt->manifest.features.begin(), packageIt->manifest.features.end(), [&](const PackageManifest::Feature &feature)
+                               { return feature.name == featureName; }))
+            {
+                continue;
+            }
+            PackageManifest::Feature unavailable{};
+            unavailable.name = featureName;
+            writeFeature(packageName, "", {}, unavailable, "unavailable");
+        }
+        std::cout << "],\n";
+
+        std::unordered_map<std::string, std::vector<ResolvedCapabilityProvider>> providersByCapability{};
+        for (const auto &provider : resolved->capabilityProviders)
+        {
+            providersByCapability[provider.capability].push_back(provider);
+        }
+        std::cout << "  \"capabilities\": {\"providers\":[";
+        for (std::size_t index = 0; index < resolved->capabilityProviders.size(); ++index)
+        {
+            const auto &provider = resolved->capabilityProviders[index];
+            if (index > 0)
+            {
+                std::cout << ",";
+            }
+            std::cout << "{"
+                      << "\"name\":" << Json(provider.capability) << ","
+                      << "\"package\":" << Json(provider.packageName) << ","
+                      << "\"feature\":" << Json(provider.featureName) << ","
+                      << "\"exclusive\":" << (provider.exclusive ? "true" : "false")
+                      << "}";
+        }
+        std::cout << "],\"requirements\":[";
+        bool firstRequirement = true;
+        std::vector<std::string> missingRequirements{};
+        for (const auto &feature : resolved->selectedPackageFeatures)
+        {
+            for (const auto &requirement : feature.requiredCapabilities)
+            {
+                if (!firstRequirement)
+                {
+                    std::cout << ",";
+                }
+                firstRequirement = false;
+                const auto missing = !providersByCapability.contains(requirement.name);
+                if (missing)
+                {
+                    missingRequirements.push_back(feature.packageName + "::" + feature.featureName + ":" + requirement.name);
+                }
+                std::cout << "{"
+                          << "\"name\":" << Json(requirement.name) << ","
+                          << "\"package\":" << Json(feature.packageName) << ","
+                          << "\"feature\":" << Json(feature.featureName) << ","
+                          << "\"missing\":" << (missing ? "true" : "false")
+                          << "}";
+            }
+        }
+        std::cout << "],\"missingRequirements\":[";
+        for (std::size_t index = 0; index < missingRequirements.size(); ++index)
+        {
+            if (index > 0)
+            {
+                std::cout << ",";
+            }
+            std::cout << Json(missingRequirements[index]);
+        }
+        std::cout << "],\"exclusiveConflicts\":[";
+        bool firstConflict = true;
+        for (const auto &[capability, providers] : providersByCapability)
+        {
+            const auto exclusiveCount = std::count_if(providers.begin(), providers.end(), [](const ResolvedCapabilityProvider &provider)
+                                                      { return provider.exclusive; });
+            if (exclusiveCount > 1 || (exclusiveCount == 1 && providers.size() > 1))
+            {
+                if (!firstConflict)
+                {
+                    std::cout << ",";
+                }
+                firstConflict = false;
+                std::cout << Json(capability);
+            }
+        }
+        std::cout << "]},\n";
+
+        std::cout << "  \"generators\": [";
+        bool firstGenerator = true;
+        auto writeGenerator = [&](const GeneratorDeclaration &generator,
+                                  const std::string &state,
+                                  const std::string &ownerKind,
+                                  const std::string &ownerName,
+                                  const fs::path &manifestPath,
+                                  const std::string &packageName,
+                                  const std::string &reason)
+        {
+            if (!firstGenerator)
+            {
+                std::cout << ",";
+            }
+            firstGenerator = false;
+            std::cout << "{"
+                      << "\"name\":" << Json(generator.name) << ","
+                      << "\"kind\":" << Json(generator.kind) << ","
+                      << "\"state\":" << Json(state) << ","
+                      << "\"ownerKind\":" << Json(ownerKind) << ","
+                      << "\"ownerName\":" << Json(ownerName) << ","
+                      << "\"package\":" << Json(packageName) << ","
+                      << "\"tool\":" << Json(generator.toolName.empty() && generator.hasInlineTool ? generator.inlineTool.executable : generator.toolName) << ","
+                      << "\"manifestPath\":" << JsonPath(manifestPath) << ","
+                      << "\"reason\":" << Json(reason) << ","
+                      << "\"outputs\":[";
+            for (std::size_t index = 0; index < generator.outputs.size(); ++index)
+            {
+                const auto &output = generator.outputs[index];
+                if (index > 0)
+                {
+                    std::cout << ",";
+                }
+                std::cout << "{"
+                          << "\"role\":" << Json(output.role) << ","
+                          << "\"path\":" << Json(output.path) << ","
+                          << "\"target\":" << Json(output.target)
+                          << "}";
+            }
+            std::cout << "]}";
+        };
+        for (const auto &generator : resolved->generators)
+        {
+            writeGenerator(generator.declaration, "active", generator.ownerKind, generator.ownerName, generator.manifestPath, generator.packageName, "");
+        }
+        auto collectExcludedGenerators = [&](const std::vector<GeneratorDeclaration> &generators,
+                                             const std::vector<ConditionDefinition> &conditions,
+                                             const std::string &ownerKind,
+                                             const std::string &ownerName,
+                                             const fs::path &manifestPath,
+                                             const std::string &packageName)
+        {
+            for (const auto &generator : generators)
+            {
+                if (SelectionMatches(conditions, generator.selectors, resolved->profile))
+                {
+                    continue;
+                }
+                writeGenerator(generator,
+                               "excluded",
+                               ownerKind,
+                               ownerName,
+                               manifestPath,
+                               packageName,
+                               SelectorMismatchReason(conditions, generator.selectors, resolved->profile));
+            }
+        };
+        for (const auto &unit : resolved->projectUnits)
+        {
+            collectExcludedGenerators(unit.project.generators, unit.project.conditions, "project", unit.project.name, unit.project.path, "");
+            if (unit.environment.has_value())
+            {
+                collectExcludedGenerators(unit.environment->generators, unit.project.conditions, "project", unit.project.name, unit.project.path, "");
+            }
+            collectExcludedGenerators(unit.profile.generators, unit.project.conditions, "project", unit.project.name, unit.project.path, "");
+        }
+        for (const auto &feature : resolved->selectedPackageFeatures)
+        {
+            const auto packageIt = std::find_if(resolved->orderedPackages.begin(), resolved->orderedPackages.end(), [&](const ResolvedPackage &package)
+                                                { return package.manifest.name == feature.packageName; });
+            if (packageIt == resolved->orderedPackages.end())
+            {
+                continue;
+            }
+            collectExcludedGenerators(feature.generators,
+                                      packageIt->manifest.conditions,
+                                      "package-feature",
+                                      feature.packageName + "::" + feature.featureName,
+                                      packageIt->manifest.path,
+                                      feature.packageName);
+        }
+        std::cout << "],\n";
+
+        std::map<std::string, std::vector<const ResolvedInput *>> inputsByKind{};
+        for (const auto &input : resolved->inputs)
+        {
+            inputsByKind[input.kind].push_back(&input);
+        }
+        std::cout << "  \"inputs\": {";
+        bool firstKind = true;
+        for (const auto &[kind, inputs] : inputsByKind)
+        {
+            if (!firstKind)
+            {
+                std::cout << ",";
+            }
+            firstKind = false;
+            std::cout << Json(kind) << ":[";
+            for (std::size_t index = 0; index < inputs.size(); ++index)
+            {
+                const auto &input = *inputs[index];
+                if (index > 0)
+                {
+                    std::cout << ",";
+                }
+                std::cout << "{"
+                          << "\"name\":" << Json(input.name) << ","
+                          << "\"role\":" << Json(input.role) << ","
+                          << "\"mode\":" << Json(input.mode) << ","
+                          << "\"source\":" << Json(input.source) << ","
+                          << "\"absoluteSourcePath\":" << JsonPath(input.absoluteSourcePath) << ","
+                          << "\"visibility\":" << Json(input.visibility) << ","
+                          << "\"target\":" << Json(input.target) << ","
+                          << "\"targetRoot\":" << Json(input.targetRoot) << ","
+                          << "\"stagedRelativePath\":" << JsonPath(input.stagedRelativePath) << ","
+                          << "\"ownerKind\":" << Json(input.ownerKind) << ","
+                          << "\"ownerName\":" << Json(input.ownerName) << ","
+                          << "\"manifestPath\":" << JsonPath(input.manifestPath)
+                          << "}";
+            }
+            std::cout << "]";
+        }
+        std::cout << "},\n";
+
+        std::cout << "  \"launch\": {"
+                  << "\"executable\":";
+        if (resolved->selectedExecutable.has_value())
+        {
+            std::cout << "{"
+                      << "\"name\":" << Json(resolved->selectedExecutable->name) << ","
+                      << "\"target\":" << Json(resolved->selectedExecutable->target) << ","
+                      << "\"origin\":" << Json(resolved->selectedExecutable->origin)
+                      << "}";
+        }
+        else
+        {
+            std::cout << "null";
+        }
+        std::cout << ",\"workingDirectory\":" << Json(resolved->profile.launch.workingDirectory)
+                  << "},\n";
+
+        std::cout << "  \"stagedFiles\": [";
+        bool firstStaged = true;
+        for (const auto &input : resolved->inputs)
+        {
+            if (input.stagedRelativePath.empty())
+            {
+                continue;
+            }
+            if (!firstStaged)
+            {
+                std::cout << ",";
+            }
+            firstStaged = false;
+            std::cout << "{"
+                      << "\"kind\":" << Json(input.contentKind.empty() ? input.kind : input.contentKind) << ","
+                      << "\"source\":" << JsonPath(input.absoluteSourcePath) << ","
+                      << "\"relativeDestination\":" << JsonPath(input.stagedRelativePath)
+                      << "}";
+        }
+        std::cout << "],\n";
+
+        std::cout << "  \"environmentVariables\": [";
+        for (std::size_t index = 0; index < resolved->environmentVariables.size(); ++index)
+        {
+            const auto &variable = resolved->environmentVariables[index];
+            if (index > 0)
+            {
+                std::cout << ",";
+            }
+            std::cout << "{"
+                      << "\"name\":" << Json(variable.name) << ","
+                      << "\"value\":" << Json(variable.secret ? "<redacted>" : variable.value) << ","
+                      << "\"secret\":" << (variable.secret ? "true" : "false") << ","
+                      << "\"resolved\":" << (variable.resolved ? "true" : "false") << ","
+                      << "\"source\":" << Json(variable.resolvedSource)
+                      << "}";
+        }
+        std::cout << "],\n";
+
+        const auto lockPath = DefaultLockPath(*resolved);
+        std::cout << "  \"lockFile\": {"
+                  << "\"path\":" << JsonPath(lockPath) << ","
+                  << "\"status\":" << Json(fs::exists(lockPath) ? "present" : "missing")
+                  << "},\n";
+
+        std::cout << "  \"diagnostics\": ";
+        writeDiagnostics(std::cout, resolvedResult.diagnostics);
+        std::cout << "\n}\n";
+        return resolvedResult.diagnostics.HasErrors() ? 1 : 0;
     }
 
     auto CmdValidate(const fs::path &root, const ParsedArgs &args) -> int

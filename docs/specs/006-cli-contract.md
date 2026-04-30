@@ -18,6 +18,7 @@ Stable active commands:
 - `ngin run [--project <file>] [--profile <name>] [--output <dir>] [-- <args...>]`
 - `ngin validate [--project <file>] [--profile <name>]`
 - `ngin graph [--project <file>] [--profile <name>]`
+- `ngin inspect [--project <file>] [--profile <name>] [--output <dir>] --format json`
 - `ngin package list`
 - `ngin package show <Package>`
 - `ngin package lock [--project <file>] [--profile <name>] [--output <file>]`
@@ -52,11 +53,19 @@ Removed commands:
 - `ngin clean` removes NGIN-owned generated artifacts for the selected build scope
 - `ngin rebuild` is equivalent to `ngin clean` followed by `ngin build`
 - `ngin run` consumes the generated `.nginlaunch`
+- `ngin inspect --format json` resolves the selected project/profile and emits
+  a schema-versioned JSON payload without configuring, building, running
+  generators, writing lock files, or mutating repository state
 - a workspace is optional
 
 ## Inspection Direction
 
 - `ngin graph` is the active structural inspection command for resolved composition
+- `ngin inspect --format json` is the machine-readable inspection command for
+  editor tooling; payload schema version `1` includes selected context,
+  packages, package edges, feature states, capabilities, generators, typed
+  inputs, launch metadata, staged-file metadata when known, redacted
+  environment variables, diagnostics, and lock-file status
 - package inspection commands expose reusable package identity and declared package data
 - `ngin package lock` writes a deterministic local `ngin.lock` for the selected
   package graph; `ngin package verify-lock` compares the current local

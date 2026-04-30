@@ -536,6 +536,86 @@ test('project tree models mark the selected project and profile', () => {
   assert.equal(models.profilesByProject.get('/repo/Examples/App.Basic/App.Basic.nginproj')?.[0].selected, true);
 });
 
+test('project tree models expose inspect groups for the active project only', () => {
+  const activeProject = {
+    path: '/repo/App/App.nginproj',
+    directory: '/repo/App',
+    name: 'App',
+    defaultProfile: 'Runtime',
+    sourceRoots: [],
+    configInputs: [],
+    buildSources: [],
+    profiles: [{ name: 'Runtime', operatingSystem: 'linux', architecture: 'x64', environment: 'local', configInputs: [] }]
+  };
+  const inactiveProject = {
+    path: '/repo/Tool/Tool.nginproj',
+    directory: '/repo/Tool',
+    name: 'Tool',
+    sourceRoots: [],
+    configInputs: [],
+    buildSources: [],
+    packageRefs: [{ name: 'NGIN.Core' }],
+    profiles: [{ name: 'Runtime', configInputs: [] }]
+  };
+
+  const models = buildProjectTreeModels({
+    workspace: {
+      workspace: { path: '/repo/NGIN.ngin', directory: '/repo', name: 'NGIN', projectPaths: [] },
+      projects: [activeProject, inactiveProject],
+      root: '/repo'
+    },
+    context: {
+      workspace: {
+        workspace: { path: '/repo/NGIN.ngin', directory: '/repo', name: 'NGIN', projectPaths: [] },
+        projects: [activeProject, inactiveProject],
+        root: '/repo'
+      },
+      project: activeProject,
+      profile: activeProject.profiles[0]
+    },
+    inspect: {
+      schemaVersion: 1,
+      packages: [{ name: 'NGIN.Core', version: '0.1.0', manifestPath: '/repo/Packages/NGIN.Core/NGIN.Core.nginpkg', requiredBy: ['project'] }],
+      packageFeatures: [{ package: 'NGIN.Core', feature: 'Reflection', state: 'selected', manifestPath: '/repo/Packages/NGIN.Core/NGIN.Core.nginpkg' }],
+      capabilities: {
+        providers: [{ name: 'Reflection', package: 'NGIN.Core', feature: 'Reflection' }],
+        requirements: []
+      },
+      generators: [
+        { name: 'ReflectionMetaGen', kind: 'Command', state: 'active', ownerName: 'NGIN.Reflection.MetaGen::ReflectionCodegen', tool: 'MetaGen', outputs: [{ role: 'Source', path: 'generated/reflection.cpp' }] },
+        { name: 'WindowsOnly', kind: 'Command', state: 'excluded', reason: 'Platform expected windows-x64' }
+      ],
+      inputs: {
+        Source: [{ source: 'src', mode: 'Directory', ownerName: 'App' }],
+        Config: [{ source: 'config/app.cfg', stagedRelativePath: 'config/app.cfg', ownerName: 'App' }]
+      },
+      launch: { executable: { name: 'App', target: 'AppTarget' }, workingDirectory: '.' },
+      stagedFiles: [{ kind: 'config', relativeDestination: 'config/app.cfg' }],
+      environmentVariables: [{ name: 'TOKEN', value: '<redacted>', secret: true }],
+      lockFile: { path: '/repo/ngin.lock', status: 'missing' },
+      diagnostics: []
+    },
+    launchManifestExists: false,
+    stagedCompileCommandsAvailable: false
+  });
+
+  const activeInspect = models.inspectByProject.get(activeProject.path);
+  assert.deepEqual(activeInspect?.groups.map((group) => group.kind), [
+    'packages',
+    'features',
+    'capabilities',
+    'generators',
+    'inputs',
+    'launch'
+  ]);
+  assert.deepEqual(activeInspect?.entriesByGroup.get('generators')?.map((entry) => `${entry.label}:${entry.description}`), [
+    'ReflectionMetaGen:Active • NGIN.Reflection.MetaGen::ReflectionCodegen • MetaGen',
+    'WindowsOnly:Excluded'
+  ]);
+  assert.equal(models.inspectByProject.has(inactiveProject.path), false);
+  assert.deepEqual(models.dependenciesByProject.get(inactiveProject.path)?.packages.map((entry) => entry.label), ['NGIN.Core']);
+});
+
 test('project tree dependency models group mixed references and deduplicate owners', () => {
   const models = buildProjectTreeModels({
     workspace: {

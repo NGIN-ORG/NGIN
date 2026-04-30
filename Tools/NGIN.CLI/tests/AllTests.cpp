@@ -1532,6 +1532,112 @@ TEST_CASE("package lock command writes and verifies deterministic local lock")
     REQUIRE(CmdPackageVerifyLock(temp.path(), verifyArgs) == 0);
 }
 
+TEST_CASE("inspect command emits resolved read-only json")
+{
+    TempDir temp{};
+    ScopedEnvironmentVariable token{"NGIN_TEST_INSPECT_TOKEN", "inspect-secret"};
+    WriteFile(temp.path() / "Workspace.ngin",
+              R"(<?xml version="1.0" encoding="utf-8"?>
+<Workspace SchemaVersion="3" Name="InspectWorkspace">
+  <PackageSources>
+    <PackageSource Path="Packages" />
+  </PackageSources>
+  <DependencyPolicy VersionResolution="HighestCompatible">
+    <Versions>
+      <Package Name="Package.Core" VersionRange=">=1.0.0 &lt;2.0.0" />
+    </Versions>
+  </DependencyPolicy>
+  <Projects>
+    <Project Path="App/App.nginproj" />
+  </Projects>
+</Workspace>
+)");
+    WriteFile(temp.path() / "Packages/Core/Core.nginpkg",
+              R"(<?xml version="1.0" encoding="utf-8"?>
+<Package SchemaVersion="3" Name="Package.Core" Version="1.0.0">
+  <Features>
+    <Feature Name="Diagnostics" Description="Diagnostic hooks">
+      <Provides>
+        <Capability Name="Diagnostics" />
+      </Provides>
+      <Generators>
+        <Generator Name="PackageGenerator" Kind="Command">
+          <Tool Executable="tools/gen" />
+          <Outputs>
+            <Generated Role="Source" Path="$(GeneratedDir)/package.generated.cpp" />
+          </Outputs>
+        </Generator>
+      </Generators>
+    </Feature>
+  </Features>
+</Package>
+)");
+    WriteFile(temp.path() / "App/App.nginproj",
+              R"(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="3" Name="Inspect.App" Type="Application" DefaultProfile="Runtime">
+  <Inputs>
+    <Sources Path="src" />
+    <Configs>
+      config/runtime.cfg
+    </Configs>
+  </Inputs>
+  <Output Kind="Executable" Name="Inspect.App" Target="InspectApp" />
+  <Features>
+    <Use Package="Package.Core" Feature="Diagnostics" />
+  </Features>
+  <Generators>
+    <Generator Name="WindowsOnlyGenerator" Kind="Command" Platform="windows-x64">
+      <Tool Executable="tools/gen" />
+      <Outputs>
+        <Generated Role="Source" Path="$(GeneratedDir)/windows.generated.cpp" />
+      </Outputs>
+    </Generator>
+  </Generators>
+  <Environments>
+    <Environment Name="local">
+      <Variables>
+        <Variable Name="INSPECT_TOKEN" FromEnvironment="NGIN_TEST_INSPECT_TOKEN" Secret="true" />
+      </Variables>
+    </Environment>
+  </Environments>
+  <Profiles>
+    <Profile Name="Runtime" BuildType="Debug" Platform="linux-x64" OperatingSystem="linux" Architecture="x64" Environment="local" />
+  </Profiles>
+</Project>
+)");
+    WriteFile(temp.path() / "App/src/main.cpp", "int main() { return 0; }\n");
+    WriteFile(temp.path() / "App/config/runtime.cfg", "name=inspect\n");
+
+    const auto outputDir = temp.path() / "inspect-output";
+    ParsedArgs args{};
+    args.projectPath = (temp.path() / "App/App.nginproj").string();
+    args.profileName = "Runtime";
+    args.outputPath = outputDir.string();
+    args.format = "json";
+
+    std::ostringstream captured{};
+    auto *previous = std::cout.rdbuf(captured.rdbuf());
+    const auto exitCode = CmdInspect(temp.path(), args);
+    std::cout.rdbuf(previous);
+
+    const auto json = captured.str();
+    REQUIRE(exitCode == 0);
+    REQUIRE_THAT(json, ContainsSubstring(R"("schemaVersion": 1)"));
+    REQUIRE_THAT(json, ContainsSubstring(R"("name":"Package.Core")"));
+    REQUIRE_THAT(json, ContainsSubstring(R"("feature":"Diagnostics")"));
+    REQUIRE_THAT(json, ContainsSubstring(R"("state":"selected")"));
+    REQUIRE_THAT(json, ContainsSubstring(R"("name":"PackageGenerator")"));
+    REQUIRE_THAT(json, ContainsSubstring(R"("state":"active")"));
+    REQUIRE_THAT(json, ContainsSubstring(R"("name":"WindowsOnlyGenerator")"));
+    REQUIRE_THAT(json, ContainsSubstring(R"("state":"excluded")"));
+    REQUIRE_THAT(json, ContainsSubstring(R"("Config")"));
+    REQUIRE_THAT(json, ContainsSubstring(R"("value":"<redacted>")"));
+    REQUIRE_FALSE(fs::exists(outputDir));
+
+    args.format = "xml";
+    REQUIRE_THROWS_WITH(CmdInspect(temp.path(), args), ContainsSubstring("inspect supports only --format json"));
+}
+
 TEST_CASE("resolution reports project config input collisions")
 {
     const auto projectPath = RepoRoot() / "Examples/ProjectRef.Config/CollisionRoot/"

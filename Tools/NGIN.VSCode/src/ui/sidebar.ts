@@ -18,6 +18,9 @@ import {
   ProjectTreeDependencyModel,
   ProjectTreeGroupKind,
   ProjectTreeGroupModel,
+  ProjectTreeInspectEntryModel,
+  ProjectTreeInspectGroupKind,
+  ProjectTreeInspectGroupModel,
   ProjectTreeManifestModel,
   ProjectTreeProjectModel,
 } from './models';
@@ -176,6 +179,40 @@ class ProjectDependencyTreeItem extends vscode.TreeItem {
     this.tooltip = model.tooltip;
     this.iconPath = new vscode.ThemeIcon(model.kind === 'projects' ? 'project' : 'package');
     this.contextValue = model.targetPath ? 'nginProjectDependency' : 'nginProjectDependency.unresolved';
+    if (model.targetPath) {
+      this.command = {
+        command: 'ngin.internal.openPath',
+        title: model.label,
+        arguments: [model.targetPath]
+      };
+    }
+  }
+}
+
+class ProjectInspectGroupTreeItem extends vscode.TreeItem {
+  readonly projectPath: string;
+  readonly inspectGroup: ProjectTreeInspectGroupKind;
+
+  constructor(model: ProjectTreeInspectGroupModel) {
+    super(model.label, vscode.TreeItemCollapsibleState.Collapsed);
+    this.projectPath = model.projectPath;
+    this.inspectGroup = model.kind;
+    this.tooltip = model.tooltip;
+    this.iconPath = new vscode.ThemeIcon(model.icon);
+    this.contextValue = `nginProjectInspectGroup.${model.kind}`;
+  }
+}
+
+class ProjectInspectEntryTreeItem extends vscode.TreeItem {
+  readonly targetPath?: string;
+
+  constructor(model: ProjectTreeInspectEntryModel) {
+    super(model.label, vscode.TreeItemCollapsibleState.None);
+    this.description = model.description;
+    this.tooltip = model.tooltip;
+    this.targetPath = model.targetPath;
+    this.iconPath = new vscode.ThemeIcon(model.icon ?? 'symbol-property');
+    this.contextValue = model.targetPath ? 'nginProjectInspectEntry.openable' : 'nginProjectInspectEntry';
     if (model.targetPath) {
       this.command = {
         command: 'ngin.internal.openPath',
@@ -393,6 +430,8 @@ type ProjectsTreeElement =
   | ProjectGroupTreeItem
   | ProjectDependencyGroupTreeItem
   | ProjectDependencyTreeItem
+  | ProjectInspectGroupTreeItem
+  | ProjectInspectEntryTreeItem
   | ProjectFolderTreeItem
   | ProjectFileTreeItem
   | ProjectConfigFolderTreeItem
@@ -446,6 +485,10 @@ class ProjectsTreeDataProvider implements vscode.TreeDataProvider<ProjectsTreeEl
         return directConfigChildren(project, project.path, '', allConfigInputs(project));
       }
       if (element.group === 'dependencies') {
+        const inspectModel = model.inspectByProject.get(element.projectPath);
+        if (inspectModel?.groups.length) {
+          return inspectModel.groups.map((group) => new ProjectInspectGroupTreeItem(group));
+        }
         const dependencies = model.dependenciesByProject.get(element.projectPath);
         if (!dependencies) {
           return [];
@@ -478,6 +521,11 @@ class ProjectsTreeDataProvider implements vscode.TreeDataProvider<ProjectsTreeEl
         return [];
       }
       return dependencies[element.dependencyKind].map((dependency) => new ProjectDependencyTreeItem(dependency));
+    }
+
+    if (element instanceof ProjectInspectGroupTreeItem) {
+      const inspectModel = model.inspectByProject.get(element.projectPath);
+      return (inspectModel?.entriesByGroup.get(element.inspectGroup) ?? []).map((entry) => new ProjectInspectEntryTreeItem(entry));
     }
 
     if (element instanceof ProjectFolderTreeItem) {

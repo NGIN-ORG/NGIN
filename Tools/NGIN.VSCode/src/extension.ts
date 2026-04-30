@@ -19,10 +19,11 @@ import {
 } from './core/helpers';
 import { addRootConfigInput, listConfigInputs, relativeManifestPath, removeConfigInputs, renameConfigInputs } from './core/projectAuthoring';
 import { createNativeDebugConfiguration, quoteShellArgument } from './core/debug';
-import { LaunchManifest, ProjectManifest } from './core/types';
+import { LaunchManifest, ProjectInspectPayload, ProjectManifest } from './core/types';
 import { parseLaunchManifest, parseLocalSettingsManifest, parseProjectManifest } from './core/xml';
 import {
   NginCommandTarget,
+  NginWorkspaceSnapshot,
   ResolvedCommandContext,
   ResolvedWorkspaceInfo,
   WorkspaceStateService
@@ -220,6 +221,7 @@ class NginController implements vscode.Disposable {
   private readonly sidebar: NginSidebarController;
   private readonly statusBar: NginStatusBarController;
   private readonly cppToolsProvider: NginCppToolsProviderService;
+  private readonly inspectCache = new Map<string, { payload?: ProjectInspectPayload; error?: string }>();
   private staleWarningShown = false;
   private readonly shownLocalSettingsWarnings = new Set<string>();
 
@@ -270,7 +272,7 @@ class NginController implements vscode.Disposable {
       vscode.commands.registerCommand('ngin.projectDuplicate', (arg) => this.runHandled(() => this.duplicateProjectPathCommand(this.asExplorerTarget(arg)))),
       vscode.commands.registerCommand('ngin.projectRename', (arg) => this.runHandled(() => this.renameProjectPathCommand(this.asExplorerTarget(arg)))),
       vscode.commands.registerCommand('ngin.projectDelete', (arg) => this.runHandled(() => this.deleteProjectPathCommand(this.asExplorerTarget(arg)))),
-      vscode.commands.registerCommand('ngin.refresh', () => this.runHandled(() => this.refreshUi())),
+      vscode.commands.registerCommand('ngin.refresh', () => this.runHandled(() => this.refreshUi(undefined, true))),
       vscode.commands.registerCommand('ngin.internal.pickProject', (arg) => this.runHandled(() => this.pickProjectFromStatusBar(this.asCommandTarget(arg)))),
       vscode.commands.registerCommand('ngin.internal.pickProfile', (arg) => this.runHandled(() => this.pickProfileFromStatusBar(this.asCommandTarget(arg)))),
       vscode.commands.registerCommand('ngin.internal.openPath', (filePath) => this.runHandled(() => this.openPathCommand(filePath))),
@@ -458,11 +460,53 @@ class NginController implements vscode.Disposable {
     };
   }
 
-  private async refreshUi(preferredUri?: vscode.Uri): Promise<void> {
+  private async refreshUi(preferredUri?: vscode.Uri, forceInspectRefresh = false): Promise<void> {
     const snapshot = await this.workspaceState.getSnapshot(preferredUri);
+    await this.attachInspectSnapshot(snapshot, forceInspectRefresh);
     this.sidebar.refresh(snapshot);
     this.statusBar.refresh(snapshot);
     await this.cppToolsProvider.refresh(snapshot);
+  }
+
+  private inspectCacheKey(snapshot: NginWorkspaceSnapshot): string | undefined {
+    if (!snapshot.workspace || !snapshot.context) {
+      return undefined;
+    }
+    return [
+      comparablePath(snapshot.context.project.path),
+      snapshot.context.profile.name,
+      snapshot.outputDir ?? ''
+    ].join('|');
+  }
+
+  private async attachInspectSnapshot(snapshot: NginWorkspaceSnapshot, forceRefresh: boolean): Promise<void> {
+    const key = this.inspectCacheKey(snapshot);
+    if (!key || !snapshot.workspace || !snapshot.context) {
+      return;
+    }
+
+    if (!forceRefresh) {
+      const cached = this.inspectCache.get(key);
+      if (cached) {
+        snapshot.inspect = cached.payload;
+        snapshot.inspectError = cached.error;
+        return;
+      }
+    }
+
+    try {
+      const payload = await this.runInspect(snapshot);
+      snapshot.inspect = payload;
+      snapshot.inspectError = payload.diagnostics?.some((diagnostic) => diagnostic.severity === 'error')
+        ? 'Inspect reported resolver diagnostics.'
+        : undefined;
+      this.inspectCache.set(key, { payload, error: snapshot.inspectError });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      snapshot.inspectError = message;
+      this.inspectCache.set(key, { error: message });
+      this.outputChannel.appendLine(`inspect failed: ${message}`);
+    }
   }
 
   private async runHandled(action: () => Promise<void>): Promise<void> {
@@ -1449,6 +1493,67 @@ class NginController implements vscode.Disposable {
     this.applyDiagnostics(result.output, diagnosticsResource);
     this.surfaceLocalSettingsWarnings(result.output);
     return result;
+  }
+
+  private async runInspect(snapshot: NginWorkspaceSnapshot): Promise<ProjectInspectPayload> {
+    if (!snapshot.workspace || !snapshot.context) {
+      throw new Error('No active NGIN project/profile is selected.');
+    }
+
+    const workspaceRoot = snapshot.workspace.root;
+    const cliPath = await this.resolveCliPath(workspaceRoot);
+    await this.warnIfCliStale(cliPath, workspaceRoot);
+    const args = [
+      'inspect',
+      '--project',
+      snapshot.context.project.path,
+      '--profile',
+      snapshot.context.profile.name,
+      '--format',
+      'json'
+    ];
+    if (snapshot.outputDir) {
+      args.push('--output', snapshot.outputDir);
+    }
+
+    const result = await new Promise<{ exitCode: number; stdout: string; stderr: string }>((resolve, reject) => {
+      let stdout = '';
+      let stderr = '';
+      const child = spawn(cliPath, args, { cwd: workspaceRoot });
+
+      child.stdout.on('data', (chunk) => {
+        stdout += chunk.toString();
+      });
+
+      child.stderr.on('data', (chunk) => {
+        stderr += chunk.toString();
+      });
+
+      child.on('error', (error) => reject(error));
+      child.on('close', (code) => resolve({ exitCode: code ?? 0, stdout, stderr }));
+    });
+
+    if (!result.stdout.trim()) {
+      throw new Error(result.stderr.trim() || `inspect exited with code ${result.exitCode}`);
+    }
+
+    let payload: ProjectInspectPayload;
+    try {
+      payload = JSON.parse(result.stdout) as ProjectInspectPayload;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`inspect returned invalid JSON: ${message}`);
+    }
+
+    if (payload.schemaVersion !== 1) {
+      throw new Error(`unsupported inspect schema version: ${String(payload.schemaVersion)}`);
+    }
+
+    if (result.exitCode !== 0 && (!payload.diagnostics || payload.diagnostics.length === 0)) {
+      throw new Error(result.stderr.trim() || `inspect exited with code ${result.exitCode}`);
+    }
+
+    return payload;
   }
 
   private applyDiagnostics(output: string, fallbackResource?: vscode.Uri): void {

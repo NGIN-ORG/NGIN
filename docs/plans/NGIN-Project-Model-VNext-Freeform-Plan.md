@@ -1326,15 +1326,36 @@ Deferred:
 This phase depends heavily on unified inputs, stable conditions, and package
 features.
 
-### Phase F: Runtime Simplification
+### Phase F: Runtime Authoring Cleanup
 
-Purpose: make hosted/runtime applications less verbose.
+Status: deferred.
+
+Purpose: make hosted/runtime applications less verbose without adding another
+composition abstraction prematurely.
+
+Current decision: do not implement runtime templates yet. The model already has
+project templates, profile templates, package features, conditions, and shared
+model includes. Adding runtime templates now would create unclear ownership:
+authors would have to decide whether runtime behavior belongs in a profile
+template, a package feature, or a runtime template.
+
+Preferred direction when this is revisited:
 
 - Add concise app module syntax.
-- Add runtime templates through project templates or package features.
-- Move common NGIN.Core wiring into package features or template defaults.
+- Keep package features as the reusable runtime behavior unit.
+- Move common NGIN.Core wiring into package features or existing template
+  defaults.
 - Add profile-aware runtime feature selection.
 - Clarify the runtime/build boundary.
+- Improve launch/env/module authoring only where current XML is clearly
+  verbose.
+
+Avoid for now:
+
+- New runtime template declarations.
+- Hidden package/runtime auto-application.
+- Runtime behavior that applies without an explicit project/profile/package
+  feature selection.
 
 This phase depends on model factoring, package features, and template semantics.
 
@@ -1357,9 +1378,70 @@ Purpose: make the model safe to use at scale.
 Some of this tooling can start earlier, but it becomes most valuable after
 inputs, conditions, and packages are normalized.
 
-### Phase H: Migration And Editor Support
+### Phase H: Editor, Authoring, And Migration Support
 
 Purpose: polish adoption and authoring.
+
+Current decision: start this phase before Phase F, with a VS Code/editor-first
+focus. The editor should be backed by CLI structured output, not by duplicating
+the resolver in TypeScript.
+
+#### Phase H1: VS Code Project Inspector
+
+Purpose: make the active project/profile composition inspectable from the
+editor.
+
+Status: H1 read-only inspector implemented in the CLI and VS Code extension.
+Later H passes can add package feature toggles, remote repository views, schema
+files, and migration tooling.
+
+Structured CLI inspection contract:
+
+```text
+ngin inspect --project <file> --profile <name> [--output <dir>] --format json
+```
+
+The first structured payload includes:
+
+- selected project/profile/build/platform/environment
+- resolved direct and transitive packages
+- dependency edges and "required by" provenance
+- selected, disabled, condition-excluded, and unavailable package features
+- capability providers, requirements, conflicts, and missing capabilities
+- active and excluded generators
+- generator owners, package/tool origins, declared outputs, and exclusion
+  reasons where known
+- selected inputs grouped by kind
+- launch executable, working directory, arguments, and staged files
+- environment variables with secret values redacted
+- diagnostics and lock-file status
+
+Generator terminology:
+
+- `declared generators`: every generator declaration reachable from project,
+  profile, environment, and selected package features
+- `active generators`: declarations selected for the current profile after
+  direct selectors and `Condition` evaluation
+- `excluded generators`: declarations filtered out by profile/platform/build/
+  environment selectors or conditions, with reason traces
+
+The VS Code extension must treat generators generically. It should not have a
+MetaGen-specific panel or resolver. MetaGen should appear only as one command
+generator contributed by `NGIN.Reflection.MetaGen::ReflectionCodegen`.
+
+Implemented VS Code H1 views inside the existing Projects tree:
+
+- resolved Packages, Features, Capabilities, Generators, Inputs, Launch, and
+  Diagnostics groups for the active project/profile
+- generic generator rows with active/excluded state, owner/tool details,
+  declared outputs, and selector/condition exclusion reason when available
+- manifest/package rows open the declaring manifest when a path is available
+- inactive projects keep the previous lightweight authored-reference view
+
+VS Code H1 should be read-only first. Feature toggle/update actions can follow
+after the structured state contract is stable.
+
+Later Phase H items:
 
 - Add `ngin migrate --to-schema 3` as explicit offline tooling only.
 - Add `ngin create`.
@@ -1383,15 +1465,18 @@ Purpose: polish adoption and authoring.
 
 ## Priorities
 
-With Phase A complete, the next three changes should be:
+With Phases A-E complete, the next changes should be:
 
-1. Generalized project input model.
-2. Package features and dependency version policy.
-3. `ngin explain` for resolved model inspection.
+1. Add structured CLI inspection output for the active project/profile.
+2. Build a read-only VS Code project inspector on that structured output.
+3. Add generic generator visibility in the editor, including active and excluded
+   generators with selection reasons.
+4. Add package/dependency/feature visibility before implementing editor-side
+   feature toggles.
 
 These have the best ratio of authoring improvement to conceptual risk. They
-make `.nginproj` feel more powerful and less repetitive without immediately
-opening the door to arbitrary build scripting.
+make the existing model easier to understand before adding new runtime or
+pipeline abstractions.
 
 The next tier should be:
 

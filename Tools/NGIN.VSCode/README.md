@@ -5,12 +5,15 @@ It is an editor front end over the native `ngin` CLI, not a separate project
 model or build system.
 
 Use it when you want to select projects and profiles, configure build
-metadata, build, run, debug, validate, inspect graphs, or generate metadata from
-VS Code while keeping the same behavior as the terminal commands.
+metadata, build, run, debug, validate, inspect resolved project state, inspect
+graphs, or generate metadata from VS Code while keeping the same behavior as
+the terminal commands.
 
 ## What It Provides
 
 - NGIN activity-bar views for workspace, project, and profile navigation
+- a read-only resolved inspector in the Projects tree for the active
+  project/profile, backed by `ngin inspect --format json`
 - status bar items for the selected workspace, project, and profile
 - commands for configure, build, clean, rebuild, run, debug, validate, graph,
   variable explanation, and local settings initialization
@@ -41,6 +44,7 @@ The extension mirrors the CLI directly:
 - Run maps to `ngin run`
 - Validate maps to `ngin validate`
 - Graph maps to `ngin graph`
+- The active Projects-tree inspector maps to `ngin inspect --format json`
 - Explain Variables maps to `ngin variables explain`
 - Initialize Local Settings maps to `ngin settings init`
 
@@ -55,6 +59,12 @@ Configure generates backend build metadata such as `compile_commands.json`
 without producing a `.nginlaunch` file. Run and debug use the staged
 `.nginlaunch` file produced by `ngin build`. When debugging, the extension can
 build first if the launch manifest is missing or stale.
+
+The Projects tree keeps inactive projects lightweight. For the active
+project/profile, its Dependencies node expands into resolved Packages,
+Features, Capabilities, Generators, Inputs, Launch, and Diagnostics groups.
+Generators are displayed generically; MetaGen appears only as a normal command
+generator contributed by its package feature.
 
 ## Build And Install
 

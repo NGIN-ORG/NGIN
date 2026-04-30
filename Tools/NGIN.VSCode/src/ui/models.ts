@@ -73,6 +73,36 @@ export interface ProjectTreeDependenciesModel {
   packages: ProjectTreeDependencyModel[];
 }
 
+export type ProjectTreeInspectGroupKind =
+  | 'packages'
+  | 'features'
+  | 'capabilities'
+  | 'generators'
+  | 'inputs'
+  | 'launch'
+  | 'diagnostics';
+
+export interface ProjectTreeInspectGroupModel {
+  kind: ProjectTreeInspectGroupKind;
+  label: string;
+  tooltip?: string;
+  icon: string;
+  projectPath: string;
+}
+
+export interface ProjectTreeInspectEntryModel {
+  label: string;
+  description?: string;
+  tooltip?: string;
+  icon?: string;
+  targetPath?: string;
+}
+
+export interface ProjectTreeInspectModel {
+  groups: ProjectTreeInspectGroupModel[];
+  entriesByGroup: Map<ProjectTreeInspectGroupKind, ProjectTreeInspectEntryModel[]>;
+}
+
 export type ProjectTreeChildModel = ProjectTreeManifestModel | ProjectTreeGroupModel | ProjectTreeProfileModel;
 
 export interface ProjectTreeModels {
@@ -82,6 +112,7 @@ export interface ProjectTreeModels {
   childrenByProject: Map<string, ProjectTreeChildModel[]>;
   profilesByProject: Map<string, ProjectTreeProfileModel[]>;
   dependenciesByProject: Map<string, ProjectTreeDependenciesModel>;
+  inspectByProject: Map<string, ProjectTreeInspectModel>;
 }
 
 export interface StatusBarEntryModel {
@@ -225,6 +256,195 @@ function buildProjectDependencies(snapshot: NginWorkspaceSnapshot, projectPath: 
     projects: projectDependencies,
     packages: packageDependencies
   };
+}
+
+function inspectStateLabel(state?: string): string | undefined {
+  if (!state) {
+    return undefined;
+  }
+  switch (state) {
+    case 'selected':
+      return 'Selected';
+    case 'available':
+      return 'Available';
+    case 'disabled':
+      return 'Disabled';
+    case 'conditionExcluded':
+      return 'Excluded';
+    case 'unavailable':
+      return 'Unavailable';
+    case 'active':
+      return 'Active';
+    case 'excluded':
+      return 'Excluded';
+    default:
+      return state;
+  }
+}
+
+export function buildInspectTreeModel(snapshot: NginWorkspaceSnapshot, projectPath: string): ProjectTreeInspectModel | undefined {
+  if (!snapshot.context || comparablePath(snapshot.context.project.path) !== comparablePath(projectPath)) {
+    return undefined;
+  }
+
+  const entriesByGroup = new Map<ProjectTreeInspectGroupKind, ProjectTreeInspectEntryModel[]>();
+  const inspect = snapshot.inspect;
+
+  if (inspect?.packages?.length) {
+    entriesByGroup.set('packages', inspect.packages.map((pkg) => ({
+      label: pkg.name,
+      description: [pkg.version, pkg.requiredBy?.join(', ')].filter(Boolean).join(' • ') || undefined,
+      tooltip: [pkg.name, pkg.manifestPath].filter(Boolean).join('\n'),
+      icon: 'package',
+      targetPath: pkg.manifestPath
+    })));
+  }
+
+  if (inspect?.packageFeatures?.length) {
+    entriesByGroup.set('features', inspect.packageFeatures.map((feature) => ({
+      label: `${feature.package}::${feature.feature}`,
+      description: inspectStateLabel(feature.state),
+      tooltip: [feature.description, feature.manifestPath].filter(Boolean).join('\n'),
+      icon: feature.state === 'selected' ? 'check' : feature.state === 'disabled' || feature.state === 'conditionExcluded' ? 'circle-slash' : 'symbol-property',
+      targetPath: feature.manifestPath
+    })));
+  }
+
+  const capabilityEntries: ProjectTreeInspectEntryModel[] = [];
+  for (const provider of inspect?.capabilities?.providers ?? []) {
+    capabilityEntries.push({
+      label: provider.name,
+      description: `${provider.package}::${provider.feature}${provider.exclusive ? ' • exclusive' : ''}`,
+      icon: provider.exclusive ? 'lock' : 'symbol-interface'
+    });
+  }
+  for (const requirement of inspect?.capabilities?.requirements ?? []) {
+    capabilityEntries.push({
+      label: `requires ${requirement.name}`,
+      description: `${requirement.package}::${requirement.feature}${requirement.missing ? ' • missing' : ''}`,
+      icon: requirement.missing ? 'error' : 'link'
+    });
+  }
+  for (const conflict of inspect?.capabilities?.exclusiveConflicts ?? []) {
+    capabilityEntries.push({
+      label: `conflict ${conflict}`,
+      description: 'Exclusive capability conflict',
+      icon: 'error'
+    });
+  }
+  if (capabilityEntries.length > 0) {
+    entriesByGroup.set('capabilities', capabilityEntries);
+  }
+
+  if (inspect?.generators?.length) {
+    entriesByGroup.set('generators', inspect.generators.map((generator) => ({
+      label: generator.name,
+      description: [inspectStateLabel(generator.state), generator.ownerName, generator.tool].filter(Boolean).join(' • ') || undefined,
+      tooltip: [
+        generator.kind ? `Kind: ${generator.kind}` : undefined,
+        generator.reason ? `Reason: ${generator.reason}` : undefined,
+        generator.outputs?.length ? `Outputs:\n${generator.outputs.map((output) => `- ${output.role ?? 'Output'} ${output.path ?? ''}`).join('\n')}` : undefined,
+        generator.manifestPath
+      ].filter(Boolean).join('\n'),
+      icon: generator.state === 'active' ? 'run' : 'circle-slash',
+      targetPath: generator.manifestPath
+    })));
+  }
+
+  const inputEntries: ProjectTreeInspectEntryModel[] = [];
+  for (const [kind, inputs] of Object.entries(inspect?.inputs ?? {})) {
+    for (const input of inputs) {
+      inputEntries.push({
+        label: `${kind}: ${input.source || input.absoluteSourcePath || input.name || '(unnamed)'}`,
+        description: [input.role, input.mode, input.ownerName].filter(Boolean).join(' • ') || undefined,
+        tooltip: [input.absoluteSourcePath, input.stagedRelativePath ? `Stages: ${input.stagedRelativePath}` : undefined, input.manifestPath].filter(Boolean).join('\n'),
+        icon: kind === 'Source' || input.role === 'Header' ? 'file-code' : kind === 'Config' ? 'settings' : 'file',
+        targetPath: input.manifestPath
+      });
+    }
+  }
+  if (inputEntries.length > 0) {
+    entriesByGroup.set('inputs', inputEntries);
+  }
+
+  const launchEntries: ProjectTreeInspectEntryModel[] = [];
+  if (inspect?.launch?.executable) {
+    launchEntries.push({
+      label: inspect.launch.executable.name,
+      description: [inspect.launch.executable.target, inspect.launch.executable.origin].filter(Boolean).join(' • ') || 'Executable',
+      icon: 'play'
+    });
+  }
+  if (inspect?.launch?.workingDirectory) {
+    launchEntries.push({
+      label: 'Working Directory',
+      description: inspect.launch.workingDirectory,
+      icon: 'folder-opened'
+    });
+  }
+  for (const file of inspect?.stagedFiles ?? []) {
+    launchEntries.push({
+      label: file.relativeDestination ?? file.source ?? file.kind,
+      description: file.kind,
+      tooltip: file.source,
+      icon: 'files'
+    });
+  }
+  for (const variable of inspect?.environmentVariables ?? []) {
+    launchEntries.push({
+      label: variable.name,
+      description: variable.secret ? '<redacted>' : variable.value,
+      icon: variable.secret ? 'lock' : 'symbol-variable'
+    });
+  }
+  if (inspect?.lockFile?.path) {
+    launchEntries.push({
+      label: 'Lock File',
+      description: inspect.lockFile.status,
+      tooltip: inspect.lockFile.path,
+      icon: inspect.lockFile.status === 'present' ? 'lock' : 'circle-slash',
+      targetPath: inspect.lockFile.path
+    });
+  }
+  if (launchEntries.length > 0) {
+    entriesByGroup.set('launch', launchEntries);
+  }
+
+  const diagnosticEntries = [
+    ...(snapshot.inspectError ? [{
+      label: snapshot.inspectError,
+      description: 'Inspect',
+      icon: 'warning'
+    }] : []),
+    ...(inspect?.diagnostics ?? []).map((diagnostic) => ({
+      label: diagnostic.message,
+      description: diagnostic.severity,
+      tooltip: diagnostic.subject,
+      icon: diagnostic.severity === 'error' ? 'error' : 'warning'
+    }))
+  ];
+  if (diagnosticEntries.length > 0) {
+    entriesByGroup.set('diagnostics', diagnosticEntries);
+  }
+
+  const metadata: Array<{ kind: ProjectTreeInspectGroupKind; label: string; icon: string; tooltip: string }> = [
+    { kind: 'packages', label: 'Packages', icon: 'package', tooltip: 'Resolved packages for the active profile.' },
+    { kind: 'features', label: 'Features', icon: 'symbol-property', tooltip: 'Selected and available package features.' },
+    { kind: 'capabilities', label: 'Capabilities', icon: 'symbol-interface', tooltip: 'Feature-provided and required capabilities.' },
+    { kind: 'generators', label: 'Generators', icon: 'run', tooltip: 'Active and excluded generators for the active profile.' },
+    { kind: 'inputs', label: 'Inputs', icon: 'files', tooltip: 'Resolved typed inputs.' },
+    { kind: 'launch', label: 'Launch', icon: 'play-circle', tooltip: 'Launch, staged file, environment, and lock metadata.' },
+    { kind: 'diagnostics', label: 'Diagnostics', icon: 'warning', tooltip: 'Inspector diagnostics.' }
+  ];
+
+  const groups = metadata
+    .filter((group) => (entriesByGroup.get(group.kind)?.length ?? 0) > 0)
+    .map((group) => ({
+      ...group,
+      projectPath
+    }));
+
+  return { groups, entriesByGroup };
 }
 
 function artifactStatusIcon(status: 'ready' | 'fallback' | 'missing'): string {
@@ -371,9 +591,10 @@ export function buildProjectTreeModels(snapshot: NginWorkspaceSnapshot): Project
   const childrenByProject = new Map<string, ProjectTreeChildModel[]>();
   const profilesByProject = new Map<string, ProjectTreeProfileModel[]>();
   const dependenciesByProject = new Map<string, ProjectTreeDependenciesModel>();
+  const inspectByProject = new Map<string, ProjectTreeInspectModel>();
 
   if (!snapshot.workspace) {
-    return { projects, childrenByProject, profilesByProject, dependenciesByProject };
+    return { projects, childrenByProject, profilesByProject, dependenciesByProject, inspectByProject };
   }
 
   for (const project of snapshot.workspace.projects) {
@@ -425,12 +646,16 @@ export function buildProjectTreeModels(snapshot: NginWorkspaceSnapshot): Project
 
     const dependencies = buildProjectDependencies(snapshot, project.path);
     dependenciesByProject.set(project.path, dependencies);
-    if (dependencies.projects.length > 0 || dependencies.packages.length > 0) {
+    const inspectModel = buildInspectTreeModel(snapshot, project.path);
+    if (inspectModel) {
+      inspectByProject.set(project.path, inspectModel);
+    }
+    if (dependencies.projects.length > 0 || dependencies.packages.length > 0 || (inspectModel?.groups.length ?? 0) > 0) {
       children.push({
         kind: 'group',
         id: `${project.path}:dependencies`,
         label: 'Dependencies',
-        tooltip: 'Referenced projects and packages.',
+        tooltip: selectedProject ? 'Resolved package, feature, capability, generator, input, and launch state.' : 'Referenced projects and packages.',
         icon: 'references',
         projectPath: project.path,
         group: 'dependencies'
@@ -481,7 +706,8 @@ export function buildProjectTreeModels(snapshot: NginWorkspaceSnapshot): Project
     projects,
     childrenByProject,
     profilesByProject,
-    dependenciesByProject
+    dependenciesByProject,
+    inspectByProject
   };
 }
 

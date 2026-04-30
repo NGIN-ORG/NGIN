@@ -11,6 +11,7 @@ namespace NGIN::CLI
         std::optional<std::string> outputPath{};
         std::optional<std::string> targetDir{};
         std::optional<std::string> lockPath{};
+        std::optional<std::string> format{};
         std::optional<std::string> packageName{};
         std::optional<std::string> featureName{};
         std::vector<std::string> runArgs{};
@@ -30,6 +31,7 @@ namespace NGIN::CLI
     auto CmdExplainCondition(const fs::path &root, const ParsedArgs &args) -> int;
     auto CmdExplainPackageFeature(const fs::path &root, const ParsedArgs &args) -> int;
     auto CmdExplainGenerator(const fs::path &root, const ParsedArgs &args) -> int;
+    auto CmdInspect(const fs::path &root, const ParsedArgs &args) -> int;
     auto CmdValidate(const fs::path &root, const ParsedArgs &args) -> int;
     auto CmdGraph(const fs::path &root, const ParsedArgs &args) -> int;
     auto CmdClean(const fs::path &root, const ParsedArgs &args) -> int;

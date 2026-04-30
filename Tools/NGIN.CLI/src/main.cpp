@@ -21,6 +21,7 @@ namespace
             << "  explain condition <Name> [--project <file.nginproj>] [--profile <name>]\n"
             << "  explain package-feature <PackageName> <FeatureName> [--project <file.nginproj>] [--profile <name>]\n"
             << "  explain generator <Name> [--project <file.nginproj>] [--profile <name>]\n"
+            << "  inspect [--project <file.nginproj>] [--profile <name>] [--output <dir>] --format json\n"
             << "  validate [--project <file.nginproj>] [--profile <name>]\n"
             << "  graph [--project <file.nginproj>] [--profile <name>]\n"
             << "  configure [--project <file.nginproj>] [--profile <name>] [--output <dir>]\n"
@@ -155,6 +156,10 @@ auto main(int argc, char **argv) -> int
         if (command == "validate")
         {
             return NGIN::CLI::CmdValidate(root, NGIN::CLI::ParseCommonArgs(argc, argv, 2));
+        }
+        if (command == "inspect")
+        {
+            return NGIN::CLI::CmdInspect(root, NGIN::CLI::ParseCommonArgs(argc, argv, 2));
         }
         if (command == "graph")
         {
