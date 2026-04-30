@@ -138,7 +138,6 @@ struct CapabilityProvision {
 struct ToolDeclaration {
   std::string name{};
   std::string kind{"Generator"};
-  std::string builtIn{};
   std::string executable{};
   std::string profile{};
   std::string platform{};

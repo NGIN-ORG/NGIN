@@ -13,7 +13,7 @@ VS Code while keeping the same behavior as the terminal commands.
 - NGIN activity-bar views for workspace, project, and profile navigation
 - status bar items for the selected workspace, project, and profile
 - commands for configure, build, clean, rebuild, run, debug, validate, graph,
-  variable explanation, local settings initialization, and MetaGen
+  variable explanation, and local settings initialization
 - generated VS Code tasks for known project/profile pairs
 - `.nginlaunch`-based run and debug resolution
 - a custom `ngin` debug type that launches native C/C++ debug sessions
@@ -134,7 +134,7 @@ extension before launch.
 
 - The extension expects the native CLI to be available from the repository build
   output or configured extension settings.
-- Build outputs, launch manifests, compile databases, and MetaGen output are
+- Build outputs, launch manifests, compile databases, and generator outputs are
   generated artifacts.
 - The extension should not invent editor-only behavior that disagrees with the
   CLI contract.

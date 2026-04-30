@@ -259,7 +259,6 @@ function parseToolDeclaration(entry: unknown, requireName: boolean): ToolDeclara
   const node = entry as {
     Name?: string;
     Kind?: string;
-    BuiltIn?: string;
     Executable?: string;
     Profile?: string;
     Platform?: string;
@@ -275,7 +274,6 @@ function parseToolDeclaration(entry: unknown, requireName: boolean): ToolDeclara
   return applySelectorFields({
     name: node.Name,
     kind: node.Kind ?? 'Generator',
-    builtIn: node.BuiltIn,
     executable: node.Executable
   }, node);
 }

@@ -1015,7 +1015,7 @@ namespace NGIN::CLI
 
         [[nodiscard]] auto ParseToolDeclaration(const XmlElement &node, const fs::path &path, const bool requireName) -> ToolDeclaration
         {
-            ValidateAllowedAttributes(node, path, {"Name", "Kind", "BuiltIn", "Executable", "Profile", "Platform", "OperatingSystem", "Architecture", "BuildType", "Environment", "Condition"});
+            ValidateAllowedAttributes(node, path, {"Name", "Kind", "Executable", "Profile", "Platform", "OperatingSystem", "Architecture", "BuildType", "Environment", "Condition"});
             ToolDeclaration tool{};
             if (requireName)
             {
@@ -1030,24 +1030,15 @@ namespace NGIN::CLI
                 tool.name = Attribute(node, "Name").value_or("");
             }
             tool.kind = Attribute(node, "Kind").value_or("Generator");
-            tool.builtIn = Attribute(node, "BuiltIn").value_or("");
             tool.executable = Attribute(node, "Executable").value_or("");
             tool.selectors = ParseSelection(node, path);
             if (tool.kind != "Generator")
             {
                 throw std::runtime_error(path.string() + ": unsupported tool kind '" + tool.kind + "'");
             }
-            if (tool.builtIn.empty() && tool.executable.empty())
+            if (tool.executable.empty())
             {
-                throw std::runtime_error(path.string() + ": tool '" + (tool.name.empty() ? std::string{"<inline>"} : tool.name) + "' must declare BuiltIn or Executable");
-            }
-            if (!tool.builtIn.empty() && !tool.executable.empty())
-            {
-                throw std::runtime_error(path.string() + ": tool '" + (tool.name.empty() ? std::string{"<inline>"} : tool.name) + "' may not declare both BuiltIn and Executable");
-            }
-            if (!tool.builtIn.empty() && tool.builtIn != "MetaGen")
-            {
-                throw std::runtime_error(path.string() + ": unsupported built-in tool '" + tool.builtIn + "'");
+                throw std::runtime_error(path.string() + ": tool '" + (tool.name.empty() ? std::string{"<inline>"} : tool.name) + "' must declare Executable");
             }
             return tool;
         }
@@ -1124,7 +1115,7 @@ namespace NGIN::CLI
                 {
                     throw std::runtime_error(path.string() + ": duplicate generator '" + generator.name + "'");
                 }
-                if (generator.kind != "MetaGen" && generator.kind != "Command")
+                if (generator.kind != "Command")
                 {
                     throw std::runtime_error(path.string() + ": unsupported generator kind '" + generator.kind + "'");
                 }
@@ -1133,13 +1124,9 @@ namespace NGIN::CLI
                     generator.inlineTool = ParseToolDeclaration(*tool, path, false);
                     generator.hasInlineTool = true;
                 }
-                if (generator.kind == "Command" && generator.toolName.empty() && !generator.hasInlineTool)
+                if (generator.toolName.empty() && !generator.hasInlineTool)
                 {
                     throw std::runtime_error(path.string() + ": command generator '" + generator.name + "' must declare Tool or inline <Tool>");
-                }
-                if (generator.kind == "MetaGen" && generator.toolName.empty())
-                {
-                    generator.toolName = "MetaGen";
                 }
                 if (const auto *arguments = FindChild(*node, "Arguments"))
                 {
@@ -1610,7 +1597,7 @@ namespace NGIN::CLI
             if (const auto *metaGen = FindChild(*buildElement, "MetaGen"))
             {
                 (void)metaGen;
-                throw std::runtime_error(path.string() + ": <Build><MetaGen> is no longer supported; use <Generators><Generator Kind=\"MetaGen\">");
+                throw std::runtime_error(path.string() + ": <Build><MetaGen> is no longer supported; use a package-provided command generator");
             }
 
             if (const auto *sources = FindChild(*buildElement, "Sources"))

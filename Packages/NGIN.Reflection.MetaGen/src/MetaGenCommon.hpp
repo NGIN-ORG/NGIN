@@ -4,7 +4,7 @@
 #include <string>
 #include <string_view>
 
-namespace NGIN::CLI::MetaGen
+namespace NGIN::Reflection::MetaGen
 {
     struct Annotation
     {

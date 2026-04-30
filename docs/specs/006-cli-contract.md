@@ -41,7 +41,10 @@ Removed commands:
 
 - `--profile` always selects the project profile
 - backend build type comes from the selected project profile’s `BuildType`
-- `ngin configure` resolves the selected composition, runs selected generators, generates backend CMake input, runs CMake configure, and emits generated build metadata such as `compile_commands.json` without staging runtime outputs
+- `ngin configure` resolves the selected composition, writes generator context
+  files, runs selected package/local command generators, generates backend CMake
+  input, runs CMake configure, and emits generated build metadata such as
+  `compile_commands.json` without staging runtime outputs
 - `ngin build` emits `.nginlaunch`
 - `ngin build` configures the generated backend build when needed before building and staging artifacts
 - `ngin build` remains incremental and should not aggressively remove unrelated files outside NGIN-owned stale outputs

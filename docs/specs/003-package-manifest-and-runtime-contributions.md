@@ -99,7 +99,11 @@ Packages may declare explicit opt-in features under `Features`.
       </CompileDefinitions>
     </Build>
     <Generators>
-      <Generator Name="ReflectionMetaGen" Kind="MetaGen" Tool="MetaGen">
+      <Generator Name="ReflectionMetaGen" Kind="Command" Tool="MetaGen">
+        <Arguments>
+          <Arg Value="--context" />
+          <Arg Path="$(GeneratorContext)" />
+        </Arguments>
         <Outputs>
           <Generated Role="Source"
                      Path="$(GeneratedDir)/reflection/$(ProjectName).reflection.generated.cpp" />
@@ -159,15 +163,15 @@ Packages may declare named tools for selected feature generators:
 
 ```xml
 <Tools>
-  <Tool Name="MetaGen" Kind="Generator" BuiltIn="MetaGen" />
+  <Tool Name="MetaGen" Kind="Generator" Executable="bin/ngin-metagen" />
   <Tool Name="SchemaCompiler" Kind="Generator" Executable="bin/schema-compiler" />
 </Tools>
 ```
 
 Tool paths resolve relative to the provider root when one is present; otherwise
-they resolve relative to the package manifest directory. Built-in tools are
-implemented by the CLI. Phase E supports `BuiltIn="MetaGen"` and executable
-generator tools.
+they resolve relative to the package manifest directory. Phase E supports
+executable generator tools only; MetaGen is provided by the
+`NGIN.Reflection.MetaGen` package as `bin/ngin-metagen`, not by the CLI.
 
 Feature-contributed generators apply only when the consuming project selects
 that package feature. Generator outputs must be explicit and become typed

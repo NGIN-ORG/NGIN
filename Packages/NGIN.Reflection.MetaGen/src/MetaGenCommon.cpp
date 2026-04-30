@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <cctype>
 
-namespace NGIN::CLI::MetaGen
+namespace NGIN::Reflection::MetaGen
 {
     namespace
     {

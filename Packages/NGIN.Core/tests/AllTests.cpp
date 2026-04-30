@@ -1510,7 +1510,7 @@ TEST_CASE("ApplicationBuilderLoadsProjectManifestAndConfig",
   WriteTextFile(tempDir.Join("app.cfg"), "App.Mode=manifest\n");
   WriteTextFile(tempDir.Join("derived.cfg"), "App.Profile=derived\n");
   WriteTextFile(tempDir.Join("Manifest.Tests.nginproj"),
-                R"(<?xml version="1.0" encoding="utf-8"?>
+                R"xml(<?xml version="1.0" encoding="utf-8"?>
 <Project SchemaVersion="3"
          Name="Manifest.Tests"
          Type="Application"
@@ -1533,7 +1533,12 @@ TEST_CASE("ApplicationBuilderLoadsProjectManifestAndConfig",
     </CompileDefinitions>
   </Build>
   <Generators>
-    <Generator Name="ReflectionMetaGen" Kind="MetaGen" Package="NGIN.Reflection" Tool="MetaGen">
+    <Generator Name="ReflectionMetaGen" Kind="Command">
+      <Tool Executable="tools/ngin-metagen" />
+      <Arguments>
+        <Arg Value="--context" />
+        <Arg Path="$(GeneratorContext)" />
+      </Arguments>
       <Outputs>
         <Generated Role="Source" Path="$(GeneratedDir)/reflection/Manifest.Tests.reflection.generated.cpp" />
       </Outputs>
@@ -1571,7 +1576,7 @@ TEST_CASE("ApplicationBuilderLoadsProjectManifestAndConfig",
     </Profile>
   </Profiles>
 </Project>
-)");
+)xml");
 
   auto builder = NGIN::Core::CreateApplicationBuilder(0, nullptr);
   builder->UseProjectFile(ToString(tempDir.Join("Manifest.Tests.nginproj")));

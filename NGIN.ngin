@@ -10,6 +10,7 @@
     <Versions>
       <Package Name="NGIN.Core" VersionRange=">=0.1.0 &lt;0.2.0" />
       <Package Name="NGIN.Reflection" VersionRange=">=0.1.0 &lt;0.2.0" />
+      <Package Name="NGIN.Reflection.MetaGen" VersionRange=">=0.1.0 &lt;0.2.0" />
     </Versions>
   </DependencyPolicy>
   <PackagePolicy DefaultFeatures="Explicit" LockFile="Optional" />

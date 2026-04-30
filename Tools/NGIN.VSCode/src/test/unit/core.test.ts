@@ -165,7 +165,12 @@ test('project and package manifests parse generator declarations', () => {
       '<?xml version="1.0" encoding="utf-8"?>',
       '<Project SchemaVersion="3" Name="Generated.App" DefaultProfile="Runtime">',
       '  <Generators>',
-      '    <Generator Name="ReflectionMetaGen" Kind="MetaGen" Package="NGIN.Reflection" Tool="MetaGen">',
+      '    <Generator Name="ReflectionMetaGen" Kind="Command">',
+      '      <Tool Executable="tools/ngin-metagen" />',
+      '      <Arguments>',
+      '        <Arg Value="--context" />',
+      '        <Arg Path="$(GeneratorContext)" />',
+      '      </Arguments>',
       '      <Outputs>',
       '        <Generated Role="Source" Path="$(GeneratedDir)/reflection/Generated.App.reflection.generated.cpp" />',
       '      </Outputs>',
@@ -232,7 +237,7 @@ test('extension manifest and snippets register local settings support', () => {
   assert.ok(snippets['Local Settings File']);
   assert.ok(snippets['Variable From Local Setting']);
   assert.ok(snippets['Model']);
-  assert.ok(snippets['MetaGen Generator']);
+  assert.ok(snippets['MetaGen Feature Use']);
   assert.ok(snippets['Command Generator']);
 });
 

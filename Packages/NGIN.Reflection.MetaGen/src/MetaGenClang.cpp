@@ -1,19 +1,17 @@
-#include "MetaGen.hpp"
-
-#include "Authoring.hpp"
+#include "MetaGenContext.hpp"
 #include "MetaGenCommon.hpp"
-#include "Support.hpp"
 
 #include <clang-c/Index.h>
 
 #include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <fstream>
-#include <iostream>
 #include <set>
 #include <sstream>
+#include <system_error>
 
-namespace NGIN::CLI
+namespace NGIN::Reflection::MetaGen
 {
     namespace
     {
@@ -81,6 +79,39 @@ namespace NGIN::CLI
             std::vector<MetaGenType> types{};
             std::vector<std::string> diagnostics{};
         };
+
+        [[nodiscard]] auto Lower(std::string value) -> std::string
+        {
+            std::transform(value.begin(),
+                           value.end(),
+                           value.begin(),
+                           [](const unsigned char ch)
+                           {
+                               return static_cast<char>(std::tolower(ch));
+                           });
+            return value;
+        }
+
+        [[nodiscard]] auto IsPathWithinDirectory(const fs::path &candidate, const fs::path &directory) -> bool
+        {
+            std::error_code error;
+            const auto normalizedCandidate = fs::weakly_canonical(candidate, error);
+            const auto candidatePath = error ? candidate.lexically_normal() : normalizedCandidate;
+            error.clear();
+            const auto normalizedDirectory = fs::weakly_canonical(directory, error);
+            const auto directoryPath = error ? directory.lexically_normal() : normalizedDirectory;
+
+            auto candidateIt = candidatePath.begin();
+            auto directoryIt = directoryPath.begin();
+            for (; directoryIt != directoryPath.end(); ++directoryIt, ++candidateIt)
+            {
+                if (candidateIt == candidatePath.end() || *candidateIt != *directoryIt)
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
 
         [[nodiscard]] auto CursorSpelling(CXCursor cursor) -> std::string
         {
@@ -160,17 +191,17 @@ namespace NGIN::CLI
             return output.str();
         }
 
-        [[nodiscard]] auto DirectAnnotations(CXCursor cursor) -> std::vector<MetaGen::Annotation>
+        [[nodiscard]] auto DirectAnnotations(CXCursor cursor) -> std::vector<Annotation>
         {
-            std::vector<MetaGen::Annotation> annotations{};
+            std::vector<Annotation> annotations{};
             clang_visitChildren(
                 cursor,
                 [](CXCursor child, CXCursor, CXClientData data)
                 {
                     if (clang_getCursorKind(child) == CXCursor_AnnotateAttr)
                     {
-                        auto *out = static_cast<std::vector<MetaGen::Annotation> *>(data);
-                        out->push_back(MetaGen::ParseAnnotation(CursorSpelling(child)));
+                        auto *out = static_cast<std::vector<Annotation> *>(data);
+                        out->push_back(ParseAnnotation(CursorSpelling(child)));
                     }
                     return CXChildVisit_Continue;
                 },
@@ -178,19 +209,19 @@ namespace NGIN::CLI
             return annotations;
         }
 
-        [[nodiscard]] auto FindAnnotation(const std::vector<MetaGen::Annotation> &annotations, std::string_view kind)
-            -> const MetaGen::Annotation *
+        [[nodiscard]] auto FindAnnotation(const std::vector<Annotation> &annotations, std::string_view kind)
+            -> const Annotation *
         {
             const auto it = std::find_if(annotations.begin(),
                                          annotations.end(),
-                                         [&](const MetaGen::Annotation &annotation)
+                                         [&](const Annotation &annotation)
                                          {
                                              return annotation.kind == kind;
                                          });
             return it == annotations.end() ? nullptr : &*it;
         }
 
-        [[nodiscard]] auto IsIgnored(const std::vector<MetaGen::Annotation> &annotations) -> bool
+        [[nodiscard]] auto IsIgnored(const std::vector<Annotation> &annotations) -> bool
         {
             return FindAnnotation(annotations, "ignore") != nullptr;
         }
@@ -201,7 +232,7 @@ namespace NGIN::CLI
             return access == CX_CXXInvalidAccessSpecifier || access == CX_CXXPublic;
         }
 
-        [[nodiscard]] auto OptionOr(const MetaGen::Annotation *annotation, std::string_view key, std::string fallback)
+        [[nodiscard]] auto OptionOr(const Annotation *annotation, std::string_view key, std::string fallback)
             -> std::string
         {
             if (annotation == nullptr)
@@ -231,7 +262,7 @@ namespace NGIN::CLI
 
         auto AddPropertyMethod(MetaGenType &type,
                                CXCursor cursor,
-                               const MetaGen::Annotation &annotation,
+                               const Annotation &annotation,
                                std::vector<std::string> &diagnostics) -> void
         {
             const auto cppName = CursorSpelling(cursor);
@@ -492,176 +523,13 @@ namespace NGIN::CLI
             return extension == ".h" || extension == ".hh" || extension == ".hpp" || extension == ".hxx";
         }
 
-        [[nodiscard]] auto ResolveProjectPathValue(const std::string &value, const ProjectManifest &project) -> fs::path
-        {
-            fs::path path(value);
-            if (path.is_relative())
-            {
-                path = project.path.parent_path() / path;
-            }
-            return path.lexically_normal();
-        }
-
-        [[nodiscard]] auto IsBuildInputKind(const InputDeclaration &input) -> bool
-        {
-            return input.kind == "Source" || (input.kind == "Generated" && input.role == "Source");
-        }
-
-        [[nodiscard]] auto CollectSourceFiles(const ProjectManifest &project, const ProfileDefinition &profile) -> std::vector<fs::path>
-        {
-            std::set<fs::path> unique{};
-            std::vector<fs::path> sources{};
-            auto add = [&](const fs::path &candidate)
-            {
-                const auto normalized = candidate.lexically_normal();
-                if (fs::exists(normalized) && fs::is_regular_file(normalized) &&
-                    IsCompiledSourceExtension(normalized) && unique.insert(normalized).second)
-                {
-                    sources.push_back(normalized);
-                }
-            };
-
-            if (!project.build.sources.empty())
-            {
-                for (const auto &source : project.build.sources)
-                {
-                    add(ResolveProjectPathValue(source, project));
-                }
-            }
-            else
-            {
-                std::vector<fs::path> excludedRoots{};
-                std::vector<fs::path> excludedFiles{};
-                for (const auto &input : project.inputs)
-                {
-                    if (!IsBuildInputKind(input) || SelectionMatches(project, input.selectors, profile) || input.path.empty())
-                    {
-                        continue;
-                    }
-                    if (input.mode == "Directory")
-                    {
-                        excludedRoots.push_back(ResolveProjectPathValue(input.path, project));
-                    }
-                    else if (input.mode == "File")
-                    {
-                        excludedFiles.push_back(ResolveProjectPathValue(input.path, project));
-                    }
-                }
-
-                auto isExcluded = [&](const fs::path &candidate)
-                {
-                    const auto normalized = candidate.lexically_normal();
-                    for (const auto &root : excludedRoots)
-                    {
-                        if (IsPathWithinDirectory(normalized, root))
-                        {
-                            return true;
-                        }
-                    }
-                    return std::find(excludedFiles.begin(), excludedFiles.end(), normalized) != excludedFiles.end();
-                };
-
-                auto addRoot = [&](const InputDeclaration &root)
-                {
-                    const auto sourceRoot = ResolveProjectPathValue(root.path, project);
-                    if (!fs::exists(sourceRoot) || !fs::is_directory(sourceRoot))
-                    {
-                        return;
-                    }
-                    for (const auto &entry : fs::recursive_directory_iterator(sourceRoot))
-                    {
-                        if (!entry.is_regular_file() || isExcluded(entry.path()))
-                        {
-                            continue;
-                        }
-                        const auto normalized = entry.path().lexically_normal();
-                        const auto relativePath = normalized.lexically_relative(sourceRoot);
-                        if (!root.includePatterns.empty() && !AnyGlobMatches(root.includePatterns, relativePath))
-                        {
-                            continue;
-                        }
-                        if (!root.excludePatterns.empty() && AnyGlobMatches(root.excludePatterns, relativePath))
-                        {
-                            continue;
-                        }
-                        add(entry.path());
-                    }
-                };
-                for (const auto &input : project.inputs)
-                {
-                    if (!IsBuildInputKind(input) || !SelectionMatches(project, input.selectors, profile))
-                    {
-                        continue;
-                    }
-                    if (input.mode == "Glob")
-                    {
-                        const auto projectDir = project.path.parent_path();
-                        auto globRoot = projectDir;
-                        if (!input.basePath.empty())
-                        {
-                            const fs::path base{input.basePath};
-                            globRoot = (base.is_absolute() ? base : projectDir / base).lexically_normal();
-                        }
-                        if (!fs::exists(globRoot) || !fs::is_directory(globRoot))
-                        {
-                            continue;
-                        }
-                        for (const auto &entry : fs::recursive_directory_iterator(globRoot))
-                        {
-                            if (!entry.is_regular_file())
-                            {
-                                continue;
-                            }
-                            const auto relativePath = entry.path().lexically_relative(globRoot);
-                            if (!AnyGlobMatches(input.includePatterns, relativePath) ||
-                                (!input.excludePatterns.empty() && AnyGlobMatches(input.excludePatterns, relativePath)))
-                            {
-                                continue;
-                            }
-                            add(entry.path());
-                        }
-                    }
-                    else if (input.mode == "Directory")
-                    {
-                        addRoot(input);
-                    }
-                    else if (input.mode == "File")
-                    {
-                        add(ResolveProjectPathValue(input.path, project));
-                    }
-                }
-            }
-            std::sort(sources.begin(), sources.end());
-            return sources;
-        }
-
-        [[nodiscard]] auto CollectSourceRoots(const ProjectManifest &project, const ProfileDefinition &profile) -> std::vector<fs::path>
-        {
-            std::vector<fs::path> roots{};
-            for (const auto &input : project.inputs)
-            {
-                if (IsBuildInputKind(input) && input.mode == "Directory" && SelectionMatches(project, input.selectors, profile))
-                {
-                    roots.push_back(ResolveProjectPathValue(input.path, project));
-                }
-            }
-            return roots;
-        }
-
-        [[nodiscard]] auto DefaultOutputDir(const ProjectManifest &project,
-                                            const ProfileDefinition &profile) -> fs::path
-        {
-            return fs::current_path() / ".ngin" / "metagen" / project.name / profile.name;
-        }
-
-        [[nodiscard]] auto BuildClangArguments(const fs::path &root, const ProjectManifest &project, const ProfileDefinition &profile)
+        [[nodiscard]] auto BuildClangArguments(const MetaGenContext &context)
             -> std::vector<std::string>
         {
             std::vector<std::string> args{
                 "-x",
                 "c++",
-                "-std=c++" +
-                    (project.build.languageStandard.empty() ? std::string("23") : project.build.languageStandard),
+                "-std=c++" + (context.languageStandard.empty() ? std::string("23") : context.languageStandard),
                 "-DNGIN_METAGEN_SCAN=1",
             };
 
@@ -670,25 +538,29 @@ namespace NGIN::CLI
                 args.push_back("-I" + path.string());
             };
 
-            include(project.path.parent_path());
-            for (const auto &rootPath : CollectSourceRoots(project, profile))
+            include(context.projectDir);
+            for (const auto &rootPath : context.sourceRoots)
             {
                 include(rootPath);
             }
-            include(root / "Dependencies/NGIN/NGIN.Reflection/include");
-            include(root / "Dependencies/NGIN/NGIN.Base/include");
-            include(root / "Packages/NGIN.Core/include");
-            include(root / "Packages/NGIN.Reflection/include");
-            include(root / "Packages/NGIN.Base/include");
+            for (const auto &includeDirectory : context.includeDirectories)
+            {
+                include(includeDirectory);
+            }
+            for (const auto &definition : context.compileDefinitions)
+            {
+                args.push_back(definition.starts_with("-D") ? definition : "-D" + definition);
+            }
+            for (const auto &option : context.compileOptions)
+            {
+                args.push_back(option);
+            }
             return args;
         }
 
-        auto ScanSources(const fs::path &root,
-                         const ProjectManifest &project,
-                         const ProfileDefinition &profile,
-                         ScanContext &context) -> void
+        auto ScanSources(const MetaGenContext &metaGenContext, ScanContext &context) -> void
         {
-            auto clangArgs = BuildClangArguments(root, project, profile);
+            auto clangArgs = BuildClangArguments(metaGenContext);
             std::vector<const char *> rawArgs{};
             rawArgs.reserve(clangArgs.size());
             for (const auto &arg : clangArgs)
@@ -719,13 +591,12 @@ namespace NGIN::CLI
             clang_disposeIndex(index);
         }
 
-        [[nodiscard]] auto EmitGeneratedCpp(const ProjectManifest &project,
-                                            const ProfileDefinition &profile,
+        [[nodiscard]] auto EmitGeneratedCpp(const MetaGenContext &metaGenContext,
                                             const ScanContext &context) -> std::string
         {
             std::ostringstream out{};
-            const auto functionName = "Register_" + MetaGen::SanitizeIdentifier(project.name) + "_" +
-                                      MetaGen::SanitizeIdentifier(profile.name) + "_Reflection";
+            const auto functionName = "Register_" + SanitizeIdentifier(metaGenContext.projectName) + "_" +
+                                      SanitizeIdentifier(metaGenContext.profileName) + "_Reflection";
 
             out << "// <auto-generated>\n";
             out << "// Generated by NGIN MetaGen. Do not edit by hand.\n";
@@ -733,7 +604,7 @@ namespace NGIN::CLI
             out << "#include <NGIN/Reflection/Reflection.hpp>\n\n";
             for (const auto &source : context.includeFiles)
             {
-                out << "#include \"" << MetaGen::EscapeCppString(source.string()) << "\"\n";
+                out << "#include \"" << EscapeCppString(source.string()) << "\"\n";
             }
             out << "\n";
 
@@ -746,12 +617,12 @@ namespace NGIN::CLI
                 out << "  {\n";
                 out << "    static void Do(TypeBuilder<" << type.cppName << "> &type)\n";
                 out << "    {\n";
-                out << "      type.SetName(\"" << MetaGen::EscapeCppString(type.reflectionName) << "\");\n";
+                out << "      type.SetName(\"" << EscapeCppString(type.reflectionName) << "\");\n";
                 if (type.kind == "enum")
                 {
                     for (const auto &value : type.enumValues)
                     {
-                        out << "      type.EnumValue(\"" << MetaGen::EscapeCppString(value.reflectionName) << "\", "
+                        out << "      type.EnumValue(\"" << EscapeCppString(value.reflectionName) << "\", "
                             << type.cppName << "::" << value.cppName << ");\n";
                     }
                 }
@@ -764,7 +635,7 @@ namespace NGIN::CLI
                     for (const auto &field : type.fields)
                     {
                         out << "      type.Field<&" << type.cppName << "::" << field.cppName << ">(\""
-                            << MetaGen::EscapeCppString(field.reflectionName) << "\");\n";
+                            << EscapeCppString(field.reflectionName) << "\");\n";
                     }
                     for (const auto &property : type.properties)
                     {
@@ -773,12 +644,12 @@ namespace NGIN::CLI
                         {
                             out << ", &" << type.cppName << "::" << property.setterName;
                         }
-                        out << ">(\"" << MetaGen::EscapeCppString(property.reflectionName) << "\");\n";
+                        out << ">(\"" << EscapeCppString(property.reflectionName) << "\");\n";
                     }
                     for (const auto &method : type.methods)
                     {
                         out << "      type.Method<&" << type.cppName << "::" << method.cppName << ">(\""
-                            << MetaGen::EscapeCppString(method.reflectionName) << "\");\n";
+                            << EscapeCppString(method.reflectionName) << "\");\n";
                     }
                     for (const auto &constructor : type.constructors)
                     {
@@ -804,7 +675,7 @@ namespace NGIN::CLI
             out << "  bool RegisterGeneratedReflectionModule()\n";
             out << "  {\n";
             out << "    return NGIN::Reflection::EnsureModuleInitialized(\n";
-            out << "      \"" << MetaGen::EscapeCppString(project.name) << ".Reflection\",\n";
+            out << "      \"" << EscapeCppString(metaGenContext.projectName) << ".Reflection\",\n";
             out << "      [](NGIN::Reflection::ModuleRegistration &module)\n";
             out << "      {\n";
             for (const auto &type : context.types)
@@ -825,31 +696,33 @@ namespace NGIN::CLI
         }
     } // namespace
 
-    auto GenerateMetaData(const fs::path &root,
-                          const ProjectManifest &project,
-                          const ProfileDefinition &profile,
-                          const fs::path &outputFile) -> MetaGenResult
+    auto GenerateMetaData(const MetaGenContext &metaGenContext) -> MetaGenResult
     {
-        (void)root;
         MetaGenResult result{};
         ScanContext context{};
-        context.sourceFiles = CollectSourceFiles(project, profile);
-        context.sourceRoots = CollectSourceRoots(project, profile);
+        context.sourceFiles = metaGenContext.sourceFiles;
+        context.sourceRoots = metaGenContext.sourceRoots;
         if (context.sourceFiles.empty())
         {
-            result.diagnostics.push_back("project '" + project.name + "' has no C++ source files to scan");
+            result.diagnostics.push_back("project '" + metaGenContext.projectName + "' has no C++ source files to scan");
+            return result;
+        }
+        if (metaGenContext.outputs.empty())
+        {
+            result.diagnostics.push_back("generator context declares no generated source outputs");
             return result;
         }
 
-        ScanSources(root, project, profile, context);
+        ScanSources(metaGenContext, context);
         if (!context.diagnostics.empty())
         {
             result.diagnostics = std::move(context.diagnostics);
             return result;
         }
 
+        const auto outputFile = metaGenContext.outputs.front();
         fs::create_directories(outputFile.parent_path());
-        const auto generated = EmitGeneratedCpp(project, profile, context);
+        const auto generated = EmitGeneratedCpp(metaGenContext, context);
         std::ofstream out(outputFile);
         if (!out)
         {
@@ -862,29 +735,4 @@ namespace NGIN::CLI
         result.reflectedTypeCount = context.types.size();
         return result;
     }
-
-    auto RunMetaGen(const fs::path &root,
-                    const ProjectManifest &project,
-                    const ProfileDefinition &profile,
-                    const std::optional<std::string> &outputPath) -> int
-    {
-        const auto outputDir =
-            outputPath.has_value() ? fs::path(*outputPath) : DefaultOutputDir(project, profile);
-        auto result = GenerateMetaData(root, project, profile, outputDir / (project.name + ".reflection.generated.cpp"));
-        if (!result.available || !result.diagnostics.empty())
-        {
-            for (const auto &diagnostic : result.diagnostics)
-            {
-                std::cerr << "error: " << diagnostic << "\n";
-            }
-            return 1;
-        }
-
-        for (const auto &generatedFile : result.generatedFiles)
-        {
-            std::cout << "generated: " << generatedFile.string() << "\n";
-        }
-        std::cout << "reflected types: " << result.reflectedTypeCount << "\n";
-        return 0;
-    }
-} // namespace NGIN::CLI
+} // namespace NGIN::Reflection::MetaGen

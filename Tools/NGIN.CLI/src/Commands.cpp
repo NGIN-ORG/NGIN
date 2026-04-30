@@ -1172,10 +1172,6 @@ namespace NGIN::CLI
         if (generator.declaration.hasInlineTool)
         {
             std::cout << "  inline tool:";
-            if (!generator.declaration.inlineTool.builtIn.empty())
-            {
-                std::cout << " built-in=" << generator.declaration.inlineTool.builtIn;
-            }
             if (!generator.declaration.inlineTool.executable.empty())
             {
                 std::cout << " executable=" << generator.declaration.inlineTool.executable;

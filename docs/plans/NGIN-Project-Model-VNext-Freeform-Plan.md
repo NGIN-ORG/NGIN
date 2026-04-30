@@ -1,6 +1,6 @@
 # NGIN Project Model VNext Freeform Plan
 
-Status: V3 Foundation, Phase A Model Factoring, And Phase B Unified Inputs Implemented; Strategic Backlog Remains
+Status: V3 Foundation And Phases A-E Implemented; Strategic Backlog Remains
 
 ## Implementation Progress
 
@@ -55,6 +55,16 @@ Implemented so far:
   - launch metadata emission using normalized `<Input>` entries
   - old authored generic `Input`/`InputSet`, `Form`, `SourceRoots`,
     `Inputs/Config`, and top-level `Contents` rejected by active parsers
+- Phase C selection and conditions implemented across active declarations,
+  including built-in/authored conditions and `ngin explain condition`.
+- Phase D package extension model implemented with explicit package features,
+  capability metadata, dependency policy, local lock generation/verification,
+  and package-feature explanation.
+- Phase E generator-first build extensions implemented with command generators,
+  package tools, generator context files, generated output validation, and
+  `ngin explain generator`.
+- MetaGen separated from `NGIN.CLI` into the package-provided
+  `NGIN.Reflection.MetaGen` tool product.
 - Active project, CLI, launch-manifest, and authoring docs moved toward V3.
 - Verification completed against workspace tests, NGIN.Core tests, VS Code unit
   tests, NGIN.Core BasicHost example build, repository stale-vocabulary scans,
@@ -724,20 +734,15 @@ This keeps incremental behavior and graph inspection possible.
 
 ### Code Generation Contributions
 
-Generalize MetaGen as one generator in a larger generator model.
+Generalize code generation around package-provided command generators. MetaGen
+is no longer a CLI built-in; it is provided by `NGIN.Reflection.MetaGen`.
 
 ```xml
-<Generators>
-  <Generator Name="ReflectionMetaGen"
-             Kind="MetaGen"
-             Package="NGIN.Reflection"
-             Tool="MetaGen">
-    <Outputs>
-      <Generated Role="Source"
-                 Path="$(GeneratedDir)/reflection/$(ProjectName).reflection.generated.cpp" />
-    </Outputs>
-  </Generator>
-</Generators>
+<Features>
+  <Use Package="NGIN.Reflection.MetaGen"
+       Feature="ReflectionCodegen"
+       VersionRange=">=0.1.0 &lt;0.2.0" />
+</Features>
 ```
 
 Packages should be able to contribute generators:
@@ -1302,8 +1307,8 @@ general script engine.
 
 - Implemented project/profile/environment/package-feature `<Generators>`.
 - Implemented package `<Tools>`.
-- Converted MetaGen from a special-case `<Build><MetaGen />` feature into a
-  generator contribution.
+- Converted MetaGen from a CLI-linked `<Build><MetaGen />` feature into the
+  package-provided `NGIN.Reflection.MetaGen` command generator.
 - Removed the public `ngin metagen` command.
 - Added structured `Kind="Command"` generators with executable/argument
   declarations and explicit outputs.

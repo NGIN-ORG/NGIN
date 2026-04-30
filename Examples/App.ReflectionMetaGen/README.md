@@ -2,8 +2,9 @@
 
 `App.ReflectionMetaGen` is a focused example for generator-backed reflection
 metadata. It uses NGIN annotation macros in normal C++ headers and declares a
-MetaGen generator in the project manifest. `ngin build` generates and compiles
-the reflection metadata automatically.
+feature use for the `NGIN.Reflection.MetaGen` package. `ngin build` runs the
+package-provided `ngin-metagen` tool, then compiles the generated reflection
+metadata.
 
 ## Build And Run The App
 
@@ -12,6 +13,7 @@ From the repository root:
 ```bash
 cmake --preset dev
 cmake --build build/dev --target ngin_cli
+cmake --build build/dev --target ngin_reflection_metagen
 
 ./build/dev/Tools/NGIN.CLI/ngin build \
   --project Examples/App.ReflectionMetaGen/App.ReflectionMetaGen.nginproj \

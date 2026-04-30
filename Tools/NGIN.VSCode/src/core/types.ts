@@ -100,7 +100,6 @@ export interface PackageFeature extends SelectorFields {
 export interface ToolDeclaration extends SelectorFields {
   name?: string;
   kind?: string;
-  builtIn?: string;
   executable?: string;
 }
 

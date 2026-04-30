@@ -77,7 +77,6 @@ target_compile_definitions(NGINCliTests PRIVATE NGIN_CLI_TEST_REPO_ROOT="${CMAKE
 target_link_libraries(NGINCliTests PRIVATE
   Catch2::Catch2WithMain
   ngin_cli_commands
-  ngin_cli_metagen
   ngin_cli_build
   ngin_cli_resolution
   ngin_cli_authoring

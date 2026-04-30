@@ -1405,7 +1405,6 @@ namespace NGIN::Core
         tool.name = Attribute(element, "Name").value_or("");
       }
       tool.kind = Attribute(element, "Kind").value_or("Generator");
-      tool.builtIn = Attribute(element, "BuiltIn").value_or("");
       tool.executable = Attribute(element, "Executable").value_or("");
       tool.profile = Attribute(element, "Profile").value_or("");
       tool.platform = Attribute(element, "Platform").value_or("");
@@ -1414,6 +1413,12 @@ namespace NGIN::Core
       tool.buildType = Attribute(element, "BuildType").value_or("");
       tool.environment = Attribute(element, "Environment").value_or("");
       tool.condition = Attribute(element, "Condition").value_or("");
+      if (Attribute(element, "BuiltIn").has_value())
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+            std::string(context) + " no longer supports BuiltIn tools",
+            tool.name, KernelErrorCode::SchemaValidationFailure));
+      }
 
       if (tool.kind != "Generator")
       {
@@ -1421,16 +1426,10 @@ namespace NGIN::Core
             std::string(context) + " uses unsupported tool kind",
             tool.kind, KernelErrorCode::SchemaValidationFailure));
       }
-      if (tool.builtIn.empty() && tool.executable.empty())
+      if (tool.executable.empty())
       {
         return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-            std::string(context) + " must declare BuiltIn or Executable",
-            tool.name, KernelErrorCode::SchemaValidationFailure));
-      }
-      if (!tool.builtIn.empty() && !tool.executable.empty())
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-            std::string(context) + " may not declare both BuiltIn and Executable",
+            std::string(context) + " must declare Executable",
             tool.name, KernelErrorCode::SchemaValidationFailure));
       }
       return tool;
@@ -1515,7 +1514,7 @@ namespace NGIN::Core
               std::string(context) + " has duplicate generator",
               generator.name, KernelErrorCode::AlreadyExists));
         }
-        if (generator.kind != "MetaGen" && generator.kind != "Command")
+        if (generator.kind != "Command")
         {
           return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
               std::string(context) + " uses unsupported generator kind",
@@ -1538,10 +1537,6 @@ namespace NGIN::Core
           return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
               std::string(context) + " command generator must declare Tool or inline <Tool>",
               generator.name, KernelErrorCode::SchemaValidationFailure));
-        }
-        if (generator.kind == "MetaGen" && generator.toolName.empty())
-        {
-          generator.toolName = "MetaGen";
         }
         if (const auto *argumentsElement = FindChild(*generatorElement, "Arguments"))
         {
@@ -1679,7 +1674,7 @@ namespace NGIN::Core
       if (FindChild(*buildElement, "MetaGen") != nullptr)
       {
         return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-            std::string(context) + ".MetaGen is no longer supported; use <Generators><Generator Kind=\"MetaGen\">",
+            std::string(context) + ".MetaGen is no longer supported; use package-provided command generators",
             {}, KernelErrorCode::SchemaValidationFailure));
       }
 

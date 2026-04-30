@@ -1,9 +1,11 @@
 # NGIN.MetaGen Implementation Plan
 
-> Superseded by Phase E of the V3 project model: MetaGen is now invoked through
-> `<Generators><Generator Kind="MetaGen">` during `ngin configure`/`ngin build`.
-> The standalone public `ngin metagen` command and `<Build><MetaGen />` opt-in
-> described below are obsolete historical notes.
+> Superseded by Phase E of the V3 project model and the
+> `NGIN.Reflection.MetaGen` package split: MetaGen is now a package-provided
+> `ngin-metagen` command generator invoked through
+> `NGIN.Reflection.MetaGen::ReflectionCodegen`. The standalone public
+> `ngin metagen` command, CLI-linked MetaGen backend, and `<Build><MetaGen />`
+> opt-in described below are obsolete historical notes.
 
 ## Summary
 

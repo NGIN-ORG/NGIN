@@ -2,7 +2,6 @@
 
 #include "Authoring.hpp"
 #include "Diagnostics.hpp"
-#include "MetaGen.hpp"
 #include "Resolution.hpp"
 #include "Support.hpp"
 
@@ -18,6 +17,7 @@
 #endif
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cstdlib>
 #include <cstdint>
@@ -869,13 +869,18 @@ namespace NGIN::CLI
             std::string value,
             const ResolvedLaunch &resolved,
             const fs::path &outputDir,
-            const fs::path &projectDir) -> std::string
+            const fs::path &projectDir,
+            const fs::path &generatorContextPath = {}) -> std::string
         {
             value = ReplaceAll(value, "$(ProjectDir)", projectDir.string());
             value = ReplaceAll(value, "$(ProjectName)", resolved.project.name);
             value = ReplaceAll(value, "$(ProfileName)", resolved.profile.name);
             value = ReplaceAll(value, "$(GeneratedDir)", ResolveGeneratedDir(resolved, outputDir).string());
             value = ReplaceAll(value, "$(OutputDir)", outputDir.string());
+            if (!generatorContextPath.empty())
+            {
+                value = ReplaceAll(value, "$(GeneratorContext)", generatorContextPath.string());
+            }
             return value;
         }
 
@@ -884,14 +889,23 @@ namespace NGIN::CLI
             const ResolvedLaunch &resolved,
             const ResolvedGenerator &generator,
             const fs::path &outputDir,
-            const fs::path &baseDir) -> fs::path
+            const fs::path &baseDir,
+            const fs::path &generatorContextPath = {}) -> fs::path
         {
-            fs::path path{ExpandGeneratorMacros(value, resolved, outputDir, generator.ownerDirectory)};
+            fs::path path{ExpandGeneratorMacros(value, resolved, outputDir, generator.ownerDirectory, generatorContextPath)};
             if (path.is_relative())
             {
                 path = baseDir / path;
             }
             return path.lexically_normal();
+        }
+
+        [[nodiscard]] auto GeneratorContextPath(const ResolvedLaunch &resolved,
+                                                const ResolvedGenerator &generator,
+                                                const fs::path &outputDir) -> fs::path
+        {
+            return outputDir / ".ngin" / "generator-context" / resolved.project.name / resolved.profile.name /
+                   (SanitizeIdentifier(generator.declaration.name) + ".ngingen.xml");
         }
 
         [[nodiscard]] auto SelectedGeneratorOutputs(
@@ -1026,10 +1040,6 @@ namespace NGIN::CLI
                     AddError(report, "generator '" + generator.declaration.name + "' inline tool is not selected for profile '" + resolved.profile.name + "'");
                     return std::nullopt;
                 }
-                if (!tool.builtIn.empty())
-                {
-                    return ToolResolution{.path = tool.builtIn, .source = "built-in"};
-                }
                 return ToolResolution{
                     .path = ResolveGeneratorPath(tool.executable, resolved, generator, outputDir, generator.ownerDirectory),
                     .source = "inline",
@@ -1046,15 +1056,30 @@ namespace NGIN::CLI
             {
                 return std::nullopt;
             }
-            if (!tool->builtIn.empty())
-            {
-                return ToolResolution{.path = tool->builtIn, .source = "package"};
-            }
             fs::path base = generator.providerRoot.empty() ? generator.packageDirectory : generator.providerRoot;
-            return ToolResolution{
+            auto resolvedTool = ToolResolution{
                 .path = ResolveGeneratorPath(tool->executable, resolved, generator, outputDir, base),
                 .source = "package",
             };
+            if (!fs::exists(resolvedTool.path) && tool->executable == "bin/ngin-metagen")
+            {
+                const auto packageName = generator.declaration.packageName.empty() ? generator.packageName : generator.declaration.packageName;
+                const auto workspaceBuildTool =
+                    ResolveBuildRoot(resolved) / "build" / "dev" / "Packages" / packageName / "ngin-metagen";
+                if (fs::exists(workspaceBuildTool))
+                {
+                    resolvedTool.path = workspaceBuildTool;
+                    resolvedTool.source = "workspace-build";
+                }
+#if defined(_WIN32)
+                else if (fs::exists(workspaceBuildTool.string() + ".exe"))
+                {
+                    resolvedTool.path = workspaceBuildTool.string() + ".exe";
+                    resolvedTool.source = "workspace-build";
+                }
+#endif
+            }
+            return resolvedTool;
         }
 
         auto ValidateGeneratorInputs(
@@ -1075,6 +1100,204 @@ namespace NGIN::CLI
                     AddError(report, "generator '" + generator.declaration.name + "' input '" + input.path + "' does not exist");
                 }
             }
+        }
+
+        auto WriteGeneratorContext(const ResolvedLaunch &resolved,
+                                   const ResolvedGenerator &generator,
+                                   const ResolvedProjectUnit &unit,
+                                   const std::vector<InputDeclaration> &outputs,
+                                   const std::vector<fs::path> &absoluteOutputs,
+                                   const fs::path &outputDir,
+                                   const fs::path &contextPath,
+                                   DiagnosticReport &report) -> void
+        {
+            fs::create_directories(contextPath.parent_path());
+            std::ofstream out(contextPath);
+            if (!out)
+            {
+                AddError(report, "generator '" + generator.declaration.name + "' failed to write context file '" + contextPath.string() + "'");
+                return;
+            }
+
+            auto sources = CollectGeneratedProjectSources(resolved.workspace, unit.project, unit.profile, report);
+            if (report.HasErrors())
+            {
+                return;
+            }
+
+            out << "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n";
+            out << "<GeneratorContext SchemaVersion=\"1\"\n";
+            out << "                  Generator=\"" << EscapeXml(generator.declaration.name) << "\"\n";
+            out << "                  Project=\"" << EscapeXml(unit.project.name) << "\"\n";
+            out << "                  Profile=\"" << EscapeXml(unit.profile.name) << "\"\n";
+            out << "                  Platform=\"" << EscapeXml(unit.profile.platform) << "\"\n";
+            out << "                  BuildType=\"" << EscapeXml(unit.profile.buildType) << "\"\n";
+            out << "                  OperatingSystem=\"" << EscapeXml(unit.profile.operatingSystem) << "\"\n";
+            out << "                  Architecture=\"" << EscapeXml(unit.profile.architecture) << "\"\n";
+            out << "                  Environment=\"" << EscapeXml(unit.profile.environmentName) << "\"\n";
+            out << "                  ProjectDir=\"" << EscapeXml(unit.project.path.parent_path().string()) << "\"\n";
+            out << "                  OutputDir=\"" << EscapeXml(outputDir.string()) << "\"\n";
+            out << "                  GeneratedDir=\"" << EscapeXml(ResolveGeneratedDir(resolved, outputDir).string()) << "\"\n";
+            out << "                  LanguageStandard=\"" << EscapeXml(unit.project.build.languageStandard.empty() ? std::string{"23"} : unit.project.build.languageStandard) << "\">\n";
+
+            out << "  <Sources>\n";
+            for (const auto &source : sources)
+            {
+                out << "    <File Path=\"" << EscapeXml(source.string()) << "\"";
+                if (IsHeaderSourceExtension(source))
+                {
+                    out << " Role=\"Header\"";
+                }
+                else
+                {
+                    out << " Role=\"Source\"";
+                }
+                out << " />\n";
+            }
+            out << "  </Sources>\n";
+
+            out << "  <IncludeDirectories>\n";
+            out << "    <IncludeDirectory Path=\"" << EscapeXml(unit.project.path.parent_path().string()) << "\" />\n";
+            for (const auto &sourceRoot : SelectedBuildInputRoots(unit.project, unit.profile))
+            {
+                const auto includeDir = ResolveProjectPathValue(sourceRoot.path, unit.project, resolved.workspace);
+                out << "    <IncludeDirectory Path=\"" << EscapeXml(includeDir.string())
+                    << "\" Visibility=\"" << EscapeXml(sourceRoot.visibility) << "\" />\n";
+            }
+            for (const auto &setting : unit.project.build.includeDirectories)
+            {
+                if (!SelectionMatches(unit.project, setting.selectors, unit.profile))
+                {
+                    continue;
+                }
+                const auto includeDir = ResolveProjectPathValue(setting.value, unit.project, resolved.workspace);
+                out << "    <IncludeDirectory Path=\"" << EscapeXml(includeDir.string())
+                    << "\" Visibility=\"" << EscapeXml(setting.visibility) << "\" />\n";
+            }
+            std::set<fs::path> packageIncludeDirs{};
+            const auto workspaceRoot = ResolveBuildRoot(resolved);
+            for (const auto &package : resolved.orderedPackages)
+            {
+                const std::array candidates{
+                    package.sourceDirectory / "include",
+                    package.manifest.path.parent_path() / "include",
+                    workspaceRoot / "Dependencies" / "NGIN" / package.manifest.name / "include",
+                    workspaceRoot / "Packages" / package.manifest.name / "include",
+                };
+                for (const auto &candidate : candidates)
+                {
+                    std::error_code error;
+                    if (fs::exists(candidate, error) && fs::is_directory(candidate, error))
+                    {
+                        packageIncludeDirs.insert(candidate.lexically_normal());
+                    }
+                }
+            }
+            for (const auto &includeDir : packageIncludeDirs)
+            {
+                out << "    <IncludeDirectory Path=\"" << EscapeXml(includeDir.string())
+                    << "\" Visibility=\"Public\" Source=\"package\" />\n";
+            }
+            for (const auto &feature : resolved.selectedPackageFeatures)
+            {
+                const auto packageIt = std::find_if(
+                    resolved.orderedPackages.begin(), resolved.orderedPackages.end(),
+                    [&](const ResolvedPackage &package)
+                    {
+                        return package.manifest.name == feature.packageName;
+                    });
+                if (packageIt == resolved.orderedPackages.end())
+                {
+                    continue;
+                }
+                for (const auto &setting : feature.build.includeDirectories)
+                {
+                    if (!SelectionMatches(packageIt->manifest.conditions, setting.selectors, unit.profile))
+                    {
+                        continue;
+                    }
+                    const auto includeDir = ResolvePackagePathValue(setting.value, feature.manifestPath);
+                    out << "    <IncludeDirectory Path=\"" << EscapeXml(includeDir.string())
+                        << "\" Visibility=\"" << EscapeXml(setting.visibility)
+                        << "\" Package=\"" << EscapeXml(feature.packageName) << "\" />\n";
+                }
+            }
+            out << "  </IncludeDirectories>\n";
+
+            out << "  <CompileDefinitions>\n";
+            for (const auto &setting : unit.project.build.compileDefinitions)
+            {
+                if (SelectionMatches(unit.project, setting.selectors, unit.profile))
+                {
+                    out << "    <Definition Value=\"" << EscapeXml(ExpandProjectVariables(setting.value, unit.project, resolved.workspace))
+                        << "\" Visibility=\"" << EscapeXml(setting.visibility) << "\" />\n";
+                }
+            }
+            for (const auto &feature : resolved.selectedPackageFeatures)
+            {
+                const auto packageIt = std::find_if(
+                    resolved.orderedPackages.begin(), resolved.orderedPackages.end(),
+                    [&](const ResolvedPackage &package)
+                    {
+                        return package.manifest.name == feature.packageName;
+                    });
+                if (packageIt == resolved.orderedPackages.end())
+                {
+                    continue;
+                }
+                for (const auto &setting : feature.build.compileDefinitions)
+                {
+                    if (SelectionMatches(packageIt->manifest.conditions, setting.selectors, unit.profile))
+                    {
+                        out << "    <Definition Value=\"" << EscapeXml(setting.value)
+                            << "\" Visibility=\"" << EscapeXml(setting.visibility)
+                            << "\" Package=\"" << EscapeXml(feature.packageName) << "\" />\n";
+                    }
+                }
+            }
+            out << "  </CompileDefinitions>\n";
+
+            out << "  <CompileOptions>\n";
+            for (const auto &setting : unit.project.build.compileOptions)
+            {
+                if (SelectionMatches(unit.project, setting.selectors, unit.profile))
+                {
+                    out << "    <Option Value=\"" << EscapeXml(ExpandProjectVariables(setting.value, unit.project, resolved.workspace))
+                        << "\" Visibility=\"" << EscapeXml(setting.visibility) << "\" />\n";
+                }
+            }
+            for (const auto &feature : resolved.selectedPackageFeatures)
+            {
+                const auto packageIt = std::find_if(
+                    resolved.orderedPackages.begin(), resolved.orderedPackages.end(),
+                    [&](const ResolvedPackage &package)
+                    {
+                        return package.manifest.name == feature.packageName;
+                    });
+                if (packageIt == resolved.orderedPackages.end())
+                {
+                    continue;
+                }
+                for (const auto &setting : feature.build.compileOptions)
+                {
+                    if (SelectionMatches(packageIt->manifest.conditions, setting.selectors, unit.profile))
+                    {
+                        out << "    <Option Value=\"" << EscapeXml(setting.value)
+                            << "\" Visibility=\"" << EscapeXml(setting.visibility)
+                            << "\" Package=\"" << EscapeXml(feature.packageName) << "\" />\n";
+                    }
+                }
+            }
+            out << "  </CompileOptions>\n";
+
+            out << "  <Outputs>\n";
+            for (std::size_t index = 0; index < outputs.size(); ++index)
+            {
+                out << "    <Generated Role=\"" << EscapeXml(outputs[index].role)
+                    << "\" Path=\"" << EscapeXml(absoluteOutputs[index].string()) << "\" />\n";
+            }
+            out << "  </Outputs>\n";
+            out << "</GeneratorContext>\n";
         }
 
         auto ExecuteGenerators(ResolvedLaunch &resolved, const fs::path &outputDir, DiagnosticReport &report) -> void
@@ -1101,7 +1324,7 @@ namespace NGIN::CLI
                     absoluteOutputs.push_back(ResolveGeneratorPath(output.path, resolved, generator, outputDir, generatedDir));
                 }
 
-                if (generator.declaration.kind == "MetaGen")
+                if (generator.declaration.kind == "Command")
                 {
                     const auto *unit = FindProjectUnitForGenerator(resolved, generator);
                     if (unit == nullptr)
@@ -1109,19 +1332,12 @@ namespace NGIN::CLI
                         AddError(report, "generator '" + generator.declaration.name + "' could not resolve owning project");
                         continue;
                     }
-                    const auto result = GenerateMetaData(ResolveBuildRoot(resolved), unit->project, unit->profile, absoluteOutputs.front());
-                    if (!result.available)
+                    const auto contextPath = GeneratorContextPath(resolved, generator, outputDir);
+                    WriteGeneratorContext(resolved, generator, *unit, outputs, absoluteOutputs, outputDir, contextPath, report);
+                    if (report.HasErrors())
                     {
-                        AddError(report, "generator '" + generator.declaration.name + "' requires MetaGen, but this ngin CLI was built without Clang support. Install LLVM/Clang development packages and configure with NGIN_CLI_ENABLE_METAGEN=ON.");
                         continue;
                     }
-                    for (const auto &diagnostic : result.diagnostics)
-                    {
-                        AddError(report, "generator '" + generator.declaration.name + "': " + diagnostic);
-                    }
-                }
-                else if (generator.declaration.kind == "Command")
-                {
                     if (!fs::exists(tool->path))
                     {
                         AddError(report, "generator '" + generator.declaration.name + "' executable '" + tool->path.string() + "' does not exist");
@@ -1136,11 +1352,11 @@ namespace NGIN::CLI
                         }
                         if (!argument.value.empty())
                         {
-                            arguments.push_back(ExpandGeneratorMacros(argument.value, resolved, outputDir, generator.ownerDirectory));
+                            arguments.push_back(ExpandGeneratorMacros(argument.value, resolved, outputDir, generator.ownerDirectory, contextPath));
                         }
                         else
                         {
-                            arguments.push_back(ResolveGeneratorPath(argument.path, resolved, generator, outputDir, generator.ownerDirectory).string());
+                            arguments.push_back(ResolveGeneratorPath(argument.path, resolved, generator, outputDir, generator.ownerDirectory, contextPath).string());
                         }
                     }
                     if (RunProcess(tool->path, arguments, generator.ownerDirectory) != 0)
@@ -1613,6 +1829,44 @@ namespace NGIN::CLI
                     for (const auto &reference : unit.profile.packageRefs)
                     {
                         addPackageRef(reference);
+                    }
+                    for (const auto &feature : resolved.selectedPackageFeatures)
+                    {
+                        const auto addResolvedPackageRef = [&](PackageReference reference)
+                        {
+                            if (reference.name.empty())
+                            {
+                                return;
+                            }
+                            if (const auto it = indexByName.find(reference.name); it != indexByName.end())
+                            {
+                                packageRefs[it->second] = std::move(reference);
+                            }
+                            else
+                            {
+                                indexByName[reference.name] = packageRefs.size();
+                                packageRefs.push_back(std::move(reference));
+                            }
+                        };
+                        addResolvedPackageRef(PackageReference{.name = feature.packageName});
+                        const auto packageIt = std::find_if(
+                            resolved.orderedPackages.begin(),
+                            resolved.orderedPackages.end(),
+                            [&](const ResolvedPackage &package)
+                            {
+                                return package.manifest.name == feature.packageName;
+                            });
+                        if (packageIt == resolved.orderedPackages.end())
+                        {
+                            continue;
+                        }
+                        for (const auto &reference : feature.packageRefs)
+                        {
+                            if (SelectionMatches(packageIt->manifest.conditions, reference.selectors, unit.profile))
+                            {
+                                addResolvedPackageRef(reference);
+                            }
+                        }
                     }
                 }
                 for (const auto &packageRef : packageRefs)

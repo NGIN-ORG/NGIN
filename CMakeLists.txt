@@ -25,6 +25,7 @@ add_custom_target(ngin.workspace
 include(CTest)
 
 add_subdirectory(Tools)
+add_subdirectory(Packages/NGIN.Reflection.MetaGen EXCLUDE_FROM_ALL)
 
 set(NGIN_WORKSPACE_MANIFEST_PATH "${CMAKE_CURRENT_SOURCE_DIR}/NGIN.ngin")
 set(NGIN_WORKSPACE_STAGE_DIR "${CMAKE_BINARY_DIR}/stage")

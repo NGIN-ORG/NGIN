@@ -1971,10 +1971,12 @@ namespace NGIN::CLI
             collectInputs(feature.inputs, "package-feature", feature.packageName + "::" + feature.featureName,
                           packageIt->second->path.parent_path(), packageIt->second->path,
                           &packageIt->second->conditions, &resolved.profile);
+            const auto featureOwnerDirectory =
+                feature.providerRoot.empty() ? packageIt->second->path.parent_path() : feature.providerRoot;
             collectGenerators(feature.generators,
                               "package-feature",
                               feature.packageName + "::" + feature.featureName,
-                              packageIt->second->path.parent_path(),
+                              featureOwnerDirectory,
                               packageIt->second->path,
                               packageIt->second->conditions,
                               feature.packageName,

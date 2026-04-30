@@ -260,7 +260,8 @@ Generator-backed source production is declared separately under `Generators`.
 </Build>
 ```
 
-Authored `<Build><MetaGen /></Build>` is removed. Use `Generators` instead.
+Authored `<Build><MetaGen /></Build>` is removed. Use package-provided command
+generators instead.
 
 ## Generators
 
@@ -270,26 +271,19 @@ generated CMake emission, validate declared outputs, and feed generated outputs
 back into the typed input pipeline.
 
 ```xml
-<Generators>
-  <Generator Name="ReflectionMetaGen"
-             Kind="MetaGen"
-             Package="NGIN.Reflection"
-             Tool="MetaGen">
-    <Outputs>
-      <Generated Role="Source"
-                 Path="$(GeneratedDir)/reflection/$(ProjectName).reflection.generated.cpp" />
-    </Outputs>
-  </Generator>
-</Generators>
+<Features>
+  <Use Package="NGIN.Reflection.MetaGen"
+       Feature="ReflectionCodegen"
+       VersionRange=">=0.1.0 &lt;0.2.0" />
+</Features>
 ```
 
 Phase E supports:
 
-- `Kind="MetaGen"` for the built-in reflection metadata backend
 - `Kind="Command"` for structured executable/argument generators
 - output roles `Source`, `Header`, `Content`, `Asset`, and `ToolInput`
 - path macros `$(ProjectDir)`, `$(ProjectName)`, `$(ProfileName)`,
-  `$(GeneratedDir)`, and `$(OutputDir)`
+  `$(GeneratedDir)`, `$(OutputDir)`, and `$(GeneratorContext)`
 
 Command generators do not use a shell. Arguments are passed exactly in authored
 order after macro expansion:
@@ -317,8 +311,10 @@ order after macro expansion:
 ```
 
 MetaGen scans selected source/header inputs and writes the declared generated
-source output. Reflected types must be declared in includable headers, not
-compiled source files.
+source output through the `NGIN.Reflection.MetaGen` package tool. The CLI writes
+`$(GeneratorContext)` before executing the tool; MetaGen reads that context
+instead of resolving project manifests itself. Reflected types must be declared
+in includable headers, not compiled source files.
 
 MetaGen property methods use `NGIN_PROPERTY(...)` on public member functions.
 A getter has zero parameters and a non-void return. A setter has one parameter

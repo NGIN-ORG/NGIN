@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Package SchemaVersion="3"
+         Name="NGIN.Reflection.MetaGen"
+         Version="0.1.0"
+         CompatiblePlatformRange=">=0.1.0-alpha.1 &lt;0.2.0">
+  <Build Backend="CMake" Mode="AddSubdirectory" />
+  <Tools>
+    <Tool Name="MetaGen"
+          Kind="Generator"
+          Executable="bin/ngin-metagen" />
+  </Tools>
+  <Features>
+    <Feature Name="ReflectionCodegen" Description="Generate NGIN.Reflection metadata from annotated C++ headers.">
+      <Dependencies>
+        <PackageRef Name="NGIN.Reflection" VersionRange=">=0.1.0 &lt;0.2.0" />
+      </Dependencies>
+      <Generators>
+        <Generator Name="ReflectionMetaGen" Kind="Command" Tool="MetaGen">
+          <Arguments>
+            <Arg Value="--context" />
+            <Arg Path="$(GeneratorContext)" />
+          </Arguments>
+          <Outputs>
+            <Generated Role="Source"
+                       Path="$(GeneratedDir)/reflection/$(ProjectName).reflection.generated.cpp" />
+          </Outputs>
+        </Generator>
+      </Generators>
+    </Feature>
+  </Features>
+  <Compatibility>
+    <OperatingSystems>
+      <OperatingSystem Name="linux" />
+      <OperatingSystem Name="windows" />
+      <OperatingSystem Name="macos" />
+    </OperatingSystems>
+  </Compatibility>
+  <Dependencies>
+    <PackageRef Name="NGIN.Reflection" VersionRange=">=0.1.0 &lt;0.2.0" Optional="false" />
+  </Dependencies>
+  <Modules />
+  <Plugins />
+</Package>

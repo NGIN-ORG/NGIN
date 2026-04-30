@@ -15,11 +15,6 @@
       <Option Name="NGIN_REFLECTION_BUILD_BENCHMARKS" Value="OFF" />
     </Options>
   </Build>
-  <Tools>
-    <Tool Name="MetaGen"
-          Kind="Generator"
-          BuiltIn="MetaGen" />
-  </Tools>
   <Compatibility>
     <OperatingSystems>
       <OperatingSystem Name="linux" />

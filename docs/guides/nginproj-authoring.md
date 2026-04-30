@@ -238,21 +238,15 @@ Use `Generators` when project source or staged data is produced before backend
 CMake generation. Generator outputs are explicit and become typed generated
 inputs.
 
-MetaGen is now a generator, not a `<Build>` child or standalone `ngin metagen`
-command:
+MetaGen is provided by the `NGIN.Reflection.MetaGen` package, not by the CLI.
+Enable it by opting into the package feature:
 
 ```xml
-<Generators>
-  <Generator Name="ReflectionMetaGen"
-             Kind="MetaGen"
-             Package="NGIN.Reflection"
-             Tool="MetaGen">
-    <Outputs>
-      <Generated Role="Source"
-                 Path="$(GeneratedDir)/reflection/$(ProjectName).reflection.generated.cpp" />
-    </Outputs>
-  </Generator>
-</Generators>
+<Features>
+  <Use Package="NGIN.Reflection.MetaGen"
+       Feature="ReflectionCodegen"
+       VersionRange=">=0.1.0 &lt;0.2.0" />
+</Features>
 ```
 
 Local command generators are structured executable plus argument declarations;

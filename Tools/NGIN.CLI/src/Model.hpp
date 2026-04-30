@@ -255,7 +255,6 @@ namespace NGIN::CLI
     {
         std::string name{};
         std::string kind{"Generator"};
-        std::string builtIn{};
         std::string executable{};
         SelectorSet selectors{};
     };

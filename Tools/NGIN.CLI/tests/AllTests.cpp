@@ -2,8 +2,6 @@
 #include "Build.hpp"
 #include "Commands.hpp"
 #include "Diagnostics.hpp"
-#include "MetaGen.hpp"
-#include "MetaGenCommon.hpp"
 #include "Resolution.hpp"
 
 #include <catch2/catch_test_macros.hpp>
@@ -176,31 +174,6 @@ namespace
         return count;
     }
 
-    auto WriteMetaGenFixture(TempDir &temp, const std::string &header) -> fs::path
-    {
-        const auto projectPath = temp.path() / "App/App.nginproj";
-        WriteFile(projectPath,
-                  R"(<?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="3" Name="Meta.Property.App" Type="Application" DefaultProfile="Runtime">
-  <Inputs>
-    <Sources Path="src" />
-  </Inputs>
-  <Output Kind="Executable" Name="Meta.Property.App" Target="MetaPropertyApp" />
-  <Build Backend="CMake" Mode="Generated" Language="CXX" LanguageStandard="23" />
-  <Environments>
-    <Environment Name="dev" />
-  </Environments>
-  <Profiles>
-    <Profile Name="Runtime" BuildType="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev" />
-  </Profiles>
-</Project>
-)");
-        WriteFile(temp.path() / "App/src/Player.hpp", header);
-        WriteFile(temp.path() / "App/src/main.cpp", R"(#include "Player.hpp"
-int main() { return 0; }
-)");
-        return projectPath;
-    }
 } // namespace
 
 TEST_CASE("workspace, project, and package manifests parse through authoring "
@@ -263,109 +236,12 @@ TEST_CASE("workspace, project, and package manifests parse through authoring "
     REQUIRE(catalog.contains("Sample.Package"));
 }
 
-TEST_CASE("metagen annotation parser accepts macro payloads")
-{
-    const auto reflect =
-        NGIN::CLI::MetaGen::ParseAnnotation("ngin.reflect:name = \"Demo::Player\", category = runtime");
-    REQUIRE(reflect.kind == "reflect");
-    REQUIRE(reflect.options.at("name") == "Demo::Player");
-    REQUIRE(reflect.options.at("category") == "runtime");
-
-    const auto ignore = NGIN::CLI::MetaGen::ParseAnnotation("ngin.ignore");
-    REQUIRE(ignore.kind == "ignore");
-    REQUIRE(ignore.options.empty());
-}
-
-TEST_CASE("metagen emits method-backed properties")
-{
-    TempDir temp{};
-    const auto projectPath = WriteMetaGenFixture(temp,
-                                                 R"(#pragma once
-#include <NGIN/MetaGen/Annotations.hpp>
-namespace Demo {
-struct NGIN_REFLECT(name = "Demo::Player") Player {
-    int score{7};
-    int readOnly{3};
-    NGIN_PROPERTY(name = "score")
-    int GetScore() const { return score; }
-    NGIN_PROPERTY(name = "score")
-    void SetScore(int value) { score = value; }
-    NGIN_PROPERTY(name = "read_only")
-    int GetReadOnly() const { return readOnly; }
-};
-}
-)");
-
-    const auto project = LoadProjectManifest(projectPath);
-    const auto result =
-        GenerateMetaData(RepoRoot(), project, project.profiles.front(), temp.path() / "generated/Meta.Property.App.reflection.generated.cpp");
-    if (!result.available)
-    {
-        SKIP("MetaGen was built without Clang support");
-    }
-    REQUIRE(result.diagnostics.empty());
-    REQUIRE(result.generatedFiles.size() == 1);
-
-    const auto generated = ReadFile(result.generatedFiles.front());
-    REQUIRE_THAT(generated,
-                 ContainsSubstring(R"(type.Property<&Demo::Player::GetScore, &Demo::Player::SetScore>("score");)"));
-    REQUIRE_THAT(generated, ContainsSubstring(R"(type.Property<&Demo::Player::GetReadOnly>("read_only");)"));
-}
-
-TEST_CASE("metagen rejects invalid property method signatures")
-{
-    TempDir temp{};
-    const auto projectPath = WriteMetaGenFixture(temp,
-                                                 R"(#pragma once
-#include <NGIN/MetaGen/Annotations.hpp>
-namespace Demo {
-struct NGIN_REFLECT(name = "Demo::Player") Player {
-    NGIN_PROPERTY(name = "score")
-    int SetScore(int value) { return value; }
-};
-}
-)");
-
-    const auto project = LoadProjectManifest(projectPath);
-    const auto result =
-        GenerateMetaData(RepoRoot(), project, project.profiles.front(), temp.path() / "generated/Meta.Property.App.reflection.generated.cpp");
-    if (!result.available)
-    {
-        SKIP("MetaGen was built without Clang support");
-    }
-    REQUIRE(ContainsDiagnostic(result.diagnostics, "must be a getter with no parameters and a non-void return"));
-}
-
-TEST_CASE("metagen rejects setter-only properties")
-{
-    TempDir temp{};
-    const auto projectPath = WriteMetaGenFixture(temp,
-                                                 R"(#pragma once
-#include <NGIN/MetaGen/Annotations.hpp>
-namespace Demo {
-struct NGIN_REFLECT(name = "Demo::Player") Player {
-    NGIN_PROPERTY(name = "score")
-    void SetScore(int value) { (void)value; }
-};
-}
-)");
-
-    const auto project = LoadProjectManifest(projectPath);
-    const auto result =
-        GenerateMetaData(RepoRoot(), project, project.profiles.front(), temp.path() / "generated/Meta.Property.App.reflection.generated.cpp");
-    if (!result.available)
-    {
-        SKIP("MetaGen was built without Clang support");
-    }
-    REQUIRE(ContainsDiagnostic(result.diagnostics, "has a setter but no getter"));
-}
-
 TEST_CASE("project generators parse and legacy metagen opt in is rejected")
 {
     TempDir temp{};
     const auto projectPath = temp.path() / "App.nginproj";
     WriteFile(projectPath,
-              R"(<?xml version="1.0" encoding="utf-8"?>
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
 <Project SchemaVersion="3" Name="Meta.App" Type="Application" DefaultProfile="Runtime">
   <Inputs>
     <Sources Path="src" />
@@ -373,7 +249,12 @@ TEST_CASE("project generators parse and legacy metagen opt in is rejected")
   <Output Kind="Executable" Name="Meta.App" Target="MetaApp" />
   <Build Backend="CMake" Mode="Generated" Language="CXX" LanguageStandard="23" />
   <Generators>
-    <Generator Name="ReflectionMetaGen" Kind="MetaGen" Package="NGIN.Reflection" Tool="MetaGen">
+    <Generator Name="ReflectionMetaGen" Kind="Command">
+      <Tool Executable="tools/ngin-metagen" />
+      <Arguments>
+        <Arg Value="--context" />
+        <Arg Path="$(GeneratorContext)" />
+      </Arguments>
       <Outputs>
         <Generated Role="Source" Path="$(GeneratedDir)/reflection/$(ProjectName).reflection.generated.cpp" />
       </Outputs>
@@ -386,12 +267,49 @@ TEST_CASE("project generators parse and legacy metagen opt in is rejected")
     <Profile Name="Runtime" BuildType="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev" />
   </Profiles>
 </Project>
-)");
+)xml");
 
     const auto project = LoadProjectManifest(projectPath);
     REQUIRE(project.generators.size() == 1);
     REQUIRE(project.generators.front().name == "ReflectionMetaGen");
     REQUIRE(project.generators.front().outputs.size() == 1);
+    REQUIRE(project.generators.front().arguments.size() == 2);
+    REQUIRE(project.generators.front().arguments.back().path == "$(GeneratorContext)");
+
+    WriteFile(temp.path() / "BuiltInTool.nginpkg",
+              R"(<?xml version="1.0" encoding="utf-8"?>
+<Package SchemaVersion="3" Name="BuiltIn.Tool" Version="0.1.0">
+  <Tools>
+    <Tool Name="MetaGen" Kind="Generator" BuiltIn="MetaGen" />
+  </Tools>
+</Package>
+)");
+    REQUIRE_THROWS_WITH(LoadPackageManifest(temp.path() / "BuiltInTool.nginpkg"), ContainsSubstring("unsupported attribute 'BuiltIn'"));
+
+    WriteFile(temp.path() / "KindMetaGen.nginproj",
+              R"(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="3" Name="Kind.MetaGen.App" Type="Application" DefaultProfile="Runtime">
+  <Inputs>
+    <Sources Path="src" />
+  </Inputs>
+  <Output Kind="Executable" Name="Kind.MetaGen.App" Target="KindMetaGenApp" />
+  <Build Backend="CMake" Mode="Generated" />
+  <Generators>
+    <Generator Name="ReflectionMetaGen" Kind="MetaGen" Tool="MetaGen">
+      <Outputs>
+        <Generated Role="Source" Path="$(GeneratedDir)/reflection/Kind.MetaGen.App.reflection.generated.cpp" />
+      </Outputs>
+    </Generator>
+  </Generators>
+  <Environments>
+    <Environment Name="dev" />
+  </Environments>
+  <Profiles>
+    <Profile Name="Runtime" BuildType="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev" />
+  </Profiles>
+</Project>
+)");
+    REQUIRE_THROWS_WITH(LoadProjectManifest(temp.path() / "KindMetaGen.nginproj"), ContainsSubstring("unsupported generator kind"));
 
     WriteFile(temp.path() / "Legacy.nginproj",
               R"(<?xml version="1.0" encoding="utf-8"?>
