@@ -8,10 +8,7 @@ import { ProjectManifest, StagedFile } from '../core/types';
 import { parseLaunchManifest } from '../core/xml';
 import { NginWorkspaceSnapshot } from '../state/workspaceState';
 import {
-  buildOverviewSections,
   buildProjectTreeModels,
-  OverviewEntryModel,
-  OverviewSectionModel,
   ProjectTreeChildModel,
   ProjectTreeProfileModel,
   ProjectTreeDependencyKind,
@@ -24,59 +21,6 @@ import {
   ProjectTreeManifestModel,
   ProjectTreeProjectModel,
 } from './models';
-
-class OverviewSectionTreeItem extends vscode.TreeItem {
-  constructor(public readonly model: OverviewSectionModel) {
-    super(model.label, vscode.TreeItemCollapsibleState.Expanded);
-    this.contextValue = 'nginOverviewSection';
-    this.iconPath = new vscode.ThemeIcon('list-tree');
-  }
-}
-
-class OverviewEntryTreeItem extends vscode.TreeItem {
-  constructor(public readonly model: OverviewEntryModel) {
-    super(model.label, vscode.TreeItemCollapsibleState.None);
-    this.description = model.description;
-    this.tooltip = model.tooltip;
-    this.contextValue = model.contextValue;
-    this.iconPath = model.icon ? new vscode.ThemeIcon(model.icon) : undefined;
-    if (model.command) {
-      this.command = {
-        command: model.command,
-        title: model.label,
-        arguments: model.arguments
-      };
-    }
-  }
-}
-
-class OverviewTreeDataProvider implements vscode.TreeDataProvider<OverviewSectionTreeItem | OverviewEntryTreeItem> {
-  private readonly onDidChangeTreeDataEmitter = new vscode.EventEmitter<void>();
-  private snapshot: NginWorkspaceSnapshot = { launchManifestExists: false, stagedCompileCommandsAvailable: false };
-
-  readonly onDidChangeTreeData = this.onDidChangeTreeDataEmitter.event;
-
-  setSnapshot(snapshot: NginWorkspaceSnapshot): void {
-    this.snapshot = snapshot;
-    this.onDidChangeTreeDataEmitter.fire();
-  }
-
-  getTreeItem(element: OverviewSectionTreeItem | OverviewEntryTreeItem): vscode.TreeItem {
-    return element;
-  }
-
-  getChildren(element?: OverviewSectionTreeItem | OverviewEntryTreeItem): vscode.ProviderResult<(OverviewSectionTreeItem | OverviewEntryTreeItem)[]> {
-    if (element instanceof OverviewEntryTreeItem) {
-      return [];
-    }
-
-    if (!element) {
-      return buildOverviewSections(this.snapshot).map((section) => new OverviewSectionTreeItem(section));
-    }
-
-    return element.model.children.map((child) => new OverviewEntryTreeItem(child));
-  }
-}
 
 class WorkspaceTreeItem extends vscode.TreeItem {
   constructor(label: string, description: string) {
@@ -104,7 +48,7 @@ class ProjectTreeItem extends vscode.TreeItem {
   readonly fsPath: string;
 
   constructor(model: ProjectTreeProjectModel) {
-    super(model.label, vscode.TreeItemCollapsibleState.Collapsed);
+    super(model.label, model.selected ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed);
     this.projectPath = model.projectPath;
     this.fsPath = model.projectPath;
     this.description = model.description;
@@ -206,8 +150,11 @@ class ProjectInspectGroupTreeItem extends vscode.TreeItem {
 class ProjectInspectEntryTreeItem extends vscode.TreeItem {
   readonly targetPath?: string;
 
-  constructor(model: ProjectTreeInspectEntryModel) {
-    super(model.label, vscode.TreeItemCollapsibleState.None);
+  constructor(public readonly model: ProjectTreeInspectEntryModel) {
+    super(
+      model.label,
+      model.children?.length ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None
+    );
     this.description = model.description;
     this.tooltip = model.tooltip;
     this.targetPath = model.targetPath;
@@ -478,6 +425,9 @@ class ProjectsTreeDataProvider implements vscode.TreeDataProvider<ProjectsTreeEl
       if (!project) {
         return [];
       }
+      if (element.group === 'files') {
+        return this.getFileGroupChildren(project);
+      }
       if (element.group === 'source') {
         return this.getSourceChildren(project);
       }
@@ -485,21 +435,16 @@ class ProjectsTreeDataProvider implements vscode.TreeDataProvider<ProjectsTreeEl
         return directConfigChildren(project, project.path, '', allConfigInputs(project));
       }
       if (element.group === 'dependencies') {
-        const inspectModel = model.inspectByProject.get(element.projectPath);
-        if (inspectModel?.groups.length) {
-          return inspectModel.groups.map((group) => new ProjectInspectGroupTreeItem(group));
-        }
         const dependencies = model.dependenciesByProject.get(element.projectPath);
-        if (!dependencies) {
-          return [];
-        }
         const items: ProjectsTreeElement[] = [];
-        if (dependencies.projects.length > 0) {
-          items.push(new ProjectDependencyGroupTreeItem(element.projectPath, 'projects', 'Projects'));
+        if (dependencies?.projects.length) {
+          items.push(new ProjectDependencyGroupTreeItem(element.projectPath, 'projects', 'Project References'));
         }
-        if (dependencies.packages.length > 0) {
-          items.push(new ProjectDependencyGroupTreeItem(element.projectPath, 'packages', 'Packages'));
+        if (dependencies?.packages.length) {
+          items.push(new ProjectDependencyGroupTreeItem(element.projectPath, 'packages', 'Package References'));
         }
+        const inspectModel = model.inspectByProject.get(element.projectPath);
+        items.push(...(inspectModel?.groups ?? []).map((group) => new ProjectInspectGroupTreeItem(group)));
         return items;
       }
       if (element.group === 'generated') {
@@ -526,6 +471,10 @@ class ProjectsTreeDataProvider implements vscode.TreeDataProvider<ProjectsTreeEl
     if (element instanceof ProjectInspectGroupTreeItem) {
       const inspectModel = model.inspectByProject.get(element.projectPath);
       return (inspectModel?.entriesByGroup.get(element.inspectGroup) ?? []).map((entry) => new ProjectInspectEntryTreeItem(entry));
+    }
+
+    if (element instanceof ProjectInspectEntryTreeItem) {
+      return (element.model.children ?? []).map((entry) => new ProjectInspectEntryTreeItem(entry));
     }
 
     if (element instanceof ProjectFolderTreeItem) {
@@ -555,6 +504,37 @@ class ProjectsTreeDataProvider implements vscode.TreeDataProvider<ProjectsTreeEl
 
   private findProject(projectPath: string): ProjectManifest | undefined {
     return this.snapshot.workspace?.projects.find((project) => comparablePath(project.path) === comparablePath(projectPath));
+  }
+
+  private getFileGroupChildren(project: ProjectManifest): ProjectsTreeElement[] {
+    const children: ProjectsTreeElement[] = [];
+    if (project.sourceRoots.length > 0 || project.buildSources.length > 0) {
+      children.push(this.createChildTreeItem({
+        kind: 'group',
+        id: `${project.path}:source`,
+        label: 'Sources',
+        tooltip: 'Declared source roots and explicit build sources.',
+        icon: 'folder-library',
+        projectPath: project.path,
+        group: 'source'
+      }));
+    }
+
+    const hasConfigInputs = project.configInputs.length > 0
+      || project.profiles.some((profile) => profile.configInputs.length > 0);
+    if (hasConfigInputs) {
+      children.push(this.createChildTreeItem({
+        kind: 'group',
+        id: `${project.path}:config`,
+        label: 'Config',
+        tooltip: 'Declared root and profile config inputs.',
+        icon: 'settings',
+        projectPath: project.path,
+        group: 'config'
+      }));
+    }
+
+    return children;
   }
 
   private getSourceChildren(project: ProjectManifest): ProjectsTreeElement[] {
@@ -630,33 +610,24 @@ class ProjectsTreeDataProvider implements vscode.TreeDataProvider<ProjectsTreeEl
 }
 
 export class NginSidebarController implements vscode.Disposable {
-  private readonly overviewProvider = new OverviewTreeDataProvider();
   private readonly projectsProvider = new ProjectsTreeDataProvider();
-  private readonly overviewTreeView: vscode.TreeView<OverviewSectionTreeItem | OverviewEntryTreeItem>;
   private readonly projectsTreeView: vscode.TreeView<ProjectsTreeElement>;
 
   constructor() {
-    this.overviewTreeView = vscode.window.createTreeView('nginOverview', {
-      treeDataProvider: this.overviewProvider,
-      showCollapseAll: true
-    });
-    this.projectsTreeView = vscode.window.createTreeView('nginProjects', {
+    this.projectsTreeView = vscode.window.createTreeView('nginWorkspace', {
       treeDataProvider: this.projectsProvider,
       showCollapseAll: true
     });
   }
 
   dispose(): void {
-    this.overviewTreeView.dispose();
     this.projectsTreeView.dispose();
   }
 
   refresh(snapshot: NginWorkspaceSnapshot): void {
-    this.overviewProvider.setSnapshot(snapshot);
     this.projectsProvider.setSnapshot(snapshot);
 
     const noWorkspaceMessage = 'Open a folder with a .ngin workspace manifest.';
-    this.overviewTreeView.message = snapshot.workspace ? undefined : noWorkspaceMessage;
     this.projectsTreeView.message = snapshot.workspace ? undefined : noWorkspaceMessage;
   }
 }

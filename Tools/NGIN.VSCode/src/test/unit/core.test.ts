@@ -21,7 +21,7 @@ import {
   parseCliDiagnostics
 } from '../../core/helpers';
 import { addRootConfigInput, relativeManifestPath, removeConfigInputs, renameConfigInputs } from '../../core/projectAuthoring';
-import { buildOverviewSections, buildProjectTreeModels, buildStatusBarModel } from '../../ui/models';
+import { buildProjectTreeModels, buildStatusBarModel } from '../../ui/models';
 import { parseLaunchManifest, parseLocalSettingsManifest, parseModelManifest, parsePackageManifest, parseProjectManifest, parseWorkspaceManifest } from '../../core/xml';
 
 test('computeOutputDir uses the CLI default layout when no root override is configured', () => {
@@ -233,6 +233,9 @@ test('extension manifest and snippets register local settings support', () => {
   assert.ok(commandIds.includes('ngin.settingsInit'));
   assert.equal(commandIds.includes('ngin.metagen'), false);
 
+  const activityViews = packageJson.contributes.views.ngin.map((entry: { id: string; name: string }) => `${entry.id}:${entry.name}`);
+  assert.deepEqual(activityViews, ['nginWorkspace:Workspace']);
+
   const snippets = JSON.parse(readFileSync(path.join(process.cwd(), 'snippets/ngin.code-snippets'), 'utf8'));
   assert.ok(snippets['Local Settings File']);
   assert.ok(snippets['Variable From Local Setting']);
@@ -423,48 +426,6 @@ test('basenameWithoutExtension strips a platform executable suffix', () => {
   assert.equal(basenameWithoutExtension('/repo/out/bin/App.Basic.exe'), 'App.Basic');
 });
 
-test('overview sections describe the current workspace selection and actions', () => {
-  const sections = buildOverviewSections({
-    workspace: {
-      workspace: { path: '/repo/NGIN.ngin', directory: '/repo', name: 'NGIN', projectPaths: [] },
-      projects: [],
-      root: '/repo'
-    },
-    context: {
-      workspace: {
-        workspace: { path: '/repo/NGIN.ngin', directory: '/repo', name: 'NGIN', projectPaths: [] },
-        projects: [],
-        root: '/repo'
-      },
-      project: { path: '/repo/Examples/App.Basic/App.Basic.nginproj', directory: '/repo/Examples/App.Basic', name: 'App.Basic', sourceRoots: [], configInputs: [], buildSources: [], profiles: [] },
-      profile: { name: 'Runtime', operatingSystem: 'linux', architecture: 'x64', environment: 'development', configInputs: [] }
-    },
-    outputDir: '/repo/.ngin/build/App.Basic/Runtime',
-    launchManifestPath: '/repo/.ngin/build/App.Basic/Runtime/App.Basic.Runtime.nginlaunch',
-    launchManifestExists: true,
-    stagedCompileCommandsPath: '/repo/.ngin/build/App.Basic/Runtime/.ngin/cmake-build/compile_commands.json',
-    stagedCompileCommandsAvailable: true,
-    activeCompileCommandsPath: '/repo/.ngin/build/App.Basic/Runtime/.ngin/cmake-build/compile_commands.json',
-    activeCompileCommandsSource: 'staged',
-    lastLaunchManifestPath: '/repo/.ngin/build/App.Basic/Runtime/App.Basic.Runtime.nginlaunch'
-  });
-
-  assert.equal(sections.length, 5);
-  assert.equal(sections[1].label, 'Current Context');
-  assert.equal(sections[1].children[0].label, 'Project: App.Basic');
-  assert.equal(sections[1].children[1].label, 'Profile: Runtime');
-  assert.equal(sections[1].children[1].command, 'ngin.selectProfile');
-  assert.equal(sections[2].label, 'Build Artifacts');
-  assert.equal(sections[2].children[0].label, 'Output Folder');
-  assert.equal(sections[2].children[0].command, 'ngin.internal.revealPath');
-  assert.equal(sections[3].children[0].command, 'ngin.build');
-  assert.equal(sections[3].children[1].command, 'ngin.configure');
-  assert.equal(sections[3].children[2].command, 'ngin.rebuild');
-  assert.equal(sections[3].children[3].command, 'ngin.clean');
-  assert.equal(sections[3].children.some((entry) => entry.command === 'ngin.metagen'), false);
-  assert.equal(sections[4].children[1].label, 'Open Last Launch Manifest');
-});
-
 test('project tree models mark the selected project and profile', () => {
   const models = buildProjectTreeModels({
     workspace: {
@@ -525,11 +486,10 @@ test('project tree models mark the selected project and profile', () => {
   assert.equal(models.projects[0].selected, true);
   assert.deepEqual(models.childrenByProject.get('/repo/Examples/App.Basic/App.Basic.nginproj')?.map((entry) => entry.kind === 'group' ? entry.group : entry.kind), [
     'manifest',
-    'source',
-    'config',
+    'profiles',
+    'files',
     'dependencies',
-    'generated',
-    'profiles'
+    'generated'
   ]);
   assert.deepEqual(models.dependenciesByProject.get('/repo/Examples/App.Basic/App.Basic.nginproj')?.projects.map((entry) => entry.label), ['Game.Engine']);
   assert.deepEqual(models.dependenciesByProject.get('/repo/Examples/App.Basic/App.Basic.nginproj')?.packages.map((entry) => entry.label), ['NGIN.Core']);
@@ -599,6 +559,9 @@ test('project tree models expose inspect groups for the active project only', ()
     stagedCompileCommandsAvailable: false
   });
 
+  assert.equal(models.childrenByProject.get(activeProject.path)?.some((entry) => entry.kind === 'group' && entry.label === 'Dependencies'), true);
+  assert.equal(models.childrenByProject.get(inactiveProject.path)?.some((entry) => entry.kind === 'group' && entry.label === 'Dependencies'), true);
+
   const activeInspect = models.inspectByProject.get(activeProject.path);
   assert.deepEqual(activeInspect?.groups.map((group) => group.kind), [
     'packages',
@@ -611,6 +574,20 @@ test('project tree models expose inspect groups for the active project only', ()
   assert.deepEqual(activeInspect?.entriesByGroup.get('generators')?.map((entry) => `${entry.label}:${entry.description}`), [
     'ReflectionMetaGen:Active • NGIN.Reflection.MetaGen::ReflectionCodegen • MetaGen',
     'WindowsOnly:Excluded'
+  ]);
+  assert.deepEqual(activeInspect?.entriesByGroup.get('generators')?.[0]?.children?.map((entry) => entry.label), [
+    'State',
+    'Kind',
+    'Owner',
+    'Tool',
+    'Source'
+  ]);
+  assert.deepEqual(activeInspect?.entriesByGroup.get('inputs')?.map((entry) => `${entry.label}:${entry.description}`), [
+    'Sources:1',
+    'Configs:1'
+  ]);
+  assert.deepEqual(activeInspect?.entriesByGroup.get('inputs')?.[0]?.children?.map((entry) => `${entry.label}:${entry.description}`), [
+    'src:Directory • App'
   ]);
   assert.equal(models.inspectByProject.has(inactiveProject.path), false);
   assert.deepEqual(models.dependenciesByProject.get(inactiveProject.path)?.packages.map((entry) => entry.label), ['NGIN.Core']);

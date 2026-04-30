@@ -11,8 +11,9 @@ the terminal commands.
 
 ## What It Provides
 
-- NGIN activity-bar views for workspace, project, and profile navigation
-- a read-only resolved inspector in the Projects tree for the active
+- a single NGIN activity-bar Workspace view for project, profile, file,
+  dependency, and artifact navigation
+- read-only resolved dependency details in the Workspace tree for the active
   project/profile, backed by `ngin inspect --format json`
 - status bar items for the selected workspace, project, and profile
 - commands for configure, build, clean, rebuild, run, debug, validate, graph,
@@ -60,9 +61,11 @@ without producing a `.nginlaunch` file. Run and debug use the staged
 `.nginlaunch` file produced by `ngin build`. When debugging, the extension can
 build first if the launch manifest is missing or stale.
 
-The Projects tree keeps inactive projects lightweight. For the active
-project/profile, its Dependencies node expands into resolved Packages,
-Features, Capabilities, Generators, Inputs, Launch, and Diagnostics groups.
+The Workspace tree is project-centered. Project rows open their `.nginproj`
+manifest, Profiles are selected in-place, Files contains declared source and
+config inputs, Dependencies contains authored references plus resolved
+Packages, Features, Capabilities, Generators, Inputs, Launch, and Diagnostics
+for the active project/profile, and Generated contains existing staged output.
 Generators are displayed generically; MetaGen appears only as a normal command
 generator contributed by its package feature.
 
@@ -103,10 +106,12 @@ Open the repository root in VS Code. The extension activates when it finds
 
 Typical flow:
 
-1. Open the NGIN activity-bar view.
-2. Select a project.
-3. Select a profile.
-4. Run Validate, Build, Run, Debug, or Graph.
+1. Open the NGIN activity-bar Workspace view.
+2. Open a project manifest or choose a project/profile from the tree.
+3. Expand Dependencies to inspect packages, features, generators, and
+   diagnostics.
+4. Run Validate, Build, Run, Debug, or Graph from the status bar, command
+   palette, or project/profile context menu.
 
 The same flow is available from the command palette with commands such as:
 

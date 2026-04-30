@@ -1429,10 +1429,10 @@ The VS Code extension must treat generators generically. It should not have a
 MetaGen-specific panel or resolver. MetaGen should appear only as one command
 generator contributed by `NGIN.Reflection.MetaGen::ReflectionCodegen`.
 
-Implemented VS Code H1 views inside the existing Projects tree:
+Implemented VS Code H1 views inside the project-centered Workspace tree:
 
 - resolved Packages, Features, Capabilities, Generators, Inputs, Launch, and
-  Diagnostics groups for the active project/profile
+  Diagnostics groups under Dependencies for the active project/profile
 - generic generator rows with active/excluded state, owner/tool details,
   declared outputs, and selector/condition exclusion reason when available
 - manifest/package rows open the declaring manifest when a path is available
