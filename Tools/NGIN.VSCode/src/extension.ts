@@ -264,6 +264,9 @@ class NginController implements vscode.Disposable {
       vscode.commands.registerCommand('ngin.workspaceDoctor', () => this.runHandled(() => this.workspaceCommand('doctor'))),
       vscode.commands.registerCommand('ngin.openLastLaunchManifest', () => this.runHandled(() => this.openLastLaunchManifest())),
       vscode.commands.registerCommand('ngin.openProjectManifest', (arg) => this.runHandled(() => this.openProjectManifestCommand(this.asExplorerTarget(arg)))),
+      vscode.commands.registerCommand('ngin.openPath', (arg) => this.runHandled(() => this.openExplorerPathCommand(this.asExplorerTarget(arg)))),
+      vscode.commands.registerCommand('ngin.revealPath', (arg) => this.runHandled(() => this.revealExplorerPathCommand(this.asExplorerTarget(arg)))),
+      vscode.commands.registerCommand('ngin.copyPath', (arg) => this.runHandled(() => this.copyExplorerPathCommand(this.asExplorerTarget(arg)))),
       vscode.commands.registerCommand('ngin.setActiveProject', (arg) => this.runHandled(() => this.selectProjectCommand(this.asCommandTarget(arg)))),
       vscode.commands.registerCommand('ngin.projectNewSourceFile', (arg) => this.runHandled(() => this.createProjectFileCommand(this.asExplorerTarget(arg), 'source'))),
       vscode.commands.registerCommand('ngin.projectNewConfigFile', (arg) => this.runHandled(() => this.createProjectFileCommand(this.asExplorerTarget(arg), 'config'))),
@@ -445,8 +448,9 @@ class NginController implements vscode.Disposable {
       return undefined;
     }
 
-    const candidate = value as ProjectExplorerTarget;
-    if (!candidate.projectPath && !candidate.profileName && !candidate.preferredUri && !candidate.fsPath) {
+    const candidate = value as ProjectExplorerTarget & { targetPath?: string };
+    const fsPath = candidate.fsPath ?? candidate.targetPath;
+    if (!candidate.projectPath && !candidate.profileName && !candidate.preferredUri && !fsPath) {
       return undefined;
     }
 
@@ -454,7 +458,7 @@ class NginController implements vscode.Disposable {
       preferredUri: candidate.preferredUri,
       projectPath: candidate.projectPath,
       profileName: candidate.profileName,
-      fsPath: candidate.fsPath,
+      fsPath,
       role: candidate.role,
       isDirectory: candidate.isDirectory
     };
@@ -578,7 +582,9 @@ class NginController implements vscode.Disposable {
     if (target?.projectPath && target?.profileName) {
       const context = await this.resolveCommandContext(target, false);
       if (context) {
+        await this.workspaceState.rememberSelection(context);
         await this.refreshUi(target.preferredUri);
+        void vscode.window.showInformationMessage(`Selected NGIN profile: ${context.project.name} [${context.profile.name}]`);
       }
       return;
     }
@@ -895,6 +901,28 @@ class NginController implements vscode.Disposable {
     } catch {
       await vscode.env.openExternal(targetUri);
     }
+  }
+
+  private resolveExplorerPath(target?: ProjectExplorerTarget): string | undefined {
+    return target?.fsPath ?? target?.projectPath;
+  }
+
+  private async openExplorerPathCommand(target?: ProjectExplorerTarget): Promise<void> {
+    await this.openPathCommand(this.resolveExplorerPath(target));
+  }
+
+  private async revealExplorerPathCommand(target?: ProjectExplorerTarget): Promise<void> {
+    await this.revealPathCommand(this.resolveExplorerPath(target));
+  }
+
+  private async copyExplorerPathCommand(target?: ProjectExplorerTarget): Promise<void> {
+    const filePath = this.resolveExplorerPath(target);
+    if (!filePath) {
+      return;
+    }
+
+    await vscode.env.clipboard.writeText(filePath);
+    void vscode.window.showInformationMessage(`Copied path: ${filePath}`);
   }
 
   private async openVirtualVariablesDocument(title: string, content: string): Promise<void> {

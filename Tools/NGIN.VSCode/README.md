@@ -61,13 +61,15 @@ without producing a `.nginlaunch` file. Run and debug use the staged
 `.nginlaunch` file produced by `ngin build`. When debugging, the extension can
 build first if the launch manifest is missing or stale.
 
-The Workspace tree is project-centered. Project rows open their `.nginproj`
-manifest, Profiles are selected in-place, Files contains declared source and
-config inputs, Dependencies contains authored references plus resolved
-Packages, Features, Capabilities, Generators, Inputs, Launch, and Diagnostics
-for the active project/profile, and Generated contains existing staged output.
-Generators are displayed generically; MetaGen appears only as a normal command
-generator contributed by its package feature.
+The Workspace tree is project-centered. Project rows select the active project,
+manifest rows open `.nginproj` files, Profiles select the active profile, Files
+contains declared source and config inputs, Dependencies contains authored
+references plus resolved Packages, Features, Capabilities, Generators, Inputs,
+Launch, and Diagnostics for the active project/profile, and Generated contains
+existing staged output. Right-click context menus expose project/profile
+actions, file navigation, path copying, and authored file operations. Generators
+are displayed generically; MetaGen appears only as a normal command generator
+contributed by its package feature.
 
 ## Build And Install
 
@@ -107,7 +109,8 @@ Open the repository root in VS Code. The extension activates when it finds
 Typical flow:
 
 1. Open the NGIN activity-bar Workspace view.
-2. Open a project manifest or choose a project/profile from the tree.
+2. Choose a project/profile from the tree, or open a project manifest from its
+   manifest row or project context menu.
 3. Expand Dependencies to inspect packages, features, generators, and
    diagnostics.
 4. Run Validate, Build, Run, Debug, or Graph from the status bar, command

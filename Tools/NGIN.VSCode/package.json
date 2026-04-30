@@ -177,6 +177,21 @@
         "category": "NGIN"
       },
       {
+        "command": "ngin.openPath",
+        "title": "Open",
+        "category": "NGIN"
+      },
+      {
+        "command": "ngin.revealPath",
+        "title": "Reveal in File Explorer",
+        "category": "NGIN"
+      },
+      {
+        "command": "ngin.copyPath",
+        "title": "Copy Path",
+        "category": "NGIN"
+      },
+      {
         "command": "ngin.setActiveProject",
         "title": "Set Active Project",
         "category": "NGIN"
@@ -227,6 +242,20 @@
       }
     ],
     "menus": {
+      "commandPalette": [
+        {
+          "command": "ngin.openPath",
+          "when": "false"
+        },
+        {
+          "command": "ngin.revealPath",
+          "when": "false"
+        },
+        {
+          "command": "ngin.copyPath",
+          "when": "false"
+        }
+      ],
       "view/title": [
         {
           "command": "ngin.refresh",
@@ -251,9 +280,24 @@
           "group": "navigation@1"
         },
         {
+          "command": "ngin.openPath",
+          "when": "view == nginWorkspace && viewItem =~ /^(nginProjectSourceFile|nginProjectConfigFile|nginProjectGeneratedFile|nginProjectDependency|nginProjectInspectEntry\\.openable)$/",
+          "group": "navigation@2"
+        },
+        {
+          "command": "ngin.revealPath",
+          "when": "view == nginWorkspace && viewItem =~ /^(nginProjectManifest|nginProjectSourceFile|nginProjectSourceFolder|nginProjectConfigFile|nginProjectConfigFolder|nginProjectGeneratedFile|nginProjectGeneratedFolder|nginProjectGeneratedProfile|nginProjectDependency|nginProjectInspectEntry\\.openable)$/",
+          "group": "navigation@3"
+        },
+        {
+          "command": "ngin.copyPath",
+          "when": "view == nginWorkspace && viewItem =~ /^(nginProjectManifest|nginProjectSourceFile|nginProjectSourceFolder|nginProjectConfigFile|nginProjectConfigFolder|nginProjectGeneratedFile|nginProjectGeneratedFolder|nginProjectGeneratedProfile|nginProjectDependency|nginProjectInspectEntry\\.openable)$/",
+          "group": "navigation@4"
+        },
+        {
           "command": "ngin.setActiveProject",
           "when": "view == nginWorkspace && viewItem == nginProject",
-          "group": "navigation@2"
+          "group": "navigation@5"
         },
         {
           "command": "ngin.build",

@@ -56,7 +56,7 @@ class ProjectTreeItem extends vscode.TreeItem {
     this.iconPath = new vscode.ThemeIcon(model.selected ? 'pass-filled' : 'project');
     this.contextValue = 'nginProject';
     this.command = {
-      command: 'ngin.openProjectManifest',
+      command: 'ngin.setActiveProject',
       title: model.label,
       arguments: [{ projectPath: model.projectPath, fsPath: model.projectPath, role: 'manifest' } satisfies ProjectExplorerTarget]
     };
@@ -113,12 +113,14 @@ class ProjectDependencyTreeItem extends vscode.TreeItem {
   readonly projectPath: string;
   readonly dependencyKind: ProjectTreeDependencyKind;
   readonly targetPath?: string;
+  readonly fsPath?: string;
 
   constructor(model: ProjectTreeDependencyModel) {
     super(model.label, vscode.TreeItemCollapsibleState.None);
     this.projectPath = model.projectPath;
     this.dependencyKind = model.kind;
     this.targetPath = model.targetPath;
+    this.fsPath = model.targetPath;
     this.description = model.description;
     this.tooltip = model.tooltip;
     this.iconPath = new vscode.ThemeIcon(model.kind === 'projects' ? 'project' : 'package');
@@ -149,6 +151,7 @@ class ProjectInspectGroupTreeItem extends vscode.TreeItem {
 
 class ProjectInspectEntryTreeItem extends vscode.TreeItem {
   readonly targetPath?: string;
+  readonly fsPath?: string;
 
   constructor(public readonly model: ProjectTreeInspectEntryModel) {
     super(
@@ -158,6 +161,7 @@ class ProjectInspectEntryTreeItem extends vscode.TreeItem {
     this.description = model.description;
     this.tooltip = model.tooltip;
     this.targetPath = model.targetPath;
+    this.fsPath = model.targetPath;
     this.iconPath = new vscode.ThemeIcon(model.icon ?? 'symbol-property');
     this.contextValue = model.targetPath ? 'nginProjectInspectEntry.openable' : 'nginProjectInspectEntry';
     if (model.targetPath) {
@@ -241,12 +245,16 @@ class GeneratedProfileTreeItem extends vscode.TreeItem {
   readonly projectPath: string;
   readonly profileName: string;
   readonly outputDir: string;
+  readonly fsPath: string;
+  readonly role = 'generated' as const;
+  readonly isDirectory = true;
 
   constructor(projectPath: string, profileName: string, outputDir: string) {
     super(profileName, vscode.TreeItemCollapsibleState.Collapsed);
     this.projectPath = projectPath;
     this.profileName = profileName;
     this.outputDir = outputDir;
+    this.fsPath = outputDir;
     this.description = path.basename(outputDir);
     this.tooltip = outputDir;
     this.iconPath = new vscode.ThemeIcon('archive');
@@ -258,12 +266,16 @@ class GeneratedStagedFilesTreeItem extends vscode.TreeItem {
   readonly projectPath: string;
   readonly outputDir: string;
   readonly launchManifestPath: string;
+  readonly fsPath: string;
+  readonly role = 'generated' as const;
+  readonly isDirectory = true;
 
   constructor(projectPath: string, outputDir: string, launchManifestPath: string) {
     super('Staged Files', vscode.TreeItemCollapsibleState.Collapsed);
     this.projectPath = projectPath;
     this.outputDir = outputDir;
     this.launchManifestPath = launchManifestPath;
+    this.fsPath = outputDir;
     this.iconPath = new vscode.ThemeIcon('files');
     this.contextValue = 'nginProjectGeneratedFolder';
   }
