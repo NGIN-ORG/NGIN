@@ -31,6 +31,7 @@ import {
 import { NginSidebarController } from './ui/sidebar';
 import { NginStatusBarController } from './ui/statusBar';
 import { NginCppToolsProviderService } from './cpptools/provider';
+import { NginProjectEditorProvider } from './projectEditor/provider';
 
 const SUPPORTED_LANGUAGE_ID = 'ngin';
 
@@ -264,6 +265,7 @@ class NginController implements vscode.Disposable {
       vscode.commands.registerCommand('ngin.workspaceDoctor', () => this.runHandled(() => this.workspaceCommand('doctor'))),
       vscode.commands.registerCommand('ngin.openLastLaunchManifest', () => this.runHandled(() => this.openLastLaunchManifest())),
       vscode.commands.registerCommand('ngin.openProjectManifest', (arg) => this.runHandled(() => this.openProjectManifestCommand(this.asExplorerTarget(arg)))),
+      vscode.commands.registerCommand('ngin.openProjectXmlSource', (uri?: vscode.Uri) => this.runHandled(() => this.openProjectXmlSourceCommand(uri))),
       vscode.commands.registerCommand('ngin.openPath', (arg) => this.runHandled(() => this.openExplorerPathCommand(this.asExplorerTarget(arg)))),
       vscode.commands.registerCommand('ngin.revealPath', (arg) => this.runHandled(() => this.revealExplorerPathCommand(this.asExplorerTarget(arg)))),
       vscode.commands.registerCommand('ngin.copyPath', (arg) => this.runHandled(() => this.copyExplorerPathCommand(this.asExplorerTarget(arg)))),
@@ -280,6 +282,19 @@ class NginController implements vscode.Disposable {
       vscode.commands.registerCommand('ngin.internal.pickProfile', (arg) => this.runHandled(() => this.pickProfileFromStatusBar(this.asCommandTarget(arg)))),
       vscode.commands.registerCommand('ngin.internal.openPath', (filePath) => this.runHandled(() => this.openPathCommand(filePath))),
       vscode.commands.registerCommand('ngin.internal.revealPath', (filePath) => this.runHandled(() => this.revealPathCommand(filePath))),
+      vscode.window.registerCustomEditorProvider(
+        NginProjectEditorProvider.viewType,
+        new NginProjectEditorProvider({
+          inspect: (document) => this.getProjectEditorInspectState(document),
+          apply: (document, update) => this.applyProjectEditorUpdate(document, update),
+          openSource: (uri) => this.openProjectXmlSourceCommand(uri),
+          validate: (uri) => this.validateProjectEditor(uri)
+        }),
+        {
+          supportsMultipleEditorsPerDocument: false,
+          webviewOptions: { retainContextWhenHidden: true }
+        }
+      ),
       vscode.workspace.registerTextDocumentContentProvider('ngin-variables', this.variableDocumentProvider),
       vscode.languages.registerCompletionItemProvider(
         { language: SUPPORTED_LANGUAGE_ID },
@@ -973,7 +988,41 @@ class NginController implements vscode.Disposable {
     if (!manifestPath) {
       return;
     }
-    await this.openPathCommand(manifestPath);
+    await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(manifestPath), { preview: false });
+  }
+
+  private async openProjectXmlSourceCommand(uri?: vscode.Uri): Promise<void> {
+    const target = uri ?? vscode.window.activeTextEditor?.document.uri;
+    if (!target) {
+      return;
+    }
+    await vscode.commands.executeCommand('vscode.openWith', target, 'default', { preview: false });
+  }
+
+  private async getProjectEditorInspectState(document: vscode.TextDocument): Promise<{ inspect?: ProjectInspectPayload; activeProfile?: string }> {
+    const snapshot = await this.workspaceState.getSnapshot(document.uri);
+    if (!snapshot.workspace || !snapshot.context || comparablePath(snapshot.context.project.path) !== comparablePath(document.uri.fsPath)) {
+      return {};
+    }
+    await this.attachInspectSnapshot(snapshot, false);
+    return {
+      inspect: snapshot.inspect,
+      activeProfile: snapshot.context.profile.name
+    };
+  }
+
+  private async applyProjectEditorUpdate(document: vscode.TextDocument, update: (xml: string) => string): Promise<void> {
+    try {
+      await NginProjectEditorProvider.applyTextEdit(document, update(document.getText()));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      void vscode.window.showErrorMessage(message);
+    }
+  }
+
+  private async validateProjectEditor(uri: vscode.Uri): Promise<void> {
+    await this.validateCommand({ preferredUri: uri }, { silent: false });
+    await this.refreshUi(uri, true);
   }
 
   private async createProjectFileCommand(target: ProjectExplorerTarget | undefined, kind: 'source' | 'config'): Promise<void> {
@@ -1368,12 +1417,14 @@ class NginController implements vscode.Disposable {
       return;
     }
 
-    if (!this.getConfiguration(vscode.workspace.getWorkspaceFolder(document.uri)).get<boolean>('validate.onSave')) {
+    const isProjectManifest = document.uri.scheme === 'file' && document.uri.fsPath.endsWith('.nginproj');
+    if (!isProjectManifest && !this.getConfiguration(vscode.workspace.getWorkspaceFolder(document.uri)).get<boolean>('validate.onSave')) {
       return;
     }
 
     try {
       await this.validateCommand({ preferredUri: document.uri }, { silent: true });
+      await this.refreshUi(document.uri, true);
     } catch {
       // Silent validate-on-save still updates diagnostics through CLI output parsing.
     }

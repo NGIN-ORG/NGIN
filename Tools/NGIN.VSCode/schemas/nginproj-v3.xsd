@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           elementFormDefault="unqualified"
+           attributeFormDefault="unqualified">
+  <xs:annotation>
+    <xs:documentation>
+      Initial V3 NGIN project manifest schema for editor tooling. The native
+      `ngin validate` command remains the authoritative validator.
+    </xs:documentation>
+  </xs:annotation>
+
+  <xs:element name="Project">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:any minOccurs="0" maxOccurs="unbounded" processContents="lax" />
+      </xs:sequence>
+      <xs:attribute name="SchemaVersion" type="xs:string" />
+      <xs:attribute name="Name" type="xs:string" />
+      <xs:attribute name="Template" type="xs:string" />
+      <xs:attribute name="DefaultProfile" type="xs:string" />
+      <xs:anyAttribute processContents="lax" />
+    </xs:complexType>
+  </xs:element>
+</xs:schema>

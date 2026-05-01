@@ -12,7 +12,8 @@
     "src/core/**/*.ts",
     "src/state/**/*.ts",
     "src/ui/**/*.ts",
-    "src/cpptools/**/*.ts"
+    "src/cpptools/**/*.ts",
+    "src/projectEditor/**/*.ts"
   ],
   "exclude": []
 }

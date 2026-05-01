@@ -21,6 +21,7 @@
   ],
   "activationEvents": [
     "onDebugResolve:ngin",
+    "onCustomEditor:ngin.projectEditor",
     "workspaceContains:**/*.nginproj",
     "workspaceContains:**/*.nginsettings"
   ],
@@ -95,6 +96,18 @@
         }
       ]
     },
+    "customEditors": [
+      {
+        "viewType": "ngin.projectEditor",
+        "displayName": "NGIN Project Editor",
+        "selector": [
+          {
+            "filenamePattern": "*.nginproj"
+          }
+        ],
+        "priority": "default"
+      }
+    ],
     "commands": [
       {
         "command": "ngin.selectProject",
@@ -177,6 +190,11 @@
         "category": "NGIN"
       },
       {
+        "command": "ngin.openProjectXmlSource",
+        "title": "Open Project XML Source",
+        "category": "NGIN"
+      },
+      {
         "command": "ngin.openPath",
         "title": "Open",
         "category": "NGIN"
@@ -246,6 +264,10 @@
         {
           "command": "ngin.openPath",
           "when": "false"
+        },
+        {
+          "command": "ngin.openProjectXmlSource",
+          "when": "resourceExtname == .nginproj"
         },
         {
           "command": "ngin.revealPath",

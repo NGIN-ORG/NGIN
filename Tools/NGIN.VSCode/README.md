@@ -15,6 +15,8 @@ the terminal commands.
   dependency, and artifact navigation
 - read-only resolved dependency details in the Workspace tree for the active
   project/profile, backed by `ngin inspect --format json`
+- a default visual `.nginproj` editor for common project, profile, input,
+  reference, feature, launch, and environment edits while preserving XML source
 - status bar items for the selected workspace, project, and profile
 - commands for configure, build, clean, rebuild, run, debug, validate, graph,
   variable explanation, and local settings initialization
@@ -24,6 +26,7 @@ the terminal commands.
 - C/C++ profile-provider support for `ms-vscode.cpptools`
 - file registration and snippets for `.ngin`, `.nginproj`, `.nginmodel`,
   `.nginpkg`, `.nginlaunch`, and `.nginsettings`
+- an initial V3 `.nginproj` schema artifact for editor tooling
 - V3 workspace/project parsing for `.nginmodel` includes, defaults, and profile
   templates so project trees, tasks, debug profiles, and status items use
   effective profile data
@@ -55,6 +58,12 @@ document. `NGIN: Initialize Local Settings` opens the initialized
 `FromLocalSetting` keys from loaded `.nginsettings` files and completes
 `FromEnvironment` names from the current process environment without storing
 values.
+
+`.nginproj` files open in the NGIN Project Editor by default. The editor writes
+targeted XML edits through VS Code document edits so undo, dirty state, comments,
+and unsupported sections remain under normal editor control. Use
+`NGIN: Open Project XML Source` or the editor action to reopen the same manifest
+as XML source.
 
 Configure generates backend build metadata such as `compile_commands.json`
 without producing a `.nginlaunch` file. Run and debug use the staged
@@ -114,7 +123,9 @@ Typical flow:
    manifest row or project context menu.
 3. Expand Dependencies to inspect packages, features, generators, and
    diagnostics.
-4. Run Validate, Build, Run, Debug, or Graph from the status bar, command
+4. Edit common `.nginproj` fields in the visual editor or reopen XML source for
+   unsupported sections.
+5. Run Validate, Build, Run, Debug, or Graph from the status bar, command
    palette, or project/profile context menu.
 
 The same flow is available from the command palette with commands such as:

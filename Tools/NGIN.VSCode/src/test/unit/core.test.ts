@@ -23,6 +23,17 @@ import {
 import { addRootConfigInput, relativeManifestPath, removeConfigInputs, renameConfigInputs } from '../../core/projectAuthoring';
 import { buildProjectTreeModels, buildStatusBarModel } from '../../ui/models';
 import { parseLaunchManifest, parseLocalSettingsManifest, parseModelManifest, parsePackageManifest, parseProjectManifest, parseWorkspaceManifest } from '../../core/xml';
+import {
+  addProfile,
+  deleteProfile,
+  setEnvironmentVariables,
+  setInputEntries,
+  setPackageReferences,
+  setProfileFeatureState,
+  updateProfile,
+  updateProjectAttributes
+} from '../../projectEditor/authoring';
+import { buildProjectEditorModel } from '../../projectEditor/model';
 
 test('computeOutputDir uses the CLI default layout when no root override is configured', () => {
   const outputDir = computeOutputDir('/workspace', 'App.Basic', 'Runtime');
@@ -231,10 +242,13 @@ test('extension manifest and snippets register local settings support', () => {
   const commandIds = packageJson.contributes.commands.map((entry: { command: string }) => entry.command);
   assert.ok(commandIds.includes('ngin.variablesExplain'));
   assert.ok(commandIds.includes('ngin.settingsInit'));
+  assert.ok(commandIds.includes('ngin.openProjectXmlSource'));
   assert.equal(commandIds.includes('ngin.metagen'), false);
 
   const activityViews = packageJson.contributes.views.ngin.map((entry: { id: string; name: string }) => `${entry.id}:${entry.name}`);
   assert.deepEqual(activityViews, ['nginWorkspace:Workspace']);
+  assert.equal(packageJson.contributes.customEditors[0].viewType, 'ngin.projectEditor');
+  assert.equal(packageJson.contributes.customEditors[0].priority, 'default');
 
   const snippets = JSON.parse(readFileSync(path.join(process.cwd(), 'snippets/ngin.code-snippets'), 'utf8'));
   assert.ok(snippets['Local Settings File']);
@@ -300,6 +314,124 @@ test('config input authoring renames and removes nested config inputs', () => {
   assert.equal(removed.changed, true);
   assert.doesNotMatch(removed.xml, /config\/copy\/dev\.cfg/);
   assert.match(removed.xml, /config\/app\.cfg/);
+});
+
+test('project editor authoring updates root attributes while preserving unknown XML', () => {
+  const xml = [
+    '<?xml version="1.0" encoding="utf-8"?>',
+    '<Project SchemaVersion="3" Name="Old" DefaultProfile="Runtime">',
+    '  <!-- keep this comment -->',
+    '  <Runtime />',
+    '  <Profiles><Profile Name="Runtime" /></Profiles>',
+    '</Project>'
+  ].join('\n');
+
+  const updated = updateProjectAttributes(xml, { name: 'New', template: 'Application', defaultProfile: 'Runtime' });
+  assert.match(updated, /Name="New"/);
+  assert.match(updated, /Template="Application"/);
+  assert.match(updated, /<!-- keep this comment -->/);
+  assert.match(updated, /<Runtime \/>/);
+});
+
+test('project editor authoring adds updates and deletes profiles', () => {
+  let xml = '<Project Name="App" DefaultProfile="Runtime"><Profiles><Profile Name="Runtime" /></Profiles></Project>';
+  xml = addProfile(xml, 'Tools');
+  assert.match(xml, /<Profile Name="Tools" \/>/);
+
+  xml = updateProfile(xml, {
+    originalName: 'Tools',
+    name: 'Diagnostics',
+    buildType: 'Debug',
+    operatingSystem: 'linux',
+    architecture: 'x64',
+    environment: 'dev',
+    launchExecutable: 'App',
+    launchWorkingDirectory: '.'
+  });
+  assert.match(xml, /<Profile Name="Diagnostics" BuildType="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev">/);
+  assert.match(xml, /<Launch Executable="App" WorkingDirectory="." \/>/);
+
+  xml = deleteProfile(xml, 'Runtime');
+  assert.doesNotMatch(xml, /Name="Runtime"/);
+  assert.match(xml, /DefaultProfile="Diagnostics"/);
+});
+
+test('project editor authoring manages active profile feature state', () => {
+  let xml = '<Project Name="App"><Profiles><Profile Name="Runtime" /></Profiles></Project>';
+  xml = setProfileFeatureState(xml, 'Runtime', 'NGIN.Core', 'Reflection', 'use');
+  assert.match(xml, /<Use Package="NGIN\.Core" Feature="Reflection" \/>/);
+
+  xml = setProfileFeatureState(xml, 'Runtime', 'NGIN.Core', 'Reflection', 'disable');
+  assert.doesNotMatch(xml, /<Use Package="NGIN\.Core" Feature="Reflection" \/>/);
+  assert.match(xml, /<Disable Package="NGIN\.Core" Feature="Reflection" \/>/);
+
+  xml = setProfileFeatureState(xml, 'Runtime', 'NGIN.Core', 'Reflection', 'inherit');
+  assert.doesNotMatch(xml, /Feature="Reflection"/);
+});
+
+test('project editor authoring manages package references inputs and environment variables', () => {
+  let xml = '<Project Name="App"><Profiles><Profile Name="Runtime" /></Profiles></Project>';
+  xml = setPackageReferences(xml, [{ name: 'NGIN.Core', version: '>=0.1.0 <0.2.0', optional: false }]);
+  assert.match(xml, /<Package Name="NGIN\.Core" Version="&gt;=0\.1\.0 &lt;0\.2\.0" Optional="false" \/>/);
+
+  xml = setInputEntries(xml, 'Sources', [{ mode: 'Directory', path: 'src' }]);
+  xml = setInputEntries(xml, 'Headers', [{ mode: 'File', path: 'include/App.hpp' }]);
+  assert.match(xml, /<Sources Path="src" \/>/);
+  assert.match(xml, /include\/App\.hpp/);
+
+  xml = setEnvironmentVariables(xml, 'dev', [
+    { name: 'TOKEN', fromLocalSetting: 'app.token', required: false, secret: true },
+    { name: 'SDK_ROOT', fromEnvironment: 'SDK_ROOT' }
+  ]);
+  assert.match(xml, /<Environment Name="dev">/);
+  assert.match(xml, /<Variable Name="TOKEN" FromLocalSetting="app\.token" Required="false" Secret="true" \/>/);
+  assert.match(xml, /<Variable Name="SDK_ROOT" FromEnvironment="SDK_ROOT" \/>/);
+});
+
+test('project editor authoring keeps root and profile references separate', () => {
+  let xml = [
+    '<Project Name="App">',
+    '  <Profiles>',
+    '    <Profile Name="Runtime">',
+    '      <References>',
+    '        <Package Name="Profile.Only" />',
+    '      </References>',
+    '    </Profile>',
+    '  </Profiles>',
+    '</Project>'
+  ].join('\n');
+
+  xml = setPackageReferences(xml, [{ name: 'Root.Only' }]);
+  assert.match(xml, /<Package Name="Root\.Only" \/>/);
+  assert.match(xml, /<Package Name="Profile\.Only" \/>/);
+});
+
+test('project editor model surfaces parse errors and resolved feature states', () => {
+  const invalid = buildProjectEditorModel('<Project>', '/repo/App.nginproj', 'file:///repo/App.nginproj');
+  assert.ok(invalid.parseError);
+
+  const model = buildProjectEditorModel(
+    [
+      '<Project Name="App" DefaultProfile="Runtime">',
+      '  <Profiles>',
+      '    <Profile Name="Runtime"><Features><Use Package="NGIN.Core" Feature="Reflection" /></Features></Profile>',
+      '  </Profiles>',
+      '</Project>'
+    ].join('\n'),
+    '/repo/App.nginproj',
+    'file:///repo/App.nginproj',
+    {
+      schemaVersion: 1,
+      packageFeatures: [
+        { package: 'NGIN.Core', feature: 'Reflection', state: 'selected' },
+        { package: 'NGIN.Core', feature: 'Missing', state: 'unavailable' }
+      ]
+    },
+    'Runtime'
+  );
+
+  assert.equal(model.features.find((feature) => feature.featureName === 'Reflection')?.state, 'use');
+  assert.equal(model.features.find((feature) => feature.featureName === 'Missing')?.readOnly, true);
 });
 
 test('executable resolution prefers staged manifest entries before bin fallback', () => {
