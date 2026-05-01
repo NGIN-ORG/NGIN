@@ -330,29 +330,9 @@ export class NginProjectEditorProvider implements vscode.CustomTextEditorProvide
       grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
       gap: 10px;
     }
-    .row {
-      border: 1px solid var(--border);
-      background: var(--panel-alt);
-    }
     .muted {
       color: var(--muted);
       font-size: 12px;
-    }
-    .row {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(120px, 1fr)) auto;
-      gap: 8px;
-      align-items: end;
-      padding: 10px;
-    }
-    .row.variable {
-      grid-template-columns: minmax(140px, 1fr) 150px minmax(180px, 1.3fr) 100px 100px auto;
-    }
-    .row.reference {
-      grid-template-columns: minmax(160px, 1.3fr) minmax(160px, 1fr) 100px auto;
-    }
-    .row.file-rule {
-      grid-template-columns: 130px minmax(160px, 1.4fr) minmax(160px, 1.2fr) minmax(140px, 1fr) 110px 110px 110px minmax(130px, 1fr) auto;
     }
     .details {
       display: grid;
@@ -425,6 +405,14 @@ export class NginProjectEditorProvider implements vscode.CustomTextEditorProvide
     .table strong {
       font-weight: 600;
     }
+    .table-row .row-action {
+      justify-self: start;
+      min-height: 24px;
+      padding: 2px 8px;
+    }
+    .table-row.clickable {
+      cursor: pointer;
+    }
     .split {
       display: grid;
       grid-template-columns: minmax(240px, 0.8fr) minmax(0, 1.2fr);
@@ -434,26 +422,6 @@ export class NginProjectEditorProvider implements vscode.CustomTextEditorProvide
     .list {
       display: grid;
       gap: 8px;
-    }
-    .profile-card {
-      text-align: left;
-      color: var(--fg);
-      background: var(--panel-alt);
-      border: 1px solid var(--border);
-      padding: 10px;
-    }
-    .profile-card.active {
-      border-color: var(--focus);
-      outline: 1px solid var(--focus);
-    }
-    .profile-card .details {
-      border: 0;
-      background: transparent;
-      grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
-    }
-    .profile-card .detail {
-      padding: 5px 0 0;
-      border: 0;
     }
     .feature {
       display: grid;
@@ -501,6 +469,16 @@ export class NginProjectEditorProvider implements vscode.CustomTextEditorProvide
       border: 1px solid var(--border);
       background: var(--panel);
       box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    }
+    .modal-panel.wide {
+      width: min(980px, calc(100vw - 32px));
+    }
+    .section-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
     }
     .segmented button {
       color: var(--fg);
@@ -562,7 +540,7 @@ export class NginProjectEditorProvider implements vscode.CustomTextEditorProvide
         border-right: 0;
         border-bottom: 1px solid var(--border);
       }
-      .row, .row.variable, .row.reference, .feature {
+      .feature {
         grid-template-columns: 1fr;
       }
     }
@@ -596,12 +574,21 @@ export class NginProjectEditorProvider implements vscode.CustomTextEditorProvide
     let showPackageDetailsDialog = false;
     let showAddPackageDialog = false;
     let selectedEnvironmentName = undefined;
+    let showProjectDialog = false;
+    let showAddProfileDialog = false;
+    let showProfileDialog = false;
+    let showRunDialog = false;
+    let showInputRuleDialog = false;
+    let editingInputIndex = undefined;
+    let showVariableDialog = false;
+    let editingVariableIndex = undefined;
+    let showEnvironmentDialog = false;
 
     const tabs = [
       ['project', 'Project'],
       ['profiles', 'Build Profiles'],
       ['inputs', 'Source Files'],
-      ['packages', 'Dependencies'],
+      ['packages', 'Packages'],
       ['run', 'Run'],
       ['environment', 'Environment'],
       ['advanced', 'Advanced']
@@ -706,72 +693,72 @@ export class NginProjectEditorProvider implements vscode.CustomTextEditorProvide
       return '<section id="section-' + id + '" class="' + (id === activeTab ? 'active' : '') + '">' + body + '</section>';
     }
 
-    function statusDetails() {
-      const resolved = model.resolved;
-      return details([
-        detail('Profile', resolved.profileName || model.activeProfile),
-        detail('Build', resolved.buildType),
-        detail('Platform', resolved.platform || [resolved.operatingSystem, resolved.architecture].filter(Boolean).join('-')),
-        detail('Environment', resolved.environment),
-        detail('Errors', resolved.diagnosticErrorCount, resolved.diagnosticErrorCount ? 'err' : 'ok'),
-        detail('Warnings', resolved.diagnosticWarningCount, resolved.diagnosticWarningCount ? 'warn' : '')
-      ]);
-    }
-
     function renderProject() {
       const resolved = model.resolved;
-      const unsupported = model.unsupportedSections.length
-        ? table(['Section', 'Editor'], model.unsupportedSections.map((name) => [name, 'XML source']), 'No advanced XML-only sections in this file.', 'minmax(160px, 1fr) minmax(160px, 1fr)')
-        : '<div class="muted">No advanced XML-only sections in this file.</div>';
+      const projectRows = [
+        ['Name', model.project.name || resolved.projectName || ''],
+        ['Template', model.project.template || resolved.projectType || ''],
+        ['Default Profile', model.project.defaultProfile || ''],
+        ['Workspace', resolved.workspaceName || '']
+      ].filter((row) => row[1]);
+      const activeRows = [
+        ['Profile', resolved.profileName || model.activeProfile || ''],
+        ['Build', resolved.buildType || ''],
+        ['Platform', resolved.platform || [resolved.operatingSystem, resolved.architecture].filter(Boolean).join('-')],
+        ['Environment', resolved.environment || '']
+      ].filter((row) => row[1]);
+      return '<div class="band"><div class="section-actions"><h2>Project</h2><button class="secondary" id="edit-project">Edit</button></div>' +
+        table(['Property', 'Value'], projectRows, 'No project properties.', '180px minmax(240px, 1fr)') + '</div>' +
+        '<div class="band"><h2>Active Profile</h2>' +
+        table(['Property', 'Value'], activeRows, 'No active profile.', '180px minmax(240px, 1fr)') + '</div>' +
+        renderProjectDialog();
+    }
 
-      return '<div class="band"><h2>Project Properties</h2><div class="grid">' +
+    function renderProjectDialog() {
+      if (!showProjectDialog) return '';
+      return '<div class="modal-backdrop"><div class="modal-panel">' +
+        '<h2>Edit Project</h2><div class="grid">' +
         field('project-name', 'Name', model.project.name) +
         selectField('project-template', 'Template', ['Application', 'Library', 'Tool', model.project.template], model.project.template, '') +
         selectField('project-default-profile', 'Default Profile', profileNames(), model.project.defaultProfile, '') +
-        '</div><div class="actions"><button id="save-project">Apply Project Properties</button></div></div>' +
-        '<div class="band"><h2>Selected Profile</h2>' + statusDetails() + '</div>' +
-        '<div class="band"><h2>Project Summary</h2>' + details([
-        detail('Package References', resolved.packageCount),
-        detail('Enabled Features', resolved.activeFeatureCount + ' / ' + resolved.featureCount),
-        detail('Code Generators', resolved.activeGeneratorCount + ' / ' + resolved.generatorCount),
-        detail('Files Staged', resolved.stagedFileCount),
-        detail('Environment Variables', resolved.environmentVariableCount)
-        ]) + '</div>' +
-        '<div class="band"><h2>Output</h2>' + details([
-        detail('Workspace', resolved.workspaceName),
-        detail('Project type', resolved.projectType),
-        detail('Output folder', resolved.outputDir),
-        detail('Executable', resolved.launchExecutable),
-        detail('Working directory', resolved.launchWorkingDirectory)
-        ]) + '</div>' +
-        '<div class="band"><h2>Advanced XML Sections</h2>' + unsupported + '</div>';
+        '</div><div class="actions"><button id="save-project">Save</button><button class="secondary" id="cancel-project">Cancel</button></div>' +
+        '</div></div>';
     }
 
     function renderProfiles() {
       const selected = currentProfile();
-      const profileList = model.profiles.length
-        ? model.profiles.map((profile) => renderProfileCard(profile, selected?.name)).join('')
-        : '<div class="empty">No profiles.</div>';
-      const editor = selected ? renderProfileEditor(selected) : '';
-      return '<div class="split"><div class="band"><h2>Build Profiles</h2><div class="list">' + profileList +
-        '</div><div class="row-actions inline"><input id="new-profile-name" placeholder="New profile name"><button class="secondary" id="add-profile">Add Profile</button></div></div>' +
-        '<div class="band">' + editor + '</div></div>';
+      return '<div class="band"><div class="section-actions"><h2>Build Profiles</h2><button class="secondary" id="show-add-profile">Add Profile</button></div>' +
+        renderProfileTable(selected?.name) + '</div>' +
+        renderAddProfileDialog() +
+        renderProfileDialog();
     }
 
-    function renderProfileCard(profile, selectedName) {
-      return '<button class="profile-card ' + (profile.name === selectedName ? 'active' : '') + '" data-profile="' + esc(profile.name) + '">' +
-        '<h3>' + esc(profile.name) + '</h3>' +
-        details([
-          detail('Template', profile.template),
-          detail('Build', profile.buildType || model.resolved.buildType),
-          detail('Platform', profile.platform || model.resolved.platform),
-          detail('Environment', profile.environment || model.resolved.environment)
-        ], 'No profile values.') +
-        '</button>';
+    function renderProfileTable(selectedName) {
+      if (!model.profiles.length) {
+        return '<div class="empty">No profiles.</div>';
+      }
+      const style = ' style="--columns: minmax(180px, 1fr) 120px minmax(140px, 1fr) minmax(140px, 1fr);"';
+      return '<div class="table">' +
+        '<div class="table-row table-head"' + style + '>' + cell('Name') + cell('Build') + cell('Platform') + cell('Settings') + '</div>' +
+        model.profiles.map((profile) => '<div class="table-row selectable ' + (profile.name === selectedName ? 'active' : '') + '" data-profile="' + esc(profile.name) + '" data-edit-profile' + style + '>' +
+          cell(profile.name) + cell(profile.buildType || '') + cell(profile.platform || [profile.operatingSystem, profile.architecture].filter(Boolean).join('-')) + cell(profile.environment || '') +
+          '</div>').join('') +
+        '</div>';
     }
 
-    function renderProfileEditor(profile) {
-      return '<h2>' + esc(profile.name) + '</h2><div class="grid">' +
+    function renderAddProfileDialog() {
+      if (!showAddProfileDialog) return '';
+      return '<div class="modal-backdrop"><div class="modal-panel">' +
+        '<h2>Add Profile</h2>' + field('new-profile-name', 'Name', '', ' placeholder="Runtime"') +
+        '<div class="actions"><button id="add-profile">Add</button><button class="secondary" id="cancel-add-profile">Cancel</button></div>' +
+        '</div></div>';
+    }
+
+    function renderProfileDialog() {
+      if (!showProfileDialog) return '';
+      const profile = currentProfile();
+      if (!profile) return '';
+      return '<div class="modal-backdrop"><div class="modal-panel wide"><h2>Edit Profile</h2><div class="grid">' +
         field('profile-name', 'Name', profile.name) +
         field('profile-template', 'Template', profile.template) +
         selectField('profile-build-type', 'Build Type', ['Debug', 'Release', 'RelWithDebInfo', 'MinSizeRel', profile.buildType], profile.buildType, '') +
@@ -781,7 +768,8 @@ export class NginProjectEditorProvider implements vscode.CustomTextEditorProvide
         selectField('profile-env', 'Environment', model.environments.map((env) => env.name).concat(profile.environment || []), profile.environment, '') +
         field('profile-launch-executable', 'Launch Executable', profile.launchExecutable) +
         field('profile-launch-working-directory', 'Launch Working Directory', profile.launchWorkingDirectory) +
-        '</div><div class="actions"><button id="save-profile">Apply Build Profile</button><button class="secondary" id="delete-profile">Delete Profile</button></div>';
+        '</div><div class="actions"><button id="save-profile">Save</button><button class="secondary" id="delete-profile">Delete</button><button class="secondary" id="cancel-profile">Cancel</button></div>' +
+        '</div></div>';
     }
 
     function selectedInputEntries() {
@@ -805,38 +793,97 @@ export class NginProjectEditorProvider implements vscode.CustomTextEditorProvide
 
     function renderInputs() {
       const resolvedInputs = table(
-        ['Type', 'Path', 'Rule', 'From', 'Staged As'],
+        ['Type', 'Path', 'From', 'Staged As'],
         model.resolved.inputs.map((entry) => [
           entry.kind,
           entry.source || '',
-          entry.mode || '',
           entry.ownerName || '',
           entry.stagedRelativePath || ''
         ]),
         'No files are included for the selected profile.',
-        '120px minmax(220px, 1.4fr) 120px minmax(180px, 1fr) minmax(220px, 1fr)'
+        '120px minmax(240px, 1.4fr) minmax(160px, 1fr) minmax(240px, 1fr)'
       );
-      return '<div class="band"><h2>Files Included For Selected Profile</h2>' + resolvedInputs + '</div>' +
-        '<div class="band"><h2>File Rules</h2><div class="inline">' + renderScopeButtons(activeInputScope, true, 'input-scope') + renderBlockButtons() + '</div>' +
-        '<div id="input-list" class="list">' + selectedInputEntries().map((entry) => inputRow(entry)).join('') + '</div>' +
-        '<div class="actions"><button class="secondary" id="add-input">Add File Rule</button><button id="save-inputs">Apply File Rules</button></div></div>';
+      return '<div class="band"><h2>Included Files</h2>' + resolvedInputs + '</div>' +
+        '<div class="band"><div class="section-actions"><h2>Rules</h2><button class="secondary" id="show-add-input">Add Rule</button></div>' +
+        '<div class="inline">' + renderScopeButtons(activeInputScope, true, 'input-scope') + renderBlockButtons() + '</div>' +
+        renderInputRuleTable() + '</div>' +
+        renderInputRuleDialog();
     }
 
-    function inputRow(values) {
-      return '<div class="row file-rule" data-row="input">' +
-        '<label><span>Rule</span><select><option value="Directory"' + (values.mode === 'Directory' ? ' selected' : '') + '>Folder scan</option><option value="File"' + (values.mode === 'File' ? ' selected' : '') + '>Single file</option><option value="Glob"' + (values.mode === 'Glob' ? ' selected' : '') + '>Glob pattern</option></select></label>' +
-        '<label><span>Path / root</span><input value="' + esc(values.path) + '" placeholder="src or src/main.cpp"></label>' +
-        '<label><span>Include pattern</span><input value="' + esc(values.include) + '" placeholder="**/*.cpp;**/*.hpp"></label>' +
-        '<label><span>Exclude pattern</span><input value="' + esc(values.exclude) + '" placeholder="**/*.generated.cpp"></label>' +
-        '<label><span>OS</span><select><option value=""></option><option value="linux"' + (values.operatingSystem === 'linux' ? ' selected' : '') + '>Linux</option><option value="windows"' + (values.operatingSystem === 'windows' ? ' selected' : '') + '>Windows</option><option value="macos"' + (values.operatingSystem === 'macos' ? ' selected' : '') + '>macOS</option></select></label>' +
-        '<label><span>Arch</span><select><option value=""></option><option value="x64"' + (values.architecture === 'x64' ? ' selected' : '') + '>x64</option><option value="arm64"' + (values.architecture === 'arm64' ? ' selected' : '') + '>arm64</option></select></label>' +
-        '<label><span>Build</span><select><option value=""></option><option value="Debug"' + (values.buildType === 'Debug' ? ' selected' : '') + '>Debug</option><option value="Release"' + (values.buildType === 'Release' ? ' selected' : '') + '>Release</option><option value="RelWithDebInfo"' + (values.buildType === 'RelWithDebInfo' ? ' selected' : '') + '>RelWithDebInfo</option></select></label>' +
-        '<label><span>Condition</span><input value="' + esc(values.condition) + '" placeholder="DesktopDebug"></label>' +
-        '<button class="secondary" data-remove-row>Remove</button></div>';
+    function renderInputRuleTable() {
+      const entries = selectedInputEntries();
+      if (!entries.length) {
+        return '<div class="empty">No rules for this scope.</div>';
+      }
+      const style = ' style="--columns: 120px minmax(220px, 1fr) minmax(260px, 1.4fr) 96px;"';
+      return '<div class="table">' +
+        '<div class="table-row table-head"' + style + '>' + cell('Rule') + cell('Path') + cell('Applies When') + cell('') + '</div>' +
+        entries.map((entry, index) => '<div class="table-row selectable"' + style + ' data-input-index="' + index + '">' +
+          cell(inputRuleKind(entry)) + cell(inputRulePath(entry)) + cell(inputRuleWhen(entry)) +
+          '<div><button class="secondary row-action" data-input-remove="' + index + '">Remove</button></div>' +
+          '</div>').join('') +
+        '</div>';
     }
 
-    function selectedReferences() {
-      return activeReferenceScope ? model.profiles.find((profile) => profile.name === activeReferenceScope)?.packageReferences || [] : model.project.packageReferences;
+    function inputRuleKind(entry) {
+      if (entry.mode === 'Directory') return 'Folder scan';
+      if (entry.mode === 'File') return 'Single file';
+      return 'Glob pattern';
+    }
+
+    function inputRulePath(entry) {
+      if (entry.mode === 'Glob') return entry.include || '';
+      const include = entry.include ? ' include ' + entry.include : '';
+      const exclude = entry.exclude ? ' exclude ' + entry.exclude : '';
+      return clean(entry.path) + include + exclude;
+    }
+
+    function inputRuleWhen(entry) {
+      const values = [
+        entry.platform,
+        entry.operatingSystem,
+        entry.architecture,
+        entry.buildType,
+        entry.environment ? 'settings ' + entry.environment : undefined,
+        entry.condition
+      ].filter(Boolean);
+      return values.length ? values.join(', ') : 'Always';
+    }
+
+    function renderInputRuleDialog() {
+      if (!showInputRuleDialog) return '';
+      const entry = editingInputIndex === undefined ? { mode: 'Directory' } : selectedInputEntries()[editingInputIndex] || { mode: 'Directory' };
+      return '<div class="modal-backdrop"><div class="modal-panel wide">' +
+        '<h2>' + (editingInputIndex === undefined ? 'Add Rule' : 'Edit Rule') + '</h2><div class="grid">' +
+        '<label><span>Rule</span><select id="input-mode"><option value="Directory"' + (entry.mode === 'Directory' ? ' selected' : '') + '>Folder scan</option><option value="File"' + (entry.mode === 'File' ? ' selected' : '') + '>Single file</option><option value="Glob"' + (entry.mode === 'Glob' ? ' selected' : '') + '>Glob pattern</option></select></label>' +
+        field('input-path', 'Path / root', entry.path, ' placeholder="src or src/main.cpp"') +
+        field('input-include', 'Include pattern', entry.include, ' placeholder="**/*.cpp;**/*.hpp"') +
+        field('input-exclude', 'Exclude pattern', entry.exclude, ' placeholder="**/*.generated.cpp"') +
+        selectField('input-os', 'Operating System', ['linux', 'windows', 'macos', entry.operatingSystem], entry.operatingSystem, '') +
+        selectField('input-arch', 'Architecture', ['x64', 'arm64', entry.architecture], entry.architecture, '') +
+        selectField('input-build', 'Build Type', ['Debug', 'Release', 'RelWithDebInfo', 'MinSizeRel', entry.buildType], entry.buildType, '') +
+        selectField('input-env', 'Settings', model.environments.map((env) => env.name).concat(entry.environment || []), entry.environment, '') +
+        field('input-condition', 'Condition', entry.condition) +
+        '</div><div class="actions"><button id="confirm-input-rule">Save</button><button class="secondary" id="cancel-input-rule">Cancel</button></div>' +
+        '</div></div>';
+    }
+
+    function collectInputDialog() {
+      return {
+        mode: byId('input-mode').value,
+        path: optional(byId('input-path').value),
+        include: optional(byId('input-include').value),
+        exclude: optional(byId('input-exclude').value),
+        operatingSystem: optional(byId('input-os').value),
+        architecture: optional(byId('input-arch').value),
+        buildType: optional(byId('input-build').value),
+        environment: optional(byId('input-env').value),
+        condition: optional(byId('input-condition').value)
+      };
+    }
+
+    function hasInputRuleValue(entry) {
+      return entry.path !== undefined || entry.include !== undefined || entry.exclude !== undefined;
     }
 
     function referencesForScope(scope) {
@@ -909,14 +956,6 @@ export class NginProjectEditorProvider implements vscode.CustomTextEditorProvide
         renderAddPackageDialog();
     }
 
-    function referenceRow(values) {
-      return '<div class="row reference" data-row="reference">' +
-        '<label><span>Package</span><input value="' + esc(values.name) + '"></label>' +
-        '<label><span>Version</span><input value="' + esc(values.version) + '"></label>' +
-        '<label><span>Optional</span><select><option value=""></option><option value="true"' + (values.optional ? ' selected' : '') + '>Yes</option><option value="false"' + (values.optional === false ? ' selected' : '') + '>No</option></select></label>' +
-        '<button class="secondary" data-remove-row>Remove</button></div>';
-    }
-
     function renderFeature(feature) {
       const states = [
         ['inherit', 'Default', 'Follow the package and profile defaults', 'state-default'],
@@ -944,16 +983,25 @@ export class NginProjectEditorProvider implements vscode.CustomTextEditorProvide
 
     function renderRun() {
       const profile = currentProfile();
-      return '<div class="band"><h2>Run Target</h2><div class="grid">' +
+      const rows = [
+        ['Profile', profile?.name || model.activeProfile || ''],
+        ['Executable', profile?.launchExecutable || model.resolved.launchExecutable || ''],
+        ['Working Directory', profile?.launchWorkingDirectory || model.resolved.launchWorkingDirectory || ''],
+        ['Output Folder', model.resolved.outputDir || '']
+      ].filter((row) => row[1]);
+      return '<div class="band"><div class="section-actions"><h2>Run Target</h2><button class="secondary" id="edit-run">Edit Project Default</button></div>' +
+        table(['Property', 'Value'], rows, 'No run target.', '180px minmax(260px, 1fr)') + '</div>' +
+        renderRunDialog();
+    }
+
+    function renderRunDialog() {
+      if (!showRunDialog) return '';
+      return '<div class="modal-backdrop"><div class="modal-panel">' +
+        '<h2>Edit Project Run Target</h2><div class="grid">' +
         field('root-launch-executable', 'Executable', model.project.launchExecutable || model.resolved.launchExecutable) +
         field('root-launch-working-directory', 'Working Directory', model.project.launchWorkingDirectory || model.resolved.launchWorkingDirectory) +
-        '</div><div class="actions"><button id="save-root-launch">Apply Project Run Target</button></div></div>' +
-        '<div class="band"><h2>Selected Profile Run Target</h2>' + details([
-        detail('Profile', profile?.name),
-        detail('Executable', profile?.launchExecutable || model.resolved.launchExecutable),
-        detail('Working directory', profile?.launchWorkingDirectory || model.resolved.launchWorkingDirectory),
-        detail('Output folder', model.resolved.outputDir)
-        ]) + '</div>';
+        '</div><div class="actions"><button id="save-root-launch">Save</button><button class="secondary" id="cancel-run">Cancel</button></div>' +
+        '</div></div>';
     }
 
     function selectedEnvironment() {
@@ -963,34 +1011,86 @@ export class NginProjectEditorProvider implements vscode.CustomTextEditorProvide
     function renderEnvironment() {
       const env = selectedEnvironment();
       const resolved = table(
-        ['Name', 'Source', 'Secret', 'Resolved'],
+        ['Name', 'Source', 'Resolved'],
         model.resolved.environmentVariables.map((variable) => [
           variable.name,
           variable.source || '',
-          variable.secret ? 'Yes' : 'No',
           variable.resolved === false ? 'No' : 'Yes'
         ]),
         'No variables are active for the selected profile.',
-        'minmax(180px, 1fr) minmax(180px, 1fr) 90px 100px'
+        'minmax(180px, 1fr) minmax(220px, 1.2fr) 100px'
       );
       const options = model.environments.length ? model.environments.map((entry) => '<option value="' + esc(entry.name) + '"' + (entry.name === env?.name ? ' selected' : '') + '>' + esc(entry.name) + '</option>').join('') : '<option value=""></option>';
-      return '<div class="band"><h2>Variables Active For Selected Profile</h2>' + resolved + '</div>' +
-        '<div class="band"><h2>Environment Definitions</h2><div class="grid"><label><span>Environment</span><select id="environment-select">' + options + '</select></label>' +
-        '<label><span>New Environment</span><input id="new-environment-name"></label></div><div id="variable-list" class="list">' +
-        ((env?.variables || []).map((entry) => variableRow(entry)).join('')) +
-        '</div><div class="actions"><button class="secondary" id="add-variable">Add Variable</button><button id="save-environment">Apply Environment Definition</button></div></div>';
+      return '<div class="band"><h2>Active Variables</h2>' + resolved + '</div>' +
+        '<div class="band"><div class="section-actions"><h2>Definitions</h2><div class="actions"><button class="secondary" id="show-add-environment">Add Environment</button><button class="secondary" id="show-add-variable">Add Variable</button></div></div>' +
+        '<label class="search-row"><span>Environment</span><select id="environment-select">' + options + '</select></label>' +
+        renderVariableTable(env) + '</div>' +
+        renderEnvironmentDialog() +
+        renderVariableDialog();
     }
 
-    function variableRow(values) {
-      const type = values.fromLocalSetting ? 'local' : values.fromEnvironment ? 'environment' : 'literal';
-      const sourceValue = values.fromLocalSetting || values.fromEnvironment || values.value || '';
-      return '<div class="row variable" data-row="variable">' +
-        '<label><span>Name</span><input value="' + esc(values.name) + '"></label>' +
-        '<label><span>Source</span><select><option value="literal"' + (type === 'literal' ? ' selected' : '') + '>Literal</option><option value="environment"' + (type === 'environment' ? ' selected' : '') + '>Environment</option><option value="local"' + (type === 'local' ? ' selected' : '') + '>Local Setting</option></select></label>' +
-        '<label><span>Value</span><input value="' + esc(sourceValue) + '"></label>' +
-        '<label><span>Required</span><select><option value=""></option><option value="true"' + (values.required ? ' selected' : '') + '>Yes</option><option value="false"' + (values.required === false ? ' selected' : '') + '>No</option></select></label>' +
-        '<label><span>Secret</span><select><option value=""></option><option value="true"' + (values.secret ? ' selected' : '') + '>Yes</option><option value="false"' + (values.secret === false ? ' selected' : '') + '>No</option></select></label>' +
-        '<button class="secondary" data-remove-row>Remove</button></div>';
+    function renderVariableTable(env) {
+      const variables = env?.variables || [];
+      if (!env) {
+        return '<div class="empty">No environments defined.</div>';
+      }
+      if (!variables.length) {
+        return '<div class="empty">No variables in this environment.</div>';
+      }
+      const style = ' style="--columns: minmax(180px, 1fr) minmax(220px, 1.2fr) 100px 100px;"';
+      return '<div class="table">' +
+        '<div class="table-row table-head"' + style + '>' + cell('Name') + cell('Source') + cell('Required') + cell('') + '</div>' +
+        variables.map((variable, index) => '<div class="table-row selectable"' + style + ' data-variable-index="' + index + '">' +
+          cell(variable.name) + cell(variableSourceLabel(variable)) + cell(variable.required === undefined ? '' : variable.required ? 'Yes' : 'No') +
+          '<div><button class="secondary row-action" data-variable-remove="' + index + '">Remove</button></div>' +
+          '</div>').join('') +
+        '</div>';
+    }
+
+    function variableSourceLabel(variable) {
+      if (variable.fromLocalSetting) return 'Local setting: ' + variable.fromLocalSetting;
+      if (variable.fromEnvironment) return 'Environment: ' + variable.fromEnvironment;
+      return variable.secret ? 'Value: secret' : 'Value';
+    }
+
+    function renderEnvironmentDialog() {
+      if (!showEnvironmentDialog) return '';
+      return '<div class="modal-backdrop"><div class="modal-panel">' +
+        '<h2>Add Environment</h2>' + field('new-environment-name', 'Name', '', ' placeholder="local"') +
+        '<div class="actions"><button id="confirm-add-environment">Add</button><button class="secondary" id="cancel-add-environment">Cancel</button></div>' +
+        '</div></div>';
+    }
+
+    function renderVariableDialog() {
+      if (!showVariableDialog) return '';
+      const env = selectedEnvironment();
+      const variable = editingVariableIndex === undefined ? {} : env?.variables[editingVariableIndex] || {};
+      const type = variable.fromLocalSetting ? 'local' : variable.fromEnvironment ? 'environment' : 'literal';
+      const sourceValue = variable.fromLocalSetting || variable.fromEnvironment || variable.value || '';
+      return '<div class="modal-backdrop"><div class="modal-panel">' +
+        '<h2>' + (editingVariableIndex === undefined ? 'Add Variable' : 'Edit Variable') + '</h2><div class="grid">' +
+        field('variable-name', 'Name', variable.name) +
+        '<label><span>Source</span><select id="variable-source"><option value="literal"' + (type === 'literal' ? ' selected' : '') + '>Value</option><option value="environment"' + (type === 'environment' ? ' selected' : '') + '>From environment variable</option><option value="local"' + (type === 'local' ? ' selected' : '') + '>From local setting</option></select></label>' +
+        field('variable-value', 'Value / Key', sourceValue) +
+        '<label><span>Required</span><select id="variable-required"><option value=""></option><option value="true"' + (variable.required ? ' selected' : '') + '>Yes</option><option value="false"' + (variable.required === false ? ' selected' : '') + '>No</option></select></label>' +
+        '<label><span>Secret</span><select id="variable-secret"><option value=""></option><option value="true"' + (variable.secret ? ' selected' : '') + '>Yes</option><option value="false"' + (variable.secret === false ? ' selected' : '') + '>No</option></select></label>' +
+        '</div><div class="actions"><button id="confirm-variable">Save</button><button class="secondary" id="cancel-variable">Cancel</button></div>' +
+        '</div></div>';
+    }
+
+    function collectVariableDialog() {
+      const sourceType = byId('variable-source').value;
+      const sourceValue = optional(byId('variable-value').value);
+      const requiredValue = optional(byId('variable-required').value);
+      const secretValue = optional(byId('variable-secret').value);
+      return {
+        name: optional(byId('variable-name').value),
+        value: sourceType === 'literal' ? sourceValue : undefined,
+        fromEnvironment: sourceType === 'environment' ? sourceValue : undefined,
+        fromLocalSetting: sourceType === 'local' ? sourceValue : undefined,
+        required: requiredValue === undefined ? undefined : requiredValue === 'true',
+        secret: secretValue === undefined ? undefined : secretValue === 'true'
+      };
     }
 
     function renderAdvanced() {
@@ -1010,52 +1110,38 @@ export class NginProjectEditorProvider implements vscode.CustomTextEditorProvide
       }).join('') + '</div></div>';
     }
 
-    function collectRows(kind) {
-      return Array.from(document.querySelectorAll('[data-row="' + kind + '"]')).map((node) => {
-        const inputs = Array.from(node.querySelectorAll('input, select'));
-        if (kind === 'reference') {
-          return {
-            name: optional(inputs[0].value),
-            version: optional(inputs[1].value),
-            optional: optional(inputs[2].value) === undefined ? undefined : inputs[2].value === 'true'
-          };
-        }
-        if (kind === 'variable') {
-          const sourceType = inputs[1].value;
-          const sourceValue = optional(inputs[2].value);
-          return {
-            name: optional(inputs[0].value),
-            value: sourceType === 'literal' ? sourceValue : undefined,
-            fromEnvironment: sourceType === 'environment' ? sourceValue : undefined,
-            fromLocalSetting: sourceType === 'local' ? sourceValue : undefined,
-            required: optional(inputs[3].value) === undefined ? undefined : inputs[3].value === 'true',
-            secret: optional(inputs[4].value) === undefined ? undefined : inputs[4].value === 'true'
-          };
-        }
-        return {
-          mode: inputs[0].value,
-          path: optional(inputs[1].value),
-          include: optional(inputs[2].value),
-          exclude: optional(inputs[3].value),
-          operatingSystem: optional(inputs[4].value),
-          architecture: optional(inputs[5].value),
-          buildType: optional(inputs[6].value),
-          condition: optional(inputs[7].value)
-        };
-      }).filter((entry) => entry.name !== undefined || entry.path !== undefined || entry.include !== undefined);
-    }
-
     document.addEventListener('click', (event) => {
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
       const packageTarget = target.closest('[data-package-select]');
+      const profileTarget = target.closest('[data-edit-profile]');
+      const inputTarget = target.closest('[data-input-index]');
+      const variableTarget = target.closest('[data-variable-index]');
       if (target.matches('[data-tab]')) {
         activeTab = target.dataset.tab;
         render();
       }
-      if (target.matches('[data-profile]')) {
-        selectedProfileName = target.dataset.profile;
+      if (target.matches('[data-input-remove]')) {
+        const index = Number(target.dataset.inputRemove);
+        const entries = selectedInputEntries().slice();
+        entries.splice(index, 1);
+        post({ type: 'setInputEntries', profileName: optional(activeInputScope), block: activeInputBlock, entries });
+        return;
+      }
+      if (target.matches('[data-variable-remove]')) {
+        const index = Number(target.dataset.variableRemove);
+        const env = selectedEnvironment();
+        if (env) {
+          const variables = env.variables.slice();
+          variables.splice(index, 1);
+          post({ type: 'setEnvironmentVariables', environmentName: env.name, variables });
+        }
+        return;
+      }
+      if (profileTarget instanceof HTMLElement) {
+        selectedProfileName = profileTarget.dataset.profile;
         model.activeProfile = selectedProfileName;
+        showProfileDialog = true;
         render();
       }
       if (target.matches('[data-input-scope]')) {
@@ -1075,15 +1161,90 @@ export class NginProjectEditorProvider implements vscode.CustomTextEditorProvide
         showPackageDetailsDialog = true;
         render();
       }
+      if (inputTarget instanceof HTMLElement) {
+        editingInputIndex = Number(inputTarget.dataset.inputIndex);
+        showInputRuleDialog = true;
+        render();
+      }
+      if (variableTarget instanceof HTMLElement) {
+        editingVariableIndex = Number(variableTarget.dataset.variableIndex);
+        showVariableDialog = true;
+        render();
+      }
       if (target.id === 'open-source') post({ type: 'openSource' });
       if (target.id === 'validate') post({ type: 'validate' });
-      if (target.id === 'save-project') post({ type: 'updateProject', name: optional(byId('project-name').value), template: optional(byId('project-template').value), defaultProfile: optional(byId('project-default-profile').value) });
-      if (target.id === 'save-root-launch') post({ type: 'setRootLaunch', executable: optional(byId('root-launch-executable').value), workingDirectory: optional(byId('root-launch-working-directory').value) });
-      if (target.id === 'add-profile') post({ type: 'addProfile', name: byId('new-profile-name').value });
-      if (target.id === 'delete-profile') post({ type: 'deleteProfile', name: currentProfile()?.name });
-      if (target.id === 'save-profile') post({ type: 'updateProfile', originalName: currentProfile()?.name, name: optional(byId('profile-name').value), template: optional(byId('profile-template').value), buildType: optional(byId('profile-build-type').value), platform: optional(byId('profile-platform').value), operatingSystem: optional(byId('profile-os').value), architecture: optional(byId('profile-arch').value), environment: optional(byId('profile-env').value), launchExecutable: optional(byId('profile-launch-executable').value), launchWorkingDirectory: optional(byId('profile-launch-working-directory').value) });
-      if (target.id === 'add-input') byId('input-list').insertAdjacentHTML('beforeend', inputRow({ mode: 'Directory' }));
-      if (target.id === 'save-inputs') post({ type: 'setInputEntries', profileName: optional(activeInputScope), block: activeInputBlock, entries: collectRows('input') });
+      if (target.id === 'edit-project') {
+        showProjectDialog = true;
+        render();
+      }
+      if (target.id === 'cancel-project') {
+        showProjectDialog = false;
+        render();
+      }
+      if (target.id === 'save-project') {
+        showProjectDialog = false;
+        post({ type: 'updateProject', name: optional(byId('project-name').value), template: optional(byId('project-template').value), defaultProfile: optional(byId('project-default-profile').value) });
+      }
+      if (target.id === 'edit-run') {
+        showRunDialog = true;
+        render();
+      }
+      if (target.id === 'cancel-run') {
+        showRunDialog = false;
+        render();
+      }
+      if (target.id === 'save-root-launch') {
+        showRunDialog = false;
+        post({ type: 'setRootLaunch', executable: optional(byId('root-launch-executable').value), workingDirectory: optional(byId('root-launch-working-directory').value) });
+      }
+      if (target.id === 'show-add-profile') {
+        showAddProfileDialog = true;
+        render();
+      }
+      if (target.id === 'cancel-add-profile') {
+        showAddProfileDialog = false;
+        render();
+      }
+      if (target.id === 'add-profile') {
+        showAddProfileDialog = false;
+        post({ type: 'addProfile', name: byId('new-profile-name').value });
+      }
+      if (target.id === 'cancel-profile') {
+        showProfileDialog = false;
+        render();
+      }
+      if (target.id === 'delete-profile') {
+        showProfileDialog = false;
+        post({ type: 'deleteProfile', name: currentProfile()?.name });
+      }
+      if (target.id === 'save-profile') {
+        showProfileDialog = false;
+        post({ type: 'updateProfile', originalName: currentProfile()?.name, name: optional(byId('profile-name').value), template: optional(byId('profile-template').value), buildType: optional(byId('profile-build-type').value), platform: optional(byId('profile-platform').value), operatingSystem: optional(byId('profile-os').value), architecture: optional(byId('profile-arch').value), environment: optional(byId('profile-env').value), launchExecutable: optional(byId('profile-launch-executable').value), launchWorkingDirectory: optional(byId('profile-launch-working-directory').value) });
+      }
+      if (target.id === 'show-add-input') {
+        editingInputIndex = undefined;
+        showInputRuleDialog = true;
+        render();
+      }
+      if (target.id === 'cancel-input-rule') {
+        showInputRuleDialog = false;
+        editingInputIndex = undefined;
+        render();
+      }
+      if (target.id === 'confirm-input-rule') {
+        const entries = selectedInputEntries().slice();
+        const entry = collectInputDialog();
+        if (hasInputRuleValue(entry)) {
+          if (editingInputIndex === undefined) {
+            entries.push(entry);
+          } else {
+            entries[editingInputIndex] = entry;
+          }
+        }
+        showInputRuleDialog = false;
+        editingInputIndex = undefined;
+        post({ type: 'setInputEntries', profileName: optional(activeInputScope), block: activeInputBlock, entries });
+      }
       if (target.id === 'add-reference') {
         showAddPackageDialog = true;
         render();
@@ -1111,19 +1272,54 @@ export class NginProjectEditorProvider implements vscode.CustomTextEditorProvide
           post({ type: 'setPackageReferences', profileName: referenceScope, references: nextReferences });
         }
       }
-      if (target.id === 'save-references') post({ type: 'setPackageReferences', profileName: optional(activeReferenceScope), references: collectRows('reference') });
-      if (target.id === 'add-variable') byId('variable-list').insertAdjacentHTML('beforeend', variableRow({}));
-      if (target.id === 'save-environment') {
-        const environmentName = optional(byId('new-environment-name').value) || optional(byId('environment-select').value);
-        post({ type: 'setEnvironmentVariables', environmentName, variables: collectRows('variable') });
+      if (target.id === 'show-add-environment') {
+        showEnvironmentDialog = true;
+        render();
+      }
+      if (target.id === 'cancel-add-environment') {
+        showEnvironmentDialog = false;
+        render();
+      }
+      if (target.id === 'confirm-add-environment') {
+        const environmentName = optional(byId('new-environment-name').value);
+        if (environmentName) {
+          selectedEnvironmentName = environmentName;
+          showEnvironmentDialog = false;
+          post({ type: 'setEnvironmentVariables', environmentName, variables: [] });
+        }
+      }
+      if (target.id === 'show-add-variable') {
+        editingVariableIndex = undefined;
+        showVariableDialog = true;
+        render();
+      }
+      if (target.id === 'cancel-variable') {
+        showVariableDialog = false;
+        editingVariableIndex = undefined;
+        render();
+      }
+      if (target.id === 'confirm-variable') {
+        const env = selectedEnvironment();
+        const environmentName = env?.name || optional(byId('environment-select')?.value);
+        if (environmentName) {
+          const variables = (env?.variables || []).slice();
+          const variable = collectVariableDialog();
+          if (variable.name) {
+            if (editingVariableIndex === undefined) {
+              variables.push(variable);
+            } else {
+              variables[editingVariableIndex] = variable;
+            }
+          }
+          showVariableDialog = false;
+          editingVariableIndex = undefined;
+          post({ type: 'setEnvironmentVariables', environmentName, variables });
+        }
       }
       if (target.matches('[data-feature-state]')) {
         if (model.activeProfile) {
           post({ type: 'setFeatureState', profileName: model.activeProfile, packageName: target.dataset.featurePackage, featureName: target.dataset.featureName, state: target.dataset.featureState });
         }
-      }
-      if (target.matches('[data-remove-row]')) {
-        target.closest('[data-row]')?.remove();
       }
     });
 
