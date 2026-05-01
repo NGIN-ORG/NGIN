@@ -31,6 +31,13 @@ export interface ProjectInputEdit {
   path?: string;
   include?: string;
   exclude?: string;
+  profile?: string;
+  platform?: string;
+  operatingSystem?: string;
+  architecture?: string;
+  buildType?: string;
+  environment?: string;
+  condition?: string;
 }
 
 export interface ProjectEnvironmentVariableEdit {
@@ -277,16 +284,33 @@ function formatPackageReference(reference: ProjectPackageReferenceEdit, indent: 
 }
 
 function formatInput(block: ProjectInputBlock, entry: ProjectInputEdit, indent: string): string {
+  const selectorAttributes = {
+    Profile: entry.profile,
+    Platform: entry.platform,
+    OperatingSystem: entry.operatingSystem,
+    Architecture: entry.architecture,
+    BuildType: entry.buildType,
+    Environment: entry.environment,
+    Condition: entry.condition
+  };
   if (entry.mode === 'Directory' && entry.path) {
-    return `${indent}<${block} Path="${escapeAttribute(entry.path)}" />`;
+    const tag = setAttributes(`<${block} />`, {
+      Path: entry.path,
+      Include: entry.include,
+      Exclude: entry.exclude,
+      ...selectorAttributes
+    });
+    return `${indent}${tag}`;
   }
   if (entry.mode === 'File' && entry.path) {
-    return `${indent}<${block}>\n${childIndent(indent)}${escapeAttribute(entry.path)}\n${indent}</${block}>`;
+    const tag = setAttributes(`<${block}>`, selectorAttributes);
+    return `${indent}${tag}\n${childIndent(indent)}${escapeAttribute(entry.path)}\n${indent}</${block}>`;
   }
   let tag = `<${block}`;
   tag = setAttributes(tag + ' />', {
     Include: entry.include,
-    Exclude: entry.exclude
+    Exclude: entry.exclude,
+    ...selectorAttributes
   });
   return `${indent}${tag}`;
 }

@@ -388,6 +388,38 @@ test('project editor authoring manages package references inputs and environment
   assert.match(xml, /<Variable Name="SDK_ROOT" FromEnvironment="SDK_ROOT" \/>/);
 });
 
+test('project editor authoring preserves selectors on file rules', () => {
+  const xml = setInputEntries('<Project Name="App"></Project>', 'Sources', [
+    {
+      mode: 'Directory',
+      path: 'src',
+      include: '**/*.cpp;**/*.hpp',
+      exclude: '**/*.generated.cpp',
+      operatingSystem: 'linux',
+      architecture: 'x64',
+      buildType: 'Debug',
+      condition: 'Desktop'
+    }
+  ]);
+
+  assert.match(xml, /<Sources Path="src" Include="\*\*\/\*\.cpp;\*\*\/\*\.hpp" Exclude="\*\*\/\*\.generated\.cpp" OperatingSystem="linux" Architecture="x64" BuildType="Debug" Condition="Desktop" \/>/);
+
+  const model = buildProjectEditorModel(xml, '/repo/App.nginproj', 'file:///repo/App.nginproj');
+  assert.deepEqual(model.project.inputs.Sources[0], {
+    mode: 'Directory',
+    path: 'src',
+    include: '**/*.cpp;**/*.hpp',
+    exclude: '**/*.generated.cpp',
+    profile: undefined,
+    platform: undefined,
+    operatingSystem: 'linux',
+    architecture: 'x64',
+    buildType: 'Debug',
+    environment: undefined,
+    condition: 'Desktop'
+  });
+});
+
 test('project editor authoring keeps root and profile references separate', () => {
   let xml = [
     '<Project Name="App">',
@@ -432,6 +464,48 @@ test('project editor model surfaces parse errors and resolved feature states', (
 
   assert.equal(model.features.find((feature) => feature.featureName === 'Reflection')?.state, 'use');
   assert.equal(model.features.find((feature) => feature.featureName === 'Missing')?.readOnly, true);
+});
+
+test('project editor model summarizes resolved inspect data for the project overview', () => {
+  const model = buildProjectEditorModel(
+    '<Project Name="App" DefaultProfile="Runtime"><Profiles><Profile Name="Runtime" /></Profiles></Project>',
+    '/repo/App.nginproj',
+    'file:///repo/App.nginproj',
+    {
+      schemaVersion: 1,
+      project: { name: 'App', type: 'Application' },
+      workspace: { name: 'Workspace' },
+      profile: { name: 'Runtime', buildType: 'Debug', platform: 'linux-x64', environment: 'dev' },
+      outputDir: '/repo/.ngin/build/App/Runtime',
+      packages: [{ name: 'NGIN.Core', version: '0.1.0', requiredBy: ['project'] }],
+      packageFeatures: [
+        { package: 'NGIN.Core', feature: 'Reflection', state: 'selected' },
+        { package: 'NGIN.Core', feature: 'Diagnostics', state: 'available' }
+      ],
+      generators: [
+        { name: 'ReflectionMetaGen', state: 'active' },
+        { name: 'WindowsOnly', state: 'excluded' }
+      ],
+      inputs: {
+        Source: [{ source: 'src', mode: 'Directory', ownerName: 'App' }]
+      },
+      launch: { executable: { name: 'App' }, workingDirectory: '.' },
+      stagedFiles: [{ kind: 'executable', relativeDestination: 'bin/App' }],
+      environmentVariables: [{ name: 'TOKEN', secret: true, resolved: true, source: 'local' }],
+      diagnostics: [{ severity: 'warning', message: 'example' }]
+    },
+    'Runtime'
+  );
+
+  assert.equal(model.resolved.workspaceName, 'Workspace');
+  assert.equal(model.resolved.outputDir, '/repo/.ngin/build/App/Runtime');
+  assert.equal(model.resolved.packageCount, 1);
+  assert.equal(model.resolved.activeFeatureCount, 1);
+  assert.equal(model.resolved.activeGeneratorCount, 1);
+  assert.equal(model.resolved.stagedFileCount, 1);
+  assert.equal(model.resolved.environmentVariableCount, 1);
+  assert.equal(model.resolved.diagnosticWarningCount, 1);
+  assert.deepEqual(model.resolved.inputs.map((entry) => `${entry.kind}:${entry.source}:${entry.mode}`), ['Source:src:Directory']);
 });
 
 test('executable resolution prefers staged manifest entries before bin fallback', () => {

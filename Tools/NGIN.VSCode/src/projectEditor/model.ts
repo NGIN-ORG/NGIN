@@ -83,6 +83,55 @@ export interface ProjectEditorFeature {
   readOnly?: boolean;
 }
 
+export interface ProjectEditorResolvedPackage {
+  name: string;
+  version?: string;
+  requiredBy: string[];
+  manifestPath?: string;
+}
+
+export interface ProjectEditorResolvedInput {
+  kind: string;
+  source?: string;
+  mode?: string;
+  ownerName?: string;
+  stagedRelativePath?: string;
+}
+
+export interface ProjectEditorResolvedEnvironmentVariable {
+  name: string;
+  source?: string;
+  secret?: boolean;
+  resolved?: boolean;
+}
+
+export interface ProjectEditorResolvedSummary {
+  projectName?: string;
+  projectType?: string;
+  workspaceName?: string;
+  profileName?: string;
+  buildType?: string;
+  platform?: string;
+  operatingSystem?: string;
+  architecture?: string;
+  environment?: string;
+  outputDir?: string;
+  launchExecutable?: string;
+  launchWorkingDirectory?: string;
+  packageCount: number;
+  featureCount: number;
+  activeFeatureCount: number;
+  generatorCount: number;
+  activeGeneratorCount: number;
+  stagedFileCount: number;
+  environmentVariableCount: number;
+  diagnosticErrorCount: number;
+  diagnosticWarningCount: number;
+  packages: ProjectEditorResolvedPackage[];
+  inputs: ProjectEditorResolvedInput[];
+  environmentVariables: ProjectEditorResolvedEnvironmentVariable[];
+}
+
 export interface ProjectEditorModel {
   uri: string;
   path: string;
@@ -102,6 +151,7 @@ export interface ProjectEditorModel {
   features: ProjectEditorFeature[];
   diagnostics: string[];
   unsupportedSections: string[];
+  resolved: ProjectEditorResolvedSummary;
 }
 
 function emptyInputs(): Record<ProjectInputBlock, ProjectInputEdit[]> {
@@ -147,36 +197,67 @@ function parseInputBlock(node: unknown, block: ProjectInputBlock): ProjectInputE
   const parent = node as { Inputs?: Record<string, unknown> } | undefined;
   const blocks = asArray(parent?.Inputs?.[block]);
   const entries: ProjectInputEdit[] = [];
+  const selectors = (value: {
+    Profile?: string;
+    Platform?: string;
+    OperatingSystem?: string;
+    Architecture?: string;
+    BuildType?: string;
+    Environment?: string;
+    Condition?: string;
+  } | undefined): Pick<ProjectInputEdit, 'profile' | 'platform' | 'operatingSystem' | 'architecture' | 'buildType' | 'environment' | 'condition'> => ({
+    profile: value?.Profile,
+    platform: value?.Platform,
+    operatingSystem: value?.OperatingSystem,
+    architecture: value?.Architecture,
+    buildType: value?.BuildType,
+    environment: value?.Environment,
+    condition: value?.Condition
+  });
   for (const rawBlock of blocks) {
-    const value = rawBlock as { Path?: string; Include?: string; Exclude?: string; File?: unknown; Directory?: unknown; Glob?: unknown } | undefined;
+    const value = rawBlock as {
+      Path?: string;
+      Include?: string;
+      Exclude?: string;
+      File?: unknown;
+      Directory?: unknown;
+      Glob?: unknown;
+      Profile?: string;
+      Platform?: string;
+      OperatingSystem?: string;
+      Architecture?: string;
+      BuildType?: string;
+      Environment?: string;
+      Condition?: string;
+    } | undefined;
     if (!value) {
       continue;
     }
     if (value.Path) {
-      entries.push({ mode: 'Directory', path: value.Path });
+      entries.push({ mode: 'Directory', path: value.Path, include: value.Include, exclude: value.Exclude, ...selectors(value) });
     }
     if (value.Include) {
-      entries.push({ mode: 'Glob', include: value.Include, exclude: value.Exclude });
+      entries.push({ mode: 'Glob', include: value.Include, exclude: value.Exclude, ...selectors(value) });
     }
     for (const line of textLines(rawBlock)) {
-      entries.push({ mode: 'File', path: line });
+      entries.push({ mode: 'File', path: line, ...selectors(value) });
     }
     for (const file of asArray(value.File)) {
-      const entry = file as { Path?: string } | undefined;
+      const entry = file as { Path?: string } & Parameters<typeof selectors>[0] | undefined;
       if (entry?.Path) {
-        entries.push({ mode: 'File', path: entry.Path });
+        entries.push({ mode: 'File', path: entry.Path, ...selectors(entry) });
       }
     }
     for (const directory of asArray(value.Directory)) {
-      const entry = directory as { Path?: string } | undefined;
+      const entry = directory as { Path?: string; Include?: string; Exclude?: string } & Parameters<typeof selectors>[0] | undefined;
       if (entry?.Path) {
-        entries.push({ mode: 'Directory', path: entry.Path });
+        entries.push({ mode: 'Directory', path: entry.Path, include: entry.Include, exclude: entry.Exclude, ...selectors(entry) });
       }
     }
     for (const glob of asArray(value.Glob)) {
-      const entry = glob as { Include?: string; Exclude?: string } | undefined;
+      const entry = glob as { Include?: string; Exclude?: string } & Parameters<typeof selectors>[0] | undefined;
       if (entry?.Include) {
-        entries.push({ mode: 'Glob', include: entry.Include, exclude: entry.Exclude });
+        entries.push({ mode: 'Glob', include: entry.Include, exclude: entry.Exclude, ...selectors(entry) });
       }
     }
   }
@@ -254,6 +335,59 @@ function buildFeatures(inspect: ProjectInspectPayload | undefined, profiles: Pro
   });
 }
 
+function resolvedSummary(inspect: ProjectInspectPayload | undefined): ProjectEditorResolvedSummary {
+  const diagnostics = inspect?.diagnostics ?? [];
+  const packages = (inspect?.packages ?? []).map((entry) => ({
+    name: entry.name,
+    version: entry.version,
+    requiredBy: entry.requiredBy ?? [],
+    manifestPath: entry.manifestPath
+  }));
+  const inputs = Object.entries(inspect?.inputs ?? {}).flatMap(([kind, entries]) =>
+    entries.map((entry) => ({
+      kind,
+      source: entry.source,
+      mode: entry.mode,
+      ownerName: entry.ownerName,
+      stagedRelativePath: entry.stagedRelativePath
+    }))
+  );
+  const environmentVariables = (inspect?.environmentVariables ?? []).map((entry) => ({
+    name: entry.name,
+    source: entry.source,
+    secret: entry.secret,
+    resolved: entry.resolved
+  }));
+  const features = inspect?.packageFeatures ?? [];
+  const generators = inspect?.generators ?? [];
+  return {
+    projectName: inspect?.project?.name,
+    projectType: inspect?.project?.type,
+    workspaceName: inspect?.workspace?.name,
+    profileName: inspect?.profile?.name,
+    buildType: inspect?.profile?.buildType,
+    platform: inspect?.profile?.platform,
+    operatingSystem: inspect?.profile?.operatingSystem,
+    architecture: inspect?.profile?.architecture,
+    environment: inspect?.profile?.environment,
+    outputDir: inspect?.outputDir,
+    launchExecutable: inspect?.launch?.executable?.name,
+    launchWorkingDirectory: inspect?.launch?.workingDirectory,
+    packageCount: packages.length,
+    featureCount: features.length,
+    activeFeatureCount: features.filter((entry) => entry.state === 'selected').length,
+    generatorCount: generators.length,
+    activeGeneratorCount: generators.filter((entry) => entry.state === 'active').length,
+    stagedFileCount: inspect?.stagedFiles?.length ?? 0,
+    environmentVariableCount: environmentVariables.length,
+    diagnosticErrorCount: diagnostics.filter((diagnostic) => diagnostic.severity === 'error').length,
+    diagnosticWarningCount: diagnostics.filter((diagnostic) => diagnostic.severity === 'warning').length,
+    packages,
+    inputs,
+    environmentVariables
+  };
+}
+
 function unsupportedSections(root: Record<string, unknown>): string[] {
   return ['Build', 'Runtime', 'Generators', 'Conditions', 'LocalSettings']
     .filter((name) => root[name] !== undefined);
@@ -278,7 +412,8 @@ export function buildProjectEditorModel(
     environments: [],
     features: [],
     diagnostics: (inspect?.diagnostics ?? []).map((diagnostic) => `${diagnostic.severity}: ${diagnostic.subject ? `${diagnostic.subject}: ` : ''}${diagnostic.message}`),
-    unsupportedSections: []
+    unsupportedSections: [],
+    resolved: resolvedSummary(inspect)
   };
 
   try {
