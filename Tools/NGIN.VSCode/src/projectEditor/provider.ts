@@ -407,6 +407,16 @@ export class NginProjectEditorProvider implements vscode.CustomTextEditorProvide
     .table-row > div:last-child {
       border-right: 0;
     }
+    .table-row.selectable {
+      cursor: pointer;
+    }
+    .table-row.selectable:hover {
+      background: var(--vscode-list-hoverBackground);
+    }
+    .table-row.selectable.active {
+      background: var(--vscode-list-activeSelectionBackground);
+      color: var(--vscode-list-activeSelectionForeground);
+    }
     .table-head {
       color: var(--muted);
       background: var(--bg);
@@ -457,6 +467,26 @@ export class NginProjectEditorProvider implements vscode.CustomTextEditorProvide
     }
     .feature:last-child {
       border-bottom: 0;
+    }
+    .search-row {
+      max-width: 360px;
+    }
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 10;
+      display: grid;
+      place-items: center;
+      background: rgba(0, 0, 0, 0.35);
+    }
+    .modal-panel {
+      width: min(760px, calc(100vw - 32px));
+      display: grid;
+      gap: 12px;
+      padding: 14px;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
     }
     .segmented button {
       color: var(--fg);
@@ -527,6 +557,10 @@ export class NginProjectEditorProvider implements vscode.CustomTextEditorProvide
     let activeInputScope = '';
     let activeInputBlock = 'Sources';
     let activeReferenceScope = '';
+    let packageSearchText = '';
+    let selectedPackageName = undefined;
+    let showPackageDetailsDialog = false;
+    let showAddPackageDialog = false;
     let selectedEnvironmentName = undefined;
 
     const tabs = [
@@ -771,23 +805,74 @@ export class NginProjectEditorProvider implements vscode.CustomTextEditorProvide
       return activeReferenceScope ? model.profiles.find((profile) => profile.name === activeReferenceScope)?.packageReferences || [] : model.project.packageReferences;
     }
 
+    function referencesForScope(scope) {
+      return scope ? model.profiles.find((profile) => profile.name === scope)?.packageReferences || [] : model.project.packageReferences;
+    }
+
+    function packageSearchMatches(pkg) {
+      const query = packageSearchText.trim().toLowerCase();
+      if (!query) return true;
+      return pkg.name.toLowerCase().includes(query) || clean(pkg.version).toLowerCase().includes(query);
+    }
+
+    function selectedPackage() {
+      return model.resolved.packages.find((pkg) => pkg.name === selectedPackageName);
+    }
+
+    function renderPackageList(packages) {
+      if (!packages.length) {
+        return '<div class="empty">No packages match the current search.</div>';
+      }
+      const style = ' style="--columns: minmax(220px, 1fr) 100px;"';
+      return '<div class="table">' +
+        '<div class="table-row table-head"' + style + '>' + cell('Package') + cell('Version') + '</div>' +
+        packages.map((pkg) =>
+          '<div class="table-row selectable ' + (pkg.name === selectedPackage()?.name ? 'active' : '') + '" data-package-select="' + esc(pkg.name) + '"' + style + '>' +
+          cell(pkg.name) + cell(pkg.version || '') +
+          '</div>'
+        ).join('') +
+        '</div>';
+    }
+
+    function renderPackageDetailsDialog() {
+      if (!showPackageDetailsDialog) return '';
+      const pkg = selectedPackage();
+      if (!pkg) return '';
+      const packageFeatures = model.features.filter((feature) => feature.packageName === pkg.name);
+      return '<div class="modal-backdrop"><div class="modal-panel">' +
+        '<h2>' + esc(pkg.name) + '</h2>' + details([
+        detail('Package', pkg.name),
+        detail('Version', pkg.version),
+        detail('Required By', pkg.requiredBy.join(', ')),
+        detail('Manifest', pkg.manifestPath)
+      ], 'No package details.') +
+        '<h2>Features</h2><div class="list">' +
+        (packageFeatures.length ? packageFeatures.map(renderFeature).join('') : '<div class="empty">This package has no features for the selected profile.</div>') +
+        '</div><div class="actions"><button class="secondary" id="close-package-details">Close</button></div>' +
+        '</div></div>';
+    }
+
+    function renderAddPackageDialog() {
+      if (!showAddPackageDialog) return '';
+      return '<div class="modal-backdrop"><div class="modal-panel">' +
+        '<h2>Add Package Reference</h2><div class="grid">' +
+        '<label><span>Scope</span><select id="new-reference-scope">' + optionList(profileNames(), activeReferenceScope, 'Project') + '</select></label>' +
+        field('new-reference-name', 'Package', selectedPackageName || '', ' placeholder="NGIN.Core"') +
+        field('new-reference-version', 'Version', '', ' placeholder=">=0.1.0 <0.2.0"') +
+        '<label><span>Optional</span><select id="new-reference-optional"><option value=""></option><option value="false">No</option><option value="true">Yes</option></select></label>' +
+        '</div><div class="actions"><button id="confirm-add-reference">Add</button><button class="secondary" id="cancel-add-reference">Cancel</button></div>' +
+        '</div></div>';
+    }
+
     function renderPackages() {
-      const resolvedPackages = table(
-        ['Package', 'Version', 'Required By', 'Manifest'],
-        model.resolved.packages.map((pkg) => [
-          pkg.name,
-          pkg.version || '',
-          pkg.requiredBy.join(', '),
-          pkg.manifestPath || ''
-        ]),
-        'No packages are used by the selected profile.',
-        'minmax(180px, 1fr) 100px minmax(180px, 1fr) minmax(280px, 1.8fr)'
-      );
-      return '<div class="band"><h2>Packages Used By Selected Profile</h2>' + resolvedPackages + '</div>' +
-        '<div class="band"><h2>Package References</h2>' + renderScopeButtons(activeReferenceScope, true, 'reference-scope') +
-        '<div id="reference-list" class="list">' + selectedReferences().map((entry) => referenceRow(entry)).join('') + '</div>' +
-        '<div class="actions"><button class="secondary" id="add-reference">Add Package</button><button id="save-references">Apply Package References</button></div></div>' +
-        '<div class="band"><h2>Package Features</h2><div class="list">' + (model.features.length ? model.features.map(renderFeature).join('') : '<div class="empty">No package features are available for the selected profile.</div>') + '</div></div>';
+      const filteredPackages = model.resolved.packages.filter(packageSearchMatches);
+      return '<div class="band"><h2>Packages</h2>' +
+        '<div class="inline"><label class="search-row"><span>Search packages</span><input id="package-search" value="' + esc(packageSearchText) + '" placeholder="Package name or version"></label>' +
+        '<button class="secondary" id="add-reference">Add Package</button></div>' +
+        '<div id="package-list">' + renderPackageList(filteredPackages) + '</div>' +
+        '</div>' +
+        renderPackageDetailsDialog() +
+        renderAddPackageDialog();
     }
 
     function referenceRow(values) {
@@ -917,6 +1002,7 @@ export class NginProjectEditorProvider implements vscode.CustomTextEditorProvide
     document.addEventListener('click', (event) => {
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
+      const packageTarget = target.closest('[data-package-select]');
       if (target.matches('[data-tab]')) {
         activeTab = target.dataset.tab;
         render();
@@ -938,6 +1024,11 @@ export class NginProjectEditorProvider implements vscode.CustomTextEditorProvide
         activeReferenceScope = target.dataset.referenceScope || '';
         render();
       }
+      if (packageTarget instanceof HTMLElement) {
+        selectedPackageName = packageTarget.dataset.packageSelect;
+        showPackageDetailsDialog = true;
+        render();
+      }
       if (target.id === 'open-source') post({ type: 'openSource' });
       if (target.id === 'validate') post({ type: 'validate' });
       if (target.id === 'save-project') post({ type: 'updateProject', name: optional(byId('project-name').value), template: optional(byId('project-template').value), defaultProfile: optional(byId('project-default-profile').value) });
@@ -947,7 +1038,33 @@ export class NginProjectEditorProvider implements vscode.CustomTextEditorProvide
       if (target.id === 'save-profile') post({ type: 'updateProfile', originalName: currentProfile()?.name, name: optional(byId('profile-name').value), template: optional(byId('profile-template').value), buildType: optional(byId('profile-build-type').value), platform: optional(byId('profile-platform').value), operatingSystem: optional(byId('profile-os').value), architecture: optional(byId('profile-arch').value), environment: optional(byId('profile-env').value), launchExecutable: optional(byId('profile-launch-executable').value), launchWorkingDirectory: optional(byId('profile-launch-working-directory').value) });
       if (target.id === 'add-input') byId('input-list').insertAdjacentHTML('beforeend', inputRow({ mode: 'Directory' }));
       if (target.id === 'save-inputs') post({ type: 'setInputEntries', profileName: optional(activeInputScope), block: activeInputBlock, entries: collectRows('input') });
-      if (target.id === 'add-reference') byId('reference-list').insertAdjacentHTML('beforeend', referenceRow({}));
+      if (target.id === 'add-reference') {
+        showAddPackageDialog = true;
+        render();
+      }
+      if (target.id === 'cancel-add-reference') {
+        showAddPackageDialog = false;
+        render();
+      }
+      if (target.id === 'close-package-details') {
+        showPackageDetailsDialog = false;
+        render();
+      }
+      if (target.id === 'confirm-add-reference') {
+        const packageName = optional(byId('new-reference-name')?.value);
+        if (packageName) {
+          const optionalValue = optional(byId('new-reference-optional')?.value);
+          const referenceScope = optional(byId('new-reference-scope')?.value);
+          const nextReferences = referencesForScope(referenceScope).concat([{
+            name: packageName,
+            version: optional(byId('new-reference-version')?.value),
+            optional: optionalValue === undefined ? undefined : optionalValue === 'true'
+          }]);
+          activeReferenceScope = referenceScope || '';
+          showAddPackageDialog = false;
+          post({ type: 'setPackageReferences', profileName: referenceScope, references: nextReferences });
+        }
+      }
       if (target.id === 'save-references') post({ type: 'setPackageReferences', profileName: optional(activeReferenceScope), references: collectRows('reference') });
       if (target.id === 'add-variable') byId('variable-list').insertAdjacentHTML('beforeend', variableRow({}));
       if (target.id === 'save-environment') {
@@ -961,6 +1078,18 @@ export class NginProjectEditorProvider implements vscode.CustomTextEditorProvide
       }
       if (target.matches('[data-remove-row]')) {
         target.closest('[data-row]')?.remove();
+      }
+    });
+
+    document.addEventListener('input', (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      if (target.id === 'package-search') {
+        packageSearchText = target.value;
+        const list = byId('package-list');
+        if (list) {
+          list.innerHTML = renderPackageList(model.resolved.packages.filter(packageSearchMatches));
+        }
       }
     });
 
@@ -981,6 +1110,9 @@ export class NginProjectEditorProvider implements vscode.CustomTextEditorProvide
         }
         if (!model.environments.some((env) => env.name === selectedEnvironmentName)) {
           selectedEnvironmentName = model.environments[0]?.name;
+        }
+        if (!model.resolved.packages.some((pkg) => pkg.name === selectedPackageName)) {
+          selectedPackageName = undefined;
         }
         render();
       }
