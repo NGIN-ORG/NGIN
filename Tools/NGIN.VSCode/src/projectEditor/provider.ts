@@ -446,14 +446,12 @@ export class NginProjectEditorProvider implements vscode.CustomTextEditorProvide
       border-color: var(--focus);
       outline: 1px solid var(--focus);
     }
-    .profile-card .details,
-    .feature .details {
+    .profile-card .details {
       border: 0;
       background: transparent;
       grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
     }
-    .profile-card .detail,
-    .feature .detail {
+    .profile-card .detail {
       padding: 5px 0 0;
       border: 0;
     }
@@ -467,6 +465,22 @@ export class NginProjectEditorProvider implements vscode.CustomTextEditorProvide
     }
     .feature:last-child {
       border-bottom: 0;
+    }
+    .feature h3 {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .feature-state {
+      margin-top: 4px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .feature-state.on {
+      color: var(--ok);
+    }
+    .feature-state.off {
+      color: var(--warn);
     }
     .search-row {
       max-width: 360px;
@@ -497,6 +511,26 @@ export class NginProjectEditorProvider implements vscode.CustomTextEditorProvide
       border-color: var(--focus);
       background: var(--vscode-button-background);
       color: var(--vscode-button-foreground);
+    }
+    .feature-control button.active {
+      font-weight: 600;
+      outline: 1px solid var(--focus);
+      outline-offset: -1px;
+    }
+    .feature-control button.state-default.active {
+      color: var(--fg);
+      background: var(--vscode-button-secondaryBackground);
+      border-color: var(--border);
+    }
+    .feature-control button.state-on.active {
+      color: var(--vscode-button-foreground);
+      background: var(--vscode-button-background);
+      border-color: var(--focus);
+    }
+    .feature-control button.state-off.active {
+      color: var(--err);
+      background: transparent;
+      border-color: var(--err);
     }
     .empty {
       padding: 16px;
@@ -884,16 +918,28 @@ export class NginProjectEditorProvider implements vscode.CustomTextEditorProvide
     }
 
     function renderFeature(feature) {
-      const states = [['inherit', 'Inherit'], ['use', 'Use'], ['disable', 'Disable']];
-      return '<div class="feature"><div><h3>' + esc(feature.packageName + ' / ' + feature.featureName) + '</h3>' +
-        details([
-          detail('Resolved', feature.resolvedState),
-          detail('Version', feature.packageVersion),
-          detail('Manifest', feature.manifestPath)
-        ], 'No feature metadata.') +
-        '<div class="muted">' + esc(feature.description) + '</div></div><div class="segmented">' +
-        states.map(([state, label]) => '<button ' + (feature.readOnly ? 'disabled ' : '') + 'class="' + (feature.state === state ? 'active' : '') + '" data-feature-package="' + esc(feature.packageName) + '" data-feature-name="' + esc(feature.featureName) + '" data-feature-state="' + state + '">' + label + '</button>').join('') +
+      const states = [
+        ['inherit', 'Default', 'Follow the package and profile defaults', 'state-default'],
+        ['use', 'On', 'Enable this feature for the selected profile', 'state-on'],
+        ['disable', 'Off', 'Disable this feature for the selected profile', 'state-off']
+      ];
+      const effective = featureEffectiveState(feature);
+      return '<div class="feature"><div><h3 title="' + esc(feature.featureName) + '">' + esc(feature.featureName) + '</h3>' +
+        '<div class="muted">' + esc(feature.description) + '</div>' +
+        '<div class="feature-state ' + esc(effective.className) + '">' + esc(effective.label) + '</div></div><div class="segmented feature-control">' +
+        states.map(([state, label, title, className]) => '<button title="' + esc(title) + '" ' + (feature.readOnly ? 'disabled ' : '') + 'class="' + esc(className + (feature.state === state ? ' active' : '')) + '" data-feature-package="' + esc(feature.packageName) + '" data-feature-name="' + esc(feature.featureName) + '" data-feature-state="' + state + '">' + label + '</button>').join('') +
         '</div></div>';
+    }
+
+    function featureEffectiveState(feature) {
+      if (feature.state === 'use') return { label: 'Effective: On', className: 'on' };
+      if (feature.state === 'disable') return { label: 'Effective: Off', className: 'off' };
+      if (feature.resolvedState === 'selected') return { label: 'Effective: On by default', className: 'on' };
+      if (feature.resolvedState === 'available') return { label: 'Effective: Off by default', className: 'off' };
+      if (feature.resolvedState === 'disabled') return { label: 'Effective: Off', className: 'off' };
+      if (feature.resolvedState === 'conditionExcluded') return { label: 'Effective: Off, condition excluded', className: 'off' };
+      if (feature.resolvedState === 'unavailable') return { label: 'Effective: Unavailable', className: 'off' };
+      return { label: 'Effective: ' + (feature.resolvedState || 'unknown'), className: '' };
     }
 
     function renderRun() {
