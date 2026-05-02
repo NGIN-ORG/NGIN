@@ -369,6 +369,17 @@ test('project editor authoring manages active profile feature state', () => {
   assert.doesNotMatch(xml, /Feature="Reflection"/);
 });
 
+test('project editor authoring creates missing profiles for feature overrides', () => {
+  let xml = '<Project Name="App" DefaultProfile="Runtime"></Project>';
+  xml = setProfileFeatureState(xml, 'Runtime', 'NGIN.Core', 'Reflection', 'disable');
+  assert.match(xml, /<Profiles>/);
+  assert.match(xml, /<Profile Name="Runtime">/);
+  assert.match(xml, /<Disable Package="NGIN\.Core" Feature="Reflection" \/>/);
+
+  const unchanged = '<Project Name="App" DefaultProfile="Runtime"></Project>';
+  assert.equal(setProfileFeatureState(unchanged, 'Runtime', 'NGIN.Core', 'Reflection', 'inherit'), unchanged);
+});
+
 test('project editor authoring manages package references inputs and environment variables', () => {
   let xml = '<Project Name="App"><Profiles><Profile Name="Runtime" /></Profiles></Project>';
   xml = setPackageReferences(xml, [{ name: 'NGIN.Core', version: '>=0.1.0 <0.2.0', optional: false }]);

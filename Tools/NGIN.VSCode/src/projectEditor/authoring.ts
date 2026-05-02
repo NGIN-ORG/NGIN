@@ -440,6 +440,12 @@ export function setInputEntries(xml: string, block: ProjectInputBlock, entries: 
 }
 
 export function setProfileFeatureState(xml: string, profileName: string, packageName: string, featureName: string, state: ProjectFeatureState): string {
+  if (!findProfile(xml, profileName)) {
+    if (state === 'inherit') {
+      return xml;
+    }
+    xml = addProfile(xml, profileName);
+  }
   const ensured = ensureScopeSection(xml, 'Features', profileName);
   const entryPattern = new RegExp(`^[ \\t]*<(Use|Disable)\\b(?=[^>]*\\sPackage=(["'])${packageName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\2)(?=[^>]*\\sFeature=(["'])${featureName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\3)[^>]*/>\\r?\\n?`, 'gm');
   let next = replaceRange(
