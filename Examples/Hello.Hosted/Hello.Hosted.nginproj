@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="3"
+         Name="Hello.Hosted"
+         DefaultProfile="Debug">
+  <Inputs>
+    <Sources Path="src" />
+    <Configs>
+      config/app.cfg
+    </Configs>
+  </Inputs>
+  <Output Kind="Executable"
+          Name="Hello.Hosted"
+          Target="Hello.Hosted" />
+  <Build Backend="CMake"
+         Mode="Generated"
+         Language="CXX"
+         LanguageStandard="23">
+    <CompileDefinitions>
+      <Definition Value="HELLO_HOSTED_EXAMPLE_ROOT=&quot;${ProjectDir}&quot;"
+                  Visibility="Private" />
+    </CompileDefinitions>
+  </Build>
+  <References>
+    <Package Name="NGIN.Core" Version=">=0.1.0 &lt;0.2.0" Optional="false" />
+  </References>
+  <Runtime>
+    <Modules>
+      <Module Name="Hello.Hosted.Startup"
+              Family="App"
+              Type="Runtime"
+              StartupStage="Features">
+        <ProvidesServices>
+          <Service Name="Hello.Hosted.Ready" />
+        </ProvidesServices>
+      </Module>
+    </Modules>
+    <EnableModules>
+      <ModuleRef Name="Hello.Hosted.Startup" />
+    </EnableModules>
+  </Runtime>
+  <Environments>
+    <Environment Name="local" />
+  </Environments>
+  <Profiles>
+    <Profile Name="Debug"
+                   BuildType="Debug"
+                   Platform="linux-x64"
+                   Environment="local">
+      <Launch Executable="Hello.Hosted" WorkingDirectory="." />
+    </Profile>
+  </Profiles>
+</Project>

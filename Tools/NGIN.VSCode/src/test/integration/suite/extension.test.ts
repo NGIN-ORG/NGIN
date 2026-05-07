@@ -12,11 +12,11 @@ function repoRoot(): string {
 
 function sampleTarget(): { preferredUri: vscode.Uri; projectPath: string; profileName: string } {
   const root = repoRoot();
-  const projectPath = path.join(root, 'Examples/App.Basic/App.Basic.nginproj');
+  const projectPath = path.join(root, 'Examples/Hello.Hosted/Hello.Hosted.nginproj');
   return {
     preferredUri: vscode.Uri.file(projectPath),
     projectPath,
-    profileName: 'Runtime'
+    profileName: 'Debug'
   };
 }
 
@@ -76,7 +76,7 @@ suite('NGIN Tools Extension', () => {
     await vscode.commands.executeCommand('ngin.variablesExplain', sampleTarget());
 
     const document = await waitForActiveDocument((candidate) => candidate.uri.scheme === 'ngin-variables');
-    assert.match(document.getText(), /Variables for profile: Runtime/);
+    assert.match(document.getText(), /Variables for profile: Debug/);
     assert.match(document.getText(), /APP_BASIC_API_TOKEN = <missing>/);
     assert.doesNotMatch(document.getText(), /local-development-token|secret-token/);
   });
@@ -118,7 +118,7 @@ suite('NGIN Tools Extension', () => {
       await vscode.commands.executeCommand('ngin.settingsInit', {
         preferredUri: vscode.Uri.file(projectPath),
         projectPath,
-        profileName: 'Runtime'
+        profileName: 'Debug'
       });
 
       const settingsPath = path.join(tempRoot, '.ngin/local/user.nginsettings');

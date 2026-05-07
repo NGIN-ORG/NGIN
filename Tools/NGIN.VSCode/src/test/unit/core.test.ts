@@ -36,23 +36,23 @@ import {
 import { buildProjectEditorModel } from '../../projectEditor/model';
 
 test('computeOutputDir uses the CLI default layout when no root override is configured', () => {
-  const outputDir = computeOutputDir('/workspace', 'App.Basic', 'Runtime');
-  assert.equal(outputDir, '/workspace/.ngin/build/App.Basic/Runtime');
+  const outputDir = computeOutputDir('/workspace', 'Hello.Hosted', 'Runtime');
+  assert.equal(outputDir, '/workspace/.ngin/build/Hello.Hosted/Runtime');
 });
 
 test('computeOutputDir appends project and profile beneath a configured output root', () => {
-  const outputDir = computeOutputDir('/workspace', 'App.Basic', 'Runtime', 'build/out');
-  assert.equal(outputDir, '/workspace/build/out/App.Basic/Runtime');
+  const outputDir = computeOutputDir('/workspace', 'Hello.Hosted', 'Runtime', 'build/out');
+  assert.equal(outputDir, '/workspace/build/out/Hello.Hosted/Runtime');
 });
 
 test('computeLaunchManifestPath uses the staged naming convention', () => {
-  const manifestPath = computeLaunchManifestPath('/workspace/.ngin/build/App.Basic/Runtime', 'App.Basic', 'Runtime');
-  assert.equal(manifestPath, '/workspace/.ngin/build/App.Basic/Runtime/App.Basic.Runtime.nginlaunch');
+  const manifestPath = computeLaunchManifestPath('/workspace/.ngin/build/Hello.Hosted/Runtime', 'Hello.Hosted', 'Runtime');
+  assert.equal(manifestPath, '/workspace/.ngin/build/Hello.Hosted/Runtime/Hello.Hosted.Runtime.nginlaunch');
 });
 
 test('computeCompileCommandsPath uses the staged cmake-build location', () => {
-  const compileCommandsPath = computeCompileCommandsPath('/workspace/.ngin/build/App.Basic/Runtime');
-  assert.equal(compileCommandsPath, '/workspace/.ngin/build/App.Basic/Runtime/.ngin/cmake-build/compile_commands.json');
+  const compileCommandsPath = computeCompileCommandsPath('/workspace/.ngin/build/Hello.Hosted/Runtime');
+  assert.equal(compileCommandsPath, '/workspace/.ngin/build/Hello.Hosted/Runtime/.ngin/cmake-build/compile_commands.json');
 });
 
 test('getFallbackCompileCommandsPath uses the dev compile database', () => {
@@ -63,13 +63,13 @@ test('getFallbackCompileCommandsPath uses the dev compile database', () => {
 test('parseCliDiagnostics extracts structured file and generic errors', () => {
   const diagnostics = parseCliDiagnostics([
     'Validation errors:',
-    '  - /tmp/App.Basic.nginproj: failed to parse XML: unexpected token',
+    '  - /tmp/Hello.Hosted.nginproj: failed to parse XML: unexpected token',
     '  - /tmp/user.nginsettings: duplicate local setting key',
     'error: unknown profile `Editor`'
   ].join('\n'));
 
   assert.equal(diagnostics.length, 3);
-  assert.equal(diagnostics[0].file, '/tmp/App.Basic.nginproj');
+  assert.equal(diagnostics[0].file, '/tmp/Hello.Hosted.nginproj');
   assert.match(diagnostics[0].message, /failed to parse XML/);
   assert.equal(diagnostics[1].file, '/tmp/user.nginsettings');
   assert.match(diagnostics[1].message, /duplicate local setting key/);
@@ -98,14 +98,14 @@ test('local settings warnings are extracted from CLI output', () => {
 
 test('workspace manifests parse project paths relative to the workspace manifest', () => {
   const workspace = parseWorkspaceManifest(
-    '<?xml version="1.0" encoding="utf-8"?><Workspace SchemaVersion="3" Name="NGIN"><Includes><Include Path="Examples/Common.nginmodel" /></Includes><Defaults BuildType="Debug" Platform="linux-x64" /><PackageSources><PackageSource Path="Packages" /></PackageSources><Projects><Project Path="Examples/App.Basic/App.Basic.nginproj" /></Projects></Workspace>',
+    '<?xml version="1.0" encoding="utf-8"?><Workspace SchemaVersion="3" Name="NGIN"><Includes><Include Path="Examples/Common.nginmodel" /></Includes><Defaults BuildType="Debug" Platform="linux-x64" /><PackageSources><PackageSource Path="Packages" /></PackageSources><Projects><Project Path="Examples/Hello.Hosted/Hello.Hosted.nginproj" /></Projects></Workspace>',
     '/repo/NGIN.ngin'
   );
 
   assert.equal(workspace.name, 'NGIN');
   assert.deepEqual(workspace.modelIncludes, ['/repo/Examples/Common.nginmodel']);
   assert.equal(workspace.defaults?.buildType, 'Debug');
-  assert.deepEqual(workspace.projectPaths, ['/repo/Examples/App.Basic/App.Basic.nginproj']);
+  assert.deepEqual(workspace.projectPaths, ['/repo/Examples/Hello.Hosted/Hello.Hosted.nginproj']);
   assert.deepEqual(workspace.packageSourcePaths, ['/repo/Packages']);
 });
 
@@ -126,34 +126,34 @@ test('model and project parsing apply V3 defaults and profile templates', () => 
     '/repo/Examples/Common.nginmodel'
   );
   const project = parseProjectManifest(
-    '<?xml version="1.0" encoding="utf-8"?><Project SchemaVersion="3" Name="App.Basic" DefaultProfile="Runtime"><Output Kind="Executable" Name="App.Basic" Target="App.Basic" /><Environments><Environment Name="dev" /></Environments><Profiles><Profile Name="Runtime" Template="RuntimeDefaults" /></Profiles></Project>',
-    '/repo/Examples/App.Basic/App.Basic.nginproj',
+    '<?xml version="1.0" encoding="utf-8"?><Project SchemaVersion="3" Name="Hello.Hosted" DefaultProfile="Runtime"><Output Kind="Executable" Name="Hello.Hosted" Target="Hello.Hosted" /><Environments><Environment Name="dev" /></Environments><Profiles><Profile Name="Runtime" Template="RuntimeDefaults" /></Profiles></Project>',
+    '/repo/Examples/Hello.Hosted/Hello.Hosted.nginproj',
     { defaults: model.defaults, profileTemplates: model.profileTemplates }
   );
 
   assert.equal(project.profiles[0].buildType, 'Debug');
   assert.equal(project.profiles[0].platform, 'linux-x64');
   assert.equal(project.profiles[0].environment, 'dev');
-  assert.equal(project.profiles[0].launchExecutable, 'App.Basic');
+  assert.equal(project.profiles[0].launchExecutable, 'Hello.Hosted');
   assert.deepEqual(project.profiles[0].configInputs, ['config/template.cfg']);
 });
 
 test('project manifests parse profiles, launch metadata, and local settings imports', () => {
   const project = parseProjectManifest(
-    '<?xml version="1.0" encoding="utf-8"?><Project Name="App.Basic" DefaultProfile="Runtime"><Inputs><Sources Path="src" /><Configs>config/app.cfg</Configs></Inputs><Build><Sources><Source Path="src/main.cpp" /></Sources></Build><References><Project Path="../Game.Engine/Game.Engine.nginproj" /><Package Name="NGIN.Core" /></References><LocalSettings><Import Path=".ngin/local/user.nginsettings" Optional="true" /></LocalSettings><Profiles><Profile Name="Runtime" BuildType="Debug" OperatingSystem="linux" Architecture="x64" Environment="development"><Launch Executable="App.Basic" WorkingDirectory="." /><References><Package Name="NGIN.Reflection" Optional="true" /></References><Inputs><Configs>config/runtime.cfg</Configs></Inputs></Profile></Profiles></Project>',
-    '/repo/Examples/App.Basic/App.Basic.nginproj'
+    '<?xml version="1.0" encoding="utf-8"?><Project Name="Hello.Hosted" DefaultProfile="Runtime"><Inputs><Sources Path="src" /><Configs>config/app.cfg</Configs></Inputs><Build><Sources><Source Path="src/main.cpp" /></Sources></Build><References><Project Path="../Engine.Library/Engine.Library.nginproj" /><Package Name="NGIN.Core" /></References><LocalSettings><Import Path=".ngin/local/user.nginsettings" Optional="true" /></LocalSettings><Profiles><Profile Name="Runtime" BuildType="Debug" OperatingSystem="linux" Architecture="x64" Environment="development"><Launch Executable="Hello.Hosted" WorkingDirectory="." /><References><Package Name="NGIN.Reflection" Optional="true" /></References><Inputs><Configs>config/runtime.cfg</Configs></Inputs></Profile></Profiles></Project>',
+    '/repo/Examples/Hello.Hosted/Hello.Hosted.nginproj'
   );
 
   assert.equal(project.defaultProfile, 'Runtime');
   assert.deepEqual(project.sourceRoots, ['src']);
   assert.deepEqual(project.buildSources, ['src/main.cpp']);
   assert.deepEqual(project.configInputs, ['config/app.cfg']);
-  assert.deepEqual(project.localSettingsImports, ['/repo/Examples/App.Basic/.ngin/local/user.nginsettings']);
-  assert.deepEqual(project.projectRefs, [{ path: '/repo/Examples/Game.Engine/Game.Engine.nginproj', profile: undefined }]);
+  assert.deepEqual(project.localSettingsImports, ['/repo/Examples/Hello.Hosted/.ngin/local/user.nginsettings']);
+  assert.deepEqual(project.projectRefs, [{ path: '/repo/Examples/Engine.Library/Engine.Library.nginproj', profile: undefined }]);
   assert.deepEqual(project.packageRefs, [{ name: 'NGIN.Core', version: undefined, optional: false }]);
   assert.deepEqual(project.profiles[0].configInputs, ['config/runtime.cfg']);
   assert.deepEqual(project.profiles[0].packageRefs, [{ name: 'NGIN.Reflection', version: undefined, optional: true }]);
-  assert.equal(project.profiles[0].launchExecutable, 'App.Basic');
+  assert.equal(project.profiles[0].launchExecutable, 'Hello.Hosted');
   assert.equal(project.profiles[0].operatingSystem, 'linux');
   assert.equal(project.profiles[0].architecture, 'x64');
 });
@@ -260,20 +260,20 @@ test('extension manifest and snippets register local settings support', () => {
 
 test('launch manifests surface selected executable and staged files', () => {
   const launch = parseLaunchManifest(
-    '<?xml version="1.0" encoding="utf-8"?><LaunchManifest Project="App.Basic" Profile="Runtime" Type="Application" BuildType="Debug" OperatingSystem="linux" Architecture="x64"><Launch Executable="App.Basic" WorkingDirectory="." /><Environment Name="development"><Variables /><Features /></Environment><StagedFiles><File Kind="executable" Destination="/repo/out/bin/App.Basic" RelativeDestination="bin/App.Basic" /></StagedFiles></LaunchManifest>',
-    '/repo/out/App.Basic.Runtime.nginlaunch'
+    '<?xml version="1.0" encoding="utf-8"?><LaunchManifest Project="Hello.Hosted" Profile="Runtime" Type="Application" BuildType="Debug" OperatingSystem="linux" Architecture="x64"><Launch Executable="Hello.Hosted" WorkingDirectory="." /><Environment Name="development"><Variables /><Features /></Environment><StagedFiles><File Kind="executable" Destination="/repo/out/bin/Hello.Hosted" RelativeDestination="bin/Hello.Hosted" /></StagedFiles></LaunchManifest>',
+    '/repo/out/Hello.Hosted.Runtime.nginlaunch'
   );
 
-  assert.equal(launch.project, 'App.Basic');
+  assert.equal(launch.project, 'Hello.Hosted');
   assert.equal(launch.profile, 'Runtime');
-  assert.equal(launch.selectedExecutable?.name, 'App.Basic');
+  assert.equal(launch.selectedExecutable?.name, 'Hello.Hosted');
   assert.equal(launch.stagedFiles[0].kind, 'executable');
 });
 
 test('config input authoring inserts root config inputs once', () => {
   const xml = [
     '<?xml version="1.0" encoding="utf-8"?>',
-    '<Project Name="App.Basic">',
+    '<Project Name="Hello.Hosted">',
     '  <Inputs>',
     '    <Sources Path="src" />',
     '  </Inputs>',
@@ -291,12 +291,12 @@ test('config input authoring inserts root config inputs once', () => {
 });
 
 test('relativeManifestPath uses project-relative slash paths', () => {
-  assert.equal(relativeManifestPath('/repo/Examples/App.Basic', '/repo/Examples/App.Basic/config/new.cfg'), 'config/new.cfg');
+  assert.equal(relativeManifestPath('/repo/Examples/Hello.Hosted', '/repo/Examples/Hello.Hosted/config/new.cfg'), 'config/new.cfg');
 });
 
 test('config input authoring renames and removes nested config inputs', () => {
   const xml = [
-    '<Project Name="App.Basic">',
+    '<Project Name="Hello.Hosted">',
     '  <Inputs>',
     '    <Configs>',
     '      config/app.cfg',
@@ -522,17 +522,17 @@ test('project editor model summarizes resolved inspect data for the project over
 test('executable resolution prefers staged manifest entries before bin fallback', () => {
   const candidates = getExecutableCandidatePaths(
     {
-      path: '/repo/out/App.Basic.Runtime.nginlaunch',
+      path: '/repo/out/Hello.Hosted.Runtime.nginlaunch',
       directory: '/repo/out',
-      project: 'App.Basic',
+      project: 'Hello.Hosted',
       profile: 'Runtime',
       launch: { workingDirectory: '.' },
-      selectedExecutable: { name: 'App.Basic' },
+      selectedExecutable: { name: 'Hello.Hosted' },
       stagedFiles: [
         {
           kind: 'executable',
-          destination: '/repo/out/bin/App.Basic',
-          relativeDestination: 'bin/App.Basic'
+          destination: '/repo/out/bin/Hello.Hosted',
+          relativeDestination: 'bin/Hello.Hosted'
         }
       ]
     },
@@ -540,26 +540,26 @@ test('executable resolution prefers staged manifest entries before bin fallback'
     'linux'
   );
 
-  assert.deepEqual(candidates, ['/repo/out/bin/App.Basic']);
+  assert.deepEqual(candidates, ['/repo/out/bin/Hello.Hosted']);
 });
 
 test('working directory resolution checks staged and project-relative candidates', () => {
   const candidates = getWorkingDirectoryCandidates(
     {
-      path: '/repo/out/App.Basic.Runtime.nginlaunch',
+      path: '/repo/out/Hello.Hosted.Runtime.nginlaunch',
       directory: '/repo/out',
-      project: 'App.Basic',
+      project: 'Hello.Hosted',
       profile: 'Runtime',
       launch: { workingDirectory: 'config' },
       stagedFiles: []
     },
     '/repo/out',
-    '/repo/Examples/App.Basic'
+    '/repo/Examples/Hello.Hosted'
   );
 
   assert.deepEqual(candidates, [
     '/repo/out/config',
-    '/repo/Examples/App.Basic/config',
+    '/repo/Examples/Hello.Hosted/config',
     '/repo/out'
   ]);
 });
@@ -627,7 +627,7 @@ test('createBrowseConfiguration aggregates include paths across compile commands
 test('native debug configuration maps to cppdbg on Linux', () => {
   const configuration = createNativeDebugConfiguration({
     platform: 'linux',
-    program: '/repo/out/bin/App.Basic',
+    program: '/repo/out/bin/Hello.Hosted',
     cwd: '/repo/out',
     args: [],
     env: {},
@@ -640,7 +640,7 @@ test('native debug configuration maps to cppdbg on Linux', () => {
 });
 
 test('basenameWithoutExtension strips a platform executable suffix', () => {
-  assert.equal(basenameWithoutExtension('/repo/out/bin/App.Basic.exe'), 'App.Basic');
+  assert.equal(basenameWithoutExtension('/repo/out/bin/Hello.Hosted.exe'), 'Hello.Hosted');
 });
 
 test('project tree models mark the selected project and profile', () => {
@@ -649,21 +649,21 @@ test('project tree models mark the selected project and profile', () => {
       workspace: { path: '/repo/NGIN.ngin', directory: '/repo', name: 'NGIN', projectPaths: [] },
       projects: [
         {
-          path: '/repo/Examples/App.Basic/App.Basic.nginproj',
-          directory: '/repo/Examples/App.Basic',
-          name: 'App.Basic',
+          path: '/repo/Examples/Hello.Hosted/Hello.Hosted.nginproj',
+          directory: '/repo/Examples/Hello.Hosted',
+          name: 'Hello.Hosted',
           defaultProfile: 'Runtime',
           sourceRoots: ['src'],
           configInputs: ['config/app.cfg'],
           buildSources: [],
-          projectRefs: [{ path: '/repo/Examples/Game.Engine/Game.Engine.nginproj' }],
+          projectRefs: [{ path: '/repo/Examples/Engine.Library/Engine.Library.nginproj' }],
           packageRefs: [{ name: 'NGIN.Core' }],
           profiles: [{ name: 'Runtime', operatingSystem: 'linux', architecture: 'x64', environment: 'development', configInputs: [] }]
         },
         {
-          path: '/repo/Examples/Game.Engine/Game.Engine.nginproj',
-          directory: '/repo/Examples/Game.Engine',
-          name: 'Game.Engine',
+          path: '/repo/Examples/Engine.Library/Engine.Library.nginproj',
+          directory: '/repo/Examples/Engine.Library',
+          name: 'Engine.Library',
           defaultProfile: 'Runtime',
           sourceRoots: [],
           configInputs: [],
@@ -683,14 +683,14 @@ test('project tree models mark the selected project and profile', () => {
         root: '/repo'
       },
       project: {
-        path: '/repo/Examples/App.Basic/App.Basic.nginproj',
-        directory: '/repo/Examples/App.Basic',
-        name: 'App.Basic',
+        path: '/repo/Examples/Hello.Hosted/Hello.Hosted.nginproj',
+        directory: '/repo/Examples/Hello.Hosted',
+        name: 'Hello.Hosted',
         defaultProfile: 'Runtime',
         sourceRoots: ['src'],
         configInputs: ['config/app.cfg'],
         buildSources: [],
-        projectRefs: [{ path: '/repo/Examples/Game.Engine/Game.Engine.nginproj' }],
+        projectRefs: [{ path: '/repo/Examples/Engine.Library/Engine.Library.nginproj' }],
         packageRefs: [{ name: 'NGIN.Core' }],
         profiles: [{ name: 'Runtime', operatingSystem: 'linux', architecture: 'x64', environment: 'development', configInputs: [] }]
       },
@@ -701,16 +701,16 @@ test('project tree models mark the selected project and profile', () => {
   });
 
   assert.equal(models.projects[0].selected, true);
-  assert.deepEqual(models.childrenByProject.get('/repo/Examples/App.Basic/App.Basic.nginproj')?.map((entry) => entry.kind === 'group' ? entry.group : entry.kind), [
+  assert.deepEqual(models.childrenByProject.get('/repo/Examples/Hello.Hosted/Hello.Hosted.nginproj')?.map((entry) => entry.kind === 'group' ? entry.group : entry.kind), [
     'manifest',
     'profiles',
     'dependencies',
     'generated',
     'files'
   ]);
-  assert.deepEqual(models.dependenciesByProject.get('/repo/Examples/App.Basic/App.Basic.nginproj')?.projects.map((entry) => entry.label), ['Game.Engine']);
-  assert.deepEqual(models.dependenciesByProject.get('/repo/Examples/App.Basic/App.Basic.nginproj')?.packages.map((entry) => entry.label), ['NGIN.Core']);
-  assert.equal(models.profilesByProject.get('/repo/Examples/App.Basic/App.Basic.nginproj')?.[0].selected, true);
+  assert.deepEqual(models.dependenciesByProject.get('/repo/Examples/Hello.Hosted/Hello.Hosted.nginproj')?.projects.map((entry) => entry.label), ['Engine.Library']);
+  assert.deepEqual(models.dependenciesByProject.get('/repo/Examples/Hello.Hosted/Hello.Hosted.nginproj')?.packages.map((entry) => entry.label), ['NGIN.Core']);
+  assert.equal(models.profilesByProject.get('/repo/Examples/Hello.Hosted/Hello.Hosted.nginproj')?.[0].selected, true);
 });
 
 test('project tree models expose inspect groups for the active project only', () => {
@@ -823,22 +823,22 @@ test('project tree dependency models group mixed references and deduplicate owne
           sourceRoots: [],
           configInputs: [],
           buildSources: [],
-          projectRefs: [{ path: '/repo/Game.Engine/Game.Engine.nginproj' }],
+          projectRefs: [{ path: '/repo/Engine.Library/Engine.Library.nginproj' }],
           packageRefs: [{ name: 'NGIN.Core' }],
           profiles: [
             {
               name: 'Runtime',
               environment: 'development',
               configInputs: [],
-              projectRefs: [{ path: '/repo/Game.Engine/Game.Engine.nginproj' }],
+              projectRefs: [{ path: '/repo/Engine.Library/Engine.Library.nginproj' }],
               packageRefs: [{ name: 'NGIN.Core' }, { name: 'NGIN.Reflection' }]
             }
           ]
         },
         {
-          path: '/repo/Game.Engine/Game.Engine.nginproj',
-          directory: '/repo/Game.Engine',
-          name: 'Game.Engine',
+          path: '/repo/Engine.Library/Engine.Library.nginproj',
+          directory: '/repo/Engine.Library',
+          name: 'Engine.Library',
           sourceRoots: [],
           configInputs: [],
           buildSources: [],
@@ -855,7 +855,7 @@ test('project tree dependency models group mixed references and deduplicate owne
   });
 
   const dependencies = models.dependenciesByProject.get('/repo/App/App.nginproj');
-  assert.deepEqual(dependencies?.projects.map((entry) => `${entry.label}:${entry.description}`), ['Game.Engine:Project, Runtime']);
+  assert.deepEqual(dependencies?.projects.map((entry) => `${entry.label}:${entry.description}`), ['Engine.Library:Project, Runtime']);
   assert.deepEqual(dependencies?.packages.map((entry) => `${entry.label}:${entry.description}:${entry.targetPath ?? 'unresolved'}`), [
     'NGIN.Core:Project, Runtime:/repo/Packages/NGIN.Core/NGIN.Core.nginpkg',
     'NGIN.Reflection:Runtime:unresolved'
@@ -875,10 +875,10 @@ test('status bar models expose the compact NGIN bottom-bar actions', () => {
         projects: [],
         root: '/repo'
       },
-      project: { path: '/repo/Examples/App.Basic/App.Basic.nginproj', directory: '/repo/Examples/App.Basic', name: 'App.Basic', sourceRoots: [], configInputs: [], buildSources: [], profiles: [] },
+      project: { path: '/repo/Examples/Hello.Hosted/Hello.Hosted.nginproj', directory: '/repo/Examples/Hello.Hosted', name: 'Hello.Hosted', sourceRoots: [], configInputs: [], buildSources: [], profiles: [] },
       profile: { name: 'Runtime', operatingSystem: 'linux', architecture: 'x64', environment: 'development', configInputs: [] }
     },
-    outputDir: '/repo/.ngin/build/App.Basic/Runtime',
+    outputDir: '/repo/.ngin/build/Hello.Hosted/Runtime',
     launchManifestExists: false,
     stagedCompileCommandsAvailable: false
   });

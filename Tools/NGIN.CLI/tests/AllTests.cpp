@@ -1640,7 +1640,7 @@ TEST_CASE("inspect command emits resolved read-only json")
 
 TEST_CASE("resolution reports project config input collisions")
 {
-    const auto projectPath = RepoRoot() / "Examples/ProjectRef.Config/CollisionRoot/"
+    const auto projectPath = RepoRoot() / "Tools/NGIN.CLI/tests/fixtures/ProjectRef.Config/CollisionRoot/"
                                           "ProjectRef.Config.CollisionRoot.nginproj";
     REQUIRE(fs::exists(projectPath));
 
@@ -1666,11 +1666,11 @@ TEST_CASE("resolution reports project config input collisions")
 TEST_CASE("build facade writes launch manifests and preserves unrelated output "
           "files")
 {
-    const auto projectPath = RepoRoot() / "Examples/App.Basic/App.Basic.nginproj";
+    const auto projectPath = RepoRoot() / "Examples/Hello.Hosted/Hello.Hosted.nginproj";
     REQUIRE(fs::exists(projectPath));
 
     const auto project = LoadProjectManifest(projectPath);
-    const std::optional<std::string> profileName{"Runtime"};
+    const std::optional<std::string> profileName{"Debug"};
     const auto &profile = ProfileByName(project, profileName);
     TempDir temp{};
     const auto outputDir = temp.path() / "stage";
@@ -1687,19 +1687,19 @@ TEST_CASE("build facade writes launch manifests and preserves unrelated output "
     REQUIRE(fs::exists(outputDir / "keep.txt"));
 
     const auto summary = LoadLaunchManifestSummary(secondBuild.value->manifestPath);
-    REQUIRE(summary.profileName == "Runtime");
+    REQUIRE(summary.profileName == "Debug");
     REQUIRE(summary.selectedExecutable.has_value());
-    REQUIRE(*summary.selectedExecutable == "App.Basic");
+    REQUIRE(*summary.selectedExecutable == "Hello.Hosted");
 }
 
 TEST_CASE("clean facade removes owned generated artifacts and preserves "
           "unrelated files")
 {
-    const auto projectPath = RepoRoot() / "Examples/App.Basic/App.Basic.nginproj";
+    const auto projectPath = RepoRoot() / "Examples/Hello.Hosted/Hello.Hosted.nginproj";
     REQUIRE(fs::exists(projectPath));
 
     const auto project = LoadProjectManifest(projectPath);
-    const std::optional<std::string> profileName{"Runtime"};
+    const std::optional<std::string> profileName{"Debug"};
     const auto &profile = ProfileByName(project, profileName);
     TempDir temp{};
     const auto outputDir = temp.path() / "stage";
@@ -1714,17 +1714,17 @@ TEST_CASE("clean facade removes owned generated artifacts and preserves "
     REQUIRE(cleaned.value.has_value());
     REQUIRE_FALSE(cleaned.diagnostics.HasErrors());
     REQUIRE(fs::exists(outputDir / "keep.txt"));
-    REQUIRE_FALSE(fs::exists(outputDir / "App.Basic.Runtime.nginlaunch"));
-    REQUIRE_FALSE(fs::exists(outputDir / "bin" / "App.Basic"));
+    REQUIRE_FALSE(fs::exists(outputDir / "Hello.Hosted.Debug.nginlaunch"));
+    REQUIRE_FALSE(fs::exists(outputDir / "bin" / "Hello.Hosted"));
 }
 
 TEST_CASE("rebuild semantics can be expressed as clean followed by build")
 {
-    const auto projectPath = RepoRoot() / "Examples/App.Basic/App.Basic.nginproj";
+    const auto projectPath = RepoRoot() / "Examples/Hello.Hosted/Hello.Hosted.nginproj";
     REQUIRE(fs::exists(projectPath));
 
     const auto project = LoadProjectManifest(projectPath);
-    const std::optional<std::string> profileName{"Runtime"};
+    const std::optional<std::string> profileName{"Debug"};
     const auto &profile = ProfileByName(project, profileName);
     TempDir temp{};
     const auto outputDir = temp.path() / "stage";
@@ -1743,9 +1743,9 @@ TEST_CASE("rebuild semantics can be expressed as clean followed by build")
     REQUIRE(fs::exists(rebuilt.value->manifestPath));
 
     const auto summary = LoadLaunchManifestSummary(rebuilt.value->manifestPath);
-    REQUIRE(summary.profileName == "Runtime");
+    REQUIRE(summary.profileName == "Debug");
     REQUIRE(summary.selectedExecutable.has_value());
-    REQUIRE(*summary.selectedExecutable == "App.Basic");
+    REQUIRE(*summary.selectedExecutable == "Hello.Hosted");
 }
 
 TEST_CASE("process execution helper runs tools directly without a shell")

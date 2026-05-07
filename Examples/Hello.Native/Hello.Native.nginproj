@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project SchemaVersion="3"
-         Name="App.NativeMinimal"
+         Name="Hello.Native"
          Template="Application"
-         DefaultProfile="Runtime">
+         DefaultProfile="Debug">
   <Inputs>
     <Sources Path="src" />
   </Inputs>
@@ -14,7 +14,7 @@
   <Launch Executable="$(OutputName)" WorkingDirectory="." />
   <Build>
     <CompileDefinitions>
-      <Definition Value="APP_NATIVE_MINIMAL_LOCAL_DEBUG"
+      <Definition Value="HELLO_NATIVE_LOCAL_DEBUG"
                   Visibility="Private"
                   Condition="LocalDebug" />
     </CompileDefinitions>
@@ -23,6 +23,6 @@
     <Environment Name="local" />
   </Environments>
   <Profiles>
-    <Profile Name="Runtime" Template="LocalRuntime" />
+    <Profile Name="Debug" Template="LocalDebug" />
   </Profiles>
 </Project>

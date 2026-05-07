@@ -50,23 +50,23 @@ Minimal example:
 
 ```bash
 ./build/dev/Tools/NGIN.CLI/ngin validate \
-  --project Examples/App.NativeMinimal/App.NativeMinimal.nginproj \
-  --profile Runtime
+  --project Examples/Hello.Native/Hello.Native.nginproj \
+  --profile Debug
 
 ./build/dev/Tools/NGIN.CLI/ngin configure \
-  --project Examples/App.NativeMinimal/App.NativeMinimal.nginproj \
-  --profile Runtime \
-  --output build/manual/App.NativeMinimal
+  --project Examples/Hello.Native/Hello.Native.nginproj \
+  --profile Debug \
+  --output build/manual/Hello.Native
 
 ./build/dev/Tools/NGIN.CLI/ngin build \
-  --project Examples/App.NativeMinimal/App.NativeMinimal.nginproj \
-  --profile Runtime \
-  --output build/manual/App.NativeMinimal
+  --project Examples/Hello.Native/Hello.Native.nginproj \
+  --profile Debug \
+  --output build/manual/Hello.Native
 
 ./build/dev/Tools/NGIN.CLI/ngin run \
-  --project Examples/App.NativeMinimal/App.NativeMinimal.nginproj \
-  --profile Runtime \
-  --output build/manual/App.NativeMinimal
+  --project Examples/Hello.Native/Hello.Native.nginproj \
+  --profile Debug \
+  --output build/manual/Hello.Native
 ```
 
 Use `clean` or `rebuild` when you need to reset generated artifacts for the
@@ -176,13 +176,13 @@ machine-specific paths and secrets that should not be committed.
 Create the default ignored local settings file:
 
 ```bash
-ngin settings init --project Examples/App.Basic/App.Basic.nginproj
+ngin settings init --project Examples/Hello.Hosted/Hello.Hosted.nginproj
 ```
 
 Inspect resolved variables for a profile:
 
 ```bash
-ngin variables explain --project Examples/App.Basic/App.Basic.nginproj --profile Runtime
+ngin variables explain --project Examples/Hello.Hosted/Hello.Hosted.nginproj --profile Debug
 ```
 
 Secret values are redacted in CLI output and are not written as raw values to

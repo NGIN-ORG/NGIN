@@ -9,15 +9,17 @@ cli="$repo_root/build/dev/Tools/NGIN.CLI/ngin"
 smoke_project() {
   local project="$1"
   local output="$2"
-  "$cli" validate --project "$project" --profile Runtime
-  "$cli" build --project "$project" --profile Runtime --output "$output"
+  local profile="${3:-Debug}"
+  "$cli" validate --project "$project" --profile "$profile"
+  "$cli" build --project "$project" --profile "$profile" --output "$output"
 }
 
 smoke_run_project() {
   local project="$1"
   local output="$2"
-  smoke_project "$project" "$output"
-  "$cli" run --project "$project" --profile Runtime --output "$output"
+  local profile="${3:-Debug}"
+  smoke_project "$project" "$output" "$profile"
+  "$cli" run --project "$project" --profile "$profile" --output "$output"
 }
 
 case "$target" in
@@ -30,24 +32,25 @@ case "$target" in
   ngin-core)
     ctest --test-dir "$repo_root/build/ngin-core-ci" --output-on-failure -C Release
     ;;
-  app-native-minimal)
+  hello-native)
     smoke_run_project \
-      "$repo_root/Examples/App.NativeMinimal/App.NativeMinimal.nginproj" \
-      "$repo_root/build/manual/App.NativeMinimal"
+      "$repo_root/Examples/Hello.Native/Hello.Native.nginproj" \
+      "$repo_root/build/manual/Hello.Native"
     ;;
-  app-hosted-core)
+  hello-hosted)
     smoke_run_project \
-      "$repo_root/Examples/App.HostedCore/App.HostedCore.nginproj" \
-      "$repo_root/build/manual/App.HostedCore"
+      "$repo_root/Examples/Hello.Hosted/Hello.Hosted.nginproj" \
+      "$repo_root/build/manual/Hello.Hosted"
     ;;
-  app-basic)
-    smoke_project \
-      "$repo_root/Examples/App.Basic/App.Basic.nginproj" \
-      "$repo_root/build/manual/App.Basic"
+  hello-reflection)
+    cmake --build "$repo_root/build/dev" --target ngin_reflection_metagen
+    smoke_run_project \
+      "$repo_root/Examples/Hello.Reflection/Hello.Reflection.nginproj" \
+      "$repo_root/build/manual/Hello.Reflection"
     ;;
   *)
     echo "unknown test target: $target" >&2
-    echo "expected one of: workspace, workflow, ngin-core, app-native-minimal, app-hosted-core, app-basic" >&2
+    echo "expected one of: workspace, workflow, ngin-core, hello-native, hello-hosted, hello-reflection" >&2
     exit 2
     ;;
 esac

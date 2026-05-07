@@ -28,7 +28,7 @@ Current known subtree instructions exist in:
 ## Repo Map
 
 - `Tools/NGIN.CLI/`: native `ngin` CLI implementation
-- `Examples/App.Basic/`: canonical smoke-test application and manifest example
+- `Examples/Hello.Hosted/`: canonical smoke-test application and manifest example
 - `Packages/NGIN.Core/`: locally owned host/runtime package
 - `Packages/*`: workspace package wrappers and package metadata
 - `Dependencies/NGIN/*`: externally developed first-party source trees
@@ -60,7 +60,7 @@ Do not edit generated files to implement behavior changes.
 
 - CLI command behavior: `Tools/NGIN.CLI/src/main.cpp`
 - Workspace automation and tests: root `CMakeLists.txt` and `cmake/`
-- Canonical example changes: `Examples/App.Basic/`
+- Canonical example changes: `Examples/Hello.Hosted/`
 - Host/runtime behavior: `Packages/NGIN.Core/`
 - Package exposure, provider wiring, and backend integration changes: `Packages/*.nginpkg`
 - First-party dependency implementation changes: `Dependencies/NGIN/*`
@@ -112,8 +112,8 @@ ctest --test-dir build/ngin-core-ci --output-on-failure -C Release
 Smoke-test the example project:
 
 ```bash
-./build/dev/Tools/NGIN.CLI/ngin validate --project Examples/App.Basic/App.Basic.nginproj --profile Runtime
-./build/dev/Tools/NGIN.CLI/ngin build --project Examples/App.Basic/App.Basic.nginproj --profile Runtime --output build/manual/App.Basic
+./build/dev/Tools/NGIN.CLI/ngin validate --project Examples/Hello.Hosted/Hello.Hosted.nginproj --profile Debug
+./build/dev/Tools/NGIN.CLI/ngin build --project Examples/Hello.Hosted/Hello.Hosted.nginproj --profile Debug --output build/manual/Hello.Hosted
 ```
 
 ## Working Rules
@@ -121,7 +121,7 @@ Smoke-test the example project:
 - Keep diffs narrow and task-focused.
 - Prefer updating docs when behavior or contracts change.
 - Preserve the distinction between package wrappers in `Packages/` and source trees in `Dependencies/`.
-- Use `Examples/App.Basic/` for CLI and manifest smoke checks unless a different example is required.
+- Use `Examples/Hello.Hosted/` for CLI and manifest smoke checks unless a different example is required.
 - Prefer project `<Build>` metadata over adding new handwritten project `CMakeLists.txt` files.
 - Use workspace `PackageProviders` together with package `<Build Mode="...">` metadata to integrate external or dependency-owned CMake projects.
 - When changing dependency subtrees, follow any local `AGENTS.md` in that subtree.
@@ -151,11 +151,11 @@ Pick one final verification path that matches the change. Do not run all of thes
 - CLI changes:
   - First choice: build `ngin_cli`
   - Add workspace `ctest` only when the change affects shared CLI behavior, test-covered flows, or regression risk is broad
-  - Add `App.Basic` smoke checks only when the change affects project, build, staging, or runtime behavior
+  - Add `Hello.Hosted` smoke checks only when the change affects project, build, staging, or runtime behavior
 - Workspace/build flow changes: run `ngin.workflow`
 - `NGIN.Core` changes: build and run `NGINCoreTests`
 - Manifest/schema changes:
-  - First choice: validate `Examples/App.Basic/App.Basic.nginproj`
+  - First choice: validate `Examples/Hello.Hosted/Hello.Hosted.nginproj`
   - Build or graph the example project only when generation, staging, or runtime layout behavior changed
 - Docs or AI-instruction changes: no build required
 

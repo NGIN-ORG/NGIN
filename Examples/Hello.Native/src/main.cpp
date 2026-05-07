@@ -2,7 +2,7 @@
 
 int main(int argc, char **argv)
 {
-    std::cout << "App.NativeMinimal running";
+    std::cout << "Hello.Native running";
     if (argc > 1)
     {
         std::cout << " with " << (argc - 1) << " argument(s)";

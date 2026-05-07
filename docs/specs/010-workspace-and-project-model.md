@@ -70,7 +70,7 @@ Shared model files use the `.nginmodel` extension and a `Model` root.
     <ProjectTemplate Name="ConsoleTool" Type="Tool" OutputKind="Executable" />
   </ProjectTemplates>
   <ProfileTemplates>
-    <ProfileTemplate Name="LocalRuntime" Environment="local">
+    <ProfileTemplate Name="LocalDebug" Environment="local">
       <Launch Executable="$(OutputName)" WorkingDirectory="." />
     </ProfileTemplate>
   </ProfileTemplates>

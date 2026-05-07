@@ -226,8 +226,8 @@ smallest example project.
 The smallest example is:
 
 ```text
-Examples/App.NativeMinimal/
-  App.NativeMinimal.nginproj
+Examples/Hello.Native/
+  Hello.Native.nginproj
   src/main.cpp
 ```
 
@@ -264,25 +264,25 @@ cmake --build build/dev --target ngin_cli
 
 ```bash
 ./build/dev/Tools/NGIN.CLI/ngin validate \
-  --project Examples/App.NativeMinimal/App.NativeMinimal.nginproj \
-  --profile Runtime
+  --project Examples/Hello.Native/Hello.Native.nginproj \
+  --profile Debug
 ```
 
 ### 5. Inspect the resolved project
 
 ```bash
 ./build/dev/Tools/NGIN.CLI/ngin graph \
-  --project Examples/App.NativeMinimal/App.NativeMinimal.nginproj \
-  --profile Runtime
+  --project Examples/Hello.Native/Hello.Native.nginproj \
+  --profile Debug
 ```
 
 ### 6. Configure generated build metadata
 
 ```bash
 ./build/dev/Tools/NGIN.CLI/ngin configure \
-  --project Examples/App.NativeMinimal/App.NativeMinimal.nginproj \
-  --profile Runtime \
-  --output build/manual/App.NativeMinimal
+  --project Examples/Hello.Native/Hello.Native.nginproj \
+  --profile Debug \
+  --output build/manual/Hello.Native
 ```
 
 This generates backend CMake input and compile commands without building or
@@ -292,9 +292,9 @@ staging the application.
 
 ```bash
 ./build/dev/Tools/NGIN.CLI/ngin build \
-  --project Examples/App.NativeMinimal/App.NativeMinimal.nginproj \
-  --profile Runtime \
-  --output build/manual/App.NativeMinimal
+  --project Examples/Hello.Native/Hello.Native.nginproj \
+  --profile Debug \
+  --output build/manual/Hello.Native
 ```
 
 This builds the executable and creates a runnable output folder.
@@ -303,9 +303,9 @@ This builds the executable and creates a runnable output folder.
 
 ```bash
 ./build/dev/Tools/NGIN.CLI/ngin run \
-  --project Examples/App.NativeMinimal/App.NativeMinimal.nginproj \
-  --profile Runtime \
-  --output build/manual/App.NativeMinimal
+  --project Examples/Hello.Native/Hello.Native.nginproj \
+  --profile Debug \
+  --output build/manual/Hello.Native
 ```
 
 The core flow is:
@@ -332,12 +332,10 @@ A small `.nginproj` file looks like this:
 <Project SchemaVersion="3"
          Name="MyApp"
          Type="Application"
-         DefaultProfile="Runtime">
-  <Sources>
-    <Private>
-      <Root Path="src" />
-    </Private>
-  </Sources>
+         DefaultProfile="Debug">
+  <Inputs>
+    <Sources Path="src" />
+  </Inputs>
 
   <Conditions>
     <Condition Name="LocalDebug"
@@ -365,7 +363,7 @@ A small `.nginproj` file looks like this:
   </Environments>
 
   <Profiles>
-    <Profile Name="Runtime"
+    <Profile Name="Debug"
                    BuildType="Debug"
                    OperatingSystem="linux"
                    Architecture="x64"
@@ -383,8 +381,8 @@ This says:
 - `LocalDebug` names the local debug selection rule
 - the output is an executable
 - CMake input should be generated
-- the default profile is `Runtime`
-- the `Runtime` profile builds a debug Linux x64 executable
+- the default profile is `Debug`
+- the `Debug` profile builds a debug Linux x64 executable
 - `MYAPP_LOCAL_DEBUG` is emitted only when `LocalDebug` matches
 - local runs should launch `MyApp` from the staged folder
 
@@ -403,8 +401,8 @@ A project is usually one app, tool, or library.
 Examples:
 
 ```text
-Game.Client.nginproj
-Game.Server.nginproj
+Hello.Native.nginproj
+Hello.Hosted.nginproj
 AssetCompiler.nginproj
 ```
 
@@ -459,9 +457,9 @@ projects.
 For example:
 
 ```text
-Game.Engine
-Game.Client
-Game.Server
+MyTool
+MyEditor
+AssetCompiler
 ```
 
 ### Profile
@@ -471,13 +469,11 @@ A profile is one named way to build or run the same project.
 Examples:
 
 ```text
-Runtime
 Debug
 Release
-Editor
-Server
-Local
-Shipping
+Debug.Asan
+Debug.Diagnostics
+Release.Shipping
 ```
 
 Profiles are useful when the same project needs different settings for
@@ -530,22 +526,15 @@ larger repositories with multiple apps, tools, packages, and local dependencies.
 
 The examples are arranged so each one adds one idea.
 
-1. [`Examples/App.NativeMinimal`](Examples/App.NativeMinimal/README.md)
+1. [`Examples/Hello.Native`](Examples/Hello.Native/README.md)
    Smallest CLI-managed C++ executable.
 
-2. [`Examples/App.HostedCore`](Examples/App.HostedCore/README.md)
-   Smallest application that links `NGIN.Core` and uses the NGIN application
-   host.
+2. [`Examples/Hello.Hosted`](Examples/Hello.Hosted/README.md)
+   Smallest application that links `NGIN.Core`, registers a real static module,
+   and selects it from the manifest.
 
-3. [`Examples/App.Basic`](Examples/App.Basic/README.md)
-   Compact hosted application with project-owned runtime metadata.
-
-4. [`Examples/App.Showcase`](Examples/App.Showcase/README.md)
-   Richer profile overlays, optional package references, and runtime
-   module variation.
-
-5. `Examples/Game.Engine`, `Examples/Game.Client`, and `Examples/Game.Server`
-   Multiple related build outputs modeled as separate projects.
+3. [`Examples/Hello.Reflection`](Examples/Hello.Reflection/README.md)
+   Reflection code generation through `NGIN.Reflection.MetaGen`.
 
 See [`Examples/README.md`](Examples/README.md) for the full example map.
 

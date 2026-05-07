@@ -19,14 +19,8 @@
     <PackageProvider Name="NGIN.ECS" Root="Dependencies/NGIN/NGIN.ECS" />
   </PackageProviders>
   <Projects>
-    <Project Path="Examples/App.NativeMinimal/App.NativeMinimal.nginproj" />
-    <Project Path="Examples/App.HostedCore/App.HostedCore.nginproj" />
-    <Project Path="Examples/App.ReflectionMetaGen/App.ReflectionMetaGen.nginproj" />
-    <Project Path="Examples/App.Basic/App.Basic.nginproj" />
-    <Project Path="Examples/ProjectRef.Config/Root/ProjectRef.Config.Root.nginproj" />
-    <Project Path="Examples/Game.Engine/Game.Engine.nginproj" />
-    <Project Path="Examples/Game.Client/Game.Client.nginproj" />
-    <Project Path="Examples/Game.Server/Game.Server.nginproj" />
-    <Project Path="Examples/App.Showcase/App.Showcase.nginproj" />
+    <Project Path="Examples/Hello.Native/Hello.Native.nginproj" />
+    <Project Path="Examples/Hello.Hosted/Hello.Hosted.nginproj" />
+    <Project Path="Examples/Hello.Reflection/Hello.Reflection.nginproj" />
   </Projects>
 </Workspace>

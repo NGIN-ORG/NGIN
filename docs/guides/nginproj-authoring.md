@@ -14,7 +14,7 @@ dependencies, profiles, and local run metadata.
 <Project SchemaVersion="3"
          Name="MyTool"
          Template="Tool"
-         DefaultProfile="Runtime">
+         DefaultProfile="Debug">
   <Defaults BuildType="Debug" Platform="linux-x64" Environment="local" />
 
   <Inputs>
@@ -28,7 +28,7 @@ dependencies, profiles, and local run metadata.
   </Environments>
 
   <Profiles>
-    <Profile Name="Runtime" />
+    <Profile Name="Debug" />
   </Profiles>
 </Project>
 ```
@@ -51,12 +51,12 @@ Profiles can reuse an earlier profile with `Extends`:
 
 ```xml
 <Profiles>
-  <Profile Name="Runtime"
+  <Profile Name="Debug"
            BuildType="Debug"
            Platform="linux-x64"
            Environment="local" />
   <Profile Name="Shipping"
-           Extends="Runtime"
+           Extends="Debug"
            BuildType="Release" />
 </Profiles>
 ```
@@ -67,7 +67,7 @@ Shared model files reduce repeated defaults across projects:
 <Model SchemaVersion="3" Name="Common">
   <Defaults BuildType="Debug" Platform="linux-x64" />
   <ProfileTemplates>
-    <ProfileTemplate Name="LocalRuntime" Environment="local">
+    <ProfileTemplate Name="LocalDebug" Environment="local">
       <Launch Executable="$(OutputName)" WorkingDirectory="." />
     </ProfileTemplate>
   </ProfileTemplates>
@@ -276,7 +276,7 @@ NGIN does not run shell command strings.
 
 `ngin configure` and `ngin build` run selected generators before generated CMake
 emission. Use `ngin explain generator <Name> --project App.nginproj --profile
-Runtime` to inspect the selected declaration, tool, inputs, outputs, and
+Debug` to inspect the selected declaration, tool, inputs, outputs, and
 arguments.
 
 ## References
@@ -285,7 +285,7 @@ Project references:
 
 ```xml
 <References>
-  <Project Path="../Engine/Engine.nginproj" Profile="Runtime" />
+  <Project Path="../Engine/Engine.nginproj" Profile="Debug" />
 </References>
 ```
 
@@ -322,7 +322,7 @@ Packages declare features as reusable contribution bundles:
 ```
 
 Use `ngin explain package-feature NGIN.Core Reflection --project App.nginproj
---profile Runtime` to inspect selection and contributions. Use
+--profile Debug` to inspect selection and contributions. Use
 `ngin package lock` and `ngin package verify-lock` for local package graph
 reproducibility.
 
@@ -332,7 +332,7 @@ NGIN separates the project profile name from the backend build
 profile.
 
 ```xml
-<Profile Name="Runtime"
+<Profile Name="Debug"
                BuildType="Debug"
                Platform="linux-x64"
                Environment="local" />
@@ -353,8 +353,8 @@ own profile launch. Library projects may not declare launch metadata.
 ## Useful Commands
 
 ```bash
-ngin validate --project Examples/App.NativeMinimal/App.NativeMinimal.nginproj --profile Runtime
-ngin graph --project Examples/App.NativeMinimal/App.NativeMinimal.nginproj --profile Runtime
-ngin build --project Examples/App.NativeMinimal/App.NativeMinimal.nginproj --profile Runtime
-ngin run --project Examples/App.NativeMinimal/App.NativeMinimal.nginproj --profile Runtime
+ngin validate --project Examples/Hello.Native/Hello.Native.nginproj --profile Debug
+ngin graph --project Examples/Hello.Native/Hello.Native.nginproj --profile Debug
+ngin build --project Examples/Hello.Native/Hello.Native.nginproj --profile Debug
+ngin run --project Examples/Hello.Native/Hello.Native.nginproj --profile Debug
 ```

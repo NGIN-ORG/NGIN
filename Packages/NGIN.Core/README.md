@@ -5,12 +5,9 @@ tooling layer can build and stage plain native C++ applications without it; use
 `NGIN.Core` when an application wants a hosted startup model with services,
 configuration, modules, lifecycle, reflection hooks, and diagnostics.
 
-The smallest runnable examples are:
-
-- [`../../Examples/App.HostedCore`](../../Examples/App.HostedCore/README.md) for
-  code-first hosted startup
-- [`../../Examples/App.Basic`](../../Examples/App.Basic/README.md) for
-  manifest-owned runtime metadata
+The smallest runnable hosted example is
+[`../../Examples/Hello.Hosted`](../../Examples/Hello.Hosted/README.md). It
+registers a real static module in C++ and selects it from the project manifest.
 
 ## Scope
 

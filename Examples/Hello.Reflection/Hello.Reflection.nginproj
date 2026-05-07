@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project SchemaVersion="3"
-         Name="App.ReflectionMetaGen"
-         DefaultProfile="Runtime">
+         Name="Hello.Reflection"
+         DefaultProfile="Debug">
   <Inputs>
     <Sources Path="src" />
   </Inputs>
   <Output Kind="Executable"
-          Name="App.ReflectionMetaGen"
-          Target="App.ReflectionMetaGen" />
+          Name="Hello.Reflection"
+          Target="Hello.Reflection" />
   <Build Backend="CMake"
          Mode="Generated"
          Language="CXX"
@@ -21,11 +21,12 @@
     <Environment Name="local" />
   </Environments>
   <Profiles>
-    <Profile Name="Runtime"
+    <Profile Name="Debug"
                    BuildType="Debug"
                    Platform="linux-x64"
-                   Environment="local">
-      <Launch Executable="App.ReflectionMetaGen" WorkingDirectory="." />
+                   Environment="local"
+                   EnableReflection="true">
+      <Launch Executable="Hello.Reflection" WorkingDirectory="." />
     </Profile>
   </Profiles>
 </Project>

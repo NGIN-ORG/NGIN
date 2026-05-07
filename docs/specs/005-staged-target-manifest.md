@@ -30,14 +30,14 @@ applications.
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
 <LaunchManifest SchemaVersion="3"
-                Project="App.Basic"
-                Profile="Runtime"
+                Project="Hello.Hosted"
+                Profile="Debug"
                 Type="Application"
                 BuildType="Debug"
                 OperatingSystem="linux"
                 Architecture="x64">
-  <Launch Executable="App.Basic" Target="App.Basic" WorkingDirectory="." />
-  <Environment Name="development">
+  <Launch Executable="Hello.Hosted" Target="Hello.Hosted" WorkingDirectory="." />
+  <Environment Name="local">
     <Variables />
     <Features />
   </Environment>
@@ -45,14 +45,14 @@ applications.
     <Input Kind="Config"
            Path="config/app.cfg"
            OwnerKind="project"
-           Owner="App.Basic"
+           Owner="Hello.Hosted"
            ContentKind="config-input"
            Destination="config/app.cfg" />
   </Inputs>
   <StagedFiles>
     <File Kind="executable"
-          Destination="/repo/.ngin/build/App.Basic/Runtime/bin/App.Basic"
-          RelativeDestination="bin/App.Basic" />
+          Destination="/repo/.ngin/build/Hello.Hosted/Debug/bin/Hello.Hosted"
+          RelativeDestination="bin/Hello.Hosted" />
   </StagedFiles>
 </LaunchManifest>
 ```

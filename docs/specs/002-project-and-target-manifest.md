@@ -352,7 +352,7 @@ Projects use one unified `References` surface:
 
 ```xml
 <References>
-  <Project Path="../Game.Engine/Game.Engine.nginproj" Profile="Runtime" />
+  <Project Path="../Engine.Library/Engine.Library.nginproj" Profile="Debug" />
   <Package Name="NGIN.Core" Version="0.1.0" Optional="false" />
 </References>
 ```
@@ -369,14 +369,14 @@ Projects declare profiles under `Profiles`.
 
 ```xml
 <Profiles>
-  <Profile Name="Runtime"
+  <Profile Name="Debug"
            BuildType="Debug"
            Platform="linux-x64"
            Environment="development">
     <Launch Executable="MyApp" WorkingDirectory="." />
   </Profile>
-  <Profile Name="Shipping"
-           Extends="Runtime"
+  <Profile Name="Release"
+           Extends="Debug"
            BuildType="Release" />
 </Profiles>
 ```
@@ -521,9 +521,9 @@ Project variable names and local setting keys are separate namespaces.
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
 <Project SchemaVersion="3"
-         Name="App.Basic"
+         Name="Hello.Hosted"
          Template="Application"
-         DefaultProfile="Runtime">
+         DefaultProfile="Debug">
   <Inputs>
     <Sources Path="src" />
   </Inputs>
@@ -535,7 +535,7 @@ Project variable names and local setting keys are separate namespaces.
     <Environment Name="development" />
   </Environments>
   <Profiles>
-    <Profile Name="Runtime"
+    <Profile Name="Debug"
              BuildType="Debug"
              Platform="linux-x64"
              Environment="development" />

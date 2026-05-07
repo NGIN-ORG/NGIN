@@ -7,15 +7,17 @@
             Language="CXX"
             LanguageStandard="23" />
   <ProfileTemplates>
-    <ProfileTemplate Name="LocalRuntime" Environment="local">
+    <ProfileTemplate Name="LocalDebug" Environment="local">
       <Launch Executable="$(OutputName)" WorkingDirectory="." />
     </ProfileTemplate>
-    <ProfileTemplate Name="DevelopmentRuntime" Environment="development">
-      <Launch Executable="$(OutputName)" WorkingDirectory="." />
-    </ProfileTemplate>
-    <ProfileTemplate Name="DevelopmentLibrary" Environment="development" />
-    <ProfileTemplate Name="ProductionLibrary"
+    <ProfileTemplate Name="LocalRelease"
                      BuildType="Release"
-                     Environment="production" />
+                     Environment="local">
+      <Launch Executable="$(OutputName)" WorkingDirectory="." />
+    </ProfileTemplate>
+    <ProfileTemplate Name="DebugLibrary" Environment="local" />
+    <ProfileTemplate Name="ReleaseLibrary"
+                     BuildType="Release"
+                     Environment="local" />
   </ProfileTemplates>
 </Model>

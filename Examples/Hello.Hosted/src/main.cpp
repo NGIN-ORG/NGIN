@@ -1,5 +1,6 @@
 #include <NGIN/Core/Core.hpp>
 
+#include <filesystem>
 #include <iostream>
 
 namespace
@@ -9,7 +10,7 @@ namespace
         using namespace NGIN::Core;
 
         ModuleDescriptor descriptor {};
-        descriptor.name = "App.HostedCore.Runtime";
+        descriptor.name = "Hello.Hosted.Startup";
         descriptor.family = ModuleFamily::App;
         descriptor.type = ModuleType::Runtime;
         descriptor.version = SemanticVersion {0, 1, 0, {}};
@@ -29,10 +30,10 @@ namespace
             if (logger)
             {
                 logger->Info([](NGIN::Log::RecordBuilder& rec) {
-                    rec.Message("App.HostedCore runtime module started");
+                    rec.Message("Hello.Hosted startup module started");
                 });
             }
-            return context.RegisterSingletonValue<bool>("App.HostedCore.Ready", true);
+            return context.RegisterSingletonValue<bool>("Hello.Hosted.Ready", true);
         }
     };
 }
@@ -41,15 +42,15 @@ int main(int argc, char** argv)
 {
     using namespace NGIN::Core;
 
+    const auto exampleRoot = std::filesystem::path(HELLO_HOSTED_EXAMPLE_ROOT);
+    const auto projectPath = (exampleRoot / "Hello.Hosted.nginproj").lexically_normal();
+
     auto builder = CreateApplicationBuilder(argc, argv);
-    builder->SetApplicationName("App.HostedCore");
+    builder->UseProjectFile(projectPath.string());
+    builder->SetApplicationName("Hello.Hosted");
     builder->Services()
         .AddDefaults()
         .AddConfiguration();
-    builder->Configuration()
-        .AddSource("config/app.cfg")
-        .SetEnvironmentName("local")
-        .SetWorkingDirectory(".");
     builder->Modules()
         .Register(StaticModuleRegistration {
             .descriptor = MakeDescriptor(),
@@ -57,8 +58,7 @@ int main(int argc, char** argv)
             {
                 return NGIN::Memory::MakeSharedAs<IModule, HostedCoreModule>();
             },
-        })
-        .Enable("App.HostedCore.Runtime");
+        });
 
     auto app = builder->Build();
     if (!app)
@@ -84,7 +84,7 @@ int main(int argc, char** argv)
 
     auto appName = config->GetRaw("App.Name");
     auto message = config->GetRaw("App.Message");
-    if (!appName || appName.Value() != "App.HostedCore")
+    if (!appName || appName.Value() != "Hello.Hosted")
     {
         std::cerr << "App.Name was not resolved from staged config\n";
         return 4;
@@ -101,7 +101,7 @@ int main(int argc, char** argv)
         std::cerr << "Service registry unavailable\n";
         return 6;
     }
-    auto ready = services->ResolveOptional<bool>("App.HostedCore.Ready");
+    auto ready = services->ResolveOptional<bool>("Hello.Hosted.Ready");
     if (!ready || !ready.Value().has_value())
     {
         std::cerr << "Hosted module service was not registered\n";
@@ -116,6 +116,6 @@ int main(int argc, char** argv)
         return 8;
     }
 
-    std::cout << "App.HostedCore completed successfully\n";
+    std::cout << "Hello.Hosted completed successfully\n";
     return 0;
 }

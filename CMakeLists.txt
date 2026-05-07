@@ -29,12 +29,12 @@ add_subdirectory(Packages/NGIN.Reflection.MetaGen EXCLUDE_FROM_ALL)
 
 set(NGIN_WORKSPACE_MANIFEST_PATH "${CMAKE_CURRENT_SOURCE_DIR}/NGIN.ngin")
 set(NGIN_WORKSPACE_STAGE_DIR "${CMAKE_BINARY_DIR}/stage")
-set(NGIN_APP_NATIVE_MINIMAL_PROJECT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/Examples/App.NativeMinimal/App.NativeMinimal.nginproj")
-set(NGIN_APP_HOSTED_CORE_PROJECT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/Examples/App.HostedCore/App.HostedCore.nginproj")
-set(NGIN_APP_BASIC_PROJECT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/Examples/App.Basic/App.Basic.nginproj")
-set(NGIN_APP_BASIC_BUILD_OUTPUT "${NGIN_WORKSPACE_STAGE_DIR}/App.Basic/Runtime")
-set(NGIN_PROJECTREF_CONFIG_PROJECT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/Examples/ProjectRef.Config/Root/ProjectRef.Config.Root.nginproj")
-set(NGIN_PROJECTREF_CONFIG_COLLISION_PROJECT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/Examples/ProjectRef.Config/CollisionRoot/ProjectRef.Config.CollisionRoot.nginproj")
+set(NGIN_HELLO_NATIVE_PROJECT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/Examples/Hello.Native/Hello.Native.nginproj")
+set(NGIN_HELLO_HOSTED_PROJECT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/Examples/Hello.Hosted/Hello.Hosted.nginproj")
+set(NGIN_HELLO_REFLECTION_PROJECT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/Examples/Hello.Reflection/Hello.Reflection.nginproj")
+set(NGIN_HELLO_HOSTED_BUILD_OUTPUT "${NGIN_WORKSPACE_STAGE_DIR}/Hello.Hosted/Debug")
+set(NGIN_PROJECTREF_CONFIG_PROJECT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/Tools/NGIN.CLI/tests/fixtures/ProjectRef.Config/Root/ProjectRef.Config.Root.nginproj")
+set(NGIN_PROJECTREF_CONFIG_COLLISION_PROJECT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/Tools/NGIN.CLI/tests/fixtures/ProjectRef.Config/CollisionRoot/ProjectRef.Config.CollisionRoot.nginproj")
 
 add_custom_target(ngin.manifest.show
   COMMAND ${CMAKE_COMMAND} -E cat "${NGIN_WORKSPACE_MANIFEST_PATH}"
@@ -43,28 +43,28 @@ add_custom_target(ngin.manifest.show
 )
 
 add_custom_target(ngin.project.show
-  COMMAND ${CMAKE_COMMAND} -E cat "${NGIN_APP_BASIC_PROJECT_PATH}"
-  COMMENT "Print the canonical App.Basic project manifest"
+  COMMAND ${CMAKE_COMMAND} -E cat "${NGIN_HELLO_HOSTED_PROJECT_PATH}"
+  COMMENT "Print the canonical Hello.Hosted project manifest"
   VERBATIM
 )
 
 add_custom_target(ngin.validate
   COMMAND $<TARGET_FILE:ngin_cli>
     validate
-    --project "${NGIN_APP_BASIC_PROJECT_PATH}"
-    --profile Runtime
+    --project "${NGIN_HELLO_HOSTED_PROJECT_PATH}"
+    --profile Debug
   DEPENDS ngin_cli
-  COMMENT "Validate the App.Basic Runtime configuration"
+  COMMENT "Validate the Hello.Hosted Debug configuration"
   VERBATIM
 )
 
 add_custom_target(ngin.graph.core
   COMMAND $<TARGET_FILE:ngin_cli>
     graph
-    --project "${NGIN_APP_BASIC_PROJECT_PATH}"
-    --profile Runtime
+    --project "${NGIN_HELLO_HOSTED_PROJECT_PATH}"
+    --profile Debug
   DEPENDS ngin_cli
-  COMMENT "Print the resolved package and module graph for App.Basic"
+  COMMENT "Print the resolved package and module graph for Hello.Hosted"
   VERBATIM
 )
 
@@ -72,11 +72,11 @@ add_custom_target(ngin.build.core
   COMMAND ${CMAKE_COMMAND} -E make_directory "${NGIN_WORKSPACE_STAGE_DIR}"
   COMMAND $<TARGET_FILE:ngin_cli>
     build
-    --project "${NGIN_APP_BASIC_PROJECT_PATH}"
-    --profile Runtime
-    --output "${NGIN_APP_BASIC_BUILD_OUTPUT}"
+    --project "${NGIN_HELLO_HOSTED_PROJECT_PATH}"
+    --profile Debug
+    --output "${NGIN_HELLO_HOSTED_BUILD_OUTPUT}"
   DEPENDS ngin_cli
-  COMMENT "Build the staged layout for App.Basic"
+  COMMENT "Build the staged layout for Hello.Hosted"
   VERBATIM
 )
 
@@ -101,36 +101,40 @@ add_test(NAME ngin.package.show.core
 )
 
 add_test(NAME ngin.validate.workspace
-  COMMAND $<TARGET_FILE:ngin_cli> validate --project "${NGIN_APP_BASIC_PROJECT_PATH}" --profile Runtime
+  COMMAND $<TARGET_FILE:ngin_cli> validate --project "${NGIN_HELLO_HOSTED_PROJECT_PATH}" --profile Debug
 )
 
-add_test(NAME ngin.validate.native_minimal
-  COMMAND $<TARGET_FILE:ngin_cli> validate --project "${NGIN_APP_NATIVE_MINIMAL_PROJECT_PATH}" --profile Runtime
+add_test(NAME ngin.validate.hello_native
+  COMMAND $<TARGET_FILE:ngin_cli> validate --project "${NGIN_HELLO_NATIVE_PROJECT_PATH}" --profile Debug
 )
 
-add_test(NAME ngin.validate.hosted_core
-  COMMAND $<TARGET_FILE:ngin_cli> validate --project "${NGIN_APP_HOSTED_CORE_PROJECT_PATH}" --profile Runtime
+add_test(NAME ngin.validate.hello_hosted
+  COMMAND $<TARGET_FILE:ngin_cli> validate --project "${NGIN_HELLO_HOSTED_PROJECT_PATH}" --profile Debug
+)
+
+add_test(NAME ngin.validate.hello_reflection
+  COMMAND $<TARGET_FILE:ngin_cli> validate --project "${NGIN_HELLO_REFLECTION_PROJECT_PATH}" --profile Debug
 )
 
 add_test(NAME ngin.graph.workspace
-  COMMAND $<TARGET_FILE:ngin_cli> graph --project "${NGIN_APP_BASIC_PROJECT_PATH}" --profile Runtime
+  COMMAND $<TARGET_FILE:ngin_cli> graph --project "${NGIN_HELLO_HOSTED_PROJECT_PATH}" --profile Debug
 )
 
-add_test(NAME ngin.configure.native_minimal
+add_test(NAME ngin.configure.hello_native
   COMMAND ${CMAKE_COMMAND}
     -DCLI=$<TARGET_FILE:ngin_cli>
-    -DPROJECT=${NGIN_APP_NATIVE_MINIMAL_PROJECT_PATH}
-    -DPROFILE=Runtime
-    -DOUTPUT=${CMAKE_BINARY_DIR}/test-stage/App.NativeMinimal/Configure
+    -DPROJECT=${NGIN_HELLO_NATIVE_PROJECT_PATH}
+    -DPROFILE=Debug
+    -DOUTPUT=${CMAKE_BINARY_DIR}/test-stage/Hello.Native/Configure
     -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunNGINConfigureCheck.cmake"
 )
 
 add_test(NAME ngin.build.workspace
   COMMAND ${CMAKE_COMMAND}
     -DCLI=$<TARGET_FILE:ngin_cli>
-    -DPROJECT=${NGIN_APP_BASIC_PROJECT_PATH}
-    -DPROFILE=Runtime
-    -DOUTPUT=${CMAKE_BINARY_DIR}/test-stage/App.Basic/Runtime
+    -DPROJECT=${NGIN_HELLO_HOSTED_PROJECT_PATH}
+    -DPROFILE=Debug
+    -DOUTPUT=${CMAKE_BINARY_DIR}/test-stage/Hello.Hosted/Debug
     -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunNGINBuildCheck.cmake"
 )
 
@@ -155,15 +159,15 @@ add_test(NAME ngin.project.autodiscovery
   COMMAND $<TARGET_FILE:ngin_cli> validate
 )
 set_tests_properties(ngin.project.autodiscovery PROPERTIES
-  WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/Examples/App.Basic"
+  WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/Examples/Hello.Hosted"
 )
 
 add_test(NAME ngin.build.output.preserve
   COMMAND ${CMAKE_COMMAND}
     -DCLI=$<TARGET_FILE:ngin_cli>
-    -DPROJECT=${NGIN_APP_BASIC_PROJECT_PATH}
-    -DPROFILE=Runtime
-    -DOUTPUT=${CMAKE_BINARY_DIR}/test-stage/App.Basic/Preserve
+    -DPROJECT=${NGIN_HELLO_HOSTED_PROJECT_PATH}
+    -DPROFILE=Debug
+    -DOUTPUT=${CMAKE_BINARY_DIR}/test-stage/Hello.Hosted/Preserve
     -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunNGINOutputPreserveCheck.cmake"
 )
 

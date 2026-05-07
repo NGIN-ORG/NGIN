@@ -548,9 +548,9 @@
           {
             "type": "ngin",
             "request": "launch",
-            "name": "NGIN: Debug App.Basic [Runtime]",
-            "project": "Examples/App.Basic/App.Basic.nginproj",
-            "profile": "Runtime",
+            "name": "NGIN: Debug Hello.Hosted",
+            "project": "Examples/Hello.Hosted/Hello.Hosted.nginproj",
+            "profile": "Debug",
             "preBuild": false,
             "programArgs": [],
             "env": {}

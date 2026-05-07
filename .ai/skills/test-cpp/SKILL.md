@@ -12,17 +12,17 @@ Use this skill when the task is to verify changes in this repository.
 - Workspace tests: `.ai/skills/test-cpp/scripts/test.sh workspace`
 - Workspace workflow build: `.ai/skills/test-cpp/scripts/test.sh workflow`
 - `NGIN.Core` tests: `.ai/skills/test-cpp/scripts/test.sh ngin-core`
-- `App.NativeMinimal` smoke validation/build/run: `.ai/skills/test-cpp/scripts/test.sh app-native-minimal`
-- `App.HostedCore` smoke validation/build/run: `.ai/skills/test-cpp/scripts/test.sh app-hosted-core`
-- `App.Basic` smoke validation: `.ai/skills/test-cpp/scripts/test.sh app-basic`
+- `Hello.Native` smoke validation/build/run: `.ai/skills/test-cpp/scripts/test.sh hello-native`
+- `Hello.Hosted` smoke validation/build/run: `.ai/skills/test-cpp/scripts/test.sh hello-hosted`
+- `Hello.Reflection` smoke validation/build/run: `.ai/skills/test-cpp/scripts/test.sh hello-reflection`
 
 ## Workflow
 
 1. Build the relevant target first.
 2. Run the smallest verification scope that matches the change.
-3. Prefer `Examples/App.NativeMinimal/` for plain CLI, generated build, and staging checks.
-4. Prefer `Examples/App.HostedCore/` for hosted-runtime checks.
-5. Use `Examples/App.Basic/` when you specifically need the compact older hosted/project-manifest runtime path.
+3. Prefer `Examples/Hello.Native/` for plain CLI, generated build, and staging checks.
+4. Prefer `Examples/Hello.Hosted/` for hosted-runtime checks.
+5. Use `Examples/Hello.Reflection/` for reflection code-generation checks.
 
 ## Notes
 

@@ -16,21 +16,28 @@ case "$target" in
   ngin-core-tests)
     cmake --build "$repo_root/build/ngin-core-ci" --config Release --target NGINCoreTests
     ;;
-  app-native-minimal)
+  hello-native)
     "$cli" build \
-      --project "$repo_root/Examples/App.NativeMinimal/App.NativeMinimal.nginproj" \
-      --profile Runtime \
-      --output "$repo_root/build/manual/App.NativeMinimal"
+      --project "$repo_root/Examples/Hello.Native/Hello.Native.nginproj" \
+      --profile Debug \
+      --output "$repo_root/build/manual/Hello.Native"
     ;;
-  app-hosted-core)
+  hello-hosted)
     "$cli" build \
-      --project "$repo_root/Examples/App.HostedCore/App.HostedCore.nginproj" \
-      --profile Runtime \
-      --output "$repo_root/build/manual/App.HostedCore"
+      --project "$repo_root/Examples/Hello.Hosted/Hello.Hosted.nginproj" \
+      --profile Debug \
+      --output "$repo_root/build/manual/Hello.Hosted"
+    ;;
+  hello-reflection)
+    cmake --build "$repo_root/build/dev" --target ngin_reflection_metagen
+    "$cli" build \
+      --project "$repo_root/Examples/Hello.Reflection/Hello.Reflection.nginproj" \
+      --profile Debug \
+      --output "$repo_root/build/manual/Hello.Reflection"
     ;;
   *)
     echo "unknown build target: $target" >&2
-    echo "expected one of: cli, workflow, ngin-core-tests, app-native-minimal, app-hosted-core" >&2
+    echo "expected one of: cli, workflow, ngin-core-tests, hello-native, hello-hosted, hello-reflection" >&2
     exit 2
     ;;
 esac

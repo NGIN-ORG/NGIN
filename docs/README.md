@@ -15,11 +15,10 @@ For the shortest path into the repo, start outside this directory:
 
 If you are trying to understand NGIN as a user:
 
-1. Run `Examples/App.NativeMinimal`.
-2. Compare it with `Examples/App.HostedCore`.
-3. Read `Examples/App.Basic` for manifest-owned runtime metadata.
-4. Read `Examples/App.Showcase` for configuration overlays.
-5. Read the specs below when you need exact contracts.
+1. Run `Examples/Hello.Native`.
+2. Compare it with `Examples/Hello.Hosted`.
+3. Run `Examples/Hello.Reflection` when you need generator-backed reflection.
+4. Read the specs below when you need exact contracts.
 
 ## Guides
 
