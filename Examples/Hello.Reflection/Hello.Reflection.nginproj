@@ -1,32 +1,30 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="3"
+<Project SchemaVersion="4"
          Name="Hello.Reflection"
          DefaultProfile="Debug">
-  <Inputs>
-    <Sources Path="src" />
-  </Inputs>
-  <Output Kind="Executable"
-          Name="Hello.Reflection"
-          Target="Hello.Reflection" />
-  <Build Backend="CMake"
-         Mode="Generated"
-         Language="CXX"
-         LanguageStandard="23" />
-  <Features>
-    <Use Package="NGIN.Reflection.MetaGen"
-         Feature="ReflectionCodegen"
-         VersionRange=">=0.1.0 &lt;0.2.0" />
-  </Features>
-  <Environments>
-    <Environment Name="local" />
-  </Environments>
-  <Profiles>
-    <Profile Name="Debug"
-                   BuildType="Debug"
-                   Platform="linux-x64"
-                   Environment="local"
-                   EnableReflection="true">
-      <Launch Executable="Hello.Reflection" WorkingDirectory="." />
-    </Profile>
-  </Profiles>
+
+  <Application>
+    <Uses>
+      <Package Name="NGIN.Reflection.MetaGen"
+               Version=">=0.1.0 &lt;0.2.0"
+               Scope="Build">
+        <Feature Name="ReflectionCodegen" />
+      </Package>
+    </Uses>
+
+    <Build>
+      <Sources Path="src/**.cpp" />
+    </Build>
+
+    <Launch Executable="Hello.Reflection"
+            WorkingDirectory="." />
+  </Application>
+
+  <Profile Name="Debug">
+    <Defaults>
+      <BuildType Name="Debug" />
+      <TargetPlatform Name="linux-x64" />
+      <Environment Name="local" />
+    </Defaults>
+  </Profile>
 </Project>

@@ -30,9 +30,9 @@ namespace NGIN::CLI
         auto ValidateProjectSchemaVersion(const XmlElement &node, const fs::path &path) -> std::string
         {
             const auto schemaVersion = SchemaVersion(node, path);
-            if (schemaVersion != "3")
+            if (schemaVersion != "3" && schemaVersion != "4")
             {
-                throw std::runtime_error(path.string() + ": unsupported project SchemaVersion '" + schemaVersion + "' (expected '3')");
+                throw std::runtime_error(path.string() + ": unsupported project SchemaVersion '" + schemaVersion + "' (expected '3' or '4')");
             }
             return schemaVersion;
         }
@@ -360,12 +360,13 @@ namespace NGIN::CLI
             }
             for (const auto *node : ChildElements(referencesElement, "Package"))
             {
-                ValidateAllowedAttributes(*node, path, {"Name", "Version", "VersionRange", "Optional", "Profile", "Platform", "OperatingSystem", "Architecture", "BuildType", "Environment", "Condition"});
+                ValidateAllowedAttributes(*node, path, {"Name", "Version", "VersionRange", "Optional", "Scope", "Profile", "Platform", "OperatingSystem", "Architecture", "BuildType", "Environment", "Condition"});
                 PackageReference packageReference{};
                 packageReference.name = RequireAttribute(*node, "Name", path);
                 packageReference.versionRange = Attribute(*node, "Version").value_or(Attribute(*node, "VersionRange").value_or(""));
                 packageReference.optional = BoolAttribute(*node, "Optional");
                 packageReference.selectors = ParseSelection(*node, path);
+                packageReference.scope = Attribute(*node, "Scope").value_or("");
                 packageRefs.push_back(std::move(packageReference));
             }
         }
@@ -1387,7 +1388,7 @@ namespace NGIN::CLI
 
         [[nodiscard]] auto IsConditionNodeName(const std::string_view name) -> bool
         {
-            return name == "Match" || name == "All" || name == "Any" || name == "Not" || name == "ConditionRef";
+            return name == "Match" || name == "When" || name == "All" || name == "Any" || name == "Not" || name == "ConditionRef";
         }
 
         [[nodiscard]] auto ParseConditionNode(const XmlElement &node, const fs::path &path) -> ConditionNode
@@ -1398,12 +1399,12 @@ namespace NGIN::CLI
             }
 
             ConditionNode parsed{};
-            if (node.name == "Match")
+            if (node.name == "Match" || node.name == "When")
             {
                 ValidateAllowedAttributes(node, path, {"Profile", "Platform", "OperatingSystem", "Architecture", "BuildType", "Environment"});
                 if (!HasSelectorAttributes(node))
                 {
-                    throw std::runtime_error(path.string() + ": <Match> must declare at least one selector attribute");
+                    throw std::runtime_error(path.string() + ": <" + std::string(node.name) + "> must declare at least one selector attribute");
                 }
                 parsed.kind = ConditionNode::Kind::Match;
                 parsed.match = ParseSelectors(node, path);
@@ -1577,10 +1578,12 @@ namespace NGIN::CLI
             if (const auto backend = Attribute(*buildElement, "Backend"); backend.has_value() && !backend->empty())
             {
                 build.backend = *backend;
+                build.backendExplicit = true;
             }
             if (const auto mode = Attribute(*buildElement, "Mode"); mode.has_value() && !mode->empty())
             {
                 build.mode = *mode;
+                build.backendExplicit = true;
             }
             if (!IsSupportedProjectBuildMode(build.mode))
             {
@@ -1589,10 +1592,12 @@ namespace NGIN::CLI
             if (const auto language = Attribute(*buildElement, "Language"); language.has_value() && !language->empty())
             {
                 build.language = *language;
+                build.languageExplicit = true;
             }
             if (const auto languageStandard = Attribute(*buildElement, "LanguageStandard"); languageStandard.has_value() && !languageStandard->empty())
             {
                 build.languageStandard = *languageStandard;
+                build.languageExplicit = true;
             }
             if (const auto *metaGen = FindChild(*buildElement, "MetaGen"))
             {
@@ -1711,12 +1716,13 @@ namespace NGIN::CLI
                 {
                     for (const auto *dependency : ChildElements(*dependencies, "PackageRef"))
                     {
-                        ValidateAllowedAttributes(*dependency, path, {"Name", "Version", "VersionRange", "Optional", "Profile", "Platform", "OperatingSystem", "Architecture", "BuildType", "Environment", "Condition"});
+                        ValidateAllowedAttributes(*dependency, path, {"Name", "Version", "VersionRange", "Optional", "Scope", "Profile", "Platform", "OperatingSystem", "Architecture", "BuildType", "Environment", "Condition"});
                         PackageReference reference{};
                         reference.name = RequireAttribute(*dependency, "Name", path);
                         reference.versionRange = Attribute(*dependency, "Version").value_or(Attribute(*dependency, "VersionRange").value_or(""));
                         reference.optional = BoolAttribute(*dependency, "Optional");
                         reference.selectors = ParseSelection(*dependency, path);
+                        reference.scope = Attribute(*dependency, "Scope").value_or("");
                         feature.packageRefs.push_back(std::move(reference));
                     }
                 }
@@ -2228,6 +2234,146 @@ namespace NGIN::CLI
         return fs::current_path();
     }
 
+    auto ParseV4DefinitionFragment(const fs::path &path, WorkspaceManifest &workspace) -> void
+    {
+        const auto doc = LoadXml(path);
+        const auto *rootElement = doc.document.Root();
+        if (rootElement == nullptr || rootElement->name != "Definitions")
+        {
+            throw std::runtime_error(path.string() + ": root element must be <Definitions>");
+        }
+        const auto schemaVersion = SchemaVersion(*rootElement, path);
+        if (schemaVersion != "4")
+        {
+            throw std::runtime_error(path.string() + ": unsupported definitions SchemaVersion '" + schemaVersion + "' (expected '4')");
+        }
+        if (const auto *platforms = FindChild(*rootElement, "Platforms"))
+        {
+            for (const auto *node : ChildElements(*platforms, "Platform"))
+            {
+                WorkspaceManifest::Platform platform{};
+                platform.name = RequireAttribute(*node, "Name", path);
+                platform.operatingSystem = RequireAttribute(*node, "OperatingSystem", path);
+                platform.architecture = RequireAttribute(*node, "Architecture", path);
+                platform.abi = Attribute(*node, "Abi").value_or("");
+                workspace.platforms.push_back(std::move(platform));
+            }
+        }
+        if (const auto *toolchains = FindChild(*rootElement, "Toolchains"))
+        {
+            for (const auto *node : ChildElements(*toolchains, "Toolchain"))
+            {
+                WorkspaceManifest::Toolchain toolchain{};
+                toolchain.name = RequireAttribute(*node, "Name", path);
+                toolchain.compiler = Attribute(*node, "Compiler").value_or("");
+                toolchain.compilerVersion = Attribute(*node, "CompilerVersion").value_or("");
+                toolchain.linker = Attribute(*node, "Linker").value_or("");
+                toolchain.generator = Attribute(*node, "Generator").value_or("");
+                toolchain.cppStandardLibrary = Attribute(*node, "CppStandardLibrary").value_or("");
+                toolchain.runtimeLibrary = Attribute(*node, "RuntimeLibrary").value_or("");
+                workspace.toolchains.push_back(std::move(toolchain));
+            }
+        }
+    }
+
+    auto ApplyWorkspacePolicyPlatform(
+        WorkspaceManifest::ProfilePolicy &policy,
+        const WorkspaceManifest &workspace,
+        std::string platformName) -> void
+    {
+        if (platformName.empty())
+        {
+            return;
+        }
+        policy.targetPlatform = platformName;
+        if (platformName == "host")
+        {
+            return;
+        }
+        const auto workspacePlatform = std::find_if(
+            workspace.platforms.begin(), workspace.platforms.end(),
+            [&](const WorkspaceManifest::Platform &platform)
+            {
+                return platform.name == platformName;
+            });
+        if (workspacePlatform != workspace.platforms.end())
+        {
+            policy.operatingSystem = workspacePlatform->operatingSystem;
+            policy.architecture = workspacePlatform->architecture;
+            return;
+        }
+        const auto dash = platformName.find('-');
+        if (dash != std::string::npos)
+        {
+            policy.operatingSystem = platformName.substr(0, dash);
+            policy.architecture = platformName.substr(dash + 1);
+        }
+    }
+
+    auto ParseV4WorkspaceDefaults(
+        const XmlElement &defaultsNode,
+        const fs::path &path,
+        const WorkspaceManifest &workspace,
+        WorkspaceManifest::ProfilePolicy &policy) -> void
+    {
+        for (const auto *node : ChildElements(defaultsNode))
+        {
+            if (node->name == "BuildType")
+            {
+                const auto value = RequireAttribute(*node, "Name", path);
+                if (!IsSupportedBuildType(value))
+                {
+                    throw std::runtime_error(path.string() + ": unknown build type '" + value + "'");
+                }
+                policy.buildType = value;
+            }
+            else if (node->name == "TargetPlatform")
+            {
+                ApplyWorkspacePolicyPlatform(policy, workspace, RequireAttribute(*node, "Name", path));
+            }
+            else if (node->name == "HostPlatform")
+            {
+                policy.hostPlatform = RequireAttribute(*node, "Name", path);
+            }
+            else if (node->name == "Environment")
+            {
+                policy.environmentName = RequireAttribute(*node, "Name", path);
+            }
+            else if (node->name == "Toolchain")
+            {
+                policy.toolchain = RequireAttribute(*node, "Name", path);
+            }
+            else if (node->name == "Language")
+            {
+                auto standard = Attribute(*node, "Standard").value_or("");
+                if (standard.rfind("C++", 0) == 0)
+                {
+                    standard.erase(0, 3);
+                }
+                if (!standard.empty())
+                {
+                    policy.language = "CXX";
+                    policy.languageStandard = standard;
+                }
+            }
+            else if (node->name == "Backend")
+            {
+                if (const auto name = Attribute(*node, "Name"); name.has_value() && !name->empty())
+                {
+                    policy.backend = *name;
+                }
+                if (const auto mode = Attribute(*node, "Mode"); mode.has_value() && !mode->empty())
+                {
+                    if (!IsSupportedProjectBuildMode(*mode))
+                    {
+                        throw std::runtime_error(path.string() + ": unknown project build mode '" + *mode + "'");
+                    }
+                    policy.buildMode = *mode;
+                }
+            }
+        }
+    }
+
     [[nodiscard]] auto LoadWorkspaceManifest(const fs::path &root) -> WorkspaceManifest
     {
         const auto path = WorkspaceFilePath(root);
@@ -2241,12 +2387,84 @@ namespace NGIN::CLI
         {
             throw std::runtime_error(path->string() + ": root element must be <Workspace>");
         }
-        ValidateSchemaVersion(*rootElement, *path, "3");
+        const auto schemaVersion = SchemaVersion(*rootElement, *path);
+        if (schemaVersion != "3" && schemaVersion != "4")
+        {
+            throw std::runtime_error(path->string() + ": unsupported workspace SchemaVersion '" + schemaVersion + "' (expected '3' or '4')");
+        }
 
         WorkspaceManifest workspace{};
         workspace.path = fs::weakly_canonical(*path);
         workspace.name = RequireAttribute(*rootElement, "Name", *path);
+        workspace.defaultProfile = Attribute(*rootElement, "DefaultProfile").value_or("");
         workspace.platformVersion = Attribute(*rootElement, "PlatformVersion").value_or("0.1.0");
+
+        if (schemaVersion == "4")
+        {
+            if (const auto *imports = FindChild(*rootElement, "Imports"))
+            {
+                for (const auto *import : ChildElements(*imports, "Import"))
+                {
+                    const auto importPath = (workspace.path.parent_path() / RequireAttribute(*import, "Path", *path)).lexically_normal();
+                    workspace.imports.push_back(importPath);
+                    ParseV4DefinitionFragment(importPath, workspace);
+                }
+            }
+            if (const auto *defaults = FindChild(*rootElement, "Defaults"))
+            {
+                ParseV4WorkspaceDefaults(*defaults, *path, workspace, workspace.defaults);
+            }
+            if (const auto *packagesNode = FindChild(*rootElement, "Packages"))
+            {
+                for (const auto *source : ChildElements(*packagesNode, "Source"))
+                {
+                    if (const auto sourcePath = Attribute(*source, "Path"); sourcePath.has_value() && !sourcePath->empty())
+                    {
+                        workspace.packageSources.push_back((workspace.path.parent_path() / *sourcePath).lexically_normal());
+                    }
+                    if (const auto sourceUrl = Attribute(*source, "Url"); sourceUrl.has_value() && !sourceUrl->empty())
+                    {
+                        workspace.packageSourceUrls.push_back(*sourceUrl);
+                    }
+                }
+                for (const auto *provider : ChildElements(*packagesNode, "PackageProvider"))
+                {
+                    const auto name = RequireAttribute(*provider, "Name", *path);
+                    const auto providerRoot = Attribute(*provider, "Root").value_or(Attribute(*provider, "Path").value_or(""));
+                    if (!providerRoot.empty())
+                    {
+                        workspace.packageProviders[name] = (workspace.path.parent_path() / providerRoot).lexically_normal();
+                    }
+                }
+                for (const auto *version : ChildElements(*packagesNode, "Version"))
+                {
+                    workspace.dependencyVersions[RequireAttribute(*version, "Name", *path)] = Attribute(*version, "Range").value_or(Attribute(*version, "Version").value_or(""));
+                }
+            }
+
+            if (const auto *projectsNode = FindChild(*rootElement, "Projects"))
+            {
+                for (const auto *node : ChildElements(*projectsNode, "Project"))
+                {
+                    workspace.projects.push_back((workspace.path.parent_path() / RequireAttribute(*node, "Path", *path)).lexically_normal());
+                }
+            }
+            if (const auto *profiles = FindChild(*rootElement, "Profiles"))
+            {
+                for (const auto *node : ChildElements(*profiles, "Profile"))
+                {
+                    WorkspaceManifest::ProfilePolicy profile{};
+                    profile.name = RequireAttribute(*node, "Name", *path);
+                    if (const auto *defaults = FindChild(*node, "Defaults"))
+                    {
+                        ParseV4WorkspaceDefaults(*defaults, *path, workspace, profile);
+                    }
+                    workspace.profiles.push_back(std::move(profile));
+                }
+            }
+            return workspace;
+        }
+
         ParseDependencyPolicy(*rootElement, *path, workspace.dependencyVersions, workspace.versionResolution);
         ParsePackagePolicy(*rootElement, *path, workspace.defaultFeatures, workspace.lockFile);
 
@@ -2296,7 +2514,18 @@ namespace NGIN::CLI
         const fs::path &projectPath) -> std::unordered_map<std::string, PackageCatalogEntry>
     {
         std::unordered_map<std::string, PackageCatalogEntry> out;
-        const auto packageRoots = workspace.has_value() ? workspace->packageSources : DiscoverPackageSourceRoots(projectPath);
+        auto packageRoots = workspace.has_value() ? workspace->packageSources : DiscoverPackageSourceRoots(projectPath);
+        if (workspace.has_value())
+        {
+            for (const auto &sourceUrl : workspace->packageSourceUrls)
+            {
+                constexpr std::string_view fileScheme{"file://"};
+                if (sourceUrl.rfind(fileScheme, 0) == 0)
+                {
+                    packageRoots.push_back(fs::path(sourceUrl.substr(fileScheme.size())).lexically_normal());
+                }
+            }
+        }
         for (const auto &packageRoot : packageRoots)
         {
             if (!fs::exists(packageRoot))
@@ -2305,7 +2534,7 @@ namespace NGIN::CLI
             }
             for (const auto &entry : fs::recursive_directory_iterator(packageRoot))
             {
-                if (!entry.is_regular_file() || entry.path().extension() != ".nginpkg")
+                if (!entry.is_regular_file() || (entry.path().extension() != ".nginpkg" && entry.path().extension() != ".nginpack"))
                 {
                     continue;
                 }
@@ -2329,21 +2558,190 @@ namespace NGIN::CLI
         return out;
     }
 
+    [[nodiscard]] auto ExtractNginPackManifest(const fs::path &path) -> std::string
+    {
+        const auto text = ReadText(path);
+        const auto marker = text.find("\n\n");
+        if (marker == std::string::npos)
+        {
+            throw std::runtime_error(path.string() + ": invalid .nginpack archive; missing manifest payload");
+        }
+        const auto header = text.substr(0, marker);
+        if (header.rfind("NGINPACK/1", 0) != 0)
+        {
+            throw std::runtime_error(path.string() + ": unsupported .nginpack archive format");
+        }
+        return text.substr(marker + 2);
+    }
+
     [[nodiscard]] auto LoadPackageManifest(const fs::path &path) -> PackageManifest
     {
-        const auto doc = LoadXml(path);
+        const auto doc = path.extension() == ".nginpack"
+                             ? LoadXmlText(ExtractNginPackManifest(path), path.string() + ":package.nginpkg")
+                             : LoadXml(path);
         const auto *rootElement = doc.document.Root();
         if (rootElement == nullptr || rootElement->name != "Package")
         {
             throw std::runtime_error(path.string() + ": root element must be <Package>");
         }
-        ValidateSchemaVersion(*rootElement, path, "3");
+        const auto schemaVersion = SchemaVersion(*rootElement, path);
+        if (schemaVersion != "3" && schemaVersion != "4")
+        {
+            throw std::runtime_error(path.string() + ": unsupported package SchemaVersion '" + schemaVersion + "' (expected '3' or '4')");
+        }
 
         PackageManifest package{};
         package.path = path;
         package.name = RequireAttribute(*rootElement, "Name", path);
         package.version = RequireAttribute(*rootElement, "Version", path);
         package.compatiblePlatformRange = Attribute(*rootElement, "CompatiblePlatformRange").value_or("");
+
+        if (schemaVersion == "4")
+        {
+            package.conditions = BuiltinConditions();
+            if (const auto *uses = FindChild(*rootElement, "Uses"))
+            {
+                for (const auto *dependency : ChildElements(*uses))
+                {
+                    if (dependency->name != "Package" && dependency->name != "Tool" && dependency->name != "Runtime")
+                    {
+                        continue;
+                    }
+                    PackageDependency parsed{};
+                    parsed.name = RequireAttribute(*dependency, "Name", path);
+                    parsed.versionRange = Attribute(*dependency, "Version").value_or(Attribute(*dependency, "VersionRange").value_or(""));
+                    parsed.optional = BoolAttribute(*dependency, "Optional");
+                    parsed.scope = Attribute(*dependency, "Scope").value_or("");
+                    package.dependencies.push_back(std::move(parsed));
+                }
+            }
+            if (const auto *library = FindChild(*rootElement, "Library"))
+            {
+                const auto libraryName = Attribute(*library, "Name").value_or(package.name);
+                if (const auto *exports = FindChild(*library, "Exports"))
+                {
+                    for (const auto *target : ChildElements(*exports, "LibraryTarget"))
+                    {
+                        LibraryArtifact artifact{};
+                        artifact.name = libraryName;
+                        artifact.target = RequireAttribute(*target, "Name", path);
+                        artifact.linkage = Attribute(*target, "Linkage").value_or("");
+                        artifact.exported = true;
+                        package.artifacts.libraries.push_back(std::move(artifact));
+                    }
+                    for (const auto *binary : ChildElements(*exports, "Binary"))
+                    {
+                        LibraryArtifact artifact{};
+                        artifact.name = libraryName;
+                        artifact.origin = RequireAttribute(*binary, "Path", path);
+                        artifact.linkage = Attribute(*binary, "Linkage").value_or("");
+                        artifact.exported = true;
+                        package.artifacts.libraries.push_back(std::move(artifact));
+                    }
+                    for (const auto *headers : ChildElements(*exports, "Headers"))
+                    {
+                        InputDeclaration input{};
+                        input.kind = "Source";
+                        input.role = "Header";
+                        input.visibility = "Public";
+                        input.declaringScope = "package:" + package.name;
+                        const auto headerPath = RequireAttribute(*headers, "Path", path);
+                        if (headerPath.find('*') != std::string::npos || headerPath.find('?') != std::string::npos)
+                        {
+                            input.includePatterns.push_back(headerPath);
+                            input.mode = "Glob";
+                        }
+                        else
+                        {
+                            input.path = headerPath;
+                            input.mode = "Directory";
+                        }
+                        ValidateInputDeclaration(input, path);
+                        package.inputs.push_back(std::move(input));
+                    }
+                }
+            }
+            if (const auto *toolProduct = FindChild(*rootElement, "Tool"))
+            {
+                const auto toolProductName = Attribute(*toolProduct, "Name").value_or(package.name);
+                if (const auto *exports = FindChild(*toolProduct, "Exports"))
+                {
+                    for (const auto *tool : ChildElements(*exports, "Tool"))
+                    {
+                        ToolDeclaration declaration{};
+                        declaration.name = Attribute(*tool, "Name").value_or(toolProductName);
+                        declaration.kind = "Generator";
+                        declaration.executable = RequireAttribute(*tool, "Executable", path);
+                        package.tools.push_back(declaration);
+
+                        ExecutableArtifact artifact{};
+                        artifact.name = declaration.name;
+                        artifact.target = declaration.executable;
+                        artifact.exported = true;
+                        package.artifacts.executables.push_back(std::move(artifact));
+                    }
+                }
+            }
+
+            if (const auto *features = FindChild(*rootElement, "Features"))
+            {
+                std::set<std::string> names{};
+                for (const auto *node : ChildElements(*features, "Feature"))
+                {
+                    PackageManifest::Feature feature{};
+                    feature.name = RequireAttribute(*node, "Name", path);
+                    feature.description = Attribute(*node, "Description").value_or("");
+                    if (!names.insert(feature.name).second)
+                    {
+                        throw std::runtime_error(path.string() + ": duplicate package feature '" + feature.name + "'");
+                    }
+                    if (const auto *uses = FindChild(*node, "Uses"))
+                    {
+                        for (const auto *dependency : ChildElements(*uses))
+                        {
+                            if (dependency->name != "Package" && dependency->name != "Tool" && dependency->name != "Runtime")
+                            {
+                                continue;
+                            }
+                            PackageReference reference{};
+                            reference.name = RequireAttribute(*dependency, "Name", path);
+                            reference.versionRange = Attribute(*dependency, "Version").value_or(Attribute(*dependency, "VersionRange").value_or(""));
+                            reference.scope = Attribute(*dependency, "Scope").value_or("");
+                            feature.packageRefs.push_back(std::move(reference));
+                        }
+                    }
+                    if (const auto *build = FindChild(*node, "Build"))
+                    {
+                        for (const auto *buildNode : ChildElements(*build, "Define"))
+                        {
+                            BuildSetting setting{};
+                            setting.value = RequireAttribute(*buildNode, "Name", path);
+                            if (const auto value = Attribute(*buildNode, "Value"); value.has_value())
+                            {
+                                setting.value += "=" + *value;
+                            }
+                            setting.visibility = Attribute(*buildNode, "Visibility").value_or("Public");
+                            feature.build.compileDefinitions.push_back(std::move(setting));
+                        }
+                    }
+                    if (const auto *provides = FindChild(*node, "Provides"))
+                    {
+                        for (const auto *capability : ChildElements(*provides, "Capability"))
+                        {
+                            CapabilityProvision provision{};
+                            provision.name = RequireAttribute(*capability, "Name", path);
+                            provision.exclusive = BoolAttribute(*capability, "Exclusive");
+                            feature.provides.push_back(std::move(provision));
+                        }
+                    }
+                    package.features.push_back(std::move(feature));
+                }
+            }
+
+            ValidateConditionReferences(package.conditions, path);
+            return package;
+        }
+
         ParsePackagePolicy(*rootElement, path, package.defaultFeatures, package.lockFile);
         package.conditions = BuiltinConditions();
         {
@@ -2407,6 +2805,7 @@ namespace NGIN::CLI
                 dependency.name = RequireAttribute(*node, "Name", path);
                 dependency.versionRange = Attribute(*node, "VersionRange").value_or(Attribute(*node, "Version").value_or(""));
                 dependency.optional = BoolAttribute(*node, "Optional");
+                dependency.scope = Attribute(*node, "Scope").value_or("");
                 package.dependencies.push_back(std::move(dependency));
             }
         }
@@ -2757,6 +3156,7 @@ namespace NGIN::CLI
                     parsedLaunch.executable = *executable;
                 }
                 parsedLaunch.workingDirectory = Attribute(*launch, "WorkingDirectory").value_or(".");
+                parsedLaunch.args = Attribute(*launch, "Args").value_or("");
                 profileTemplate.launch = std::move(parsedLaunch);
             }
             if (const auto *references = FindChild(node, "References"))
@@ -3042,6 +3442,1099 @@ namespace NGIN::CLI
             std::vector<std::string> stack{};
             ApplyProfileTemplate(profile, templateName, context, path, stack);
         }
+
+        [[nodiscard]] auto IsV4ProductElementName(const std::string_view name) -> bool
+        {
+            return name == "Application" || name == "Library" || name == "Tool" || name == "Test"
+                   || name == "Benchmark" || name == "Plugin" || name == "Module" || name == "External";
+        }
+
+        [[nodiscard]] auto V4DefaultOutputKind(const std::string_view productKind, const XmlElement &product) -> std::string
+        {
+            if (const auto output = Attribute(product, "Output"); output.has_value() && !output->empty())
+            {
+                if (*output == "Static")
+                {
+                    return "StaticLibrary";
+                }
+                if (*output == "Shared")
+                {
+                    return "SharedLibrary";
+                }
+                if (*output == "Executable")
+                {
+                    return "Executable";
+                }
+                return *output;
+            }
+            if (productKind == "Library" || productKind == "Module" || productKind == "External")
+            {
+                return "StaticLibrary";
+            }
+            if (productKind == "Plugin")
+            {
+                return "SharedLibrary";
+            }
+            return "Executable";
+        }
+
+        [[nodiscard]] auto V4ProjectType(const std::string_view productKind) -> std::string
+        {
+            if (productKind == "Library" || productKind == "Plugin" || productKind == "Module" || productKind == "External")
+            {
+                return "Library";
+            }
+            if (productKind == "Tool")
+            {
+                return "Tool";
+            }
+            return "Application";
+        }
+
+        [[nodiscard]] auto V4ProfileWithPlatform(
+            std::string name,
+            std::string buildType,
+            std::string platform,
+            std::string environment) -> ProfileDefinition
+        {
+            ProfileDefinition profile{};
+            profile.name = std::move(name);
+            profile.buildType = buildType.empty() ? "Debug" : std::move(buildType);
+            profile.platform = platform.empty() || platform == "host" ? "linux-x64" : std::move(platform);
+            if (profile.platform == "windows-x64")
+            {
+                profile.operatingSystem = "windows";
+                profile.architecture = "x64";
+            }
+            else if (profile.platform == "macos-x64")
+            {
+                profile.operatingSystem = "macos";
+                profile.architecture = "x64";
+            }
+            else if (profile.platform == "macos-arm64")
+            {
+                profile.operatingSystem = "macos";
+                profile.architecture = "arm64";
+            }
+            else if (profile.platform == "linux-arm64")
+            {
+                profile.operatingSystem = "linux";
+                profile.architecture = "arm64";
+            }
+            else
+            {
+                profile.platform = "linux-x64";
+                profile.operatingSystem = "linux";
+                profile.architecture = "x64";
+            }
+            profile.environmentName = environment.empty() ? "development" : std::move(environment);
+            return profile;
+        }
+
+        [[nodiscard]] auto V4PathInput(
+            std::string kind,
+            std::string role,
+            const std::string &pathValue,
+            std::string visibility,
+            const std::string &target,
+            const std::string &scope) -> InputDeclaration
+        {
+            InputDeclaration input{};
+            input.kind = std::move(kind);
+            input.role = std::move(role);
+            input.visibility = std::move(visibility);
+            input.declaringScope = scope;
+            input.target = target;
+            if (pathValue.find('*') != std::string::npos || pathValue.find('?') != std::string::npos)
+            {
+                input.includePatterns.push_back(pathValue);
+                input.target.clear();
+                input.targetRoot = target;
+                input.mode = "Glob";
+            }
+            else if (input.kind == "Source")
+            {
+                input.path = pathValue;
+                input.mode = "Directory";
+            }
+            else
+            {
+                input.path = pathValue;
+                input.mode = "File";
+            }
+            return input;
+        }
+
+        auto ApplyV4ScopeSelector(const std::string &scope, SelectorSet &selectors) -> void
+        {
+            constexpr std::string_view profilePrefix{"profile:"};
+            if (scope.rfind(profilePrefix, 0) != 0)
+            {
+                return;
+            }
+            auto profileName = scope.substr(profilePrefix.size());
+            if (const auto separator = profileName.find(':'); separator != std::string::npos)
+            {
+                profileName = profileName.substr(0, separator);
+            }
+            if (!profileName.empty())
+            {
+                selectors.profile = std::move(profileName);
+            }
+        }
+
+        [[nodiscard]] auto V4DefineIdentity(const std::string &value) -> std::string
+        {
+            if (const auto separator = value.find('='); separator != std::string::npos)
+            {
+                return value.substr(0, separator);
+            }
+            return value;
+        }
+
+        auto RemoveV4Define(std::vector<BuildSetting> &settings, const std::string &name, const std::string &scope) -> void
+        {
+            settings.erase(
+                std::remove_if(
+                    settings.begin(),
+                    settings.end(),
+                    [&](const BuildSetting &setting)
+                    {
+                        if (V4DefineIdentity(setting.value) != name)
+                        {
+                            return false;
+                        }
+                        if (scope.rfind("profile:", 0) != 0)
+                        {
+                            return true;
+                        }
+                        SelectorSet scopeSelectors{};
+                        ApplyV4ScopeSelector(scope, scopeSelectors);
+                        return setting.selectors.profile == scopeSelectors.profile;
+                    }),
+                settings.end());
+        }
+
+        auto UpsertV4Define(std::vector<BuildSetting> &settings, BuildSetting setting, const std::string &scope) -> void
+        {
+            const auto identity = V4DefineIdentity(setting.value);
+            ApplyV4ScopeSelector(scope, setting.selectors);
+            RemoveV4Define(settings, identity, scope);
+            settings.push_back(std::move(setting));
+        }
+
+        [[nodiscard]] auto V4StageIdentity(const InputDeclaration &input) -> std::string
+        {
+            if (!input.target.empty())
+            {
+                return input.kind + ":" + input.target;
+            }
+            if (!input.targetRoot.empty())
+            {
+                return input.kind + ":" + input.targetRoot;
+            }
+            if (!input.path.empty())
+            {
+                return input.kind + ":" + input.path;
+            }
+            if (!input.includePatterns.empty())
+            {
+                return input.kind + ":" + input.includePatterns.front();
+            }
+            return input.kind + ":";
+        }
+
+        auto RemoveV4StageInput(std::vector<InputDeclaration> &inputs, const std::string &kind, const std::string &identity, const std::string &scope) -> void
+        {
+            inputs.erase(
+                std::remove_if(
+                    inputs.begin(),
+                    inputs.end(),
+                    [&](const InputDeclaration &input)
+                    {
+                        if (input.kind != kind)
+                        {
+                            return false;
+                        }
+                        const auto inputIdentity = V4StageIdentity(input);
+                        const auto matchesIdentity = inputIdentity == kind + ":" + identity
+                                                     || input.target == identity
+                                                     || input.targetRoot == identity
+                                                     || input.path == identity
+                                                     || (!input.includePatterns.empty() && input.includePatterns.front() == identity);
+                        if (!matchesIdentity)
+                        {
+                            return false;
+                        }
+                        if (scope.rfind("profile:", 0) != 0)
+                        {
+                            return true;
+                        }
+                        SelectorSet scopeSelectors{};
+                        ApplyV4ScopeSelector(scope, scopeSelectors);
+                        return !input.selectors.profile.has_value() || input.selectors.profile == scopeSelectors.profile;
+                    }),
+                inputs.end());
+        }
+
+        auto UpsertV4StageInput(std::vector<InputDeclaration> &inputs, InputDeclaration input, const std::string &scope) -> void
+        {
+            ApplyV4ScopeSelector(scope, input.selectors);
+            inputs.push_back(std::move(input));
+        }
+
+        auto RemoveV4EnvironmentVariable(std::vector<EnvironmentVariable> &variables, const std::string &name) -> void
+        {
+            variables.erase(
+                std::remove_if(
+                    variables.begin(),
+                    variables.end(),
+                    [&](const EnvironmentVariable &variable)
+                    { return variable.name == name; }),
+                variables.end());
+        }
+
+        auto UpsertV4EnvironmentVariable(std::vector<EnvironmentVariable> &variables, EnvironmentVariable variable) -> void
+        {
+            RemoveV4EnvironmentVariable(variables, variable.name);
+            variables.push_back(std::move(variable));
+        }
+
+        auto RemoveV4RuntimeModule(RuntimeDefinition &runtime, const std::string &name) -> void
+        {
+            runtime.modules.erase(
+                std::remove_if(
+                    runtime.modules.begin(),
+                    runtime.modules.end(),
+                    [&](const ModuleDescriptor &module)
+                    { return module.name == name; }),
+                runtime.modules.end());
+            runtime.enableModules.erase(
+                std::remove_if(
+                    runtime.enableModules.begin(),
+                    runtime.enableModules.end(),
+                    [&](const RuntimeReference &reference)
+                    { return reference.name == name; }),
+                runtime.enableModules.end());
+            runtime.disableModules.push_back(RuntimeReference{.name = name});
+        }
+
+        auto UpsertV4RuntimeModule(RuntimeDefinition &runtime, ModuleDescriptor module) -> void
+        {
+            const auto name = module.name;
+            RemoveV4RuntimeModule(runtime, name);
+            runtime.disableModules.erase(
+                std::remove_if(
+                    runtime.disableModules.begin(),
+                    runtime.disableModules.end(),
+                    [&](const RuntimeReference &reference)
+                    { return reference.name == name; }),
+                runtime.disableModules.end());
+            runtime.enableModules.push_back(RuntimeReference{.name = name});
+            runtime.modules.push_back(std::move(module));
+        }
+
+        auto AddV4PathInput(
+            std::vector<InputDeclaration> &inputs,
+            const fs::path &manifestPath,
+            std::string kind,
+            std::string role,
+            const std::string &pathValue,
+            std::string visibility,
+            const std::string &target,
+            const std::string &scope) -> void
+        {
+            auto input = V4PathInput(std::move(kind), std::move(role), pathValue, std::move(visibility), target, scope);
+            ApplyV4ScopeSelector(scope, input.selectors);
+            ValidateInputDeclaration(input, manifestPath);
+            inputs.push_back(std::move(input));
+        }
+
+        auto ParseV4Language(const XmlElement &node, const fs::path &path, ProjectBuildDescriptor &build) -> void
+        {
+            ValidateAllowedAttributes(node, path, {"Standard", "Required", "Extensions"});
+            auto standard = Attribute(node, "Standard").value_or("");
+            if (standard.rfind("C++", 0) == 0)
+            {
+                standard.erase(0, 3);
+            }
+            if (!standard.empty())
+            {
+                build.language = "CXX";
+                build.languageStandard = standard;
+                build.languageExplicit = true;
+            }
+        }
+
+        auto ApplyV4WhenSelector(const XmlElement &node, SelectorSet &selectors) -> void
+        {
+            if (const auto when = Attribute(node, "When"); when.has_value() && !when->empty())
+            {
+                selectors.conditionRefs.push_back(*when);
+            }
+        }
+
+        auto ParseV4BuildSection(const XmlElement &buildNode, const fs::path &path, ProjectManifest &project, const std::string &scope) -> void
+        {
+            for (const auto *node : ChildElements(buildNode))
+            {
+                if (node->name == "Language")
+                {
+                    ParseV4Language(*node, path, project.build);
+                    continue;
+                }
+                if (node->name == "Sources")
+                {
+                    AddV4PathInput(project.inputs, path, "Source", "Source", RequireAttribute(*node, "Path", path), "Private", "", scope);
+                    continue;
+                }
+                if (node->name == "Headers")
+                {
+                    AddV4PathInput(project.inputs, path, "Source", "Header", RequireAttribute(*node, "Path", path), Attribute(*node, "Visibility").value_or("Public"), "", scope);
+                    continue;
+                }
+                if (node->name == "IncludePath")
+                {
+                    BuildSetting setting{};
+                    setting.value = RequireAttribute(*node, "Path", path);
+                    setting.visibility = Attribute(*node, "Visibility").value_or("Private");
+                    ApplyV4ScopeSelector(scope, setting.selectors);
+                    ApplyV4WhenSelector(*node, setting.selectors);
+                    project.build.includeDirectories.push_back(std::move(setting));
+                    continue;
+                }
+                if (node->name == "Define")
+                {
+                    BuildSetting setting{};
+                    if (const auto remove = Attribute(*node, "Remove"); remove.has_value() && !remove->empty())
+                    {
+                        RemoveV4Define(project.build.compileDefinitions, *remove, scope);
+                        continue;
+                    }
+                    const auto name = Attribute(*node, "Name").value_or("");
+                    if (name.empty())
+                    {
+                        continue;
+                    }
+                    setting.value = name;
+                    if (const auto value = Attribute(*node, "Value"); value.has_value())
+                    {
+                        setting.value += "=" + *value;
+                    }
+                    setting.visibility = Attribute(*node, "Visibility").value_or("Private");
+                    ApplyV4WhenSelector(*node, setting.selectors);
+                    UpsertV4Define(project.build.compileDefinitions, std::move(setting), scope);
+                    continue;
+                }
+                if (node->name == "CompileOption")
+                {
+                    BuildSetting setting{};
+                    setting.value = RequireAttribute(*node, "Value", path);
+                    setting.visibility = Attribute(*node, "Visibility").value_or("Private");
+                    ApplyV4ScopeSelector(scope, setting.selectors);
+                    ApplyV4WhenSelector(*node, setting.selectors);
+                    project.build.compileOptions.push_back(std::move(setting));
+                    continue;
+                }
+                if (node->name == "LinkOption" || node->name == "LinkLibrary")
+                {
+                    BuildSetting setting{};
+                    setting.value = Attribute(*node, "Value").value_or(Attribute(*node, "Name").value_or(""));
+                    if (!setting.value.empty())
+                    {
+                        setting.visibility = Attribute(*node, "Visibility").value_or("Private");
+                        ApplyV4ScopeSelector(scope, setting.selectors);
+                        ApplyV4WhenSelector(*node, setting.selectors);
+                        project.build.linkOptions.push_back(std::move(setting));
+                    }
+                    continue;
+                }
+            }
+        }
+
+        auto ParseV4ExportsSection(const XmlElement &exportsNode, const fs::path &path, ProjectManifest &project, const std::string &scope) -> void
+        {
+            for (const auto *node : ChildElements(exportsNode))
+            {
+                if (node->name == "LibraryTarget")
+                {
+                    project.output.target = RequireAttribute(*node, "Name", path);
+                    continue;
+                }
+                if (node->name == "IncludePath")
+                {
+                    BuildSetting setting{};
+                    setting.value = RequireAttribute(*node, "Path", path);
+                    setting.visibility = "Interface";
+                    ApplyV4ScopeSelector(scope, setting.selectors);
+                    ApplyV4WhenSelector(*node, setting.selectors);
+                    project.build.includeDirectories.push_back(std::move(setting));
+                    continue;
+                }
+                if (node->name == "Headers")
+                {
+                    AddV4PathInput(project.inputs, path, "Source", "Header", RequireAttribute(*node, "Path", path), "Public", "", scope);
+                    continue;
+                }
+                if (node->name == "Define")
+                {
+                    const auto name = Attribute(*node, "Name").value_or("");
+                    if (name.empty())
+                    {
+                        continue;
+                    }
+                    BuildSetting setting{};
+                    setting.value = name;
+                    if (const auto value = Attribute(*node, "Value"); value.has_value())
+                    {
+                        setting.value += "=" + *value;
+                    }
+                    setting.visibility = "Interface";
+                    ApplyV4WhenSelector(*node, setting.selectors);
+                    UpsertV4Define(project.build.compileDefinitions, std::move(setting), scope);
+                    continue;
+                }
+                if (node->name == "LinkOption")
+                {
+                    BuildSetting setting{};
+                    setting.value = RequireAttribute(*node, "Value", path);
+                    setting.visibility = "Interface";
+                    ApplyV4ScopeSelector(scope, setting.selectors);
+                    ApplyV4WhenSelector(*node, setting.selectors);
+                    project.build.linkOptions.push_back(std::move(setting));
+                    continue;
+                }
+            }
+        }
+
+        auto ParseV4UsesSection(const XmlElement &usesNode, const fs::path &path, ProjectManifest &project) -> void
+        {
+            for (const auto *node : ChildElements(usesNode))
+            {
+                if (node->name == "Project")
+                {
+                    ProjectReference reference{};
+                    reference.path = (path.parent_path() / RequireAttribute(*node, "Path", path)).lexically_normal();
+                    if (const auto profile = Attribute(*node, "Profile"); profile.has_value() && !profile->empty())
+                    {
+                        reference.profile = *profile;
+                    }
+                    project.projectRefs.push_back(std::move(reference));
+                    continue;
+                }
+                if (node->name == "Package" || node->name == "Tool" || node->name == "Runtime")
+                {
+                    if (const auto packagePath = Attribute(*node, "Path"); packagePath.has_value() && node->name == "Tool")
+                    {
+                        ProjectReference reference{};
+                        reference.path = (path.parent_path() / *packagePath).lexically_normal();
+                        project.projectRefs.push_back(std::move(reference));
+                        continue;
+                    }
+                    PackageReference package{};
+                    package.name = RequireAttribute(*node, "Name", path);
+                    package.versionRange = Attribute(*node, "Version").value_or(Attribute(*node, "VersionRange").value_or(""));
+                    package.scope = Attribute(*node, "Scope").value_or("");
+                    project.packageRefs.push_back(package);
+                    for (const auto *feature : ChildElements(*node, "Feature"))
+                    {
+                        PackageFeatureUse use{};
+                        use.packageName = package.name;
+                        use.featureName = RequireAttribute(*feature, "Name", path);
+                        use.versionRange = package.versionRange;
+                        project.packageFeatureUses.push_back(std::move(use));
+                    }
+                    continue;
+                }
+            }
+        }
+
+        auto ParseV4StageSection(const XmlElement &stageNode, const fs::path &path, ProjectManifest &project, const std::string &scope) -> void
+        {
+            for (const auto *node : ChildElements(stageNode))
+            {
+                if (node->name == "Config")
+                {
+                    if (const auto remove = Attribute(*node, "Remove"); remove.has_value() && !remove->empty())
+                    {
+                        RemoveV4StageInput(project.inputs, "Config", *remove, scope);
+                        continue;
+                    }
+                    auto input = V4PathInput("Config", "", RequireAttribute(*node, "Source", path), "Private", Attribute(*node, "Target").value_or(""), scope);
+                    input.overrideExisting = Attribute(*node, "Collision").value_or("") == "Override";
+                    ValidateInputDeclaration(input, path);
+                    UpsertV4StageInput(project.inputs, std::move(input), scope);
+                }
+                else if (node->name == "Content")
+                {
+                    if (const auto remove = Attribute(*node, "Remove"); remove.has_value() && !remove->empty())
+                    {
+                        RemoveV4StageInput(project.inputs, "Content", *remove, scope);
+                        continue;
+                    }
+                    auto input = V4PathInput("Content", "", RequireAttribute(*node, "Source", path), "Private", Attribute(*node, "Target").value_or(""), scope);
+                    input.overrideExisting = Attribute(*node, "Collision").value_or("") == "Override";
+                    ValidateInputDeclaration(input, path);
+                    UpsertV4StageInput(project.inputs, std::move(input), scope);
+                }
+            }
+        }
+
+        auto ParseV4EnvironmentSection(const XmlElement &environmentNode, const fs::path &path, EnvironmentDefinition &environment) -> void
+        {
+            for (const auto *node : ChildElements(environmentNode))
+            {
+                if (node->name == "Env")
+                {
+                    if (const auto remove = Attribute(*node, "Remove"); remove.has_value() && !remove->empty())
+                    {
+                        RemoveV4EnvironmentVariable(environment.variables, *remove);
+                        continue;
+                    }
+                    EnvironmentVariable variable{};
+                    variable.name = RequireAttribute(*node, "Name", path);
+                    variable.value = RequireAttribute(*node, "Value", path);
+                    UpsertV4EnvironmentVariable(environment.variables, std::move(variable));
+                }
+                else if (node->name == "Secret")
+                {
+                    if (const auto remove = Attribute(*node, "Remove"); remove.has_value() && !remove->empty())
+                    {
+                        RemoveV4EnvironmentVariable(environment.variables, *remove);
+                        continue;
+                    }
+                    EnvironmentVariable variable{};
+                    variable.name = RequireAttribute(*node, "Name", path);
+                    variable.fromLocalSetting = RequireAttribute(*node, "From", path);
+                    if (variable.fromLocalSetting.rfind("local:", 0) == 0)
+                    {
+                        variable.fromLocalSetting.erase(0, 6);
+                    }
+                    variable.required = BoolAttribute(*node, "Required");
+                    variable.secret = true;
+                    UpsertV4EnvironmentVariable(environment.variables, std::move(variable));
+                }
+            }
+        }
+
+        auto UpsertV4Analyzer(std::vector<AnalyzerDefinition> &analyzers, AnalyzerDefinition analyzer) -> void
+        {
+            analyzers.erase(
+                std::remove_if(
+                    analyzers.begin(),
+                    analyzers.end(),
+                    [&](const AnalyzerDefinition &existing)
+                    {
+                        return existing.name == analyzer.name;
+                    }),
+                analyzers.end());
+            analyzers.push_back(std::move(analyzer));
+        }
+
+        auto RemoveV4Analyzer(std::vector<AnalyzerDefinition> &analyzers, const std::string &name) -> void
+        {
+            analyzers.erase(
+                std::remove_if(
+                    analyzers.begin(),
+                    analyzers.end(),
+                    [&](const AnalyzerDefinition &existing)
+                    {
+                        return existing.name == name;
+                    }),
+                analyzers.end());
+        }
+
+        auto ParseV4QualitySection(const XmlElement &qualityNode, const fs::path &path, QualityDefinition &quality) -> void
+        {
+            for (const auto *node : ChildElements(qualityNode, "Analyzer"))
+            {
+                if (const auto remove = Attribute(*node, "Remove"); remove.has_value() && !remove->empty())
+                {
+                    RemoveV4Analyzer(quality.analyzers, *remove);
+                    continue;
+                }
+                AnalyzerDefinition analyzer{};
+                analyzer.name = RequireAttribute(*node, "Name", path);
+                analyzer.scope = Attribute(*node, "Scope").value_or(analyzer.scope);
+                analyzer.enabled = BoolAttribute(*node, "Enabled", analyzer.enabled);
+                analyzer.severity = Attribute(*node, "Severity").value_or(analyzer.severity);
+                analyzer.selectors = ParseSelection(*node, path);
+                if (const auto *config = FindChild(*node, "Config"))
+                {
+                    analyzer.configPath = RequireAttribute(*config, "Path", path);
+                }
+                UpsertV4Analyzer(quality.analyzers, std::move(analyzer));
+            }
+        }
+
+        auto ParseV4RuntimeSection(const XmlElement &runtimeNode, const fs::path &path, RuntimeDefinition &runtime) -> void
+        {
+            for (const auto *node : ChildElements(runtimeNode, "Module"))
+            {
+                if (const auto remove = Attribute(*node, "Remove"); remove.has_value() && !remove->empty())
+                {
+                    RemoveV4RuntimeModule(runtime, *remove);
+                    continue;
+                }
+                ModuleDescriptor module{};
+                module.name = RequireAttribute(*node, "Name", path);
+                module.startupStage = Attribute(*node, "Stage").value_or("Features");
+                for (const auto *provides : ChildElements(*node, "Provides"))
+                {
+                    if (const auto service = Attribute(*provides, "Service"); service.has_value() && !service->empty())
+                    {
+                        module.providesServices.push_back(*service);
+                    }
+                }
+                for (const auto *requirement : ChildElements(*node, "Requires"))
+                {
+                    if (const auto service = Attribute(*requirement, "Service"); service.has_value() && !service->empty())
+                    {
+                        module.requiresServices.push_back(*service);
+                    }
+                }
+                UpsertV4RuntimeModule(runtime, std::move(module));
+            }
+        }
+
+        auto ApplyV4LaunchNode(const XmlElement &node, const fs::path &, const ProjectManifest &project, LaunchDefinition &launch) -> void
+        {
+            launch.name = Attribute(node, "Name").value_or(launch.name);
+            if (const auto executable = Attribute(node, "Executable"); executable.has_value() && !executable->empty())
+            {
+                launch.executable = *executable == "$(OutputName)" ? project.output.name : *executable;
+            }
+            launch.workingDirectory = Attribute(node, "WorkingDirectory").value_or(launch.workingDirectory);
+            launch.args = Attribute(node, "Args").value_or(launch.args);
+        }
+
+        auto ParseV4PackageOutputSection(const XmlElement &node, const fs::path &path, ProjectManifest &project) -> void
+        {
+            PackageOutputDefinition output{};
+            output.name = RequireAttribute(node, "Name", path);
+            output.version = RequireAttribute(node, "Version", path);
+            output.from = Attribute(node, "From").value_or(project.name);
+            if (const auto *metadata = FindChild(node, "Metadata"))
+            {
+                if (const auto *description = FindChild(*metadata, "Description"))
+                {
+                    output.description = Trim(TextContent(*description));
+                }
+                if (const auto *license = FindChild(*metadata, "License"))
+                {
+                    output.license = Trim(TextContent(*license));
+                }
+            }
+            if (const auto *exports = FindChild(node, "Exports"))
+            {
+                for (const auto *headers : ChildElements(*exports, "Headers"))
+                {
+                    output.headers.push_back(RequireAttribute(*headers, "Path", path));
+                }
+                for (const auto *library : ChildElements(*exports, "Library"))
+                {
+                    output.libraries.push_back(RequireAttribute(*library, "Name", path));
+                }
+                for (const auto *tool : ChildElements(*exports, "Tool"))
+                {
+                    output.tools.push_back(RequireAttribute(*tool, "Name", path));
+                }
+                for (const auto *capability : ChildElements(*exports, "Capability"))
+                {
+                    output.capabilities.push_back(RequireAttribute(*capability, "Name", path));
+                }
+            }
+            if (const auto *compatibility = FindChild(node, "Compatibility"))
+            {
+                for (const auto *platform : ChildElements(*compatibility, "TargetPlatform"))
+                {
+                    output.targetPlatforms.push_back(RequireAttribute(*platform, "Name", path));
+                }
+                if (const auto *abi = FindChild(*compatibility, "Abi"))
+                {
+                    output.abiTag = RequireAttribute(*abi, "Tag", path);
+                }
+            }
+            project.packageOutputs.push_back(std::move(output));
+        }
+
+        auto ParseV4PublishSection(const XmlElement &node, const fs::path &path, std::vector<PublishDefinition> &publishes) -> void
+        {
+            PublishDefinition publish{};
+            publish.name = Attribute(node, "Name").value_or("default");
+            publish.kind = Attribute(node, "Kind").value_or("Folder");
+            publish.format = Attribute(node, "Format").value_or("");
+            publish.output = RequireAttribute(node, "Output", path);
+            if (const auto *include = FindChild(node, "Include"))
+            {
+                if (const auto stage = Attribute(*include, "Stage"); stage.has_value() && *stage == "none")
+                {
+                    publish.includeStage = false;
+                }
+                publish.includeRuntimeDependencies = BoolAttribute(*include, "RuntimeDependencies", publish.includeRuntimeDependencies);
+                publish.includeSymbols = BoolAttribute(*include, "Symbols", publish.includeSymbols);
+            }
+            publishes.erase(
+                std::remove_if(
+                    publishes.begin(),
+                    publishes.end(),
+                    [&](const PublishDefinition &existing)
+                    {
+                        return existing.name == publish.name;
+                    }),
+                publishes.end());
+            publishes.push_back(std::move(publish));
+        }
+
+        [[nodiscard]] auto ParseV4GeneratorOutput(const XmlElement &node, const fs::path &path, const std::string &scope) -> InputDeclaration
+        {
+            std::string role;
+            if (node.name == "Sources")
+            {
+                role = "Source";
+            }
+            else if (node.name == "Headers")
+            {
+                role = "Header";
+            }
+            else if (node.name == "Files")
+            {
+                role = "Content";
+            }
+            else
+            {
+                throw std::runtime_error(path.string() + ": unsupported V4 generator output <" + std::string(node.name) + ">");
+            }
+            auto output = V4PathInput("Generated", role, RequireAttribute(node, "Path", path), role == "Header" ? "Public" : "Private", "", scope);
+            ValidateInputDeclaration(output, path);
+            return output;
+        }
+
+        auto ParseV4GenerateSection(const XmlElement &generateNode, const fs::path &path, ProjectManifest &project, const std::string &scope) -> void
+        {
+            for (const auto *node : ChildElements(generateNode, "Generator"))
+            {
+                GeneratorDeclaration generator{};
+                generator.name = RequireAttribute(*node, "Name", path);
+                generator.kind = "Command";
+                if (const auto *tool = FindChild(*node, "Tool"))
+                {
+                    generator.toolName = Attribute(*tool, "Name").value_or("");
+                    generator.inlineTool.name = generator.toolName;
+                    generator.inlineTool.executable = Attribute(*tool, "Executable").value_or("");
+                    if (!generator.inlineTool.executable.empty())
+                    {
+                        generator.inlineTool.kind = "Generator";
+                        generator.hasInlineTool = true;
+                    }
+                }
+                if (generator.toolName.empty() && !generator.hasInlineTool)
+                {
+                    throw std::runtime_error(path.string() + ": V4 generator '" + generator.name + "' must declare <Tool Name=\"...\"> or Executable");
+                }
+                if (const auto *args = FindChild(*node, "Args"))
+                {
+                    for (const auto *arg : ChildElements(*args, "Arg"))
+                    {
+                        GeneratorArgument argument{};
+                        argument.value = Attribute(*arg, "Value").value_or("");
+                        argument.path = Attribute(*arg, "Path").value_or("");
+                        if (argument.value.empty() == argument.path.empty())
+                        {
+                            throw std::runtime_error(path.string() + ": V4 generator argument must declare exactly one of Value or Path");
+                        }
+                        generator.arguments.push_back(std::move(argument));
+                    }
+                }
+                if (const auto *inputs = FindChild(*node, "Inputs"))
+                {
+                    for (const auto *input : ChildElements(*inputs))
+                    {
+                        if (input->name == "Headers")
+                        {
+                            AddV4PathInput(generator.inputs, path, "Source", "Header", RequireAttribute(*input, "Path", path), "Public", "", scope + ":" + generator.name);
+                        }
+                        else if (input->name == "Sources" || input->name == "Files" || input->name == "File")
+                        {
+                            AddV4PathInput(generator.inputs, path, "ToolInput", "", RequireAttribute(*input, "Path", path), "Private", "", scope + ":" + generator.name);
+                        }
+                    }
+                }
+                const auto *outputs = FindChild(*node, "Outputs");
+                if (outputs == nullptr)
+                {
+                    throw std::runtime_error(path.string() + ": V4 generator '" + generator.name + "' must declare <Outputs>");
+                }
+                for (const auto *output : ChildElements(*outputs))
+                {
+                    generator.outputs.push_back(ParseV4GeneratorOutput(*output, path, scope + ":" + generator.name));
+                }
+                project.generators.push_back(std::move(generator));
+            }
+        }
+
+        auto ApplyV4Defaults(const XmlElement &defaultsNode, const fs::path &path, ProjectBuildDescriptor &build, ProfileDefinition &profile) -> void
+        {
+            for (const auto *node : ChildElements(defaultsNode))
+            {
+                if (node->name == "Language")
+                {
+                    ParseV4Language(*node, path, build);
+                }
+                else if (node->name == "Backend")
+                {
+                    if (const auto name = Attribute(*node, "Name"); name.has_value() && !name->empty())
+                    {
+                        build.backend = *name;
+                        build.backendExplicit = true;
+                    }
+                    if (const auto mode = Attribute(*node, "Mode"); mode.has_value() && !mode->empty())
+                    {
+                        build.mode = *mode;
+                        build.backendExplicit = true;
+                    }
+                }
+                else if (node->name == "BuildType")
+                {
+                    profile.buildType = RequireAttribute(*node, "Name", path);
+                }
+                else if (node->name == "TargetPlatform")
+                {
+                    const auto updated = V4ProfileWithPlatform(profile.name, profile.buildType, RequireAttribute(*node, "Name", path), profile.environmentName);
+                    profile.buildType = updated.buildType;
+                    profile.platform = updated.platform;
+                    profile.operatingSystem = updated.operatingSystem;
+                    profile.architecture = updated.architecture;
+                    profile.environmentName = updated.environmentName;
+                }
+                else if (node->name == "HostPlatform")
+                {
+                    profile.hostPlatform = RequireAttribute(*node, "Name", path);
+                }
+                else if (node->name == "Toolchain")
+                {
+                    profile.toolchain = RequireAttribute(*node, "Name", path);
+                }
+                else if (node->name == "Environment")
+                {
+                    profile.environmentName = RequireAttribute(*node, "Name", path);
+                }
+            }
+        }
+
+        [[nodiscard]] auto FindV4ProductElement(const XmlElement &root, const fs::path &path) -> const XmlElement &
+        {
+            const XmlElement *product = nullptr;
+            for (const auto *child : ChildElements(root))
+            {
+                if (!IsV4ProductElementName(child->name))
+                {
+                    continue;
+                }
+                if (product != nullptr)
+                {
+                    throw std::runtime_error(path.string() + ": V4 projects must declare exactly one primary product element");
+                }
+                product = child;
+            }
+            if (product == nullptr)
+            {
+                throw std::runtime_error(path.string() + ": V4 project must declare one product element such as <Application /> or <Library />");
+            }
+            return *product;
+        }
+
+        [[nodiscard]] auto LoadProjectManifestV4(const fs::path &path, const XmlElement &rootElement) -> ProjectManifest
+        {
+            const auto &product = FindV4ProductElement(rootElement, path);
+            const std::string productKind{product.name};
+            ProjectManifest project{};
+            project.path = path;
+            project.name = RequireAttribute(rootElement, "Name", path);
+            project.type = V4ProjectType(productKind);
+            project.productKind = productKind;
+            project.defaultProfile = Attribute(rootElement, "DefaultProfile").value_or("dev");
+            project.output.kind = V4DefaultOutputKind(productKind, product);
+            project.output.name = project.name;
+            project.output.target = project.name;
+            project.hasExplicitProfiles = !ChildElements(rootElement, "Profile").empty();
+            project.conditions = BuiltinConditions();
+            {
+                std::set<std::string> builtinNames{};
+                for (const auto &condition : project.conditions)
+                {
+                    builtinNames.insert(Lower(condition.name));
+                }
+                for (auto condition : ParseConditions(rootElement, path))
+                {
+                    if (builtinNames.contains(Lower(condition.name)))
+                    {
+                        throw std::runtime_error(path.string() + ": condition '" + condition.name + "' cannot replace built-in condition");
+                    }
+                    project.conditions.push_back(std::move(condition));
+                }
+            }
+
+            ProfileDefinition baseProfile = V4ProfileWithPlatform(project.defaultProfile, "Debug", "linux-x64", "development");
+            baseProfile.launch.executable = project.output.kind == "Executable" ? std::optional<std::string>{project.output.name} : std::nullopt;
+            baseProfile.launch.name = "default";
+            baseProfile.launch.workingDirectory = "$(StageDir)";
+
+            if (const auto *defaults = FindChild(rootElement, "Defaults"))
+            {
+                ApplyV4Defaults(*defaults, path, project.build, baseProfile);
+            }
+            if (const auto *uses = FindChild(product, "Uses"))
+            {
+                ParseV4UsesSection(*uses, path, project);
+            }
+            if (const auto *build = FindChild(product, "Build"))
+            {
+                ParseV4BuildSection(*build, path, project, "product:" + productKind);
+            }
+            else if (productKind != "External")
+            {
+                AddV4PathInput(project.inputs, path, "Source", "Source", "src", "Private", "", "product:" + productKind);
+            }
+            if (const auto *exports = FindChild(product, "Exports"))
+            {
+                ParseV4ExportsSection(*exports, path, project, "product:" + productKind);
+            }
+            if (const auto *generate = FindChild(product, "Generate"))
+            {
+                ParseV4GenerateSection(*generate, path, project, "product:" + productKind);
+            }
+            if (const auto *stage = FindChild(product, "Stage"))
+            {
+                ParseV4StageSection(*stage, path, project, "product:" + productKind);
+            }
+            if (const auto *runtime = FindChild(product, "Runtime"))
+            {
+                ParseV4RuntimeSection(*runtime, path, project.runtime);
+            }
+            for (const auto *packageOutput : ChildElements(product, "PackageOutput"))
+            {
+                ParseV4PackageOutputSection(*packageOutput, path, project);
+            }
+            for (const auto *publish : ChildElements(product, "Publish"))
+            {
+                ParseV4PublishSection(*publish, path, project.publishes);
+            }
+            EnvironmentDefinition baseEnvironment{};
+            baseEnvironment.name = baseProfile.environmentName;
+            if (const auto *environment = FindChild(product, "Environment"))
+            {
+                ParseV4EnvironmentSection(*environment, path, baseEnvironment);
+            }
+            if (const auto *quality = FindChild(rootElement, "Quality"))
+            {
+                ParseV4QualitySection(*quality, path, project.quality);
+            }
+            if (const auto *quality = FindChild(product, "Quality"))
+            {
+                ParseV4QualitySection(*quality, path, project.quality);
+            }
+            if (const auto *launch = FindChild(product, "Launch"))
+            {
+                ApplyV4LaunchNode(*launch, path, project, baseProfile.launch);
+            }
+            else if (const auto *run = FindChild(product, "Run"))
+            {
+                ApplyV4LaunchNode(*run, path, project, baseProfile.launch);
+            }
+
+            std::unordered_map<std::string, std::size_t> profileIndexes{};
+
+            for (const auto *profileNode : ChildElements(rootElement, "Profile"))
+            {
+                ProfileDefinition profile = baseProfile;
+                profile.name = RequireAttribute(*profileNode, "Name", path);
+                if (const auto extends = Attribute(*profileNode, "Extends"); extends.has_value() && !extends->empty())
+                {
+                    const auto parent = profileIndexes.find(*extends);
+                    if (parent == profileIndexes.end())
+                    {
+                        throw std::runtime_error(path.string() + ": profile '" + profile.name + "' extends unknown or later profile '" + *extends + "'");
+                    }
+                    profile = project.profiles[parent->second];
+                    profile.name = RequireAttribute(*profileNode, "Name", path);
+                }
+                if (const auto *defaults = FindChild(*profileNode, "Defaults"))
+                {
+                    ApplyV4Defaults(*defaults, path, project.build, profile);
+                }
+                if (const auto *productOverlay = FindChild(*profileNode, productKind))
+                {
+                    if (const auto *build = FindChild(*productOverlay, "Build"))
+                    {
+                        ParseV4BuildSection(*build, path, project, "profile:" + profile.name);
+                    }
+                    if (const auto *stage = FindChild(*productOverlay, "Stage"))
+                    {
+                        ParseV4StageSection(*stage, path, project, "profile:" + profile.name);
+                    }
+                    if (const auto *runtime = FindChild(*productOverlay, "Runtime"))
+                    {
+                        ParseV4RuntimeSection(*runtime, path, profile.runtime);
+                    }
+                    if (const auto *launch = FindChild(*productOverlay, "Launch"))
+                    {
+                        ApplyV4LaunchNode(*launch, path, project, profile.launch);
+                    }
+                    else if (const auto *run = FindChild(*productOverlay, "Run"))
+                    {
+                        ApplyV4LaunchNode(*run, path, project, profile.launch);
+                    }
+                    if (const auto *environment = FindChild(*productOverlay, "Environment"))
+                    {
+                        EnvironmentDefinition env{};
+                        env.name = profile.environmentName;
+                        env.variables = baseEnvironment.variables;
+                        ParseV4EnvironmentSection(*environment, path, env);
+                        project.environments.push_back(std::move(env));
+                    }
+                    if (const auto *quality = FindChild(*productOverlay, "Quality"))
+                    {
+                        profile.quality = project.quality;
+                        ParseV4QualitySection(*quality, path, profile.quality);
+                    }
+                    for (const auto *publish : ChildElements(*productOverlay, "Publish"))
+                    {
+                        ParseV4PublishSection(*publish, path, profile.publishes);
+                    }
+                }
+                profileIndexes.emplace(profile.name, project.profiles.size());
+                project.profiles.push_back(std::move(profile));
+            }
+            if (project.profiles.empty() || !profileIndexes.contains(project.defaultProfile))
+            {
+                baseProfile.name = project.defaultProfile;
+                profileIndexes.emplace(baseProfile.name, project.profiles.size());
+                project.profiles.push_back(baseProfile);
+            }
+
+            project.environments.push_back(std::move(baseEnvironment));
+            for (const auto &profile : project.profiles)
+            {
+                EnvironmentDefinition environment{};
+                environment.name = profile.environmentName;
+                environment.variables = baseEnvironment.variables;
+                project.environments.push_back(std::move(environment));
+            }
+            std::set<std::string> seenEnvironments{};
+            std::vector<EnvironmentDefinition> uniqueEnvironments{};
+            for (auto &environment : project.environments)
+            {
+                if (seenEnvironments.insert(environment.name).second)
+                {
+                    uniqueEnvironments.push_back(std::move(environment));
+                }
+            }
+            project.environments = std::move(uniqueEnvironments);
+
+            ValidateConditionReferences(project, path);
+            return project;
+        }
     }
 
     [[nodiscard]] auto LoadProjectManifest(const fs::path &path) -> ProjectManifest
@@ -3052,7 +4545,11 @@ namespace NGIN::CLI
         {
             throw std::runtime_error(path.string() + ": root element must be <Project>");
         }
-        ValidateProjectSchemaVersion(*rootElement, path);
+        const auto schemaVersion = ValidateProjectSchemaVersion(*rootElement, path);
+        if (schemaVersion == "4")
+        {
+            return LoadProjectManifestV4(path, *rootElement);
+        }
         const auto context = ResolveProjectModelContext(path, *rootElement);
         const auto requestedTemplate = Attribute(*rootElement, "Template").value_or("Application");
         const auto templateIt = context.projectTemplates.find(requestedTemplate);
@@ -3071,6 +4568,7 @@ namespace NGIN::CLI
         project.path = path;
         project.name = RequireAttribute(*rootElement, "Name", path);
         project.type = Attribute(*rootElement, "Type").value_or(projectTemplate.type);
+        project.productKind = project.type;
         project.defaultProfile = Attribute(*rootElement, "DefaultProfile").value_or("Runtime");
         if (!IsSupportedProjectType(project.type))
         {
@@ -3204,6 +4702,7 @@ namespace NGIN::CLI
                         profile.launch.executable = *executable == "$(OutputName)" ? project.output.name : *executable;
                     }
                     profile.launch.workingDirectory = Attribute(*rootLaunch, "WorkingDirectory").value_or(".");
+                    profile.launch.args = Attribute(*rootLaunch, "Args").value_or("");
                 }
             }
             if (const auto profileTemplate = Attribute(*node, "Template"); profileTemplate.has_value() && !profileTemplate->empty())
@@ -3248,6 +4747,7 @@ namespace NGIN::CLI
                     profile.launch.executable = *executable == "$(OutputName)" ? project.output.name : *executable;
                 }
                 profile.launch.workingDirectory = Attribute(*launch, "WorkingDirectory").value_or(profile.launch.workingDirectory);
+                profile.launch.args = Attribute(*launch, "Args").value_or(profile.launch.args);
             }
             if (FindChild(*node, "EnableModules") != nullptr || FindChild(*node, "DisableModules") != nullptr
                 || FindChild(*node, "EnablePlugins") != nullptr || FindChild(*node, "DisablePlugins") != nullptr)
@@ -3351,5 +4851,126 @@ namespace NGIN::CLI
             }
         }
         throw std::runtime_error("unknown profile '" + desired + "'");
+    }
+
+    [[nodiscard]] auto ProfileWithWorkspacePolicy(
+        const ProjectManifest &project,
+        const std::optional<WorkspaceManifest> &workspace,
+        const std::optional<std::string> &profileName) -> ProfileDefinition
+    {
+        const auto desired = profileName.value_or(project.defaultProfile);
+        const auto projectProfile = std::find_if(
+            project.profiles.begin(), project.profiles.end(),
+            [&](const ProfileDefinition &profile)
+            {
+                return profile.name == desired;
+            });
+
+        const WorkspaceManifest::ProfilePolicy *workspaceProfile = nullptr;
+        if (workspace.has_value())
+        {
+            const auto it = std::find_if(
+                workspace->profiles.begin(), workspace->profiles.end(),
+                [&](const WorkspaceManifest::ProfilePolicy &profile)
+                {
+                    return profile.name == desired;
+                });
+            if (it != workspace->profiles.end())
+            {
+                workspaceProfile = &*it;
+            }
+        }
+
+        ProfileDefinition effective{};
+        if (projectProfile != project.profiles.end())
+        {
+            effective = *projectProfile;
+        }
+        else if (workspaceProfile != nullptr)
+        {
+            effective = ProfileByName(project, std::nullopt);
+            effective.name = desired;
+        }
+        else
+        {
+            return ProfileByName(project, profileName);
+        }
+
+        const auto applyPolicy = [](ProfileDefinition &profile, const WorkspaceManifest::ProfilePolicy &policy)
+        {
+            if (policy.buildType.has_value())
+            {
+                profile.buildType = *policy.buildType;
+            }
+            if (policy.hostPlatform.has_value())
+            {
+                profile.hostPlatform = *policy.hostPlatform;
+            }
+            if (policy.targetPlatform.has_value() && *policy.targetPlatform != "host")
+            {
+                profile.platform = *policy.targetPlatform;
+            }
+            if (policy.operatingSystem.has_value())
+            {
+                profile.operatingSystem = *policy.operatingSystem;
+            }
+            if (policy.architecture.has_value())
+            {
+                profile.architecture = *policy.architecture;
+            }
+            if (policy.environmentName.has_value())
+            {
+                profile.environmentName = *policy.environmentName;
+            }
+            if (policy.toolchain.has_value())
+            {
+                profile.toolchain = *policy.toolchain;
+            }
+        };
+
+        if (workspace.has_value() && (!project.hasExplicitProfiles || projectProfile == project.profiles.end()))
+        {
+            applyPolicy(effective, workspace->defaults);
+            if (workspaceProfile != nullptr)
+            {
+                applyPolicy(effective, *workspaceProfile);
+            }
+        }
+        return effective;
+    }
+
+    [[nodiscard]] auto ProjectWithWorkspacePolicy(
+        ProjectManifest project,
+        const std::optional<WorkspaceManifest> &workspace) -> ProjectManifest
+    {
+        if (!workspace.has_value())
+        {
+            return project;
+        }
+
+        const auto &defaults = workspace->defaults;
+        if (!project.build.languageExplicit)
+        {
+            if (defaults.language.has_value())
+            {
+                project.build.language = *defaults.language;
+            }
+            if (defaults.languageStandard.has_value())
+            {
+                project.build.languageStandard = *defaults.languageStandard;
+            }
+        }
+        if (!project.build.backendExplicit)
+        {
+            if (defaults.backend.has_value())
+            {
+                project.build.backend = *defaults.backend;
+            }
+            if (defaults.buildMode.has_value())
+            {
+                project.build.mode = *defaults.buildMode;
+            }
+        }
+        return project;
     }
 }

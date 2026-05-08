@@ -7,8 +7,10 @@
 #include "Support.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <fstream>
 #include <iostream>
+#include <iterator>
 #include <map>
 #include <set>
 #include <sstream>
@@ -27,11 +29,39 @@ namespace NGIN::CLI
 
         [[nodiscard]] auto ResolveInvocation(const ParsedArgs &args) -> LoadedInvocation
         {
-            const auto project = LoadProjectManifest(ResolveProjectPath(args.projectPath));
-            const auto &profile = ProfileByName(project, args.profileName);
+            auto project = LoadProjectManifest(ResolveProjectPath(args.projectPath));
+            std::optional<WorkspaceManifest> workspace{};
+            if (const auto workspaceRoot = RootDirFrom(project.path.parent_path()); workspaceRoot.has_value())
+            {
+                workspace = TryLoadWorkspaceManifest(*workspaceRoot);
+            }
+            project = ProjectWithWorkspacePolicy(std::move(project), workspace);
+            std::optional<std::string> selectedProfile = args.profileName;
+            if (!selectedProfile.has_value())
+            {
+                if (workspace.has_value() && !workspace->defaultProfile.empty())
+                {
+                    const auto hasWorkspaceDefault = std::any_of(
+                        project.profiles.begin(), project.profiles.end(),
+                        [&](const ProfileDefinition &profile)
+                        {
+                            return profile.name == workspace->defaultProfile;
+                        });
+                    const auto hasWorkspaceProfile = std::any_of(
+                        workspace->profiles.begin(), workspace->profiles.end(),
+                        [&](const WorkspaceManifest::ProfilePolicy &profile)
+                        {
+                            return profile.name == workspace->defaultProfile;
+                        });
+                    if (hasWorkspaceDefault || hasWorkspaceProfile)
+                    {
+                        selectedProfile = workspace->defaultProfile;
+                    }
+                }
+            }
             return LoadedInvocation{
                 .project = project,
-                .profile = profile,
+                .profile = ProfileWithWorkspacePolicy(project, workspace, selectedProfile),
             };
         }
 
@@ -74,6 +104,15 @@ namespace NGIN::CLI
             return resolved.project.path.parent_path() / "ngin.lock";
         }
 
+        [[nodiscard]] auto DefaultPackageStorePath(const ResolvedLaunch &resolved) -> fs::path
+        {
+            if (resolved.workspace.has_value())
+            {
+                return resolved.workspace->path.parent_path() / ".ngin" / "packages";
+            }
+            return resolved.project.path.parent_path() / ".ngin" / "packages";
+        }
+
         [[nodiscard]] auto GenerateLockFile(const ResolvedLaunch &resolved) -> std::string
         {
             std::ostringstream out{};
@@ -81,6 +120,7 @@ namespace NGIN::CLI
             out << "<LockFile SchemaVersion=\"1\" Project=\"" << EscapeXml(resolved.project.name)
                 << "\" Profile=\"" << EscapeXml(resolved.profile.name)
                 << "\" BuildType=\"" << EscapeXml(resolved.profile.buildType)
+                << "\" Toolchain=\"" << EscapeXml(resolved.profile.toolchain)
                 << "\" Platform=\"" << EscapeXml(resolved.profile.platform)
                 << "\" Environment=\"" << EscapeXml(resolved.profile.environmentName) << "\">\n";
             out << "  <Packages>\n";
@@ -90,6 +130,11 @@ namespace NGIN::CLI
                     << "\" Version=\"" << EscapeXml(package.manifest.version)
                     << "\" Manifest=\"" << EscapeXml(package.manifest.path.string())
                     << "\" Source=\"" << EscapeXml(package.source) << "\"";
+                if (const auto scopeIt = resolved.packageScopes.find(package.manifest.name);
+                    scopeIt != resolved.packageScopes.end() && !scopeIt->second.empty())
+                {
+                    out << " Scope=\"" << EscapeXml(scopeIt->second) << "\"";
+                }
                 if (!package.sourceDirectory.empty())
                 {
                     out << " ProviderRoot=\"" << EscapeXml(package.sourceDirectory.string()) << "\"";
@@ -419,6 +464,777 @@ namespace NGIN::CLI
             }
         }
 
+        [[nodiscard]] auto ProductKindFromNewKind(std::string kind) -> std::string
+        {
+            std::transform(kind.begin(), kind.end(), kind.begin(), [](unsigned char value)
+                           { return static_cast<char>(std::tolower(value)); });
+            if (kind == "app" || kind == "application")
+            {
+                return "Application";
+            }
+            if (kind == "lib" || kind == "library")
+            {
+                return "Library";
+            }
+            if (kind == "tool")
+            {
+                return "Tool";
+            }
+            if (kind == "test")
+            {
+                return "Test";
+            }
+            if (kind == "benchmark")
+            {
+                return "Benchmark";
+            }
+            if (kind == "plugin")
+            {
+                return "Plugin";
+            }
+            throw std::runtime_error("unknown project template kind '" + kind + "'");
+        }
+
+        auto WriteNewFile(const fs::path &path, const std::string &contents) -> void
+        {
+            if (fs::exists(path))
+            {
+                throw std::runtime_error(path.string() + ": file already exists");
+            }
+            if (!path.parent_path().empty())
+            {
+                fs::create_directories(path.parent_path());
+            }
+            std::ofstream out(path);
+            out << contents;
+        }
+
+        auto WriteTextFile(const fs::path &path, const std::string &contents) -> void
+        {
+            std::ofstream out(path);
+            if (!out)
+            {
+                throw std::runtime_error(path.string() + ": failed to open for writing");
+            }
+            out << contents;
+        }
+
+        [[nodiscard]] auto FindProductOpenTagEnd(const std::string &text, const std::string &productKind) -> std::size_t
+        {
+            const auto start = text.find("<" + productKind);
+            if (start == std::string::npos)
+            {
+                throw std::runtime_error("project file does not contain <" + productKind + ">");
+            }
+            const auto end = text.find('>', start);
+            if (end == std::string::npos)
+            {
+                throw std::runtime_error("project file has an unterminated <" + productKind + "> element");
+            }
+            return end;
+        }
+
+        [[nodiscard]] auto IsSelfClosingTag(const std::string &text, const std::size_t openTagEnd) -> bool
+        {
+            if (openTagEnd == 0)
+            {
+                return false;
+            }
+            std::size_t index = openTagEnd;
+            while (index > 0)
+            {
+                --index;
+                const auto ch = static_cast<unsigned char>(text[index]);
+                if (!std::isspace(ch))
+                {
+                    return text[index] == '/';
+                }
+            }
+            return false;
+        }
+
+        [[nodiscard]] auto InsertV4PackageUse(
+            std::string text,
+            const std::string &productKind,
+            const std::string &packageName,
+            const std::string &versionRange,
+            const std::string &scope) -> std::string
+        {
+            const auto dependencyLine =
+                std::string("      <Package Name=\"") + EscapeXml(packageName)
+                + "\" Version=\"" + EscapeXml(versionRange)
+                + "\" Scope=\"" + EscapeXml(scope) + "\" />\n";
+
+            const auto productOpenEnd = FindProductOpenTagEnd(text, productKind);
+            if (IsSelfClosingTag(text, productOpenEnd))
+            {
+                const auto productOpenStart = text.rfind('<', productOpenEnd);
+                const auto indentStart = text.rfind('\n', productOpenStart == std::string::npos ? 0 : productOpenStart);
+                const auto indent = indentStart == std::string::npos
+                                        ? std::string{}
+                                        : text.substr(indentStart + 1, productOpenStart - indentStart - 1);
+                const auto replacement =
+                    "<" + productKind + ">\n"
+                    + indent + "  <Uses>\n"
+                    + dependencyLine
+                    + indent + "  </Uses>\n"
+                    + indent + "</" + productKind + ">";
+                const auto replaceStart = productOpenStart;
+                text.replace(replaceStart, productOpenEnd - replaceStart + 1, replacement);
+                return text;
+            }
+
+            const auto productClose = text.find("</" + productKind + ">", productOpenEnd);
+            if (productClose == std::string::npos)
+            {
+                throw std::runtime_error("project file has no closing </" + productKind + "> element");
+            }
+            const auto usesOpen = text.find("<Uses>", productOpenEnd);
+            const auto usesClose = text.find("</Uses>", productOpenEnd);
+            if (usesOpen != std::string::npos && usesClose != std::string::npos && usesOpen < productClose && usesClose < productClose)
+            {
+                text.insert(usesClose, dependencyLine);
+                return text;
+            }
+
+            const auto block =
+                std::string("\n    <Uses>\n")
+                + dependencyLine
+                + "    </Uses>\n";
+            text.insert(productOpenEnd + 1, block);
+            return text;
+        }
+
+        [[nodiscard]] auto RemoveV4PackageUse(std::string text, const std::string &productKind, const std::string &packageName) -> std::string
+        {
+            const auto productOpenEnd = FindProductOpenTagEnd(text, productKind);
+            const auto productClose = text.find("</" + productKind + ">", productOpenEnd);
+            if (productClose == std::string::npos)
+            {
+                throw std::runtime_error("project file has no closing </" + productKind + "> element");
+            }
+            const auto packageNeedle = "<Package Name=\"" + packageName + "\"";
+            const auto packageStart = text.find(packageNeedle, productOpenEnd);
+            if (packageStart == std::string::npos || packageStart > productClose)
+            {
+                throw std::runtime_error("project does not reference package '" + packageName + "'");
+            }
+            const auto tagEnd = text.find('>', packageStart);
+            if (tagEnd == std::string::npos || tagEnd > productClose)
+            {
+                throw std::runtime_error("project package reference for '" + packageName + "' is malformed");
+            }
+            const auto lineStartBefore = text.rfind('\n', packageStart);
+            const auto lineStart = lineStartBefore == std::string::npos ? packageStart : lineStartBefore + 1;
+            const auto lineEnd = text.find('\n', tagEnd);
+            const auto eraseEnd = lineEnd == std::string::npos ? tagEnd + 1 : lineEnd + 1;
+            text.erase(lineStart, eraseEnd - lineStart);
+            return text;
+        }
+
+        [[nodiscard]] auto UpdateV4PackageUse(
+            std::string text,
+            const std::string &productKind,
+            const std::string &packageName,
+            const std::string &versionRange,
+            const std::string &scope) -> std::string
+        {
+            const auto productOpenEnd = FindProductOpenTagEnd(text, productKind);
+            const auto productClose = text.find("</" + productKind + ">", productOpenEnd);
+            if (productClose == std::string::npos)
+            {
+                throw std::runtime_error("project file has no closing </" + productKind + "> element");
+            }
+            const auto packageNeedle = "<Package Name=\"" + packageName + "\"";
+            const auto packageStart = text.find(packageNeedle, productOpenEnd);
+            if (packageStart == std::string::npos || packageStart > productClose)
+            {
+                throw std::runtime_error("project does not reference package '" + packageName + "'");
+            }
+            const auto tagEnd = text.find('>', packageStart);
+            if (tagEnd == std::string::npos || tagEnd > productClose)
+            {
+                throw std::runtime_error("project package reference for '" + packageName + "' is malformed");
+            }
+            const auto lineStartBefore = text.rfind('\n', packageStart);
+            const auto lineStart = lineStartBefore == std::string::npos ? packageStart : lineStartBefore + 1;
+            const auto lineEnd = text.find('\n', tagEnd);
+            const auto eraseEnd = lineEnd == std::string::npos ? tagEnd + 1 : lineEnd;
+            const auto indent = text.substr(lineStart, packageStart - lineStart);
+            const auto replacement =
+                indent + "<Package Name=\"" + EscapeXml(packageName)
+                + "\" Version=\"" + EscapeXml(versionRange)
+                + "\" Scope=\"" + EscapeXml(scope) + "\" />";
+            text.replace(lineStart, eraseEnd - lineStart, replacement);
+            return text;
+        }
+
+        [[nodiscard]] auto GeneratePackageOutputManifest(const PackageOutputDefinition &output) -> std::string
+        {
+            std::ostringstream manifest{};
+            manifest << "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n\n";
+            manifest << "<Package SchemaVersion=\"4\" Name=\"" << EscapeXml(output.name)
+                     << "\" Version=\"" << EscapeXml(output.version) << "\">\n";
+            if (!output.description.empty() || !output.license.empty())
+            {
+                manifest << "  <Metadata>\n";
+                if (!output.description.empty())
+                {
+                    manifest << "    <Description>" << EscapeXml(output.description) << "</Description>\n";
+                }
+                if (!output.license.empty())
+                {
+                    manifest << "    <License>" << EscapeXml(output.license) << "</License>\n";
+                }
+                manifest << "  </Metadata>\n\n";
+            }
+            if (!output.headers.empty() || !output.libraries.empty() || !output.capabilities.empty())
+            {
+                manifest << "  <Library Name=\"" << EscapeXml(output.name) << "\">\n";
+                manifest << "    <Exports>\n";
+                for (const auto &header : output.headers)
+                {
+                    manifest << "      <Headers Path=\"" << EscapeXml(header) << "\" />\n";
+                }
+                for (const auto &library : output.libraries)
+                {
+                    manifest << "      <LibraryTarget Name=\"" << EscapeXml(library) << "\" />\n";
+                }
+                for (const auto &capability : output.capabilities)
+                {
+                    manifest << "      <Capability Name=\"" << EscapeXml(capability) << "\" />\n";
+                }
+                manifest << "    </Exports>\n";
+                manifest << "  </Library>\n";
+            }
+            if (!output.tools.empty())
+            {
+                manifest << "  <Tool Name=\"" << EscapeXml(output.name) << "\">\n";
+                manifest << "    <Exports>\n";
+                for (const auto &tool : output.tools)
+                {
+                    manifest << "      <Tool Name=\"" << EscapeXml(tool) << "\" Executable=\"" << EscapeXml(tool) << "\" />\n";
+                }
+                manifest << "    </Exports>\n";
+                manifest << "  </Tool>\n";
+            }
+            if (!output.targetPlatforms.empty() || !output.abiTag.empty())
+            {
+                manifest << "  <Compatibility>\n";
+                for (const auto &platform : output.targetPlatforms)
+                {
+                    manifest << "    <TargetPlatform Name=\"" << EscapeXml(platform) << "\" />\n";
+                }
+                if (!output.abiTag.empty())
+                {
+                    manifest << "    <Abi Tag=\"" << EscapeXml(output.abiTag) << "\" />\n";
+                }
+                manifest << "  </Compatibility>\n";
+            }
+            manifest << "</Package>\n";
+            return manifest.str();
+        }
+
+        [[nodiscard]] auto GeneratePackageOutputArchive(const PackageOutputDefinition &output, const std::string &manifest) -> std::string
+        {
+            std::ostringstream archive{};
+            archive << "NGINPACK/1\n";
+            archive << "Name: " << output.name << "\n";
+            archive << "Version: " << output.version << "\n";
+            archive << "Manifest: package.nginpkg\n";
+            archive << "Manifest-Length: " << manifest.size() << "\n";
+            archive << "\n";
+            archive << manifest;
+            return archive.str();
+        }
+
+        [[nodiscard]] auto PackageClosuresForScope(const std::string &scope) -> std::vector<std::string>
+        {
+            std::set<std::string> scopes{};
+            std::stringstream stream{scope.empty() ? "Target" : scope};
+            std::string part{};
+            while (std::getline(stream, part, ';'))
+            {
+                if (!part.empty())
+                {
+                    scopes.insert(part);
+                }
+            }
+
+            std::vector<std::string> closures{};
+            auto addIf = [&](const std::string &scopeName, const std::string &closureName)
+            {
+                if (scopes.contains(scopeName))
+                {
+                    closures.push_back(closureName);
+                }
+            };
+            addIf("Build", "Host");
+            addIf("Target", "Target");
+            addIf("Runtime", "Runtime");
+            addIf("Test", "Test");
+            addIf("Dev", "Dev");
+            addIf("Publish", "Publish");
+            return closures;
+        }
+
+        [[nodiscard]] auto EffectivePublishes(const ProjectManifest &project, const ProfileDefinition &profile) -> std::vector<PublishDefinition>
+        {
+            std::map<std::string, PublishDefinition> byName{};
+            for (const auto &publish : project.publishes)
+            {
+                byName[publish.name] = publish;
+            }
+            for (const auto &publish : profile.publishes)
+            {
+                byName[publish.name] = publish;
+            }
+            std::vector<PublishDefinition> result{};
+            for (auto &[_, publish] : byName)
+            {
+                result.push_back(std::move(publish));
+            }
+            return result;
+        }
+
+        [[nodiscard]] auto SelectPublish(const std::vector<PublishDefinition> &publishes, const std::optional<std::string> &name) -> const PublishDefinition &
+        {
+            if (publishes.empty())
+            {
+                throw std::runtime_error("project does not declare Publish");
+            }
+            if (name.has_value())
+            {
+                const auto it = std::find_if(
+                    publishes.begin(),
+                    publishes.end(),
+                    [&](const PublishDefinition &publish)
+                    {
+                        return publish.name == *name;
+                    });
+                if (it == publishes.end())
+                {
+                    throw std::runtime_error("project does not declare Publish '" + *name + "'");
+                }
+                return *it;
+            }
+            if (publishes.size() == 1)
+            {
+                return publishes.front();
+            }
+            const auto it = std::find_if(
+                publishes.begin(),
+                publishes.end(),
+                [](const PublishDefinition &publish)
+                {
+                    return publish.name == "default";
+                });
+            if (it != publishes.end())
+            {
+                return *it;
+            }
+            throw std::runtime_error("publish requires a name when the project declares multiple publishes");
+        }
+
+        auto CopyDirectoryContents(const fs::path &source, const fs::path &destination) -> void
+        {
+            fs::create_directories(destination);
+            for (const auto &entry : fs::recursive_directory_iterator(source))
+            {
+                const auto relative = fs::relative(entry.path(), source);
+                const auto target = destination / relative;
+                if (entry.is_directory())
+                {
+                    fs::create_directories(target);
+                }
+                else if (entry.is_regular_file())
+                {
+                    fs::create_directories(target.parent_path());
+                    fs::copy_file(entry.path(), target, fs::copy_options::overwrite_existing);
+                }
+            }
+        }
+
+        [[nodiscard]] auto IsProbablyUrl(const std::string &value) -> bool
+        {
+            return value.rfind("http://", 0) == 0 || value.rfind("https://", 0) == 0;
+        }
+
+        [[nodiscard]] auto InsertV4PackageSource(std::string text, const std::string &name, const std::string &location) -> std::string
+        {
+            if (text.find("<Source Name=\"" + name + "\"") != std::string::npos)
+            {
+                throw std::runtime_error("workspace already declares package source '" + name + "'");
+            }
+            const auto sourceLine =
+                std::string("    <Source Name=\"") + EscapeXml(name) + "\" "
+                + (IsProbablyUrl(location) ? "Url=\"" : "Path=\"")
+                + EscapeXml(location) + "\" />\n";
+            auto packagesOpen = text.find("<Packages>");
+            auto packagesClose = text.find("</Packages>");
+            if (packagesOpen != std::string::npos && packagesClose != std::string::npos && packagesOpen < packagesClose)
+            {
+                text.insert(packagesClose, sourceLine);
+                return text;
+            }
+            const auto workspaceClose = text.find("</Workspace>");
+            if (workspaceClose == std::string::npos)
+            {
+                throw std::runtime_error("workspace file has no closing </Workspace> element");
+            }
+            const auto block = std::string("  <Packages>\n") + sourceLine + "  </Packages>\n";
+            text.insert(workspaceClose, block);
+            return text;
+        }
+
+        [[nodiscard]] auto RemoveV4PackageSource(std::string text, const std::string &name) -> std::string
+        {
+            const auto sourceStart = text.find("<Source Name=\"" + name + "\"");
+            if (sourceStart == std::string::npos)
+            {
+                throw std::runtime_error("workspace does not declare package source '" + name + "'");
+            }
+            const auto tagEnd = text.find('>', sourceStart);
+            if (tagEnd == std::string::npos)
+            {
+                throw std::runtime_error("workspace package source '" + name + "' is malformed");
+            }
+            const auto lineStartBefore = text.rfind('\n', sourceStart);
+            const auto lineStart = lineStartBefore == std::string::npos ? sourceStart : lineStartBefore + 1;
+            const auto lineEnd = text.find('\n', tagEnd);
+            const auto eraseEnd = lineEnd == std::string::npos ? tagEnd + 1 : lineEnd + 1;
+            text.erase(lineStart, eraseEnd - lineStart);
+            return text;
+        }
+
+        struct DiffSnapshot
+        {
+            std::map<std::string, std::string> selection{};
+            std::map<std::string, std::string> packages{};
+            std::map<std::string, std::string> stagedFiles{};
+            std::map<std::string, std::string> environment{};
+            std::map<std::string, std::string> launch{};
+            std::set<std::string> defines{};
+            std::set<std::string> packageFeatures{};
+            std::set<std::string> generators{};
+            std::set<std::string> generatedOutputs{};
+            std::set<std::string> runtimeModules{};
+            std::set<std::string> plugins{};
+            std::set<std::string> artifacts{};
+            std::set<std::string> publishes{};
+        };
+
+        [[nodiscard]] auto RedactedEnvironmentValue(const EnvironmentVariable &variable) -> std::string
+        {
+            if (variable.secret)
+            {
+                return "<redacted>";
+            }
+            if (!variable.resolved && variable.value.empty())
+            {
+                return "<missing>";
+            }
+            return variable.value;
+        }
+
+        [[nodiscard]] auto BuildDiffSnapshot(const ResolvedLaunch &resolved) -> DiffSnapshot
+        {
+            DiffSnapshot snapshot{};
+            snapshot.selection.emplace("BuildType", resolved.profile.buildType);
+            snapshot.selection.emplace("HostPlatform", resolved.profile.hostPlatform);
+            snapshot.selection.emplace("TargetPlatform", resolved.profile.platform);
+            snapshot.selection.emplace("Toolchain", resolved.profile.toolchain);
+            snapshot.selection.emplace("OperatingSystem", resolved.profile.operatingSystem);
+            snapshot.selection.emplace("Architecture", resolved.profile.architecture);
+            snapshot.selection.emplace("Environment", resolved.profile.environmentName);
+
+            for (const auto &unit : resolved.projectUnits)
+            {
+                for (const auto &setting : unit.project.build.compileDefinitions)
+                {
+                    if (SelectionMatches(unit.project, setting.selectors, unit.profile))
+                    {
+                        snapshot.defines.insert(setting.value);
+                    }
+                }
+            }
+            for (const auto &feature : resolved.selectedPackageFeatures)
+            {
+                for (const auto &setting : feature.build.compileDefinitions)
+                {
+                    snapshot.defines.insert(setting.value);
+                }
+            }
+
+            for (const auto &package : resolved.orderedPackages)
+            {
+                auto value = package.manifest.version;
+                if (const auto scopeIt = resolved.packageScopes.find(package.manifest.name);
+                    scopeIt != resolved.packageScopes.end() && !scopeIt->second.empty())
+                {
+                    value += " scope=" + scopeIt->second;
+                }
+                snapshot.packages[package.manifest.name] = std::move(value);
+            }
+            for (const auto &feature : resolved.selectedPackageFeatures)
+            {
+                snapshot.packageFeatures.insert(feature.packageName + "/" + feature.featureName);
+            }
+            for (const auto &generator : resolved.generators)
+            {
+                snapshot.generators.insert(generator.declaration.name);
+                for (const auto &output : generator.declaration.outputs)
+                {
+                    snapshot.generatedOutputs.insert(output.kind + ":" + output.role + ":" + output.path);
+                }
+            }
+            for (const auto &input : resolved.inputs)
+            {
+                if (!input.stagedRelativePath.empty())
+                {
+                    snapshot.stagedFiles[input.stagedRelativePath.generic_string()] = input.source;
+                }
+            }
+            for (const auto &variable : resolved.environmentVariables)
+            {
+                snapshot.environment[variable.name] = RedactedEnvironmentValue(variable);
+            }
+            for (const auto &module : resolved.requiredModules)
+            {
+                snapshot.runtimeModules.insert("required:" + module);
+            }
+            for (const auto &module : resolved.optionalModules)
+            {
+                snapshot.runtimeModules.insert("optional:" + module);
+            }
+            for (const auto &plugin : resolved.enabledPlugins)
+            {
+                snapshot.plugins.insert(plugin);
+            }
+            for (const auto &library : resolved.libraries)
+            {
+                snapshot.artifacts.insert("library:" + library.name);
+            }
+            for (const auto &executable : resolved.executables)
+            {
+                snapshot.artifacts.insert("executable:" + executable.name);
+            }
+            for (const auto &publish : EffectivePublishes(resolved.project, resolved.profile))
+            {
+                snapshot.publishes.insert(publish.name + " kind=" + publish.kind + " output=" + publish.output);
+            }
+            snapshot.launch["WorkingDirectory"] = resolved.profile.launch.workingDirectory;
+            snapshot.launch["Args"] = resolved.profile.launch.args;
+            snapshot.launch["Name"] = resolved.profile.launch.name;
+            snapshot.launch["Executable"] = resolved.selectedExecutable.has_value() ? resolved.selectedExecutable->name : "";
+            return snapshot;
+        }
+
+        auto PrintMapDiff(
+            const std::string &label,
+            const std::map<std::string, std::string> &from,
+            const std::map<std::string, std::string> &to,
+            bool &anyDiff) -> void
+        {
+            std::set<std::string> keys{};
+            for (const auto &[key, _] : from)
+            {
+                keys.insert(key);
+            }
+            for (const auto &[key, _] : to)
+            {
+                keys.insert(key);
+            }
+            bool printedHeader = false;
+            const auto header = [&]()
+            {
+                if (!printedHeader)
+                {
+                    std::cout << label << ":\n";
+                    printedHeader = true;
+                }
+            };
+            for (const auto &key : keys)
+            {
+                const auto fromIt = from.find(key);
+                const auto toIt = to.find(key);
+                if (fromIt == from.end())
+                {
+                    anyDiff = true;
+                    header();
+                    std::cout << "  " << key << " added: " << toIt->second << "\n";
+                    continue;
+                }
+                if (toIt == to.end())
+                {
+                    anyDiff = true;
+                    header();
+                    std::cout << "  " << key << " removed: " << fromIt->second << "\n";
+                    continue;
+                }
+                if (fromIt->second != toIt->second)
+                {
+                    anyDiff = true;
+                    header();
+                    std::cout << "  " << key << " changed: " << fromIt->second << " -> " << toIt->second << "\n";
+                }
+            }
+        }
+
+        auto PrintSetDiff(
+            const std::string &label,
+            const std::set<std::string> &from,
+            const std::set<std::string> &to,
+            bool &anyDiff) -> void
+        {
+            std::vector<std::string> added{};
+            std::vector<std::string> removed{};
+            std::set_difference(to.begin(), to.end(), from.begin(), from.end(), std::back_inserter(added));
+            std::set_difference(from.begin(), from.end(), to.begin(), to.end(), std::back_inserter(removed));
+            if (added.empty() && removed.empty())
+            {
+                return;
+            }
+            anyDiff = true;
+            if (!added.empty())
+            {
+                std::cout << label << " added:\n";
+                for (const auto &item : added)
+                {
+                    std::cout << "  + " << item << "\n";
+                }
+            }
+            if (!removed.empty())
+            {
+                std::cout << label << " removed:\n";
+                for (const auto &item : removed)
+                {
+                    std::cout << "  - " << item << "\n";
+                }
+            }
+        }
+
+        [[nodiscard]] auto SplitObjectIdentity(const std::string &identity) -> std::pair<std::string, std::string>
+        {
+            const auto separator = identity.find(':');
+            if (separator == std::string::npos || separator == 0 || separator + 1 >= identity.size())
+            {
+                throw std::runtime_error("explain object syntax is '<kind>:<identity>'");
+            }
+            return {identity.substr(0, separator), identity.substr(separator + 1)};
+        }
+
+        [[nodiscard]] auto DefineName(const std::string &value) -> std::string
+        {
+            if (const auto separator = value.find('='); separator != std::string::npos)
+            {
+                return value.substr(0, separator);
+            }
+            return value;
+        }
+
+        [[nodiscard]] auto SplitCommandLineArgs(const std::string &args) -> std::vector<std::string>
+        {
+            std::vector<std::string> result{};
+            std::string current{};
+            bool quoted = false;
+            char quoteChar = '\0';
+            bool escaping = false;
+            for (const char ch : args)
+            {
+                if (escaping)
+                {
+                    current += ch;
+                    escaping = false;
+                    continue;
+                }
+                if (ch == '\\')
+                {
+                    escaping = true;
+                    continue;
+                }
+                if (quoted)
+                {
+                    if (ch == quoteChar)
+                    {
+                        quoted = false;
+                    }
+                    else
+                    {
+                        current += ch;
+                    }
+                    continue;
+                }
+                if (ch == '"' || ch == '\'')
+                {
+                    quoted = true;
+                    quoteChar = ch;
+                    continue;
+                }
+                if (std::isspace(static_cast<unsigned char>(ch)))
+                {
+                    if (!current.empty())
+                    {
+                        result.push_back(std::move(current));
+                        current.clear();
+                    }
+                    continue;
+                }
+                current += ch;
+            }
+            if (escaping)
+            {
+                current += '\\';
+            }
+            if (!current.empty())
+            {
+                result.push_back(std::move(current));
+            }
+            return result;
+        }
+
+        [[nodiscard]] auto RunBuiltProduct(
+            const ProjectManifest &project,
+            const ProfileDefinition &profile,
+            const ParsedArgs &args,
+            std::string_view diagnosticsTitle) -> int
+        {
+            const auto built = BuildLaunch(
+                project,
+                profile,
+                args.outputPath.has_value() ? std::optional<fs::path>{*args.outputPath} : std::nullopt);
+            if (!built.value.has_value() || built.diagnostics.HasErrors())
+            {
+                PrintDiagnostics(built.diagnostics, diagnosticsTitle, std::cout);
+                return 1;
+            }
+
+            const auto summary = LoadLaunchManifestSummary(built.value->manifestPath);
+            if (!summary.selectedExecutable.has_value() || summary.selectedExecutable->empty())
+            {
+                throw std::runtime_error("launch manifest does not declare a selected executable");
+            }
+
+            const auto executableName = *summary.selectedExecutable + (fs::exists(built.value->outputDir / "bin" / (*summary.selectedExecutable + ".exe")) ? ".exe" : "");
+            const auto executablePath = built.value->outputDir / "bin" / executableName;
+            if (!fs::exists(executablePath))
+            {
+                throw std::runtime_error("selected executable was not staged to '" + executablePath.string() + "'");
+            }
+
+            fs::path workingDirectory = summary.workingDirectory == "."
+                                            ? built.value->outputDir
+                                            : fs::absolute(built.value->outputDir / summary.workingDirectory);
+            if (!fs::exists(workingDirectory))
+            {
+                workingDirectory = built.value->outputDir;
+            }
+
+            auto runArgs = SplitCommandLineArgs(profile.launch.args);
+            runArgs.insert(runArgs.end(), args.runArgs.begin(), args.runArgs.end());
+            return RunProcess(executablePath, runArgs, workingDirectory);
+        }
+
         auto PrintConditionalFeatures(
             const ProjectManifest &project,
             const ProfileDefinition &profile,
@@ -628,6 +1444,14 @@ namespace NGIN::CLI
             {
                 args.profileName = argv[++index];
             }
+            else if (current == "--from-profile" && index + 1 < argc)
+            {
+                args.fromProfileName = argv[++index];
+            }
+            else if (current == "--to-profile" && index + 1 < argc)
+            {
+                args.toProfileName = argv[++index];
+            }
             else if (current == "--")
             {
                 for (int argIndex = index + 1; argIndex < argc; ++argIndex)
@@ -647,6 +1471,46 @@ namespace NGIN::CLI
             else if (current == "--format" && index + 1 < argc)
             {
                 args.format = argv[++index];
+            }
+            else if (current == "--version" && index + 1 < argc)
+            {
+                args.versionRange = argv[++index];
+            }
+            else if (current == "--scope" && index + 1 < argc)
+            {
+                args.scope = argv[++index];
+            }
+            else if (current == "--build-plan")
+            {
+                args.graphPlan = "build";
+            }
+            else if (current == "--stage-plan")
+            {
+                args.graphPlan = "stage";
+            }
+            else if (current == "--package-plan")
+            {
+                args.graphPlan = "package";
+            }
+            else if (current == "--launch-plan")
+            {
+                args.graphPlan = "launch";
+            }
+            else if (current == "--runtime-plan")
+            {
+                args.graphPlan = "runtime";
+            }
+            else if (current == "--publish-plan")
+            {
+                args.graphPlan = "publish";
+            }
+            else if (current == "--quality-plan")
+            {
+                args.graphPlan = "quality";
+            }
+            else if (current == "--locked")
+            {
+                args.locked = true;
             }
             else if ((current == "--dependencies" || current == "--externals") && index + 1 < argc)
             {
@@ -899,6 +1763,10 @@ namespace NGIN::CLI
             {
                 std::cout << " optional";
             }
+            if (!dependency.scope.empty())
+            {
+                std::cout << " scope=" << dependency.scope;
+            }
             std::cout << "\n";
         }
         std::cout << "  package policy: DefaultFeatures=" << manifest.defaultFeatures
@@ -937,6 +1805,10 @@ namespace NGIN::CLI
                 if (!dependency.versionRange.empty())
                 {
                     std::cout << " " << dependency.versionRange;
+                }
+                if (!dependency.scope.empty())
+                {
+                    std::cout << " scope=" << dependency.scope;
                 }
                 std::cout << "\n";
             }
@@ -1010,6 +1882,305 @@ namespace NGIN::CLI
         return 0;
     }
 
+    auto CmdPackageSourcesList(const fs::path &root, const ParsedArgs &args) -> int
+    {
+        (void)args;
+        const auto workspace = LoadWorkspaceManifest(root);
+        std::cout << "Package sources for workspace: " << workspace.name << "\n";
+        if (workspace.packageSources.empty() && workspace.packageSourceUrls.empty())
+        {
+            std::cout << "  (none)\n";
+        }
+        for (const auto &source : workspace.packageSources)
+        {
+            std::cout << "  - " << source.string();
+            if (!fs::exists(source))
+            {
+                std::cout << " [missing]";
+            }
+            std::cout << "\n";
+        }
+        for (const auto &source : workspace.packageSourceUrls)
+        {
+            std::cout << "  - " << source << "\n";
+        }
+        if (!workspace.packageProviders.empty())
+        {
+            std::cout << "Package providers:\n";
+            std::vector<std::string> names{};
+            for (const auto &[name, _] : workspace.packageProviders)
+            {
+                names.push_back(name);
+            }
+            std::sort(names.begin(), names.end());
+            for (const auto &name : names)
+            {
+                const auto &provider = workspace.packageProviders.at(name);
+                std::cout << "  - " << name << " -> " << provider.string();
+                if (!fs::exists(provider))
+                {
+                    std::cout << " [missing]";
+                }
+                std::cout << "\n";
+            }
+        }
+        return 0;
+    }
+
+    auto CmdPackageSourcesAdd(const fs::path &root, const ParsedArgs &args) -> int
+    {
+        if (!args.packageName.has_value() || !args.featureName.has_value())
+        {
+            throw std::runtime_error("package sources add requires a source name and path or URL");
+        }
+        const auto workspacePath = WorkspaceFilePath(root);
+        if (!workspacePath.has_value())
+        {
+            throw std::runtime_error(root.string() + ": no .ngin workspace file found");
+        }
+        auto text = ReadTextIfExists(*workspacePath);
+        text = InsertV4PackageSource(std::move(text), *args.packageName, *args.featureName);
+        WriteTextFile(*workspacePath, text);
+        std::cout << "Added package source\n";
+        std::cout << "  workspace: " << *workspacePath << "\n";
+        std::cout << "  name: " << *args.packageName << "\n";
+        std::cout << "  location: " << *args.featureName << "\n";
+        return 0;
+    }
+
+    auto CmdPackageSourcesRemove(const fs::path &root, const ParsedArgs &args) -> int
+    {
+        if (!args.packageName.has_value())
+        {
+            throw std::runtime_error("package sources remove requires a source name");
+        }
+        const auto workspacePath = WorkspaceFilePath(root);
+        if (!workspacePath.has_value())
+        {
+            throw std::runtime_error(root.string() + ": no .ngin workspace file found");
+        }
+        auto text = ReadTextIfExists(*workspacePath);
+        text = RemoveV4PackageSource(std::move(text), *args.packageName);
+        WriteTextFile(*workspacePath, text);
+        std::cout << "Removed package source\n";
+        std::cout << "  workspace: " << *workspacePath << "\n";
+        std::cout << "  name: " << *args.packageName << "\n";
+        return 0;
+    }
+
+    auto CmdPackageAdd(const fs::path &root, const ParsedArgs &args) -> int
+    {
+        (void)root;
+        if (!args.packageName.has_value())
+        {
+            throw std::runtime_error("package add requires a package name");
+        }
+        if (!args.versionRange.has_value() || args.versionRange->empty())
+        {
+            throw std::runtime_error("package add requires --version <range>");
+        }
+
+        const auto projectPath = ResolveProjectPath(args.projectPath);
+        const auto project = LoadProjectManifest(projectPath);
+        if (project.productKind.empty())
+        {
+            throw std::runtime_error("package add currently supports V4 product-first projects");
+        }
+        if (std::any_of(project.packageRefs.begin(), project.packageRefs.end(), [&](const PackageReference &reference)
+                        { return reference.name == *args.packageName; }))
+        {
+            throw std::runtime_error("project already references package '" + *args.packageName + "'");
+        }
+
+        const auto scope = args.scope.value_or("Target");
+        auto text = ReadTextIfExists(projectPath);
+        if (text.empty())
+        {
+            throw std::runtime_error(projectPath.string() + ": failed to read project file");
+        }
+        text = InsertV4PackageUse(text, project.productKind, *args.packageName, *args.versionRange, scope);
+        WriteTextFile(projectPath, text);
+
+        std::cout << "Added package reference\n";
+        std::cout << "  project: " << projectPath << "\n";
+        std::cout << "  package: " << *args.packageName << "\n";
+        std::cout << "  version: " << *args.versionRange << "\n";
+        std::cout << "  scope: " << scope << "\n";
+        return 0;
+    }
+
+    auto CmdPackageRemove(const fs::path &root, const ParsedArgs &args) -> int
+    {
+        (void)root;
+        if (!args.packageName.has_value())
+        {
+            throw std::runtime_error("package remove requires a package name");
+        }
+
+        const auto projectPath = ResolveProjectPath(args.projectPath);
+        const auto project = LoadProjectManifest(projectPath);
+        if (project.productKind.empty())
+        {
+            throw std::runtime_error("package remove currently supports V4 product-first projects");
+        }
+        if (std::none_of(project.packageRefs.begin(), project.packageRefs.end(), [&](const PackageReference &reference)
+                         { return reference.name == *args.packageName; }))
+        {
+            throw std::runtime_error("project does not reference package '" + *args.packageName + "'");
+        }
+
+        auto text = ReadTextIfExists(projectPath);
+        if (text.empty())
+        {
+            throw std::runtime_error(projectPath.string() + ": failed to read project file");
+        }
+        text = RemoveV4PackageUse(text, project.productKind, *args.packageName);
+        WriteTextFile(projectPath, text);
+
+        std::cout << "Removed package reference\n";
+        std::cout << "  project: " << projectPath << "\n";
+        std::cout << "  package: " << *args.packageName << "\n";
+        return 0;
+    }
+
+    auto CmdPackageUpdate(const fs::path &root, const ParsedArgs &args) -> int
+    {
+        (void)root;
+        if (!args.packageName.has_value())
+        {
+            throw std::runtime_error("package update requires a package name");
+        }
+        if (!args.versionRange.has_value() || args.versionRange->empty())
+        {
+            throw std::runtime_error("package update requires --version <range>");
+        }
+
+        const auto projectPath = ResolveProjectPath(args.projectPath);
+        const auto project = LoadProjectManifest(projectPath);
+        if (project.productKind.empty())
+        {
+            throw std::runtime_error("package update currently supports V4 product-first projects");
+        }
+        const auto referenceIt = std::find_if(
+            project.packageRefs.begin(), project.packageRefs.end(),
+            [&](const PackageReference &reference)
+            {
+                return reference.name == *args.packageName;
+            });
+        if (referenceIt == project.packageRefs.end())
+        {
+            throw std::runtime_error("project does not reference package '" + *args.packageName + "'");
+        }
+
+        const auto scope = args.scope.value_or(referenceIt->scope.empty() ? "Target" : referenceIt->scope);
+        auto text = ReadTextIfExists(projectPath);
+        if (text.empty())
+        {
+            throw std::runtime_error(projectPath.string() + ": failed to read project file");
+        }
+        text = UpdateV4PackageUse(text, project.productKind, *args.packageName, *args.versionRange, scope);
+        WriteTextFile(projectPath, text);
+
+        std::cout << "Updated package reference\n";
+        std::cout << "  project: " << projectPath << "\n";
+        std::cout << "  package: " << *args.packageName << "\n";
+        std::cout << "  version: " << *args.versionRange << "\n";
+        std::cout << "  scope: " << scope << "\n";
+        return 0;
+    }
+
+    auto CmdPackagePack(const fs::path &root, const ParsedArgs &args) -> int
+    {
+        (void)root;
+        const auto projectPath = ResolveProjectPath(args.projectPath);
+        const auto project = LoadProjectManifest(projectPath);
+        if (project.packageOutputs.empty())
+        {
+            throw std::runtime_error("project '" + project.name + "' does not declare PackageOutput");
+        }
+
+        const PackageOutputDefinition *selected = nullptr;
+        if (args.packageName.has_value())
+        {
+            const auto it = std::find_if(
+                project.packageOutputs.begin(), project.packageOutputs.end(),
+                [&](const PackageOutputDefinition &output)
+                {
+                    return output.name == *args.packageName;
+                });
+            if (it == project.packageOutputs.end())
+            {
+                throw std::runtime_error("project does not declare PackageOutput '" + *args.packageName + "'");
+            }
+            selected = &*it;
+        }
+        else if (project.packageOutputs.size() == 1)
+        {
+            selected = &project.packageOutputs.front();
+        }
+        else
+        {
+            throw std::runtime_error("package pack requires a PackageOutput name when the project declares multiple outputs");
+        }
+
+        fs::path manifestPath{};
+        std::optional<fs::path> archivePath{};
+        if (args.outputPath.has_value())
+        {
+            const auto outputPath = fs::path(*args.outputPath);
+            if (outputPath.extension() == ".nginpkg")
+            {
+                manifestPath = outputPath;
+            }
+            else if (outputPath.extension() == ".nginpack")
+            {
+                archivePath = outputPath;
+            }
+            else
+            {
+                manifestPath = outputPath / (selected->name + ".nginpkg");
+                archivePath = outputPath / (selected->name + ".nginpack");
+            }
+        }
+        else
+        {
+            manifestPath = project.path.parent_path() / "dist" / (selected->name + ".nginpkg");
+            archivePath = project.path.parent_path() / "dist" / (selected->name + ".nginpack");
+        }
+
+        const auto manifest = GeneratePackageOutputManifest(*selected);
+        if (!manifestPath.empty())
+        {
+            if (!manifestPath.parent_path().empty())
+            {
+                fs::create_directories(manifestPath.parent_path());
+            }
+            WriteTextFile(manifestPath, manifest);
+        }
+        if (archivePath.has_value())
+        {
+            if (!archivePath->parent_path().empty())
+            {
+                fs::create_directories(archivePath->parent_path());
+            }
+            WriteTextFile(*archivePath, GeneratePackageOutputArchive(*selected, manifest));
+        }
+
+        std::cout << "Packed package output\n";
+        std::cout << "  project: " << projectPath << "\n";
+        std::cout << "  package: " << selected->name << "\n";
+        std::cout << "  version: " << selected->version << "\n";
+        if (!manifestPath.empty())
+        {
+            std::cout << "  manifest: " << manifestPath << "\n";
+        }
+        if (archivePath.has_value())
+        {
+            std::cout << "  archive: " << *archivePath << "\n";
+        }
+        return 0;
+    }
+
     auto CmdPackageLock(const fs::path &root, const ParsedArgs &args) -> int
     {
         (void)root;
@@ -1062,6 +2233,68 @@ namespace NGIN::CLI
         }
         std::cout << "Package lock verified\n";
         std::cout << "  path: " << lockPath << "\n";
+        return 0;
+    }
+
+    auto CmdRestore(const fs::path &root, const ParsedArgs &args) -> int
+    {
+        (void)root;
+        const auto invocation = ResolveInvocation(args);
+        const auto resolved = ResolveLaunch(invocation.project, invocation.profile);
+        if (!resolved.value.has_value() || resolved.diagnostics.HasErrors())
+        {
+            PrintDiagnostics(resolved.diagnostics, "Restore", std::cout);
+            return 1;
+        }
+
+        const auto lockPath = args.lockPath.has_value() ? fs::path(*args.lockPath) : DefaultLockPath(*resolved.value);
+        const auto expectedLock = GenerateLockFile(*resolved.value);
+        if (args.locked)
+        {
+            const auto existingLock = ReadTextIfExists(lockPath);
+            if (existingLock.empty())
+            {
+                std::cout << "Locked restore failed\n";
+                std::cout << "  missing: " << lockPath << "\n";
+                return 1;
+            }
+            if (existingLock != expectedLock)
+            {
+                std::cout << "Locked restore failed\n";
+                std::cout << "  path: " << lockPath << "\n";
+                std::cout << "  reason: resolved package graph differs from lock file\n";
+                return 1;
+            }
+        }
+
+        const auto storeRoot = args.outputPath.has_value() ? fs::path(*args.outputPath) : DefaultPackageStorePath(*resolved.value);
+        fs::create_directories(storeRoot);
+        for (const auto &package : resolved.value->orderedPackages)
+        {
+            const auto packageDir = storeRoot / package.manifest.name / package.manifest.version;
+            fs::create_directories(packageDir);
+            fs::copy_file(
+                package.manifest.path,
+                packageDir / package.manifest.path.filename(),
+                fs::copy_options::overwrite_existing);
+        }
+
+        if (!args.locked)
+        {
+            if (!lockPath.parent_path().empty())
+            {
+                fs::create_directories(lockPath.parent_path());
+            }
+            WriteTextFile(lockPath, expectedLock);
+        }
+
+        std::cout << "Restored packages\n";
+        std::cout << "  project: " << resolved.value->project.name << "\n";
+        std::cout << "  profile: " << resolved.value->profile.name << "\n";
+        std::cout << "  store: " << storeRoot << "\n";
+        std::cout << "  lock: " << lockPath << "\n";
+        std::cout << "  locked: " << (args.locked ? "true" : "false") << "\n";
+        std::cout << "  packages: " << resolved.value->orderedPackages.size() << "\n";
         return 0;
     }
 
@@ -1321,6 +2554,270 @@ namespace NGIN::CLI
         return 0;
     }
 
+    auto CmdExplainObject(const fs::path &root, const ParsedArgs &args) -> int
+    {
+        (void)root;
+        if (!args.packageName.has_value())
+        {
+            throw std::runtime_error("explain requires an object identity such as property:Language");
+        }
+        const auto [kind, identity] = SplitObjectIdentity(*args.packageName);
+        const auto invocation = ResolveInvocation(args);
+        const auto resolved = ResolveLaunch(invocation.project, invocation.profile);
+        if (!resolved.value.has_value() || resolved.diagnostics.HasErrors())
+        {
+            PrintDiagnostics(resolved.diagnostics, "Explain", std::cout);
+            return 1;
+        }
+
+        if (kind == "property")
+        {
+            std::cout << "Property: " << identity << "\n";
+            if (identity == "Language")
+            {
+                std::cout << "  value: " << invocation.project.build.language << "\n";
+                std::cout << "  standard: " << invocation.project.build.languageStandard << "\n";
+                std::cout << "  source: project build defaults or manifest override\n";
+                return 0;
+            }
+            if (identity == "BuildType")
+            {
+                std::cout << "  value: " << resolved.value->profile.buildType << "\n";
+                std::cout << "  source: selected profile " << resolved.value->profile.name << "\n";
+                return 0;
+            }
+            if (identity == "HostPlatform")
+            {
+                std::cout << "  value: " << resolved.value->profile.hostPlatform << "\n";
+                std::cout << "  source: selected profile " << resolved.value->profile.name << "\n";
+                return 0;
+            }
+            if (identity == "TargetPlatform" || identity == "Platform")
+            {
+                std::cout << "  value: " << resolved.value->profile.platform << "\n";
+                std::cout << "  operatingSystem: " << resolved.value->profile.operatingSystem << "\n";
+                std::cout << "  architecture: " << resolved.value->profile.architecture << "\n";
+                std::cout << "  source: selected profile " << resolved.value->profile.name << "\n";
+                return 0;
+            }
+            if (identity == "Toolchain")
+            {
+                std::cout << "  value: " << (resolved.value->profile.toolchain.empty() ? "(default)" : resolved.value->profile.toolchain) << "\n";
+                std::cout << "  source: selected profile " << resolved.value->profile.name << "\n";
+                return 0;
+            }
+            if (identity == "Environment")
+            {
+                std::cout << "  value: " << resolved.value->profile.environmentName << "\n";
+                std::cout << "  source: selected profile " << resolved.value->profile.name << "\n";
+                return 0;
+            }
+            throw std::runtime_error("unknown explain property '" + identity + "'");
+        }
+
+        if (kind == "define")
+        {
+            std::cout << "Define: " << identity << "\n";
+            bool found = false;
+            for (const auto &unit : resolved.value->projectUnits)
+            {
+                for (const auto &setting : unit.project.build.compileDefinitions)
+                {
+                    if (DefineName(setting.value) != identity || !SelectionMatches(unit.project, setting.selectors, unit.profile))
+                    {
+                        continue;
+                    }
+                    found = true;
+                    std::cout << "  value: " << setting.value << "\n";
+                    std::cout << "  owner: project " << unit.project.name << "\n";
+                    std::cout << "  manifest: " << unit.project.path << "\n";
+                }
+            }
+            for (const auto &feature : resolved.value->selectedPackageFeatures)
+            {
+                for (const auto &setting : feature.build.compileDefinitions)
+                {
+                    if (DefineName(setting.value) != identity)
+                    {
+                        continue;
+                    }
+                    found = true;
+                    std::cout << "  value: " << setting.value << "\n";
+                    std::cout << "  owner: package feature " << feature.packageName << "/" << feature.featureName << "\n";
+                    std::cout << "  manifest: " << feature.manifestPath << "\n";
+                }
+            }
+            if (!found)
+            {
+                std::cout << "  result: not selected\n";
+            }
+            return 0;
+        }
+
+        if (kind == "stage")
+        {
+            std::cout << "Stage: " << identity << "\n";
+            const auto requested = fs::path(identity).lexically_normal();
+            const auto inputIt = std::find_if(
+                resolved.value->inputs.begin(), resolved.value->inputs.end(),
+                [&](const ResolvedInput &input)
+                {
+                    return input.stagedRelativePath == requested;
+                });
+            if (inputIt == resolved.value->inputs.end())
+            {
+                std::cout << "  result: not selected\n";
+                return 0;
+            }
+            std::cout << "  source: " << inputIt->source << "\n";
+            std::cout << "  absoluteSourcePath: " << inputIt->absoluteSourcePath << "\n";
+            std::cout << "  kind: " << inputIt->kind << "\n";
+            std::cout << "  owner: " << inputIt->ownerKind << " " << inputIt->ownerName << "\n";
+            std::cout << "  manifest: " << inputIt->manifestPath << "\n";
+            return 0;
+        }
+
+        if (kind == "package")
+        {
+            std::cout << "Package: " << identity << "\n";
+            const auto packageIt = std::find_if(
+                resolved.value->orderedPackages.begin(), resolved.value->orderedPackages.end(),
+                [&](const ResolvedPackage &package)
+                {
+                    return package.manifest.name == identity;
+                });
+            if (packageIt == resolved.value->orderedPackages.end())
+            {
+                std::cout << "  result: not selected\n";
+                return 0;
+            }
+            std::cout << "  result: selected\n";
+            std::cout << "  version: " << packageIt->manifest.version << "\n";
+            if (const auto scopeIt = resolved.value->packageScopes.find(packageIt->manifest.name);
+                scopeIt != resolved.value->packageScopes.end() && !scopeIt->second.empty())
+            {
+                std::cout << "  scope: " << scopeIt->second << "\n";
+            }
+            std::cout << "  source: " << packageIt->source << "\n";
+            std::cout << "  manifest: " << packageIt->manifest.path << "\n";
+            return 0;
+        }
+
+        if (kind == "feature")
+        {
+            std::cout << "Feature: " << identity << "\n";
+            const auto slash = identity.find('/');
+            if (slash == std::string::npos)
+            {
+                throw std::runtime_error("feature explain identity must be Package/Feature");
+            }
+            const auto packageName = identity.substr(0, slash);
+            const auto featureName = identity.substr(slash + 1);
+            const auto featureIt = std::find_if(
+                resolved.value->selectedPackageFeatures.begin(), resolved.value->selectedPackageFeatures.end(),
+                [&](const SelectedPackageFeature &feature)
+                {
+                    return feature.packageName == packageName && feature.featureName == featureName;
+                });
+            if (featureIt == resolved.value->selectedPackageFeatures.end())
+            {
+                std::cout << "  result: not selected\n";
+                return 0;
+            }
+            std::cout << "  result: selected\n";
+            std::cout << "  packageVersion: " << featureIt->packageVersion << "\n";
+            std::cout << "  manifest: " << featureIt->manifestPath << "\n";
+            return 0;
+        }
+
+        if (kind == "generator")
+        {
+            std::cout << "Generator: " << identity << "\n";
+            const auto generatorIt = std::find_if(
+                resolved.value->generators.begin(), resolved.value->generators.end(),
+                [&](const ResolvedGenerator &generator)
+                {
+                    return generator.declaration.name == identity;
+                });
+            if (generatorIt == resolved.value->generators.end())
+            {
+                std::cout << "  result: not selected\n";
+                return 0;
+            }
+            std::cout << "  result: selected\n";
+            std::cout << "  owner: " << generatorIt->ownerKind << " " << generatorIt->ownerName << "\n";
+            std::cout << "  tool: " << generatorIt->declaration.toolName << "\n";
+            std::cout << "  manifest: " << generatorIt->manifestPath << "\n";
+            std::cout << "  outputs: " << generatorIt->declaration.outputs.size() << "\n";
+            return 0;
+        }
+
+        if (kind == "launch")
+        {
+            std::cout << "Launch: " << identity << "\n";
+            if (!resolved.value->profile.launch.name.empty() && resolved.value->profile.launch.name != identity)
+            {
+                std::cout << "  result: not selected\n";
+                return 0;
+            }
+            std::cout << "  result: selected\n";
+            std::cout << "  name: " << resolved.value->profile.launch.name << "\n";
+            std::cout << "  executable: "
+                      << (resolved.value->selectedExecutable.has_value() ? resolved.value->selectedExecutable->name : "(none)") << "\n";
+            std::cout << "  workingDirectory: " << resolved.value->profile.launch.workingDirectory << "\n";
+            std::cout << "  args: " << resolved.value->profile.launch.args << "\n";
+            return 0;
+        }
+
+        if (kind == "runtime-module")
+        {
+            std::cout << "Runtime module: " << identity << "\n";
+            const auto required = std::find(resolved.value->requiredModules.begin(), resolved.value->requiredModules.end(), identity);
+            const auto optional = std::find(resolved.value->optionalModules.begin(), resolved.value->optionalModules.end(), identity);
+            if (required == resolved.value->requiredModules.end() && optional == resolved.value->optionalModules.end())
+            {
+                std::cout << "  result: not selected\n";
+                return 0;
+            }
+            std::cout << "  result: selected\n";
+            std::cout << "  selection: " << (required != resolved.value->requiredModules.end() ? "required" : "optional") << "\n";
+            return 0;
+        }
+
+        throw std::runtime_error("unknown explain object kind '" + kind + "'");
+    }
+
+    auto CmdNew(const fs::path &root, const std::string &kind, const std::string &name) -> int
+    {
+        const auto productKind = ProductKindFromNewKind(kind);
+        const auto projectDir = root / name;
+        if (fs::exists(projectDir))
+        {
+            throw std::runtime_error(projectDir.string() + ": directory already exists");
+        }
+
+        const auto projectPath = projectDir / (name + ".nginproj");
+        WriteNewFile(projectPath,
+                     "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n\n"
+                     "<Project SchemaVersion=\"4\" Name=\"" + name + "\">\n"
+                     "  <" + productKind + " />\n"
+                     "</Project>\n");
+
+        if (productKind == "Library")
+        {
+            WriteNewFile(projectDir / "include" / (name + ".hpp"), "#pragma once\n");
+            WriteNewFile(projectDir / "src" / (name + ".cpp"), "#include \"" + name + ".hpp\"\n");
+        }
+        else
+        {
+            WriteNewFile(projectDir / "src/main.cpp", "int main() { return 0; }\n");
+        }
+
+        std::cout << "Created V4 " << productKind << " project\n";
+        std::cout << "  project: " << projectPath << "\n";
+        return 0;
+    }
+
     auto CmdInspect(const fs::path &root, const ParsedArgs &args) -> int
     {
         (void)root;
@@ -1336,6 +2833,55 @@ namespace NGIN::CLI
         const auto invocation = ResolveInvocation(args);
         const auto resolvedResult = ResolveLaunch(invocation.project, invocation.profile);
         const auto *resolved = resolvedResult.value.has_value() ? &*resolvedResult.value : nullptr;
+        const auto productKind = invocation.project.productKind.empty() ? invocation.project.type : invocation.project.productKind;
+        const auto effectivePublishes = EffectivePublishes(invocation.project, invocation.profile);
+        std::map<std::string, AnalyzerDefinition> effectiveAnalyzers{};
+        for (const auto &analyzer : invocation.project.quality.analyzers)
+        {
+            effectiveAnalyzers[analyzer.name] = analyzer;
+        }
+        for (const auto &analyzer : invocation.profile.quality.analyzers)
+        {
+            effectiveAnalyzers[analyzer.name] = analyzer;
+        }
+        std::size_t activeAnalyzerCount = 0;
+        for (const auto &[_, analyzer] : effectiveAnalyzers)
+        {
+            if (analyzer.enabled && SelectionMatches(invocation.project, analyzer.selectors, invocation.profile))
+            {
+                ++activeAnalyzerCount;
+            }
+        }
+        auto countResolvedInputs = [&](std::string_view kind) -> std::size_t
+        {
+            if (resolved == nullptr)
+            {
+                return 0;
+            }
+            return static_cast<std::size_t>(std::count_if(resolved->inputs.begin(),
+                                                          resolved->inputs.end(),
+                                                          [&](const ResolvedInput &input)
+                                                          { return input.kind == kind; }));
+        };
+        auto countStagedFiles = [&]() -> std::size_t
+        {
+            if (resolved == nullptr)
+            {
+                return 0;
+            }
+            return static_cast<std::size_t>(std::count_if(resolved->inputs.begin(),
+                                                          resolved->inputs.end(),
+                                                          [](const ResolvedInput &input)
+                                                          { return !input.stagedRelativePath.empty(); }));
+        };
+        auto countRuntimeModules = [&]() -> std::size_t
+        {
+            if (resolved == nullptr)
+            {
+                return invocation.project.runtime.modules.size() + invocation.profile.runtime.modules.size();
+            }
+            return resolved->requiredModules.size() + resolved->optionalModules.size();
+        };
 
         auto writeDiagnostics = [&](std::ostream &out, const DiagnosticReport &diagnostics)
         {
@@ -1358,15 +2904,134 @@ namespace NGIN::CLI
 
         std::cout << "{\n";
         std::cout << "  \"schemaVersion\": 1,\n";
+        std::cout << "  \"compositionGraph\": {"
+                  << "\"schemaVersion\":\"4.0\","
+                  << "\"state\":" << Json(resolved == nullptr || resolvedResult.diagnostics.HasErrors() ? "diagnostic" : "resolved") << ","
+                  << "\"facets\":["
+                  << "\"identity\",\"workspace\",\"project\",\"product\",\"profile\",\"platform\","
+                  << "\"package\",\"build\",\"generate\",\"stage\",\"runtime\",\"environment\","
+                  << "\"launch\",\"publish\",\"quality\",\"diagnostics\",\"provenance\""
+                  << "],"
+                  << "\"identity\":{"
+                  << "\"project\":" << Json(invocation.project.name) << ","
+                  << "\"product\":" << Json(productKind) << ","
+                  << "\"profile\":" << Json(invocation.profile.name)
+                  << "},"
+                  << "\"selection\":{"
+                  << "\"profile\":" << Json(invocation.profile.name) << ","
+                  << "\"hostPlatform\":" << Json(invocation.profile.hostPlatform) << ","
+                  << "\"targetPlatform\":" << Json(invocation.profile.platform) << ","
+                  << "\"toolchain\":" << Json(invocation.profile.toolchain) << ","
+                  << "\"environment\":" << Json(invocation.profile.environmentName) << ","
+                  << "\"abiTag\":" << Json(resolved == nullptr ? "" : resolved->targetAbiTag) << ","
+                  << "\"toolchainDefinition\":";
+        if (resolved != nullptr && resolved->selectedToolchain.has_value())
+        {
+            const auto &toolchain = *resolved->selectedToolchain;
+            std::cout << "{"
+                      << "\"name\":" << Json(toolchain.name) << ","
+                      << "\"compiler\":" << Json(toolchain.compiler) << ","
+                      << "\"compilerVersion\":" << Json(toolchain.compilerVersion) << ","
+                      << "\"linker\":" << Json(toolchain.linker) << ","
+                      << "\"generator\":" << Json(toolchain.generator) << ","
+                      << "\"cppStandardLibrary\":" << Json(toolchain.cppStandardLibrary) << ","
+                      << "\"runtimeLibrary\":" << Json(toolchain.runtimeLibrary)
+                      << "}";
+        }
+        else
+        {
+            std::cout << "null";
+        }
+        std::cout
+                  << "},"
+                  << "\"facetsSummary\":{"
+                  << "\"packages\":" << (resolved == nullptr ? 0 : resolved->orderedPackages.size()) << ","
+                  << "\"packageFeatures\":" << (resolved == nullptr ? 0 : resolved->selectedPackageFeatures.size()) << ","
+                  << "\"sources\":" << countResolvedInputs("Source") << ","
+                  << "\"headers\":" << countResolvedInputs("Header") << ","
+                  << "\"generators\":" << (resolved == nullptr ? 0 : resolved->generators.size()) << ","
+                  << "\"stagedFiles\":" << countStagedFiles() << ","
+                  << "\"runtimeModules\":" << countRuntimeModules() << ","
+                  << "\"environmentVariables\":" << (resolved == nullptr ? 0 : resolved->environmentVariables.size()) << ","
+                  << "\"launchEntries\":" << (invocation.profile.launch.name.empty() ? 0 : 1) << ","
+                  << "\"publishes\":" << effectivePublishes.size() << ","
+                  << "\"analyzers\":" << activeAnalyzerCount << ","
+                  << "\"diagnostics\":" << resolvedResult.diagnostics.entries.size()
+                  << "}"
+                  << "},\n";
         std::cout << "  \"project\": {"
                   << "\"name\":" << Json(invocation.project.name) << ","
                   << "\"path\":" << JsonPath(invocation.project.path) << ","
                   << "\"type\":" << Json(invocation.project.type)
                   << "},\n";
+        std::cout << "  \"product\": {"
+                  << "\"kind\":" << Json(productKind) << ","
+                  << "\"outputType\":" << Json(invocation.project.output.kind) << ","
+                  << "\"outputName\":" << Json(invocation.project.output.name) << ","
+                  << "\"targetName\":" << Json(invocation.project.output.target)
+                  << "},\n";
+        std::cout << "  \"packageOutputs\": [";
+        for (std::size_t index = 0; index < invocation.project.packageOutputs.size(); ++index)
+        {
+            const auto &output = invocation.project.packageOutputs[index];
+            if (index > 0)
+            {
+                std::cout << ",";
+            }
+            std::cout << "{"
+                      << "\"name\":" << Json(output.name) << ","
+                      << "\"version\":" << Json(output.version) << ","
+                      << "\"from\":" << Json(output.from)
+                      << "}";
+        }
+        std::cout << "],\n";
+        std::cout << "  \"publishes\": [";
+        for (std::size_t index = 0; index < effectivePublishes.size(); ++index)
+        {
+            const auto &publish = effectivePublishes[index];
+            if (index > 0)
+            {
+                std::cout << ",";
+            }
+            std::cout << "{"
+                      << "\"name\":" << Json(publish.name) << ","
+                      << "\"kind\":" << Json(publish.kind) << ","
+                      << "\"format\":" << Json(publish.format) << ","
+                      << "\"output\":" << Json(publish.output) << ","
+                      << "\"includeStage\":" << (publish.includeStage ? "true" : "false") << ","
+                      << "\"includeRuntimeDependencies\":" << (publish.includeRuntimeDependencies ? "true" : "false") << ","
+                      << "\"includeSymbols\":" << (publish.includeSymbols ? "true" : "false")
+                      << "}";
+        }
+        std::cout << "],\n";
+        std::cout << "  \"quality\": {\"analyzers\":[";
+        bool firstAnalyzer = true;
+        for (const auto &[_, analyzer] : effectiveAnalyzers)
+        {
+            if (!analyzer.enabled || !SelectionMatches(invocation.project, analyzer.selectors, invocation.profile))
+            {
+                continue;
+            }
+            if (!firstAnalyzer)
+            {
+                std::cout << ",";
+            }
+            firstAnalyzer = false;
+            std::cout << "{"
+                      << "\"name\":" << Json(analyzer.name) << ","
+                      << "\"scope\":" << Json(analyzer.scope) << ","
+                      << "\"severity\":" << Json(analyzer.severity) << ","
+                      << "\"configPath\":" << Json(analyzer.configPath)
+                      << "}";
+        }
+        std::cout << "]},\n";
         std::cout << "  \"profile\": {"
                   << "\"name\":" << Json(invocation.profile.name) << ","
                   << "\"buildType\":" << Json(invocation.profile.buildType) << ","
+                  << "\"hostPlatform\":" << Json(invocation.profile.hostPlatform) << ","
                   << "\"platform\":" << Json(invocation.profile.platform) << ","
+                  << "\"toolchain\":" << Json(invocation.profile.toolchain) << ","
+                  << "\"abiTag\":" << Json(resolved == nullptr ? "" : resolved->targetAbiTag) << ","
                   << "\"operatingSystem\":" << Json(invocation.profile.operatingSystem) << ","
                   << "\"architecture\":" << Json(invocation.profile.architecture) << ","
                   << "\"environment\":" << Json(invocation.profile.environmentName)
@@ -1422,12 +3087,33 @@ namespace NGIN::CLI
             {
                 std::cout << ",";
             }
+            const auto scopeValue = [&]() -> std::string
+            {
+                if (const auto scopeIt = resolved->packageScopes.find(package.manifest.name);
+                    scopeIt != resolved->packageScopes.end())
+                {
+                    return scopeIt->second;
+                }
+                return {};
+            }();
+            const auto closures = PackageClosuresForScope(scopeValue);
             std::cout << "{"
                       << "\"name\":" << Json(package.manifest.name) << ","
                       << "\"version\":" << Json(package.manifest.version) << ","
                       << "\"manifestPath\":" << JsonPath(package.manifest.path) << ","
                       << "\"providerRoot\":" << JsonPath(package.sourceDirectory) << ","
                       << "\"source\":" << Json(package.source) << ","
+                      << "\"scope\":" << Json(scopeValue) << ","
+                      << "\"closures\":[";
+            for (std::size_t closureIndex = 0; closureIndex < closures.size(); ++closureIndex)
+            {
+                if (closureIndex > 0)
+                {
+                    std::cout << ",";
+                }
+                std::cout << Json(closures[closureIndex]);
+            }
+            std::cout << "],"
                       << "\"requiredBy\":[";
             const auto itRequiredBy = requiredBy.find(package.manifest.name);
             if (itRequiredBy == requiredBy.end() || itRequiredBy->second.empty())
@@ -1792,6 +3478,8 @@ namespace NGIN::CLI
             std::cout << "null";
         }
         std::cout << ",\"workingDirectory\":" << Json(resolved->profile.launch.workingDirectory)
+                  << ",\"name\":" << Json(resolved->profile.launch.name)
+                  << ",\"args\":" << Json(resolved->profile.launch.args)
                   << "},\n";
 
         std::cout << "  \"stagedFiles\": [";
@@ -1876,6 +3564,215 @@ namespace NGIN::CLI
         {
             PrintDiagnostics(resolved.diagnostics, "Graph", std::cout);
             return 1;
+        }
+        if (args.graphPlan == "stage")
+        {
+            std::cout << "Stage plan for profile: " << resolved.value->profile.name << "\n";
+            bool any = false;
+            for (const auto &input : resolved.value->inputs)
+            {
+                if (input.stagedRelativePath.empty())
+                {
+                    continue;
+                }
+                any = true;
+                std::cout << "  - " << input.stagedRelativePath.generic_string()
+                          << " <- " << input.source
+                          << " [" << (input.contentKind.empty() ? input.kind : input.contentKind) << "]"
+                          << " owner=" << input.ownerKind << ":" << input.ownerName << "\n";
+            }
+            if (!any)
+            {
+                std::cout << "  (none)\n";
+            }
+            return 0;
+        }
+        if (args.graphPlan == "launch")
+        {
+            std::cout << "Launch plan for profile: " << resolved.value->profile.name << "\n";
+            std::cout << "  name: " << (resolved.value->profile.launch.name.empty() ? "(default)" : resolved.value->profile.launch.name) << "\n";
+            std::cout << "  executable: "
+                      << (resolved.value->selectedExecutable.has_value() ? resolved.value->selectedExecutable->name : "(none)") << "\n";
+            std::cout << "  workingDirectory: " << resolved.value->profile.launch.workingDirectory << "\n";
+            std::cout << "  args: " << resolved.value->profile.launch.args << "\n";
+            return 0;
+        }
+        if (args.graphPlan == "package")
+        {
+            std::cout << "Package plan for profile: " << resolved.value->profile.name << "\n";
+            if (resolved.value->orderedPackages.empty())
+            {
+                std::cout << "  packages: (none)\n";
+            }
+            for (const auto &package : resolved.value->orderedPackages)
+            {
+                std::cout << "  package " << package.manifest.name << " " << package.manifest.version
+                          << " source=" << package.source << "\n";
+                if (const auto scopeIt = resolved.value->packageScopes.find(package.manifest.name);
+                    scopeIt != resolved.value->packageScopes.end() && !scopeIt->second.empty())
+                {
+                    std::cout << "    scope " << scopeIt->second << "\n";
+                }
+                if (const auto edgeIt = resolved.value->packageEdges.find(package.manifest.name); edgeIt != resolved.value->packageEdges.end())
+                {
+                    for (const auto &dep : edgeIt->second)
+                    {
+                        std::cout << "    depends-on " << dep << "\n";
+                    }
+                }
+            }
+            if (resolved.value->selectedPackageFeatures.empty())
+            {
+                std::cout << "  features: (none)\n";
+            }
+            for (const auto &feature : resolved.value->selectedPackageFeatures)
+            {
+                std::cout << "  feature " << feature.packageName << "/" << feature.featureName << "\n";
+            }
+            return 0;
+        }
+        if (args.graphPlan == "runtime")
+        {
+            std::cout << "Runtime plan for profile: " << resolved.value->profile.name << "\n";
+            if (resolved.value->requiredModules.empty() && resolved.value->optionalModules.empty())
+            {
+                std::cout << "  modules: (none)\n";
+            }
+            for (const auto &module : resolved.value->requiredModules)
+            {
+                std::cout << "  required module " << module << "\n";
+            }
+            for (const auto &module : resolved.value->optionalModules)
+            {
+                std::cout << "  optional module " << module << "\n";
+            }
+            if (resolved.value->enabledPlugins.empty())
+            {
+                std::cout << "  plugins: (none)\n";
+            }
+            for (const auto &plugin : resolved.value->enabledPlugins)
+            {
+                std::cout << "  plugin " << plugin << "\n";
+            }
+            return 0;
+        }
+        if (args.graphPlan == "publish")
+        {
+            const auto publishes = EffectivePublishes(resolved.value->project, resolved.value->profile);
+            std::cout << "Publish plan for profile: " << resolved.value->profile.name << "\n";
+            if (publishes.empty())
+            {
+                std::cout << "  publishes: (none)\n";
+            }
+            for (const auto &publish : publishes)
+            {
+                std::cout << "  publish " << publish.name
+                          << " kind=" << publish.kind
+                          << " output=" << publish.output;
+                if (!publish.format.empty())
+                {
+                    std::cout << " format=" << publish.format;
+                }
+                std::cout << "\n";
+                std::cout << "    includeStage=" << (publish.includeStage ? "true" : "false")
+                          << " includeRuntimeDependencies=" << (publish.includeRuntimeDependencies ? "true" : "false")
+                          << " includeSymbols=" << (publish.includeSymbols ? "true" : "false") << "\n";
+            }
+            return 0;
+        }
+        if (args.graphPlan == "quality")
+        {
+            std::map<std::string, AnalyzerDefinition> analyzers{};
+            for (const auto &analyzer : resolved.value->project.quality.analyzers)
+            {
+                analyzers[analyzer.name] = analyzer;
+            }
+            for (const auto &analyzer : resolved.value->profile.quality.analyzers)
+            {
+                analyzers[analyzer.name] = analyzer;
+            }
+            std::cout << "Quality plan for profile: " << resolved.value->profile.name << "\n";
+            bool any = false;
+            for (const auto &[_, analyzer] : analyzers)
+            {
+                if (!analyzer.enabled || !SelectionMatches(resolved.value->project, analyzer.selectors, resolved.value->profile))
+                {
+                    continue;
+                }
+                any = true;
+                std::cout << "  analyzer " << analyzer.name
+                          << " scope=" << analyzer.scope
+                          << " severity=" << analyzer.severity;
+                if (!analyzer.configPath.empty())
+                {
+                    std::cout << " config=" << analyzer.configPath;
+                }
+                std::cout << "\n";
+            }
+            if (!any)
+            {
+                std::cout << "  analyzers: (none)\n";
+            }
+            return 0;
+        }
+        if (args.graphPlan == "build")
+        {
+            std::cout << "Build plan for profile: " << resolved.value->profile.name << "\n";
+            std::cout << "  backend: " << resolved.value->project.build.backend << "\n";
+            std::cout << "  mode: " << resolved.value->project.build.mode << "\n";
+            std::cout << "  language: " << resolved.value->project.build.language
+                      << resolved.value->project.build.languageStandard << "\n";
+            std::cout << "  output: " << resolved.value->project.output.kind
+                      << " " << resolved.value->project.output.name
+                      << " target=" << resolved.value->project.output.target << "\n";
+            std::cout << "  inputs:\n";
+            bool anyInput = false;
+            for (const auto &input : resolved.value->inputs)
+            {
+                if (input.kind != "Source" && input.kind != "Generated")
+                {
+                    continue;
+                }
+                anyInput = true;
+                std::cout << "    - " << input.kind;
+                if (!input.role.empty())
+                {
+                    std::cout << ":" << input.role;
+                }
+                std::cout << " " << input.source << " owner=" << input.ownerKind << ":" << input.ownerName << "\n";
+            }
+            if (!anyInput)
+            {
+                std::cout << "    (none)\n";
+            }
+            std::cout << "  defines:\n";
+            bool anyDefine = false;
+            for (const auto &unit : resolved.value->projectUnits)
+            {
+                for (const auto &setting : unit.project.build.compileDefinitions)
+                {
+                    if (!SelectionMatches(unit.project, setting.selectors, unit.profile))
+                    {
+                        continue;
+                    }
+                    anyDefine = true;
+                    std::cout << "    - " << setting.value << " owner=project:" << unit.project.name << "\n";
+                }
+            }
+            for (const auto &feature : resolved.value->selectedPackageFeatures)
+            {
+                for (const auto &setting : feature.build.compileDefinitions)
+                {
+                    anyDefine = true;
+                    std::cout << "    - " << setting.value << " owner=package-feature:"
+                              << feature.packageName << "/" << feature.featureName << "\n";
+                }
+            }
+            if (!anyDefine)
+            {
+                std::cout << "    (none)\n";
+            }
+            return 0;
         }
         std::cout << "Graph for profile: " << resolved.value->profile.name << "\n\nProjects:\n";
         for (const auto &unit : resolved.value->projectUnits)
@@ -2113,6 +4010,60 @@ namespace NGIN::CLI
         return 0;
     }
 
+    auto CmdDiff(const fs::path &root, const ParsedArgs &args) -> int
+    {
+        (void)root;
+        if (!args.fromProfileName.has_value() || !args.toProfileName.has_value())
+        {
+            throw std::runtime_error("diff requires --from-profile <name> and --to-profile <name>");
+        }
+
+        const auto project = LoadProjectManifest(ResolveProjectPath(args.projectPath));
+        const auto &fromProfile = ProfileByName(project, args.fromProfileName);
+        const auto &toProfile = ProfileByName(project, args.toProfileName);
+        const auto fromResolved = ResolveLaunch(project, fromProfile);
+        const auto toResolved = ResolveLaunch(project, toProfile);
+
+        if (!fromResolved.value.has_value() || fromResolved.diagnostics.HasErrors())
+        {
+            PrintDiagnostics(fromResolved.diagnostics, "Diff from-profile", std::cout);
+            return 1;
+        }
+        if (!toResolved.value.has_value() || toResolved.diagnostics.HasErrors())
+        {
+            PrintDiagnostics(toResolved.diagnostics, "Diff to-profile", std::cout);
+            return 1;
+        }
+
+        const auto from = BuildDiffSnapshot(*fromResolved.value);
+        const auto to = BuildDiffSnapshot(*toResolved.value);
+        bool anyDiff = false;
+
+        std::cout << "Diff for project: " << project.name << "\n";
+        std::cout << "  from profile: " << fromProfile.name << "\n";
+        std::cout << "  to profile: " << toProfile.name << "\n\n";
+
+        PrintMapDiff("Selection", from.selection, to.selection, anyDiff);
+        PrintSetDiff("Defines", from.defines, to.defines, anyDiff);
+        PrintMapDiff("Packages", from.packages, to.packages, anyDiff);
+        PrintSetDiff("Package features", from.packageFeatures, to.packageFeatures, anyDiff);
+        PrintSetDiff("Generators", from.generators, to.generators, anyDiff);
+        PrintSetDiff("Generated outputs", from.generatedOutputs, to.generatedOutputs, anyDiff);
+        PrintMapDiff("Stage", from.stagedFiles, to.stagedFiles, anyDiff);
+        PrintSetDiff("Runtime modules", from.runtimeModules, to.runtimeModules, anyDiff);
+        PrintSetDiff("Plugins", from.plugins, to.plugins, anyDiff);
+        PrintMapDiff("Environment", from.environment, to.environment, anyDiff);
+        PrintMapDiff("Launch", from.launch, to.launch, anyDiff);
+        PrintSetDiff("Publishes", from.publishes, to.publishes, anyDiff);
+        PrintSetDiff("Artifacts", from.artifacts, to.artifacts, anyDiff);
+
+        if (!anyDiff)
+        {
+            std::cout << "No graph differences.\n";
+        }
+        return 0;
+    }
+
     auto CmdClean(const fs::path &root, const ParsedArgs &args) -> int
     {
         (void)root;
@@ -2188,6 +4139,30 @@ namespace NGIN::CLI
         return 0;
     }
 
+    auto CmdStage(const fs::path &root, const ParsedArgs &args) -> int
+    {
+        (void)root;
+        const auto invocation = ResolveInvocation(args);
+        auto built = BuildLaunch(
+            invocation.project,
+            invocation.profile,
+            args.outputPath.has_value() ? std::optional<fs::path>{*args.outputPath} : std::nullopt);
+        if (!built.value.has_value() || built.diagnostics.HasErrors())
+        {
+            PrintDiagnostics(built.diagnostics, "Stage", std::cout);
+            return 1;
+        }
+
+        const auto summary = LoadLaunchManifestSummary(built.value->manifestPath);
+        std::cout << "Staged profile: " << invocation.profile.name << "\n";
+        std::cout << "  project: " << invocation.project.name << "\n";
+        std::cout << "  output: " << built.value->outputDir << "\n";
+        std::cout << "  launch manifest: " << built.value->manifestPath << "\n";
+        std::cout << "  selected executable: " << (summary.selectedExecutable.has_value() && !summary.selectedExecutable->empty() ? *summary.selectedExecutable : "(none)") << "\n";
+        PrintDiagnostics(built.diagnostics, "Stage", std::cout);
+        return 0;
+    }
+
     auto CmdRebuild(const fs::path &root, const ParsedArgs &args) -> int
     {
         (void)root;
@@ -2227,37 +4202,111 @@ namespace NGIN::CLI
     {
         (void)root;
         const auto invocation = ResolveInvocation(args);
-        const auto built = BuildLaunch(
+        return RunBuiltProduct(invocation.project, invocation.profile, args, "Run");
+    }
+
+    auto CmdTest(const fs::path &root, const ParsedArgs &args) -> int
+    {
+        (void)root;
+        const auto invocation = ResolveInvocation(args);
+        if (invocation.project.productKind != "Test")
+        {
+            throw std::runtime_error("ngin test requires a V4 Test product project");
+        }
+        std::cout << "Running test product: " << invocation.project.name << "\n";
+        return RunBuiltProduct(invocation.project, invocation.profile, args, "Test");
+    }
+
+    auto CmdBenchmark(const fs::path &root, const ParsedArgs &args) -> int
+    {
+        (void)root;
+        const auto invocation = ResolveInvocation(args);
+        if (invocation.project.productKind != "Benchmark")
+        {
+            throw std::runtime_error("ngin benchmark requires a V4 Benchmark product project");
+        }
+        std::cout << "Running benchmark product: " << invocation.project.name << "\n";
+        return RunBuiltProduct(invocation.project, invocation.profile, args, "Benchmark");
+    }
+
+    auto CmdAnalyze(const fs::path &root, const ParsedArgs &args) -> int
+    {
+        (void)root;
+        const auto invocation = ResolveInvocation(args);
+        std::map<std::string, AnalyzerDefinition> analyzers{};
+        for (const auto &analyzer : invocation.project.quality.analyzers)
+        {
+            analyzers[analyzer.name] = analyzer;
+        }
+        for (const auto &analyzer : invocation.profile.quality.analyzers)
+        {
+            analyzers[analyzer.name] = analyzer;
+        }
+
+        std::cout << "Analyze product: " << invocation.project.name << "\n";
+        std::cout << "Profile: " << invocation.profile.name << "\n";
+        bool anyEnabled = false;
+        for (const auto &[_, analyzer] : analyzers)
+        {
+            if (!analyzer.enabled || !SelectionMatches(invocation.project, analyzer.selectors, invocation.profile))
+            {
+                continue;
+            }
+            anyEnabled = true;
+            std::cout << "  analyzer " << analyzer.name
+                      << " scope=" << analyzer.scope
+                      << " severity=" << analyzer.severity;
+            if (!analyzer.configPath.empty())
+            {
+                std::cout << " config=" << analyzer.configPath;
+            }
+            std::cout << "\n";
+        }
+        if (!anyEnabled)
+        {
+            std::cout << "  (no enabled analyzers)\n";
+        }
+        return 0;
+    }
+
+    auto CmdPublish(const fs::path &root, const ParsedArgs &args) -> int
+    {
+        (void)root;
+        const auto invocation = ResolveInvocation(args);
+        const auto publishes = EffectivePublishes(invocation.project, invocation.profile);
+        const auto &publish = SelectPublish(publishes, args.packageName);
+        if (publish.kind != "Folder")
+        {
+            throw std::runtime_error("publish kind '" + publish.kind + "' is not implemented yet");
+        }
+
+        auto built = BuildLaunch(
             invocation.project,
             invocation.profile,
             args.outputPath.has_value() ? std::optional<fs::path>{*args.outputPath} : std::nullopt);
         if (!built.value.has_value() || built.diagnostics.HasErrors())
         {
-            PrintDiagnostics(built.diagnostics, "Run", std::cout);
+            PrintDiagnostics(built.diagnostics, "Publish", std::cout);
             return 1;
         }
 
-        const auto summary = LoadLaunchManifestSummary(built.value->manifestPath);
-        if (!summary.selectedExecutable.has_value() || summary.selectedExecutable->empty())
+        auto publishOutput = fs::path(publish.output);
+        if (publishOutput.is_relative())
         {
-            throw std::runtime_error("launch manifest does not declare a selected executable");
+            publishOutput = invocation.project.path.parent_path() / publishOutput;
         }
-
-        const auto executableName = *summary.selectedExecutable + (fs::exists(built.value->outputDir / "bin" / (*summary.selectedExecutable + ".exe")) ? ".exe" : "");
-        const auto executablePath = built.value->outputDir / "bin" / executableName;
-        if (!fs::exists(executablePath))
+        if (fs::exists(publishOutput))
         {
-            throw std::runtime_error("selected executable was not staged to '" + executablePath.string() + "'");
+            fs::remove_all(publishOutput);
         }
+        CopyDirectoryContents(built.value->outputDir, publishOutput);
 
-        fs::path workingDirectory = summary.workingDirectory == "."
-                                        ? built.value->outputDir
-                                        : fs::absolute(built.value->outputDir / summary.workingDirectory);
-        if (!fs::exists(workingDirectory))
-        {
-            workingDirectory = built.value->outputDir;
-        }
-
-        return RunProcess(executablePath, args.runArgs, workingDirectory);
+        std::cout << "Published profile: " << invocation.profile.name << "\n";
+        std::cout << "  project: " << invocation.project.name << "\n";
+        std::cout << "  publish: " << publish.name << "\n";
+        std::cout << "  kind: " << publish.kind << "\n";
+        std::cout << "  output: " << publishOutput << "\n";
+        PrintDiagnostics(built.diagnostics, "Publish", std::cout);
+        return 0;
     }
 }

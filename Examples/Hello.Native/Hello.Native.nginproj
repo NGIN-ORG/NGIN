@@ -1,28 +1,36 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="3"
+<Project SchemaVersion="4"
          Name="Hello.Native"
-         Template="Application"
          DefaultProfile="Debug">
-  <Inputs>
-    <Sources Path="src" />
-  </Inputs>
+
   <Conditions>
-    <Condition Name="LocalDebug"
-               Environment="local"
-               BuildType="Debug" />
+    <Condition Name="LocalDebug">
+      <When Environment="local"
+            BuildType="Debug" />
+    </Condition>
   </Conditions>
-  <Launch Executable="$(OutputName)" WorkingDirectory="." />
-  <Build>
-    <CompileDefinitions>
-      <Definition Value="HELLO_NATIVE_LOCAL_DEBUG"
-                  Visibility="Private"
-                  Condition="LocalDebug" />
-    </CompileDefinitions>
-  </Build>
-  <Environments>
-    <Environment Name="local" />
-  </Environments>
-  <Profiles>
-    <Profile Name="Debug" Template="LocalDebug" />
-  </Profiles>
+
+  <Application>
+    <Build>
+      <Sources Path="src/**.cpp" />
+    </Build>
+
+    <Launch Executable="$(OutputName)"
+            WorkingDirectory="." />
+  </Application>
+
+  <Profile Name="Debug">
+    <Defaults>
+      <BuildType Name="Debug" />
+      <TargetPlatform Name="linux-x64" />
+      <Environment Name="local" />
+    </Defaults>
+
+    <Application>
+      <Build>
+        <Define Name="HELLO_NATIVE_LOCAL_DEBUG"
+                When="LocalDebug" />
+      </Build>
+    </Application>
+  </Profile>
 </Project>

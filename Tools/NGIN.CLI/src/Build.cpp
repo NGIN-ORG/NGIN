@@ -1518,7 +1518,7 @@ namespace NGIN::CLI
                         continue;
                     }
                     auto sources = CollectGeneratedProjectSources(resolved.workspace, unit.project, unit.profile, report);
-                    if (sources.empty())
+                    if (sources.empty() && unit.project.productKind != "External")
                     {
                         AddError(report, "project '" + unit.project.name + "' generated build resolved no source files");
                         continue;
@@ -1675,7 +1675,13 @@ namespace NGIN::CLI
                 const auto targetName = unit.project.output.target;
                 const auto &sources = generatedSourcesByProject.at(unit.project.name);
 
-                if (kind == "executable")
+                if (unit.project.productKind == "External")
+                {
+                    out << "if(NOT TARGET \"" << EscapeCMake(targetName) << "\")\n";
+                    out << "  add_library(\"" << EscapeCMake(targetName) << "\" INTERFACE IMPORTED)\n";
+                    out << "endif()\n";
+                }
+                else if (kind == "executable")
                 {
                     out << "add_executable(\"" << EscapeCMake(targetName) << "\"\n";
                 }
@@ -1692,14 +1698,17 @@ namespace NGIN::CLI
                     AddError(report, "project '" + unit.project.name + "' output kind '" + unit.project.output.kind + "' is not supported by generated CMake");
                     continue;
                 }
-                for (const auto &source : sources)
+                if (unit.project.productKind != "External")
                 {
-                    out << "  \"" << ToCMakePath(source) << "\"\n";
+                    for (const auto &source : sources)
+                    {
+                        out << "  \"" << ToCMakePath(source) << "\"\n";
+                    }
+                    out << ")\n";
+                    out << "set_target_properties(\"" << EscapeCMake(targetName) << "\" PROPERTIES CXX_STANDARD "
+                        << EscapeCMake(unit.project.build.languageStandard)
+                        << " CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)\n";
                 }
-                out << ")\n";
-                out << "set_target_properties(\"" << EscapeCMake(targetName) << "\" PROPERTIES CXX_STANDARD "
-                    << EscapeCMake(unit.project.build.languageStandard)
-                    << " CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)\n";
 
                 for (const auto &sourceRoot : SelectedBuildInputRoots(unit.project, unit.profile))
                 {
@@ -2285,7 +2294,16 @@ namespace NGIN::CLI
                 << "\" Target=\"" << EscapeXml(resolved.selectedExecutable->target)
                 << "\" Origin=\"" << EscapeXml(resolved.selectedExecutable->origin) << "\"";
         }
-        out << " WorkingDirectory=\"" << EscapeXml(resolved.profile.launch.workingDirectory) << "\" />\n";
+        if (!resolved.profile.launch.name.empty())
+        {
+            out << " Name=\"" << EscapeXml(resolved.profile.launch.name) << "\"";
+        }
+        out << " WorkingDirectory=\"" << EscapeXml(resolved.profile.launch.workingDirectory) << "\"";
+        if (!resolved.profile.launch.args.empty())
+        {
+            out << " Args=\"" << EscapeXml(resolved.profile.launch.args) << "\"";
+        }
+        out << " />\n";
         out << "  <Environment Name=\"" << EscapeXml(resolved.profile.environmentName) << "\">\n";
         out << "    <Variables>\n";
         for (const auto &variable : resolved.environmentVariables)

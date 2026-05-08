@@ -2950,6 +2950,251 @@ namespace NGIN::Core
         return NGIN::Utilities::Unexpected<KernelError>(parsedSchema.Error());
       }
       manifest.schemaVersion = parsedSchema.Value();
+      if (manifest.schemaVersion == 4)
+      {
+        auto name = RequireAttribute(*root, "Name", "project");
+        if (!name)
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(name.Error());
+        }
+        manifest.name = name.Value();
+
+        const XmlElement *product = nullptr;
+        for (const auto *child : ChildElements(*root))
+        {
+          if (child->name == "Application" || child->name == "Library" ||
+              child->name == "Tool" || child->name == "Test" ||
+              child->name == "Benchmark" || child->name == "Plugin" ||
+              child->name == "Module" || child->name == "External")
+          {
+            if (product != nullptr)
+            {
+              return NGIN::Utilities::Unexpected<KernelError>(
+                  MakeBuilderError("V4 project must declare exactly one product element"));
+            }
+            product = child;
+          }
+        }
+        if (product == nullptr)
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(
+              MakeBuilderError("V4 project must declare a product element"));
+        }
+
+        manifest.type = product->name == "Library" || product->name == "Plugin" ||
+                                product->name == "Module" || product->name == "External"
+                            ? "Library"
+                            : product->name == "Tool" ? "Tool" : "Application";
+        manifest.defaultProfile =
+            Attribute(*root, "DefaultProfile").value_or("dev");
+        manifest.output = OutputDefinition{
+            .kind = product->name == "Library" || product->name == "Module" ||
+                            product->name == "External"
+                        ? "StaticLibrary"
+                        : product->name == "Plugin" ? "SharedLibrary" : "Executable",
+            .name = manifest.name,
+            .target = manifest.name,
+        };
+        manifest.build = ProjectBuildDescriptor{};
+
+        if (const auto *uses = FindChild(*product, "Uses"))
+        {
+          for (const auto *dependency : ChildElements(*uses))
+          {
+            if (dependency->name != "Package" && dependency->name != "Tool" &&
+                dependency->name != "Runtime")
+            {
+              continue;
+            }
+            PackageReference reference{};
+            auto dependencyName = RequireAttribute(*dependency, "Name", "project.Uses");
+            if (!dependencyName)
+            {
+              return NGIN::Utilities::Unexpected<KernelError>(dependencyName.Error());
+            }
+            reference.name = dependencyName.Value();
+            reference.versionRange =
+                Attribute(*dependency, "Version").value_or(
+                    Attribute(*dependency, "VersionRange").value_or(""));
+            manifest.packageRefs.push_back(reference);
+          }
+        }
+
+        if (const auto *build = FindChild(*product, "Build"))
+        {
+          for (const auto *node : ChildElements(*build))
+          {
+            if (node->name == "Sources")
+            {
+              InputDeclaration input{};
+              input.kind = "Source";
+              input.role = "Source";
+              input.visibility = "Private";
+              input.declaringScope = "project";
+              input.mode = "Glob";
+              input.includePatterns.push_back(
+                  RequireAttribute(*node, "Path", "project.Build.Sources").Value());
+              manifest.inputs.push_back(std::move(input));
+            }
+            else if (node->name == "Define")
+            {
+              auto defineName = RequireAttribute(*node, "Name", "project.Build.Define");
+              if (!defineName)
+              {
+                return NGIN::Utilities::Unexpected<KernelError>(defineName.Error());
+              }
+              BuildSetting setting{};
+              setting.value = defineName.Value();
+              if (const auto value = Attribute(*node, "Value"); value.has_value())
+              {
+                setting.value += "=" + *value;
+              }
+              setting.visibility = Attribute(*node, "Visibility").value_or("Private");
+              manifest.build.compileDefinitions.push_back(std::move(setting));
+            }
+          }
+        }
+
+        if (const auto *stage = FindChild(*product, "Stage"))
+        {
+          for (const auto *node : ChildElements(*stage))
+          {
+            if (node->name != "Config" && node->name != "Content")
+            {
+              continue;
+            }
+            InputDeclaration input{};
+            input.kind = node->name == "Config" ? "Config" : "Content";
+            input.mode = "File";
+            input.visibility = "Private";
+            input.declaringScope = "project";
+            auto source = RequireAttribute(*node, "Source", "project.Stage");
+            if (!source)
+            {
+              return NGIN::Utilities::Unexpected<KernelError>(source.Error());
+            }
+            input.path = source.Value();
+            input.target = Attribute(*node, "Target").value_or("");
+            manifest.inputs.push_back(std::move(input));
+          }
+        }
+
+        if (const auto *runtime = FindChild(*product, "Runtime"))
+        {
+          for (const auto *node : ChildElements(*runtime, "Module"))
+          {
+            ModuleDescriptor module{};
+            auto moduleName = RequireAttribute(*node, "Name", "project.Runtime.Module");
+            if (!moduleName)
+            {
+              return NGIN::Utilities::Unexpected<KernelError>(moduleName.Error());
+            }
+            module.name = moduleName.Value();
+            module.family = ModuleFamily::App;
+            module.type = ModuleType::Runtime;
+            auto stage = ParseStartupStageText(Attribute(*node, "Stage").value_or("Features"));
+            if (!stage)
+            {
+              return NGIN::Utilities::Unexpected<KernelError>(stage.Error());
+            }
+            module.startupStage = stage.Value();
+            for (const auto *provides : ChildElements(*node, "Provides"))
+            {
+              if (const auto service = Attribute(*provides, "Service"); service.has_value())
+              {
+                module.providesServices.push_back(*service);
+              }
+            }
+            for (const auto *requirement : ChildElements(*node, "Requires"))
+            {
+              if (const auto service = Attribute(*requirement, "Service"); service.has_value())
+              {
+                module.requiresServices.push_back(*service);
+              }
+            }
+            manifest.runtime.modules.push_back(module);
+            manifest.runtime.enableModules.push_back(module.name);
+          }
+        }
+
+        LaunchDefinition launch{};
+        launch.executable = manifest.output.name;
+        launch.workingDirectory = "$(StageDir)";
+        if (const auto *launchElement = FindChild(*product, "Launch"))
+        {
+          launch.executable =
+              Attribute(*launchElement, "Executable").value_or(launch.executable);
+          if (launch.executable == "$(OutputName)")
+          {
+            launch.executable = manifest.output.name;
+          }
+          launch.workingDirectory =
+              Attribute(*launchElement, "WorkingDirectory").value_or(launch.workingDirectory);
+        }
+
+        for (const auto *profileElement : ChildElements(*root, "Profile"))
+        {
+          ProfileDefinition profile{};
+          auto profileName = RequireAttribute(*profileElement, "Name", "project.Profile");
+          if (!profileName)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(profileName.Error());
+          }
+          profile.name = profileName.Value();
+          profile.buildType = "Debug";
+          profile.platform = "linux-x64";
+          profile.operatingSystem = "linux";
+          profile.architecture = "x64";
+          profile.environmentName = "development";
+          profile.launch = launch;
+          if (const auto *defaults = FindChild(*profileElement, "Defaults"))
+          {
+            for (const auto *node : ChildElements(*defaults))
+            {
+              if (node->name == "BuildType")
+              {
+                profile.buildType = Attribute(*node, "Name").value_or(profile.buildType);
+              }
+              else if (node->name == "Environment")
+              {
+                profile.environmentName = Attribute(*node, "Name").value_or(profile.environmentName);
+              }
+              else if (node->name == "TargetPlatform")
+              {
+                profile.platform = Attribute(*node, "Name").value_or(profile.platform);
+                if (profile.platform == "windows-x64")
+                {
+                  profile.operatingSystem = "windows";
+                }
+                else if (profile.platform == "macos-x64")
+                {
+                  profile.operatingSystem = "macos";
+                }
+                else
+                {
+                  profile.operatingSystem = "linux";
+                }
+              }
+            }
+          }
+          EnvironmentDefinition environment{};
+          environment.name = profile.environmentName;
+          manifest.environments.push_back(environment);
+          manifest.profiles.push_back(profile);
+        }
+        if (manifest.profiles.empty())
+        {
+          ProfileDefinition profile{};
+          profile.name = manifest.defaultProfile;
+          profile.environmentName = "development";
+          profile.launch = launch;
+          EnvironmentDefinition environment{};
+          environment.name = profile.environmentName;
+          manifest.environments.push_back(environment);
+          manifest.profiles.push_back(profile);
+        }
+        return manifest;
+      }
       if (manifest.schemaVersion != 3)
       {
         return NGIN::Utilities::Unexpected<KernelError>(

@@ -502,6 +502,37 @@ namespace NGIN::CLI
             {
                 return true;
             }
+            if ((rangeText.front() == '[' || rangeText.front() == '(')
+                && (rangeText.back() == ']' || rangeText.back() == ')'))
+            {
+                const auto lowerInclusive = rangeText.front() == '[';
+                const auto upperInclusive = rangeText.back() == ']';
+                const auto inner = rangeText.substr(1, rangeText.size() - 2);
+                const auto comma = inner.find(',');
+                if (comma == std::string::npos)
+                {
+                    return lowerInclusive && upperInclusive && CompareSemver(version, inner) == 0;
+                }
+                const auto lower = inner.substr(0, comma);
+                const auto upper = inner.substr(comma + 1);
+                if (!lower.empty())
+                {
+                    const auto cmp = CompareSemver(version, lower);
+                    if (lowerInclusive ? cmp < 0 : cmp <= 0)
+                    {
+                        return false;
+                    }
+                }
+                if (!upper.empty())
+                {
+                    const auto cmp = CompareSemver(version, upper);
+                    if (upperInclusive ? cmp > 0 : cmp >= 0)
+                    {
+                        return false;
+                    }
+                }
+                return true;
+            }
             std::stringstream stream(rangeText);
             std::string token;
             while (stream >> token)
@@ -616,7 +647,45 @@ namespace NGIN::CLI
             return std::vector<std::string>(nodes.begin(), nodes.end());
         }
 
-        auto MergePackageReferences(std::vector<PackageReference> &target, const std::vector<PackageReference> &source) -> void
+        auto MergeScopeList(std::string &target, const std::string &source) -> void
+        {
+            if (source.empty())
+            {
+                return;
+            }
+            std::set<std::string> scopes{};
+            std::stringstream existing{target};
+            std::string scope{};
+            while (std::getline(existing, scope, ';'))
+            {
+                if (!scope.empty())
+                {
+                    scopes.insert(scope);
+                }
+            }
+            std::stringstream incoming{source};
+            while (std::getline(incoming, scope, ';'))
+            {
+                if (!scope.empty())
+                {
+                    scopes.insert(scope);
+                }
+            }
+            target.clear();
+            for (const auto &entry : scopes)
+            {
+                if (!target.empty())
+                {
+                    target += ";";
+                }
+                target += entry;
+            }
+        }
+
+        auto MergePackageReferences(
+            std::vector<PackageReference> &target,
+            const std::vector<PackageReference> &source,
+            DiagnosticReport &report) -> void
         {
             std::unordered_map<std::string, std::size_t> indexByName;
             for (std::size_t index = 0; index < target.size(); ++index)
@@ -627,7 +696,23 @@ namespace NGIN::CLI
             {
                 if (const auto it = indexByName.find(reference.name); it != indexByName.end())
                 {
-                    target[it->second] = reference;
+                    auto &existing = target[it->second];
+                    if (!existing.versionRange.empty()
+                        && !reference.versionRange.empty()
+                        && existing.versionRange != reference.versionRange)
+                    {
+                        AddError(report,
+                                 "package '" + reference.name + "' has conflicting version ranges '"
+                                     + existing.versionRange + "' and '" + reference.versionRange + "'");
+                    }
+                    auto scope = existing.scope;
+                    MergeScopeList(scope, reference.scope);
+                    if (existing.versionRange.empty() && !reference.versionRange.empty())
+                    {
+                        existing.versionRange = reference.versionRange;
+                    }
+                    existing.optional = existing.optional && reference.optional;
+                    existing.scope = std::move(scope);
                     continue;
                 }
                 indexByName[reference.name] = target.size();
@@ -639,7 +724,8 @@ namespace NGIN::CLI
             std::vector<PackageReference> &target,
             const std::vector<PackageReference> &source,
             const ProjectManifest &project,
-            const ProfileDefinition &profile) -> void
+            const ProfileDefinition &profile,
+            DiagnosticReport &report) -> void
         {
             std::vector<PackageReference> selected{};
             for (const auto &reference : source)
@@ -649,7 +735,7 @@ namespace NGIN::CLI
                     selected.push_back(reference);
                 }
             }
-            MergePackageReferences(target, selected);
+            MergePackageReferences(target, selected, report);
         }
 
         auto MergeSelectedPackageFeatureUses(
@@ -730,6 +816,7 @@ namespace NGIN::CLI
             std::vector<SelectedPackageFeature> selectedFeatures{};
             std::vector<ResolvedCapabilityProvider> capabilityProviders{};
             std::map<std::string, std::set<std::string>> edges{};
+            std::map<std::string, std::string> scopes{};
         };
 
         auto MergeStringSelection(
@@ -758,6 +845,7 @@ namespace NGIN::CLI
         auto CollectProjectClosure(
             const ProjectManifest &project,
             const ProfileDefinition &profile,
+            const std::optional<WorkspaceManifest> &workspace,
             std::vector<ResolvedProjectUnit> &ordered,
             std::set<fs::path> &visiting,
             std::set<fs::path> &visited,
@@ -782,7 +870,8 @@ namespace NGIN::CLI
                     AddError(report, "project reference '" + referencedPath.string() + "' does not exist");
                     return;
                 }
-                const auto referencedProject = LoadProjectManifest(referencedPath);
+                auto referencedProject = LoadProjectManifest(referencedPath);
+                referencedProject = ProjectWithWorkspacePolicy(std::move(referencedProject), workspace);
                 std::optional<std::string> selectedProfile = reference.profile;
                 if (!selectedProfile.has_value())
                 {
@@ -796,8 +885,8 @@ namespace NGIN::CLI
                         selectedProfile = profile.name;
                     }
                 }
-                const auto &referencedProfile = ProfileByName(referencedProject, selectedProfile);
-                CollectProjectClosure(referencedProject, referencedProfile, ordered, visiting, visited, report);
+                const auto referencedProfile = ProfileWithWorkspacePolicy(referencedProject, workspace, selectedProfile);
+                CollectProjectClosure(referencedProject, referencedProfile, workspace, ordered, visiting, visited, report);
             };
 
             for (const auto &reference : project.projectRefs)
@@ -857,15 +946,19 @@ namespace NGIN::CLI
             std::vector<PackageFeatureUse> requestedFeatures{};
             for (const auto &unit : projectUnits)
             {
-                MergeSelectedPackageReferences(combinedRefs, unit.project.packageRefs, unit.project, unit.profile);
+                MergeSelectedPackageReferences(combinedRefs, unit.project.packageRefs, unit.project, unit.profile, report);
                 MergeSelectedPackageFeatureUses(requestedFeatures, unit.project.packageFeatureUses, unit.project, unit.profile);
                 if (unit.environment.has_value())
                 {
-                    MergeSelectedPackageReferences(combinedRefs, unit.environment->packageRefs, unit.project, unit.profile);
+                    MergeSelectedPackageReferences(combinedRefs, unit.environment->packageRefs, unit.project, unit.profile, report);
                     MergeSelectedPackageFeatureUses(requestedFeatures, unit.environment->packageFeatureUses, unit.project, unit.profile);
                 }
-                MergeSelectedPackageReferences(combinedRefs, unit.profile.packageRefs, unit.project, unit.profile);
+                MergeSelectedPackageReferences(combinedRefs, unit.profile.packageRefs, unit.project, unit.profile, report);
                 MergeSelectedPackageFeatureUses(requestedFeatures, unit.profile.packageFeatureUses, unit.project, unit.profile);
+            }
+            if (report.HasErrors())
+            {
+                return result;
             }
             for (const auto &use : requestedFeatures)
             {
@@ -893,6 +986,7 @@ namespace NGIN::CLI
                 const auto ref = WithDependencyPolicy(queue[index], dependencyVersions);
                 const auto requiredBy = parents[index];
                 ++index;
+                MergeScopeList(result.scopes[ref.name], ref.scope);
                 if (ref.versionRange.empty())
                 {
                     AddError(report,
@@ -918,6 +1012,21 @@ namespace NGIN::CLI
 
                 if (resolved.contains(ref.name))
                 {
+                    const auto &existing = resolved.at(ref.name);
+                    if (!VersionSatisfies(existing.manifest.version, ref.versionRange))
+                    {
+                        const auto message = "package '" + ref.name + "' resolved version "
+                                             + existing.manifest.version + " does not satisfy later range '"
+                                             + ref.versionRange + "'";
+                        if (ref.optional)
+                        {
+                            AddWarning(report, message);
+                        }
+                        else
+                        {
+                            AddError(report, requiredBy.empty() ? message : message + " (required by '" + requiredBy + "')");
+                        }
+                    }
                     if (!requiredBy.empty())
                     {
                         result.edges[requiredBy].insert(ref.name);
@@ -986,7 +1095,13 @@ namespace NGIN::CLI
                 result.edges[ref.name];
                 for (const auto &dep : manifest.dependencies)
                 {
-                    queue.push_back(WithDependencyPolicy(PackageReference{dep.name, dep.versionRange, dep.optional}, dependencyVersions));
+                    queue.push_back(WithDependencyPolicy(PackageReference{
+                                                             .name = dep.name,
+                                                             .versionRange = dep.versionRange,
+                                                             .optional = dep.optional,
+                                                             .scope = dep.scope,
+                                                         },
+                                                         dependencyVersions));
                     parents.push_back(ref.name);
                     result.edges[ref.name].insert(dep.name);
                 }
@@ -1143,8 +1258,8 @@ namespace NGIN::CLI
                     LibraryArtifact artifact{};
                     artifact.name = unit.project.output.name;
                     artifact.target = unit.project.output.target;
-                    artifact.linkage = kind == "sharedlibrary" ? "Shared" : "Static";
-                    artifact.origin = "Built";
+                    artifact.linkage = unit.project.productKind == "External" ? "Interface" : (kind == "sharedlibrary" ? "Shared" : "Static");
+                    artifact.origin = unit.project.productKind == "External" ? "Prebuilt" : "Built";
                     if (const auto it = libraryProviders.find(artifact.name); it != libraryProviders.end())
                     {
                         AddError(report, "duplicate library artifact '" + artifact.name + "' in projects '" + it->second + "' and '" + unit.project.name + "'");
@@ -1261,13 +1376,15 @@ namespace NGIN::CLI
 
         const auto workspaceRoot = RootDirFrom(project.path.parent_path());
         const auto workspace = workspaceRoot.has_value() ? TryLoadWorkspaceManifest(*workspaceRoot) : std::nullopt;
+        const auto effectiveProject = ProjectWithWorkspacePolicy(project, workspace);
+        const auto effectiveProfile = ProfileWithWorkspacePolicy(effectiveProject, workspace, profile.name);
         const auto packageCatalog = LoadPackageCatalog(workspace, project.path);
         std::set<fs::path> warnedTrackedSettings{};
 
         std::vector<ResolvedProjectUnit> projectUnits{};
         std::set<fs::path> visiting{};
         std::set<fs::path> visited{};
-        CollectProjectClosure(project, profile, projectUnits, visiting, visited, result.diagnostics);
+        CollectProjectClosure(effectiveProject, effectiveProfile, workspace, projectUnits, visiting, visited, result.diagnostics);
         if (result.diagnostics.HasErrors())
         {
             return result;
@@ -1275,13 +1392,13 @@ namespace NGIN::CLI
 
         for (const auto &unit : projectUnits)
         {
-            if (unit.profile.operatingSystem != profile.operatingSystem || unit.profile.architecture != profile.architecture)
+            if (unit.profile.operatingSystem != effectiveProfile.operatingSystem || unit.profile.architecture != effectiveProfile.architecture)
             {
                 AddError(
                     result.diagnostics,
                     "project '" + unit.project.name + "' profile '" + unit.profile.name
                         + "' targets '" + unit.profile.operatingSystem + "/" + unit.profile.architecture
-                        + "' which does not match root target '" + profile.operatingSystem + "/" + profile.architecture + "'");
+                        + "' which does not match root target '" + effectiveProfile.operatingSystem + "/" + effectiveProfile.architecture + "'");
             }
         }
         if (result.diagnostics.HasErrors())
@@ -1289,7 +1406,7 @@ namespace NGIN::CLI
             return result;
         }
 
-        auto packageResolution = ResolvePackages(workspace, projectUnits, packageCatalog, profile.operatingSystem, profile.architecture, profile, result.diagnostics);
+        auto packageResolution = ResolvePackages(workspace, projectUnits, packageCatalog, effectiveProfile.operatingSystem, effectiveProfile.architecture, effectiveProfile, result.diagnostics);
         if (result.diagnostics.HasErrors())
         {
             return result;
@@ -1309,9 +1426,9 @@ namespace NGIN::CLI
                 {
                     continue;
                 }
-                if (!CompatibilityMatches(module.compatibility, profile.operatingSystem, profile.architecture))
+                if (!CompatibilityMatches(module.compatibility, effectiveProfile.operatingSystem, effectiveProfile.architecture))
                 {
-                    AddError(result.diagnostics, "project '" + unit.project.name + "' provides module '" + module.name + "' that is not supported on '" + profile.operatingSystem + "/" + profile.architecture + "'");
+                    AddError(result.diagnostics, "project '" + unit.project.name + "' provides module '" + module.name + "' that is not supported on '" + effectiveProfile.operatingSystem + "/" + effectiveProfile.architecture + "'");
                     continue;
                 }
                 if (const auto providerIt = providersByModule.find(module.name); providerIt != providersByModule.end() && !providerIt->second.empty())
@@ -1330,9 +1447,9 @@ namespace NGIN::CLI
                     {
                         continue;
                     }
-                    if (!CompatibilityMatches(module.compatibility, profile.operatingSystem, profile.architecture))
+                    if (!CompatibilityMatches(module.compatibility, effectiveProfile.operatingSystem, effectiveProfile.architecture))
                     {
-                        AddError(result.diagnostics, "environment '" + unit.environment->name + "' in project '" + unit.project.name + "' provides module '" + module.name + "' that is not supported on '" + profile.operatingSystem + "/" + profile.architecture + "'");
+                        AddError(result.diagnostics, "environment '" + unit.environment->name + "' in project '" + unit.project.name + "' provides module '" + module.name + "' that is not supported on '" + effectiveProfile.operatingSystem + "/" + effectiveProfile.architecture + "'");
                         continue;
                     }
                     if (const auto providerIt = providersByModule.find(module.name); providerIt != providersByModule.end() && !providerIt->second.empty())
@@ -1350,9 +1467,9 @@ namespace NGIN::CLI
                 {
                     continue;
                 }
-                if (!CompatibilityMatches(module.compatibility, profile.operatingSystem, profile.architecture))
+                if (!CompatibilityMatches(module.compatibility, effectiveProfile.operatingSystem, effectiveProfile.architecture))
                 {
-                    AddError(result.diagnostics, "profile '" + unit.profile.name + "' in project '" + unit.project.name + "' provides module '" + module.name + "' that is not supported on '" + profile.operatingSystem + "/" + profile.architecture + "'");
+                    AddError(result.diagnostics, "profile '" + unit.profile.name + "' in project '" + unit.project.name + "' provides module '" + module.name + "' that is not supported on '" + effectiveProfile.operatingSystem + "/" + effectiveProfile.architecture + "'");
                     continue;
                 }
                 if (const auto providerIt = providersByModule.find(module.name); providerIt != providersByModule.end() && !providerIt->second.empty())
@@ -1369,13 +1486,13 @@ namespace NGIN::CLI
         {
             for (const auto &module : package.manifest.modules)
             {
-                if (!SelectionMatches(package.manifest.conditions, module.selectors, profile))
+                if (!SelectionMatches(package.manifest.conditions, module.selectors, effectiveProfile))
                 {
                     continue;
                 }
-                if (!CompatibilityMatches(module.compatibility, profile.operatingSystem, profile.architecture))
+                if (!CompatibilityMatches(module.compatibility, effectiveProfile.operatingSystem, effectiveProfile.architecture))
                 {
-                    AddError(result.diagnostics, "package '" + package.manifest.name + "' provides module '" + module.name + "' that is not supported on '" + profile.operatingSystem + "/" + profile.architecture + "'");
+                    AddError(result.diagnostics, "package '" + package.manifest.name + "' provides module '" + module.name + "' that is not supported on '" + effectiveProfile.operatingSystem + "/" + effectiveProfile.architecture + "'");
                     continue;
                 }
                 if (const auto providerIt = providersByModule.find(module.name); providerIt != providersByModule.end() && !providerIt->second.empty())
@@ -1388,13 +1505,13 @@ namespace NGIN::CLI
             }
             for (const auto &plugin : package.manifest.plugins)
             {
-                if (!SelectionMatches(package.manifest.conditions, plugin.selectors, profile))
+                if (!SelectionMatches(package.manifest.conditions, plugin.selectors, effectiveProfile))
                 {
                     continue;
                 }
-                if (!CompatibilityMatches(plugin.compatibility, profile.operatingSystem, profile.architecture))
+                if (!CompatibilityMatches(plugin.compatibility, effectiveProfile.operatingSystem, effectiveProfile.architecture))
                 {
-                    AddError(result.diagnostics, "package '" + package.manifest.name + "' provides plugin '" + plugin.name + "' that is not supported on '" + profile.operatingSystem + "/" + profile.architecture + "'");
+                    AddError(result.diagnostics, "package '" + package.manifest.name + "' provides plugin '" + plugin.name + "' that is not supported on '" + effectiveProfile.operatingSystem + "/" + effectiveProfile.architecture + "'");
                     continue;
                 }
                 if (const auto providerIt = providersByPlugin.find(plugin.name); providerIt != providersByPlugin.end() && !providerIt->second.empty())
@@ -1425,13 +1542,13 @@ namespace NGIN::CLI
             const auto owner = feature.packageName + "::" + feature.featureName;
             for (const auto &module : feature.runtime.modules)
             {
-                if (!SelectionMatches(conditions, module.selectors, profile))
+                if (!SelectionMatches(conditions, module.selectors, effectiveProfile))
                 {
                     continue;
                 }
-                if (!CompatibilityMatches(module.compatibility, profile.operatingSystem, profile.architecture))
+                if (!CompatibilityMatches(module.compatibility, effectiveProfile.operatingSystem, effectiveProfile.architecture))
                 {
-                    AddError(result.diagnostics, "package feature '" + owner + "' provides module '" + module.name + "' that is not supported on '" + profile.operatingSystem + "/" + profile.architecture + "'");
+                    AddError(result.diagnostics, "package feature '" + owner + "' provides module '" + module.name + "' that is not supported on '" + effectiveProfile.operatingSystem + "/" + effectiveProfile.architecture + "'");
                     continue;
                 }
                 if (const auto providerIt = providersByModule.find(module.name); providerIt != providersByModule.end() && !providerIt->second.empty())
@@ -1463,7 +1580,7 @@ namespace NGIN::CLI
             const auto packageIt = packageByName.find(feature.packageName);
             if (packageIt != packageByName.end())
             {
-                MergeStringSelection(directModules, feature.runtime.enableModules, feature.runtime.disableModules, packageIt->second->conditions, profile);
+                MergeStringSelection(directModules, feature.runtime.enableModules, feature.runtime.disableModules, packageIt->second->conditions, effectiveProfile);
             }
         }
 
@@ -1489,7 +1606,7 @@ namespace NGIN::CLI
             const auto packageIt = packageByName.find(feature.packageName);
             if (packageIt != packageByName.end())
             {
-                MergeStringSelection(directPlugins, feature.runtime.enablePlugins, feature.runtime.disablePlugins, packageIt->second->conditions, profile);
+                MergeStringSelection(directPlugins, feature.runtime.enablePlugins, feature.runtime.disablePlugins, packageIt->second->conditions, effectiveProfile);
             }
         }
 
@@ -1497,24 +1614,24 @@ namespace NGIN::CLI
         {
             if (!modules.contains(module))
             {
-                AddError(result.diagnostics, "profile '" + profile.name + "' references unknown module '" + module + "'");
+                AddError(result.diagnostics, "profile '" + effectiveProfile.name + "' references unknown module '" + module + "'");
                 continue;
             }
             if (!providersByModule.contains(module))
             {
-                AddError(result.diagnostics, "profile '" + profile.name + "' enables module '" + module + "' but no active project or package provides it");
+                AddError(result.diagnostics, "profile '" + effectiveProfile.name + "' enables module '" + module + "' but no active project or package provides it");
             }
         }
         for (const auto &plugin : directPlugins)
         {
             if (!plugins.contains(plugin))
             {
-                AddError(result.diagnostics, "profile '" + profile.name + "' references unknown plugin '" + plugin + "'");
+                AddError(result.diagnostics, "profile '" + effectiveProfile.name + "' references unknown plugin '" + plugin + "'");
                 continue;
             }
             if (!providersByPlugin.contains(plugin))
             {
-                AddError(result.diagnostics, "profile '" + profile.name + "' enables plugin '" + plugin + "' but no active package provides it");
+                AddError(result.diagnostics, "profile '" + effectiveProfile.name + "' enables plugin '" + plugin + "' but no active package provides it");
                 continue;
             }
             const auto &descriptor = plugins.at(plugin);
@@ -1558,12 +1675,12 @@ namespace NGIN::CLI
             const auto it = modules.find(current);
             if (it == modules.end())
             {
-                AddError(result.diagnostics, "profile '" + profile.name + "' references unknown module '" + current + "'");
+                AddError(result.diagnostics, "profile '" + effectiveProfile.name + "' references unknown module '" + current + "'");
                 continue;
             }
-            if (it->second.requiresReflection && !profile.enableReflection)
+            if (it->second.requiresReflection && !effectiveProfile.enableReflection)
             {
-                AddError(result.diagnostics, "profile '" + profile.name + "' includes module '" + current + "' that requires reflection");
+                AddError(result.diagnostics, "profile '" + effectiveProfile.name + "' includes module '" + current + "' that requires reflection");
             }
             for (const auto &dep : it->second.required)
             {
@@ -1743,13 +1860,39 @@ namespace NGIN::CLI
 
         ResolvedLaunch resolved{};
         resolved.workspace = workspace;
-        resolved.project = project;
-        resolved.profile = profile;
+        resolved.project = effectiveProject;
+        resolved.profile = effectiveProfile;
+        if (workspace.has_value())
+        {
+            const auto platformIt = std::find_if(
+                workspace->platforms.begin(),
+                workspace->platforms.end(),
+                [&](const WorkspaceManifest::Platform &platform)
+                {
+                    return platform.name == effectiveProfile.platform;
+                });
+            if (platformIt != workspace->platforms.end())
+            {
+                resolved.targetAbiTag = platformIt->abi;
+            }
+            const auto toolchainIt = std::find_if(
+                workspace->toolchains.begin(),
+                workspace->toolchains.end(),
+                [&](const WorkspaceManifest::Toolchain &toolchain)
+                {
+                    return toolchain.name == effectiveProfile.toolchain;
+                });
+            if (toolchainIt != workspace->toolchains.end())
+            {
+                resolved.selectedToolchain = *toolchainIt;
+            }
+        }
         resolved.projectUnits = std::move(projectUnits);
         resolved.selectedPackageFeatures = packageResolution.selectedFeatures;
         resolved.capabilityProviders = packageResolution.capabilityProviders;
 
         std::map<fs::path, std::string> inputOwnersByDestination{};
+        std::map<fs::path, std::size_t> inputIndexByDestination{};
         std::set<std::tuple<std::string, std::string, std::string, std::string>> seenInputDeclarations{};
         auto collectInputs = [&](const std::vector<InputDeclaration> &inputs,
                                  const std::string &ownerKind,
@@ -1816,11 +1959,22 @@ namespace NGIN::CLI
                         if (const auto it = inputOwnersByDestination.find(resolvedInput.stagedRelativePath);
                             it != inputOwnersByDestination.end())
                         {
+                            if (input.overrideExisting)
+                            {
+                                if (const auto index = inputIndexByDestination.find(resolvedInput.stagedRelativePath);
+                                    index != inputIndexByDestination.end() && index->second < resolved.inputs.size())
+                                {
+                                    resolved.inputs[index->second] = std::move(resolvedInput);
+                                    it->second = ownerKind + ":" + ownerName;
+                                    continue;
+                                }
+                            }
                             AddError(result.diagnostics, "input destination collision at '" + resolvedInput.stagedRelativePath.string()
                                                               + "' between '" + it->second + "' and '" + ownerName + "'");
                             continue;
                         }
                         inputOwnersByDestination[resolvedInput.stagedRelativePath] = ownerKind + ":" + ownerName;
+                        inputIndexByDestination[resolvedInput.stagedRelativePath] = resolved.inputs.size();
                     }
                     resolved.inputs.push_back(std::move(resolvedInput));
                 }
@@ -2001,6 +2155,7 @@ namespace NGIN::CLI
             });
         }
         resolved.packageEdges = packageResolution.edges;
+        resolved.packageScopes = packageResolution.scopes;
         resolved.enabledPlugins.assign(directPlugins.begin(), directPlugins.end());
         for (const auto &name : orderedModules)
         {

@@ -62,6 +62,23 @@ struct LoadedXml {
   return loaded;
 }
 
+[[nodiscard]] inline auto LoadXmlText(const std::string &text,
+                                      const std::string &origin) -> LoadedXml {
+  LoadedXml loaded{};
+  loaded.text = text;
+  XmlParseOptions options{};
+  options.decodeEntities = true;
+  options.arenaBytes = std::max<NGIN::UIntSize>(
+      16384, static_cast<NGIN::UIntSize>(loaded.text.size() * 8 + 4096));
+  auto parsed = XmlParser::Parse(loaded.text, options);
+  if (!parsed.HasValue()) {
+    throw std::runtime_error(
+        origin + ": failed to parse XML: " + ToString(parsed.Error()));
+  }
+  loaded.document = std::move(parsed.Value());
+  return loaded;
+}
+
 [[nodiscard]] inline auto ChildElements(const XmlElement &node,
                                         std::string_view name = {})
     -> std::vector<const XmlElement *> {

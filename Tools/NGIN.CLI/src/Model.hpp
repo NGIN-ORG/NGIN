@@ -17,10 +17,52 @@ namespace NGIN::CLI
 
     struct WorkspaceManifest
     {
+        struct Platform
+        {
+            std::string name{};
+            std::string operatingSystem{};
+            std::string architecture{};
+            std::string abi{};
+        };
+
+        struct Toolchain
+        {
+            std::string name{};
+            std::string compiler{};
+            std::string compilerVersion{};
+            std::string linker{};
+            std::string generator{};
+            std::string cppStandardLibrary{};
+            std::string runtimeLibrary{};
+        };
+
+        struct ProfilePolicy
+        {
+            std::string name{};
+            std::optional<std::string> buildType{};
+            std::optional<std::string> hostPlatform{};
+            std::optional<std::string> targetPlatform{};
+            std::optional<std::string> operatingSystem{};
+            std::optional<std::string> architecture{};
+            std::optional<std::string> environmentName{};
+            std::optional<std::string> toolchain{};
+            std::optional<std::string> language{};
+            std::optional<std::string> languageStandard{};
+            std::optional<std::string> backend{};
+            std::optional<std::string> buildMode{};
+        };
+
         fs::path path{};
         std::string name{};
+        std::string defaultProfile{};
         std::string platformVersion{};
+        ProfilePolicy defaults{};
+        std::vector<ProfilePolicy> profiles{};
+        std::vector<fs::path> imports{};
+        std::vector<Platform> platforms{};
+        std::vector<Toolchain> toolchains{};
         std::vector<fs::path> packageSources{};
+        std::vector<std::string> packageSourceUrls{};
         std::unordered_map<std::string, fs::path> packageProviders{};
         std::unordered_map<std::string, std::string> dependencyVersions{};
         std::string versionResolution{"HighestCompatible"};
@@ -34,6 +76,7 @@ namespace NGIN::CLI
         std::string name{};
         std::string versionRange{};
         bool optional{false};
+        std::string scope{};
     };
 
     struct PackageBootstrapDescriptor
@@ -84,6 +127,7 @@ namespace NGIN::CLI
         std::string versionRange{};
         bool optional{false};
         SelectorSet selectors{};
+        std::string scope{};
     };
 
     struct ConditionNode
@@ -244,6 +288,8 @@ namespace NGIN::CLI
         std::string mode{"Generated"};
         std::string language{"CXX"};
         std::string languageStandard{"23"};
+        bool backendExplicit{false};
+        bool languageExplicit{false};
         std::vector<std::string> sources{};
         std::vector<BuildSetting> includeDirectories{};
         std::vector<BuildSetting> compileDefinitions{};
@@ -414,10 +460,38 @@ namespace NGIN::CLI
         std::string target{};
     };
 
+    struct PackageOutputDefinition
+    {
+        std::string name{};
+        std::string version{};
+        std::string from{};
+        std::string description{};
+        std::string license{};
+        std::vector<std::string> headers{};
+        std::vector<std::string> libraries{};
+        std::vector<std::string> tools{};
+        std::vector<std::string> capabilities{};
+        std::vector<std::string> targetPlatforms{};
+        std::string abiTag{};
+    };
+
+    struct PublishDefinition
+    {
+        std::string name{};
+        std::string kind{"Folder"};
+        std::string format{};
+        std::string output{};
+        bool includeStage{true};
+        bool includeRuntimeDependencies{false};
+        bool includeSymbols{true};
+    };
+
     struct LaunchDefinition
     {
+        std::string name{};
         std::optional<std::string> executable{};
         std::string workingDirectory{"."};
+        std::string args{};
     };
 
     struct EnvironmentDefinition
@@ -433,11 +507,28 @@ namespace NGIN::CLI
         RuntimeDefinition runtime{};
     };
 
+    struct AnalyzerDefinition
+    {
+        std::string name{};
+        std::string scope{"Build"};
+        bool enabled{true};
+        std::string severity{"Warning"};
+        std::string configPath{};
+        SelectorSet selectors{};
+    };
+
+    struct QualityDefinition
+    {
+        std::vector<AnalyzerDefinition> analyzers{};
+    };
+
     struct ProfileDefinition
     {
         std::string name{};
         std::string buildType{"Debug"};
+        std::string hostPlatform{"host"};
         std::string platform{"linux-x64"};
+        std::string toolchain{};
         std::string operatingSystem{"linux"};
         std::string architecture{"x64"};
         bool enableReflection{false};
@@ -449,6 +540,8 @@ namespace NGIN::CLI
         std::vector<GeneratorDeclaration> generators{};
         std::vector<InputDeclaration> inputs{};
         RuntimeDefinition runtime{};
+        std::vector<PublishDefinition> publishes{};
+        QualityDefinition quality{};
     };
 
     struct ProjectManifest
@@ -456,6 +549,7 @@ namespace NGIN::CLI
         fs::path path{};
         std::string name{};
         std::string type{};
+        std::string productKind{};
         std::string defaultProfile{};
         std::vector<InputDeclaration> inputs{};
         std::vector<ConditionDefinition> conditions{};
@@ -464,6 +558,9 @@ namespace NGIN::CLI
         std::string defaultFeatures{"Explicit"};
         std::string lockFile{"Optional"};
         OutputDefinition output{};
+        bool hasExplicitProfiles{false};
+        std::vector<PackageOutputDefinition> packageOutputs{};
+        std::vector<PublishDefinition> publishes{};
         ProjectBuildDescriptor build{};
         std::vector<GeneratorDeclaration> generators{};
         std::vector<ProjectReference> projectRefs{};
@@ -471,6 +568,7 @@ namespace NGIN::CLI
         std::vector<PackageFeatureUse> packageFeatureUses{};
         std::vector<LocalSettingsImport> localSettingsImports{};
         RuntimeDefinition runtime{};
+        QualityDefinition quality{};
         std::vector<EnvironmentDefinition> environments{};
         std::vector<ProfileDefinition> profiles{};
     };
@@ -543,11 +641,14 @@ namespace NGIN::CLI
         std::vector<ResolvedCapabilityProvider> capabilityProviders{};
         std::vector<ResolvedBootstrap> bootstraps{};
         std::vector<ResolvedPackage> orderedPackages{};
+        std::map<std::string, std::string> packageScopes{};
         std::map<std::string, std::set<std::string>> packageEdges{};
         std::vector<std::string> requiredModules{};
         std::vector<std::string> optionalModules{};
         std::map<std::string, std::set<std::string>> dependencyEdges{};
         std::vector<std::string> enabledPlugins{};
+        std::string targetAbiTag{};
+        std::optional<WorkspaceManifest::Toolchain> selectedToolchain{};
         std::vector<LibraryArtifact> libraries{};
         std::vector<ExecutableArtifact> executables{};
         std::optional<ExecutableArtifact> selectedExecutable{};

@@ -27,6 +27,13 @@ namespace NGIN::CLI
     [[nodiscard]] auto LoadPackageManifest(const fs::path &path) -> PackageManifest;
     [[nodiscard]] auto LoadLocalSettingsManifest(const fs::path &path) -> LocalSettingsManifest;
     [[nodiscard]] auto LoadProjectManifest(const fs::path &path) -> ProjectManifest;
+    [[nodiscard]] auto ProjectWithWorkspacePolicy(
+        ProjectManifest project,
+        const std::optional<WorkspaceManifest> &workspace) -> ProjectManifest;
+    [[nodiscard]] auto ProfileWithWorkspacePolicy(
+        const ProjectManifest &project,
+        const std::optional<WorkspaceManifest> &workspace,
+        const std::optional<std::string> &profileName) -> ProfileDefinition;
 
     [[nodiscard]] auto FindProjectFile(const fs::path &start) -> std::optional<fs::path>;
     [[nodiscard]] auto ResolveProjectPath(const std::optional<std::string> &explicitPath) -> fs::path;
