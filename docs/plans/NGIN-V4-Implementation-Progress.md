@@ -138,17 +138,22 @@ Implemented profile behavior:
 - separate `HostPlatform` profile metadata
 - product-specific `Build`, `Stage`, `Runtime`, `Environment`, and `Launch`
   fragments
+- product-specific `Uses` fragments for profile-selected project/package
+  references and package features
+- `Uses/Project Remove="..."` for profile-selected project reference removal
+- `Uses/Package Remove="..."` for profile-selected package dependency removal
 - selected profile environment materialization
 - profile selectors on V4 build settings and staged inputs
+- profile selectors on V4 dependency and package feature uses
 - staged output override with `Collision="Override"`
 - duplicate staged output diagnostics when multiple V4 stage entries target the
   same destination without an explicit override
 - environment variable replacement by name
 
 This is still not the final V4 overlay engine. Build definitions, staged
-inputs, environment variables, and runtime modules have first-pass identity
-handling, but package feature overlays, dependency removals, publish overlays,
-and full provenance are not implemented.
+inputs, dependency features, project/package removals, environment variables,
+and runtime modules have first-pass identity handling, but full provenance is
+not implemented.
 
 ### V4 Workspace Parsing
 
@@ -171,6 +176,29 @@ Implemented workspace parsing:
   toolchain, environment, language, and backend
 - workspace `Profiles/Profile/Defaults` for build type, host platform, target
   platform, toolchain, and environment
+- workspace `Profiles/Profile/Build` for first-pass profile-selected include
+  paths, defines, compile options, and link options
+- workspace `Profiles/Profile/Quality/Analyzer` for first-pass
+  profile-selected analyzer policy
+- workspace `Profiles/Profile/Environment` for first-pass profile-selected
+  environment variable policy
+- workspace `Profiles/Profile/Stage` for first-pass profile-selected config and
+  content staging policy
+- workspace `Profiles/Profile/Uses` for first-pass profile-selected
+  project/package/tool/runtime dependency policy
+- workspace `Profiles/Profile/Runtime` for first-pass profile-selected runtime
+  module policy
+- workspace `Profiles/Profile/<ProductKind>/Build` and
+  `Profiles/Profile/<ProductKind>/Quality/Analyzer` for first-pass
+  product-kind-specific profile policy
+- workspace `Profiles/Profile/<ProductKind>/Environment` for first-pass
+  product-kind-specific environment variable policy
+- workspace `Profiles/Profile/<ProductKind>/Stage` for first-pass
+  product-kind-specific config and content staging policy
+- workspace `Profiles/Profile/<ProductKind>/Uses` for first-pass
+  product-kind-specific dependency policy
+- workspace `Profiles/Profile/<ProductKind>/Runtime` for first-pass
+  product-kind-specific runtime module policy
 
 Workspace `DefaultProfile` participates in command profile selection when no
 explicit `--profile` is passed. If the selected project does not declare a
@@ -185,9 +213,8 @@ Platform definition `Abi` values and selected toolchain definitions flow into
 the resolved launch model and inspect selection payload as the first
 platform/toolchain resolution surface.
 
-Full workspace profile product overlays, remote package URLs, and
-definition-driven project resolution beyond first-pass profile policy are still
-future work.
+Workspace remote package URLs and definition-driven project resolution beyond
+first-pass profile policy are still future work.
 
 ### V4 Package Manifest Parsing
 
@@ -331,6 +358,37 @@ Current behavior:
 - removes a `Uses/Package` dependency
 - preserves dependency scope metadata
 - rejects duplicate package references by name
+- `ngin add package` aliases the package-add workflow for the V4 product layer
+
+`ngin add project-reference` can edit V4 product-first projects by inserting a
+`Uses/Project` dependency with a logical name and path.
+
+### Format Command
+
+`ngin format` is available as the first V4 manifest formatting command.
+
+Current behavior:
+
+- formats the selected XML manifest with deterministic indentation
+- supports `.nginproj`, `.nginpkg`, `.ngin`, and `.ngin.xml` parser-supported
+  XML shapes
+- validates through the XML parser before writing
+- refuses manifests containing XML comments instead of silently dropping them,
+  because the current XML parser tree does not preserve comments
+
+### Schema Metadata Command
+
+`ngin schema --format json` is available as the first editor-facing V4 schema
+metadata command.
+
+Current behavior:
+
+- emits supported V4 file types
+- emits product kinds
+- emits dependency kinds and scopes
+- emits common and product-specific sections
+- emits build, stage, runtime, and environment item names
+- emits object-identity explain kinds and graph plan names
 
 ### Restore Command
 
@@ -398,6 +456,11 @@ Current diff coverage:
 - environment variables, with secret redaction preserved
 - launch name, executable, working directory, and args
 - resolved artifacts
+- quality analyzer plans
+
+`ngin diff --from-lock <old> --to-lock <new>` can compare deterministic lock
+files and report package additions, removals, version changes, scope changes,
+and source/provider changes.
 
 This is not the final graph diff engine, but it is the first product-facing
 implementation of the V4 graph change-review workflow.
@@ -415,12 +478,16 @@ Supported object identities:
 - `property:TargetPlatform`
 - `property:Toolchain`
 - `property:Environment`
+- `source:<path>`
 - `define:<Name>`
 - `stage:<relative-path>`
 - `package:<Name>`
 - `feature:<Package>/<Feature>`
 - `generator:<Name>`
 - `launch:<Name>`
+- `publish:<Name>`
+- `env:<Name>`
+- `analyzer:<Name>`
 - `runtime-module:<Name>`
 
 This coexists with the older focused explain subcommands while V4 moves toward
@@ -431,6 +498,7 @@ object identity syntax.
 `ngin graph` accepts V4 north-star plan switches:
 
 ```bash
+ngin graph --format json
 ngin graph --build-plan
 ngin graph --stage-plan
 ngin graph --package-plan
@@ -444,6 +512,9 @@ Current behavior is text output over the existing resolved model. This is not
 the final graph API, but it exposes focused plan views for build inputs,
 staged files, package closure, launch metadata, runtime selection, publish
 declarations, and quality analyzer declarations.
+
+`ngin graph --format json` emits the same first-pass graph-shaped JSON payload
+as `inspect --format json`.
 
 ### Test And Benchmark Lifecycle Commands
 
@@ -494,6 +565,7 @@ Implemented publish behavior:
 - profile overlay `Publish`
 - publish identity by `Name`
 - `Kind="Folder"`
+- `Kind="Archive"` with `Format="zip"`
 - `Output`
 - first-pass `Include` metadata for stage, runtime dependencies, and symbols
 - `ngin publish [PublishName]`
@@ -501,9 +573,10 @@ Implemented publish behavior:
 - graph `--publish-plan`
 - profile diff publish entries
 
-The current publish command builds and stages the selected product, then copies
-the staged layout to the folder publish output. Folder publish removes stale
-output before copying the new staged layout. Archive publish, signing, SBOM,
+The current publish command builds and stages the selected product. Folder
+publish copies the staged layout to the output directory and removes stale
+output before copying the new staged layout. Archive publish writes a
+deterministic uncompressed ZIP archive from the staged layout. Signing, SBOM,
 trust policy, and `.nginpack` integration are still future work.
 
 ### Repository Example Migration
@@ -623,9 +696,13 @@ Current test coverage includes:
 - V4 inspect `compositionGraph` identity, selection, and facet summary payload
 - V4 `ngin new`
 - V4 `ngin package add`
+- V4 `ngin add package`
+- V4 `ngin add project-reference`
 - V4 `ngin package update`
 - V4 `ngin package remove`
 - V4 `ngin package pack`
+- V4 `ngin format`
+- V4 `ngin schema --format json`
 - V4 `ngin restore`
 - V4 restore from phase-one `.nginpack` package archives
 - V4 locked restore enforcement
@@ -638,20 +715,39 @@ Current test coverage includes:
 - V4 `ngin analyze`
 - V4 `ngin stage`
 - V4 `ngin publish` for folder publishes
+- V4 `ngin publish` for ZIP archive publishes
 - V4 folder publish stale output cleanup
 - V4 test product dependencies
 - V4 hosted application runtime/package/stage/environment/module parsing
+- V4 profile `Uses` package feature overlays
+- V4 profile `Uses` project reference removals
+- V4 profile `Uses` package dependency removals
 - V4 workspace project/source/version parsing
 - V4 workspace default profile command selection
 - V4 workspace profile policy on projects without local profiles
 - V4 workspace language/backend build defaults
+- V4 workspace profile build and analyzer policy contributions
+- V4 product-kind-specific workspace profile build and analyzer contributions
+- V4 workspace profile environment policy contributions
+- V4 product-kind-specific workspace profile environment contributions
+- V4 workspace profile stage policy contributions
+- V4 product-kind-specific workspace profile stage contributions
+- V4 workspace profile dependency policy contributions
+- V4 product-kind-specific workspace profile dependency contributions
+- V4 workspace profile runtime module policy contributions
+- V4 product-kind-specific workspace profile runtime module contributions
 - V4 platform definition ABI tag resolution into inspect selection
 - V4 selected toolchain definition resolution into inspect selection
 - V4 package export and feature parsing
 - V4 source package provider override metadata
 - V4 profile-to-profile diff
+- V4 lock-file diff
 - V4 object-identity explain
+- V4 object-identity source and publish explanation
+- V4 object-identity environment variable explanation
+- V4 object-identity analyzer explanation
 - V4 focused graph plan switches
+- V4 `ngin graph --format json`
 - V4 quality graph plan switch
 - V4 publish graph/inspect/diff surface
 - V4 named launch metadata
@@ -669,18 +765,19 @@ The following are still open and should not be described as complete:
 - named convention graph contributions and provenance records
 - real V4 overlay identity, remove, override, and duplicate diagnostics
 - full host/target dependency closure separation during restore/build
-- full workspace profile product overlays, imports, and definitions
+- full workspace profile stage/runtime/uses overlays and definition-driven
+  project resolution
 - full platform/toolchain compatibility semantics
 - full ABI tag compatibility matching for binary package selection
 - network package restore from V4 package sources
 - full external dependency adapters for system, CMake package, pkg-config,
   vcpkg, and Conan providers
-- archive publish, signing, SBOM, trust policy
+- signing, SBOM, trust policy
 - final compressed `.nginpack` archive packing and extraction
 - full analyzer execution, formatter execution, coverage collection, and
   quality policy enforcement
 - final graph diff engine over a stable graph JSON schema
-- V4 editor schema/completion metadata
+- full V4 editor schema/completion metadata generated from the final schema
 
 ## Next Iteration
 

@@ -694,6 +694,19 @@ namespace NGIN::CLI
             }
             for (const auto &reference : source)
             {
+                if (reference.disabled)
+                {
+                    if (const auto it = indexByName.find(reference.name); it != indexByName.end())
+                    {
+                        target.erase(target.begin() + static_cast<std::ptrdiff_t>(it->second));
+                        indexByName.clear();
+                        for (std::size_t index = 0; index < target.size(); ++index)
+                        {
+                            indexByName[target[index].name] = index;
+                        }
+                    }
+                    continue;
+                }
                 if (const auto it = indexByName.find(reference.name); it != indexByName.end())
                 {
                     auto &existing = target[it->second];
@@ -889,29 +902,43 @@ namespace NGIN::CLI
                 CollectProjectClosure(referencedProject, referencedProfile, workspace, ordered, visiting, visited, report);
             };
 
-            for (const auto &reference : project.projectRefs)
+            std::vector<ProjectReference> selectedReferences{};
+            const auto applyReferences = [&](const std::vector<ProjectReference> &references)
             {
-                if (SelectionMatches(project, reference.selectors, profile))
+                for (const auto &reference : references)
                 {
-                    collectReference(reference);
+                    if (!SelectionMatches(project, reference.selectors, profile))
+                    {
+                        continue;
+                    }
+                    const auto referencePath = fs::weakly_canonical(reference.path);
+                    if (reference.disabled)
+                    {
+                        selectedReferences.erase(
+                            std::remove_if(
+                                selectedReferences.begin(),
+                                selectedReferences.end(),
+                                [&](const ProjectReference &existing)
+                                {
+                                    return fs::weakly_canonical(existing.path) == referencePath;
+                                }),
+                            selectedReferences.end());
+                        continue;
+                    }
+                    selectedReferences.push_back(reference);
                 }
-            }
+            };
+
+            applyReferences(project.projectRefs);
             if (const auto *environment = FindEnvironment(project, profile.environmentName))
             {
-                for (const auto &reference : environment->projectRefs)
-                {
-                    if (SelectionMatches(project, reference.selectors, profile))
-                    {
-                        collectReference(reference);
-                    }
-                }
+                applyReferences(environment->projectRefs);
             }
-            for (const auto &reference : profile.projectRefs)
+            applyReferences(profile.projectRefs);
+
+            for (const auto &reference : selectedReferences)
             {
-                if (SelectionMatches(project, reference.selectors, profile))
-                {
-                    collectReference(reference);
-                }
+                collectReference(reference);
             }
 
             visiting.erase(canonicalPath);

@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdint>
 #include <fstream>
 #include <iostream>
 #include <iterator>
@@ -553,18 +554,11 @@ namespace NGIN::CLI
             return false;
         }
 
-        [[nodiscard]] auto InsertV4PackageUse(
+        [[nodiscard]] auto InsertV4UseLine(
             std::string text,
             const std::string &productKind,
-            const std::string &packageName,
-            const std::string &versionRange,
-            const std::string &scope) -> std::string
+            const std::string &dependencyLine) -> std::string
         {
-            const auto dependencyLine =
-                std::string("      <Package Name=\"") + EscapeXml(packageName)
-                + "\" Version=\"" + EscapeXml(versionRange)
-                + "\" Scope=\"" + EscapeXml(scope) + "\" />\n";
-
             const auto productOpenEnd = FindProductOpenTagEnd(text, productKind);
             if (IsSelfClosingTag(text, productOpenEnd))
             {
@@ -603,6 +597,32 @@ namespace NGIN::CLI
                 + "    </Uses>\n";
             text.insert(productOpenEnd + 1, block);
             return text;
+        }
+
+        [[nodiscard]] auto InsertV4PackageUse(
+            std::string text,
+            const std::string &productKind,
+            const std::string &packageName,
+            const std::string &versionRange,
+            const std::string &scope) -> std::string
+        {
+            const auto dependencyLine =
+                std::string("      <Package Name=\"") + EscapeXml(packageName)
+                + "\" Version=\"" + EscapeXml(versionRange)
+                + "\" Scope=\"" + EscapeXml(scope) + "\" />\n";
+            return InsertV4UseLine(std::move(text), productKind, dependencyLine);
+        }
+
+        [[nodiscard]] auto InsertV4ProjectReferenceUse(
+            std::string text,
+            const std::string &productKind,
+            const std::string &projectName,
+            const std::string &projectPath) -> std::string
+        {
+            const auto dependencyLine =
+                std::string("      <Project Name=\"") + EscapeXml(projectName)
+                + "\" Path=\"" + EscapeXml(projectPath) + "\" />\n";
+            return InsertV4UseLine(std::move(text), productKind, dependencyLine);
         }
 
         [[nodiscard]] auto RemoveV4PackageUse(std::string text, const std::string &productKind, const std::string &packageName) -> std::string
@@ -778,6 +798,135 @@ namespace NGIN::CLI
             return closures;
         }
 
+        [[nodiscard]] auto TrimView(std::string_view text) -> std::string_view
+        {
+            while (!text.empty() && std::isspace(static_cast<unsigned char>(text.front())) != 0)
+            {
+                text.remove_prefix(1);
+            }
+            while (!text.empty() && std::isspace(static_cast<unsigned char>(text.back())) != 0)
+            {
+                text.remove_suffix(1);
+            }
+            return text;
+        }
+
+        [[nodiscard]] auto HasElementChildren(const XmlElement &element) -> bool
+        {
+            for (NGIN::UIntSize index = 0; index < element.children.Size(); ++index)
+            {
+                if (element.children[index].type == XmlNode::Type::Element)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        [[nodiscard]] auto HasNonWhitespaceText(const XmlElement &element) -> bool
+        {
+            for (NGIN::UIntSize index = 0; index < element.children.Size(); ++index)
+            {
+                const auto &child = element.children[index];
+                if ((child.type == XmlNode::Type::Text || child.type == XmlNode::Type::CData)
+                    && !TrimView(child.text).empty())
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        auto WriteFormattedElement(std::ostream &out, const XmlElement &element, const int indent) -> void
+        {
+            const std::string pad(static_cast<std::size_t>(indent), ' ');
+            out << pad << "<" << element.name;
+            for (NGIN::UIntSize index = 0; index < element.attributes.Size(); ++index)
+            {
+                const auto &attribute = element.attributes[index];
+                out << " " << attribute.name << "=\"" << EscapeXml(std::string(attribute.value)) << "\"";
+            }
+
+            const auto hasElements = HasElementChildren(element);
+            const auto hasText = HasNonWhitespaceText(element);
+            if (!hasElements && !hasText)
+            {
+                out << " />\n";
+                return;
+            }
+
+            if (!hasElements)
+            {
+                out << ">";
+                for (NGIN::UIntSize index = 0; index < element.children.Size(); ++index)
+                {
+                    const auto &child = element.children[index];
+                    const auto text = TrimView(child.text);
+                    if (text.empty())
+                    {
+                        continue;
+                    }
+                    if (child.type == XmlNode::Type::CData)
+                    {
+                        out << "<![CDATA[" << text << "]]>";
+                    }
+                    else
+                    {
+                        out << EscapeXml(std::string(text));
+                    }
+                }
+                out << "</" << element.name << ">\n";
+                return;
+            }
+
+            out << ">\n";
+            for (NGIN::UIntSize index = 0; index < element.children.Size(); ++index)
+            {
+                const auto &child = element.children[index];
+                if (child.type == XmlNode::Type::Element && child.element != nullptr)
+                {
+                    WriteFormattedElement(out, *child.element, indent + 2);
+                }
+                else
+                {
+                    const auto text = TrimView(child.text);
+                    if (text.empty())
+                    {
+                        continue;
+                    }
+                    out << std::string(static_cast<std::size_t>(indent + 2), ' ');
+                    if (child.type == XmlNode::Type::CData)
+                    {
+                        out << "<![CDATA[" << text << "]]>\n";
+                    }
+                    else
+                    {
+                        out << EscapeXml(std::string(text)) << "\n";
+                    }
+                }
+            }
+            out << pad << "</" << element.name << ">\n";
+        }
+
+        [[nodiscard]] auto FormatXmlManifest(const fs::path &path) -> std::string
+        {
+            const auto existing = ReadText(path);
+            if (existing.find("<!--") != std::string::npos)
+            {
+                throw std::runtime_error("format currently refuses XML comments so it does not drop authored comments");
+            }
+            const auto loaded = LoadXml(path);
+            const auto *rootElement = loaded.document.Root();
+            if (rootElement == nullptr)
+            {
+                throw std::runtime_error(path.string() + ": missing XML root element");
+            }
+            std::ostringstream formatted{};
+            formatted << "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n\n";
+            WriteFormattedElement(formatted, *rootElement, 0);
+            return formatted.str();
+        }
+
         [[nodiscard]] auto EffectivePublishes(const ProjectManifest &project, const ProfileDefinition &profile) -> std::vector<PublishDefinition>
         {
             std::map<std::string, PublishDefinition> byName{};
@@ -795,6 +944,24 @@ namespace NGIN::CLI
                 result.push_back(std::move(publish));
             }
             return result;
+        }
+
+        [[nodiscard]] auto EffectiveAnalyzers(const ProjectManifest &project, const ProfileDefinition &profile) -> std::map<std::string, AnalyzerDefinition>
+        {
+            std::map<std::string, AnalyzerDefinition> analyzers{};
+            const auto mergeSelected = [&](const std::vector<AnalyzerDefinition> &source)
+            {
+                for (const auto &analyzer : source)
+                {
+                    if (SelectionMatches(project, analyzer.selectors, profile))
+                    {
+                        analyzers[analyzer.name] = analyzer;
+                    }
+                }
+            };
+            mergeSelected(project.quality.analyzers);
+            mergeSelected(profile.quality.analyzers);
+            return analyzers;
         }
 
         [[nodiscard]] auto SelectPublish(const std::vector<PublishDefinition> &publishes, const std::optional<std::string> &name) -> const PublishDefinition &
@@ -853,6 +1020,149 @@ namespace NGIN::CLI
                     fs::copy_file(entry.path(), target, fs::copy_options::overwrite_existing);
                 }
             }
+        }
+
+        [[nodiscard]] auto ReadBinaryFile(const fs::path &path) -> std::string
+        {
+            std::ifstream input(path, std::ios::binary);
+            if (!input)
+            {
+                throw std::runtime_error(path.string() + ": failed to open for reading");
+            }
+            std::ostringstream content{};
+            content << input.rdbuf();
+            return content.str();
+        }
+
+        auto WriteU16(std::ostream &out, std::uint16_t value) -> void
+        {
+            out.put(static_cast<char>(value & 0xffU));
+            out.put(static_cast<char>((value >> 8U) & 0xffU));
+        }
+
+        auto WriteU32(std::ostream &out, std::uint32_t value) -> void
+        {
+            out.put(static_cast<char>(value & 0xffU));
+            out.put(static_cast<char>((value >> 8U) & 0xffU));
+            out.put(static_cast<char>((value >> 16U) & 0xffU));
+            out.put(static_cast<char>((value >> 24U) & 0xffU));
+        }
+
+        [[nodiscard]] auto Crc32(std::string_view data) -> std::uint32_t
+        {
+            std::uint32_t crc = 0xffffffffU;
+            for (const unsigned char ch : data)
+            {
+                crc ^= ch;
+                for (int bit = 0; bit < 8; ++bit)
+                {
+                    const auto mask = 0U - (crc & 1U);
+                    crc = (crc >> 1U) ^ (0xedb88320U & mask);
+                }
+            }
+            return ~crc;
+        }
+
+        struct ZipEntry
+        {
+            fs::path sourcePath{};
+            std::string archivePath{};
+            std::string contents{};
+            std::uint32_t crc{};
+            std::uint32_t offset{};
+        };
+
+        [[nodiscard]] auto GatherZipEntries(const fs::path &source) -> std::vector<ZipEntry>
+        {
+            std::vector<ZipEntry> entries{};
+            for (const auto &entry : fs::recursive_directory_iterator(source))
+            {
+                if (!entry.is_regular_file())
+                {
+                    continue;
+                }
+                ZipEntry zipEntry{};
+                zipEntry.sourcePath = entry.path();
+                zipEntry.archivePath = fs::relative(entry.path(), source).generic_string();
+                entries.push_back(std::move(zipEntry));
+            }
+            std::sort(
+                entries.begin(),
+                entries.end(),
+                [](const ZipEntry &left, const ZipEntry &right)
+                {
+                    return left.archivePath < right.archivePath;
+                });
+            return entries;
+        }
+
+        auto WriteZipArchive(const fs::path &sourceDirectory, const fs::path &archivePath) -> void
+        {
+            auto entries = GatherZipEntries(sourceDirectory);
+            if (!archivePath.parent_path().empty())
+            {
+                fs::create_directories(archivePath.parent_path());
+            }
+
+            std::ofstream out(archivePath, std::ios::binary);
+            if (!out)
+            {
+                throw std::runtime_error(archivePath.string() + ": failed to open archive for writing");
+            }
+
+            for (auto &entry : entries)
+            {
+                entry.contents = ReadBinaryFile(entry.sourcePath);
+                entry.crc = Crc32(entry.contents);
+                entry.offset = static_cast<std::uint32_t>(out.tellp());
+
+                WriteU32(out, 0x04034b50U);
+                WriteU16(out, 20);
+                WriteU16(out, 0);
+                WriteU16(out, 0);
+                WriteU16(out, 0);
+                WriteU16(out, 0);
+                WriteU32(out, entry.crc);
+                WriteU32(out, static_cast<std::uint32_t>(entry.contents.size()));
+                WriteU32(out, static_cast<std::uint32_t>(entry.contents.size()));
+                WriteU16(out, static_cast<std::uint16_t>(entry.archivePath.size()));
+                WriteU16(out, 0);
+                out.write(entry.archivePath.data(), static_cast<std::streamsize>(entry.archivePath.size()));
+                out.write(entry.contents.data(), static_cast<std::streamsize>(entry.contents.size()));
+            }
+
+            const auto centralDirectoryOffset = static_cast<std::uint32_t>(out.tellp());
+            for (const auto &entry : entries)
+            {
+                WriteU32(out, 0x02014b50U);
+                WriteU16(out, 20);
+                WriteU16(out, 20);
+                WriteU16(out, 0);
+                WriteU16(out, 0);
+                WriteU16(out, 0);
+                WriteU16(out, 0);
+                WriteU32(out, entry.crc);
+                WriteU32(out, static_cast<std::uint32_t>(entry.contents.size()));
+                WriteU32(out, static_cast<std::uint32_t>(entry.contents.size()));
+                WriteU16(out, static_cast<std::uint16_t>(entry.archivePath.size()));
+                WriteU16(out, 0);
+                WriteU16(out, 0);
+                WriteU16(out, 0);
+                WriteU16(out, 0);
+                WriteU32(out, 0);
+                WriteU32(out, entry.offset);
+                out.write(entry.archivePath.data(), static_cast<std::streamsize>(entry.archivePath.size()));
+            }
+            const auto centralDirectorySize = static_cast<std::uint32_t>(out.tellp()) - centralDirectoryOffset;
+
+            WriteU32(out, 0x06054b50U);
+            WriteU16(out, 0);
+            WriteU16(out, 0);
+            WriteU16(out, static_cast<std::uint16_t>(entries.size()));
+            WriteU16(out, static_cast<std::uint16_t>(entries.size()));
+            WriteU32(out, centralDirectorySize);
+            WriteU32(out, centralDirectoryOffset);
+            WriteU16(out, 0);
         }
 
         [[nodiscard]] auto IsProbablyUrl(const std::string &value) -> bool
@@ -922,6 +1232,7 @@ namespace NGIN::CLI
             std::set<std::string> plugins{};
             std::set<std::string> artifacts{};
             std::set<std::string> publishes{};
+            std::set<std::string> analyzers{};
         };
 
         [[nodiscard]] auto RedactedEnvironmentValue(const EnvironmentVariable &variable) -> std::string
@@ -1023,6 +1334,18 @@ namespace NGIN::CLI
             {
                 snapshot.publishes.insert(publish.name + " kind=" + publish.kind + " output=" + publish.output);
             }
+            for (const auto &[_, analyzer] : EffectiveAnalyzers(resolved.project, resolved.profile))
+            {
+                if (analyzer.enabled)
+                {
+                    auto value = analyzer.name + " scope=" + analyzer.scope + " severity=" + analyzer.severity;
+                    if (!analyzer.configPath.empty())
+                    {
+                        value += " config=" + analyzer.configPath;
+                    }
+                    snapshot.analyzers.insert(std::move(value));
+                }
+            }
             snapshot.launch["WorkingDirectory"] = resolved.profile.launch.workingDirectory;
             snapshot.launch["Args"] = resolved.profile.launch.args;
             snapshot.launch["Name"] = resolved.profile.launch.name;
@@ -1110,6 +1433,94 @@ namespace NGIN::CLI
                 for (const auto &item : removed)
                 {
                     std::cout << "  - " << item << "\n";
+                }
+            }
+        }
+
+        struct LockPackageEntry
+        {
+            std::string version{};
+            std::string scope{};
+            std::string source{};
+        };
+
+        [[nodiscard]] auto LoadLockPackages(const fs::path &path) -> std::map<std::string, LockPackageEntry>
+        {
+            const auto loaded = LoadXml(path);
+            const auto *rootElement = loaded.document.Root();
+            if (rootElement == nullptr || rootElement->name != "LockFile")
+            {
+                throw std::runtime_error(path.string() + ": expected LockFile root element");
+            }
+
+            std::map<std::string, LockPackageEntry> packages{};
+            const auto *packagesNode = FindChild(*rootElement, "Packages");
+            if (packagesNode == nullptr)
+            {
+                return packages;
+            }
+
+            for (const auto *packageNode : ChildElements(*packagesNode, "Package"))
+            {
+                const auto name = RequireAttribute(*packageNode, "Name", path);
+                LockPackageEntry entry{};
+                entry.version = Attribute(*packageNode, "Version").value_or("");
+                entry.scope = Attribute(*packageNode, "Scope").value_or("");
+                entry.source = Attribute(*packageNode, "Source").value_or("");
+                packages[name] = std::move(entry);
+            }
+            return packages;
+        }
+
+        auto PrintLockDiff(
+            const std::map<std::string, LockPackageEntry> &from,
+            const std::map<std::string, LockPackageEntry> &to,
+            bool &anyDiff) -> void
+        {
+            std::set<std::string> packageNames{};
+            for (const auto &[name, _] : from)
+            {
+                packageNames.insert(name);
+            }
+            for (const auto &[name, _] : to)
+            {
+                packageNames.insert(name);
+            }
+
+            for (const auto &name : packageNames)
+            {
+                const auto fromIt = from.find(name);
+                const auto toIt = to.find(name);
+                if (fromIt == from.end())
+                {
+                    anyDiff = true;
+                    std::cout << "Package added: " << name << " " << toIt->second.version << "\n";
+                    continue;
+                }
+                if (toIt == to.end())
+                {
+                    anyDiff = true;
+                    std::cout << "Package removed: " << name << " " << fromIt->second.version << "\n";
+                    continue;
+                }
+
+                if (fromIt->second.version != toIt->second.version)
+                {
+                    anyDiff = true;
+                    std::cout << "Package changed: " << name << " " << fromIt->second.version
+                              << " -> " << toIt->second.version << "\n";
+                }
+                if (fromIt->second.scope != toIt->second.scope)
+                {
+                    anyDiff = true;
+                    std::cout << "Package scope changed: " << name << " " << fromIt->second.scope
+                              << " -> " << toIt->second.scope << "\n";
+                }
+                if (fromIt->second.source != toIt->second.source)
+                {
+                    anyDiff = true;
+                    std::cout << "Package source changed: " << name << " " << fromIt->second.source
+                              << " -> " << toIt->second.source << "\n";
                 }
             }
         }
@@ -1467,6 +1878,14 @@ namespace NGIN::CLI
             else if (current == "--lock" && index + 1 < argc)
             {
                 args.lockPath = argv[++index];
+            }
+            else if (current == "--from-lock" && index + 1 < argc)
+            {
+                args.fromLockPath = argv[++index];
+            }
+            else if (current == "--to-lock" && index + 1 < argc)
+            {
+                args.toLockPath = argv[++index];
             }
             else if (current == "--format" && index + 1 < argc)
             {
@@ -2006,6 +2425,47 @@ namespace NGIN::CLI
         std::cout << "  package: " << *args.packageName << "\n";
         std::cout << "  version: " << *args.versionRange << "\n";
         std::cout << "  scope: " << scope << "\n";
+        return 0;
+    }
+
+    auto CmdProjectReferenceAdd(const fs::path &root, const ParsedArgs &args) -> int
+    {
+        (void)root;
+        if (!args.packageName.has_value())
+        {
+            throw std::runtime_error("add project-reference requires a project path");
+        }
+
+        const auto projectPath = ResolveProjectPath(args.projectPath);
+        const auto project = LoadProjectManifest(projectPath);
+        if (project.productKind.empty())
+        {
+            throw std::runtime_error("add project-reference currently supports V4 product-first projects");
+        }
+
+        const auto referencePathText = *args.packageName;
+        const auto referencePath = fs::weakly_canonical(projectPath.parent_path() / referencePathText);
+        const auto referencedProject = LoadProjectManifest(referencePath);
+        if (std::any_of(project.projectRefs.begin(), project.projectRefs.end(), [&](const ProjectReference &reference)
+                        {
+                            return !reference.path.empty() && fs::weakly_canonical(reference.path) == referencePath;
+                        }))
+        {
+            throw std::runtime_error("project already references project '" + referencedProject.name + "'");
+        }
+
+        auto text = ReadTextIfExists(projectPath);
+        if (text.empty())
+        {
+            throw std::runtime_error(projectPath.string() + ": failed to read project file");
+        }
+        text = InsertV4ProjectReferenceUse(text, project.productKind, referencedProject.name, referencePathText);
+        WriteTextFile(projectPath, text);
+
+        std::cout << "Added project reference\n";
+        std::cout << "  project: " << projectPath << "\n";
+        std::cout << "  reference: " << referencedProject.name << "\n";
+        std::cout << "  path: " << referencePathText << "\n";
         return 0;
     }
 
@@ -2654,6 +3114,37 @@ namespace NGIN::CLI
             return 0;
         }
 
+        if (kind == "source")
+        {
+            std::cout << "Source: " << identity << "\n";
+            const auto requested = fs::path(identity).lexically_normal();
+            const auto inputIt = std::find_if(
+                resolved.value->inputs.begin(), resolved.value->inputs.end(),
+                [&](const ResolvedInput &input)
+                {
+                    if (input.kind != "Source" && input.kind != "Generated")
+                    {
+                        return false;
+                    }
+                    return fs::path(input.source).lexically_normal() == requested
+                           || input.absoluteSourcePath.lexically_normal() == requested;
+                });
+            if (inputIt == resolved.value->inputs.end())
+            {
+                std::cout << "  result: not selected\n";
+                return 0;
+            }
+            std::cout << "  result: selected\n";
+            std::cout << "  source: " << inputIt->source << "\n";
+            std::cout << "  absoluteSourcePath: " << inputIt->absoluteSourcePath << "\n";
+            std::cout << "  kind: " << inputIt->kind << "\n";
+            std::cout << "  role: " << inputIt->role << "\n";
+            std::cout << "  visibility: " << inputIt->visibility << "\n";
+            std::cout << "  owner: " << inputIt->ownerKind << " " << inputIt->ownerName << "\n";
+            std::cout << "  manifest: " << inputIt->manifestPath << "\n";
+            return 0;
+        }
+
         if (kind == "stage")
         {
             std::cout << "Stage: " << identity << "\n";
@@ -2769,6 +3260,77 @@ namespace NGIN::CLI
             return 0;
         }
 
+        if (kind == "publish")
+        {
+            std::cout << "Publish: " << identity << "\n";
+            const auto publishes = EffectivePublishes(resolved.value->project, resolved.value->profile);
+            const auto publishIt = std::find_if(
+                publishes.begin(), publishes.end(),
+                [&](const PublishDefinition &publish)
+                {
+                    return publish.name == identity;
+                });
+            if (publishIt == publishes.end())
+            {
+                std::cout << "  result: not selected\n";
+                return 0;
+            }
+            std::cout << "  result: selected\n";
+            std::cout << "  kind: " << publishIt->kind << "\n";
+            if (!publishIt->format.empty())
+            {
+                std::cout << "  format: " << publishIt->format << "\n";
+            }
+            std::cout << "  output: " << publishIt->output << "\n";
+            std::cout << "  includeStage: " << (publishIt->includeStage ? "true" : "false") << "\n";
+            std::cout << "  includeRuntimeDependencies: " << (publishIt->includeRuntimeDependencies ? "true" : "false") << "\n";
+            std::cout << "  includeSymbols: " << (publishIt->includeSymbols ? "true" : "false") << "\n";
+            return 0;
+        }
+
+        if (kind == "env")
+        {
+            std::cout << "Environment variable: " << identity << "\n";
+            const auto variableIt = std::find_if(
+                resolved.value->environmentVariables.begin(),
+                resolved.value->environmentVariables.end(),
+                [&](const EnvironmentVariable &variable)
+                {
+                    return variable.name == identity;
+                });
+            if (variableIt == resolved.value->environmentVariables.end())
+            {
+                std::cout << "  result: not selected\n";
+                return 0;
+            }
+            std::cout << "  result: selected\n";
+            std::cout << "  value: " << (variableIt->secret ? "<redacted>" : variableIt->value) << "\n";
+            std::cout << "  secret: " << (variableIt->secret ? "true" : "false") << "\n";
+            std::cout << "  resolved: " << (variableIt->resolved ? "true" : "false") << "\n";
+            std::cout << "  source: " << variableIt->resolvedSource << "\n";
+            return 0;
+        }
+
+        if (kind == "analyzer")
+        {
+            std::cout << "Analyzer: " << identity << "\n";
+            const auto analyzers = EffectiveAnalyzers(resolved.value->project, resolved.value->profile);
+            const auto analyzerIt = analyzers.find(identity);
+            if (analyzerIt == analyzers.end() || !analyzerIt->second.enabled)
+            {
+                std::cout << "  result: not selected\n";
+                return 0;
+            }
+            std::cout << "  result: selected\n";
+            std::cout << "  scope: " << analyzerIt->second.scope << "\n";
+            std::cout << "  severity: " << analyzerIt->second.severity << "\n";
+            if (!analyzerIt->second.configPath.empty())
+            {
+                std::cout << "  config: " << analyzerIt->second.configPath << "\n";
+            }
+            return 0;
+        }
+
         if (kind == "runtime-module")
         {
             std::cout << "Runtime module: " << identity << "\n";
@@ -2835,19 +3397,11 @@ namespace NGIN::CLI
         const auto *resolved = resolvedResult.value.has_value() ? &*resolvedResult.value : nullptr;
         const auto productKind = invocation.project.productKind.empty() ? invocation.project.type : invocation.project.productKind;
         const auto effectivePublishes = EffectivePublishes(invocation.project, invocation.profile);
-        std::map<std::string, AnalyzerDefinition> effectiveAnalyzers{};
-        for (const auto &analyzer : invocation.project.quality.analyzers)
-        {
-            effectiveAnalyzers[analyzer.name] = analyzer;
-        }
-        for (const auto &analyzer : invocation.profile.quality.analyzers)
-        {
-            effectiveAnalyzers[analyzer.name] = analyzer;
-        }
+        const auto effectiveAnalyzers = EffectiveAnalyzers(invocation.project, invocation.profile);
         std::size_t activeAnalyzerCount = 0;
         for (const auto &[_, analyzer] : effectiveAnalyzers)
         {
-            if (analyzer.enabled && SelectionMatches(invocation.project, analyzer.selectors, invocation.profile))
+            if (analyzer.enabled)
             {
                 ++activeAnalyzerCount;
             }
@@ -3008,7 +3562,7 @@ namespace NGIN::CLI
         bool firstAnalyzer = true;
         for (const auto &[_, analyzer] : effectiveAnalyzers)
         {
-            if (!analyzer.enabled || !SelectionMatches(invocation.project, analyzer.selectors, invocation.profile))
+            if (!analyzer.enabled)
             {
                 continue;
             }
@@ -3558,6 +4112,14 @@ namespace NGIN::CLI
     auto CmdGraph(const fs::path &root, const ParsedArgs &args) -> int
     {
         (void)root;
+        if (args.format.has_value())
+        {
+            if (*args.format != "json")
+            {
+                throw std::runtime_error("graph supports only --format json");
+            }
+            return CmdInspect(root, args);
+        }
         const auto invocation = ResolveInvocation(args);
         const auto resolved = ResolveLaunch(invocation.project, invocation.profile);
         if (!resolved.value.has_value() || resolved.diagnostics.HasErrors())
@@ -3682,20 +4244,12 @@ namespace NGIN::CLI
         }
         if (args.graphPlan == "quality")
         {
-            std::map<std::string, AnalyzerDefinition> analyzers{};
-            for (const auto &analyzer : resolved.value->project.quality.analyzers)
-            {
-                analyzers[analyzer.name] = analyzer;
-            }
-            for (const auto &analyzer : resolved.value->profile.quality.analyzers)
-            {
-                analyzers[analyzer.name] = analyzer;
-            }
+            const auto analyzers = EffectiveAnalyzers(resolved.value->project, resolved.value->profile);
             std::cout << "Quality plan for profile: " << resolved.value->profile.name << "\n";
             bool any = false;
             for (const auto &[_, analyzer] : analyzers)
             {
-                if (!analyzer.enabled || !SelectionMatches(resolved.value->project, analyzer.selectors, resolved.value->profile))
+                if (!analyzer.enabled)
                 {
                     continue;
                 }
@@ -4013,6 +4567,29 @@ namespace NGIN::CLI
     auto CmdDiff(const fs::path &root, const ParsedArgs &args) -> int
     {
         (void)root;
+        if (args.fromLockPath.has_value() || args.toLockPath.has_value())
+        {
+            if (!args.fromLockPath.has_value() || !args.toLockPath.has_value())
+            {
+                throw std::runtime_error("diff lock mode requires --from-lock <ngin.lock> and --to-lock <ngin.lock>");
+            }
+
+            const auto from = LoadLockPackages(*args.fromLockPath);
+            const auto to = LoadLockPackages(*args.toLockPath);
+            bool anyDiff = false;
+
+            std::cout << "Lock diff\n";
+            std::cout << "  from lock: " << *args.fromLockPath << "\n";
+            std::cout << "  to lock: " << *args.toLockPath << "\n\n";
+
+            PrintLockDiff(from, to, anyDiff);
+            if (!anyDiff)
+            {
+                std::cout << "No lock differences.\n";
+            }
+            return 0;
+        }
+
         if (!args.fromProfileName.has_value() || !args.toProfileName.has_value())
         {
             throw std::runtime_error("diff requires --from-profile <name> and --to-profile <name>");
@@ -4055,12 +4632,65 @@ namespace NGIN::CLI
         PrintMapDiff("Environment", from.environment, to.environment, anyDiff);
         PrintMapDiff("Launch", from.launch, to.launch, anyDiff);
         PrintSetDiff("Publishes", from.publishes, to.publishes, anyDiff);
+        PrintSetDiff("Analyzers", from.analyzers, to.analyzers, anyDiff);
         PrintSetDiff("Artifacts", from.artifacts, to.artifacts, anyDiff);
 
         if (!anyDiff)
         {
             std::cout << "No graph differences.\n";
         }
+        return 0;
+    }
+
+    auto CmdFormat(const fs::path &root, const ParsedArgs &args) -> int
+    {
+        (void)root;
+        const auto manifestPath = args.projectPath.has_value()
+                                      ? fs::weakly_canonical(*args.projectPath)
+                                      : ResolveProjectPath(args.projectPath);
+        const auto formatted = FormatXmlManifest(manifestPath);
+        WriteTextFile(manifestPath, formatted);
+        std::cout << "Formatted manifest\n";
+        std::cout << "  path: " << manifestPath << "\n";
+        return 0;
+    }
+
+    auto CmdSchema(const fs::path &root, const ParsedArgs &args) -> int
+    {
+        (void)root;
+        if (args.format.has_value() && *args.format != "json")
+        {
+            throw std::runtime_error("schema supports only --format json");
+        }
+
+        std::cout << "{\n";
+        std::cout << "  \"schemaVersion\": \"4.0\",\n";
+        std::cout << "  \"format\": \"xml\",\n";
+        std::cout << "  \"fileTypes\": [\".nginproj\", \".nginpkg\", \".ngin\", \".ngin.xml\"],\n";
+        std::cout << "  \"productKinds\": [\"Application\", \"Library\", \"Tool\", \"Test\", \"Benchmark\", \"Plugin\", \"Module\", \"External\"],\n";
+        std::cout << "  \"dependencyKinds\": [\"Project\", \"Package\", \"Tool\", \"Runtime\"],\n";
+        std::cout << "  \"dependencyScopes\": [\"Build\", \"Target\", \"Runtime\", \"Test\", \"Dev\", \"Publish\"],\n";
+        std::cout << "  \"overlayOperations\": [\"Remove\"],\n";
+        std::cout << "  \"commonProductSections\": [\"Uses\", \"Build\", \"Generate\", \"Stage\", \"Environment\", \"Quality\"],\n";
+        std::cout << "  \"productSections\": {\n";
+        std::cout << "    \"Application\": [\"Runtime\", \"Launch\", \"Publish\"],\n";
+        std::cout << "    \"Library\": [\"Exports\", \"PackageOutput\"],\n";
+        std::cout << "    \"Tool\": [\"Run\", \"Stage\", \"PackageOutput\"],\n";
+        std::cout << "    \"Test\": [\"Run\", \"Report\", \"TestSettings\"],\n";
+        std::cout << "    \"Benchmark\": [\"Run\", \"Report\", \"BenchmarkSettings\"],\n";
+        std::cout << "    \"Plugin\": [\"Runtime\", \"Stage\", \"Exports\", \"PackageOutput\"],\n";
+        std::cout << "    \"Module\": [\"Runtime\", \"Exports\", \"PackageOutput\"],\n";
+        std::cout << "    \"External\": [\"Uses\", \"Exports\", \"Stage\", \"PackageOutput\"]\n";
+        std::cout << "  },\n";
+        std::cout << "  \"buildItems\": [\"Language\", \"Sources\", \"Headers\", \"IncludePath\", \"Define\", \"CompileOption\", \"LinkOption\", \"LinkLibrary\", \"PrecompiledHeader\", \"UnityBuild\"],\n";
+        std::cout << "  \"stageItems\": [\"Config\", \"Content\"],\n";
+        std::cout << "  \"runtimeItems\": [\"Module\", \"Plugin\", \"Setting\"],\n";
+        std::cout << "  \"environmentItems\": [\"Env\", \"LaunchEnv\", \"Secret\"],\n";
+        std::cout << "  \"publishKinds\": [\"Folder\", \"Archive\"],\n";
+        std::cout << "  \"archiveFormats\": [\"zip\"],\n";
+        std::cout << "  \"explainKinds\": [\"property\", \"source\", \"define\", \"package\", \"feature\", \"stage\", \"generator\", \"launch\", \"publish\", \"env\", \"analyzer\", \"runtime-module\", \"toolchain\"],\n";
+        std::cout << "  \"graphPlans\": [\"build\", \"stage\", \"package\", \"launch\", \"runtime\", \"publish\", \"quality\"]\n";
+        std::cout << "}\n";
         return 0;
     }
 
@@ -4233,22 +4863,14 @@ namespace NGIN::CLI
     {
         (void)root;
         const auto invocation = ResolveInvocation(args);
-        std::map<std::string, AnalyzerDefinition> analyzers{};
-        for (const auto &analyzer : invocation.project.quality.analyzers)
-        {
-            analyzers[analyzer.name] = analyzer;
-        }
-        for (const auto &analyzer : invocation.profile.quality.analyzers)
-        {
-            analyzers[analyzer.name] = analyzer;
-        }
+        const auto analyzers = EffectiveAnalyzers(invocation.project, invocation.profile);
 
         std::cout << "Analyze product: " << invocation.project.name << "\n";
         std::cout << "Profile: " << invocation.profile.name << "\n";
         bool anyEnabled = false;
         for (const auto &[_, analyzer] : analyzers)
         {
-            if (!analyzer.enabled || !SelectionMatches(invocation.project, analyzer.selectors, invocation.profile))
+            if (!analyzer.enabled)
             {
                 continue;
             }
@@ -4275,9 +4897,13 @@ namespace NGIN::CLI
         const auto invocation = ResolveInvocation(args);
         const auto publishes = EffectivePublishes(invocation.project, invocation.profile);
         const auto &publish = SelectPublish(publishes, args.packageName);
-        if (publish.kind != "Folder")
+        if (publish.kind != "Folder" && publish.kind != "Archive")
         {
             throw std::runtime_error("publish kind '" + publish.kind + "' is not implemented yet");
+        }
+        if (publish.kind == "Archive" && !publish.format.empty() && Lower(publish.format) != "zip")
+        {
+            throw std::runtime_error("archive publish format '" + publish.format + "' is not implemented yet");
         }
 
         auto built = BuildLaunch(
@@ -4295,16 +4921,27 @@ namespace NGIN::CLI
         {
             publishOutput = invocation.project.path.parent_path() / publishOutput;
         }
-        if (fs::exists(publishOutput))
+        if (publish.kind == "Folder")
         {
-            fs::remove_all(publishOutput);
+            if (fs::exists(publishOutput))
+            {
+                fs::remove_all(publishOutput);
+            }
+            CopyDirectoryContents(built.value->outputDir, publishOutput);
         }
-        CopyDirectoryContents(built.value->outputDir, publishOutput);
+        else
+        {
+            WriteZipArchive(built.value->outputDir, publishOutput);
+        }
 
         std::cout << "Published profile: " << invocation.profile.name << "\n";
         std::cout << "  project: " << invocation.project.name << "\n";
         std::cout << "  publish: " << publish.name << "\n";
         std::cout << "  kind: " << publish.kind << "\n";
+        if (!publish.format.empty())
+        {
+            std::cout << "  format: " << publish.format << "\n";
+        }
         std::cout << "  output: " << publishOutput << "\n";
         PrintDiagnostics(built.diagnostics, "Publish", std::cout);
         return 0;

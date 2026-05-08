@@ -26,8 +26,13 @@ namespace
             << "  inspect [--project <file.nginproj>] [--profile <name>] [--output <dir>] --format json\n"
             << "  validate [--project <file.nginproj>] [--profile <name>]\n"
             << "  restore [--project <file.nginproj>] [--profile <name>] [--output <package-store-dir>] [--locked]\n"
-            << "  graph [--project <file.nginproj>] [--profile <name>] [--build-plan|--stage-plan|--package-plan|--launch-plan|--runtime-plan|--publish-plan|--quality-plan]\n"
+            << "  add package <PackageName> --version <range> [--scope <scope>] [--project <file.nginproj>]\n"
+            << "  add project-reference <Path> [--project <file.nginproj>]\n"
+            << "  graph [--project <file.nginproj>] [--profile <name>] [--format json|--build-plan|--stage-plan|--package-plan|--launch-plan|--runtime-plan|--publish-plan|--quality-plan]\n"
             << "  diff [--project <file.nginproj>] --from-profile <name> --to-profile <name>\n"
+            << "  diff --from-lock <old-ngin.lock> --to-lock <new-ngin.lock>\n"
+            << "  format [--project <file.nginproj|file.ngin|file.nginpkg>]\n"
+            << "  schema [--format json]\n"
             << "  configure [--project <file.nginproj>] [--profile <name>] [--output <dir>]\n"
             << "  clean [--project <file.nginproj>] [--profile <name>] [--output <dir>]\n"
             << "  build [--project <file.nginproj>] [--profile <name>] [--output <dir>]\n"
@@ -155,6 +160,40 @@ auto main(int argc, char **argv) -> int
             }
             throw std::runtime_error("unknown package subcommand '" + subcommand + "'");
         }
+        if (command == "add")
+        {
+            if (argc < 4)
+            {
+                throw std::runtime_error("add requires a subcommand and value");
+            }
+            auto args = NGIN::CLI::ParseCommonArgs(argc, argv, 2);
+            if (!args.packageName.has_value())
+            {
+                throw std::runtime_error("add requires a subcommand");
+            }
+            const auto subcommand = *args.packageName;
+            if (subcommand == "package")
+            {
+                if (!args.featureName.has_value())
+                {
+                    throw std::runtime_error("add package requires a package name");
+                }
+                args.packageName = args.featureName;
+                args.featureName.reset();
+                return NGIN::CLI::CmdPackageAdd(root, args);
+            }
+            if (subcommand == "project-reference")
+            {
+                if (!args.featureName.has_value())
+                {
+                    throw std::runtime_error("add project-reference requires a project path");
+                }
+                args.packageName = args.featureName;
+                args.featureName.reset();
+                return NGIN::CLI::CmdProjectReferenceAdd(root, args);
+            }
+            throw std::runtime_error("unknown add subcommand '" + subcommand + "'");
+        }
         if (command == "settings")
         {
             if (argc < 3)
@@ -237,6 +276,14 @@ auto main(int argc, char **argv) -> int
         if (command == "diff")
         {
             return NGIN::CLI::CmdDiff(root, NGIN::CLI::ParseCommonArgs(argc, argv, 2));
+        }
+        if (command == "format")
+        {
+            return NGIN::CLI::CmdFormat(root, NGIN::CLI::ParseCommonArgs(argc, argv, 2));
+        }
+        if (command == "schema")
+        {
+            return NGIN::CLI::CmdSchema(root, NGIN::CLI::ParseCommonArgs(argc, argv, 2));
         }
         if (command == "clean")
         {

@@ -13,6 +13,8 @@ namespace NGIN::CLI
         std::optional<std::string> outputPath{};
         std::optional<std::string> targetDir{};
         std::optional<std::string> lockPath{};
+        std::optional<std::string> fromLockPath{};
+        std::optional<std::string> toLockPath{};
         std::optional<std::string> format{};
         std::optional<std::string> packageName{};
         std::optional<std::string> featureName{};
@@ -34,6 +36,7 @@ namespace NGIN::CLI
     auto CmdPackageSourcesAdd(const fs::path &root, const ParsedArgs &args) -> int;
     auto CmdPackageSourcesRemove(const fs::path &root, const ParsedArgs &args) -> int;
     auto CmdPackageAdd(const fs::path &root, const ParsedArgs &args) -> int;
+    auto CmdProjectReferenceAdd(const fs::path &root, const ParsedArgs &args) -> int;
     auto CmdPackageRemove(const fs::path &root, const ParsedArgs &args) -> int;
     auto CmdPackageUpdate(const fs::path &root, const ParsedArgs &args) -> int;
     auto CmdPackagePack(const fs::path &root, const ParsedArgs &args) -> int;
@@ -51,6 +54,8 @@ namespace NGIN::CLI
     auto CmdValidate(const fs::path &root, const ParsedArgs &args) -> int;
     auto CmdGraph(const fs::path &root, const ParsedArgs &args) -> int;
     auto CmdDiff(const fs::path &root, const ParsedArgs &args) -> int;
+    auto CmdFormat(const fs::path &root, const ParsedArgs &args) -> int;
+    auto CmdSchema(const fs::path &root, const ParsedArgs &args) -> int;
     auto CmdClean(const fs::path &root, const ParsedArgs &args) -> int;
     auto CmdConfigure(const fs::path &root, const ParsedArgs &args) -> int;
     auto CmdBuild(const fs::path &root, const ParsedArgs &args) -> int;

@@ -354,6 +354,87 @@ TEST_CASE("package add update and remove edit V4 Uses package dependencies")
     REQUIRE_THAT(ReadFile(projectPath), !ContainsSubstring(R"(Name="NGIN.Core")"));
 }
 
+TEST_CASE("project-reference add edits V4 Uses project dependencies")
+{
+    TempDir temp{};
+    const auto appPath = temp.path() / "App/App.nginproj";
+    const auto libraryPath = temp.path() / "Lib/Lib.nginproj";
+    WriteFile(appPath,
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4" Name="App">
+  <Application />
+</Project>
+)xml");
+    WriteFile(libraryPath,
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4" Name="Lib">
+  <Library />
+</Project>
+)xml");
+    WriteFile(temp.path() / "App/src/main.cpp", "int main() { return 0; }\n");
+    WriteFile(temp.path() / "Lib/src/lib.cpp", "void lib() {}\n");
+
+    ParsedArgs args{};
+    args.projectPath = appPath.string();
+    args.packageName = "../Lib/Lib.nginproj";
+
+    REQUIRE(CmdProjectReferenceAdd(temp.path(), args) == 0);
+
+    const auto app = LoadProjectManifest(appPath);
+    REQUIRE(app.projectRefs.size() == 1);
+    REQUIRE(app.projectRefs.front().path == fs::weakly_canonical(libraryPath));
+    REQUIRE_THAT(ReadFile(appPath), ContainsSubstring(R"(<Project Name="Lib" Path="../Lib/Lib.nginproj" />)"));
+}
+
+TEST_CASE("format command rewrites V4 manifests with deterministic XML layout")
+{
+    TempDir temp{};
+    const auto projectPath = temp.path() / "Format.App.nginproj";
+    WriteFile(projectPath,
+              R"xml(<?xml version="1.0" encoding="utf-8"?><Project SchemaVersion="4" Name="Format.App"><Application><Build><Sources Path="src/**.cpp" /><Define Name="FORMAT_APP" Value="1" /></Build></Application></Project>)xml");
+    WriteFile(temp.path() / "src/main.cpp", "int main() { return 0; }\n");
+
+    ParsedArgs args{};
+    args.projectPath = projectPath.string();
+
+    REQUIRE(CmdFormat(temp.path(), args) == 0);
+
+    const auto formatted = ReadFile(projectPath);
+    REQUIRE_THAT(formatted, ContainsSubstring("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n\n"));
+    REQUIRE_THAT(formatted, ContainsSubstring("  <Application>\n"));
+    REQUIRE_THAT(formatted, ContainsSubstring("      <Sources Path=\"src/**.cpp\" />\n"));
+    REQUIRE_THAT(formatted, ContainsSubstring("      <Define Name=\"FORMAT_APP\" Value=\"1\" />\n"));
+
+    const auto project = LoadProjectManifest(projectPath);
+    REQUIRE(project.name == "Format.App");
+    REQUIRE(project.build.compileDefinitions.size() == 1);
+    REQUIRE(project.build.compileDefinitions.front().value == "FORMAT_APP=1");
+}
+
+TEST_CASE("schema command emits V4 editor metadata")
+{
+    TempDir temp{};
+    ParsedArgs args{};
+    args.format = "json";
+
+    std::ostringstream captured{};
+    auto *previous = std::cout.rdbuf(captured.rdbuf());
+    const auto exitCode = CmdSchema(temp.path(), args);
+    std::cout.rdbuf(previous);
+
+    REQUIRE(exitCode == 0);
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("schemaVersion": "4.0")"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("productKinds": ["Application", "Library", "Tool", "Test", "Benchmark", "Plugin", "Module", "External"])"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("dependencyScopes": ["Build", "Target", "Runtime", "Test", "Dev", "Publish"])"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("overlayOperations": ["Remove"])"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("Application": ["Runtime", "Launch", "Publish"])"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("publishKinds": ["Folder", "Archive"])"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("archiveFormats": ["zip"])"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("publish")"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("env")"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("analyzer")"));
+}
+
 TEST_CASE("package pack writes V4 package manifest from PackageOutput")
 {
     TempDir temp{};
@@ -623,6 +704,9 @@ TEST_CASE("V4 workspace profile policy applies to projects without local profile
   <Projects>
     <Project Path="App/App.nginproj" />
   </Projects>
+  <Packages>
+    <Source Path="Packages" />
+  </Packages>
   <Profiles>
     <Profile Name="shipping">
       <Defaults>
@@ -632,9 +716,89 @@ TEST_CASE("V4 workspace profile policy applies to projects without local profile
         <Toolchain Name="msvc-v143" />
         <Environment Name="production" />
       </Defaults>
+      <Build>
+        <Define Name="WORKSPACE_SHIPPING" Value="1" />
+      </Build>
+      <Quality>
+        <Analyzer Name="workspace-clang-tidy" Severity="Error">
+          <Config Path=".clang-tidy" />
+        </Analyzer>
+      </Quality>
+      <Environment>
+        <Env Name="WORKSPACE_ENV" Value="production" />
+      </Environment>
+      <Stage>
+        <Config Source="config/workspace.json"
+                Target="config/app.json"
+                Collision="Override" />
+      </Stage>
+      <Uses>
+        <Package Name="Workspace.Policy.Package"
+                 Version="[1.0.0,2.0.0)"
+                 Scope="Dev">
+          <Feature Name="Diagnostics" />
+        </Package>
+      </Uses>
+      <Application>
+        <Build>
+          <Define Name="WORKSPACE_APPLICATION" Value="1" />
+        </Build>
+        <Quality>
+          <Analyzer Name="workspace-app-analyzer" Severity="Error" />
+        </Quality>
+        <Environment>
+          <Env Name="WORKSPACE_APP_ENV" Value="1" />
+        </Environment>
+        <Stage>
+          <Content Source="assets/**"
+                   Target="assets" />
+        </Stage>
+        <Uses>
+          <Tool Name="Workspace.Policy.Tool"
+                Version="[1.0.0,2.0.0)" />
+        </Uses>
+        <Runtime>
+          <Module Name="Workspace.Policy.Module"
+                  Stage="Startup">
+            <Provides Service="Workspace.Policy.Ready" />
+          </Module>
+        </Runtime>
+      </Application>
+      <Library>
+        <Build>
+          <Define Name="WORKSPACE_LIBRARY_ONLY" Value="1" />
+        </Build>
+      </Library>
     </Profile>
   </Profiles>
 </Workspace>
+)xml");
+    WriteFile(temp.path() / "Packages/Workspace.Policy.Package/Workspace.Policy.Package.nginpkg",
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Package SchemaVersion="4" Name="Workspace.Policy.Package" Version="1.0.0">
+  <Library Name="Workspace.Policy.Package">
+    <Exports>
+      <LibraryTarget Name="Workspace::Policy::Package" />
+    </Exports>
+  </Library>
+  <Features>
+    <Feature Name="Diagnostics">
+      <Build>
+        <Define Name="WORKSPACE_POLICY_DIAGNOSTICS" Value="1" Visibility="Public" />
+      </Build>
+    </Feature>
+  </Features>
+</Package>
+)xml");
+    WriteFile(temp.path() / "Packages/Workspace.Policy.Tool/Workspace.Policy.Tool.nginpkg",
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Package SchemaVersion="4" Name="Workspace.Policy.Tool" Version="1.0.0">
+  <Tool Name="Workspace.Policy.Tool">
+    <Exports>
+      <Tool Name="Workspace.Policy.Tool" Executable="workspace-policy-tool" />
+    </Exports>
+  </Tool>
+</Package>
 )xml");
     WriteFile(temp.path() / "App/App.nginproj",
               R"xml(<?xml version="1.0" encoding="utf-8"?>
@@ -642,6 +806,8 @@ TEST_CASE("V4 workspace profile policy applies to projects without local profile
   <Application />
 </Project>
 )xml");
+    WriteFile(temp.path() / "App/config/workspace.json", "{}\n");
+    WriteFile(temp.path() / "App/assets/readme.txt", "asset\n");
 
     ParsedArgs args{};
     args.projectPath = (temp.path() / "App/App.nginproj").string();
@@ -660,6 +826,71 @@ TEST_CASE("V4 workspace profile policy applies to projects without local profile
     REQUIRE_THAT(captured.str(), ContainsSubstring(R"("abiTag":"windows-x64-msvc-v143-md-cxx23")"));
     REQUIRE_THAT(captured.str(), ContainsSubstring(R"("toolchainDefinition":{"name":"msvc-v143","compiler":"msvc")"));
     REQUIRE_THAT(captured.str(), ContainsSubstring(R"("environment":"production")"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("name":"WORKSPACE_ENV","value":"production")"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("name":"WORKSPACE_APP_ENV","value":"1")"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("relativeDestination":"config/app.json")"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("relativeDestination":"assets/readme.txt")"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("runtimeModules":1)"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("name":"Workspace.Policy.Package","version":"1.0.0")"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("scope":"Dev")"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("name":"Workspace.Policy.Tool","version":"1.0.0")"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("scope":"Build")"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("package":"Workspace.Policy.Package")"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("feature":"Diagnostics")"));
+
+    ParsedArgs explainArgs{};
+    explainArgs.projectPath = args.projectPath;
+    explainArgs.profileName = "shipping";
+    explainArgs.packageName = "define:WORKSPACE_SHIPPING";
+    std::ostringstream explainCaptured{};
+    previous = std::cout.rdbuf(explainCaptured.rdbuf());
+    const auto explainExitCode = CmdExplainObject(temp.path(), explainArgs);
+    std::cout.rdbuf(previous);
+
+    REQUIRE(explainExitCode == 0);
+    REQUIRE_THAT(explainCaptured.str(), ContainsSubstring("value: WORKSPACE_SHIPPING=1"));
+
+    explainArgs.packageName = "define:WORKSPACE_APPLICATION";
+    std::ostringstream appExplainCaptured{};
+    previous = std::cout.rdbuf(appExplainCaptured.rdbuf());
+    const auto appExplainExitCode = CmdExplainObject(temp.path(), explainArgs);
+    std::cout.rdbuf(previous);
+
+    REQUIRE(appExplainExitCode == 0);
+    REQUIRE_THAT(appExplainCaptured.str(), ContainsSubstring("value: WORKSPACE_APPLICATION=1"));
+
+    explainArgs.packageName = "define:WORKSPACE_LIBRARY_ONLY";
+    std::ostringstream libraryExplainCaptured{};
+    previous = std::cout.rdbuf(libraryExplainCaptured.rdbuf());
+    const auto libraryExplainExitCode = CmdExplainObject(temp.path(), explainArgs);
+    std::cout.rdbuf(previous);
+
+    REQUIRE(libraryExplainExitCode == 0);
+    REQUIRE_THAT(libraryExplainCaptured.str(), ContainsSubstring("result: not selected"));
+
+    ParsedArgs analyzeArgs{};
+    analyzeArgs.projectPath = args.projectPath;
+    analyzeArgs.profileName = "shipping";
+    std::ostringstream analyzeCaptured{};
+    previous = std::cout.rdbuf(analyzeCaptured.rdbuf());
+    const auto analyzeExitCode = CmdAnalyze(temp.path(), analyzeArgs);
+    std::cout.rdbuf(previous);
+
+    REQUIRE(analyzeExitCode == 0);
+    REQUIRE_THAT(analyzeCaptured.str(), ContainsSubstring("analyzer workspace-clang-tidy scope=Build severity=Error config=.clang-tidy"));
+    REQUIRE_THAT(analyzeCaptured.str(), ContainsSubstring("analyzer workspace-app-analyzer scope=Build severity=Error"));
+
+    ParsedArgs runtimeExplainArgs{};
+    runtimeExplainArgs.projectPath = args.projectPath;
+    runtimeExplainArgs.profileName = "shipping";
+    runtimeExplainArgs.packageName = "runtime-module:Workspace.Policy.Module";
+    std::ostringstream runtimeExplainCaptured{};
+    previous = std::cout.rdbuf(runtimeExplainCaptured.rdbuf());
+    const auto runtimeExplainExitCode = CmdExplainObject(temp.path(), runtimeExplainArgs);
+    std::cout.rdbuf(previous);
+
+    REQUIRE(runtimeExplainExitCode == 0);
+    REQUIRE_THAT(runtimeExplainCaptured.str(), ContainsSubstring("result: selected"));
 }
 
 TEST_CASE("V4 workspace build defaults apply unless project declares explicit build settings")
@@ -1254,6 +1485,9 @@ TEST_CASE("publish command writes V4 folder publish output")
     <Publish Name="folder" Kind="Folder" Output="dist/Publish.App">
       <Include Stage="all" />
     </Publish>
+    <Publish Name="archive" Kind="Archive" Format="zip" Output="dist/Publish.App.zip">
+      <Include Stage="all" />
+    </Publish>
   </Application>
 </Project>
 )xml");
@@ -1275,6 +1509,17 @@ TEST_CASE("publish command writes V4 folder publish output")
     REQUIRE(CmdPublish(temp.path(), args) == 0);
     REQUIRE(fs::exists(temp.path() / "dist/Publish.App/config/app.json"));
     REQUIRE_FALSE(fs::exists(temp.path() / "dist/Publish.App/stale.txt"));
+
+    ParsedArgs archiveArgs{};
+    archiveArgs.projectPath = projectPath.string();
+    archiveArgs.packageName = "archive";
+    archiveArgs.outputPath = (temp.path() / "build-archive").string();
+
+    REQUIRE(CmdPublish(temp.path(), archiveArgs) == 0);
+    const auto archive = ReadFile(temp.path() / "dist/Publish.App.zip");
+    REQUIRE(archive.rfind("PK\003\004", 0) == 0);
+    REQUIRE_THAT(archive, ContainsSubstring("config/app.json"));
+    REQUIRE_THAT(archive, ContainsSubstring("bin/Publish.App"));
 }
 
 TEST_CASE("V4 hosted application parses runtime dependency, features, stage, environment, and module")
@@ -1355,6 +1600,155 @@ TEST_CASE("V4 hosted application parses runtime dependency, features, stage, env
     REQUIRE(project.inputs.size() >= 4);
     REQUIRE(project.build.compileDefinitions.size() == 2);
     REQUIRE(project.environments.size() == 2);
+}
+
+TEST_CASE("V4 profile Uses overlays select package features")
+{
+    TempDir temp{};
+    WriteFile(temp.path() / "Workspace.ngin",
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Workspace SchemaVersion="4" Name="FeatureOverlayWorkspace">
+  <Projects>
+    <Project Path="App/App.nginproj" />
+  </Projects>
+  <Packages>
+    <Source Name="local" Path="Packages" />
+  </Packages>
+</Workspace>
+)xml");
+    WriteFile(temp.path() / "Packages/Core/Core.nginpkg",
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Package SchemaVersion="4" Name="Package.Core" Version="1.0.0">
+  <Library Name="Package.Core">
+    <Exports>
+      <LibraryTarget Name="Package::Core" />
+    </Exports>
+  </Library>
+  <Features>
+    <Feature Name="Diagnostics">
+      <Build>
+        <Define Name="PACKAGE_CORE_DIAGNOSTICS" Value="1" Visibility="Public" />
+      </Build>
+    </Feature>
+  </Features>
+</Package>
+)xml");
+    WriteFile(temp.path() / "Packages/Extra/Extra.nginpkg",
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Package SchemaVersion="4" Name="Package.Extra" Version="1.0.0">
+  <Library Name="Package.Extra">
+    <Exports>
+      <LibraryTarget Name="Package::Extra" />
+    </Exports>
+  </Library>
+</Package>
+)xml");
+    WriteFile(temp.path() / "App/App.nginproj",
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4" Name="FeatureOverlay.App" DefaultProfile="dev">
+  <Application>
+    <Uses>
+      <Package Name="Package.Core" Version="[1.0.0,2.0.0)" Scope="Target" />
+      <Package Name="Package.Extra" Version="[1.0.0,2.0.0)" Scope="Runtime" />
+    </Uses>
+    <Build>
+      <Sources Path="src/**.cpp" />
+    </Build>
+  </Application>
+  <Profile Name="dev">
+    <Defaults>
+      <BuildType Name="Debug" />
+    </Defaults>
+  </Profile>
+  <Profile Name="shipping">
+    <Defaults>
+      <BuildType Name="Release" />
+    </Defaults>
+    <Application>
+      <Uses>
+        <Package Name="Package.Core" Version="[1.0.0,2.0.0)" Scope="Target">
+          <Feature Name="Diagnostics" />
+        </Package>
+        <Package Remove="Package.Extra" />
+      </Uses>
+    </Application>
+  </Profile>
+</Project>
+)xml");
+    WriteFile(temp.path() / "App/src/main.cpp", "int main() { return 0; }\n");
+
+    const auto project = LoadProjectManifest(temp.path() / "App/App.nginproj");
+    const auto dev = ResolveLaunch(project, ProfileByName(project, "dev"));
+    const auto shipping = ResolveLaunch(project, ProfileByName(project, "shipping"));
+
+    REQUIRE_FALSE(dev.diagnostics.HasErrors());
+    REQUIRE(dev.value.has_value());
+    REQUIRE(dev.value->selectedPackageFeatures.empty());
+    REQUIRE(dev.value->orderedPackages.size() == 2);
+    REQUIRE_FALSE(shipping.diagnostics.HasErrors());
+    REQUIRE(shipping.value.has_value());
+    REQUIRE(shipping.value->orderedPackages.size() == 1);
+    REQUIRE(shipping.value->orderedPackages[0].manifest.name == "Package.Core");
+    REQUIRE(shipping.value->selectedPackageFeatures.size() == 1);
+    REQUIRE(shipping.value->selectedPackageFeatures[0].packageName == "Package.Core");
+    REQUIRE(shipping.value->selectedPackageFeatures[0].featureName == "Diagnostics");
+}
+
+TEST_CASE("V4 profile Uses overlays can remove project references")
+{
+    TempDir temp{};
+    WriteFile(temp.path() / "Lib/Lib.nginproj",
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4" Name="Overlay.Lib">
+  <Library>
+    <Build>
+      <Sources Path="src/**.cpp" />
+    </Build>
+  </Library>
+</Project>
+)xml");
+    WriteFile(temp.path() / "Lib/src/lib.cpp", "int overlay_lib() { return 1; }\n");
+    WriteFile(temp.path() / "App/App.nginproj",
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4" Name="ProjectRemove.App" DefaultProfile="dev">
+  <Application>
+    <Uses>
+      <Project Name="Overlay.Lib" Path="../Lib/Lib.nginproj" />
+    </Uses>
+    <Build>
+      <Sources Path="src/**.cpp" />
+    </Build>
+  </Application>
+  <Profile Name="dev">
+    <Defaults>
+      <BuildType Name="Debug" />
+    </Defaults>
+  </Profile>
+  <Profile Name="shipping">
+    <Defaults>
+      <BuildType Name="Release" />
+    </Defaults>
+    <Application>
+      <Uses>
+        <Project Remove="../Lib/Lib.nginproj" />
+      </Uses>
+    </Application>
+  </Profile>
+</Project>
+)xml");
+    WriteFile(temp.path() / "App/src/main.cpp", "int main() { return 0; }\n");
+
+    const auto project = LoadProjectManifest(temp.path() / "App/App.nginproj");
+    const auto dev = ResolveLaunch(project, ProfileByName(project, "dev"));
+    const auto shipping = ResolveLaunch(project, ProfileByName(project, "shipping"));
+
+    REQUIRE_FALSE(dev.diagnostics.HasErrors());
+    REQUIRE(dev.value.has_value());
+    REQUIRE(dev.value->projectUnits.size() == 2);
+    REQUIRE_FALSE(shipping.diagnostics.HasErrors());
+    REQUIRE(shipping.value.has_value());
+    REQUIRE(shipping.value->projectUnits.size() == 1);
+    REQUIRE(shipping.value->projectUnits[0].project.name == "ProjectRemove.App");
 }
 
 TEST_CASE("V4 profile overlays carry selectors and can override staged outputs and environment")
@@ -1505,6 +1899,9 @@ TEST_CASE("V4 diff compares resolved profile graph slices")
       <Environment>
         <Env Name="GAME_ENV" Value="development" />
       </Environment>
+      <Quality>
+        <Analyzer Name="clang-tidy" Severity="Warning" />
+      </Quality>
       <Launch Name="app" Args="--dev" />
     </Application>
   </Profile>
@@ -1523,6 +1920,9 @@ TEST_CASE("V4 diff compares resolved profile graph slices")
       <Environment>
         <Env Name="GAME_ENV" Value="production" />
       </Environment>
+      <Quality>
+        <Analyzer Name="clang-tidy" Severity="Error" />
+      </Quality>
       <Launch Name="app" Args="--shipping" />
     </Application>
   </Profile>
@@ -1552,6 +1952,53 @@ TEST_CASE("V4 diff compares resolved profile graph slices")
     REQUIRE_THAT(diff, ContainsSubstring("config/app.json changed: config/dev.json -> config/prod.json"));
     REQUIRE_THAT(diff, ContainsSubstring("GAME_ENV changed: development -> production"));
     REQUIRE_THAT(diff, ContainsSubstring("Args changed: --dev -> --shipping"));
+    REQUIRE_THAT(diff, ContainsSubstring("Analyzers added:"));
+    REQUIRE_THAT(diff, ContainsSubstring("+ clang-tidy scope=Build severity=Error"));
+    REQUIRE_THAT(diff, ContainsSubstring("Analyzers removed:"));
+    REQUIRE_THAT(diff, ContainsSubstring("- clang-tidy scope=Build severity=Warning"));
+}
+
+TEST_CASE("V4 diff compares package lock files")
+{
+    TempDir temp{};
+    const auto oldLock = temp.path() / "old.ngin.lock";
+    const auto newLock = temp.path() / "new.ngin.lock";
+    WriteFile(oldLock,
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<LockFile SchemaVersion="1" Project="App" Profile="dev">
+  <Packages>
+    <Package Name="Package.Core" Version="1.0.0" Source="local" Scope="Target" />
+    <Package Name="Package.Old" Version="0.9.0" Source="local" Scope="Runtime" />
+  </Packages>
+</LockFile>
+)xml");
+    WriteFile(newLock,
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<LockFile SchemaVersion="1" Project="App" Profile="dev">
+  <Packages>
+    <Package Name="Package.Added" Version="2.0.0" Source="local" Scope="Build" />
+    <Package Name="Package.Core" Version="1.1.0" Source="feed" Scope="Target;Runtime" />
+  </Packages>
+</LockFile>
+)xml");
+
+    ParsedArgs args{};
+    args.fromLockPath = oldLock.string();
+    args.toLockPath = newLock.string();
+
+    std::ostringstream captured{};
+    auto *previous = std::cout.rdbuf(captured.rdbuf());
+    const auto exitCode = CmdDiff(temp.path(), args);
+    std::cout.rdbuf(previous);
+
+    const auto diff = captured.str();
+    REQUIRE(exitCode == 0);
+    REQUIRE_THAT(diff, ContainsSubstring("Lock diff"));
+    REQUIRE_THAT(diff, ContainsSubstring("Package added: Package.Added 2.0.0"));
+    REQUIRE_THAT(diff, ContainsSubstring("Package removed: Package.Old 0.9.0"));
+    REQUIRE_THAT(diff, ContainsSubstring("Package changed: Package.Core 1.0.0 -> 1.1.0"));
+    REQUIRE_THAT(diff, ContainsSubstring("Package scope changed: Package.Core Target -> Target;Runtime"));
+    REQUIRE_THAT(diff, ContainsSubstring("Package source changed: Package.Core local -> feed"));
 }
 
 TEST_CASE("V4 explain object syntax answers resolved graph objects")
@@ -1570,11 +2017,17 @@ TEST_CASE("V4 explain object syntax answers resolved graph objects")
       <Config Source="config/app.json" Target="config/app.json" />
     </Stage>
     <Launch Name="app" Args="--config config/app.json" />
+    <Environment>
+      <Env Name="EXPLAIN_ENV" Value="dev" />
+    </Environment>
     <Quality>
       <Analyzer Name="clang-tidy" Severity="Error" />
     </Quality>
     <Publish Name="folder" Kind="Folder" Output="dist/Plan.App">
       <Include Stage="all" Symbols="false" />
+    </Publish>
+    <Publish Name="archive" Kind="Archive" Format="zip" Output="dist/Plan.App.zip">
+      <Include Stage="all" RuntimeDependencies="true" />
     </Publish>
   </Application>
   <Profile Name="dev">
@@ -1607,8 +2060,13 @@ TEST_CASE("V4 explain object syntax answers resolved graph objects")
     REQUIRE_THAT(explain("property:BuildType"), ContainsSubstring("value: Debug"));
     REQUIRE_THAT(explain("property:Toolchain"), ContainsSubstring("value: clang-lld"));
     REQUIRE_THAT(explain("define:EXPLAIN_APP"), ContainsSubstring("value: EXPLAIN_APP=1"));
+    REQUIRE_THAT(explain("source:src/main.cpp"), ContainsSubstring("role: Source"));
     REQUIRE_THAT(explain("stage:config/app.json"), ContainsSubstring("source: config/app.json"));
     REQUIRE_THAT(explain("launch:app"), ContainsSubstring("args: --config config/app.json"));
+    REQUIRE_THAT(explain("publish:archive"), ContainsSubstring("format: zip"));
+    REQUIRE_THAT(explain("publish:archive"), ContainsSubstring("includeRuntimeDependencies: true"));
+    REQUIRE_THAT(explain("env:EXPLAIN_ENV"), ContainsSubstring("value: dev"));
+    REQUIRE_THAT(explain("analyzer:clang-tidy"), ContainsSubstring("severity: Error"));
 }
 
 TEST_CASE("V4 graph plan switches print focused resolved plans")
@@ -1666,6 +2124,19 @@ TEST_CASE("V4 graph plan switches print focused resolved plans")
     REQUIRE_THAT(graph("launch"), ContainsSubstring("name: app"));
     REQUIRE_THAT(graph("publish"), ContainsSubstring("publish folder kind=Folder output=dist/Plan.App"));
     REQUIRE_THAT(graph("quality"), ContainsSubstring("analyzer clang-tidy scope=Build severity=Error"));
+
+    ParsedArgs jsonArgs{};
+    jsonArgs.projectPath = projectPath.string();
+    jsonArgs.profileName = "dev";
+    jsonArgs.format = "json";
+    std::ostringstream captured{};
+    auto *previous = std::cout.rdbuf(captured.rdbuf());
+    const auto exitCode = CmdGraph(temp.path(), jsonArgs);
+    std::cout.rdbuf(previous);
+
+    REQUIRE(exitCode == 0);
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("compositionGraph":)"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("identity":{"project":"Plan.App","product":"Application","profile":"dev"})"));
 }
 
 TEST_CASE("V4 resolved package scopes flow into graph metadata")

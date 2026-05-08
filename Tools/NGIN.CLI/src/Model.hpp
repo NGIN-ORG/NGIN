@@ -38,6 +38,67 @@ namespace NGIN::CLI
 
         struct ProfilePolicy
         {
+            struct BuildSettingPolicy
+            {
+                std::string productKind{};
+                std::string kind{};
+                std::string value{};
+                std::string visibility{"Private"};
+            };
+
+            struct AnalyzerPolicy
+            {
+                std::string productKind{};
+                std::string name{};
+                std::string scope{"Build"};
+                bool enabled{true};
+                std::string severity{"Warning"};
+                std::string configPath{};
+            };
+
+            struct EnvironmentVariablePolicy
+            {
+                std::string productKind{};
+                std::string name{};
+                std::string value{};
+                std::string fromLocalSetting{};
+                bool required{false};
+                bool secret{false};
+                bool remove{false};
+            };
+
+            struct StageInputPolicy
+            {
+                std::string productKind{};
+                std::string kind{};
+                std::string source{};
+                std::string target{};
+                std::string collision{};
+                bool remove{false};
+            };
+
+            struct DependencyUsePolicy
+            {
+                std::string productKind{};
+                std::string kind{};
+                std::string name{};
+                fs::path path{};
+                std::string versionRange{};
+                std::string scope{};
+                std::vector<std::string> features{};
+                bool remove{false};
+            };
+
+            struct RuntimeModulePolicy
+            {
+                std::string productKind{};
+                std::string name{};
+                std::string stage{"Features"};
+                std::vector<std::string> providesServices{};
+                std::vector<std::string> requiresServices{};
+                bool remove{false};
+            };
+
             std::string name{};
             std::optional<std::string> buildType{};
             std::optional<std::string> hostPlatform{};
@@ -50,6 +111,12 @@ namespace NGIN::CLI
             std::optional<std::string> languageStandard{};
             std::optional<std::string> backend{};
             std::optional<std::string> buildMode{};
+            std::vector<BuildSettingPolicy> buildSettings{};
+            std::vector<AnalyzerPolicy> analyzers{};
+            std::vector<EnvironmentVariablePolicy> environmentVariables{};
+            std::vector<StageInputPolicy> stageInputs{};
+            std::vector<DependencyUsePolicy> dependencyUses{};
+            std::vector<RuntimeModulePolicy> runtimeModules{};
         };
 
         fs::path path{};
@@ -126,6 +193,7 @@ namespace NGIN::CLI
         std::string name{};
         std::string versionRange{};
         bool optional{false};
+        bool disabled{false};
         SelectorSet selectors{};
         std::string scope{};
     };
@@ -358,6 +426,7 @@ namespace NGIN::CLI
     {
         fs::path path{};
         std::optional<std::string> profile{};
+        bool disabled{false};
         SelectorSet selectors{};
     };
 

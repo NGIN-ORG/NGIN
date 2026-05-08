@@ -13,6 +13,8 @@ namespace NGIN::CLI
 {
     namespace
     {
+        [[nodiscard]] auto IsV4ProductElementName(std::string_view name) -> bool;
+
         [[nodiscard]] auto SchemaVersion(const XmlElement &node, const fs::path &path) -> std::string
         {
             return RequireAttribute(node, "SchemaVersion", path);
@@ -2374,6 +2376,234 @@ namespace NGIN::CLI
         }
     }
 
+    auto ParseV4WorkspaceBuildPolicy(
+        const XmlElement &buildNode,
+        const fs::path &path,
+        WorkspaceManifest::ProfilePolicy &policy,
+        const std::string &productKind = {}) -> void
+    {
+        for (const auto *node : ChildElements(buildNode))
+        {
+            WorkspaceManifest::ProfilePolicy::BuildSettingPolicy setting{};
+            setting.productKind = productKind;
+            if (node->name == "IncludePath")
+            {
+                setting.kind = "IncludePath";
+                setting.value = RequireAttribute(*node, "Path", path);
+                setting.visibility = Attribute(*node, "Visibility").value_or(setting.visibility);
+            }
+            else if (node->name == "Define")
+            {
+                const auto name = Attribute(*node, "Name").value_or("");
+                if (name.empty())
+                {
+                    continue;
+                }
+                setting.kind = "Define";
+                setting.value = name;
+                if (const auto value = Attribute(*node, "Value"); value.has_value())
+                {
+                    setting.value += "=" + *value;
+                }
+                setting.visibility = Attribute(*node, "Visibility").value_or(setting.visibility);
+            }
+            else if (node->name == "CompileOption")
+            {
+                setting.kind = "CompileOption";
+                setting.value = RequireAttribute(*node, "Value", path);
+                setting.visibility = Attribute(*node, "Visibility").value_or(setting.visibility);
+            }
+            else if (node->name == "LinkOption" || node->name == "LinkLibrary")
+            {
+                setting.kind = "LinkOption";
+                setting.value = Attribute(*node, "Value").value_or(Attribute(*node, "Name").value_or(""));
+                setting.visibility = Attribute(*node, "Visibility").value_or(setting.visibility);
+            }
+            if (!setting.kind.empty() && !setting.value.empty())
+            {
+                policy.buildSettings.push_back(std::move(setting));
+            }
+        }
+    }
+
+    auto ParseV4WorkspaceQualityPolicy(
+        const XmlElement &qualityNode,
+        const fs::path &path,
+        WorkspaceManifest::ProfilePolicy &policy,
+        const std::string &productKind = {}) -> void
+    {
+        for (const auto *node : ChildElements(qualityNode, "Analyzer"))
+        {
+            WorkspaceManifest::ProfilePolicy::AnalyzerPolicy analyzer{};
+            analyzer.productKind = productKind;
+            analyzer.name = RequireAttribute(*node, "Name", path);
+            analyzer.scope = Attribute(*node, "Scope").value_or(analyzer.scope);
+            analyzer.enabled = BoolAttribute(*node, "Enabled", analyzer.enabled);
+            analyzer.severity = Attribute(*node, "Severity").value_or(analyzer.severity);
+            if (const auto *config = FindChild(*node, "Config"))
+            {
+                analyzer.configPath = RequireAttribute(*config, "Path", path);
+            }
+            policy.analyzers.push_back(std::move(analyzer));
+        }
+    }
+
+    auto ParseV4WorkspaceEnvironmentPolicy(
+        const XmlElement &environmentNode,
+        const fs::path &path,
+        WorkspaceManifest::ProfilePolicy &policy,
+        const std::string &productKind = {}) -> void
+    {
+        for (const auto *node : ChildElements(environmentNode))
+        {
+            if (node->name != "Env" && node->name != "Secret")
+            {
+                continue;
+            }
+
+            WorkspaceManifest::ProfilePolicy::EnvironmentVariablePolicy variable{};
+            variable.productKind = productKind;
+            if (const auto remove = Attribute(*node, "Remove"); remove.has_value() && !remove->empty())
+            {
+                variable.name = *remove;
+                variable.remove = true;
+                policy.environmentVariables.push_back(std::move(variable));
+                continue;
+            }
+
+            variable.name = RequireAttribute(*node, "Name", path);
+            variable.required = BoolAttribute(*node, "Required", variable.required);
+            if (node->name == "Env")
+            {
+                variable.value = Attribute(*node, "Value").value_or("");
+            }
+            else
+            {
+                variable.secret = true;
+                variable.required = BoolAttribute(*node, "Required", false);
+                const auto source = RequireAttribute(*node, "From", path);
+                constexpr std::string_view localPrefix{"local:"};
+                if (source.rfind(localPrefix, 0) != 0)
+                {
+                    throw std::runtime_error(path.string() + ": workspace V4 Secret '" + variable.name + "' currently requires From=\"local:<key>\"");
+                }
+                variable.fromLocalSetting = source.substr(localPrefix.size());
+            }
+            policy.environmentVariables.push_back(std::move(variable));
+        }
+    }
+
+    auto ParseV4WorkspaceStagePolicy(
+        const XmlElement &stageNode,
+        const fs::path &path,
+        WorkspaceManifest::ProfilePolicy &policy,
+        const std::string &productKind = {}) -> void
+    {
+        for (const auto *node : ChildElements(stageNode))
+        {
+            if (node->name != "Config" && node->name != "Content")
+            {
+                continue;
+            }
+
+            WorkspaceManifest::ProfilePolicy::StageInputPolicy input{};
+            input.productKind = productKind;
+            input.kind = std::string{node->name};
+            if (const auto remove = Attribute(*node, "Remove"); remove.has_value() && !remove->empty())
+            {
+                input.target = *remove;
+                input.remove = true;
+                policy.stageInputs.push_back(std::move(input));
+                continue;
+            }
+            input.source = RequireAttribute(*node, "Source", path);
+            input.target = Attribute(*node, "Target").value_or("");
+            input.collision = Attribute(*node, "Collision").value_or("");
+            policy.stageInputs.push_back(std::move(input));
+        }
+    }
+
+    auto ParseV4WorkspaceUsesPolicy(
+        const XmlElement &usesNode,
+        const fs::path &path,
+        const WorkspaceManifest &workspace,
+        WorkspaceManifest::ProfilePolicy &policy,
+        const std::string &productKind = {}) -> void
+    {
+        for (const auto *node : ChildElements(usesNode))
+        {
+            if (node->name != "Project" && node->name != "Package" && node->name != "Tool" && node->name != "Runtime")
+            {
+                continue;
+            }
+
+            WorkspaceManifest::ProfilePolicy::DependencyUsePolicy use{};
+            use.productKind = productKind;
+            use.kind = std::string{node->name};
+            if (const auto remove = Attribute(*node, "Remove"); remove.has_value() && !remove->empty())
+            {
+                use.name = *remove;
+                use.remove = true;
+                policy.dependencyUses.push_back(std::move(use));
+                continue;
+            }
+
+            use.name = RequireAttribute(*node, "Name", path);
+            use.versionRange = Attribute(*node, "Version").value_or(Attribute(*node, "VersionRange").value_or(""));
+            use.scope = Attribute(*node, "Scope").value_or(use.kind == "Tool" ? "Build" : "");
+            if (const auto dependencyPath = Attribute(*node, "Path"); dependencyPath.has_value() && !dependencyPath->empty())
+            {
+                use.path = (workspace.path.parent_path() / *dependencyPath).lexically_normal();
+            }
+            for (const auto *feature : ChildElements(*node, "Feature"))
+            {
+                if (const auto featureName = Attribute(*feature, "Name"); featureName.has_value() && !featureName->empty())
+                {
+                    use.features.push_back(*featureName);
+                }
+            }
+            policy.dependencyUses.push_back(std::move(use));
+        }
+    }
+
+    auto ParseV4WorkspaceRuntimePolicy(
+        const XmlElement &runtimeNode,
+        const fs::path &path,
+        WorkspaceManifest::ProfilePolicy &policy,
+        const std::string &productKind = {}) -> void
+    {
+        for (const auto *node : ChildElements(runtimeNode, "Module"))
+        {
+            WorkspaceManifest::ProfilePolicy::RuntimeModulePolicy module{};
+            module.productKind = productKind;
+            if (const auto remove = Attribute(*node, "Remove"); remove.has_value() && !remove->empty())
+            {
+                module.name = *remove;
+                module.remove = true;
+                policy.runtimeModules.push_back(std::move(module));
+                continue;
+            }
+
+            module.name = RequireAttribute(*node, "Name", path);
+            module.stage = Attribute(*node, "Stage").value_or(module.stage);
+            for (const auto *provides : ChildElements(*node, "Provides"))
+            {
+                if (const auto service = Attribute(*provides, "Service"); service.has_value() && !service->empty())
+                {
+                    module.providesServices.push_back(*service);
+                }
+            }
+            for (const auto *requirement : ChildElements(*node, "Requires"))
+            {
+                if (const auto service = Attribute(*requirement, "Service"); service.has_value() && !service->empty())
+                {
+                    module.requiresServices.push_back(*service);
+                }
+            }
+            policy.runtimeModules.push_back(std::move(module));
+        }
+    }
+
     [[nodiscard]] auto LoadWorkspaceManifest(const fs::path &root) -> WorkspaceManifest
     {
         const auto path = WorkspaceFilePath(root);
@@ -2458,6 +2688,61 @@ namespace NGIN::CLI
                     if (const auto *defaults = FindChild(*node, "Defaults"))
                     {
                         ParseV4WorkspaceDefaults(*defaults, *path, workspace, profile);
+                    }
+                    if (const auto *build = FindChild(*node, "Build"))
+                    {
+                        ParseV4WorkspaceBuildPolicy(*build, *path, profile);
+                    }
+                    if (const auto *quality = FindChild(*node, "Quality"))
+                    {
+                        ParseV4WorkspaceQualityPolicy(*quality, *path, profile);
+                    }
+                    if (const auto *environment = FindChild(*node, "Environment"))
+                    {
+                        ParseV4WorkspaceEnvironmentPolicy(*environment, *path, profile);
+                    }
+                    if (const auto *stage = FindChild(*node, "Stage"))
+                    {
+                        ParseV4WorkspaceStagePolicy(*stage, *path, profile);
+                    }
+                    if (const auto *uses = FindChild(*node, "Uses"))
+                    {
+                        ParseV4WorkspaceUsesPolicy(*uses, *path, workspace, profile);
+                    }
+                    if (const auto *runtime = FindChild(*node, "Runtime"))
+                    {
+                        ParseV4WorkspaceRuntimePolicy(*runtime, *path, profile);
+                    }
+                    for (const auto *productOverlay : ChildElements(*node))
+                    {
+                        if (!IsV4ProductElementName(productOverlay->name))
+                        {
+                            continue;
+                        }
+                        if (const auto *build = FindChild(*productOverlay, "Build"))
+                        {
+                            ParseV4WorkspaceBuildPolicy(*build, *path, profile, std::string{productOverlay->name});
+                        }
+                        if (const auto *quality = FindChild(*productOverlay, "Quality"))
+                        {
+                            ParseV4WorkspaceQualityPolicy(*quality, *path, profile, std::string{productOverlay->name});
+                        }
+                        if (const auto *environment = FindChild(*productOverlay, "Environment"))
+                        {
+                            ParseV4WorkspaceEnvironmentPolicy(*environment, *path, profile, std::string{productOverlay->name});
+                        }
+                        if (const auto *stage = FindChild(*productOverlay, "Stage"))
+                        {
+                            ParseV4WorkspaceStagePolicy(*stage, *path, profile, std::string{productOverlay->name});
+                        }
+                        if (const auto *uses = FindChild(*productOverlay, "Uses"))
+                        {
+                            ParseV4WorkspaceUsesPolicy(*uses, *path, workspace, profile, std::string{productOverlay->name});
+                        }
+                        if (const auto *runtime = FindChild(*productOverlay, "Runtime"))
+                        {
+                            ParseV4WorkspaceRuntimePolicy(*runtime, *path, profile, std::string{productOverlay->name});
+                        }
                     }
                     workspace.profiles.push_back(std::move(profile));
                 }
@@ -3907,27 +4192,50 @@ namespace NGIN::CLI
             }
         }
 
-        auto ParseV4UsesSection(const XmlElement &usesNode, const fs::path &path, ProjectManifest &project) -> void
+        auto ParseV4UsesSection(
+            const XmlElement &usesNode,
+            const fs::path &path,
+            ProjectManifest &project,
+            const std::string &scope = {}) -> void
         {
             for (const auto *node : ChildElements(usesNode))
             {
                 if (node->name == "Project")
                 {
                     ProjectReference reference{};
+                    if (const auto remove = Attribute(*node, "Remove"); remove.has_value() && !remove->empty())
+                    {
+                        reference.path = (path.parent_path() / *remove).lexically_normal();
+                        reference.disabled = true;
+                        ApplyV4ScopeSelector(scope, reference.selectors);
+                        project.projectRefs.push_back(std::move(reference));
+                        continue;
+                    }
                     reference.path = (path.parent_path() / RequireAttribute(*node, "Path", path)).lexically_normal();
                     if (const auto profile = Attribute(*node, "Profile"); profile.has_value() && !profile->empty())
                     {
                         reference.profile = *profile;
                     }
+                    ApplyV4ScopeSelector(scope, reference.selectors);
                     project.projectRefs.push_back(std::move(reference));
                     continue;
                 }
                 if (node->name == "Package" || node->name == "Tool" || node->name == "Runtime")
                 {
+                    if (const auto remove = Attribute(*node, "Remove"); remove.has_value() && !remove->empty())
+                    {
+                        PackageReference package{};
+                        package.name = *remove;
+                        package.disabled = true;
+                        ApplyV4ScopeSelector(scope, package.selectors);
+                        project.packageRefs.push_back(std::move(package));
+                        continue;
+                    }
                     if (const auto packagePath = Attribute(*node, "Path"); packagePath.has_value() && node->name == "Tool")
                     {
                         ProjectReference reference{};
                         reference.path = (path.parent_path() / *packagePath).lexically_normal();
+                        ApplyV4ScopeSelector(scope, reference.selectors);
                         project.projectRefs.push_back(std::move(reference));
                         continue;
                     }
@@ -3935,13 +4243,23 @@ namespace NGIN::CLI
                     package.name = RequireAttribute(*node, "Name", path);
                     package.versionRange = Attribute(*node, "Version").value_or(Attribute(*node, "VersionRange").value_or(""));
                     package.scope = Attribute(*node, "Scope").value_or("");
+                    ApplyV4ScopeSelector(scope, package.selectors);
                     project.packageRefs.push_back(package);
                     for (const auto *feature : ChildElements(*node, "Feature"))
                     {
                         PackageFeatureUse use{};
                         use.packageName = package.name;
-                        use.featureName = RequireAttribute(*feature, "Name", path);
+                        if (const auto remove = Attribute(*feature, "Remove"); remove.has_value() && !remove->empty())
+                        {
+                            use.featureName = *remove;
+                            use.disabled = true;
+                        }
+                        else
+                        {
+                            use.featureName = RequireAttribute(*feature, "Name", path);
+                        }
                         use.versionRange = package.versionRange;
+                        ApplyV4ScopeSelector(scope, use.selectors);
                         project.packageFeatureUses.push_back(std::move(use));
                     }
                     continue;
@@ -4469,6 +4787,10 @@ namespace NGIN::CLI
                     {
                         ParseV4BuildSection(*build, path, project, "profile:" + profile.name);
                     }
+                    if (const auto *uses = FindChild(*productOverlay, "Uses"))
+                    {
+                        ParseV4UsesSection(*uses, path, project, "profile:" + profile.name);
+                    }
                     if (const auto *stage = FindChild(*productOverlay, "Stage"))
                     {
                         ParseV4StageSection(*stage, path, project, "profile:" + profile.name);
@@ -4970,6 +5292,229 @@ namespace NGIN::CLI
             {
                 project.build.mode = *defaults.buildMode;
             }
+        }
+
+        const auto applyProfilePolicyContributions = [&](const WorkspaceManifest::ProfilePolicy &policy)
+        {
+            const auto scope = policy.name.empty() ? std::string{} : "profile:" + policy.name;
+            for (const auto &buildSetting : policy.buildSettings)
+            {
+                if (!buildSetting.productKind.empty() && buildSetting.productKind != project.productKind)
+                {
+                    continue;
+                }
+                BuildSetting setting{};
+                setting.value = buildSetting.value;
+                setting.visibility = buildSetting.visibility;
+                ApplyV4ScopeSelector(scope, setting.selectors);
+
+                if (buildSetting.kind == "IncludePath")
+                {
+                    project.build.includeDirectories.push_back(std::move(setting));
+                }
+                else if (buildSetting.kind == "Define")
+                {
+                    UpsertV4Define(project.build.compileDefinitions, std::move(setting), scope);
+                }
+                else if (buildSetting.kind == "CompileOption")
+                {
+                    project.build.compileOptions.push_back(std::move(setting));
+                }
+                else if (buildSetting.kind == "LinkOption")
+                {
+                    project.build.linkOptions.push_back(std::move(setting));
+                }
+            }
+
+            for (const auto &analyzerPolicy : policy.analyzers)
+            {
+                if (!analyzerPolicy.productKind.empty() && analyzerPolicy.productKind != project.productKind)
+                {
+                    continue;
+                }
+                AnalyzerDefinition analyzer{};
+                analyzer.name = analyzerPolicy.name;
+                analyzer.scope = analyzerPolicy.scope;
+                analyzer.enabled = analyzerPolicy.enabled;
+                analyzer.severity = analyzerPolicy.severity;
+                analyzer.configPath = analyzerPolicy.configPath;
+                ApplyV4ScopeSelector(scope, analyzer.selectors);
+                UpsertV4Analyzer(project.quality.analyzers, std::move(analyzer));
+            }
+
+            if (!policy.environmentVariables.empty())
+            {
+                const auto environmentName = policy.environmentName.value_or(policy.name.empty() ? "development" : policy.name);
+                auto environmentIt = std::find_if(
+                    project.environments.begin(),
+                    project.environments.end(),
+                    [&](const EnvironmentDefinition &environment)
+                    {
+                        return environment.name == environmentName;
+                    });
+                if (environmentIt == project.environments.end())
+                {
+                    EnvironmentDefinition environment{};
+                    environment.name = environmentName;
+                    if (!project.environments.empty())
+                    {
+                        environment.variables = project.environments.front().variables;
+                    }
+                    project.environments.push_back(std::move(environment));
+                    environmentIt = std::prev(project.environments.end());
+                }
+
+                for (const auto &variablePolicy : policy.environmentVariables)
+                {
+                    if (!variablePolicy.productKind.empty() && variablePolicy.productKind != project.productKind)
+                    {
+                        continue;
+                    }
+                    if (variablePolicy.remove)
+                    {
+                        RemoveV4EnvironmentVariable(environmentIt->variables, variablePolicy.name);
+                        continue;
+                    }
+                    EnvironmentVariable variable{};
+                    variable.name = variablePolicy.name;
+                    variable.value = variablePolicy.value;
+                    variable.fromLocalSetting = variablePolicy.fromLocalSetting;
+                    variable.required = variablePolicy.required;
+                    variable.secret = variablePolicy.secret;
+                    UpsertV4EnvironmentVariable(environmentIt->variables, std::move(variable));
+                }
+            }
+
+            for (const auto &stagePolicy : policy.stageInputs)
+            {
+                if (!stagePolicy.productKind.empty() && stagePolicy.productKind != project.productKind)
+                {
+                    continue;
+                }
+                if (stagePolicy.remove)
+                {
+                    RemoveV4StageInput(project.inputs, stagePolicy.kind, stagePolicy.target, scope);
+                    continue;
+                }
+                auto input = V4PathInput(stagePolicy.kind, "", stagePolicy.source, "Private", stagePolicy.target, scope);
+                input.overrideExisting = stagePolicy.collision == "Override";
+                ValidateInputDeclaration(input, project.path);
+                UpsertV4StageInput(project.inputs, std::move(input), scope);
+            }
+
+            for (const auto &dependencyUse : policy.dependencyUses)
+            {
+                if (!dependencyUse.productKind.empty() && dependencyUse.productKind != project.productKind)
+                {
+                    continue;
+                }
+                if (dependencyUse.kind == "Project" || (dependencyUse.kind == "Tool" && !dependencyUse.path.empty()))
+                {
+                    ProjectReference reference{};
+                    reference.path = dependencyUse.path.empty() ? fs::path{dependencyUse.name} : dependencyUse.path;
+                    reference.disabled = dependencyUse.remove;
+                    ApplyV4ScopeSelector(scope, reference.selectors);
+                    project.projectRefs.push_back(std::move(reference));
+                    continue;
+                }
+
+                PackageReference package{};
+                package.name = dependencyUse.name;
+                package.versionRange = dependencyUse.versionRange;
+                package.scope = dependencyUse.scope;
+                package.disabled = dependencyUse.remove;
+                if (package.scope.empty() && dependencyUse.kind == "Runtime")
+                {
+                    package.scope = "Target;Runtime";
+                }
+                if (package.scope.empty() && dependencyUse.kind == "Tool")
+                {
+                    package.scope = "Build";
+                }
+                ApplyV4ScopeSelector(scope, package.selectors);
+                project.packageRefs.push_back(package);
+
+                if (!dependencyUse.remove)
+                {
+                    for (const auto &featureName : dependencyUse.features)
+                    {
+                        PackageFeatureUse use{};
+                        use.packageName = package.name;
+                        use.featureName = featureName;
+                        use.versionRange = package.versionRange;
+                        ApplyV4ScopeSelector(scope, use.selectors);
+                        project.packageFeatureUses.push_back(std::move(use));
+                    }
+                }
+            }
+
+            for (const auto &runtimePolicy : policy.runtimeModules)
+            {
+                if (!runtimePolicy.productKind.empty() && runtimePolicy.productKind != project.productKind)
+                {
+                    continue;
+                }
+                SelectorSet scopeSelectors{};
+                ApplyV4ScopeSelector(scope, scopeSelectors);
+                const auto sameProfileSelector = [&](const SelectorSet &selectors)
+                {
+                    return selectors.profile == scopeSelectors.profile;
+                };
+                if (runtimePolicy.remove)
+                {
+                    RuntimeReference reference{};
+                    reference.name = runtimePolicy.name;
+                    reference.selectors = scopeSelectors;
+                    project.runtime.disableModules.erase(
+                        std::remove_if(
+                            project.runtime.disableModules.begin(),
+                            project.runtime.disableModules.end(),
+                            [&](const RuntimeReference &existing)
+                            {
+                                return existing.name == reference.name && sameProfileSelector(existing.selectors);
+                            }),
+                        project.runtime.disableModules.end());
+                    project.runtime.disableModules.push_back(std::move(reference));
+                    continue;
+                }
+
+                project.runtime.modules.erase(
+                    std::remove_if(
+                        project.runtime.modules.begin(),
+                        project.runtime.modules.end(),
+                        [&](const ModuleDescriptor &existing)
+                        {
+                            return existing.name == runtimePolicy.name && sameProfileSelector(existing.selectors);
+                        }),
+                    project.runtime.modules.end());
+                project.runtime.enableModules.erase(
+                    std::remove_if(
+                        project.runtime.enableModules.begin(),
+                        project.runtime.enableModules.end(),
+                        [&](const RuntimeReference &existing)
+                        {
+                            return existing.name == runtimePolicy.name && sameProfileSelector(existing.selectors);
+                        }),
+                    project.runtime.enableModules.end());
+
+                ModuleDescriptor module{};
+                module.name = runtimePolicy.name;
+                module.startupStage = runtimePolicy.stage;
+                module.providesServices = runtimePolicy.providesServices;
+                module.requiresServices = runtimePolicy.requiresServices;
+                module.selectors = scopeSelectors;
+                project.runtime.modules.push_back(std::move(module));
+
+                RuntimeReference reference{};
+                reference.name = runtimePolicy.name;
+                reference.selectors = scopeSelectors;
+                project.runtime.enableModules.push_back(std::move(reference));
+            }
+        };
+
+        for (const auto &profilePolicy : workspace->profiles)
+        {
+            applyProfilePolicyContributions(profilePolicy);
         }
         return project;
     }
