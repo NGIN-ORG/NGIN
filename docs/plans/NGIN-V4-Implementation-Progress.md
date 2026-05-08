@@ -532,7 +532,10 @@ Internally this output now starts from a first-pass `CompositionGraph` snapshot
 instead of only streaming fields directly from resolver state. The snapshot
 currently owns identity, product, selection, conventions, high-value
 properties, summary counts, staged files, environment entries, package outputs,
-and provenance records for those nodes.
+runtime modules/plugins, launch entries, publish entries, quality analyzers,
+and provenance records for those nodes. Focused graph plan JSON and matching
+text output for stage, runtime, environment, package-output, launch, publish,
+and quality now consume those graph-owned nodes.
 
 `ngin graph --format json --<plan>-plan` emits a focused
 `NGIN.CompositionGraphPlan` JSON envelope for the selected plan instead of the

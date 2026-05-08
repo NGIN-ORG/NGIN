@@ -2201,6 +2201,7 @@ TEST_CASE("V4 graph plan switches print focused resolved plans")
     REQUIRE_THAT(stageJsonCaptured.str(), ContainsSubstring(R"("kind": "NGIN.CompositionGraphPlan")"));
     REQUIRE_THAT(stageJsonCaptured.str(), ContainsSubstring(R"("plan": "stage")"));
     REQUIRE_THAT(stageJsonCaptured.str(), ContainsSubstring(R"("target":"config/app.json")"));
+    REQUIRE_THAT(stageJsonCaptured.str(), ContainsSubstring(R"("provenance":{"sourceKind":"project","sourceName":"Plan.App")"));
 
     ParsedArgs environmentJsonArgs{};
     environmentJsonArgs.projectPath = projectPath.string();
@@ -2216,6 +2217,7 @@ TEST_CASE("V4 graph plan switches print focused resolved plans")
     REQUIRE_THAT(environmentJsonCaptured.str(), ContainsSubstring(R"("plan": "environment")"));
     REQUIRE_THAT(environmentJsonCaptured.str(), ContainsSubstring(R"("name":"PLAN_ENV")"));
     REQUIRE_THAT(environmentJsonCaptured.str(), ContainsSubstring(R"("name":"PLAN_TOKEN","value":"<redacted>","secret":true)"));
+    REQUIRE_THAT(environmentJsonCaptured.str(), ContainsSubstring(R"("reason":"secret environment contribution")"));
 
     ParsedArgs packageOutputJsonArgs{};
     packageOutputJsonArgs.projectPath = projectPath.string();
@@ -2231,6 +2233,7 @@ TEST_CASE("V4 graph plan switches print focused resolved plans")
     REQUIRE_THAT(packageOutputJsonCaptured.str(), ContainsSubstring(R"("plan": "package-output")"));
     REQUIRE_THAT(packageOutputJsonCaptured.str(), ContainsSubstring(R"("name":"Plan.App","version":"1.0.0")"));
     REQUIRE_THAT(packageOutputJsonCaptured.str(), ContainsSubstring(R"("capabilities":1)"));
+    REQUIRE_THAT(packageOutputJsonCaptured.str(), ContainsSubstring(R"("reason":"source product package output")"));
 }
 
 TEST_CASE("V4 resolved package scopes flow into graph metadata")

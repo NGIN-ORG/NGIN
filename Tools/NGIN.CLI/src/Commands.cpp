@@ -3603,7 +3603,7 @@ namespace NGIN::CLI
                     ++graph.summary.stagedFiles;
                     graph.stageFiles.push_back(CompositionGraph::StageFile{
                         .kind = input.contentKind.empty() ? input.kind : input.contentKind,
-                        .source = input.absoluteSourcePath,
+                        .source = input.source,
                         .target = input.stagedRelativePath,
                         .owner = input.ownerKind + ":" + input.ownerName,
                         .provenance = CompositionGraph::Provenance{
@@ -3634,6 +3634,40 @@ namespace NGIN::CLI
             }
         }
 
+        if (resolved != nullptr)
+        {
+            for (const auto &module : resolved->requiredModules)
+            {
+                graph.runtimeModules.push_back(CompositionGraph::RuntimeModule{
+                    .name = module,
+                    .selection = "required",
+                    .provenance = profileProvenance("resolved required runtime module"),
+                });
+            }
+            for (const auto &module : resolved->optionalModules)
+            {
+                graph.runtimeModules.push_back(CompositionGraph::RuntimeModule{
+                    .name = module,
+                    .selection = "optional",
+                    .provenance = profileProvenance("resolved optional runtime module"),
+                });
+            }
+            for (const auto &plugin : resolved->enabledPlugins)
+            {
+                graph.runtimePlugins.push_back(CompositionGraph::RuntimePlugin{
+                    .name = plugin,
+                    .provenance = profileProvenance("resolved runtime plugin"),
+                });
+            }
+            graph.launch = CompositionGraph::Launch{
+                .name = resolved->profile.launch.name,
+                .executable = resolved->selectedExecutable.has_value() ? resolved->selectedExecutable->name : "",
+                .workingDirectory = resolved->profile.launch.workingDirectory,
+                .args = resolved->profile.launch.args,
+                .provenance = profileProvenance("selected launch entry"),
+            };
+        }
+
         for (const auto &output : invocation.project.packageOutputs)
         {
             graph.packageOutputs.push_back(CompositionGraph::PackageOutput{
@@ -3646,6 +3680,35 @@ namespace NGIN::CLI
                 .capabilities = output.capabilities.size(),
                 .abi = output.abiTag,
                 .provenance = projectProvenance("source product package output"),
+            });
+        }
+
+        for (const auto &publish : effectivePublishes)
+        {
+            graph.publishes.push_back(CompositionGraph::Publish{
+                .name = publish.name,
+                .kind = publish.kind,
+                .format = publish.format,
+                .output = publish.output,
+                .includeStage = publish.includeStage,
+                .includeRuntimeDependencies = publish.includeRuntimeDependencies,
+                .includeSymbols = publish.includeSymbols,
+                .provenance = profileProvenance("resolved publish entry"),
+            });
+        }
+
+        for (const auto &[_, analyzer] : effectiveAnalyzers)
+        {
+            if (!analyzer.enabled)
+            {
+                continue;
+            }
+            graph.analyzers.push_back(CompositionGraph::QualityAnalyzer{
+                .name = analyzer.name,
+                .scope = analyzer.scope,
+                .severity = analyzer.severity,
+                .configPath = analyzer.configPath,
+                .provenance = profileProvenance("resolved quality analyzer"),
             });
         }
 
@@ -3695,6 +3758,220 @@ namespace NGIN::CLI
                 << "\"value\":" << Json(properties[index].value) << ","
                 << "\"provenance\":";
             WriteGraphProvenance(out, properties[index].provenance);
+            out << "}";
+        }
+        out << "]";
+    }
+
+    auto WriteGraphStageFiles(std::ostream &out, const std::vector<CompositionGraph::StageFile> &files, bool includeProvenance) -> void
+    {
+        out << "[";
+        for (std::size_t index = 0; index < files.size(); ++index)
+        {
+            if (index > 0)
+            {
+                out << ",";
+            }
+            out << "{"
+                << "\"kind\":" << Json(files[index].kind) << ","
+                << "\"source\":" << JsonPath(files[index].source) << ","
+                << "\"target\":" << JsonPath(files[index].target) << ","
+                << "\"owner\":" << Json(files[index].owner);
+            if (includeProvenance)
+            {
+                out << ",\"provenance\":";
+                WriteGraphProvenance(out, files[index].provenance);
+            }
+            out << "}";
+        }
+        out << "]";
+    }
+
+    auto WriteGraphEnvironmentEntries(std::ostream &out, const std::vector<CompositionGraph::EnvironmentEntry> &entries, bool includeProvenance) -> void
+    {
+        out << "[";
+        for (std::size_t index = 0; index < entries.size(); ++index)
+        {
+            if (index > 0)
+            {
+                out << ",";
+            }
+            out << "{"
+                << "\"name\":" << Json(entries[index].name) << ","
+                << "\"value\":" << Json(entries[index].value) << ","
+                << "\"secret\":" << (entries[index].secret ? "true" : "false") << ","
+                << "\"resolved\":" << (entries[index].resolved ? "true" : "false") << ","
+                << "\"source\":" << Json(entries[index].source);
+            if (includeProvenance)
+            {
+                out << ",\"provenance\":";
+                WriteGraphProvenance(out, entries[index].provenance);
+            }
+            out << "}";
+        }
+        out << "]";
+    }
+
+    auto WriteGraphPackageOutputs(std::ostream &out, const std::vector<CompositionGraph::PackageOutput> &outputs, bool includeProvenance) -> void
+    {
+        out << "[";
+        for (std::size_t index = 0; index < outputs.size(); ++index)
+        {
+            if (index > 0)
+            {
+                out << ",";
+            }
+            out << "{"
+                << "\"name\":" << Json(outputs[index].name) << ","
+                << "\"version\":" << Json(outputs[index].version) << ","
+                << "\"from\":" << Json(outputs[index].from) << ","
+                << "\"headers\":" << outputs[index].headers << ","
+                << "\"libraries\":" << outputs[index].libraries << ","
+                << "\"tools\":" << outputs[index].tools << ","
+                << "\"capabilities\":" << outputs[index].capabilities << ","
+                << "\"abi\":" << Json(outputs[index].abi);
+            if (includeProvenance)
+            {
+                out << ",\"provenance\":";
+                WriteGraphProvenance(out, outputs[index].provenance);
+            }
+            out << "}";
+        }
+        out << "]";
+    }
+
+    auto WriteGraphRuntime(std::ostream &out, const CompositionGraph &graph, bool includeProvenance) -> void
+    {
+        out << "{\"requiredModules\":[";
+        bool firstRequired = true;
+        for (const auto &module : graph.runtimeModules)
+        {
+            if (module.selection != "required")
+            {
+                continue;
+            }
+            if (!firstRequired)
+            {
+                out << ",";
+            }
+            firstRequired = false;
+            if (includeProvenance)
+            {
+                out << "{\"name\":" << Json(module.name) << ",\"provenance\":";
+                WriteGraphProvenance(out, module.provenance);
+                out << "}";
+            }
+            else
+            {
+                out << Json(module.name);
+            }
+        }
+        out << "],\"optionalModules\":[";
+        bool firstOptional = true;
+        for (const auto &module : graph.runtimeModules)
+        {
+            if (module.selection != "optional")
+            {
+                continue;
+            }
+            if (!firstOptional)
+            {
+                out << ",";
+            }
+            firstOptional = false;
+            if (includeProvenance)
+            {
+                out << "{\"name\":" << Json(module.name) << ",\"provenance\":";
+                WriteGraphProvenance(out, module.provenance);
+                out << "}";
+            }
+            else
+            {
+                out << Json(module.name);
+            }
+        }
+        out << "],\"plugins\":[";
+        for (std::size_t index = 0; index < graph.runtimePlugins.size(); ++index)
+        {
+            if (index > 0)
+            {
+                out << ",";
+            }
+            if (includeProvenance)
+            {
+                out << "{\"name\":" << Json(graph.runtimePlugins[index].name) << ",\"provenance\":";
+                WriteGraphProvenance(out, graph.runtimePlugins[index].provenance);
+                out << "}";
+            }
+            else
+            {
+                out << Json(graph.runtimePlugins[index].name);
+            }
+        }
+        out << "]}";
+    }
+
+    auto WriteGraphLaunch(std::ostream &out, const CompositionGraph::Launch &launch, bool includeProvenance) -> void
+    {
+        out << "{"
+            << "\"name\":" << Json(launch.name) << ","
+            << "\"executable\":" << Json(launch.executable) << ","
+            << "\"workingDirectory\":" << Json(launch.workingDirectory) << ","
+            << "\"args\":" << Json(launch.args);
+        if (includeProvenance)
+        {
+            out << ",\"provenance\":";
+            WriteGraphProvenance(out, launch.provenance);
+        }
+        out << "}";
+    }
+
+    auto WriteGraphPublishes(std::ostream &out, const std::vector<CompositionGraph::Publish> &publishes, bool includeProvenance) -> void
+    {
+        out << "[";
+        for (std::size_t index = 0; index < publishes.size(); ++index)
+        {
+            if (index > 0)
+            {
+                out << ",";
+            }
+            out << "{"
+                << "\"name\":" << Json(publishes[index].name) << ","
+                << "\"kind\":" << Json(publishes[index].kind) << ","
+                << "\"format\":" << Json(publishes[index].format) << ","
+                << "\"output\":" << Json(publishes[index].output) << ","
+                << "\"includeStage\":" << (publishes[index].includeStage ? "true" : "false") << ","
+                << "\"includeRuntimeDependencies\":" << (publishes[index].includeRuntimeDependencies ? "true" : "false") << ","
+                << "\"includeSymbols\":" << (publishes[index].includeSymbols ? "true" : "false");
+            if (includeProvenance)
+            {
+                out << ",\"provenance\":";
+                WriteGraphProvenance(out, publishes[index].provenance);
+            }
+            out << "}";
+        }
+        out << "]";
+    }
+
+    auto WriteGraphAnalyzers(std::ostream &out, const std::vector<CompositionGraph::QualityAnalyzer> &analyzers, bool includeProvenance) -> void
+    {
+        out << "[";
+        for (std::size_t index = 0; index < analyzers.size(); ++index)
+        {
+            if (index > 0)
+            {
+                out << ",";
+            }
+            out << "{"
+                << "\"name\":" << Json(analyzers[index].name) << ","
+                << "\"scope\":" << Json(analyzers[index].scope) << ","
+                << "\"severity\":" << Json(analyzers[index].severity) << ","
+                << "\"configPath\":" << Json(analyzers[index].configPath);
+            if (includeProvenance)
+            {
+                out << ",\"provenance\":";
+                WriteGraphProvenance(out, analyzers[index].provenance);
+            }
             out << "}";
         }
         out << "]";
@@ -4448,8 +4725,6 @@ namespace NGIN::CLI
     {
         const auto graph = BuildCompositionGraph(invocation, resolvedResult);
         const auto *resolved = resolvedResult.value.has_value() ? &*resolvedResult.value : nullptr;
-        const auto effectivePublishes = EffectivePublishes(invocation.project, invocation.profile);
-        const auto effectiveAnalyzers = EffectiveAnalyzers(invocation.project, invocation.profile);
 
         auto writeDiagnostics = [&](const DiagnosticReport &diagnostics)
         {
@@ -4663,163 +4938,33 @@ namespace NGIN::CLI
         }
         std::cout << "],";
 
-        std::cout << "\"stage\":{\"files\":[";
-        bool firstStageFile = true;
-        if (resolved != nullptr)
-        {
-            for (const auto &input : resolved->inputs)
-            {
-                if (input.stagedRelativePath.empty())
-                {
-                    continue;
-                }
-                if (!firstStageFile)
-                {
-                    std::cout << ",";
-                }
-                firstStageFile = false;
-                std::cout << "{"
-                          << "\"kind\":" << Json(input.contentKind.empty() ? input.kind : input.contentKind) << ","
-                          << "\"source\":" << JsonPath(input.absoluteSourcePath) << ","
-                          << "\"target\":" << JsonPath(input.stagedRelativePath)
-                          << "}";
-            }
-        }
-        std::cout << "]},";
+        std::cout << "\"stage\":{\"files\":";
+        WriteGraphStageFiles(std::cout, graph.stageFiles, false);
+        std::cout << "},";
 
-        std::cout << "\"runtime\":{"
-                  << "\"requiredModules\":[";
-        if (resolved != nullptr)
-        {
-            for (std::size_t index = 0; index < resolved->requiredModules.size(); ++index)
-            {
-                if (index > 0)
-                {
-                    std::cout << ",";
-                }
-                std::cout << Json(resolved->requiredModules[index]);
-            }
-        }
-        std::cout << "],\"optionalModules\":[";
-        if (resolved != nullptr)
-        {
-            for (std::size_t index = 0; index < resolved->optionalModules.size(); ++index)
-            {
-                if (index > 0)
-                {
-                    std::cout << ",";
-                }
-                std::cout << Json(resolved->optionalModules[index]);
-            }
-        }
-        std::cout << "],\"plugins\":[";
-        if (resolved != nullptr)
-        {
-            for (std::size_t index = 0; index < resolved->enabledPlugins.size(); ++index)
-            {
-                if (index > 0)
-                {
-                    std::cout << ",";
-                }
-                std::cout << Json(resolved->enabledPlugins[index]);
-            }
-        }
-        std::cout << "]},";
-
-        std::cout << "\"environment\":{\"variables\":[";
-        if (resolved != nullptr)
-        {
-            for (std::size_t index = 0; index < resolved->environmentVariables.size(); ++index)
-            {
-                const auto &variable = resolved->environmentVariables[index];
-                if (index > 0)
-                {
-                    std::cout << ",";
-                }
-                std::cout << "{"
-                          << "\"name\":" << Json(variable.name) << ","
-                          << "\"value\":" << Json(variable.secret ? "<redacted>" : variable.value) << ","
-                          << "\"secret\":" << (variable.secret ? "true" : "false")
-                          << "}";
-            }
-        }
-        std::cout << "]},";
-
-        std::cout << "\"launch\":";
-        if (resolved != nullptr)
-        {
-            std::cout << "{"
-                      << "\"name\":" << Json(resolved->profile.launch.name) << ","
-                      << "\"workingDirectory\":" << Json(resolved->profile.launch.workingDirectory) << ","
-                      << "\"args\":" << Json(resolved->profile.launch.args) << ","
-                      << "\"executable\":" << Json(resolved->selectedExecutable.has_value() ? resolved->selectedExecutable->name : "")
-                      << "}";
-        }
-        else
-        {
-            std::cout << "null";
-        }
+        std::cout << "\"runtime\":";
+        WriteGraphRuntime(std::cout, graph, false);
         std::cout << ",";
 
-        std::cout << "\"packageOutputs\":[";
-        for (std::size_t index = 0; index < invocation.project.packageOutputs.size(); ++index)
-        {
-            const auto &output = invocation.project.packageOutputs[index];
-            if (index > 0)
-            {
-                std::cout << ",";
-            }
-            std::cout << "{"
-                      << "\"name\":" << Json(output.name) << ","
-                      << "\"version\":" << Json(output.version) << ","
-                      << "\"from\":" << Json(output.from) << ","
-                      << "\"headers\":" << output.headers.size() << ","
-                      << "\"libraries\":" << output.libraries.size() << ","
-                      << "\"tools\":" << output.tools.size() << ","
-                      << "\"capabilities\":" << output.capabilities.size() << ","
-                      << "\"abi\":" << Json(output.abiTag)
-                      << "}";
-        }
-        std::cout << "],";
+        std::cout << "\"environment\":{\"variables\":";
+        WriteGraphEnvironmentEntries(std::cout, graph.environment, false);
+        std::cout << "},";
 
-        std::cout << "\"publish\":[";
-        for (std::size_t index = 0; index < effectivePublishes.size(); ++index)
-        {
-            const auto &publish = effectivePublishes[index];
-            if (index > 0)
-            {
-                std::cout << ",";
-            }
-            std::cout << "{"
-                      << "\"name\":" << Json(publish.name) << ","
-                      << "\"kind\":" << Json(publish.kind) << ","
-                      << "\"format\":" << Json(publish.format) << ","
-                      << "\"output\":" << Json(publish.output)
-                      << "}";
-        }
-        std::cout << "],";
+        std::cout << "\"launch\":";
+        WriteGraphLaunch(std::cout, graph.launch, false);
+        std::cout << ",";
 
-        std::cout << "\"quality\":{\"analyzers\":[";
-        bool firstAnalyzer = true;
-        for (const auto &[_, analyzer] : effectiveAnalyzers)
-        {
-            if (!analyzer.enabled)
-            {
-                continue;
-            }
-            if (!firstAnalyzer)
-            {
-                std::cout << ",";
-            }
-            firstAnalyzer = false;
-            std::cout << "{"
-                      << "\"name\":" << Json(analyzer.name) << ","
-                      << "\"scope\":" << Json(analyzer.scope) << ","
-                      << "\"severity\":" << Json(analyzer.severity) << ","
-                      << "\"configPath\":" << Json(analyzer.configPath)
-                      << "}";
-        }
-        std::cout << "]},";
+        std::cout << "\"packageOutputs\":";
+        WriteGraphPackageOutputs(std::cout, graph.packageOutputs, false);
+        std::cout << ",";
+
+        std::cout << "\"publish\":";
+        WriteGraphPublishes(std::cout, graph.publishes, false);
+        std::cout << ",";
+
+        std::cout << "\"quality\":{\"analyzers\":";
+        WriteGraphAnalyzers(std::cout, graph.analyzers, false);
+        std::cout << "},";
 
         std::cout << "\"diagnostics\":";
         writeDiagnostics(resolvedResult.diagnostics);
@@ -4832,8 +4977,8 @@ namespace NGIN::CLI
         const DiagnosticResult<ResolvedLaunch> &resolvedResult,
         const std::string &plan) -> void
     {
+        const auto graph = BuildCompositionGraph(invocation, resolvedResult);
         const auto *resolved = resolvedResult.value.has_value() ? &*resolvedResult.value : nullptr;
-        const auto productKind = invocation.project.productKind.empty() ? invocation.project.type : invocation.project.productKind;
         auto writeDiagnostics = [&](const DiagnosticReport &diagnostics)
         {
             std::cout << "[";
@@ -4857,11 +5002,11 @@ namespace NGIN::CLI
         std::cout << "  \"schemaVersion\": \"4.0\",\n";
         std::cout << "  \"kind\": \"NGIN.CompositionGraphPlan\",\n";
         std::cout << "  \"plan\": " << Json(plan) << ",\n";
-        std::cout << "  \"state\": " << Json(resolved == nullptr || resolvedResult.diagnostics.HasErrors() ? "diagnostic" : "resolved") << ",\n";
+        std::cout << "  \"state\": " << Json(graph.state) << ",\n";
         std::cout << "  \"identity\": {"
-                  << "\"project\":" << Json(invocation.project.name) << ","
-                  << "\"product\":" << Json(productKind) << ","
-                  << "\"profile\":" << Json(invocation.profile.name)
+                  << "\"project\":" << Json(graph.identity.project) << ","
+                  << "\"product\":" << Json(graph.identity.product) << ","
+                  << "\"profile\":" << Json(graph.identity.profile)
                   << "},\n";
         std::cout << "  \"data\": ";
 
@@ -4876,36 +5021,13 @@ namespace NGIN::CLI
 
         if (plan == "stage")
         {
-            std::cout << "{\"files\":[";
-            bool first = true;
-            for (const auto &input : resolved->inputs)
-            {
-                if (input.stagedRelativePath.empty())
-                {
-                    continue;
-                }
-                if (!first)
-                {
-                    std::cout << ",";
-                }
-                first = false;
-                std::cout << "{"
-                          << "\"kind\":" << Json(input.contentKind.empty() ? input.kind : input.contentKind) << ","
-                          << "\"source\":" << JsonPath(input.absoluteSourcePath) << ","
-                          << "\"target\":" << JsonPath(input.stagedRelativePath) << ","
-                          << "\"owner\":" << Json(input.ownerKind + ":" + input.ownerName)
-                          << "}";
-            }
-            std::cout << "]}";
+            std::cout << "{\"files\":";
+            WriteGraphStageFiles(std::cout, graph.stageFiles, true);
+            std::cout << "}";
         }
         else if (plan == "launch")
         {
-            std::cout << "{"
-                      << "\"name\":" << Json(resolved->profile.launch.name) << ","
-                      << "\"executable\":" << Json(resolved->selectedExecutable.has_value() ? resolved->selectedExecutable->name : "") << ","
-                      << "\"workingDirectory\":" << Json(resolved->profile.launch.workingDirectory) << ","
-                      << "\"args\":" << Json(resolved->profile.launch.args)
-                      << "}";
+            WriteGraphLaunch(std::cout, graph.launch, true);
         }
         else if (plan == "package")
         {
@@ -4949,124 +5071,31 @@ namespace NGIN::CLI
         }
         else if (plan == "package-output")
         {
-            std::cout << "{\"packageOutputs\":[";
-            for (std::size_t index = 0; index < invocation.project.packageOutputs.size(); ++index)
-            {
-                const auto &output = invocation.project.packageOutputs[index];
-                if (index > 0)
-                {
-                    std::cout << ",";
-                }
-                std::cout << "{"
-                          << "\"name\":" << Json(output.name) << ","
-                          << "\"version\":" << Json(output.version) << ","
-                          << "\"from\":" << Json(output.from) << ","
-                          << "\"description\":" << Json(output.description) << ","
-                          << "\"license\":" << Json(output.license) << ","
-                          << "\"headers\":" << output.headers.size() << ","
-                          << "\"libraries\":" << output.libraries.size() << ","
-                          << "\"tools\":" << output.tools.size() << ","
-                          << "\"capabilities\":" << output.capabilities.size() << ","
-                          << "\"abi\":" << Json(output.abiTag)
-                          << "}";
-            }
-            std::cout << "]}";
+            std::cout << "{\"packageOutputs\":";
+            WriteGraphPackageOutputs(std::cout, graph.packageOutputs, true);
+            std::cout << "}";
         }
         else if (plan == "runtime")
         {
-            std::cout << "{\"requiredModules\":[";
-            for (std::size_t index = 0; index < resolved->requiredModules.size(); ++index)
-            {
-                if (index > 0)
-                {
-                    std::cout << ",";
-                }
-                std::cout << Json(resolved->requiredModules[index]);
-            }
-            std::cout << "],\"optionalModules\":[";
-            for (std::size_t index = 0; index < resolved->optionalModules.size(); ++index)
-            {
-                if (index > 0)
-                {
-                    std::cout << ",";
-                }
-                std::cout << Json(resolved->optionalModules[index]);
-            }
-            std::cout << "],\"plugins\":[";
-            for (std::size_t index = 0; index < resolved->enabledPlugins.size(); ++index)
-            {
-                if (index > 0)
-                {
-                    std::cout << ",";
-                }
-                std::cout << Json(resolved->enabledPlugins[index]);
-            }
-            std::cout << "]}";
+            WriteGraphRuntime(std::cout, graph, true);
         }
         else if (plan == "environment")
         {
-            std::cout << "{\"variables\":[";
-            for (std::size_t index = 0; index < resolved->environmentVariables.size(); ++index)
-            {
-                const auto &variable = resolved->environmentVariables[index];
-                if (index > 0)
-                {
-                    std::cout << ",";
-                }
-                std::cout << "{"
-                          << "\"name\":" << Json(variable.name) << ","
-                          << "\"value\":" << Json(variable.secret ? "<redacted>" : variable.value) << ","
-                          << "\"secret\":" << (variable.secret ? "true" : "false") << ","
-                          << "\"resolved\":" << (variable.resolved ? "true" : "false") << ","
-                          << "\"source\":" << Json(variable.resolvedSource)
-                          << "}";
-            }
-            std::cout << "]}";
+            std::cout << "{\"variables\":";
+            WriteGraphEnvironmentEntries(std::cout, graph.environment, true);
+            std::cout << "}";
         }
         else if (plan == "publish")
         {
-            const auto publishes = EffectivePublishes(invocation.project, invocation.profile);
-            std::cout << "{\"publishes\":[";
-            for (std::size_t index = 0; index < publishes.size(); ++index)
-            {
-                const auto &publish = publishes[index];
-                if (index > 0)
-                {
-                    std::cout << ",";
-                }
-                std::cout << "{"
-                          << "\"name\":" << Json(publish.name) << ","
-                          << "\"kind\":" << Json(publish.kind) << ","
-                          << "\"format\":" << Json(publish.format) << ","
-                          << "\"output\":" << Json(publish.output)
-                          << "}";
-            }
-            std::cout << "]}";
+            std::cout << "{\"publishes\":";
+            WriteGraphPublishes(std::cout, graph.publishes, true);
+            std::cout << "}";
         }
         else if (plan == "quality")
         {
-            const auto analyzers = EffectiveAnalyzers(invocation.project, invocation.profile);
-            std::cout << "{\"analyzers\":[";
-            bool first = true;
-            for (const auto &[_, analyzer] : analyzers)
-            {
-                if (!analyzer.enabled)
-                {
-                    continue;
-                }
-                if (!first)
-                {
-                    std::cout << ",";
-                }
-                first = false;
-                std::cout << "{"
-                          << "\"name\":" << Json(analyzer.name) << ","
-                          << "\"scope\":" << Json(analyzer.scope) << ","
-                          << "\"severity\":" << Json(analyzer.severity) << ","
-                          << "\"configPath\":" << Json(analyzer.configPath)
-                          << "}";
-            }
-            std::cout << "]}";
+            std::cout << "{\"analyzers\":";
+            WriteGraphAnalyzers(std::cout, graph.analyzers, true);
+            std::cout << "}";
         }
         else
         {
@@ -5165,23 +5194,18 @@ namespace NGIN::CLI
             PrintDiagnostics(resolved.diagnostics, "Graph", std::cout);
             return 1;
         }
+        const auto graph = BuildCompositionGraph(invocation, resolved);
         if (args.graphPlan == "stage")
         {
-            std::cout << "Stage plan for profile: " << resolved.value->profile.name << "\n";
-            bool any = false;
-            for (const auto &input : resolved.value->inputs)
+            std::cout << "Stage plan for profile: " << graph.identity.profile << "\n";
+            for (const auto &file : graph.stageFiles)
             {
-                if (input.stagedRelativePath.empty())
-                {
-                    continue;
-                }
-                any = true;
-                std::cout << "  - " << input.stagedRelativePath.generic_string()
-                          << " <- " << input.source
-                          << " [" << (input.contentKind.empty() ? input.kind : input.contentKind) << "]"
-                          << " owner=" << input.ownerKind << ":" << input.ownerName << "\n";
+                std::cout << "  - " << file.target.generic_string()
+                          << " <- " << file.source.generic_string()
+                          << " [" << file.kind << "]"
+                          << " owner=" << file.owner << "\n";
             }
-            if (!any)
+            if (graph.stageFiles.empty())
             {
                 std::cout << "  (none)\n";
             }
@@ -5189,12 +5213,11 @@ namespace NGIN::CLI
         }
         if (args.graphPlan == "launch")
         {
-            std::cout << "Launch plan for profile: " << resolved.value->profile.name << "\n";
-            std::cout << "  name: " << (resolved.value->profile.launch.name.empty() ? "(default)" : resolved.value->profile.launch.name) << "\n";
-            std::cout << "  executable: "
-                      << (resolved.value->selectedExecutable.has_value() ? resolved.value->selectedExecutable->name : "(none)") << "\n";
-            std::cout << "  workingDirectory: " << resolved.value->profile.launch.workingDirectory << "\n";
-            std::cout << "  args: " << resolved.value->profile.launch.args << "\n";
+            std::cout << "Launch plan for profile: " << graph.identity.profile << "\n";
+            std::cout << "  name: " << (graph.launch.name.empty() ? "(default)" : graph.launch.name) << "\n";
+            std::cout << "  executable: " << (graph.launch.executable.empty() ? "(none)" : graph.launch.executable) << "\n";
+            std::cout << "  workingDirectory: " << graph.launch.workingDirectory << "\n";
+            std::cout << "  args: " << graph.launch.args << "\n";
             return 0;
         }
         if (args.graphPlan == "package")
@@ -5233,12 +5256,12 @@ namespace NGIN::CLI
         }
         if (args.graphPlan == "package-output")
         {
-            std::cout << "Package output plan for profile: " << resolved.value->profile.name << "\n";
-            if (invocation.project.packageOutputs.empty())
+            std::cout << "Package output plan for profile: " << graph.identity.profile << "\n";
+            if (graph.packageOutputs.empty())
             {
                 std::cout << "  package outputs: (none)\n";
             }
-            for (const auto &output : invocation.project.packageOutputs)
+            for (const auto &output : graph.packageOutputs)
             {
                 std::cout << "  package-output " << output.name
                           << " version=" << output.version;
@@ -5246,59 +5269,55 @@ namespace NGIN::CLI
                 {
                     std::cout << " from=" << output.from;
                 }
-                if (!output.abiTag.empty())
+                if (!output.abi.empty())
                 {
-                    std::cout << " abi=" << output.abiTag;
+                    std::cout << " abi=" << output.abi;
                 }
                 std::cout << "\n";
-                std::cout << "    headers=" << output.headers.size()
-                          << " libraries=" << output.libraries.size()
-                          << " tools=" << output.tools.size()
-                          << " capabilities=" << output.capabilities.size() << "\n";
+                std::cout << "    headers=" << output.headers
+                          << " libraries=" << output.libraries
+                          << " tools=" << output.tools
+                          << " capabilities=" << output.capabilities << "\n";
             }
             return 0;
         }
         if (args.graphPlan == "runtime")
         {
-            std::cout << "Runtime plan for profile: " << resolved.value->profile.name << "\n";
-            if (resolved.value->requiredModules.empty() && resolved.value->optionalModules.empty())
+            std::cout << "Runtime plan for profile: " << graph.identity.profile << "\n";
+            if (graph.runtimeModules.empty())
             {
                 std::cout << "  modules: (none)\n";
             }
-            for (const auto &module : resolved.value->requiredModules)
+            for (const auto &module : graph.runtimeModules)
             {
-                std::cout << "  required module " << module << "\n";
+                std::cout << "  " << module.selection << " module " << module.name << "\n";
             }
-            for (const auto &module : resolved.value->optionalModules)
-            {
-                std::cout << "  optional module " << module << "\n";
-            }
-            if (resolved.value->enabledPlugins.empty())
+            if (graph.runtimePlugins.empty())
             {
                 std::cout << "  plugins: (none)\n";
             }
-            for (const auto &plugin : resolved.value->enabledPlugins)
+            for (const auto &plugin : graph.runtimePlugins)
             {
-                std::cout << "  plugin " << plugin << "\n";
+                std::cout << "  plugin " << plugin.name << "\n";
             }
             return 0;
         }
         if (args.graphPlan == "environment")
         {
-            std::cout << "Environment plan for profile: " << resolved.value->profile.name << "\n";
-            if (resolved.value->environmentVariables.empty())
+            std::cout << "Environment plan for profile: " << graph.identity.profile << "\n";
+            if (graph.environment.empty())
             {
                 std::cout << "  variables: (none)\n";
             }
-            for (const auto &variable : resolved.value->environmentVariables)
+            for (const auto &variable : graph.environment)
             {
                 std::cout << "  env " << variable.name
-                          << "=" << (variable.secret ? "<redacted>" : variable.value)
+                          << "=" << variable.value
                           << " secret=" << (variable.secret ? "true" : "false")
                           << " resolved=" << (variable.resolved ? "true" : "false");
-                if (!variable.resolvedSource.empty())
+                if (!variable.source.empty())
                 {
-                    std::cout << " source=" << variable.resolvedSource;
+                    std::cout << " source=" << variable.source;
                 }
                 std::cout << "\n";
             }
@@ -5306,13 +5325,12 @@ namespace NGIN::CLI
         }
         if (args.graphPlan == "publish")
         {
-            const auto publishes = EffectivePublishes(resolved.value->project, resolved.value->profile);
-            std::cout << "Publish plan for profile: " << resolved.value->profile.name << "\n";
-            if (publishes.empty())
+            std::cout << "Publish plan for profile: " << graph.identity.profile << "\n";
+            if (graph.publishes.empty())
             {
                 std::cout << "  publishes: (none)\n";
             }
-            for (const auto &publish : publishes)
+            for (const auto &publish : graph.publishes)
             {
                 std::cout << "  publish " << publish.name
                           << " kind=" << publish.kind
@@ -5330,16 +5348,9 @@ namespace NGIN::CLI
         }
         if (args.graphPlan == "quality")
         {
-            const auto analyzers = EffectiveAnalyzers(resolved.value->project, resolved.value->profile);
-            std::cout << "Quality plan for profile: " << resolved.value->profile.name << "\n";
-            bool any = false;
-            for (const auto &[_, analyzer] : analyzers)
+            std::cout << "Quality plan for profile: " << graph.identity.profile << "\n";
+            for (const auto &analyzer : graph.analyzers)
             {
-                if (!analyzer.enabled)
-                {
-                    continue;
-                }
-                any = true;
                 std::cout << "  analyzer " << analyzer.name
                           << " scope=" << analyzer.scope
                           << " severity=" << analyzer.severity;
@@ -5349,7 +5360,7 @@ namespace NGIN::CLI
                 }
                 std::cout << "\n";
             }
-            if (!any)
+            if (graph.analyzers.empty())
             {
                 std::cout << "  analyzers: (none)\n";
             }

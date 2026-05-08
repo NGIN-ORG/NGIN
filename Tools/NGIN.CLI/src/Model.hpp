@@ -822,6 +822,49 @@ namespace NGIN::CLI
             Provenance provenance{};
         };
 
+        struct RuntimeModule
+        {
+            std::string name{};
+            std::string selection{};
+            Provenance provenance{};
+        };
+
+        struct RuntimePlugin
+        {
+            std::string name{};
+            Provenance provenance{};
+        };
+
+        struct Launch
+        {
+            std::string name{};
+            std::string executable{};
+            std::string workingDirectory{};
+            std::string args{};
+            Provenance provenance{};
+        };
+
+        struct Publish
+        {
+            std::string name{};
+            std::string kind{};
+            std::string format{};
+            std::string output{};
+            bool includeStage{};
+            bool includeRuntimeDependencies{};
+            bool includeSymbols{};
+            Provenance provenance{};
+        };
+
+        struct QualityAnalyzer
+        {
+            std::string name{};
+            std::string scope{};
+            std::string severity{};
+            std::string configPath{};
+            Provenance provenance{};
+        };
+
         std::string schemaVersion{"4.0"};
         std::string kind{"NGIN.CompositionGraph"};
         std::string state{"resolved"};
@@ -835,6 +878,11 @@ namespace NGIN::CLI
         std::vector<StageFile> stageFiles{};
         std::vector<EnvironmentEntry> environment{};
         std::vector<PackageOutput> packageOutputs{};
+        std::vector<RuntimeModule> runtimeModules{};
+        std::vector<RuntimePlugin> runtimePlugins{};
+        Launch launch{};
+        std::vector<Publish> publishes{};
+        std::vector<QualityAnalyzer> analyzers{};
     };
 
     struct GeneratedLaunchPaths
