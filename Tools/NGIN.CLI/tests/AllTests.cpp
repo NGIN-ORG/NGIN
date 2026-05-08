@@ -521,6 +521,9 @@ TEST_CASE("V4 inspect emits product identity")
     REQUIRE_THAT(json, ContainsSubstring(R"("identity":{"project":"Hello.Native","product":"Application","profile":"dev"})"));
     REQUIRE_THAT(json, ContainsSubstring(R"("conventions":[)"));
     REQUIRE_THAT(json, ContainsSubstring(R"("name":"NGIN.Cpp.Defaults")"));
+    REQUIRE_THAT(json, ContainsSubstring(R"("properties":[)"));
+    REQUIRE_THAT(json, ContainsSubstring(R"("sourceKind":"convention")"));
+    REQUIRE_THAT(json, ContainsSubstring(R"("reason":"selected by named language convention")"));
     REQUIRE_THAT(json, ContainsSubstring(R"("selection":{"profile":"dev","hostPlatform":"host","targetPlatform":"linux-x64")"));
     REQUIRE_THAT(json, ContainsSubstring(R"("facetsSummary":)"));
     REQUIRE_THAT(json, ContainsSubstring(R"("sources":1)"));
@@ -2075,6 +2078,7 @@ TEST_CASE("V4 explain object syntax answers resolved graph objects")
     REQUIRE_THAT(explain("property:Toolchain"), ContainsSubstring("value: clang-lld"));
     REQUIRE_THAT(explain("property:Language"), ContainsSubstring("convention: NGIN.Cpp.Defaults"));
     REQUIRE_THAT(explain("convention:NGIN.Cpp.Defaults"), ContainsSubstring("reason: project did not declare a language override"));
+    REQUIRE_THAT(explain("convention:NGIN.Cpp.Defaults"), ContainsSubstring("provenance: convention NGIN.Cpp.Defaults"));
     REQUIRE_THAT(explain("define:EXPLAIN_APP"), ContainsSubstring("value: EXPLAIN_APP=1"));
     REQUIRE_THAT(explain("source:src/main.cpp"), ContainsSubstring("role: Source"));
     REQUIRE_THAT(explain("stage:config/app.json"), ContainsSubstring("source: config/app.json"));
@@ -2176,6 +2180,9 @@ TEST_CASE("V4 graph plan switches print focused resolved plans")
     REQUIRE_THAT(captured.str(), ContainsSubstring(R"("product":"Application","profile":"dev")"));
     REQUIRE_THAT(captured.str(), ContainsSubstring(R"("conventions": [)"));
     REQUIRE_THAT(captured.str(), ContainsSubstring(R"("name":"NGIN.Cpp.Defaults")"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("properties": [)"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("sourceKind":"convention")"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("sourceKind":"project","sourceName":"Plan.App")"));
     REQUIRE_THAT(captured.str(), ContainsSubstring(R"("plans": {)"));
     REQUIRE_THAT(captured.str(), ContainsSubstring(R"("packageOutputs":[{"name":"Plan.App")"));
     REQUIRE_THAT(captured.str(), ContainsSubstring(R"("stage":{"files":[)"));

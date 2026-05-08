@@ -723,6 +723,120 @@ namespace NGIN::CLI
         std::optional<ExecutableArtifact> selectedExecutable{};
     };
 
+    struct CompositionGraph
+    {
+        struct Identity
+        {
+            std::string project{};
+            fs::path projectPath{};
+            std::string product{};
+            std::string profile{};
+        };
+
+        struct Product
+        {
+            std::string kind{};
+            std::string outputType{};
+            std::string outputName{};
+            std::string targetName{};
+        };
+
+        struct Selection
+        {
+            std::string profile{};
+            std::string hostPlatform{};
+            std::string targetPlatform{};
+            std::string operatingSystem{};
+            std::string architecture{};
+            std::string toolchain{};
+            std::string environment{};
+            std::string abiTag{};
+        };
+
+        struct Provenance
+        {
+            std::string sourceKind{};
+            std::string sourceName{};
+            fs::path manifestPath{};
+            std::string reason{};
+        };
+
+        struct Convention
+        {
+            std::string name{};
+            std::string reason{};
+            Provenance provenance{};
+        };
+
+        struct Property
+        {
+            std::string name{};
+            std::string value{};
+            Provenance provenance{};
+        };
+
+        struct Summary
+        {
+            std::size_t packages{};
+            std::size_t packageFeatures{};
+            std::size_t sources{};
+            std::size_t headers{};
+            std::size_t generators{};
+            std::size_t stagedFiles{};
+            std::size_t runtimeModules{};
+            std::size_t environmentVariables{};
+            std::size_t publishes{};
+            std::size_t analyzers{};
+            std::size_t diagnostics{};
+        };
+
+        struct StageFile
+        {
+            std::string kind{};
+            fs::path source{};
+            fs::path target{};
+            std::string owner{};
+            Provenance provenance{};
+        };
+
+        struct EnvironmentEntry
+        {
+            std::string name{};
+            std::string value{};
+            bool secret{};
+            bool resolved{};
+            std::string source{};
+            Provenance provenance{};
+        };
+
+        struct PackageOutput
+        {
+            std::string name{};
+            std::string version{};
+            std::string from{};
+            std::size_t headers{};
+            std::size_t libraries{};
+            std::size_t tools{};
+            std::size_t capabilities{};
+            std::string abi{};
+            Provenance provenance{};
+        };
+
+        std::string schemaVersion{"4.0"};
+        std::string kind{"NGIN.CompositionGraph"};
+        std::string state{"resolved"};
+        std::vector<std::string> facets{};
+        Identity identity{};
+        Product product{};
+        Selection selection{};
+        std::vector<Convention> conventions{};
+        std::vector<Property> properties{};
+        Summary summary{};
+        std::vector<StageFile> stageFiles{};
+        std::vector<EnvironmentEntry> environment{};
+        std::vector<PackageOutput> packageOutputs{};
+    };
+
     struct GeneratedLaunchPaths
     {
         fs::path outputDir{};

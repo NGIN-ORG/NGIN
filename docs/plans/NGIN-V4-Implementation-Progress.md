@@ -303,8 +303,8 @@ Inspect launch output emits the selected launch name and launch arguments.
 Inspect JSON also emits a first-pass `compositionGraph` object with V4 graph
 schema version, resolved state, facet names, selected identity, selected
 profile/platform context, named convention/default contributions, and resolved
-facet summary counts. This is a migration surface, not the final graph JSON
-schema.
+property/default provenance, and resolved facet summary counts. This is a
+migration surface, not the final graph JSON schema.
 
 Inspect JSON includes first-pass quality analyzer metadata under
 `quality.analyzers` so editor and tooling consumers can see V4 analyzer plans
@@ -521,11 +521,18 @@ declarations, and quality analyzer declarations.
 
 `ngin graph --format json` now emits a graph-native top-level
 `NGIN.CompositionGraph` JSON envelope with `schemaVersion: "4.0"`, identity,
-selection, named convention/default contributions, facet summary, and
-first-pass plan payloads for package, build, generate, stage, runtime,
-environment, package-output, launch, publish, quality, and diagnostics.
+selection, named convention/default contributions, first-pass property
+provenance, facet summary, and first-pass plan payloads for package, build,
+generate, stage, runtime, environment, package-output, launch, publish,
+quality, and diagnostics.
 `inspect --format json` keeps its compatibility wrapper and embeds the
 first-pass `compositionGraph` marker inside that output.
+
+Internally this output now starts from a first-pass `CompositionGraph` snapshot
+instead of only streaming fields directly from resolver state. The snapshot
+currently owns identity, product, selection, conventions, high-value
+properties, summary counts, staged files, environment entries, package outputs,
+and provenance records for those nodes.
 
 `ngin graph --format json --<plan>-plan` emits a focused
 `NGIN.CompositionGraphPlan` JSON envelope for the selected plan instead of the
@@ -782,6 +789,7 @@ The following are still open and should not be described as complete:
 - final V4 Composition Graph data model
 - graph JSON contract
 - stable named convention graph contributions and final provenance records
+  beyond the first-pass graph snapshot
 - real V4 overlay identity, remove, override, and duplicate diagnostics
 - full host/target dependency closure separation during restore/build
 - full workspace profile stage/runtime/uses overlays and definition-driven

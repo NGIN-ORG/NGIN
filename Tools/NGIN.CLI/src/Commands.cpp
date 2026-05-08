@@ -3025,6 +3025,9 @@ namespace NGIN::CLI
     [[nodiscard]] auto V4NamedConventions(const ProjectManifest &project, const ProfileDefinition &profile, const std::string &productKind)
         -> std::vector<std::pair<std::string, std::string>>;
 
+    [[nodiscard]] auto BuildCompositionGraph(const LoadedInvocation &invocation, const DiagnosticResult<ResolvedLaunch> &resolvedResult)
+        -> CompositionGraph;
+
     auto CmdExplainObject(const fs::path &root, const ParsedArgs &args) -> int
     {
         (void)root;
@@ -3040,6 +3043,7 @@ namespace NGIN::CLI
             PrintDiagnostics(resolved.diagnostics, "Explain", std::cout);
             return 1;
         }
+        const auto graph = BuildCompositionGraph(invocation, resolved);
 
         if (kind == "property")
         {
@@ -3101,24 +3105,23 @@ namespace NGIN::CLI
         if (kind == "convention")
         {
             std::cout << "Convention: " << identity << "\n";
-            const auto productKind = invocation.project.productKind.empty() ? invocation.project.type : invocation.project.productKind;
-            const auto conventions = V4NamedConventions(invocation.project, invocation.profile, productKind);
             const auto conventionIt = std::find_if(
-                conventions.begin(), conventions.end(),
+                graph.conventions.begin(), graph.conventions.end(),
                 [&](const auto &convention)
                 {
-                    return convention.first == identity;
+                    return convention.name == identity;
                 });
-            if (conventionIt == conventions.end())
+            if (conventionIt == graph.conventions.end())
             {
                 std::cout << "  result: not selected\n";
                 return 0;
             }
             std::cout << "  result: selected\n";
-            std::cout << "  reason: " << conventionIt->second << "\n";
-            std::cout << "  project: " << invocation.project.name << "\n";
-            std::cout << "  product: " << productKind << "\n";
-            std::cout << "  profile: " << invocation.profile.name << "\n";
+            std::cout << "  reason: " << conventionIt->reason << "\n";
+            std::cout << "  project: " << graph.identity.project << "\n";
+            std::cout << "  product: " << graph.identity.product << "\n";
+            std::cout << "  profile: " << graph.identity.profile << "\n";
+            std::cout << "  provenance: " << conventionIt->provenance.sourceKind << " " << conventionIt->provenance.sourceName << "\n";
             return 0;
         }
 
@@ -3467,6 +3470,236 @@ namespace NGIN::CLI
         return conventions;
     }
 
+    [[nodiscard]] auto BuildCompositionGraph(const LoadedInvocation &invocation, const DiagnosticResult<ResolvedLaunch> &resolvedResult)
+        -> CompositionGraph
+    {
+        const auto *resolved = resolvedResult.value.has_value() ? &*resolvedResult.value : nullptr;
+        const auto productKind = invocation.project.productKind.empty() ? invocation.project.type : invocation.project.productKind;
+        const auto effectivePublishes = EffectivePublishes(invocation.project, invocation.profile);
+        const auto effectiveAnalyzers = EffectiveAnalyzers(invocation.project, invocation.profile);
+
+        auto projectProvenance = [&](std::string reason) -> CompositionGraph::Provenance
+        {
+            return CompositionGraph::Provenance{
+                .sourceKind = "project",
+                .sourceName = invocation.project.name,
+                .manifestPath = invocation.project.path,
+                .reason = std::move(reason),
+            };
+        };
+        auto profileProvenance = [&](std::string reason) -> CompositionGraph::Provenance
+        {
+            return CompositionGraph::Provenance{
+                .sourceKind = "profile",
+                .sourceName = invocation.profile.name,
+                .manifestPath = invocation.project.path,
+                .reason = std::move(reason),
+            };
+        };
+
+        CompositionGraph graph{};
+        graph.state = resolved == nullptr || resolvedResult.diagnostics.HasErrors() ? "diagnostic" : "resolved";
+        graph.facets = {
+            "identity", "workspace", "project", "product", "profile", "platform", "package", "build", "generate",
+            "stage", "runtime", "environment", "launch", "publish", "quality", "diagnostics", "provenance"};
+        graph.identity = CompositionGraph::Identity{
+            .project = invocation.project.name,
+            .projectPath = invocation.project.path,
+            .product = productKind,
+            .profile = invocation.profile.name,
+        };
+        graph.product = CompositionGraph::Product{
+            .kind = productKind,
+            .outputType = invocation.project.output.kind,
+            .outputName = invocation.project.output.name,
+            .targetName = invocation.project.output.target,
+        };
+        graph.selection = CompositionGraph::Selection{
+            .profile = invocation.profile.name,
+            .hostPlatform = invocation.profile.hostPlatform,
+            .targetPlatform = invocation.profile.platform,
+            .operatingSystem = invocation.profile.operatingSystem,
+            .architecture = invocation.profile.architecture,
+            .toolchain = invocation.profile.toolchain,
+            .environment = invocation.profile.environmentName,
+            .abiTag = resolved == nullptr ? "" : resolved->targetAbiTag,
+        };
+
+        for (const auto &[name, reason] : V4NamedConventions(invocation.project, invocation.profile, productKind))
+        {
+            graph.conventions.push_back(CompositionGraph::Convention{
+                .name = name,
+                .reason = reason,
+                .provenance = CompositionGraph::Provenance{
+                    .sourceKind = "convention",
+                    .sourceName = name,
+                    .manifestPath = invocation.project.path,
+                    .reason = reason,
+                },
+            });
+        }
+
+        graph.properties.push_back(CompositionGraph::Property{
+            .name = "Language",
+            .value = invocation.project.build.language + invocation.project.build.languageStandard,
+            .provenance = invocation.project.build.languageExplicit ? projectProvenance("manifest language override")
+                                                                     : projectProvenance("selected by named language convention"),
+        });
+        graph.properties.push_back(CompositionGraph::Property{
+            .name = "BuildType",
+            .value = invocation.profile.buildType,
+            .provenance = profileProvenance("selected profile build type"),
+        });
+        graph.properties.push_back(CompositionGraph::Property{
+            .name = "HostPlatform",
+            .value = invocation.profile.hostPlatform,
+            .provenance = profileProvenance("selected profile host platform"),
+        });
+        graph.properties.push_back(CompositionGraph::Property{
+            .name = "TargetPlatform",
+            .value = invocation.profile.platform,
+            .provenance = profileProvenance("selected profile target platform"),
+        });
+        graph.properties.push_back(CompositionGraph::Property{
+            .name = "Toolchain",
+            .value = invocation.profile.toolchain,
+            .provenance = profileProvenance("selected profile toolchain"),
+        });
+        graph.properties.push_back(CompositionGraph::Property{
+            .name = "Environment",
+            .value = invocation.profile.environmentName,
+            .provenance = profileProvenance("selected profile environment"),
+        });
+
+        graph.summary.packages = resolved == nullptr ? 0 : resolved->orderedPackages.size();
+        graph.summary.packageFeatures = resolved == nullptr ? 0 : resolved->selectedPackageFeatures.size();
+        graph.summary.generators = resolved == nullptr ? 0 : resolved->generators.size();
+        graph.summary.runtimeModules = resolved == nullptr ? 0 : resolved->requiredModules.size() + resolved->optionalModules.size();
+        graph.summary.environmentVariables = resolved == nullptr ? 0 : resolved->environmentVariables.size();
+        graph.summary.publishes = effectivePublishes.size();
+        graph.summary.diagnostics = resolvedResult.diagnostics.entries.size();
+        for (const auto &[_, analyzer] : effectiveAnalyzers)
+        {
+            if (analyzer.enabled)
+            {
+                ++graph.summary.analyzers;
+            }
+        }
+
+        if (resolved != nullptr)
+        {
+            for (const auto &input : resolved->inputs)
+            {
+                if (input.kind == "Source")
+                {
+                    ++graph.summary.sources;
+                }
+                else if (input.kind == "Header")
+                {
+                    ++graph.summary.headers;
+                }
+                if (!input.stagedRelativePath.empty())
+                {
+                    ++graph.summary.stagedFiles;
+                    graph.stageFiles.push_back(CompositionGraph::StageFile{
+                        .kind = input.contentKind.empty() ? input.kind : input.contentKind,
+                        .source = input.absoluteSourcePath,
+                        .target = input.stagedRelativePath,
+                        .owner = input.ownerKind + ":" + input.ownerName,
+                        .provenance = CompositionGraph::Provenance{
+                            .sourceKind = input.ownerKind,
+                            .sourceName = input.ownerName,
+                            .manifestPath = input.manifestPath,
+                            .reason = "staged file contribution",
+                        },
+                    });
+                }
+            }
+
+            for (const auto &variable : resolved->environmentVariables)
+            {
+                graph.environment.push_back(CompositionGraph::EnvironmentEntry{
+                    .name = variable.name,
+                    .value = variable.secret ? "<redacted>" : variable.value,
+                    .secret = variable.secret,
+                    .resolved = variable.resolved,
+                    .source = variable.resolvedSource,
+                    .provenance = CompositionGraph::Provenance{
+                        .sourceKind = "environment",
+                        .sourceName = variable.name,
+                        .manifestPath = invocation.project.path,
+                        .reason = variable.secret ? "secret environment contribution" : "environment contribution",
+                    },
+                });
+            }
+        }
+
+        for (const auto &output : invocation.project.packageOutputs)
+        {
+            graph.packageOutputs.push_back(CompositionGraph::PackageOutput{
+                .name = output.name,
+                .version = output.version,
+                .from = output.from,
+                .headers = output.headers.size(),
+                .libraries = output.libraries.size(),
+                .tools = output.tools.size(),
+                .capabilities = output.capabilities.size(),
+                .abi = output.abiTag,
+                .provenance = projectProvenance("source product package output"),
+            });
+        }
+
+        return graph;
+    }
+
+    auto WriteGraphProvenance(std::ostream &out, const CompositionGraph::Provenance &provenance) -> void
+    {
+        out << "{"
+            << "\"sourceKind\":" << Json(provenance.sourceKind) << ","
+            << "\"sourceName\":" << Json(provenance.sourceName) << ","
+            << "\"manifestPath\":" << JsonPath(provenance.manifestPath) << ","
+            << "\"reason\":" << Json(provenance.reason)
+            << "}";
+    }
+
+    auto WriteGraphConventions(std::ostream &out, const std::vector<CompositionGraph::Convention> &conventions) -> void
+    {
+        out << "[";
+        for (std::size_t index = 0; index < conventions.size(); ++index)
+        {
+            if (index > 0)
+            {
+                out << ",";
+            }
+            out << "{"
+                << "\"name\":" << Json(conventions[index].name) << ","
+                << "\"reason\":" << Json(conventions[index].reason) << ","
+                << "\"provenance\":";
+            WriteGraphProvenance(out, conventions[index].provenance);
+            out << "}";
+        }
+        out << "]";
+    }
+
+    auto WriteGraphProperties(std::ostream &out, const std::vector<CompositionGraph::Property> &properties) -> void
+    {
+        out << "[";
+        for (std::size_t index = 0; index < properties.size(); ++index)
+        {
+            if (index > 0)
+            {
+                out << ",";
+            }
+            out << "{"
+                << "\"name\":" << Json(properties[index].name) << ","
+                << "\"value\":" << Json(properties[index].value) << ","
+                << "\"provenance\":";
+            WriteGraphProvenance(out, properties[index].provenance);
+            out << "}";
+        }
+        out << "]";
+    }
+
     auto CmdNew(const fs::path &root, const std::string &kind, const std::string &name) -> int
     {
         const auto productKind = ProductKindFromNewKind(kind);
@@ -3512,6 +3745,7 @@ namespace NGIN::CLI
 
         const auto invocation = ResolveInvocation(args);
         const auto resolvedResult = ResolveLaunch(invocation.project, invocation.profile);
+        const auto graph = BuildCompositionGraph(invocation, resolvedResult);
         const auto *resolved = resolvedResult.value.has_value() ? &*resolvedResult.value : nullptr;
         const auto productKind = invocation.project.productKind.empty() ? invocation.project.type : invocation.project.productKind;
         const auto effectivePublishes = EffectivePublishes(invocation.project, invocation.profile);
@@ -3554,8 +3788,6 @@ namespace NGIN::CLI
             }
             return resolved->requiredModules.size() + resolved->optionalModules.size();
         };
-        const auto conventions = V4NamedConventions(invocation.project, invocation.profile, productKind);
-
         auto writeDiagnostics = [&](std::ostream &out, const DiagnosticReport &diagnostics)
         {
             out << "[";
@@ -3578,31 +3810,24 @@ namespace NGIN::CLI
         std::cout << "{\n";
         std::cout << "  \"schemaVersion\": 1,\n";
         std::cout << "  \"compositionGraph\": {"
-                  << "\"schemaVersion\":\"4.0\","
-                  << "\"state\":" << Json(resolved == nullptr || resolvedResult.diagnostics.HasErrors() ? "diagnostic" : "resolved") << ","
+                  << "\"schemaVersion\":" << Json(graph.schemaVersion) << ","
+                  << "\"state\":" << Json(graph.state) << ","
                   << "\"facets\":["
                   << "\"identity\",\"workspace\",\"project\",\"product\",\"profile\",\"platform\","
                   << "\"package\",\"build\",\"generate\",\"stage\",\"runtime\",\"environment\","
                   << "\"launch\",\"publish\",\"quality\",\"diagnostics\",\"provenance\""
                   << "],"
                   << "\"identity\":{"
-                  << "\"project\":" << Json(invocation.project.name) << ","
-                  << "\"product\":" << Json(productKind) << ","
-                  << "\"profile\":" << Json(invocation.profile.name)
+                  << "\"project\":" << Json(graph.identity.project) << ","
+                  << "\"product\":" << Json(graph.identity.product) << ","
+                  << "\"profile\":" << Json(graph.identity.profile)
                   << "},"
-                  << "\"conventions\":[";
-        for (std::size_t index = 0; index < conventions.size(); ++index)
-        {
-            if (index > 0)
-            {
-                std::cout << ",";
-            }
-            std::cout << "{"
-                      << "\"name\":" << Json(conventions[index].first) << ","
-                      << "\"reason\":" << Json(conventions[index].second)
-                      << "}";
-        }
-        std::cout << "],"
+                  << "\"conventions\":";
+        WriteGraphConventions(std::cout, graph.conventions);
+        std::cout << ","
+                  << "\"properties\":";
+        WriteGraphProperties(std::cout, graph.properties);
+        std::cout << ","
                   << "\"selection\":{"
                   << "\"profile\":" << Json(invocation.profile.name) << ","
                   << "\"hostPlatform\":" << Json(invocation.profile.hostPlatform) << ","
@@ -4221,8 +4446,8 @@ namespace NGIN::CLI
 
     auto WriteCompositionGraphJson(const LoadedInvocation &invocation, const DiagnosticResult<ResolvedLaunch> &resolvedResult) -> void
     {
+        const auto graph = BuildCompositionGraph(invocation, resolvedResult);
         const auto *resolved = resolvedResult.value.has_value() ? &*resolvedResult.value : nullptr;
-        const auto productKind = invocation.project.productKind.empty() ? invocation.project.type : invocation.project.productKind;
         const auto effectivePublishes = EffectivePublishes(invocation.project, invocation.profile);
         const auto effectiveAnalyzers = EffectiveAnalyzers(invocation.project, invocation.profile);
 
@@ -4245,104 +4470,60 @@ namespace NGIN::CLI
             std::cout << "]";
         };
 
-        auto countInputs = [&](std::string_view kind) -> std::size_t
-        {
-            if (resolved == nullptr)
-            {
-                return 0;
-            }
-            return static_cast<std::size_t>(std::count_if(
-                resolved->inputs.begin(),
-                resolved->inputs.end(),
-                [&](const ResolvedInput &input)
-                {
-                    return input.kind == kind;
-                }));
-        };
-        auto countStagedFiles = [&]() -> std::size_t
-        {
-            if (resolved == nullptr)
-            {
-                return 0;
-            }
-            return static_cast<std::size_t>(std::count_if(
-                resolved->inputs.begin(),
-                resolved->inputs.end(),
-                [](const ResolvedInput &input)
-                {
-                    return !input.stagedRelativePath.empty();
-                }));
-        };
-        auto activeAnalyzerCount = [&]() -> std::size_t
-        {
-            std::size_t count = 0;
-            for (const auto &[_, analyzer] : effectiveAnalyzers)
-            {
-                if (analyzer.enabled)
-                {
-                    ++count;
-                }
-            }
-            return count;
-        };
-
         std::cout << "{\n";
-        std::cout << "  \"schemaVersion\": \"4.0\",\n";
-        std::cout << "  \"kind\": \"NGIN.CompositionGraph\",\n";
-        std::cout << "  \"state\": " << Json(resolved == nullptr || resolvedResult.diagnostics.HasErrors() ? "diagnostic" : "resolved") << ",\n";
-        std::cout << "  \"facets\": ["
-                  << "\"identity\",\"workspace\",\"project\",\"product\",\"profile\",\"platform\","
-                  << "\"package\",\"build\",\"generate\",\"stage\",\"runtime\",\"environment\","
-                  << "\"launch\",\"publish\",\"quality\",\"diagnostics\",\"provenance\""
-                  << "],\n";
-        std::cout << "  \"identity\": {"
-                  << "\"project\":" << Json(invocation.project.name) << ","
-                  << "\"projectPath\":" << JsonPath(invocation.project.path) << ","
-                  << "\"product\":" << Json(productKind) << ","
-                  << "\"profile\":" << Json(invocation.profile.name)
-                  << "},\n";
-        const auto conventions = V4NamedConventions(invocation.project, invocation.profile, productKind);
-        std::cout << "  \"conventions\": [";
-        for (std::size_t index = 0; index < conventions.size(); ++index)
+        std::cout << "  \"schemaVersion\": " << Json(graph.schemaVersion) << ",\n";
+        std::cout << "  \"kind\": " << Json(graph.kind) << ",\n";
+        std::cout << "  \"state\": " << Json(graph.state) << ",\n";
+        std::cout << "  \"facets\": [";
+        for (std::size_t index = 0; index < graph.facets.size(); ++index)
         {
             if (index > 0)
             {
                 std::cout << ",";
             }
-            std::cout << "{"
-                      << "\"name\":" << Json(conventions[index].first) << ","
-                      << "\"reason\":" << Json(conventions[index].second)
-                      << "}";
+            std::cout << Json(graph.facets[index]);
         }
         std::cout << "],\n";
+        std::cout << "  \"identity\": {"
+                  << "\"project\":" << Json(graph.identity.project) << ","
+                  << "\"projectPath\":" << JsonPath(graph.identity.projectPath) << ","
+                  << "\"product\":" << Json(graph.identity.product) << ","
+                  << "\"profile\":" << Json(graph.identity.profile)
+                  << "},\n";
+        std::cout << "  \"conventions\": ";
+        WriteGraphConventions(std::cout, graph.conventions);
+        std::cout << ",\n";
+        std::cout << "  \"properties\": ";
+        WriteGraphProperties(std::cout, graph.properties);
+        std::cout << ",\n";
         std::cout << "  \"product\": {"
-                  << "\"kind\":" << Json(productKind) << ","
-                  << "\"outputType\":" << Json(invocation.project.output.kind) << ","
-                  << "\"outputName\":" << Json(invocation.project.output.name) << ","
-                  << "\"targetName\":" << Json(invocation.project.output.target)
+                  << "\"kind\":" << Json(graph.product.kind) << ","
+                  << "\"outputType\":" << Json(graph.product.outputType) << ","
+                  << "\"outputName\":" << Json(graph.product.outputName) << ","
+                  << "\"targetName\":" << Json(graph.product.targetName)
                   << "},\n";
         std::cout << "  \"selection\": {"
-                  << "\"profile\":" << Json(invocation.profile.name) << ","
-                  << "\"hostPlatform\":" << Json(invocation.profile.hostPlatform) << ","
-                  << "\"targetPlatform\":" << Json(invocation.profile.platform) << ","
-                  << "\"operatingSystem\":" << Json(invocation.profile.operatingSystem) << ","
-                  << "\"architecture\":" << Json(invocation.profile.architecture) << ","
-                  << "\"toolchain\":" << Json(invocation.profile.toolchain) << ","
-                  << "\"environment\":" << Json(invocation.profile.environmentName) << ","
-                  << "\"abiTag\":" << Json(resolved == nullptr ? "" : resolved->targetAbiTag)
+                  << "\"profile\":" << Json(graph.selection.profile) << ","
+                  << "\"hostPlatform\":" << Json(graph.selection.hostPlatform) << ","
+                  << "\"targetPlatform\":" << Json(graph.selection.targetPlatform) << ","
+                  << "\"operatingSystem\":" << Json(graph.selection.operatingSystem) << ","
+                  << "\"architecture\":" << Json(graph.selection.architecture) << ","
+                  << "\"toolchain\":" << Json(graph.selection.toolchain) << ","
+                  << "\"environment\":" << Json(graph.selection.environment) << ","
+                  << "\"abiTag\":" << Json(graph.selection.abiTag)
                   << "},\n";
         std::cout << "  \"facetsSummary\": {"
-                  << "\"packages\":" << (resolved == nullptr ? 0 : resolved->orderedPackages.size()) << ","
-                  << "\"packageFeatures\":" << (resolved == nullptr ? 0 : resolved->selectedPackageFeatures.size()) << ","
-                  << "\"sources\":" << countInputs("Source") << ","
-                  << "\"headers\":" << countInputs("Header") << ","
-                  << "\"generators\":" << (resolved == nullptr ? 0 : resolved->generators.size()) << ","
-                  << "\"stagedFiles\":" << countStagedFiles() << ","
-                  << "\"runtimeModules\":" << (resolved == nullptr ? 0 : resolved->requiredModules.size() + resolved->optionalModules.size()) << ","
-                  << "\"environmentVariables\":" << (resolved == nullptr ? 0 : resolved->environmentVariables.size()) << ","
-                  << "\"publishes\":" << effectivePublishes.size() << ","
-                  << "\"analyzers\":" << activeAnalyzerCount() << ","
-                  << "\"diagnostics\":" << resolvedResult.diagnostics.entries.size()
+                  << "\"packages\":" << graph.summary.packages << ","
+                  << "\"packageFeatures\":" << graph.summary.packageFeatures << ","
+                  << "\"sources\":" << graph.summary.sources << ","
+                  << "\"headers\":" << graph.summary.headers << ","
+                  << "\"generators\":" << graph.summary.generators << ","
+                  << "\"stagedFiles\":" << graph.summary.stagedFiles << ","
+                  << "\"runtimeModules\":" << graph.summary.runtimeModules << ","
+                  << "\"environmentVariables\":" << graph.summary.environmentVariables << ","
+                  << "\"publishes\":" << graph.summary.publishes << ","
+                  << "\"analyzers\":" << graph.summary.analyzers << ","
+                  << "\"diagnostics\":" << graph.summary.diagnostics
                   << "},\n";
 
         std::cout << "  \"plans\": {";
