@@ -28,7 +28,7 @@ namespace
             << "  restore [--project <file.nginproj>] [--profile <name>] [--output <package-store-dir>] [--locked]\n"
             << "  add package <PackageName> --version <range> [--scope <scope>] [--project <file.nginproj>]\n"
             << "  add project-reference <Path> [--project <file.nginproj>]\n"
-            << "  graph [--project <file.nginproj>] [--profile <name>] [--format json|--build-plan|--stage-plan|--package-plan|--launch-plan|--runtime-plan|--publish-plan|--quality-plan]\n"
+            << "  graph [--project <file.nginproj>] [--profile <name>] [--format json|--build-plan|--stage-plan|--package-plan|--package-output-plan|--launch-plan|--runtime-plan|--environment-plan|--publish-plan|--quality-plan]\n"
             << "  diff [--project <file.nginproj>] --from-profile <name> --to-profile <name>\n"
             << "  diff --from-lock <old-ngin.lock> --to-lock <new-ngin.lock>\n"
             << "  format [--project <file.nginproj|file.ngin|file.nginpkg>]\n"

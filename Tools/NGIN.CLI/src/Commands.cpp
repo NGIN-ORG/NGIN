@@ -1911,6 +1911,10 @@ namespace NGIN::CLI
             {
                 args.graphPlan = "package";
             }
+            else if (current == "--package-output-plan")
+            {
+                args.graphPlan = "package-output";
+            }
             else if (current == "--launch-plan")
             {
                 args.graphPlan = "launch";
@@ -1926,6 +1930,10 @@ namespace NGIN::CLI
             else if (current == "--quality-plan")
             {
                 args.graphPlan = "quality";
+            }
+            else if (current == "--environment-plan")
+            {
+                args.graphPlan = "environment";
             }
             else if (current == "--locked")
             {
@@ -3014,6 +3022,9 @@ namespace NGIN::CLI
         return 0;
     }
 
+    [[nodiscard]] auto V4NamedConventions(const ProjectManifest &project, const ProfileDefinition &profile, const std::string &productKind)
+        -> std::vector<std::pair<std::string, std::string>>;
+
     auto CmdExplainObject(const fs::path &root, const ParsedArgs &args) -> int
     {
         (void)root;
@@ -3037,7 +3048,19 @@ namespace NGIN::CLI
             {
                 std::cout << "  value: " << invocation.project.build.language << "\n";
                 std::cout << "  standard: " << invocation.project.build.languageStandard << "\n";
-                std::cout << "  source: project build defaults or manifest override\n";
+                if (invocation.project.build.languageExplicit)
+                {
+                    std::cout << "  source: manifest override\n";
+                }
+                else
+                {
+                    const auto convention = invocation.project.build.language == "CXX" && invocation.project.build.languageStandard == "23"
+                                                ? "NGIN.Cpp.Defaults"
+                                                : "NGIN.Workspace.LanguageDefaults";
+                    std::cout << "  convention: " << convention << "\n";
+                    std::cout << "  reason: project did not declare Language\n";
+                    std::cout << "  override: <Language Standard=\"C++20\" Required=\"true\" Extensions=\"false\" />\n";
+                }
                 return 0;
             }
             if (identity == "BuildType")
@@ -3073,6 +3096,30 @@ namespace NGIN::CLI
                 return 0;
             }
             throw std::runtime_error("unknown explain property '" + identity + "'");
+        }
+
+        if (kind == "convention")
+        {
+            std::cout << "Convention: " << identity << "\n";
+            const auto productKind = invocation.project.productKind.empty() ? invocation.project.type : invocation.project.productKind;
+            const auto conventions = V4NamedConventions(invocation.project, invocation.profile, productKind);
+            const auto conventionIt = std::find_if(
+                conventions.begin(), conventions.end(),
+                [&](const auto &convention)
+                {
+                    return convention.first == identity;
+                });
+            if (conventionIt == conventions.end())
+            {
+                std::cout << "  result: not selected\n";
+                return 0;
+            }
+            std::cout << "  result: selected\n";
+            std::cout << "  reason: " << conventionIt->second << "\n";
+            std::cout << "  project: " << invocation.project.name << "\n";
+            std::cout << "  product: " << productKind << "\n";
+            std::cout << "  profile: " << invocation.profile.name << "\n";
+            return 0;
         }
 
         if (kind == "define")
@@ -3288,6 +3335,46 @@ namespace NGIN::CLI
             return 0;
         }
 
+        if (kind == "package-output")
+        {
+            std::cout << "Package output: " << identity << "\n";
+            const auto outputIt = std::find_if(
+                invocation.project.packageOutputs.begin(),
+                invocation.project.packageOutputs.end(),
+                [&](const PackageOutputDefinition &output)
+                {
+                    return output.name == identity;
+                });
+            if (outputIt == invocation.project.packageOutputs.end())
+            {
+                std::cout << "  result: not selected\n";
+                return 0;
+            }
+            std::cout << "  result: selected\n";
+            std::cout << "  version: " << outputIt->version << "\n";
+            if (!outputIt->from.empty())
+            {
+                std::cout << "  from: " << outputIt->from << "\n";
+            }
+            if (!outputIt->description.empty())
+            {
+                std::cout << "  description: " << outputIt->description << "\n";
+            }
+            if (!outputIt->license.empty())
+            {
+                std::cout << "  license: " << outputIt->license << "\n";
+            }
+            std::cout << "  headers: " << outputIt->headers.size() << "\n";
+            std::cout << "  libraries: " << outputIt->libraries.size() << "\n";
+            std::cout << "  tools: " << outputIt->tools.size() << "\n";
+            std::cout << "  capabilities: " << outputIt->capabilities.size() << "\n";
+            if (!outputIt->abiTag.empty())
+            {
+                std::cout << "  abi: " << outputIt->abiTag << "\n";
+            }
+            return 0;
+        }
+
         if (kind == "env")
         {
             std::cout << "Environment variable: " << identity << "\n";
@@ -3347,6 +3434,37 @@ namespace NGIN::CLI
         }
 
         throw std::runtime_error("unknown explain object kind '" + kind + "'");
+    }
+
+    [[nodiscard]] auto V4NamedConventions(const ProjectManifest &project, const ProfileDefinition &profile, const std::string &productKind)
+        -> std::vector<std::pair<std::string, std::string>>
+    {
+        std::vector<std::pair<std::string, std::string>> conventions{};
+        if (!productKind.empty())
+        {
+            conventions.emplace_back("NGIN." + productKind, "selected by product kind");
+        }
+        if (!project.build.languageExplicit)
+        {
+            conventions.emplace_back(
+                project.build.language == "CXX" && project.build.languageStandard == "23" ? "NGIN.Cpp.Defaults" : "NGIN.Workspace.LanguageDefaults",
+                "project did not declare a language override");
+        }
+        if (!project.build.backendExplicit)
+        {
+            conventions.emplace_back(
+                project.build.backend == "CMake" && project.build.mode == "Generated" ? "NGIN.CMake.Generated" : "NGIN.Workspace.BackendDefaults",
+                "project did not declare a backend override");
+        }
+        if (!profile.name.empty())
+        {
+            conventions.emplace_back("NGIN.Profile." + profile.name, "selected profile overlay");
+        }
+        if (profile.hostPlatform == "host")
+        {
+            conventions.emplace_back("NGIN.HostPlatform", "host platform alias was selected");
+        }
+        return conventions;
     }
 
     auto CmdNew(const fs::path &root, const std::string &kind, const std::string &name) -> int
@@ -3436,6 +3554,7 @@ namespace NGIN::CLI
             }
             return resolved->requiredModules.size() + resolved->optionalModules.size();
         };
+        const auto conventions = V4NamedConventions(invocation.project, invocation.profile, productKind);
 
         auto writeDiagnostics = [&](std::ostream &out, const DiagnosticReport &diagnostics)
         {
@@ -3471,6 +3590,19 @@ namespace NGIN::CLI
                   << "\"product\":" << Json(productKind) << ","
                   << "\"profile\":" << Json(invocation.profile.name)
                   << "},"
+                  << "\"conventions\":[";
+        for (std::size_t index = 0; index < conventions.size(); ++index)
+        {
+            if (index > 0)
+            {
+                std::cout << ",";
+            }
+            std::cout << "{"
+                      << "\"name\":" << Json(conventions[index].first) << ","
+                      << "\"reason\":" << Json(conventions[index].second)
+                      << "}";
+        }
+        std::cout << "],"
                   << "\"selection\":{"
                   << "\"profile\":" << Json(invocation.profile.name) << ","
                   << "\"hostPlatform\":" << Json(invocation.profile.hostPlatform) << ","
@@ -4087,6 +4219,721 @@ namespace NGIN::CLI
         return resolvedResult.diagnostics.HasErrors() ? 1 : 0;
     }
 
+    auto WriteCompositionGraphJson(const LoadedInvocation &invocation, const DiagnosticResult<ResolvedLaunch> &resolvedResult) -> void
+    {
+        const auto *resolved = resolvedResult.value.has_value() ? &*resolvedResult.value : nullptr;
+        const auto productKind = invocation.project.productKind.empty() ? invocation.project.type : invocation.project.productKind;
+        const auto effectivePublishes = EffectivePublishes(invocation.project, invocation.profile);
+        const auto effectiveAnalyzers = EffectiveAnalyzers(invocation.project, invocation.profile);
+
+        auto writeDiagnostics = [&](const DiagnosticReport &diagnostics)
+        {
+            std::cout << "[";
+            for (std::size_t index = 0; index < diagnostics.entries.size(); ++index)
+            {
+                const auto &entry = diagnostics.entries[index];
+                if (index > 0)
+                {
+                    std::cout << ",";
+                }
+                std::cout << "{"
+                          << "\"severity\":" << Json(entry.severity == DiagnosticSeverity::Error ? "error" : "warning") << ","
+                          << "\"subject\":" << Json(entry.subject) << ","
+                          << "\"message\":" << Json(entry.message)
+                          << "}";
+            }
+            std::cout << "]";
+        };
+
+        auto countInputs = [&](std::string_view kind) -> std::size_t
+        {
+            if (resolved == nullptr)
+            {
+                return 0;
+            }
+            return static_cast<std::size_t>(std::count_if(
+                resolved->inputs.begin(),
+                resolved->inputs.end(),
+                [&](const ResolvedInput &input)
+                {
+                    return input.kind == kind;
+                }));
+        };
+        auto countStagedFiles = [&]() -> std::size_t
+        {
+            if (resolved == nullptr)
+            {
+                return 0;
+            }
+            return static_cast<std::size_t>(std::count_if(
+                resolved->inputs.begin(),
+                resolved->inputs.end(),
+                [](const ResolvedInput &input)
+                {
+                    return !input.stagedRelativePath.empty();
+                }));
+        };
+        auto activeAnalyzerCount = [&]() -> std::size_t
+        {
+            std::size_t count = 0;
+            for (const auto &[_, analyzer] : effectiveAnalyzers)
+            {
+                if (analyzer.enabled)
+                {
+                    ++count;
+                }
+            }
+            return count;
+        };
+
+        std::cout << "{\n";
+        std::cout << "  \"schemaVersion\": \"4.0\",\n";
+        std::cout << "  \"kind\": \"NGIN.CompositionGraph\",\n";
+        std::cout << "  \"state\": " << Json(resolved == nullptr || resolvedResult.diagnostics.HasErrors() ? "diagnostic" : "resolved") << ",\n";
+        std::cout << "  \"facets\": ["
+                  << "\"identity\",\"workspace\",\"project\",\"product\",\"profile\",\"platform\","
+                  << "\"package\",\"build\",\"generate\",\"stage\",\"runtime\",\"environment\","
+                  << "\"launch\",\"publish\",\"quality\",\"diagnostics\",\"provenance\""
+                  << "],\n";
+        std::cout << "  \"identity\": {"
+                  << "\"project\":" << Json(invocation.project.name) << ","
+                  << "\"projectPath\":" << JsonPath(invocation.project.path) << ","
+                  << "\"product\":" << Json(productKind) << ","
+                  << "\"profile\":" << Json(invocation.profile.name)
+                  << "},\n";
+        const auto conventions = V4NamedConventions(invocation.project, invocation.profile, productKind);
+        std::cout << "  \"conventions\": [";
+        for (std::size_t index = 0; index < conventions.size(); ++index)
+        {
+            if (index > 0)
+            {
+                std::cout << ",";
+            }
+            std::cout << "{"
+                      << "\"name\":" << Json(conventions[index].first) << ","
+                      << "\"reason\":" << Json(conventions[index].second)
+                      << "}";
+        }
+        std::cout << "],\n";
+        std::cout << "  \"product\": {"
+                  << "\"kind\":" << Json(productKind) << ","
+                  << "\"outputType\":" << Json(invocation.project.output.kind) << ","
+                  << "\"outputName\":" << Json(invocation.project.output.name) << ","
+                  << "\"targetName\":" << Json(invocation.project.output.target)
+                  << "},\n";
+        std::cout << "  \"selection\": {"
+                  << "\"profile\":" << Json(invocation.profile.name) << ","
+                  << "\"hostPlatform\":" << Json(invocation.profile.hostPlatform) << ","
+                  << "\"targetPlatform\":" << Json(invocation.profile.platform) << ","
+                  << "\"operatingSystem\":" << Json(invocation.profile.operatingSystem) << ","
+                  << "\"architecture\":" << Json(invocation.profile.architecture) << ","
+                  << "\"toolchain\":" << Json(invocation.profile.toolchain) << ","
+                  << "\"environment\":" << Json(invocation.profile.environmentName) << ","
+                  << "\"abiTag\":" << Json(resolved == nullptr ? "" : resolved->targetAbiTag)
+                  << "},\n";
+        std::cout << "  \"facetsSummary\": {"
+                  << "\"packages\":" << (resolved == nullptr ? 0 : resolved->orderedPackages.size()) << ","
+                  << "\"packageFeatures\":" << (resolved == nullptr ? 0 : resolved->selectedPackageFeatures.size()) << ","
+                  << "\"sources\":" << countInputs("Source") << ","
+                  << "\"headers\":" << countInputs("Header") << ","
+                  << "\"generators\":" << (resolved == nullptr ? 0 : resolved->generators.size()) << ","
+                  << "\"stagedFiles\":" << countStagedFiles() << ","
+                  << "\"runtimeModules\":" << (resolved == nullptr ? 0 : resolved->requiredModules.size() + resolved->optionalModules.size()) << ","
+                  << "\"environmentVariables\":" << (resolved == nullptr ? 0 : resolved->environmentVariables.size()) << ","
+                  << "\"publishes\":" << effectivePublishes.size() << ","
+                  << "\"analyzers\":" << activeAnalyzerCount() << ","
+                  << "\"diagnostics\":" << resolvedResult.diagnostics.entries.size()
+                  << "},\n";
+
+        std::cout << "  \"plans\": {";
+        std::cout << "\"packages\":[";
+        if (resolved != nullptr)
+        {
+            for (std::size_t index = 0; index < resolved->orderedPackages.size(); ++index)
+            {
+                const auto &package = resolved->orderedPackages[index];
+                if (index > 0)
+                {
+                    std::cout << ",";
+                }
+                const auto scope = [&]() -> std::string
+                {
+                    if (const auto it = resolved->packageScopes.find(package.manifest.name); it != resolved->packageScopes.end())
+                    {
+                        return it->second;
+                    }
+                    return {};
+                }();
+                const auto closures = PackageClosuresForScope(scope);
+                std::cout << "{"
+                          << "\"name\":" << Json(package.manifest.name) << ","
+                          << "\"version\":" << Json(package.manifest.version) << ","
+                          << "\"source\":" << Json(package.source) << ","
+                          << "\"scope\":" << Json(scope) << ","
+                          << "\"closures\":[";
+                for (std::size_t closureIndex = 0; closureIndex < closures.size(); ++closureIndex)
+                {
+                    if (closureIndex > 0)
+                    {
+                        std::cout << ",";
+                    }
+                    std::cout << Json(closures[closureIndex]);
+                }
+                std::cout << "]}";
+            }
+        }
+        std::cout << "],";
+
+        std::cout << "\"packageFeatures\":[";
+        if (resolved != nullptr)
+        {
+            for (std::size_t index = 0; index < resolved->selectedPackageFeatures.size(); ++index)
+            {
+                const auto &feature = resolved->selectedPackageFeatures[index];
+                if (index > 0)
+                {
+                    std::cout << ",";
+                }
+                std::cout << "{"
+                          << "\"package\":" << Json(feature.packageName) << ","
+                          << "\"feature\":" << Json(feature.featureName) << ","
+                          << "\"packageVersion\":" << Json(feature.packageVersion)
+                          << "}";
+            }
+        }
+        std::cout << "],";
+
+        std::cout << "\"build\":{";
+        std::cout << "\"defines\":[";
+        bool firstDefine = true;
+        if (resolved != nullptr)
+        {
+            for (const auto &unit : resolved->projectUnits)
+            {
+                for (const auto &definition : unit.project.build.compileDefinitions)
+                {
+                    if (!SelectionMatches(unit.project, definition.selectors, unit.profile))
+                    {
+                        continue;
+                    }
+                    if (!firstDefine)
+                    {
+                        std::cout << ",";
+                    }
+                    firstDefine = false;
+                    std::cout << Json(definition.value);
+                }
+            }
+            for (const auto &feature : resolved->selectedPackageFeatures)
+            {
+                for (const auto &definition : feature.build.compileDefinitions)
+                {
+                    if (!firstDefine)
+                    {
+                        std::cout << ",";
+                    }
+                    firstDefine = false;
+                    std::cout << Json(definition.value);
+                }
+            }
+        }
+        std::cout << "],\"inputs\":[";
+        bool firstBuildInput = true;
+        if (resolved != nullptr)
+        {
+            for (const auto &input : resolved->inputs)
+            {
+                if (input.kind != "Source" && input.kind != "Header" && input.kind != "Generated")
+                {
+                    continue;
+                }
+                if (!firstBuildInput)
+                {
+                    std::cout << ",";
+                }
+                firstBuildInput = false;
+                std::cout << "{"
+                          << "\"kind\":" << Json(input.kind) << ","
+                          << "\"role\":" << Json(input.role) << ","
+                          << "\"source\":" << Json(input.source) << ","
+                          << "\"owner\":" << Json(input.ownerKind + ":" + input.ownerName)
+                          << "}";
+            }
+        }
+        std::cout << "]},";
+
+        std::cout << "\"generators\":[";
+        if (resolved != nullptr)
+        {
+            for (std::size_t index = 0; index < resolved->generators.size(); ++index)
+            {
+                const auto &generator = resolved->generators[index];
+                if (index > 0)
+                {
+                    std::cout << ",";
+                }
+                std::cout << "{"
+                          << "\"name\":" << Json(generator.declaration.name) << ","
+                          << "\"owner\":" << Json(generator.ownerKind + ":" + generator.ownerName) << ","
+                          << "\"tool\":" << Json(generator.declaration.toolName) << ","
+                          << "\"outputs\":" << generator.declaration.outputs.size()
+                          << "}";
+            }
+        }
+        std::cout << "],";
+
+        std::cout << "\"stage\":{\"files\":[";
+        bool firstStageFile = true;
+        if (resolved != nullptr)
+        {
+            for (const auto &input : resolved->inputs)
+            {
+                if (input.stagedRelativePath.empty())
+                {
+                    continue;
+                }
+                if (!firstStageFile)
+                {
+                    std::cout << ",";
+                }
+                firstStageFile = false;
+                std::cout << "{"
+                          << "\"kind\":" << Json(input.contentKind.empty() ? input.kind : input.contentKind) << ","
+                          << "\"source\":" << JsonPath(input.absoluteSourcePath) << ","
+                          << "\"target\":" << JsonPath(input.stagedRelativePath)
+                          << "}";
+            }
+        }
+        std::cout << "]},";
+
+        std::cout << "\"runtime\":{"
+                  << "\"requiredModules\":[";
+        if (resolved != nullptr)
+        {
+            for (std::size_t index = 0; index < resolved->requiredModules.size(); ++index)
+            {
+                if (index > 0)
+                {
+                    std::cout << ",";
+                }
+                std::cout << Json(resolved->requiredModules[index]);
+            }
+        }
+        std::cout << "],\"optionalModules\":[";
+        if (resolved != nullptr)
+        {
+            for (std::size_t index = 0; index < resolved->optionalModules.size(); ++index)
+            {
+                if (index > 0)
+                {
+                    std::cout << ",";
+                }
+                std::cout << Json(resolved->optionalModules[index]);
+            }
+        }
+        std::cout << "],\"plugins\":[";
+        if (resolved != nullptr)
+        {
+            for (std::size_t index = 0; index < resolved->enabledPlugins.size(); ++index)
+            {
+                if (index > 0)
+                {
+                    std::cout << ",";
+                }
+                std::cout << Json(resolved->enabledPlugins[index]);
+            }
+        }
+        std::cout << "]},";
+
+        std::cout << "\"environment\":{\"variables\":[";
+        if (resolved != nullptr)
+        {
+            for (std::size_t index = 0; index < resolved->environmentVariables.size(); ++index)
+            {
+                const auto &variable = resolved->environmentVariables[index];
+                if (index > 0)
+                {
+                    std::cout << ",";
+                }
+                std::cout << "{"
+                          << "\"name\":" << Json(variable.name) << ","
+                          << "\"value\":" << Json(variable.secret ? "<redacted>" : variable.value) << ","
+                          << "\"secret\":" << (variable.secret ? "true" : "false")
+                          << "}";
+            }
+        }
+        std::cout << "]},";
+
+        std::cout << "\"launch\":";
+        if (resolved != nullptr)
+        {
+            std::cout << "{"
+                      << "\"name\":" << Json(resolved->profile.launch.name) << ","
+                      << "\"workingDirectory\":" << Json(resolved->profile.launch.workingDirectory) << ","
+                      << "\"args\":" << Json(resolved->profile.launch.args) << ","
+                      << "\"executable\":" << Json(resolved->selectedExecutable.has_value() ? resolved->selectedExecutable->name : "")
+                      << "}";
+        }
+        else
+        {
+            std::cout << "null";
+        }
+        std::cout << ",";
+
+        std::cout << "\"packageOutputs\":[";
+        for (std::size_t index = 0; index < invocation.project.packageOutputs.size(); ++index)
+        {
+            const auto &output = invocation.project.packageOutputs[index];
+            if (index > 0)
+            {
+                std::cout << ",";
+            }
+            std::cout << "{"
+                      << "\"name\":" << Json(output.name) << ","
+                      << "\"version\":" << Json(output.version) << ","
+                      << "\"from\":" << Json(output.from) << ","
+                      << "\"headers\":" << output.headers.size() << ","
+                      << "\"libraries\":" << output.libraries.size() << ","
+                      << "\"tools\":" << output.tools.size() << ","
+                      << "\"capabilities\":" << output.capabilities.size() << ","
+                      << "\"abi\":" << Json(output.abiTag)
+                      << "}";
+        }
+        std::cout << "],";
+
+        std::cout << "\"publish\":[";
+        for (std::size_t index = 0; index < effectivePublishes.size(); ++index)
+        {
+            const auto &publish = effectivePublishes[index];
+            if (index > 0)
+            {
+                std::cout << ",";
+            }
+            std::cout << "{"
+                      << "\"name\":" << Json(publish.name) << ","
+                      << "\"kind\":" << Json(publish.kind) << ","
+                      << "\"format\":" << Json(publish.format) << ","
+                      << "\"output\":" << Json(publish.output)
+                      << "}";
+        }
+        std::cout << "],";
+
+        std::cout << "\"quality\":{\"analyzers\":[";
+        bool firstAnalyzer = true;
+        for (const auto &[_, analyzer] : effectiveAnalyzers)
+        {
+            if (!analyzer.enabled)
+            {
+                continue;
+            }
+            if (!firstAnalyzer)
+            {
+                std::cout << ",";
+            }
+            firstAnalyzer = false;
+            std::cout << "{"
+                      << "\"name\":" << Json(analyzer.name) << ","
+                      << "\"scope\":" << Json(analyzer.scope) << ","
+                      << "\"severity\":" << Json(analyzer.severity) << ","
+                      << "\"configPath\":" << Json(analyzer.configPath)
+                      << "}";
+        }
+        std::cout << "]},";
+
+        std::cout << "\"diagnostics\":";
+        writeDiagnostics(resolvedResult.diagnostics);
+        std::cout << "}\n";
+        std::cout << "}\n";
+    }
+
+    auto WriteCompositionGraphPlanJson(
+        const LoadedInvocation &invocation,
+        const DiagnosticResult<ResolvedLaunch> &resolvedResult,
+        const std::string &plan) -> void
+    {
+        const auto *resolved = resolvedResult.value.has_value() ? &*resolvedResult.value : nullptr;
+        const auto productKind = invocation.project.productKind.empty() ? invocation.project.type : invocation.project.productKind;
+        auto writeDiagnostics = [&](const DiagnosticReport &diagnostics)
+        {
+            std::cout << "[";
+            for (std::size_t index = 0; index < diagnostics.entries.size(); ++index)
+            {
+                const auto &entry = diagnostics.entries[index];
+                if (index > 0)
+                {
+                    std::cout << ",";
+                }
+                std::cout << "{"
+                          << "\"severity\":" << Json(entry.severity == DiagnosticSeverity::Error ? "error" : "warning") << ","
+                          << "\"subject\":" << Json(entry.subject) << ","
+                          << "\"message\":" << Json(entry.message)
+                          << "}";
+            }
+            std::cout << "]";
+        };
+
+        std::cout << "{\n";
+        std::cout << "  \"schemaVersion\": \"4.0\",\n";
+        std::cout << "  \"kind\": \"NGIN.CompositionGraphPlan\",\n";
+        std::cout << "  \"plan\": " << Json(plan) << ",\n";
+        std::cout << "  \"state\": " << Json(resolved == nullptr || resolvedResult.diagnostics.HasErrors() ? "diagnostic" : "resolved") << ",\n";
+        std::cout << "  \"identity\": {"
+                  << "\"project\":" << Json(invocation.project.name) << ","
+                  << "\"product\":" << Json(productKind) << ","
+                  << "\"profile\":" << Json(invocation.profile.name)
+                  << "},\n";
+        std::cout << "  \"data\": ";
+
+        if (resolved == nullptr)
+        {
+            std::cout << "null,\n";
+            std::cout << "  \"diagnostics\": ";
+            writeDiagnostics(resolvedResult.diagnostics);
+            std::cout << "\n}\n";
+            return;
+        }
+
+        if (plan == "stage")
+        {
+            std::cout << "{\"files\":[";
+            bool first = true;
+            for (const auto &input : resolved->inputs)
+            {
+                if (input.stagedRelativePath.empty())
+                {
+                    continue;
+                }
+                if (!first)
+                {
+                    std::cout << ",";
+                }
+                first = false;
+                std::cout << "{"
+                          << "\"kind\":" << Json(input.contentKind.empty() ? input.kind : input.contentKind) << ","
+                          << "\"source\":" << JsonPath(input.absoluteSourcePath) << ","
+                          << "\"target\":" << JsonPath(input.stagedRelativePath) << ","
+                          << "\"owner\":" << Json(input.ownerKind + ":" + input.ownerName)
+                          << "}";
+            }
+            std::cout << "]}";
+        }
+        else if (plan == "launch")
+        {
+            std::cout << "{"
+                      << "\"name\":" << Json(resolved->profile.launch.name) << ","
+                      << "\"executable\":" << Json(resolved->selectedExecutable.has_value() ? resolved->selectedExecutable->name : "") << ","
+                      << "\"workingDirectory\":" << Json(resolved->profile.launch.workingDirectory) << ","
+                      << "\"args\":" << Json(resolved->profile.launch.args)
+                      << "}";
+        }
+        else if (plan == "package")
+        {
+            std::cout << "{\"packages\":[";
+            for (std::size_t index = 0; index < resolved->orderedPackages.size(); ++index)
+            {
+                const auto &package = resolved->orderedPackages[index];
+                if (index > 0)
+                {
+                    std::cout << ",";
+                }
+                const auto scope = [&]() -> std::string
+                {
+                    if (const auto it = resolved->packageScopes.find(package.manifest.name); it != resolved->packageScopes.end())
+                    {
+                        return it->second;
+                    }
+                    return {};
+                }();
+                std::cout << "{"
+                          << "\"name\":" << Json(package.manifest.name) << ","
+                          << "\"version\":" << Json(package.manifest.version) << ","
+                          << "\"source\":" << Json(package.source) << ","
+                          << "\"scope\":" << Json(scope)
+                          << "}";
+            }
+            std::cout << "],\"features\":[";
+            for (std::size_t index = 0; index < resolved->selectedPackageFeatures.size(); ++index)
+            {
+                const auto &feature = resolved->selectedPackageFeatures[index];
+                if (index > 0)
+                {
+                    std::cout << ",";
+                }
+                std::cout << "{"
+                          << "\"package\":" << Json(feature.packageName) << ","
+                          << "\"feature\":" << Json(feature.featureName)
+                          << "}";
+            }
+            std::cout << "]}";
+        }
+        else if (plan == "package-output")
+        {
+            std::cout << "{\"packageOutputs\":[";
+            for (std::size_t index = 0; index < invocation.project.packageOutputs.size(); ++index)
+            {
+                const auto &output = invocation.project.packageOutputs[index];
+                if (index > 0)
+                {
+                    std::cout << ",";
+                }
+                std::cout << "{"
+                          << "\"name\":" << Json(output.name) << ","
+                          << "\"version\":" << Json(output.version) << ","
+                          << "\"from\":" << Json(output.from) << ","
+                          << "\"description\":" << Json(output.description) << ","
+                          << "\"license\":" << Json(output.license) << ","
+                          << "\"headers\":" << output.headers.size() << ","
+                          << "\"libraries\":" << output.libraries.size() << ","
+                          << "\"tools\":" << output.tools.size() << ","
+                          << "\"capabilities\":" << output.capabilities.size() << ","
+                          << "\"abi\":" << Json(output.abiTag)
+                          << "}";
+            }
+            std::cout << "]}";
+        }
+        else if (plan == "runtime")
+        {
+            std::cout << "{\"requiredModules\":[";
+            for (std::size_t index = 0; index < resolved->requiredModules.size(); ++index)
+            {
+                if (index > 0)
+                {
+                    std::cout << ",";
+                }
+                std::cout << Json(resolved->requiredModules[index]);
+            }
+            std::cout << "],\"optionalModules\":[";
+            for (std::size_t index = 0; index < resolved->optionalModules.size(); ++index)
+            {
+                if (index > 0)
+                {
+                    std::cout << ",";
+                }
+                std::cout << Json(resolved->optionalModules[index]);
+            }
+            std::cout << "],\"plugins\":[";
+            for (std::size_t index = 0; index < resolved->enabledPlugins.size(); ++index)
+            {
+                if (index > 0)
+                {
+                    std::cout << ",";
+                }
+                std::cout << Json(resolved->enabledPlugins[index]);
+            }
+            std::cout << "]}";
+        }
+        else if (plan == "environment")
+        {
+            std::cout << "{\"variables\":[";
+            for (std::size_t index = 0; index < resolved->environmentVariables.size(); ++index)
+            {
+                const auto &variable = resolved->environmentVariables[index];
+                if (index > 0)
+                {
+                    std::cout << ",";
+                }
+                std::cout << "{"
+                          << "\"name\":" << Json(variable.name) << ","
+                          << "\"value\":" << Json(variable.secret ? "<redacted>" : variable.value) << ","
+                          << "\"secret\":" << (variable.secret ? "true" : "false") << ","
+                          << "\"resolved\":" << (variable.resolved ? "true" : "false") << ","
+                          << "\"source\":" << Json(variable.resolvedSource)
+                          << "}";
+            }
+            std::cout << "]}";
+        }
+        else if (plan == "publish")
+        {
+            const auto publishes = EffectivePublishes(invocation.project, invocation.profile);
+            std::cout << "{\"publishes\":[";
+            for (std::size_t index = 0; index < publishes.size(); ++index)
+            {
+                const auto &publish = publishes[index];
+                if (index > 0)
+                {
+                    std::cout << ",";
+                }
+                std::cout << "{"
+                          << "\"name\":" << Json(publish.name) << ","
+                          << "\"kind\":" << Json(publish.kind) << ","
+                          << "\"format\":" << Json(publish.format) << ","
+                          << "\"output\":" << Json(publish.output)
+                          << "}";
+            }
+            std::cout << "]}";
+        }
+        else if (plan == "quality")
+        {
+            const auto analyzers = EffectiveAnalyzers(invocation.project, invocation.profile);
+            std::cout << "{\"analyzers\":[";
+            bool first = true;
+            for (const auto &[_, analyzer] : analyzers)
+            {
+                if (!analyzer.enabled)
+                {
+                    continue;
+                }
+                if (!first)
+                {
+                    std::cout << ",";
+                }
+                first = false;
+                std::cout << "{"
+                          << "\"name\":" << Json(analyzer.name) << ","
+                          << "\"scope\":" << Json(analyzer.scope) << ","
+                          << "\"severity\":" << Json(analyzer.severity) << ","
+                          << "\"configPath\":" << Json(analyzer.configPath)
+                          << "}";
+            }
+            std::cout << "]}";
+        }
+        else
+        {
+            std::cout << "{\"defines\":[";
+            bool firstDefine = true;
+            for (const auto &unit : resolved->projectUnits)
+            {
+                for (const auto &definition : unit.project.build.compileDefinitions)
+                {
+                    if (!SelectionMatches(unit.project, definition.selectors, unit.profile))
+                    {
+                        continue;
+                    }
+                    if (!firstDefine)
+                    {
+                        std::cout << ",";
+                    }
+                    firstDefine = false;
+                    std::cout << Json(definition.value);
+                }
+            }
+            std::cout << "],\"inputs\":[";
+            bool firstInput = true;
+            for (const auto &input : resolved->inputs)
+            {
+                if (input.kind != "Source" && input.kind != "Header" && input.kind != "Generated")
+                {
+                    continue;
+                }
+                if (!firstInput)
+                {
+                    std::cout << ",";
+                }
+                firstInput = false;
+                std::cout << "{"
+                          << "\"kind\":" << Json(input.kind) << ","
+                          << "\"role\":" << Json(input.role) << ","
+                          << "\"source\":" << Json(input.source)
+                          << "}";
+            }
+            std::cout << "]}";
+        }
+
+        std::cout << ",\n  \"diagnostics\": ";
+        writeDiagnostics(resolvedResult.diagnostics);
+        std::cout << "\n}\n";
+    }
+
     auto CmdValidate(const fs::path &root, const ParsedArgs &args) -> int
     {
         (void)root;
@@ -4118,7 +4965,17 @@ namespace NGIN::CLI
             {
                 throw std::runtime_error("graph supports only --format json");
             }
-            return CmdInspect(root, args);
+            const auto invocation = ResolveInvocation(args);
+            const auto resolved = ResolveLaunch(invocation.project, invocation.profile);
+            if (!args.graphPlan.has_value())
+            {
+                WriteCompositionGraphJson(invocation, resolved);
+            }
+            else
+            {
+                WriteCompositionGraphPlanJson(invocation, resolved, *args.graphPlan);
+            }
+            return resolved.diagnostics.HasErrors() ? 1 : 0;
         }
         const auto invocation = ResolveInvocation(args);
         const auto resolved = ResolveLaunch(invocation.project, invocation.profile);
@@ -4193,6 +5050,33 @@ namespace NGIN::CLI
             }
             return 0;
         }
+        if (args.graphPlan == "package-output")
+        {
+            std::cout << "Package output plan for profile: " << resolved.value->profile.name << "\n";
+            if (invocation.project.packageOutputs.empty())
+            {
+                std::cout << "  package outputs: (none)\n";
+            }
+            for (const auto &output : invocation.project.packageOutputs)
+            {
+                std::cout << "  package-output " << output.name
+                          << " version=" << output.version;
+                if (!output.from.empty())
+                {
+                    std::cout << " from=" << output.from;
+                }
+                if (!output.abiTag.empty())
+                {
+                    std::cout << " abi=" << output.abiTag;
+                }
+                std::cout << "\n";
+                std::cout << "    headers=" << output.headers.size()
+                          << " libraries=" << output.libraries.size()
+                          << " tools=" << output.tools.size()
+                          << " capabilities=" << output.capabilities.size() << "\n";
+            }
+            return 0;
+        }
         if (args.graphPlan == "runtime")
         {
             std::cout << "Runtime plan for profile: " << resolved.value->profile.name << "\n";
@@ -4215,6 +5099,27 @@ namespace NGIN::CLI
             for (const auto &plugin : resolved.value->enabledPlugins)
             {
                 std::cout << "  plugin " << plugin << "\n";
+            }
+            return 0;
+        }
+        if (args.graphPlan == "environment")
+        {
+            std::cout << "Environment plan for profile: " << resolved.value->profile.name << "\n";
+            if (resolved.value->environmentVariables.empty())
+            {
+                std::cout << "  variables: (none)\n";
+            }
+            for (const auto &variable : resolved.value->environmentVariables)
+            {
+                std::cout << "  env " << variable.name
+                          << "=" << (variable.secret ? "<redacted>" : variable.value)
+                          << " secret=" << (variable.secret ? "true" : "false")
+                          << " resolved=" << (variable.resolved ? "true" : "false");
+                if (!variable.resolvedSource.empty())
+                {
+                    std::cout << " source=" << variable.resolvedSource;
+                }
+                std::cout << "\n";
             }
             return 0;
         }
@@ -4688,8 +5593,8 @@ namespace NGIN::CLI
         std::cout << "  \"environmentItems\": [\"Env\", \"LaunchEnv\", \"Secret\"],\n";
         std::cout << "  \"publishKinds\": [\"Folder\", \"Archive\"],\n";
         std::cout << "  \"archiveFormats\": [\"zip\"],\n";
-        std::cout << "  \"explainKinds\": [\"property\", \"source\", \"define\", \"package\", \"feature\", \"stage\", \"generator\", \"launch\", \"publish\", \"env\", \"analyzer\", \"runtime-module\", \"toolchain\"],\n";
-        std::cout << "  \"graphPlans\": [\"build\", \"stage\", \"package\", \"launch\", \"runtime\", \"publish\", \"quality\"]\n";
+        std::cout << "  \"explainKinds\": [\"property\", \"convention\", \"source\", \"define\", \"package\", \"feature\", \"stage\", \"generator\", \"launch\", \"publish\", \"package-output\", \"env\", \"analyzer\", \"runtime-module\", \"toolchain\"],\n";
+        std::cout << "  \"graphPlans\": [\"build\", \"stage\", \"package\", \"package-output\", \"launch\", \"runtime\", \"environment\", \"publish\", \"quality\"]\n";
         std::cout << "}\n";
         return 0;
     }

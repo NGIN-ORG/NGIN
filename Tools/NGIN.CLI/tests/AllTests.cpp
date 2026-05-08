@@ -430,7 +430,10 @@ TEST_CASE("schema command emits V4 editor metadata")
     REQUIRE_THAT(captured.str(), ContainsSubstring(R"("Application": ["Runtime", "Launch", "Publish"])"));
     REQUIRE_THAT(captured.str(), ContainsSubstring(R"("publishKinds": ["Folder", "Archive"])"));
     REQUIRE_THAT(captured.str(), ContainsSubstring(R"("archiveFormats": ["zip"])"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("environment")"));
     REQUIRE_THAT(captured.str(), ContainsSubstring(R"("publish")"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("package-output")"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("convention")"));
     REQUIRE_THAT(captured.str(), ContainsSubstring(R"("env")"));
     REQUIRE_THAT(captured.str(), ContainsSubstring(R"("analyzer")"));
 }
@@ -516,6 +519,8 @@ TEST_CASE("V4 inspect emits product identity")
     REQUIRE_THAT(json, ContainsSubstring(R"("compositionGraph":)"));
     REQUIRE_THAT(json, ContainsSubstring(R"("schemaVersion":"4.0")"));
     REQUIRE_THAT(json, ContainsSubstring(R"("identity":{"project":"Hello.Native","product":"Application","profile":"dev"})"));
+    REQUIRE_THAT(json, ContainsSubstring(R"("conventions":[)"));
+    REQUIRE_THAT(json, ContainsSubstring(R"("name":"NGIN.Cpp.Defaults")"));
     REQUIRE_THAT(json, ContainsSubstring(R"("selection":{"profile":"dev","hostPlatform":"host","targetPlatform":"linux-x64")"));
     REQUIRE_THAT(json, ContainsSubstring(R"("facetsSummary":)"));
     REQUIRE_THAT(json, ContainsSubstring(R"("sources":1)"));
@@ -2029,6 +2034,15 @@ TEST_CASE("V4 explain object syntax answers resolved graph objects")
     <Publish Name="archive" Kind="Archive" Format="zip" Output="dist/Plan.App.zip">
       <Include Stage="all" RuntimeDependencies="true" />
     </Publish>
+    <PackageOutput Name="Explain.App" Version="1.0.0">
+      <Metadata>
+        <Description>Explainable package output.</Description>
+        <License>MIT</License>
+      </Metadata>
+      <Exports>
+        <Capability Name="Explain.App" />
+      </Exports>
+    </PackageOutput>
   </Application>
   <Profile Name="dev">
     <Defaults>
@@ -2059,12 +2073,16 @@ TEST_CASE("V4 explain object syntax answers resolved graph objects")
 
     REQUIRE_THAT(explain("property:BuildType"), ContainsSubstring("value: Debug"));
     REQUIRE_THAT(explain("property:Toolchain"), ContainsSubstring("value: clang-lld"));
+    REQUIRE_THAT(explain("property:Language"), ContainsSubstring("convention: NGIN.Cpp.Defaults"));
+    REQUIRE_THAT(explain("convention:NGIN.Cpp.Defaults"), ContainsSubstring("reason: project did not declare a language override"));
     REQUIRE_THAT(explain("define:EXPLAIN_APP"), ContainsSubstring("value: EXPLAIN_APP=1"));
     REQUIRE_THAT(explain("source:src/main.cpp"), ContainsSubstring("role: Source"));
     REQUIRE_THAT(explain("stage:config/app.json"), ContainsSubstring("source: config/app.json"));
     REQUIRE_THAT(explain("launch:app"), ContainsSubstring("args: --config config/app.json"));
     REQUIRE_THAT(explain("publish:archive"), ContainsSubstring("format: zip"));
     REQUIRE_THAT(explain("publish:archive"), ContainsSubstring("includeRuntimeDependencies: true"));
+    REQUIRE_THAT(explain("package-output:Explain.App"), ContainsSubstring("description: Explainable package output."));
+    REQUIRE_THAT(explain("package-output:Explain.App"), ContainsSubstring("capabilities: 1"));
     REQUIRE_THAT(explain("env:EXPLAIN_ENV"), ContainsSubstring("value: dev"));
     REQUIRE_THAT(explain("analyzer:clang-tidy"), ContainsSubstring("severity: Error"));
 }
@@ -2085,12 +2103,25 @@ TEST_CASE("V4 graph plan switches print focused resolved plans")
       <Config Source="config/app.json" Target="config/app.json" />
     </Stage>
     <Launch Name="app" Args="--config config/app.json" />
+    <Environment>
+      <Env Name="PLAN_ENV" Value="dev" />
+      <Secret Name="PLAN_TOKEN" From="local:plan.token" Required="false" />
+    </Environment>
     <Quality>
       <Analyzer Name="clang-tidy" Severity="Error" />
     </Quality>
     <Publish Name="folder" Kind="Folder" Output="dist/Plan.App">
       <Include Stage="all" Symbols="false" />
     </Publish>
+    <PackageOutput Name="Plan.App" Version="1.0.0">
+      <Metadata>
+        <Description>Planned package output.</Description>
+        <License>MIT</License>
+      </Metadata>
+      <Exports>
+        <Capability Name="Plan.App" />
+      </Exports>
+    </PackageOutput>
   </Application>
   <Profile Name="dev">
     <Defaults>
@@ -2122,6 +2153,10 @@ TEST_CASE("V4 graph plan switches print focused resolved plans")
     REQUIRE_THAT(graph("build"), ContainsSubstring("PLAN_APP=1"));
     REQUIRE_THAT(graph("stage"), ContainsSubstring("config/app.json <- config/app.json"));
     REQUIRE_THAT(graph("launch"), ContainsSubstring("name: app"));
+    REQUIRE_THAT(graph("environment"), ContainsSubstring("env PLAN_ENV=dev"));
+    REQUIRE_THAT(graph("environment"), ContainsSubstring("env PLAN_TOKEN=<redacted>"));
+    REQUIRE_THAT(graph("package-output"), ContainsSubstring("package-output Plan.App version=1.0.0"));
+    REQUIRE_THAT(graph("package-output"), ContainsSubstring("capabilities=1"));
     REQUIRE_THAT(graph("publish"), ContainsSubstring("publish folder kind=Folder output=dist/Plan.App"));
     REQUIRE_THAT(graph("quality"), ContainsSubstring("analyzer clang-tidy scope=Build severity=Error"));
 
@@ -2135,8 +2170,60 @@ TEST_CASE("V4 graph plan switches print focused resolved plans")
     std::cout.rdbuf(previous);
 
     REQUIRE(exitCode == 0);
-    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("compositionGraph":)"));
-    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("identity":{"project":"Plan.App","product":"Application","profile":"dev"})"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("schemaVersion": "4.0")"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("kind": "NGIN.CompositionGraph")"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("identity": {"project":"Plan.App")"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("product":"Application","profile":"dev")"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("conventions": [)"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("name":"NGIN.Cpp.Defaults")"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("plans": {)"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("packageOutputs":[{"name":"Plan.App")"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("stage":{"files":[)"));
+
+    ParsedArgs stageJsonArgs{};
+    stageJsonArgs.projectPath = projectPath.string();
+    stageJsonArgs.profileName = "dev";
+    stageJsonArgs.format = "json";
+    stageJsonArgs.graphPlan = "stage";
+    std::ostringstream stageJsonCaptured{};
+    previous = std::cout.rdbuf(stageJsonCaptured.rdbuf());
+    const auto stageJsonExitCode = CmdGraph(temp.path(), stageJsonArgs);
+    std::cout.rdbuf(previous);
+
+    REQUIRE(stageJsonExitCode == 0);
+    REQUIRE_THAT(stageJsonCaptured.str(), ContainsSubstring(R"("kind": "NGIN.CompositionGraphPlan")"));
+    REQUIRE_THAT(stageJsonCaptured.str(), ContainsSubstring(R"("plan": "stage")"));
+    REQUIRE_THAT(stageJsonCaptured.str(), ContainsSubstring(R"("target":"config/app.json")"));
+
+    ParsedArgs environmentJsonArgs{};
+    environmentJsonArgs.projectPath = projectPath.string();
+    environmentJsonArgs.profileName = "dev";
+    environmentJsonArgs.format = "json";
+    environmentJsonArgs.graphPlan = "environment";
+    std::ostringstream environmentJsonCaptured{};
+    previous = std::cout.rdbuf(environmentJsonCaptured.rdbuf());
+    const auto environmentJsonExitCode = CmdGraph(temp.path(), environmentJsonArgs);
+    std::cout.rdbuf(previous);
+
+    REQUIRE(environmentJsonExitCode == 0);
+    REQUIRE_THAT(environmentJsonCaptured.str(), ContainsSubstring(R"("plan": "environment")"));
+    REQUIRE_THAT(environmentJsonCaptured.str(), ContainsSubstring(R"("name":"PLAN_ENV")"));
+    REQUIRE_THAT(environmentJsonCaptured.str(), ContainsSubstring(R"("name":"PLAN_TOKEN","value":"<redacted>","secret":true)"));
+
+    ParsedArgs packageOutputJsonArgs{};
+    packageOutputJsonArgs.projectPath = projectPath.string();
+    packageOutputJsonArgs.profileName = "dev";
+    packageOutputJsonArgs.format = "json";
+    packageOutputJsonArgs.graphPlan = "package-output";
+    std::ostringstream packageOutputJsonCaptured{};
+    previous = std::cout.rdbuf(packageOutputJsonCaptured.rdbuf());
+    const auto packageOutputJsonExitCode = CmdGraph(temp.path(), packageOutputJsonArgs);
+    std::cout.rdbuf(previous);
+
+    REQUIRE(packageOutputJsonExitCode == 0);
+    REQUIRE_THAT(packageOutputJsonCaptured.str(), ContainsSubstring(R"("plan": "package-output")"));
+    REQUIRE_THAT(packageOutputJsonCaptured.str(), ContainsSubstring(R"("name":"Plan.App","version":"1.0.0")"));
+    REQUIRE_THAT(packageOutputJsonCaptured.str(), ContainsSubstring(R"("capabilities":1)"));
 }
 
 TEST_CASE("V4 resolved package scopes flow into graph metadata")

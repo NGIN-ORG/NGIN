@@ -302,8 +302,9 @@ Inspect launch output emits the selected launch name and launch arguments.
 
 Inspect JSON also emits a first-pass `compositionGraph` object with V4 graph
 schema version, resolved state, facet names, selected identity, selected
-profile/platform context, and resolved facet summary counts. This is a
-migration surface, not the final graph JSON schema.
+profile/platform context, named convention/default contributions, and resolved
+facet summary counts. This is a migration surface, not the final graph JSON
+schema.
 
 Inspect JSON includes first-pass quality analyzer metadata under
 `quality.analyzers` so editor and tooling consumers can see V4 analyzer plans
@@ -478,6 +479,7 @@ Supported object identities:
 - `property:TargetPlatform`
 - `property:Toolchain`
 - `property:Environment`
+- `convention:<Name>`
 - `source:<path>`
 - `define:<Name>`
 - `stage:<relative-path>`
@@ -486,6 +488,7 @@ Supported object identities:
 - `generator:<Name>`
 - `launch:<Name>`
 - `publish:<Name>`
+- `package-output:<Name>`
 - `env:<Name>`
 - `analyzer:<Name>`
 - `runtime-module:<Name>`
@@ -502,19 +505,31 @@ ngin graph --format json
 ngin graph --build-plan
 ngin graph --stage-plan
 ngin graph --package-plan
+ngin graph --package-output-plan
 ngin graph --launch-plan
 ngin graph --runtime-plan
+ngin graph --environment-plan
 ngin graph --publish-plan
 ngin graph --quality-plan
 ```
 
 Current behavior is text output over the existing resolved model. This is not
 the final graph API, but it exposes focused plan views for build inputs,
-staged files, package closure, launch metadata, runtime selection, publish
+staged files, package closure, launch metadata, runtime selection, environment
+variables with secret redaction, produced package outputs, publish
 declarations, and quality analyzer declarations.
 
-`ngin graph --format json` emits the same first-pass graph-shaped JSON payload
-as `inspect --format json`.
+`ngin graph --format json` now emits a graph-native top-level
+`NGIN.CompositionGraph` JSON envelope with `schemaVersion: "4.0"`, identity,
+selection, named convention/default contributions, facet summary, and
+first-pass plan payloads for package, build, generate, stage, runtime,
+environment, package-output, launch, publish, quality, and diagnostics.
+`inspect --format json` keeps its compatibility wrapper and embeds the
+first-pass `compositionGraph` marker inside that output.
+
+`ngin graph --format json --<plan>-plan` emits a focused
+`NGIN.CompositionGraphPlan` JSON envelope for the selected plan instead of the
+full graph payload.
 
 ### Test And Benchmark Lifecycle Commands
 
@@ -694,6 +709,8 @@ Current test coverage includes:
 - V4 external product imported interface target generation
 - V4 first-pass inspect `compositionGraph` marker
 - V4 inspect `compositionGraph` identity, selection, and facet summary payload
+- V4 first-pass named convention/default visibility in inspect, graph, and
+  explain
 - V4 `ngin new`
 - V4 `ngin package add`
 - V4 `ngin add package`
@@ -748,6 +765,8 @@ Current test coverage includes:
 - V4 object-identity analyzer explanation
 - V4 focused graph plan switches
 - V4 `ngin graph --format json`
+- V4 graph-native JSON envelope
+- V4 graph-native focused plan JSON envelopes
 - V4 quality graph plan switch
 - V4 publish graph/inspect/diff surface
 - V4 named launch metadata
@@ -762,7 +781,7 @@ The following are still open and should not be described as complete:
 
 - final V4 Composition Graph data model
 - graph JSON contract
-- named convention graph contributions and provenance records
+- stable named convention graph contributions and final provenance records
 - real V4 overlay identity, remove, override, and duplicate diagnostics
 - full host/target dependency closure separation during restore/build
 - full workspace profile stage/runtime/uses overlays and definition-driven
