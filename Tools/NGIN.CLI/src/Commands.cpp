@@ -2704,6 +2704,46 @@ namespace NGIN::CLI
         return 0;
     }
 
+    [[nodiscard]] auto ExtractNginPackManifestPayloadForRestore(const fs::path &archivePath) -> std::string
+    {
+        const auto text = ReadText(archivePath);
+        const auto marker = text.find("\n\n");
+        if (marker == std::string::npos)
+        {
+            throw std::runtime_error(archivePath.string() + ": invalid .nginpack archive; missing manifest payload");
+        }
+        const auto header = text.substr(0, marker);
+        if (header.rfind("NGINPACK/1", 0) != 0)
+        {
+            throw std::runtime_error(archivePath.string() + ": unsupported .nginpack archive format");
+        }
+        const auto payload = text.substr(marker + 2);
+        const std::string lengthPrefix{"Manifest-Length: "};
+        if (const auto lengthPos = header.find(lengthPrefix); lengthPos != std::string::npos)
+        {
+            const auto valueStart = lengthPos + lengthPrefix.size();
+            const auto valueEnd = header.find('\n', valueStart);
+            const auto value = header.substr(valueStart, valueEnd == std::string::npos ? std::string::npos : valueEnd - valueStart);
+            try
+            {
+                const auto expectedSize = static_cast<std::size_t>(std::stoull(value));
+                if (expectedSize != payload.size())
+                {
+                    throw std::runtime_error(archivePath.string() + ": invalid .nginpack archive; manifest payload length mismatch");
+                }
+            }
+            catch (const std::invalid_argument &)
+            {
+                throw std::runtime_error(archivePath.string() + ": invalid .nginpack archive; invalid manifest payload length");
+            }
+            catch (const std::out_of_range &)
+            {
+                throw std::runtime_error(archivePath.string() + ": invalid .nginpack archive; invalid manifest payload length");
+            }
+        }
+        return payload;
+    }
+
     auto CmdRestore(const fs::path &root, const ParsedArgs &args) -> int
     {
         (void)root;
@@ -2745,6 +2785,10 @@ namespace NGIN::CLI
                 package.manifest.path,
                 packageDir / package.manifest.path.filename(),
                 fs::copy_options::overwrite_existing);
+            if (package.manifest.path.extension() == ".nginpack")
+            {
+                WriteTextFile(packageDir / "package.nginpkg", ExtractNginPackManifestPayloadForRestore(package.manifest.path));
+            }
         }
 
         if (!args.locked)
@@ -3588,6 +3632,103 @@ namespace NGIN::CLI
 
         if (resolved != nullptr)
         {
+            for (const auto &package : resolved->orderedPackages)
+            {
+                const auto scope = [&]() -> std::string
+                {
+                    if (const auto it = resolved->packageScopes.find(package.manifest.name); it != resolved->packageScopes.end())
+                    {
+                        return it->second;
+                    }
+                    return {};
+                }();
+                std::vector<std::string> dependencies{};
+                if (const auto edgeIt = resolved->packageEdges.find(package.manifest.name); edgeIt != resolved->packageEdges.end())
+                {
+                    dependencies.assign(edgeIt->second.begin(), edgeIt->second.end());
+                }
+                graph.packages.push_back(CompositionGraph::Package{
+                    .name = package.manifest.name,
+                    .version = package.manifest.version,
+                    .source = package.source,
+                    .scope = scope,
+                    .closures = PackageClosuresForScope(scope),
+                    .dependencies = std::move(dependencies),
+                    .provenance = CompositionGraph::Provenance{
+                        .sourceKind = "package",
+                        .sourceName = package.manifest.name,
+                        .manifestPath = package.manifest.path,
+                        .reason = "resolved package dependency",
+                    },
+                });
+            }
+
+            for (const auto &feature : resolved->selectedPackageFeatures)
+            {
+                graph.packageFeatures.push_back(CompositionGraph::PackageFeature{
+                    .package = feature.packageName,
+                    .feature = feature.featureName,
+                    .packageVersion = feature.packageVersion,
+                    .provenance = CompositionGraph::Provenance{
+                        .sourceKind = "package-feature",
+                        .sourceName = feature.packageName + "/" + feature.featureName,
+                        .manifestPath = feature.manifestPath,
+                        .reason = "selected package feature",
+                    },
+                });
+            }
+
+            for (const auto &unit : resolved->projectUnits)
+            {
+                for (const auto &definition : unit.project.build.compileDefinitions)
+                {
+                    if (!SelectionMatches(unit.project, definition.selectors, unit.profile))
+                    {
+                        continue;
+                    }
+                    graph.buildDefines.push_back(CompositionGraph::BuildDefine{
+                        .value = definition.value,
+                        .provenance = CompositionGraph::Provenance{
+                            .sourceKind = "project",
+                            .sourceName = unit.project.name,
+                            .manifestPath = unit.project.path,
+                            .reason = "selected compile definition",
+                        },
+                    });
+                }
+            }
+            for (const auto &feature : resolved->selectedPackageFeatures)
+            {
+                for (const auto &definition : feature.build.compileDefinitions)
+                {
+                    graph.buildDefines.push_back(CompositionGraph::BuildDefine{
+                        .value = definition.value,
+                        .provenance = CompositionGraph::Provenance{
+                            .sourceKind = "package-feature",
+                            .sourceName = feature.packageName + "/" + feature.featureName,
+                            .manifestPath = feature.manifestPath,
+                            .reason = "selected package feature compile definition",
+                        },
+                    });
+                }
+            }
+
+            for (const auto &generator : resolved->generators)
+            {
+                graph.generators.push_back(CompositionGraph::Generator{
+                    .name = generator.declaration.name,
+                    .owner = generator.ownerKind + ":" + generator.ownerName,
+                    .tool = generator.declaration.toolName,
+                    .outputs = generator.declaration.outputs.size(),
+                    .provenance = CompositionGraph::Provenance{
+                        .sourceKind = generator.ownerKind,
+                        .sourceName = generator.ownerName,
+                        .manifestPath = generator.manifestPath,
+                        .reason = "active generator declaration",
+                    },
+                });
+            }
+
             for (const auto &input : resolved->inputs)
             {
                 if (input.kind == "Source")
@@ -3597,6 +3738,21 @@ namespace NGIN::CLI
                 else if (input.kind == "Header")
                 {
                     ++graph.summary.headers;
+                }
+                if (input.kind == "Source" || input.kind == "Header" || input.kind == "Generated")
+                {
+                    graph.buildInputs.push_back(CompositionGraph::BuildInput{
+                        .kind = input.kind,
+                        .role = input.role,
+                        .source = input.source,
+                        .owner = input.ownerKind + ":" + input.ownerName,
+                        .provenance = CompositionGraph::Provenance{
+                            .sourceKind = input.ownerKind,
+                            .sourceName = input.ownerName,
+                            .manifestPath = input.manifestPath,
+                            .reason = "selected build input",
+                        },
+                    });
                 }
                 if (!input.stagedRelativePath.empty())
                 {
@@ -3840,6 +3996,138 @@ namespace NGIN::CLI
         out << "]";
     }
 
+    auto WriteGraphPackages(std::ostream &out, const std::vector<CompositionGraph::Package> &packages, bool includeProvenance) -> void
+    {
+        out << "[";
+        for (std::size_t index = 0; index < packages.size(); ++index)
+        {
+            if (index > 0)
+            {
+                out << ",";
+            }
+            out << "{"
+                << "\"name\":" << Json(packages[index].name) << ","
+                << "\"version\":" << Json(packages[index].version) << ","
+                << "\"source\":" << Json(packages[index].source) << ","
+                << "\"scope\":" << Json(packages[index].scope) << ","
+                << "\"closures\":[";
+            for (std::size_t closureIndex = 0; closureIndex < packages[index].closures.size(); ++closureIndex)
+            {
+                if (closureIndex > 0)
+                {
+                    out << ",";
+                }
+                out << Json(packages[index].closures[closureIndex]);
+            }
+            out << "],\"dependencies\":[";
+            for (std::size_t dependencyIndex = 0; dependencyIndex < packages[index].dependencies.size(); ++dependencyIndex)
+            {
+                if (dependencyIndex > 0)
+                {
+                    out << ",";
+                }
+                out << Json(packages[index].dependencies[dependencyIndex]);
+            }
+            out << "]";
+            if (includeProvenance)
+            {
+                out << ",\"provenance\":";
+                WriteGraphProvenance(out, packages[index].provenance);
+            }
+            out << "}";
+        }
+        out << "]";
+    }
+
+    auto WriteGraphPackageFeatures(std::ostream &out, const std::vector<CompositionGraph::PackageFeature> &features, bool includeProvenance) -> void
+    {
+        out << "[";
+        for (std::size_t index = 0; index < features.size(); ++index)
+        {
+            if (index > 0)
+            {
+                out << ",";
+            }
+            out << "{"
+                << "\"package\":" << Json(features[index].package) << ","
+                << "\"feature\":" << Json(features[index].feature) << ","
+                << "\"packageVersion\":" << Json(features[index].packageVersion);
+            if (includeProvenance)
+            {
+                out << ",\"provenance\":";
+                WriteGraphProvenance(out, features[index].provenance);
+            }
+            out << "}";
+        }
+        out << "]";
+    }
+
+    auto WriteGraphBuildPlan(std::ostream &out, const CompositionGraph &graph, bool includeProvenance) -> void
+    {
+        out << "{\"defines\":[";
+        for (std::size_t index = 0; index < graph.buildDefines.size(); ++index)
+        {
+            if (index > 0)
+            {
+                out << ",";
+            }
+            if (includeProvenance)
+            {
+                out << "{\"value\":" << Json(graph.buildDefines[index].value) << ",\"provenance\":";
+                WriteGraphProvenance(out, graph.buildDefines[index].provenance);
+                out << "}";
+            }
+            else
+            {
+                out << Json(graph.buildDefines[index].value);
+            }
+        }
+        out << "],\"inputs\":[";
+        for (std::size_t index = 0; index < graph.buildInputs.size(); ++index)
+        {
+            if (index > 0)
+            {
+                out << ",";
+            }
+            out << "{"
+                << "\"kind\":" << Json(graph.buildInputs[index].kind) << ","
+                << "\"role\":" << Json(graph.buildInputs[index].role) << ","
+                << "\"source\":" << Json(graph.buildInputs[index].source) << ","
+                << "\"owner\":" << Json(graph.buildInputs[index].owner);
+            if (includeProvenance)
+            {
+                out << ",\"provenance\":";
+                WriteGraphProvenance(out, graph.buildInputs[index].provenance);
+            }
+            out << "}";
+        }
+        out << "]}";
+    }
+
+    auto WriteGraphGenerators(std::ostream &out, const std::vector<CompositionGraph::Generator> &generators, bool includeProvenance) -> void
+    {
+        out << "[";
+        for (std::size_t index = 0; index < generators.size(); ++index)
+        {
+            if (index > 0)
+            {
+                out << ",";
+            }
+            out << "{"
+                << "\"name\":" << Json(generators[index].name) << ","
+                << "\"owner\":" << Json(generators[index].owner) << ","
+                << "\"tool\":" << Json(generators[index].tool) << ","
+                << "\"outputs\":" << generators[index].outputs;
+            if (includeProvenance)
+            {
+                out << ",\"provenance\":";
+                WriteGraphProvenance(out, generators[index].provenance);
+            }
+            out << "}";
+        }
+        out << "]";
+    }
+
     auto WriteGraphRuntime(std::ostream &out, const CompositionGraph &graph, bool includeProvenance) -> void
     {
         out << "{\"requiredModules\":[";
@@ -4027,44 +4315,6 @@ namespace NGIN::CLI
         const auto productKind = invocation.project.productKind.empty() ? invocation.project.type : invocation.project.productKind;
         const auto effectivePublishes = EffectivePublishes(invocation.project, invocation.profile);
         const auto effectiveAnalyzers = EffectiveAnalyzers(invocation.project, invocation.profile);
-        std::size_t activeAnalyzerCount = 0;
-        for (const auto &[_, analyzer] : effectiveAnalyzers)
-        {
-            if (analyzer.enabled)
-            {
-                ++activeAnalyzerCount;
-            }
-        }
-        auto countResolvedInputs = [&](std::string_view kind) -> std::size_t
-        {
-            if (resolved == nullptr)
-            {
-                return 0;
-            }
-            return static_cast<std::size_t>(std::count_if(resolved->inputs.begin(),
-                                                          resolved->inputs.end(),
-                                                          [&](const ResolvedInput &input)
-                                                          { return input.kind == kind; }));
-        };
-        auto countStagedFiles = [&]() -> std::size_t
-        {
-            if (resolved == nullptr)
-            {
-                return 0;
-            }
-            return static_cast<std::size_t>(std::count_if(resolved->inputs.begin(),
-                                                          resolved->inputs.end(),
-                                                          [](const ResolvedInput &input)
-                                                          { return !input.stagedRelativePath.empty(); }));
-        };
-        auto countRuntimeModules = [&]() -> std::size_t
-        {
-            if (resolved == nullptr)
-            {
-                return invocation.project.runtime.modules.size() + invocation.profile.runtime.modules.size();
-            }
-            return resolved->requiredModules.size() + resolved->optionalModules.size();
-        };
         auto writeDiagnostics = [&](std::ostream &out, const DiagnosticReport &diagnostics)
         {
             out << "[";
@@ -4133,19 +4383,44 @@ namespace NGIN::CLI
         std::cout
                   << "},"
                   << "\"facetsSummary\":{"
-                  << "\"packages\":" << (resolved == nullptr ? 0 : resolved->orderedPackages.size()) << ","
-                  << "\"packageFeatures\":" << (resolved == nullptr ? 0 : resolved->selectedPackageFeatures.size()) << ","
-                  << "\"sources\":" << countResolvedInputs("Source") << ","
-                  << "\"headers\":" << countResolvedInputs("Header") << ","
-                  << "\"generators\":" << (resolved == nullptr ? 0 : resolved->generators.size()) << ","
-                  << "\"stagedFiles\":" << countStagedFiles() << ","
-                  << "\"runtimeModules\":" << countRuntimeModules() << ","
-                  << "\"environmentVariables\":" << (resolved == nullptr ? 0 : resolved->environmentVariables.size()) << ","
-                  << "\"launchEntries\":" << (invocation.profile.launch.name.empty() ? 0 : 1) << ","
-                  << "\"publishes\":" << effectivePublishes.size() << ","
-                  << "\"analyzers\":" << activeAnalyzerCount << ","
-                  << "\"diagnostics\":" << resolvedResult.diagnostics.entries.size()
-                  << "}"
+                  << "\"packages\":" << graph.summary.packages << ","
+                  << "\"packageFeatures\":" << graph.summary.packageFeatures << ","
+                  << "\"sources\":" << graph.summary.sources << ","
+                  << "\"headers\":" << graph.summary.headers << ","
+                  << "\"generators\":" << graph.summary.generators << ","
+                  << "\"stagedFiles\":" << graph.summary.stagedFiles << ","
+                  << "\"runtimeModules\":" << graph.summary.runtimeModules << ","
+                  << "\"environmentVariables\":" << graph.summary.environmentVariables << ","
+                  << "\"launchEntries\":" << (graph.launch.name.empty() ? 0 : 1) << ","
+                  << "\"publishes\":" << graph.summary.publishes << ","
+                  << "\"analyzers\":" << graph.summary.analyzers << ","
+                  << "\"diagnostics\":" << graph.summary.diagnostics
+                  << "},"
+                  << "\"plans\":{";
+        std::cout << "\"packages\":";
+        WriteGraphPackages(std::cout, graph.packages, true);
+        std::cout << ",\"packageFeatures\":";
+        WriteGraphPackageFeatures(std::cout, graph.packageFeatures, true);
+        std::cout << ",\"build\":";
+        WriteGraphBuildPlan(std::cout, graph, true);
+        std::cout << ",\"generators\":";
+        WriteGraphGenerators(std::cout, graph.generators, true);
+        std::cout << ",\"stage\":{\"files\":";
+        WriteGraphStageFiles(std::cout, graph.stageFiles, true);
+        std::cout << "},\"runtime\":";
+        WriteGraphRuntime(std::cout, graph, true);
+        std::cout << ",\"environment\":{\"variables\":";
+        WriteGraphEnvironmentEntries(std::cout, graph.environment, true);
+        std::cout << "},\"packageOutputs\":";
+        WriteGraphPackageOutputs(std::cout, graph.packageOutputs, true);
+        std::cout << ",\"launch\":";
+        WriteGraphLaunch(std::cout, graph.launch, true);
+        std::cout << ",\"publish\":";
+        WriteGraphPublishes(std::cout, graph.publishes, true);
+        std::cout << ",\"quality\":{\"analyzers\":";
+        WriteGraphAnalyzers(std::cout, graph.analyzers, true);
+        std::cout << "}";
+        std::cout << "}"
                   << "},\n";
         std::cout << "  \"project\": {"
                   << "\"name\":" << Json(invocation.project.name) << ","
@@ -4724,7 +4999,6 @@ namespace NGIN::CLI
     auto WriteCompositionGraphJson(const LoadedInvocation &invocation, const DiagnosticResult<ResolvedLaunch> &resolvedResult) -> void
     {
         const auto graph = BuildCompositionGraph(invocation, resolvedResult);
-        const auto *resolved = resolvedResult.value.has_value() ? &*resolvedResult.value : nullptr;
 
         auto writeDiagnostics = [&](const DiagnosticReport &diagnostics)
         {
@@ -4802,141 +5076,21 @@ namespace NGIN::CLI
                   << "},\n";
 
         std::cout << "  \"plans\": {";
-        std::cout << "\"packages\":[";
-        if (resolved != nullptr)
-        {
-            for (std::size_t index = 0; index < resolved->orderedPackages.size(); ++index)
-            {
-                const auto &package = resolved->orderedPackages[index];
-                if (index > 0)
-                {
-                    std::cout << ",";
-                }
-                const auto scope = [&]() -> std::string
-                {
-                    if (const auto it = resolved->packageScopes.find(package.manifest.name); it != resolved->packageScopes.end())
-                    {
-                        return it->second;
-                    }
-                    return {};
-                }();
-                const auto closures = PackageClosuresForScope(scope);
-                std::cout << "{"
-                          << "\"name\":" << Json(package.manifest.name) << ","
-                          << "\"version\":" << Json(package.manifest.version) << ","
-                          << "\"source\":" << Json(package.source) << ","
-                          << "\"scope\":" << Json(scope) << ","
-                          << "\"closures\":[";
-                for (std::size_t closureIndex = 0; closureIndex < closures.size(); ++closureIndex)
-                {
-                    if (closureIndex > 0)
-                    {
-                        std::cout << ",";
-                    }
-                    std::cout << Json(closures[closureIndex]);
-                }
-                std::cout << "]}";
-            }
-        }
-        std::cout << "],";
+        std::cout << "\"packages\":";
+        WriteGraphPackages(std::cout, graph.packages, false);
+        std::cout << ",";
 
-        std::cout << "\"packageFeatures\":[";
-        if (resolved != nullptr)
-        {
-            for (std::size_t index = 0; index < resolved->selectedPackageFeatures.size(); ++index)
-            {
-                const auto &feature = resolved->selectedPackageFeatures[index];
-                if (index > 0)
-                {
-                    std::cout << ",";
-                }
-                std::cout << "{"
-                          << "\"package\":" << Json(feature.packageName) << ","
-                          << "\"feature\":" << Json(feature.featureName) << ","
-                          << "\"packageVersion\":" << Json(feature.packageVersion)
-                          << "}";
-            }
-        }
-        std::cout << "],";
+        std::cout << "\"packageFeatures\":";
+        WriteGraphPackageFeatures(std::cout, graph.packageFeatures, false);
+        std::cout << ",";
 
-        std::cout << "\"build\":{";
-        std::cout << "\"defines\":[";
-        bool firstDefine = true;
-        if (resolved != nullptr)
-        {
-            for (const auto &unit : resolved->projectUnits)
-            {
-                for (const auto &definition : unit.project.build.compileDefinitions)
-                {
-                    if (!SelectionMatches(unit.project, definition.selectors, unit.profile))
-                    {
-                        continue;
-                    }
-                    if (!firstDefine)
-                    {
-                        std::cout << ",";
-                    }
-                    firstDefine = false;
-                    std::cout << Json(definition.value);
-                }
-            }
-            for (const auto &feature : resolved->selectedPackageFeatures)
-            {
-                for (const auto &definition : feature.build.compileDefinitions)
-                {
-                    if (!firstDefine)
-                    {
-                        std::cout << ",";
-                    }
-                    firstDefine = false;
-                    std::cout << Json(definition.value);
-                }
-            }
-        }
-        std::cout << "],\"inputs\":[";
-        bool firstBuildInput = true;
-        if (resolved != nullptr)
-        {
-            for (const auto &input : resolved->inputs)
-            {
-                if (input.kind != "Source" && input.kind != "Header" && input.kind != "Generated")
-                {
-                    continue;
-                }
-                if (!firstBuildInput)
-                {
-                    std::cout << ",";
-                }
-                firstBuildInput = false;
-                std::cout << "{"
-                          << "\"kind\":" << Json(input.kind) << ","
-                          << "\"role\":" << Json(input.role) << ","
-                          << "\"source\":" << Json(input.source) << ","
-                          << "\"owner\":" << Json(input.ownerKind + ":" + input.ownerName)
-                          << "}";
-            }
-        }
-        std::cout << "]},";
+        std::cout << "\"build\":";
+        WriteGraphBuildPlan(std::cout, graph, false);
+        std::cout << ",";
 
-        std::cout << "\"generators\":[";
-        if (resolved != nullptr)
-        {
-            for (std::size_t index = 0; index < resolved->generators.size(); ++index)
-            {
-                const auto &generator = resolved->generators[index];
-                if (index > 0)
-                {
-                    std::cout << ",";
-                }
-                std::cout << "{"
-                          << "\"name\":" << Json(generator.declaration.name) << ","
-                          << "\"owner\":" << Json(generator.ownerKind + ":" + generator.ownerName) << ","
-                          << "\"tool\":" << Json(generator.declaration.toolName) << ","
-                          << "\"outputs\":" << generator.declaration.outputs.size()
-                          << "}";
-            }
-        }
-        std::cout << "],";
+        std::cout << "\"generators\":";
+        WriteGraphGenerators(std::cout, graph.generators, false);
+        std::cout << ",";
 
         std::cout << "\"stage\":{\"files\":";
         WriteGraphStageFiles(std::cout, graph.stageFiles, false);
@@ -5031,43 +5185,11 @@ namespace NGIN::CLI
         }
         else if (plan == "package")
         {
-            std::cout << "{\"packages\":[";
-            for (std::size_t index = 0; index < resolved->orderedPackages.size(); ++index)
-            {
-                const auto &package = resolved->orderedPackages[index];
-                if (index > 0)
-                {
-                    std::cout << ",";
-                }
-                const auto scope = [&]() -> std::string
-                {
-                    if (const auto it = resolved->packageScopes.find(package.manifest.name); it != resolved->packageScopes.end())
-                    {
-                        return it->second;
-                    }
-                    return {};
-                }();
-                std::cout << "{"
-                          << "\"name\":" << Json(package.manifest.name) << ","
-                          << "\"version\":" << Json(package.manifest.version) << ","
-                          << "\"source\":" << Json(package.source) << ","
-                          << "\"scope\":" << Json(scope)
-                          << "}";
-            }
-            std::cout << "],\"features\":[";
-            for (std::size_t index = 0; index < resolved->selectedPackageFeatures.size(); ++index)
-            {
-                const auto &feature = resolved->selectedPackageFeatures[index];
-                if (index > 0)
-                {
-                    std::cout << ",";
-                }
-                std::cout << "{"
-                          << "\"package\":" << Json(feature.packageName) << ","
-                          << "\"feature\":" << Json(feature.featureName)
-                          << "}";
-            }
-            std::cout << "]}";
+            std::cout << "{\"packages\":";
+            WriteGraphPackages(std::cout, graph.packages, true);
+            std::cout << ",\"features\":";
+            WriteGraphPackageFeatures(std::cout, graph.packageFeatures, true);
+            std::cout << "}";
         }
         else if (plan == "package-output")
         {
@@ -5099,44 +5221,7 @@ namespace NGIN::CLI
         }
         else
         {
-            std::cout << "{\"defines\":[";
-            bool firstDefine = true;
-            for (const auto &unit : resolved->projectUnits)
-            {
-                for (const auto &definition : unit.project.build.compileDefinitions)
-                {
-                    if (!SelectionMatches(unit.project, definition.selectors, unit.profile))
-                    {
-                        continue;
-                    }
-                    if (!firstDefine)
-                    {
-                        std::cout << ",";
-                    }
-                    firstDefine = false;
-                    std::cout << Json(definition.value);
-                }
-            }
-            std::cout << "],\"inputs\":[";
-            bool firstInput = true;
-            for (const auto &input : resolved->inputs)
-            {
-                if (input.kind != "Source" && input.kind != "Header" && input.kind != "Generated")
-                {
-                    continue;
-                }
-                if (!firstInput)
-                {
-                    std::cout << ",";
-                }
-                firstInput = false;
-                std::cout << "{"
-                          << "\"kind\":" << Json(input.kind) << ","
-                          << "\"role\":" << Json(input.role) << ","
-                          << "\"source\":" << Json(input.source)
-                          << "}";
-            }
-            std::cout << "]}";
+            WriteGraphBuildPlan(std::cout, graph, true);
         }
 
         std::cout << ",\n  \"diagnostics\": ";
@@ -5222,35 +5307,31 @@ namespace NGIN::CLI
         }
         if (args.graphPlan == "package")
         {
-            std::cout << "Package plan for profile: " << resolved.value->profile.name << "\n";
-            if (resolved.value->orderedPackages.empty())
+            std::cout << "Package plan for profile: " << graph.identity.profile << "\n";
+            if (graph.packages.empty())
             {
                 std::cout << "  packages: (none)\n";
             }
-            for (const auto &package : resolved.value->orderedPackages)
+            for (const auto &package : graph.packages)
             {
-                std::cout << "  package " << package.manifest.name << " " << package.manifest.version
+                std::cout << "  package " << package.name << " " << package.version
                           << " source=" << package.source << "\n";
-                if (const auto scopeIt = resolved.value->packageScopes.find(package.manifest.name);
-                    scopeIt != resolved.value->packageScopes.end() && !scopeIt->second.empty())
+                if (!package.scope.empty())
                 {
-                    std::cout << "    scope " << scopeIt->second << "\n";
+                    std::cout << "    scope " << package.scope << "\n";
                 }
-                if (const auto edgeIt = resolved.value->packageEdges.find(package.manifest.name); edgeIt != resolved.value->packageEdges.end())
+                for (const auto &dep : package.dependencies)
                 {
-                    for (const auto &dep : edgeIt->second)
-                    {
-                        std::cout << "    depends-on " << dep << "\n";
-                    }
+                    std::cout << "    depends-on " << dep << "\n";
                 }
             }
-            if (resolved.value->selectedPackageFeatures.empty())
+            if (graph.packageFeatures.empty())
             {
                 std::cout << "  features: (none)\n";
             }
-            for (const auto &feature : resolved.value->selectedPackageFeatures)
+            for (const auto &feature : graph.packageFeatures)
             {
-                std::cout << "  feature " << feature.packageName << "/" << feature.featureName << "\n";
+                std::cout << "  feature " << feature.package << "/" << feature.feature << "\n";
             }
             return 0;
         }
@@ -5368,7 +5449,7 @@ namespace NGIN::CLI
         }
         if (args.graphPlan == "build")
         {
-            std::cout << "Build plan for profile: " << resolved.value->profile.name << "\n";
+            std::cout << "Build plan for profile: " << graph.identity.profile << "\n";
             std::cout << "  backend: " << resolved.value->project.build.backend << "\n";
             std::cout << "  mode: " << resolved.value->project.build.mode << "\n";
             std::cout << "  language: " << resolved.value->project.build.language
@@ -5377,49 +5458,33 @@ namespace NGIN::CLI
                       << " " << resolved.value->project.output.name
                       << " target=" << resolved.value->project.output.target << "\n";
             std::cout << "  inputs:\n";
-            bool anyInput = false;
-            for (const auto &input : resolved.value->inputs)
+            for (const auto &input : graph.buildInputs)
             {
                 if (input.kind != "Source" && input.kind != "Generated")
                 {
                     continue;
                 }
-                anyInput = true;
                 std::cout << "    - " << input.kind;
                 if (!input.role.empty())
                 {
                     std::cout << ":" << input.role;
                 }
-                std::cout << " " << input.source << " owner=" << input.ownerKind << ":" << input.ownerName << "\n";
+                std::cout << " " << input.source << " owner=" << input.owner << "\n";
             }
-            if (!anyInput)
+            if (std::none_of(graph.buildInputs.begin(),
+                             graph.buildInputs.end(),
+                             [](const CompositionGraph::BuildInput &input)
+                             { return input.kind == "Source" || input.kind == "Generated"; }))
             {
                 std::cout << "    (none)\n";
             }
             std::cout << "  defines:\n";
-            bool anyDefine = false;
-            for (const auto &unit : resolved.value->projectUnits)
+            for (const auto &definition : graph.buildDefines)
             {
-                for (const auto &setting : unit.project.build.compileDefinitions)
-                {
-                    if (!SelectionMatches(unit.project, setting.selectors, unit.profile))
-                    {
-                        continue;
-                    }
-                    anyDefine = true;
-                    std::cout << "    - " << setting.value << " owner=project:" << unit.project.name << "\n";
-                }
+                std::cout << "    - " << definition.value
+                          << " owner=" << definition.provenance.sourceKind << ":" << definition.provenance.sourceName << "\n";
             }
-            for (const auto &feature : resolved.value->selectedPackageFeatures)
-            {
-                for (const auto &setting : feature.build.compileDefinitions)
-                {
-                    anyDefine = true;
-                    std::cout << "    - " << setting.value << " owner=package-feature:"
-                              << feature.packageName << "/" << feature.featureName << "\n";
-                }
-            }
-            if (!anyDefine)
+            if (graph.buildDefines.empty())
             {
                 std::cout << "    (none)\n";
             }

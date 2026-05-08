@@ -300,11 +300,14 @@ Inspect profile selection also emits `hostPlatform` separately from target
 
 Inspect launch output emits the selected launch name and launch arguments.
 
-Inspect JSON also emits a first-pass `compositionGraph` object with V4 graph
-schema version, resolved state, facet names, selected identity, selected
-profile/platform context, named convention/default contributions, and resolved
-property/default provenance, and resolved facet summary counts. This is a
-migration surface, not the final graph JSON schema.
+Inspect JSON also emits a `compositionGraph` object with V4 graph schema
+version, resolved state, facet names, selected identity, selected
+profile/platform context, named convention/default contributions, resolved
+property/default provenance, resolved facet summary counts, and graph-owned
+plan slices for packages, package features, build, generators, stage, runtime,
+environment, package outputs, launch, publish, and quality. This is now the
+preferred inspect entry point for V4 graph consumers, although the final graph
+JSON schema is still not frozen.
 
 Inspect JSON includes first-pass quality analyzer metadata under
 `quality.analyzers` so editor and tooling consumers can see V4 analyzer plans
@@ -531,11 +534,13 @@ first-pass `compositionGraph` marker inside that output.
 Internally this output now starts from a first-pass `CompositionGraph` snapshot
 instead of only streaming fields directly from resolver state. The snapshot
 currently owns identity, product, selection, conventions, high-value
-properties, summary counts, staged files, environment entries, package outputs,
-runtime modules/plugins, launch entries, publish entries, quality analyzers,
-and provenance records for those nodes. Focused graph plan JSON and matching
-text output for stage, runtime, environment, package-output, launch, publish,
-and quality now consume those graph-owned nodes.
+properties, summary counts, consumed packages, package features, build
+defines, build inputs, active generators, staged files, environment entries,
+package outputs, runtime modules/plugins, launch entries, publish entries,
+quality analyzers, and provenance records for those nodes. Focused graph plan
+JSON and matching text output for package, build, stage, runtime, environment,
+package-output, launch, publish, and quality now consume those graph-owned
+nodes.
 
 `ngin graph --format json --<plan>-plan` emits a focused
 `NGIN.CompositionGraphPlan` JSON envelope for the selected plan instead of the
@@ -719,6 +724,7 @@ Current test coverage includes:
 - V4 external product imported interface target generation
 - V4 first-pass inspect `compositionGraph` marker
 - V4 inspect `compositionGraph` identity, selection, and facet summary payload
+- V4 inspect `compositionGraph.plans` graph-owned plan slices
 - V4 first-pass named convention/default visibility in inspect, graph, and
   explain
 - V4 `ngin new`
@@ -732,8 +738,11 @@ Current test coverage includes:
 - V4 `ngin schema --format json`
 - V4 `ngin restore`
 - V4 restore from phase-one `.nginpack` package archives
+- V4 restore extracts `.nginpack` package manifests into the package store
 - V4 locked restore enforcement
 - V4 package catalog resolution from `file://` package source URLs
+- V4 static `.nginfeed` package index resolution from `file://` package
+  sources
 - V4 `ngin package sources list`
 - V4 `ngin package sources add`
 - V4 `ngin package sources remove`
@@ -777,6 +786,7 @@ Current test coverage includes:
 - V4 `ngin graph --format json`
 - V4 graph-native JSON envelope
 - V4 graph-native focused plan JSON envelopes
+- V4 graph-owned package/build/generator plan payloads in graph and inspect
 - V4 quality graph plan switch
 - V4 publish graph/inspect/diff surface
 - V4 named launch metadata
@@ -790,7 +800,7 @@ Current test coverage includes:
 The following are still open and should not be described as complete:
 
 - final V4 Composition Graph data model
-- graph JSON contract
+- final frozen graph JSON contract
 - stable named convention graph contributions and final provenance records
   beyond the first-pass graph snapshot
 - real V4 overlay identity, remove, override, and duplicate diagnostics
@@ -803,7 +813,8 @@ The following are still open and should not be described as complete:
 - full external dependency adapters for system, CMake package, pkg-config,
   vcpkg, and Conan providers
 - signing, SBOM, trust policy
-- final compressed `.nginpack` archive packing and extraction
+- final compressed `.nginpack` archive packing and full payload extraction
+  beyond phase-one manifest extraction
 - full analyzer execution, formatter execution, coverage collection, and
   quality policy enforcement
 - final graph diff engine over a stable graph JSON schema
@@ -813,8 +824,8 @@ The following are still open and should not be described as complete:
 
 The next implementation slice should focus on one of these paths:
 
-- replace the first-pass inspect payload with the stable Composition Graph JSON
-  schema
+- promote the inspect `compositionGraph` payload to the sole stable graph JSON
+  schema and retire duplicated legacy inspect fields
 - expand workspace profile product overlays beyond defaults
 - deepen V4 overlay identity/remove/override semantics beyond the current
   first-pass item identities

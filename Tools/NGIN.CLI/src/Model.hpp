@@ -822,6 +822,49 @@ namespace NGIN::CLI
             Provenance provenance{};
         };
 
+        struct Package
+        {
+            std::string name{};
+            std::string version{};
+            std::string source{};
+            std::string scope{};
+            std::vector<std::string> closures{};
+            std::vector<std::string> dependencies{};
+            Provenance provenance{};
+        };
+
+        struct PackageFeature
+        {
+            std::string package{};
+            std::string feature{};
+            std::string packageVersion{};
+            Provenance provenance{};
+        };
+
+        struct BuildDefine
+        {
+            std::string value{};
+            Provenance provenance{};
+        };
+
+        struct BuildInput
+        {
+            std::string kind{};
+            std::string role{};
+            std::string source{};
+            std::string owner{};
+            Provenance provenance{};
+        };
+
+        struct Generator
+        {
+            std::string name{};
+            std::string owner{};
+            std::string tool{};
+            std::size_t outputs{};
+            Provenance provenance{};
+        };
+
         struct RuntimeModule
         {
             std::string name{};
@@ -878,6 +921,11 @@ namespace NGIN::CLI
         std::vector<StageFile> stageFiles{};
         std::vector<EnvironmentEntry> environment{};
         std::vector<PackageOutput> packageOutputs{};
+        std::vector<Package> packages{};
+        std::vector<PackageFeature> packageFeatures{};
+        std::vector<BuildDefine> buildDefines{};
+        std::vector<BuildInput> buildInputs{};
+        std::vector<Generator> generators{};
         std::vector<RuntimeModule> runtimeModules{};
         std::vector<RuntimePlugin> runtimePlugins{};
         Launch launch{};

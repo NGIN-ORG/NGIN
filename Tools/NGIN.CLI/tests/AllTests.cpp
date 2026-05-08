@@ -527,6 +527,10 @@ TEST_CASE("V4 inspect emits product identity")
     REQUIRE_THAT(json, ContainsSubstring(R"("selection":{"profile":"dev","hostPlatform":"host","targetPlatform":"linux-x64")"));
     REQUIRE_THAT(json, ContainsSubstring(R"("facetsSummary":)"));
     REQUIRE_THAT(json, ContainsSubstring(R"("sources":1)"));
+    REQUIRE_THAT(json, ContainsSubstring(R"("plans":{"packages":)"));
+    REQUIRE_THAT(json, ContainsSubstring(R"("build":{"defines":[)"));
+    REQUIRE_THAT(json, ContainsSubstring(R"("kind":"Source","role":"Source","source":"src")"));
+    REQUIRE_THAT(json, ContainsSubstring(R"("stage":{"files":[])"));
     REQUIRE_THAT(json, ContainsSubstring(R"("product":)"));
     REQUIRE_THAT(json, ContainsSubstring(R"("kind":"Application")"));
     REQUIRE_THAT(json, ContainsSubstring(R"("outputType":"Executable")"));
@@ -1084,6 +1088,69 @@ TEST_CASE("V4 file URL package source participates in package catalog")
     REQUIRE(resolved.value.has_value());
     REQUIRE(resolved.value->orderedPackages.size() == 1);
     REQUIRE(resolved.value->orderedPackages.front().manifest.name == "Package.Core");
+}
+
+TEST_CASE("V4 static package feed index participates in package restore")
+{
+    TempDir temp{};
+    const auto feedRoot = temp.path() / "feed";
+    const auto feedIndex = feedRoot / "index.nginfeed";
+    WriteFile(temp.path() / "Workspace.ngin",
+              "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+              "<Workspace SchemaVersion=\"4\" Name=\"StaticFeedWorkspace\">\n"
+              "  <Projects>\n"
+              "    <Project Path=\"App/App.nginproj\" />\n"
+              "  </Projects>\n"
+              "  <Packages>\n"
+              "    <Source Name=\"feed\" Url=\"file://" + feedIndex.generic_string() + "\" />\n"
+              "  </Packages>\n"
+              "</Workspace>\n");
+    const std::string packageManifest = R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Package SchemaVersion="4" Name="Package.Core" Version="1.0.0">
+  <Library Name="Package.Core">
+    <Exports>
+      <LibraryTarget Name="Package::Core" />
+    </Exports>
+  </Library>
+</Package>
+)xml";
+    WriteFile(feedRoot / "Core/Core.nginpack",
+              std::string("NGINPACK/1\n")
+                  + "Name: Package.Core\n"
+                  + "Version: 1.0.0\n"
+                  + "Manifest: package.nginpkg\n"
+                  + "Manifest-Length: " + std::to_string(packageManifest.size()) + "\n\n"
+                  + packageManifest);
+    WriteFile(feedIndex,
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<PackageFeed SchemaVersion="4">
+  <Packages>
+    <Package Name="Package.Core" Version="1.0.0" Path="Core/Core.nginpack" />
+  </Packages>
+</PackageFeed>
+)xml");
+    WriteFile(temp.path() / "App/App.nginproj",
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4" Name="StaticFeed.App">
+  <Application>
+    <Uses>
+      <Package Name="Package.Core" Version="[1.0.0,2.0.0)" Scope="Target" />
+    </Uses>
+    <Build>
+      <Sources Path="src/**.cpp" />
+    </Build>
+  </Application>
+</Project>
+)xml");
+    WriteFile(temp.path() / "App/src/main.cpp", "int main() { return 0; }\n");
+
+    ParsedArgs args{};
+    args.projectPath = (temp.path() / "App/App.nginproj").string();
+    args.outputPath = (temp.path() / "store").string();
+
+    REQUIRE(CmdRestore(temp.path(), args) == 0);
+    REQUIRE(fs::exists(temp.path() / "store/Package.Core/1.0.0/Core.nginpack"));
+    REQUIRE(fs::exists(temp.path() / "store/Package.Core/1.0.0/package.nginpkg"));
 }
 
 TEST_CASE("V4 package manifest parses product exports and feature contributions")
@@ -2234,6 +2301,22 @@ TEST_CASE("V4 graph plan switches print focused resolved plans")
     REQUIRE_THAT(packageOutputJsonCaptured.str(), ContainsSubstring(R"("name":"Plan.App","version":"1.0.0")"));
     REQUIRE_THAT(packageOutputJsonCaptured.str(), ContainsSubstring(R"("capabilities":1)"));
     REQUIRE_THAT(packageOutputJsonCaptured.str(), ContainsSubstring(R"("reason":"source product package output")"));
+
+    ParsedArgs buildJsonArgs{};
+    buildJsonArgs.projectPath = projectPath.string();
+    buildJsonArgs.profileName = "dev";
+    buildJsonArgs.format = "json";
+    buildJsonArgs.graphPlan = "build";
+    std::ostringstream buildJsonCaptured{};
+    previous = std::cout.rdbuf(buildJsonCaptured.rdbuf());
+    const auto buildJsonExitCode = CmdGraph(temp.path(), buildJsonArgs);
+    std::cout.rdbuf(previous);
+
+    REQUIRE(buildJsonExitCode == 0);
+    REQUIRE_THAT(buildJsonCaptured.str(), ContainsSubstring(R"("plan": "build")"));
+    REQUIRE_THAT(buildJsonCaptured.str(), ContainsSubstring(R"("value":"PLAN_APP=1")"));
+    REQUIRE_THAT(buildJsonCaptured.str(), ContainsSubstring(R"("reason":"selected compile definition")"));
+    REQUIRE_THAT(buildJsonCaptured.str(), ContainsSubstring(R"("kind":"Source","role":"Source","source":"src/main.cpp")"));
 }
 
 TEST_CASE("V4 resolved package scopes flow into graph metadata")
@@ -2304,6 +2387,21 @@ TEST_CASE("V4 resolved package scopes flow into graph metadata")
 
     REQUIRE(exitCode == 0);
     REQUIRE_THAT(captured.str(), ContainsSubstring(R"("closures":["Host","Target","Runtime"])"));
+
+    ParsedArgs graphArgs{};
+    graphArgs.projectPath = (temp.path() / "App/App.nginproj").string();
+    graphArgs.format = "json";
+    graphArgs.graphPlan = "package";
+    std::ostringstream graphCaptured{};
+    previous = std::cout.rdbuf(graphCaptured.rdbuf());
+    const auto graphExitCode = CmdGraph(temp.path(), graphArgs);
+    std::cout.rdbuf(previous);
+
+    REQUIRE(graphExitCode == 0);
+    REQUIRE_THAT(graphCaptured.str(), ContainsSubstring(R"("plan": "package")"));
+    REQUIRE_THAT(graphCaptured.str(), ContainsSubstring(R"("name":"Package.Core","version":"1.0.0")"));
+    REQUIRE_THAT(graphCaptured.str(), ContainsSubstring(R"("closures":["Host","Target","Runtime"])"));
+    REQUIRE_THAT(graphCaptured.str(), ContainsSubstring(R"("reason":"resolved package dependency")"));
 }
 
 TEST_CASE("V4 package resolution reports conflicting dependency version ranges")
@@ -2559,6 +2657,9 @@ TEST_CASE("restore writes V4 package store and lock file")
 
     REQUIRE(CmdRestore(temp.path(), args) == 0);
     REQUIRE(fs::exists(temp.path() / "store/Package.Core/1.0.0/Core.nginpack"));
+    REQUIRE(fs::exists(temp.path() / "store/Package.Core/1.0.0/package.nginpkg"));
+    REQUIRE_THAT(ReadFile(temp.path() / "store/Package.Core/1.0.0/package.nginpkg"),
+                 ContainsSubstring(R"(<Package SchemaVersion="4" Name="Package.Core" Version="1.0.0">)"));
     REQUIRE(fs::exists(temp.path() / "ngin.lock"));
     REQUIRE_THAT(ReadFile(temp.path() / "ngin.lock"), ContainsSubstring(R"(Scope="Target")"));
 
@@ -2569,6 +2670,7 @@ TEST_CASE("restore writes V4 package store and lock file")
 
     REQUIRE(CmdRestore(temp.path(), lockedArgs) == 0);
     REQUIRE(fs::exists(temp.path() / "locked-store/Package.Core/1.0.0/Core.nginpack"));
+    REQUIRE(fs::exists(temp.path() / "locked-store/Package.Core/1.0.0/package.nginpkg"));
 
     WriteFile(temp.path() / "ngin.lock", "<Lock />\n");
     REQUIRE(CmdRestore(temp.path(), lockedArgs) == 1);
@@ -3964,6 +4066,10 @@ TEST_CASE("inspect command emits resolved read-only json")
     REQUIRE_THAT(json, ContainsSubstring(R"("name":"Package.Core")"));
     REQUIRE_THAT(json, ContainsSubstring(R"("feature":"Diagnostics")"));
     REQUIRE_THAT(json, ContainsSubstring(R"("state":"selected")"));
+    REQUIRE_THAT(json, ContainsSubstring(R"("plans":{"packages":[)"));
+    REQUIRE_THAT(json, ContainsSubstring(R"("build":{"defines":[)"));
+    REQUIRE_THAT(json, ContainsSubstring(R"("generators":[{"name":"PackageGenerator")"));
+    REQUIRE_THAT(json, ContainsSubstring(R"("stage":{"files":[)"));
     REQUIRE_THAT(json, ContainsSubstring(R"("name":"PackageGenerator")"));
     REQUIRE_THAT(json, ContainsSubstring(R"("state":"active")"));
     REQUIRE_THAT(json, ContainsSubstring(R"("name":"WindowsOnlyGenerator")"));

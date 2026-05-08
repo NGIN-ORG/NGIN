@@ -2799,6 +2799,51 @@ namespace NGIN::CLI
         const fs::path &projectPath) -> std::unordered_map<std::string, PackageCatalogEntry>
     {
         std::unordered_map<std::string, PackageCatalogEntry> out;
+        auto addManifest = [&](const fs::path &manifestPath)
+        {
+            const auto canonicalManifestPath = fs::weakly_canonical(manifestPath);
+            const auto manifest = LoadPackageManifest(canonicalManifestPath);
+            fs::path providerRoot{};
+            if (workspace.has_value())
+            {
+                if (const auto provider = workspace->packageProviders.find(manifest.name); provider != workspace->packageProviders.end())
+                {
+                    providerRoot = provider->second;
+                }
+            }
+            out.emplace(manifest.name, PackageCatalogEntry{
+                                           .name = manifest.name,
+                                           .manifestPath = canonicalManifestPath,
+                                           .providerRoot = providerRoot,
+                                       });
+        };
+        auto addFeedIndex = [&](const fs::path &feedPath)
+        {
+            const auto feed = LoadXml(feedPath);
+            const auto *rootElement = feed.document.Root();
+            if (rootElement == nullptr || rootElement->name != "PackageFeed")
+            {
+                throw std::runtime_error(feedPath.string() + ": root element must be <PackageFeed>");
+            }
+            const auto schemaVersion = SchemaVersion(*rootElement, feedPath);
+            if (schemaVersion != "4")
+            {
+                throw std::runtime_error(feedPath.string() + ": unsupported package feed SchemaVersion '" + schemaVersion + "' (expected '4')");
+            }
+            const auto *packagesElement = FindChild(*rootElement, "Packages");
+            if (packagesElement == nullptr)
+            {
+                throw std::runtime_error(feedPath.string() + ": missing <Packages>");
+            }
+            for (const auto *packageElement : ChildElements(*packagesElement, "Package"))
+            {
+                const auto relativeManifestPath = RequireAttribute(*packageElement, "Path", feedPath);
+                const auto manifestPath = fs::path(relativeManifestPath).is_absolute()
+                                              ? fs::path(relativeManifestPath).lexically_normal()
+                                              : (feedPath.parent_path() / relativeManifestPath).lexically_normal();
+                addManifest(manifestPath);
+            }
+        };
         auto packageRoots = workspace.has_value() ? workspace->packageSources : DiscoverPackageSourceRoots(projectPath);
         if (workspace.has_value())
         {
@@ -2817,27 +2862,23 @@ namespace NGIN::CLI
             {
                 continue;
             }
+            if (fs::is_regular_file(packageRoot))
+            {
+                if (packageRoot.extension() == ".nginpkg" || packageRoot.extension() == ".nginpack")
+                {
+                    addManifest(packageRoot);
+                    continue;
+                }
+                addFeedIndex(packageRoot);
+                continue;
+            }
             for (const auto &entry : fs::recursive_directory_iterator(packageRoot))
             {
                 if (!entry.is_regular_file() || (entry.path().extension() != ".nginpkg" && entry.path().extension() != ".nginpack"))
                 {
                     continue;
                 }
-                const auto manifestPath = fs::weakly_canonical(entry.path());
-                const auto manifest = LoadPackageManifest(manifestPath);
-                fs::path providerRoot{};
-                if (workspace.has_value())
-                {
-                    if (const auto provider = workspace->packageProviders.find(manifest.name); provider != workspace->packageProviders.end())
-                    {
-                        providerRoot = provider->second;
-                    }
-                }
-                out.emplace(manifest.name, PackageCatalogEntry{
-                                               .name = manifest.name,
-                                               .manifestPath = manifestPath,
-                                               .providerRoot = providerRoot,
-                                           });
+                addManifest(entry.path());
             }
         }
         return out;
