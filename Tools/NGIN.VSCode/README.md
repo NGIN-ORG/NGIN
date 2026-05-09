@@ -15,8 +15,9 @@ the terminal commands.
   dependency, and artifact navigation
 - read-only resolved dependency details in the Workspace tree for the active
   project/profile, backed by `ngin inspect --format json`
-- a default visual `.nginproj` editor for common project, profile, input,
-  reference, feature, launch, and environment edits while preserving XML source
+- a default visual V4 `.nginproj` editor for common product, profile,
+  dependency, source/config, feature, launch, and environment edits while
+  preserving XML source
 - status bar items for the selected workspace, project, and profile
 - commands for configure, build, clean, rebuild, run, debug, validate, graph,
   variable explanation, and local settings initialization
@@ -24,12 +25,11 @@ the terminal commands.
 - `.nginlaunch`-based run and debug resolution
 - a custom `ngin` debug type that launches native C/C++ debug sessions
 - C/C++ profile-provider support for `ms-vscode.cpptools`
-- file registration and snippets for `.ngin`, `.nginproj`, `.nginmodel`,
-  `.nginpkg`, `.nginlaunch`, and `.nginsettings`
-- an initial V3 `.nginproj` schema artifact for editor tooling
-- V3 workspace/project parsing for `.nginmodel` includes, defaults, and profile
-  templates so project trees, tasks, debug profiles, and status items use
-  effective profile data
+- file registration and snippets for `.ngin`, `.nginproj`, `.nginpkg`,
+  `.nginlaunch`, and `.nginsettings`
+- an initial V4 product-first `.nginproj` schema artifact for editor tooling
+- V4 workspace/project parsing for product sections, direct project profiles,
+  workspace package sources, and authored dependency scopes
 
 The CLI remains the source of truth. If a command works in the terminal, the
 extension should call the same command with the selected project and
@@ -70,12 +70,12 @@ without producing a `.nginlaunch` file. Run and debug use the staged
 `.nginlaunch` file produced by `ngin build`. When debugging, the extension can
 build first if the launch manifest is missing or stale.
 
-The Workspace tree is project-centered. Project rows select the active project,
+The Workspace tree is product-centered. Project rows select the active product,
 manifest rows open `.nginproj` files, Profiles select the active profile,
-Dependencies contains authored
-references plus resolved Packages, Features, Capabilities, Generators, Inputs,
-Launch, and Diagnostics for the active project/profile, Generated contains
-existing staged output, and Files contains declared source and config inputs.
+Dependencies contains authored project/package/runtime/tool uses plus resolved
+Packages, Features, Capabilities, Generators, Inputs, Launch, and Diagnostics
+for the active project/profile, Generated contains existing staged output, and
+Files contains declared source and config inputs.
 Right-click context menus expose project/profile
 actions, file navigation, path copying, and authored file operations. Generators
 are displayed generically; MetaGen appears only as a normal command generator

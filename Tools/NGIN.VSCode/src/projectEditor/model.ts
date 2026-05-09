@@ -16,6 +16,20 @@ function asArray<T>(value: T | T[] | undefined): T[] {
   return Array.isArray(value) ? value : [value];
 }
 
+const productKinds = ['Application', 'Library', 'Tool', 'Test', 'Benchmark', 'Plugin', 'Module', 'External'];
+
+function productNode(root: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+  if (!root) {
+    return undefined;
+  }
+  for (const kind of productKinds) {
+    if (root[kind] !== undefined) {
+      return (root[kind] ?? {}) as Record<string, unknown>;
+    }
+  }
+  return undefined;
+}
+
 function boolValue(value: unknown): boolean | undefined {
   if (value === undefined || value === null || value === '') {
     return undefined;
@@ -39,7 +53,6 @@ function textLines(node: unknown): string[] {
 
 export interface ProjectEditorProfile {
   name: string;
-  template?: string;
   buildType?: string;
   platform?: string;
   operatingSystem?: string;
@@ -138,7 +151,7 @@ export interface ProjectEditorModel {
   parseError?: string;
   project: {
     name?: string;
-    template?: string;
+    productKind?: string;
     defaultProfile?: string;
     launchExecutable?: string;
     launchWorkingDirectory?: string;
@@ -163,8 +176,12 @@ function emptyInputs(): Record<ProjectInputBlock, ProjectInputEdit[]> {
 }
 
 function parsePackageReferences(node: unknown): ProjectPackageReferenceEdit[] {
-  const parent = node as { References?: { Package?: unknown; PackageRef?: unknown } } | undefined;
-  return [...asArray(parent?.References?.Package), ...asArray(parent?.References?.PackageRef)]
+  const parent = node as { Uses?: { Package?: unknown; Runtime?: unknown; Tool?: unknown } } | undefined;
+  return [
+    ...asArray(parent?.Uses?.Package),
+    ...asArray(parent?.Uses?.Runtime),
+    ...asArray(parent?.Uses?.Tool)
+  ]
     .map((entry): ProjectPackageReferenceEdit | undefined => {
       const ref = entry as { Name?: string; Version?: string; VersionRange?: string; Optional?: string | boolean } | undefined;
       if (!ref?.Name) {
@@ -180,24 +197,91 @@ function parsePackageReferences(node: unknown): ProjectPackageReferenceEdit[] {
 }
 
 function parseFeatureUses(node: unknown): ProjectEditorFeatureUse[] {
-  const parent = node as { Features?: { Use?: unknown; Disable?: unknown } } | undefined;
-  const parse = (entry: unknown, state: Exclude<ProjectFeatureState, 'inherit'>): ProjectEditorFeatureUse | undefined => {
-    const value = entry as { Package?: string; Feature?: string } | undefined;
-    return value?.Package && value.Feature
-      ? { packageName: value.Package, featureName: value.Feature, state }
-      : undefined;
+  const parent = node as { Uses?: { Package?: unknown; Runtime?: unknown; Tool?: unknown } } | undefined;
+  const parse = (dependency: unknown): ProjectEditorFeatureUse[] => {
+    const value = dependency as { Name?: string; Feature?: unknown } | undefined;
+    if (!value?.Name) {
+      return [];
+    }
+    return asArray(value.Feature)
+      .map((feature): ProjectEditorFeatureUse | undefined => {
+        const featureValue = feature as { Name?: string; Enabled?: string | boolean } | undefined;
+        return featureValue?.Name
+          ? {
+              packageName: value.Name,
+              featureName: featureValue.Name,
+              state: featureValue.Enabled === false || featureValue.Enabled === 'false' ? 'disable' : 'use'
+            }
+          : undefined;
+      })
+      .filter((entry): entry is ProjectEditorFeatureUse => Boolean(entry));
   };
   return [
-    ...asArray(parent?.Features?.Use).map((entry) => parse(entry, 'use')),
-    ...asArray(parent?.Features?.Disable).map((entry) => parse(entry, 'disable'))
-  ].filter((entry): entry is ProjectEditorFeatureUse => Boolean(entry));
+    ...asArray(parent?.Uses?.Package).flatMap(parse),
+    ...asArray(parent?.Uses?.Runtime).flatMap(parse),
+    ...asArray(parent?.Uses?.Tool).flatMap(parse)
+  ];
+}
+
+function selectors(value: {
+  Profile?: string;
+  Platform?: string;
+  TargetPlatform?: string;
+  OperatingSystem?: string;
+  Architecture?: string;
+  BuildType?: string;
+  Environment?: string;
+  Condition?: string;
+  When?: string;
+} | undefined): Pick<ProjectInputEdit, 'profile' | 'platform' | 'operatingSystem' | 'architecture' | 'buildType' | 'environment' | 'condition'> {
+  return {
+    profile: value?.Profile,
+    platform: value?.Platform ?? value?.TargetPlatform,
+    operatingSystem: value?.OperatingSystem,
+    architecture: value?.Architecture,
+    buildType: value?.BuildType,
+    environment: value?.Environment,
+    condition: value?.Condition ?? value?.When
+  };
+}
+
+function parseV4InputBlock(node: unknown, block: ProjectInputBlock): ProjectInputEdit[] {
+  const product = node as { Build?: Record<string, unknown>; Stage?: Record<string, unknown> } | undefined;
+  if (block === 'Configs') {
+    return asArray(product?.Stage?.Config)
+      .map((entry): ProjectInputEdit | undefined => {
+        const value = entry as { Source?: string; Path?: string; Target?: string } & Parameters<typeof selectors>[0] | undefined;
+        return value?.Source || value?.Path
+          ? { mode: 'File', path: value.Source ?? value.Path, ...selectors(value) }
+          : undefined;
+      })
+      .filter((entry): entry is ProjectInputEdit => Boolean(entry));
+  }
+  return asArray(product?.Build?.[block])
+    .map((entry): ProjectInputEdit | undefined => {
+      const value = entry as { Path?: string; Include?: string; Exclude?: string } & Parameters<typeof selectors>[0] | undefined;
+      return value?.Path || value?.Include
+        ? {
+            mode: value.Path && !value.Path.includes('*') ? 'Directory' : 'Glob',
+            path: value.Path,
+            include: value.Include,
+            exclude: value.Exclude,
+            ...selectors(value)
+          }
+        : undefined;
+    })
+    .filter((entry): entry is ProjectInputEdit => Boolean(entry));
 }
 
 function parseInputBlock(node: unknown, block: ProjectInputBlock): ProjectInputEdit[] {
+  const v4 = parseV4InputBlock(node, block);
+  if (v4.length > 0) {
+    return v4;
+  }
   const parent = node as { Inputs?: Record<string, unknown> } | undefined;
   const blocks = asArray(parent?.Inputs?.[block]);
   const entries: ProjectInputEdit[] = [];
-  const selectors = (value: {
+  const legacySelectors = (value: {
     Profile?: string;
     Platform?: string;
     OperatingSystem?: string;
@@ -234,34 +318,52 @@ function parseInputBlock(node: unknown, block: ProjectInputBlock): ProjectInputE
       continue;
     }
     if (value.Path) {
-      entries.push({ mode: 'Directory', path: value.Path, include: value.Include, exclude: value.Exclude, ...selectors(value) });
+      entries.push({ mode: 'Directory', path: value.Path, include: value.Include, exclude: value.Exclude, ...legacySelectors(value) });
     }
     if (value.Include) {
-      entries.push({ mode: 'Glob', include: value.Include, exclude: value.Exclude, ...selectors(value) });
+      entries.push({ mode: 'Glob', include: value.Include, exclude: value.Exclude, ...legacySelectors(value) });
     }
     for (const line of textLines(rawBlock)) {
-      entries.push({ mode: 'File', path: line, ...selectors(value) });
+      entries.push({ mode: 'File', path: line, ...legacySelectors(value) });
     }
     for (const file of asArray(value.File)) {
-      const entry = file as { Path?: string } & Parameters<typeof selectors>[0] | undefined;
+      const entry = file as { Path?: string } & Parameters<typeof legacySelectors>[0] | undefined;
       if (entry?.Path) {
-        entries.push({ mode: 'File', path: entry.Path, ...selectors(entry) });
+        entries.push({ mode: 'File', path: entry.Path, ...legacySelectors(entry) });
       }
     }
     for (const directory of asArray(value.Directory)) {
-      const entry = directory as { Path?: string; Include?: string; Exclude?: string } & Parameters<typeof selectors>[0] | undefined;
+      const entry = directory as { Path?: string; Include?: string; Exclude?: string } & Parameters<typeof legacySelectors>[0] | undefined;
       if (entry?.Path) {
-        entries.push({ mode: 'Directory', path: entry.Path, include: entry.Include, exclude: entry.Exclude, ...selectors(entry) });
+        entries.push({ mode: 'Directory', path: entry.Path, include: entry.Include, exclude: entry.Exclude, ...legacySelectors(entry) });
       }
     }
     for (const glob of asArray(value.Glob)) {
-      const entry = glob as { Include?: string; Exclude?: string } & Parameters<typeof selectors>[0] | undefined;
+      const entry = glob as { Include?: string; Exclude?: string } & Parameters<typeof legacySelectors>[0] | undefined;
       if (entry?.Include) {
-        entries.push({ mode: 'Glob', include: entry.Include, exclude: entry.Exclude, ...selectors(entry) });
+        entries.push({ mode: 'Glob', include: entry.Include, exclude: entry.Exclude, ...legacySelectors(entry) });
       }
     }
   }
   return entries;
+}
+
+/*
+ * Legacy helpers below remain as parser fallbacks for already-open editor
+ * documents. The extension no longer creates V1/V2/V3 manifest shapes.
+ */
+function parseLegacyFeatureUses(node: unknown): ProjectEditorFeatureUse[] {
+  const parent = node as { Features?: { Use?: unknown; Disable?: unknown } } | undefined;
+  const parse = (entry: unknown, state: Exclude<ProjectFeatureState, 'inherit'>): ProjectEditorFeatureUse | undefined => {
+    const value = entry as { Package?: string; Feature?: string } | undefined;
+    return value?.Package && value.Feature
+      ? { packageName: value.Package, featureName: value.Feature, state }
+      : undefined;
+  };
+  return [
+    ...asArray(parent?.Features?.Use).map((entry) => parse(entry, 'use')),
+    ...asArray(parent?.Features?.Disable).map((entry) => parse(entry, 'disable'))
+  ].filter((entry): entry is ProjectEditorFeatureUse => Boolean(entry));
 }
 
 function parseInputs(node: unknown): Record<ProjectInputBlock, ProjectInputEdit[]> {
@@ -272,41 +374,37 @@ function parseInputs(node: unknown): Record<ProjectInputBlock, ProjectInputEdit[
   };
 }
 
-function parseEnvironments(root: { Environments?: { Environment?: unknown } }): ProjectEditorEnvironment[] {
-  return asArray(root.Environments?.Environment)
-    .map((entry): ProjectEditorEnvironment | undefined => {
-      const environment = entry as { Name?: string; Variables?: { Variable?: unknown } } | undefined;
-      if (!environment?.Name) {
+function parseProductEnvironment(product: Record<string, unknown> | undefined): ProjectEditorEnvironment[] {
+  const environment = product?.Environment as { Env?: unknown; Secret?: unknown } | undefined;
+  const variables: ProjectEditorEnvironmentVariable[] = [
+    ...asArray(environment?.Env).map((entry): ProjectEditorEnvironmentVariable | undefined => {
+      const value = entry as { Name?: string; Value?: string; FromEnvironment?: string; Required?: string | boolean } | undefined;
+      return value?.Name
+        ? {
+            name: value.Name,
+            value: value.Value,
+            fromEnvironment: value.FromEnvironment,
+            required: boolValue(value.Required),
+            secret: false
+          }
+        : undefined;
+    }),
+    ...asArray(environment?.Secret).map((entry): ProjectEditorEnvironmentVariable | undefined => {
+      const value = entry as { Name?: string; From?: string; Required?: string | boolean } | undefined;
+      if (!value?.Name) {
         return undefined;
       }
+      const from = value.From ?? '';
       return {
-        name: environment.Name,
-        variables: asArray(environment.Variables?.Variable)
-          .map((variable): ProjectEditorEnvironmentVariable | undefined => {
-            const value = variable as {
-              Name?: string;
-              Value?: string;
-              FromEnvironment?: string;
-              FromLocalSetting?: string;
-              Required?: string | boolean;
-              Secret?: string | boolean;
-            } | undefined;
-            if (!value?.Name) {
-              return undefined;
-            }
-            return {
-              name: value.Name,
-              value: value.Value,
-              fromEnvironment: value.FromEnvironment,
-              fromLocalSetting: value.FromLocalSetting,
-              required: boolValue(value.Required),
-              secret: boolValue(value.Secret)
-            };
-          })
-          .filter((variable): variable is ProjectEditorEnvironmentVariable => Boolean(variable))
+        name: value.Name,
+        fromLocalSetting: from.startsWith('local:') ? from.slice('local:'.length) : undefined,
+        fromEnvironment: from.startsWith('env:') ? from.slice('env:'.length) : undefined,
+        required: boolValue(value.Required),
+        secret: true
       };
     })
-    .filter((entry): entry is ProjectEditorEnvironment => Boolean(entry));
+  ].filter((entry): entry is ProjectEditorEnvironmentVariable => Boolean(entry));
+  return variables.length > 0 ? [{ name: 'product', variables }] : [];
 }
 
 function featureKey(packageName: string, featureName: string): string {
@@ -389,8 +487,14 @@ function resolvedSummary(inspect: ProjectInspectPayload | undefined): ProjectEdi
 }
 
 function unsupportedSections(root: Record<string, unknown>): string[] {
-  return ['Build', 'Runtime', 'Generators', 'Conditions', 'LocalSettings']
+  return ['Conditions', 'LocalSettings']
     .filter((name) => root[name] !== undefined);
+}
+
+function defaultsValue(profile: Record<string, unknown>, name: string): string | undefined {
+  const defaults = profile.Defaults as Record<string, unknown> | undefined;
+  const node = defaults?.[name] as { Name?: string } | undefined;
+  return node?.Name;
 }
 
 export function buildProjectEditorModel(
@@ -420,63 +524,57 @@ export function buildProjectEditorModel(
     const document = parser.parse(xml);
     const root = document.Project as Record<string, unknown> & {
       Name?: string;
-      Template?: string;
       DefaultProfile?: string;
       Launch?: { Executable?: string; WorkingDirectory?: string };
-      Profiles?: { Profile?: unknown };
-      Environments?: { Environment?: unknown };
+      Profile?: unknown;
     };
     if (!root) {
       return { ...base, parseError: 'Root element must be <Project>.' };
     }
 
-    const profiles = asArray(root.Profiles?.Profile)
+    const rootProduct = productNode(root);
+    const profiles = asArray(root.Profile)
       .map((entry): ProjectEditorProfile | undefined => {
-        const profile = entry as {
+        const profile = entry as Record<string, unknown> & {
           Name?: string;
-          Template?: string;
-          BuildType?: string;
-          Platform?: string;
-          OperatingSystem?: string;
-          Architecture?: string;
-          Environment?: string;
-          Launch?: { Executable?: string; WorkingDirectory?: string };
         } | undefined;
         if (!profile?.Name) {
           return undefined;
         }
+        const overlayProduct = productNode(profile);
+        const launch = (overlayProduct?.Launch ?? rootProduct?.Launch) as { Executable?: string; WorkingDirectory?: string } | undefined;
         return {
           name: profile.Name,
-          template: profile.Template,
-          buildType: profile.BuildType,
-          platform: profile.Platform,
-          operatingSystem: profile.OperatingSystem,
-          architecture: profile.Architecture,
-          environment: profile.Environment,
-          launchExecutable: profile.Launch?.Executable,
-          launchWorkingDirectory: profile.Launch?.WorkingDirectory,
-          packageReferences: parsePackageReferences(entry),
-          featureUses: parseFeatureUses(entry),
-          inputs: parseInputs(entry)
+          buildType: defaultsValue(profile, 'BuildType'),
+          platform: defaultsValue(profile, 'TargetPlatform'),
+          operatingSystem: defaultsValue(profile, 'OperatingSystem'),
+          architecture: defaultsValue(profile, 'Architecture'),
+          environment: defaultsValue(profile, 'Environment'),
+          launchExecutable: launch?.Executable,
+          launchWorkingDirectory: launch?.WorkingDirectory,
+          packageReferences: parsePackageReferences(overlayProduct),
+          featureUses: [...parseFeatureUses(overlayProduct), ...parseLegacyFeatureUses(profile)],
+          inputs: parseInputs(overlayProduct)
         };
       })
       .filter((entry): entry is ProjectEditorProfile => Boolean(entry));
 
     const selectedProfile = activeProfile ?? root.DefaultProfile ?? profiles[0]?.name;
+    const rootLaunch = rootProduct?.Launch as { Executable?: string; WorkingDirectory?: string } | undefined;
     return {
       ...base,
       project: {
         name: root.Name,
-        template: root.Template,
+        productKind: productKinds.find((kind) => root[kind] !== undefined),
         defaultProfile: root.DefaultProfile,
-        launchExecutable: root.Launch?.Executable,
-        launchWorkingDirectory: root.Launch?.WorkingDirectory,
-        packageReferences: parsePackageReferences(root),
-        inputs: parseInputs(root)
+        launchExecutable: rootLaunch?.Executable,
+        launchWorkingDirectory: rootLaunch?.WorkingDirectory,
+        packageReferences: parsePackageReferences(rootProduct),
+        inputs: parseInputs(rootProduct)
       },
       activeProfile: selectedProfile,
       profiles,
-      environments: parseEnvironments(root),
+      environments: parseProductEnvironment(rootProduct),
       features: buildFeatures(inspect, profiles, selectedProfile),
       unsupportedSections: unsupportedSections(root)
     };

@@ -31,53 +31,35 @@ export function relativeManifestPath(projectDirectory: string, filePath: string)
 
 export function addRootConfigInput(xml: string, sourcePath: string): { xml: string; changed: boolean } {
   const normalizedSource = normalizeManifestPath(sourcePath);
-  const configPattern = /<Configs\b[^>]*>([\s\S]*?)<\/Configs>/g;
-  for (const section of xml.matchAll(configPattern)) {
-    for (const line of section[1].split(/\r?\n/)) {
-      const value = line.trim();
-      if (value && !value.startsWith('<') && normalizeManifestPath(value) === normalizedSource) {
-        return { xml, changed: false };
-      }
-    }
-    for (const match of section[1].matchAll(/<File\b[^>]*\bPath=(["'])(.*?)\1[^>]*\/?>/g)) {
-      if (normalizeManifestPath(match[2]) === normalizedSource) {
-        return { xml, changed: false };
-      }
+  for (const match of xml.matchAll(/<Config\b[^>]*\b(?:Source|Path)=(["'])(.*?)\1[^>]*\/?>/g)) {
+    if (normalizeManifestPath(match[2]) === normalizedSource) {
+      return { xml, changed: false };
     }
   }
 
-  const configLine = normalizedSource;
-  const existingConfigs = xml.match(/\n([ \t]*)<\/Configs>/);
-  if (existingConfigs?.index !== undefined) {
-    const childIndent = `${existingConfigs[1]}  `;
-    const insert = `\n${childIndent}${configLine}`;
+  const existingStage = xml.match(/\n([ \t]*)<\/Stage>/);
+  if (existingStage?.index !== undefined) {
+    const childIndent = `${existingStage[1]}  `;
+    const insert = `\n${childIndent}<Config Source="${normalizedSource}" />`;
     return {
-      xml: `${xml.slice(0, existingConfigs.index)}${insert}${xml.slice(existingConfigs.index)}`,
+      xml: `${xml.slice(0, existingStage.index)}${insert}${xml.slice(existingStage.index)}`,
       changed: true
     };
   }
 
-  const existingSection = xml.match(/\n([ \t]*)<\/Inputs>/);
-  if (existingSection?.index !== undefined) {
-    const childIndent = `${existingSection[1]}  `;
-    const insert = `\n${childIndent}<Configs>\n${childIndent}  ${configLine}\n${childIndent}</Configs>`;
+  const productClose = xml.match(/\n([ \t]*)<\/(Application|Tool|Plugin|External)>/);
+  if (productClose?.index !== undefined) {
+    const indent = `${productClose[1]}  `;
+    const insert = `${indent}<Stage>\n${indent}  <Config Source="${normalizedSource}" />\n${indent}</Stage>\n`;
     return {
-      xml: `${xml.slice(0, existingSection.index)}${insert}${xml.slice(existingSection.index)}`,
-      changed: true
-    };
-  }
-
-  const section = `  <Inputs>\n    <Configs>\n      ${configLine}\n    </Configs>\n  </Inputs>\n`;
-  const insertionPoint = xml.search(/\n\s*<(Runtime|Environments|Profiles)\b/);
-  if (insertionPoint >= 0) {
-    return {
-      xml: `${xml.slice(0, insertionPoint + 1)}${section}${xml.slice(insertionPoint + 1)}`,
+      xml: `${xml.slice(0, productClose.index + 1)}${insert}${xml.slice(productClose.index + 1)}`,
       changed: true
     };
   }
 
   const projectClose = xml.lastIndexOf('</Project>');
   if (projectClose >= 0) {
+    const section = `  <Application>\n    <Stage>\n      <Config Source="${normalizedSource}" />\n    </Stage>\n  </Application>\n`;
     return {
       xml: `${xml.slice(0, projectClose)}${section}${xml.slice(projectClose)}`,
       changed: true
@@ -85,7 +67,7 @@ export function addRootConfigInput(xml: string, sourcePath: string): { xml: stri
   }
 
   return {
-    xml: `${xml}\n${section}`,
+    xml: `${xml}\n<Application>\n  <Stage>\n    <Config Source="${normalizedSource}" />\n  </Stage>\n</Application>\n`,
     changed: true
   };
 }
@@ -118,7 +100,7 @@ function replaceConfigTextLines(xml: string, mapper: (source: string) => string 
 
 function replaceConfigFileEntries(xml: string, mapper: (source: string) => string | undefined): { xml: string; changed: boolean } {
   let changed = false;
-  const updated = xml.replace(/(<File\b[^>]*\bPath=)(["'])(.*?)\2([^>]*\/?>)/g, (match, prefix: string, quote: string, source: string, suffix: string) => {
+  const updated = xml.replace(/(<(?:File|Config)\b[^>]*\b(?:Path|Source)=)(["'])(.*?)\2([^>]*\/?>)/g, (match, prefix: string, quote: string, source: string, suffix: string) => {
     const replacement = mapper(source);
     if (!replacement) {
       return match;
@@ -160,7 +142,7 @@ export function removeConfigInputs(xml: string, sourcePath: string, includeChild
     }).join('');
     return `${open}${next}${close}`;
   });
-  const files = text.replace(/^([ \t]*<File\b[^>]*\bPath=(["'])(.*?)\2[^>]*\/?>\r?\n?)/gm, (match, _line: string, _quote: string, source: string) => {
+  const files = text.replace(/^([ \t]*<(?:File|Config)\b[^>]*\b(?:Path|Source)=(["'])(.*?)\2[^>]*\/?>\r?\n?)/gm, (match, _line: string, _quote: string, source: string) => {
     if (!shouldRemove(source)) {
       return match;
     }
@@ -173,6 +155,9 @@ export function removeConfigInputs(xml: string, sourcePath: string, includeChild
 
 export function listConfigInputs(xml: string): string[] {
   const paths: string[] = [];
+  for (const match of xml.matchAll(/<Config\b[^>]*\b(?:Source|Path)=(["'])(.*?)\1[^>]*\/?>/g)) {
+    paths.push(match[2]);
+  }
   for (const section of xml.matchAll(/<Configs\b[^>]*>([\s\S]*?)<\/Configs>/g)) {
     for (const line of section[1].split(/\r?\n/)) {
       const value = line.trim();

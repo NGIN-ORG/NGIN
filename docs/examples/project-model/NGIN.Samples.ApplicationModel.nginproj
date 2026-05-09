@@ -1,68 +1,82 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="3"
+<Project SchemaVersion="4"
          Name="NGIN.Samples.ApplicationModel"
-         DefaultProfile="Sandbox.Game">
-  <Inputs>
-    <Sources Path="src" />
-  </Inputs>
-  <Output Kind="Executable"
-          Name="Sandbox.Game"
-          Target="Sandbox.Game" />
-  <References>
-    <Package Name="NGIN.ECS" Version=">=0.1.0 &lt;1.0.0" />
-  </References>
-  <Environments>
-    <Environment Name="Dev" />
-  </Environments>
-  <Runtime>
-    <Modules>
+         DefaultProfile="game">
+  <Application>
+    <Uses>
+      <Runtime Name="NGIN.Core"
+               Version="[0.1.0,0.2.0)"
+               Scope="Target;Runtime" />
+
+      <Package Name="NGIN.ECS"
+               Version="[0.1.0,1.0.0)"
+               Scope="Target;Runtime" />
+    </Uses>
+
+    <Build>
+      <Sources Path="src/**.cpp" />
+    </Build>
+
+    <Runtime>
       <Module Name="App.SandboxGame"
-              Family="App"
-              Type="Runtime"
-              StartupStage="Features"
-              Version="0.1.0"
-              ReflectionRequired="false" />
-    </Modules>
-    <EnableModules>
-      <ModuleRef Name="App.SandboxGame" />
-    </EnableModules>
-  </Runtime>
-  <Profiles>
-    <Profile Name="Tools.Cli"
-                   BuildType="Debug"
-                   Platform="linux-x64"
-                   Environment="Dev">
-      <Inputs>
-        <Configs>
-          config/cli.xml
-        </Configs>
-      </Inputs>
-    </Profile>
-    <Profile Name="Tools.Diagnostics"
-                   BuildType="Debug"
-                   Platform="linux-x64"
-                   Environment="Dev"
-                   EnableReflection="true">
-      <References>
-        <Package Name="NGIN.Reflection" Version=">=0.1.0 &lt;1.0.0" />
-        <Package Name="NGIN.Diagnostics" Version=">=0.1.0 &lt;1.0.0" />
-      </References>
-      <Inputs>
-        <Configs>
-          config/tooling.xml
-        </Configs>
-      </Inputs>
-    </Profile>
-    <Profile Name="Sandbox.Game"
-                   BuildType="Debug"
-                   Platform="linux-x64"
-                   Environment="Dev">
-      <Inputs>
-        <Configs>
-          config/game.xml
-        </Configs>
-      </Inputs>
-      <Launch Executable="Sandbox.Game" WorkingDirectory="." />
-    </Profile>
-  </Profiles>
+              Stage="Features"
+              Order="100">
+        <Provides Service="App.SandboxGame.Ready" />
+      </Module>
+    </Runtime>
+  </Application>
+
+  <Profile Name="tools-cli">
+    <Defaults>
+      <BuildType Name="Debug" />
+      <TargetPlatform Name="linux-x64" />
+      <Environment Name="development" />
+    </Defaults>
+
+    <Application>
+      <Stage>
+        <Config Source="config/cli.xml"
+                Target="config/app.xml" />
+      </Stage>
+    </Application>
+  </Profile>
+
+  <Profile Name="tools-diagnostics"
+           Extends="tools-cli">
+    <Application>
+      <Uses>
+        <Package Name="NGIN.Reflection"
+                 Version="[0.1.0,1.0.0)"
+                 Scope="Target;Runtime" />
+
+        <Package Name="NGIN.Diagnostics"
+                 Version="[0.1.0,1.0.0)"
+                 Scope="Target;Runtime" />
+      </Uses>
+
+      <Stage>
+        <Config Source="config/tooling.xml"
+                Target="config/app.xml"
+                Collision="Override" />
+      </Stage>
+    </Application>
+  </Profile>
+
+  <Profile Name="game">
+    <Defaults>
+      <BuildType Name="Debug" />
+      <TargetPlatform Name="linux-x64" />
+      <Environment Name="development" />
+    </Defaults>
+
+    <Application>
+      <Stage>
+        <Config Source="config/game.xml"
+                Target="config/app.xml" />
+      </Stage>
+
+      <Launch Executable="$(OutputName)"
+              WorkingDirectory="." />
+    </Application>
+  </Profile>
 </Project>

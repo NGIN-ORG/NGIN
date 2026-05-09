@@ -22,7 +22,7 @@ import {
 } from '../../core/helpers';
 import { addRootConfigInput, relativeManifestPath, removeConfigInputs, renameConfigInputs } from '../../core/projectAuthoring';
 import { buildProjectTreeModels, buildStatusBarModel } from '../../ui/models';
-import { parseLaunchManifest, parseLocalSettingsManifest, parseModelManifest, parsePackageManifest, parseProjectManifest, parseWorkspaceManifest } from '../../core/xml';
+import { parseLaunchManifest, parseLocalSettingsManifest, parsePackageManifest, parseProjectManifest, parseWorkspaceManifest } from '../../core/xml';
 import {
   addProfile,
   deleteProfile,
@@ -98,61 +98,43 @@ test('local settings warnings are extracted from CLI output', () => {
 
 test('workspace manifests parse project paths relative to the workspace manifest', () => {
   const workspace = parseWorkspaceManifest(
-    '<?xml version="1.0" encoding="utf-8"?><Workspace SchemaVersion="3" Name="NGIN"><Includes><Include Path="Examples/Common.nginmodel" /></Includes><Defaults BuildType="Debug" Platform="linux-x64" /><PackageSources><PackageSource Path="Packages" /></PackageSources><Projects><Project Path="Examples/Hello.Hosted/Hello.Hosted.nginproj" /></Projects></Workspace>',
+    '<?xml version="1.0" encoding="utf-8"?><Workspace SchemaVersion="4" Name="NGIN"><Imports><Import Path="build/platforms.ngin.xml" /></Imports><Packages><Source Name="local" Path="Packages" /></Packages><Projects><Project Path="Examples/Hello.Hosted/Hello.Hosted.nginproj" /></Projects></Workspace>',
     '/repo/NGIN.ngin'
   );
 
   assert.equal(workspace.name, 'NGIN');
-  assert.deepEqual(workspace.modelIncludes, ['/repo/Examples/Common.nginmodel']);
-  assert.equal(workspace.defaults?.buildType, 'Debug');
+  assert.deepEqual(workspace.imports, ['/repo/build/platforms.ngin.xml']);
   assert.deepEqual(workspace.projectPaths, ['/repo/Examples/Hello.Hosted/Hello.Hosted.nginproj']);
   assert.deepEqual(workspace.packageSourcePaths, ['/repo/Packages']);
 });
 
-test('model and project parsing apply V3 defaults and profile templates', () => {
-  const model = parseModelManifest(
-    [
-      '<?xml version="1.0" encoding="utf-8"?>',
-      '<Model SchemaVersion="3" Name="Common">',
-      '  <Defaults BuildType="Debug" Platform="linux-x64" Environment="dev" />',
-      '  <ProfileTemplates>',
-      '    <ProfileTemplate Name="RuntimeDefaults">',
-      '      <Launch Executable="$(OutputName)" WorkingDirectory="." />',
-      '      <Inputs><Configs>config/template.cfg</Configs></Inputs>',
-      '    </ProfileTemplate>',
-      '  </ProfileTemplates>',
-      '</Model>'
-    ].join(''),
-    '/repo/Examples/Common.nginmodel'
-  );
+test('project parsing applies V4 product profile defaults', () => {
   const project = parseProjectManifest(
-    '<?xml version="1.0" encoding="utf-8"?><Project SchemaVersion="3" Name="Hello.Hosted" DefaultProfile="Runtime"><Output Kind="Executable" Name="Hello.Hosted" Target="Hello.Hosted" /><Environments><Environment Name="dev" /></Environments><Profiles><Profile Name="Runtime" Template="RuntimeDefaults" /></Profiles></Project>',
-    '/repo/Examples/Hello.Hosted/Hello.Hosted.nginproj',
-    { defaults: model.defaults, profileTemplates: model.profileTemplates }
+    '<?xml version="1.0" encoding="utf-8"?><Project SchemaVersion="4" Name="Hello.Hosted" DefaultProfile="dev"><Application><Launch Executable="$(OutputName)" WorkingDirectory="." /></Application><Profile Name="dev"><Defaults><BuildType Name="Debug" /><TargetPlatform Name="linux-x64" /><Environment Name="development" /></Defaults><Application><Stage><Config Source="config/template.cfg" /></Stage></Application></Profile></Project>',
+    '/repo/Examples/Hello.Hosted/Hello.Hosted.nginproj'
   );
 
   assert.equal(project.profiles[0].buildType, 'Debug');
   assert.equal(project.profiles[0].platform, 'linux-x64');
-  assert.equal(project.profiles[0].environment, 'dev');
-  assert.equal(project.profiles[0].launchExecutable, 'Hello.Hosted');
+  assert.equal(project.profiles[0].environment, 'development');
+  assert.equal(project.profiles[0].launchExecutable, '$(OutputName)');
   assert.deepEqual(project.profiles[0].configInputs, ['config/template.cfg']);
 });
 
 test('project manifests parse profiles, launch metadata, and local settings imports', () => {
   const project = parseProjectManifest(
-    '<?xml version="1.0" encoding="utf-8"?><Project Name="Hello.Hosted" DefaultProfile="Runtime"><Inputs><Sources Path="src" /><Configs>config/app.cfg</Configs></Inputs><Build><Sources><Source Path="src/main.cpp" /></Sources></Build><References><Project Path="../Engine.Library/Engine.Library.nginproj" /><Package Name="NGIN.Core" /></References><LocalSettings><Import Path=".ngin/local/user.nginsettings" Optional="true" /></LocalSettings><Profiles><Profile Name="Runtime" BuildType="Debug" OperatingSystem="linux" Architecture="x64" Environment="development"><Launch Executable="Hello.Hosted" WorkingDirectory="." /><References><Package Name="NGIN.Reflection" Optional="true" /></References><Inputs><Configs>config/runtime.cfg</Configs></Inputs></Profile></Profiles></Project>',
+    '<?xml version="1.0" encoding="utf-8"?><Project SchemaVersion="4" Name="Hello.Hosted" DefaultProfile="Runtime"><Application><Uses><Project Name="Engine.Library" Path="../Engine.Library/Engine.Library.nginproj" /><Runtime Name="NGIN.Core" Scope="Target;Runtime" /></Uses><Build><Sources Path="src/**.cpp" /><Source Path="src/main.cpp" /></Build><Stage><Config Source="config/app.cfg" /></Stage><Launch Executable="Hello.Hosted" WorkingDirectory="." /></Application><Profile Name="Runtime"><Defaults><BuildType Name="Debug" /><OperatingSystem Name="linux" /><Architecture Name="x64" /><Environment Name="development" /></Defaults><Application><Uses><Package Name="NGIN.Reflection" Optional="true" /></Uses><Stage><Config Source="config/runtime.cfg" /></Stage></Application></Profile></Project>',
     '/repo/Examples/Hello.Hosted/Hello.Hosted.nginproj'
   );
 
   assert.equal(project.defaultProfile, 'Runtime');
-  assert.deepEqual(project.sourceRoots, ['src']);
+  assert.deepEqual(project.sourceRoots, ['src/**.cpp', 'src/main.cpp']);
   assert.deepEqual(project.buildSources, ['src/main.cpp']);
   assert.deepEqual(project.configInputs, ['config/app.cfg']);
-  assert.deepEqual(project.localSettingsImports, ['/repo/Examples/Hello.Hosted/.ngin/local/user.nginsettings']);
-  assert.deepEqual(project.projectRefs, [{ path: '/repo/Examples/Engine.Library/Engine.Library.nginproj', profile: undefined }]);
-  assert.deepEqual(project.packageRefs, [{ name: 'NGIN.Core', version: undefined, optional: false }]);
+  assert.deepEqual(project.projectRefs, [{ name: 'Engine.Library', path: '/repo/Examples/Engine.Library/Engine.Library.nginproj', profile: undefined }]);
+  assert.deepEqual(project.packageRefs, [{ name: 'NGIN.Core', version: undefined, scope: 'Target;Runtime', kind: 'Runtime', optional: false, features: [] }]);
   assert.deepEqual(project.profiles[0].configInputs, ['config/runtime.cfg']);
-  assert.deepEqual(project.profiles[0].packageRefs, [{ name: 'NGIN.Reflection', version: undefined, optional: true }]);
+  assert.deepEqual(project.profiles[0].packageRefs, [{ name: 'NGIN.Reflection', version: undefined, scope: undefined, kind: 'Package', optional: true, features: [] }]);
   assert.equal(project.profiles[0].launchExecutable, 'Hello.Hosted');
   assert.equal(project.profiles[0].operatingSystem, 'linux');
   assert.equal(project.profiles[0].architecture, 'x64');
@@ -161,33 +143,35 @@ test('project manifests parse profiles, launch metadata, and local settings impo
 test('project manifests parse normalized source roots and files', () => {
   const project = parseProjectManifest(
     [
-      '<?xml version="1.0" encoding="utf-8"?><Project Name="Typed" DefaultProfile="Runtime"><Inputs><Headers Path="include">include/Typed/App.hpp</Headers><Sources Path="src">src/main.cpp\nsrc/a.cpp\nsrc/b.cpp</Sources></Inputs><Profiles><Profile Name="Runtime" /></Profiles></Project>'
+      '<?xml version="1.0" encoding="utf-8"?><Project SchemaVersion="4" Name="Typed" DefaultProfile="Runtime"><Application><Build><Headers Path="include/**.hpp" /><Source Path="src/main.cpp" /><Source Path="src/a.cpp" /><Source Path="src/b.cpp" /></Build></Application><Profile Name="Runtime" /></Project>'
     ].join('\n'),
     '/repo/Typed.nginproj'
   );
 
-  assert.deepEqual(project.sourceRoots, ['include', 'src']);
-  assert.deepEqual(project.buildSources, ['include/Typed/App.hpp', 'src/main.cpp', 'src/a.cpp', 'src/b.cpp']);
+  assert.deepEqual(project.sourceRoots, ['include/**.hpp', 'src/main.cpp', 'src/a.cpp', 'src/b.cpp']);
+  assert.deepEqual(project.buildSources, ['src/main.cpp', 'src/a.cpp', 'src/b.cpp']);
 });
 
 test('project and package manifests parse generator declarations', () => {
   const project = parseProjectManifest(
     [
       '<?xml version="1.0" encoding="utf-8"?>',
-      '<Project SchemaVersion="3" Name="Generated.App" DefaultProfile="Runtime">',
-      '  <Generators>',
-      '    <Generator Name="ReflectionMetaGen" Kind="Command">',
+      '<Project SchemaVersion="4" Name="Generated.App" DefaultProfile="Runtime">',
+      '  <Application>',
+      '  <Generate>',
+      '    <Generator Name="ReflectionMetaGen" Phase="Generate">',
       '      <Tool Executable="tools/ngin-metagen" />',
-      '      <Arguments>',
+      '      <Args>',
       '        <Arg Value="--context" />',
       '        <Arg Path="$(GeneratorContext)" />',
-      '      </Arguments>',
+      '      </Args>',
       '      <Outputs>',
-      '        <Generated Role="Source" Path="$(GeneratedDir)/reflection/Generated.App.reflection.generated.cpp" />',
+      '        <Sources Path="$(GeneratedDir)/reflection/Generated.App.reflection.generated.cpp" />',
       '      </Outputs>',
       '    </Generator>',
-      '  </Generators>',
-      '  <Profiles><Profile Name="Runtime" /></Profiles>',
+      '  </Generate>',
+      '  </Application>',
+      '  <Profile Name="Runtime" />',
       '</Project>'
     ].join('\n'),
     '/repo/Generated.App.nginproj'
@@ -198,18 +182,18 @@ test('project and package manifests parse generator declarations', () => {
   const packageManifest = parsePackageManifest(
     [
       '<?xml version="1.0" encoding="utf-8"?>',
-      '<Package SchemaVersion="3" Name="Generated.Tools" Version="0.1.0">',
+      '<Package SchemaVersion="4" Name="Generated.Tools" Version="0.1.0">',
       '  <Tools>',
       '    <Tool Name="SchemaCompiler" Kind="Generator" Executable="bin/schema-compiler" />',
       '  </Tools>',
       '  <Features>',
       '    <Feature Name="Schema">',
-      '      <Generators>',
+      '      <Generate>',
       '        <Generator Name="SchemaCodegen" Kind="Command" Tool="SchemaCompiler">',
-      '          <Arguments><Arg Value="--version" /></Arguments>',
-      '          <Outputs><Generated Role="Header" Path="$(GeneratedDir)/schema/app_schema.hpp" /></Outputs>',
+      '          <Args><Arg Value="--version" /></Args>',
+      '          <Outputs><Headers Path="$(GeneratedDir)/schema/app_schema.hpp" /></Outputs>',
       '        </Generator>',
-      '      </Generators>',
+      '      </Generate>',
       '    </Feature>',
       '  </Features>',
       '</Package>'
@@ -237,7 +221,7 @@ test('extension manifest and snippets register local settings support', () => {
   const packageJson = JSON.parse(readFileSync(path.join(process.cwd(), 'package.json'), 'utf8'));
   const language = packageJson.contributes.languages.find((entry: { id?: string }) => entry.id === 'ngin');
   assert.ok(language.extensions.includes('.nginsettings'));
-  assert.ok(language.extensions.includes('.nginmodel'));
+  assert.equal(language.extensions.includes('.nginmodel'), false);
 
   const commandIds = packageJson.contributes.commands.map((entry: { command: string }) => entry.command);
   assert.ok(commandIds.includes('ngin.variablesExplain'));
@@ -252,9 +236,9 @@ test('extension manifest and snippets register local settings support', () => {
 
   const snippets = JSON.parse(readFileSync(path.join(process.cwd(), 'snippets/ngin.code-snippets'), 'utf8'));
   assert.ok(snippets['Local Settings File']);
-  assert.ok(snippets['Variable From Local Setting']);
-  assert.ok(snippets['Model']);
-  assert.ok(snippets['MetaGen Feature Use']);
+  assert.ok(snippets['Application Project']);
+  assert.ok(snippets['Runtime Dependency']);
+  assert.equal(snippets['Model'], undefined);
   assert.ok(snippets['Command Generator']);
 });
 
@@ -273,17 +257,18 @@ test('launch manifests surface selected executable and staged files', () => {
 test('config input authoring inserts root config inputs once', () => {
   const xml = [
     '<?xml version="1.0" encoding="utf-8"?>',
-    '<Project Name="Hello.Hosted">',
-    '  <Inputs>',
-    '    <Sources Path="src" />',
-    '  </Inputs>',
-    '  <Profiles />',
+    '<Project SchemaVersion="4" Name="Hello.Hosted">',
+    '  <Application>',
+    '    <Build>',
+    '      <Sources Path="src/**.cpp" />',
+    '    </Build>',
+    '  </Application>',
     '</Project>'
   ].join('\n');
 
   const added = addRootConfigInput(xml, 'config/new.cfg');
   assert.equal(added.changed, true);
-  assert.match(added.xml, /<Configs>[\s\S]*config\/new.cfg[\s\S]*<\/Configs>/);
+  assert.match(added.xml, /<Stage>[\s\S]*<Config Source="config\/new.cfg" \/>[\s\S]*<\/Stage>/);
 
   const duplicate = addRootConfigInput(added.xml, 'config/new.cfg');
   assert.equal(duplicate.changed, false);
@@ -296,13 +281,13 @@ test('relativeManifestPath uses project-relative slash paths', () => {
 
 test('config input authoring renames and removes nested config inputs', () => {
   const xml = [
-    '<Project Name="Hello.Hosted">',
-    '  <Inputs>',
-    '    <Configs>',
-    '      config/app.cfg',
-    '      config/nested/dev.cfg',
-    '    </Configs>',
-    '  </Inputs>',
+    '<Project SchemaVersion="4" Name="Hello.Hosted">',
+    '  <Application>',
+    '    <Stage>',
+    '      <Config Source="config/app.cfg" />',
+    '      <Config Source="config/nested/dev.cfg" />',
+    '    </Stage>',
+    '  </Application>',
     '</Project>'
   ].join('\n');
 
@@ -319,22 +304,22 @@ test('config input authoring renames and removes nested config inputs', () => {
 test('project editor authoring updates root attributes while preserving unknown XML', () => {
   const xml = [
     '<?xml version="1.0" encoding="utf-8"?>',
-    '<Project SchemaVersion="3" Name="Old" DefaultProfile="Runtime">',
+    '<Project SchemaVersion="4" Name="Old" DefaultProfile="Runtime">',
     '  <!-- keep this comment -->',
-    '  <Runtime />',
-    '  <Profiles><Profile Name="Runtime" /></Profiles>',
+    '  <Application />',
+    '  <Profile Name="Runtime" />',
     '</Project>'
   ].join('\n');
 
-  const updated = updateProjectAttributes(xml, { name: 'New', template: 'Application', defaultProfile: 'Runtime' });
+  const updated = updateProjectAttributes(xml, { name: 'New', defaultProfile: 'Runtime' });
   assert.match(updated, /Name="New"/);
-  assert.match(updated, /Template="Application"/);
+  assert.doesNotMatch(updated, /Template=/);
   assert.match(updated, /<!-- keep this comment -->/);
-  assert.match(updated, /<Runtime \/>/);
+  assert.match(updated, /<Application \/>/);
 });
 
 test('project editor authoring adds updates and deletes profiles', () => {
-  let xml = '<Project Name="App" DefaultProfile="Runtime"><Profiles><Profile Name="Runtime" /></Profiles></Project>';
+  let xml = '<Project SchemaVersion="4" Name="App" DefaultProfile="Runtime"><Application /><Profile Name="Runtime" /></Project>';
   xml = addProfile(xml, 'Tools');
   assert.match(xml, /<Profile Name="Tools" \/>/);
 
@@ -348,7 +333,11 @@ test('project editor authoring adds updates and deletes profiles', () => {
     launchExecutable: 'App',
     launchWorkingDirectory: '.'
   });
-  assert.match(xml, /<Profile Name="Diagnostics" BuildType="Debug" OperatingSystem="linux" Architecture="x64" Environment="dev">/);
+  assert.match(xml, /<Profile Name="Diagnostics">/);
+  assert.match(xml, /<BuildType Name="Debug" \/>/);
+  assert.match(xml, /<OperatingSystem Name="linux" \/>/);
+  assert.match(xml, /<Architecture Name="x64" \/>/);
+  assert.match(xml, /<Environment Name="dev" \/>/);
   assert.match(xml, /<Launch Executable="App" WorkingDirectory="." \/>/);
 
   xml = deleteProfile(xml, 'Runtime');
@@ -357,31 +346,30 @@ test('project editor authoring adds updates and deletes profiles', () => {
 });
 
 test('project editor authoring manages active profile feature state', () => {
-  let xml = '<Project Name="App"><Profiles><Profile Name="Runtime" /></Profiles></Project>';
+  let xml = '<Project SchemaVersion="4" Name="App"><Application /><Profile Name="Runtime" /></Project>';
   xml = setProfileFeatureState(xml, 'Runtime', 'NGIN.Core', 'Reflection', 'use');
-  assert.match(xml, /<Use Package="NGIN\.Core" Feature="Reflection" \/>/);
+  assert.match(xml, /<Package Name="NGIN\.Core">[\s\S]*<Feature Name="Reflection" \/>[\s\S]*<\/Package>/);
 
   xml = setProfileFeatureState(xml, 'Runtime', 'NGIN.Core', 'Reflection', 'disable');
-  assert.doesNotMatch(xml, /<Use Package="NGIN\.Core" Feature="Reflection" \/>/);
-  assert.match(xml, /<Disable Package="NGIN\.Core" Feature="Reflection" \/>/);
+  assert.doesNotMatch(xml, /<Feature Name="Reflection" \/>/);
+  assert.match(xml, /<Feature Name="Reflection" Enabled="false" \/>/);
 
   xml = setProfileFeatureState(xml, 'Runtime', 'NGIN.Core', 'Reflection', 'inherit');
   assert.doesNotMatch(xml, /Feature="Reflection"/);
 });
 
 test('project editor authoring creates missing profiles for feature overrides', () => {
-  let xml = '<Project Name="App" DefaultProfile="Runtime"></Project>';
+  let xml = '<Project SchemaVersion="4" Name="App" DefaultProfile="Runtime"><Application /></Project>';
   xml = setProfileFeatureState(xml, 'Runtime', 'NGIN.Core', 'Reflection', 'disable');
-  assert.match(xml, /<Profiles>/);
   assert.match(xml, /<Profile Name="Runtime">/);
-  assert.match(xml, /<Disable Package="NGIN\.Core" Feature="Reflection" \/>/);
+  assert.match(xml, /<Feature Name="Reflection" Enabled="false" \/>/);
 
-  const unchanged = '<Project Name="App" DefaultProfile="Runtime"></Project>';
+  const unchanged = '<Project SchemaVersion="4" Name="App" DefaultProfile="Runtime"><Application /></Project>';
   assert.equal(setProfileFeatureState(unchanged, 'Runtime', 'NGIN.Core', 'Reflection', 'inherit'), unchanged);
 });
 
 test('project editor authoring manages package references inputs and environment variables', () => {
-  let xml = '<Project Name="App"><Profiles><Profile Name="Runtime" /></Profiles></Project>';
+  let xml = '<Project SchemaVersion="4" Name="App"><Application /><Profile Name="Runtime" /></Project>';
   xml = setPackageReferences(xml, [{ name: 'NGIN.Core', version: '>=0.1.0 <0.2.0', optional: false }]);
   assert.match(xml, /<Package Name="NGIN\.Core" Version="&gt;=0\.1\.0 &lt;0\.2\.0" Optional="false" \/>/);
 
@@ -394,13 +382,13 @@ test('project editor authoring manages package references inputs and environment
     { name: 'TOKEN', fromLocalSetting: 'app.token', required: false, secret: true },
     { name: 'SDK_ROOT', fromEnvironment: 'SDK_ROOT' }
   ]);
-  assert.match(xml, /<Environment Name="dev">/);
-  assert.match(xml, /<Variable Name="TOKEN" FromLocalSetting="app\.token" Required="false" Secret="true" \/>/);
-  assert.match(xml, /<Variable Name="SDK_ROOT" FromEnvironment="SDK_ROOT" \/>/);
+  assert.match(xml, /<Environment>/);
+  assert.match(xml, /<Secret Name="TOKEN" From="local:app\.token" Required="false" \/>/);
+  assert.match(xml, /<Env Name="SDK_ROOT" FromEnvironment="SDK_ROOT" \/>/);
 });
 
 test('project editor authoring preserves selectors on file rules', () => {
-  const xml = setInputEntries('<Project Name="App"></Project>', 'Sources', [
+  const xml = setInputEntries('<Project SchemaVersion="4" Name="App"><Application /></Project>', 'Sources', [
     {
       mode: 'Directory',
       path: 'src',
@@ -413,7 +401,7 @@ test('project editor authoring preserves selectors on file rules', () => {
     }
   ]);
 
-  assert.match(xml, /<Sources Path="src" Include="\*\*\/\*\.cpp;\*\*\/\*\.hpp" Exclude="\*\*\/\*\.generated\.cpp" OperatingSystem="linux" Architecture="x64" BuildType="Debug" Condition="Desktop" \/>/);
+  assert.match(xml, /<Sources Path="src" Include="\*\*\/\*\.cpp;\*\*\/\*\.hpp" Exclude="\*\*\/\*\.generated\.cpp" When="Desktop" OperatingSystem="linux" Architecture="x64" BuildType="Debug" \/>/);
 
   const model = buildProjectEditorModel(xml, '/repo/App.nginproj', 'file:///repo/App.nginproj');
   assert.deepEqual(model.project.inputs.Sources[0], {
@@ -433,14 +421,15 @@ test('project editor authoring preserves selectors on file rules', () => {
 
 test('project editor authoring keeps root and profile references separate', () => {
   let xml = [
-    '<Project Name="App">',
-    '  <Profiles>',
-    '    <Profile Name="Runtime">',
-    '      <References>',
+    '<Project SchemaVersion="4" Name="App">',
+    '  <Application />',
+    '  <Profile Name="Runtime">',
+    '    <Application>',
+    '      <Uses>',
     '        <Package Name="Profile.Only" />',
-    '      </References>',
-    '    </Profile>',
-    '  </Profiles>',
+    '      </Uses>',
+    '    </Application>',
+    '  </Profile>',
     '</Project>'
   ].join('\n');
 
@@ -455,10 +444,9 @@ test('project editor model surfaces parse errors and resolved feature states', (
 
   const model = buildProjectEditorModel(
     [
-      '<Project Name="App" DefaultProfile="Runtime">',
-      '  <Profiles>',
-      '    <Profile Name="Runtime"><Features><Use Package="NGIN.Core" Feature="Reflection" /></Features></Profile>',
-      '  </Profiles>',
+      '<Project SchemaVersion="4" Name="App" DefaultProfile="Runtime">',
+      '  <Application />',
+      '  <Profile Name="Runtime"><Application><Uses><Package Name="NGIN.Core"><Feature Name="Reflection" /></Package></Uses></Application></Profile>',
       '</Project>'
     ].join('\n'),
     '/repo/App.nginproj',
@@ -479,7 +467,7 @@ test('project editor model surfaces parse errors and resolved feature states', (
 
 test('project editor model summarizes resolved inspect data for the project overview', () => {
   const model = buildProjectEditorModel(
-    '<Project Name="App" DefaultProfile="Runtime"><Profiles><Profile Name="Runtime" /></Profiles></Project>',
+    '<Project SchemaVersion="4" Name="App" DefaultProfile="Runtime"><Application /><Profile Name="Runtime" /></Project>',
     '/repo/App.nginproj',
     'file:///repo/App.nginproj',
     {

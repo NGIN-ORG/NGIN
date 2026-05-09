@@ -3,14 +3,12 @@ export type ProjectInputBlock = 'Sources' | 'Headers' | 'Configs';
 
 export interface ProjectAttributeUpdate {
   name?: string;
-  template?: string;
   defaultProfile?: string;
 }
 
 export interface ProjectProfileUpdate {
   originalName: string;
   name: string;
-  template?: string;
   buildType?: string;
   platform?: string;
   operatingSystem?: string;
@@ -48,6 +46,8 @@ export interface ProjectEnvironmentVariableEdit {
   required?: boolean;
   secret?: boolean;
 }
+
+const productKinds = ['Application', 'Library', 'Tool', 'Test', 'Benchmark', 'Plugin', 'Module', 'External'];
 
 function escapeAttribute(value: string): string {
   return value
@@ -134,31 +134,28 @@ function directChildDepth(xml: string): number {
 
 function findDirectSection(xml: string, rangeStart: number, rangeEnd: number, name: string): { start: number; end: number; openEnd: number; bodyStart: number; bodyEnd: number; indent: string } | undefined {
   const source = xml.slice(rangeStart, rangeEnd);
-  const pattern = new RegExp(`<${name}\\b[^>]*>`, 'g');
+  const pattern = new RegExp(`<${name}\\b[^>]*(?:/>|>)`, 'g');
   for (const match of source.matchAll(pattern)) {
-    if (match.index === undefined) {
-      continue;
-    }
-    if (directChildDepth(source.slice(0, match.index)) !== 0) {
+    if (match.index === undefined || directChildDepth(source.slice(0, match.index)) !== 0) {
       continue;
     }
     const start = rangeStart + match.index;
     const openEnd = start + match[0].length;
+    if (/\/>$/.test(match[0])) {
+      return { start, end: openEnd, openEnd, bodyStart: openEnd, bodyEnd: openEnd, indent: indentationBefore(xml, start) };
+    }
     const closeText = `</${name}>`;
     const bodyEnd = xml.indexOf(closeText, openEnd);
     if (bodyEnd < 0 || bodyEnd > rangeEnd) {
       continue;
     }
-    return {
-      start,
-      end: bodyEnd + closeText.length,
-      openEnd,
-      bodyStart: openEnd,
-      bodyEnd,
-      indent: indentationBefore(xml, start)
-    };
+    return { start, end: bodyEnd + closeText.length, openEnd, bodyStart: openEnd, bodyEnd, indent: indentationBefore(xml, start) };
   }
   return undefined;
+}
+
+function replaceRange(xml: string, start: number, end: number, replacement: string): string {
+  return `${xml.slice(0, start)}${replacement}${xml.slice(end)}`;
 }
 
 function profileNamePattern(name: string): RegExp {
@@ -167,67 +164,39 @@ function profileNamePattern(name: string): RegExp {
 }
 
 function findProfile(xml: string, name: string): { start: number; end: number; openEnd: number; bodyStart: number; bodyEnd: number; openTag: string; selfClosing: boolean; indent: string } | undefined {
-  const profiles = findDirectSection(xml, projectOpenMatch(xml).index! + projectOpenMatch(xml)[0].length, projectCloseIndex(xml), 'Profiles');
-  if (!profiles) {
-    return undefined;
-  }
-
-  const source = xml.slice(profiles.bodyStart, profiles.bodyEnd);
+  const rootStart = projectOpenMatch(xml).index! + projectOpenMatch(xml)[0].length;
+  const rootEnd = projectCloseIndex(xml);
+  const source = xml.slice(rootStart, rootEnd);
   for (const match of source.matchAll(profileNamePattern(name))) {
-    if (match.index === undefined) {
+    if (match.index === undefined || directChildDepth(source.slice(0, match.index)) !== 0) {
       continue;
     }
-    const start = profiles.bodyStart + match.index;
+    const start = rootStart + match.index;
     const openTag = match[0];
     const openEnd = start + openTag.length;
     const selfClosing = /\/>$/.test(openTag);
     if (selfClosing) {
-      return {
-        start,
-        end: openEnd,
-        openEnd,
-        bodyStart: openEnd,
-        bodyEnd: openEnd,
-        openTag,
-        selfClosing,
-        indent: indentationBefore(xml, start)
-      };
+      return { start, end: openEnd, openEnd, bodyStart: openEnd, bodyEnd: openEnd, openTag, selfClosing, indent: indentationBefore(xml, start) };
     }
     const close = xml.indexOf('</Profile>', openEnd);
-    if (close < 0 || close > profiles.bodyEnd) {
+    if (close < 0 || close > rootEnd) {
       continue;
     }
-    return {
-      start,
-      end: close + '</Profile>'.length,
-      openEnd,
-      bodyStart: openEnd,
-      bodyEnd: close,
-      openTag,
-      selfClosing,
-      indent: indentationBefore(xml, start)
-    };
+    return { start, end: close + '</Profile>'.length, openEnd, bodyStart: openEnd, bodyEnd: close, openTag, selfClosing, indent: indentationBefore(xml, start) };
   }
   return undefined;
 }
 
-function ensureProfilesSection(xml: string): { xml: string; section: ReturnType<typeof findDirectSection> } {
+function rootProductKind(xml: string): string {
   const open = projectOpenMatch(xml);
   const rootStart = open.index! + open[0].length;
   const rootEnd = projectCloseIndex(xml);
-  const existing = findDirectSection(xml, rootStart, rootEnd, 'Profiles');
-  if (existing) {
-    return { xml, section: existing };
+  for (const kind of productKinds) {
+    if (findDirectSection(xml, rootStart, rootEnd, kind)) {
+      return kind;
+    }
   }
-
-  const projectIndent = indentationBefore(xml, projectCloseIndex(xml));
-  const insert = `${projectIndent}<Profiles>\n${projectIndent}</Profiles>\n`;
-  const next = `${xml.slice(0, rootEnd)}${insert}${xml.slice(rootEnd)}`;
-  return { xml: next, section: findDirectSection(next, rootStart, projectCloseIndex(next), 'Profiles') };
-}
-
-function replaceRange(xml: string, start: number, end: number, replacement: string): string {
-  return `${xml.slice(0, start)}${replacement}${xml.slice(end)}`;
+  return 'Application';
 }
 
 function scopeRange(xml: string, profileName?: string): { xml: string; start: number; end: number; indent: string; closeInsertIndex: number } {
@@ -242,7 +211,6 @@ function scopeRange(xml: string, profileName?: string): { xml: string; start: nu
   if (!profile) {
     throw new Error(`Profile not found: ${profileName}`);
   }
-
   if (!profile.selfClosing) {
     return { xml, start: profile.bodyStart, end: profile.bodyEnd, indent: childIndent(profile.indent), closeInsertIndex: profile.bodyEnd };
   }
@@ -257,25 +225,61 @@ function scopeRange(xml: string, profileName?: string): { xml: string; start: nu
   return { xml: next, start: expanded.bodyStart, end: expanded.bodyEnd, indent: childIndent(expanded.indent), closeInsertIndex: expanded.bodyEnd };
 }
 
-function ensureScopeSection(xml: string, sectionName: string, profileName?: string): { xml: string; section: NonNullable<ReturnType<typeof findDirectSection>> } {
-  const range = scopeRange(xml, profileName);
-  const existing = findDirectSection(range.xml, range.start, range.end, sectionName);
-  if (existing) {
-    return { xml: range.xml, section: existing };
+function ensureProfile(xml: string, name: string): string {
+  if (findProfile(xml, name)) {
+    return xml;
   }
-  const insert = `\n${range.indent}<${sectionName}>\n${range.indent}</${sectionName}>`;
+  const rootEnd = projectCloseIndex(xml);
+  const projectIndent = indentationBefore(xml, rootEnd);
+  const insert = `${projectIndent}<Profile Name="${escapeAttribute(name)}" />\n`;
+  return replaceRange(xml, rootEnd, rootEnd, insert);
+}
+
+function ensureProduct(xml: string, profileName?: string): { xml: string; section: NonNullable<ReturnType<typeof findDirectSection>>; kind: string } {
+  const kind = rootProductKind(xml);
+  const range = scopeRange(xml, profileName);
+  const existing = findDirectSection(range.xml, range.start, range.end, kind);
+  if (existing) {
+    if (existing.bodyStart === existing.bodyEnd) {
+      const replacement = `<${kind}>\n${existing.indent}</${kind}>`;
+      const next = replaceRange(range.xml, existing.start, existing.end, replacement);
+      const expandedRange = scopeRange(next, profileName);
+      const expanded = findDirectSection(next, expandedRange.start, expandedRange.end, kind);
+      if (!expanded) {
+        throw new Error(`Failed to expand <${kind}> section.`);
+      }
+      return { xml: next, section: expanded, kind };
+    }
+    return { xml: range.xml, section: existing, kind };
+  }
+  const insert = `\n${range.indent}<${kind}>\n${range.indent}</${kind}>`;
   const next = replaceRange(range.xml, range.closeInsertIndex, range.closeInsertIndex, insert);
   const nextRange = scopeRange(next, profileName);
-  const section = findDirectSection(next, nextRange.start, nextRange.end, sectionName);
+  const section = findDirectSection(next, nextRange.start, nextRange.end, kind);
+  if (!section) {
+    throw new Error(`Failed to create <${kind}> section.`);
+  }
+  return { xml: next, section, kind };
+}
+
+function ensureProductSection(xml: string, sectionName: string, profileName?: string): { xml: string; section: NonNullable<ReturnType<typeof findDirectSection>> } {
+  const product = ensureProduct(xml, profileName);
+  const existing = findDirectSection(product.xml, product.section.bodyStart, product.section.bodyEnd, sectionName);
+  if (existing) {
+    return { xml: product.xml, section: existing };
+  }
+  const insert = `\n${childIndent(product.section.indent)}<${sectionName}>\n${childIndent(product.section.indent)}</${sectionName}>`;
+  const next = replaceRange(product.xml, product.section.bodyEnd, product.section.bodyEnd, insert);
+  const refreshed = ensureProduct(next, profileName);
+  const section = findDirectSection(next, refreshed.section.bodyStart, refreshed.section.bodyEnd, sectionName);
   if (!section) {
     throw new Error(`Failed to create <${sectionName}> section.`);
   }
   return { xml: next, section };
 }
 
-function formatPackageReference(reference: ProjectPackageReferenceEdit, indent: string, tagName = 'Package'): string {
-  let tag = `<${tagName}`;
-  tag = setAttributes(tag + ' />', {
+function formatPackageReference(reference: ProjectPackageReferenceEdit, indent: string): string {
+  const tag = setAttributes('<Package />', {
     Name: reference.name,
     Version: reference.version,
     Optional: reference.optional
@@ -285,30 +289,24 @@ function formatPackageReference(reference: ProjectPackageReferenceEdit, indent: 
 
 function formatInput(block: ProjectInputBlock, entry: ProjectInputEdit, indent: string): string {
   const selectorAttributes = {
-    Profile: entry.profile,
-    Platform: entry.platform,
+    When: entry.condition,
+    TargetPlatform: entry.platform,
     OperatingSystem: entry.operatingSystem,
     Architecture: entry.architecture,
     BuildType: entry.buildType,
-    Environment: entry.environment,
-    Condition: entry.condition
+    Environment: entry.environment
   };
-  if (entry.mode === 'Directory' && entry.path) {
-    const tag = setAttributes(`<${block} />`, {
-      Path: entry.path,
-      Include: entry.include,
-      Exclude: entry.exclude,
+  if (block === 'Configs') {
+    const tag = setAttributes('<Config />', {
+      Source: entry.path ?? entry.include,
       ...selectorAttributes
     });
     return `${indent}${tag}`;
   }
-  if (entry.mode === 'File' && entry.path) {
-    const tag = setAttributes(`<${block}>`, selectorAttributes);
-    return `${indent}${tag}\n${childIndent(indent)}${escapeAttribute(entry.path)}\n${indent}</${block}>`;
-  }
-  let tag = `<${block}`;
-  tag = setAttributes(tag + ' />', {
-    Include: entry.include,
+  const pathValue = entry.path ?? entry.include;
+  const tag = setAttributes(`<${block} />`, {
+    Path: pathValue,
+    Include: entry.mode === 'Directory' ? entry.include : undefined,
     Exclude: entry.exclude,
     ...selectorAttributes
   });
@@ -319,7 +317,6 @@ export function updateProjectAttributes(xml: string, update: ProjectAttributeUpd
   const match = projectOpenMatch(xml);
   const nextTag = setAttributes(match[0], {
     Name: update.name,
-    Template: update.template,
     DefaultProfile: update.defaultProfile
   });
   return replaceRange(xml, match.index!, match.index! + match[0].length, nextTag);
@@ -332,10 +329,7 @@ export function addProfile(xml: string, name: string): string {
   if (findProfile(xml, name)) {
     throw new Error(`Profile already exists: ${name}`);
   }
-  const ensured = ensureProfilesSection(xml);
-  const indent = childIndent(ensured.section.indent);
-  const insert = `${indent}<Profile Name="${escapeAttribute(name)}" />\n`;
-  return replaceRange(ensured.xml, ensured.section.bodyEnd, ensured.section.bodyEnd, insert);
+  return ensureProfile(xml, name);
 }
 
 export function deleteProfile(xml: string, name: string): string {
@@ -359,6 +353,35 @@ export function deleteProfile(xml: string, name: string): string {
   return next;
 }
 
+function setDefaults(xml: string, profileName: string, update: ProjectProfileUpdate): string {
+  let next = ensureProfile(xml, profileName);
+  const ensured = (() => {
+    const range = scopeRange(next, profileName);
+    const existing = findDirectSection(next, range.start, range.end, 'Defaults');
+    if (existing) {
+      return { xml: next, section: existing };
+    }
+    const insert = `\n${range.indent}<Defaults>\n${range.indent}</Defaults>`;
+    next = replaceRange(next, range.closeInsertIndex, range.closeInsertIndex, insert);
+    const nextRange = scopeRange(next, profileName);
+    const section = findDirectSection(next, nextRange.start, nextRange.end, 'Defaults');
+    if (!section) {
+      throw new Error('Failed to create <Defaults>.');
+    }
+    return { xml: next, section };
+  })();
+  const indent = childIndent(ensured.section.indent);
+  const lines = [
+    update.buildType ? `${indent}<BuildType Name="${escapeAttribute(update.buildType)}" />` : undefined,
+    update.platform ? `${indent}<TargetPlatform Name="${escapeAttribute(update.platform)}" />` : undefined,
+    update.operatingSystem ? `${indent}<OperatingSystem Name="${escapeAttribute(update.operatingSystem)}" />` : undefined,
+    update.architecture ? `${indent}<Architecture Name="${escapeAttribute(update.architecture)}" />` : undefined,
+    update.environment ? `${indent}<Environment Name="${escapeAttribute(update.environment)}" />` : undefined
+  ].filter((line): line is string => Boolean(line));
+  const replacement = lines.length > 0 ? `\n${lines.join('\n')}\n${ensured.section.indent}` : '';
+  return replaceRange(ensured.xml, ensured.section.bodyStart, ensured.section.bodyEnd, replacement);
+}
+
 export function updateProfile(xml: string, update: ProjectProfileUpdate): string {
   if (!update.name?.trim()) {
     throw new Error('Profile name is required.');
@@ -367,16 +390,13 @@ export function updateProfile(xml: string, update: ProjectProfileUpdate): string
   if (!profile) {
     throw new Error(`Profile not found: ${update.originalName}`);
   }
-  let openTag = setAttributes(profile.openTag, {
-    Name: update.name,
-    Template: update.template,
-    BuildType: update.buildType,
-    Platform: update.platform,
-    OperatingSystem: update.operatingSystem,
-    Architecture: update.architecture,
-    Environment: update.environment
+  const openTag = setAttributes(profile.openTag.replace(/\s*\/>$/, '>'), {
+    Name: update.name
   });
-  let next = replaceRange(xml, profile.start, profile.openEnd, openTag);
+  let next = profile.selfClosing
+    ? replaceRange(xml, profile.start, profile.end, `${openTag}\n${profile.indent}</Profile>`)
+    : replaceRange(xml, profile.start, profile.openEnd, openTag);
+  next = setDefaults(next, update.name, update);
   next = setLaunch(next, update.name, update.launchExecutable, update.launchWorkingDirectory);
   const root = projectOpenMatch(next);
   if (readAttribute(root[0], 'DefaultProfile') === update.originalName) {
@@ -386,26 +406,26 @@ export function updateProfile(xml: string, update: ProjectProfileUpdate): string
 }
 
 export function setLaunch(xml: string, profileName: string | undefined, executable?: string, workingDirectory?: string): string {
-  const range = scopeRange(xml, profileName);
-  const existing = findDirectSection(range.xml, range.start, range.end, 'Launch');
+  const product = ensureProduct(xml, profileName);
+  const existing = findDirectSection(product.xml, product.section.bodyStart, product.section.bodyEnd, 'Launch');
   const hasValues = Boolean(executable || workingDirectory);
   if (!hasValues) {
-    return existing ? replaceRange(range.xml, existing.start, existing.end + (range.xml[existing.end] === '\n' ? 1 : 0), '') : range.xml;
+    return existing ? replaceRange(product.xml, existing.start, existing.end + (product.xml[existing.end] === '\n' ? 1 : 0), '') : product.xml;
   }
-  const indent = existing?.indent ?? range.indent;
+  const indent = existing?.indent ?? childIndent(product.section.indent);
   const tag = setAttributes('<Launch />', {
     Executable: executable,
     WorkingDirectory: workingDirectory
   });
   const replacement = `${indent}${tag}`;
   if (existing) {
-    return replaceRange(range.xml, existing.start, existing.end, replacement);
+    return replaceRange(product.xml, existing.start, existing.end, replacement);
   }
-  return replaceRange(range.xml, range.closeInsertIndex, range.closeInsertIndex, `\n${replacement}`);
+  return replaceRange(product.xml, product.section.bodyEnd, product.section.bodyEnd, `\n${replacement}`);
 }
 
 export function setPackageReferences(xml: string, references: ProjectPackageReferenceEdit[], profileName?: string): string {
-  const ensured = ensureScopeSection(xml, 'References', profileName);
+  const ensured = ensureProductSection(xml, 'Uses', profileName);
   const indent = childIndent(ensured.section.indent);
   const body = references.map((reference) => formatPackageReference(reference, indent)).join('\n');
   const replacement = body ? `\n${body}\n${ensured.section.indent}` : '';
@@ -413,27 +433,16 @@ export function setPackageReferences(xml: string, references: ProjectPackageRefe
 }
 
 export function setInputEntries(xml: string, block: ProjectInputBlock, entries: ProjectInputEdit[], profileName?: string): string {
-  const range = scopeRange(xml, profileName);
-  let next = range.xml;
-  const inputs = findDirectSection(next, range.start, range.end, 'Inputs');
-  if (!inputs && entries.length === 0) {
-    return next;
-  }
-  const ensured = ensureScopeSection(next, 'Inputs', profileName);
-  next = ensured.xml;
-  const section = findDirectSection(next, ensured.section.bodyStart, ensured.section.bodyEnd, block);
-  if (section) {
-    let start = section.start;
-    let end = section.end;
-    if (next[end] === '\n') {
-      end += 1;
-    }
-    next = replaceRange(next, start, end, '');
-  }
+  const sectionName = block === 'Configs' ? 'Stage' : 'Build';
+  const ensured = ensureProductSection(xml, sectionName, profileName);
+  const tagName = block === 'Configs' ? 'Config' : block;
+  let next = ensured.xml.replace(new RegExp(`^[ \\t]*<${tagName}\\b[^>]*(?:/>|>[\\s\\S]*?</${tagName}>)\\r?\\n?`, 'gm'), (match, offset: number) => {
+    return offset >= ensured.section.bodyStart && offset < ensured.section.bodyEnd ? '' : match;
+  });
   if (entries.length === 0) {
     return next;
   }
-  const refreshed = ensureScopeSection(next, 'Inputs', profileName);
+  const refreshed = ensureProductSection(next, sectionName, profileName);
   const indent = childIndent(refreshed.section.indent);
   const body = entries.map((entry) => formatInput(block, entry, indent)).join('\n');
   return replaceRange(refreshed.xml, refreshed.section.bodyEnd, refreshed.section.bodyEnd, `${body}\n`);
@@ -446,8 +455,10 @@ export function setProfileFeatureState(xml: string, profileName: string, package
     }
     xml = addProfile(xml, profileName);
   }
-  const ensured = ensureScopeSection(xml, 'Features', profileName);
-  const entryPattern = new RegExp(`^[ \\t]*<(Use|Disable)\\b(?=[^>]*\\sPackage=(["'])${packageName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\2)(?=[^>]*\\sFeature=(["'])${featureName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\3)[^>]*/>\\r?\\n?`, 'gm');
+  const ensured = ensureProductSection(xml, 'Uses', profileName);
+  const escapedPackage = packageName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const escapedFeature = featureName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const entryPattern = new RegExp(`^[ \\t]*<Package\\b(?=[^>]*\\sName=(["'])${escapedPackage}\\1)[^>]*>(?=[\\s\\S]*?<Feature\\b(?=[^>]*\\sName=(["'])${escapedFeature}\\2))[\\s\\S]*?</Package>\\r?\\n?`, 'gm');
   let next = replaceRange(
     ensured.xml,
     ensured.section.bodyStart,
@@ -457,72 +468,43 @@ export function setProfileFeatureState(xml: string, profileName: string, package
   if (state === 'inherit') {
     return next;
   }
-  const refreshed = ensureScopeSection(next, 'Features', profileName);
+  const refreshed = ensureProductSection(next, 'Uses', profileName);
   const indent = childIndent(refreshed.section.indent);
-  const tagName = state === 'use' ? 'Use' : 'Disable';
-  const tag = setAttributes(`<${tagName} />`, {
-    Package: packageName,
-    Feature: featureName
+  const featureTag = setAttributes('<Feature />', {
+    Name: featureName,
+    Enabled: state === 'disable' ? false : undefined
   });
-  return replaceRange(refreshed.xml, refreshed.section.bodyEnd, refreshed.section.bodyEnd, `${indent}${tag}\n`);
+  const packageBlock = [
+    `${indent}<Package Name="${escapeAttribute(packageName)}">`,
+    `${childIndent(indent)}${featureTag}`,
+    `${indent}</Package>`
+  ].join('\n');
+  return replaceRange(refreshed.xml, refreshed.section.bodyEnd, refreshed.section.bodyEnd, `${packageBlock}\n`);
 }
 
 export function setEnvironmentVariables(xml: string, environmentName: string, variables: ProjectEnvironmentVariableEdit[]): string {
   if (!environmentName.trim()) {
     throw new Error('Environment name is required.');
   }
-  const open = projectOpenMatch(xml);
-  const rootStart = open.index! + open[0].length;
-  const rootEnd = projectCloseIndex(xml);
-  let next = xml;
-  let environments = findDirectSection(next, rootStart, rootEnd, 'Environments');
-  if (!environments) {
-    const indent = '  ';
-    const insert = `${indent}<Environments>\n${indent}</Environments>\n`;
-    next = replaceRange(next, rootEnd, rootEnd, insert);
-    environments = findDirectSection(next, rootStart, projectCloseIndex(next), 'Environments');
-  }
-  if (!environments) {
-    throw new Error('Failed to create <Environments>.');
-  }
-
-  const escapedName = environmentName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const envPattern = new RegExp(`<Environment\\b(?=[^>]*\\sName=(["'])${escapedName}\\1)[^>]*(?:/>|>)`, 'g');
-  const source = next.slice(environments.bodyStart, environments.bodyEnd);
-  let envStart = -1;
-  let envEnd = -1;
-  let envIndent = childIndent(environments.indent);
-  for (const match of source.matchAll(envPattern)) {
-    if (match.index === undefined) {
-      continue;
+  const ensured = ensureProductSection(xml, 'Environment');
+  const indent = childIndent(ensured.section.indent);
+  const lines = variables.map((variable) => {
+    if (variable.secret || variable.fromLocalSetting) {
+      const tag = setAttributes('<Secret />', {
+        Name: variable.name,
+        From: variable.fromLocalSetting ? `local:${variable.fromLocalSetting}` : variable.fromEnvironment ? `env:${variable.fromEnvironment}` : undefined,
+        Required: variable.required === undefined ? undefined : variable.required
+      });
+      return `${indent}${tag}`;
     }
-    envStart = environments.bodyStart + match.index;
-    envIndent = indentationBefore(next, envStart);
-    if (/\/>$/.test(match[0])) {
-      envEnd = envStart + match[0].length;
-    } else {
-      const close = next.indexOf('</Environment>', envStart + match[0].length);
-      envEnd = close + '</Environment>'.length;
-    }
-    break;
-  }
-
-  const variableIndent = `${envIndent}    `;
-  const variableLines = variables.map((variable) => {
-    const tag = setAttributes('<Variable />', {
+    const tag = setAttributes('<Env />', {
       Name: variable.name,
       Value: variable.value,
       FromEnvironment: variable.fromEnvironment,
-      FromLocalSetting: variable.fromLocalSetting,
-      Required: variable.required === undefined ? undefined : variable.required,
-      Secret: variable.secret === undefined ? undefined : variable.secret
+      Required: variable.required === undefined ? undefined : variable.required
     });
-    return `${variableIndent}${tag}`;
+    return `${indent}${tag}`;
   }).join('\n');
-  const replacement = `${envIndent}<Environment Name="${escapeAttribute(environmentName)}">\n${envIndent}  <Variables>${variableLines ? `\n${variableLines}\n${envIndent}  ` : ''}</Variables>\n${envIndent}</Environment>`;
-
-  if (envStart >= 0 && envEnd >= envStart) {
-    return replaceRange(next, envStart, envEnd, replacement);
-  }
-  return replaceRange(next, environments.bodyEnd, environments.bodyEnd, `${replacement}\n`);
+  const replacement = lines ? `\n${lines}\n${ensured.section.indent}` : '';
+  return replaceRange(ensured.xml, ensured.section.bodyStart, ensured.section.bodyEnd, replacement);
 }

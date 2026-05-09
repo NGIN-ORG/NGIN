@@ -4,56 +4,77 @@
     "prefix": "ngin-workspace",
     "body": [
       "<?xml version=\"1.0\" encoding=\"utf-8\"?>",
-      "<Workspace SchemaVersion=\"3\" Name=\"$1\" PlatformVersion=\"$2\">",
-      "  <Includes>",
-      "    <Include Path=\"$3\" />",
-      "  </Includes>",
-      "  <Defaults BuildType=\"Debug\" Platform=\"linux-x64\" />",
-      "  <PackageSources>",
-      "    <PackageSource Path=\"$4\" />",
-      "  </PackageSources>",
+      "<Workspace SchemaVersion=\"4\" Name=\"$1\" DefaultProfile=\"dev\">",
       "  <Projects>",
-      "    <Project Path=\"$5\" />",
+      "    <Project Path=\"$2\" />",
       "  </Projects>",
+      "",
+      "  <Defaults>",
+      "    <Language Standard=\"C++23\" Required=\"true\" Extensions=\"false\" />",
+      "    <Backend Name=\"CMake\" Mode=\"Generated\" />",
+      "    <HostPlatform Name=\"host\" />",
+      "    <TargetPlatform Name=\"host\" />",
+      "  </Defaults>",
+      "",
+      "  <Packages>",
+      "    <Source Name=\"local\" Path=\"$3\" />",
+      "  </Packages>",
       "</Workspace>"
     ]
   },
-  "Model": {
+  "Definitions": {
     "scope": "ngin",
-    "prefix": "ngin-model",
+    "prefix": "ngin-definitions",
     "body": [
       "<?xml version=\"1.0\" encoding=\"utf-8\"?>",
-      "<Model SchemaVersion=\"3\" Name=\"$1\">",
-      "  <Defaults BuildType=\"Debug\" Platform=\"linux-x64\" />",
-      "  <ProfileTemplates>",
-      "    <ProfileTemplate Name=\"$2\" Environment=\"$3\">",
-      "      <Launch Executable=\"$(OutputName)\" WorkingDirectory=\".\" />",
-      "    </ProfileTemplate>",
-      "  </ProfileTemplates>",
-      "</Model>"
+      "<Definitions SchemaVersion=\"4\" Name=\"$1\">",
+      "  <Platforms>",
+      "    <Platform Name=\"$2\" OperatingSystem=\"$3\" Architecture=\"$4\" />",
+      "  </Platforms>",
+      "</Definitions>"
     ]
   },
-  "Project": {
+  "Application Project": {
     "scope": "ngin",
-    "prefix": "ngin-project",
+    "prefix": "ngin-app",
     "body": [
       "<?xml version=\"1.0\" encoding=\"utf-8\"?>",
-      "<Project SchemaVersion=\"3\" Name=\"$1\" DefaultProfile=\"$2\">",
-      "  <Inputs>",
-      "    <Sources Path=\"src\" />",
-      "  </Inputs>",
-      "  <Output Kind=\"Executable\" Name=\"$1\" Target=\"$1\" />",
-      "  <References>",
-      "    <Package Name=\"$3\" Version=\"$4\" />",
-      "  </References>",
-      "  <Environments>",
-      "    <Environment Name=\"$5\" />",
-      "  </Environments>",
-      "  <Profiles>",
-      "    <Profile Name=\"$2\" BuildType=\"Debug\" Platform=\"$6\" Environment=\"$5\">",
-      "      <Launch Executable=\"$1\" WorkingDirectory=\".\" />",
-      "    </Profile>",
-      "  </Profiles>",
+      "<Project SchemaVersion=\"4\" Name=\"$1\" DefaultProfile=\"dev\">",
+      "  <Application>",
+      "    <Build>",
+      "      <Sources Path=\"src/**.cpp\" />",
+      "    </Build>",
+      "",
+      "    <Launch Executable=\"$(OutputName)\" WorkingDirectory=\".\" />",
+      "  </Application>",
+      "",
+      "  <Profile Name=\"dev\">",
+      "    <Defaults>",
+      "      <BuildType Name=\"Debug\" />",
+      "      <TargetPlatform Name=\"host\" />",
+      "      <Environment Name=\"development\" />",
+      "    </Defaults>",
+      "  </Profile>",
+      "</Project>"
+    ]
+  },
+  "Library Project": {
+    "scope": "ngin",
+    "prefix": "ngin-lib",
+    "body": [
+      "<?xml version=\"1.0\" encoding=\"utf-8\"?>",
+      "<Project SchemaVersion=\"4\" Name=\"$1\" DefaultProfile=\"dev\">",
+      "  <Library>",
+      "    <Build>",
+      "      <Sources Path=\"src/**.cpp\" />",
+      "      <Headers Path=\"include/**.hpp\" Visibility=\"Public\" />",
+      "    </Build>",
+      "",
+      "    <Exports>",
+      "      <Headers Path=\"include/**.hpp\" />",
+      "      <LibraryTarget Name=\"$1\" />",
+      "    </Exports>",
+      "  </Library>",
       "</Project>"
     ]
   },
@@ -62,140 +83,95 @@
     "prefix": "ngin-package",
     "body": [
       "<?xml version=\"1.0\" encoding=\"utf-8\"?>",
-      "<Package SchemaVersion=\"3\" Name=\"$1\" Version=\"$2\">",
-      "  <Dependencies>",
-      "    <PackageRef Name=\"$3\" VersionRange=\"$4\" />",
-      "  </Dependencies>",
-      "  <Artifacts>",
-      "    <Libraries>",
-      "      <Library Name=\"$1\" Target=\"$5\" Linkage=\"Static\" Origin=\"Built\" />",
-      "    </Libraries>",
-      "  </Artifacts>",
-      "  <Modules>",
-      "    <Module Name=\"$6\" Family=\"$7\" Type=\"Runtime\" StartupStage=\"Features\" Version=\"$2\" />",
-      "  </Modules>",
+      "<Package SchemaVersion=\"4\" Name=\"$1\" Version=\"$2\">",
+      "  <Metadata>",
+      "    <Description>$3</Description>",
+      "    <License>$4</License>",
+      "  </Metadata>",
+      "",
+      "  <Library Name=\"$1\">",
+      "    <Exports>",
+      "      <Headers Path=\"include/**.hpp\" />",
+      "      <LibraryTarget Name=\"$1\" />",
+      "    </Exports>",
+      "  </Library>",
       "</Package>"
     ]
   },
-  "Profile": {
+  "Package Dependency": {
     "scope": "ngin",
-    "prefix": "ngin-profile",
+    "prefix": "ngin-package-use",
     "body": [
-      "<Profile Name=\"$1\" BuildType=\"Debug\" Platform=\"$2\" Environment=\"$3\">",
-      "  <Launch Executable=\"$4\" WorkingDirectory=\".\" />",
-      "</Profile>"
+      "<Package Name=\"$1\" Version=\"$2\" Scope=\"$3\" />"
     ]
   },
-  "PackageReference": {
+  "Runtime Dependency": {
     "scope": "ngin",
-    "prefix": "ngin-package",
+    "prefix": "ngin-runtime-use",
     "body": [
-      "<Package Name=\"$1\" Version=\"$2\" Optional=\"$3\" />"
-    ]
-  },
-  "Package Feature Use": {
-    "scope": "ngin",
-    "prefix": "ngin-feature-use",
-    "body": [
-      "<Features>",
-      "  <Use Package=\"$1\" Feature=\"$2\" />",
-      "</Features>"
-    ]
-  },
-  "Package Feature": {
-    "scope": "ngin",
-    "prefix": "ngin-package-feature",
-    "body": [
-      "<Features>",
-      "  <Feature Name=\"$1\" Description=\"$2\">",
-      "    <Provides>",
-      "      <Capability Name=\"$3\" />",
-      "    </Provides>",
-      "  </Feature>",
-      "</Features>"
-    ]
-  },
-  "Package Generator Tool": {
-    "scope": "ngin",
-    "prefix": "ngin-tool-generator",
-    "body": [
-      "<Tools>",
-      "  <Tool Name=\"$1\" Kind=\"Generator\" Executable=\"$2\" />",
-      "</Tools>"
-    ]
-  },
-  "MetaGen Feature Use": {
-    "scope": "ngin",
-    "prefix": "ngin-feature-metagen",
-    "body": [
-      "<Features>",
-      "  <Use Package=\"NGIN.Reflection.MetaGen\" Feature=\"ReflectionCodegen\" VersionRange=\">=0.1.0 &lt;0.2.0\" />",
-      "</Features>"
+      "<Runtime Name=\"$1\" Version=\"$2\" Scope=\"Target;Runtime\">",
+      "  <Feature Name=\"$3\" />",
+      "</Runtime>"
     ]
   },
   "Command Generator": {
     "scope": "ngin",
     "prefix": "ngin-generator-command",
     "body": [
-      "<Generators>",
-      "  <Generator Name=\"$1\" Kind=\"Command\">",
-      "    <Tool Executable=\"$2\" />",
-      "    <Arguments>",
-      "      <Arg Value=\"--input\" />",
-      "      <Arg Path=\"$3\" />",
-      "      <Arg Value=\"--output\" />",
-      "      <Arg Path=\"$(GeneratedDir)/$4\" />",
-      "    </Arguments>",
+      "<Generate>",
+      "  <Generator Name=\"$1\" Phase=\"Generate\">",
+      "    <Tool Name=\"$2\" Executable=\"$3\" />",
+      "",
       "    <Inputs>",
-      "      <ToolInputs>",
-      "        $3",
-      "      </ToolInputs>",
+      "      <Files Path=\"$4\" />",
       "    </Inputs>",
+      "",
       "    <Outputs>",
-      "      <Generated Role=\"Source\" Path=\"$(GeneratedDir)/$4\" />",
+      "      <Sources Path=\"$(GeneratedDir)/$5\" />",
       "    </Outputs>",
       "  </Generator>",
-      "</Generators>"
+      "</Generate>"
     ]
   },
-  "Dependency Policy": {
+  "Profile": {
     "scope": "ngin",
-    "prefix": "ngin-dependency-policy",
+    "prefix": "ngin-profile",
     "body": [
-      "<DependencyPolicy VersionResolution=\"HighestCompatible\">",
-      "  <Versions>",
-      "    <Package Name=\"$1\" VersionRange=\"$2\" />",
-      "  </Versions>",
-      "</DependencyPolicy>"
-    ]
-  },
-  "Module": {
-    "scope": "ngin",
-    "prefix": "ngin-module",
-    "body": [
-      "<Module Name=\"$1\" Family=\"$2\" Type=\"Runtime\" StartupStage=\"$3\" Version=\"$4\">",
-      "  <Compatibility>",
-      "    <OperatingSystems>",
-      "      <OperatingSystem Name=\"$5\" />",
-      "    </OperatingSystems>",
-      "  </Compatibility>",
-      "</Module>"
+      "<Profile Name=\"$1\">",
+      "  <Defaults>",
+      "    <BuildType Name=\"$2\" />",
+      "    <TargetPlatform Name=\"$3\" />",
+      "    <Environment Name=\"$4\" />",
+      "  </Defaults>",
+      "</Profile>"
     ]
   },
   "Launch": {
     "scope": "ngin",
     "prefix": "ngin-launch",
     "body": [
-      "<Launch Executable=\"$1\" />"
+      "<Launch Name=\"$1\" Executable=\"$2\" WorkingDirectory=\"$(StageDir)\" />"
     ]
   },
-  "Local Settings Import": {
+  "Config": {
     "scope": "ngin",
-    "prefix": "ngin-local-settings-import",
+    "prefix": "ngin-config",
     "body": [
-      "<LocalSettings>",
-      "  <Import Path=\"$1\" Optional=\"true\" />",
-      "</LocalSettings>"
+      "<Config Source=\"$1\" Target=\"$2\" />"
+    ]
+  },
+  "Environment Variable": {
+    "scope": "ngin",
+    "prefix": "ngin-env",
+    "body": [
+      "<Env Name=\"$1\" Value=\"$2\" />"
+    ]
+  },
+  "Secret": {
+    "scope": "ngin",
+    "prefix": "ngin-secret",
+    "body": [
+      "<Secret Name=\"$1\" From=\"local:$2\" Required=\"$3\" />"
     ]
   },
   "Local Settings File": {
@@ -208,34 +184,6 @@
       "    <Setting Key=\"$1\" Value=\"$2\" Secret=\"$3\" />",
       "  </Settings>",
       "</LocalSettings>"
-    ]
-  },
-  "Local Setting": {
-    "scope": "ngin",
-    "prefix": "ngin-setting",
-    "body": [
-      "<Setting Key=\"$1\" Value=\"$2\" Secret=\"$3\" />"
-    ]
-  },
-  "Variable Literal": {
-    "scope": "ngin",
-    "prefix": "ngin-variable-value",
-    "body": [
-      "<Variable Name=\"$1\" Value=\"$2\" />"
-    ]
-  },
-  "Variable From Environment": {
-    "scope": "ngin",
-    "prefix": "ngin-variable-env",
-    "body": [
-      "<Variable Name=\"$1\" FromEnvironment=\"$2\" Required=\"$3\" Secret=\"$4\" />"
-    ]
-  },
-  "Variable From Local Setting": {
-    "scope": "ngin",
-    "prefix": "ngin-variable-local",
-    "body": [
-      "<Variable Name=\"$1\" FromLocalSetting=\"$2\" Required=\"$3\" Secret=\"$4\" />"
     ]
   }
 }

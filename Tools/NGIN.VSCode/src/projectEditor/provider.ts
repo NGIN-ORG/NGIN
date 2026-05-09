@@ -34,7 +34,7 @@ type ProjectEditorMessage =
   | { type: 'ready' }
   | { type: 'openSource' }
   | { type: 'validate' }
-  | { type: 'updateProject'; name?: string; template?: string; defaultProfile?: string }
+  | { type: 'updateProject'; name?: string; defaultProfile?: string }
   | { type: 'setRootLaunch'; executable?: string; workingDirectory?: string }
   | { type: 'addProfile'; name: string }
   | { type: 'deleteProfile'; name: string }
@@ -42,7 +42,6 @@ type ProjectEditorMessage =
       type: 'updateProfile';
       originalName: string;
       name: string;
-      template?: string;
       buildType?: string;
       platform?: string;
       operatingSystem?: string;
@@ -129,7 +128,6 @@ export class NginProjectEditorProvider implements vscode.CustomTextEditorProvide
       case 'updateProject':
         await this.services.apply(document, (xml) => updateProjectAttributes(xml, {
           name: message.name,
-          template: message.template,
           defaultProfile: message.defaultProfile
         }));
         return;
@@ -697,7 +695,7 @@ export class NginProjectEditorProvider implements vscode.CustomTextEditorProvide
       const resolved = model.resolved;
       const projectRows = [
         ['Name', model.project.name || resolved.projectName || ''],
-        ['Template', model.project.template || resolved.projectType || ''],
+        ['Product', model.project.productKind || resolved.projectType || ''],
         ['Default Profile', model.project.defaultProfile || ''],
         ['Workspace', resolved.workspaceName || '']
       ].filter((row) => row[1]);
@@ -719,7 +717,6 @@ export class NginProjectEditorProvider implements vscode.CustomTextEditorProvide
       return '<div class="modal-backdrop"><div class="modal-panel">' +
         '<h2>Edit Project</h2><div class="grid">' +
         field('project-name', 'Name', model.project.name) +
-        selectField('project-template', 'Template', ['Application', 'Library', 'Tool', model.project.template], model.project.template, '') +
         selectField('project-default-profile', 'Default Profile', profileNames(), model.project.defaultProfile, '') +
         '</div><div class="actions"><button id="save-project">Save</button><button class="secondary" id="cancel-project">Cancel</button></div>' +
         '</div></div>';
@@ -760,7 +757,6 @@ export class NginProjectEditorProvider implements vscode.CustomTextEditorProvide
       if (!profile) return '';
       return '<div class="modal-backdrop"><div class="modal-panel wide"><h2>Edit Profile</h2><div class="grid">' +
         field('profile-name', 'Name', profile.name) +
-        field('profile-template', 'Template', profile.template) +
         selectField('profile-build-type', 'Build Type', ['Debug', 'Release', 'RelWithDebInfo', 'MinSizeRel', profile.buildType], profile.buildType, '') +
         selectField('profile-platform', 'Platform', ['linux-x64', 'windows-x64', 'macos-x64', 'macos-arm64', profile.platform], profile.platform, '') +
         selectField('profile-os', 'Operating System', ['linux', 'windows', 'macos', profile.operatingSystem], profile.operatingSystem, '') +
@@ -1183,7 +1179,7 @@ export class NginProjectEditorProvider implements vscode.CustomTextEditorProvide
       }
       if (target.id === 'save-project') {
         showProjectDialog = false;
-        post({ type: 'updateProject', name: optional(byId('project-name').value), template: optional(byId('project-template').value), defaultProfile: optional(byId('project-default-profile').value) });
+        post({ type: 'updateProject', name: optional(byId('project-name').value), defaultProfile: optional(byId('project-default-profile').value) });
       }
       if (target.id === 'edit-run') {
         showRunDialog = true;
@@ -1219,7 +1215,7 @@ export class NginProjectEditorProvider implements vscode.CustomTextEditorProvide
       }
       if (target.id === 'save-profile') {
         showProfileDialog = false;
-        post({ type: 'updateProfile', originalName: currentProfile()?.name, name: optional(byId('profile-name').value), template: optional(byId('profile-template').value), buildType: optional(byId('profile-build-type').value), platform: optional(byId('profile-platform').value), operatingSystem: optional(byId('profile-os').value), architecture: optional(byId('profile-arch').value), environment: optional(byId('profile-env').value), launchExecutable: optional(byId('profile-launch-executable').value), launchWorkingDirectory: optional(byId('profile-launch-working-directory').value) });
+        post({ type: 'updateProfile', originalName: currentProfile()?.name, name: optional(byId('profile-name').value), buildType: optional(byId('profile-build-type').value), platform: optional(byId('profile-platform').value), operatingSystem: optional(byId('profile-os').value), architecture: optional(byId('profile-arch').value), environment: optional(byId('profile-env').value), launchExecutable: optional(byId('profile-launch-executable').value), launchWorkingDirectory: optional(byId('profile-launch-working-directory').value) });
       }
       if (target.id === 'show-add-input') {
         editingInputIndex = undefined;

@@ -1,22 +1,21 @@
 import * as path from 'node:path';
 import { XMLParser } from 'fast-xml-parser';
 import {
-  LaunchManifest,
-  LaunchDescriptor,
-  PackageManifest,
-  PackageFeature,
-  PackageFeatureUse,
-  PackageReference,
+  ConditionDefinition,
   GeneratorArgument,
   GeneratorDeclaration,
-  ConditionDefinition,
-  LocalSettingsManifest,
-  ModelDefaults,
   InputDeclaration,
-  ProjectProfile,
-  ProjectProfileTemplate,
+  LaunchDescriptor,
+  LaunchManifest,
+  LocalSettingsManifest,
+  PackageFeature,
+  PackageFeatureUse,
+  PackageManifest,
+  PackageReference,
   ProjectManifest,
+  ProjectProfile,
   ProjectReference,
+  SelectionDefaults,
   StagedFile,
   ToolDeclaration,
   WorkspaceManifest
@@ -29,21 +28,13 @@ const parser = new XMLParser({
   trimValues: true
 });
 
+const productKinds = ['Application', 'Library', 'Tool', 'Test', 'Benchmark', 'Plugin', 'Module', 'External'];
+
 function asArray<T>(value: T | T[] | undefined): T[] {
   if (value === undefined || value === null) {
     return [];
   }
   return Array.isArray(value) ? value : [value];
-}
-
-function splitPathList(text: string | undefined): string[] {
-  if (!text) {
-    return [];
-  }
-  return text
-    .split(/[\r\n;,]+/)
-    .map((entry) => entry.trim())
-    .filter((entry) => entry.length > 0);
 }
 
 function parseBool(value: unknown, fallback = true): boolean {
@@ -53,303 +44,255 @@ function parseBool(value: unknown, fallback = true): boolean {
   return value === true || value === 'true' || value === '1' || value === 'yes';
 }
 
-interface TypedInputNode {
-  Name?: string;
-  Role?: string;
-  Path?: string;
-  Mode?: string;
-  Visibility?: string;
-  Target?: string;
-  TargetRoot?: string;
-  BasePath?: string;
-  ContentKind?: string;
-  Required?: string | boolean;
+function requireSchema4(root: { SchemaVersion?: string }, manifestPath: string): void {
+  if (root.SchemaVersion !== '4') {
+    throw new Error(`${manifestPath}: V4 tooling requires SchemaVersion="4"`);
+  }
+}
+
+function resolveManifestPath(baseDirectory: string, candidate: string): string {
+  return path.isAbsolute(candidate) ? candidate : path.resolve(baseDirectory, candidate);
+}
+
+function selectorFields(node: {
+  When?: string;
   Profile?: string;
   Platform?: string;
+  TargetPlatform?: string;
   OperatingSystem?: string;
   Architecture?: string;
   BuildType?: string;
   Environment?: string;
   Condition?: string;
-  Include?: string;
-  Exclude?: string;
-  File?: unknown;
-  Directory?: unknown;
-  Glob?: unknown;
-  '#text'?: string;
+} | undefined): Pick<InputDeclaration, 'profile' | 'platform' | 'operatingSystem' | 'architecture' | 'buildType' | 'environment' | 'condition'> {
+  return {
+    profile: node?.Profile,
+    platform: node?.Platform ?? node?.TargetPlatform,
+    operatingSystem: node?.OperatingSystem,
+    architecture: node?.Architecture,
+    buildType: node?.BuildType,
+    environment: node?.Environment,
+    condition: node?.Condition ?? node?.When
+  };
 }
 
-function splitTextLines(text: string | undefined): string[] {
-  if (!text) {
-    return [];
-  }
-  return text
-    .split(/\r?\n/)
-    .map((entry) => entry.trim())
-    .filter((entry) => entry.length > 0 && !entry.startsWith('#'));
+type SelectorNode = Parameters<typeof selectorFields>[0];
+
+function applySelectorFields<T extends object>(target: T, node: Parameters<typeof selectorFields>[0]): T {
+  return { ...target, ...selectorFields(node) };
 }
 
-function typedBlockBase(name: string, node: TypedInputNode): Partial<InputDeclaration> | undefined {
-  if (name === 'Sources') {
-    return { kind: 'Source', role: 'Source', visibility: 'Private' };
+function nodeName(node: unknown): string | undefined {
+  if (typeof node === 'string') {
+    return node;
   }
-  if (name === 'Headers') {
-    return { kind: 'Source', role: 'Header', visibility: 'Public' };
+  const entry = node as { Name?: string } | undefined;
+  return entry?.Name;
+}
+
+function parseDefaults(root: { Defaults?: unknown } | undefined): SelectionDefaults | undefined {
+  const defaults = root?.Defaults as {
+    BuildType?: unknown;
+    TargetPlatform?: unknown;
+    HostPlatform?: unknown;
+    Platform?: unknown;
+    OperatingSystem?: unknown;
+    Architecture?: unknown;
+    Environment?: unknown;
+    Toolchain?: unknown;
+  } | undefined;
+  if (!defaults) {
+    return undefined;
   }
-  if (name === 'Configs') {
-    return { kind: 'Config', visibility: 'Private' };
+  return {
+    buildType: nodeName(defaults.BuildType),
+    targetPlatform: nodeName(defaults.TargetPlatform) ?? nodeName(defaults.Platform),
+    hostPlatform: nodeName(defaults.HostPlatform),
+    operatingSystem: nodeName(defaults.OperatingSystem),
+    architecture: nodeName(defaults.Architecture),
+    environment: nodeName(defaults.Environment),
+    toolchain: nodeName(defaults.Toolchain)
+  };
+}
+
+function mergeDefaults(base: SelectionDefaults | undefined, overlay: SelectionDefaults | undefined): SelectionDefaults | undefined {
+  if (!base && !overlay) {
+    return undefined;
   }
-  if (name === 'Contents') {
-    return { kind: 'Content', visibility: 'Private' };
-  }
-  if (name === 'Assets') {
-    return { kind: 'Asset', visibility: 'Private' };
-  }
-  if (name === 'ToolInputs') {
-    return { kind: 'ToolInput', visibility: 'Private' };
-  }
-  if (name === 'Generated') {
-    return { kind: 'Generated', role: node.Role, visibility: 'Private' };
+  return { ...(base ?? {}), ...(overlay ?? {}) };
+}
+
+function getProduct(root: Record<string, unknown>): { kind: string; node: Record<string, unknown> } | undefined {
+  for (const kind of productKinds) {
+    const node = root[kind];
+    if (node !== undefined) {
+      return { kind, node: (node ?? {}) as Record<string, unknown> };
+    }
   }
   return undefined;
 }
 
-function parseInputEntry(entry: unknown, inherited: Partial<InputDeclaration>): InputDeclaration | undefined {
-  const node = entry as TypedInputNode | undefined;
-  const include = node?.Include ? splitPathList(node.Include) : inherited.include;
-  const mode = node?.Mode ?? inherited.mode ?? (node?.Path ? 'File' : include && include.length > 0 ? 'Glob' : undefined);
-  if (!inherited.kind || !mode) {
+function pathInput(
+  kind: string,
+  role: string | undefined,
+  source: string | undefined,
+  visibility: string | undefined,
+  target?: string,
+  generated = false,
+  node?: SelectorNode
+): InputDeclaration | undefined {
+  if (!source) {
     return undefined;
   }
-  if ((mode === 'File' || mode === 'Directory') && !node?.Path && !inherited.path) {
-    return undefined;
-  }
-  if (mode === 'Glob' && (!include || include.length === 0)) {
+  const isGlob = source.includes('*');
+  return {
+    ...selectorFields(node),
+    kind: generated ? 'Generated' : kind,
+    role,
+    mode: isGlob ? 'Glob' : 'Directory',
+    path: isGlob ? undefined : source,
+    pattern: isGlob ? source : undefined,
+    visibility: visibility ?? 'Private',
+    target
+  };
+}
+
+function fileInput(kind: string, role: string | undefined, source: string | undefined, visibility: string | undefined, target?: string): InputDeclaration | undefined {
+  if (!source) {
     return undefined;
   }
   return {
-    ...inherited,
-    name: node?.Name ?? inherited.name,
-    kind: inherited.kind,
-    role: inherited.role,
-    path: node?.Path ?? inherited.path,
-    pattern: mode === 'Glob' ? include.join(';') : inherited.pattern,
-    mode,
-    visibility: node?.Visibility ?? inherited.visibility ?? 'Private',
-    target: node?.Target ?? inherited.target,
-    targetRoot: node?.TargetRoot ?? inherited.targetRoot,
-    basePath: node?.BasePath ?? inherited.basePath,
-    contentKind: node?.ContentKind ?? inherited.contentKind,
-    required: parseBool(node?.Required, inherited.required ?? true),
-    profile: node?.Profile ?? inherited.profile,
-    platform: node?.Platform ?? inherited.platform,
-    operatingSystem: node?.OperatingSystem ?? inherited.operatingSystem,
-    architecture: node?.Architecture ?? inherited.architecture,
-    buildType: node?.BuildType ?? inherited.buildType,
-    environment: node?.Environment ?? inherited.environment,
-    condition: node?.Condition ?? inherited.condition,
-    include,
-    exclude: node?.Exclude ? splitPathList(node.Exclude) : inherited.exclude,
-    setName: inherited.setName
+    kind,
+    role,
+    mode: 'File',
+    path: source,
+    visibility: visibility ?? 'Private',
+    target
   };
 }
 
-function parseInputs(node: unknown): InputDeclaration[] {
-  const parent = node as { Inputs?: Record<string, unknown> } | undefined;
-  const result: InputDeclaration[] = [];
-  const inputs = parent?.Inputs;
-  if (!inputs) {
-    return result;
+function parseBuildInputs(node: unknown, generated = false): InputDeclaration[] {
+  const build = node as {
+    Sources?: unknown;
+    Headers?: unknown;
+    Source?: unknown;
+    Header?: unknown;
+  } | undefined;
+  if (!build) {
+    return [];
   }
-  for (const [blockName, blockValue] of Object.entries(inputs)) {
-    if (!typedBlockBase(blockName, {})) {
-      continue;
-    }
-    for (const block of asArray(blockValue)) {
-      const blockNode = block as TypedInputNode;
-      const base = typedBlockBase(blockName, blockNode);
-      if (!base) {
-        continue;
-      }
-      const inherited: Partial<InputDeclaration> = {
-        ...base,
-        setName: blockNode.Name,
-        visibility: blockNode.Visibility ?? base.visibility,
-        targetRoot: blockNode.TargetRoot,
-        basePath: blockNode.BasePath,
-        contentKind: blockNode.ContentKind,
-        required: parseBool(blockNode.Required, true),
-        profile: blockNode.Profile,
-        platform: blockNode.Platform,
-        operatingSystem: blockNode.OperatingSystem,
-        architecture: blockNode.Architecture,
-        buildType: blockNode.BuildType,
-        environment: blockNode.Environment,
-        condition: blockNode.Condition,
-        include: blockNode.Include ? splitPathList(blockNode.Include) : undefined,
-        exclude: blockNode.Exclude ? splitPathList(blockNode.Exclude) : undefined
-      };
-      if (blockNode.Path || inherited.include) {
-        const input = parseInputEntry(
-          { Path: blockNode.Path, Mode: blockNode.Path ? 'Directory' : 'Glob', Include: blockNode.Include, Exclude: blockNode.Exclude },
-          inherited
-        );
-        if (input) {
-          result.push(input);
-        }
-      }
-      for (const line of splitTextLines(textContent(block))) {
-        const input = parseInputEntry({ Path: line, Mode: 'File' }, inherited);
-        if (input) {
-          result.push(input);
-        }
-      }
-      for (const entry of asArray(blockNode.File)) {
-        const input = parseInputEntry({ ...(entry as object), Mode: 'File' }, inherited);
-        if (input) {
-          result.push(input);
-        }
-      }
-      for (const entry of asArray(blockNode.Directory)) {
-        const input = parseInputEntry({ ...(entry as object), Mode: 'Directory' }, inherited);
-        if (input) {
-          result.push(input);
-        }
-      }
-      for (const entry of asArray(blockNode.Glob)) {
-        const input = parseInputEntry({ ...(entry as object), Mode: 'Glob' }, inherited);
-        if (input) {
-          result.push(input);
-        }
-      }
-    }
-  }
-  return result;
+  return [
+    ...asArray(build.Sources).map((entry) => {
+      const value = entry as { Path?: string; Visibility?: string } & SelectorNode | undefined;
+      return pathInput('Source', 'Source', value?.Path, value?.Visibility ?? 'Private', undefined, generated, value);
+    }),
+    ...asArray(build.Headers).map((entry) => {
+      const value = entry as { Path?: string; Visibility?: string } & SelectorNode | undefined;
+      return pathInput('Source', 'Header', value?.Path, value?.Visibility ?? 'Public', undefined, generated, value);
+    }),
+    ...asArray(build.Source).map((entry) => {
+      const value = entry as { Path?: string; Visibility?: string } | undefined;
+      return fileInput(generated ? 'Generated' : 'Source', 'Source', value?.Path, value?.Visibility ?? 'Private');
+    }),
+    ...asArray(build.Header).map((entry) => {
+      const value = entry as { Path?: string; Visibility?: string } | undefined;
+      return fileInput(generated ? 'Generated' : 'Source', 'Header', value?.Path, value?.Visibility ?? 'Public');
+    })
+  ].filter((entry): entry is InputDeclaration => Boolean(entry));
 }
 
-function applySelectorFields<T extends object>(target: T, node: {
-  Profile?: string;
-  Platform?: string;
-  OperatingSystem?: string;
-  Architecture?: string;
-  BuildType?: string;
-  Environment?: string;
-  Condition?: string;
-} | undefined): T {
-  const selected = target as T & {
-    profile?: string;
-    platform?: string;
-    operatingSystem?: string;
-    architecture?: string;
-    buildType?: string;
-    environment?: string;
-    condition?: string;
+function parseStageInputs(node: unknown): InputDeclaration[] {
+  const stage = node as {
+    Config?: unknown;
+    Content?: unknown;
+    Asset?: unknown;
+    RuntimeConfig?: unknown;
+  } | undefined;
+  if (!stage) {
+    return [];
+  }
+  const parse = (entry: unknown, kind: string): InputDeclaration | undefined => {
+    const value = entry as { Source?: string; Path?: string; Target?: string; StagePath?: string; Required?: string | boolean } | undefined;
+    const source = value?.Source ?? value?.Path;
+    const target = value?.Target ?? value?.StagePath;
+    const input = fileInput(kind, kind, source, 'Private', target);
+    if (input) {
+      input.required = parseBool(value?.Required, true);
+    }
+    return input;
   };
-  if (node?.Profile) { selected.profile = node.Profile; }
-  if (node?.Platform) { selected.platform = node.Platform; }
-  if (node?.OperatingSystem) { selected.operatingSystem = node.OperatingSystem; }
-  if (node?.Architecture) { selected.architecture = node.Architecture; }
-  if (node?.BuildType) { selected.buildType = node.BuildType; }
-  if (node?.Environment) { selected.environment = node.Environment; }
-  if (node?.Condition) { selected.condition = node.Condition; }
-  return selected;
+  return [
+    ...asArray(stage.Config).map((entry) => parse(entry, 'Config')),
+    ...asArray(stage.RuntimeConfig).map((entry) => parse(entry, 'Config')),
+    ...asArray(stage.Content).map((entry) => parse(entry, 'Content')),
+    ...asArray(stage.Asset).map((entry) => parse(entry, 'Asset'))
+  ].filter((entry): entry is InputDeclaration => Boolean(entry));
+}
+
+function parseGeneratorOutputs(generator: unknown): InputDeclaration[] {
+  const node = generator as { Outputs?: unknown } | undefined;
+  const outputs = node?.Outputs as { Sources?: unknown; Headers?: unknown; Files?: unknown } | undefined;
+  return [
+    ...parseBuildInputs(outputs, true),
+    ...asArray(outputs?.Files).map((entry) => {
+      const value = entry as { Path?: string } & SelectorNode | undefined;
+      return pathInput('Generated', 'Content', value?.Path, 'Private', undefined, true, value);
+    })
+  ].filter((entry): entry is InputDeclaration => Boolean(entry));
 }
 
 function parseToolDeclaration(entry: unknown, requireName: boolean): ToolDeclaration | undefined {
-  const node = entry as {
-    Name?: string;
-    Kind?: string;
-    Executable?: string;
-    Profile?: string;
-    Platform?: string;
-    OperatingSystem?: string;
-    Architecture?: string;
-    BuildType?: string;
-    Environment?: string;
-    Condition?: string;
-  } | undefined;
+  const node = entry as { Name?: string; Package?: string; Kind?: string; Executable?: string } | undefined;
   if (!node || (requireName && !node.Name)) {
     return undefined;
   }
-  return applySelectorFields({
+  return {
     name: node.Name,
+    packageName: node.Package,
     kind: node.Kind ?? 'Generator',
     executable: node.Executable
-  }, node);
+  };
 }
 
-function parseGeneratorOutputs(node: unknown): InputDeclaration[] {
-  const parent = node as { Outputs?: { Generated?: unknown } } | undefined;
-  return asArray(parent?.Outputs?.Generated)
-    .map((entry): InputDeclaration | undefined => {
-      const output = entry as TypedInputNode | undefined;
-      if (!output?.Path || !output.Role) {
-        return undefined;
-      }
-      return parseInputEntry({ ...output, Mode: 'File' }, {
-        kind: 'Generated',
-        role: output.Role,
-        visibility: output.Visibility ?? (output.Role === 'Header' ? 'Public' : 'Private')
-      });
-    })
-    .filter((entry): entry is InputDeclaration => Boolean(entry));
-}
-
-function parseGenerators(node: unknown): GeneratorDeclaration[] {
-  const parent = node as { Generators?: { Generator?: unknown } } | undefined;
-  return asArray(parent?.Generators?.Generator)
+function parseGenerators(product: unknown): GeneratorDeclaration[] {
+  const node = product as { Generate?: { Generator?: unknown }; Generators?: { Generator?: unknown } } | undefined;
+  return asArray(node?.Generate?.Generator ?? node?.Generators?.Generator)
     .map((entry): GeneratorDeclaration | undefined => {
       const generator = entry as {
         Name?: string;
         Kind?: string;
-        Package?: string;
-        Tool?: string | Record<string, unknown>;
-        Profile?: string;
-        Platform?: string;
-        OperatingSystem?: string;
-        Architecture?: string;
-        BuildType?: string;
-        Environment?: string;
-        Condition?: string;
+        Phase?: string;
+        Tool?: unknown;
+        Args?: { Arg?: unknown };
         Arguments?: { Arg?: unknown };
       } | undefined;
-      if (!generator?.Name || !generator.Kind) {
+      if (!generator?.Name) {
         return undefined;
       }
-      const parsed: GeneratorDeclaration = applySelectorFields({
+      const inlineTool = typeof generator.Tool === 'object'
+        ? parseToolDeclaration(generator.Tool, false)
+        : undefined;
+      const toolName = typeof generator.Tool === 'string'
+        ? generator.Tool
+        : (generator.Tool as { Name?: string } | undefined)?.Name;
+      const argumentsNode = generator.Args ?? generator.Arguments;
+      return {
         name: generator.Name,
-        kind: generator.Kind,
-        packageName: typeof generator.Package === 'string' ? generator.Package : undefined,
-        toolName: typeof generator.Tool === 'string' ? generator.Tool : undefined,
-        inputs: parseInputs(entry),
+        kind: generator.Kind ?? generator.Phase ?? 'Command',
+        toolName,
+        inlineTool,
+        inputs: [
+          ...parseBuildInputs((entry as { Inputs?: unknown }).Inputs),
+          ...parseStageInputs((entry as { Inputs?: unknown }).Inputs)
+        ],
         outputs: parseGeneratorOutputs(entry),
-        arguments: asArray(generator.Arguments?.Arg)
+        arguments: asArray(argumentsNode?.Arg)
           .map((arg): GeneratorArgument | undefined => {
-            const value = arg as {
-              Value?: string;
-              Path?: string;
-              Profile?: string;
-              Platform?: string;
-              OperatingSystem?: string;
-              Architecture?: string;
-              BuildType?: string;
-              Environment?: string;
-              Condition?: string;
-            } | undefined;
-            if (!value?.Value && !value?.Path) {
-              return undefined;
-            }
-            return applySelectorFields({ value: value.Value, path: value.Path }, value);
+            const value = arg as { Value?: string; Path?: string } | undefined;
+            return value?.Value || value?.Path ? { value: value.Value, path: value.Path } : undefined;
           })
           .filter((arg): arg is GeneratorArgument => Boolean(arg))
-      }, generator);
-      const inlineTool = typeof (entry as { Tool?: unknown }).Tool === 'object'
-        ? parseToolDeclaration((entry as { Tool?: unknown }).Tool, false)
-        : undefined;
-      if (inlineTool) {
-        parsed.inlineTool = inlineTool;
-      }
-      return parsed;
+      };
     })
     .filter((entry): entry is GeneratorDeclaration => Boolean(entry));
 }
@@ -363,8 +306,9 @@ function configInputsFrom(inputs: InputDeclaration[]): string[] {
 
 function sourceRootsFrom(inputs: InputDeclaration[]): string[] {
   return inputs
-    .filter((entry) => (entry.kind === 'Source' || (entry.kind === 'Generated' && entry.role === 'Source')) && entry.mode === 'Directory' && Boolean(entry.path))
-    .map((entry) => entry.path as string);
+    .filter((entry) => (entry.kind === 'Source' || (entry.kind === 'Generated' && entry.role === 'Source')))
+    .map((entry) => entry.path ?? entry.pattern)
+    .filter((entry): entry is string => Boolean(entry));
 }
 
 function buildSourcesFrom(inputs: InputDeclaration[]): string[] {
@@ -373,255 +317,69 @@ function buildSourcesFrom(inputs: InputDeclaration[]): string[] {
     .map((entry) => entry.path as string);
 }
 
-function textContent(node: unknown): string | undefined {
-  if (typeof node === 'string') {
-    return node;
-  }
-  const entry = node as { '#text'?: string } | undefined;
-  return entry?.['#text'];
-}
-
-function parseLocalSettingsImports(node: unknown, baseDirectory: string): string[] {
-  const parent = node as { LocalSettings?: { Import?: unknown } } | undefined;
-  return asArray(parent?.LocalSettings?.Import)
-    .map((entry) => (entry as { Path?: string } | undefined)?.Path)
-    .filter((entry): entry is string => Boolean(entry))
-    .map((entry) => path.isAbsolute(entry) ? entry : path.resolve(baseDirectory, entry));
-}
-
-function parseProjectReferences(node: unknown, baseDirectory: string): ProjectReference[] {
-  const parent = node as { References?: { Project?: unknown } } | undefined;
-  return asArray(parent?.References?.Project)
+function parseProjectReferences(product: unknown, baseDirectory: string): ProjectReference[] {
+  const uses = (product as { Uses?: { Project?: unknown } } | undefined)?.Uses;
+  return asArray(uses?.Project)
     .map((entry): ProjectReference | undefined => {
-      const ref = entry as { Path?: string; Profile?: string; Platform?: string; OperatingSystem?: string; Architecture?: string; BuildType?: string; Environment?: string; Condition?: string } | undefined;
-      if (!ref?.Path) {
+      const ref = entry as { Name?: string; Path?: string; Profile?: string } | undefined;
+      const refPath = ref?.Path ?? ref?.Name;
+      if (!refPath) {
         return undefined;
       }
-      const parsed: ProjectReference = {
-        path: path.resolve(baseDirectory, ref.Path),
+      return {
+        name: ref?.Name,
+        path: ref.Path ? resolveManifestPath(baseDirectory, ref.Path) : refPath,
         profile: ref.Profile
       };
-      if (ref.Platform) { parsed.platform = ref.Platform; }
-      if (ref.OperatingSystem) { parsed.operatingSystem = ref.OperatingSystem; }
-      if (ref.Architecture) { parsed.architecture = ref.Architecture; }
-      if (ref.BuildType) { parsed.buildType = ref.BuildType; }
-      if (ref.Environment) { parsed.environment = ref.Environment; }
-      if (ref.Condition) { parsed.condition = ref.Condition; }
-      return parsed;
     })
     .filter((entry): entry is ProjectReference => Boolean(entry));
 }
 
-function parsePackageReferences(node: unknown): PackageReference[] {
-  const parent = node as { References?: { Package?: unknown } } | undefined;
-  return asArray(parent?.References?.Package)
-    .map((entry): PackageReference | undefined => {
-      const ref = entry as { Name?: string; Version?: string; Optional?: string | boolean; Profile?: string; Platform?: string; OperatingSystem?: string; Architecture?: string; BuildType?: string; Environment?: string; Condition?: string } | undefined;
-      if (!ref?.Name) {
-        return undefined;
-      }
-      const parsed: PackageReference = {
-        name: ref.Name,
-        version: ref.Version,
-        optional: ref.Optional === true || ref.Optional === 'true'
-      };
-      if (ref.Profile) { parsed.profile = ref.Profile; }
-      if (ref.Platform) { parsed.platform = ref.Platform; }
-      if (ref.OperatingSystem) { parsed.operatingSystem = ref.OperatingSystem; }
-      if (ref.Architecture) { parsed.architecture = ref.Architecture; }
-      if (ref.BuildType) { parsed.buildType = ref.BuildType; }
-      if (ref.Environment) { parsed.environment = ref.Environment; }
-      if (ref.Condition) { parsed.condition = ref.Condition; }
-      return parsed;
-    })
-    .filter((entry): entry is PackageReference => Boolean(entry));
-}
-
-function parsePackageFeatureUses(node: unknown): PackageFeatureUse[] {
-  const parent = node as { Features?: { Use?: unknown; Disable?: unknown } } | undefined;
-  const parse = (entry: unknown, disabled: boolean): PackageFeatureUse | undefined => {
-    const ref = entry as { Package?: string; Feature?: string; Version?: string; VersionRange?: string; Profile?: string; Platform?: string; OperatingSystem?: string; Architecture?: string; BuildType?: string; Environment?: string; Condition?: string } | undefined;
-    if (!ref?.Package || !ref?.Feature) {
+function parseDependencyEntries(product: unknown): PackageReference[] {
+  const uses = (product as { Uses?: { Package?: unknown; Runtime?: unknown; Tool?: unknown } } | undefined)?.Uses;
+  const parse = (entry: unknown, kind: string): PackageReference | undefined => {
+    const ref = entry as { Name?: string; Version?: string; Scope?: string; Optional?: string | boolean; Feature?: unknown } | undefined;
+    if (!ref?.Name) {
       return undefined;
     }
-    const parsed: PackageFeatureUse = {
-      packageName: ref.Package,
-      featureName: ref.Feature,
-      version: ref.Version ?? ref.VersionRange,
-      disabled
+    return {
+      name: ref.Name,
+      version: ref.Version,
+      scope: ref.Scope,
+      kind,
+      optional: ref.Optional === true || ref.Optional === 'true',
+      features: asArray(ref.Feature)
+        .map((feature) => (feature as { Name?: string } | undefined)?.Name)
+        .filter((feature): feature is string => Boolean(feature))
     };
-    if (ref.Profile) { parsed.profile = ref.Profile; }
-    if (ref.Platform) { parsed.platform = ref.Platform; }
-    if (ref.OperatingSystem) { parsed.operatingSystem = ref.OperatingSystem; }
-    if (ref.Architecture) { parsed.architecture = ref.Architecture; }
-    if (ref.BuildType) { parsed.buildType = ref.BuildType; }
-    if (ref.Environment) { parsed.environment = ref.Environment; }
-    if (ref.Condition) { parsed.condition = ref.Condition; }
-    return parsed;
   };
   return [
-    ...asArray(parent?.Features?.Use).map((entry) => parse(entry, false)),
-    ...asArray(parent?.Features?.Disable).map((entry) => parse(entry, true))
-  ].filter((entry): entry is PackageFeatureUse => Boolean(entry));
+    ...asArray(uses?.Package).map((entry) => parse(entry, 'Package')),
+    ...asArray(uses?.Runtime).map((entry) => parse(entry, 'Runtime')),
+    ...asArray(uses?.Tool).map((entry) => parse(entry, 'Tool'))
+  ].filter((entry): entry is PackageReference => Boolean(entry));
 }
 
-function parseConditions(node: unknown): ConditionDefinition[] {
-  const parent = node as { Conditions?: { Condition?: unknown } } | undefined;
+function parsePackageFeatureUses(product: unknown): PackageFeatureUse[] {
+  return parseDependencyEntries(product).flatMap((dependency) =>
+    (dependency.features ?? []).map((featureName) => ({
+      packageName: dependency.name,
+      featureName,
+      version: dependency.version,
+      disabled: false
+    }))
+  );
+}
+
+function parseConditions(root: unknown): ConditionDefinition[] {
+  const parent = root as { Conditions?: { Condition?: unknown } } | undefined;
   return asArray(parent?.Conditions?.Condition)
     .map((entry): ConditionDefinition | undefined => {
-      const condition = entry as { Name?: string; Profile?: string; Platform?: string; OperatingSystem?: string; Architecture?: string; BuildType?: string; Environment?: string; Match?: { Profile?: string; Platform?: string; OperatingSystem?: string; Architecture?: string; BuildType?: string; Environment?: string } } | undefined;
-      if (!condition?.Name) {
-        return undefined;
-      }
-      const match = condition.Match;
-      return {
-        name: condition.Name,
-        profile: condition.Profile ?? match?.Profile,
-        platform: condition.Platform ?? match?.Platform,
-        operatingSystem: condition.OperatingSystem ?? match?.OperatingSystem,
-        architecture: condition.Architecture ?? match?.Architecture,
-        buildType: condition.BuildType ?? match?.BuildType,
-        environment: condition.Environment ?? match?.Environment
-      };
+      const condition = entry as { Name?: string; When?: unknown } | undefined;
+      const when = asArray(condition?.When)[0] as Parameters<typeof selectorFields>[0] | undefined;
+      return condition?.Name ? { name: condition.Name, ...selectorFields(when) } : undefined;
     })
     .filter((entry): entry is ConditionDefinition => Boolean(entry));
-}
-
-function parseModelIncludes(root: { Includes?: { Include?: unknown } } | undefined, baseDirectory: string): string[] {
-  return asArray(root?.Includes?.Include)
-    .map((entry) => (entry as { Path?: string } | undefined)?.Path)
-    .filter((entry): entry is string => Boolean(entry))
-    .map((entry) => path.isAbsolute(entry) ? entry : path.resolve(baseDirectory, entry));
-}
-
-function parseDefaults(root: { Defaults?: unknown } | undefined): ModelDefaults | undefined {
-  const defaults = root?.Defaults as {
-    BuildType?: string;
-    Platform?: string;
-    OperatingSystem?: string;
-    Architecture?: string;
-    Environment?: string;
-  } | undefined;
-  if (!defaults) {
-    return undefined;
-  }
-  return {
-    buildType: defaults.BuildType,
-    platform: defaults.Platform,
-    operatingSystem: defaults.OperatingSystem,
-    architecture: defaults.Architecture,
-    environment: defaults.Environment
-  };
-}
-
-function mergeDefaults(base: ModelDefaults | undefined, override: ModelDefaults | undefined): ModelDefaults | undefined {
-  if (!base && !override) {
-    return undefined;
-  }
-  return { ...(base ?? {}), ...(override ?? {}) };
-}
-
-function parseProfileTemplates(root: { ProfileTemplates?: { ProfileTemplate?: unknown } } | undefined, baseDirectory: string): Record<string, ProjectProfileTemplate> {
-  const templates: Record<string, ProjectProfileTemplate> = {};
-  for (const entry of asArray(root?.ProfileTemplates?.ProfileTemplate)) {
-    const node = entry as {
-      Name?: string;
-      Extends?: string;
-      BuildType?: string;
-      Platform?: string;
-      OperatingSystem?: string;
-      Architecture?: string;
-      Environment?: string;
-      Launch?: { Executable?: string; WorkingDirectory?: string };
-    } | undefined;
-    if (!node?.Name) {
-      continue;
-    }
-    templates[node.Name] = {
-      name: node.Name,
-      extends: node.Extends,
-      buildType: node.BuildType,
-      platform: node.Platform,
-      operatingSystem: node.OperatingSystem,
-      architecture: node.Architecture,
-      environment: node.Environment,
-      launchExecutable: node.Launch?.Executable,
-      launchWorkingDirectory: node.Launch?.WorkingDirectory,
-      inputs: parseInputs(entry),
-      configInputs: configInputsFrom(parseInputs(entry)),
-      projectRefs: parseProjectReferences(entry, baseDirectory),
-      packageRefs: parsePackageReferences(entry)
-    };
-  }
-  return templates;
-}
-
-function mergeProfileTemplateMaps(
-  base: Record<string, ProjectProfileTemplate> | undefined,
-  override: Record<string, ProjectProfileTemplate> | undefined
-): Record<string, ProjectProfileTemplate> | undefined {
-  if (!base && !override) {
-    return undefined;
-  }
-  return { ...(base ?? {}), ...(override ?? {}) };
-}
-
-function applyProfileTemplate(
-  target: ProjectProfile,
-  templateName: string | undefined,
-  templates: Record<string, ProjectProfileTemplate> | undefined,
-  stack: string[] = []
-): void {
-  if (!templateName || !templates?.[templateName] || stack.includes(templateName)) {
-    return;
-  }
-  const template = templates[templateName];
-  applyProfileTemplate(target, template.extends, templates, [...stack, templateName]);
-  target.buildType = template.buildType ?? target.buildType;
-  target.platform = template.platform ?? target.platform;
-  target.operatingSystem = template.operatingSystem ?? target.operatingSystem;
-  target.architecture = template.architecture ?? target.architecture;
-  target.environment = template.environment ?? target.environment;
-  target.launchExecutable = template.launchExecutable ?? target.launchExecutable;
-  target.launchWorkingDirectory = template.launchWorkingDirectory ?? target.launchWorkingDirectory;
-  target.inputs = [...(target.inputs ?? []), ...template.inputs];
-  target.configInputs = [...(target.configInputs ?? []), ...template.configInputs];
-  target.projectRefs = [...(target.projectRefs ?? []), ...(template.projectRefs ?? [])];
-  target.packageRefs = [...(target.packageRefs ?? []), ...(template.packageRefs ?? [])];
-}
-
-export interface ModelManifest {
-  path: string;
-  directory: string;
-  modelIncludes: string[];
-  defaults?: ModelDefaults;
-  profileTemplates?: Record<string, ProjectProfileTemplate>;
-}
-
-export function parseModelManifest(xml: string, manifestPath: string): ModelManifest {
-  const document = parser.parse(xml);
-  const root = document.Model;
-  if (!root) {
-    throw new Error(`${manifestPath}: root element must be <Model>`);
-  }
-  const directory = path.dirname(manifestPath);
-  return {
-    path: manifestPath,
-    directory,
-    modelIncludes: parseModelIncludes(root, directory),
-    defaults: parseDefaults(root),
-    profileTemplates: parseProfileTemplates(root, directory)
-  };
-}
-
-export function parseProjectModelIncludes(xml: string, manifestPath: string): string[] {
-  const document = parser.parse(xml);
-  return parseModelIncludes(document.Project, path.dirname(manifestPath));
-}
-
-export interface ProjectParseOptions {
-  defaults?: ModelDefaults;
-  profileTemplates?: Record<string, ProjectProfileTemplate>;
 }
 
 export function parseWorkspaceManifest(xml: string, manifestPath: string): WorkspaceManifest {
@@ -630,103 +388,108 @@ export function parseWorkspaceManifest(xml: string, manifestPath: string): Works
   if (!root) {
     throw new Error(`${manifestPath}: root element must be <Workspace>`);
   }
+  requireSchema4(root, manifestPath);
 
   const directory = path.dirname(manifestPath);
-  const projects = asArray(root.Projects?.Project)
-    .map((entry) => entry?.Path as string | undefined)
-    .filter((entry): entry is string => Boolean(entry))
-    .map((entry) => path.resolve(directory, entry));
-  const packageSources = asArray(root.PackageSources?.PackageSource)
-    .map((entry) => entry?.Path as string | undefined)
-    .filter((entry): entry is string => Boolean(entry))
-    .map((entry) => path.resolve(directory, entry));
-
   return {
     path: manifestPath,
     directory,
     name: root.Name ?? path.basename(manifestPath, path.extname(manifestPath)),
     platformVersion: root.PlatformVersion,
-    modelIncludes: parseModelIncludes(root, directory),
-    defaults: parseDefaults(root),
-    profileTemplates: parseProfileTemplates(root, directory),
-    projectPaths: projects,
-    packageSourcePaths: packageSources
+    imports: asArray(root.Imports?.Import)
+      .map((entry) => (entry as { Path?: string } | undefined)?.Path)
+      .filter((entry): entry is string => Boolean(entry))
+      .map((entry) => resolveManifestPath(directory, entry)),
+    projectPaths: asArray(root.Projects?.Project)
+      .map((entry) => (entry as { Path?: string } | undefined)?.Path)
+      .filter((entry): entry is string => Boolean(entry))
+      .map((entry) => resolveManifestPath(directory, entry)),
+    packageSourcePaths: asArray(root.Packages?.Source)
+      .map((entry) => (entry as { Path?: string } | undefined)?.Path)
+      .filter((entry): entry is string => Boolean(entry))
+      .map((entry) => resolveManifestPath(directory, entry))
   };
 }
 
-export function parseProjectManifest(xml: string, manifestPath: string, options: ProjectParseOptions = {}): ProjectManifest {
+export function parseProjectManifest(xml: string, manifestPath: string): ProjectManifest {
   const document = parser.parse(xml);
   const root = document.Project;
   if (!root) {
     throw new Error(`${manifestPath}: root element must be <Project>`);
   }
+  requireSchema4(root, manifestPath);
 
-  const projectDefaults = mergeDefaults(options.defaults, parseDefaults(root));
-  const profileTemplates = mergeProfileTemplateMaps(options.profileTemplates, parseProfileTemplates(root, path.dirname(manifestPath)));
-  const rootLaunch = root.Launch as { Executable?: string; WorkingDirectory?: string } | undefined;
-  const profiles = asArray(root.Profiles?.Profile).map((entry): ProjectProfile => {
-    const profile = entry as {
-      Name?: string;
-      Template?: string;
-      BuildType?: string;
-      Platform?: string;
-      OperatingSystem?: string;
-      Architecture?: string;
-      Environment?: string;
-      Launch?: { Executable?: string; WorkingDirectory?: string };
-    } | undefined;
-    const result: ProjectProfile = {
-      name: profile?.Name,
-      buildType: projectDefaults?.buildType,
-      platform: projectDefaults?.platform,
-      operatingSystem: projectDefaults?.operatingSystem,
-      architecture: projectDefaults?.architecture,
-      environment: projectDefaults?.environment,
-      inputs: [],
-      configInputs: []
-    };
-    applyProfileTemplate(result, profile?.Template, profileTemplates);
-    result.buildType = profile?.BuildType ?? result.buildType;
-    result.platform = profile?.Platform ?? result.platform;
-    result.operatingSystem = profile?.OperatingSystem ?? result.operatingSystem;
-    result.architecture = profile?.Architecture ?? result.architecture;
-    result.environment = profile?.Environment ?? result.environment;
-    result.launchExecutable = profile?.Launch?.Executable ?? result.launchExecutable ?? rootLaunch?.Executable;
-    result.launchWorkingDirectory = profile?.Launch?.WorkingDirectory ?? result.launchWorkingDirectory ?? rootLaunch?.WorkingDirectory;
-    if (result.launchExecutable === '$(OutputName)') {
-      result.launchExecutable = root.Output?.Name ?? root.Name;
-    }
-    result.inputs = [...result.inputs, ...parseInputs(entry)];
-    result.configInputs = configInputsFrom(result.inputs);
-    result.projectRefs = [...(result.projectRefs ?? []), ...parseProjectReferences(entry, path.dirname(manifestPath))];
-    result.packageRefs = [...(result.packageRefs ?? []), ...parsePackageReferences(entry)];
-    result.packageFeatureUses = [...(result.packageFeatureUses ?? []), ...parsePackageFeatureUses(entry)];
-    result.generators = [...(result.generators ?? []), ...parseGenerators(entry)];
-    return result;
-  }).filter((entry) => Boolean(entry.name));
+  const directory = path.dirname(manifestPath);
+  const rootRecord = root as Record<string, unknown> & { Name?: string; DefaultProfile?: string };
+  const product = getProduct(rootRecord);
+  if (!product) {
+    throw new Error(`${manifestPath}: V4 project must declare one product element`);
+  }
 
-  const inputs = parseInputs(root);
-  const buildSources = asArray(root.Build?.Sources?.Source)
-    .map((entry) => entry?.Path as string | undefined)
-    .filter((entry): entry is string => Boolean(entry));
+  const rootDefaults = parseDefaults(root);
+  const productInputs = [
+    ...parseBuildInputs((product.node as { Build?: unknown }).Build),
+    ...parseStageInputs((product.node as { Stage?: unknown }).Stage),
+    ...parseGenerators(product.node).flatMap((generator) => generator.outputs ?? [])
+  ];
+  const productLaunch = (product.node as { Launch?: { Executable?: string; WorkingDirectory?: string } }).Launch;
+
+  const profiles = asArray(root.Profile)
+    .map((entry): ProjectProfile | undefined => {
+      const profile = entry as Record<string, unknown> & {
+        Name?: string;
+        Extends?: string;
+      };
+      if (!profile?.Name) {
+        return undefined;
+      }
+      const profileProduct = getProduct(profile) ?? { kind: product.kind, node: {} };
+      const defaults = mergeDefaults(rootDefaults, parseDefaults(profile as { Defaults?: unknown }));
+      const overlayLaunch = (profileProduct.node as { Launch?: { Executable?: string; WorkingDirectory?: string } }).Launch;
+      const inputs = [
+        ...parseBuildInputs((profileProduct.node as { Build?: unknown }).Build),
+        ...parseStageInputs((profileProduct.node as { Stage?: unknown }).Stage),
+        ...parseGenerators(profileProduct.node).flatMap((generator) => generator.outputs ?? [])
+      ];
+      return {
+        name: profile.Name,
+        extends: profile.Extends,
+        buildType: defaults?.buildType,
+        platform: defaults?.targetPlatform,
+        targetPlatform: defaults?.targetPlatform,
+        hostPlatform: defaults?.hostPlatform,
+        operatingSystem: defaults?.operatingSystem,
+        architecture: defaults?.architecture,
+        environment: defaults?.environment,
+        toolchain: defaults?.toolchain,
+        launchExecutable: overlayLaunch?.Executable ?? productLaunch?.Executable,
+        launchWorkingDirectory: overlayLaunch?.WorkingDirectory ?? productLaunch?.WorkingDirectory,
+        inputs,
+        configInputs: configInputsFrom(inputs),
+        projectRefs: parseProjectReferences(profileProduct.node, directory),
+        packageRefs: parseDependencyEntries(profileProduct.node),
+        packageFeatureUses: parsePackageFeatureUses(profileProduct.node),
+        generators: parseGenerators(profileProduct.node)
+      };
+    })
+    .filter((entry): entry is ProjectProfile => Boolean(entry));
 
   return {
     path: manifestPath,
-    directory: path.dirname(manifestPath),
+    directory,
     name: root.Name ?? path.basename(manifestPath, path.extname(manifestPath)),
-    defaultProfile: root.DefaultProfile,
-    modelIncludes: parseModelIncludes(root, path.dirname(manifestPath)),
-    defaults: projectDefaults,
-    inputs,
-    sourceRoots: sourceRootsFrom(inputs),
-    configInputs: configInputsFrom(inputs),
-    localSettingsImports: parseLocalSettingsImports(root, path.dirname(manifestPath)),
-    buildSources: [...buildSources, ...buildSourcesFrom(inputs)],
+    productKind: product.kind,
+    defaultProfile: rootRecord.DefaultProfile,
+    inputs: productInputs,
+    sourceRoots: sourceRootsFrom(productInputs),
+    configInputs: configInputsFrom(productInputs),
+    localSettingsImports: [],
+    buildSources: buildSourcesFrom(productInputs),
     conditions: parseConditions(root),
-    projectRefs: parseProjectReferences(root, path.dirname(manifestPath)),
-    packageRefs: parsePackageReferences(root),
-    packageFeatureUses: parsePackageFeatureUses(root),
-    generators: parseGenerators(root),
+    projectRefs: parseProjectReferences(product.node, directory),
+    packageRefs: parseDependencyEntries(product.node),
+    packageFeatureUses: parsePackageFeatureUses(product.node),
+    generators: parseGenerators(product.node),
     profiles
   };
 }
@@ -741,13 +504,7 @@ export function parseLocalSettingsManifest(xml: string, manifestPath: string): L
   const settings = asArray(root.Settings?.Setting)
     .map((entry): { key: string; secret?: boolean } | undefined => {
       const setting = entry as { Key?: string; Secret?: string | boolean } | undefined;
-      if (!setting?.Key) {
-        return undefined;
-      }
-      return {
-        key: setting.Key,
-        secret: setting.Secret === true || setting.Secret === 'true'
-      };
+      return setting?.Key ? { key: setting.Key, secret: setting.Secret === true || setting.Secret === 'true' } : undefined;
     })
     .filter((entry): entry is { key: string; secret?: boolean } => Boolean(entry));
 
@@ -764,45 +521,46 @@ export function parsePackageManifest(xml: string, manifestPath: string): Package
   if (!root) {
     throw new Error(`${manifestPath}: root element must be <Package>`);
   }
+  requireSchema4(root, manifestPath);
 
   const features = asArray(root.Features?.Feature)
     .map((entry): PackageFeature | undefined => {
-      const feature = entry as { Name?: string; Description?: string; Profile?: string; Platform?: string; OperatingSystem?: string; Architecture?: string; BuildType?: string; Environment?: string; Condition?: string; Provides?: { Capability?: unknown }; Requires?: { Capability?: unknown }; Dependencies?: { PackageRef?: unknown } } | undefined;
+      const feature = entry as {
+        Name?: string;
+        Description?: string;
+        Uses?: unknown;
+        Build?: unknown;
+        Generate?: unknown;
+        Provides?: { Capability?: unknown };
+        Requires?: { Capability?: unknown };
+      } | undefined;
       if (!feature?.Name) {
         return undefined;
       }
-      const parsed: PackageFeature = {
+      return {
         name: feature.Name,
         description: feature.Description,
-        inputs: parseInputs(entry),
-        generators: parseGenerators(entry)
+        dependencies: parseDependencyEntries(feature),
+        inputs: parseBuildInputs(feature.Build),
+        generators: parseGenerators(feature),
+        provides: asArray(feature.Provides?.Capability)
+          .map((capability): NonNullable<PackageFeature['provides']>[number] | undefined => {
+            const value = capability as { Name?: string; Exclusive?: string | boolean } | undefined;
+            return value?.Name
+              ? {
+                  name: value.Name,
+                  exclusive: value.Exclusive === undefined ? undefined : value.Exclusive === true || value.Exclusive === 'true'
+                }
+              : undefined;
+          })
+          .filter((entry): entry is NonNullable<PackageFeature['provides']>[number] => Boolean(entry)),
+        requires: asArray(feature.Requires?.Capability)
+          .map((capability) => {
+            const value = capability as { Name?: string } | undefined;
+            return value?.Name ? { name: value.Name } : undefined;
+          })
+          .filter((entry): entry is NonNullable<PackageFeature['requires']>[number] => Boolean(entry))
       };
-      if (feature.Profile) { parsed.profile = feature.Profile; }
-      if (feature.Platform) { parsed.platform = feature.Platform; }
-      if (feature.OperatingSystem) { parsed.operatingSystem = feature.OperatingSystem; }
-      if (feature.Architecture) { parsed.architecture = feature.Architecture; }
-      if (feature.BuildType) { parsed.buildType = feature.BuildType; }
-      if (feature.Environment) { parsed.environment = feature.Environment; }
-      if (feature.Condition) { parsed.condition = feature.Condition; }
-      parsed.provides = asArray(feature.Provides?.Capability)
-        .map((capability): PackageFeature['provides'][number] | undefined => {
-          const value = capability as { Name?: string; Exclusive?: string | boolean } | undefined;
-          return value?.Name ? { name: value.Name, exclusive: value.Exclusive === true || value.Exclusive === 'true' } : undefined;
-        })
-        .filter((entry): entry is NonNullable<PackageFeature['provides']>[number] => Boolean(entry));
-      parsed.requires = asArray(feature.Requires?.Capability)
-        .map((capability): PackageFeature['requires'][number] | undefined => {
-          const value = capability as { Name?: string } | undefined;
-          return value?.Name ? { name: value.Name } : undefined;
-        })
-        .filter((entry): entry is NonNullable<PackageFeature['requires']>[number] => Boolean(entry));
-      parsed.dependencies = asArray(feature.Dependencies?.PackageRef)
-        .map((dependency): PackageReference | undefined => {
-          const value = dependency as { Name?: string; Version?: string; VersionRange?: string; Optional?: string | boolean } | undefined;
-          return value?.Name ? { name: value.Name, version: value.Version ?? value.VersionRange, optional: value.Optional === true || value.Optional === 'true' } : undefined;
-        })
-        .filter((entry): entry is PackageReference => Boolean(entry));
-      return parsed;
     })
     .filter((entry): entry is PackageFeature => Boolean(entry));
 
@@ -812,8 +570,10 @@ export function parsePackageManifest(xml: string, manifestPath: string): Package
     name: root.Name ?? path.basename(manifestPath, path.extname(manifestPath)),
     version: root.Version,
     conditions: parseConditions(root),
-    tools: asArray(root.Tools?.Tool)
-      .map((entry) => parseToolDeclaration(entry, true))
+    tools: [
+      ...asArray(root.Tools?.Tool),
+      ...asArray(root.Tool)
+    ].map((entry) => parseToolDeclaration(entry, true))
       .filter((entry): entry is ToolDeclaration => Boolean(entry)),
     features
   };

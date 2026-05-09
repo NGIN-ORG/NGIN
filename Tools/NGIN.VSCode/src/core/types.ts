@@ -3,35 +3,19 @@ export interface WorkspaceManifest {
   directory: string;
   name: string;
   platformVersion?: string;
-  modelIncludes?: string[];
-  defaults?: ModelDefaults;
-  profileTemplates?: Record<string, ProjectProfileTemplate>;
+  imports?: string[];
   projectPaths: string[];
   packageSourcePaths?: string[];
 }
 
-export interface ModelDefaults {
+export interface SelectionDefaults {
   buildType?: string;
-  platform?: string;
+  targetPlatform?: string;
+  hostPlatform?: string;
   operatingSystem?: string;
   architecture?: string;
   environment?: string;
-}
-
-export interface ProjectProfileTemplate {
-  name: string;
-  extends?: string;
-  buildType?: string;
-  platform?: string;
-  operatingSystem?: string;
-  architecture?: string;
-  environment?: string;
-  launchExecutable?: string;
-  launchWorkingDirectory?: string;
-  inputs?: InputDeclaration[];
-  configInputs: string[];
-  projectRefs?: ProjectReference[];
-  packageRefs?: PackageReference[];
+  toolchain?: string;
 }
 
 export interface PackageCatalogEntry {
@@ -65,6 +49,7 @@ export interface ConditionDefinition extends SelectorFields {
 }
 
 export interface ProjectReference extends Omit<SelectorFields, 'profile'> {
+  name?: string;
   path: string;
   profile?: string;
 }
@@ -72,7 +57,10 @@ export interface ProjectReference extends Omit<SelectorFields, 'profile'> {
 export interface PackageReference extends SelectorFields {
   name: string;
   version?: string;
+  scope?: string;
+  kind?: 'Package' | 'Runtime' | 'Tool' | string;
   optional?: boolean;
+  features?: string[];
 }
 
 export interface PackageFeatureUse extends SelectorFields {
@@ -101,6 +89,7 @@ export interface ToolDeclaration extends SelectorFields {
   name?: string;
   kind?: string;
   executable?: string;
+  packageName?: string;
 }
 
 export interface GeneratorArgument extends SelectorFields {
@@ -121,11 +110,15 @@ export interface GeneratorDeclaration extends SelectorFields {
 
 export interface ProjectProfile {
   name: string;
+  extends?: string;
   buildType?: string;
   platform?: string;
+  targetPlatform?: string;
+  hostPlatform?: string;
   operatingSystem?: string;
   architecture?: string;
   environment?: string;
+  toolchain?: string;
   launchExecutable?: string;
   launchWorkingDirectory?: string;
   inputs?: InputDeclaration[];
@@ -140,9 +133,8 @@ export interface ProjectManifest {
   path: string;
   directory: string;
   name: string;
+  productKind?: string;
   defaultProfile?: string;
-  modelIncludes?: string[];
-  defaults?: ModelDefaults;
   inputs?: InputDeclaration[];
   sourceRoots: string[];
   configInputs: string[];

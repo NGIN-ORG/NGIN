@@ -4,8 +4,8 @@
            attributeFormDefault="unqualified">
   <xs:annotation>
     <xs:documentation>
-      Initial V3 NGIN project manifest schema for editor tooling. The native
-      `ngin validate` command remains the authoritative validator.
+      Initial V4 NGIN product-first project manifest schema for editor tooling.
+      The native `ngin validate` command remains the authoritative validator.
     </xs:documentation>
   </xs:annotation>
 
@@ -14,9 +14,8 @@
       <xs:sequence>
         <xs:any minOccurs="0" maxOccurs="unbounded" processContents="lax" />
       </xs:sequence>
-      <xs:attribute name="SchemaVersion" type="xs:string" />
-      <xs:attribute name="Name" type="xs:string" />
-      <xs:attribute name="Template" type="xs:string" />
+      <xs:attribute name="SchemaVersion" type="xs:string" fixed="4" />
+      <xs:attribute name="Name" type="xs:string" use="required" />
       <xs:attribute name="DefaultProfile" type="xs:string" />
       <xs:anyAttribute processContents="lax" />
     </xs:complexType>

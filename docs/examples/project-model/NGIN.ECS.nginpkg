@@ -1,22 +1,33 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Package SchemaVersion="1"
+<Package SchemaVersion="4"
          Name="NGIN.ECS"
-         Version="0.1.0"
-         CompatiblePlatformRange=">=0.1.0-alpha.1 &lt;0.2.0">
-  <Compatibility>
-    <OperatingSystems>
-      <OperatingSystem Name="linux" />
-      <OperatingSystem Name="windows" />
-      <OperatingSystem Name="macos" />
-    </OperatingSystems>
-  </Compatibility>
-  <Dependencies>
-    <Dependency Name="NGIN.Base" VersionRange=">=0.1.0 &lt;1.0.0" Optional="false" />
-    <Dependency Name="NGIN.Core" VersionRange=">=0.1.0 &lt;1.0.0" Optional="false" />
-  </Dependencies>
-  <Bootstrap Mode="BuilderHookV1"
-             EntryPoint="NGIN_Bootstrap_NGIN_ECS"
-             AutoApply="true" />
-  <Modules />
-  <Plugins />
+         Version="0.1.0">
+  <Metadata>
+    <Description>Example ECS package contract for project-model documentation.</Description>
+    <License>MIT</License>
+  </Metadata>
+
+  <Library Name="NGIN.ECS">
+    <Exports>
+      <Headers Path="include/**.hpp" />
+      <LibraryTarget Name="NGIN::ECS" />
+      <Capability Name="ECS" />
+    </Exports>
+  </Library>
+
+  <Uses>
+    <Package Name="NGIN.Base"
+             Version="[0.1.0,1.0.0)"
+             Scope="Target" />
+
+    <Runtime Name="NGIN.Core"
+             Version="[0.1.0,1.0.0)"
+             Scope="Target;Runtime" />
+  </Uses>
+
+  <Runtime>
+    <Bootstrap Mode="BuilderHookV1"
+               EntryPoint="NGIN_Bootstrap_NGIN_ECS"
+               AutoApply="true" />
+  </Runtime>
 </Package>

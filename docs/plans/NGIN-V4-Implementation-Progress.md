@@ -835,6 +835,16 @@ Current test coverage includes:
 - resolved package scope metadata
 - V4-only `NGIN.Core` runtime project/package manifest reader
 - V4 `NGIN.Core` runtime manifest tests
+- V4-only VS Code workspace/project/package parser surface
+- VS Code `.nginmodel` language registration removed
+- VS Code V3 schema artifact replaced with first-pass V4 project schema
+- VS Code snippets rewritten to product-first V4 authoring
+- VS Code project editor authoring now writes product-first V4 sections for
+  profiles, uses, build inputs, staged config, environment variables, secrets,
+  launch, and package feature overlays
+- VS Code unit tests converted to V4 project/workspace/package/editor syntax
+- practical `.nginproj` authoring guide rewritten for product-first V4
+- docs project-model sample manifests rewritten to V4 project/package syntax
 
 ## Not Implemented Yet
 
@@ -860,6 +870,8 @@ The following are still open and should not be described as complete:
   quality policy enforcement
 - final graph diff engine over a stable graph JSON schema
 - full V4 editor schema/completion metadata generated from the final schema
+- VS Code integration test pass against a freshly built V4 CLI in the current
+  workspace
 
 ## Next Iteration
 
@@ -867,7 +879,10 @@ The next implementation slice should focus on one of these paths:
 
 - rename internal `PackageReference`/policy terminology where it leaks into V4
   diagnostics or generated metadata
-- migrate remaining docs and VS Code tooling surfaces to V4 syntax
+- migrate remaining guides/examples/spec drafts outside the active V4 plans to
+  V4 syntax
+- rename internal `PackageReference`/policy terminology in the VS Code extension
+  where it leaks into user-facing labels or generated metadata
 - expand workspace profile product overlays beyond defaults
 - deepen V4 overlay identity/remove/override semantics beyond the current
   first-pass item identities
