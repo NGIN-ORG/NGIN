@@ -218,7 +218,7 @@ struct RuntimeDefinition {
 };
 
 struct PackageManifest {
-  NGIN::UInt32 schemaVersion{3};
+  NGIN::UInt32 schemaVersion{4};
   std::string path{};
   std::string directory{};
   std::string name{};
@@ -328,7 +328,7 @@ struct ProfileDefinition {
 };
 
 struct ProjectManifest {
-  NGIN::UInt32 schemaVersion{3};
+  NGIN::UInt32 schemaVersion{4};
   std::string name{};
   std::string type{};
   std::string defaultProfile{};

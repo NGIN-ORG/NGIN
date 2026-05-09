@@ -20,21 +20,12 @@ namespace NGIN::CLI
             return RequireAttribute(node, "SchemaVersion", path);
         }
 
-        auto ValidateSchemaVersion(const XmlElement &node, const fs::path &path, const std::string_view expected = "2") -> void
-        {
-            const auto schemaVersion = SchemaVersion(node, path);
-            if (schemaVersion != expected)
-            {
-                throw std::runtime_error(path.string() + ": unsupported SchemaVersion '" + schemaVersion + "' (expected '" + std::string(expected) + "')");
-            }
-        }
-
         auto ValidateProjectSchemaVersion(const XmlElement &node, const fs::path &path) -> std::string
         {
             const auto schemaVersion = SchemaVersion(node, path);
-            if (schemaVersion != "3" && schemaVersion != "4")
+            if (schemaVersion != "4")
             {
-                throw std::runtime_error(path.string() + ": unsupported project SchemaVersion '" + schemaVersion + "' (expected '3' or '4')");
+                throw std::runtime_error(path.string() + ": unsupported project SchemaVersion '" + schemaVersion + "' (expected '4')");
             }
             return schemaVersion;
         }
@@ -337,54 +328,6 @@ namespace NGIN::CLI
                 }
             }
             return compatibility;
-        }
-
-        auto ParseReferences(
-            const XmlElement &referencesElement,
-            const fs::path &baseDirectory,
-            const fs::path &path,
-            std::vector<ProjectReference> &projectRefs,
-            std::vector<PackageReference> &packageRefs) -> void
-        {
-            for (const auto *node : ChildElements(referencesElement, "Project"))
-            {
-                ValidateAllowedAttributes(*node, path, {"Path", "Profile", "Platform", "OperatingSystem", "Architecture", "BuildType", "Environment", "Condition"});
-                ProjectReference reference{};
-                reference.path = (baseDirectory / RequireAttribute(*node, "Path", path)).lexically_normal();
-                const auto profile = Attribute(*node, "Profile").value_or("");
-                if (!profile.empty())
-                {
-                    reference.profile = profile;
-                }
-                reference.selectors = ParseSelection(*node, path);
-                reference.selectors.profile.reset();
-                projectRefs.push_back(std::move(reference));
-            }
-            for (const auto *node : ChildElements(referencesElement, "Package"))
-            {
-                ValidateAllowedAttributes(*node, path, {"Name", "Version", "VersionRange", "Optional", "Scope", "Profile", "Platform", "OperatingSystem", "Architecture", "BuildType", "Environment", "Condition"});
-                PackageReference packageReference{};
-                packageReference.name = RequireAttribute(*node, "Name", path);
-                packageReference.versionRange = Attribute(*node, "Version").value_or(Attribute(*node, "VersionRange").value_or(""));
-                packageReference.optional = BoolAttribute(*node, "Optional");
-                packageReference.selectors = ParseSelection(*node, path);
-                packageReference.scope = Attribute(*node, "Scope").value_or("");
-                packageRefs.push_back(std::move(packageReference));
-            }
-        }
-
-        auto ParseLocalSettingsImports(const XmlElement &parent, const fs::path &path, std::vector<LocalSettingsImport> &out) -> void
-        {
-            if (const auto *localSettings = FindChild(parent, "LocalSettings"))
-            {
-                for (const auto *item : ChildElements(*localSettings, "Import"))
-                {
-                    LocalSettingsImport import{};
-                    import.path = RequireAttribute(*item, "Path", path);
-                    import.optional = BoolAttribute(*item, "Optional");
-                    out.push_back(std::move(import));
-                }
-            }
         }
 
         [[nodiscard]] auto IsSupportedInputKind(const std::string_view value) -> bool
@@ -974,48 +917,6 @@ namespace NGIN::CLI
             }
         }
 
-        auto ParseFeatures(const XmlElement &parent, const fs::path &path, std::vector<FeatureFlag> &out) -> void
-        {
-            if (const auto *features = FindChild(parent, "Features"))
-            {
-                for (const auto *node : ChildElements(*features, "Feature"))
-                {
-                    ValidateAllowedAttributes(*node, path, {"Name", "Enabled", "Profile", "Platform", "OperatingSystem", "Architecture", "BuildType", "Environment", "Condition"});
-                    FeatureFlag feature{};
-                    feature.name = RequireAttribute(*node, "Name", path);
-                    feature.enabled = !Attribute(*node, "Enabled").has_value() || BoolAttribute(*node, "Enabled", true);
-                    feature.selectors = ParseSelection(*node, path);
-                    out.push_back(std::move(feature));
-                }
-            }
-        }
-
-        auto ParsePackageFeatureUses(const XmlElement &parent, const fs::path &path, std::vector<PackageFeatureUse> &out) -> void
-        {
-            if (const auto *features = FindChild(parent, "Features"))
-            {
-                const auto parseUse = [&](const XmlElement &node, const bool disabled)
-                {
-                    ValidateAllowedAttributes(node, path, {"Package", "Feature", "Version", "VersionRange", "Profile", "Platform", "OperatingSystem", "Architecture", "BuildType", "Environment", "Condition"});
-                    PackageFeatureUse use{};
-                    use.packageName = RequireAttribute(node, "Package", path);
-                    use.featureName = RequireAttribute(node, "Feature", path);
-                    use.versionRange = Attribute(node, "Version").value_or(Attribute(node, "VersionRange").value_or(""));
-                    use.disabled = disabled;
-                    use.selectors = ParseSelection(node, path);
-                    out.push_back(std::move(use));
-                };
-                for (const auto *node : ChildElements(*features, "Use"))
-                {
-                    parseUse(*node, false);
-                }
-                for (const auto *node : ChildElements(*features, "Disable"))
-                {
-                    parseUse(*node, true);
-                }
-            }
-        }
-
         [[nodiscard]] auto ParseToolDeclaration(const XmlElement &node, const fs::path &path, const bool requireName) -> ToolDeclaration
         {
             ValidateAllowedAttributes(node, path, {"Name", "Kind", "Executable", "Profile", "Platform", "OperatingSystem", "Architecture", "BuildType", "Environment", "Condition"});
@@ -1044,25 +945,6 @@ namespace NGIN::CLI
                 throw std::runtime_error(path.string() + ": tool '" + (tool.name.empty() ? std::string{"<inline>"} : tool.name) + "' must declare Executable");
             }
             return tool;
-        }
-
-        auto ParsePackageTools(const XmlElement &parent, const fs::path &path, PackageManifest &package) -> void
-        {
-            const auto *tools = FindChild(parent, "Tools");
-            if (tools == nullptr)
-            {
-                return;
-            }
-            std::set<std::string> names{};
-            for (const auto *node : ChildElements(*tools, "Tool"))
-            {
-                auto tool = ParseToolDeclaration(*node, path, true);
-                if (!names.insert(tool.name).second)
-                {
-                    throw std::runtime_error(path.string() + ": duplicate package tool '" + tool.name + "'");
-                }
-                package.tools.push_back(std::move(tool));
-            }
         }
 
         [[nodiscard]] auto ParseGeneratorOutput(const XmlElement &node, const fs::path &path, const std::string &declaringScope) -> InputDeclaration
@@ -1165,55 +1047,6 @@ namespace NGIN::CLI
             }
         }
 
-        auto ParseDependencyPolicy(const XmlElement &parent,
-                                   const fs::path &path,
-                                   std::unordered_map<std::string, std::string> &versions,
-                                   std::string &versionResolution) -> void
-        {
-            const auto *policy = FindChild(parent, "DependencyPolicy");
-            if (policy == nullptr)
-            {
-                return;
-            }
-            versionResolution = Attribute(*policy, "VersionResolution").value_or(versionResolution);
-            if (versionResolution != "HighestCompatible")
-            {
-                throw std::runtime_error(path.string() + ": unsupported DependencyPolicy VersionResolution '" + versionResolution + "'");
-            }
-            if (const auto *versionsElement = FindChild(*policy, "Versions"))
-            {
-                for (const auto *node : ChildElements(*versionsElement, "Package"))
-                {
-                    const auto name = RequireAttribute(*node, "Name", path);
-                    const auto range = Attribute(*node, "VersionRange").value_or(Attribute(*node, "Version").value_or(""));
-                    if (range.empty())
-                    {
-                        throw std::runtime_error(path.string() + ": dependency policy package '" + name + "' must declare VersionRange");
-                    }
-                    versions[name] = range;
-                }
-            }
-        }
-
-        auto ParsePackagePolicy(const XmlElement &parent, const fs::path &path, std::string &defaultFeatures, std::string &lockFile) -> void
-        {
-            const auto *policy = FindChild(parent, "PackagePolicy");
-            if (policy == nullptr)
-            {
-                return;
-            }
-            defaultFeatures = Attribute(*policy, "DefaultFeatures").value_or(defaultFeatures);
-            lockFile = Attribute(*policy, "LockFile").value_or(lockFile);
-            if (defaultFeatures != "Explicit")
-            {
-                throw std::runtime_error(path.string() + ": Phase D supports only PackagePolicy DefaultFeatures=\"Explicit\"");
-            }
-            if (lockFile != "Optional" && lockFile != "Required")
-            {
-                throw std::runtime_error(path.string() + ": PackagePolicy LockFile must be Optional or Required");
-            }
-        }
-
         [[nodiscard]] auto ParseModuleDefinition(const XmlElement &node, const fs::path &path) -> ModuleDescriptor;
 
         auto ParseRuntimeDefinition(const XmlElement &runtime, const fs::path &path, RuntimeDefinition &target, const bool allowModules) -> void
@@ -1285,11 +1118,6 @@ namespace NGIN::CLI
             {
                 throw std::runtime_error(path.string() + ": unknown startup stage '" + module.startupStage + "'");
             }
-        }
-
-        [[nodiscard]] auto IsValidPackageBootstrapMode(const std::string_view value) -> bool
-        {
-            return value == "BuilderHookV1";
         }
 
         [[nodiscard]] auto DiscoverPackageSourceRoots(const fs::path &start) -> std::vector<fs::path>
@@ -1545,7 +1373,7 @@ namespace NGIN::CLI
             condition.name = std::move(name);
             condition.builtin = true;
             condition.sourceKind = "built-in";
-            condition.sourceName = "V3";
+            condition.sourceName = "V4";
             condition.body.kind = ConditionNode::Kind::Match;
             condition.body.match.profile = profile;
             condition.body.match.platform = platform;
@@ -1562,7 +1390,7 @@ namespace NGIN::CLI
             condition.name = "Desktop";
             condition.builtin = true;
             condition.sourceKind = "built-in";
-            condition.sourceName = "V3";
+            condition.sourceName = "V4";
             condition.body.kind = ConditionNode::Kind::Any;
             condition.body.children.push_back(MatchCondition("", {}, {}, "windows").body);
             condition.body.children.push_back(MatchCondition("", {}, {}, "linux").body);
@@ -1631,6 +1459,18 @@ namespace NGIN::CLI
                 {
                     build.compileDefinitions.push_back(ParseBuildSetting(*item, path, "Value", inheritedSelection));
                 }
+            }
+            for (const auto *item : ChildElements(*buildElement, "Define"))
+            {
+                BuildSetting setting{};
+                setting.value = RequireAttribute(*item, "Name", path);
+                if (const auto value = Attribute(*item, "Value"); value.has_value())
+                {
+                    setting.value += "=" + *value;
+                }
+                setting.visibility = Attribute(*item, "Visibility").value_or("Public");
+                setting.selectors = ParseSelection(*item, path);
+                build.compileDefinitions.push_back(std::move(setting));
             }
 
             if (const auto *compileOptions = FindChild(*buildElement, "CompileOptions"))
@@ -1714,17 +1554,21 @@ namespace NGIN::CLI
                         feature.requiredCapabilities.push_back(std::move(required));
                     }
                 }
-                if (const auto *dependencies = FindChild(*node, "Dependencies"))
+                if (const auto *uses = FindChild(*node, "Uses"))
                 {
-                    for (const auto *dependency : ChildElements(*dependencies, "PackageRef"))
+                    for (const auto *dependency : ChildElements(*uses))
                     {
+                        if (dependency->name != "Package" && dependency->name != "Tool" && dependency->name != "Runtime")
+                        {
+                            continue;
+                        }
                         ValidateAllowedAttributes(*dependency, path, {"Name", "Version", "VersionRange", "Optional", "Scope", "Profile", "Platform", "OperatingSystem", "Architecture", "BuildType", "Environment", "Condition"});
                         PackageReference reference{};
                         reference.name = RequireAttribute(*dependency, "Name", path);
                         reference.versionRange = Attribute(*dependency, "Version").value_or(Attribute(*dependency, "VersionRange").value_or(""));
                         reference.optional = BoolAttribute(*dependency, "Optional");
                         reference.selectors = ParseSelection(*dependency, path);
-                        reference.scope = Attribute(*dependency, "Scope").value_or("");
+                        reference.scope = Attribute(*dependency, "Scope").value_or(dependency->name == "Tool" ? "Build" : "");
                         feature.packageRefs.push_back(std::move(reference));
                     }
                 }
@@ -2618,9 +2462,9 @@ namespace NGIN::CLI
             throw std::runtime_error(path->string() + ": root element must be <Workspace>");
         }
         const auto schemaVersion = SchemaVersion(*rootElement, *path);
-        if (schemaVersion != "3" && schemaVersion != "4")
+        if (schemaVersion != "4")
         {
-            throw std::runtime_error(path->string() + ": unsupported workspace SchemaVersion '" + schemaVersion + "' (expected '3' or '4')");
+            throw std::runtime_error(path->string() + ": unsupported workspace SchemaVersion '" + schemaVersion + "' (expected '4')");
         }
 
         WorkspaceManifest workspace{};
@@ -2629,159 +2473,122 @@ namespace NGIN::CLI
         workspace.defaultProfile = Attribute(*rootElement, "DefaultProfile").value_or("");
         workspace.platformVersion = Attribute(*rootElement, "PlatformVersion").value_or("0.1.0");
 
-        if (schemaVersion == "4")
+        if (const auto *imports = FindChild(*rootElement, "Imports"))
         {
-            if (const auto *imports = FindChild(*rootElement, "Imports"))
+            for (const auto *import : ChildElements(*imports, "Import"))
             {
-                for (const auto *import : ChildElements(*imports, "Import"))
-                {
-                    const auto importPath = (workspace.path.parent_path() / RequireAttribute(*import, "Path", *path)).lexically_normal();
-                    workspace.imports.push_back(importPath);
-                    ParseV4DefinitionFragment(importPath, workspace);
-                }
+                const auto importPath = (workspace.path.parent_path() / RequireAttribute(*import, "Path", *path)).lexically_normal();
+                workspace.imports.push_back(importPath);
+                ParseV4DefinitionFragment(importPath, workspace);
             }
-            if (const auto *defaults = FindChild(*rootElement, "Defaults"))
-            {
-                ParseV4WorkspaceDefaults(*defaults, *path, workspace, workspace.defaults);
-            }
-            if (const auto *packagesNode = FindChild(*rootElement, "Packages"))
-            {
-                for (const auto *source : ChildElements(*packagesNode, "Source"))
-                {
-                    if (const auto sourcePath = Attribute(*source, "Path"); sourcePath.has_value() && !sourcePath->empty())
-                    {
-                        workspace.packageSources.push_back((workspace.path.parent_path() / *sourcePath).lexically_normal());
-                    }
-                    if (const auto sourceUrl = Attribute(*source, "Url"); sourceUrl.has_value() && !sourceUrl->empty())
-                    {
-                        workspace.packageSourceUrls.push_back(*sourceUrl);
-                    }
-                }
-                for (const auto *provider : ChildElements(*packagesNode, "PackageProvider"))
-                {
-                    const auto name = RequireAttribute(*provider, "Name", *path);
-                    const auto providerRoot = Attribute(*provider, "Root").value_or(Attribute(*provider, "Path").value_or(""));
-                    if (!providerRoot.empty())
-                    {
-                        workspace.packageProviders[name] = (workspace.path.parent_path() / providerRoot).lexically_normal();
-                    }
-                }
-                for (const auto *version : ChildElements(*packagesNode, "Version"))
-                {
-                    workspace.dependencyVersions[RequireAttribute(*version, "Name", *path)] = Attribute(*version, "Range").value_or(Attribute(*version, "Version").value_or(""));
-                }
-            }
-
-            if (const auto *projectsNode = FindChild(*rootElement, "Projects"))
-            {
-                for (const auto *node : ChildElements(*projectsNode, "Project"))
-                {
-                    workspace.projects.push_back((workspace.path.parent_path() / RequireAttribute(*node, "Path", *path)).lexically_normal());
-                }
-            }
-            if (const auto *profiles = FindChild(*rootElement, "Profiles"))
-            {
-                for (const auto *node : ChildElements(*profiles, "Profile"))
-                {
-                    WorkspaceManifest::ProfilePolicy profile{};
-                    profile.name = RequireAttribute(*node, "Name", *path);
-                    if (const auto *defaults = FindChild(*node, "Defaults"))
-                    {
-                        ParseV4WorkspaceDefaults(*defaults, *path, workspace, profile);
-                    }
-                    if (const auto *build = FindChild(*node, "Build"))
-                    {
-                        ParseV4WorkspaceBuildPolicy(*build, *path, profile);
-                    }
-                    if (const auto *quality = FindChild(*node, "Quality"))
-                    {
-                        ParseV4WorkspaceQualityPolicy(*quality, *path, profile);
-                    }
-                    if (const auto *environment = FindChild(*node, "Environment"))
-                    {
-                        ParseV4WorkspaceEnvironmentPolicy(*environment, *path, profile);
-                    }
-                    if (const auto *stage = FindChild(*node, "Stage"))
-                    {
-                        ParseV4WorkspaceStagePolicy(*stage, *path, profile);
-                    }
-                    if (const auto *uses = FindChild(*node, "Uses"))
-                    {
-                        ParseV4WorkspaceUsesPolicy(*uses, *path, workspace, profile);
-                    }
-                    if (const auto *runtime = FindChild(*node, "Runtime"))
-                    {
-                        ParseV4WorkspaceRuntimePolicy(*runtime, *path, profile);
-                    }
-                    for (const auto *productOverlay : ChildElements(*node))
-                    {
-                        if (!IsV4ProductElementName(productOverlay->name))
-                        {
-                            continue;
-                        }
-                        if (const auto *build = FindChild(*productOverlay, "Build"))
-                        {
-                            ParseV4WorkspaceBuildPolicy(*build, *path, profile, std::string{productOverlay->name});
-                        }
-                        if (const auto *quality = FindChild(*productOverlay, "Quality"))
-                        {
-                            ParseV4WorkspaceQualityPolicy(*quality, *path, profile, std::string{productOverlay->name});
-                        }
-                        if (const auto *environment = FindChild(*productOverlay, "Environment"))
-                        {
-                            ParseV4WorkspaceEnvironmentPolicy(*environment, *path, profile, std::string{productOverlay->name});
-                        }
-                        if (const auto *stage = FindChild(*productOverlay, "Stage"))
-                        {
-                            ParseV4WorkspaceStagePolicy(*stage, *path, profile, std::string{productOverlay->name});
-                        }
-                        if (const auto *uses = FindChild(*productOverlay, "Uses"))
-                        {
-                            ParseV4WorkspaceUsesPolicy(*uses, *path, workspace, profile, std::string{productOverlay->name});
-                        }
-                        if (const auto *runtime = FindChild(*productOverlay, "Runtime"))
-                        {
-                            ParseV4WorkspaceRuntimePolicy(*runtime, *path, profile, std::string{productOverlay->name});
-                        }
-                    }
-                    workspace.profiles.push_back(std::move(profile));
-                }
-            }
-            return workspace;
         }
-
-        ParseDependencyPolicy(*rootElement, *path, workspace.dependencyVersions, workspace.versionResolution);
-        ParsePackagePolicy(*rootElement, *path, workspace.defaultFeatures, workspace.lockFile);
-
-        const auto *packageSourcesNode = FindChild(*rootElement, "PackageSources");
-        if (packageSourcesNode == nullptr)
+        if (const auto *defaults = FindChild(*rootElement, "Defaults"))
         {
-            throw std::runtime_error(path->string() + ": missing <PackageSources>");
+            ParseV4WorkspaceDefaults(*defaults, *path, workspace, workspace.defaults);
         }
-        for (const auto *child : ChildElements(*packageSourcesNode, "PackageSource"))
+        if (const auto *packagesNode = FindChild(*rootElement, "Packages"))
         {
-            workspace.packageSources.push_back((workspace.path.parent_path() / RequireAttribute(*child, "Path", *path)).lexically_normal());
-        }
-        if (const auto *providersNode = FindChild(*rootElement, "PackageProviders"))
-        {
-            for (const auto *child : ChildElements(*providersNode, "PackageProvider"))
+            for (const auto *source : ChildElements(*packagesNode, "Source"))
             {
-                const auto name = RequireAttribute(*child, "Name", *path);
-                const auto providerRoot = (workspace.path.parent_path() / RequireAttribute(*child, "Root", *path)).lexically_normal();
-                workspace.packageProviders[name] = providerRoot;
+                if (const auto sourcePath = Attribute(*source, "Path"); sourcePath.has_value() && !sourcePath->empty())
+                {
+                    workspace.packageSources.push_back((workspace.path.parent_path() / *sourcePath).lexically_normal());
+                }
+                if (const auto sourceUrl = Attribute(*source, "Url"); sourceUrl.has_value() && !sourceUrl->empty())
+                {
+                    workspace.packageSourceUrls.push_back(*sourceUrl);
+                }
+            }
+            for (const auto *provider : ChildElements(*packagesNode, "PackageProvider"))
+            {
+                const auto name = RequireAttribute(*provider, "Name", *path);
+                const auto providerRoot = Attribute(*provider, "Root").value_or(Attribute(*provider, "Path").value_or(""));
+                if (!providerRoot.empty())
+                {
+                    workspace.packageProviders[name] = (workspace.path.parent_path() / providerRoot).lexically_normal();
+                }
+            }
+            for (const auto *version : ChildElements(*packagesNode, "Version"))
+            {
+                workspace.dependencyVersions[RequireAttribute(*version, "Name", *path)] = Attribute(*version, "Range").value_or(Attribute(*version, "Version").value_or(""));
             }
         }
 
-        const auto *projectsNode = FindChild(*rootElement, "Projects");
-        if (projectsNode == nullptr)
+        if (const auto *projectsNode = FindChild(*rootElement, "Projects"))
         {
-            throw std::runtime_error(path->string() + ": missing <Projects>");
+            for (const auto *node : ChildElements(*projectsNode, "Project"))
+            {
+                workspace.projects.push_back((workspace.path.parent_path() / RequireAttribute(*node, "Path", *path)).lexically_normal());
+            }
         }
-        for (const auto *node : ChildElements(*projectsNode, "Project"))
+        if (const auto *profiles = FindChild(*rootElement, "Profiles"))
         {
-            workspace.projects.push_back((workspace.path.parent_path() / RequireAttribute(*node, "Path", *path)).lexically_normal());
+            for (const auto *node : ChildElements(*profiles, "Profile"))
+            {
+                WorkspaceManifest::ProfilePolicy profile{};
+                profile.name = RequireAttribute(*node, "Name", *path);
+                if (const auto *defaults = FindChild(*node, "Defaults"))
+                {
+                    ParseV4WorkspaceDefaults(*defaults, *path, workspace, profile);
+                }
+                if (const auto *build = FindChild(*node, "Build"))
+                {
+                    ParseV4WorkspaceBuildPolicy(*build, *path, profile);
+                }
+                if (const auto *quality = FindChild(*node, "Quality"))
+                {
+                    ParseV4WorkspaceQualityPolicy(*quality, *path, profile);
+                }
+                if (const auto *environment = FindChild(*node, "Environment"))
+                {
+                    ParseV4WorkspaceEnvironmentPolicy(*environment, *path, profile);
+                }
+                if (const auto *stage = FindChild(*node, "Stage"))
+                {
+                    ParseV4WorkspaceStagePolicy(*stage, *path, profile);
+                }
+                if (const auto *uses = FindChild(*node, "Uses"))
+                {
+                    ParseV4WorkspaceUsesPolicy(*uses, *path, workspace, profile);
+                }
+                if (const auto *runtime = FindChild(*node, "Runtime"))
+                {
+                    ParseV4WorkspaceRuntimePolicy(*runtime, *path, profile);
+                }
+                for (const auto *productOverlay : ChildElements(*node))
+                {
+                    if (!IsV4ProductElementName(productOverlay->name))
+                    {
+                        continue;
+                    }
+                    if (const auto *build = FindChild(*productOverlay, "Build"))
+                    {
+                        ParseV4WorkspaceBuildPolicy(*build, *path, profile, std::string{productOverlay->name});
+                    }
+                    if (const auto *quality = FindChild(*productOverlay, "Quality"))
+                    {
+                        ParseV4WorkspaceQualityPolicy(*quality, *path, profile, std::string{productOverlay->name});
+                    }
+                    if (const auto *environment = FindChild(*productOverlay, "Environment"))
+                    {
+                        ParseV4WorkspaceEnvironmentPolicy(*environment, *path, profile, std::string{productOverlay->name});
+                    }
+                    if (const auto *stage = FindChild(*productOverlay, "Stage"))
+                    {
+                        ParseV4WorkspaceStagePolicy(*stage, *path, profile, std::string{productOverlay->name});
+                    }
+                    if (const auto *uses = FindChild(*productOverlay, "Uses"))
+                    {
+                        ParseV4WorkspaceUsesPolicy(*uses, *path, workspace, profile, std::string{productOverlay->name});
+                    }
+                    if (const auto *runtime = FindChild(*productOverlay, "Runtime"))
+                    {
+                        ParseV4WorkspaceRuntimePolicy(*runtime, *path, profile, std::string{productOverlay->name});
+                    }
+                }
+                workspace.profiles.push_back(std::move(profile));
+            }
         }
-
         return workspace;
     }
 
@@ -2911,9 +2718,9 @@ namespace NGIN::CLI
             throw std::runtime_error(path.string() + ": root element must be <Package>");
         }
         const auto schemaVersion = SchemaVersion(*rootElement, path);
-        if (schemaVersion != "3" && schemaVersion != "4")
+        if (schemaVersion != "4")
         {
-            throw std::runtime_error(path.string() + ": unsupported package SchemaVersion '" + schemaVersion + "' (expected '3' or '4')");
+            throw std::runtime_error(path.string() + ": unsupported package SchemaVersion '" + schemaVersion + "' (expected '4')");
         }
 
         PackageManifest package{};
@@ -2922,273 +2729,101 @@ namespace NGIN::CLI
         package.version = RequireAttribute(*rootElement, "Version", path);
         package.compatiblePlatformRange = Attribute(*rootElement, "CompatiblePlatformRange").value_or("");
 
-        if (schemaVersion == "4")
-        {
-            package.conditions = BuiltinConditions();
-            if (const auto *uses = FindChild(*rootElement, "Uses"))
-            {
-                for (const auto *dependency : ChildElements(*uses))
-                {
-                    if (dependency->name != "Package" && dependency->name != "Tool" && dependency->name != "Runtime")
-                    {
-                        continue;
-                    }
-                    PackageDependency parsed{};
-                    parsed.name = RequireAttribute(*dependency, "Name", path);
-                    parsed.versionRange = Attribute(*dependency, "Version").value_or(Attribute(*dependency, "VersionRange").value_or(""));
-                    parsed.optional = BoolAttribute(*dependency, "Optional");
-                    parsed.scope = Attribute(*dependency, "Scope").value_or("");
-                    package.dependencies.push_back(std::move(parsed));
-                }
-            }
-            if (const auto *library = FindChild(*rootElement, "Library"))
-            {
-                const auto libraryName = Attribute(*library, "Name").value_or(package.name);
-                if (const auto *exports = FindChild(*library, "Exports"))
-                {
-                    for (const auto *target : ChildElements(*exports, "LibraryTarget"))
-                    {
-                        LibraryArtifact artifact{};
-                        artifact.name = libraryName;
-                        artifact.target = RequireAttribute(*target, "Name", path);
-                        artifact.linkage = Attribute(*target, "Linkage").value_or("");
-                        artifact.exported = true;
-                        package.artifacts.libraries.push_back(std::move(artifact));
-                    }
-                    for (const auto *binary : ChildElements(*exports, "Binary"))
-                    {
-                        LibraryArtifact artifact{};
-                        artifact.name = libraryName;
-                        artifact.origin = RequireAttribute(*binary, "Path", path);
-                        artifact.linkage = Attribute(*binary, "Linkage").value_or("");
-                        artifact.exported = true;
-                        package.artifacts.libraries.push_back(std::move(artifact));
-                    }
-                    for (const auto *headers : ChildElements(*exports, "Headers"))
-                    {
-                        InputDeclaration input{};
-                        input.kind = "Source";
-                        input.role = "Header";
-                        input.visibility = "Public";
-                        input.declaringScope = "package:" + package.name;
-                        const auto headerPath = RequireAttribute(*headers, "Path", path);
-                        if (headerPath.find('*') != std::string::npos || headerPath.find('?') != std::string::npos)
-                        {
-                            input.includePatterns.push_back(headerPath);
-                            input.mode = "Glob";
-                        }
-                        else
-                        {
-                            input.path = headerPath;
-                            input.mode = "Directory";
-                        }
-                        ValidateInputDeclaration(input, path);
-                        package.inputs.push_back(std::move(input));
-                    }
-                }
-            }
-            if (const auto *toolProduct = FindChild(*rootElement, "Tool"))
-            {
-                const auto toolProductName = Attribute(*toolProduct, "Name").value_or(package.name);
-                if (const auto *exports = FindChild(*toolProduct, "Exports"))
-                {
-                    for (const auto *tool : ChildElements(*exports, "Tool"))
-                    {
-                        ToolDeclaration declaration{};
-                        declaration.name = Attribute(*tool, "Name").value_or(toolProductName);
-                        declaration.kind = "Generator";
-                        declaration.executable = RequireAttribute(*tool, "Executable", path);
-                        package.tools.push_back(declaration);
-
-                        ExecutableArtifact artifact{};
-                        artifact.name = declaration.name;
-                        artifact.target = declaration.executable;
-                        artifact.exported = true;
-                        package.artifacts.executables.push_back(std::move(artifact));
-                    }
-                }
-            }
-
-            if (const auto *features = FindChild(*rootElement, "Features"))
-            {
-                std::set<std::string> names{};
-                for (const auto *node : ChildElements(*features, "Feature"))
-                {
-                    PackageManifest::Feature feature{};
-                    feature.name = RequireAttribute(*node, "Name", path);
-                    feature.description = Attribute(*node, "Description").value_or("");
-                    if (!names.insert(feature.name).second)
-                    {
-                        throw std::runtime_error(path.string() + ": duplicate package feature '" + feature.name + "'");
-                    }
-                    if (const auto *uses = FindChild(*node, "Uses"))
-                    {
-                        for (const auto *dependency : ChildElements(*uses))
-                        {
-                            if (dependency->name != "Package" && dependency->name != "Tool" && dependency->name != "Runtime")
-                            {
-                                continue;
-                            }
-                            PackageReference reference{};
-                            reference.name = RequireAttribute(*dependency, "Name", path);
-                            reference.versionRange = Attribute(*dependency, "Version").value_or(Attribute(*dependency, "VersionRange").value_or(""));
-                            reference.scope = Attribute(*dependency, "Scope").value_or("");
-                            feature.packageRefs.push_back(std::move(reference));
-                        }
-                    }
-                    if (const auto *build = FindChild(*node, "Build"))
-                    {
-                        for (const auto *buildNode : ChildElements(*build, "Define"))
-                        {
-                            BuildSetting setting{};
-                            setting.value = RequireAttribute(*buildNode, "Name", path);
-                            if (const auto value = Attribute(*buildNode, "Value"); value.has_value())
-                            {
-                                setting.value += "=" + *value;
-                            }
-                            setting.visibility = Attribute(*buildNode, "Visibility").value_or("Public");
-                            feature.build.compileDefinitions.push_back(std::move(setting));
-                        }
-                    }
-                    if (const auto *provides = FindChild(*node, "Provides"))
-                    {
-                        for (const auto *capability : ChildElements(*provides, "Capability"))
-                        {
-                            CapabilityProvision provision{};
-                            provision.name = RequireAttribute(*capability, "Name", path);
-                            provision.exclusive = BoolAttribute(*capability, "Exclusive");
-                            feature.provides.push_back(std::move(provision));
-                        }
-                    }
-                    package.features.push_back(std::move(feature));
-                }
-            }
-
-            ValidateConditionReferences(package.conditions, path);
-            return package;
-        }
-
-        ParsePackagePolicy(*rootElement, path, package.defaultFeatures, package.lockFile);
         package.conditions = BuiltinConditions();
-        {
-            std::set<std::string> builtinNames{};
-            for (const auto &condition : package.conditions)
-            {
-                builtinNames.insert(Lower(condition.name));
-            }
-            for (auto condition : ParseConditions(*rootElement, path))
-            {
-                if (builtinNames.contains(Lower(condition.name)))
-                {
-                    throw std::runtime_error(path.string() + ": condition '" + condition.name + "' cannot replace built-in condition");
-                }
-                package.conditions.push_back(std::move(condition));
-            }
-        }
-
-        if (const auto *artifacts = FindChild(*rootElement, "Artifacts"))
-        {
-            if (const auto *libraries = FindChild(*artifacts, "Libraries"))
-            {
-                for (const auto *node : ChildElements(*libraries, "Library"))
-                {
-                    LibraryArtifact artifact{};
-                    artifact.name = RequireAttribute(*node, "Name", path);
-                    artifact.target = Attribute(*node, "Target").value_or("");
-                    artifact.linkage = Attribute(*node, "Linkage").value_or("");
-                    artifact.origin = Attribute(*node, "Origin").value_or("");
-                    artifact.exported = !Attribute(*node, "Exported").has_value() || BoolAttribute(*node, "Exported", true);
-                    package.artifacts.libraries.push_back(std::move(artifact));
-                }
-            }
-            if (const auto *executables = FindChild(*artifacts, "Executables"))
-            {
-                for (const auto *node : ChildElements(*executables, "Executable"))
-                {
-                    ExecutableArtifact artifact{};
-                    artifact.name = RequireAttribute(*node, "Name", path);
-                    artifact.target = Attribute(*node, "Target").value_or("");
-                    artifact.origin = Attribute(*node, "Origin").value_or("");
-                    artifact.exported = !Attribute(*node, "Exported").has_value() || BoolAttribute(*node, "Exported", true);
-                    package.artifacts.executables.push_back(std::move(artifact));
-                }
-            }
-        }
-
         LoadPackageBuildDescriptor(package.build, FindChild(*rootElement, "Build"), path);
-        ParsePackageTools(*rootElement, path, package);
         package.compatibility = ParseCompatibility(*rootElement, path);
 
-        if (const auto *deps = FindChild(*rootElement, "Dependencies"))
+        if (const auto *uses = FindChild(*rootElement, "Uses"))
         {
-            if (FindChild(*deps, "Dependency") != nullptr)
+            for (const auto *dependency : ChildElements(*uses))
             {
-                throw std::runtime_error(path.string() + ": package <Dependencies> uses legacy <Dependency>; use <PackageRef>");
-            }
-            for (const auto *node : ChildElements(*deps, "PackageRef"))
-            {
-                PackageDependency dependency{};
-                dependency.name = RequireAttribute(*node, "Name", path);
-                dependency.versionRange = Attribute(*node, "VersionRange").value_or(Attribute(*node, "Version").value_or(""));
-                dependency.optional = BoolAttribute(*node, "Optional");
-                dependency.scope = Attribute(*node, "Scope").value_or("");
-                package.dependencies.push_back(std::move(dependency));
-            }
-        }
-
-        if (const auto *bootstrap = FindChild(*rootElement, "Bootstrap"))
-        {
-            PackageBootstrapDescriptor descriptor{};
-            descriptor.mode = RequireAttribute(*bootstrap, "Mode", path);
-            if (!IsValidPackageBootstrapMode(descriptor.mode))
-            {
-                throw std::runtime_error(path.string() + ": unknown package bootstrap mode '" + descriptor.mode + "'");
-            }
-            descriptor.entryPoint = RequireAttribute(*bootstrap, "EntryPoint", path);
-            descriptor.autoApply = BoolAttribute(*bootstrap, "AutoApply");
-            package.bootstrap = std::move(descriptor);
-        }
-
-        ApplyInputBlock(*rootElement, path, package.inputs, "package");
-
-        if (const auto *modules = FindChild(*rootElement, "Modules"))
-        {
-            for (const auto *node : ChildElements(*modules, "Module"))
-            {
-                package.modules.push_back(ParseModuleDefinition(*node, path));
-            }
-        }
-
-        if (const auto *plugins = FindChild(*rootElement, "Plugins"))
-        {
-            for (const auto *node : ChildElements(*plugins, "Plugin"))
-            {
-                ValidateAllowedAttributes(*node, path, {"Name", "Optional", "Profile", "Platform", "OperatingSystem", "Architecture", "BuildType", "Environment", "Condition"});
-                PluginDescriptor plugin{};
-                plugin.name = RequireAttribute(*node, "Name", path);
-                plugin.optional = BoolAttribute(*node, "Optional");
-                plugin.selectors = ParseSelection(*node, path);
-                plugin.compatibility = ParseCompatibility(*node, path);
-
-                if (const auto *modulesElement = FindChild(*node, "Modules"))
+                if (dependency->name != "Package" && dependency->name != "Tool" && dependency->name != "Runtime")
                 {
-                    if (const auto *required = FindChild(*modulesElement, "Required"))
-                    {
-                        for (const auto *dep : ChildElements(*required, "ModuleRef"))
-                        {
-                            plugin.requiredModules.push_back(RequireAttribute(*dep, "Name", path));
-                        }
-                    }
-                    if (const auto *optional = FindChild(*modulesElement, "Optional"))
-                    {
-                        for (const auto *dep : ChildElements(*optional, "ModuleRef"))
-                        {
-                            plugin.optionalModules.push_back(RequireAttribute(*dep, "Name", path));
-                        }
-                    }
+                    continue;
                 }
+                PackageDependency parsed{};
+                parsed.name = RequireAttribute(*dependency, "Name", path);
+                parsed.versionRange = Attribute(*dependency, "Version").value_or(Attribute(*dependency, "VersionRange").value_or(""));
+                parsed.optional = BoolAttribute(*dependency, "Optional");
+                parsed.scope = Attribute(*dependency, "Scope").value_or(dependency->name == "Tool" ? "Build" : "");
+                package.dependencies.push_back(std::move(parsed));
+            }
+        }
 
-                package.plugins.push_back(std::move(plugin));
+        if (const auto *library = FindChild(*rootElement, "Library"))
+        {
+            const auto libraryName = Attribute(*library, "Name").value_or(package.name);
+            if (package.build.mode.empty())
+            {
+                LoadPackageBuildDescriptor(package.build, FindChild(*library, "Build"), path);
+            }
+            if (const auto *exports = FindChild(*library, "Exports"))
+            {
+                for (const auto *target : ChildElements(*exports, "LibraryTarget"))
+                {
+                    LibraryArtifact artifact{};
+                    artifact.name = libraryName;
+                    artifact.target = RequireAttribute(*target, "Name", path);
+                    artifact.linkage = Attribute(*target, "Linkage").value_or("");
+                    artifact.exported = true;
+                    package.artifacts.libraries.push_back(std::move(artifact));
+                }
+                for (const auto *binary : ChildElements(*exports, "Binary"))
+                {
+                    LibraryArtifact artifact{};
+                    artifact.name = libraryName;
+                    artifact.origin = RequireAttribute(*binary, "Path", path);
+                    artifact.linkage = Attribute(*binary, "Linkage").value_or("");
+                    artifact.exported = true;
+                    package.artifacts.libraries.push_back(std::move(artifact));
+                }
+                for (const auto *headers : ChildElements(*exports, "Headers"))
+                {
+                    InputDeclaration input{};
+                    input.kind = "Source";
+                    input.role = "Header";
+                    input.visibility = "Public";
+                    input.declaringScope = "package:" + package.name;
+                    const auto headerPath = RequireAttribute(*headers, "Path", path);
+                    if (headerPath.find('*') != std::string::npos || headerPath.find('?') != std::string::npos)
+                    {
+                        input.includePatterns.push_back(headerPath);
+                        input.mode = "Glob";
+                    }
+                    else
+                    {
+                        input.path = headerPath;
+                        input.mode = "Directory";
+                    }
+                    ValidateInputDeclaration(input, path);
+                    package.inputs.push_back(std::move(input));
+                }
+            }
+        }
+
+        if (const auto *toolProduct = FindChild(*rootElement, "Tool"))
+        {
+            const auto toolProductName = Attribute(*toolProduct, "Name").value_or(package.name);
+            if (package.build.mode.empty())
+            {
+                LoadPackageBuildDescriptor(package.build, FindChild(*toolProduct, "Build"), path);
+            }
+            if (const auto *exports = FindChild(*toolProduct, "Exports"))
+            {
+                for (const auto *tool : ChildElements(*exports, "Tool"))
+                {
+                    ToolDeclaration declaration{};
+                    declaration.name = Attribute(*tool, "Name").value_or(toolProductName);
+                    declaration.kind = Attribute(*tool, "Kind").value_or("Generator");
+                    declaration.executable = RequireAttribute(*tool, "Executable", path);
+                    package.tools.push_back(declaration);
+
+                    ExecutableArtifact artifact{};
+                    artifact.name = declaration.name;
+                    artifact.target = declaration.executable;
+                    artifact.exported = true;
+                    package.artifacts.executables.push_back(std::move(artifact));
+                }
             }
         }
 
@@ -3264,511 +2899,6 @@ namespace NGIN::CLI
 
     namespace
     {
-        struct ProjectDefaults
-        {
-            std::string buildType{"Debug"};
-            std::string platform{"linux-x64"};
-            std::string environment{};
-            std::string language{};
-            std::string languageStandard{};
-            std::string backend{};
-            std::string buildMode{};
-        };
-
-        struct PlatformDefinition
-        {
-            std::string name{};
-            std::string operatingSystem{"linux"};
-            std::string architecture{"x64"};
-        };
-
-        struct ProjectTemplateDefinition
-        {
-            std::string name{};
-            std::string type{"Application"};
-            std::string outputKind{"Executable"};
-            ProjectDefaults defaults{};
-        };
-
-        struct ProfileTemplateDefinition
-        {
-            std::string name{};
-            std::string extends{};
-            std::optional<std::string> buildType{};
-            std::optional<std::string> platform{};
-            std::optional<std::string> operatingSystem{};
-            std::optional<std::string> architecture{};
-            std::optional<std::string> environmentName{};
-            std::optional<bool> enableReflection{};
-            std::optional<LaunchDefinition> launch{};
-            std::vector<ProjectReference> projectRefs{};
-            std::vector<PackageReference> packageRefs{};
-            std::vector<InputDeclaration> inputs{};
-            RuntimeDefinition runtime{};
-        };
-
-        struct ModelContext
-        {
-            ProjectDefaults defaults{};
-            std::unordered_map<std::string, PlatformDefinition> platforms{};
-            std::unordered_map<std::string, ProjectTemplateDefinition> projectTemplates{};
-            std::unordered_map<std::string, ProfileTemplateDefinition> profileTemplates{};
-            std::vector<ConditionDefinition> conditions{};
-            std::set<std::string> authoredPlatforms{};
-            std::set<std::string> authoredProjectTemplates{};
-            std::set<std::string> authoredProfileTemplates{};
-            std::set<std::string> authoredConditionsLower{};
-            std::set<std::string> builtinConditionsLower{};
-        };
-
-        [[nodiscard]] auto ProjectTypeFromTemplate(const std::string &projectTemplate) -> std::string
-        {
-            if (projectTemplate == "Tool")
-            {
-                return "Tool";
-            }
-            if (projectTemplate == "Library")
-            {
-                return "Library";
-            }
-            return "Application";
-        }
-
-        [[nodiscard]] auto DefaultOutputKindForProjectType(const std::string &projectType) -> std::string
-        {
-            return projectType == "Library" ? "StaticLibrary" : "Executable";
-        }
-
-        auto MergeRuntime(RuntimeDefinition &target, const RuntimeDefinition &source) -> void
-        {
-            target.modules.insert(target.modules.end(), source.modules.begin(), source.modules.end());
-            target.enableModules.insert(target.enableModules.end(), source.enableModules.begin(), source.enableModules.end());
-            target.disableModules.insert(target.disableModules.end(), source.disableModules.begin(), source.disableModules.end());
-            target.enablePlugins.insert(target.enablePlugins.end(), source.enablePlugins.begin(), source.enablePlugins.end());
-            target.disablePlugins.insert(target.disablePlugins.end(), source.disablePlugins.begin(), source.disablePlugins.end());
-        }
-
-        auto ParseDefaultsElement(const XmlElement &defaultsElement, const fs::path &path, ProjectDefaults &defaults) -> void
-        {
-            defaults.buildType = Attribute(defaultsElement, "BuildType").value_or(defaults.buildType);
-            defaults.platform = Attribute(defaultsElement, "Platform").value_or(defaults.platform);
-            defaults.environment = Attribute(defaultsElement, "Environment").value_or(defaults.environment);
-            defaults.language = Attribute(defaultsElement, "Language").value_or(defaults.language);
-            defaults.languageStandard = Attribute(defaultsElement, "LanguageStandard").value_or(defaults.languageStandard);
-            defaults.backend = Attribute(defaultsElement, "Backend").value_or(defaults.backend);
-            defaults.buildMode = Attribute(defaultsElement, "BuildMode").value_or(defaults.buildMode);
-            if (!IsSupportedBuildType(defaults.buildType))
-            {
-                throw std::runtime_error(path.string() + ": unknown default build type '" + defaults.buildType + "'");
-            }
-        }
-
-        auto AddPlatform(ModelContext &context, PlatformDefinition platform, const fs::path &path, const bool builtin = false) -> void
-        {
-            if (!IsValidManifestIdentifier(platform.name))
-            {
-                throw std::runtime_error(path.string() + ": invalid platform name '" + platform.name + "'");
-            }
-            if (!IsValidOperatingSystem(platform.operatingSystem))
-            {
-                throw std::runtime_error(path.string() + ": unknown operating system '" + platform.operatingSystem + "'");
-            }
-            if (!IsValidArchitecture(platform.architecture))
-            {
-                throw std::runtime_error(path.string() + ": unknown architecture '" + platform.architecture + "'");
-            }
-            if (!builtin && !context.authoredPlatforms.insert(platform.name).second)
-            {
-                throw std::runtime_error(path.string() + ": duplicate platform '" + platform.name + "'");
-            }
-            context.platforms[platform.name] = std::move(platform);
-        }
-
-        auto ParsePlatformsInto(const XmlElement &root, const fs::path &path, ModelContext &context) -> void
-        {
-            if (const auto *platformsElement = FindChild(root, "Platforms"))
-            {
-                for (const auto *node : ChildElements(*platformsElement, "Platform"))
-                {
-                    PlatformDefinition platform{};
-                    platform.name = RequireAttribute(*node, "Name", path);
-                    platform.operatingSystem = RequireAttribute(*node, "OperatingSystem", path);
-                    platform.architecture = RequireAttribute(*node, "Architecture", path);
-                    AddPlatform(context, std::move(platform), path);
-                }
-            }
-        }
-
-        auto AddProjectTemplate(ModelContext &context, ProjectTemplateDefinition projectTemplate, const fs::path &path, const bool builtin = false) -> void
-        {
-            if (!IsValidManifestIdentifier(projectTemplate.name))
-            {
-                throw std::runtime_error(path.string() + ": invalid project template name '" + projectTemplate.name + "'");
-            }
-            if (!IsSupportedProjectType(projectTemplate.type))
-            {
-                throw std::runtime_error(path.string() + ": project template '" + projectTemplate.name + "' uses unknown project type '" + projectTemplate.type + "'");
-            }
-            if (!IsSupportedOutputKind(projectTemplate.outputKind))
-            {
-                throw std::runtime_error(path.string() + ": project template '" + projectTemplate.name + "' uses unknown output kind '" + projectTemplate.outputKind + "'");
-            }
-            if (!IsValidProjectOutputPairing(projectTemplate.type, projectTemplate.outputKind))
-            {
-                throw std::runtime_error(path.string() + ": project template '" + projectTemplate.name + "' has incompatible type/output pairing");
-            }
-            if (!builtin && !context.authoredProjectTemplates.insert(projectTemplate.name).second)
-            {
-                throw std::runtime_error(path.string() + ": duplicate project template '" + projectTemplate.name + "'");
-            }
-            context.projectTemplates[projectTemplate.name] = std::move(projectTemplate);
-        }
-
-        auto ParseProjectTemplatesInto(const XmlElement &root, const fs::path &path, ModelContext &context) -> void
-        {
-            if (const auto *templates = FindChild(root, "ProjectTemplates"))
-            {
-                for (const auto *node : ChildElements(*templates, "ProjectTemplate"))
-                {
-                    ProjectTemplateDefinition projectTemplate{};
-                    projectTemplate.name = RequireAttribute(*node, "Name", path);
-                    projectTemplate.type = Attribute(*node, "Type").value_or(ProjectTypeFromTemplate(projectTemplate.name));
-                    projectTemplate.outputKind = Attribute(*node, "OutputKind").value_or(DefaultOutputKindForProjectType(projectTemplate.type));
-                    projectTemplate.defaults = context.defaults;
-                    if (const auto *defaults = FindChild(*node, "Defaults"))
-                    {
-                        ParseDefaultsElement(*defaults, path, projectTemplate.defaults);
-                    }
-                    AddProjectTemplate(context, std::move(projectTemplate), path);
-                }
-            }
-        }
-
-        [[nodiscard]] auto ParseProfileTemplate(const XmlElement &node, const fs::path &path) -> ProfileTemplateDefinition
-        {
-            ProfileTemplateDefinition profileTemplate{};
-            profileTemplate.name = RequireAttribute(node, "Name", path);
-            if (!IsValidManifestIdentifier(profileTemplate.name))
-            {
-                throw std::runtime_error(path.string() + ": invalid profile template name '" + profileTemplate.name + "'");
-            }
-            profileTemplate.extends = Attribute(node, "Extends").value_or("");
-            profileTemplate.buildType = Attribute(node, "BuildType");
-            profileTemplate.platform = Attribute(node, "Platform");
-            profileTemplate.operatingSystem = Attribute(node, "OperatingSystem");
-            profileTemplate.architecture = Attribute(node, "Architecture");
-            profileTemplate.environmentName = Attribute(node, "Environment");
-            if (Attribute(node, "EnableReflection").has_value())
-            {
-                profileTemplate.enableReflection = BoolAttribute(node, "EnableReflection");
-            }
-            if (profileTemplate.buildType.has_value() && !IsSupportedBuildType(*profileTemplate.buildType))
-            {
-                throw std::runtime_error(path.string() + ": unknown build type '" + *profileTemplate.buildType + "'");
-            }
-            if (profileTemplate.operatingSystem.has_value() && !IsValidOperatingSystem(*profileTemplate.operatingSystem))
-            {
-                throw std::runtime_error(path.string() + ": unknown operating system '" + *profileTemplate.operatingSystem + "'");
-            }
-            if (profileTemplate.architecture.has_value() && !IsValidArchitecture(*profileTemplate.architecture))
-            {
-                throw std::runtime_error(path.string() + ": unknown architecture '" + *profileTemplate.architecture + "'");
-            }
-            if (const auto *launch = FindChild(node, "Launch"))
-            {
-                LaunchDefinition parsedLaunch{};
-                if (const auto executable = Attribute(*launch, "Executable"); executable.has_value() && !executable->empty())
-                {
-                    parsedLaunch.executable = *executable;
-                }
-                parsedLaunch.workingDirectory = Attribute(*launch, "WorkingDirectory").value_or(".");
-                parsedLaunch.args = Attribute(*launch, "Args").value_or("");
-                profileTemplate.launch = std::move(parsedLaunch);
-            }
-            if (const auto *references = FindChild(node, "References"))
-            {
-                ParseReferences(*references, path.parent_path(), path, profileTemplate.projectRefs, profileTemplate.packageRefs);
-            }
-            ApplyInputBlock(node, path, profileTemplate.inputs, "profile-template:" + profileTemplate.name);
-            if (const auto *runtime = FindChild(node, "Runtime"))
-            {
-                ParseRuntimeDefinition(*runtime, path, profileTemplate.runtime, true);
-            }
-            return profileTemplate;
-        }
-
-        auto AddProfileTemplate(ModelContext &context, ProfileTemplateDefinition profileTemplate, const fs::path &path) -> void
-        {
-            if (!context.authoredProfileTemplates.insert(profileTemplate.name).second)
-            {
-                throw std::runtime_error(path.string() + ": duplicate profile template '" + profileTemplate.name + "'");
-            }
-            context.profileTemplates[profileTemplate.name] = std::move(profileTemplate);
-        }
-
-        auto ParseProfileTemplatesInto(const XmlElement &root, const fs::path &path, ModelContext &context) -> void
-        {
-            if (const auto *templates = FindChild(root, "ProfileTemplates"))
-            {
-                for (const auto *node : ChildElements(*templates, "ProfileTemplate"))
-                {
-                    AddProfileTemplate(context, ParseProfileTemplate(*node, path), path);
-                }
-            }
-        }
-
-        [[nodiscard]] auto ConditionOrigin(const ConditionDefinition &condition) -> std::string
-        {
-            if (condition.builtin)
-            {
-                return "built-in";
-            }
-            auto origin = condition.sourceKind.empty() ? std::string("manifest") : condition.sourceKind;
-            if (!condition.sourceName.empty())
-            {
-                origin += " '" + condition.sourceName + "'";
-            }
-            if (!condition.manifestPath.empty())
-            {
-                origin += " in " + condition.manifestPath.string();
-            }
-            return origin;
-        }
-
-        auto AddCondition(ModelContext &context, ConditionDefinition condition, const fs::path &path, const bool builtin = false) -> void
-        {
-            if (!IsValidManifestIdentifier(condition.name))
-            {
-                throw std::runtime_error(path.string() + ": invalid condition name '" + condition.name + "'");
-            }
-            condition.builtin = builtin;
-            const auto lowerName = Lower(condition.name);
-            if (builtin)
-            {
-                context.builtinConditionsLower.insert(lowerName);
-                context.conditions.push_back(std::move(condition));
-                return;
-            }
-            if (context.builtinConditionsLower.contains(lowerName))
-            {
-                throw std::runtime_error(path.string() + ": condition '" + condition.name + "' cannot replace built-in condition");
-            }
-            if (!context.authoredConditionsLower.insert(lowerName).second)
-            {
-                const auto existing = std::find_if(
-                    context.conditions.begin(),
-                    context.conditions.end(),
-                    [&](const ConditionDefinition &candidate)
-                    { return Lower(candidate.name) == lowerName; });
-                throw std::runtime_error(path.string() + ": duplicate condition '" + condition.name + "' also declared by "
-                                         + (existing == context.conditions.end() ? std::string("another manifest") : ConditionOrigin(*existing)));
-            }
-            context.conditions.push_back(std::move(condition));
-        }
-
-        auto ParseConditionsInto(const XmlElement &root, const fs::path &path, ModelContext &context) -> void
-        {
-            for (auto condition : ParseConditions(root, path))
-            {
-                AddCondition(context, std::move(condition), path);
-            }
-        }
-
-        auto ParseModelContributionsInto(const XmlElement &root, const fs::path &path, ModelContext &context, const bool includeDefaults) -> void
-        {
-            if (includeDefaults)
-            {
-                if (const auto *defaults = FindChild(root, "Defaults"))
-                {
-                    ParseDefaultsElement(*defaults, path, context.defaults);
-                }
-            }
-            ParsePlatformsInto(root, path, context);
-            ParseProjectTemplatesInto(root, path, context);
-            ParseProfileTemplatesInto(root, path, context);
-            ParseConditionsInto(root, path, context);
-        }
-
-        [[nodiscard]] auto BuiltinModelContext() -> ModelContext
-        {
-            ModelContext context{};
-            AddPlatform(context, PlatformDefinition{.name = "linux-x64", .operatingSystem = "linux", .architecture = "x64"}, {}, true);
-            AddPlatform(context, PlatformDefinition{.name = "windows-x64", .operatingSystem = "windows", .architecture = "x64"}, {}, true);
-            AddPlatform(context, PlatformDefinition{.name = "macos-x64", .operatingSystem = "macos", .architecture = "x64"}, {}, true);
-            AddPlatform(context, PlatformDefinition{.name = "macos-arm64", .operatingSystem = "macos", .architecture = "arm64"}, {}, true);
-            AddProjectTemplate(context, ProjectTemplateDefinition{.name = "Application", .type = "Application", .outputKind = "Executable", .defaults = context.defaults}, {}, true);
-            AddProjectTemplate(context, ProjectTemplateDefinition{.name = "Library", .type = "Library", .outputKind = "StaticLibrary", .defaults = context.defaults}, {}, true);
-            AddProjectTemplate(context, ProjectTemplateDefinition{.name = "Tool", .type = "Tool", .outputKind = "Executable", .defaults = context.defaults}, {}, true);
-            for (auto condition : BuiltinConditions())
-            {
-                AddCondition(context, std::move(condition), {}, true);
-            }
-            return context;
-        }
-
-        auto LoadModelFileInto(const fs::path &path, ModelContext &context, std::vector<fs::path> &stack) -> void;
-
-        auto LoadIncludesInto(const XmlElement &root, const fs::path &path, ModelContext &context, std::vector<fs::path> &stack) -> void
-        {
-            if (const auto *includes = FindChild(root, "Includes"))
-            {
-                for (const auto *include : ChildElements(*includes, "Include"))
-                {
-                    const auto includePath = (path.parent_path() / RequireAttribute(*include, "Path", path)).lexically_normal();
-                    if (!fs::exists(includePath))
-                    {
-                        throw std::runtime_error(path.string() + ": included model file does not exist: " + includePath.string());
-                    }
-                    LoadModelFileInto(fs::weakly_canonical(includePath), context, stack);
-                }
-            }
-        }
-
-        auto LoadModelFileInto(const fs::path &path, ModelContext &context, std::vector<fs::path> &stack) -> void
-        {
-            if (std::find(stack.begin(), stack.end(), path) != stack.end())
-            {
-                std::ostringstream chain{};
-                for (const auto &entry : stack)
-                {
-                    if (!chain.str().empty())
-                    {
-                        chain << " -> ";
-                    }
-                    chain << entry.string();
-                }
-                chain << " -> " << path.string();
-                throw std::runtime_error(path.string() + ": model include cycle: " + chain.str());
-            }
-            stack.push_back(path);
-            const auto doc = LoadXml(path);
-            const auto *root = doc.document.Root();
-            if (root == nullptr || root->name != "Model")
-            {
-                throw std::runtime_error(path.string() + ": root element must be <Model>");
-            }
-            ValidateSchemaVersion(*root, path, "3");
-            LoadIncludesInto(*root, path, context, stack);
-            ParseModelContributionsInto(*root, path, context, true);
-            stack.pop_back();
-        }
-
-        auto LoadWorkspaceModelInto(const fs::path &workspacePath, ModelContext &context) -> void
-        {
-            const auto doc = LoadXml(workspacePath);
-            const auto *root = doc.document.Root();
-            if (root == nullptr || root->name != "Workspace")
-            {
-                throw std::runtime_error(workspacePath.string() + ": root element must be <Workspace>");
-            }
-            ValidateSchemaVersion(*root, workspacePath, "3");
-            std::vector<fs::path> stack{fs::weakly_canonical(workspacePath)};
-            LoadIncludesInto(*root, workspacePath, context, stack);
-            ParseModelContributionsInto(*root, workspacePath, context, true);
-        }
-
-        [[nodiscard]] auto ResolveProjectModelContext(const fs::path &projectPath, const XmlElement &projectRoot) -> ModelContext
-        {
-            auto context = BuiltinModelContext();
-            if (const auto workspaceRoot = RootDirFrom(projectPath); workspaceRoot.has_value())
-            {
-                if (const auto workspacePath = WorkspaceFilePath(*workspaceRoot); workspacePath.has_value())
-                {
-                    LoadWorkspaceModelInto(fs::weakly_canonical(*workspacePath), context);
-                }
-            }
-
-            std::vector<fs::path> stack{fs::weakly_canonical(projectPath)};
-            LoadIncludesInto(projectRoot, projectPath, context, stack);
-            ParseModelContributionsInto(projectRoot, projectPath, context, false);
-            return context;
-        }
-
-        auto ApplyPlatform(ProfileDefinition &profile, const std::unordered_map<std::string, PlatformDefinition> &platforms, const fs::path &path) -> void
-        {
-            const auto it = platforms.find(profile.platform);
-            if (it == platforms.end())
-            {
-                throw std::runtime_error(path.string() + ": profile '" + profile.name + "' selects unknown platform '" + profile.platform + "'");
-            }
-            profile.operatingSystem = it->second.operatingSystem;
-            profile.architecture = it->second.architecture;
-        }
-
-        auto ApplyProfileTemplate(
-            ProfileDefinition &profile,
-            const std::string &templateName,
-            const ModelContext &context,
-            const fs::path &path,
-            std::vector<std::string> &stack) -> void
-        {
-            const auto it = context.profileTemplates.find(templateName);
-            if (it == context.profileTemplates.end())
-            {
-                throw std::runtime_error(path.string() + ": unknown profile template '" + templateName + "'");
-            }
-            if (std::find(stack.begin(), stack.end(), templateName) != stack.end())
-            {
-                std::ostringstream chain{};
-                for (const auto &entry : stack)
-                {
-                    if (!chain.str().empty())
-                    {
-                        chain << " -> ";
-                    }
-                    chain << entry;
-                }
-                chain << " -> " << templateName;
-                throw std::runtime_error(path.string() + ": profile template cycle: " + chain.str());
-            }
-            stack.push_back(templateName);
-            const auto &profileTemplate = it->second;
-            if (!profileTemplate.extends.empty())
-            {
-                ApplyProfileTemplate(profile, profileTemplate.extends, context, path, stack);
-            }
-            if (profileTemplate.buildType.has_value())
-            {
-                profile.buildType = *profileTemplate.buildType;
-            }
-            if (profileTemplate.platform.has_value())
-            {
-                profile.platform = *profileTemplate.platform;
-                ApplyPlatform(profile, context.platforms, path);
-            }
-            if (profileTemplate.operatingSystem.has_value())
-            {
-                profile.operatingSystem = *profileTemplate.operatingSystem;
-            }
-            if (profileTemplate.architecture.has_value())
-            {
-                profile.architecture = *profileTemplate.architecture;
-            }
-            if (profileTemplate.environmentName.has_value())
-            {
-                profile.environmentName = *profileTemplate.environmentName;
-            }
-            if (profileTemplate.enableReflection.has_value())
-            {
-                profile.enableReflection = *profileTemplate.enableReflection;
-            }
-            if (profileTemplate.launch.has_value())
-            {
-                profile.launch = *profileTemplate.launch;
-            }
-            profile.projectRefs.insert(profile.projectRefs.end(), profileTemplate.projectRefs.begin(), profileTemplate.projectRefs.end());
-            profile.packageRefs.insert(profile.packageRefs.end(), profileTemplate.packageRefs.begin(), profileTemplate.packageRefs.end());
-            profile.inputs.insert(profile.inputs.end(), profileTemplate.inputs.begin(), profileTemplate.inputs.end());
-            MergeRuntime(profile.runtime, profileTemplate.runtime);
-            stack.pop_back();
-        }
-
-        auto ApplyProfileTemplate(ProfileDefinition &profile, const std::string &templateName, const ModelContext &context, const fs::path &path) -> void
-        {
-            std::vector<std::string> stack{};
-            ApplyProfileTemplate(profile, templateName, context, path, stack);
-        }
-
         [[nodiscard]] auto IsV4ProductElementName(const std::string_view name) -> bool
         {
             return name == "Application" || name == "Library" || name == "Tool" || name == "Test"
@@ -4908,256 +4038,8 @@ namespace NGIN::CLI
         {
             throw std::runtime_error(path.string() + ": root element must be <Project>");
         }
-        const auto schemaVersion = ValidateProjectSchemaVersion(*rootElement, path);
-        if (schemaVersion == "4")
-        {
-            return LoadProjectManifestV4(path, *rootElement);
-        }
-        const auto context = ResolveProjectModelContext(path, *rootElement);
-        const auto requestedTemplate = Attribute(*rootElement, "Template").value_or("Application");
-        const auto templateIt = context.projectTemplates.find(requestedTemplate);
-        if (templateIt == context.projectTemplates.end())
-        {
-            throw std::runtime_error(path.string() + ": unknown project template '" + requestedTemplate + "'");
-        }
-        const auto &projectTemplate = templateIt->second;
-        auto defaults = projectTemplate.defaults;
-        if (const auto *defaultsElement = FindChild(*rootElement, "Defaults"))
-        {
-            ParseDefaultsElement(*defaultsElement, path, defaults);
-        }
-
-        ProjectManifest project{};
-        project.path = path;
-        project.name = RequireAttribute(*rootElement, "Name", path);
-        project.type = Attribute(*rootElement, "Type").value_or(projectTemplate.type);
-        project.productKind = project.type;
-        project.defaultProfile = Attribute(*rootElement, "DefaultProfile").value_or("Runtime");
-        if (!IsSupportedProjectType(project.type))
-        {
-            throw std::runtime_error(path.string() + ": unknown project type '" + project.type + "'");
-        }
-        if (Lower(project.type) == "library" && FindChild(*rootElement, "Launch") != nullptr)
-        {
-            throw std::runtime_error(path.string() + ": library projects may not declare root <Launch>");
-        }
-        if (FindChild(*rootElement, "Host") != nullptr)
-        {
-            throw std::runtime_error(path.string() + ": legacy <Host> is no longer supported");
-        }
-        project.conditions = context.conditions;
-        ParseDependencyPolicy(*rootElement, path, project.dependencyVersions, project.versionResolution);
-        ParsePackagePolicy(*rootElement, path, project.defaultFeatures, project.lockFile);
-
-        ApplyInputBlock(*rootElement, path, project.inputs, "project");
-
-        const auto *output = FindChild(*rootElement, "Output");
-        project.output.kind = output != nullptr ? Attribute(*output, "Kind").value_or(projectTemplate.outputKind) : projectTemplate.outputKind;
-        project.output.name = output != nullptr ? Attribute(*output, "Name").value_or(project.name) : project.name;
-        project.output.target = output != nullptr ? Attribute(*output, "Target").value_or(project.name) : project.name;
-        if (!IsSupportedOutputKind(project.output.kind))
-        {
-            throw std::runtime_error(path.string() + ": unknown output kind '" + project.output.kind + "'");
-        }
-        if (!IsValidProjectOutputPairing(project.type, project.output.kind))
-        {
-            throw std::runtime_error(path.string() + ": project type '" + project.type + "' is not compatible with output kind '" + project.output.kind + "'");
-        }
-
-        if (!defaults.backend.empty())
-        {
-            project.build.backend = defaults.backend;
-        }
-        if (!defaults.buildMode.empty())
-        {
-            project.build.mode = defaults.buildMode;
-        }
-        if (!defaults.language.empty())
-        {
-            project.build.language = defaults.language;
-        }
-        if (!defaults.languageStandard.empty())
-        {
-            project.build.languageStandard = defaults.languageStandard;
-        }
-        LoadProjectBuildDescriptor(project.build, FindChild(*rootElement, "Build"), path);
-        if (!IsSupportedProjectBuildMode(project.build.mode))
-        {
-            throw std::runtime_error(path.string() + ": unknown project build mode '" + project.build.mode + "'");
-        }
-        ParseGenerators(*rootElement, path, project.generators, "project");
-
-        if (const auto *references = FindChild(*rootElement, "References"))
-        {
-            ParseReferences(*references, path.parent_path(), path, project.projectRefs, project.packageRefs);
-        }
-        ParsePackageFeatureUses(*rootElement, path, project.packageFeatureUses);
-
-        ParseLocalSettingsImports(*rootElement, path, project.localSettingsImports);
-
-        if (const auto *runtime = FindChild(*rootElement, "Runtime"))
-        {
-            ParseRuntimeDefinition(*runtime, path, project.runtime, true);
-        }
-
-        if (const auto *environments = FindChild(*rootElement, "Environments"))
-        {
-            for (const auto *node : ChildElements(*environments, "Environment"))
-            {
-                EnvironmentDefinition environment{};
-                environment.name = RequireAttribute(*node, "Name", path);
-                if (const auto *references = FindChild(*node, "References"))
-                {
-                    ParseReferences(*references, path.parent_path(), path, environment.projectRefs, environment.packageRefs);
-                }
-                ApplyInputBlock(*node, path, environment.inputs, "environment:" + environment.name);
-                ParseVariables(*node, path, environment.variables);
-                ParseFeatures(*node, path, environment.features);
-                ParsePackageFeatureUses(*node, path, environment.packageFeatureUses);
-                ParseGenerators(*node, path, environment.generators, "environment:" + environment.name);
-                if (const auto *runtime = FindChild(*node, "Runtime"))
-                {
-                    ParseRuntimeDefinition(*runtime, path, environment.runtime, true);
-                }
-                project.environments.push_back(std::move(environment));
-            }
-        }
-
-        const auto *profilesNode = FindChild(*rootElement, "Profiles");
-        if (profilesNode == nullptr)
-        {
-            throw std::runtime_error(path.string() + ": missing <Profiles>");
-        }
-        const auto rootLaunch = FindChild(*rootElement, "Launch");
-        std::unordered_map<std::string, std::size_t> profileIndexes{};
-        for (const auto *node : ChildElements(*profilesNode, "Profile"))
-        {
-            ValidateAllowedAttributes(*node, path, {"Name", "Extends", "Template", "BuildType", "Platform", "OperatingSystem", "Architecture", "Environment", "EnableReflection"});
-            ProfileDefinition profile{};
-            const auto profileName = RequireAttribute(*node, "Name", path);
-            if (!IsValidManifestIdentifier(profileName))
-            {
-                throw std::runtime_error(path.string() + ": invalid profile name '" + profileName + "'");
-            }
-            if (profileIndexes.contains(profileName))
-            {
-                throw std::runtime_error(path.string() + ": duplicate profile '" + profileName + "'");
-            }
-            if (const auto extends = Attribute(*node, "Extends"); extends.has_value() && !extends->empty())
-            {
-                const auto parent = profileIndexes.find(*extends);
-                if (parent == profileIndexes.end())
-                {
-                    throw std::runtime_error(path.string() + ": profile '" + profileName + "' extends unknown or later profile '" + *extends + "'");
-                }
-                profile = project.profiles[parent->second];
-            }
-            else
-            {
-                profile.buildType = defaults.buildType;
-                profile.platform = defaults.platform;
-                ApplyPlatform(profile, context.platforms, path);
-                profile.environmentName = defaults.environment;
-                if (rootLaunch != nullptr)
-                {
-                    if (const auto executable = Attribute(*rootLaunch, "Executable"); executable.has_value() && !executable->empty())
-                    {
-                        profile.launch.executable = *executable == "$(OutputName)" ? project.output.name : *executable;
-                    }
-                    profile.launch.workingDirectory = Attribute(*rootLaunch, "WorkingDirectory").value_or(".");
-                    profile.launch.args = Attribute(*rootLaunch, "Args").value_or("");
-                }
-            }
-            if (const auto profileTemplate = Attribute(*node, "Template"); profileTemplate.has_value() && !profileTemplate->empty())
-            {
-                ApplyProfileTemplate(profile, *profileTemplate, context, path);
-            }
-            profile.name = profileName;
-            profile.buildType = Attribute(*node, "BuildType").value_or(profile.buildType);
-            if (!IsSupportedBuildType(profile.buildType))
-            {
-                throw std::runtime_error(path.string() + ": unknown build type '" + profile.buildType + "'");
-            }
-            if (const auto platform = Attribute(*node, "Platform"); platform.has_value() && !platform->empty())
-            {
-                profile.platform = *platform;
-                ApplyPlatform(profile, context.platforms, path);
-            }
-            profile.operatingSystem = Attribute(*node, "OperatingSystem").value_or(profile.operatingSystem);
-            profile.architecture = Attribute(*node, "Architecture").value_or(profile.architecture);
-            if (!IsValidOperatingSystem(profile.operatingSystem))
-            {
-                throw std::runtime_error(path.string() + ": unknown operating system '" + profile.operatingSystem + "'");
-            }
-            if (!IsValidArchitecture(profile.architecture))
-            {
-                throw std::runtime_error(path.string() + ": unknown architecture '" + profile.architecture + "'");
-            }
-            if (Attribute(*node, "EnableReflection").has_value())
-            {
-                profile.enableReflection = BoolAttribute(*node, "EnableReflection");
-            }
-            profile.environmentName = Attribute(*node, "Environment").value_or(profile.environmentName);
-            if (profile.environmentName.empty())
-            {
-                throw std::runtime_error(path.string() + ": profile '" + profile.name + "' must select an Environment or inherit one from <Defaults>");
-            }
-
-            if (const auto *launch = FindChild(*node, "Launch"))
-            {
-                if (const auto executable = Attribute(*launch, "Executable"); executable.has_value() && !executable->empty())
-                {
-                    profile.launch.executable = *executable == "$(OutputName)" ? project.output.name : *executable;
-                }
-                profile.launch.workingDirectory = Attribute(*launch, "WorkingDirectory").value_or(profile.launch.workingDirectory);
-                profile.launch.args = Attribute(*launch, "Args").value_or(profile.launch.args);
-            }
-            if (FindChild(*node, "EnableModules") != nullptr || FindChild(*node, "DisableModules") != nullptr
-                || FindChild(*node, "EnablePlugins") != nullptr || FindChild(*node, "DisablePlugins") != nullptr)
-            {
-                throw std::runtime_error(path.string() + ": profile runtime selections must be nested under <Runtime>");
-            }
-            ApplyInputBlock(*node, path, profile.inputs, "profile:" + profile.name);
-            if (const auto *references = FindChild(*node, "References"))
-            {
-                ParseReferences(*references, path.parent_path(), path, profile.projectRefs, profile.packageRefs);
-            }
-            ParsePackageFeatureUses(*node, path, profile.packageFeatureUses);
-            ParseGenerators(*node, path, profile.generators, "profile:" + profile.name);
-            if (const auto *runtime = FindChild(*node, "Runtime"))
-            {
-                ParseRuntimeDefinition(*runtime, path, profile.runtime, true);
-            }
-            if (profile.launch.executable.has_value() && *profile.launch.executable == "$(OutputName)")
-            {
-                profile.launch.executable = project.output.name;
-            }
-            if (Lower(project.type) == "library" && FindChild(*node, "Launch") != nullptr)
-            {
-                throw std::runtime_error(path.string() + ": library projects may not declare <Launch> in profiles");
-            }
-            profileIndexes.emplace(profile.name, project.profiles.size());
-            project.profiles.push_back(std::move(profile));
-        }
-
-        std::set<std::string> knownEnvironments{};
-        for (const auto &environment : project.environments)
-        {
-            if (!knownEnvironments.insert(environment.name).second)
-            {
-                throw std::runtime_error(path.string() + ": duplicate environment '" + environment.name + "'");
-            }
-        }
-        for (const auto &profile : project.profiles)
-        {
-            if (!knownEnvironments.contains(profile.environmentName))
-            {
-                throw std::runtime_error(path.string() + ": profile '" + profile.name + "' selects unknown environment '" + profile.environmentName + "'");
-            }
-        }
-        ValidateConditionReferences(project, path);
-
-        return project;
+        ValidateProjectSchemaVersion(*rootElement, path);
+        return LoadProjectManifestV4(path, *rootElement);
     }
 
     [[nodiscard]] auto FindProjectFile(const fs::path &start) -> std::optional<fs::path>

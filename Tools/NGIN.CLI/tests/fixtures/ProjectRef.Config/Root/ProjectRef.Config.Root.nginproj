@@ -1,28 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="3"
+<Project SchemaVersion="4"
          Name="ProjectRef.Config.Root"
          DefaultProfile="Runtime">
-  <Inputs>
-    <Sources Path="src" />
-    <Configs>
-      config/root.cfg
-    </Configs>
-  </Inputs>
-  <Output Kind="Executable"
-                 Name="ProjectRef.Config.Root"
-                 Target="ProjectRefConfigRoot" />
-  <References>
-    <Project Path="../Library/ProjectRef.Config.Library.nginproj" />
-  </References>
-  <Environments>
-    <Environment Name="development" />
-  </Environments>
-  <Profiles>
-    <Profile Name="Runtime"
-             BuildType="Debug"
-             Platform="linux-x64"
-             Environment="development">
-      <Launch Executable="ProjectRef.Config.Root" WorkingDirectory="." />
-    </Profile>
-  </Profiles>
+  <Application>
+    <Uses>
+      <Project Name="ProjectRef.Config.Library"
+               Path="../Library/ProjectRef.Config.Library.nginproj" />
+    </Uses>
+    <Build>
+      <Sources Path="src/**.cpp" />
+    </Build>
+    <Stage>
+      <Config Source="config/root.cfg" />
+    </Stage>
+    <Launch Executable="$(OutputName)" WorkingDirectory="." />
+  </Application>
+  <Profile Name="Runtime">
+    <Defaults>
+      <BuildType Name="Debug" />
+      <TargetPlatform Name="linux-x64" />
+      <Environment Name="development" />
+    </Defaults>
+  </Profile>
 </Project>

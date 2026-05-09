@@ -1511,70 +1511,45 @@ TEST_CASE("ApplicationBuilderLoadsProjectManifestAndConfig",
   WriteTextFile(tempDir.Join("derived.cfg"), "App.Profile=derived\n");
   WriteTextFile(tempDir.Join("Manifest.Tests.nginproj"),
                 R"xml(<?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="3"
+<Project SchemaVersion="4"
          Name="Manifest.Tests"
-         Type="Application"
          DefaultProfile="Samples.Derived">
-  <Inputs>
-    <Sources Path="src" />
-    <Configs>
-      app.cfg
-    </Configs>
-  </Inputs>
-  <Output Kind="Executable"
-          Name="Manifest.Tests"
-          Target="Manifest.Tests" />
-  <Build Backend="CMake"
-         Mode="Generated"
-         Language="CXX"
-         LanguageStandard="23">
-    <CompileDefinitions>
-      <Definition Value="MANIFEST_TESTS=1" Visibility="Private" />
-    </CompileDefinitions>
-  </Build>
-  <Generators>
-    <Generator Name="ReflectionMetaGen" Kind="Command">
-      <Tool Executable="tools/ngin-metagen" />
-      <Arguments>
-        <Arg Value="--context" />
-        <Arg Path="$(GeneratorContext)" />
-      </Arguments>
-      <Outputs>
-        <Generated Role="Source" Path="$(GeneratedDir)/reflection/Manifest.Tests.reflection.generated.cpp" />
-      </Outputs>
-    </Generator>
-  </Generators>
-  <References>
-    <Package Name="NGIN.ECS" Version=">=0.1.0 &lt;1.0.0" />
-  </References>
-  <Environments>
-    <Environment Name="Dev" />
-  </Environments>
-  <Runtime>
-    <EnableModules>
+  <Application>
+    <Uses>
+      <Package Name="NGIN.ECS" Version=">=0.1.0 &lt;1.0.0" />
+    </Uses>
+    <Build>
+      <Sources Path="src/**.cpp" />
+      <Define Name="MANIFEST_TESTS" Value="1" />
+    </Build>
+    <Stage>
+      <Config Source="app.cfg" />
+    </Stage>
+    <Runtime>
       <ModuleRef Name="App.Manifest" />
-    </EnableModules>
-    <DisableModules>
-      <ModuleRef Name="App.Disabled" />
-    </DisableModules>
-  </Runtime>
-  <Profiles>
-    <Profile Name="Samples.Manifest"
-             BuildType="Debug"
-             Platform="linux-x64"
-             Environment="Dev">
-      <Launch Executable="Manifest.Tests" WorkingDirectory="." />
-    </Profile>
-    <Profile Name="Samples.Derived"
-             Extends="Samples.Manifest"
-             BuildType="Release">
-      <Inputs>
-        <Configs>
-          derived.cfg
-        </Configs>
-      </Inputs>
-    </Profile>
-  </Profiles>
+      <DisableModule Name="App.Disabled" />
+    </Runtime>
+    <Launch Executable="Manifest.Tests" WorkingDirectory="." />
+  </Application>
+
+  <Profile Name="Samples.Manifest">
+    <Defaults>
+      <BuildType Name="Debug" />
+      <TargetPlatform Name="linux-x64" />
+      <Environment Name="Dev" />
+    </Defaults>
+  </Profile>
+
+  <Profile Name="Samples.Derived" Extends="Samples.Manifest">
+    <Defaults>
+      <BuildType Name="Release" />
+    </Defaults>
+    <Application>
+      <Stage>
+        <Config Source="derived.cfg" />
+      </Stage>
+    </Application>
+  </Profile>
 </Project>
 )xml");
 
@@ -1635,23 +1610,24 @@ TEST_CASE("ApplicationBuilderLoadsPackageFeatureConfig",
   WriteTextFile(tempDir.Join("feature.cfg"), "Feature.Mode=enabled\n");
   WriteTextFile(tempDir.Join("Feature.App.nginproj"),
                 R"(<?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="3"
+<Project SchemaVersion="4"
          Name="Feature.App"
-         Type="Application"
          DefaultProfile="Runtime">
-  <Output Kind="Executable" Name="Feature.App" Target="Feature.App" />
-  <Features>
-    <Use Package="Samples.Package" Feature="Diagnostics" />
-  </Features>
-  <Environments>
-    <Environment Name="local" />
-  </Environments>
-  <Profiles>
-    <Profile Name="Runtime"
-             BuildType="Debug"
-             Platform="linux-x64"
-             Environment="local" />
-  </Profiles>
+  <Application>
+    <Uses>
+      <Package Name="Samples.Package">
+        <Feature Name="Diagnostics" />
+      </Package>
+    </Uses>
+  </Application>
+
+  <Profile Name="Runtime">
+    <Defaults>
+      <BuildType Name="Debug" />
+      <TargetPlatform Name="linux-x64" />
+      <Environment Name="local" />
+    </Defaults>
+  </Profile>
 </Project>
 )");
 
@@ -1659,7 +1635,7 @@ TEST_CASE("ApplicationBuilderLoadsPackageFeatureConfig",
   builder->UseProjectFile(ToString(tempDir.Join("Feature.App.nginproj")));
   builder->Services().AddConfiguration();
   builder->Packages().AddManifest(NGIN::Core::PackageManifest{
-      .schemaVersion = 3,
+      .schemaVersion = 4,
       .directory = ToString(tempDir),
       .name = "Samples.Package",
       .version = "0.1.0",
@@ -1703,34 +1679,26 @@ TEST_CASE("ApplicationBuilderLoadsProjectManifestFromInjectedFilesystem",
   WriteTextFile(realRoot.Join("app.cfg"), "App.Mode=virtual\n");
   WriteTextFile(realRoot.Join("Virtual.Manifest.nginproj"),
                 R"(<?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="3"
+<Project SchemaVersion="4"
          Name="Virtual.Manifest"
-         Type="Application"
          DefaultProfile="Samples.Virtual">
-  <Output Kind="Executable"
-          Name="Virtual.Manifest"
-          Target="Virtual.Manifest" />
-  <Inputs>
-    <Configs>
-      app.cfg
-    </Configs>
-  </Inputs>
-  <Environments>
-    <Environment Name="Virtual" />
-  </Environments>
-  <Runtime>
-    <EnableModules>
+  <Application>
+    <Stage>
+      <Config Source="app.cfg" />
+    </Stage>
+    <Runtime>
       <ModuleRef Name="App.VirtualManifest" />
-    </EnableModules>
-  </Runtime>
-  <Profiles>
-    <Profile Name="Samples.Virtual"
-             BuildType="Debug"
-             Platform="linux-x64"
-             Environment="Virtual">
-      <Launch Executable="Virtual.Manifest" WorkingDirectory="." />
-    </Profile>
-  </Profiles>
+    </Runtime>
+    <Launch Executable="Virtual.Manifest" WorkingDirectory="." />
+  </Application>
+
+  <Profile Name="Samples.Virtual">
+    <Defaults>
+      <BuildType Name="Debug" />
+      <TargetPlatform Name="linux-x64" />
+      <Environment Name="Virtual" />
+    </Defaults>
+  </Profile>
 </Project>
 )");
 
@@ -1765,147 +1733,47 @@ TEST_CASE("ApplicationBuilderLoadsProjectManifestFromInjectedFilesystem",
   RemovePath(realRoot);
 }
 
-TEST_CASE("ApplicationBuilderLoadsProjectManifestWithModelDefaults",
-          "[builder][manifest][model]") {
-  const auto tempDir = MakeTempDir("ngin-core-builder-model");
-
-  WriteTextFile(tempDir.Join("common.nginmodel"),
-                R"xml(<?xml version="1.0" encoding="utf-8"?>
-<Model SchemaVersion="3" Name="Core.Model">
-  <Defaults BuildType="Release" Platform="linux-x64" Environment="Dev" />
-  <ProfileTemplates>
-    <ProfileTemplate Name="Hosted">
-      <Launch Executable="$(OutputName)" WorkingDirectory="." />
-      <Inputs>
-        <Configs>
-          model.cfg
-        </Configs>
-      </Inputs>
-    </ProfileTemplate>
-  </ProfileTemplates>
-</Model>
-)xml");
-  WriteTextFile(tempDir.Join("model.cfg"), "Model.Mode=template\n");
-  WriteTextFile(tempDir.Join("Model.App.nginproj"),
-                R"(<?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="3"
-         Name="Model.App"
-         Template="Application"
-         DefaultProfile="Runtime">
-  <Includes>
-    <Include Path="common.nginmodel" />
-  </Includes>
-  <Environments>
-    <Environment Name="Dev" />
-  </Environments>
-  <Profiles>
-    <Profile Name="Runtime" Template="Hosted" />
-  </Profiles>
-</Project>
-)");
-
-  auto builder = NGIN::Core::CreateApplicationBuilder(0, nullptr);
-  builder->UseProjectFile(ToString(tempDir.Join("Model.App.nginproj")));
-  builder->Services().AddConfiguration();
-
-  auto app = builder->Build();
-  REQUIRE(app.HasValue());
-  REQUIRE(app.Value()->Start().HasValue());
-
-  auto config = app.Value()->GetConfig();
-  REQUIRE(static_cast<bool>(config));
-  REQUIRE(config->GetRaw("Kernel.EnvironmentName").Value() == "Dev");
-  REQUIRE(config->GetRaw("Model.Mode").Value() == "template");
-
-  REQUIRE(app.Value()->Shutdown().HasValue());
-  RemovePath(tempDir);
-}
-
-TEST_CASE("ApplicationBuilderAppliesWorkspaceModelDefaults",
-          "[builder][manifest][model]") {
-  const auto tempDir = MakeTempDir("ngin-core-builder-workspace-model");
-
-  WriteTextFile(tempDir.Join("NGIN.ngin"),
-                R"(<?xml version="1.0" encoding="utf-8"?>
-<Workspace SchemaVersion="3" Name="Core.Workspace">
-  <Defaults BuildType="Debug" Platform="linux-x64" Environment="WorkspaceEnv" />
-</Workspace>
-)");
-  WriteTextFile(tempDir.Join("apps/Workspace.App.nginproj"),
-                R"(<?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="3"
-         Name="Workspace.App"
-         Template="Application"
-         DefaultProfile="Runtime">
-  <Environments>
-    <Environment Name="WorkspaceEnv" />
-  </Environments>
-  <Profiles>
-    <Profile Name="Runtime" />
-  </Profiles>
-</Project>
-)");
-
-  auto builder = NGIN::Core::CreateApplicationBuilder(0, nullptr);
-  builder->UseProjectFile(ToString(tempDir.Join("apps/Workspace.App.nginproj")));
-  builder->Services().AddConfiguration();
-
-  auto app = builder->Build();
-  REQUIRE(app.HasValue());
-  REQUIRE(app.Value()->Start().HasValue());
-
-  auto config = app.Value()->GetConfig();
-  REQUIRE(static_cast<bool>(config));
-  REQUIRE(config->GetRaw("Kernel.EnvironmentName").Value() == "WorkspaceEnv");
-
-  REQUIRE(app.Value()->Shutdown().HasValue());
-  RemovePath(tempDir);
-}
-
 TEST_CASE("ApplicationBuilderTargetOverrideBeatsProjectDefault",
           "[builder][manifest]") {
   const auto tempDir = MakeTempDir("ngin-core-builder-target");
 
   WriteTextFile(tempDir.Join("Manifest.Override.nginproj"),
                 R"(<?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="3"
+<Project SchemaVersion="4"
          Name="Manifest.Override"
-         Type="Application"
          DefaultProfile="Default.Target">
-  <Inputs>
-    <Sources Path="src" />
-  </Inputs>
-  <Output Kind="Executable"
-          Name="Manifest.Override"
-          Target="Manifest.Override" />
-  <Environments>
-    <Environment Name="Default" />
-    <Environment Name="Override" />
-  </Environments>
-  <Profiles>
-    <Profile Name="Default.Target"
-             BuildType="Debug"
-             Platform="linux-x64"
-             Environment="Default">
-      <Launch Executable="Manifest.Override" WorkingDirectory="." />
+  <Application>
+    <Build>
+      <Sources Path="src/**.cpp" />
+    </Build>
+    <Launch Executable="Manifest.Override" WorkingDirectory="." />
+  </Application>
+
+  <Profile Name="Default.Target">
+    <Defaults>
+      <BuildType Name="Debug" />
+      <TargetPlatform Name="linux-x64" />
+      <Environment Name="Default" />
+    </Defaults>
+    <Application>
       <Runtime>
-        <EnableModules>
-          <ModuleRef Name="App.Default" />
-        </EnableModules>
+        <ModuleRef Name="App.Default" />
       </Runtime>
-    </Profile>
-    <Profile Name="Override.Target"
-             BuildType="Release"
-             Platform="linux-x64"
-             Environment="Override">
-      <Launch Executable="Manifest.Override" WorkingDirectory="." />
+    </Application>
+  </Profile>
+
+  <Profile Name="Override.Target">
+    <Defaults>
+      <BuildType Name="Release" />
+      <TargetPlatform Name="linux-x64" />
+      <Environment Name="Override" />
+    </Defaults>
+    <Application>
       <Runtime>
-        <EnableModules>
-          <ModuleRef Name="App.Override" />
-        </EnableModules>
+        <ModuleRef Name="App.Override" />
       </Runtime>
-    </Profile>
-  </Profiles>
+    </Application>
+  </Profile>
 </Project>
 )");
 
@@ -1957,27 +1825,23 @@ TEST_CASE("ApplicationBuilderRejectsUnknownTarget", "[builder][manifest]") {
 
   WriteTextFile(tempDir.Join("Manifest.Invalid.nginproj"),
                 R"(<?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="3"
+<Project SchemaVersion="4"
          Name="Manifest.Invalid"
-         Type="Application"
          DefaultProfile="Samples.Default">
-  <Inputs>
-    <Sources Path="src" />
-  </Inputs>
-  <Output Kind="Executable"
-          Name="Manifest.Invalid"
-          Target="Manifest.Invalid" />
-  <Environments>
-    <Environment Name="Default" />
-  </Environments>
-  <Profiles>
-    <Profile Name="Samples.Default"
-             BuildType="Debug"
-             Platform="linux-x64"
-             Environment="Default">
-      <Launch Executable="Manifest.Invalid" WorkingDirectory="." />
-    </Profile>
-  </Profiles>
+  <Application>
+    <Build>
+      <Sources Path="src/**.cpp" />
+    </Build>
+    <Launch Executable="Manifest.Invalid" WorkingDirectory="." />
+  </Application>
+
+  <Profile Name="Samples.Default">
+    <Defaults>
+      <BuildType Name="Debug" />
+      <TargetPlatform Name="linux-x64" />
+      <Environment Name="Default" />
+    </Defaults>
+  </Profile>
 </Project>
 )");
 
@@ -1999,7 +1863,7 @@ TEST_CASE("ApplicationBuilderExecutesExplicitPackageBootstrapFromManifestFile",
   WriteTextFile(tempDir.Join("package.cfg"), "Package.Mode=bootstrapped\n");
   WriteTextFile(tempDir.Join("Samples.Package.nginpkg"),
                 R"(<?xml version="1.0" encoding="utf-8"?>
-<Package SchemaVersion="3"
+<Package SchemaVersion="4"
          Name="Samples.Package"
          Version="0.1.0"
          CompatiblePlatformRange=">=0.1.0 &lt;1.0.0">
@@ -2010,11 +1874,11 @@ TEST_CASE("ApplicationBuilderExecutesExplicitPackageBootstrapFromManifestFile",
       <OperatingSystem Name="macos" />
     </OperatingSystems>
   </Compatibility>
-  <Dependencies />
-  <Bootstrap Mode="BuilderHookV1"
-             EntryPoint="NGIN_Bootstrap_Samples_Package"
-             AutoApply="false" />
-  <Plugins />
+  <Runtime>
+    <Bootstrap Mode="BuilderHookV1"
+               EntryPoint="NGIN_Bootstrap_Samples_Package"
+               AutoApply="false" />
+  </Runtime>
 </Package>
 )");
 

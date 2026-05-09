@@ -827,6 +827,7 @@ namespace NGIN::CLI
             std::string name{};
             std::string version{};
             std::string source{};
+            fs::path providerRoot{};
             std::string scope{};
             std::vector<std::string> closures{};
             std::vector<std::string> dependencies{};

@@ -1,26 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="3"
+<Project SchemaVersion="4"
          Name="ProjectRef.Config.CollisionRoot"
          DefaultProfile="Runtime">
-  <Inputs>
-    <Sources Path="src" />
-  </Inputs>
-  <Output Kind="Executable"
-                 Name="ProjectRef.Config.CollisionRoot"
-                 Target="ProjectRefConfigCollisionRoot" />
-  <References>
-    <Project Path="../CollisionLibA/ProjectRef.Config.CollisionLibA.nginproj" />
-    <Project Path="../CollisionLibB/ProjectRef.Config.CollisionLibB.nginproj" />
-  </References>
-  <Environments>
-    <Environment Name="development" />
-  </Environments>
-  <Profiles>
-    <Profile Name="Runtime"
-             BuildType="Debug"
-             Platform="linux-x64"
-             Environment="development">
-      <Launch Executable="ProjectRef.Config.CollisionRoot" WorkingDirectory="." />
-    </Profile>
-  </Profiles>
+  <Application>
+    <Uses>
+      <Project Name="ProjectRef.Config.CollisionLibA"
+               Path="../CollisionLibA/ProjectRef.Config.CollisionLibA.nginproj" />
+      <Project Name="ProjectRef.Config.CollisionLibB"
+               Path="../CollisionLibB/ProjectRef.Config.CollisionLibB.nginproj" />
+    </Uses>
+    <Build>
+      <Sources Path="src/**.cpp" />
+    </Build>
+    <Launch Executable="$(OutputName)" WorkingDirectory="." />
+  </Application>
+  <Profile Name="Runtime">
+    <Defaults>
+      <BuildType Name="Debug" />
+      <TargetPlatform Name="linux-x64" />
+      <Environment Name="development" />
+    </Defaults>
+  </Profile>
 </Project>

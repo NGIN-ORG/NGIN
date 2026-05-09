@@ -1,13 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Package SchemaVersion="3"
+<Package SchemaVersion="4"
          Name="NGIN.Base"
          Version="0.1.0"
          CompatiblePlatformRange=">=0.1.0-alpha.1 &lt;0.2.0">
-  <Artifacts>
-    <Libraries>
-      <Library Name="NGIN.Base" Target="NGIN::Base" Linkage="Static" />
-    </Libraries>
-  </Artifacts>
   <Build Backend="CMake" Mode="AddSubdirectory">
     <Options>
       <Option Name="NGIN_BASE_BUILD_TESTS" Value="OFF" />
@@ -15,6 +10,11 @@
       <Option Name="NGIN_BASE_BUILD_BENCHMARKS" Value="OFF" />
     </Options>
   </Build>
+  <Library Name="NGIN.Base">
+    <Exports>
+      <LibraryTarget Name="NGIN::Base" Linkage="Static" />
+    </Exports>
+  </Library>
   <Compatibility>
     <OperatingSystems>
       <OperatingSystem Name="linux" />
@@ -22,7 +22,4 @@
       <OperatingSystem Name="macos" />
     </OperatingSystems>
   </Compatibility>
-  <Dependencies />
-  <Modules />
-  <Plugins />
 </Package>

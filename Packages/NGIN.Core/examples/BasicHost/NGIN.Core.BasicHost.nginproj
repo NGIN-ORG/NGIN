@@ -1,33 +1,30 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="3"
+<Project SchemaVersion="4"
          Name="NGIN.Core.BasicHost"
          DefaultProfile="Samples.BasicHost">
-  <Inputs>
-    <Sources Path="." />
-    <Configs>
-      app.cfg
-    </Configs>
-  </Inputs>
-  <Output Kind="Executable"
-                 Name="NGIN.Core.BasicHost"
-                 Target="NGINCoreBasicHost" />
-  <References>
-    <Package Name="Samples.DemoPackage" Version=">=0.1.0 &lt;1.0.0" Optional="false" />
-  </References>
-  <Runtime>
-    <EnableModules>
-      <ModuleRef Name="App.BasicHost" />
-    </EnableModules>
-  </Runtime>
-  <Environments>
-    <Environment Name="development" />
-  </Environments>
-  <Profiles>
-    <Profile Name="Samples.BasicHost"
-             BuildType="Debug"
-             Platform="linux-x64"
-             Environment="development">
-      <Launch Executable="NGIN.Core.BasicHost" WorkingDirectory="." />
-    </Profile>
-  </Profiles>
+  <Application>
+    <Uses>
+      <Runtime Name="Samples.DemoPackage"
+               Version=">=0.1.0 &lt;1.0.0"
+               Scope="Target;Runtime" />
+    </Uses>
+    <Build>
+      <Sources Path="**.cpp" />
+    </Build>
+    <Stage>
+      <Config Source="app.cfg" />
+    </Stage>
+    <Runtime>
+      <Module Name="App.BasicHost"
+              Stage="Features" />
+    </Runtime>
+    <Launch Executable="$(OutputName)" WorkingDirectory="." />
+  </Application>
+  <Profile Name="Samples.BasicHost">
+    <Defaults>
+      <BuildType Name="Debug" />
+      <TargetPlatform Name="linux-x64" />
+      <Environment Name="development" />
+    </Defaults>
+  </Profile>
 </Project>

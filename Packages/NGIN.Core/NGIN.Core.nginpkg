@@ -1,13 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Package SchemaVersion="3"
+<Package SchemaVersion="4"
          Name="NGIN.Core"
          Version="0.1.0"
          CompatiblePlatformRange=">=0.1.0-alpha.1 &lt;0.2.0">
-  <Artifacts>
-    <Libraries>
-      <Library Name="NGIN.Core" Target="NGIN::Core" Linkage="Static" />
-    </Libraries>
-  </Artifacts>
   <Build Backend="CMake" Mode="AddSubdirectory">
     <Options>
       <Option Name="NGIN_CORE_BUILD_TESTS" Value="OFF" />
@@ -15,6 +10,16 @@
       <Option Name="NGIN_CORE_BUILD_BENCHMARKS" Value="OFF" />
     </Options>
   </Build>
+  <Uses>
+    <Package Name="NGIN.Base" Version=">=0.1.0 &lt;0.2.0" Scope="Target" />
+    <Package Name="NGIN.Log" Version=">=0.1.0 &lt;0.2.0" Scope="Target" />
+    <Package Name="NGIN.Reflection" Version=">=0.1.0 &lt;0.2.0" Optional="true" Scope="Target" />
+  </Uses>
+  <Library Name="NGIN.Core">
+    <Exports>
+      <LibraryTarget Name="NGIN::Core" Linkage="Static" />
+    </Exports>
+  </Library>
   <Compatibility>
     <OperatingSystems>
       <OperatingSystem Name="linux" />
@@ -22,27 +27,18 @@
       <OperatingSystem Name="macos" />
     </OperatingSystems>
   </Compatibility>
-  <Dependencies>
-    <PackageRef Name="NGIN.Base" VersionRange=">=0.1.0 &lt;0.2.0" Optional="false" />
-    <PackageRef Name="NGIN.Log" VersionRange=">=0.1.0 &lt;0.2.0" Optional="false" />
-    <PackageRef Name="NGIN.Reflection" VersionRange=">=0.1.0 &lt;0.2.0" Optional="true" />
-  </Dependencies>
   <Features>
     <Feature Name="Reflection"
              Description="Enable NGIN.Reflection-backed runtime metadata support.">
       <Provides>
         <Capability Name="Reflection" />
       </Provides>
-      <Dependencies>
-        <PackageRef Name="NGIN.Reflection" VersionRange=">=0.1.0 &lt;0.2.0" Optional="false" />
-      </Dependencies>
+      <Uses>
+        <Package Name="NGIN.Reflection" Version=">=0.1.0 &lt;0.2.0" Scope="Target" />
+      </Uses>
       <Build>
-        <CompileDefinitions>
-          <Definition Value="NGIN_CORE_FEATURE_REFLECTION" Visibility="Public" />
-        </CompileDefinitions>
+        <Define Name="NGIN_CORE_FEATURE_REFLECTION" Visibility="Public" />
       </Build>
     </Feature>
   </Features>
-  <Modules />
-  <Plugins />
 </Package>

@@ -329,58 +329,50 @@ A small `.nginproj` file looks like this:
 
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="3"
+<Project SchemaVersion="4"
          Name="MyApp"
-         Type="Application"
          DefaultProfile="Debug">
-  <Inputs>
-    <Sources Path="src" />
-  </Inputs>
 
   <Conditions>
-    <Condition Name="LocalDebug"
-               Environment="local"
-               BuildType="Debug" />
+    <Condition Name="LocalDebug">
+      <When Environment="local"
+            BuildType="Debug" />
+    </Condition>
   </Conditions>
 
-  <Output Kind="Executable"
-          Name="MyApp"
-          Target="MyApp" />
+  <Application>
+    <Build>
+      <Sources Path="src/**.cpp" />
+    </Build>
 
-  <Build Backend="CMake"
-         Mode="Generated"
-         Language="CXX"
-         LanguageStandard="23">
-    <CompileDefinitions>
-      <Definition Value="MYAPP_LOCAL_DEBUG"
-                  Visibility="Private"
-                  Condition="LocalDebug" />
-    </CompileDefinitions>
-  </Build>
+    <Launch Executable="$(OutputName)"
+            WorkingDirectory="." />
+  </Application>
 
-  <Environments>
-    <Environment Name="local" />
-  </Environments>
+  <Profile Name="Debug">
+    <Defaults>
+      <BuildType Name="Debug" />
+      <TargetPlatform Name="linux-x64" />
+      <Environment Name="local" />
+    </Defaults>
 
-  <Profiles>
-    <Profile Name="Debug"
-                   BuildType="Debug"
-                   OperatingSystem="linux"
-                   Architecture="x64"
-                   Environment="local">
-      <Launch Executable="MyApp" WorkingDirectory="." />
-    </Profile>
-  </Profiles>
+    <Application>
+      <Build>
+        <Define Name="MYAPP_LOCAL_DEBUG"
+                When="LocalDebug" />
+      </Build>
+    </Application>
+  </Profile>
 </Project>
 ```
 
 This says:
 
 - the project is named `MyApp`
+- it produces an application
 - source files are under `src`
 - `LocalDebug` names the local debug selection rule
-- the output is an executable
-- CMake input should be generated
+- the output executable and generated CMake backend come from V4 conventions
 - the default profile is `Debug`
 - the `Debug` profile builds a debug Linux x64 executable
 - `MYAPP_LOCAL_DEBUG` is emitted only when `LocalDebug` matches

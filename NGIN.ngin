@@ -1,26 +1,47 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Workspace SchemaVersion="3" Name="NGIN" PlatformVersion="0.1.0">
-  <Includes>
-    <Include Path="Examples/Common.nginmodel" />
-  </Includes>
-  <PackageSources>
-    <PackageSource Path="Packages" />
-  </PackageSources>
-  <DependencyPolicy VersionResolution="HighestCompatible">
-    <Versions>
-      <Package Name="NGIN.Core" VersionRange=">=0.1.0 &lt;0.2.0" />
-      <Package Name="NGIN.Reflection" VersionRange=">=0.1.0 &lt;0.2.0" />
-      <Package Name="NGIN.Reflection.MetaGen" VersionRange=">=0.1.0 &lt;0.2.0" />
-    </Versions>
-  </DependencyPolicy>
-  <PackagePolicy DefaultFeatures="Explicit" LockFile="Optional" />
-  <PackageProviders>
-    <PackageProvider Name="NGIN.Base" Root="Dependencies/NGIN/NGIN.Base" />
-    <PackageProvider Name="NGIN.ECS" Root="Dependencies/NGIN/NGIN.ECS" />
-  </PackageProviders>
+<Workspace SchemaVersion="4"
+           Name="NGIN"
+           DefaultProfile="dev"
+           PlatformVersion="0.1.0">
   <Projects>
     <Project Path="Examples/Hello.Native/Hello.Native.nginproj" />
     <Project Path="Examples/Hello.Hosted/Hello.Hosted.nginproj" />
     <Project Path="Examples/Hello.Reflection/Hello.Reflection.nginproj" />
   </Projects>
+
+  <Defaults>
+    <Language Standard="C++23"
+              Required="true"
+              Extensions="false" />
+    <Backend Name="CMake"
+             Mode="Generated" />
+    <HostPlatform Name="host" />
+    <TargetPlatform Name="linux-x64" />
+  </Defaults>
+
+  <Packages>
+    <Source Name="local"
+            Path="Packages" />
+
+    <Version Name="NGIN.Core"
+             Range="[0.1.0,0.2.0)" />
+    <Version Name="NGIN.Reflection"
+             Range="[0.1.0,0.2.0)" />
+    <Version Name="NGIN.Reflection.MetaGen"
+             Range="[0.1.0,0.2.0)" />
+
+    <PackageProvider Name="NGIN.Base"
+                     Root="Dependencies/NGIN/NGIN.Base" />
+    <PackageProvider Name="NGIN.ECS"
+                     Root="Dependencies/NGIN/NGIN.ECS" />
+  </Packages>
+
+  <Profiles>
+    <Profile Name="dev">
+      <Defaults>
+        <BuildType Name="Debug" />
+        <Environment Name="development" />
+      </Defaults>
+    </Profile>
+  </Profiles>
 </Workspace>

@@ -1,15 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Package SchemaVersion="3"
+<Package SchemaVersion="4"
          Name="NGIN.Benchmark"
          Version="0.1.0"
          CompatiblePlatformRange=">=0.1.0-alpha.1 &lt;0.2.0">
-  <Artifacts>
-    <Executables>
-      <Executable Name="NGIN.SyncProgram" Target="NGIN.SyncProgram" />
-      <Executable Name="NGIN.BenchmarkTool" Target="NGIN.BenchmarkTool" />
-    </Executables>
-  </Artifacts>
   <Build Backend="CMake" Mode="Manual" />
+  <Uses>
+    <Package Name="NGIN.Base" Version=">=0.1.0 &lt;0.2.0" Scope="Target" />
+    <Package Name="NGIN.Reflection" Version=">=0.1.0 &lt;0.2.0" Optional="true" Scope="Target" />
+  </Uses>
+  <Tool Name="NGIN.Benchmark">
+    <Exports>
+      <Tool Name="NGIN.SyncProgram" Executable="NGIN.SyncProgram" />
+      <Tool Name="NGIN.BenchmarkTool" Executable="NGIN.BenchmarkTool" />
+    </Exports>
+  </Tool>
   <Compatibility>
     <OperatingSystems>
       <OperatingSystem Name="linux" />
@@ -17,10 +21,4 @@
       <OperatingSystem Name="macos" />
     </OperatingSystems>
   </Compatibility>
-  <Dependencies>
-    <PackageRef Name="NGIN.Base" VersionRange=">=0.1.0 &lt;0.2.0" Optional="false" />
-    <PackageRef Name="NGIN.Reflection" VersionRange=">=0.1.0 &lt;0.2.0" Optional="true" />
-  </Dependencies>
-  <Modules />
-  <Plugins />
 </Package>

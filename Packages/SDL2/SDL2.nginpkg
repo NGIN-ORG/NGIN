@@ -1,14 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Package SchemaVersion="3"
+<Package SchemaVersion="4"
          Name="SDL2"
          Version="2.30.0"
          CompatiblePlatformRange=">=0.1.0-alpha.1 &lt;0.2.0">
-  <Artifacts>
-    <Libraries>
-      <Library Name="SDL2" Target="SDL2::SDL2" Origin="Imported" />
-    </Libraries>
-  </Artifacts>
   <Build Backend="CMake" Mode="FindPackage" />
+  <Library Name="SDL2">
+    <Exports>
+      <LibraryTarget Name="SDL2::SDL2" />
+    </Exports>
+  </Library>
   <Compatibility>
     <OperatingSystems>
       <OperatingSystem Name="linux" />
@@ -16,7 +16,4 @@
       <OperatingSystem Name="macos" />
     </OperatingSystems>
   </Compatibility>
-  <Dependencies />
-  <Modules />
-  <Plugins />
 </Package>

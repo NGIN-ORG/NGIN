@@ -1,13 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Package SchemaVersion="3"
+<Package SchemaVersion="4"
          Name="NGIN.Log"
          Version="0.1.0"
          CompatiblePlatformRange=">=0.1.0-alpha.1 &lt;0.2.0">
-  <Artifacts>
-    <Libraries>
-      <Library Name="NGIN.Log" Target="NGIN::Log" Linkage="Static" />
-    </Libraries>
-  </Artifacts>
   <Build Backend="CMake" Mode="AddSubdirectory">
     <Options>
       <Option Name="NGIN_LOG_BUILD_TESTS" Value="OFF" />
@@ -15,6 +10,14 @@
       <Option Name="NGIN_LOG_BUILD_BENCHMARKS" Value="OFF" />
     </Options>
   </Build>
+  <Uses>
+    <Package Name="NGIN.Base" Version=">=0.1.0 &lt;0.2.0" Scope="Target" />
+  </Uses>
+  <Library Name="NGIN.Log">
+    <Exports>
+      <LibraryTarget Name="NGIN::Log" Linkage="Static" />
+    </Exports>
+  </Library>
   <Compatibility>
     <OperatingSystems>
       <OperatingSystem Name="linux" />
@@ -22,9 +25,4 @@
       <OperatingSystem Name="macos" />
     </OperatingSystems>
   </Compatibility>
-  <Dependencies>
-    <PackageRef Name="NGIN.Base" VersionRange=">=0.1.0 &lt;0.2.0" Optional="false" />
-  </Dependencies>
-  <Modules />
-  <Plugins />
 </Package>

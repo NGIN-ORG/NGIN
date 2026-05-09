@@ -1,24 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="3"
+<Project SchemaVersion="4"
          Name="ProjectRef.Config.Library"
-         Template="Library"
          DefaultProfile="Runtime">
-  <Inputs>
-    <Sources Path="src" />
-    <Configs>
-      config/library.cfg
-    </Configs>
-  </Inputs>
-  <Output Kind="StaticLibrary"
-                 Name="ProjectRef.Config.Library"
-                 Target="ProjectRefConfigLibrary" />
-  <Environments>
-    <Environment Name="development" />
-  </Environments>
-  <Profiles>
-    <Profile Name="Runtime"
-             BuildType="Debug"
-             Platform="linux-x64"
-             Environment="development" />
-  </Profiles>
+  <Library Output="Static">
+    <Build>
+      <Sources Path="src/**.cpp" />
+    </Build>
+    <Stage>
+      <Config Source="config/library.cfg" />
+    </Stage>
+  </Library>
+  <Profile Name="Runtime">
+    <Defaults>
+      <BuildType Name="Debug" />
+      <TargetPlatform Name="linux-x64" />
+      <Environment Name="development" />
+    </Defaults>
+  </Profile>
 </Project>

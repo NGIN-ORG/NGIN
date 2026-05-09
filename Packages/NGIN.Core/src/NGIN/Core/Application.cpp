@@ -6,10 +6,8 @@
 
 #include <algorithm>
 #include <cctype>
-#include <filesystem>
 #include <optional>
 #include <set>
-#include <sstream>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -265,16 +263,6 @@ namespace NGIN::Core
       return ParseBoolValue(value.value(), context);
     }
 
-    [[nodiscard]] auto IsValidOperatingSystem(const std::string_view value) -> bool
-    {
-      return value == "linux" || value == "windows" || value == "macos";
-    }
-
-    [[nodiscard]] auto IsValidArchitecture(const std::string_view value) -> bool
-    {
-      return value == "x64" || value == "arm64";
-    }
-
     [[nodiscard]] auto ReadCompatibility(const XmlElement &element,
                                          const std::string_view context,
                                          std::vector<std::string> &operatingSystems,
@@ -451,7 +439,8 @@ namespace NGIN::Core
       descriptor.type = type.Value();
 
       auto stageText =
-          OptionalAttribute(element, "StartupStage", context, "Features");
+          OptionalAttribute(element, "Stage", context,
+                            Attribute(element, "StartupStage").value_or("Features"));
       if (!stageText)
       {
         return NGIN::Utilities::Unexpected<KernelError>(stageText.Error());
@@ -612,76 +601,6 @@ namespace NGIN::Core
       return descriptor;
     }
 
-    [[nodiscard]] auto ParsePackagePluginManifest(const XmlElement &element,
-                                                  const std::string_view context)
-        -> CoreResult<PackagePluginManifest>
-    {
-      PackagePluginManifest plugin{};
-
-      auto name = RequireAttribute(element, "Name", context);
-      if (!name)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(name.Error());
-      }
-      plugin.name = name.Value();
-
-      auto optional = OptionalBoolAttribute(
-          element, "Optional", std::string(context) + ".Optional", false);
-      if (!optional)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(optional.Error());
-      }
-      plugin.optional = optional.Value();
-      plugin.profile = Attribute(element, "Profile").value_or("");
-      plugin.platform = Attribute(element, "Platform").value_or("");
-      plugin.operatingSystem = Attribute(element, "OperatingSystem").value_or("");
-      plugin.architecture = Attribute(element, "Architecture").value_or("");
-      plugin.buildType = Attribute(element, "BuildType").value_or("");
-      plugin.environment = Attribute(element, "Environment").value_or("");
-      plugin.condition = Attribute(element, "Condition").value_or("");
-
-      auto compatibility = ReadCompatibility(element, context,
-                                             plugin.operatingSystems,
-                                             plugin.architectures);
-      if (!compatibility)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(compatibility.Error());
-      }
-
-      if (const auto *modules = FindChild(element, "Modules"))
-      {
-        if (const auto *required = FindChild(*modules, "Required"))
-        {
-          for (const auto *moduleElement : ChildElements(*required, "ModuleRef"))
-          {
-            auto moduleName = RequireAttribute(
-                *moduleElement, "Name", std::string(context) + ".Modules.Required");
-            if (!moduleName)
-            {
-              return NGIN::Utilities::Unexpected<KernelError>(moduleName.Error());
-            }
-            plugin.requiredModules.push_back(moduleName.Value());
-          }
-        }
-        if (const auto *optionalModules = FindChild(*modules, "Optional"))
-        {
-          for (const auto *moduleElement :
-               ChildElements(*optionalModules, "ModuleRef"))
-          {
-            auto moduleName = RequireAttribute(
-                *moduleElement, "Name", std::string(context) + ".Modules.Optional");
-            if (!moduleName)
-            {
-              return NGIN::Utilities::Unexpected<KernelError>(moduleName.Error());
-            }
-            plugin.optionalModules.push_back(moduleName.Value());
-          }
-        }
-      }
-
-      return plugin;
-    }
-
     [[nodiscard]] auto ParsePackageReference(const XmlElement &element,
                                              const std::string_view context)
         -> CoreResult<PackageReference>
@@ -728,102 +647,6 @@ namespace NGIN::Core
       };
     }
 
-    [[nodiscard]] auto ParsePackageFeatureUses(const XmlElement &element,
-                                               const std::string_view context)
-        -> CoreResult<std::vector<PackageFeatureUse>>
-    {
-      std::vector<PackageFeatureUse> uses{};
-      const auto *features = FindChild(element, "Features");
-      if (features == nullptr)
-      {
-        return uses;
-      }
-      const auto parseOne = [&](const XmlElement &node, const bool disabled)
-          -> CoreResult<PackageFeatureUse>
-      {
-        auto packageName = RequireAttribute(node, "Package", context);
-        if (!packageName)
-        {
-          return NGIN::Utilities::Unexpected<KernelError>(packageName.Error());
-        }
-        auto featureName = RequireAttribute(node, "Feature", context);
-        if (!featureName)
-        {
-          return NGIN::Utilities::Unexpected<KernelError>(featureName.Error());
-        }
-        auto versionRange = OptionalAttribute(node, "Version", context);
-        if (!versionRange)
-        {
-          return NGIN::Utilities::Unexpected<KernelError>(versionRange.Error());
-        }
-        if (versionRange.Value().empty())
-        {
-          versionRange = OptionalAttribute(node, "VersionRange", context);
-        }
-        if (!versionRange)
-        {
-          return NGIN::Utilities::Unexpected<KernelError>(versionRange.Error());
-        }
-        return PackageFeatureUse{
-            .packageName = packageName.Value(),
-            .featureName = featureName.Value(),
-            .versionRange = versionRange.Value(),
-            .disabled = disabled,
-            .profile = Attribute(node, "Profile").value_or(""),
-            .platform = Attribute(node, "Platform").value_or(""),
-            .operatingSystem = Attribute(node, "OperatingSystem").value_or(""),
-            .architecture = Attribute(node, "Architecture").value_or(""),
-            .buildType = Attribute(node, "BuildType").value_or(""),
-            .environment = Attribute(node, "Environment").value_or(""),
-            .condition = Attribute(node, "Condition").value_or(""),
-        };
-      };
-      for (const auto *node : ChildElements(*features, "Use"))
-      {
-        auto parsed = parseOne(*node, false);
-        if (!parsed)
-        {
-          return NGIN::Utilities::Unexpected<KernelError>(parsed.Error());
-        }
-        uses.push_back(parsed.Value());
-      }
-      for (const auto *node : ChildElements(*features, "Disable"))
-      {
-        auto parsed = parseOne(*node, true);
-        if (!parsed)
-        {
-          return NGIN::Utilities::Unexpected<KernelError>(parsed.Error());
-        }
-        uses.push_back(parsed.Value());
-      }
-      return uses;
-    }
-
-    [[nodiscard]] auto ParseModuleRefs(const XmlElement *parentElement,
-                                       const std::string_view childName,
-                                       const std::string_view context)
-        -> CoreResult<std::vector<std::string>>
-    {
-      std::vector<std::string> out{};
-      if (parentElement == nullptr)
-      {
-        return out;
-      }
-
-      for (const auto *moduleElement : ChildElements(*parentElement, childName))
-      {
-        auto name =
-            RequireAttribute(*moduleElement, "Name",
-                             std::string(context) + "." + std::string(childName));
-        if (!name)
-        {
-          return NGIN::Utilities::Unexpected<KernelError>(name.Error());
-        }
-        out.push_back(name.Value());
-      }
-      return out;
-    }
-
     [[nodiscard]] auto ParseProjectReference(const XmlElement &element,
                                              const std::string_view context)
         -> CoreResult<ProjectReference>
@@ -854,176 +677,6 @@ namespace NGIN::Core
       reference.condition = Attribute(element, "Condition").value_or("");
 
       return reference;
-    }
-
-    [[nodiscard]] auto ParseOutputDefinition(const XmlElement &element,
-                                             const std::string_view context)
-        -> CoreResult<OutputDefinition>
-    {
-      OutputDefinition output{};
-
-      auto kind = RequireAttribute(element, "Kind", context);
-      if (!kind)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(kind.Error());
-      }
-      output.kind = kind.Value();
-
-      auto name = RequireAttribute(element, "Name", context);
-      if (!name)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(name.Error());
-      }
-      output.name = name.Value();
-
-      auto target = RequireAttribute(element, "Target", context);
-      if (!target)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(target.Error());
-      }
-      output.target = target.Value();
-
-      return output;
-    }
-
-    [[nodiscard]] auto SplitPathList(const std::string &value)
-        -> std::vector<std::string>
-    {
-      std::vector<std::string> items{};
-      std::string current{};
-      std::istringstream stream(value);
-      while (std::getline(stream, current, ','))
-      {
-        current.erase(current.begin(),
-                      std::find_if(current.begin(), current.end(),
-                                   [](const unsigned char ch)
-                                   { return !std::isspace(ch); }));
-        current.erase(std::find_if(current.rbegin(), current.rend(),
-                                   [](const unsigned char ch)
-                                   { return !std::isspace(ch); })
-                          .base(),
-                      current.end());
-        if (!current.empty())
-        {
-          items.push_back(current);
-        }
-      }
-      return items;
-    }
-
-    [[nodiscard]] auto IsSupportedInputKind(const std::string &kind) -> bool
-    {
-      return kind == "Source" || kind == "Config" || kind == "Content" ||
-             kind == "Asset" || kind == "Generated" || kind == "ToolInput";
-    }
-
-    [[nodiscard]] auto IsSupportedInputMode(const std::string &mode) -> bool
-    {
-      return mode == "Directory" || mode == "File" || mode == "Glob";
-    }
-
-    [[nodiscard]] auto IsSupportedGeneratedRole(const std::string &role) -> bool
-    {
-      return role == "Source" || role == "Header" || role == "Content" ||
-             role == "Asset" || role == "ToolInput";
-    }
-
-    [[nodiscard]] auto IsTypedInputBlock(const std::string_view name) -> bool
-    {
-      return name == "Sources" || name == "Headers" || name == "Configs" ||
-             name == "Contents" || name == "Assets" || name == "Generated" ||
-             name == "ToolInputs";
-    }
-
-    [[nodiscard]] auto TextContent(const XmlElement &element) -> std::string
-    {
-      std::string text{};
-      for (NGIN::UIntSize index = 0; index < element.children.Size(); ++index)
-      {
-        const auto &child = element.children[index];
-        if (child.type == XmlNode::Type::Text || child.type == XmlNode::Type::CData)
-        {
-          text.append(child.text.data(), child.text.size());
-        }
-      }
-      return text;
-    }
-
-    [[nodiscard]] auto SplitTextPathLines(const std::string_view text)
-        -> std::vector<std::string>
-    {
-      std::vector<std::string> entries{};
-      std::string current{};
-      auto flush = [&]()
-      {
-        auto first = std::find_if(current.begin(), current.end(),
-                                  [](const unsigned char ch)
-                                  { return !std::isspace(ch); });
-        auto last = std::find_if(current.rbegin(), current.rend(),
-                                 [](const unsigned char ch)
-                                 { return !std::isspace(ch); })
-                        .base();
-        std::string value = first < last ? std::string(first, last) : std::string{};
-        current.clear();
-        if (!value.empty() && value.front() != '#')
-        {
-          entries.push_back(std::move(value));
-        }
-      };
-      for (const char ch : text)
-      {
-        if (ch == '\n' || ch == '\r')
-        {
-          flush();
-          continue;
-        }
-        current.push_back(ch);
-      }
-      flush();
-      return entries;
-    }
-
-    [[nodiscard]] auto JoinPathList(const std::vector<std::string> &entries)
-        -> std::string
-    {
-      std::string joined{};
-      for (const auto &entry : entries)
-      {
-        if (!joined.empty())
-        {
-          joined += ";";
-        }
-        joined += entry;
-      }
-      return joined;
-    }
-
-    [[nodiscard]] auto ReadInputAttributes(const XmlElement &element,
-                                           const std::string_view context,
-                                           InputDeclaration input = {})
-        -> CoreResult<InputDeclaration>
-    {
-      if (auto value = OptionalAttribute(element, "Path", context, input.path); !value) { return NGIN::Utilities::Unexpected<KernelError>(value.Error()); } else { input.path = value.Value(); }
-      if (auto value = OptionalAttribute(element, "Name", context, input.name); !value) { return NGIN::Utilities::Unexpected<KernelError>(value.Error()); } else { input.name = value.Value(); }
-      if (auto value = OptionalAttribute(element, "Mode", context, input.mode); !value) { return NGIN::Utilities::Unexpected<KernelError>(value.Error()); } else { input.mode = value.Value(); }
-      if (auto value = OptionalAttribute(element, "Visibility", context, input.visibility); !value) { return NGIN::Utilities::Unexpected<KernelError>(value.Error()); } else { input.visibility = value.Value().empty() ? input.visibility : value.Value(); }
-      if (auto value = OptionalAttribute(element, "Target", context, input.target); !value) { return NGIN::Utilities::Unexpected<KernelError>(value.Error()); } else { input.target = value.Value(); }
-      if (auto value = OptionalAttribute(element, "TargetRoot", context, input.targetRoot); !value) { return NGIN::Utilities::Unexpected<KernelError>(value.Error()); } else { input.targetRoot = value.Value(); }
-      if (auto value = OptionalAttribute(element, "BasePath", context, input.basePath); !value) { return NGIN::Utilities::Unexpected<KernelError>(value.Error()); } else { input.basePath = value.Value(); }
-      if (auto value = OptionalAttribute(element, "ContentKind", context, input.contentKind); !value) { return NGIN::Utilities::Unexpected<KernelError>(value.Error()); } else { input.contentKind = value.Value(); }
-      if (auto required = OptionalBoolAttribute(element, "Required", context, input.required); !required) { return NGIN::Utilities::Unexpected<KernelError>(required.Error()); } else { input.required = required.Value(); }
-      if (auto overrideExisting = OptionalBoolAttribute(element, "Override", context, input.overrideExisting); !overrideExisting) { return NGIN::Utilities::Unexpected<KernelError>(overrideExisting.Error()); } else { input.overrideExisting = overrideExisting.Value(); }
-
-      input.profile = Attribute(element, "Profile").value_or(input.profile);
-      input.platform = Attribute(element, "Platform").value_or(input.platform);
-      input.operatingSystem = Attribute(element, "OperatingSystem").value_or(input.operatingSystem);
-      input.architecture = Attribute(element, "Architecture").value_or(input.architecture);
-      input.buildType = Attribute(element, "BuildType").value_or(input.buildType);
-      input.environment = Attribute(element, "Environment").value_or(input.environment);
-      input.condition = Attribute(element, "Condition").value_or(input.condition);
-      if (const auto include = Attribute(element, "Include"); include.has_value()) { input.includePatterns = SplitPathList(*include); }
-      if (const auto exclude = Attribute(element, "Exclude"); exclude.has_value()) { input.excludePatterns = SplitPathList(*exclude); }
-      return input;
     }
 
     [[nodiscard]] auto ReadConditionMatch(const XmlElement &element) -> ConditionNode
@@ -1220,171 +873,6 @@ namespace NGIN::Core
              NamedConditionMatches(reference.condition, conditions, profile);
     }
 
-    [[nodiscard]] auto ValidateInputDeclaration(const InputDeclaration &input,
-                                                const std::string_view context)
-        -> CoreResult<void>
-    {
-      if (input.kind.empty() || !IsSupportedInputKind(input.kind))
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(std::string(context) + ".Input has unsupported Kind", input.kind, KernelErrorCode::SchemaValidationFailure));
-      }
-      if (input.kind == "Generated" && !IsSupportedGeneratedRole(input.role))
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(std::string(context) + ".Generated requires Role", input.role, KernelErrorCode::SchemaValidationFailure));
-      }
-      if (input.mode.empty() || !IsSupportedInputMode(input.mode))
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(std::string(context) + ".Input has unsupported Mode", input.mode, KernelErrorCode::SchemaValidationFailure));
-      }
-      if ((input.mode == "File" || input.mode == "Directory") && input.path.empty())
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(std::string(context) + ".Input requires Path", {}, KernelErrorCode::SchemaValidationFailure));
-      }
-      if (input.mode == "Glob" && input.includePatterns.empty())
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(std::string(context) + ".Glob requires Include", {}, KernelErrorCode::SchemaValidationFailure));
-      }
-      if (input.visibility != "Public" && input.visibility != "Private" && input.visibility != "Interface")
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(std::string(context) + ".Input has unsupported Visibility", input.visibility, KernelErrorCode::SchemaValidationFailure));
-      }
-      return {};
-    }
-
-    [[nodiscard]] auto InputMatchesIdentity(const InputDeclaration &left,
-                                            const InputDeclaration &right) -> bool
-    {
-      if (!right.name.empty())
-      {
-        return left.name == right.name;
-      }
-      return left.kind == right.kind && left.role == right.role && left.path == right.path &&
-             left.pattern == right.pattern && left.mode == right.mode && left.target == right.target &&
-             left.targetRoot == right.targetRoot && left.basePath == right.basePath &&
-             left.visibility == right.visibility;
-    }
-
-    auto AddInput(std::vector<InputDeclaration> &out, InputDeclaration input) -> void
-    {
-      if (input.overrideExisting)
-      {
-        out.erase(std::remove_if(out.begin(), out.end(), [&](const InputDeclaration &existing) { return InputMatchesIdentity(existing, input); }), out.end());
-      }
-      out.push_back(std::move(input));
-    }
-
-    auto ParseInputDeclarations(const XmlElement &element,
-                                const std::string_view context,
-                                std::vector<InputDeclaration> &out)
-        -> CoreResult<void>
-    {
-      if (FindChild(element, "Sources") != nullptr || FindChild(element, "SourceRoots") != nullptr || FindChild(element, "Contents") != nullptr)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(std::string(context) + " uses removed top-level input vocabulary; use <Inputs>", {}, KernelErrorCode::SchemaValidationFailure));
-      }
-      if (const auto *inputs = FindChild(element, "Inputs"))
-      {
-        for (const auto *child : ChildElements(*inputs))
-        {
-          if (child->name == "Input" || child->name == "InputSet" || child->name == "Config")
-          {
-            return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(std::string(context) + ".Inputs uses removed generic input vocabulary", std::string(child->name), KernelErrorCode::SchemaValidationFailure));
-          }
-          if (child->name == "Remove")
-          {
-            auto name = Attribute(*child, "Name");
-            auto kind = Attribute(*child, "Kind");
-            auto role = Attribute(*child, "Role");
-            if (kind.has_value() && *kind == "Header")
-            {
-              kind = "Source";
-              role = "Header";
-            }
-            auto path = Attribute(*child, "Path");
-            out.erase(std::remove_if(out.begin(), out.end(), [&](const InputDeclaration &input) {
-                        if (name.has_value()) { return input.name == *name || input.setName == *name; }
-                        return (!kind.has_value() || input.kind == *kind) &&
-                               (!role.has_value() || input.role == *role) &&
-                               (!path.has_value() || input.path == *path);
-                      }), out.end());
-            continue;
-          }
-          if (!IsTypedInputBlock(child->name))
-          {
-            return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(std::string(context) + ".Inputs contains unsupported child element", std::string(child->name), KernelErrorCode::SchemaValidationFailure));
-          }
-
-          InputDeclaration base{};
-          if (child->name == "Sources") { base.kind = "Source"; base.role = "Source"; base.visibility = "Private"; }
-          else if (child->name == "Headers") { base.kind = "Source"; base.role = "Header"; base.visibility = "Public"; }
-          else if (child->name == "Configs") { base.kind = "Config"; }
-          else if (child->name == "Contents") { base.kind = "Content"; }
-          else if (child->name == "Assets") { base.kind = "Asset"; }
-          else if (child->name == "ToolInputs") { base.kind = "ToolInput"; }
-          else if (child->name == "Generated") { base.kind = "Generated"; base.role = Attribute(*child, "Role").value_or({}); }
-          base.setName = Attribute(*child, "Name").value_or({});
-          auto parsedBase = ReadInputAttributes(*child, context, base);
-          if (!parsedBase) { return NGIN::Utilities::Unexpected<KernelError>(parsedBase.Error()); }
-          base = std::move(parsedBase.Value());
-
-          auto addParsed = [&](InputDeclaration input) -> CoreResult<void> {
-            input.declaringScope = std::string(context);
-            if (auto validated = ValidateInputDeclaration(input, context); !validated)
-            {
-              return NGIN::Utilities::Unexpected<KernelError>(validated.Error());
-            }
-            AddInput(out, std::move(input));
-            return {};
-          };
-
-          if (!base.path.empty() || !base.includePatterns.empty())
-          {
-            auto input = base;
-            input.name.clear();
-            input.target.clear();
-            input.overrideExisting = false;
-            input.mode = !input.path.empty() ? "Directory" : "Glob";
-            if (input.mode == "Glob") { input.pattern = JoinPathList(input.includePatterns); }
-            if (auto added = addParsed(std::move(input)); !added) { return NGIN::Utilities::Unexpected<KernelError>(added.Error()); }
-          }
-          for (const auto &line : SplitTextPathLines(TextContent(*child)))
-          {
-            auto input = base;
-            input.path = line;
-            input.pattern.clear();
-            input.mode = "File";
-            input.name.clear();
-            input.target.clear();
-            input.overrideExisting = false;
-            if (auto added = addParsed(std::move(input)); !added) { return NGIN::Utilities::Unexpected<KernelError>(added.Error()); }
-          }
-          for (const auto *entry : ChildElements(*child))
-          {
-            if (entry->name == "Metadata") { continue; }
-            if (entry->name != "File" && entry->name != "Directory" && entry->name != "Glob")
-            {
-              return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(std::string(context) + ".Inputs contains unsupported typed entry", std::string(entry->name), KernelErrorCode::SchemaValidationFailure));
-            }
-            auto input = base;
-            input.path.clear();
-            input.pattern.clear();
-            input.name.clear();
-            input.target.clear();
-            input.overrideExisting = false;
-            if (entry->name == "File") { input.mode = "File"; input.path = Attribute(*entry, "Path").value_or({}); }
-            else if (entry->name == "Directory") { input.mode = "Directory"; input.path = Attribute(*entry, "Path").value_or({}); }
-            else { input.mode = "Glob"; }
-            auto parsed = ReadInputAttributes(*entry, context, input);
-            if (!parsed) { return NGIN::Utilities::Unexpected<KernelError>(parsed.Error()); }
-            input = std::move(parsed.Value());
-            if (input.mode == "Glob") { input.pattern = JoinPathList(input.includePatterns); }
-            if (auto added = addParsed(std::move(input)); !added) { return NGIN::Utilities::Unexpected<KernelError>(added.Error()); }
-          }
-        }
-      }
-      return {};
-    }
-
     [[nodiscard]] auto ParseToolDeclaration(const XmlElement &element,
                                             const std::string_view context,
                                             const bool requireName)
@@ -1435,320 +923,6 @@ namespace NGIN::Core
       return tool;
     }
 
-    [[nodiscard]] auto ParseGeneratorOutput(const XmlElement &element,
-                                            const std::string_view context)
-        -> CoreResult<InputDeclaration>
-    {
-      if (element.name != "Generated")
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-            std::string(context) + ".Outputs contains unsupported child",
-            std::string(element.name), KernelErrorCode::SchemaValidationFailure));
-      }
-      InputDeclaration output{};
-      output.kind = "Generated";
-      output.role = Attribute(element, "Role").value_or("");
-      output.mode = "File";
-      output.visibility = output.role == "Header" ? "Public" : "Private";
-      auto parsed = ReadInputAttributes(element, context, output);
-      if (!parsed)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(parsed.Error());
-      }
-      output = std::move(parsed.Value());
-      if (output.role.empty())
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-            std::string(context) + ".Generated requires Role", {},
-            KernelErrorCode::SchemaValidationFailure));
-      }
-      if (output.path.empty())
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-            std::string(context) + ".Generated requires Path", {},
-            KernelErrorCode::SchemaValidationFailure));
-      }
-      output.declaringScope = std::string(context);
-      if (auto validated = ValidateInputDeclaration(output, context); !validated)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(validated.Error());
-      }
-      return output;
-    }
-
-    auto ParseGenerators(const XmlElement &element,
-                         const std::string_view context,
-                         std::vector<GeneratorDeclaration> &out)
-        -> CoreResult<void>
-    {
-      const auto *generatorsElement = FindChild(element, "Generators");
-      if (generatorsElement == nullptr)
-      {
-        return {};
-      }
-
-      std::set<std::string> names{};
-      for (const auto *generatorElement : ChildElements(*generatorsElement, "Generator"))
-      {
-        auto name = RequireAttribute(*generatorElement, "Name", context);
-        if (!name)
-        {
-          return NGIN::Utilities::Unexpected<KernelError>(name.Error());
-        }
-        GeneratorDeclaration generator{};
-        generator.name = name.Value();
-        generator.kind = Attribute(*generatorElement, "Kind").value_or("");
-        generator.packageName = Attribute(*generatorElement, "Package").value_or("");
-        generator.toolName = Attribute(*generatorElement, "Tool").value_or("");
-        generator.profile = Attribute(*generatorElement, "Profile").value_or("");
-        generator.platform = Attribute(*generatorElement, "Platform").value_or("");
-        generator.operatingSystem = Attribute(*generatorElement, "OperatingSystem").value_or("");
-        generator.architecture = Attribute(*generatorElement, "Architecture").value_or("");
-        generator.buildType = Attribute(*generatorElement, "BuildType").value_or("");
-        generator.environment = Attribute(*generatorElement, "Environment").value_or("");
-        generator.condition = Attribute(*generatorElement, "Condition").value_or("");
-
-        if (!names.insert(generator.name).second)
-        {
-          return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-              std::string(context) + " has duplicate generator",
-              generator.name, KernelErrorCode::AlreadyExists));
-        }
-        if (generator.kind != "Command")
-        {
-          return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-              std::string(context) + " uses unsupported generator kind",
-              generator.kind, KernelErrorCode::SchemaValidationFailure));
-        }
-        if (const auto *toolElement = FindChild(*generatorElement, "Tool"))
-        {
-          auto tool = ParseToolDeclaration(*toolElement,
-                                           std::string(context) + ".Generator.Tool",
-                                           false);
-          if (!tool)
-          {
-            return NGIN::Utilities::Unexpected<KernelError>(tool.Error());
-          }
-          generator.inlineTool = tool.Value();
-        }
-        if (generator.kind == "Command" && generator.toolName.empty() &&
-            !generator.inlineTool.has_value())
-        {
-          return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-              std::string(context) + " command generator must declare Tool or inline <Tool>",
-              generator.name, KernelErrorCode::SchemaValidationFailure));
-        }
-        if (const auto *argumentsElement = FindChild(*generatorElement, "Arguments"))
-        {
-          for (const auto *argumentElement : ChildElements(*argumentsElement, "Arg"))
-          {
-            GeneratorArgument argument{};
-            argument.value = Attribute(*argumentElement, "Value").value_or("");
-            argument.path = Attribute(*argumentElement, "Path").value_or("");
-            argument.profile = Attribute(*argumentElement, "Profile").value_or("");
-            argument.platform = Attribute(*argumentElement, "Platform").value_or("");
-            argument.operatingSystem = Attribute(*argumentElement, "OperatingSystem").value_or("");
-            argument.architecture = Attribute(*argumentElement, "Architecture").value_or("");
-            argument.buildType = Attribute(*argumentElement, "BuildType").value_or("");
-            argument.environment = Attribute(*argumentElement, "Environment").value_or("");
-            argument.condition = Attribute(*argumentElement, "Condition").value_or("");
-            if (argument.value.empty() == argument.path.empty())
-            {
-              return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-                  std::string(context) + ".Arguments.Arg must declare exactly one of Value or Path",
-                  generator.name, KernelErrorCode::SchemaValidationFailure));
-            }
-            generator.arguments.push_back(std::move(argument));
-          }
-        }
-        if (auto inputs = ParseInputDeclarations(*generatorElement,
-                                                 std::string(context) + ".Generator.Inputs",
-                                                 generator.inputs);
-            !inputs)
-        {
-          return NGIN::Utilities::Unexpected<KernelError>(inputs.Error());
-        }
-        const auto *outputsElement = FindChild(*generatorElement, "Outputs");
-        if (outputsElement == nullptr)
-        {
-          return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-              std::string(context) + " generator must declare <Outputs>",
-              generator.name, KernelErrorCode::SchemaValidationFailure));
-        }
-        for (const auto *outputElement : ChildElements(*outputsElement))
-        {
-          auto output = ParseGeneratorOutput(*outputElement,
-                                             std::string(context) + ".Generator.Outputs");
-          if (!output)
-          {
-            return NGIN::Utilities::Unexpected<KernelError>(output.Error());
-          }
-          generator.outputs.push_back(output.Value());
-        }
-        if (generator.outputs.empty())
-        {
-          return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-              std::string(context) + " generator must declare at least one output",
-              generator.name, KernelErrorCode::SchemaValidationFailure));
-        }
-        out.push_back(std::move(generator));
-      }
-      return {};
-    }
-
-    [[nodiscard]] auto ParseBuildSetting(const XmlElement &element,
-                                         const std::string_view context,
-                                         const std::string_view valueAttribute)
-        -> CoreResult<BuildSetting>
-    {
-      BuildSetting setting{};
-
-      auto value = RequireAttribute(element, valueAttribute, context);
-      if (!value)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(value.Error());
-      }
-      setting.value = value.Value();
-
-      auto visibility =
-          OptionalAttribute(element, "Visibility", context, "Private");
-      if (!visibility)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(visibility.Error());
-      }
-      if (visibility.Value() != "Private" && visibility.Value() != "Public" &&
-          visibility.Value() != "Interface")
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-            std::string(context) + " uses unknown build visibility",
-            visibility.Value()));
-      }
-      setting.visibility = visibility.Value();
-      return setting;
-    }
-
-    [[nodiscard]] auto ParseProjectBuildDescriptor(const XmlElement *buildElement,
-                                                   const std::string_view context)
-        -> CoreResult<ProjectBuildDescriptor>
-    {
-      ProjectBuildDescriptor build{};
-      if (buildElement == nullptr)
-      {
-        return build;
-      }
-
-      auto backend = OptionalAttribute(*buildElement, "Backend", context, "CMake");
-      if (!backend)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(backend.Error());
-      }
-      build.backend = backend.Value();
-
-      auto mode = OptionalAttribute(*buildElement, "Mode", context, "Generated");
-      if (!mode)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(mode.Error());
-      }
-      if (mode.Value() != "Generated" && mode.Value() != "Manual")
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-            std::string(context) + " uses unknown build mode", mode.Value()));
-      }
-      build.mode = mode.Value();
-
-      auto language = OptionalAttribute(*buildElement, "Language", context, "CXX");
-      if (!language)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(language.Error());
-      }
-      build.language = language.Value();
-
-      auto languageStandard =
-          OptionalAttribute(*buildElement, "LanguageStandard", context, "23");
-      if (!languageStandard)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(languageStandard.Error());
-      }
-      build.languageStandard = languageStandard.Value();
-
-      if (FindChild(*buildElement, "MetaGen") != nullptr)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-            std::string(context) + ".MetaGen is no longer supported; use package-provided command generators",
-            {}, KernelErrorCode::SchemaValidationFailure));
-      }
-
-      if (const auto *sourcesElement = FindChild(*buildElement, "Sources"))
-      {
-        for (const auto *sourceElement : ChildElements(*sourcesElement, "Source"))
-        {
-          auto path = RequireAttribute(*sourceElement, "Path",
-                                       std::string(context) + ".Sources");
-          if (!path)
-          {
-            return NGIN::Utilities::Unexpected<KernelError>(path.Error());
-          }
-          build.sources.push_back(path.Value());
-        }
-      }
-
-      auto parseSettings =
-          [&](const XmlElement *section, const std::string_view childName,
-              const std::string_view attrName, std::vector<BuildSetting> &output,
-              const std::string &sectionContext) -> CoreResult<void>
-      {
-        if (section == nullptr)
-        {
-          return {};
-        }
-        for (const auto *child : ChildElements(*section, childName))
-        {
-          auto setting = ParseBuildSetting(*child, sectionContext, attrName);
-          if (!setting)
-          {
-            return NGIN::Utilities::Unexpected<KernelError>(setting.Error());
-          }
-          output.push_back(setting.Value());
-        }
-        return {};
-      };
-
-      auto includeDirectories =
-          parseSettings(FindChild(*buildElement, "IncludeDirectories"),
-                        "IncludeDirectory", "Path", build.includeDirectories,
-                        std::string(context) + ".IncludeDirectories");
-      if (!includeDirectories)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(includeDirectories.Error());
-      }
-
-      auto compileDefinitions = parseSettings(
-          FindChild(*buildElement, "CompileDefinitions"), "Definition", "Value",
-          build.compileDefinitions, std::string(context) + ".CompileDefinitions");
-      if (!compileDefinitions)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(compileDefinitions.Error());
-      }
-
-      auto compileOptions = parseSettings(
-          FindChild(*buildElement, "CompileOptions"), "Option", "Value",
-          build.compileOptions, std::string(context) + ".CompileOptions");
-      if (!compileOptions)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(compileOptions.Error());
-      }
-
-      auto linkOptions =
-          parseSettings(FindChild(*buildElement, "LinkOptions"), "Option", "Value",
-                        build.linkOptions, std::string(context) + ".LinkOptions");
-      if (!linkOptions)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(linkOptions.Error());
-      }
-
-      return build;
-    }
-
     [[nodiscard]] auto ParseRuntimeDefinition(const XmlElement *runtimeElement,
                                               const std::string_view context)
         -> CoreResult<RuntimeDefinition>
@@ -1759,1162 +933,68 @@ namespace NGIN::Core
         return runtime;
       }
 
-      if (const auto *modulesElement = FindChild(*runtimeElement, "Modules"))
+      auto parseModule = [&](const XmlElement &moduleElement,
+                             const std::string &moduleContext) -> CoreResult<void>
       {
-        std::size_t index = 0;
-        for (const auto *moduleElement : ChildElements(*modulesElement, "Module"))
+        auto descriptor = ParsePackageModuleDescriptor(moduleElement, moduleContext);
+        if (!descriptor)
         {
-          auto descriptor = ParsePackageModuleDescriptor(
-              *moduleElement,
-              std::string(context) + ".Modules[" + std::to_string(index++) + "]");
-          if (!descriptor)
+          return NGIN::Utilities::Unexpected<KernelError>(descriptor.Error());
+        }
+        for (const auto *provides : ChildElements(moduleElement, "Provides"))
+        {
+          if (const auto service = Attribute(*provides, "Service"); service.has_value())
           {
-            return NGIN::Utilities::Unexpected<KernelError>(descriptor.Error());
+            descriptor.Value().providesServices.push_back(*service);
           }
-          runtime.modules.push_back(descriptor.Value());
         }
-      }
-
-      auto enabled =
-          ParseModuleRefs(FindChild(*runtimeElement, "EnableModules"), "ModuleRef",
-                          std::string(context) + ".EnableModules");
-      if (!enabled)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(enabled.Error());
-      }
-      runtime.enableModules = std::move(enabled.Value());
-
-      auto disabled =
-          ParseModuleRefs(FindChild(*runtimeElement, "DisableModules"), "ModuleRef",
-                          std::string(context) + ".DisableModules");
-      if (!disabled)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(disabled.Error());
-      }
-      runtime.disableModules = std::move(disabled.Value());
-
-      return runtime;
-    }
-
-    struct ProjectDefaults
-    {
-      std::optional<std::string> buildType{};
-      std::optional<std::string> platform{};
-      std::optional<std::string> environment{};
-      std::optional<std::string> backend{};
-      std::optional<std::string> buildMode{};
-      std::optional<std::string> language{};
-      std::optional<std::string> languageStandard{};
-    };
-
-    struct PlatformDefinition
-    {
-      std::string name{};
-      std::string operatingSystem{};
-      std::string architecture{};
-      bool builtIn{false};
-    };
-
-    struct ProjectTemplateDefinition
-    {
-      std::string name{};
-      std::string type{"Application"};
-      std::string outputKind{"Executable"};
-      bool builtIn{false};
-      ProjectDefaults defaults{};
-    };
-
-    struct ProfileTemplateDefinition
-    {
-      std::string name{};
-      std::optional<std::string> extends{};
-      std::optional<std::string> buildType{};
-      std::optional<std::string> platform{};
-      std::optional<std::string> operatingSystem{};
-      std::optional<std::string> architecture{};
-      std::optional<std::string> environment{};
-      std::optional<bool> enableReflection{};
-      std::optional<LaunchDefinition> launch{};
-      std::vector<ProjectReference> projectRefs{};
-      std::vector<PackageReference> packageRefs{};
-      std::vector<InputDeclaration> inputs{};
-      RuntimeDefinition runtime{};
-    };
-
-    struct ModelContext
-    {
-      ProjectDefaults defaults{};
-      std::unordered_map<std::string, PlatformDefinition> platforms{};
-      std::unordered_map<std::string, ProjectTemplateDefinition> projectTemplates{};
-      std::unordered_map<std::string, ProfileTemplateDefinition> profileTemplates{};
-    };
-
-    auto MergeRuntime(RuntimeDefinition &target, const RuntimeDefinition &source)
-        -> void
-    {
-      target.modules.insert(target.modules.end(), source.modules.begin(),
-                            source.modules.end());
-      target.enableModules.insert(target.enableModules.end(),
-                                  source.enableModules.begin(),
-                                  source.enableModules.end());
-      target.disableModules.insert(target.disableModules.end(),
-                                   source.disableModules.begin(),
-                                   source.disableModules.end());
-    }
-
-    [[nodiscard]] auto ResolveChildPath(const IoPath &baseDirectory,
-                                        const std::string &includePath) -> IoPath
-    {
-      const IoPath path(includePath);
-      if (path.IsAbsolute())
-      {
-        return path;
-      }
-      return baseDirectory.Join(includePath);
-    }
-
-    auto MergeDefaultsFromElement(const XmlElement &element, ModelContext &context)
-        -> CoreResult<void>
-    {
-      if (const auto value = Attribute(element, "BuildType"))
-      {
-        context.defaults.buildType = *value;
-      }
-      if (const auto value = Attribute(element, "Platform"))
-      {
-        context.defaults.platform = *value;
-      }
-      if (const auto value = Attribute(element, "Environment"))
-      {
-        context.defaults.environment = *value;
-      }
-      if (const auto value = Attribute(element, "Backend"))
-      {
-        context.defaults.backend = *value;
-      }
-      if (const auto value = Attribute(element, "BuildMode"))
-      {
-        context.defaults.buildMode = *value;
-      }
-      if (const auto value = Attribute(element, "Mode"))
-      {
-        context.defaults.buildMode = *value;
-      }
-      if (const auto value = Attribute(element, "Language"))
-      {
-        context.defaults.language = *value;
-      }
-      if (const auto value = Attribute(element, "LanguageStandard"))
-      {
-        context.defaults.languageStandard = *value;
-      }
-      return {};
-    }
-
-    auto AddPlatform(ModelContext &context, PlatformDefinition platform)
-        -> CoreResult<void>
-    {
-      if (auto it = context.platforms.find(platform.name);
-          it != context.platforms.end())
-      {
-        if (!it->second.builtIn)
+        for (const auto *requirement : ChildElements(moduleElement, "Requires"))
         {
-          return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-              "duplicate platform definition", platform.name,
-              KernelErrorCode::AlreadyExists));
+          if (const auto service = Attribute(*requirement, "Service"); service.has_value())
+          {
+            descriptor.Value().requiresServices.push_back(*service);
+          }
         }
-      }
-      context.platforms[platform.name] = std::move(platform);
-      return {};
-    }
-
-    auto ParsePlatformsInto(const XmlElement &root, ModelContext &context)
-        -> CoreResult<void>
-    {
-      const auto *platforms = FindChild(root, "Platforms");
-      if (platforms == nullptr)
-      {
+        runtime.enableModules.push_back(descriptor.Value().name);
+        runtime.modules.push_back(descriptor.Value());
         return {};
-      }
-      for (const auto *platformElement : ChildElements(*platforms, "Platform"))
-      {
-        auto name = RequireAttribute(*platformElement, "Name", "model.Platform");
-        if (!name)
-        {
-          return NGIN::Utilities::Unexpected<KernelError>(name.Error());
-        }
-        auto operatingSystem = RequireAttribute(*platformElement, "OperatingSystem",
-                                                "model.Platform");
-        if (!operatingSystem)
-        {
-          return NGIN::Utilities::Unexpected<KernelError>(operatingSystem.Error());
-        }
-        auto architecture =
-            RequireAttribute(*platformElement, "Architecture", "model.Platform");
-        if (!architecture)
-        {
-          return NGIN::Utilities::Unexpected<KernelError>(architecture.Error());
-        }
-        auto added = AddPlatform(context, PlatformDefinition{
-                                              .name = name.Value(),
-                                              .operatingSystem = operatingSystem.Value(),
-                                              .architecture = architecture.Value(),
-                                              .builtIn = false});
-        if (!added)
-        {
-          return NGIN::Utilities::Unexpected<KernelError>(added.Error());
-        }
-      }
-      return {};
-    }
+      };
 
-    auto AddProjectTemplate(ModelContext &context,
-                            ProjectTemplateDefinition projectTemplate)
-        -> CoreResult<void>
-    {
-      if (auto it = context.projectTemplates.find(projectTemplate.name);
-          it != context.projectTemplates.end())
+      std::size_t moduleIndex = 0;
+      for (const auto *moduleElement : ChildElements(*runtimeElement, "Module"))
       {
-        if (!it->second.builtIn)
-        {
-          return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-              "duplicate project template", projectTemplate.name,
-              KernelErrorCode::AlreadyExists));
-        }
-      }
-      context.projectTemplates[projectTemplate.name] = std::move(projectTemplate);
-      return {};
-    }
-
-    auto ParseProjectTemplatesInto(const XmlElement &root, ModelContext &context)
-        -> CoreResult<void>
-    {
-      const auto *templates = FindChild(root, "ProjectTemplates");
-      if (templates == nullptr)
-      {
-        return {};
-      }
-      for (const auto *templateElement :
-           ChildElements(*templates, "ProjectTemplate"))
-      {
-        auto name =
-            RequireAttribute(*templateElement, "Name", "model.ProjectTemplate");
-        if (!name)
-        {
-          return NGIN::Utilities::Unexpected<KernelError>(name.Error());
-        }
-        ProjectTemplateDefinition projectTemplate{};
-        projectTemplate.name = name.Value();
-        projectTemplate.defaults = context.defaults;
-        projectTemplate.type =
-            Attribute(*templateElement, "Type").value_or("Application");
-        projectTemplate.outputKind =
-            Attribute(*templateElement, "OutputKind").value_or(
-                projectTemplate.type == "Library" ? "StaticLibrary"
-                                                  : "Executable");
-        if (const auto *outputElement = FindChild(*templateElement, "Output"))
-        {
-          if (const auto kind = Attribute(*outputElement, "Kind"))
-          {
-            projectTemplate.outputKind = *kind;
-          }
-        }
-        if (const auto *defaults = FindChild(*templateElement, "Defaults"))
-        {
-          ModelContext local{.defaults = projectTemplate.defaults};
-          auto merged = MergeDefaultsFromElement(*defaults, local);
-          if (!merged)
-          {
-            return NGIN::Utilities::Unexpected<KernelError>(merged.Error());
-          }
-          projectTemplate.defaults = local.defaults;
-        }
-        auto added = AddProjectTemplate(context, std::move(projectTemplate));
-        if (!added)
-        {
-          return NGIN::Utilities::Unexpected<KernelError>(added.Error());
-        }
-      }
-      return {};
-    }
-
-    [[nodiscard]] auto ParseLaunchDefinition(const XmlElement &element,
-                                             const std::string_view context)
-        -> CoreResult<LaunchDefinition>
-    {
-      auto executable = RequireAttribute(element, "Executable", context);
-      if (!executable)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(executable.Error());
-      }
-      auto workingDirectory =
-          OptionalAttribute(element, "WorkingDirectory", context, ".");
-      if (!workingDirectory)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(workingDirectory.Error());
-      }
-      return LaunchDefinition{.executable = executable.Value(),
-                              .workingDirectory = workingDirectory.Value()};
-    }
-
-    [[nodiscard]] auto ParseProfileTemplateDefinition(
-        const XmlElement &element, const std::string_view context)
-        -> CoreResult<ProfileTemplateDefinition>
-    {
-      ProfileTemplateDefinition profileTemplate{};
-      auto name = RequireAttribute(element, "Name", context);
-      if (!name)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(name.Error());
-      }
-      profileTemplate.name = name.Value();
-      if (const auto extends = Attribute(element, "Extends");
-          extends.has_value() && !extends->empty())
-      {
-        profileTemplate.extends = *extends;
-      }
-      profileTemplate.buildType = Attribute(element, "BuildType");
-      profileTemplate.platform = Attribute(element, "Platform");
-      profileTemplate.operatingSystem = Attribute(element, "OperatingSystem");
-      profileTemplate.architecture = Attribute(element, "Architecture");
-      profileTemplate.environment = Attribute(element, "Environment");
-      if (const auto reflection = Attribute(element, "EnableReflection"))
-      {
-        auto parsed = ParseBoolValue(*reflection,
-                                     std::string(context) + ".EnableReflection");
+        auto parsed = parseModule(
+            *moduleElement,
+            std::string(context) + ".Module[" + std::to_string(moduleIndex++) + "]");
         if (!parsed)
         {
           return NGIN::Utilities::Unexpected<KernelError>(parsed.Error());
         }
-        profileTemplate.enableReflection = parsed.Value();
       }
-      if (const auto *launch = FindChild(element, "Launch"))
+
+      for (const auto *moduleRef : ChildElements(*runtimeElement, "ModuleRef"))
       {
-        auto parsedLaunch =
-            ParseLaunchDefinition(*launch, std::string(context) + ".Launch");
-        if (!parsedLaunch)
+        auto moduleName = RequireAttribute(
+            *moduleRef, "Name", std::string(context) + ".ModuleRef");
+        if (!moduleName)
         {
-          return NGIN::Utilities::Unexpected<KernelError>(parsedLaunch.Error());
+          return NGIN::Utilities::Unexpected<KernelError>(moduleName.Error());
         }
-        profileTemplate.launch = parsedLaunch.Value();
+        runtime.enableModules.push_back(moduleName.Value());
       }
-      if (const auto *references = FindChild(element, "References"))
+
+      for (const auto *moduleRef : ChildElements(*runtimeElement, "DisableModule"))
       {
-        for (const auto *projectElement : ChildElements(*references, "Project"))
+        auto moduleName = RequireAttribute(
+            *moduleRef, "Name", std::string(context) + ".DisableModule");
+        if (!moduleName)
         {
-          auto reference = ParseProjectReference(
-              *projectElement, std::string(context) + ".References.Project");
-          if (!reference)
-          {
-            return NGIN::Utilities::Unexpected<KernelError>(reference.Error());
-          }
-          profileTemplate.projectRefs.push_back(reference.Value());
+          return NGIN::Utilities::Unexpected<KernelError>(moduleName.Error());
         }
-        for (const auto *packageElement : ChildElements(*references, "Package"))
-        {
-          auto package = ParsePackageReference(
-              *packageElement, std::string(context) + ".References.Package");
-          if (!package)
-          {
-            return NGIN::Utilities::Unexpected<KernelError>(package.Error());
-          }
-          profileTemplate.packageRefs.push_back(package.Value());
-        }
-      }
-      if (auto inputs =
-              ParseInputDeclarations(element, context, profileTemplate.inputs);
-          !inputs)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(inputs.Error());
-      }
-      auto runtime =
-          ParseRuntimeDefinition(FindChild(element, "Runtime"),
-                                 std::string(context) + ".Runtime");
-      if (!runtime)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(runtime.Error());
-      }
-      profileTemplate.runtime = std::move(runtime.Value());
-      return profileTemplate;
-    }
-
-    auto AddProfileTemplate(ModelContext &context,
-                            ProfileTemplateDefinition profileTemplate)
-        -> CoreResult<void>
-    {
-      if (context.profileTemplates.contains(profileTemplate.name))
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-            "duplicate profile template", profileTemplate.name,
-            KernelErrorCode::AlreadyExists));
-      }
-      context.profileTemplates[profileTemplate.name] = std::move(profileTemplate);
-      return {};
-    }
-
-    auto ParseProfileTemplatesInto(const XmlElement &root, ModelContext &context)
-        -> CoreResult<void>
-    {
-      const auto *templates = FindChild(root, "ProfileTemplates");
-      if (templates == nullptr)
-      {
-        return {};
-      }
-      std::size_t index = 0;
-      for (const auto *templateElement :
-           ChildElements(*templates, "ProfileTemplate"))
-      {
-        auto profileTemplate = ParseProfileTemplateDefinition(
-            *templateElement,
-            "model.ProfileTemplates[" + std::to_string(index++) + "]");
-        if (!profileTemplate)
-        {
-          return NGIN::Utilities::Unexpected<KernelError>(profileTemplate.Error());
-        }
-        auto added = AddProfileTemplate(context, std::move(profileTemplate.Value()));
-        if (!added)
-        {
-          return NGIN::Utilities::Unexpected<KernelError>(added.Error());
-        }
-      }
-      return {};
-    }
-
-    [[nodiscard]] auto BuiltinModelContext() -> ModelContext
-    {
-      ModelContext context{};
-      (void)AddPlatform(context, {"linux-x64", "linux", "x64", true});
-      (void)AddPlatform(context, {"windows-x64", "windows", "x64", true});
-      (void)AddPlatform(context, {"macos-x64", "macos", "x64", true});
-      (void)AddPlatform(context, {"macos-arm64", "macos", "arm64", true});
-      (void)AddProjectTemplate(context, {"Application", "Application",
-                                         "Executable", true, context.defaults});
-      (void)AddProjectTemplate(context, {"Library", "Library",
-                                         "StaticLibrary", true,
-                                         context.defaults});
-      (void)AddProjectTemplate(context,
-                               {"Tool", "Tool", "Executable", true,
-                                context.defaults});
-      return context;
-    }
-
-    auto ParseModelContributionsInto(const XmlElement &root, ModelContext &context,
-                                     const bool includeDefaults) -> CoreResult<void>
-    {
-      if (includeDefaults)
-      {
-        if (const auto *defaults = FindChild(root, "Defaults"))
-        {
-          auto merged = MergeDefaultsFromElement(*defaults, context);
-          if (!merged)
-          {
-            return NGIN::Utilities::Unexpected<KernelError>(merged.Error());
-          }
-        }
-      }
-      if (auto platforms = ParsePlatformsInto(root, context); !platforms)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(platforms.Error());
-      }
-      if (auto projectTemplates = ParseProjectTemplatesInto(root, context);
-          !projectTemplates)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(projectTemplates.Error());
-      }
-      if (auto profileTemplates = ParseProfileTemplatesInto(root, context);
-          !profileTemplates)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(profileTemplates.Error());
-      }
-      return {};
-    }
-
-    auto LoadIncludesInto(IoFileSystem &fileSystem, const XmlElement &root,
-                          const IoPath &declaringDirectory, ModelContext &context,
-                          std::vector<std::string> &includeStack)
-        -> CoreResult<void>;
-
-    auto LoadModelFileInto(IoFileSystem &fileSystem, const IoPath &modelPath,
-                           ModelContext &context,
-                           std::vector<std::string> &includeStack)
-        -> CoreResult<void>
-    {
-      auto canonical = WeaklyCanonicalPath(fileSystem, modelPath);
-      if (!canonical)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(canonical.Error());
-      }
-      const auto key = ToString(canonical.Value());
-      if (std::find(includeStack.begin(), includeStack.end(), key) !=
-          includeStack.end())
-      {
-        std::ostringstream chain{};
-        for (const auto &entry : includeStack)
-        {
-          chain << entry << " -> ";
-        }
-        chain << key;
-        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-            "model include cycle: " + chain.str(), key,
-            KernelErrorCode::SchemaValidationFailure));
+        runtime.disableModules.push_back(moduleName.Value());
       }
 
-      auto text = ReadTextFile(fileSystem, canonical.Value(), "model");
-      if (!text)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(text.Error());
-      }
-      auto loaded = LoadXmlDocument(text.Value(), "model");
-      if (!loaded)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(loaded.Error());
-      }
-      const auto *root = loaded.Value().document.Root();
-      if (root == nullptr || root->name != "Model")
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-            "model manifest root element must be <Model>", key,
-            KernelErrorCode::SchemaValidationFailure));
-      }
-      auto schemaVersion = OptionalAttribute(*root, "SchemaVersion", "model", "3");
-      if (!schemaVersion)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(schemaVersion.Error());
-      }
-      if (schemaVersion.Value() != "3")
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-            "unsupported model schema version", schemaVersion.Value(),
-            KernelErrorCode::SchemaValidationFailure));
-      }
-
-      includeStack.push_back(key);
-      auto includes = LoadIncludesInto(fileSystem, *root, canonical.Value().Parent(),
-                                       context, includeStack);
-      if (!includes)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(includes.Error());
-      }
-      auto contributions = ParseModelContributionsInto(*root, context, true);
-      includeStack.pop_back();
-      if (!contributions)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(contributions.Error());
-      }
-      return {};
-    }
-
-    auto LoadIncludesInto(IoFileSystem &fileSystem, const XmlElement &root,
-                          const IoPath &declaringDirectory, ModelContext &context,
-                          std::vector<std::string> &includeStack)
-        -> CoreResult<void>
-    {
-      const auto *includes = FindChild(root, "Includes");
-      if (includes == nullptr)
-      {
-        return {};
-      }
-      for (const auto *includeElement : ChildElements(*includes, "Include"))
-      {
-        auto includePath =
-            RequireAttribute(*includeElement, "Path", "model.Includes.Include");
-        if (!includePath)
-        {
-          return NGIN::Utilities::Unexpected<KernelError>(includePath.Error());
-        }
-        auto loaded = LoadModelFileInto(
-            fileSystem, ResolveChildPath(declaringDirectory, includePath.Value()),
-            context, includeStack);
-        if (!loaded)
-        {
-          return NGIN::Utilities::Unexpected<KernelError>(loaded.Error());
-        }
-      }
-      return {};
-    }
-
-    auto LoadWorkspaceModelInto(IoFileSystem &fileSystem,
-                                const IoPath &workspacePath,
-                                ModelContext &context) -> CoreResult<void>
-    {
-      auto text = ReadTextFile(fileSystem, workspacePath, "workspace");
-      if (!text)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(text.Error());
-      }
-      auto loaded = LoadXmlDocument(text.Value(), "workspace");
-      if (!loaded)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(loaded.Error());
-      }
-      const auto *root = loaded.Value().document.Root();
-      if (root == nullptr || root->name != "Workspace")
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(
-            MakeBuilderError("workspace manifest root element must be <Workspace>"));
-      }
-      std::vector<std::string> includeStack{};
-      if (auto includes = LoadIncludesInto(fileSystem, *root, workspacePath.Parent(),
-                                           context, includeStack);
-          !includes)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(includes.Error());
-      }
-      return ParseModelContributionsInto(*root, context, true);
-    }
-
-    [[nodiscard]] auto FindNearestWorkspaceManifest(const IoPath &projectPath)
-        -> std::optional<IoPath>
-    {
-      try
-      {
-        std::filesystem::path current(ToString(projectPath.Parent()));
-        while (!current.empty())
-        {
-          std::vector<std::filesystem::path> candidates{};
-          for (const auto &entry : std::filesystem::directory_iterator(current))
-          {
-            if (entry.is_regular_file() && entry.path().extension() == ".ngin")
-            {
-              candidates.push_back(entry.path());
-            }
-          }
-          if (!candidates.empty())
-          {
-            std::sort(candidates.begin(), candidates.end());
-            return IoPath(candidates.front().string());
-          }
-          const auto parent = current.parent_path();
-          if (parent == current)
-          {
-            break;
-          }
-          current = parent;
-        }
-      }
-      catch (...)
-      {
-      }
-      return std::nullopt;
-    }
-
-    auto ResolveProjectModelContext(IoFileSystem *fileSystem,
-                                    const IoPath *projectPath,
-                                    const XmlElement &projectRoot)
-        -> CoreResult<ModelContext>
-    {
-      auto context = BuiltinModelContext();
-      if (fileSystem != nullptr && projectPath != nullptr)
-      {
-        if (const auto workspacePath = FindNearestWorkspaceManifest(*projectPath);
-            workspacePath.has_value())
-        {
-          if (auto workspace =
-                  LoadWorkspaceModelInto(*fileSystem, *workspacePath, context);
-              !workspace)
-          {
-            return NGIN::Utilities::Unexpected<KernelError>(workspace.Error());
-          }
-        }
-        std::vector<std::string> includeStack{};
-        if (auto includes = LoadIncludesInto(*fileSystem, projectRoot,
-                                             projectPath->Parent(), context,
-                                             includeStack);
-            !includes)
-        {
-          return NGIN::Utilities::Unexpected<KernelError>(includes.Error());
-        }
-      }
-      if (auto projectContributions =
-              ParseModelContributionsInto(projectRoot, context, false);
-          !projectContributions)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(
-            projectContributions.Error());
-      }
-      if (const auto *defaults = FindChild(projectRoot, "Defaults"))
-      {
-        auto merged = MergeDefaultsFromElement(*defaults, context);
-        if (!merged)
-        {
-          return NGIN::Utilities::Unexpected<KernelError>(merged.Error());
-        }
-      }
-      return context;
-    }
-
-    auto ApplyProjectDefaults(ProjectManifest &manifest,
-                              ProjectBuildDescriptor &build,
-                              const ProjectDefaults &defaults) -> void
-    {
-      if (defaults.backend)
-      {
-        build.backend = *defaults.backend;
-      }
-      if (defaults.buildMode)
-      {
-        build.mode = *defaults.buildMode;
-      }
-      if (defaults.language)
-      {
-        build.language = *defaults.language;
-      }
-      if (defaults.languageStandard)
-      {
-        build.languageStandard = *defaults.languageStandard;
-      }
-      (void)manifest;
-    }
-
-    auto ApplyProfileDefaults(ProfileDefinition &profile,
-                              const ProjectDefaults &defaults) -> void
-    {
-      if (defaults.buildType)
-      {
-        profile.buildType = *defaults.buildType;
-      }
-      if (defaults.platform)
-      {
-        profile.platform = *defaults.platform;
-      }
-      if (defaults.environment)
-      {
-        profile.environmentName = *defaults.environment;
-      }
-    }
-
-    auto ApplyPlatformDefinition(ProfileDefinition &profile,
-                                 const ModelContext &context) -> void
-    {
-      const auto platform = context.platforms.find(profile.platform);
-      if (platform == context.platforms.end())
-      {
-        return;
-      }
-      profile.operatingSystem = platform->second.operatingSystem;
-      profile.architecture = platform->second.architecture;
-    }
-
-    auto ApplyProfileTemplate(ProfileDefinition &profile,
-                              const ProfileTemplateDefinition &profileTemplate,
-                              const ModelContext &context,
-                              std::vector<std::string> &templateStack)
-        -> CoreResult<void>
-    {
-      if (std::find(templateStack.begin(), templateStack.end(),
-                    profileTemplate.name) != templateStack.end())
-      {
-        std::ostringstream chain{};
-        for (const auto &entry : templateStack)
-        {
-          chain << entry << " -> ";
-        }
-        chain << profileTemplate.name;
-        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-            "profile template cycle: " + chain.str(), profileTemplate.name,
-            KernelErrorCode::SchemaValidationFailure));
-      }
-      templateStack.push_back(profileTemplate.name);
-      if (profileTemplate.extends)
-      {
-        const auto parent = context.profileTemplates.find(*profileTemplate.extends);
-        if (parent == context.profileTemplates.end())
-        {
-          return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-              "profile template extends unknown template",
-              *profileTemplate.extends,
-              KernelErrorCode::SchemaValidationFailure));
-        }
-        auto applied =
-            ApplyProfileTemplate(profile, parent->second, context, templateStack);
-        if (!applied)
-        {
-          return NGIN::Utilities::Unexpected<KernelError>(applied.Error());
-        }
-      }
-      if (profileTemplate.buildType)
-      {
-        profile.buildType = *profileTemplate.buildType;
-      }
-      if (profileTemplate.platform)
-      {
-        profile.platform = *profileTemplate.platform;
-        ApplyPlatformDefinition(profile, context);
-      }
-      if (profileTemplate.operatingSystem)
-      {
-        profile.operatingSystem = *profileTemplate.operatingSystem;
-      }
-      if (profileTemplate.architecture)
-      {
-        profile.architecture = *profileTemplate.architecture;
-      }
-      if (profileTemplate.environment)
-      {
-        profile.environmentName = *profileTemplate.environment;
-      }
-      if (profileTemplate.enableReflection)
-      {
-        profile.enableReflection = *profileTemplate.enableReflection;
-      }
-      if (profileTemplate.launch)
-      {
-        profile.launch = *profileTemplate.launch;
-      }
-      profile.projectRefs.insert(profile.projectRefs.end(),
-                                 profileTemplate.projectRefs.begin(),
-                                 profileTemplate.projectRefs.end());
-      profile.packageRefs.insert(profile.packageRefs.end(),
-                                 profileTemplate.packageRefs.begin(),
-                                 profileTemplate.packageRefs.end());
-      profile.inputs.insert(profile.inputs.end(),
-                            profileTemplate.inputs.begin(),
-                            profileTemplate.inputs.end());
-      MergeRuntime(profile.runtime, profileTemplate.runtime);
-      templateStack.pop_back();
-      return {};
-    }
-
-    [[nodiscard]] auto ParseEnvironmentDefinition(const XmlElement &element,
-                                                  const std::string_view context)
-        -> CoreResult<EnvironmentDefinition>
-    {
-      EnvironmentDefinition environment{};
-
-      auto name = RequireAttribute(element, "Name", context);
-      if (!name)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(name.Error());
-      }
-      environment.name = name.Value();
-
-      if (const auto *referencesElement = FindChild(element, "References"))
-      {
-        std::size_t projectIndex = 0;
-        for (const auto *projectElement :
-             ChildElements(*referencesElement, "Project"))
-        {
-          auto project = ParseProjectReference(
-              *projectElement, std::string(context) + ".References.Project[" +
-                                   std::to_string(projectIndex++) + "]");
-          if (!project)
-          {
-            return NGIN::Utilities::Unexpected<KernelError>(project.Error());
-          }
-          environment.projectRefs.push_back(project.Value());
-        }
-        for (const auto *packageElement :
-             ChildElements(*referencesElement, "Package"))
-        {
-          auto package = ParsePackageReference(
-              *packageElement, std::string(context) + ".References.Package");
-          if (!package)
-          {
-            return NGIN::Utilities::Unexpected<KernelError>(package.Error());
-          }
-          environment.packageRefs.push_back(package.Value());
-        }
-      }
-
-      if (auto inputs = ParseInputDeclarations(element, context, environment.inputs);
-          !inputs)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(inputs.Error());
-      }
-      if (auto generators = ParseGenerators(element, context, environment.generators);
-          !generators)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(generators.Error());
-      }
-      if (auto featureUses = ParsePackageFeatureUses(element, context);
-          !featureUses)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(featureUses.Error());
-      }
-      else
-      {
-        environment.packageFeatureUses = std::move(featureUses.Value());
-      }
-
-      if (const auto *variables = FindChild(element, "Variables"))
-      {
-        for (const auto *variableElement : ChildElements(*variables, "Variable"))
-        {
-          auto variableName =
-              RequireAttribute(*variableElement, "Name",
-                               std::string(context) + ".Variables.Variable");
-          if (!variableName)
-          {
-            return NGIN::Utilities::Unexpected<KernelError>(variableName.Error());
-          }
-
-          auto value =
-              RequireAttribute(*variableElement, "Value",
-                               std::string(context) + ".Variables.Variable");
-          if (!value)
-          {
-            return NGIN::Utilities::Unexpected<KernelError>(value.Error());
-          }
-
-          environment.variables.push_back(EnvironmentVariable{
-              .name = variableName.Value(),
-              .value = value.Value(),
-          });
-        }
-      }
-
-      if (const auto *features = FindChild(element, "Features"))
-      {
-        for (const auto *featureElement : ChildElements(*features, "Feature"))
-        {
-          auto featureName =
-              RequireAttribute(*featureElement, "Name",
-                               std::string(context) + ".Features.Feature");
-          if (!featureName)
-          {
-            return NGIN::Utilities::Unexpected<KernelError>(featureName.Error());
-          }
-
-          auto enabled = OptionalBoolAttribute(
-              *featureElement, "Enabled",
-              std::string(context) + ".Features.Feature.Enabled", false);
-          if (!enabled)
-          {
-            return NGIN::Utilities::Unexpected<KernelError>(enabled.Error());
-          }
-
-          environment.features.push_back(FeatureFlag{
-              .name = featureName.Value(),
-              .enabled = enabled.Value(),
-              .profile = Attribute(*featureElement, "Profile").value_or(""),
-              .platform = Attribute(*featureElement, "Platform").value_or(""),
-              .operatingSystem = Attribute(*featureElement, "OperatingSystem").value_or(""),
-              .architecture = Attribute(*featureElement, "Architecture").value_or(""),
-              .buildType = Attribute(*featureElement, "BuildType").value_or(""),
-              .environment = Attribute(*featureElement, "Environment").value_or(""),
-              .condition = Attribute(*featureElement, "Condition").value_or(""),
-          });
-        }
-      }
-
-      auto runtime =
-          ParseRuntimeDefinition(FindChild(element, "Runtime"),
-                                 std::string(context) + ".Runtime");
-      if (!runtime)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(runtime.Error());
-      }
-      environment.runtime = std::move(runtime.Value());
-
-      return environment;
-    }
-
-    [[nodiscard]] auto ParseProfileDefinition(const XmlElement &element,
-                                                    const std::string_view context,
-                                                    const ProfileDefinition *base = nullptr)
-        -> CoreResult<ProfileDefinition>
-    {
-      ProfileDefinition profile = base != nullptr
-                                                ? *base
-                                                : ProfileDefinition{};
-
-      auto name = RequireAttribute(element, "Name", context);
-      if (!name)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(name.Error());
-      }
-      profile.name = name.Value();
-
-      auto buildType = OptionalAttribute(
-          element, "BuildType", context,
-          base != nullptr ? profile.buildType : "Debug");
-      if (!buildType)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(buildType.Error());
-      }
-      profile.buildType = buildType.Value();
-
-      if (const auto platform = Attribute(element, "Platform");
-          platform.has_value() || base == nullptr)
-      {
-        profile.platform = platform.value_or("linux-x64");
-
-        std::string defaultOperatingSystem = "linux";
-        std::string defaultArchitecture = "x64";
-        if (profile.platform == "windows-x64")
-        {
-          defaultOperatingSystem = "windows";
-        }
-        else if (profile.platform == "macos-x64")
-        {
-          defaultOperatingSystem = "macos";
-        }
-        else if (profile.platform == "macos-arm64")
-        {
-          defaultOperatingSystem = "macos";
-          defaultArchitecture = "arm64";
-        }
-        profile.operatingSystem = defaultOperatingSystem;
-        profile.architecture = defaultArchitecture;
-      }
-
-      auto operatingSystem =
-          OptionalAttribute(element, "OperatingSystem", context, profile.operatingSystem);
-      if (!operatingSystem)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(operatingSystem.Error());
-      }
-      profile.operatingSystem = operatingSystem.Value();
-      if (!IsValidOperatingSystem(profile.operatingSystem))
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-            "profile uses unknown operating system",
-            profile.operatingSystem,
-            KernelErrorCode::SchemaValidationFailure));
-      }
-
-      auto architecture =
-          OptionalAttribute(element, "Architecture", context, profile.architecture);
-      if (!architecture)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(architecture.Error());
-      }
-      profile.architecture = architecture.Value();
-      if (!IsValidArchitecture(profile.architecture))
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-            "profile uses unknown architecture", profile.architecture,
-            KernelErrorCode::SchemaValidationFailure));
-      }
-
-      if (element.FindAttribute("EnableReflection") != nullptr || base == nullptr)
-      {
-        auto reflection =
-            OptionalBoolAttribute(element, "EnableReflection",
-                                  std::string(context) + ".EnableReflection",
-                                  profile.enableReflection);
-        if (!reflection)
-        {
-          return NGIN::Utilities::Unexpected<KernelError>(reflection.Error());
-        }
-        profile.enableReflection = reflection.Value();
-      }
-
-      auto environment = OptionalAttribute(element, "Environment", context,
-                                           profile.environmentName);
-      if (!environment)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(environment.Error());
-      }
-      profile.environmentName = environment.Value();
-      if (profile.environmentName.empty())
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-            std::string(context) + " must define Environment", {},
-            KernelErrorCode::SchemaValidationFailure));
-      }
-
-      if (const auto *launchElement = FindChild(element, "Launch"))
-      {
-        auto executable = RequireAttribute(*launchElement, "Executable",
-                                           std::string(context) + ".Launch");
-        if (!executable)
-        {
-          return NGIN::Utilities::Unexpected<KernelError>(executable.Error());
-        }
-        auto workingDirectory =
-            OptionalAttribute(*launchElement, "WorkingDirectory",
-                              std::string(context) + ".Launch", ".");
-        if (!workingDirectory)
-        {
-          return NGIN::Utilities::Unexpected<KernelError>(workingDirectory.Error());
-        }
-        profile.launch = LaunchDefinition{
-            .executable = executable.Value(),
-            .workingDirectory = workingDirectory.Value(),
-        };
-      }
-
-      if (const auto *referencesElement = FindChild(element, "References"))
-      {
-        std::size_t projectIndex = 0;
-        for (const auto *projectElement :
-             ChildElements(*referencesElement, "Project"))
-        {
-          auto project = ParseProjectReference(
-              *projectElement, std::string(context) + ".References.Project[" +
-                                   std::to_string(projectIndex++) + "]");
-          if (!project)
-          {
-            return NGIN::Utilities::Unexpected<KernelError>(project.Error());
-          }
-          profile.projectRefs.push_back(project.Value());
-        }
-        for (const auto *packageElement :
-             ChildElements(*referencesElement, "Package"))
-        {
-          auto package = ParsePackageReference(
-              *packageElement, std::string(context) + ".References.Package");
-          if (!package)
-          {
-            return NGIN::Utilities::Unexpected<KernelError>(package.Error());
-          }
-          profile.packageRefs.push_back(package.Value());
-        }
-      }
-
-      if (auto inputs = ParseInputDeclarations(element, context, profile.inputs);
-          !inputs)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(inputs.Error());
-      }
-      if (auto generators = ParseGenerators(element, context, profile.generators);
-          !generators)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(generators.Error());
-      }
-      if (auto featureUses = ParsePackageFeatureUses(element, context);
-          !featureUses)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(featureUses.Error());
-      }
-      else
-      {
-        profile.packageFeatureUses = std::move(featureUses.Value());
-      }
-
-      if (FindChild(element, "EnableModules") != nullptr ||
-          FindChild(element, "DisableModules") != nullptr ||
-          FindChild(element, "Modules") != nullptr)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-            std::string(context) +
-                " must place runtime module selections inside <Runtime>",
-            {}, KernelErrorCode::SchemaValidationFailure));
-      }
-
-      if (const auto *runtimeElement = FindChild(element, "Runtime"))
-      {
-        auto runtime =
-            ParseRuntimeDefinition(runtimeElement, std::string(context) + ".Runtime");
-        if (!runtime)
-        {
-          return NGIN::Utilities::Unexpected<KernelError>(runtime.Error());
-        }
-        profile.runtime.modules.insert(profile.runtime.modules.end(),
-                                             runtime.Value().modules.begin(),
-                                             runtime.Value().modules.end());
-        profile.runtime.enableModules.insert(
-            profile.runtime.enableModules.end(),
-            runtime.Value().enableModules.begin(),
-            runtime.Value().enableModules.end());
-        profile.runtime.disableModules.insert(
-            profile.runtime.disableModules.end(),
-            runtime.Value().disableModules.begin(),
-            runtime.Value().disableModules.end());
-      }
-
-      return profile;
+      return runtime;
     }
 
     [[nodiscard]] auto ParseProjectManifestText(const std::string &text,
@@ -2922,6 +1002,9 @@ namespace NGIN::Core
                                                 const IoPath *manifestPath = nullptr)
         -> CoreResult<ProjectManifest>
     {
+      (void)fileSystem;
+      (void)manifestPath;
+
       auto loaded = LoadXmlDocument(text, "project");
       if (!loaded)
       {
@@ -2938,7 +1021,7 @@ namespace NGIN::Core
       ProjectManifest manifest{};
 
       auto schemaVersion =
-          OptionalAttribute(*root, "SchemaVersion", "project", "3");
+          OptionalAttribute(*root, "SchemaVersion", "project", "4");
       if (!schemaVersion)
       {
         return NGIN::Utilities::Unexpected<KernelError>(schemaVersion.Error());
@@ -2950,252 +1033,7 @@ namespace NGIN::Core
         return NGIN::Utilities::Unexpected<KernelError>(parsedSchema.Error());
       }
       manifest.schemaVersion = parsedSchema.Value();
-      if (manifest.schemaVersion == 4)
-      {
-        auto name = RequireAttribute(*root, "Name", "project");
-        if (!name)
-        {
-          return NGIN::Utilities::Unexpected<KernelError>(name.Error());
-        }
-        manifest.name = name.Value();
-
-        const XmlElement *product = nullptr;
-        for (const auto *child : ChildElements(*root))
-        {
-          if (child->name == "Application" || child->name == "Library" ||
-              child->name == "Tool" || child->name == "Test" ||
-              child->name == "Benchmark" || child->name == "Plugin" ||
-              child->name == "Module" || child->name == "External")
-          {
-            if (product != nullptr)
-            {
-              return NGIN::Utilities::Unexpected<KernelError>(
-                  MakeBuilderError("V4 project must declare exactly one product element"));
-            }
-            product = child;
-          }
-        }
-        if (product == nullptr)
-        {
-          return NGIN::Utilities::Unexpected<KernelError>(
-              MakeBuilderError("V4 project must declare a product element"));
-        }
-
-        manifest.type = product->name == "Library" || product->name == "Plugin" ||
-                                product->name == "Module" || product->name == "External"
-                            ? "Library"
-                            : product->name == "Tool" ? "Tool" : "Application";
-        manifest.defaultProfile =
-            Attribute(*root, "DefaultProfile").value_or("dev");
-        manifest.output = OutputDefinition{
-            .kind = product->name == "Library" || product->name == "Module" ||
-                            product->name == "External"
-                        ? "StaticLibrary"
-                        : product->name == "Plugin" ? "SharedLibrary" : "Executable",
-            .name = manifest.name,
-            .target = manifest.name,
-        };
-        manifest.build = ProjectBuildDescriptor{};
-
-        if (const auto *uses = FindChild(*product, "Uses"))
-        {
-          for (const auto *dependency : ChildElements(*uses))
-          {
-            if (dependency->name != "Package" && dependency->name != "Tool" &&
-                dependency->name != "Runtime")
-            {
-              continue;
-            }
-            PackageReference reference{};
-            auto dependencyName = RequireAttribute(*dependency, "Name", "project.Uses");
-            if (!dependencyName)
-            {
-              return NGIN::Utilities::Unexpected<KernelError>(dependencyName.Error());
-            }
-            reference.name = dependencyName.Value();
-            reference.versionRange =
-                Attribute(*dependency, "Version").value_or(
-                    Attribute(*dependency, "VersionRange").value_or(""));
-            manifest.packageRefs.push_back(reference);
-          }
-        }
-
-        if (const auto *build = FindChild(*product, "Build"))
-        {
-          for (const auto *node : ChildElements(*build))
-          {
-            if (node->name == "Sources")
-            {
-              InputDeclaration input{};
-              input.kind = "Source";
-              input.role = "Source";
-              input.visibility = "Private";
-              input.declaringScope = "project";
-              input.mode = "Glob";
-              input.includePatterns.push_back(
-                  RequireAttribute(*node, "Path", "project.Build.Sources").Value());
-              manifest.inputs.push_back(std::move(input));
-            }
-            else if (node->name == "Define")
-            {
-              auto defineName = RequireAttribute(*node, "Name", "project.Build.Define");
-              if (!defineName)
-              {
-                return NGIN::Utilities::Unexpected<KernelError>(defineName.Error());
-              }
-              BuildSetting setting{};
-              setting.value = defineName.Value();
-              if (const auto value = Attribute(*node, "Value"); value.has_value())
-              {
-                setting.value += "=" + *value;
-              }
-              setting.visibility = Attribute(*node, "Visibility").value_or("Private");
-              manifest.build.compileDefinitions.push_back(std::move(setting));
-            }
-          }
-        }
-
-        if (const auto *stage = FindChild(*product, "Stage"))
-        {
-          for (const auto *node : ChildElements(*stage))
-          {
-            if (node->name != "Config" && node->name != "Content")
-            {
-              continue;
-            }
-            InputDeclaration input{};
-            input.kind = node->name == "Config" ? "Config" : "Content";
-            input.mode = "File";
-            input.visibility = "Private";
-            input.declaringScope = "project";
-            auto source = RequireAttribute(*node, "Source", "project.Stage");
-            if (!source)
-            {
-              return NGIN::Utilities::Unexpected<KernelError>(source.Error());
-            }
-            input.path = source.Value();
-            input.target = Attribute(*node, "Target").value_or("");
-            manifest.inputs.push_back(std::move(input));
-          }
-        }
-
-        if (const auto *runtime = FindChild(*product, "Runtime"))
-        {
-          for (const auto *node : ChildElements(*runtime, "Module"))
-          {
-            ModuleDescriptor module{};
-            auto moduleName = RequireAttribute(*node, "Name", "project.Runtime.Module");
-            if (!moduleName)
-            {
-              return NGIN::Utilities::Unexpected<KernelError>(moduleName.Error());
-            }
-            module.name = moduleName.Value();
-            module.family = ModuleFamily::App;
-            module.type = ModuleType::Runtime;
-            auto stage = ParseStartupStageText(Attribute(*node, "Stage").value_or("Features"));
-            if (!stage)
-            {
-              return NGIN::Utilities::Unexpected<KernelError>(stage.Error());
-            }
-            module.startupStage = stage.Value();
-            for (const auto *provides : ChildElements(*node, "Provides"))
-            {
-              if (const auto service = Attribute(*provides, "Service"); service.has_value())
-              {
-                module.providesServices.push_back(*service);
-              }
-            }
-            for (const auto *requirement : ChildElements(*node, "Requires"))
-            {
-              if (const auto service = Attribute(*requirement, "Service"); service.has_value())
-              {
-                module.requiresServices.push_back(*service);
-              }
-            }
-            manifest.runtime.modules.push_back(module);
-            manifest.runtime.enableModules.push_back(module.name);
-          }
-        }
-
-        LaunchDefinition launch{};
-        launch.executable = manifest.output.name;
-        launch.workingDirectory = "$(StageDir)";
-        if (const auto *launchElement = FindChild(*product, "Launch"))
-        {
-          launch.executable =
-              Attribute(*launchElement, "Executable").value_or(launch.executable);
-          if (launch.executable == "$(OutputName)")
-          {
-            launch.executable = manifest.output.name;
-          }
-          launch.workingDirectory =
-              Attribute(*launchElement, "WorkingDirectory").value_or(launch.workingDirectory);
-        }
-
-        for (const auto *profileElement : ChildElements(*root, "Profile"))
-        {
-          ProfileDefinition profile{};
-          auto profileName = RequireAttribute(*profileElement, "Name", "project.Profile");
-          if (!profileName)
-          {
-            return NGIN::Utilities::Unexpected<KernelError>(profileName.Error());
-          }
-          profile.name = profileName.Value();
-          profile.buildType = "Debug";
-          profile.platform = "linux-x64";
-          profile.operatingSystem = "linux";
-          profile.architecture = "x64";
-          profile.environmentName = "development";
-          profile.launch = launch;
-          if (const auto *defaults = FindChild(*profileElement, "Defaults"))
-          {
-            for (const auto *node : ChildElements(*defaults))
-            {
-              if (node->name == "BuildType")
-              {
-                profile.buildType = Attribute(*node, "Name").value_or(profile.buildType);
-              }
-              else if (node->name == "Environment")
-              {
-                profile.environmentName = Attribute(*node, "Name").value_or(profile.environmentName);
-              }
-              else if (node->name == "TargetPlatform")
-              {
-                profile.platform = Attribute(*node, "Name").value_or(profile.platform);
-                if (profile.platform == "windows-x64")
-                {
-                  profile.operatingSystem = "windows";
-                }
-                else if (profile.platform == "macos-x64")
-                {
-                  profile.operatingSystem = "macos";
-                }
-                else
-                {
-                  profile.operatingSystem = "linux";
-                }
-              }
-            }
-          }
-          EnvironmentDefinition environment{};
-          environment.name = profile.environmentName;
-          manifest.environments.push_back(environment);
-          manifest.profiles.push_back(profile);
-        }
-        if (manifest.profiles.empty())
-        {
-          ProfileDefinition profile{};
-          profile.name = manifest.defaultProfile;
-          profile.environmentName = "development";
-          profile.launch = launch;
-          EnvironmentDefinition environment{};
-          environment.name = profile.environmentName;
-          manifest.environments.push_back(environment);
-          manifest.profiles.push_back(profile);
-        }
-        return manifest;
-      }
-      if (manifest.schemaVersion != 3)
+      if (manifest.schemaVersion != 4)
       {
         return NGIN::Utilities::Unexpected<KernelError>(
             MakeBuilderError("unsupported project schema version",
@@ -3211,259 +1049,379 @@ namespace NGIN::Core
       manifest.name = name.Value();
       manifest.conditions = ParseConditionDefinitions(*root);
 
-      auto modelContext =
-          ResolveProjectModelContext(fileSystem, manifestPath, *root);
-      if (!modelContext)
+      const XmlElement *product = nullptr;
+      for (const auto *child : ChildElements(*root))
       {
-        return NGIN::Utilities::Unexpected<KernelError>(modelContext.Error());
-      }
-
-      auto projectTemplateName =
-          OptionalAttribute(*root, "Template", "project", "Application");
-      if (!projectTemplateName)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(
-            projectTemplateName.Error());
-      }
-      const auto projectTemplateIt =
-          modelContext.Value().projectTemplates.find(projectTemplateName.Value());
-      if (projectTemplateIt == modelContext.Value().projectTemplates.end())
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-            "project uses unknown template", projectTemplateName.Value(),
-            KernelErrorCode::SchemaValidationFailure));
-      }
-      const auto &projectTemplate = projectTemplateIt->second;
-
-      auto type = OptionalAttribute(*root, "Type", "project", {});
-      if (!type)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(type.Error());
-      }
-      if (!type.Value().empty())
-      {
-        manifest.type = type.Value();
-      }
-      else
-      {
-        manifest.type = projectTemplate.type;
-      }
-
-      auto defaultProfile =
-          OptionalAttribute(*root, "DefaultProfile", "project", {});
-      if (!defaultProfile)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(
-            defaultProfile.Error());
-      }
-      manifest.defaultProfile = defaultProfile.Value().empty()
-                                          ? "Runtime"
-                                          : defaultProfile.Value();
-
-      if (auto inputs = ParseInputDeclarations(*root, "project", manifest.inputs);
-          !inputs)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(inputs.Error());
-      }
-      if (auto generators = ParseGenerators(*root, "project", manifest.generators);
-          !generators)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(generators.Error());
-      }
-
-      if (FindChild(*root, "Host") != nullptr)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-            "project manifest root <Host> is no longer supported", {},
-            KernelErrorCode::SchemaValidationFailure));
-      }
-
-      const auto *outputElement = FindChild(*root, "Output");
-      if (outputElement == nullptr)
-      {
-        manifest.output = OutputDefinition{
-            .kind = projectTemplate.outputKind,
-            .name = manifest.name,
-            .target = manifest.name,
-        };
-      }
-      else
-      {
-        auto output = ParseOutputDefinition(*outputElement, "project.Output");
-        if (!output)
+        if (child->name == "Application" || child->name == "Library" ||
+            child->name == "Tool" || child->name == "Test" ||
+            child->name == "Benchmark" || child->name == "Plugin" ||
+            child->name == "Module" || child->name == "External")
         {
-          return NGIN::Utilities::Unexpected<KernelError>(output.Error());
-        }
-        manifest.output = output.Value();
-      }
-
-      const bool validPairing =
-          ((manifest.type == "Application" || manifest.type == "Tool") &&
-           manifest.output.kind == "Executable") ||
-          (manifest.type == "Library" &&
-           (manifest.output.kind == "StaticLibrary" ||
-            manifest.output.kind == "SharedLibrary"));
-      if (!validPairing)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-            "project type and output kind are incompatible",
-            manifest.type + ":" + manifest.output.kind,
-            KernelErrorCode::SchemaValidationFailure));
-      }
-
-      ProjectBuildDescriptor effectiveBuild{};
-      ApplyProjectDefaults(manifest, effectiveBuild, projectTemplate.defaults);
-      ApplyProjectDefaults(manifest, effectiveBuild, modelContext.Value().defaults);
-      const auto *buildElement = FindChild(*root, "Build");
-      auto parsedBuild =
-          ParseProjectBuildDescriptor(buildElement, "project.Build");
-      if (!parsedBuild)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(parsedBuild.Error());
-      }
-      if (buildElement != nullptr)
-      {
-        if (Attribute(*buildElement, "Backend"))
-        {
-          effectiveBuild.backend = parsedBuild.Value().backend;
-        }
-        if (Attribute(*buildElement, "Mode"))
-        {
-          effectiveBuild.mode = parsedBuild.Value().mode;
-        }
-        if (Attribute(*buildElement, "Language"))
-        {
-          effectiveBuild.language = parsedBuild.Value().language;
-        }
-        if (Attribute(*buildElement, "LanguageStandard"))
-        {
-          effectiveBuild.languageStandard = parsedBuild.Value().languageStandard;
-        }
-        effectiveBuild.sources = std::move(parsedBuild.Value().sources);
-        effectiveBuild.includeDirectories =
-            std::move(parsedBuild.Value().includeDirectories);
-        effectiveBuild.compileDefinitions =
-            std::move(parsedBuild.Value().compileDefinitions);
-        effectiveBuild.compileOptions =
-            std::move(parsedBuild.Value().compileOptions);
-        effectiveBuild.linkOptions = std::move(parsedBuild.Value().linkOptions);
-      }
-      manifest.build = std::move(effectiveBuild);
-
-      if (const auto *referencesElement = FindChild(*root, "References"))
-      {
-        std::size_t index = 0;
-        for (const auto *projectRefElement :
-             ChildElements(*referencesElement, "Project"))
-        {
-          auto reference = ParseProjectReference(*projectRefElement,
-                                                 "project.References.Project[" +
-                                                     std::to_string(index++) + "]");
-          if (!reference)
+          if (product != nullptr)
           {
-            return NGIN::Utilities::Unexpected<KernelError>(reference.Error());
+            return NGIN::Utilities::Unexpected<KernelError>(
+                MakeBuilderError("V4 project must declare exactly one product element"));
           }
-          manifest.projectRefs.push_back(reference.Value());
+          product = child;
         }
-        for (const auto *packageElement :
-             ChildElements(*referencesElement, "Package"))
+      }
+      if (product == nullptr)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(
+            MakeBuilderError("V4 project must declare a product element"));
+      }
+
+      manifest.type = product->name == "Library" || product->name == "Plugin" ||
+                              product->name == "Module" || product->name == "External"
+                          ? "Library"
+                          : product->name == "Tool" ? "Tool" : "Application";
+      manifest.defaultProfile = Attribute(*root, "DefaultProfile").value_or("dev");
+      manifest.output = OutputDefinition{
+          .kind = product->name == "Library" || product->name == "Module" ||
+                          product->name == "External"
+                      ? "StaticLibrary"
+                      : product->name == "Plugin" ? "SharedLibrary" : "Executable",
+          .name = manifest.name,
+          .target = manifest.name,
+      };
+      manifest.build = ProjectBuildDescriptor{};
+
+      auto addEnvironment = [&](const std::string &environmentName)
+      {
+        if (environmentName.empty())
         {
-          auto package =
-              ParsePackageReference(*packageElement, "project.References.Package");
+          return;
+        }
+        const auto exists = std::any_of(
+            manifest.environments.begin(), manifest.environments.end(),
+            [&](const EnvironmentDefinition &environment)
+            {
+              return environment.name == environmentName;
+            });
+        if (!exists)
+        {
+          manifest.environments.push_back(EnvironmentDefinition{.name = environmentName});
+        }
+      };
+
+      auto applyTargetPlatform = [](ProfileDefinition &profile,
+                                    const std::string &platform)
+      {
+        profile.platform = platform;
+        profile.operatingSystem = "linux";
+        profile.architecture = "x64";
+        if (platform == "windows-x64")
+        {
+          profile.operatingSystem = "windows";
+        }
+        else if (platform == "macos-x64")
+        {
+          profile.operatingSystem = "macos";
+        }
+        else if (platform == "macos-arm64" || platform == "linux-arm64")
+        {
+          profile.operatingSystem = platform == "macos-arm64" ? "macos" : "linux";
+          profile.architecture = "arm64";
+        }
+      };
+
+      auto parseUses = [&](const XmlElement &owner, const std::string &context)
+          -> CoreResult<void>
+      {
+        const auto *uses = FindChild(owner, "Uses");
+        if (uses == nullptr)
+        {
+          return {};
+        }
+        for (const auto *dependency : ChildElements(*uses))
+        {
+          if (dependency->name == "Project")
+          {
+            auto reference = ParseProjectReference(
+                *dependency, context + ".Uses.Project");
+            if (!reference)
+            {
+              return NGIN::Utilities::Unexpected<KernelError>(reference.Error());
+            }
+            manifest.projectRefs.push_back(reference.Value());
+            continue;
+          }
+          if (dependency->name != "Package" && dependency->name != "Tool" &&
+              dependency->name != "Runtime")
+          {
+            continue;
+          }
+          auto package = ParsePackageReference(*dependency, context + ".Uses");
           if (!package)
           {
             return NGIN::Utilities::Unexpected<KernelError>(package.Error());
           }
           manifest.packageRefs.push_back(package.Value());
-        }
-      }
-      if (auto featureUses = ParsePackageFeatureUses(*root, "project");
-          !featureUses)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(featureUses.Error());
-      }
-      else
-      {
-        manifest.packageFeatureUses = std::move(featureUses.Value());
-      }
-
-      if (const auto *environmentsElement = FindChild(*root, "Environments"))
-      {
-        std::set<std::string> environmentNames{};
-        std::size_t environmentIndex = 0;
-        for (const auto *environmentElement :
-             ChildElements(*environmentsElement, "Environment"))
-        {
-          auto environment = ParseEnvironmentDefinition(
-              *environmentElement,
-              "project.Environments[" + std::to_string(environmentIndex++) + "]");
-          if (!environment)
+          for (const auto *feature : ChildElements(*dependency, "Feature"))
           {
-            return NGIN::Utilities::Unexpected<KernelError>(environment.Error());
+            auto featureName = RequireAttribute(
+                *feature, "Name", context + ".Uses.Feature");
+            if (!featureName)
+            {
+              return NGIN::Utilities::Unexpected<KernelError>(featureName.Error());
+            }
+            manifest.packageFeatureUses.push_back(PackageFeatureUse{
+                .packageName = package.Value().name,
+                .featureName = featureName.Value(),
+                .versionRange = package.Value().versionRange,
+            });
           }
-          if (!environmentNames.insert(environment.Value().name).second)
+        }
+        return {};
+      };
+
+      auto addPathInput = [](std::vector<InputDeclaration> &target,
+                             const XmlElement &node,
+                             const std::string &kind,
+                             const std::string &role,
+                             const std::string &context) -> CoreResult<void>
+      {
+        auto path = RequireAttribute(node, "Path", context);
+        if (!path)
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(path.Error());
+        }
+        InputDeclaration input{};
+        input.kind = kind;
+        input.role = role;
+        input.visibility = Attribute(node, "Visibility").value_or(
+            role == "Header" ? "Public" : "Private");
+        input.declaringScope = "project";
+        input.mode = "Glob";
+        input.includePatterns.push_back(path.Value());
+        input.pattern = path.Value();
+        target.push_back(std::move(input));
+        return {};
+      };
+
+      auto parseBuild = [&](const XmlElement &owner, std::vector<InputDeclaration> &inputs,
+                            ProjectBuildDescriptor &build,
+                            const std::string &context) -> CoreResult<void>
+      {
+        const auto *buildElement = FindChild(owner, "Build");
+        if (buildElement == nullptr)
+        {
+          return {};
+        }
+        if (const auto *language = FindChild(*buildElement, "Language"))
+        {
+          build.language = "CXX";
+          build.languageStandard = Attribute(*language, "Standard").value_or("C++23");
+          if (build.languageStandard.starts_with("C++"))
           {
-            return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-                "duplicate environment name", environment.Value().name,
-                KernelErrorCode::AlreadyExists));
+            build.languageStandard = build.languageStandard.substr(3);
           }
-          manifest.environments.push_back(environment.Value());
         }
-      }
-
-      auto runtime =
-          ParseRuntimeDefinition(FindChild(*root, "Runtime"), "project.Runtime");
-      if (!runtime)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(runtime.Error());
-      }
-      manifest.runtime = std::move(runtime.Value());
-
-      std::optional<LaunchDefinition> rootLaunch{};
-      if (const auto *launchElement = FindChild(*root, "Launch"))
-      {
-        if (manifest.type == "Library")
+        for (const auto *node : ChildElements(*buildElement))
         {
-          return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-              "library projects may not define root <Launch>", manifest.name,
-              KernelErrorCode::SchemaValidationFailure));
+          if (node->name == "Sources")
+          {
+            auto added = addPathInput(inputs, *node, "Source", "Source",
+                                      context + ".Build.Sources");
+            if (!added)
+            {
+              return NGIN::Utilities::Unexpected<KernelError>(added.Error());
+            }
+          }
+          else if (node->name == "Headers")
+          {
+            auto added = addPathInput(inputs, *node, "Source", "Header",
+                                      context + ".Build.Headers");
+            if (!added)
+            {
+              return NGIN::Utilities::Unexpected<KernelError>(added.Error());
+            }
+          }
+          else if (node->name == "IncludePath")
+          {
+            auto path = RequireAttribute(*node, "Path", context + ".Build.IncludePath");
+            if (!path)
+            {
+              return NGIN::Utilities::Unexpected<KernelError>(path.Error());
+            }
+            build.includeDirectories.push_back(BuildSetting{
+                .value = path.Value(),
+                .visibility = Attribute(*node, "Visibility").value_or("Private"),
+            });
+          }
+          else if (node->name == "Define")
+          {
+            auto defineName = RequireAttribute(*node, "Name", context + ".Build.Define");
+            if (!defineName)
+            {
+              return NGIN::Utilities::Unexpected<KernelError>(defineName.Error());
+            }
+            BuildSetting setting{};
+            setting.value = defineName.Value();
+            if (const auto value = Attribute(*node, "Value"); value.has_value())
+            {
+              setting.value += "=" + *value;
+            }
+            setting.visibility = Attribute(*node, "Visibility").value_or("Private");
+            build.compileDefinitions.push_back(std::move(setting));
+          }
+          else if (node->name == "CompileOption")
+          {
+            auto value = RequireAttribute(*node, "Value", context + ".Build.CompileOption");
+            if (!value)
+            {
+              return NGIN::Utilities::Unexpected<KernelError>(value.Error());
+            }
+            build.compileOptions.push_back(BuildSetting{.value = value.Value()});
+          }
+          else if (node->name == "LinkOption" || node->name == "LinkLibrary")
+          {
+            auto value = RequireAttribute(
+                *node, node->name == "LinkLibrary" ? "Name" : "Value",
+                context + ".Build." + std::string(node->name));
+            if (!value)
+            {
+              return NGIN::Utilities::Unexpected<KernelError>(value.Error());
+            }
+            build.linkOptions.push_back(BuildSetting{.value = value.Value()});
+          }
         }
-        auto parsedLaunch =
-            ParseLaunchDefinition(*launchElement, "project.Launch");
-        if (!parsedLaunch)
+        return {};
+      };
+
+      auto parseStage = [&](const XmlElement &owner,
+                            std::vector<InputDeclaration> &inputs,
+                            const std::string &context) -> CoreResult<void>
+      {
+        const auto *stage = FindChild(owner, "Stage");
+        if (stage == nullptr)
         {
-          return NGIN::Utilities::Unexpected<KernelError>(parsedLaunch.Error());
+          return {};
         }
-        rootLaunch = parsedLaunch.Value();
+        for (const auto *node : ChildElements(*stage))
+        {
+          if (node->name != "Config" && node->name != "Content" &&
+              node->name != "Asset")
+          {
+            continue;
+          }
+          auto source = RequireAttribute(*node, "Source", context + ".Stage");
+          if (!source)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(source.Error());
+          }
+          InputDeclaration input{};
+          input.kind = node->name == "Config" ? "Config" : std::string(node->name);
+          input.mode = source.Value().find('*') != std::string::npos ? "Glob" : "File";
+          input.visibility = "Private";
+          input.declaringScope = "project";
+          input.path = source.Value();
+          input.pattern = source.Value();
+          input.target = Attribute(*node, "Target").value_or("");
+          input.overrideExisting = Attribute(*node, "Collision").value_or("") == "Override";
+          inputs.push_back(std::move(input));
+        }
+        return {};
+      };
+
+      auto parseRuntimeInto = [&](const XmlElement &owner,
+                                  RuntimeDefinition &runtime,
+                                  const std::string &context) -> CoreResult<void>
+      {
+        auto parsed = ParseRuntimeDefinition(FindChild(owner, "Runtime"),
+                                             context + ".Runtime");
+        if (!parsed)
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(parsed.Error());
+        }
+        runtime.modules.insert(runtime.modules.end(),
+                               parsed.Value().modules.begin(),
+                               parsed.Value().modules.end());
+        runtime.enableModules.insert(runtime.enableModules.end(),
+                                     parsed.Value().enableModules.begin(),
+                                     parsed.Value().enableModules.end());
+        runtime.disableModules.insert(runtime.disableModules.end(),
+                                      parsed.Value().disableModules.begin(),
+                                      parsed.Value().disableModules.end());
+        return {};
+      };
+
+      auto parseEnvironmentInto = [&](const XmlElement &owner,
+                                      EnvironmentDefinition &environment) -> void
+      {
+        if (const auto *environmentElement = FindChild(owner, "Environment"))
+        {
+          for (const auto *env : ChildElements(*environmentElement, "Env"))
+          {
+            environment.variables.push_back(EnvironmentVariable{
+                .name = Attribute(*env, "Name").value_or(""),
+                .value = Attribute(*env, "Value").value_or(""),
+            });
+          }
+        }
+      };
+
+      auto parseLaunch = [&](const XmlElement &owner,
+                             LaunchDefinition current) -> LaunchDefinition
+      {
+        if (const auto *launchElement = FindChild(owner, "Launch"))
+        {
+          current.executable =
+              Attribute(*launchElement, "Executable").value_or(current.executable);
+          if (current.executable == "$(OutputName)")
+          {
+            current.executable = manifest.output.name;
+          }
+          current.workingDirectory =
+              Attribute(*launchElement, "WorkingDirectory").value_or(current.workingDirectory);
+        }
+        return current;
+      };
+
+      auto parsedUses = parseUses(*product, "project." + std::string(product->name));
+      if (!parsedUses)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(parsedUses.Error());
+      }
+      auto parsedBuild = parseBuild(*product, manifest.inputs, manifest.build,
+                                    "project." + std::string(product->name));
+      if (!parsedBuild)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(parsedBuild.Error());
+      }
+      auto parsedStage = parseStage(*product, manifest.inputs,
+                                    "project." + std::string(product->name));
+      if (!parsedStage)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(parsedStage.Error());
+      }
+      auto parsedRuntime = parseRuntimeInto(*product, manifest.runtime,
+                                            "project." + std::string(product->name));
+      if (!parsedRuntime)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(parsedRuntime.Error());
       }
 
-      const auto *profilesElement = FindChild(*root, "Profiles");
-      if (profilesElement == nullptr)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(
-            MakeBuilderError("project must contain a <Profiles> element"));
-      }
+      LaunchDefinition defaultLaunch{};
+      defaultLaunch.executable = manifest.output.name;
+      defaultLaunch.workingDirectory = "$(StageDir)";
+      defaultLaunch = parseLaunch(*product, defaultLaunch);
+
+      EnvironmentDefinition productEnvironment{};
+      productEnvironment.name = "development";
+      parseEnvironmentInto(*product, productEnvironment);
 
       std::unordered_map<std::string, std::size_t> profileIndexes{};
-      std::size_t index = 0;
-      for (const auto *configurationElement :
-           ChildElements(*profilesElement, "Profile"))
+      for (const auto *profileElement : ChildElements(*root, "Profile"))
       {
-        auto profileName =
-            RequireAttribute(*configurationElement, "Name",
-                             "project.Profiles[" + std::to_string(index) + "]");
+        ProfileDefinition profile{};
+        auto profileName = RequireAttribute(*profileElement, "Name", "project.Profile");
         if (!profileName)
         {
           return NGIN::Utilities::Unexpected<KernelError>(profileName.Error());
         }
-        if (profileIndexes.contains(profileName.Value()))
-        {
-          return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-              "duplicate profile name", profileName.Value(),
-              KernelErrorCode::AlreadyExists));
-        }
-        const ProfileDefinition *baseProfile = nullptr;
-        if (const auto extends = Attribute(*configurationElement, "Extends");
+        profile.name = profileName.Value();
+        if (const auto extends = Attribute(*profileElement, "Extends");
             extends.has_value() && !extends->empty())
         {
           const auto parent = profileIndexes.find(*extends);
@@ -3473,80 +1431,86 @@ namespace NGIN::Core
                 "profile extends unknown or later profile", *extends,
                 KernelErrorCode::SchemaValidationFailure));
           }
-          baseProfile = &manifest.profiles[parent->second];
+          profile = manifest.profiles[parent->second];
+          profile.name = profileName.Value();
         }
-        ProfileDefinition effectiveBase =
-            baseProfile != nullptr ? *baseProfile : ProfileDefinition{};
-        if (baseProfile == nullptr)
+        else
         {
-          ApplyProfileDefaults(effectiveBase, modelContext.Value().defaults);
-          ApplyPlatformDefinition(effectiveBase, modelContext.Value());
+          profile.environmentName = "development";
+          profile.launch = defaultLaunch;
         }
-        if (const auto profileTemplateName =
-                Attribute(*configurationElement, "Template");
-            profileTemplateName.has_value() && !profileTemplateName->empty())
+        if (const auto *defaults = FindChild(*profileElement, "Defaults"))
         {
-          const auto profileTemplateIt =
-              modelContext.Value().profileTemplates.find(*profileTemplateName);
-          if (profileTemplateIt == modelContext.Value().profileTemplates.end())
+          for (const auto *node : ChildElements(*defaults))
           {
-            return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-                "profile uses unknown template", *profileTemplateName,
-                KernelErrorCode::SchemaValidationFailure));
-          }
-          std::vector<std::string> templateStack{};
-          auto applied = ApplyProfileTemplate(effectiveBase,
-                                              profileTemplateIt->second,
-                                              modelContext.Value(),
-                                              templateStack);
-          if (!applied)
-          {
-            return NGIN::Utilities::Unexpected<KernelError>(applied.Error());
+            if (node->name == "BuildType")
+            {
+              profile.buildType = Attribute(*node, "Name").value_or(profile.buildType);
+            }
+            else if (node->name == "Environment")
+            {
+              profile.environmentName =
+                  Attribute(*node, "Name").value_or(profile.environmentName);
+            }
+            else if (node->name == "TargetPlatform")
+            {
+              applyTargetPlatform(profile,
+                                  Attribute(*node, "Name").value_or(profile.platform));
+            }
           }
         }
-        auto profile = ParseProfileDefinition(
-            *configurationElement,
-            "project.Profiles[" + std::to_string(index++) + "]",
-            &effectiveBase);
-        if (!profile)
+        if (const auto *overlayProduct = FindChild(*profileElement, product->name))
         {
-          return NGIN::Utilities::Unexpected<KernelError>(profile.Error());
-        }
-        if (!profile.Value().launch.has_value() && rootLaunch.has_value())
-        {
-          profile.Value().launch = rootLaunch;
-        }
-        if (profile.Value().launch.has_value() &&
-            profile.Value().launch->executable == "$(OutputName)")
-        {
-          profile.Value().launch->executable = manifest.output.name;
-        }
-        if (!profile.Value().environmentName.empty())
-        {
-          const auto environmentIt = std::find_if(
-              manifest.environments.begin(), manifest.environments.end(),
-              [&](const EnvironmentDefinition &environment)
-              {
-                return environment.name == profile.Value().environmentName;
-              });
-          if (environmentIt == manifest.environments.end())
+          auto overlayBuild = parseBuild(*overlayProduct, profile.inputs,
+                                         manifest.build,
+                                         "project.Profile." + std::string(product->name));
+          if (!overlayBuild)
           {
-            return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-                "profile selects unknown environment",
-                profile.Value().environmentName,
-                KernelErrorCode::SchemaValidationFailure));
+            return NGIN::Utilities::Unexpected<KernelError>(overlayBuild.Error());
           }
+          auto overlayStage = parseStage(*overlayProduct, profile.inputs,
+                                         "project.Profile." + std::string(product->name));
+          if (!overlayStage)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(overlayStage.Error());
+          }
+          auto overlayRuntime = parseRuntimeInto(
+              *overlayProduct, profile.runtime,
+              "project.Profile." + std::string(product->name));
+          if (!overlayRuntime)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(overlayRuntime.Error());
+          }
+          profile.launch = parseLaunch(*overlayProduct,
+                                       profile.launch.value_or(defaultLaunch));
         }
-        if (manifest.type == "Library" && profile.Value().launch.has_value())
+        addEnvironment(profile.environmentName);
+        profileIndexes.emplace(profile.name, manifest.profiles.size());
+        manifest.profiles.push_back(std::move(profile));
+      }
+
+      if (manifest.profiles.empty())
+      {
+        ProfileDefinition profile{};
+        profile.name = manifest.defaultProfile;
+        profile.environmentName = productEnvironment.name;
+        profile.launch = defaultLaunch;
+        addEnvironment(profile.environmentName);
+        manifest.profiles.push_back(std::move(profile));
+      }
+      else
+      {
+        addEnvironment(productEnvironment.name);
+      }
+      for (auto &environment : manifest.environments)
+      {
+        if (environment.name == productEnvironment.name)
         {
-          return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-              "library profiles may not define <Launch>",
-              profile.Value().name,
-              KernelErrorCode::SchemaValidationFailure));
+          environment.variables.insert(environment.variables.end(),
+                                       productEnvironment.variables.begin(),
+                                       productEnvironment.variables.end());
+          break;
         }
-        profileIndexes.emplace(profile.Value().name,
-                                     manifest.profiles.size());
-        manifest.profiles.push_back(profile.Value());
       }
 
       return manifest;
@@ -3825,7 +1789,7 @@ namespace NGIN::Core
       PackageManifest manifest{};
 
       auto schemaVersion =
-          OptionalAttribute(*root, "SchemaVersion", "package", "3");
+          OptionalAttribute(*root, "SchemaVersion", "package", "4");
       if (!schemaVersion)
       {
         return NGIN::Utilities::Unexpected<KernelError>(schemaVersion.Error());
@@ -3837,7 +1801,7 @@ namespace NGIN::Core
         return NGIN::Utilities::Unexpected<KernelError>(parsedSchema.Error());
       }
       manifest.schemaVersion = parsedSchema.Value();
-      if (manifest.schemaVersion != 3)
+      if (manifest.schemaVersion != 4)
       {
         return NGIN::Utilities::Unexpected<KernelError>(
             MakeBuilderError("unsupported package schema version",
@@ -3861,7 +1825,7 @@ namespace NGIN::Core
       manifest.version = version.Value();
 
       auto platformRange =
-          RequireAttribute(*root, "CompatiblePlatformRange", "package");
+          OptionalAttribute(*root, "CompatiblePlatformRange", "package", ">=0.0.0");
       if (!platformRange)
       {
         return NGIN::Utilities::Unexpected<KernelError>(platformRange.Error());
@@ -3876,132 +1840,120 @@ namespace NGIN::Core
         return NGIN::Utilities::Unexpected<KernelError>(compatibility.Error());
       }
 
-      if (const auto *dependenciesElement = FindChild(*root, "Dependencies"))
+      auto parseUses = [&](const XmlElement &owner,
+                           std::vector<PackageReference> &dependencies,
+                           const std::string &context) -> CoreResult<void>
       {
-        if (FindChild(*dependenciesElement, "Dependency") != nullptr)
+        const auto *uses = FindChild(owner, "Uses");
+        if (uses == nullptr)
         {
-          return NGIN::Utilities::Unexpected<KernelError>(
-              MakeBuilderError("package dependencies use legacy <Dependency>; use <PackageRef>",
-                               "package.Dependencies", KernelErrorCode::InvalidArgument));
+          return {};
         }
-        for (const auto *dependencyElement :
-             ChildElements(*dependenciesElement, "PackageRef"))
+        for (const auto *dependency : ChildElements(*uses))
         {
-          auto reference =
-              ParsePackageReference(*dependencyElement, "package.Dependencies");
-          if (!reference)
+          if (dependency->name != "Package" && dependency->name != "Tool" &&
+              dependency->name != "Runtime")
           {
-            return NGIN::Utilities::Unexpected<KernelError>(reference.Error());
+            continue;
           }
-          manifest.dependencies.push_back(reference.Value());
+          auto package = ParsePackageReference(*dependency, context + ".Uses");
+          if (!package)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(package.Error());
+          }
+          dependencies.push_back(package.Value());
+        }
+        return {};
+      };
+
+      auto rootUses = parseUses(*root, manifest.dependencies, "package");
+      if (!rootUses)
+      {
+        return NGIN::Utilities::Unexpected<KernelError>(rootUses.Error());
+      }
+
+      if (const auto *runtimeElement = FindChild(*root, "Runtime"))
+      {
+        if (const auto *bootstrapElement = FindChild(*runtimeElement, "Bootstrap"))
+        {
+          auto modeText =
+              OptionalAttribute(*bootstrapElement, "Mode",
+                                "package.Runtime.Bootstrap", "BuilderHookV1");
+          if (!modeText)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(modeText.Error());
+          }
+          auto mode = ParsePackageBootstrapMode(modeText.Value());
+          if (!mode)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(mode.Error());
+          }
+          auto entryPoint =
+              RequireAttribute(*bootstrapElement, "EntryPoint",
+                               "package.Runtime.Bootstrap");
+          if (!entryPoint)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(entryPoint.Error());
+          }
+          auto autoApply = OptionalBoolAttribute(
+              *bootstrapElement, "AutoApply",
+              "package.Runtime.Bootstrap.AutoApply", false);
+          if (!autoApply)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(autoApply.Error());
+          }
+          manifest.bootstrap = PackageBootstrapDescriptor{
+              .mode = mode.Value(),
+              .entryPoint = entryPoint.Value(),
+              .autoApply = autoApply.Value(),
+          };
+        }
+
+        auto runtime =
+            ParseRuntimeDefinition(runtimeElement, "package.Runtime");
+        if (!runtime)
+        {
+          return NGIN::Utilities::Unexpected<KernelError>(runtime.Error());
+        }
+        manifest.modules = std::move(runtime.Value().modules);
+      }
+
+      if (const auto *library = FindChild(*root, "Library"))
+      {
+        if (const auto *exports = FindChild(*library, "Exports"))
+        {
+          for (const auto *headers : ChildElements(*exports, "Headers"))
+          {
+            if (const auto path = Attribute(*headers, "Path"); path.has_value())
+            {
+              manifest.inputs.push_back(InputDeclaration{
+                  .kind = "Source",
+                  .role = "Header",
+                  .path = *path,
+                  .pattern = *path,
+                  .mode = "Glob",
+                  .visibility = "Public",
+                  .declaringScope = "package",
+              });
+            }
+          }
         }
       }
 
-      if (const auto *bootstrapElement = FindChild(*root, "Bootstrap"))
+      if (const auto *toolProduct = FindChild(*root, "Tool"))
       {
-        auto modeText =
-            RequireAttribute(*bootstrapElement, "Mode", "package.Bootstrap");
-        if (!modeText)
+        if (const auto *exports = FindChild(*toolProduct, "Exports"))
         {
-          return NGIN::Utilities::Unexpected<KernelError>(modeText.Error());
-        }
-        auto mode = ParsePackageBootstrapMode(modeText.Value());
-        if (!mode)
-        {
-          return NGIN::Utilities::Unexpected<KernelError>(mode.Error());
-        }
-
-        auto entryPoint =
-            RequireAttribute(*bootstrapElement, "EntryPoint", "package.Bootstrap");
-        if (!entryPoint)
-        {
-          return NGIN::Utilities::Unexpected<KernelError>(entryPoint.Error());
-        }
-
-        auto autoApply = OptionalBoolAttribute(
-            *bootstrapElement, "AutoApply", "package.Bootstrap.AutoApply", false);
-        if (!autoApply)
-        {
-          return NGIN::Utilities::Unexpected<KernelError>(autoApply.Error());
-        }
-
-        manifest.bootstrap = PackageBootstrapDescriptor{
-            .mode = mode.Value(),
-            .entryPoint = entryPoint.Value(),
-            .autoApply = autoApply.Value(),
-        };
-      }
-
-      if (auto inputs = ParseInputDeclarations(*root, "package", manifest.inputs);
-          !inputs)
-      {
-        return NGIN::Utilities::Unexpected<KernelError>(inputs.Error());
-      }
-
-      if (const auto *toolsElement = FindChild(*root, "Tools"))
-      {
-        std::set<std::string> toolNames{};
-        for (const auto *toolElement : ChildElements(*toolsElement, "Tool"))
-        {
-          auto tool = ParseToolDeclaration(*toolElement, "package.Tools.Tool", true);
-          if (!tool)
+          for (const auto *tool : ChildElements(*exports, "Tool"))
           {
-            return NGIN::Utilities::Unexpected<KernelError>(tool.Error());
+            auto parsed = ParseToolDeclaration(
+                *tool, "package.Tool.Exports.Tool", true);
+            if (!parsed)
+            {
+              return NGIN::Utilities::Unexpected<KernelError>(parsed.Error());
+            }
+            manifest.tools.push_back(parsed.Value());
           }
-          if (!toolNames.insert(tool.Value().name).second)
-          {
-            return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-                "duplicate package tool declaration", tool.Value().name,
-                KernelErrorCode::AlreadyExists));
-          }
-          manifest.tools.push_back(tool.Value());
-        }
-      }
-
-      std::set<std::string> moduleNames{};
-      if (const auto *modulesElement = FindChild(*root, "Modules"))
-      {
-        for (const auto *moduleElement :
-             ChildElements(*modulesElement, "Module"))
-        {
-          auto module = ParsePackageModuleDescriptor(
-              *moduleElement, "package.Modules.Module");
-          if (!module)
-          {
-            return NGIN::Utilities::Unexpected<KernelError>(module.Error());
-          }
-
-          if (!moduleNames.insert(module.Value().name).second)
-          {
-            return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-                "duplicate package module declaration", module.Value().name,
-                KernelErrorCode::AlreadyExists));
-          }
-
-          manifest.modules.push_back(module.Value());
-        }
-      }
-
-      if (const auto *pluginsElement = FindChild(*root, "Plugins"))
-      {
-        std::set<std::string> pluginNames{};
-        for (const auto *pluginElement : ChildElements(*pluginsElement, "Plugin"))
-        {
-          auto plugin =
-              ParsePackagePluginManifest(*pluginElement, "package.Plugins.Plugin");
-          if (!plugin)
-          {
-            return NGIN::Utilities::Unexpected<KernelError>(plugin.Error());
-          }
-
-          if (!pluginNames.insert(plugin.Value().name).second)
-          {
-            return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-                "duplicate package plugin declaration", plugin.Value().name,
-                KernelErrorCode::AlreadyExists));
-          }
-
-          manifest.plugins.push_back(plugin.Value());
         }
       }
 
@@ -4031,6 +1983,13 @@ namespace NGIN::Core
                 "duplicate package feature declaration", feature.name,
                 KernelErrorCode::AlreadyExists));
           }
+          auto featureUses =
+              parseUses(*featureElement, feature.dependencies,
+                        "package.Features.Feature");
+          if (!featureUses)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(featureUses.Error());
+          }
           if (const auto *provides = FindChild(*featureElement, "Provides"))
           {
             for (const auto *capabilityElement : ChildElements(*provides, "Capability"))
@@ -4059,30 +2018,6 @@ namespace NGIN::Core
               }
               feature.requiredCapabilities.push_back(CapabilityRequirement{capabilityName.Value()});
             }
-          }
-          if (const auto *dependencies = FindChild(*featureElement, "Dependencies"))
-          {
-            for (const auto *dependency : ChildElements(*dependencies, "PackageRef"))
-            {
-              auto reference = ParsePackageReference(*dependency, "package.Features.Feature.Dependencies");
-              if (!reference)
-              {
-                return NGIN::Utilities::Unexpected<KernelError>(reference.Error());
-              }
-              feature.dependencies.push_back(reference.Value());
-            }
-          }
-          if (auto inputs = ParseInputDeclarations(*featureElement, "package.Features.Feature", feature.inputs);
-              !inputs)
-          {
-            return NGIN::Utilities::Unexpected<KernelError>(inputs.Error());
-          }
-          if (auto generators = ParseGenerators(*featureElement,
-                                                "package.Features.Feature",
-                                                feature.generators);
-              !generators)
-          {
-            return NGIN::Utilities::Unexpected<KernelError>(generators.Error());
           }
           if (const auto *runtimeElement = FindChild(*featureElement, "Runtime"))
           {

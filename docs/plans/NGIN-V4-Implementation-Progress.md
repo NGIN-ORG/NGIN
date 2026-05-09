@@ -8,17 +8,21 @@ actually supports today.
 
 ## Current Implementation Strategy
 
-The first implementation slice does not yet introduce the final V4 Composition
-Graph engine. Instead, it accepts V4 authoring shapes and normalizes them into
-the current internal manifest structures so existing validation, build, package,
-and test paths can start exercising V4 syntax.
+V4 is now treated as the only supported CLI authoring schema for projects,
+workspaces, packages, and definition fragments. V1/V2/V3 project, workspace,
+package, and `.nginmodel` compatibility paths have been removed from the active
+CLI authoring path instead of being kept behind unreachable branches.
 
-This is intentional scaffolding:
+The implementation still uses current resolver/build structures under the
+Composition Graph facade where that is pragmatic, but the public authoring
+contract is V4-only:
 
-- V4 authoring can be tested early.
-- Existing CLI behavior remains available while the graph engine is built.
-- The code can be replaced behind the same parser contract when the graph model
-  lands.
+- `.nginproj` must use `SchemaVersion="4"` and product-first shape.
+- `.ngin` must use `Workspace SchemaVersion="4"`.
+- `.nginpkg` must use `Package SchemaVersion="4"`.
+- `.nginmodel` is no longer part of the active V4 workspace model.
+- `inspect --format json` and `graph --format json` emit the V4 Composition
+  Graph envelope directly.
 
 ## Implemented
 
@@ -225,6 +229,7 @@ Implemented package parsing:
 - package `Name`
 - package `Version`
 - package-level `Uses`
+- package-level CMake integration metadata for local source providers
 - `Library/Exports/Headers`
 - `Library/Exports/Binary`
 - `Library/Exports/LibraryTarget`
@@ -235,8 +240,10 @@ Implemented package parsing:
 - feature `Provides/Capability`
 - feature dependency `Scope` metadata
 
-The parser treats `.nginpkg` as reusable package contract metadata, not a source
-build recipe.
+The active repository package wrappers have been rewritten to the V4 package
+contract shape. Legacy `Artifacts`, `Dependencies/PackageRef`, `Tools`,
+`Modules`, and `Plugins` package sections are no longer used by the CLI package
+catalog.
 
 ### Dependency Scope Metadata
 
@@ -283,35 +290,35 @@ Package version conflict handling is now first-pass graph policy:
 - workspace `PackageProvider` source overrides are surfaced in resolved package
   metadata, inspect JSON, lock output, and backend package integration
 
-### Inspect Product Identity
+### Inspect And Composition Graph JSON
 
-`ngin inspect --format json` now emits a `product` object with:
+`ngin inspect --format json` now emits the same top-level V4 Composition Graph
+envelope as `ngin graph --format json`; the older mixed inspect JSON wrapper has
+been retired.
 
-- `kind`
-- `outputType`
-- `outputName`
-- `targetName`
+The graph JSON currently includes:
 
-This is not the final Composition Graph JSON schema, but it begins moving the
-inspect contract toward V4's product-first vocabulary.
-
-Inspect profile selection also emits `hostPlatform` separately from target
-`platform`.
-
-Inspect launch output emits the selected launch name and launch arguments.
-
-Inspect JSON also emits a `compositionGraph` object with V4 graph schema
-version, resolved state, facet names, selected identity, selected
-profile/platform context, named convention/default contributions, resolved
-property/default provenance, resolved facet summary counts, and graph-owned
-plan slices for packages, package features, build, generators, stage, runtime,
-environment, package outputs, launch, publish, and quality. This is now the
-preferred inspect entry point for V4 graph consumers, although the final graph
-JSON schema is still not frozen.
-
-Inspect JSON includes first-pass quality analyzer metadata under
-`quality.analyzers` so editor and tooling consumers can see V4 analyzer plans
-without reparsing manifests.
+- schema version and graph kind
+- graph state
+- facet names
+- identity and product metadata
+- selected profile, host platform, target platform, ABI, toolchain, and
+  environment
+- named convention/default contributions
+- first-pass property provenance
+- summary counts
+- package closure and provider roots
+- selected package features
+- build inputs and defines
+- generator declarations
+- stage plan
+- runtime modules/plugins
+- environment entries with secret redaction
+- launch entries
+- package outputs
+- publish entries
+- quality analyzer plans
+- diagnostics
 
 ### New Project Command
 
@@ -528,8 +535,7 @@ selection, named convention/default contributions, first-pass property
 provenance, facet summary, and first-pass plan payloads for package, build,
 generate, stage, runtime, environment, package-output, launch, publish,
 quality, and diagnostics.
-`inspect --format json` keeps its compatibility wrapper and embeds the
-first-pass `compositionGraph` marker inside that output.
+`inspect --format json` emits this graph envelope directly.
 
 Internally this output now starts from a first-pass `CompositionGraph` snapshot
 instead of only streaming fields directly from resolver state. The snapshot
@@ -627,6 +633,17 @@ trust policy, and `.nginpack` integration are still future work.
 `Examples/Hello.Reflection/Hello.Reflection.nginproj` has been migrated to
 `SchemaVersion="4"` using nested package feature selection under `Uses`.
 
+The root `NGIN.ngin` workspace has been migrated to `Workspace
+SchemaVersion="4"` with V4 `Projects`, `Defaults`, `Packages`, package
+providers, and `Profiles`.
+
+The old shared `Examples/Common.nginmodel` file has been removed. Workspace
+shared declarations now belong in V4 workspace imports/definition fragments.
+
+The active package wrappers under `Packages/` now use V4 package contract
+shape. The CLI project-reference fixture manifests and the NGIN.Core BasicHost
+sample manifest have also been migrated to product-first V4 shape.
+
 Verified:
 
 ```bash
@@ -639,8 +656,26 @@ Verified:
 
 ### NGIN.Core V4 Runtime Reader
 
-`NGIN.Core` can now read the V4 project shape needed by `Hello.Hosted` at
-runtime. This is a minimal runtime-side reader, not the full CLI graph resolver.
+`NGIN.Core` now treats V4 as its runtime-side manifest contract too. The
+runtime builder no longer carries the V3 project parser branch, `.nginmodel`
+resolution, project/profile template application, or legacy package root
+sections.
+
+Supported runtime-side V4 project/package surface:
+
+- product-first project roots with exactly one product element
+- `Application`, `Library`, `Tool`, `Test`, `Benchmark`, `Plugin`, `Module`,
+  and `External` product identity normalization
+- product `Uses` for projects, packages, tools, runtime dependencies, and
+  nested dependency features
+- product `Build`, `Stage`, `Runtime`, `Environment`, and `Launch`
+- project-level `Profile` overlays with product fragments
+- V4 package manifests with `Uses`, `Runtime/Bootstrap`, `Runtime/Module`,
+  `Library/Exports`, `Tool/Exports`, and `Features`
+
+This remains a runtime-side reader, not a duplicate full CLI graph resolver.
+The CLI still owns complete V4 graph construction, package restore, build
+planning, staging, and diagnostics.
 
 ### Launch Arguments
 
@@ -787,6 +822,10 @@ Current test coverage includes:
 - V4 graph-native JSON envelope
 - V4 graph-native focused plan JSON envelopes
 - V4 graph-owned package/build/generator plan payloads in graph and inspect
+- V4-only project/workspace/package schema validation
+- V4 root workspace parsing
+- V4 package wrapper parsing for the active repository packages
+- V4 project-reference build and collision fixtures
 - V4 quality graph plan switch
 - V4 publish graph/inspect/diff surface
 - V4 named launch metadata
@@ -794,6 +833,8 @@ Current test coverage includes:
 - V4 stage identity collision diagnostics
 - V4 inspect package closure classification from dependency scopes
 - resolved package scope metadata
+- V4-only `NGIN.Core` runtime project/package manifest reader
+- V4 `NGIN.Core` runtime manifest tests
 
 ## Not Implemented Yet
 
@@ -824,11 +865,11 @@ The following are still open and should not be described as complete:
 
 The next implementation slice should focus on one of these paths:
 
-- promote the inspect `compositionGraph` payload to the sole stable graph JSON
-  schema and retire duplicated legacy inspect fields
+- rename internal `PackageReference`/policy terminology where it leaks into V4
+  diagnostics or generated metadata
+- migrate remaining docs and VS Code tooling surfaces to V4 syntax
 - expand workspace profile product overlays beyond defaults
 - deepen V4 overlay identity/remove/override semantics beyond the current
   first-pass item identities
-- migrate remaining examples and docs to V4 syntax
 - implement network package restore and feed index resolution
 - implement final compressed `.nginpack` archive extraction
