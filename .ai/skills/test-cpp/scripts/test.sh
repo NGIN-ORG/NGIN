@@ -26,6 +26,9 @@ case "$target" in
   workspace)
     ctest --test-dir "$repo_root/build/dev" --output-on-failure
     ;;
+  cli)
+    "$repo_root/build/dev/Tools/NGIN.CLI/tests/NGINCliTests"
+    ;;
   workflow)
     cmake --build "$repo_root/build/dev" --target ngin.workflow
     ;;
@@ -50,7 +53,7 @@ case "$target" in
     ;;
   *)
     echo "unknown test target: $target" >&2
-    echo "expected one of: workspace, workflow, ngin-core, hello-native, hello-hosted, hello-reflection" >&2
+    echo "expected one of: workspace, cli, workflow, ngin-core, hello-native, hello-hosted, hello-reflection" >&2
     exit 2
     ;;
 esac

@@ -10,6 +10,9 @@ case "$target" in
   cli)
     cmake --build "$repo_root/build/dev" --target ngin_cli
     ;;
+  cli-tests)
+    cmake --build "$repo_root/build/dev" --target NGINCliTests
+    ;;
   workflow)
     cmake --build "$repo_root/build/dev" --target ngin.workflow
     ;;
@@ -37,7 +40,7 @@ case "$target" in
     ;;
   *)
     echo "unknown build target: $target" >&2
-    echo "expected one of: cli, workflow, ngin-core-tests, hello-native, hello-hosted, hello-reflection" >&2
+    echo "expected one of: cli, cli-tests, workflow, ngin-core-tests, hello-native, hello-hosted, hello-reflection" >&2
     exit 2
     ;;
 esac
