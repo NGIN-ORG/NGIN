@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdlib>
 #include <functional>
 #include <set>
 #include <sstream>
@@ -1157,6 +1158,96 @@ namespace NGIN::CLI
                 current = current.parent_path();
             }
             return roots;
+        }
+
+        [[nodiscard]] auto IsHttpUrl(const std::string &value) -> bool
+        {
+            return value.rfind("http://", 0) == 0 || value.rfind("https://", 0) == 0;
+        }
+
+        [[nodiscard]] auto ShellQuoteString(const std::string &value) -> std::string
+        {
+            std::string quoted{"'"};
+            for (const char ch : value)
+            {
+                if (ch == '\'')
+                {
+                    quoted += "'\\''";
+                }
+                else
+                {
+                    quoted.push_back(ch);
+                }
+            }
+            quoted.push_back('\'');
+            return quoted;
+        }
+
+        [[nodiscard]] auto UrlParent(const std::string &url) -> std::string
+        {
+            const auto query = url.find_first_of("?#");
+            const auto withoutQuery = url.substr(0, query);
+            const auto slash = withoutQuery.find_last_of('/');
+            if (slash == std::string::npos)
+            {
+                return url;
+            }
+            return withoutQuery.substr(0, slash + 1);
+        }
+
+        [[nodiscard]] auto JoinUrl(const std::string &base, const std::string &path) -> std::string
+        {
+            if (IsHttpUrl(path))
+            {
+                return path;
+            }
+            if (!base.empty() && base.back() == '/')
+            {
+                return base + path;
+            }
+            return base + "/" + path;
+        }
+
+        [[nodiscard]] auto SafeCacheFileName(const std::string &value, const std::string &defaultExtension) -> std::string
+        {
+            std::string out{};
+            out.reserve(value.size() + defaultExtension.size());
+            for (const char ch : value)
+            {
+                const auto byte = static_cast<unsigned char>(ch);
+                out.push_back((std::isalnum(byte) != 0 || ch == '.' || ch == '-' || ch == '_') ? ch : '_');
+            }
+            if (fs::path(out).extension().empty())
+            {
+                out += defaultExtension;
+            }
+            return out;
+        }
+
+        auto DownloadUrlToFile(const std::string &url, const fs::path &destination) -> void
+        {
+            if (!destination.parent_path().empty())
+            {
+                fs::create_directories(destination.parent_path());
+            }
+            const auto command = std::string{"curl -fsSL --retry 2 --connect-timeout 10 --output "}
+                                 + ShellQuoteString(destination.string())
+                                 + " " + ShellQuoteString(url);
+            if (std::system(command.c_str()) != 0)
+            {
+                throw std::runtime_error("failed to download package source URL '" + url + "'");
+            }
+        }
+
+        [[nodiscard]] auto NetworkPackageCacheRoot(
+            const std::optional<WorkspaceManifest> &workspace,
+            const fs::path &projectPath) -> fs::path
+        {
+            if (workspace.has_value())
+            {
+                return workspace->path.parent_path() / ".ngin/package-cache";
+            }
+            return projectPath.parent_path() / ".ngin/package-cache";
         }
 
         [[nodiscard]] auto ParseModuleDefinition(const XmlElement &node, const fs::path &path) -> ModuleDescriptor
@@ -2621,11 +2712,18 @@ namespace NGIN::CLI
         const fs::path &projectPath) -> std::unordered_map<std::string, PackageCatalogEntry>
     {
         std::unordered_map<std::string, PackageCatalogEntry> out;
+        const auto networkCacheRoot = NetworkPackageCacheRoot(workspace, projectPath);
         auto addManifest = [&](const fs::path &manifestPath)
         {
             const auto canonicalManifestPath = fs::weakly_canonical(manifestPath);
             const auto manifest = LoadPackageManifest(canonicalManifestPath);
             fs::path providerRoot{};
+            if (canonicalManifestPath.extension() == ".nginpack")
+            {
+                providerRoot = networkCacheRoot / "extracted" / manifest.name / manifest.version;
+                fs::remove_all(providerRoot);
+                ExtractZipFile(canonicalManifestPath, providerRoot);
+            }
             if (workspace.has_value())
             {
                 if (const auto provider = workspace->packageProviders.find(manifest.name); provider != workspace->packageProviders.end())
@@ -2639,7 +2737,7 @@ namespace NGIN::CLI
                                            .providerRoot = providerRoot,
                                        });
         };
-        auto addFeedIndex = [&](const fs::path &feedPath)
+        auto addFeedIndex = [&](const fs::path &feedPath, const std::optional<std::string> &sourceUrl = std::nullopt)
         {
             const auto feed = LoadXml(feedPath);
             const auto *rootElement = feed.document.Root();
@@ -2660,9 +2758,26 @@ namespace NGIN::CLI
             for (const auto *packageElement : ChildElements(*packagesElement, "Package"))
             {
                 const auto relativeManifestPath = RequireAttribute(*packageElement, "Path", feedPath);
-                const auto manifestPath = fs::path(relativeManifestPath).is_absolute()
-                                              ? fs::path(relativeManifestPath).lexically_normal()
-                                              : (feedPath.parent_path() / relativeManifestPath).lexically_normal();
+                fs::path manifestPath{};
+                if (sourceUrl.has_value())
+                {
+                    const auto artifactUrl = JoinUrl(UrlParent(*sourceUrl), relativeManifestPath);
+                    const auto packageName = Attribute(*packageElement, "Name").value_or(SafeCacheFileName(artifactUrl, ""));
+                    const auto packageVersion = Attribute(*packageElement, "Version").value_or("unknown");
+                    auto fileName = fs::path(relativeManifestPath).filename();
+                    if (fileName.empty())
+                    {
+                        fileName = SafeCacheFileName(artifactUrl, ".nginpack");
+                    }
+                    manifestPath = networkCacheRoot / "artifacts" / packageName / packageVersion / fileName;
+                    DownloadUrlToFile(artifactUrl, manifestPath);
+                }
+                else
+                {
+                    manifestPath = fs::path(relativeManifestPath).is_absolute()
+                                       ? fs::path(relativeManifestPath).lexically_normal()
+                                       : (feedPath.parent_path() / relativeManifestPath).lexically_normal();
+                }
                 addManifest(manifestPath);
             }
         };
@@ -2675,6 +2790,12 @@ namespace NGIN::CLI
                 if (sourceUrl.rfind(fileScheme, 0) == 0)
                 {
                     packageRoots.push_back(fs::path(sourceUrl.substr(fileScheme.size())).lexically_normal());
+                }
+                else if (IsHttpUrl(sourceUrl))
+                {
+                    const auto feedPath = networkCacheRoot / "feeds" / SafeCacheFileName(sourceUrl, ".nginfeed");
+                    DownloadUrlToFile(sourceUrl, feedPath);
+                    addFeedIndex(feedPath, sourceUrl);
                 }
             }
         }
@@ -2708,18 +2829,7 @@ namespace NGIN::CLI
 
     [[nodiscard]] auto ExtractNginPackManifest(const fs::path &path) -> std::string
     {
-        const auto text = ReadText(path);
-        const auto marker = text.find("\n\n");
-        if (marker == std::string::npos)
-        {
-            throw std::runtime_error(path.string() + ": invalid .nginpack archive; missing manifest payload");
-        }
-        const auto header = text.substr(0, marker);
-        if (header.rfind("NGINPACK/1", 0) != 0)
-        {
-            throw std::runtime_error(path.string() + ": unsupported .nginpack archive format");
-        }
-        return text.substr(marker + 2);
+        return ReadZipEntry(path, "package.nginpkg");
     }
 
     [[nodiscard]] auto LoadPackageManifest(const fs::path &path) -> PackageManifest
@@ -2802,6 +2912,7 @@ namespace NGIN::CLI
                     const auto headerPath = RequireAttribute(*headers, "Path", path);
                     if (headerPath.find('*') != std::string::npos || headerPath.find('?') != std::string::npos)
                     {
+                        input.pattern = headerPath;
                         input.includePatterns.push_back(headerPath);
                         input.mode = "Glob";
                     }

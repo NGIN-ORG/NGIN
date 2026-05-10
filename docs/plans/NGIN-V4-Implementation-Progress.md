@@ -408,8 +408,11 @@ Current behavior:
 Current behavior:
 
 - resolves the selected project/profile package closure
-- materializes package manifests or phase-one `.nginpack` archives into a local
-  package store
+- materializes package manifests or ZIP-backed `.nginpack` archives into a
+  local package store
+- extracts full `.nginpack` payloads into the package store
+- resolves HTTP `.nginfeed` package source URLs and downloads referenced
+  package artifacts into the package cache
 - default store path is `.ngin/packages` under the workspace or project root
 - `--output` can select a package store directory
 - writes the deterministic `ngin.lock`
@@ -417,9 +420,8 @@ Current behavior:
   drift
 - preserves resolved dependency scopes in the lock file
 
-This is local manifest/package-store scaffolding. Network feeds, hashes, final
-compressed archive extraction, and source/binary provider switching are still
-future work.
+Hashes, signed feed metadata, DEFLATE-compressed `.nginpack` entries, and
+source/binary provider switching are still future work.
 
 ### Package Sources Command
 
@@ -439,8 +441,8 @@ Current behavior:
 - writes URL sources with `Url` and local sources with `Path`
 - removes a named workspace package source
 
-`file://` package source URLs participate in package catalog resolution as
-phase-one static feed roots.
+`file://` and HTTP package source URLs participate in package catalog
+resolution as static feed roots.
 
 ### Graph Diff Command
 
@@ -707,7 +709,7 @@ Implemented metadata:
 `ngin inspect --format json` emits a first-pass `packageOutputs` array.
 
 `ngin package pack` can emit a standalone V4 `.nginpkg` manifest and a
-first-pass deterministic `.nginpack` artifact from a source project
+deterministic ZIP-backed `.nginpack` artifact from a source project
 `PackageOutput` declaration.
 
 Supported generated package metadata:
@@ -722,10 +724,11 @@ Supported generated package metadata:
 - target platforms
 - ABI tag
 
-The current `.nginpack` format is a deterministic phase-one artifact containing
-archive metadata and the embedded package manifest. Package cataloging,
-manifest loading, and restore can consume this phase-one archive. It is not yet
-the final compressed archive/store format.
+The current `.nginpack` format is a ZIP-backed package archive. It contains
+`package.nginpkg` plus package payload entries. Package cataloging extracts
+archives into the package cache so graph resolution can see exported package
+payloads before restore. `ngin restore` copies the archive into the package
+store and extracts the full payload there.
 
 ### V4 Conditions And `When`
 
@@ -769,15 +772,20 @@ Current test coverage includes:
 - V4 `ngin package update`
 - V4 `ngin package remove`
 - V4 `ngin package pack`
+- V4 ZIP-backed `.nginpack` package output
 - V4 `ngin format`
 - V4 `ngin schema --format json`
 - V4 `ngin restore`
-- V4 restore from phase-one `.nginpack` package archives
-- V4 restore extracts `.nginpack` package manifests into the package store
+- V4 restore from `.nginpack` package archives
+- V4 restore extracts full `.nginpack` package payloads into the package store
 - V4 locked restore enforcement
 - V4 package catalog resolution from `file://` package source URLs
 - V4 static `.nginfeed` package index resolution from `file://` package
   sources
+- V4 network `.nginfeed` package index resolution from HTTP package sources
+- V4 network package archive download into the package cache
+- V4 package archive extraction during cataloging so exported payload files
+  participate in graph resolution
 - V4 `ngin package sources list`
 - V4 `ngin package sources add`
 - V4 `ngin package sources remove`
@@ -856,6 +864,8 @@ Current test coverage includes:
   mutations for project and workspace `Uses` overlays
 - package feature dependency requests are merged back through the dependency
   identity path so feature selection cannot create a duplicate package identity
+- CLI tests are split into focused authoring, workspace, command authoring,
+  package, product, overlay, graph, and facade files with shared test support
 
 ## Not Implemented Yet
 
@@ -871,12 +881,10 @@ The following are still open and should not be described as complete:
   project resolution
 - full platform/toolchain compatibility semantics
 - full ABI tag compatibility matching for binary package selection
-- network package restore from V4 package sources
 - full external dependency adapters for system, CMake package, pkg-config,
   vcpkg, and Conan providers
 - signing, SBOM, trust policy
-- final compressed `.nginpack` archive packing and full payload extraction
-  beyond phase-one manifest extraction
+- DEFLATE compression support inside ZIP-backed `.nginpack` archives
 - full analyzer execution, formatter execution, coverage collection, and
   quality policy enforcement
 - final graph diff engine over a stable graph JSON schema
@@ -897,5 +905,5 @@ The next implementation slice should focus on one of these paths:
 - expand workspace profile product overlays beyond defaults
 - continue hardening overlay identity/remove/override semantics for non-package
   item families, especially launch, publish, generators, and package outputs
-- implement network package restore and feed index resolution
-- implement final compressed `.nginpack` archive extraction
+- add DEFLATE support or a compression backend for ZIP-backed `.nginpack`
+  entries if package size becomes important

@@ -675,19 +675,6 @@ namespace NGIN::CLI
             return manifest.str();
         }
 
-        [[nodiscard]] auto GeneratePackageOutputArchive(const PackageOutputDefinition &output, const std::string &manifest) -> std::string
-        {
-            std::ostringstream archive{};
-            archive << "NGINPACK/1\n";
-            archive << "Name: " << output.name << "\n";
-            archive << "Version: " << output.version << "\n";
-            archive << "Manifest: package.nginpkg\n";
-            archive << "Manifest-Length: " << manifest.size() << "\n";
-            archive << "\n";
-            archive << manifest;
-            return archive.str();
-        }
-
         [[nodiscard]] auto PackageClosuresForScope(const std::string &scope) -> std::vector<std::string>
         {
             std::set<std::string> scopes{};
@@ -2551,7 +2538,12 @@ namespace NGIN::CLI
             {
                 fs::create_directories(archivePath->parent_path());
             }
-            WriteTextFile(*archivePath, GeneratePackageOutputArchive(*selected, manifest));
+            WriteZipFile(*archivePath, std::vector<ZipFileEntry>{
+                                            ZipFileEntry{
+                                                .path = "package.nginpkg",
+                                                .contents = manifest,
+                                            },
+                                        });
         }
 
         std::cout << "Packed package output\n";
@@ -2626,42 +2618,7 @@ namespace NGIN::CLI
 
     [[nodiscard]] auto ExtractNginPackManifestPayloadForRestore(const fs::path &archivePath) -> std::string
     {
-        const auto text = ReadText(archivePath);
-        const auto marker = text.find("\n\n");
-        if (marker == std::string::npos)
-        {
-            throw std::runtime_error(archivePath.string() + ": invalid .nginpack archive; missing manifest payload");
-        }
-        const auto header = text.substr(0, marker);
-        if (header.rfind("NGINPACK/1", 0) != 0)
-        {
-            throw std::runtime_error(archivePath.string() + ": unsupported .nginpack archive format");
-        }
-        const auto payload = text.substr(marker + 2);
-        const std::string lengthPrefix{"Manifest-Length: "};
-        if (const auto lengthPos = header.find(lengthPrefix); lengthPos != std::string::npos)
-        {
-            const auto valueStart = lengthPos + lengthPrefix.size();
-            const auto valueEnd = header.find('\n', valueStart);
-            const auto value = header.substr(valueStart, valueEnd == std::string::npos ? std::string::npos : valueEnd - valueStart);
-            try
-            {
-                const auto expectedSize = static_cast<std::size_t>(std::stoull(value));
-                if (expectedSize != payload.size())
-                {
-                    throw std::runtime_error(archivePath.string() + ": invalid .nginpack archive; manifest payload length mismatch");
-                }
-            }
-            catch (const std::invalid_argument &)
-            {
-                throw std::runtime_error(archivePath.string() + ": invalid .nginpack archive; invalid manifest payload length");
-            }
-            catch (const std::out_of_range &)
-            {
-                throw std::runtime_error(archivePath.string() + ": invalid .nginpack archive; invalid manifest payload length");
-            }
-        }
-        return payload;
+        return ReadZipEntry(archivePath, "package.nginpkg");
     }
 
     auto CmdRestore(const fs::path &root, const ParsedArgs &args) -> int
@@ -2707,7 +2664,11 @@ namespace NGIN::CLI
                 fs::copy_options::overwrite_existing);
             if (package.manifest.path.extension() == ".nginpack")
             {
-                WriteTextFile(packageDir / "package.nginpkg", ExtractNginPackManifestPayloadForRestore(package.manifest.path));
+                ExtractZipFile(package.manifest.path, packageDir);
+                if (!fs::exists(packageDir / "package.nginpkg"))
+                {
+                    WriteTextFile(packageDir / "package.nginpkg", ExtractNginPackManifestPayloadForRestore(package.manifest.path));
+                }
             }
         }
 

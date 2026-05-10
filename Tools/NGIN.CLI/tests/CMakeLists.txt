@@ -70,7 +70,14 @@ endif()
 include(Catch)
 
 add_executable(NGINCliTests
-  AllTests.cpp
+  AuthoringTests.cpp
+  CommandAuthoringTests.cpp
+  FacadeTests.cpp
+  GraphInspectTests.cpp
+  OverlayTests.cpp
+  PackageTests.cpp
+  ProductTests.cpp
+  WorkspaceTests.cpp
 )
 target_compile_features(NGINCliTests PRIVATE cxx_std_20)
 target_compile_definitions(NGINCliTests PRIVATE NGIN_CLI_TEST_REPO_ROOT="${CMAKE_SOURCE_DIR}")
@@ -81,6 +88,7 @@ target_link_libraries(NGINCliTests PRIVATE
   ngin_cli_resolution
   ngin_cli_authoring
   ngin_cli_model
+  NGIN::Base
 )
 
 if(MSVC)

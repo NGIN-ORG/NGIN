@@ -2193,8 +2193,10 @@ namespace NGIN::CLI
         for (const auto &package : resolved.orderedPackages)
         {
             resolvedPackageByName.emplace(package.manifest.name, &package.manifest);
+            const auto packageOwnerDirectory =
+                package.sourceDirectory.empty() ? package.manifest.path.parent_path() : package.sourceDirectory;
             collectInputs(package.manifest.inputs, "package", package.manifest.name,
-                          package.manifest.path.parent_path(), package.manifest.path,
+                          packageOwnerDirectory, package.manifest.path,
                           &package.manifest.conditions, &resolved.profile);
         }
         for (const auto &feature : resolved.selectedPackageFeatures)
@@ -2204,11 +2206,11 @@ namespace NGIN::CLI
             {
                 continue;
             }
-            collectInputs(feature.inputs, "package-feature", feature.packageName + "::" + feature.featureName,
-                          packageIt->second->path.parent_path(), packageIt->second->path,
-                          &packageIt->second->conditions, &resolved.profile);
             const auto featureOwnerDirectory =
                 feature.providerRoot.empty() ? packageIt->second->path.parent_path() : feature.providerRoot;
+            collectInputs(feature.inputs, "package-feature", feature.packageName + "::" + feature.featureName,
+                          featureOwnerDirectory, packageIt->second->path,
+                          &packageIt->second->conditions, &resolved.profile);
             collectGenerators(feature.generators,
                               "package-feature",
                               feature.packageName + "::" + feature.featureName,
