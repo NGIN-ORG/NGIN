@@ -372,7 +372,7 @@ This says:
 - it produces an application
 - source files are under `src`
 - `LocalDebug` names the local debug selection rule
-- the output executable and generated CMake backend come from V4 conventions
+- the output executable and generated CMake backend come from product-first conventions
 - the default profile is `Debug`
 - the `Debug` profile builds a debug Linux x64 executable
 - `MYAPP_LOCAL_DEBUG` is emitted only when `LocalDebug` matches

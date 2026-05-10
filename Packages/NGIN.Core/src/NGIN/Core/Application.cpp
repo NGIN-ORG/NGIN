@@ -272,13 +272,13 @@ namespace NGIN::Core
       if (FindChild(element, "Platforms") != nullptr)
       {
         return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-            "legacy <Platforms> is no longer supported", std::string(context),
+            "<Platforms> is no longer supported", std::string(context),
             KernelErrorCode::SchemaValidationFailure));
       }
       if (FindChild(element, "SupportedHosts") != nullptr)
       {
         return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
-            "legacy <SupportedHosts> is no longer supported",
+            "<SupportedHosts> is no longer supported",
             std::string(context), KernelErrorCode::SchemaValidationFailure));
       }
       if (const auto *compatibility = FindChild(element, "Compatibility"))
@@ -336,8 +336,8 @@ namespace NGIN::Core
     [[nodiscard]] auto ParsePackageBootstrapMode(const std::string_view text)
         -> CoreResult<PackageBootstrapMode>
     {
-      if (text == "BuilderHookV1")
-        return PackageBootstrapMode::BuilderHookV1;
+      if (text == "BuilderHook")
+        return PackageBootstrapMode::BuilderHook;
       return NGIN::Utilities::Unexpected<KernelError>(
           MakeBuilderError("unknown package bootstrap mode", std::string(text),
                            KernelErrorCode::SchemaValidationFailure));
@@ -1060,7 +1060,7 @@ namespace NGIN::Core
           if (product != nullptr)
           {
             return NGIN::Utilities::Unexpected<KernelError>(
-                MakeBuilderError("V4 project must declare exactly one product element"));
+                MakeBuilderError("project must declare exactly one product element"));
           }
           product = child;
         }
@@ -1068,7 +1068,7 @@ namespace NGIN::Core
       if (product == nullptr)
       {
         return NGIN::Utilities::Unexpected<KernelError>(
-            MakeBuilderError("V4 project must declare a product element"));
+            MakeBuilderError("project must declare a product element"));
       }
 
       manifest.type = product->name == "Library" || product->name == "Plugin" ||
@@ -1878,7 +1878,7 @@ namespace NGIN::Core
         {
           auto modeText =
               OptionalAttribute(*bootstrapElement, "Mode",
-                                "package.Runtime.Bootstrap", "BuilderHookV1");
+                                "package.Runtime.Bootstrap", "BuilderHook");
           if (!modeText)
           {
             return NGIN::Utilities::Unexpected<KernelError>(modeText.Error());

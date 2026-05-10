@@ -158,10 +158,10 @@ namespace NGIN::CLI
             {
                 roots.emplace_back(overrideRoot);
             }
-            if (const auto *legacyOverrideRoot = std::getenv("NGIN_BUNDLED_TOOLS_ROOT");
-                legacyOverrideRoot != nullptr && std::string_view(legacyOverrideRoot).size() > 0)
+            if (const auto *overrideRoot = std::getenv("NGIN_BUNDLED_TOOLS_ROOT");
+                overrideRoot != nullptr && std::string_view(overrideRoot).size() > 0)
             {
-                roots.emplace_back(legacyOverrideRoot);
+                roots.emplace_back(overrideRoot);
             }
             if (searchRoot.has_value())
             {

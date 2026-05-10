@@ -108,7 +108,7 @@ test('workspace manifests parse project paths relative to the workspace manifest
   assert.deepEqual(workspace.packageSourcePaths, ['/repo/Packages']);
 });
 
-test('project parsing applies V4 product profile defaults', () => {
+test('project parsing applies product profile defaults', () => {
   const project = parseProjectManifest(
     '<?xml version="1.0" encoding="utf-8"?><Project SchemaVersion="4" Name="Hello.Hosted" DefaultProfile="dev"><Application><Launch Executable="$(OutputName)" WorkingDirectory="." /></Application><Profile Name="dev"><Defaults><BuildType Name="Debug" /><TargetPlatform Name="linux-x64" /><Environment Name="development" /></Defaults><Application><Stage><Config Source="config/template.cfg" /></Stage></Application></Profile></Project>',
     '/repo/Examples/Hello.Hosted/Hello.Hosted.nginproj'

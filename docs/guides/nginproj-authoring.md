@@ -1,8 +1,8 @@
 # `.nginproj` Authoring
 
-This guide is the practical V4 authoring surface for NGIN project manifests.
+This guide is the practical authoring surface for NGIN project manifests.
 
-V4 is product-first and graph-native:
+Product-first manifests are graph-native:
 
 ```text
 One project.
@@ -353,7 +353,7 @@ same as a consumed `Package` dependency.
 
 ## Workspace Imports
 
-V4 does not use `.nginmodel` as a primary file type. Shared policy lives in the
+Current NGIN does not use `.nginmodel` as a primary file type. Shared policy lives in the
 workspace and optional definition fragments:
 
 ```xml

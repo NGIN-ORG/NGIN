@@ -44,9 +44,9 @@ function parseBool(value: unknown, fallback = true): boolean {
   return value === true || value === 'true' || value === '1' || value === 'yes';
 }
 
-function requireSchema4(root: { SchemaVersion?: string }, manifestPath: string): void {
+function requireCurrentSchema(root: { SchemaVersion?: string }, manifestPath: string): void {
   if (root.SchemaVersion !== '4') {
-    throw new Error(`${manifestPath}: V4 tooling requires SchemaVersion="4"`);
+    throw new Error(`${manifestPath}: project tooling requires SchemaVersion="4"`);
   }
 }
 
@@ -388,7 +388,7 @@ export function parseWorkspaceManifest(xml: string, manifestPath: string): Works
   if (!root) {
     throw new Error(`${manifestPath}: root element must be <Workspace>`);
   }
-  requireSchema4(root, manifestPath);
+  requireCurrentSchema(root, manifestPath);
 
   const directory = path.dirname(manifestPath);
   return {
@@ -417,13 +417,13 @@ export function parseProjectManifest(xml: string, manifestPath: string): Project
   if (!root) {
     throw new Error(`${manifestPath}: root element must be <Project>`);
   }
-  requireSchema4(root, manifestPath);
+  requireCurrentSchema(root, manifestPath);
 
   const directory = path.dirname(manifestPath);
   const rootRecord = root as Record<string, unknown> & { Name?: string; DefaultProfile?: string };
   const product = getProduct(rootRecord);
   if (!product) {
-    throw new Error(`${manifestPath}: V4 project must declare one product element`);
+    throw new Error(`${manifestPath}: project must declare one product element`);
   }
 
   const rootDefaults = parseDefaults(root);
@@ -521,7 +521,7 @@ export function parsePackageManifest(xml: string, manifestPath: string): Package
   if (!root) {
     throw new Error(`${manifestPath}: root element must be <Package>`);
   }
-  requireSchema4(root, manifestPath);
+  requireCurrentSchema(root, manifestPath);
 
   const features = asArray(root.Features?.Feature)
     .map((entry): PackageFeature | undefined => {

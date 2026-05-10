@@ -31,7 +31,7 @@ namespace NGIN::Core
 
     enum class PackageBootstrapMode
     {
-        BuilderHookV1
+        BuilderHook
     };
 
     struct HostError
@@ -72,7 +72,7 @@ namespace NGIN::Core
 
     struct PackageBootstrapDescriptor
     {
-        PackageBootstrapMode mode {PackageBootstrapMode::BuilderHookV1};
+        PackageBootstrapMode mode {PackageBootstrapMode::BuilderHook};
         std::string          entryPoint {};
         bool                 autoApply {false};
     };

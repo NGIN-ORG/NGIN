@@ -4,7 +4,7 @@
            attributeFormDefault="unqualified">
   <xs:annotation>
     <xs:documentation>
-      Initial V4 NGIN product-first project manifest schema for editor tooling.
+      NGIN product-first project manifest schema for editor tooling.
       The native `ngin validate` command remains the authoritative validator.
     </xs:documentation>
   </xs:annotation>

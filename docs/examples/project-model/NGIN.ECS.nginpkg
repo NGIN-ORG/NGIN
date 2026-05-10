@@ -26,7 +26,7 @@
   </Uses>
 
   <Runtime>
-    <Bootstrap Mode="BuilderHookV1"
+    <Bootstrap Mode="BuilderHook"
                EntryPoint="NGIN_Bootstrap_NGIN_ECS"
                AutoApply="true" />
   </Runtime>

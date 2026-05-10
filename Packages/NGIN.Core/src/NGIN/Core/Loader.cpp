@@ -204,13 +204,13 @@ void ReadStringRefs(const XmlElement *element, const std::string_view childName,
   if (FindChild(*root, "Platforms") != nullptr) {
     return NGIN::Utilities::Unexpected<KernelError>(MakeKernelError(
         KernelErrorCode::InvalidArgument, "Loader", {},
-        "plugin descriptor legacy <Platforms> is no longer supported: " +
+        "plugin descriptor <Platforms> is no longer supported: " +
             filePath));
   }
   if (FindChild(*root, "SupportedHosts") != nullptr) {
     return NGIN::Utilities::Unexpected<KernelError>(MakeKernelError(
         KernelErrorCode::InvalidArgument, "Loader", {},
-        "plugin descriptor legacy <SupportedHosts> is no longer supported: " +
+        "plugin descriptor <SupportedHosts> is no longer supported: " +
             filePath));
   }
   if (const auto *compatibility = FindChild(*root, "Compatibility")) {

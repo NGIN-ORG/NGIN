@@ -216,7 +216,7 @@ TEST_CASE("workspace, project, and package manifests parse through authoring "
     REQUIRE(catalog.contains("Sample.Package"));
 }
 
-TEST_CASE("V4 minimal application project normalizes to generated executable")
+TEST_CASE("minimal application project normalizes to generated executable")
 {
     TempDir temp{};
     const auto projectPath = temp.path() / "Hello.Native.nginproj";
@@ -253,7 +253,7 @@ TEST_CASE("V4 minimal application project normalizes to generated executable")
     REQUIRE(project.inputs[0].mode == "Directory");
 }
 
-TEST_CASE("new command creates V4 product-first project skeletons")
+TEST_CASE("new command creates product-first project skeletons")
 {
     TempDir temp{};
 
@@ -278,7 +278,7 @@ TEST_CASE("new command creates V4 product-first project skeletons")
     REQUIRE(library.output.kind == "StaticLibrary");
 }
 
-TEST_CASE("package add update and remove edit V4 Uses package dependencies")
+TEST_CASE("package add update and remove edit Uses package dependencies")
 {
     TempDir temp{};
     const auto projectPath = temp.path() / "Hello.Native.nginproj";
@@ -334,7 +334,7 @@ TEST_CASE("package add update and remove edit V4 Uses package dependencies")
     REQUIRE_THAT(ReadFile(projectPath), !ContainsSubstring(R"(Name="NGIN.Core")"));
 }
 
-TEST_CASE("project-reference add edits V4 Uses project dependencies")
+TEST_CASE("project-reference add edits Uses project dependencies")
 {
     TempDir temp{};
     const auto appPath = temp.path() / "App/App.nginproj";
@@ -366,7 +366,7 @@ TEST_CASE("project-reference add edits V4 Uses project dependencies")
     REQUIRE_THAT(ReadFile(appPath), ContainsSubstring(R"(<Project Name="Lib" Path="../Lib/Lib.nginproj" />)"));
 }
 
-TEST_CASE("format command rewrites V4 manifests with deterministic XML layout")
+TEST_CASE("format command rewrites product manifests with deterministic XML layout")
 {
     TempDir temp{};
     const auto projectPath = temp.path() / "Format.App.nginproj";
@@ -391,7 +391,7 @@ TEST_CASE("format command rewrites V4 manifests with deterministic XML layout")
     REQUIRE(project.build.compileDefinitions.front().value == "FORMAT_APP=1");
 }
 
-TEST_CASE("schema command emits V4 editor metadata")
+TEST_CASE("schema command emits editor metadata")
 {
     TempDir temp{};
     ParsedArgs args{};
@@ -418,7 +418,7 @@ TEST_CASE("schema command emits V4 editor metadata")
     REQUIRE_THAT(captured.str(), ContainsSubstring(R"("analyzer")"));
 }
 
-TEST_CASE("package pack writes V4 package manifest from PackageOutput")
+TEST_CASE("package pack writes package manifest from PackageOutput")
 {
     TempDir temp{};
     const auto projectPath = temp.path() / "Game.Engine.nginproj";
@@ -473,7 +473,7 @@ TEST_CASE("package pack writes V4 package manifest from PackageOutput")
     REQUIRE(archivedPackage.version == "1.0.0");
 }
 
-TEST_CASE("V4 inspect emits product identity")
+TEST_CASE("inspect emits product identity")
 {
     TempDir temp{};
     const auto projectPath = temp.path() / "Hello.Native.nginproj";
@@ -518,7 +518,7 @@ TEST_CASE("V4 inspect emits product identity")
     REQUIRE_THAT(json, ContainsSubstring(R"("outputName":"Hello.Native")"));
 }
 
-TEST_CASE("V4 conditions support When nodes and item selectors")
+TEST_CASE("conditions support When nodes and item selectors")
 {
     TempDir temp{};
     const auto projectPath = temp.path() / "Game.Server.nginproj";
@@ -554,7 +554,7 @@ TEST_CASE("V4 conditions support When nodes and item selectors")
     REQUIRE(project.build.compileDefinitions[0].selectors.conditionRefs[0] == "linux-debug");
 }
 
-TEST_CASE("V4 workspace parses projects, package sources, and central package versions")
+TEST_CASE("workspace parses projects, package sources, and central package versions")
 {
     TempDir temp{};
     WriteFile(temp.path() / "build/platforms.ngin.xml",
@@ -613,7 +613,7 @@ TEST_CASE("V4 workspace parses projects, package sources, and central package ve
     REQUIRE(workspace.dependencyVersions.at("NGIN.Core") == "[0.1.0,0.2.0)");
 }
 
-TEST_CASE("V4 workspace default profile participates in command profile selection")
+TEST_CASE("workspace default profile participates in command profile selection")
 {
     TempDir temp{};
     WriteFile(temp.path() / "Workspace.ngin",
@@ -660,7 +660,7 @@ TEST_CASE("V4 workspace default profile participates in command profile selectio
     REQUIRE_THAT(captured.str(), ContainsSubstring(R"("name":"BuildType","value":"Release")"));
 }
 
-TEST_CASE("V4 workspace profile policy applies to projects without local profiles")
+TEST_CASE("workspace profile policy applies to projects without local profiles")
 {
     TempDir temp{};
     WriteFile(temp.path() / "build/platforms.ngin.xml",
@@ -885,7 +885,7 @@ TEST_CASE("V4 workspace profile policy applies to projects without local profile
     REQUIRE_THAT(runtimeExplainCaptured.str(), ContainsSubstring("result: selected"));
 }
 
-TEST_CASE("V4 workspace build defaults apply unless project declares explicit build settings")
+TEST_CASE("workspace build defaults apply unless project declares explicit build settings")
 {
     TempDir temp{};
     WriteFile(temp.path() / "Workspace.ngin",
@@ -942,7 +942,7 @@ TEST_CASE("V4 workspace build defaults apply unless project declares explicit bu
     REQUIRE(explicitResolved.value->project.build.languageStandard == "23");
 }
 
-TEST_CASE("package sources list reports V4 workspace package sources")
+TEST_CASE("package sources list reports workspace package sources")
 {
     TempDir temp{};
     WriteFile(temp.path() / "Workspace.ngin",
@@ -973,7 +973,7 @@ TEST_CASE("package sources list reports V4 workspace package sources")
     REQUIRE_THAT(captured.str(), ContainsSubstring("Package.Core ->"));
 }
 
-TEST_CASE("package sources add and remove edit V4 workspace sources")
+TEST_CASE("package sources add and remove edit workspace sources")
 {
     TempDir temp{};
     const auto workspacePath = temp.path() / "Workspace.ngin";
@@ -1020,7 +1020,7 @@ TEST_CASE("package sources add and remove edit V4 workspace sources")
     REQUIRE_THAT(afterRemove, !ContainsSubstring(R"(Name="local")"));
 }
 
-TEST_CASE("V4 file URL package source participates in package catalog")
+TEST_CASE("file URL package source participates in package catalog")
 {
     TempDir temp{};
     const auto feedRoot = temp.path() / "feed";
@@ -1070,7 +1070,7 @@ TEST_CASE("V4 file URL package source participates in package catalog")
     REQUIRE(resolved.value->orderedPackages.front().manifest.name == "Package.Core");
 }
 
-TEST_CASE("V4 static package feed index participates in package restore")
+TEST_CASE("static package feed index participates in package restore")
 {
     TempDir temp{};
     const auto feedRoot = temp.path() / "feed";
@@ -1133,7 +1133,7 @@ TEST_CASE("V4 static package feed index participates in package restore")
     REQUIRE(fs::exists(temp.path() / "store/Package.Core/1.0.0/package.nginpkg"));
 }
 
-TEST_CASE("V4 package manifest parses product exports and feature contributions")
+TEST_CASE("package manifest parses product exports and feature contributions")
 {
     TempDir temp{};
     const auto packagePath = temp.path() / "NGIN.Core.nginpkg";
@@ -1195,7 +1195,7 @@ TEST_CASE("V4 package manifest parses product exports and feature contributions"
     REQUIRE(package.features[0].provides[0].name == "Reflection");
 }
 
-TEST_CASE("V4 package manifest parses tool exports")
+TEST_CASE("package manifest parses tool exports")
 {
     TempDir temp{};
     const auto packagePath = temp.path() / "NGIN.Reflection.MetaGen.nginpkg";
@@ -1220,7 +1220,7 @@ TEST_CASE("V4 package manifest parses tool exports")
     REQUIRE(package.artifacts.executables[0].name == "NGIN.Reflection.MetaGen");
 }
 
-TEST_CASE("V4 minimal library project normalizes to static library without launch")
+TEST_CASE("minimal library project normalizes to static library without launch")
 {
     TempDir temp{};
     const auto projectPath = temp.path() / "Game.Engine.nginproj";
@@ -1241,7 +1241,7 @@ TEST_CASE("V4 minimal library project normalizes to static library without launc
     REQUIRE_FALSE(profile.launch.executable.has_value());
 }
 
-TEST_CASE("V4 external project exports imported interface target")
+TEST_CASE("external project exports imported interface target")
 {
     TempDir temp{};
     const auto externalPath = temp.path() / "External/System.OpenSSL.nginproj";
@@ -1296,7 +1296,7 @@ TEST_CASE("V4 external project exports imported interface target")
     REQUIRE_THAT(generated, ContainsSubstring(R"(target_link_libraries("External.App" PRIVATE "OpenSSL::SSL"))"));
 }
 
-TEST_CASE("V4 tool run and package output metadata parse")
+TEST_CASE("tool run and package output metadata parse")
 {
     TempDir temp{};
     const auto projectPath = temp.path() / "Game.AssetCompiler.nginproj";
@@ -1359,7 +1359,7 @@ TEST_CASE("V4 tool run and package output metadata parse")
     REQUIRE_THAT(captured.str(), ContainsSubstring(R"("packageOutputs":[{"name":"Game.AssetCompiler")"));
 }
 
-TEST_CASE("V4 test product can reference a project and test package")
+TEST_CASE("test product can reference a project and test package")
 {
     TempDir temp{};
     const auto projectPath = temp.path() / "Game.Engine.Tests.nginproj";
@@ -1387,7 +1387,7 @@ TEST_CASE("V4 test product can reference a project and test package")
     REQUIRE(project.packageRefs[0].scope == "Test");
 }
 
-TEST_CASE("V4 test command builds and runs test product")
+TEST_CASE("test command builds and runs test product")
 {
     TempDir temp{};
     const auto projectPath = temp.path() / "Arg.Tests.nginproj";
@@ -1416,7 +1416,7 @@ int main(int argc, char **argv) {
     REQUIRE(CmdTest(temp.path(), args) == 0);
 }
 
-TEST_CASE("V4 benchmark command builds and runs benchmark product")
+TEST_CASE("benchmark command builds and runs benchmark product")
 {
     TempDir temp{};
     const auto projectPath = temp.path() / "Perf.Benchmarks.nginproj";
@@ -1440,7 +1440,7 @@ TEST_CASE("V4 benchmark command builds and runs benchmark product")
     REQUIRE(CmdBenchmark(temp.path(), args) == 0);
 }
 
-TEST_CASE("stage command builds and reports staged V4 output")
+TEST_CASE("stage command builds and reports staged output")
 {
     TempDir temp{};
     const auto projectPath = temp.path() / "Stage.App.nginproj";
@@ -1474,7 +1474,7 @@ TEST_CASE("stage command builds and reports staged V4 output")
     REQUIRE(fs::exists(temp.path() / "out/config/app.json"));
 }
 
-TEST_CASE("analyze command reports declared V4 analyzer plan")
+TEST_CASE("analyze command reports declared analyzer plan")
 {
     TempDir temp{};
     const auto projectPath = temp.path() / "Analyze.App.nginproj";
@@ -1523,7 +1523,7 @@ TEST_CASE("analyze command reports declared V4 analyzer plan")
     REQUIRE_THAT(inspectCaptured.str(), ContainsSubstring(R"("severity":"Error")"));
 }
 
-TEST_CASE("publish command writes V4 folder publish output")
+TEST_CASE("publish command writes folder publish output")
 {
     TempDir temp{};
     const auto projectPath = temp.path() / "Publish.App.nginproj";
@@ -1577,7 +1577,7 @@ TEST_CASE("publish command writes V4 folder publish output")
     REQUIRE_THAT(archive, ContainsSubstring("bin/Publish.App"));
 }
 
-TEST_CASE("V4 hosted application parses runtime dependency, features, stage, environment, and module")
+TEST_CASE("hosted application parses runtime dependency, features, stage, environment, and module")
 {
     TempDir temp{};
     const auto projectPath = temp.path() / "Game.Server.nginproj";
@@ -1657,7 +1657,7 @@ TEST_CASE("V4 hosted application parses runtime dependency, features, stage, env
     REQUIRE(project.environments.size() == 2);
 }
 
-TEST_CASE("V4 profile Uses overlays select package features")
+TEST_CASE("profile Uses overlays select package features")
 {
     TempDir temp{};
     WriteFile(temp.path() / "Workspace.ngin",
@@ -1749,7 +1749,7 @@ TEST_CASE("V4 profile Uses overlays select package features")
     REQUIRE(shipping.value->selectedPackageFeatures[0].featureName == "Diagnostics");
 }
 
-TEST_CASE("V4 profile Uses overlays can remove project references")
+TEST_CASE("profile Uses overlays can remove project references")
 {
     TempDir temp{};
     WriteFile(temp.path() / "Lib/Lib.nginproj",
@@ -1806,7 +1806,7 @@ TEST_CASE("V4 profile Uses overlays can remove project references")
     REQUIRE(shipping.value->projectUnits[0].project.name == "ProjectRemove.App");
 }
 
-TEST_CASE("V4 profile overlays carry selectors and can override staged outputs and environment")
+TEST_CASE("profile overlays carry selectors and can override staged outputs and environment")
 {
     TempDir temp{};
     const auto projectPath = temp.path() / "Overlay.App.nginproj";
@@ -1885,7 +1885,7 @@ TEST_CASE("V4 profile overlays carry selectors and can override staged outputs a
                               { return input.kind == "Config" && input.source == "config/base.json"; }));
 }
 
-TEST_CASE("V4 stage identity reports collisions without explicit override")
+TEST_CASE("stage identity reports collisions without explicit override")
 {
     TempDir temp{};
     const auto projectPath = temp.path() / "Collision.App.nginproj";
@@ -1925,7 +1925,7 @@ TEST_CASE("V4 stage identity reports collisions without explicit override")
         }));
 }
 
-TEST_CASE("V4 diff compares resolved profile graph slices")
+TEST_CASE("diff compares resolved profile graph slices")
 {
     TempDir temp{};
     const auto projectPath = temp.path() / "Diff.App.nginproj";
@@ -2013,7 +2013,7 @@ TEST_CASE("V4 diff compares resolved profile graph slices")
     REQUIRE_THAT(diff, ContainsSubstring("- clang-tidy scope=Build severity=Warning"));
 }
 
-TEST_CASE("V4 diff compares package lock files")
+TEST_CASE("diff compares package lock files")
 {
     TempDir temp{};
     const auto oldLock = temp.path() / "old.ngin.lock";
@@ -2056,7 +2056,7 @@ TEST_CASE("V4 diff compares package lock files")
     REQUIRE_THAT(diff, ContainsSubstring("Package source changed: Package.Core local -> feed"));
 }
 
-TEST_CASE("V4 explain object syntax answers resolved graph objects")
+TEST_CASE("explain object syntax answers resolved graph objects")
 {
     TempDir temp{};
     const auto projectPath = temp.path() / "Explain.App.nginproj";
@@ -2138,7 +2138,7 @@ TEST_CASE("V4 explain object syntax answers resolved graph objects")
     REQUIRE_THAT(explain("analyzer:clang-tidy"), ContainsSubstring("severity: Error"));
 }
 
-TEST_CASE("V4 graph plan switches print focused resolved plans")
+TEST_CASE("graph plan switches print focused resolved plans")
 {
     TempDir temp{};
     const auto projectPath = temp.path() / "Plan.App.nginproj";
@@ -2299,7 +2299,7 @@ TEST_CASE("V4 graph plan switches print focused resolved plans")
     REQUIRE_THAT(buildJsonCaptured.str(), ContainsSubstring(R"("kind":"Source","role":"Source","source":"src/main.cpp")"));
 }
 
-TEST_CASE("V4 resolved package scopes flow into graph metadata")
+TEST_CASE("resolved package scopes flow into graph metadata")
 {
     TempDir temp{};
     WriteFile(temp.path() / "Workspace.ngin",
@@ -2384,7 +2384,7 @@ TEST_CASE("V4 resolved package scopes flow into graph metadata")
     REQUIRE_THAT(graphCaptured.str(), ContainsSubstring(R"("reason":"resolved package dependency")"));
 }
 
-TEST_CASE("V4 package resolution reports conflicting dependency version ranges")
+TEST_CASE("package resolution reports conflicting dependency version ranges")
 {
     TempDir temp{};
     WriteFile(temp.path() / "Workspace.ngin",
@@ -2446,7 +2446,7 @@ TEST_CASE("V4 package resolution reports conflicting dependency version ranges")
         }));
 }
 
-TEST_CASE("V4 package resolution validates later transitive package ranges")
+TEST_CASE("package resolution validates later transitive package ranges")
 {
     TempDir temp{};
     WriteFile(temp.path() / "Workspace.ngin",
@@ -2521,7 +2521,7 @@ TEST_CASE("V4 package resolution validates later transitive package ranges")
         }));
 }
 
-TEST_CASE("V4 package provider override is exposed in resolved package metadata")
+TEST_CASE("package provider override is exposed in resolved package metadata")
 {
     TempDir temp{};
     WriteFile(temp.path() / "Workspace.ngin",
@@ -2586,7 +2586,7 @@ TEST_CASE("V4 package provider override is exposed in resolved package metadata"
     REQUIRE_THAT(captured.str(), ContainsSubstring((temp.path() / "Providers/Core").lexically_normal().string()));
 }
 
-TEST_CASE("restore writes V4 package store and lock file")
+TEST_CASE("restore writes package store and lock file")
 {
     TempDir temp{};
     WriteFile(temp.path() / "Workspace.ngin",

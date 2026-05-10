@@ -37,10 +37,10 @@ struct PackageReference {
   std::string condition{};
 };
 
-enum class PackageBootstrapMode : NGIN::UInt8 { BuilderHookV1 };
+enum class PackageBootstrapMode : NGIN::UInt8 { BuilderHook };
 
 struct PackageBootstrapDescriptor {
-  PackageBootstrapMode mode{PackageBootstrapMode::BuilderHookV1};
+  PackageBootstrapMode mode{PackageBootstrapMode::BuilderHook};
   std::string entryPoint{};
   bool autoApply{false};
 };

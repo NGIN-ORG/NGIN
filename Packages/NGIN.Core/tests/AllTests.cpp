@@ -1875,7 +1875,7 @@ TEST_CASE("ApplicationBuilderExecutesExplicitPackageBootstrapFromManifestFile",
     </OperatingSystems>
   </Compatibility>
   <Runtime>
-    <Bootstrap Mode="BuilderHookV1"
+    <Bootstrap Mode="BuilderHook"
                EntryPoint="NGIN_Bootstrap_Samples_Package"
                AutoApply="false" />
   </Runtime>
@@ -1939,7 +1939,7 @@ TEST_CASE("ApplicationBuilderExecutesNamedPackageBootstrapEntry",
           .dependencies = {},
           .bootstrap =
               NGIN::Core::PackageBootstrapDescriptor{
-                  .mode = NGIN::Core::PackageBootstrapMode::BuilderHookV1,
+                  .mode = NGIN::Core::PackageBootstrapMode::BuilderHook,
                   .entryPoint = "NGIN_Bootstrap_Samples_Package",
                   .autoApply = false,
               },
@@ -1992,7 +1992,7 @@ TEST_CASE("ApplicationBuilderAutoAppliesPackagesInDependencyOrder",
           .dependencies = {},
           .bootstrap =
               NGIN::Core::PackageBootstrapDescriptor{
-                  .mode = NGIN::Core::PackageBootstrapMode::BuilderHookV1,
+                  .mode = NGIN::Core::PackageBootstrapMode::BuilderHook,
                   .entryPoint = "NGIN_Bootstrap_Samples_PackageA",
                   .autoApply = true,
               },
@@ -2016,7 +2016,7 @@ TEST_CASE("ApplicationBuilderAutoAppliesPackagesInDependencyOrder",
               },
           .bootstrap =
               NGIN::Core::PackageBootstrapDescriptor{
-                  .mode = NGIN::Core::PackageBootstrapMode::BuilderHookV1,
+                  .mode = NGIN::Core::PackageBootstrapMode::BuilderHook,
                   .entryPoint = "NGIN_Bootstrap_Samples_PackageB",
                   .autoApply = true,
               },
@@ -2055,7 +2055,7 @@ TEST_CASE("ApplicationBuilderFailsOnMissingRequiredAutoAppliedPackageBootstrap",
           .dependencies = {},
           .bootstrap =
               NGIN::Core::PackageBootstrapDescriptor{
-                  .mode = NGIN::Core::PackageBootstrapMode::BuilderHookV1,
+                  .mode = NGIN::Core::PackageBootstrapMode::BuilderHook,
                   .entryPoint = "NGIN_Bootstrap_Samples_Missing",
                   .autoApply = true,
               },
@@ -2089,7 +2089,7 @@ TEST_CASE("ApplicationBuilderSkipsOptionalAutoAppliedPackageWithWarning",
           .dependencies = {},
           .bootstrap =
               NGIN::Core::PackageBootstrapDescriptor{
-                  .mode = NGIN::Core::PackageBootstrapMode::BuilderHookV1,
+                  .mode = NGIN::Core::PackageBootstrapMode::BuilderHook,
                   .entryPoint = "NGIN_Bootstrap_Samples_OptionalMissing",
                   .autoApply = true,
               },
@@ -2129,7 +2129,7 @@ TEST_CASE("ApplicationBuilderFailsOnDuplicatePackageBootstrapEntry",
           .dependencies = {},
           .bootstrap =
               NGIN::Core::PackageBootstrapDescriptor{
-                  .mode = NGIN::Core::PackageBootstrapMode::BuilderHookV1,
+                  .mode = NGIN::Core::PackageBootstrapMode::BuilderHook,
                   .entryPoint = "NGIN_Bootstrap_Samples_Package",
                   .autoApply = true,
               },

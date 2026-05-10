@@ -37,20 +37,6 @@ function boolValue(value: unknown): boolean | undefined {
   return value === true || value === 'true' || value === '1' || value === 'yes';
 }
 
-function textLines(node: unknown): string[] {
-  if (!node || typeof node !== 'object') {
-    return typeof node === 'string' ? [node] : [];
-  }
-  const text = (node as { '#text'?: string })['#text'];
-  if (!text) {
-    return [];
-  }
-  return text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-}
-
 export interface ProjectEditorProfile {
   name: string;
   buildType?: string;
@@ -245,7 +231,7 @@ function selectors(value: {
   };
 }
 
-function parseV4InputBlock(node: unknown, block: ProjectInputBlock): ProjectInputEdit[] {
+function parseProductInputBlock(node: unknown, block: ProjectInputBlock): ProjectInputEdit[] {
   const product = node as { Build?: Record<string, unknown>; Stage?: Record<string, unknown> } | undefined;
   if (block === 'Configs') {
     return asArray(product?.Stage?.Config)
@@ -274,96 +260,7 @@ function parseV4InputBlock(node: unknown, block: ProjectInputBlock): ProjectInpu
 }
 
 function parseInputBlock(node: unknown, block: ProjectInputBlock): ProjectInputEdit[] {
-  const v4 = parseV4InputBlock(node, block);
-  if (v4.length > 0) {
-    return v4;
-  }
-  const parent = node as { Inputs?: Record<string, unknown> } | undefined;
-  const blocks = asArray(parent?.Inputs?.[block]);
-  const entries: ProjectInputEdit[] = [];
-  const legacySelectors = (value: {
-    Profile?: string;
-    Platform?: string;
-    OperatingSystem?: string;
-    Architecture?: string;
-    BuildType?: string;
-    Environment?: string;
-    Condition?: string;
-  } | undefined): Pick<ProjectInputEdit, 'profile' | 'platform' | 'operatingSystem' | 'architecture' | 'buildType' | 'environment' | 'condition'> => ({
-    profile: value?.Profile,
-    platform: value?.Platform,
-    operatingSystem: value?.OperatingSystem,
-    architecture: value?.Architecture,
-    buildType: value?.BuildType,
-    environment: value?.Environment,
-    condition: value?.Condition
-  });
-  for (const rawBlock of blocks) {
-    const value = rawBlock as {
-      Path?: string;
-      Include?: string;
-      Exclude?: string;
-      File?: unknown;
-      Directory?: unknown;
-      Glob?: unknown;
-      Profile?: string;
-      Platform?: string;
-      OperatingSystem?: string;
-      Architecture?: string;
-      BuildType?: string;
-      Environment?: string;
-      Condition?: string;
-    } | undefined;
-    if (!value) {
-      continue;
-    }
-    if (value.Path) {
-      entries.push({ mode: 'Directory', path: value.Path, include: value.Include, exclude: value.Exclude, ...legacySelectors(value) });
-    }
-    if (value.Include) {
-      entries.push({ mode: 'Glob', include: value.Include, exclude: value.Exclude, ...legacySelectors(value) });
-    }
-    for (const line of textLines(rawBlock)) {
-      entries.push({ mode: 'File', path: line, ...legacySelectors(value) });
-    }
-    for (const file of asArray(value.File)) {
-      const entry = file as { Path?: string } & Parameters<typeof legacySelectors>[0] | undefined;
-      if (entry?.Path) {
-        entries.push({ mode: 'File', path: entry.Path, ...legacySelectors(entry) });
-      }
-    }
-    for (const directory of asArray(value.Directory)) {
-      const entry = directory as { Path?: string; Include?: string; Exclude?: string } & Parameters<typeof legacySelectors>[0] | undefined;
-      if (entry?.Path) {
-        entries.push({ mode: 'Directory', path: entry.Path, include: entry.Include, exclude: entry.Exclude, ...legacySelectors(entry) });
-      }
-    }
-    for (const glob of asArray(value.Glob)) {
-      const entry = glob as { Include?: string; Exclude?: string } & Parameters<typeof legacySelectors>[0] | undefined;
-      if (entry?.Include) {
-        entries.push({ mode: 'Glob', include: entry.Include, exclude: entry.Exclude, ...legacySelectors(entry) });
-      }
-    }
-  }
-  return entries;
-}
-
-/*
- * Legacy helpers below remain as parser fallbacks for already-open editor
- * documents. The extension no longer creates V1/V2/V3 manifest shapes.
- */
-function parseLegacyFeatureUses(node: unknown): ProjectEditorFeatureUse[] {
-  const parent = node as { Features?: { Use?: unknown; Disable?: unknown } } | undefined;
-  const parse = (entry: unknown, state: Exclude<ProjectFeatureState, 'inherit'>): ProjectEditorFeatureUse | undefined => {
-    const value = entry as { Package?: string; Feature?: string } | undefined;
-    return value?.Package && value.Feature
-      ? { packageName: value.Package, featureName: value.Feature, state }
-      : undefined;
-  };
-  return [
-    ...asArray(parent?.Features?.Use).map((entry) => parse(entry, 'use')),
-    ...asArray(parent?.Features?.Disable).map((entry) => parse(entry, 'disable'))
-  ].filter((entry): entry is ProjectEditorFeatureUse => Boolean(entry));
+  return parseProductInputBlock(node, block);
 }
 
 function parseInputs(node: unknown): Record<ProjectInputBlock, ProjectInputEdit[]> {
@@ -553,7 +450,7 @@ export function buildProjectEditorModel(
           launchExecutable: launch?.Executable,
           launchWorkingDirectory: launch?.WorkingDirectory,
           packageReferences: parsePackageReferences(overlayProduct),
-          featureUses: [...parseFeatureUses(overlayProduct), ...parseLegacyFeatureUses(profile)],
+          featureUses: parseFeatureUses(overlayProduct),
           inputs: parseInputs(overlayProduct)
         };
       })

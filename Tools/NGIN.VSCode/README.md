@@ -15,7 +15,7 @@ the terminal commands.
   dependency, and artifact navigation
 - read-only resolved dependency details in the Workspace tree for the active
   project/profile, backed by `ngin inspect --format json`
-- a default visual V4 `.nginproj` editor for common product, profile,
+- a default visual `.nginproj` editor for common product, profile,
   dependency, source/config, feature, launch, and environment edits while
   preserving XML source
 - status bar items for the selected workspace, project, and profile
@@ -27,8 +27,8 @@ the terminal commands.
 - C/C++ profile-provider support for `ms-vscode.cpptools`
 - file registration and snippets for `.ngin`, `.nginproj`, `.nginpkg`,
   `.nginlaunch`, and `.nginsettings`
-- an initial V4 product-first `.nginproj` schema artifact for editor tooling
-- V4 workspace/project parsing for product sections, direct project profiles,
+- an current product-first `.nginproj` schema artifact for editor tooling
+- workspace/project parsing for product sections, direct project profiles,
   workspace package sources, and authored dependency scopes
 
 The CLI remains the source of truth. If a command works in the terminal, the

@@ -13,7 +13,7 @@ namespace NGIN::CLI
 {
     namespace
     {
-        [[nodiscard]] auto IsV4ProductElementName(std::string_view name) -> bool;
+        [[nodiscard]] auto IsProductElementName(std::string_view name) -> bool;
 
         [[nodiscard]] auto SchemaVersion(const XmlElement &node, const fs::path &path) -> std::string
         {
@@ -294,11 +294,11 @@ namespace NGIN::CLI
             CompatibilityDefinition compatibility{};
             if (FindChild(node, "Platforms") != nullptr)
             {
-                throw std::runtime_error(path.string() + ": legacy <Platforms> is no longer supported; use <Compatibility>");
+                throw std::runtime_error(path.string() + ": <Platforms> is no longer supported; use <Compatibility>");
             }
             if (FindChild(node, "SupportedHosts") != nullptr)
             {
-                throw std::runtime_error(path.string() + ": legacy <SupportedHosts> is no longer supported");
+                throw std::runtime_error(path.string() + ": <SupportedHosts> is no longer supported");
             }
             if (const auto *section = FindChild(node, "Compatibility"))
             {
@@ -837,15 +837,15 @@ namespace NGIN::CLI
         {
             if (FindChild(parent, "Sources") != nullptr)
             {
-                throw std::runtime_error(path.string() + ": legacy top-level <Sources> is no longer supported; use <Inputs><Sources ... />");
+                throw std::runtime_error(path.string() + ": top-level <Sources> is no longer supported; use <Inputs><Sources ... />");
             }
             if (FindChild(parent, "SourceRoots") != nullptr)
             {
-                throw std::runtime_error(path.string() + ": legacy <SourceRoots> is no longer supported; use <Inputs><Sources Path=\"...\" />");
+                throw std::runtime_error(path.string() + ": <SourceRoots> is no longer supported; use <Inputs><Sources Path=\"...\" />");
             }
             if (FindChild(parent, "Contents") != nullptr)
             {
-                throw std::runtime_error(path.string() + ": legacy top-level <Contents> is no longer supported; use <Inputs><Contents ... />");
+                throw std::runtime_error(path.string() + ": top-level <Contents> is no longer supported; use <Inputs><Contents ... />");
             }
             const auto *inputsElement = FindChild(parent, "Inputs");
             if (inputsElement == nullptr)
@@ -868,7 +868,7 @@ namespace NGIN::CLI
                 }
                 if (child->name == "Config")
                 {
-                    throw std::runtime_error(path.string() + ": legacy <Inputs><Config> is no longer supported; use <Inputs><Configs>...</Configs></Inputs>");
+                    throw std::runtime_error(path.string() + ": <Inputs><Config> is no longer supported; use <Inputs><Configs>...</Configs></Inputs>");
                 }
                 if (IsTypedInputBlock(child->name))
                 {
@@ -1373,7 +1373,7 @@ namespace NGIN::CLI
             condition.name = std::move(name);
             condition.builtin = true;
             condition.sourceKind = "built-in";
-            condition.sourceName = "V4";
+            condition.sourceName = "manifest";
             condition.body.kind = ConditionNode::Kind::Match;
             condition.body.match.profile = profile;
             condition.body.match.platform = platform;
@@ -1390,7 +1390,7 @@ namespace NGIN::CLI
             condition.name = "Desktop";
             condition.builtin = true;
             condition.sourceKind = "built-in";
-            condition.sourceName = "V4";
+            condition.sourceName = "manifest";
             condition.body.kind = ConditionNode::Kind::Any;
             condition.body.children.push_back(MatchCondition("", {}, {}, "windows").body);
             condition.body.children.push_back(MatchCondition("", {}, {}, "linux").body);
@@ -2080,7 +2080,7 @@ namespace NGIN::CLI
         return fs::current_path();
     }
 
-    auto ParseV4DefinitionFragment(const fs::path &path, WorkspaceManifest &workspace) -> void
+    auto ParseDefinitionFragment(const fs::path &path, WorkspaceManifest &workspace) -> void
     {
         const auto doc = LoadXml(path);
         const auto *rootElement = doc.document.Root();
@@ -2156,7 +2156,7 @@ namespace NGIN::CLI
         }
     }
 
-    auto ParseV4WorkspaceDefaults(
+    auto ParseWorkspaceDefaults(
         const XmlElement &defaultsNode,
         const fs::path &path,
         const WorkspaceManifest &workspace,
@@ -2220,7 +2220,7 @@ namespace NGIN::CLI
         }
     }
 
-    auto ParseV4WorkspaceBuildPolicy(
+    auto ParseWorkspaceBuildPolicy(
         const XmlElement &buildNode,
         const fs::path &path,
         WorkspaceManifest::ProfilePolicy &policy,
@@ -2270,7 +2270,7 @@ namespace NGIN::CLI
         }
     }
 
-    auto ParseV4WorkspaceQualityPolicy(
+    auto ParseWorkspaceQualityPolicy(
         const XmlElement &qualityNode,
         const fs::path &path,
         WorkspaceManifest::ProfilePolicy &policy,
@@ -2292,7 +2292,7 @@ namespace NGIN::CLI
         }
     }
 
-    auto ParseV4WorkspaceEnvironmentPolicy(
+    auto ParseWorkspaceEnvironmentPolicy(
         const XmlElement &environmentNode,
         const fs::path &path,
         WorkspaceManifest::ProfilePolicy &policy,
@@ -2329,7 +2329,7 @@ namespace NGIN::CLI
                 constexpr std::string_view localPrefix{"local:"};
                 if (source.rfind(localPrefix, 0) != 0)
                 {
-                    throw std::runtime_error(path.string() + ": workspace V4 Secret '" + variable.name + "' currently requires From=\"local:<key>\"");
+                    throw std::runtime_error(path.string() + ": workspace Secret '" + variable.name + "' currently requires From=\"local:<key>\"");
                 }
                 variable.fromLocalSetting = source.substr(localPrefix.size());
             }
@@ -2337,7 +2337,7 @@ namespace NGIN::CLI
         }
     }
 
-    auto ParseV4WorkspaceStagePolicy(
+    auto ParseWorkspaceStagePolicy(
         const XmlElement &stageNode,
         const fs::path &path,
         WorkspaceManifest::ProfilePolicy &policy,
@@ -2367,7 +2367,7 @@ namespace NGIN::CLI
         }
     }
 
-    auto ParseV4WorkspaceUsesPolicy(
+    auto ParseWorkspaceUsesPolicy(
         const XmlElement &usesNode,
         const fs::path &path,
         const WorkspaceManifest &workspace,
@@ -2410,7 +2410,7 @@ namespace NGIN::CLI
         }
     }
 
-    auto ParseV4WorkspaceRuntimePolicy(
+    auto ParseWorkspaceRuntimePolicy(
         const XmlElement &runtimeNode,
         const fs::path &path,
         WorkspaceManifest::ProfilePolicy &policy,
@@ -2479,12 +2479,12 @@ namespace NGIN::CLI
             {
                 const auto importPath = (workspace.path.parent_path() / RequireAttribute(*import, "Path", *path)).lexically_normal();
                 workspace.imports.push_back(importPath);
-                ParseV4DefinitionFragment(importPath, workspace);
+                ParseDefinitionFragment(importPath, workspace);
             }
         }
         if (const auto *defaults = FindChild(*rootElement, "Defaults"))
         {
-            ParseV4WorkspaceDefaults(*defaults, *path, workspace, workspace.defaults);
+            ParseWorkspaceDefaults(*defaults, *path, workspace, workspace.defaults);
         }
         if (const auto *packagesNode = FindChild(*rootElement, "Packages"))
         {
@@ -2529,61 +2529,61 @@ namespace NGIN::CLI
                 profile.name = RequireAttribute(*node, "Name", *path);
                 if (const auto *defaults = FindChild(*node, "Defaults"))
                 {
-                    ParseV4WorkspaceDefaults(*defaults, *path, workspace, profile);
+                    ParseWorkspaceDefaults(*defaults, *path, workspace, profile);
                 }
                 if (const auto *build = FindChild(*node, "Build"))
                 {
-                    ParseV4WorkspaceBuildPolicy(*build, *path, profile);
+                    ParseWorkspaceBuildPolicy(*build, *path, profile);
                 }
                 if (const auto *quality = FindChild(*node, "Quality"))
                 {
-                    ParseV4WorkspaceQualityPolicy(*quality, *path, profile);
+                    ParseWorkspaceQualityPolicy(*quality, *path, profile);
                 }
                 if (const auto *environment = FindChild(*node, "Environment"))
                 {
-                    ParseV4WorkspaceEnvironmentPolicy(*environment, *path, profile);
+                    ParseWorkspaceEnvironmentPolicy(*environment, *path, profile);
                 }
                 if (const auto *stage = FindChild(*node, "Stage"))
                 {
-                    ParseV4WorkspaceStagePolicy(*stage, *path, profile);
+                    ParseWorkspaceStagePolicy(*stage, *path, profile);
                 }
                 if (const auto *uses = FindChild(*node, "Uses"))
                 {
-                    ParseV4WorkspaceUsesPolicy(*uses, *path, workspace, profile);
+                    ParseWorkspaceUsesPolicy(*uses, *path, workspace, profile);
                 }
                 if (const auto *runtime = FindChild(*node, "Runtime"))
                 {
-                    ParseV4WorkspaceRuntimePolicy(*runtime, *path, profile);
+                    ParseWorkspaceRuntimePolicy(*runtime, *path, profile);
                 }
                 for (const auto *productOverlay : ChildElements(*node))
                 {
-                    if (!IsV4ProductElementName(productOverlay->name))
+                    if (!IsProductElementName(productOverlay->name))
                     {
                         continue;
                     }
                     if (const auto *build = FindChild(*productOverlay, "Build"))
                     {
-                        ParseV4WorkspaceBuildPolicy(*build, *path, profile, std::string{productOverlay->name});
+                        ParseWorkspaceBuildPolicy(*build, *path, profile, std::string{productOverlay->name});
                     }
                     if (const auto *quality = FindChild(*productOverlay, "Quality"))
                     {
-                        ParseV4WorkspaceQualityPolicy(*quality, *path, profile, std::string{productOverlay->name});
+                        ParseWorkspaceQualityPolicy(*quality, *path, profile, std::string{productOverlay->name});
                     }
                     if (const auto *environment = FindChild(*productOverlay, "Environment"))
                     {
-                        ParseV4WorkspaceEnvironmentPolicy(*environment, *path, profile, std::string{productOverlay->name});
+                        ParseWorkspaceEnvironmentPolicy(*environment, *path, profile, std::string{productOverlay->name});
                     }
                     if (const auto *stage = FindChild(*productOverlay, "Stage"))
                     {
-                        ParseV4WorkspaceStagePolicy(*stage, *path, profile, std::string{productOverlay->name});
+                        ParseWorkspaceStagePolicy(*stage, *path, profile, std::string{productOverlay->name});
                     }
                     if (const auto *uses = FindChild(*productOverlay, "Uses"))
                     {
-                        ParseV4WorkspaceUsesPolicy(*uses, *path, workspace, profile, std::string{productOverlay->name});
+                        ParseWorkspaceUsesPolicy(*uses, *path, workspace, profile, std::string{productOverlay->name});
                     }
                     if (const auto *runtime = FindChild(*productOverlay, "Runtime"))
                     {
-                        ParseV4WorkspaceRuntimePolicy(*runtime, *path, profile, std::string{productOverlay->name});
+                        ParseWorkspaceRuntimePolicy(*runtime, *path, profile, std::string{productOverlay->name});
                     }
                 }
                 workspace.profiles.push_back(std::move(profile));
@@ -2899,13 +2899,13 @@ namespace NGIN::CLI
 
     namespace
     {
-        [[nodiscard]] auto IsV4ProductElementName(const std::string_view name) -> bool
+        [[nodiscard]] auto IsProductElementName(const std::string_view name) -> bool
         {
             return name == "Application" || name == "Library" || name == "Tool" || name == "Test"
                    || name == "Benchmark" || name == "Plugin" || name == "Module" || name == "External";
         }
 
-        [[nodiscard]] auto V4DefaultOutputKind(const std::string_view productKind, const XmlElement &product) -> std::string
+        [[nodiscard]] auto DefaultOutputKind(const std::string_view productKind, const XmlElement &product) -> std::string
         {
             if (const auto output = Attribute(product, "Output"); output.has_value() && !output->empty())
             {
@@ -2934,7 +2934,7 @@ namespace NGIN::CLI
             return "Executable";
         }
 
-        [[nodiscard]] auto V4ProjectType(const std::string_view productKind) -> std::string
+        [[nodiscard]] auto ProjectType(const std::string_view productKind) -> std::string
         {
             if (productKind == "Library" || productKind == "Plugin" || productKind == "Module" || productKind == "External")
             {
@@ -2947,7 +2947,7 @@ namespace NGIN::CLI
             return "Application";
         }
 
-        [[nodiscard]] auto V4ProfileWithPlatform(
+        [[nodiscard]] auto ProfileWithPlatform(
             std::string name,
             std::string buildType,
             std::string platform,
@@ -2987,7 +2987,7 @@ namespace NGIN::CLI
             return profile;
         }
 
-        [[nodiscard]] auto V4PathInput(
+        [[nodiscard]] auto PathInput(
             std::string kind,
             std::string role,
             const std::string &pathValue,
@@ -3021,7 +3021,7 @@ namespace NGIN::CLI
             return input;
         }
 
-        auto ApplyV4ScopeSelector(const std::string &scope, SelectorSet &selectors) -> void
+        auto ApplyScopeSelector(const std::string &scope, SelectorSet &selectors) -> void
         {
             constexpr std::string_view profilePrefix{"profile:"};
             if (scope.rfind(profilePrefix, 0) != 0)
@@ -3039,7 +3039,7 @@ namespace NGIN::CLI
             }
         }
 
-        [[nodiscard]] auto V4DefineIdentity(const std::string &value) -> std::string
+        [[nodiscard]] auto DefineIdentity(const std::string &value) -> std::string
         {
             if (const auto separator = value.find('='); separator != std::string::npos)
             {
@@ -3048,7 +3048,7 @@ namespace NGIN::CLI
             return value;
         }
 
-        auto RemoveV4Define(std::vector<BuildSetting> &settings, const std::string &name, const std::string &scope) -> void
+        auto RemoveDefine(std::vector<BuildSetting> &settings, const std::string &name, const std::string &scope) -> void
         {
             settings.erase(
                 std::remove_if(
@@ -3056,7 +3056,7 @@ namespace NGIN::CLI
                     settings.end(),
                     [&](const BuildSetting &setting)
                     {
-                        if (V4DefineIdentity(setting.value) != name)
+                        if (DefineIdentity(setting.value) != name)
                         {
                             return false;
                         }
@@ -3065,21 +3065,21 @@ namespace NGIN::CLI
                             return true;
                         }
                         SelectorSet scopeSelectors{};
-                        ApplyV4ScopeSelector(scope, scopeSelectors);
+                        ApplyScopeSelector(scope, scopeSelectors);
                         return setting.selectors.profile == scopeSelectors.profile;
                     }),
                 settings.end());
         }
 
-        auto UpsertV4Define(std::vector<BuildSetting> &settings, BuildSetting setting, const std::string &scope) -> void
+        auto UpsertDefine(std::vector<BuildSetting> &settings, BuildSetting setting, const std::string &scope) -> void
         {
-            const auto identity = V4DefineIdentity(setting.value);
-            ApplyV4ScopeSelector(scope, setting.selectors);
-            RemoveV4Define(settings, identity, scope);
+            const auto identity = DefineIdentity(setting.value);
+            ApplyScopeSelector(scope, setting.selectors);
+            RemoveDefine(settings, identity, scope);
             settings.push_back(std::move(setting));
         }
 
-        [[nodiscard]] auto V4StageIdentity(const InputDeclaration &input) -> std::string
+        [[nodiscard]] auto StageIdentity(const InputDeclaration &input) -> std::string
         {
             if (!input.target.empty())
             {
@@ -3100,7 +3100,7 @@ namespace NGIN::CLI
             return input.kind + ":";
         }
 
-        auto RemoveV4StageInput(std::vector<InputDeclaration> &inputs, const std::string &kind, const std::string &identity, const std::string &scope) -> void
+        auto RemoveStageInput(std::vector<InputDeclaration> &inputs, const std::string &kind, const std::string &identity, const std::string &scope) -> void
         {
             inputs.erase(
                 std::remove_if(
@@ -3112,7 +3112,7 @@ namespace NGIN::CLI
                         {
                             return false;
                         }
-                        const auto inputIdentity = V4StageIdentity(input);
+                        const auto inputIdentity = StageIdentity(input);
                         const auto matchesIdentity = inputIdentity == kind + ":" + identity
                                                      || input.target == identity
                                                      || input.targetRoot == identity
@@ -3127,19 +3127,19 @@ namespace NGIN::CLI
                             return true;
                         }
                         SelectorSet scopeSelectors{};
-                        ApplyV4ScopeSelector(scope, scopeSelectors);
+                        ApplyScopeSelector(scope, scopeSelectors);
                         return !input.selectors.profile.has_value() || input.selectors.profile == scopeSelectors.profile;
                     }),
                 inputs.end());
         }
 
-        auto UpsertV4StageInput(std::vector<InputDeclaration> &inputs, InputDeclaration input, const std::string &scope) -> void
+        auto UpsertStageInput(std::vector<InputDeclaration> &inputs, InputDeclaration input, const std::string &scope) -> void
         {
-            ApplyV4ScopeSelector(scope, input.selectors);
+            ApplyScopeSelector(scope, input.selectors);
             inputs.push_back(std::move(input));
         }
 
-        auto RemoveV4EnvironmentVariable(std::vector<EnvironmentVariable> &variables, const std::string &name) -> void
+        auto RemoveEnvironmentVariable(std::vector<EnvironmentVariable> &variables, const std::string &name) -> void
         {
             variables.erase(
                 std::remove_if(
@@ -3150,13 +3150,13 @@ namespace NGIN::CLI
                 variables.end());
         }
 
-        auto UpsertV4EnvironmentVariable(std::vector<EnvironmentVariable> &variables, EnvironmentVariable variable) -> void
+        auto UpsertEnvironmentVariable(std::vector<EnvironmentVariable> &variables, EnvironmentVariable variable) -> void
         {
-            RemoveV4EnvironmentVariable(variables, variable.name);
+            RemoveEnvironmentVariable(variables, variable.name);
             variables.push_back(std::move(variable));
         }
 
-        auto RemoveV4RuntimeModule(RuntimeDefinition &runtime, const std::string &name) -> void
+        auto RemoveRuntimeModule(RuntimeDefinition &runtime, const std::string &name) -> void
         {
             runtime.modules.erase(
                 std::remove_if(
@@ -3175,10 +3175,10 @@ namespace NGIN::CLI
             runtime.disableModules.push_back(RuntimeReference{.name = name});
         }
 
-        auto UpsertV4RuntimeModule(RuntimeDefinition &runtime, ModuleDescriptor module) -> void
+        auto UpsertRuntimeModule(RuntimeDefinition &runtime, ModuleDescriptor module) -> void
         {
             const auto name = module.name;
-            RemoveV4RuntimeModule(runtime, name);
+            RemoveRuntimeModule(runtime, name);
             runtime.disableModules.erase(
                 std::remove_if(
                     runtime.disableModules.begin(),
@@ -3190,7 +3190,7 @@ namespace NGIN::CLI
             runtime.modules.push_back(std::move(module));
         }
 
-        auto AddV4PathInput(
+        auto AddPathInput(
             std::vector<InputDeclaration> &inputs,
             const fs::path &manifestPath,
             std::string kind,
@@ -3200,13 +3200,13 @@ namespace NGIN::CLI
             const std::string &target,
             const std::string &scope) -> void
         {
-            auto input = V4PathInput(std::move(kind), std::move(role), pathValue, std::move(visibility), target, scope);
-            ApplyV4ScopeSelector(scope, input.selectors);
+            auto input = PathInput(std::move(kind), std::move(role), pathValue, std::move(visibility), target, scope);
+            ApplyScopeSelector(scope, input.selectors);
             ValidateInputDeclaration(input, manifestPath);
             inputs.push_back(std::move(input));
         }
 
-        auto ParseV4Language(const XmlElement &node, const fs::path &path, ProjectBuildDescriptor &build) -> void
+        auto ParseLanguage(const XmlElement &node, const fs::path &path, ProjectBuildDescriptor &build) -> void
         {
             ValidateAllowedAttributes(node, path, {"Standard", "Required", "Extensions"});
             auto standard = Attribute(node, "Standard").value_or("");
@@ -3222,7 +3222,7 @@ namespace NGIN::CLI
             }
         }
 
-        auto ApplyV4WhenSelector(const XmlElement &node, SelectorSet &selectors) -> void
+        auto ApplyWhenSelector(const XmlElement &node, SelectorSet &selectors) -> void
         {
             if (const auto when = Attribute(node, "When"); when.has_value() && !when->empty())
             {
@@ -3230,23 +3230,23 @@ namespace NGIN::CLI
             }
         }
 
-        auto ParseV4BuildSection(const XmlElement &buildNode, const fs::path &path, ProjectManifest &project, const std::string &scope) -> void
+        auto ParseBuildSection(const XmlElement &buildNode, const fs::path &path, ProjectManifest &project, const std::string &scope) -> void
         {
             for (const auto *node : ChildElements(buildNode))
             {
                 if (node->name == "Language")
                 {
-                    ParseV4Language(*node, path, project.build);
+                    ParseLanguage(*node, path, project.build);
                     continue;
                 }
                 if (node->name == "Sources")
                 {
-                    AddV4PathInput(project.inputs, path, "Source", "Source", RequireAttribute(*node, "Path", path), "Private", "", scope);
+                    AddPathInput(project.inputs, path, "Source", "Source", RequireAttribute(*node, "Path", path), "Private", "", scope);
                     continue;
                 }
                 if (node->name == "Headers")
                 {
-                    AddV4PathInput(project.inputs, path, "Source", "Header", RequireAttribute(*node, "Path", path), Attribute(*node, "Visibility").value_or("Public"), "", scope);
+                    AddPathInput(project.inputs, path, "Source", "Header", RequireAttribute(*node, "Path", path), Attribute(*node, "Visibility").value_or("Public"), "", scope);
                     continue;
                 }
                 if (node->name == "IncludePath")
@@ -3254,8 +3254,8 @@ namespace NGIN::CLI
                     BuildSetting setting{};
                     setting.value = RequireAttribute(*node, "Path", path);
                     setting.visibility = Attribute(*node, "Visibility").value_or("Private");
-                    ApplyV4ScopeSelector(scope, setting.selectors);
-                    ApplyV4WhenSelector(*node, setting.selectors);
+                    ApplyScopeSelector(scope, setting.selectors);
+                    ApplyWhenSelector(*node, setting.selectors);
                     project.build.includeDirectories.push_back(std::move(setting));
                     continue;
                 }
@@ -3264,7 +3264,7 @@ namespace NGIN::CLI
                     BuildSetting setting{};
                     if (const auto remove = Attribute(*node, "Remove"); remove.has_value() && !remove->empty())
                     {
-                        RemoveV4Define(project.build.compileDefinitions, *remove, scope);
+                        RemoveDefine(project.build.compileDefinitions, *remove, scope);
                         continue;
                     }
                     const auto name = Attribute(*node, "Name").value_or("");
@@ -3278,8 +3278,8 @@ namespace NGIN::CLI
                         setting.value += "=" + *value;
                     }
                     setting.visibility = Attribute(*node, "Visibility").value_or("Private");
-                    ApplyV4WhenSelector(*node, setting.selectors);
-                    UpsertV4Define(project.build.compileDefinitions, std::move(setting), scope);
+                    ApplyWhenSelector(*node, setting.selectors);
+                    UpsertDefine(project.build.compileDefinitions, std::move(setting), scope);
                     continue;
                 }
                 if (node->name == "CompileOption")
@@ -3287,8 +3287,8 @@ namespace NGIN::CLI
                     BuildSetting setting{};
                     setting.value = RequireAttribute(*node, "Value", path);
                     setting.visibility = Attribute(*node, "Visibility").value_or("Private");
-                    ApplyV4ScopeSelector(scope, setting.selectors);
-                    ApplyV4WhenSelector(*node, setting.selectors);
+                    ApplyScopeSelector(scope, setting.selectors);
+                    ApplyWhenSelector(*node, setting.selectors);
                     project.build.compileOptions.push_back(std::move(setting));
                     continue;
                 }
@@ -3299,8 +3299,8 @@ namespace NGIN::CLI
                     if (!setting.value.empty())
                     {
                         setting.visibility = Attribute(*node, "Visibility").value_or("Private");
-                        ApplyV4ScopeSelector(scope, setting.selectors);
-                        ApplyV4WhenSelector(*node, setting.selectors);
+                        ApplyScopeSelector(scope, setting.selectors);
+                        ApplyWhenSelector(*node, setting.selectors);
                         project.build.linkOptions.push_back(std::move(setting));
                     }
                     continue;
@@ -3308,7 +3308,7 @@ namespace NGIN::CLI
             }
         }
 
-        auto ParseV4ExportsSection(const XmlElement &exportsNode, const fs::path &path, ProjectManifest &project, const std::string &scope) -> void
+        auto ParseExportsSection(const XmlElement &exportsNode, const fs::path &path, ProjectManifest &project, const std::string &scope) -> void
         {
             for (const auto *node : ChildElements(exportsNode))
             {
@@ -3322,14 +3322,14 @@ namespace NGIN::CLI
                     BuildSetting setting{};
                     setting.value = RequireAttribute(*node, "Path", path);
                     setting.visibility = "Interface";
-                    ApplyV4ScopeSelector(scope, setting.selectors);
-                    ApplyV4WhenSelector(*node, setting.selectors);
+                    ApplyScopeSelector(scope, setting.selectors);
+                    ApplyWhenSelector(*node, setting.selectors);
                     project.build.includeDirectories.push_back(std::move(setting));
                     continue;
                 }
                 if (node->name == "Headers")
                 {
-                    AddV4PathInput(project.inputs, path, "Source", "Header", RequireAttribute(*node, "Path", path), "Public", "", scope);
+                    AddPathInput(project.inputs, path, "Source", "Header", RequireAttribute(*node, "Path", path), "Public", "", scope);
                     continue;
                 }
                 if (node->name == "Define")
@@ -3346,8 +3346,8 @@ namespace NGIN::CLI
                         setting.value += "=" + *value;
                     }
                     setting.visibility = "Interface";
-                    ApplyV4WhenSelector(*node, setting.selectors);
-                    UpsertV4Define(project.build.compileDefinitions, std::move(setting), scope);
+                    ApplyWhenSelector(*node, setting.selectors);
+                    UpsertDefine(project.build.compileDefinitions, std::move(setting), scope);
                     continue;
                 }
                 if (node->name == "LinkOption")
@@ -3355,15 +3355,15 @@ namespace NGIN::CLI
                     BuildSetting setting{};
                     setting.value = RequireAttribute(*node, "Value", path);
                     setting.visibility = "Interface";
-                    ApplyV4ScopeSelector(scope, setting.selectors);
-                    ApplyV4WhenSelector(*node, setting.selectors);
+                    ApplyScopeSelector(scope, setting.selectors);
+                    ApplyWhenSelector(*node, setting.selectors);
                     project.build.linkOptions.push_back(std::move(setting));
                     continue;
                 }
             }
         }
 
-        auto ParseV4UsesSection(
+        auto ParseUsesSection(
             const XmlElement &usesNode,
             const fs::path &path,
             ProjectManifest &project,
@@ -3378,7 +3378,7 @@ namespace NGIN::CLI
                     {
                         reference.path = (path.parent_path() / *remove).lexically_normal();
                         reference.disabled = true;
-                        ApplyV4ScopeSelector(scope, reference.selectors);
+                        ApplyScopeSelector(scope, reference.selectors);
                         project.projectRefs.push_back(std::move(reference));
                         continue;
                     }
@@ -3387,7 +3387,7 @@ namespace NGIN::CLI
                     {
                         reference.profile = *profile;
                     }
-                    ApplyV4ScopeSelector(scope, reference.selectors);
+                    ApplyScopeSelector(scope, reference.selectors);
                     project.projectRefs.push_back(std::move(reference));
                     continue;
                 }
@@ -3398,7 +3398,7 @@ namespace NGIN::CLI
                         PackageReference package{};
                         package.name = *remove;
                         package.disabled = true;
-                        ApplyV4ScopeSelector(scope, package.selectors);
+                        ApplyScopeSelector(scope, package.selectors);
                         project.packageRefs.push_back(std::move(package));
                         continue;
                     }
@@ -3406,7 +3406,7 @@ namespace NGIN::CLI
                     {
                         ProjectReference reference{};
                         reference.path = (path.parent_path() / *packagePath).lexically_normal();
-                        ApplyV4ScopeSelector(scope, reference.selectors);
+                        ApplyScopeSelector(scope, reference.selectors);
                         project.projectRefs.push_back(std::move(reference));
                         continue;
                     }
@@ -3414,7 +3414,7 @@ namespace NGIN::CLI
                     package.name = RequireAttribute(*node, "Name", path);
                     package.versionRange = Attribute(*node, "Version").value_or(Attribute(*node, "VersionRange").value_or(""));
                     package.scope = Attribute(*node, "Scope").value_or("");
-                    ApplyV4ScopeSelector(scope, package.selectors);
+                    ApplyScopeSelector(scope, package.selectors);
                     project.packageRefs.push_back(package);
                     for (const auto *feature : ChildElements(*node, "Feature"))
                     {
@@ -3430,7 +3430,7 @@ namespace NGIN::CLI
                             use.featureName = RequireAttribute(*feature, "Name", path);
                         }
                         use.versionRange = package.versionRange;
-                        ApplyV4ScopeSelector(scope, use.selectors);
+                        ApplyScopeSelector(scope, use.selectors);
                         project.packageFeatureUses.push_back(std::move(use));
                     }
                     continue;
@@ -3438,7 +3438,7 @@ namespace NGIN::CLI
             }
         }
 
-        auto ParseV4StageSection(const XmlElement &stageNode, const fs::path &path, ProjectManifest &project, const std::string &scope) -> void
+        auto ParseStageSection(const XmlElement &stageNode, const fs::path &path, ProjectManifest &project, const std::string &scope) -> void
         {
             for (const auto *node : ChildElements(stageNode))
             {
@@ -3446,30 +3446,30 @@ namespace NGIN::CLI
                 {
                     if (const auto remove = Attribute(*node, "Remove"); remove.has_value() && !remove->empty())
                     {
-                        RemoveV4StageInput(project.inputs, "Config", *remove, scope);
+                        RemoveStageInput(project.inputs, "Config", *remove, scope);
                         continue;
                     }
-                    auto input = V4PathInput("Config", "", RequireAttribute(*node, "Source", path), "Private", Attribute(*node, "Target").value_or(""), scope);
+                    auto input = PathInput("Config", "", RequireAttribute(*node, "Source", path), "Private", Attribute(*node, "Target").value_or(""), scope);
                     input.overrideExisting = Attribute(*node, "Collision").value_or("") == "Override";
                     ValidateInputDeclaration(input, path);
-                    UpsertV4StageInput(project.inputs, std::move(input), scope);
+                    UpsertStageInput(project.inputs, std::move(input), scope);
                 }
                 else if (node->name == "Content")
                 {
                     if (const auto remove = Attribute(*node, "Remove"); remove.has_value() && !remove->empty())
                     {
-                        RemoveV4StageInput(project.inputs, "Content", *remove, scope);
+                        RemoveStageInput(project.inputs, "Content", *remove, scope);
                         continue;
                     }
-                    auto input = V4PathInput("Content", "", RequireAttribute(*node, "Source", path), "Private", Attribute(*node, "Target").value_or(""), scope);
+                    auto input = PathInput("Content", "", RequireAttribute(*node, "Source", path), "Private", Attribute(*node, "Target").value_or(""), scope);
                     input.overrideExisting = Attribute(*node, "Collision").value_or("") == "Override";
                     ValidateInputDeclaration(input, path);
-                    UpsertV4StageInput(project.inputs, std::move(input), scope);
+                    UpsertStageInput(project.inputs, std::move(input), scope);
                 }
             }
         }
 
-        auto ParseV4EnvironmentSection(const XmlElement &environmentNode, const fs::path &path, EnvironmentDefinition &environment) -> void
+        auto ParseEnvironmentSection(const XmlElement &environmentNode, const fs::path &path, EnvironmentDefinition &environment) -> void
         {
             for (const auto *node : ChildElements(environmentNode))
             {
@@ -3477,19 +3477,19 @@ namespace NGIN::CLI
                 {
                     if (const auto remove = Attribute(*node, "Remove"); remove.has_value() && !remove->empty())
                     {
-                        RemoveV4EnvironmentVariable(environment.variables, *remove);
+                        RemoveEnvironmentVariable(environment.variables, *remove);
                         continue;
                     }
                     EnvironmentVariable variable{};
                     variable.name = RequireAttribute(*node, "Name", path);
                     variable.value = RequireAttribute(*node, "Value", path);
-                    UpsertV4EnvironmentVariable(environment.variables, std::move(variable));
+                    UpsertEnvironmentVariable(environment.variables, std::move(variable));
                 }
                 else if (node->name == "Secret")
                 {
                     if (const auto remove = Attribute(*node, "Remove"); remove.has_value() && !remove->empty())
                     {
-                        RemoveV4EnvironmentVariable(environment.variables, *remove);
+                        RemoveEnvironmentVariable(environment.variables, *remove);
                         continue;
                     }
                     EnvironmentVariable variable{};
@@ -3501,12 +3501,12 @@ namespace NGIN::CLI
                     }
                     variable.required = BoolAttribute(*node, "Required");
                     variable.secret = true;
-                    UpsertV4EnvironmentVariable(environment.variables, std::move(variable));
+                    UpsertEnvironmentVariable(environment.variables, std::move(variable));
                 }
             }
         }
 
-        auto UpsertV4Analyzer(std::vector<AnalyzerDefinition> &analyzers, AnalyzerDefinition analyzer) -> void
+        auto UpsertAnalyzer(std::vector<AnalyzerDefinition> &analyzers, AnalyzerDefinition analyzer) -> void
         {
             analyzers.erase(
                 std::remove_if(
@@ -3520,7 +3520,7 @@ namespace NGIN::CLI
             analyzers.push_back(std::move(analyzer));
         }
 
-        auto RemoveV4Analyzer(std::vector<AnalyzerDefinition> &analyzers, const std::string &name) -> void
+        auto RemoveAnalyzer(std::vector<AnalyzerDefinition> &analyzers, const std::string &name) -> void
         {
             analyzers.erase(
                 std::remove_if(
@@ -3533,13 +3533,13 @@ namespace NGIN::CLI
                 analyzers.end());
         }
 
-        auto ParseV4QualitySection(const XmlElement &qualityNode, const fs::path &path, QualityDefinition &quality) -> void
+        auto ParseQualitySection(const XmlElement &qualityNode, const fs::path &path, QualityDefinition &quality) -> void
         {
             for (const auto *node : ChildElements(qualityNode, "Analyzer"))
             {
                 if (const auto remove = Attribute(*node, "Remove"); remove.has_value() && !remove->empty())
                 {
-                    RemoveV4Analyzer(quality.analyzers, *remove);
+                    RemoveAnalyzer(quality.analyzers, *remove);
                     continue;
                 }
                 AnalyzerDefinition analyzer{};
@@ -3552,17 +3552,17 @@ namespace NGIN::CLI
                 {
                     analyzer.configPath = RequireAttribute(*config, "Path", path);
                 }
-                UpsertV4Analyzer(quality.analyzers, std::move(analyzer));
+                UpsertAnalyzer(quality.analyzers, std::move(analyzer));
             }
         }
 
-        auto ParseV4RuntimeSection(const XmlElement &runtimeNode, const fs::path &path, RuntimeDefinition &runtime) -> void
+        auto ParseRuntimeSection(const XmlElement &runtimeNode, const fs::path &path, RuntimeDefinition &runtime) -> void
         {
             for (const auto *node : ChildElements(runtimeNode, "Module"))
             {
                 if (const auto remove = Attribute(*node, "Remove"); remove.has_value() && !remove->empty())
                 {
-                    RemoveV4RuntimeModule(runtime, *remove);
+                    RemoveRuntimeModule(runtime, *remove);
                     continue;
                 }
                 ModuleDescriptor module{};
@@ -3582,11 +3582,11 @@ namespace NGIN::CLI
                         module.requiresServices.push_back(*service);
                     }
                 }
-                UpsertV4RuntimeModule(runtime, std::move(module));
+                UpsertRuntimeModule(runtime, std::move(module));
             }
         }
 
-        auto ApplyV4LaunchNode(const XmlElement &node, const fs::path &, const ProjectManifest &project, LaunchDefinition &launch) -> void
+        auto ApplyLaunchNode(const XmlElement &node, const fs::path &, const ProjectManifest &project, LaunchDefinition &launch) -> void
         {
             launch.name = Attribute(node, "Name").value_or(launch.name);
             if (const auto executable = Attribute(node, "Executable"); executable.has_value() && !executable->empty())
@@ -3597,7 +3597,7 @@ namespace NGIN::CLI
             launch.args = Attribute(node, "Args").value_or(launch.args);
         }
 
-        auto ParseV4PackageOutputSection(const XmlElement &node, const fs::path &path, ProjectManifest &project) -> void
+        auto ParsePackageOutputSection(const XmlElement &node, const fs::path &path, ProjectManifest &project) -> void
         {
             PackageOutputDefinition output{};
             output.name = RequireAttribute(node, "Name", path);
@@ -3647,7 +3647,7 @@ namespace NGIN::CLI
             project.packageOutputs.push_back(std::move(output));
         }
 
-        auto ParseV4PublishSection(const XmlElement &node, const fs::path &path, std::vector<PublishDefinition> &publishes) -> void
+        auto ParsePublishSection(const XmlElement &node, const fs::path &path, std::vector<PublishDefinition> &publishes) -> void
         {
             PublishDefinition publish{};
             publish.name = Attribute(node, "Name").value_or("default");
@@ -3675,7 +3675,7 @@ namespace NGIN::CLI
             publishes.push_back(std::move(publish));
         }
 
-        [[nodiscard]] auto ParseV4GeneratorOutput(const XmlElement &node, const fs::path &path, const std::string &scope) -> InputDeclaration
+        [[nodiscard]] auto ParseProductGeneratorOutput(const XmlElement &node, const fs::path &path, const std::string &scope) -> InputDeclaration
         {
             std::string role;
             if (node.name == "Sources")
@@ -3692,14 +3692,14 @@ namespace NGIN::CLI
             }
             else
             {
-                throw std::runtime_error(path.string() + ": unsupported V4 generator output <" + std::string(node.name) + ">");
+                throw std::runtime_error(path.string() + ": unsupported generator output <" + std::string(node.name) + ">");
             }
-            auto output = V4PathInput("Generated", role, RequireAttribute(node, "Path", path), role == "Header" ? "Public" : "Private", "", scope);
+            auto output = PathInput("Generated", role, RequireAttribute(node, "Path", path), role == "Header" ? "Public" : "Private", "", scope);
             ValidateInputDeclaration(output, path);
             return output;
         }
 
-        auto ParseV4GenerateSection(const XmlElement &generateNode, const fs::path &path, ProjectManifest &project, const std::string &scope) -> void
+        auto ParseGenerateSection(const XmlElement &generateNode, const fs::path &path, ProjectManifest &project, const std::string &scope) -> void
         {
             for (const auto *node : ChildElements(generateNode, "Generator"))
             {
@@ -3719,7 +3719,7 @@ namespace NGIN::CLI
                 }
                 if (generator.toolName.empty() && !generator.hasInlineTool)
                 {
-                    throw std::runtime_error(path.string() + ": V4 generator '" + generator.name + "' must declare <Tool Name=\"...\"> or Executable");
+                    throw std::runtime_error(path.string() + ": generator '" + generator.name + "' must declare <Tool Name=\"...\"> or Executable");
                 }
                 if (const auto *args = FindChild(*node, "Args"))
                 {
@@ -3730,7 +3730,7 @@ namespace NGIN::CLI
                         argument.path = Attribute(*arg, "Path").value_or("");
                         if (argument.value.empty() == argument.path.empty())
                         {
-                            throw std::runtime_error(path.string() + ": V4 generator argument must declare exactly one of Value or Path");
+                            throw std::runtime_error(path.string() + ": generator argument must declare exactly one of Value or Path");
                         }
                         generator.arguments.push_back(std::move(argument));
                     }
@@ -3741,34 +3741,34 @@ namespace NGIN::CLI
                     {
                         if (input->name == "Headers")
                         {
-                            AddV4PathInput(generator.inputs, path, "Source", "Header", RequireAttribute(*input, "Path", path), "Public", "", scope + ":" + generator.name);
+                            AddPathInput(generator.inputs, path, "Source", "Header", RequireAttribute(*input, "Path", path), "Public", "", scope + ":" + generator.name);
                         }
                         else if (input->name == "Sources" || input->name == "Files" || input->name == "File")
                         {
-                            AddV4PathInput(generator.inputs, path, "ToolInput", "", RequireAttribute(*input, "Path", path), "Private", "", scope + ":" + generator.name);
+                            AddPathInput(generator.inputs, path, "ToolInput", "", RequireAttribute(*input, "Path", path), "Private", "", scope + ":" + generator.name);
                         }
                     }
                 }
                 const auto *outputs = FindChild(*node, "Outputs");
                 if (outputs == nullptr)
                 {
-                    throw std::runtime_error(path.string() + ": V4 generator '" + generator.name + "' must declare <Outputs>");
+                    throw std::runtime_error(path.string() + ": generator '" + generator.name + "' must declare <Outputs>");
                 }
                 for (const auto *output : ChildElements(*outputs))
                 {
-                    generator.outputs.push_back(ParseV4GeneratorOutput(*output, path, scope + ":" + generator.name));
+                    generator.outputs.push_back(ParseProductGeneratorOutput(*output, path, scope + ":" + generator.name));
                 }
                 project.generators.push_back(std::move(generator));
             }
         }
 
-        auto ApplyV4Defaults(const XmlElement &defaultsNode, const fs::path &path, ProjectBuildDescriptor &build, ProfileDefinition &profile) -> void
+        auto ApplyDefaults(const XmlElement &defaultsNode, const fs::path &path, ProjectBuildDescriptor &build, ProfileDefinition &profile) -> void
         {
             for (const auto *node : ChildElements(defaultsNode))
             {
                 if (node->name == "Language")
                 {
-                    ParseV4Language(*node, path, build);
+                    ParseLanguage(*node, path, build);
                 }
                 else if (node->name == "Backend")
                 {
@@ -3789,7 +3789,7 @@ namespace NGIN::CLI
                 }
                 else if (node->name == "TargetPlatform")
                 {
-                    const auto updated = V4ProfileWithPlatform(profile.name, profile.buildType, RequireAttribute(*node, "Name", path), profile.environmentName);
+                    const auto updated = ProfileWithPlatform(profile.name, profile.buildType, RequireAttribute(*node, "Name", path), profile.environmentName);
                     profile.buildType = updated.buildType;
                     profile.platform = updated.platform;
                     profile.operatingSystem = updated.operatingSystem;
@@ -3811,39 +3811,39 @@ namespace NGIN::CLI
             }
         }
 
-        [[nodiscard]] auto FindV4ProductElement(const XmlElement &root, const fs::path &path) -> const XmlElement &
+        [[nodiscard]] auto FindProductElement(const XmlElement &root, const fs::path &path) -> const XmlElement &
         {
             const XmlElement *product = nullptr;
             for (const auto *child : ChildElements(root))
             {
-                if (!IsV4ProductElementName(child->name))
+                if (!IsProductElementName(child->name))
                 {
                     continue;
                 }
                 if (product != nullptr)
                 {
-                    throw std::runtime_error(path.string() + ": V4 projects must declare exactly one primary product element");
+                    throw std::runtime_error(path.string() + ": project must declare exactly one primary product element");
                 }
                 product = child;
             }
             if (product == nullptr)
             {
-                throw std::runtime_error(path.string() + ": V4 project must declare one product element such as <Application /> or <Library />");
+                throw std::runtime_error(path.string() + ": project must declare one product element such as <Application /> or <Library />");
             }
             return *product;
         }
 
-        [[nodiscard]] auto LoadProjectManifestV4(const fs::path &path, const XmlElement &rootElement) -> ProjectManifest
+        [[nodiscard]] auto LoadProjectManifest(const fs::path &path, const XmlElement &rootElement) -> ProjectManifest
         {
-            const auto &product = FindV4ProductElement(rootElement, path);
+            const auto &product = FindProductElement(rootElement, path);
             const std::string productKind{product.name};
             ProjectManifest project{};
             project.path = path;
             project.name = RequireAttribute(rootElement, "Name", path);
-            project.type = V4ProjectType(productKind);
+            project.type = ProjectType(productKind);
             project.productKind = productKind;
             project.defaultProfile = Attribute(rootElement, "DefaultProfile").value_or("dev");
-            project.output.kind = V4DefaultOutputKind(productKind, product);
+            project.output.kind = DefaultOutputKind(productKind, product);
             project.output.name = project.name;
             project.output.target = project.name;
             project.hasExplicitProfiles = !ChildElements(rootElement, "Profile").empty();
@@ -3864,72 +3864,72 @@ namespace NGIN::CLI
                 }
             }
 
-            ProfileDefinition baseProfile = V4ProfileWithPlatform(project.defaultProfile, "Debug", "linux-x64", "development");
+            ProfileDefinition baseProfile = ProfileWithPlatform(project.defaultProfile, "Debug", "linux-x64", "development");
             baseProfile.launch.executable = project.output.kind == "Executable" ? std::optional<std::string>{project.output.name} : std::nullopt;
             baseProfile.launch.name = "default";
             baseProfile.launch.workingDirectory = "$(StageDir)";
 
             if (const auto *defaults = FindChild(rootElement, "Defaults"))
             {
-                ApplyV4Defaults(*defaults, path, project.build, baseProfile);
+                ApplyDefaults(*defaults, path, project.build, baseProfile);
             }
             if (const auto *uses = FindChild(product, "Uses"))
             {
-                ParseV4UsesSection(*uses, path, project);
+                ParseUsesSection(*uses, path, project);
             }
             if (const auto *build = FindChild(product, "Build"))
             {
-                ParseV4BuildSection(*build, path, project, "product:" + productKind);
+                ParseBuildSection(*build, path, project, "product:" + productKind);
             }
             else if (productKind != "External")
             {
-                AddV4PathInput(project.inputs, path, "Source", "Source", "src", "Private", "", "product:" + productKind);
+                AddPathInput(project.inputs, path, "Source", "Source", "src", "Private", "", "product:" + productKind);
             }
             if (const auto *exports = FindChild(product, "Exports"))
             {
-                ParseV4ExportsSection(*exports, path, project, "product:" + productKind);
+                ParseExportsSection(*exports, path, project, "product:" + productKind);
             }
             if (const auto *generate = FindChild(product, "Generate"))
             {
-                ParseV4GenerateSection(*generate, path, project, "product:" + productKind);
+                ParseGenerateSection(*generate, path, project, "product:" + productKind);
             }
             if (const auto *stage = FindChild(product, "Stage"))
             {
-                ParseV4StageSection(*stage, path, project, "product:" + productKind);
+                ParseStageSection(*stage, path, project, "product:" + productKind);
             }
             if (const auto *runtime = FindChild(product, "Runtime"))
             {
-                ParseV4RuntimeSection(*runtime, path, project.runtime);
+                ParseRuntimeSection(*runtime, path, project.runtime);
             }
             for (const auto *packageOutput : ChildElements(product, "PackageOutput"))
             {
-                ParseV4PackageOutputSection(*packageOutput, path, project);
+                ParsePackageOutputSection(*packageOutput, path, project);
             }
             for (const auto *publish : ChildElements(product, "Publish"))
             {
-                ParseV4PublishSection(*publish, path, project.publishes);
+                ParsePublishSection(*publish, path, project.publishes);
             }
             EnvironmentDefinition baseEnvironment{};
             baseEnvironment.name = baseProfile.environmentName;
             if (const auto *environment = FindChild(product, "Environment"))
             {
-                ParseV4EnvironmentSection(*environment, path, baseEnvironment);
+                ParseEnvironmentSection(*environment, path, baseEnvironment);
             }
             if (const auto *quality = FindChild(rootElement, "Quality"))
             {
-                ParseV4QualitySection(*quality, path, project.quality);
+                ParseQualitySection(*quality, path, project.quality);
             }
             if (const auto *quality = FindChild(product, "Quality"))
             {
-                ParseV4QualitySection(*quality, path, project.quality);
+                ParseQualitySection(*quality, path, project.quality);
             }
             if (const auto *launch = FindChild(product, "Launch"))
             {
-                ApplyV4LaunchNode(*launch, path, project, baseProfile.launch);
+                ApplyLaunchNode(*launch, path, project, baseProfile.launch);
             }
             else if (const auto *run = FindChild(product, "Run"))
             {
-                ApplyV4LaunchNode(*run, path, project, baseProfile.launch);
+                ApplyLaunchNode(*run, path, project, baseProfile.launch);
             }
 
             std::unordered_map<std::string, std::size_t> profileIndexes{};
@@ -3950,50 +3950,50 @@ namespace NGIN::CLI
                 }
                 if (const auto *defaults = FindChild(*profileNode, "Defaults"))
                 {
-                    ApplyV4Defaults(*defaults, path, project.build, profile);
+                    ApplyDefaults(*defaults, path, project.build, profile);
                 }
                 if (const auto *productOverlay = FindChild(*profileNode, productKind))
                 {
                     if (const auto *build = FindChild(*productOverlay, "Build"))
                     {
-                        ParseV4BuildSection(*build, path, project, "profile:" + profile.name);
+                        ParseBuildSection(*build, path, project, "profile:" + profile.name);
                     }
                     if (const auto *uses = FindChild(*productOverlay, "Uses"))
                     {
-                        ParseV4UsesSection(*uses, path, project, "profile:" + profile.name);
+                        ParseUsesSection(*uses, path, project, "profile:" + profile.name);
                     }
                     if (const auto *stage = FindChild(*productOverlay, "Stage"))
                     {
-                        ParseV4StageSection(*stage, path, project, "profile:" + profile.name);
+                        ParseStageSection(*stage, path, project, "profile:" + profile.name);
                     }
                     if (const auto *runtime = FindChild(*productOverlay, "Runtime"))
                     {
-                        ParseV4RuntimeSection(*runtime, path, profile.runtime);
+                        ParseRuntimeSection(*runtime, path, profile.runtime);
                     }
                     if (const auto *launch = FindChild(*productOverlay, "Launch"))
                     {
-                        ApplyV4LaunchNode(*launch, path, project, profile.launch);
+                        ApplyLaunchNode(*launch, path, project, profile.launch);
                     }
                     else if (const auto *run = FindChild(*productOverlay, "Run"))
                     {
-                        ApplyV4LaunchNode(*run, path, project, profile.launch);
+                        ApplyLaunchNode(*run, path, project, profile.launch);
                     }
                     if (const auto *environment = FindChild(*productOverlay, "Environment"))
                     {
                         EnvironmentDefinition env{};
                         env.name = profile.environmentName;
                         env.variables = baseEnvironment.variables;
-                        ParseV4EnvironmentSection(*environment, path, env);
+                        ParseEnvironmentSection(*environment, path, env);
                         project.environments.push_back(std::move(env));
                     }
                     if (const auto *quality = FindChild(*productOverlay, "Quality"))
                     {
                         profile.quality = project.quality;
-                        ParseV4QualitySection(*quality, path, profile.quality);
+                        ParseQualitySection(*quality, path, profile.quality);
                     }
                     for (const auto *publish : ChildElements(*productOverlay, "Publish"))
                     {
-                        ParseV4PublishSection(*publish, path, profile.publishes);
+                        ParsePublishSection(*publish, path, profile.publishes);
                     }
                 }
                 profileIndexes.emplace(profile.name, project.profiles.size());
@@ -4039,7 +4039,7 @@ namespace NGIN::CLI
             throw std::runtime_error(path.string() + ": root element must be <Project>");
         }
         ValidateProjectSchemaVersion(*rootElement, path);
-        return LoadProjectManifestV4(path, *rootElement);
+        return LoadProjectManifest(path, *rootElement);
     }
 
     [[nodiscard]] auto FindProjectFile(const fs::path &start) -> std::optional<fs::path>
@@ -4229,7 +4229,7 @@ namespace NGIN::CLI
                 BuildSetting setting{};
                 setting.value = buildSetting.value;
                 setting.visibility = buildSetting.visibility;
-                ApplyV4ScopeSelector(scope, setting.selectors);
+                ApplyScopeSelector(scope, setting.selectors);
 
                 if (buildSetting.kind == "IncludePath")
                 {
@@ -4237,7 +4237,7 @@ namespace NGIN::CLI
                 }
                 else if (buildSetting.kind == "Define")
                 {
-                    UpsertV4Define(project.build.compileDefinitions, std::move(setting), scope);
+                    UpsertDefine(project.build.compileDefinitions, std::move(setting), scope);
                 }
                 else if (buildSetting.kind == "CompileOption")
                 {
@@ -4261,8 +4261,8 @@ namespace NGIN::CLI
                 analyzer.enabled = analyzerPolicy.enabled;
                 analyzer.severity = analyzerPolicy.severity;
                 analyzer.configPath = analyzerPolicy.configPath;
-                ApplyV4ScopeSelector(scope, analyzer.selectors);
-                UpsertV4Analyzer(project.quality.analyzers, std::move(analyzer));
+                ApplyScopeSelector(scope, analyzer.selectors);
+                UpsertAnalyzer(project.quality.analyzers, std::move(analyzer));
             }
 
             if (!policy.environmentVariables.empty())
@@ -4295,7 +4295,7 @@ namespace NGIN::CLI
                     }
                     if (variablePolicy.remove)
                     {
-                        RemoveV4EnvironmentVariable(environmentIt->variables, variablePolicy.name);
+                        RemoveEnvironmentVariable(environmentIt->variables, variablePolicy.name);
                         continue;
                     }
                     EnvironmentVariable variable{};
@@ -4304,7 +4304,7 @@ namespace NGIN::CLI
                     variable.fromLocalSetting = variablePolicy.fromLocalSetting;
                     variable.required = variablePolicy.required;
                     variable.secret = variablePolicy.secret;
-                    UpsertV4EnvironmentVariable(environmentIt->variables, std::move(variable));
+                    UpsertEnvironmentVariable(environmentIt->variables, std::move(variable));
                 }
             }
 
@@ -4316,13 +4316,13 @@ namespace NGIN::CLI
                 }
                 if (stagePolicy.remove)
                 {
-                    RemoveV4StageInput(project.inputs, stagePolicy.kind, stagePolicy.target, scope);
+                    RemoveStageInput(project.inputs, stagePolicy.kind, stagePolicy.target, scope);
                     continue;
                 }
-                auto input = V4PathInput(stagePolicy.kind, "", stagePolicy.source, "Private", stagePolicy.target, scope);
+                auto input = PathInput(stagePolicy.kind, "", stagePolicy.source, "Private", stagePolicy.target, scope);
                 input.overrideExisting = stagePolicy.collision == "Override";
                 ValidateInputDeclaration(input, project.path);
-                UpsertV4StageInput(project.inputs, std::move(input), scope);
+                UpsertStageInput(project.inputs, std::move(input), scope);
             }
 
             for (const auto &dependencyUse : policy.dependencyUses)
@@ -4336,7 +4336,7 @@ namespace NGIN::CLI
                     ProjectReference reference{};
                     reference.path = dependencyUse.path.empty() ? fs::path{dependencyUse.name} : dependencyUse.path;
                     reference.disabled = dependencyUse.remove;
-                    ApplyV4ScopeSelector(scope, reference.selectors);
+                    ApplyScopeSelector(scope, reference.selectors);
                     project.projectRefs.push_back(std::move(reference));
                     continue;
                 }
@@ -4354,7 +4354,7 @@ namespace NGIN::CLI
                 {
                     package.scope = "Build";
                 }
-                ApplyV4ScopeSelector(scope, package.selectors);
+                ApplyScopeSelector(scope, package.selectors);
                 project.packageRefs.push_back(package);
 
                 if (!dependencyUse.remove)
@@ -4365,7 +4365,7 @@ namespace NGIN::CLI
                         use.packageName = package.name;
                         use.featureName = featureName;
                         use.versionRange = package.versionRange;
-                        ApplyV4ScopeSelector(scope, use.selectors);
+                        ApplyScopeSelector(scope, use.selectors);
                         project.packageFeatureUses.push_back(std::move(use));
                     }
                 }
@@ -4378,7 +4378,7 @@ namespace NGIN::CLI
                     continue;
                 }
                 SelectorSet scopeSelectors{};
-                ApplyV4ScopeSelector(scope, scopeSelectors);
+                ApplyScopeSelector(scope, scopeSelectors);
                 const auto sameProfileSelector = [&](const SelectorSet &selectors)
                 {
                     return selectors.profile == scopeSelectors.profile;

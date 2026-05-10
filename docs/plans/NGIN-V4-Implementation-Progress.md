@@ -845,6 +845,12 @@ Current test coverage includes:
 - VS Code unit tests converted to V4 project/workspace/package/editor syntax
 - practical `.nginproj` authoring guide rewritten for product-first V4
 - docs project-model sample manifests rewritten to V4 project/package syntax
+- implementation cleanup removed `V4`/`v4` naming from active CLI, runtime, VS
+  Code parser/editor, and schema artifacts now that the legacy manifest paths
+  have been removed
+- VS Code project editor fallback parsing for old normalized `<Inputs>` and
+  top-level feature override shapes removed
+- `PackageBootstrapMode::BuilderHookV1` renamed to `BuilderHook`
 
 ## Not Implemented Yet
 

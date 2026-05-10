@@ -474,7 +474,7 @@ namespace NGIN::CLI
             return false;
         }
 
-        [[nodiscard]] auto InsertV4UseLine(
+        [[nodiscard]] auto InsertUseLine(
             std::string text,
             const std::string &productKind,
             const std::string &dependencyLine) -> std::string
@@ -519,7 +519,7 @@ namespace NGIN::CLI
             return text;
         }
 
-        [[nodiscard]] auto InsertV4PackageUse(
+        [[nodiscard]] auto InsertPackageUse(
             std::string text,
             const std::string &productKind,
             const std::string &packageName,
@@ -530,10 +530,10 @@ namespace NGIN::CLI
                 std::string("      <Package Name=\"") + EscapeXml(packageName)
                 + "\" Version=\"" + EscapeXml(versionRange)
                 + "\" Scope=\"" + EscapeXml(scope) + "\" />\n";
-            return InsertV4UseLine(std::move(text), productKind, dependencyLine);
+            return InsertUseLine(std::move(text), productKind, dependencyLine);
         }
 
-        [[nodiscard]] auto InsertV4ProjectReferenceUse(
+        [[nodiscard]] auto InsertProjectReferenceUse(
             std::string text,
             const std::string &productKind,
             const std::string &projectName,
@@ -542,10 +542,10 @@ namespace NGIN::CLI
             const auto dependencyLine =
                 std::string("      <Project Name=\"") + EscapeXml(projectName)
                 + "\" Path=\"" + EscapeXml(projectPath) + "\" />\n";
-            return InsertV4UseLine(std::move(text), productKind, dependencyLine);
+            return InsertUseLine(std::move(text), productKind, dependencyLine);
         }
 
-        [[nodiscard]] auto RemoveV4PackageUse(std::string text, const std::string &productKind, const std::string &packageName) -> std::string
+        [[nodiscard]] auto RemovePackageUse(std::string text, const std::string &productKind, const std::string &packageName) -> std::string
         {
             const auto productOpenEnd = FindProductOpenTagEnd(text, productKind);
             const auto productClose = text.find("</" + productKind + ">", productOpenEnd);
@@ -572,7 +572,7 @@ namespace NGIN::CLI
             return text;
         }
 
-        [[nodiscard]] auto UpdateV4PackageUse(
+        [[nodiscard]] auto UpdatePackageUse(
             std::string text,
             const std::string &productKind,
             const std::string &packageName,
@@ -1090,7 +1090,7 @@ namespace NGIN::CLI
             return value.rfind("http://", 0) == 0 || value.rfind("https://", 0) == 0;
         }
 
-        [[nodiscard]] auto InsertV4PackageSource(std::string text, const std::string &name, const std::string &location) -> std::string
+        [[nodiscard]] auto InsertPackageSource(std::string text, const std::string &name, const std::string &location) -> std::string
         {
             if (text.find("<Source Name=\"" + name + "\"") != std::string::npos)
             {
@@ -1117,7 +1117,7 @@ namespace NGIN::CLI
             return text;
         }
 
-        [[nodiscard]] auto RemoveV4PackageSource(std::string text, const std::string &name) -> std::string
+        [[nodiscard]] auto RemovePackageSource(std::string text, const std::string &name) -> std::string
         {
             const auto sourceStart = text.find("<Source Name=\"" + name + "\"");
             if (sourceStart == std::string::npos)
@@ -2286,7 +2286,7 @@ namespace NGIN::CLI
             throw std::runtime_error(root.string() + ": no .ngin workspace file found");
         }
         auto text = ReadTextIfExists(*workspacePath);
-        text = InsertV4PackageSource(std::move(text), *args.packageName, *args.featureName);
+        text = InsertPackageSource(std::move(text), *args.packageName, *args.featureName);
         WriteTextFile(*workspacePath, text);
         std::cout << "Added package source\n";
         std::cout << "  workspace: " << *workspacePath << "\n";
@@ -2307,7 +2307,7 @@ namespace NGIN::CLI
             throw std::runtime_error(root.string() + ": no .ngin workspace file found");
         }
         auto text = ReadTextIfExists(*workspacePath);
-        text = RemoveV4PackageSource(std::move(text), *args.packageName);
+        text = RemovePackageSource(std::move(text), *args.packageName);
         WriteTextFile(*workspacePath, text);
         std::cout << "Removed package source\n";
         std::cout << "  workspace: " << *workspacePath << "\n";
@@ -2331,7 +2331,7 @@ namespace NGIN::CLI
         const auto project = LoadProjectManifest(projectPath);
         if (project.productKind.empty())
         {
-            throw std::runtime_error("package add currently supports V4 product-first projects");
+            throw std::runtime_error("package add requires a product-first project");
         }
         if (std::any_of(project.packageRefs.begin(), project.packageRefs.end(), [&](const PackageReference &reference)
                         { return reference.name == *args.packageName; }))
@@ -2345,7 +2345,7 @@ namespace NGIN::CLI
         {
             throw std::runtime_error(projectPath.string() + ": failed to read project file");
         }
-        text = InsertV4PackageUse(text, project.productKind, *args.packageName, *args.versionRange, scope);
+        text = InsertPackageUse(text, project.productKind, *args.packageName, *args.versionRange, scope);
         WriteTextFile(projectPath, text);
 
         std::cout << "Added package reference\n";
@@ -2368,7 +2368,7 @@ namespace NGIN::CLI
         const auto project = LoadProjectManifest(projectPath);
         if (project.productKind.empty())
         {
-            throw std::runtime_error("add project-reference currently supports V4 product-first projects");
+            throw std::runtime_error("add project-reference requires a product-first project");
         }
 
         const auto referencePathText = *args.packageName;
@@ -2387,7 +2387,7 @@ namespace NGIN::CLI
         {
             throw std::runtime_error(projectPath.string() + ": failed to read project file");
         }
-        text = InsertV4ProjectReferenceUse(text, project.productKind, referencedProject.name, referencePathText);
+        text = InsertProjectReferenceUse(text, project.productKind, referencedProject.name, referencePathText);
         WriteTextFile(projectPath, text);
 
         std::cout << "Added project reference\n";
@@ -2409,7 +2409,7 @@ namespace NGIN::CLI
         const auto project = LoadProjectManifest(projectPath);
         if (project.productKind.empty())
         {
-            throw std::runtime_error("package remove currently supports V4 product-first projects");
+            throw std::runtime_error("package remove requires a product-first project");
         }
         if (std::none_of(project.packageRefs.begin(), project.packageRefs.end(), [&](const PackageReference &reference)
                          { return reference.name == *args.packageName; }))
@@ -2422,7 +2422,7 @@ namespace NGIN::CLI
         {
             throw std::runtime_error(projectPath.string() + ": failed to read project file");
         }
-        text = RemoveV4PackageUse(text, project.productKind, *args.packageName);
+        text = RemovePackageUse(text, project.productKind, *args.packageName);
         WriteTextFile(projectPath, text);
 
         std::cout << "Removed package reference\n";
@@ -2447,7 +2447,7 @@ namespace NGIN::CLI
         const auto project = LoadProjectManifest(projectPath);
         if (project.productKind.empty())
         {
-            throw std::runtime_error("package update currently supports V4 product-first projects");
+            throw std::runtime_error("package update requires a product-first project");
         }
         const auto referenceIt = std::find_if(
             project.packageRefs.begin(), project.packageRefs.end(),
@@ -2466,7 +2466,7 @@ namespace NGIN::CLI
         {
             throw std::runtime_error(projectPath.string() + ": failed to read project file");
         }
-        text = UpdateV4PackageUse(text, project.productKind, *args.packageName, *args.versionRange, scope);
+        text = UpdatePackageUse(text, project.productKind, *args.packageName, *args.versionRange, scope);
         WriteTextFile(projectPath, text);
 
         std::cout << "Updated package reference\n";
@@ -2986,7 +2986,7 @@ namespace NGIN::CLI
         return 0;
     }
 
-    [[nodiscard]] auto V4NamedConventions(const ProjectManifest &project, const ProfileDefinition &profile, const std::string &productKind)
+    [[nodiscard]] auto NamedConventions(const ProjectManifest &project, const ProfileDefinition &profile, const std::string &productKind)
         -> std::vector<std::pair<std::string, std::string>>;
 
     [[nodiscard]] auto BuildCompositionGraph(const LoadedInvocation &invocation, const DiagnosticResult<ResolvedLaunch> &resolvedResult)
@@ -3403,7 +3403,7 @@ namespace NGIN::CLI
         throw std::runtime_error("unknown explain object kind '" + kind + "'");
     }
 
-    [[nodiscard]] auto V4NamedConventions(const ProjectManifest &project, const ProfileDefinition &profile, const std::string &productKind)
+    [[nodiscard]] auto NamedConventions(const ProjectManifest &project, const ProfileDefinition &profile, const std::string &productKind)
         -> std::vector<std::pair<std::string, std::string>>
     {
         std::vector<std::pair<std::string, std::string>> conventions{};
@@ -3489,7 +3489,7 @@ namespace NGIN::CLI
             .abiTag = resolved == nullptr ? "" : resolved->targetAbiTag,
         };
 
-        for (const auto &[name, reason] : V4NamedConventions(invocation.project, invocation.profile, productKind))
+        for (const auto &[name, reason] : NamedConventions(invocation.project, invocation.profile, productKind))
         {
             graph.conventions.push_back(CompositionGraph::Convention{
                 .name = name,
@@ -4213,7 +4213,7 @@ namespace NGIN::CLI
             WriteNewFile(projectDir / "src/main.cpp", "int main() { return 0; }\n");
         }
 
-        std::cout << "Created V4 " << productKind << " project\n";
+        std::cout << "Created " << productKind << " project\n";
         std::cout << "  project: " << projectPath << "\n";
         return 0;
     }
@@ -5246,7 +5246,7 @@ namespace NGIN::CLI
         const auto invocation = ResolveInvocation(args);
         if (invocation.project.productKind != "Test")
         {
-            throw std::runtime_error("ngin test requires a V4 Test product project");
+            throw std::runtime_error("ngin test requires a Test product project");
         }
         std::cout << "Running test product: " << invocation.project.name << "\n";
         return RunBuiltProduct(invocation.project, invocation.profile, args, "Test");
@@ -5258,7 +5258,7 @@ namespace NGIN::CLI
         const auto invocation = ResolveInvocation(args);
         if (invocation.project.productKind != "Benchmark")
         {
-            throw std::runtime_error("ngin benchmark requires a V4 Benchmark product project");
+            throw std::runtime_error("ngin benchmark requires a Benchmark product project");
         }
         std::cout << "Running benchmark product: " << invocation.project.name << "\n";
         return RunBuiltProduct(invocation.project, invocation.profile, args, "Benchmark");
