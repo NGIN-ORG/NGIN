@@ -3743,9 +3743,34 @@ namespace NGIN::CLI
             launch.args = Attribute(node, "Args").value_or(launch.args);
         }
 
-        auto ParsePackageOutputSection(const XmlElement &node, const fs::path &path, ProjectManifest &project) -> void
+        auto UpsertPackageOutput(std::vector<PackageOutputDefinition> &outputs, PackageOutputDefinition output) -> void
+        {
+            outputs.erase(
+                std::remove_if(
+                    outputs.begin(),
+                    outputs.end(),
+                    [&](const PackageOutputDefinition &existing)
+                    {
+                        return existing.name == output.name;
+                    }),
+                outputs.end());
+            outputs.push_back(std::move(output));
+        }
+
+        auto ParsePackageOutputSection(
+            const XmlElement &node,
+            const fs::path &path,
+            const ProjectManifest &project,
+            std::vector<PackageOutputDefinition> &outputs) -> void
         {
             PackageOutputDefinition output{};
+            if (const auto remove = Attribute(node, "Remove"); remove.has_value() && !remove->empty())
+            {
+                output.name = *remove;
+                output.disabled = true;
+                UpsertPackageOutput(outputs, std::move(output));
+                return;
+            }
             output.name = RequireAttribute(node, "Name", path);
             output.version = RequireAttribute(node, "Version", path);
             output.from = Attribute(node, "From").value_or(project.name);
@@ -3790,7 +3815,7 @@ namespace NGIN::CLI
                     output.abiTag = RequireAttribute(*abi, "Tag", path);
                 }
             }
-            project.packageOutputs.push_back(std::move(output));
+            UpsertPackageOutput(outputs, std::move(output));
         }
 
         auto ParsePublishSection(const XmlElement &node, const fs::path &path, std::vector<PublishDefinition> &publishes) -> void
@@ -4075,7 +4100,7 @@ namespace NGIN::CLI
             }
             for (const auto *packageOutput : ChildElements(product, "PackageOutput"))
             {
-                ParsePackageOutputSection(*packageOutput, path, project);
+                ParsePackageOutputSection(*packageOutput, path, project, project.packageOutputs);
             }
             for (const auto *publish : ChildElements(product, "Publish"))
             {
@@ -4166,6 +4191,10 @@ namespace NGIN::CLI
                     {
                         profile.quality = project.quality;
                         ParseQualitySection(*quality, path, profile.quality);
+                    }
+                    for (const auto *packageOutput : ChildElements(*productOverlay, "PackageOutput"))
+                    {
+                        ParsePackageOutputSection(*packageOutput, path, project, profile.packageOutputs);
                     }
                     for (const auto *publish : ChildElements(*productOverlay, "Publish"))
                     {

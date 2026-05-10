@@ -373,3 +373,88 @@ TEST_CASE("profile overlays can remove and replace publish identities")
     REQUIRE(output.find("publish folder") == std::string::npos);
     REQUIRE(output.find("dist/base.zip") == std::string::npos);
 }
+
+TEST_CASE("profile overlays can remove and replace package output identities")
+{
+    TempDir temp{};
+    const auto projectPath = temp.path() / "PackageOutputOverlay.Library.nginproj";
+    WriteFile(projectPath,
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4" Name="PackageOutputOverlay.Library" DefaultProfile="shipping">
+  <Library>
+    <Build>
+      <Sources Path="src/**.cpp" />
+    </Build>
+    <PackageOutput Name="Overlay.Core" Version="1.0.0">
+      <Metadata>
+        <Description>Base package output.</Description>
+        <License>MIT</License>
+      </Metadata>
+      <Exports>
+        <Library Name="Overlay::Core" />
+        <Capability Name="Overlay.Core" />
+      </Exports>
+    </PackageOutput>
+    <PackageOutput Name="Overlay.DevOnly" Version="1.0.0">
+      <Exports>
+        <Capability Name="Overlay.DevOnly" />
+      </Exports>
+    </PackageOutput>
+  </Library>
+  <Profile Name="shipping">
+    <Defaults>
+      <BuildType Name="Release" />
+    </Defaults>
+    <Library>
+      <PackageOutput Remove="Overlay.DevOnly" />
+      <PackageOutput Name="Overlay.Core" Version="2.0.0">
+        <Metadata>
+          <Description>Shipping package output.</Description>
+          <License>Apache-2.0</License>
+        </Metadata>
+        <Exports>
+          <Library Name="Overlay::CoreShipping" />
+          <Capability Name="Overlay.Core.Shipping" />
+        </Exports>
+      </PackageOutput>
+    </Library>
+  </Profile>
+</Project>
+)xml");
+    WriteFile(temp.path() / "src/lib.cpp", "int overlay_core() { return 1; }\n");
+
+    ParsedArgs graphArgs{};
+    graphArgs.projectPath = projectPath.string();
+    graphArgs.profileName = "shipping";
+    graphArgs.graphPlan = "package-output";
+
+    std::ostringstream graphCaptured{};
+    auto *previous = std::cout.rdbuf(graphCaptured.rdbuf());
+    const auto graphExitCode = CmdGraph(temp.path(), graphArgs);
+    std::cout.rdbuf(previous);
+
+    const auto graphOutput = graphCaptured.str();
+    REQUIRE(graphExitCode == 0);
+    REQUIRE_THAT(graphOutput, ContainsSubstring("package-output Overlay.Core version=2.0.0"));
+    REQUIRE(graphOutput.find("Overlay.DevOnly") == std::string::npos);
+    REQUIRE(graphOutput.find("version=1.0.0") == std::string::npos);
+
+    ParsedArgs packArgs{};
+    packArgs.projectPath = projectPath.string();
+    packArgs.profileName = "shipping";
+    packArgs.packageName = "Overlay.Core";
+    packArgs.outputPath = (temp.path() / "out").string();
+
+    std::ostringstream packCaptured{};
+    previous = std::cout.rdbuf(packCaptured.rdbuf());
+    const auto packExitCode = CmdPackagePack(temp.path(), packArgs);
+    std::cout.rdbuf(previous);
+
+    REQUIRE(packExitCode == 0);
+    const auto manifest = ReadFile(temp.path() / "out/Overlay.Core.nginpkg");
+    REQUIRE_THAT(manifest, ContainsSubstring(R"(<Package SchemaVersion="4" Name="Overlay.Core" Version="2.0.0">)"));
+    REQUIRE_THAT(manifest, ContainsSubstring("<Description>Shipping package output.</Description>"));
+    REQUIRE_THAT(manifest, ContainsSubstring(R"(<LibraryTarget Name="Overlay::CoreShipping" />)"));
+    REQUIRE_THAT(manifest, ContainsSubstring(R"(<Capability Name="Overlay.Core.Shipping" />)"));
+    REQUIRE(manifest.find("Base package output") == std::string::npos);
+}

@@ -539,6 +539,7 @@ namespace NGIN::CLI
         std::string from{};
         std::string description{};
         std::string license{};
+        bool disabled{false};
         std::vector<std::string> headers{};
         std::vector<std::string> libraries{};
         std::vector<std::string> tools{};
@@ -613,6 +614,7 @@ namespace NGIN::CLI
         std::vector<GeneratorDeclaration> generators{};
         std::vector<InputDeclaration> inputs{};
         RuntimeDefinition runtime{};
+        std::vector<PackageOutputDefinition> packageOutputs{};
         std::vector<PublishDefinition> publishes{};
         QualityDefinition quality{};
     };

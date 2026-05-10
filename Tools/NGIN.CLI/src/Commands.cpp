@@ -867,6 +867,39 @@ namespace NGIN::CLI
             return result;
         }
 
+        [[nodiscard]] auto EffectivePackageOutputs(const ProjectManifest &project, const ProfileDefinition &profile) -> std::vector<PackageOutputDefinition>
+        {
+            std::map<std::string, PackageOutputDefinition> byName{};
+            for (const auto &output : project.packageOutputs)
+            {
+                if (output.disabled)
+                {
+                    byName.erase(output.name);
+                }
+                else
+                {
+                    byName[output.name] = output;
+                }
+            }
+            for (const auto &output : profile.packageOutputs)
+            {
+                if (output.disabled)
+                {
+                    byName.erase(output.name);
+                }
+                else
+                {
+                    byName[output.name] = output;
+                }
+            }
+            std::vector<PackageOutputDefinition> result{};
+            for (auto &[_, output] : byName)
+            {
+                result.push_back(std::move(output));
+            }
+            return result;
+        }
+
         [[nodiscard]] auto EffectiveAnalyzers(const ProjectManifest &project, const ProfileDefinition &profile) -> std::map<std::string, AnalyzerDefinition>
         {
             std::map<std::string, AnalyzerDefinition> analyzers{};
@@ -2481,31 +2514,31 @@ namespace NGIN::CLI
     auto CmdPackagePack(const fs::path &root, const ParsedArgs &args) -> int
     {
         (void)root;
-        const auto projectPath = ResolveProjectPath(args.projectPath);
-        const auto project = LoadProjectManifest(projectPath);
-        if (project.packageOutputs.empty())
+        const auto invocation = ResolveInvocation(args);
+        const auto packageOutputs = EffectivePackageOutputs(invocation.project, invocation.profile);
+        if (packageOutputs.empty())
         {
-            throw std::runtime_error("project '" + project.name + "' does not declare PackageOutput");
+            throw std::runtime_error("project '" + invocation.project.name + "' does not declare PackageOutput");
         }
 
         const PackageOutputDefinition *selected = nullptr;
         if (args.packageName.has_value())
         {
             const auto it = std::find_if(
-                project.packageOutputs.begin(), project.packageOutputs.end(),
+                packageOutputs.begin(), packageOutputs.end(),
                 [&](const PackageOutputDefinition &output)
                 {
                     return output.name == *args.packageName;
                 });
-            if (it == project.packageOutputs.end())
+            if (it == packageOutputs.end())
             {
                 throw std::runtime_error("project does not declare PackageOutput '" + *args.packageName + "'");
             }
             selected = &*it;
         }
-        else if (project.packageOutputs.size() == 1)
+        else if (packageOutputs.size() == 1)
         {
-            selected = &project.packageOutputs.front();
+            selected = &packageOutputs.front();
         }
         else
         {
@@ -2533,8 +2566,8 @@ namespace NGIN::CLI
         }
         else
         {
-            manifestPath = project.path.parent_path() / "dist" / (selected->name + ".nginpkg");
-            archivePath = project.path.parent_path() / "dist" / (selected->name + ".nginpack");
+            manifestPath = invocation.project.path.parent_path() / "dist" / (selected->name + ".nginpkg");
+            archivePath = invocation.project.path.parent_path() / "dist" / (selected->name + ".nginpack");
         }
 
         const auto manifest = GeneratePackageOutputManifest(*selected);
@@ -2561,7 +2594,7 @@ namespace NGIN::CLI
         }
 
         std::cout << "Packed package output\n";
-        std::cout << "  project: " << projectPath << "\n";
+        std::cout << "  project: " << invocation.project.path << "\n";
         std::cout << "  package: " << selected->name << "\n";
         std::cout << "  version: " << selected->version << "\n";
         if (!manifestPath.empty())
@@ -3280,14 +3313,15 @@ namespace NGIN::CLI
         if (kind == "package-output")
         {
             std::cout << "Package output: " << identity << "\n";
+            const auto packageOutputs = EffectivePackageOutputs(invocation.project, invocation.profile);
             const auto outputIt = std::find_if(
-                invocation.project.packageOutputs.begin(),
-                invocation.project.packageOutputs.end(),
+                packageOutputs.begin(),
+                packageOutputs.end(),
                 [&](const PackageOutputDefinition &output)
                 {
                     return output.name == identity;
                 });
-            if (outputIt == invocation.project.packageOutputs.end())
+            if (outputIt == packageOutputs.end())
             {
                 std::cout << "  result: not selected\n";
                 return 0;
@@ -3415,6 +3449,7 @@ namespace NGIN::CLI
         const auto *resolved = resolvedResult.value.has_value() ? &*resolvedResult.value : nullptr;
         const auto productKind = invocation.project.productKind.empty() ? invocation.project.type : invocation.project.productKind;
         const auto effectivePublishes = EffectivePublishes(invocation.project, invocation.profile);
+        const auto effectivePackageOutputs = EffectivePackageOutputs(invocation.project, invocation.profile);
         const auto effectiveAnalyzers = EffectiveAnalyzers(invocation.project, invocation.profile);
 
         auto projectProvenance = [&](std::string reason) -> CompositionGraph::Provenance
@@ -3720,7 +3755,7 @@ namespace NGIN::CLI
             };
         }
 
-        for (const auto &output : invocation.project.packageOutputs)
+        for (const auto &output : effectivePackageOutputs)
         {
             graph.packageOutputs.push_back(CompositionGraph::PackageOutput{
                 .name = output.name,

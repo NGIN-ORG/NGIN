@@ -155,12 +155,13 @@ Implemented profile behavior:
 - environment variable replacement by name
 - generator replacement and removal by `Name` in selected profile overlays
 - publish replacement and removal by `Name` in selected profile overlays
+- package output replacement and removal by `Name` in selected profile overlays
 
 This is still not the final V4 overlay engine. Build definitions, staged
 inputs, dependency features, project/package removals, environment variables,
-runtime modules, generators, and publishes have first-pass identity handling,
-but full provenance and duplicate diagnostics are not implemented for every item
-family.
+runtime modules, generators, publishes, and package outputs have first-pass
+identity handling, but full provenance and duplicate diagnostics are not
+implemented for every item family.
 
 ### V4 Workspace Parsing
 
@@ -710,6 +711,8 @@ Implemented metadata:
 - ABI tag string
 
 `ngin inspect --format json` emits a first-pass `packageOutputs` array.
+Profile overlays can replace or remove package outputs by `Name`, and graph,
+explain, and package packing use the selected effective package-output set.
 
 `ngin package pack` can emit a standalone V4 `.nginpkg` manifest and a
 deterministic ZIP-backed `.nginpack` artifact from a source project
@@ -844,6 +847,7 @@ Current test coverage includes:
 - V4 stage identity collision diagnostics
 - V4 profile generator identity removal and replacement
 - V4 profile publish identity removal and replacement
+- V4 profile package output identity removal and replacement
 - V4 inspect package closure classification from dependency scopes
 - resolved package scope metadata
 - V4-only `NGIN.Core` runtime project/package manifest reader
@@ -909,6 +913,7 @@ The next implementation slice should focus on one of these paths:
   where it leaks into user-facing labels or generated metadata
 - expand workspace profile product overlays beyond defaults
 - continue hardening overlay identity/remove/override semantics for remaining
-  non-package item families, especially package outputs and launch edge cases
+  non-package item families, especially launch edge cases and duplicate
+  diagnostics
 - add DEFLATE support or a compression backend for ZIP-backed `.nginpack`
   entries if package size becomes important
