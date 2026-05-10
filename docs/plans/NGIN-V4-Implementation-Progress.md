@@ -153,11 +153,14 @@ Implemented profile behavior:
 - duplicate staged output diagnostics when multiple V4 stage entries target the
   same destination without an explicit override
 - environment variable replacement by name
+- generator replacement and removal by `Name` in selected profile overlays
+- publish replacement and removal by `Name` in selected profile overlays
 
 This is still not the final V4 overlay engine. Build definitions, staged
 inputs, dependency features, project/package removals, environment variables,
-and runtime modules have first-pass identity handling, but full provenance is
-not implemented.
+runtime modules, generators, and publishes have first-pass identity handling,
+but full provenance and duplicate diagnostics are not implemented for every item
+family.
 
 ### V4 Workspace Parsing
 
@@ -839,6 +842,8 @@ Current test coverage includes:
 - V4 named launch metadata
 - V4 bracket package version range resolution
 - V4 stage identity collision diagnostics
+- V4 profile generator identity removal and replacement
+- V4 profile publish identity removal and replacement
 - V4 inspect package closure classification from dependency scopes
 - resolved package scope metadata
 - V4-only `NGIN.Core` runtime project/package manifest reader
@@ -875,7 +880,7 @@ The following are still open and should not be described as complete:
 - final frozen graph JSON contract
 - stable named convention graph contributions and final provenance records
   beyond the first-pass graph snapshot
-- real V4 overlay identity, remove, override, and duplicate diagnostics
+- final V4 overlay duplicate diagnostics and provenance for every item family
 - full host/target dependency closure separation during restore/build
 - full workspace profile stage/runtime/uses overlays and definition-driven
   project resolution
@@ -903,7 +908,7 @@ The next implementation slice should focus on one of these paths:
 - rename internal `PackageReference`/policy terminology in the VS Code extension
   where it leaks into user-facing labels or generated metadata
 - expand workspace profile product overlays beyond defaults
-- continue hardening overlay identity/remove/override semantics for non-package
-  item families, especially launch, publish, generators, and package outputs
+- continue hardening overlay identity/remove/override semantics for remaining
+  non-package item families, especially package outputs and launch edge cases
 - add DEFLATE support or a compression backend for ZIP-backed `.nginpack`
   entries if package size becomes important

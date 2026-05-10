@@ -2150,18 +2150,22 @@ namespace NGIN::CLI
         }
 
         resolved.orderedPackages = std::move(orderedPackages);
-        auto collectGenerators = [&](const std::vector<GeneratorDeclaration> &generators,
-                                     const std::string &ownerKind,
-                                     const std::string &ownerName,
-                                     const fs::path &ownerDirectory,
-                                     const fs::path &manifestPath,
-                                     const std::vector<ConditionDefinition> &conditions,
-                                     const std::string &packageName = {},
-                                     const fs::path &packageDirectory = {},
-                                     const fs::path &providerRoot = {})
+        auto appendGenerators = [&](const std::vector<GeneratorDeclaration> &generators,
+                                    const std::string &ownerKind,
+                                    const std::string &ownerName,
+                                    const fs::path &ownerDirectory,
+                                    const fs::path &manifestPath,
+                                    const std::vector<ConditionDefinition> &conditions,
+                                    const std::string &packageName = {},
+                                    const fs::path &packageDirectory = {},
+                                    const fs::path &providerRoot = {})
         {
             for (const auto &generator : generators)
             {
+                if (generator.disabled)
+                {
+                    continue;
+                }
                 if (!SelectionMatches(conditions, generator.selectors, resolved.profile))
                 {
                     continue;
@@ -2179,15 +2183,79 @@ namespace NGIN::CLI
                 });
             }
         };
-        for (const auto &unit : resolved.projectUnits)
+        auto collectProjectGenerators = [&](const ResolvedProjectUnit &unit)
         {
+            struct SelectedGenerator
+            {
+                GeneratorDeclaration declaration{};
+                std::string ownerKind{};
+                std::string ownerName{};
+                fs::path ownerDirectory{};
+                fs::path manifestPath{};
+                std::vector<ConditionDefinition> conditions{};
+            };
+
             const auto ownerProjectDirectory = unit.project.path.parent_path();
-            collectGenerators(unit.project.generators, "project", unit.project.name, ownerProjectDirectory, unit.project.path, unit.project.conditions);
+            std::vector<SelectedGenerator> selected{};
+            const auto applyGenerators = [&](const std::vector<GeneratorDeclaration> &generators,
+                                             const std::string &ownerKind,
+                                             const std::string &ownerName,
+                                             const fs::path &ownerDirectory,
+                                             const fs::path &manifestPath,
+                                             const std::vector<ConditionDefinition> &conditions)
+            {
+                for (const auto &generator : generators)
+                {
+                    if (!SelectionMatches(conditions, generator.selectors, unit.profile))
+                    {
+                        continue;
+                    }
+                    selected.erase(
+                        std::remove_if(
+                            selected.begin(),
+                            selected.end(),
+                            [&](const SelectedGenerator &existing)
+                            {
+                                return existing.declaration.name == generator.name;
+                            }),
+                        selected.end());
+                    if (generator.disabled)
+                    {
+                        continue;
+                    }
+                    selected.push_back(SelectedGenerator{
+                        .declaration = generator,
+                        .ownerKind = ownerKind,
+                        .ownerName = ownerName,
+                        .ownerDirectory = ownerDirectory,
+                        .manifestPath = manifestPath,
+                        .conditions = conditions,
+                    });
+                }
+            };
+
+            applyGenerators(unit.project.generators, "project", unit.project.name, ownerProjectDirectory, unit.project.path, unit.project.conditions);
             if (unit.environment.has_value())
             {
-                collectGenerators(unit.environment->generators, "project", unit.project.name, ownerProjectDirectory, unit.project.path, unit.project.conditions);
+                applyGenerators(unit.environment->generators, "project", unit.project.name, ownerProjectDirectory, unit.project.path, unit.project.conditions);
             }
-            collectGenerators(unit.profile.generators, "project", unit.project.name, ownerProjectDirectory, unit.project.path, unit.project.conditions);
+            applyGenerators(unit.profile.generators, "project", unit.project.name, ownerProjectDirectory, unit.project.path, unit.project.conditions);
+
+            for (auto &generator : selected)
+            {
+                resolved.generators.push_back(ResolvedGenerator{
+                    .declaration = std::move(generator.declaration),
+                    .ownerKind = std::move(generator.ownerKind),
+                    .ownerName = std::move(generator.ownerName),
+                    .ownerDirectory = std::move(generator.ownerDirectory),
+                    .manifestPath = std::move(generator.manifestPath),
+                    .conditions = std::move(generator.conditions),
+                });
+            }
+        };
+        for (const auto &unit : resolved.projectUnits)
+        {
+            collectProjectGenerators(unit);
         }
         std::unordered_map<std::string, const PackageManifest *> resolvedPackageByName{};
         for (const auto &package : resolved.orderedPackages)
@@ -2211,15 +2279,15 @@ namespace NGIN::CLI
             collectInputs(feature.inputs, "package-feature", feature.packageName + "::" + feature.featureName,
                           featureOwnerDirectory, packageIt->second->path,
                           &packageIt->second->conditions, &resolved.profile);
-            collectGenerators(feature.generators,
-                              "package-feature",
-                              feature.packageName + "::" + feature.featureName,
-                              featureOwnerDirectory,
-                              packageIt->second->path,
-                              packageIt->second->conditions,
-                              feature.packageName,
-                              packageIt->second->path.parent_path(),
-                              feature.providerRoot);
+            appendGenerators(feature.generators,
+                             "package-feature",
+                             feature.packageName + "::" + feature.featureName,
+                             featureOwnerDirectory,
+                             packageIt->second->path,
+                             packageIt->second->conditions,
+                             feature.packageName,
+                             packageIt->second->path.parent_path(),
+                             feature.providerRoot);
         }
         if (result.diagnostics.HasErrors())
         {

@@ -839,11 +839,25 @@ namespace NGIN::CLI
             std::map<std::string, PublishDefinition> byName{};
             for (const auto &publish : project.publishes)
             {
-                byName[publish.name] = publish;
+                if (publish.disabled)
+                {
+                    byName.erase(publish.name);
+                }
+                else
+                {
+                    byName[publish.name] = publish;
+                }
             }
             for (const auto &publish : profile.publishes)
             {
-                byName[publish.name] = publish;
+                if (publish.disabled)
+                {
+                    byName.erase(publish.name);
+                }
+                else
+                {
+                    byName[publish.name] = publish;
+                }
             }
             std::vector<PublishDefinition> result{};
             for (auto &[_, publish] : byName)

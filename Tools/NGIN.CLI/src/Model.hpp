@@ -390,6 +390,7 @@ namespace NGIN::CLI
         std::string toolName{};
         ToolDeclaration inlineTool{};
         bool hasInlineTool{false};
+        bool disabled{false};
         SelectorSet selectors{};
         std::vector<GeneratorArgument> arguments{};
         std::vector<InputDeclaration> inputs{};
@@ -552,6 +553,7 @@ namespace NGIN::CLI
         std::string kind{"Folder"};
         std::string format{};
         std::string output{};
+        bool disabled{false};
         bool includeStage{true};
         bool includeRuntimeDependencies{false};
         bool includeSymbols{true};

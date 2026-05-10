@@ -3316,6 +3316,25 @@ namespace NGIN::CLI
             runtime.modules.push_back(std::move(module));
         }
 
+        auto RemoveGenerator(std::vector<GeneratorDeclaration> &generators, const std::string &name) -> void
+        {
+            generators.erase(
+                std::remove_if(
+                    generators.begin(),
+                    generators.end(),
+                    [&](const GeneratorDeclaration &generator)
+                    {
+                        return generator.name == name;
+                    }),
+                generators.end());
+        }
+
+        auto UpsertGenerator(std::vector<GeneratorDeclaration> &generators, GeneratorDeclaration generator) -> void
+        {
+            RemoveGenerator(generators, generator.name);
+            generators.push_back(std::move(generator));
+        }
+
         auto AddPathInput(
             std::vector<InputDeclaration> &inputs,
             const fs::path &manifestPath,
@@ -3777,6 +3796,22 @@ namespace NGIN::CLI
         auto ParsePublishSection(const XmlElement &node, const fs::path &path, std::vector<PublishDefinition> &publishes) -> void
         {
             PublishDefinition publish{};
+            if (const auto remove = Attribute(node, "Remove"); remove.has_value() && !remove->empty())
+            {
+                publish.name = *remove;
+                publish.disabled = true;
+                publishes.erase(
+                    std::remove_if(
+                        publishes.begin(),
+                        publishes.end(),
+                        [&](const PublishDefinition &existing)
+                        {
+                            return existing.name == publish.name;
+                        }),
+                    publishes.end());
+                publishes.push_back(std::move(publish));
+                return;
+            }
             publish.name = Attribute(node, "Name").value_or("default");
             publish.kind = Attribute(node, "Kind").value_or("Folder");
             publish.format = Attribute(node, "Format").value_or("");
@@ -3826,13 +3861,23 @@ namespace NGIN::CLI
             return output;
         }
 
-        auto ParseGenerateSection(const XmlElement &generateNode, const fs::path &path, ProjectManifest &project, const std::string &scope) -> void
+        auto ParseGenerateSection(const XmlElement &generateNode, const fs::path &path, std::vector<GeneratorDeclaration> &generators, const std::string &scope) -> void
         {
             for (const auto *node : ChildElements(generateNode, "Generator"))
             {
                 GeneratorDeclaration generator{};
+                if (const auto remove = Attribute(*node, "Remove"); remove.has_value() && !remove->empty())
+                {
+                    generator.name = *remove;
+                    generator.disabled = true;
+                    ApplyScopeSelector(scope, generator.selectors);
+                    UpsertGenerator(generators, std::move(generator));
+                    continue;
+                }
                 generator.name = RequireAttribute(*node, "Name", path);
                 generator.kind = "Command";
+                ApplyScopeSelector(scope, generator.selectors);
+                ApplyWhenSelector(*node, generator.selectors);
                 if (const auto *tool = FindChild(*node, "Tool"))
                 {
                     generator.toolName = Attribute(*tool, "Name").value_or("");
@@ -3885,7 +3930,7 @@ namespace NGIN::CLI
                 {
                     generator.outputs.push_back(ParseProductGeneratorOutput(*output, path, scope + ":" + generator.name));
                 }
-                project.generators.push_back(std::move(generator));
+                UpsertGenerator(generators, std::move(generator));
             }
         }
 
@@ -4018,7 +4063,7 @@ namespace NGIN::CLI
             }
             if (const auto *generate = FindChild(product, "Generate"))
             {
-                ParseGenerateSection(*generate, path, project, "product:" + productKind);
+                ParseGenerateSection(*generate, path, project.generators, "product:" + productKind);
             }
             if (const auto *stage = FindChild(product, "Stage"))
             {
@@ -4092,6 +4137,10 @@ namespace NGIN::CLI
                     if (const auto *stage = FindChild(*productOverlay, "Stage"))
                     {
                         ParseStageSection(*stage, path, project, "profile:" + profile.name);
+                    }
+                    if (const auto *generate = FindChild(*productOverlay, "Generate"))
+                    {
+                        ParseGenerateSection(*generate, path, profile.generators, "profile:" + profile.name);
                     }
                     if (const auto *runtime = FindChild(*productOverlay, "Runtime"))
                     {

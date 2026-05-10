@@ -267,3 +267,109 @@ TEST_CASE("stage identity reports collisions without explicit override")
             return message.find("input destination collision at 'config/app.json'") != std::string::npos;
         }));
 }
+
+TEST_CASE("profile overlays can remove and replace generator identities")
+{
+    TempDir temp{};
+    const auto projectPath = temp.path() / "GeneratorOverlay.App.nginproj";
+    WriteFile(projectPath,
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4" Name="GeneratorOverlay.App" DefaultProfile="shipping">
+  <Application>
+    <Build>
+      <Sources Path="src/**.cpp" />
+    </Build>
+    <Generate>
+      <Generator Name="Assets" Phase="Generate">
+        <Tool Name="asset-tool" Executable="asset-tool" />
+        <Outputs>
+          <Files Path="$(GeneratedDir)/assets/dev/**" />
+        </Outputs>
+      </Generator>
+      <Generator Name="Reflection" Phase="Generate">
+        <Tool Name="reflect-tool" Executable="reflect-tool" />
+        <Outputs>
+          <Sources Path="$(GeneratedDir)/reflection/dev/**.cpp" />
+        </Outputs>
+      </Generator>
+    </Generate>
+  </Application>
+  <Profile Name="shipping">
+    <Defaults>
+      <BuildType Name="Release" />
+    </Defaults>
+    <Application>
+      <Generate>
+        <Generator Remove="Assets" />
+        <Generator Name="Reflection" Phase="Generate">
+          <Tool Name="reflect-tool" Executable="reflect-tool" />
+          <Outputs>
+            <Sources Path="$(GeneratedDir)/reflection/shipping/**.cpp" />
+          </Outputs>
+        </Generator>
+      </Generate>
+    </Application>
+  </Profile>
+</Project>
+)xml");
+    WriteFile(temp.path() / "src/main.cpp", "int main() { return 0; }\n");
+
+    const auto project = LoadProjectManifest(projectPath);
+    const std::optional<std::string> profileName{"shipping"};
+    const auto &profile = ProfileByName(project, profileName);
+    const auto resolved = ResolveLaunch(project, profile);
+
+    REQUIRE_FALSE(resolved.diagnostics.HasErrors());
+    REQUIRE(resolved.value.has_value());
+    REQUIRE(resolved.value->generators.size() == 1);
+    REQUIRE(resolved.value->generators[0].declaration.name == "Reflection");
+    REQUIRE(resolved.value->generators[0].declaration.outputs.size() == 1);
+    REQUIRE(resolved.value->generators[0].declaration.outputs[0].includePatterns.size() == 1);
+    REQUIRE(resolved.value->generators[0].declaration.outputs[0].includePatterns[0] == "$(GeneratedDir)/reflection/shipping/**.cpp");
+}
+
+TEST_CASE("profile overlays can remove and replace publish identities")
+{
+    TempDir temp{};
+    const auto projectPath = temp.path() / "PublishOverlay.App.nginproj";
+    WriteFile(projectPath,
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4" Name="PublishOverlay.App" DefaultProfile="shipping">
+  <Application>
+    <Build>
+      <Sources Path="src/**.cpp" />
+    </Build>
+    <Publish Name="folder" Kind="Folder" Output="dist/base-folder" />
+    <Publish Name="archive" Kind="Archive" Format="zip" Output="dist/base.zip" />
+  </Application>
+  <Profile Name="shipping">
+    <Defaults>
+      <BuildType Name="Release" />
+    </Defaults>
+    <Application>
+      <Publish Remove="folder" />
+      <Publish Name="archive" Kind="Archive" Format="zip" Output="dist/shipping.zip">
+        <Include Stage="all" RuntimeDependencies="true" Symbols="false" />
+      </Publish>
+    </Application>
+  </Profile>
+</Project>
+)xml");
+    WriteFile(temp.path() / "src/main.cpp", "int main() { return 0; }\n");
+
+    ParsedArgs args{};
+    args.projectPath = projectPath.string();
+    args.profileName = "shipping";
+    args.graphPlan = "publish";
+
+    std::ostringstream captured{};
+    auto *previous = std::cout.rdbuf(captured.rdbuf());
+    const auto exitCode = CmdGraph(temp.path(), args);
+    std::cout.rdbuf(previous);
+
+    const auto output = captured.str();
+    REQUIRE(exitCode == 0);
+    REQUIRE_THAT(output, ContainsSubstring("publish archive kind=Archive output=dist/shipping.zip"));
+    REQUIRE(output.find("publish folder") == std::string::npos);
+    REQUIRE(output.find("dist/base.zip") == std::string::npos);
+}
