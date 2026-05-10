@@ -1,0 +1,85 @@
+name: NGIN.Core CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/core-ci.yml"
+      - "Packages/NGIN.Core/**"
+      - "Packages/NGIN.Base/**"
+      - "Packages/NGIN.Log/**"
+      - "Dependencies/NGIN/NGIN.Base/**"
+      - "Dependencies/NGIN/NGIN.Log/**"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/core-ci.yml"
+      - "Packages/NGIN.Core/**"
+      - "Packages/NGIN.Base/**"
+      - "Packages/NGIN.Log/**"
+      - "Dependencies/NGIN/NGIN.Base/**"
+      - "Dependencies/NGIN/NGIN.Log/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: core-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core:
+    name: NGIN.Core (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Install Linux prerequisites
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ninja-build
+
+      - name: Set up MSVC
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Configure NGIN.Core
+        run: >
+          cmake
+          -S Packages/NGIN.Core
+          -B build/ngin-core-ci
+          -DNGIN_CORE_BUILD_TESTS=ON
+          -DNGIN_CORE_BUILD_EXAMPLES=OFF
+          -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build NGIN.Core tests
+        run: cmake --build build/ngin-core-ci --config Release --target NGINCoreTests
+
+      - name: Run NGIN.Core tests
+        run: ctest --test-dir build/ngin-core-ci --output-on-failure -C Release
+
+      - name: Upload CTest logs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ngin-core-ctest-logs-${{ matrix.os }}
+          path: build/ngin-core-ci/Testing/Temporary/
+          if-no-files-found: ignore
+          retention-days: 14

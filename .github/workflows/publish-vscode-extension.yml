@@ -1,0 +1,161 @@
+name: Publish VS Code Extension
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Optional package version to build, for example 0.1.1"
+        required: false
+        type: string
+      pre_release:
+        description: "Mark the VS Marketplace package as a pre-release"
+        required: true
+        default: false
+        type: boolean
+      publish_marketplace:
+        description: "Publish to the Visual Studio Marketplace"
+        required: true
+        default: false
+        type: boolean
+      publish_open_vsx:
+        description: "Publish to Open VSX"
+        required: true
+        default: false
+        type: boolean
+      dry_run:
+        description: "Build and upload the VSIX without publishing"
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-vscode-extension
+  cancel-in-progress: false
+
+defaults:
+  run:
+    working-directory: Tools/NGIN.VSCode
+
+jobs:
+  publish:
+    name: Package and publish
+    runs-on: ubuntu-latest
+    environment: vscode-extension-publish
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: Tools/NGIN.VSCode/package-lock.json
+
+      - name: Install Linux prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes xvfb
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply requested version
+        if: inputs.version != ''
+        run: npm version "${{ inputs.version }}" --no-git-tag-version --allow-same-version
+
+      - name: Validate publish inputs
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
+          PUBLISH_MARKETPLACE: ${{ inputs.publish_marketplace }}
+          PUBLISH_OPEN_VSX: ${{ inputs.publish_open_vsx }}
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        run: |
+          if [[ "${DRY_RUN}" == "true" ]]; then
+            exit 0
+          fi
+
+          if [[ "${PUBLISH_MARKETPLACE}" != "true" && "${PUBLISH_OPEN_VSX}" != "true" ]]; then
+            echo "::error::Select at least one publish target or leave dry_run enabled."
+            exit 1
+          fi
+
+          if [[ "${PUBLISH_MARKETPLACE}" == "true" && -z "${VSCE_PAT}" ]]; then
+            echo "::error::VSCE_PAT is required to publish to the Visual Studio Marketplace."
+            exit 1
+          fi
+
+          if [[ "${PUBLISH_OPEN_VSX}" == "true" && -z "${OVSX_PAT}" ]]; then
+            echo "::error::OVSX_PAT is required to publish to Open VSX."
+            exit 1
+          fi
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Run unit tests
+        run: npm run test:unit
+
+      - name: Run integration tests
+        run: xvfb-run --auto-servernum npm run test:integration
+
+      - name: Package VSIX
+        id: package
+        env:
+          PRE_RELEASE: ${{ inputs.pre_release }}
+        run: |
+          mkdir -p artifacts
+          VERSION="$(node -p "require('./package.json').version")"
+          VSIX="artifacts/ngin-tools-${VERSION}.vsix"
+
+          if [[ "${PRE_RELEASE}" == "true" ]]; then
+            npx vsce package --pre-release --out "${VSIX}"
+          else
+            npx vsce package --out "${VSIX}"
+          fi
+
+          echo "vsix=${VSIX}" >> "${GITHUB_OUTPUT}"
+
+      - name: Upload VSIX
+        uses: actions/upload-artifact@v7
+        with:
+          name: ngin-tools-vsix
+          path: Tools/NGIN.VSCode/${{ steps.package.outputs.vsix }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish to Visual Studio Marketplace
+        if: inputs.dry_run == false && inputs.publish_marketplace == true
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+          VSIX: ${{ steps.package.outputs.vsix }}
+          PRE_RELEASE: ${{ inputs.pre_release }}
+        run: |
+          if [[ "${PRE_RELEASE}" == "true" ]]; then
+            npx vsce publish --pre-release --packagePath "${VSIX}" --pat "${VSCE_PAT}"
+          else
+            npx vsce publish --packagePath "${VSIX}" --pat "${VSCE_PAT}"
+          fi
+
+      - name: Publish to Open VSX
+        if: inputs.dry_run == false && inputs.publish_open_vsx == true
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+          VSIX: ${{ steps.package.outputs.vsix }}
+          PRE_RELEASE: ${{ inputs.pre_release }}
+        run: |
+          if [[ "${PRE_RELEASE}" == "true" ]]; then
+            npx ovsx --pat "${OVSX_PAT}" publish --pre-release "${VSIX}"
+          else
+            npx ovsx --pat "${OVSX_PAT}" publish "${VSIX}"
+          fi

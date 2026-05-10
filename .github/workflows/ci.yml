@@ -1,0 +1,95 @@
+name: CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/ci.yml"
+      - "CMakeLists.txt"
+      - "CMakePresets.json"
+      - "cmake/**"
+      - "Dependencies/NGIN/**"
+      - "Examples/**"
+      - "Packages/**"
+      - "Tools/NGIN.CLI/**"
+      - "*.ngin"
+      - "*.nginproj"
+      - "*.nginpkg"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/ci.yml"
+      - "CMakeLists.txt"
+      - "CMakePresets.json"
+      - "cmake/**"
+      - "Dependencies/NGIN/**"
+      - "Examples/**"
+      - "Packages/**"
+      - "Tools/NGIN.CLI/**"
+      - "*.ngin"
+      - "*.nginproj"
+      - "*.nginpkg"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native:
+    name: Native workspace (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Install Linux prerequisites
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ninja-build
+
+      - name: Set up MSVC
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Configure workspace
+        run: cmake --preset dev
+
+      - name: Build native CLI
+        run: cmake --build build/dev --target ngin_cli
+
+      - name: Build CLI tests
+        run: cmake --build build/dev --target NGINCliTests
+
+      - name: Run CLI tests
+        run: ctest --test-dir build/dev --output-on-failure
+
+      - name: Run workspace workflow
+        run: cmake --build build/dev --target ngin.workflow
+
+      - name: Upload CTest logs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ctest-logs-${{ matrix.os }}
+          path: build/dev/Testing/Temporary/
+          if-no-files-found: ignore
+          retention-days: 14

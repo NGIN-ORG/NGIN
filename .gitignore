@@ -6,6 +6,7 @@ __pycache__/
 *.pyc
 *.vsix
 package-lock.json
+!Tools/NGIN.VSCode/package-lock.json
 .ngin/workspace.overrides.json
 .ngin/build/
 Tools/ThirdParty/BuildTools/downloads/
