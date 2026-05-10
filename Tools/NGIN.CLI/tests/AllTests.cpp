@@ -2384,6 +2384,78 @@ TEST_CASE("resolved package scopes flow into graph metadata")
     REQUIRE_THAT(graphCaptured.str(), ContainsSubstring(R"("reason":"resolved package dependency")"));
 }
 
+TEST_CASE("dependency overlays mutate scopes by dependency identity")
+{
+    TempDir temp{};
+    WriteFile(temp.path() / "Workspace.ngin",
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Workspace SchemaVersion="4" Name="ScopeMutationWorkspace">
+  <Projects>
+    <Project Path="App/App.nginproj" />
+  </Projects>
+  <Packages>
+    <Source Name="local" Path="Packages" />
+  </Packages>
+</Workspace>
+)xml");
+    const std::string coreManifest = R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Package SchemaVersion="4" Name="Package.Core" Version="1.0.0">
+  <Library Name="Package.Core">
+    <Exports>
+      <LibraryTarget Name="Package::Core" />
+    </Exports>
+  </Library>
+  <Features>
+    <Feature Name="Diagnostics" />
+  </Features>
+</Package>
+)xml";
+    WriteFile(temp.path() / "Packages/Core/Core.nginpack",
+              std::string("NGINPACK/1\n")
+                  + "Name: Package.Core\n"
+                  + "Version: 1.0.0\n"
+                  + "Manifest: package.nginpkg\n"
+                  + "Manifest-Length: " + std::to_string(coreManifest.size()) + "\n\n"
+                  + coreManifest);
+    WriteFile(temp.path() / "App/App.nginproj",
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4" Name="ScopeMutation.App" DefaultProfile="shipping">
+  <Application>
+    <Uses>
+      <Package Name="Package.Core" Version="[1.0.0,2.0.0)" Scope="Target" />
+    </Uses>
+    <Build>
+      <Sources Path="src/**.cpp" />
+    </Build>
+  </Application>
+  <Profile Name="shipping">
+    <Application>
+      <Uses>
+        <Package Name="Package.Core" Version="[1.0.0,2.0.0)" AddScope="Runtime" RemoveScope="Target">
+          <Feature Name="Diagnostics" />
+        </Package>
+      </Uses>
+    </Application>
+  </Profile>
+</Project>
+)xml");
+    WriteFile(temp.path() / "App/src/main.cpp", "int main() { return 0; }\n");
+
+    const auto project = LoadProjectManifest(temp.path() / "App/App.nginproj");
+    const auto resolved = ResolveLaunch(project, ProfileByName(project, "shipping"));
+
+    const auto diagnostics = DiagnosticMessages(resolved.diagnostics);
+    const auto firstDiagnostic = diagnostics.empty() ? std::string{"no diagnostics"} : diagnostics.front();
+    INFO(firstDiagnostic);
+    REQUIRE_FALSE(resolved.diagnostics.HasErrors());
+    REQUIRE(resolved.value.has_value());
+    REQUIRE(resolved.value->orderedPackages.size() == 1);
+    REQUIRE(resolved.value->packageScopes.at("Package.Core") == "Runtime");
+    REQUIRE(resolved.value->selectedPackageFeatures.size() == 1);
+    REQUIRE(resolved.value->selectedPackageFeatures[0].packageName == "Package.Core");
+    REQUIRE(resolved.value->selectedPackageFeatures[0].featureName == "Diagnostics");
+}
+
 TEST_CASE("package resolution reports conflicting dependency version ranges")
 {
     TempDir temp{};

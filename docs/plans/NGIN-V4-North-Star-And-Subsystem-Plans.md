@@ -387,6 +387,15 @@ Example:
 These declarations refer to one `Package/SDL3` dependency whose effective scope
 includes `Target` and `Runtime`, subject to version/provider compatibility.
 
+Profiles and workspace policy may mutate scopes explicitly:
+
+```xml
+<Package Name="SDL3" AddScope="Runtime" />
+<Package Name="SDL3" RemoveScope="Target" />
+```
+
+These are mutations on the same `Package/SDL3` identity.
+
 ## Package Resolution Policy
 
 Package resolution is graph-level policy.

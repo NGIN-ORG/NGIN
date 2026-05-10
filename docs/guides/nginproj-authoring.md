@@ -106,6 +106,25 @@ Scopes are part of the native C++ model:
 - `Dev`: editor/analyzer/development dependencies
 - `Publish`: packaging/publishing dependencies
 
+Dependency identity is the dependency name. Scope is mergeable metadata, so
+profiles and workspace policy can refine the same dependency instead of adding a
+second identity:
+
+```xml
+<Package Name="SDL3" Version="[3.0.0,4.0.0)" Scope="Target" />
+
+<Profile Name="shipping">
+  <Application>
+    <Uses>
+      <Package Name="SDL3"
+               Version="[3.0.0,4.0.0)"
+               AddScope="Runtime"
+               RemoveScope="Target" />
+    </Uses>
+  </Application>
+</Profile>
+```
+
 ## Build Inputs
 
 Build inputs live under `Build`.

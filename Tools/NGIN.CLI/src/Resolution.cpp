@@ -682,6 +682,41 @@ namespace NGIN::CLI
             }
         }
 
+        auto RemoveScopeList(std::string &target, const std::string &source) -> void
+        {
+            if (source.empty() || target.empty())
+            {
+                return;
+            }
+            std::set<std::string> scopes{};
+            std::stringstream existing{target};
+            std::string scope{};
+            while (std::getline(existing, scope, ';'))
+            {
+                if (!scope.empty())
+                {
+                    scopes.insert(scope);
+                }
+            }
+            std::stringstream incoming{source};
+            while (std::getline(incoming, scope, ';'))
+            {
+                if (!scope.empty())
+                {
+                    scopes.erase(scope);
+                }
+            }
+            target.clear();
+            for (const auto &entry : scopes)
+            {
+                if (!target.empty())
+                {
+                    target += ";";
+                }
+                target += entry;
+            }
+        }
+
         auto MergePackageReferences(
             std::vector<PackageReference> &target,
             const std::vector<PackageReference> &source,
@@ -720,6 +755,7 @@ namespace NGIN::CLI
                     }
                     auto scope = existing.scope;
                     MergeScopeList(scope, reference.scope);
+                    RemoveScopeList(scope, reference.removeScope);
                     if (existing.versionRange.empty() && !reference.versionRange.empty())
                     {
                         existing.versionRange = reference.versionRange;
@@ -728,8 +764,20 @@ namespace NGIN::CLI
                     existing.scope = std::move(scope);
                     continue;
                 }
-                indexByName[reference.name] = target.size();
-                target.push_back(reference);
+                if (reference.removeScope.empty())
+                {
+                    indexByName[reference.name] = target.size();
+                    target.push_back(reference);
+                    continue;
+                }
+                auto adjusted = reference;
+                RemoveScopeList(adjusted.scope, adjusted.removeScope);
+                if (adjusted.scope.empty() && adjusted.versionRange.empty())
+                {
+                    continue;
+                }
+                indexByName[adjusted.name] = target.size();
+                target.push_back(std::move(adjusted));
             }
         }
 
@@ -987,14 +1035,21 @@ namespace NGIN::CLI
             {
                 return result;
             }
+            std::vector<PackageReference> featureRefs{};
+            featureRefs.reserve(requestedFeatures.size());
             for (const auto &use : requestedFeatures)
             {
-                combinedRefs.push_back(PackageReference{
+                featureRefs.push_back(PackageReference{
                     .name = use.packageName,
                     .versionRange = use.versionRange,
                     .optional = false,
                     .selectors = use.selectors,
                 });
+            }
+            MergePackageReferences(combinedRefs, featureRefs, report);
+            if (report.HasErrors())
+            {
+                return result;
             }
 
             std::unordered_map<std::string, ResolvedPackage> resolved;

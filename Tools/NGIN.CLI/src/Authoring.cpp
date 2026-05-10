@@ -289,6 +289,20 @@ namespace NGIN::CLI
             return text;
         }
 
+        [[nodiscard]] auto ScopeMutation(const XmlElement &node, const std::string &defaultScope = {}) -> std::string
+        {
+            auto scope = Attribute(node, "Scope").value_or(defaultScope);
+            if (const auto addScope = Attribute(node, "AddScope"); addScope.has_value() && !addScope->empty())
+            {
+                if (!scope.empty())
+                {
+                    scope += ";";
+                }
+                scope += *addScope;
+            }
+            return scope;
+        }
+
         [[nodiscard]] auto ParseCompatibility(const XmlElement &node, const fs::path &path) -> CompatibilityDefinition
         {
             CompatibilityDefinition compatibility{};
@@ -2394,7 +2408,8 @@ namespace NGIN::CLI
 
             use.name = RequireAttribute(*node, "Name", path);
             use.versionRange = Attribute(*node, "Version").value_or(Attribute(*node, "VersionRange").value_or(""));
-            use.scope = Attribute(*node, "Scope").value_or(use.kind == "Tool" ? "Build" : "");
+            use.scope = ScopeMutation(*node, use.kind == "Tool" ? "Build" : "");
+            use.removeScope = Attribute(*node, "RemoveScope").value_or("");
             if (const auto dependencyPath = Attribute(*node, "Path"); dependencyPath.has_value() && !dependencyPath->empty())
             {
                 use.path = (workspace.path.parent_path() / *dependencyPath).lexically_normal();
@@ -3413,7 +3428,8 @@ namespace NGIN::CLI
                     PackageReference package{};
                     package.name = RequireAttribute(*node, "Name", path);
                     package.versionRange = Attribute(*node, "Version").value_or(Attribute(*node, "VersionRange").value_or(""));
-                    package.scope = Attribute(*node, "Scope").value_or("");
+                    package.scope = ScopeMutation(*node, node->name == "Runtime" ? "Target;Runtime" : (node->name == "Tool" ? "Build" : ""));
+                    package.removeScope = Attribute(*node, "RemoveScope").value_or("");
                     ApplyScopeSelector(scope, package.selectors);
                     project.packageRefs.push_back(package);
                     for (const auto *feature : ChildElements(*node, "Feature"))
@@ -4345,6 +4361,7 @@ namespace NGIN::CLI
                 package.name = dependencyUse.name;
                 package.versionRange = dependencyUse.versionRange;
                 package.scope = dependencyUse.scope;
+                package.removeScope = dependencyUse.removeScope;
                 package.disabled = dependencyUse.remove;
                 if (package.scope.empty() && dependencyUse.kind == "Runtime")
                 {

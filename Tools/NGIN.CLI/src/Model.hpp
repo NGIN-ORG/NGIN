@@ -85,6 +85,7 @@ namespace NGIN::CLI
                 fs::path path{};
                 std::string versionRange{};
                 std::string scope{};
+                std::string removeScope{};
                 std::vector<std::string> features{};
                 bool remove{false};
             };
@@ -196,6 +197,7 @@ namespace NGIN::CLI
         bool disabled{false};
         SelectorSet selectors{};
         std::string scope{};
+        std::string removeScope{};
     };
 
     struct ConditionNode

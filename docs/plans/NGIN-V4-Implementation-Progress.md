@@ -851,6 +851,11 @@ Current test coverage includes:
 - VS Code project editor fallback parsing for old normalized `<Inputs>` and
   top-level feature override shapes removed
 - `PackageBootstrapMode::BuilderHookV1` renamed to `BuilderHook`
+- dependency overlays now treat dependency name as the identity and scope as
+  mergeable metadata, including explicit `AddScope` and `RemoveScope`
+  mutations for project and workspace `Uses` overlays
+- package feature dependency requests are merged back through the dependency
+  identity path so feature selection cannot create a duplicate package identity
 
 ## Not Implemented Yet
 
@@ -890,7 +895,7 @@ The next implementation slice should focus on one of these paths:
 - rename internal `PackageReference`/policy terminology in the VS Code extension
   where it leaks into user-facing labels or generated metadata
 - expand workspace profile product overlays beyond defaults
-- deepen V4 overlay identity/remove/override semantics beyond the current
-  first-pass item identities
+- continue hardening overlay identity/remove/override semantics for non-package
+  item families, especially launch, publish, generators, and package outputs
 - implement network package restore and feed index resolution
 - implement final compressed `.nginpack` archive extraction
