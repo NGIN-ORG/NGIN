@@ -152,6 +152,8 @@ Implemented profile behavior:
 - staged output override with `Collision="Override"`
 - duplicate staged output diagnostics when multiple V4 stage entries target the
   same destination without an explicit override
+- same-scope duplicate identity diagnostics for generators, publishes, package
+  outputs, runtime modules, and environment variables
 - environment variable replacement by name
 - generator replacement and removal by `Name` in selected profile overlays
 - publish replacement and removal by `Name` in selected profile overlays
@@ -848,6 +850,8 @@ Current test coverage includes:
 - V4 profile generator identity removal and replacement
 - V4 profile publish identity removal and replacement
 - V4 profile package output identity removal and replacement
+- V4 same-scope duplicate diagnostics for generator, publish, package output,
+  runtime module, and environment variable identities
 - V4 inspect package closure classification from dependency scopes
 - resolved package scope metadata
 - V4-only `NGIN.Core` runtime project/package manifest reader
@@ -885,6 +889,7 @@ The following are still open and should not be described as complete:
 - stable named convention graph contributions and final provenance records
   beyond the first-pass graph snapshot
 - final V4 overlay duplicate diagnostics and provenance for every item family
+  beyond the currently covered named product items
 - full host/target dependency closure separation during restore/build
 - full workspace profile stage/runtime/uses overlays and definition-driven
   project resolution
@@ -913,7 +918,7 @@ The next implementation slice should focus on one of these paths:
   where it leaks into user-facing labels or generated metadata
 - expand workspace profile product overlays beyond defaults
 - continue hardening overlay identity/remove/override semantics for remaining
-  non-package item families, especially launch edge cases and duplicate
-  diagnostics
+  non-package item families, especially launch edge cases, analyzer duplicates,
+  and build-setting duplicates
 - add DEFLATE support or a compression backend for ZIP-backed `.nginpack`
   entries if package size becomes important

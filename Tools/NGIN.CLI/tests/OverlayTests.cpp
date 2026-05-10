@@ -458,3 +458,114 @@ TEST_CASE("profile overlays can remove and replace package output identities")
     REQUIRE_THAT(manifest, ContainsSubstring(R"(<Capability Name="Overlay.Core.Shipping" />)"));
     REQUIRE(manifest.find("Base package output") == std::string::npos);
 }
+
+TEST_CASE("same-scope duplicate overlay identities are rejected")
+{
+    TempDir temp{};
+
+    auto loadError = [&](const std::string &name, const std::string &body) -> std::string
+    {
+        const auto projectPath = temp.path() / name;
+        WriteFile(projectPath, body);
+        try
+        {
+            (void)LoadProjectManifest(projectPath);
+        }
+        catch (const std::exception &ex)
+        {
+            return ex.what();
+        }
+        return {};
+    };
+
+    const auto generatorError = loadError(
+        "DuplicateGenerator.nginproj",
+        R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4" Name="DuplicateGenerator.App">
+  <Application>
+    <Build>
+      <Sources Path="src/**.cpp" />
+    </Build>
+    <Generate>
+      <Generator Name="Codegen">
+        <Tool Name="tool" Executable="tool" />
+        <Outputs>
+          <Sources Path="$(GeneratedDir)/a/**.cpp" />
+        </Outputs>
+      </Generator>
+      <Generator Name="Codegen">
+        <Tool Name="tool" Executable="tool" />
+        <Outputs>
+          <Sources Path="$(GeneratedDir)/b/**.cpp" />
+        </Outputs>
+      </Generator>
+    </Generate>
+  </Application>
+</Project>
+)xml");
+    REQUIRE_THAT(generatorError, ContainsSubstring("duplicate generator 'Codegen' in the same overlay scope"));
+
+    const auto publishError = loadError(
+        "DuplicatePublish.nginproj",
+        R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4" Name="DuplicatePublish.App">
+  <Application>
+    <Build>
+      <Sources Path="src/**.cpp" />
+    </Build>
+    <Publish Name="folder" Kind="Folder" Output="dist/a" />
+    <Publish Name="folder" Kind="Folder" Output="dist/b" />
+  </Application>
+</Project>
+)xml");
+    REQUIRE_THAT(publishError, ContainsSubstring("duplicate publish 'folder' in the same overlay scope"));
+
+    const auto packageOutputError = loadError(
+        "DuplicatePackageOutput.nginproj",
+        R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4" Name="DuplicatePackageOutput.Library">
+  <Library>
+    <Build>
+      <Sources Path="src/**.cpp" />
+    </Build>
+    <PackageOutput Name="Output.Core" Version="1.0.0" />
+    <PackageOutput Name="Output.Core" Version="2.0.0" />
+  </Library>
+</Project>
+)xml");
+    REQUIRE_THAT(packageOutputError, ContainsSubstring("duplicate package output 'Output.Core' in the same overlay scope"));
+
+    const auto runtimeError = loadError(
+        "DuplicateRuntime.nginproj",
+        R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4" Name="DuplicateRuntime.App">
+  <Application>
+    <Build>
+      <Sources Path="src/**.cpp" />
+    </Build>
+    <Runtime>
+      <Module Name="App.Startup" />
+      <Module Name="App.Startup" />
+    </Runtime>
+  </Application>
+</Project>
+)xml");
+    REQUIRE_THAT(runtimeError, ContainsSubstring("duplicate runtime module 'App.Startup' in the same overlay scope"));
+
+    const auto environmentError = loadError(
+        "DuplicateEnvironment.nginproj",
+        R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4" Name="DuplicateEnvironment.App">
+  <Application>
+    <Build>
+      <Sources Path="src/**.cpp" />
+    </Build>
+    <Environment>
+      <Env Name="APP_ENV" Value="dev" />
+      <Secret Name="APP_ENV" From="local:app.env" />
+    </Environment>
+  </Application>
+</Project>
+)xml");
+    REQUIRE_THAT(environmentError, ContainsSubstring("duplicate environment variable 'APP_ENV' in the same overlay scope"));
+}

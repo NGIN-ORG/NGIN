@@ -3174,6 +3174,18 @@ namespace NGIN::CLI
             return value;
         }
 
+        auto RequireUniqueLocalName(
+            std::set<std::string> &names,
+            const std::string &kind,
+            const std::string &name,
+            const fs::path &path) -> void
+        {
+            if (!names.insert(name).second)
+            {
+                throw std::runtime_error(path.string() + ": duplicate " + kind + " '" + name + "' in the same overlay scope");
+            }
+        }
+
         auto RemoveDefine(std::vector<BuildSetting> &settings, const std::string &name, const std::string &scope) -> void
         {
             settings.erase(
@@ -3617,17 +3629,20 @@ namespace NGIN::CLI
 
         auto ParseEnvironmentSection(const XmlElement &environmentNode, const fs::path &path, EnvironmentDefinition &environment) -> void
         {
+            std::set<std::string> localNames{};
             for (const auto *node : ChildElements(environmentNode))
             {
                 if (node->name == "Env")
                 {
                     if (const auto remove = Attribute(*node, "Remove"); remove.has_value() && !remove->empty())
                     {
+                        RequireUniqueLocalName(localNames, "environment variable", *remove, path);
                         RemoveEnvironmentVariable(environment.variables, *remove);
                         continue;
                     }
                     EnvironmentVariable variable{};
                     variable.name = RequireAttribute(*node, "Name", path);
+                    RequireUniqueLocalName(localNames, "environment variable", variable.name, path);
                     variable.value = RequireAttribute(*node, "Value", path);
                     UpsertEnvironmentVariable(environment.variables, std::move(variable));
                 }
@@ -3635,11 +3650,13 @@ namespace NGIN::CLI
                 {
                     if (const auto remove = Attribute(*node, "Remove"); remove.has_value() && !remove->empty())
                     {
+                        RequireUniqueLocalName(localNames, "environment variable", *remove, path);
                         RemoveEnvironmentVariable(environment.variables, *remove);
                         continue;
                     }
                     EnvironmentVariable variable{};
                     variable.name = RequireAttribute(*node, "Name", path);
+                    RequireUniqueLocalName(localNames, "environment variable", variable.name, path);
                     variable.fromLocalSetting = RequireAttribute(*node, "From", path);
                     if (variable.fromLocalSetting.rfind("local:", 0) == 0)
                     {
@@ -3681,15 +3698,18 @@ namespace NGIN::CLI
 
         auto ParseQualitySection(const XmlElement &qualityNode, const fs::path &path, QualityDefinition &quality) -> void
         {
+            std::set<std::string> localNames{};
             for (const auto *node : ChildElements(qualityNode, "Analyzer"))
             {
                 if (const auto remove = Attribute(*node, "Remove"); remove.has_value() && !remove->empty())
                 {
+                    RequireUniqueLocalName(localNames, "analyzer", *remove, path);
                     RemoveAnalyzer(quality.analyzers, *remove);
                     continue;
                 }
                 AnalyzerDefinition analyzer{};
                 analyzer.name = RequireAttribute(*node, "Name", path);
+                RequireUniqueLocalName(localNames, "analyzer", analyzer.name, path);
                 analyzer.scope = Attribute(*node, "Scope").value_or(analyzer.scope);
                 analyzer.enabled = BoolAttribute(*node, "Enabled", analyzer.enabled);
                 analyzer.severity = Attribute(*node, "Severity").value_or(analyzer.severity);
@@ -3704,15 +3724,18 @@ namespace NGIN::CLI
 
         auto ParseRuntimeSection(const XmlElement &runtimeNode, const fs::path &path, RuntimeDefinition &runtime) -> void
         {
+            std::set<std::string> localNames{};
             for (const auto *node : ChildElements(runtimeNode, "Module"))
             {
                 if (const auto remove = Attribute(*node, "Remove"); remove.has_value() && !remove->empty())
                 {
+                    RequireUniqueLocalName(localNames, "runtime module", *remove, path);
                     RemoveRuntimeModule(runtime, *remove);
                     continue;
                 }
                 ModuleDescriptor module{};
                 module.name = RequireAttribute(*node, "Name", path);
+                RequireUniqueLocalName(localNames, "runtime module", module.name, path);
                 module.startupStage = Attribute(*node, "Stage").value_or("Features");
                 for (const auto *provides : ChildElements(*node, "Provides"))
                 {
@@ -3888,11 +3911,13 @@ namespace NGIN::CLI
 
         auto ParseGenerateSection(const XmlElement &generateNode, const fs::path &path, std::vector<GeneratorDeclaration> &generators, const std::string &scope) -> void
         {
+            std::set<std::string> localNames{};
             for (const auto *node : ChildElements(generateNode, "Generator"))
             {
                 GeneratorDeclaration generator{};
                 if (const auto remove = Attribute(*node, "Remove"); remove.has_value() && !remove->empty())
                 {
+                    RequireUniqueLocalName(localNames, "generator", *remove, path);
                     generator.name = *remove;
                     generator.disabled = true;
                     ApplyScopeSelector(scope, generator.selectors);
@@ -3900,6 +3925,7 @@ namespace NGIN::CLI
                     continue;
                 }
                 generator.name = RequireAttribute(*node, "Name", path);
+                RequireUniqueLocalName(localNames, "generator", generator.name, path);
                 generator.kind = "Command";
                 ApplyScopeSelector(scope, generator.selectors);
                 ApplyWhenSelector(*node, generator.selectors);
@@ -4098,12 +4124,30 @@ namespace NGIN::CLI
             {
                 ParseRuntimeSection(*runtime, path, project.runtime);
             }
+            std::set<std::string> packageOutputNames{};
             for (const auto *packageOutput : ChildElements(product, "PackageOutput"))
             {
+                if (const auto remove = Attribute(*packageOutput, "Remove"); remove.has_value() && !remove->empty())
+                {
+                    RequireUniqueLocalName(packageOutputNames, "package output", *remove, path);
+                }
+                else
+                {
+                    RequireUniqueLocalName(packageOutputNames, "package output", RequireAttribute(*packageOutput, "Name", path), path);
+                }
                 ParsePackageOutputSection(*packageOutput, path, project, project.packageOutputs);
             }
+            std::set<std::string> publishNames{};
             for (const auto *publish : ChildElements(product, "Publish"))
             {
+                if (const auto remove = Attribute(*publish, "Remove"); remove.has_value() && !remove->empty())
+                {
+                    RequireUniqueLocalName(publishNames, "publish", *remove, path);
+                }
+                else
+                {
+                    RequireUniqueLocalName(publishNames, "publish", Attribute(*publish, "Name").value_or("default"), path);
+                }
                 ParsePublishSection(*publish, path, project.publishes);
             }
             EnvironmentDefinition baseEnvironment{};
@@ -4192,12 +4236,30 @@ namespace NGIN::CLI
                         profile.quality = project.quality;
                         ParseQualitySection(*quality, path, profile.quality);
                     }
+                    std::set<std::string> packageOutputNames{};
                     for (const auto *packageOutput : ChildElements(*productOverlay, "PackageOutput"))
                     {
+                        if (const auto remove = Attribute(*packageOutput, "Remove"); remove.has_value() && !remove->empty())
+                        {
+                            RequireUniqueLocalName(packageOutputNames, "package output", *remove, path);
+                        }
+                        else
+                        {
+                            RequireUniqueLocalName(packageOutputNames, "package output", RequireAttribute(*packageOutput, "Name", path), path);
+                        }
                         ParsePackageOutputSection(*packageOutput, path, project, profile.packageOutputs);
                     }
+                    std::set<std::string> publishNames{};
                     for (const auto *publish : ChildElements(*productOverlay, "Publish"))
                     {
+                        if (const auto remove = Attribute(*publish, "Remove"); remove.has_value() && !remove->empty())
+                        {
+                            RequireUniqueLocalName(publishNames, "publish", *remove, path);
+                        }
+                        else
+                        {
+                            RequireUniqueLocalName(publishNames, "publish", Attribute(*publish, "Name").value_or("default"), path);
+                        }
                         ParsePublishSection(*publish, path, profile.publishes);
                     }
                 }
