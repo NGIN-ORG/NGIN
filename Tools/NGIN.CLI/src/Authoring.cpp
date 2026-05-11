@@ -2554,6 +2554,258 @@ namespace NGIN::CLI
         }
     }
 
+    auto RequireUniqueWorkspacePolicyName(
+        std::set<std::string> &names,
+        const std::string &kind,
+        const std::string &name,
+        const fs::path &path) -> void
+    {
+        if (name.empty())
+        {
+            throw std::runtime_error(path.string() + ": " + kind + " identity cannot be empty");
+        }
+        if (!names.insert(name).second)
+        {
+            throw std::runtime_error(path.string() + ": duplicate " + kind + " '" + name + "' in the same overlay scope");
+        }
+    }
+
+    auto ParseWorkspaceGeneratePolicy(
+        const XmlElement &generateNode,
+        const fs::path &path,
+        WorkspaceManifest::ProfilePolicy &policy,
+        const std::string &productKind = {}) -> void
+    {
+        std::set<std::string> localNames{};
+        for (const auto *node : ChildElements(generateNode, "Generator"))
+        {
+            WorkspaceManifest::ProfilePolicy::GeneratorPolicy generator{};
+            generator.productKind = productKind;
+            if (const auto remove = Attribute(*node, "Remove"); remove.has_value() && !remove->empty())
+            {
+                RequireUniqueWorkspacePolicyName(localNames, "generator", *remove, path);
+                generator.name = *remove;
+                generator.remove = true;
+                policy.generators.push_back(std::move(generator));
+                continue;
+            }
+
+            generator.name = RequireAttribute(*node, "Name", path);
+            RequireUniqueWorkspacePolicyName(localNames, "generator", generator.name, path);
+            if (const auto *tool = FindChild(*node, "Tool"))
+            {
+                generator.toolName = Attribute(*tool, "Name").value_or("");
+                generator.toolExecutable = Attribute(*tool, "Executable").value_or("");
+            }
+            if (generator.toolName.empty() && generator.toolExecutable.empty())
+            {
+                throw std::runtime_error(path.string() + ": workspace generator '" + generator.name + "' must declare <Tool Name=\"...\"> or Executable");
+            }
+            if (const auto *args = FindChild(*node, "Args"))
+            {
+                for (const auto *arg : ChildElements(*args, "Arg"))
+                {
+                    WorkspaceManifest::ProfilePolicy::GeneratorPolicy::Argument argument{};
+                    argument.value = Attribute(*arg, "Value").value_or("");
+                    argument.path = Attribute(*arg, "Path").value_or("");
+                    if (argument.value.empty() == argument.path.empty())
+                    {
+                        throw std::runtime_error(path.string() + ": workspace generator argument must declare exactly one of Value or Path");
+                    }
+                    generator.arguments.push_back(std::move(argument));
+                }
+            }
+
+            const auto *outputs = FindChild(*node, "Outputs");
+            if (outputs == nullptr)
+            {
+                throw std::runtime_error(path.string() + ": workspace generator '" + generator.name + "' must declare <Outputs>");
+            }
+            for (const auto *output : ChildElements(*outputs))
+            {
+                WorkspaceManifest::ProfilePolicy::GeneratorPolicy::Output parsed{};
+                parsed.path = RequireAttribute(*output, "Path", path);
+                if (output->name == "Sources")
+                {
+                    parsed.kind = "Generated";
+                    parsed.role = "Source";
+                    parsed.visibility = "Private";
+                }
+                else if (output->name == "Headers")
+                {
+                    parsed.kind = "Generated";
+                    parsed.role = "Header";
+                    parsed.visibility = Attribute(*output, "Visibility").value_or("Public");
+                }
+                else if (output->name == "Files")
+                {
+                    parsed.kind = "Generated";
+                    parsed.role = "Content";
+                    parsed.visibility = "Private";
+                }
+                else
+                {
+                    throw std::runtime_error(path.string() + ": unsupported workspace generator output <" + std::string(output->name) + ">");
+                }
+                generator.outputs.push_back(std::move(parsed));
+            }
+            policy.generators.push_back(std::move(generator));
+        }
+    }
+
+    auto ParseWorkspaceLaunchPolicy(
+        const XmlElement &overlayNode,
+        const fs::path &path,
+        WorkspaceManifest::ProfilePolicy &policy,
+        const std::string &productKind = {}) -> void
+    {
+        std::set<std::string> localNames{};
+        auto parse = [&](const XmlElement &node, const std::string &defaultName)
+        {
+            WorkspaceManifest::ProfilePolicy::LaunchPolicy launch{};
+            launch.productKind = productKind;
+            const auto identity = Attribute(node, "Remove").value_or(Attribute(node, "Name").value_or(defaultName));
+            RequireUniqueWorkspacePolicyName(localNames, "launch", identity, path);
+            if (const auto remove = Attribute(node, "Remove"); remove.has_value() && !remove->empty())
+            {
+                launch.name = *remove;
+                launch.remove = true;
+                policy.launches.push_back(std::move(launch));
+                return;
+            }
+            launch.name = identity;
+            if (const auto executable = Attribute(node, "Executable"); executable.has_value())
+            {
+                launch.executable = *executable;
+            }
+            if (const auto workingDirectory = Attribute(node, "WorkingDirectory"); workingDirectory.has_value())
+            {
+                launch.workingDirectory = *workingDirectory;
+            }
+            if (const auto args = Attribute(node, "Args"); args.has_value())
+            {
+                launch.args = *args;
+            }
+            policy.launches.push_back(std::move(launch));
+        };
+
+        for (const auto *launch : ChildElements(overlayNode, "Launch"))
+        {
+            parse(*launch, "default");
+        }
+        for (const auto *run : ChildElements(overlayNode, "Run"))
+        {
+            parse(*run, "default");
+        }
+    }
+
+    auto ParseWorkspacePublishPolicy(
+        const XmlElement &overlayNode,
+        const fs::path &path,
+        WorkspaceManifest::ProfilePolicy &policy,
+        const std::string &productKind = {}) -> void
+    {
+        std::set<std::string> localNames{};
+        for (const auto *node : ChildElements(overlayNode, "Publish"))
+        {
+            WorkspaceManifest::ProfilePolicy::PublishPolicy publish{};
+            publish.productKind = productKind;
+            if (const auto remove = Attribute(*node, "Remove"); remove.has_value() && !remove->empty())
+            {
+                RequireUniqueWorkspacePolicyName(localNames, "publish", *remove, path);
+                publish.name = *remove;
+                publish.remove = true;
+                policy.publishes.push_back(std::move(publish));
+                continue;
+            }
+
+            publish.name = Attribute(*node, "Name").value_or("default");
+            RequireUniqueWorkspacePolicyName(localNames, "publish", publish.name, path);
+            publish.kind = Attribute(*node, "Kind").value_or("Folder");
+            publish.format = Attribute(*node, "Format").value_or("");
+            publish.output = RequireAttribute(*node, "Output", path);
+            if (const auto *include = FindChild(*node, "Include"))
+            {
+                if (const auto stage = Attribute(*include, "Stage"); stage.has_value() && *stage == "none")
+                {
+                    publish.includeStage = false;
+                }
+                publish.includeRuntimeDependencies = BoolAttribute(*include, "RuntimeDependencies", publish.includeRuntimeDependencies);
+                publish.includeSymbols = BoolAttribute(*include, "Symbols", publish.includeSymbols);
+            }
+            policy.publishes.push_back(std::move(publish));
+        }
+    }
+
+    auto ParseWorkspacePackageOutputPolicy(
+        const XmlElement &overlayNode,
+        const fs::path &path,
+        WorkspaceManifest::ProfilePolicy &policy,
+        const std::string &productKind = {}) -> void
+    {
+        std::set<std::string> localNames{};
+        for (const auto *node : ChildElements(overlayNode, "PackageOutput"))
+        {
+            WorkspaceManifest::ProfilePolicy::PackageOutputPolicy output{};
+            output.productKind = productKind;
+            if (const auto remove = Attribute(*node, "Remove"); remove.has_value() && !remove->empty())
+            {
+                RequireUniqueWorkspacePolicyName(localNames, "package output", *remove, path);
+                output.name = *remove;
+                output.remove = true;
+                policy.packageOutputs.push_back(std::move(output));
+                continue;
+            }
+
+            output.name = RequireAttribute(*node, "Name", path);
+            RequireUniqueWorkspacePolicyName(localNames, "package output", output.name, path);
+            output.version = RequireAttribute(*node, "Version", path);
+            output.from = Attribute(*node, "From").value_or("");
+            if (const auto *metadata = FindChild(*node, "Metadata"))
+            {
+                if (const auto *description = FindChild(*metadata, "Description"))
+                {
+                    output.description = Trim(TextContent(*description));
+                }
+                if (const auto *license = FindChild(*metadata, "License"))
+                {
+                    output.license = Trim(TextContent(*license));
+                }
+            }
+            if (const auto *exports = FindChild(*node, "Exports"))
+            {
+                for (const auto *headers : ChildElements(*exports, "Headers"))
+                {
+                    output.headers.push_back(RequireAttribute(*headers, "Path", path));
+                }
+                for (const auto *library : ChildElements(*exports, "Library"))
+                {
+                    output.libraries.push_back(RequireAttribute(*library, "Name", path));
+                }
+                for (const auto *tool : ChildElements(*exports, "Tool"))
+                {
+                    output.tools.push_back(RequireAttribute(*tool, "Name", path));
+                }
+                for (const auto *capability : ChildElements(*exports, "Capability"))
+                {
+                    output.capabilities.push_back(RequireAttribute(*capability, "Name", path));
+                }
+            }
+            if (const auto *compatibility = FindChild(*node, "Compatibility"))
+            {
+                for (const auto *platform : ChildElements(*compatibility, "TargetPlatform"))
+                {
+                    output.targetPlatforms.push_back(RequireAttribute(*platform, "Name", path));
+                }
+                if (const auto *abi = FindChild(*compatibility, "Abi"))
+                {
+                    output.abiTag = RequireAttribute(*abi, "Tag", path);
+                }
+            }
+            policy.packageOutputs.push_back(std::move(output));
+        }
+    }
+
     [[nodiscard]] auto LoadWorkspaceManifest(const fs::path &root) -> WorkspaceManifest
     {
         const auto path = WorkspaceFilePath(root);
@@ -2661,6 +2913,13 @@ namespace NGIN::CLI
                 {
                     ParseWorkspaceRuntimePolicy(*runtime, *path, profile);
                 }
+                if (const auto *generate = FindChild(*node, "Generate"))
+                {
+                    ParseWorkspaceGeneratePolicy(*generate, *path, profile);
+                }
+                ParseWorkspaceLaunchPolicy(*node, *path, profile);
+                ParseWorkspacePublishPolicy(*node, *path, profile);
+                ParseWorkspacePackageOutputPolicy(*node, *path, profile);
                 for (const auto *productOverlay : ChildElements(*node))
                 {
                     if (!IsProductElementName(productOverlay->name))
@@ -2691,6 +2950,13 @@ namespace NGIN::CLI
                     {
                         ParseWorkspaceRuntimePolicy(*runtime, *path, profile, std::string{productOverlay->name});
                     }
+                    if (const auto *generate = FindChild(*productOverlay, "Generate"))
+                    {
+                        ParseWorkspaceGeneratePolicy(*generate, *path, profile, std::string{productOverlay->name});
+                    }
+                    ParseWorkspaceLaunchPolicy(*productOverlay, *path, profile, std::string{productOverlay->name});
+                    ParseWorkspacePublishPolicy(*productOverlay, *path, profile, std::string{productOverlay->name});
+                    ParseWorkspacePackageOutputPolicy(*productOverlay, *path, profile, std::string{productOverlay->name});
                 }
                 workspace.profiles.push_back(std::move(profile));
             }
@@ -4516,6 +4782,224 @@ namespace NGIN::CLI
             }
         };
 
+        const auto policyAppliesToProject = [&](const std::string &productKind)
+        {
+            return productKind.empty() || productKind == project.productKind;
+        };
+
+        auto prependGenerators = [&](ProfileDefinition &profile, const WorkspaceManifest::ProfilePolicy &policy)
+        {
+            std::vector<GeneratorDeclaration> workspaceGenerators{};
+            const auto scope = "profile:" + policy.name;
+            for (const auto &generatorPolicy : policy.generators)
+            {
+                if (!policyAppliesToProject(generatorPolicy.productKind))
+                {
+                    continue;
+                }
+                GeneratorDeclaration generator{};
+                generator.name = generatorPolicy.name;
+                generator.kind = "Command";
+                generator.disabled = generatorPolicy.remove;
+                ApplyScopeSelector(scope, generator.selectors);
+                if (!generator.disabled)
+                {
+                    generator.toolName = generatorPolicy.toolName;
+                    generator.inlineTool.name = generator.toolName;
+                    generator.inlineTool.executable = generatorPolicy.toolExecutable;
+                    if (!generator.inlineTool.executable.empty())
+                    {
+                        generator.inlineTool.kind = "Generator";
+                        generator.hasInlineTool = true;
+                    }
+                    for (const auto &argumentPolicy : generatorPolicy.arguments)
+                    {
+                        GeneratorArgument argument{};
+                        argument.value = argumentPolicy.value;
+                        argument.path = argumentPolicy.path;
+                        generator.arguments.push_back(std::move(argument));
+                    }
+                    for (const auto &outputPolicy : generatorPolicy.outputs)
+                    {
+                        auto output = PathInput(
+                            outputPolicy.kind,
+                            outputPolicy.role,
+                            outputPolicy.path,
+                            outputPolicy.visibility,
+                            "",
+                            scope + ":" + generator.name);
+                        ValidateInputDeclaration(output, project.path);
+                        generator.outputs.push_back(std::move(output));
+                    }
+                }
+                workspaceGenerators.push_back(std::move(generator));
+            }
+            if (!workspaceGenerators.empty())
+            {
+                auto localGenerators = std::move(profile.generators);
+                profile.generators = std::move(workspaceGenerators);
+                for (auto &generator : localGenerators)
+                {
+                    profile.generators.push_back(std::move(generator));
+                }
+            }
+        };
+
+        auto prependLaunches = [&](ProfileDefinition &profile, const WorkspaceManifest::ProfilePolicy &policy)
+        {
+            std::vector<LaunchDefinition> workspaceLaunches{};
+            const auto localLaunches = profile.launches;
+            const auto hasLocalLaunch = [&](const std::string &name)
+            {
+                return std::any_of(
+                    localLaunches.begin(),
+                    localLaunches.end(),
+                    [&](const LaunchDefinition &launch)
+                    {
+                        return launch.name == name;
+                    });
+            };
+            const auto findBase = [&](const std::string &name, const std::vector<LaunchDefinition> &source, LaunchDefinition &base)
+            {
+                for (const auto &candidate : source)
+                {
+                    if (!candidate.disabled && candidate.name == name)
+                    {
+                        base = candidate;
+                    }
+                }
+            };
+
+            for (const auto &launchPolicy : policy.launches)
+            {
+                if (!policyAppliesToProject(launchPolicy.productKind))
+                {
+                    continue;
+                }
+                LaunchDefinition launch{};
+                launch.name = launchPolicy.name;
+                if (launchPolicy.remove)
+                {
+                    launch.disabled = true;
+                    workspaceLaunches.push_back(std::move(launch));
+                    continue;
+                }
+
+                findBase(launch.name, project.launches, launch);
+                findBase(launch.name, workspaceLaunches, launch);
+                if (launch.name.empty())
+                {
+                    launch.name = launchPolicy.name;
+                }
+                if (launchPolicy.executable.has_value())
+                {
+                    launch.executable = *launchPolicy.executable == "$(OutputName)" ? project.output.name : *launchPolicy.executable;
+                }
+                if (launchPolicy.workingDirectory.has_value())
+                {
+                    launch.workingDirectory = *launchPolicy.workingDirectory;
+                }
+                if (launchPolicy.args.has_value())
+                {
+                    launch.args = *launchPolicy.args;
+                }
+                if ((profile.launch.name.empty() || profile.launch.name == launch.name) && !hasLocalLaunch(launch.name))
+                {
+                    profile.launch = launch;
+                }
+                workspaceLaunches.push_back(std::move(launch));
+            }
+            if (!workspaceLaunches.empty())
+            {
+                auto localLaunchesMutable = std::move(profile.launches);
+                profile.launches = std::move(workspaceLaunches);
+                for (auto &launch : localLaunchesMutable)
+                {
+                    profile.launches.push_back(std::move(launch));
+                }
+            }
+        };
+
+        auto prependPublishes = [&](ProfileDefinition &profile, const WorkspaceManifest::ProfilePolicy &policy)
+        {
+            std::vector<PublishDefinition> workspacePublishes{};
+            for (const auto &publishPolicy : policy.publishes)
+            {
+                if (!policyAppliesToProject(publishPolicy.productKind))
+                {
+                    continue;
+                }
+                PublishDefinition publish{};
+                publish.name = publishPolicy.name;
+                publish.disabled = publishPolicy.remove;
+                if (!publish.disabled)
+                {
+                    publish.kind = publishPolicy.kind;
+                    publish.format = publishPolicy.format;
+                    publish.output = publishPolicy.output;
+                    publish.includeStage = publishPolicy.includeStage;
+                    publish.includeRuntimeDependencies = publishPolicy.includeRuntimeDependencies;
+                    publish.includeSymbols = publishPolicy.includeSymbols;
+                }
+                workspacePublishes.push_back(std::move(publish));
+            }
+            if (!workspacePublishes.empty())
+            {
+                auto localPublishes = std::move(profile.publishes);
+                profile.publishes = std::move(workspacePublishes);
+                for (auto &publish : localPublishes)
+                {
+                    profile.publishes.push_back(std::move(publish));
+                }
+            }
+        };
+
+        auto prependPackageOutputs = [&](ProfileDefinition &profile, const WorkspaceManifest::ProfilePolicy &policy)
+        {
+            std::vector<PackageOutputDefinition> workspaceOutputs{};
+            for (const auto &outputPolicy : policy.packageOutputs)
+            {
+                if (!policyAppliesToProject(outputPolicy.productKind))
+                {
+                    continue;
+                }
+                PackageOutputDefinition output{};
+                output.name = outputPolicy.name;
+                output.disabled = outputPolicy.remove;
+                if (!output.disabled)
+                {
+                    output.version = outputPolicy.version;
+                    output.from = outputPolicy.from.empty() ? project.name : outputPolicy.from;
+                    output.description = outputPolicy.description;
+                    output.license = outputPolicy.license;
+                    output.headers = outputPolicy.headers;
+                    output.libraries = outputPolicy.libraries;
+                    output.tools = outputPolicy.tools;
+                    output.capabilities = outputPolicy.capabilities;
+                    output.targetPlatforms = outputPolicy.targetPlatforms;
+                    output.abiTag = outputPolicy.abiTag;
+                }
+                workspaceOutputs.push_back(std::move(output));
+            }
+            if (!workspaceOutputs.empty())
+            {
+                auto localOutputs = std::move(profile.packageOutputs);
+                profile.packageOutputs = std::move(workspaceOutputs);
+                for (auto &output : localOutputs)
+                {
+                    profile.packageOutputs.push_back(std::move(output));
+                }
+            }
+        };
+
+        auto applyNamedWorkspacePolicy = [&](ProfileDefinition &profile, const WorkspaceManifest::ProfilePolicy &policy)
+        {
+            prependGenerators(profile, policy);
+            prependLaunches(profile, policy);
+            prependPublishes(profile, policy);
+            prependPackageOutputs(profile, policy);
+        };
+
         if (workspace.has_value() && (!project.hasExplicitProfiles || projectProfile == project.profiles.end()))
         {
             applyPolicy(effective, workspace->defaults);
@@ -4523,6 +5007,10 @@ namespace NGIN::CLI
             {
                 applyPolicy(effective, *workspaceProfile);
             }
+        }
+        if (workspace.has_value() && workspaceProfile != nullptr)
+        {
+            applyNamedWorkspacePolicy(effective, *workspaceProfile);
         }
         return effective;
     }

@@ -63,7 +63,7 @@ Implemented product section parsing:
 - `Stage`
 - `Runtime`
 - `Environment`
-- `Launch`, partially
+- `Launch`
 
 Supported `Uses` entries:
 
@@ -198,6 +198,12 @@ Implemented workspace parsing:
   project/package/tool/runtime dependency policy
 - workspace `Profiles/Profile/Runtime` for first-pass profile-selected runtime
   module policy
+- workspace `Profiles/Profile/Generate` for profile-selected generator policy
+- workspace `Profiles/Profile/Launch` and `Profiles/Profile/Run` for
+  profile-selected named launch policy
+- workspace `Profiles/Profile/Publish` for profile-selected publish policy
+- workspace `Profiles/Profile/PackageOutput` for profile-selected package
+  output policy
 - workspace `Profiles/Profile/<ProductKind>/Build` and
   `Profiles/Profile/<ProductKind>/Quality/Analyzer` for first-pass
   product-kind-specific profile policy
@@ -209,6 +215,15 @@ Implemented workspace parsing:
   product-kind-specific dependency policy
 - workspace `Profiles/Profile/<ProductKind>/Runtime` for first-pass
   product-kind-specific runtime module policy
+- workspace `Profiles/Profile/<ProductKind>/Generate` for product-kind-specific
+  generator policy
+- workspace `Profiles/Profile/<ProductKind>/Launch` and
+  `Profiles/Profile/<ProductKind>/Run` for product-kind-specific named launch
+  policy
+- workspace `Profiles/Profile/<ProductKind>/Publish` for product-kind-specific
+  publish policy
+- workspace `Profiles/Profile/<ProductKind>/PackageOutput` for
+  product-kind-specific package output policy
 
 Workspace `DefaultProfile` participates in command profile selection when no
 explicit `--profile` is passed. If the selected project does not declare a
@@ -218,6 +233,13 @@ policy for projects without local profile overlays.
 Workspace language and backend defaults apply to projects that have not declared
 explicit project build settings. Project-local product `Build` settings remain
 stronger than workspace defaults.
+
+Workspace profile named product policies participate in the same effective item
+families as project profile overlays. Project base declarations are applied
+first, workspace profile policy is layered next, and project-local profile
+overlays retain final say for the same named identity. This now covers
+generators, launches/runs, publishes, and package outputs in addition to the
+earlier build, quality, environment, stage, uses, and runtime policy surfaces.
 
 Platform definition `Abi` values and selected toolchain definitions flow into
 the resolved launch model and inspect selection payload as the first
@@ -763,6 +785,12 @@ The workspace test suite passes:
 .ai/skills/test-cpp/scripts/test.sh workspace
 ```
 
+The focused CLI suite passes:
+
+```bash
+.ai/skills/test-cpp/scripts/test.sh cli
+```
+
 Current test coverage includes:
 
 - V4 minimal application project normalization
@@ -823,6 +851,19 @@ Current test coverage includes:
 - V4 product-kind-specific workspace profile dependency contributions
 - V4 workspace profile runtime module policy contributions
 - V4 product-kind-specific workspace profile runtime module contributions
+- V4 workspace profile generator policy contributions
+- V4 product-kind-specific workspace profile generator contributions
+- V4 workspace profile named launch/run policy contributions, including
+  explicit `--launch` selection
+- V4 product-kind-specific workspace profile launch/run contributions
+- V4 workspace profile publish policy contributions
+- V4 product-kind-specific workspace profile publish contributions
+- V4 workspace profile package output policy contributions
+- V4 product-kind-specific workspace profile package output contributions
+- V4 project profile precedence over workspace named generator, launch,
+  publish, and package output policy
+- V4 same-scope duplicate diagnostics for workspace profile generator, launch,
+  publish, and package output identities
 - V4 platform definition ABI tag resolution into inspect selection
 - V4 selected toolchain definition resolution into inspect selection
 - V4 package export and feature parsing
@@ -894,8 +935,8 @@ The following are still open and should not be described as complete:
 - final V4 overlay duplicate diagnostics and provenance for every item family
   beyond the currently covered named product items
 - full host/target dependency closure separation during restore/build
-- full workspace profile stage/runtime/uses overlays and definition-driven
-  project resolution
+- definition-driven project resolution beyond current workspace project,
+  package source, version, provider, platform, and toolchain declarations
 - full platform/toolchain compatibility semantics
 - full ABI tag compatibility matching for binary package selection
 - full external dependency adapters for system, CMake package, pkg-config,
@@ -919,7 +960,8 @@ The next implementation slice should focus on one of these paths:
   V4 syntax
 - rename internal `PackageReference`/policy terminology in the VS Code extension
   where it leaks into user-facing labels or generated metadata
-- expand workspace profile product overlays beyond defaults
+- harden workspace profile overlay provenance and diagnostics beyond the
+  currently covered named product families
 - continue hardening overlay identity/remove/override semantics for remaining
   non-package item families, especially analyzer duplicates and build-setting
   duplicates

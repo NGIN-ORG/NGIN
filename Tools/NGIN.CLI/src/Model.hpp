@@ -100,6 +100,71 @@ namespace NGIN::CLI
                 bool remove{false};
             };
 
+            struct GeneratorPolicy
+            {
+                struct Argument
+                {
+                    std::string value{};
+                    std::string path{};
+                };
+
+                struct Output
+                {
+                    std::string kind{};
+                    std::string role{};
+                    std::string path{};
+                    std::string visibility{"Private"};
+                };
+
+                std::string productKind{};
+                std::string name{};
+                std::string toolName{};
+                std::string toolExecutable{};
+                std::vector<Argument> arguments{};
+                std::vector<Output> outputs{};
+                bool remove{false};
+            };
+
+            struct LaunchPolicy
+            {
+                std::string productKind{};
+                std::string name{};
+                std::optional<std::string> executable{};
+                std::optional<std::string> workingDirectory{};
+                std::optional<std::string> args{};
+                bool remove{false};
+            };
+
+            struct PublishPolicy
+            {
+                std::string productKind{};
+                std::string name{};
+                std::string kind{"Folder"};
+                std::string format{};
+                std::string output{};
+                bool includeStage{true};
+                bool includeRuntimeDependencies{false};
+                bool includeSymbols{true};
+                bool remove{false};
+            };
+
+            struct PackageOutputPolicy
+            {
+                std::string productKind{};
+                std::string name{};
+                std::string version{};
+                std::string from{};
+                std::string description{};
+                std::string license{};
+                std::vector<std::string> headers{};
+                std::vector<std::string> libraries{};
+                std::vector<std::string> tools{};
+                std::vector<std::string> capabilities{};
+                std::vector<std::string> targetPlatforms{};
+                std::string abiTag{};
+                bool remove{false};
+            };
+
             std::string name{};
             std::optional<std::string> buildType{};
             std::optional<std::string> hostPlatform{};
@@ -118,6 +183,10 @@ namespace NGIN::CLI
             std::vector<StageInputPolicy> stageInputs{};
             std::vector<DependencyUsePolicy> dependencyUses{};
             std::vector<RuntimeModulePolicy> runtimeModules{};
+            std::vector<GeneratorPolicy> generators{};
+            std::vector<LaunchPolicy> launches{};
+            std::vector<PublishPolicy> publishes{};
+            std::vector<PackageOutputPolicy> packageOutputs{};
         };
 
         fs::path path{};

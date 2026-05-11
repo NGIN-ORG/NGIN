@@ -331,6 +331,293 @@ TEST_CASE("workspace profile policy applies to projects without local profiles")
     REQUIRE_THAT(runtimeExplainCaptured.str(), ContainsSubstring("result: selected"));
 }
 
+TEST_CASE("workspace profiles contribute named product overlays")
+{
+    TempDir temp{};
+    WriteFile(temp.path() / "Workspace.ngin",
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Workspace SchemaVersion="4" Name="NamedWorkspace" DefaultProfile="ci">
+  <Projects>
+    <Project Path="App/App.nginproj" />
+    <Project Path="Lib/Lib.nginproj" />
+  </Projects>
+  <Profiles>
+    <Profile Name="ci">
+      <Generate>
+        <Generator Name="WorkspaceGen">
+          <Tool Name="workspace-gen" Executable="workspace-gen" />
+          <Outputs>
+            <Sources Path="$(GeneratedDir)/workspace/**.cpp" />
+          </Outputs>
+        </Generator>
+      </Generate>
+      <Launch Name="ci" Args="--ci" />
+      <Publish Name="archive" Kind="Archive" Format="zip" Output="dist/workspace.zip" />
+      <PackageOutput Name="Workspace.Generic" Version="1.0.0">
+        <Exports>
+          <Capability Name="Workspace.Generic" />
+        </Exports>
+      </PackageOutput>
+      <Application>
+        <Launch Name="app-policy" Args="--app-policy" />
+      </Application>
+      <Library>
+        <PackageOutput Name="Workspace.Library" Version="1.0.0">
+          <Exports>
+            <Capability Name="Workspace.Library" />
+          </Exports>
+        </PackageOutput>
+      </Library>
+    </Profile>
+  </Profiles>
+</Workspace>
+)xml");
+    WriteFile(temp.path() / "App/App.nginproj",
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4" Name="NamedWorkspace.App">
+  <Application />
+</Project>
+)xml");
+    WriteFile(temp.path() / "App/src/main.cpp", "int main() { return 0; }\n");
+    WriteFile(temp.path() / "Lib/Lib.nginproj",
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4" Name="NamedWorkspace.Lib">
+  <Library />
+</Project>
+)xml");
+    WriteFile(temp.path() / "Lib/src/lib.cpp", "int named_workspace_lib() { return 1; }\n");
+
+    ParsedArgs graphArgs{};
+    graphArgs.projectPath = (temp.path() / "App/App.nginproj").string();
+    graphArgs.profileName = "ci";
+    graphArgs.graphPlan = "launch";
+    graphArgs.launchName = "ci";
+
+    std::ostringstream launchCaptured{};
+    auto *previous = std::cout.rdbuf(launchCaptured.rdbuf());
+    const auto launchExitCode = CmdGraph(temp.path(), graphArgs);
+    std::cout.rdbuf(previous);
+
+    REQUIRE(launchExitCode == 0);
+    REQUIRE_THAT(launchCaptured.str(), ContainsSubstring("launch ci [selected]"));
+    REQUIRE_THAT(launchCaptured.str(), ContainsSubstring("args: --ci"));
+    REQUIRE_THAT(launchCaptured.str(), ContainsSubstring("launch app-policy"));
+
+    ParsedArgs inspectArgs{};
+    inspectArgs.projectPath = graphArgs.projectPath;
+    inspectArgs.profileName = "ci";
+    inspectArgs.format = "json";
+
+    std::ostringstream inspectCaptured{};
+    previous = std::cout.rdbuf(inspectCaptured.rdbuf());
+    const auto inspectExitCode = CmdInspect(temp.path(), inspectArgs);
+    std::cout.rdbuf(previous);
+
+    REQUIRE(inspectExitCode == 0);
+    REQUIRE_THAT(inspectCaptured.str(), ContainsSubstring(R"("name":"WorkspaceGen")"));
+    REQUIRE_THAT(inspectCaptured.str(), ContainsSubstring(R"("output":"dist/workspace.zip")"));
+    REQUIRE_THAT(inspectCaptured.str(), ContainsSubstring(R"("name":"Workspace.Generic","version":"1.0.0")"));
+    REQUIRE(inspectCaptured.str().find("Workspace.Library") == std::string::npos);
+
+    ParsedArgs libOutputs{};
+    libOutputs.projectPath = (temp.path() / "Lib/Lib.nginproj").string();
+    libOutputs.profileName = "ci";
+    libOutputs.graphPlan = "package-output";
+
+    std::ostringstream libCaptured{};
+    previous = std::cout.rdbuf(libCaptured.rdbuf());
+    const auto libExitCode = CmdGraph(temp.path(), libOutputs);
+    std::cout.rdbuf(previous);
+
+    REQUIRE(libExitCode == 0);
+    REQUIRE_THAT(libCaptured.str(), ContainsSubstring("package-output Workspace.Generic version=1.0.0"));
+    REQUIRE_THAT(libCaptured.str(), ContainsSubstring("package-output Workspace.Library version=1.0.0"));
+}
+
+TEST_CASE("project profiles override workspace named product overlays")
+{
+    TempDir temp{};
+    const auto projectPath = temp.path() / "App/App.nginproj";
+    WriteFile(temp.path() / "Workspace.ngin",
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Workspace SchemaVersion="4" Name="PrecedenceWorkspace" DefaultProfile="shipping">
+  <Projects>
+    <Project Path="App/App.nginproj" />
+  </Projects>
+  <Profiles>
+    <Profile Name="shipping">
+      <Launch Name="app" Args="--workspace" />
+      <Publish Remove="folder" />
+      <Publish Name="archive" Kind="Archive" Format="zip" Output="dist/workspace.zip" />
+      <PackageOutput Name="Precedence.App" Version="1.0.0">
+        <Exports>
+          <Capability Name="Workspace.Package" />
+        </Exports>
+      </PackageOutput>
+    </Profile>
+  </Profiles>
+</Workspace>
+)xml");
+    WriteFile(projectPath,
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4" Name="Precedence.App" DefaultProfile="shipping">
+  <Application>
+    <Build>
+      <Sources Path="src/**.cpp" />
+    </Build>
+    <Launch Name="app" Args="--base" />
+    <Publish Name="folder" Kind="Folder" Output="dist/base-folder" />
+    <PackageOutput Name="Precedence.App" Version="0.5.0">
+      <Exports>
+        <Capability Name="Base.Package" />
+      </Exports>
+    </PackageOutput>
+  </Application>
+  <Profile Name="shipping">
+    <Application>
+      <Launch Name="app" Args="--project" />
+      <Publish Name="folder" Kind="Folder" Output="dist/project-folder" />
+      <Publish Name="archive" Kind="Archive" Format="zip" Output="dist/project.zip" />
+      <PackageOutput Name="Precedence.App" Version="2.0.0">
+        <Exports>
+          <Capability Name="Project.Package" />
+        </Exports>
+      </PackageOutput>
+    </Application>
+  </Profile>
+</Project>
+)xml");
+    WriteFile(temp.path() / "App/src/main.cpp", "int main() { return 0; }\n");
+
+    ParsedArgs launchArgs{};
+    launchArgs.projectPath = projectPath.string();
+    launchArgs.profileName = "shipping";
+    launchArgs.graphPlan = "launch";
+
+    std::ostringstream launchCaptured{};
+    auto *previous = std::cout.rdbuf(launchCaptured.rdbuf());
+    const auto launchExitCode = CmdGraph(temp.path(), launchArgs);
+    std::cout.rdbuf(previous);
+
+    REQUIRE(launchExitCode == 0);
+    REQUIRE_THAT(launchCaptured.str(), ContainsSubstring("launch app [selected]"));
+    REQUIRE_THAT(launchCaptured.str(), ContainsSubstring("args: --project"));
+    REQUIRE(launchCaptured.str().find("--workspace") == std::string::npos);
+
+    ParsedArgs publishArgs{};
+    publishArgs.projectPath = projectPath.string();
+    publishArgs.profileName = "shipping";
+    publishArgs.graphPlan = "publish";
+
+    std::ostringstream publishCaptured{};
+    previous = std::cout.rdbuf(publishCaptured.rdbuf());
+    const auto publishExitCode = CmdGraph(temp.path(), publishArgs);
+    std::cout.rdbuf(previous);
+
+    REQUIRE(publishExitCode == 0);
+    REQUIRE_THAT(publishCaptured.str(), ContainsSubstring("publish folder kind=Folder output=dist/project-folder"));
+    REQUIRE_THAT(publishCaptured.str(), ContainsSubstring("publish archive kind=Archive output=dist/project.zip"));
+    REQUIRE(publishCaptured.str().find("dist/workspace.zip") == std::string::npos);
+
+    ParsedArgs outputArgs{};
+    outputArgs.projectPath = projectPath.string();
+    outputArgs.profileName = "shipping";
+    outputArgs.graphPlan = "package-output";
+
+    std::ostringstream outputCaptured{};
+    previous = std::cout.rdbuf(outputCaptured.rdbuf());
+    const auto outputExitCode = CmdGraph(temp.path(), outputArgs);
+    std::cout.rdbuf(previous);
+
+    REQUIRE(outputExitCode == 0);
+    REQUIRE_THAT(outputCaptured.str(), ContainsSubstring("package-output Precedence.App version=2.0.0"));
+    REQUIRE(outputCaptured.str().find("version=1.0.0") == std::string::npos);
+    REQUIRE(outputCaptured.str().find("version=0.5.0") == std::string::npos);
+}
+
+TEST_CASE("workspace duplicate named overlay identities are rejected")
+{
+    TempDir temp{};
+
+    auto loadError = [&](const std::string &body) -> std::string
+    {
+        WriteFile(temp.path() / "Workspace.ngin", body);
+        try
+        {
+            (void)LoadWorkspaceManifest(temp.path());
+        }
+        catch (const std::exception &ex)
+        {
+            return ex.what();
+        }
+        return {};
+    };
+
+    const auto launchError = loadError(
+        R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Workspace SchemaVersion="4" Name="DuplicateLaunch">
+  <Profiles>
+    <Profile Name="ci">
+      <Launch Name="app" Args="--a" />
+      <Launch Name="app" Args="--b" />
+    </Profile>
+  </Profiles>
+</Workspace>
+)xml");
+    REQUIRE_THAT(launchError, ContainsSubstring("duplicate launch 'app' in the same overlay scope"));
+
+    const auto generatorError = loadError(
+        R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Workspace SchemaVersion="4" Name="DuplicateGenerator">
+  <Profiles>
+    <Profile Name="ci">
+      <Generate>
+        <Generator Name="Codegen">
+          <Tool Name="tool" Executable="tool" />
+          <Outputs>
+            <Sources Path="$(GeneratedDir)/a/**.cpp" />
+          </Outputs>
+        </Generator>
+        <Generator Name="Codegen">
+          <Tool Name="tool" Executable="tool" />
+          <Outputs>
+            <Sources Path="$(GeneratedDir)/b/**.cpp" />
+          </Outputs>
+        </Generator>
+      </Generate>
+    </Profile>
+  </Profiles>
+</Workspace>
+)xml");
+    REQUIRE_THAT(generatorError, ContainsSubstring("duplicate generator 'Codegen' in the same overlay scope"));
+
+    const auto publishError = loadError(
+        R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Workspace SchemaVersion="4" Name="DuplicatePublish">
+  <Profiles>
+    <Profile Name="shipping">
+      <Publish Name="folder" Kind="Folder" Output="dist/a" />
+      <Publish Name="folder" Kind="Folder" Output="dist/b" />
+    </Profile>
+  </Profiles>
+</Workspace>
+)xml");
+    REQUIRE_THAT(publishError, ContainsSubstring("duplicate publish 'folder' in the same overlay scope"));
+
+    const auto packageOutputError = loadError(
+        R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Workspace SchemaVersion="4" Name="DuplicatePackageOutput">
+  <Profiles>
+    <Profile Name="shipping">
+      <PackageOutput Name="App.Bundle" Version="1.0.0" />
+      <PackageOutput Name="App.Bundle" Version="2.0.0" />
+    </Profile>
+  </Profiles>
+</Workspace>
+)xml");
+    REQUIRE_THAT(packageOutputError, ContainsSubstring("duplicate package output 'App.Bundle' in the same overlay scope"));
+}
+
 TEST_CASE("workspace build defaults apply unless project declares explicit build settings")
 {
     TempDir temp{};
