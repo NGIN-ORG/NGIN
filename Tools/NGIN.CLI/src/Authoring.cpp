@@ -1621,6 +1621,74 @@ namespace NGIN::CLI
             }
         }
 
+        auto ParseQualityAnalyzers(
+            const XmlElement &qualityNode,
+            const fs::path &path,
+            QualityDefinition &quality,
+            const bool allowRemove) -> void
+        {
+            std::set<std::string> localNames{};
+            const auto requireUnique = [&](const std::string &name)
+            {
+                if (name.empty())
+                {
+                    throw std::runtime_error(path.string() + ": analyzer identity cannot be empty");
+                }
+                if (!localNames.insert(name).second)
+                {
+                    throw std::runtime_error(path.string() + ": duplicate analyzer '" + name + "' in the same overlay scope");
+                }
+            };
+            const auto removeAnalyzer = [&](const std::string &name)
+            {
+                quality.analyzers.erase(
+                    std::remove_if(
+                        quality.analyzers.begin(),
+                        quality.analyzers.end(),
+                        [&](const AnalyzerDefinition &existing)
+                        {
+                            return existing.name == name;
+                        }),
+                    quality.analyzers.end());
+            };
+            const auto upsertAnalyzer = [&](AnalyzerDefinition analyzer)
+            {
+                removeAnalyzer(analyzer.name);
+                quality.analyzers.push_back(std::move(analyzer));
+            };
+
+            for (const auto *node : ChildElements(qualityNode, "Analyzer"))
+            {
+                if (const auto remove = Attribute(*node, "Remove"); remove.has_value() && !remove->empty())
+                {
+                    if (!allowRemove)
+                    {
+                        throw std::runtime_error(path.string() + ": package feature analyzers do not support Remove");
+                    }
+                    requireUnique(*remove);
+                    removeAnalyzer(*remove);
+                    continue;
+                }
+
+                ValidateAllowedAttributes(*node, path, {"Name", "Tool", "Package", "Scope", "Enabled", "Severity", "Profile", "Platform", "OperatingSystem", "Architecture", "BuildType", "Environment", "Condition"});
+                AnalyzerDefinition analyzer{};
+                analyzer.name = RequireAttribute(*node, "Name", path);
+                requireUnique(analyzer.name);
+                analyzer.toolName = Attribute(*node, "Tool").value_or(analyzer.name);
+                analyzer.packageName = Attribute(*node, "Package").value_or("");
+                analyzer.scope = Attribute(*node, "Scope").value_or(analyzer.scope);
+                analyzer.enabled = BoolAttribute(*node, "Enabled", analyzer.enabled);
+                analyzer.severity = Attribute(*node, "Severity").value_or(analyzer.severity);
+                analyzer.selectors = ParseSelection(*node, path);
+                if (const auto *config = FindChild(*node, "Config"))
+                {
+                    analyzer.configPath = RequireAttribute(*config, "Path", path);
+                    analyzer.configOptional = BoolAttribute(*config, "Optional", analyzer.configOptional);
+                }
+                upsertAnalyzer(std::move(analyzer));
+            }
+        }
+
         auto ParsePackageFeatureDeclarations(const XmlElement &root, const fs::path &path, PackageManifest &package) -> void
         {
             const auto *features = FindChild(root, "Features");
@@ -1680,6 +1748,17 @@ namespace NGIN::CLI
                 ApplyInputBlock(*node, path, feature.inputs, "package-feature:" + package.name + ":" + feature.name);
                 LoadProjectBuildDescriptor(feature.build, FindChild(*node, "Build"), path);
                 ParseGenerators(*node, path, feature.generators, "package-feature:" + package.name + ":" + feature.name);
+                if (const auto *quality = FindChild(*node, "Quality"))
+                {
+                    ParseQualityAnalyzers(*quality, path, feature.quality, false);
+                    for (auto &analyzer : feature.quality.analyzers)
+                    {
+                        if (analyzer.packageName.empty())
+                        {
+                            analyzer.packageName = package.name;
+                        }
+                    }
+                }
                 ParseVariables(*node, path, feature.variables);
                 if (const auto *runtime = FindChild(*node, "Runtime"))
                 {
@@ -2386,12 +2465,15 @@ namespace NGIN::CLI
             WorkspaceManifest::ProfilePolicy::AnalyzerPolicy analyzer{};
             analyzer.productKind = productKind;
             analyzer.name = RequireAttribute(*node, "Name", path);
+            analyzer.toolName = Attribute(*node, "Tool").value_or(analyzer.name);
+            analyzer.packageName = Attribute(*node, "Package").value_or("");
             analyzer.scope = Attribute(*node, "Scope").value_or(analyzer.scope);
             analyzer.enabled = BoolAttribute(*node, "Enabled", analyzer.enabled);
             analyzer.severity = Attribute(*node, "Severity").value_or(analyzer.severity);
             if (const auto *config = FindChild(*node, "Config"))
             {
                 analyzer.configPath = RequireAttribute(*config, "Path", path);
+                analyzer.configOptional = BoolAttribute(*config, "Optional", analyzer.configOptional);
             }
             policy.analyzers.push_back(std::move(analyzer));
         }
@@ -3248,6 +3330,10 @@ namespace NGIN::CLI
                 ValidateBuildSettingConditionRefs(feature.build.linkOptions, conditions, path);
                 ValidateRuntimeConditionRefs(feature.runtime, conditions, path);
                 ValidateGeneratorConditionRefs(feature.generators, conditions, path);
+                for (const auto &analyzer : feature.quality.analyzers)
+                {
+                    ValidateSelectionConditionRefs(analyzer.selectors, conditions, path);
+                }
             }
         }
 
@@ -3949,43 +4035,9 @@ namespace NGIN::CLI
             analyzers.push_back(std::move(analyzer));
         }
 
-        auto RemoveAnalyzer(std::vector<AnalyzerDefinition> &analyzers, const std::string &name) -> void
-        {
-            analyzers.erase(
-                std::remove_if(
-                    analyzers.begin(),
-                    analyzers.end(),
-                    [&](const AnalyzerDefinition &existing)
-                    {
-                        return existing.name == name;
-                    }),
-                analyzers.end());
-        }
-
         auto ParseQualitySection(const XmlElement &qualityNode, const fs::path &path, QualityDefinition &quality) -> void
         {
-            std::set<std::string> localNames{};
-            for (const auto *node : ChildElements(qualityNode, "Analyzer"))
-            {
-                if (const auto remove = Attribute(*node, "Remove"); remove.has_value() && !remove->empty())
-                {
-                    RequireUniqueLocalName(localNames, "analyzer", *remove, path);
-                    RemoveAnalyzer(quality.analyzers, *remove);
-                    continue;
-                }
-                AnalyzerDefinition analyzer{};
-                analyzer.name = RequireAttribute(*node, "Name", path);
-                RequireUniqueLocalName(localNames, "analyzer", analyzer.name, path);
-                analyzer.scope = Attribute(*node, "Scope").value_or(analyzer.scope);
-                analyzer.enabled = BoolAttribute(*node, "Enabled", analyzer.enabled);
-                analyzer.severity = Attribute(*node, "Severity").value_or(analyzer.severity);
-                analyzer.selectors = ParseSelection(*node, path);
-                if (const auto *config = FindChild(*node, "Config"))
-                {
-                    analyzer.configPath = RequireAttribute(*config, "Path", path);
-                }
-                UpsertAnalyzer(quality.analyzers, std::move(analyzer));
-            }
+            ParseQualityAnalyzers(qualityNode, path, quality, true);
         }
 
         auto ParseRuntimeSection(const XmlElement &runtimeNode, const fs::path &path, RuntimeDefinition &runtime) -> void
@@ -5088,10 +5140,13 @@ namespace NGIN::CLI
                 }
                 AnalyzerDefinition analyzer{};
                 analyzer.name = analyzerPolicy.name;
+                analyzer.toolName = analyzerPolicy.toolName.empty() ? analyzer.name : analyzerPolicy.toolName;
+                analyzer.packageName = analyzerPolicy.packageName;
                 analyzer.scope = analyzerPolicy.scope;
                 analyzer.enabled = analyzerPolicy.enabled;
                 analyzer.severity = analyzerPolicy.severity;
                 analyzer.configPath = analyzerPolicy.configPath;
+                analyzer.configOptional = analyzerPolicy.configOptional;
                 ApplyScopeSelector(scope, analyzer.selectors);
                 UpsertAnalyzer(project.quality.analyzers, std::move(analyzer));
             }

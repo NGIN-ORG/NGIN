@@ -2271,6 +2271,172 @@ namespace NGIN::CLI
 #endif
     }
 
+    auto RunProcessCapture(
+        const fs::path &executable,
+        const std::vector<std::string> &arguments,
+        const std::optional<fs::path> &workingDirectory) -> ProcessResult
+    {
+#if defined(_WIN32)
+        SECURITY_ATTRIBUTES securityAttributes{};
+        securityAttributes.nLength = sizeof(securityAttributes);
+        securityAttributes.bInheritHandle = TRUE;
+
+        HANDLE readPipe = nullptr;
+        HANDLE writePipe = nullptr;
+        if (!CreatePipe(&readPipe, &writePipe, &securityAttributes, 0))
+        {
+            throw std::runtime_error("failed to create process output pipe");
+        }
+        SetHandleInformation(readPipe, HANDLE_FLAG_INHERIT, 0);
+
+        std::wstring commandLine = QuoteWindowsArgument(executable.wstring());
+        for (const auto &argument : arguments)
+        {
+            commandLine += L" ";
+            commandLine += QuoteWindowsArgument(fs::path(argument).wstring());
+        }
+
+        std::vector<wchar_t> commandBuffer(commandLine.begin(), commandLine.end());
+        commandBuffer.push_back(L'\0');
+
+        std::wstring workingDirectoryValue{};
+        const wchar_t *workingDirectoryPtr = nullptr;
+        if (workingDirectory.has_value())
+        {
+            workingDirectoryValue = workingDirectory->wstring();
+            workingDirectoryPtr = workingDirectoryValue.c_str();
+        }
+
+        STARTUPINFOW startupInfo{};
+        startupInfo.cb = sizeof(startupInfo);
+        startupInfo.dwFlags = STARTF_USESTDHANDLES;
+        startupInfo.hStdOutput = writePipe;
+        startupInfo.hStdError = writePipe;
+        startupInfo.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+
+        PROCESS_INFORMATION processInfo{};
+        if (!CreateProcessW(
+                nullptr,
+                commandBuffer.data(),
+                nullptr,
+                nullptr,
+                TRUE,
+                0,
+                nullptr,
+                workingDirectoryPtr,
+                &startupInfo,
+                &processInfo))
+        {
+            CloseHandle(readPipe);
+            CloseHandle(writePipe);
+            throw std::runtime_error("failed to start process '" + executable.string() + "'");
+        }
+
+        CloseHandle(writePipe);
+        std::string output{};
+        std::array<char, 4096> buffer{};
+        DWORD bytesRead = 0;
+        while (ReadFile(readPipe, buffer.data(), static_cast<DWORD>(buffer.size()), &bytesRead, nullptr) && bytesRead > 0)
+        {
+            output.append(buffer.data(), bytesRead);
+        }
+        CloseHandle(readPipe);
+
+        WaitForSingleObject(processInfo.hProcess, INFINITE);
+        DWORD exitCode = 1;
+        if (!GetExitCodeProcess(processInfo.hProcess, &exitCode))
+        {
+            CloseHandle(processInfo.hThread);
+            CloseHandle(processInfo.hProcess);
+            throw std::runtime_error("failed to read exit code for process '" + executable.string() + "'");
+        }
+
+        CloseHandle(processInfo.hThread);
+        CloseHandle(processInfo.hProcess);
+        return ProcessResult{.exitCode = static_cast<int>(exitCode), .output = std::move(output)};
+#else
+        int pipeFd[2]{};
+        if (::pipe(pipeFd) != 0)
+        {
+            throw std::runtime_error("failed to create process output pipe");
+        }
+
+        std::vector<std::string> argvStorage{};
+        argvStorage.reserve(arguments.size() + 1);
+        argvStorage.push_back(executable.string());
+        argvStorage.insert(argvStorage.end(), arguments.begin(), arguments.end());
+
+        std::vector<char *> argv{};
+        argv.reserve(argvStorage.size() + 1);
+        for (auto &value : argvStorage)
+        {
+            argv.push_back(value.data());
+        }
+        argv.push_back(nullptr);
+
+        const auto processId = ::fork();
+        if (processId < 0)
+        {
+            ::close(pipeFd[0]);
+            ::close(pipeFd[1]);
+            throw std::runtime_error("failed to fork process '" + executable.string() + "'");
+        }
+
+        if (processId == 0)
+        {
+            ::close(pipeFd[0]);
+            ::dup2(pipeFd[1], STDOUT_FILENO);
+            ::dup2(pipeFd[1], STDERR_FILENO);
+            ::close(pipeFd[1]);
+            if (workingDirectory.has_value() && ::chdir(workingDirectory->c_str()) != 0)
+            {
+                std::_Exit(127);
+            }
+            ::execvp(executable.c_str(), argv.data());
+            std::_Exit(errno == ENOENT ? 127 : 126);
+        }
+
+        ::close(pipeFd[1]);
+        std::string output{};
+        std::array<char, 4096> buffer{};
+        while (true)
+        {
+            const auto bytesRead = ::read(pipeFd[0], buffer.data(), buffer.size());
+            if (bytesRead > 0)
+            {
+                output.append(buffer.data(), static_cast<std::size_t>(bytesRead));
+                continue;
+            }
+            if (bytesRead < 0 && errno == EINTR)
+            {
+                continue;
+            }
+            break;
+        }
+        ::close(pipeFd[0]);
+
+        int status = 0;
+        while (::waitpid(processId, &status, 0) < 0)
+        {
+            if (errno == EINTR)
+            {
+                continue;
+            }
+            throw std::runtime_error("failed to wait for process '" + executable.string() + "'");
+        }
+
+        if (WIFEXITED(status))
+        {
+            return ProcessResult{.exitCode = WEXITSTATUS(status), .output = std::move(output)};
+        }
+        if (WIFSIGNALED(status))
+        {
+            return ProcessResult{.exitCode = 128 + WTERMSIG(status), .output = std::move(output)};
+        }
+        return ProcessResult{.exitCode = 1, .output = std::move(output)};
+#endif
+    }
+
     auto WriteLaunchManifest(
         const ResolvedLaunch &resolved,
         const fs::path &outputDir,

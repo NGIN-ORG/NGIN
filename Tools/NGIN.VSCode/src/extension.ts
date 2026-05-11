@@ -46,7 +46,7 @@ interface CliRunResult {
 }
 
 interface NginTaskDefinition extends vscode.TaskDefinition {
-  command: 'configure' | 'build' | 'clean' | 'rebuild' | 'validate' | 'graph' | 'workspaceStatus' | 'workspaceDoctor';
+  command: 'configure' | 'build' | 'clean' | 'rebuild' | 'validate' | 'analyze' | 'graph' | 'workspaceStatus' | 'workspaceDoctor';
   project?: string;
   profile?: string;
   output?: string;
@@ -258,6 +258,7 @@ class NginController implements vscode.Disposable {
       vscode.commands.registerCommand('ngin.run', (arg) => this.runHandled(() => this.runCommand(this.asCommandTarget(arg)))),
       vscode.commands.registerCommand('ngin.debug', (arg) => this.runHandled(() => this.debugCommand(this.asCommandTarget(arg)))),
       vscode.commands.registerCommand('ngin.validate', (arg) => this.runHandled(() => this.validateCommand(this.asCommandTarget(arg)))),
+      vscode.commands.registerCommand('ngin.analyze', (arg) => this.runHandled(() => this.analyzeCommand(this.asCommandTarget(arg)))),
       vscode.commands.registerCommand('ngin.graph', (arg) => this.runHandled(() => this.graphCommand(this.asCommandTarget(arg)))),
       vscode.commands.registerCommand('ngin.variablesExplain', (arg) => this.runHandled(() => this.variablesExplainCommand(this.asCommandTarget(arg)))),
       vscode.commands.registerCommand('ngin.settingsInit', (arg) => this.runHandled(() => this.settingsInitCommand(this.asCommandTarget(arg)))),
@@ -761,6 +762,31 @@ class NginController implements vscode.Disposable {
     await this.warnIfLocalSettingsNotIgnored(context);
     if (!options?.silent) {
       void vscode.window.showInformationMessage(`Validated ${context.project.name} [${context.profile.name}]`);
+    }
+  }
+
+  private async analyzeCommand(target?: NginCommandTarget, options?: { silent?: boolean }): Promise<void> {
+    const context = await this.resolveCommandContext(target, !options?.silent);
+    if (!context) {
+      return;
+    }
+
+    const outputDir = this.workspaceState.computeOutputDirectory(context);
+    const result = await this.runCli(
+      context.workspace.root,
+      ['analyze', '--project', context.project.path, '--profile', context.profile.name, '--output', outputDir],
+      vscode.Uri.file(context.project.path)
+    );
+
+    if (result.exitCode !== 0) {
+      if (options?.silent) {
+        return;
+      }
+      throw new Error(`ngin analyze failed for ${context.project.name} [${context.profile.name}]`);
+    }
+
+    if (!options?.silent) {
+      void vscode.window.showInformationMessage(`Analyzed ${context.project.name} [${context.profile.name}]`);
     }
   }
 
@@ -1424,9 +1450,12 @@ class NginController implements vscode.Disposable {
 
     try {
       await this.validateCommand({ preferredUri: document.uri }, { silent: true });
+      if (this.getConfiguration(vscode.workspace.getWorkspaceFolder(document.uri)).get<boolean>('analyze.onSave')) {
+        await this.analyzeCommand({ preferredUri: document.uri }, { silent: true });
+      }
       await this.refreshUi(document.uri, true);
     } catch {
-      // Silent validate-on-save still updates diagnostics through CLI output parsing.
+      // Silent validate/analyze-on-save still updates diagnostics through CLI output parsing.
     }
   }
 
@@ -1656,8 +1685,10 @@ class NginController implements vscode.Disposable {
         continue;
       }
 
+      const line = entry.line && entry.line > 0 ? entry.line - 1 : 0;
+      const column = entry.column && entry.column > 0 ? entry.column - 1 : 0;
       const diagnostic = new vscode.Diagnostic(
-        new vscode.Range(0, 0, 0, 1),
+        new vscode.Range(line, column, line, column + 1),
         entry.message,
         entry.severity === 'warning' ? vscode.DiagnosticSeverity.Warning : vscode.DiagnosticSeverity.Error
       );
@@ -1749,7 +1780,7 @@ class NginController implements vscode.Disposable {
       args.push('--profile', profile);
     }
 
-    if ((definition.command === 'configure' || definition.command === 'build' || definition.command === 'clean' || definition.command === 'rebuild') && definition.output) {
+    if ((definition.command === 'configure' || definition.command === 'build' || definition.command === 'clean' || definition.command === 'rebuild' || definition.command === 'analyze') && definition.output) {
       args.push('--output', definition.output);
     }
 
@@ -1821,6 +1852,13 @@ class NginTaskProvider implements vscode.TaskProvider {
         command: 'validate',
         project: context.project.path,
         profile: context.profile.name
+      }, scopedFolder));
+      tasks.push(await this.controller.createTask({
+        type: 'ngin',
+        command: 'analyze',
+        project: context.project.path,
+        profile: context.profile.name,
+        output: outputDir
       }, scopedFolder));
       tasks.push(await this.controller.createTask({
         type: 'ngin',

@@ -1240,6 +1240,7 @@ namespace NGIN::CLI
                     selected.runtime = featureIt->runtime;
                     selected.variables = featureIt->variables;
                     selected.generators = featureIt->generators;
+                    selected.quality = featureIt->quality;
                     result.selectedFeatures.push_back(std::move(selected));
                 }
 

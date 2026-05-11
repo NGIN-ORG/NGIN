@@ -50,10 +50,13 @@ namespace NGIN::CLI
             {
                 std::string productKind{};
                 std::string name{};
+                std::string toolName{};
+                std::string packageName{};
                 std::string scope{"Build"};
                 bool enabled{true};
                 std::string severity{"Warning"};
                 std::string configPath{};
+                bool configOptional{false};
             };
 
             struct EnvironmentVariablePolicy
@@ -517,6 +520,24 @@ namespace NGIN::CLI
         std::vector<RuntimeReference> disablePlugins{};
     };
 
+    struct AnalyzerDefinition
+    {
+        std::string name{};
+        std::string toolName{};
+        std::string packageName{};
+        std::string scope{"Build"};
+        bool enabled{true};
+        std::string severity{"Warning"};
+        std::string configPath{};
+        bool configOptional{false};
+        SelectorSet selectors{};
+    };
+
+    struct QualityDefinition
+    {
+        std::vector<AnalyzerDefinition> analyzers{};
+    };
+
     struct PackageManifest
     {
         fs::path path{};
@@ -548,6 +569,7 @@ namespace NGIN::CLI
             RuntimeDefinition runtime{};
             std::vector<EnvironmentVariable> variables{};
             std::vector<GeneratorDeclaration> generators{};
+            QualityDefinition quality{};
         };
         std::vector<Feature> features{};
     };
@@ -651,21 +673,6 @@ namespace NGIN::CLI
         RuntimeDefinition runtime{};
     };
 
-    struct AnalyzerDefinition
-    {
-        std::string name{};
-        std::string scope{"Build"};
-        bool enabled{true};
-        std::string severity{"Warning"};
-        std::string configPath{};
-        SelectorSet selectors{};
-    };
-
-    struct QualityDefinition
-    {
-        std::vector<AnalyzerDefinition> analyzers{};
-    };
-
     struct ProfileDefinition
     {
         std::string name{};
@@ -751,6 +758,7 @@ namespace NGIN::CLI
         RuntimeDefinition runtime{};
         std::vector<EnvironmentVariable> variables{};
         std::vector<GeneratorDeclaration> generators{};
+        QualityDefinition quality{};
     };
 
     struct ResolvedGenerator
@@ -982,9 +990,12 @@ namespace NGIN::CLI
         struct QualityAnalyzer
         {
             std::string name{};
+            std::string tool{};
+            std::string packageName{};
             std::string scope{};
             std::string severity{};
             std::string configPath{};
+            bool configOptional{};
             Provenance provenance{};
         };
 

@@ -7,6 +7,7 @@
     <Project Path="Examples/Hello.Native/Hello.Native.nginproj" />
     <Project Path="Examples/Hello.Hosted/Hello.Hosted.nginproj" />
     <Project Path="Examples/Hello.Reflection/Hello.Reflection.nginproj" />
+    <Project Path="Examples/Hello.Analyzer/Hello.Analyzer.nginproj" />
   </Projects>
 
   <Defaults>
@@ -28,6 +29,8 @@
     <Version Name="NGIN.Reflection"
              Range="[0.1.0,0.2.0)" />
     <Version Name="NGIN.Reflection.MetaGen"
+             Range="[0.1.0,0.2.0)" />
+    <Version Name="NGIN.Tooling.ClangTidy"
              Range="[0.1.0,0.2.0)" />
 
     <PackageProvider Name="NGIN.Base"

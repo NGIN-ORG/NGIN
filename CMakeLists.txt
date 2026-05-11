@@ -32,6 +32,7 @@ set(NGIN_WORKSPACE_STAGE_DIR "${CMAKE_BINARY_DIR}/stage")
 set(NGIN_HELLO_NATIVE_PROJECT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/Examples/Hello.Native/Hello.Native.nginproj")
 set(NGIN_HELLO_HOSTED_PROJECT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/Examples/Hello.Hosted/Hello.Hosted.nginproj")
 set(NGIN_HELLO_REFLECTION_PROJECT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/Examples/Hello.Reflection/Hello.Reflection.nginproj")
+set(NGIN_HELLO_ANALYZER_PROJECT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/Examples/Hello.Analyzer/Hello.Analyzer.nginproj")
 set(NGIN_HELLO_HOSTED_BUILD_OUTPUT "${NGIN_WORKSPACE_STAGE_DIR}/Hello.Hosted/Debug")
 set(NGIN_PROJECTREF_CONFIG_PROJECT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/Tools/NGIN.CLI/tests/fixtures/ProjectRef.Config/Root/ProjectRef.Config.Root.nginproj")
 set(NGIN_PROJECTREF_CONFIG_COLLISION_PROJECT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/Tools/NGIN.CLI/tests/fixtures/ProjectRef.Config/CollisionRoot/ProjectRef.Config.CollisionRoot.nginproj")
@@ -114,6 +115,14 @@ add_test(NAME ngin.validate.hello_hosted
 
 add_test(NAME ngin.validate.hello_reflection
   COMMAND $<TARGET_FILE:ngin_cli> validate --project "${NGIN_HELLO_REFLECTION_PROJECT_PATH}" --profile Debug
+)
+
+add_test(NAME ngin.validate.hello_analyzer
+  COMMAND $<TARGET_FILE:ngin_cli> validate --project "${NGIN_HELLO_ANALYZER_PROJECT_PATH}" --profile Debug.Analyzer
+)
+
+add_test(NAME ngin.graph.hello_analyzer_quality
+  COMMAND $<TARGET_FILE:ngin_cli> graph --project "${NGIN_HELLO_ANALYZER_PROJECT_PATH}" --profile Debug.Analyzer --quality-plan
 )
 
 add_test(NAME ngin.graph.workspace

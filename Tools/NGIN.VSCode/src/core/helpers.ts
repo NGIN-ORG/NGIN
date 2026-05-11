@@ -72,6 +72,18 @@ export function parseCliDiagnostics(output: string): ParsedCliDiagnostic[] {
       continue;
     }
 
+    const locationMatch = body.match(/^((?:[A-Za-z]:)?[^:]+):(\d+):(\d+):\s+(.+)$/);
+    if (locationMatch && looksLikePath(locationMatch[1])) {
+      diagnostics.push({
+        file: locationMatch[1],
+        line: Number(locationMatch[2]),
+        column: Number(locationMatch[3]),
+        message: locationMatch[4],
+        severity
+      });
+      continue;
+    }
+
     const fileMatch = body.match(/^((?:[A-Za-z]:)?[^:]+):\s+(.+)$/);
     if (fileMatch && looksLikePath(fileMatch[1])) {
       diagnostics.push({

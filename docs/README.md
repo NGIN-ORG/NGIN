@@ -18,7 +18,8 @@ If you are trying to understand NGIN as a user:
 1. Run `Examples/Hello.Native`.
 2. Compare it with `Examples/Hello.Hosted`.
 3. Run `Examples/Hello.Reflection` when you need generator-backed reflection.
-4. Read the specs below when you need exact contracts.
+4. Run `Examples/Hello.Analyzer` when you need quality/analyzer wiring.
+5. Read the specs below when you need exact contracts.
 
 ## Guides
 

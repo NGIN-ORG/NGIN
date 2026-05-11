@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4"
+         Name="Hello.Analyzer"
+         DefaultProfile="Debug.Analyzer">
+
+  <Application>
+    <Uses>
+      <Package Name="NGIN.Tooling.ClangTidy"
+               Version="[0.1.0,0.2.0)"
+               Scope="Dev">
+        <Feature Name="Analyzer" />
+      </Package>
+    </Uses>
+
+    <Build>
+      <Sources Path="src/**.cpp" />
+    </Build>
+
+    <Launch Executable="$(OutputName)"
+            WorkingDirectory="." />
+  </Application>
+
+  <Profile Name="Debug.Analyzer">
+    <Defaults>
+      <BuildType Name="Debug" />
+      <TargetPlatform Name="linux-x64" />
+      <Environment Name="local" />
+    </Defaults>
+  </Profile>
+</Project>

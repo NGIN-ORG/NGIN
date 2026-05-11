@@ -118,8 +118,9 @@ Supported product lifecycle entries:
 - `PackageOutput`, stored as source-product package output metadata
 - named V4 `Launch` entries, with `Name`, `WorkingDirectory`, and `Args`
   preserved through inspect and generated `.nginlaunch`
-- `Quality/Analyzer`, stored as first-pass analyzer plan metadata with name,
-  scope, enabled state, severity, config path, and selectors
+- `Quality/Analyzer`, stored as analyzer metadata with name, tool, package,
+  scope, enabled state, severity, config path, optional config state, and
+  selectors
 
 Supported `External` product behavior:
 
@@ -602,12 +603,18 @@ Current behavior:
 
 - resolves the selected project/profile
 - reads V4 `Quality/Analyzer` declarations
+- merges selected package feature `Quality/Analyzer` declarations
 - applies analyzer selectors and enabled flags
-- reports the analyzer plan with scope, severity, and config path
+- reports the analyzer plan with scope, severity, tool, and config path
+- executes `clang-tidy` analyzers against selected C++ sources using the
+  configured compile database
+- resolves `clang-tidy` from package tool metadata, `NGIN_CLANG_TIDY`, bundled
+  tool roots, or `PATH`
+- emits normalized `[warning] path:line:column: message` and `[error]
+  path:line:column: message` diagnostics for editor consumption
 
-This is not yet a full analyzer runner. Invoking tools such as `clang-tidy`,
-coverage collection, formatter enforcement, and quality policy execution are
-still future work.
+The official `NGIN.Tooling.ClangTidy` package is a phase-one system wrapper. It
+does not redistribute LLVM binaries.
 
 ### Stage Command
 
@@ -923,6 +930,11 @@ Current test coverage includes:
   identity path so feature selection cannot create a duplicate package identity
 - CLI tests are split into focused authoring, workspace, command authoring,
   package, product, overlay, graph, and facade files with shared test support
+- official `NGIN.Tooling.ClangTidy` system-wrapper package for enabling
+  clang-tidy through package feature authoring
+- package feature `Quality/Analyzer` contributions
+- `ngin analyze` clang-tidy execution through package/system tool resolution
+- clang-tidy diagnostics normalized for VS Code file, line, and column display
 
 ## Not Implemented Yet
 
@@ -943,8 +955,8 @@ The following are still open and should not be described as complete:
   vcpkg, and Conan providers
 - signing, SBOM, trust policy
 - DEFLATE compression support inside ZIP-backed `.nginpack` archives
-- full analyzer execution, formatter execution, coverage collection, and
-  quality policy enforcement
+- analyzer execution beyond the phase-one clang-tidy runner, formatter
+  execution, coverage collection, and quality policy enforcement
 - final graph diff engine over a stable graph JSON schema
 - full V4 editor schema/completion metadata generated from the final schema
 - VS Code integration test pass against a freshly built V4 CLI in the current

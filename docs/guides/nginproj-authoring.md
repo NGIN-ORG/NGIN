@@ -370,6 +370,42 @@ Libraries describe build inputs and exported product contracts.
 `PackageOutput` is a package produced by this source product. It is not the
 same as a consumed `Package` dependency.
 
+## Clang-Tidy Analyzer
+
+Projects can opt into the official clang-tidy analyzer wrapper through normal
+package feature authoring. The package does not ship LLVM binaries in phase one;
+it resolves `clang-tidy` from `PATH` or from the `NGIN_CLANG_TIDY` environment
+variable.
+
+```xml
+<Project SchemaVersion="4"
+         Name="Game.Client">
+  <Application>
+    <Uses>
+      <Package Name="NGIN.Tooling.ClangTidy"
+               Version="[0.1.0,0.2.0)"
+               Scope="Dev">
+        <Feature Name="Analyzer" />
+      </Package>
+    </Uses>
+
+    <Build>
+      <Sources Path="src/**.cpp" />
+    </Build>
+  </Application>
+</Project>
+```
+
+Run analyzers with:
+
+```bash
+ngin analyze --project Game.Client.nginproj --profile dev
+```
+
+`Severity="Warning"` reports clang-tidy findings as warnings and exits
+successfully. Override the analyzer locally with `Severity="Error"` when CI
+should fail on findings.
+
 ## Workspace Imports
 
 Current NGIN does not use `.nginmodel` as a primary file type. Shared policy lives in the

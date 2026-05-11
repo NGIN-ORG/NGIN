@@ -13,10 +13,12 @@
 #include <iostream>
 #include <iterator>
 #include <map>
+#include <regex>
 #include <set>
 #include <sstream>
 #include <stdexcept>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace NGIN::CLI
 {
@@ -985,7 +987,10 @@ namespace NGIN::CLI
             return result;
         }
 
-        [[nodiscard]] auto EffectiveAnalyzers(const ProjectManifest &project, const ProfileDefinition &profile) -> std::map<std::string, AnalyzerDefinition>
+        [[nodiscard]] auto EffectiveAnalyzers(
+            const ProjectManifest &project,
+            const ProfileDefinition &profile,
+            const std::vector<SelectedPackageFeature> &selectedFeatures = {}) -> std::map<std::string, AnalyzerDefinition>
         {
             std::map<std::string, AnalyzerDefinition> analyzers{};
             const auto mergeSelected = [&](const std::vector<AnalyzerDefinition> &source)
@@ -994,13 +999,164 @@ namespace NGIN::CLI
                 {
                     if (SelectionMatches(project, analyzer.selectors, profile))
                     {
-                        analyzers[analyzer.name] = analyzer;
+                        auto selected = analyzer;
+                        if (selected.toolName.empty())
+                        {
+                            selected.toolName = selected.name;
+                        }
+                        analyzers[selected.name] = std::move(selected);
                     }
                 }
             };
             mergeSelected(project.quality.analyzers);
+            for (const auto &feature : selectedFeatures)
+            {
+                for (const auto &analyzer : feature.quality.analyzers)
+                {
+                    if (SelectionMatches(project, analyzer.selectors, profile))
+                    {
+                        auto selected = analyzer;
+                        if (selected.toolName.empty())
+                        {
+                            selected.toolName = selected.name;
+                        }
+                        if (selected.packageName.empty())
+                        {
+                            selected.packageName = feature.packageName;
+                        }
+                        analyzers[selected.name] = std::move(selected);
+                    }
+                }
+            }
             mergeSelected(profile.quality.analyzers);
             return analyzers;
+        }
+
+        [[nodiscard]] auto AnalyzerToolName(const AnalyzerDefinition &analyzer) -> std::string
+        {
+            return analyzer.toolName.empty() ? analyzer.name : analyzer.toolName;
+        }
+
+        [[nodiscard]] auto IsClangTidyAnalyzer(const AnalyzerDefinition &analyzer) -> bool
+        {
+            return Lower(analyzer.name) == "clang-tidy" || Lower(AnalyzerToolName(analyzer)) == "clang-tidy";
+        }
+
+        [[nodiscard]] auto ResolveAnalyzerTool(
+            const ResolvedLaunch &resolved,
+            const AnalyzerDefinition &analyzer) -> std::optional<ToolResolution>
+        {
+            auto toolName = AnalyzerToolName(analyzer);
+            if (!analyzer.packageName.empty())
+            {
+                const auto packageIt = std::find_if(
+                    resolved.orderedPackages.begin(),
+                    resolved.orderedPackages.end(),
+                    [&](const ResolvedPackage &package)
+                    {
+                        return package.manifest.name == analyzer.packageName;
+                    });
+                if (packageIt != resolved.orderedPackages.end())
+                {
+                    const auto toolIt = std::find_if(
+                        packageIt->manifest.tools.begin(),
+                        packageIt->manifest.tools.end(),
+                        [&](const ToolDeclaration &tool)
+                        {
+                            return tool.name == toolName;
+                        });
+                    if (toolIt != packageIt->manifest.tools.end() && !toolIt->executable.empty())
+                    {
+                        toolName = toolIt->executable;
+                    }
+                }
+            }
+            const auto searchRoot = resolved.workspace.has_value()
+                                        ? std::optional<fs::path>{resolved.workspace->path.parent_path()}
+                                        : std::optional<fs::path>{resolved.project.path.parent_path()};
+            return ResolveToolPath(toolName, searchRoot);
+        }
+
+        [[nodiscard]] auto ResolveAnalyzerSources(const ResolvedLaunch &resolved) -> std::vector<fs::path>
+        {
+            std::vector<fs::path> sources{};
+            std::unordered_set<std::string> seen{};
+            for (const auto &input : resolved.inputs)
+            {
+                if (input.role != "Source")
+                {
+                    continue;
+                }
+                const auto path = input.absoluteSourcePath.empty() ? fs::path(input.source) : input.absoluteSourcePath;
+                const auto extension = Lower(path.extension().string());
+                if (extension != ".cpp" && extension != ".cc" && extension != ".cxx" && extension != ".c++")
+                {
+                    continue;
+                }
+                const auto key = path.lexically_normal().string();
+                if (seen.insert(key).second)
+                {
+                    sources.push_back(path);
+                }
+            }
+            return sources;
+        }
+
+        struct AnalyzerFinding
+        {
+            std::string severity{};
+            fs::path file{};
+            std::string line{};
+            std::string column{};
+            std::string message{};
+        };
+
+        [[nodiscard]] auto NormalizeClangTidyMessage(std::string message) -> std::string
+        {
+            const std::regex checkSuffix{R"( \[([A-Za-z0-9_.\-]+)\]$)"};
+            std::smatch match{};
+            if (std::regex_search(message, match, checkSuffix))
+            {
+                const auto check = match[1].str();
+                if (check.rfind("clang-tidy:", 0) != 0)
+                {
+                    message = std::regex_replace(message, checkSuffix, " [clang-tidy:" + check + "]");
+                }
+            }
+            return message;
+        }
+
+        [[nodiscard]] auto ParseClangTidyFindings(const std::string &output, const std::string &configuredSeverity) -> std::vector<AnalyzerFinding>
+        {
+            std::vector<AnalyzerFinding> findings{};
+            const std::regex diagnosticPattern{R"(^(.+):([0-9]+):([0-9]+):\s*(warning|error):\s*(.+)$)"};
+            std::istringstream lines{output};
+            std::string line{};
+            while (std::getline(lines, line))
+            {
+                std::smatch match{};
+                if (!std::regex_match(line, match, diagnosticPattern))
+                {
+                    continue;
+                }
+                findings.push_back(AnalyzerFinding{
+                    .severity = Lower(configuredSeverity) == "error" ? "error" : "warning",
+                    .file = fs::path(match[1].str()),
+                    .line = match[2].str(),
+                    .column = match[3].str(),
+                    .message = NormalizeClangTidyMessage(match[5].str()),
+                });
+            }
+            return findings;
+        }
+
+        auto PrintAnalyzerFinding(const AnalyzerFinding &finding) -> void
+        {
+            std::cout << "[" << finding.severity << "] "
+                      << finding.file.string() << ":"
+                      << finding.line << ":"
+                      << finding.column << ": "
+                      << finding.message << "\n";
         }
 
         [[nodiscard]] auto SelectPublish(const std::vector<PublishDefinition> &publishes, const std::optional<std::string> &name) -> const PublishDefinition &
@@ -1374,7 +1530,7 @@ namespace NGIN::CLI
             {
                 snapshot.publishes.insert(publish.name + " kind=" + publish.kind + " output=" + publish.output);
             }
-            for (const auto &[_, analyzer] : EffectiveAnalyzers(resolved.project, resolved.profile))
+            for (const auto &[_, analyzer] : EffectiveAnalyzers(resolved.project, resolved.profile, resolved.selectedPackageFeatures))
             {
                 if (analyzer.enabled)
                 {
@@ -3488,7 +3644,7 @@ namespace NGIN::CLI
         if (kind == "analyzer")
         {
             std::cout << "Analyzer: " << identity << "\n";
-            const auto analyzers = EffectiveAnalyzers(resolved.value->project, resolved.value->profile);
+            const auto analyzers = EffectiveAnalyzers(resolved.value->project, resolved.value->profile, resolved.value->selectedPackageFeatures);
             const auto analyzerIt = analyzers.find(identity);
             if (analyzerIt == analyzers.end() || !analyzerIt->second.enabled)
             {
@@ -3496,6 +3652,11 @@ namespace NGIN::CLI
                 return 0;
             }
             std::cout << "  result: selected\n";
+            std::cout << "  tool: " << AnalyzerToolName(analyzerIt->second) << "\n";
+            if (!analyzerIt->second.packageName.empty())
+            {
+                std::cout << "  package: " << analyzerIt->second.packageName << "\n";
+            }
             std::cout << "  scope: " << analyzerIt->second.scope << "\n";
             std::cout << "  severity: " << analyzerIt->second.severity << "\n";
             if (!analyzerIt->second.configPath.empty())
@@ -3561,7 +3722,10 @@ namespace NGIN::CLI
         const auto productKind = invocation.project.productKind.empty() ? invocation.project.type : invocation.project.productKind;
         const auto effectivePublishes = EffectivePublishes(invocation.project, invocation.profile);
         const auto effectivePackageOutputs = EffectivePackageOutputs(invocation.project, invocation.profile);
-        const auto effectiveAnalyzers = EffectiveAnalyzers(invocation.project, invocation.profile);
+        const auto effectiveAnalyzers = EffectiveAnalyzers(
+            invocation.project,
+            invocation.profile,
+            resolved == nullptr ? std::vector<SelectedPackageFeature>{} : resolved->selectedPackageFeatures);
         const auto effectiveLaunches = EffectiveLaunches(invocation.project, invocation.profile);
 
         auto projectProvenance = [&](std::string reason) -> CompositionGraph::Provenance
@@ -3917,9 +4081,12 @@ namespace NGIN::CLI
             }
             graph.analyzers.push_back(CompositionGraph::QualityAnalyzer{
                 .name = analyzer.name,
+                .tool = AnalyzerToolName(analyzer),
+                .packageName = analyzer.packageName,
                 .scope = analyzer.scope,
                 .severity = analyzer.severity,
                 .configPath = analyzer.configPath,
+                .configOptional = analyzer.configOptional,
                 .provenance = profileProvenance("resolved quality analyzer"),
             });
         }
@@ -4324,9 +4491,12 @@ namespace NGIN::CLI
             }
             out << "{"
                 << "\"name\":" << Json(analyzers[index].name) << ","
+                << "\"tool\":" << Json(analyzers[index].tool) << ","
+                << "\"package\":" << Json(analyzers[index].packageName) << ","
                 << "\"scope\":" << Json(analyzers[index].scope) << ","
                 << "\"severity\":" << Json(analyzers[index].severity) << ","
-                << "\"configPath\":" << Json(analyzers[index].configPath);
+                << "\"configPath\":" << Json(analyzers[index].configPath) << ","
+                << "\"configOptional\":" << (analyzers[index].configOptional ? "true" : "false");
             if (includeProvenance)
             {
                 out << ",\"provenance\":";
@@ -4845,6 +5015,10 @@ namespace NGIN::CLI
                 std::cout << "  analyzer " << analyzer.name
                           << " scope=" << analyzer.scope
                           << " severity=" << analyzer.severity;
+                if (!analyzer.tool.empty() && analyzer.tool != analyzer.name)
+                {
+                    std::cout << " tool=" << analyzer.tool;
+                }
                 if (!analyzer.configPath.empty())
                 {
                     std::cout << " config=" << analyzer.configPath;
@@ -5436,11 +5610,24 @@ namespace NGIN::CLI
     {
         (void)root;
         const auto invocation = ResolveInvocation(args);
-        const auto analyzers = EffectiveAnalyzers(invocation.project, invocation.profile);
+        const auto resolvedResult = ResolveLaunch(invocation.project, invocation.profile);
+        if (resolvedResult.diagnostics.HasErrors())
+        {
+            PrintDiagnostics(resolvedResult.diagnostics, "Analyze", std::cout);
+            return 1;
+        }
+        if (!resolvedResult.value.has_value())
+        {
+            std::cout << "\nAnalyze errors:\n  - failed to resolve project launch context\n";
+            return 1;
+        }
+        const auto &resolved = *resolvedResult.value;
+        const auto analyzers = EffectiveAnalyzers(invocation.project, invocation.profile, resolved.selectedPackageFeatures);
 
         std::cout << "Analyze product: " << invocation.project.name << "\n";
         std::cout << "Profile: " << invocation.profile.name << "\n";
         bool anyEnabled = false;
+        bool needsConfigure = false;
         for (const auto &[_, analyzer] : analyzers)
         {
             if (!analyzer.enabled)
@@ -5448,9 +5635,14 @@ namespace NGIN::CLI
                 continue;
             }
             anyEnabled = true;
+            needsConfigure = needsConfigure || IsClangTidyAnalyzer(analyzer);
             std::cout << "  analyzer " << analyzer.name
                       << " scope=" << analyzer.scope
                       << " severity=" << analyzer.severity;
+            if (!AnalyzerToolName(analyzer).empty() && AnalyzerToolName(analyzer) != analyzer.name)
+            {
+                std::cout << " tool=" << AnalyzerToolName(analyzer);
+            }
             if (!analyzer.configPath.empty())
             {
                 std::cout << " config=" << analyzer.configPath;
@@ -5461,7 +5653,108 @@ namespace NGIN::CLI
         {
             std::cout << "  (no enabled analyzers)\n";
         }
-        return 0;
+        if (!needsConfigure)
+        {
+            return 0;
+        }
+
+        const auto configured = ConfigureLaunch(invocation.project, invocation.profile, args.outputPath);
+        if (configured.diagnostics.HasErrors())
+        {
+            PrintDiagnostics(configured.diagnostics, "Analyze", std::cout);
+            return 1;
+        }
+        if (!configured.value.has_value() || !configured.value->compileCommandsPath.has_value())
+        {
+            std::cout << "\nAnalyze errors:\n  - clang-tidy requires a configured compile_commands.json\n";
+            return 1;
+        }
+
+        const auto sources = ResolveAnalyzerSources(resolved);
+        if (sources.empty())
+        {
+            std::cout << "  (no C++ source files selected for clang-tidy)\n";
+            return 0;
+        }
+
+        bool hasErrors = false;
+        for (const auto &[_, analyzer] : analyzers)
+        {
+            if (!analyzer.enabled || !IsClangTidyAnalyzer(analyzer))
+            {
+                continue;
+            }
+            const auto tool = ResolveAnalyzerTool(resolved, analyzer);
+            if (!tool.has_value())
+            {
+                std::cout << "\nAnalyze errors:\n"
+                          << "  - analyzer '" << analyzer.name << "' could not resolve clang-tidy. Install clang-tidy on PATH or set NGIN_CLANG_TIDY to the executable path.\n";
+                hasErrors = true;
+                continue;
+            }
+
+            std::optional<fs::path> configPath{};
+            if (!analyzer.configPath.empty())
+            {
+                const auto candidate = fs::path(analyzer.configPath).is_absolute()
+                                           ? fs::path(analyzer.configPath)
+                                           : invocation.project.path.parent_path() / analyzer.configPath;
+                if (fs::exists(candidate))
+                {
+                    configPath = candidate;
+                }
+                else if (!analyzer.configOptional)
+                {
+                    std::cout << "\nAnalyze errors:\n"
+                              << "  - analyzer '" << analyzer.name << "' config '" << candidate.string() << "' does not exist\n";
+                    hasErrors = true;
+                    continue;
+                }
+            }
+
+            for (const auto &source : sources)
+            {
+                std::vector<std::string> commandArgs{
+                    "-p",
+                    configured.value->buildDir.value_or(configured.value->outputDir).string(),
+                };
+                if (configPath.has_value())
+                {
+                    commandArgs.push_back("--config-file=" + configPath->string());
+                }
+                commandArgs.push_back(source.string());
+
+                const auto result = RunProcessCapture(tool->path, commandArgs, invocation.project.path.parent_path());
+                const auto findings = ParseClangTidyFindings(result.output, analyzer.severity);
+                for (const auto &finding : findings)
+                {
+                    PrintAnalyzerFinding(finding);
+                    if (finding.severity == "error")
+                    {
+                        hasErrors = true;
+                    }
+                }
+                if (result.exitCode != 0 && findings.empty())
+                {
+                    std::cout << "\nAnalyze errors:\n"
+                              << "  - analyzer '" << analyzer.name << "' failed with exit code " << result.exitCode << "\n";
+                    if (!result.output.empty())
+                    {
+                        std::istringstream output{result.output};
+                        std::string line{};
+                        while (std::getline(output, line))
+                        {
+                            if (!line.empty())
+                            {
+                                std::cout << "    " << line << "\n";
+                            }
+                        }
+                    }
+                    hasErrors = true;
+                }
+            }
+        }
+        return hasErrors ? 1 : 0;
     }
 
     auto CmdPublish(const fs::path &root, const ParsedArgs &args) -> int

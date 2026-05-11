@@ -21,7 +21,6 @@
   ],
   "activationEvents": [
     "onDebugResolve:ngin",
-    "onCustomEditor:ngin.projectEditor",
     "workspaceContains:**/*.nginproj",
     "workspaceContains:**/*.nginsettings"
   ],
@@ -153,6 +152,11 @@
       {
         "command": "ngin.validate",
         "title": "Validate",
+        "category": "NGIN"
+      },
+      {
+        "command": "ngin.analyze",
+        "title": "Analyze",
         "category": "NGIN"
       },
       {
@@ -353,14 +357,19 @@
           "group": "ngin.inspect@1"
         },
         {
-          "command": "ngin.graph",
+          "command": "ngin.analyze",
           "when": "view == nginWorkspace && viewItem =~ /^(nginProject|nginProfile)$/",
           "group": "ngin.inspect@2"
         },
         {
-          "command": "ngin.variablesExplain",
+          "command": "ngin.graph",
           "when": "view == nginWorkspace && viewItem =~ /^(nginProject|nginProfile)$/",
           "group": "ngin.inspect@3"
+        },
+        {
+          "command": "ngin.variablesExplain",
+          "when": "view == nginWorkspace && viewItem =~ /^(nginProject|nginProfile)$/",
+          "group": "ngin.inspect@4"
         },
         {
           "command": "ngin.settingsInit",
@@ -427,6 +436,11 @@
           "default": false,
           "description": "Validate the current NGIN project after saving an NGIN manifest."
         },
+        "ngin.analyze.onSave": {
+          "type": "boolean",
+          "default": false,
+          "description": "Run NGIN analyzers after saving an NGIN manifest."
+        },
         "ngin.cli.warnIfStale": {
           "type": "boolean",
           "default": true,
@@ -469,6 +483,7 @@
               "clean",
               "rebuild",
               "validate",
+              "analyze",
               "graph",
               "workspaceStatus",
               "workspaceDoctor"

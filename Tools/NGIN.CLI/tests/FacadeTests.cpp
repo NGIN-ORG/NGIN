@@ -87,7 +87,7 @@ TEST_CASE("stage command builds and reports staged output")
     REQUIRE(fs::exists(temp.path() / "out/config/app.json"));
 }
 
-TEST_CASE("analyze command reports declared analyzer plan")
+TEST_CASE("analyze command reports declared non-clang analyzer plan")
 {
     TempDir temp{};
     const auto projectPath = temp.path() / "Analyze.App.nginproj";
@@ -96,8 +96,8 @@ TEST_CASE("analyze command reports declared analyzer plan")
 <Project SchemaVersion="4" Name="Analyze.App">
   <Application>
     <Quality>
-      <Analyzer Name="clang-tidy" Scope="Build" Enabled="true" Severity="Error">
-        <Config Path=".clang-tidy" />
+      <Analyzer Name="example-analyzer" Scope="Build" Enabled="true" Severity="Error">
+        <Config Path="analyzer.cfg" />
       </Analyzer>
     </Quality>
   </Application>
@@ -106,9 +106,9 @@ TEST_CASE("analyze command reports declared analyzer plan")
 
     const auto project = LoadProjectManifest(projectPath);
     REQUIRE(project.quality.analyzers.size() == 1);
-    REQUIRE(project.quality.analyzers[0].name == "clang-tidy");
+    REQUIRE(project.quality.analyzers[0].name == "example-analyzer");
     REQUIRE(project.quality.analyzers[0].severity == "Error");
-    REQUIRE(project.quality.analyzers[0].configPath == ".clang-tidy");
+    REQUIRE(project.quality.analyzers[0].configPath == "analyzer.cfg");
 
     ParsedArgs args{};
     args.projectPath = projectPath.string();
@@ -120,7 +120,7 @@ TEST_CASE("analyze command reports declared analyzer plan")
 
     REQUIRE(exitCode == 0);
     REQUIRE_THAT(captured.str(), ContainsSubstring("Analyze product: Analyze.App"));
-    REQUIRE_THAT(captured.str(), ContainsSubstring("analyzer clang-tidy scope=Build severity=Error config=.clang-tidy"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring("analyzer example-analyzer scope=Build severity=Error config=analyzer.cfg"));
 
     ParsedArgs inspectArgs{};
     inspectArgs.projectPath = projectPath.string();
@@ -132,9 +132,193 @@ TEST_CASE("analyze command reports declared analyzer plan")
 
     REQUIRE(inspectExitCode == 0);
     REQUIRE_THAT(inspectCaptured.str(), ContainsSubstring(R"("quality":{"analyzers":[)"));
-    REQUIRE_THAT(inspectCaptured.str(), ContainsSubstring(R"("name":"clang-tidy")"));
+    REQUIRE_THAT(inspectCaptured.str(), ContainsSubstring(R"("name":"example-analyzer")"));
     REQUIRE_THAT(inspectCaptured.str(), ContainsSubstring(R"("severity":"Error")"));
 }
+
+TEST_CASE("package feature analyzer contributes clang-tidy to graph")
+{
+    TempDir temp{};
+    WriteFile(temp.path() / "Workspace.ngin",
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Workspace SchemaVersion="4" Name="AnalyzeWorkspace">
+  <Projects>
+    <Project Path="App/App.nginproj" />
+  </Projects>
+  <Packages>
+    <Source Name="local" Path="Packages" />
+  </Packages>
+</Workspace>
+)xml");
+    WriteFile(temp.path() / "Packages/NGIN.Tooling.ClangTidy/NGIN.Tooling.ClangTidy.nginpkg",
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Package SchemaVersion="4" Name="NGIN.Tooling.ClangTidy" Version="0.1.0">
+  <Tool Name="NGIN.Tooling.ClangTidy">
+    <Exports>
+      <Tool Name="clang-tidy" Kind="Analyzer" Executable="clang-tidy" />
+    </Exports>
+  </Tool>
+  <Features>
+    <Feature Name="Analyzer">
+      <Quality>
+        <Analyzer Name="clang-tidy" Tool="clang-tidy" Severity="Warning">
+          <Config Path=".clang-tidy" Optional="true" />
+        </Analyzer>
+      </Quality>
+    </Feature>
+  </Features>
+</Package>
+)xml");
+    const auto projectPath = temp.path() / "App/App.nginproj";
+    WriteFile(projectPath,
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4" Name="PackageAnalyze.App">
+  <Application>
+    <Uses>
+      <Package Name="NGIN.Tooling.ClangTidy" Version="[0.1.0,0.2.0)" Scope="Dev">
+        <Feature Name="Analyzer" />
+      </Package>
+    </Uses>
+    <Build>
+      <Sources Path="src/**.cpp" />
+    </Build>
+  </Application>
+</Project>
+)xml");
+    WriteFile(temp.path() / "App/src/main.cpp", "int main() { return 0; }\n");
+
+    ParsedArgs args{};
+    args.projectPath = projectPath.string();
+    args.graphPlan = "quality";
+
+    std::ostringstream captured{};
+    auto *previous = std::cout.rdbuf(captured.rdbuf());
+    const auto exitCode = CmdGraph(temp.path(), args);
+    std::cout.rdbuf(previous);
+
+    REQUIRE(exitCode == 0);
+    REQUIRE_THAT(captured.str(), ContainsSubstring("analyzer clang-tidy scope=Build severity=Warning config=.clang-tidy"));
+}
+
+#ifndef _WIN32
+TEST_CASE("clang-tidy analyzer emits normalized warning diagnostics")
+{
+    TempDir temp{};
+    const auto projectPath = temp.path() / "AnalyzeWarn.App.nginproj";
+    WriteFile(projectPath,
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4" Name="AnalyzeWarn.App">
+  <Application>
+    <Build>
+      <Sources Path="src/**.cpp" />
+    </Build>
+    <Quality>
+      <Analyzer Name="clang-tidy" Severity="Warning" />
+    </Quality>
+  </Application>
+</Project>
+)xml");
+    WriteFile(temp.path() / "src/main.cpp", "int main() { return 0; }\n");
+    const auto fakeTool = temp.path() / "fake-clang-tidy";
+    WriteFile(fakeTool,
+              "#!/bin/sh\n"
+              "last=\"\"\n"
+              "for arg in \"$@\"; do last=\"$arg\"; done\n"
+              "echo \"$last:4:7: warning: prefer auto [modernize-use-auto]\"\n"
+              "exit 0\n");
+    fs::permissions(fakeTool, fs::perms::owner_exec | fs::perms::owner_read | fs::perms::owner_write);
+    ScopedEnvironmentVariable clangTidy{"NGIN_CLANG_TIDY", fakeTool.string()};
+
+    ParsedArgs args{};
+    args.projectPath = projectPath.string();
+    args.outputPath = (temp.path() / "out").string();
+
+    std::ostringstream captured{};
+    auto *previous = std::cout.rdbuf(captured.rdbuf());
+    const auto exitCode = CmdAnalyze(temp.path(), args);
+    std::cout.rdbuf(previous);
+
+    REQUIRE(exitCode == 0);
+    REQUIRE_THAT(captured.str(), ContainsSubstring("[warning] "));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(":4:7: prefer auto [clang-tidy:modernize-use-auto]"));
+}
+
+TEST_CASE("clang-tidy analyzer escalates diagnostics when severity is error")
+{
+    TempDir temp{};
+    const auto projectPath = temp.path() / "AnalyzeError.App.nginproj";
+    WriteFile(projectPath,
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4" Name="AnalyzeError.App">
+  <Application>
+    <Build>
+      <Sources Path="src/**.cpp" />
+    </Build>
+    <Quality>
+      <Analyzer Name="clang-tidy" Severity="Error" />
+    </Quality>
+  </Application>
+</Project>
+)xml");
+    WriteFile(temp.path() / "src/main.cpp", "int main() { return 0; }\n");
+    const auto fakeTool = temp.path() / "fake-clang-tidy";
+    WriteFile(fakeTool,
+              "#!/bin/sh\n"
+              "last=\"\"\n"
+              "for arg in \"$@\"; do last=\"$arg\"; done\n"
+              "echo \"$last:2:3: warning: issue [readability-test]\"\n"
+              "exit 0\n");
+    fs::permissions(fakeTool, fs::perms::owner_exec | fs::perms::owner_read | fs::perms::owner_write);
+    ScopedEnvironmentVariable clangTidy{"NGIN_CLANG_TIDY", fakeTool.string()};
+
+    ParsedArgs args{};
+    args.projectPath = projectPath.string();
+    args.outputPath = (temp.path() / "out").string();
+
+    std::ostringstream captured{};
+    auto *previous = std::cout.rdbuf(captured.rdbuf());
+    const auto exitCode = CmdAnalyze(temp.path(), args);
+    std::cout.rdbuf(previous);
+
+    REQUIRE(exitCode == 1);
+    REQUIRE_THAT(captured.str(), ContainsSubstring("[error] "));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(":2:3: issue [clang-tidy:readability-test]"));
+}
+
+TEST_CASE("clang-tidy analyzer reports missing tool")
+{
+    TempDir temp{};
+    const auto projectPath = temp.path() / "AnalyzeMissingTool.App.nginproj";
+    WriteFile(projectPath,
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4" Name="AnalyzeMissingTool.App">
+  <Application>
+    <Build>
+      <Sources Path="src/**.cpp" />
+    </Build>
+    <Quality>
+      <Analyzer Name="clang-tidy" Severity="Warning" />
+    </Quality>
+  </Application>
+</Project>
+)xml");
+    WriteFile(temp.path() / "src/main.cpp", "int main() { return 0; }\n");
+    ScopedEnvironmentVariable clangTidy{"NGIN_CLANG_TIDY", (temp.path() / "missing-clang-tidy").string()};
+
+    ParsedArgs args{};
+    args.projectPath = projectPath.string();
+    args.outputPath = (temp.path() / "out").string();
+
+    std::ostringstream captured{};
+    auto *previous = std::cout.rdbuf(captured.rdbuf());
+    const auto exitCode = CmdAnalyze(temp.path(), args);
+    std::cout.rdbuf(previous);
+
+    REQUIRE(exitCode == 1);
+    REQUIRE_THAT(captured.str(), ContainsSubstring("could not resolve clang-tidy"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring("NGIN_CLANG_TIDY"));
+}
+#endif
 
 TEST_CASE("publish command writes folder publish output")
 {

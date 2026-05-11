@@ -27,6 +27,17 @@ namespace NGIN::CLI
         const std::vector<std::string> &arguments,
         const std::optional<fs::path> &workingDirectory = std::nullopt) -> int;
 
+    struct ProcessResult
+    {
+        int exitCode{};
+        std::string output{};
+    };
+
+    [[nodiscard]] auto RunProcessCapture(
+        const fs::path &executable,
+        const std::vector<std::string> &arguments,
+        const std::optional<fs::path> &workingDirectory = std::nullopt) -> ProcessResult;
+
     [[nodiscard]] auto WriteLaunchManifest(
         const ResolvedLaunch &resolved,
         const fs::path &outputDir,

@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Package SchemaVersion="4"
+         Name="NGIN.Tooling.ClangTidy"
+         Version="0.1.0"
+         CompatiblePlatformRange=">=0.1.0-alpha.1 &lt;0.2.0">
+  <Build Backend="CMake" Mode="Manual" />
+
+  <Tool Name="NGIN.Tooling.ClangTidy">
+    <Exports>
+      <Tool Name="clang-tidy"
+            Kind="Analyzer"
+            Executable="clang-tidy" />
+    </Exports>
+  </Tool>
+
+  <Features>
+    <Feature Name="Analyzer"
+             Description="Run clang-tidy through the NGIN analyzer workflow.">
+      <Quality>
+        <Analyzer Name="clang-tidy"
+                  Tool="clang-tidy"
+                  Scope="Build"
+                  Severity="Warning">
+          <Config Path=".clang-tidy"
+                  Optional="true" />
+        </Analyzer>
+      </Quality>
+    </Feature>
+  </Features>
+
+  <Compatibility>
+    <OperatingSystems>
+      <OperatingSystem Name="linux" />
+      <OperatingSystem Name="windows" />
+      <OperatingSystem Name="macos" />
+    </OperatingSystems>
+  </Compatibility>
+</Package>

@@ -65,15 +65,21 @@ test('parseCliDiagnostics extracts structured file and generic errors', () => {
     'Validation errors:',
     '  - /tmp/Hello.Hosted.nginproj: failed to parse XML: unexpected token',
     '  - /tmp/user.nginsettings: duplicate local setting key',
-    'error: unknown profile `Editor`'
+    'error: unknown profile `Editor`',
+    '[warning] /workspace/src/main.cpp:4:7: prefer auto [clang-tidy:modernize-use-auto]'
   ].join('\n'));
 
-  assert.equal(diagnostics.length, 3);
+  assert.equal(diagnostics.length, 4);
   assert.equal(diagnostics[0].file, '/tmp/Hello.Hosted.nginproj');
   assert.match(diagnostics[0].message, /failed to parse XML/);
   assert.equal(diagnostics[1].file, '/tmp/user.nginsettings');
   assert.match(diagnostics[1].message, /duplicate local setting key/);
   assert.equal(diagnostics[2].message, 'unknown profile `Editor`');
+  assert.equal(diagnostics[3].file, '/workspace/src/main.cpp');
+  assert.equal(diagnostics[3].line, 4);
+  assert.equal(diagnostics[3].column, 7);
+  assert.equal(diagnostics[3].severity, 'warning');
+  assert.equal(diagnostics[3].message, 'prefer auto [clang-tidy:modernize-use-auto]');
 });
 
 test('settings init output exposes the initialized settings path', () => {

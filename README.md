@@ -528,6 +528,9 @@ The examples are arranged so each one adds one idea.
 3. [`Examples/Hello.Reflection`](Examples/Hello.Reflection/README.md)
    Reflection code generation through `NGIN.Reflection.MetaGen`.
 
+4. [`Examples/Hello.Analyzer`](Examples/Hello.Analyzer/README.md)
+   clang-tidy analyzer wiring through `NGIN.Tooling.ClangTidy`.
+
 See [`Examples/README.md`](Examples/README.md) for the full example map.
 
 ---
