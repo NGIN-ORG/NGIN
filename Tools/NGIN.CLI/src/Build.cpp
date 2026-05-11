@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <chrono>
 #include <cstdlib>
 #include <cstdint>
 #include <fstream>
@@ -1988,7 +1989,42 @@ namespace NGIN::CLI
             return WriteTextFileIfChanged(generatedSourceDir / "CMakeLists.txt", content.str());
         }
 
-        [[nodiscard]] auto ConfigureGeneratedBuild(const ResolvedLaunch &resolved, const fs::path &outputDir, DiagnosticReport &report) -> std::optional<GeneratedBuildPaths>
+        [[nodiscard]] auto RunBackendProcess(
+            std::string name,
+            const fs::path &executable,
+            const std::vector<std::string> &arguments,
+            const std::optional<fs::path> &workingDirectory,
+            const BuildExecutionOptions &options) -> int
+        {
+            const auto started = std::chrono::steady_clock::now();
+            ProcessResult result{};
+            if (options.backendOutput == BackendOutputMode::Stream)
+            {
+                result.exitCode = RunProcess(executable, arguments, workingDirectory);
+            }
+            else
+            {
+                result = RunProcessCapture(executable, arguments, workingDirectory);
+            }
+            const auto finished = std::chrono::steady_clock::now();
+            const auto duration = static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(finished - started).count());
+            if (options.backendSteps != nullptr)
+            {
+                options.backendSteps->push_back(BackendStepResult{
+                    .name = std::move(name),
+                    .exitCode = result.exitCode,
+                    .durationMilliseconds = duration,
+                    .output = options.backendOutput == BackendOutputMode::Silent ? std::string{} : std::move(result.output),
+                });
+            }
+            return result.exitCode;
+        }
+
+        [[nodiscard]] auto ConfigureGeneratedBuild(
+            const ResolvedLaunch &resolved,
+            const fs::path &outputDir,
+            DiagnosticReport &report,
+            const BuildExecutionOptions &options) -> std::optional<GeneratedBuildPaths>
         {
             if (!HasArtifactTargetsToBuild(resolved))
             {
@@ -2030,9 +2066,12 @@ namespace NGIN::CLI
                     configureArguments.push_back("Ninja");
                     configureArguments.push_back("-DCMAKE_MAKE_PROGRAM=" + ninjaPath->path.string());
                 }
-                if (RunProcess(
+                if (RunBackendProcess(
+                        "CMake configure",
                         cmakeTool->path,
-                        configureArguments) != 0)
+                        configureArguments,
+                        std::nullopt,
+                        options) != 0)
                 {
                     AddError(report, "failed to configure generated CMake build project for profile '" + resolved.profile.name + "' with build type '" + buildType + "'");
                     return std::nullopt;
@@ -2041,9 +2080,13 @@ namespace NGIN::CLI
             return generatedPaths;
         }
 
-        auto BuildArtifacts(const ResolvedLaunch &resolved, const fs::path &outputDir, DiagnosticReport &report) -> void
+        auto BuildArtifacts(
+            const ResolvedLaunch &resolved,
+            const fs::path &outputDir,
+            DiagnosticReport &report,
+            const BuildExecutionOptions &options) -> void
         {
-            const auto generatedPaths = ConfigureGeneratedBuild(resolved, outputDir, report);
+            const auto generatedPaths = ConfigureGeneratedBuild(resolved, outputDir, report, options);
             if (!generatedPaths.has_value() || report.HasErrors())
             {
                 return;
@@ -2057,7 +2100,8 @@ namespace NGIN::CLI
                 AddError(report, "missing tool: cmake. Install CMake, set NGIN_CMAKE, or fetch bundled tools into Tools/ThirdParty/BuildTools.");
                 return;
             }
-            if (RunProcess(
+            if (RunBackendProcess(
+                    "CMake build",
                     cmakeTool->path,
                     {
                         "--build",
@@ -2066,7 +2110,9 @@ namespace NGIN::CLI
                         buildType,
                         "--target",
                         "ngin_stage_artifacts",
-                    }) != 0)
+                    },
+                    std::nullopt,
+                    options) != 0)
             {
                 AddError(report, "failed to build or stage artifacts for profile '" + resolved.profile.name + "' with build type '" + buildType + "'");
             }
@@ -2746,7 +2792,8 @@ namespace NGIN::CLI
     auto ConfigureLaunch(
         const ProjectManifest &project,
         const ProfileDefinition &profile,
-        const std::optional<fs::path> &outputPath) -> DiagnosticResult<ConfiguredBuildPaths>
+        const std::optional<fs::path> &outputPath,
+        const BuildExecutionOptions &options) -> DiagnosticResult<ConfiguredBuildPaths>
     {
         DiagnosticResult<ConfiguredBuildPaths> result{};
 
@@ -2778,7 +2825,7 @@ namespace NGIN::CLI
             .outputDir = resolvedOutputDir,
         };
 
-        const auto generatedPaths = ConfigureGeneratedBuild(resolved, resolvedOutputDir, result.diagnostics);
+        const auto generatedPaths = ConfigureGeneratedBuild(resolved, resolvedOutputDir, result.diagnostics, options);
         if (result.diagnostics.HasErrors())
         {
             return result;
@@ -2797,7 +2844,8 @@ namespace NGIN::CLI
     auto BuildLaunch(
         const ProjectManifest &project,
         const ProfileDefinition &profile,
-        const std::optional<fs::path> &outputPath) -> DiagnosticResult<GeneratedLaunchPaths>
+        const std::optional<fs::path> &outputPath,
+        const BuildExecutionOptions &options) -> DiagnosticResult<GeneratedLaunchPaths>
     {
         DiagnosticResult<GeneratedLaunchPaths> result{};
 
@@ -2835,7 +2883,7 @@ namespace NGIN::CLI
             return result;
         }
 
-        BuildArtifacts(resolved, resolvedOutputDir, result.diagnostics);
+        BuildArtifacts(resolved, resolvedOutputDir, result.diagnostics, options);
         if (result.diagnostics.HasErrors())
         {
             return result;

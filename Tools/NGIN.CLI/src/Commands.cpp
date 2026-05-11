@@ -133,6 +133,69 @@ namespace NGIN::CLI
             std::cout << "\n" << Style(args, "32", text) << "\n";
         }
 
+        [[nodiscard]] auto BuildOptionsForArgs(const ParsedArgs &args, std::vector<BackendStepResult> &backendSteps) -> BuildExecutionOptions
+        {
+            return BuildExecutionOptions{
+                .backendOutput = args.verbosity == OutputVerbosity::Quiet ? BackendOutputMode::Silent : args.backendOutputMode,
+                .backendSteps = &backendSteps,
+            };
+        }
+
+        [[nodiscard]] auto FormatDuration(int milliseconds) -> std::string
+        {
+            std::ostringstream out{};
+            out.setf(std::ios::fixed);
+            out.precision(milliseconds >= 10'000 ? 0 : 1);
+            out << static_cast<double>(milliseconds) / 1000.0 << "s";
+            return out.str();
+        }
+
+        auto PrintBackendSteps(const ParsedArgs &args, const std::vector<BackendStepResult> &steps, bool includeOutput) -> void
+        {
+            if (IsQuiet(args) || steps.empty())
+            {
+                return;
+            }
+            PrintSection(args, "Backend");
+            for (const auto &step : steps)
+            {
+                const auto status = step.exitCode == 0 ? "complete" : "failed";
+                PrintItem(args, step.name + " " + status, FormatDuration(step.durationMilliseconds));
+            }
+            if (!includeOutput)
+            {
+                return;
+            }
+            bool anyOutput = false;
+            for (const auto &step : steps)
+            {
+                if (!step.output.empty())
+                {
+                    anyOutput = true;
+                    break;
+                }
+            }
+            if (!anyOutput)
+            {
+                return;
+            }
+            PrintSection(args, "Backend output");
+            for (const auto &step : steps)
+            {
+                if (step.output.empty())
+                {
+                    continue;
+                }
+                std::cout << "  [" << step.name << "]\n";
+                std::istringstream lines{step.output};
+                std::string line{};
+                while (std::getline(lines, line))
+                {
+                    std::cout << "    " << line << "\n";
+                }
+            }
+        }
+
         [[nodiscard]] auto EffectiveLaunches(const ProjectManifest &project, const ProfileDefinition &profile) -> std::vector<LaunchDefinition>
         {
             std::map<std::string, LaunchDefinition> byName{};
@@ -1943,15 +2006,20 @@ namespace NGIN::CLI
             const ParsedArgs &args,
             std::string_view diagnosticsTitle) -> int
         {
+            std::vector<BackendStepResult> backendSteps{};
+            auto buildOptions = BuildOptionsForArgs(args, backendSteps);
             const auto built = BuildLaunch(
                 project,
                 profile,
-                args.outputPath.has_value() ? std::optional<fs::path>{*args.outputPath} : std::nullopt);
+                args.outputPath.has_value() ? std::optional<fs::path>{*args.outputPath} : std::nullopt,
+                buildOptions);
             if (!built.value.has_value() || built.diagnostics.HasErrors())
             {
                 PrintDiagnostics(built.diagnostics, diagnosticsTitle, std::cout);
+                PrintBackendSteps(args, backendSteps, true);
                 return 1;
             }
+            PrintBackendSteps(args, backendSteps, false);
 
             const auto summary = LoadLaunchManifestSummary(built.value->manifestPath);
             if (!summary.selectedExecutable.has_value() || summary.selectedExecutable->empty())
@@ -2235,14 +2303,69 @@ namespace NGIN::CLI
             else if (current == "--verbose" || current == "-v")
             {
                 args.verbosity = OutputVerbosity::Verbose;
+                args.backendOutputMode = BackendOutputMode::Stream;
             }
             else if (current == "--trace")
             {
                 args.verbosity = OutputVerbosity::Trace;
+                args.backendOutputMode = BackendOutputMode::Stream;
             }
             else if (current == "--plain")
             {
                 args.colorMode = OutputColorMode::Never;
+            }
+            else if (current == "--ui" && index + 1 < argc)
+            {
+                const std::string mode = argv[++index];
+                if (mode == "auto")
+                {
+                    args.colorMode = OutputColorMode::Auto;
+                    args.backendOutputMode = BackendOutputMode::Stream;
+                }
+                else if (mode == "pretty")
+                {
+                    args.colorMode = OutputColorMode::Auto;
+                    args.backendOutputMode = BackendOutputMode::Stream;
+                }
+                else if (mode == "compact")
+                {
+                    args.backendOutputMode = BackendOutputMode::Compact;
+                }
+                else if (mode == "plain")
+                {
+                    args.colorMode = OutputColorMode::Never;
+                    args.backendOutputMode = BackendOutputMode::Compact;
+                }
+                else if (mode == "json")
+                {
+                    args.format = "json";
+                    args.colorMode = OutputColorMode::Never;
+                    args.backendOutputMode = BackendOutputMode::Silent;
+                }
+                else
+                {
+                    throw std::runtime_error("--ui expects auto, pretty, compact, plain, or json");
+                }
+            }
+            else if (current == "--backend-output" && index + 1 < argc)
+            {
+                const std::string mode = argv[++index];
+                if (mode == "stream")
+                {
+                    args.backendOutputMode = BackendOutputMode::Stream;
+                }
+                else if (mode == "compact")
+                {
+                    args.backendOutputMode = BackendOutputMode::Compact;
+                }
+                else if (mode == "silent")
+                {
+                    args.backendOutputMode = BackendOutputMode::Silent;
+                }
+                else
+                {
+                    throw std::runtime_error("--backend-output expects stream, compact, or silent");
+                }
             }
             else if (current == "--color" && index + 1 < argc)
             {
@@ -5655,19 +5778,24 @@ namespace NGIN::CLI
     {
         (void)root;
         const auto invocation = ResolveInvocation(args);
-        const auto configured = ConfigureLaunch(
-            invocation.project,
-            invocation.profile,
-            args.outputPath.has_value() ? std::optional<fs::path>{*args.outputPath} : std::nullopt);
-        if (!configured.value.has_value() || configured.diagnostics.HasErrors())
-        {
-            PrintDiagnostics(configured.diagnostics, "Configure", std::cout);
-            return 1;
-        }
-
         PrintTitle(args, "NGIN configure");
         PrintField(args, "product", invocation.project.name);
         PrintField(args, "profile", invocation.profile.name);
+        std::cout << std::flush;
+        std::vector<BackendStepResult> backendSteps{};
+        auto buildOptions = BuildOptionsForArgs(args, backendSteps);
+        const auto configured = ConfigureLaunch(
+            invocation.project,
+            invocation.profile,
+            args.outputPath.has_value() ? std::optional<fs::path>{*args.outputPath} : std::nullopt,
+            buildOptions);
+        if (!configured.value.has_value() || configured.diagnostics.HasErrors())
+        {
+            PrintDiagnostics(configured.diagnostics, "Configure", std::cout);
+            PrintBackendSteps(args, backendSteps, true);
+            return 1;
+        }
+
         PrintField(args, "output", configured.value->outputDir);
         if (configured.value->configured)
         {
@@ -5680,6 +5808,7 @@ namespace NGIN::CLI
         }
         if (!IsQuiet(args))
         {
+            PrintBackendSteps(args, backendSteps, false);
             PrintDiagnostics(configured.diagnostics, "Configure", std::cout);
             PrintSuccess(args, "Configure complete");
         }
@@ -5690,25 +5819,31 @@ namespace NGIN::CLI
     {
         (void)root;
         const auto invocation = ResolveInvocation(args);
+        PrintTitle(args, "NGIN build");
+        PrintField(args, "product", invocation.project.name);
+        PrintField(args, "profile", invocation.profile.name);
+        std::cout << std::flush;
+        std::vector<BackendStepResult> backendSteps{};
+        auto buildOptions = BuildOptionsForArgs(args, backendSteps);
         auto built = BuildLaunch(
             invocation.project,
             invocation.profile,
-            args.outputPath.has_value() ? std::optional<fs::path>{*args.outputPath} : std::nullopt);
+            args.outputPath.has_value() ? std::optional<fs::path>{*args.outputPath} : std::nullopt,
+            buildOptions);
         if (!built.value.has_value() || built.diagnostics.HasErrors())
         {
             PrintDiagnostics(built.diagnostics, "Build", std::cout);
+            PrintBackendSteps(args, backendSteps, true);
             return 1;
         }
 
         const auto summary = LoadLaunchManifestSummary(built.value->manifestPath);
-        PrintTitle(args, "NGIN build");
-        PrintField(args, "product", invocation.project.name);
-        PrintField(args, "profile", invocation.profile.name);
         PrintField(args, "output", built.value->outputDir);
         PrintField(args, "launch", built.value->manifestPath);
         PrintField(args, "executable", summary.selectedExecutable.has_value() && !summary.selectedExecutable->empty() ? *summary.selectedExecutable : "(none)");
         if (!IsQuiet(args))
         {
+            PrintBackendSteps(args, backendSteps, false);
             PrintDiagnostics(built.diagnostics, "Build", std::cout);
             PrintSuccess(args, "Build complete");
         }
@@ -5719,25 +5854,31 @@ namespace NGIN::CLI
     {
         (void)root;
         const auto invocation = ResolveInvocation(args);
+        PrintTitle(args, "NGIN stage");
+        PrintField(args, "product", invocation.project.name);
+        PrintField(args, "profile", invocation.profile.name);
+        std::cout << std::flush;
+        std::vector<BackendStepResult> backendSteps{};
+        auto buildOptions = BuildOptionsForArgs(args, backendSteps);
         auto built = BuildLaunch(
             invocation.project,
             invocation.profile,
-            args.outputPath.has_value() ? std::optional<fs::path>{*args.outputPath} : std::nullopt);
+            args.outputPath.has_value() ? std::optional<fs::path>{*args.outputPath} : std::nullopt,
+            buildOptions);
         if (!built.value.has_value() || built.diagnostics.HasErrors())
         {
             PrintDiagnostics(built.diagnostics, "Stage", std::cout);
+            PrintBackendSteps(args, backendSteps, true);
             return 1;
         }
 
         const auto summary = LoadLaunchManifestSummary(built.value->manifestPath);
-        PrintTitle(args, "NGIN stage");
-        PrintField(args, "product", invocation.project.name);
-        PrintField(args, "profile", invocation.profile.name);
         PrintField(args, "output", built.value->outputDir);
         PrintField(args, "launch", built.value->manifestPath);
         PrintField(args, "executable", summary.selectedExecutable.has_value() && !summary.selectedExecutable->empty() ? *summary.selectedExecutable : "(none)");
         if (!IsQuiet(args))
         {
+            PrintBackendSteps(args, backendSteps, false);
             PrintDiagnostics(built.diagnostics, "Stage", std::cout);
             PrintSuccess(args, "Stage complete");
         }
@@ -5748,6 +5889,10 @@ namespace NGIN::CLI
     {
         (void)root;
         const auto invocation = ResolveInvocation(args);
+        PrintTitle(args, "NGIN rebuild");
+        PrintField(args, "product", invocation.project.name);
+        PrintField(args, "profile", invocation.profile.name);
+        std::cout << std::flush;
         const auto cleanResult = CleanLaunch(
             invocation.project,
             invocation.profile,
@@ -5758,26 +5903,28 @@ namespace NGIN::CLI
             return 1;
         }
 
+        std::vector<BackendStepResult> backendSteps{};
+        auto buildOptions = BuildOptionsForArgs(args, backendSteps);
         auto built = BuildLaunch(
             invocation.project,
             invocation.profile,
-            args.outputPath.has_value() ? std::optional<fs::path>{*args.outputPath} : std::nullopt);
+            args.outputPath.has_value() ? std::optional<fs::path>{*args.outputPath} : std::nullopt,
+            buildOptions);
         AppendDiagnostics(built.diagnostics, cleanResult.diagnostics);
         if (!built.value.has_value() || built.diagnostics.HasErrors())
         {
             PrintDiagnostics(built.diagnostics, "Rebuild", std::cout);
+            PrintBackendSteps(args, backendSteps, true);
             return 1;
         }
 
         const auto summary = LoadLaunchManifestSummary(built.value->manifestPath);
-        PrintTitle(args, "NGIN rebuild");
-        PrintField(args, "product", invocation.project.name);
-        PrintField(args, "profile", invocation.profile.name);
         PrintField(args, "output", built.value->outputDir);
         PrintField(args, "launch", built.value->manifestPath);
         PrintField(args, "executable", summary.selectedExecutable.has_value() && !summary.selectedExecutable->empty() ? *summary.selectedExecutable : "(none)");
         if (!IsQuiet(args))
         {
+            PrintBackendSteps(args, backendSteps, false);
             PrintDiagnostics(built.diagnostics, "Rebuild", std::cout);
             PrintSuccess(args, "Rebuild complete");
         }
@@ -5872,17 +6019,22 @@ namespace NGIN::CLI
             return 0;
         }
 
-        const auto configured = ConfigureLaunch(invocation.project, invocation.profile, args.outputPath);
+        std::vector<BackendStepResult> backendSteps{};
+        auto buildOptions = BuildOptionsForArgs(args, backendSteps);
+        const auto configured = ConfigureLaunch(invocation.project, invocation.profile, args.outputPath, buildOptions);
         if (configured.diagnostics.HasErrors())
         {
             PrintDiagnostics(configured.diagnostics, "Analyze", std::cout);
+            PrintBackendSteps(args, backendSteps, true);
             return 1;
         }
         if (!configured.value.has_value() || !configured.value->compileCommandsPath.has_value())
         {
+            PrintBackendSteps(args, backendSteps, true);
             std::cout << "\nAnalyze errors:\n  - clang-tidy requires a configured compile_commands.json\n";
             return 1;
         }
+        PrintBackendSteps(args, backendSteps, false);
 
         const auto sources = ResolveAnalyzerSources(resolved);
         if (sources.empty())
@@ -5992,15 +6144,24 @@ namespace NGIN::CLI
             throw std::runtime_error("archive publish format '" + publish.format + "' is not implemented yet");
         }
 
+        PrintTitle(args, "NGIN publish");
+        PrintField(args, "product", invocation.project.name);
+        PrintField(args, "profile", invocation.profile.name);
+        std::cout << std::flush;
+        std::vector<BackendStepResult> backendSteps{};
+        auto buildOptions = BuildOptionsForArgs(args, backendSteps);
         auto built = BuildLaunch(
             invocation.project,
             invocation.profile,
-            args.outputPath.has_value() ? std::optional<fs::path>{*args.outputPath} : std::nullopt);
+            args.outputPath.has_value() ? std::optional<fs::path>{*args.outputPath} : std::nullopt,
+            buildOptions);
         if (!built.value.has_value() || built.diagnostics.HasErrors())
         {
             PrintDiagnostics(built.diagnostics, "Publish", std::cout);
+            PrintBackendSteps(args, backendSteps, true);
             return 1;
         }
+        PrintBackendSteps(args, backendSteps, false);
 
         auto publishOutput = fs::path(publish.output);
         if (publishOutput.is_relative())
@@ -6020,9 +6181,6 @@ namespace NGIN::CLI
             WriteZipArchive(built.value->outputDir, publishOutput);
         }
 
-        PrintTitle(args, "NGIN publish");
-        PrintField(args, "product", invocation.project.name);
-        PrintField(args, "profile", invocation.profile.name);
         PrintField(args, "publish", publish.name);
         PrintField(args, "kind", publish.kind);
         if (!publish.format.empty())

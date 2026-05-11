@@ -451,6 +451,11 @@ class NginController implements vscode.Disposable {
     return vscode.workspace.getConfiguration('ngin', scope);
   }
 
+  private getConfigurationForRoot(workspaceRoot: string): vscode.WorkspaceConfiguration {
+    const folder = vscode.workspace.workspaceFolders?.find((candidate) => comparablePath(candidate.uri.fsPath) === comparablePath(workspaceRoot));
+    return this.getConfiguration(folder);
+  }
+
   private asCommandTarget(value: unknown): NginCommandTarget | undefined {
     if (!value || typeof value !== 'object') {
       return undefined;
@@ -1616,14 +1621,31 @@ class NginController implements vscode.Disposable {
   ): Promise<CliRunResult> {
     const cliPath = await this.resolveCliPath(workspaceRoot, cliOverride);
     await this.warnIfCliStale(cliPath, workspaceRoot);
-    const actualArgs = args.includes('--plain') || args.includes('--color')
-      ? args
-      : [...args, '--plain'];
+    const configuration = this.getConfigurationForRoot(workspaceRoot);
+    const verbosity = configuration.get<string>('output.verbosity') ?? 'compact';
+    const color = configuration.get<string>('output.color') ?? 'never';
+    const actualArgs = [...args];
+    if (!actualArgs.includes('--ui') && !actualArgs.includes('--backend-output')) {
+      if (verbosity === 'compact') {
+        actualArgs.push('--ui', 'compact', '--backend-output', 'compact');
+      } else if (verbosity === 'verbose') {
+        actualArgs.push('--verbose', '--backend-output', 'stream');
+      } else {
+        actualArgs.push('--backend-output', 'stream');
+      }
+    }
+    if (!actualArgs.includes('--plain') && !actualArgs.includes('--color')) {
+      if (color === 'never') {
+        actualArgs.push('--plain');
+      } else {
+        actualArgs.push('--color', color === 'always' ? 'always' : 'auto');
+      }
+    }
 
     this.outputChannel.show(true);
     this.outputChannel.appendLine(`> ${cliPath} ${actualArgs.join(' ')}`);
 
-    const result = await new Promise<CliRunResult>((resolve, reject) => {
+    const runProcess = () => new Promise<CliRunResult>((resolve, reject) => {
       let combined = '';
       const child = spawn(cliPath, actualArgs, { cwd: workspaceRoot });
 
@@ -1648,6 +1670,30 @@ class NginController implements vscode.Disposable {
         resolve({ exitCode, output: combined });
       });
     });
+
+    const commandName = args[0] ?? 'command';
+    const progressCommands = new Set(['configure', 'build', 'rebuild', 'stage', 'publish', 'analyze']);
+    const result = progressCommands.has(commandName)
+      ? await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: `NGIN ${commandName}`,
+          cancellable: false
+        },
+        async (progress) => {
+          const started = Date.now();
+          const timer = setInterval(() => {
+            const elapsedSeconds = Math.max(1, Math.floor((Date.now() - started) / 1000));
+            progress.report({ message: `${elapsedSeconds}s elapsed` });
+          }, 1000);
+          try {
+            progress.report({ message: 'starting' });
+            return await runProcess();
+          } finally {
+            clearInterval(timer);
+          }
+        })
+      : await runProcess();
 
     if (diagnosticsKind) {
       this.applyDiagnostics(result.output, diagnosticsResource, diagnosticsKind);

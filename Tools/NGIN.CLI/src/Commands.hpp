@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Model.hpp"
+#include "Build.hpp"
 
 namespace NGIN::CLI
 {
@@ -39,6 +40,7 @@ namespace NGIN::CLI
         std::optional<std::string> graphPlan{};
         OutputVerbosity verbosity{OutputVerbosity::Normal};
         OutputColorMode colorMode{OutputColorMode::Auto};
+        BackendOutputMode backendOutputMode{BackendOutputMode::Stream};
         bool locked{false};
         std::vector<std::string> runArgs{};
     };

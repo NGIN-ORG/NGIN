@@ -476,6 +476,26 @@
           "default": true,
           "description": "Warn once per session if the in-repo development CLI looks older than key CLI source files."
         },
+        "ngin.output.verbosity": {
+          "type": "string",
+          "enum": [
+            "compact",
+            "normal",
+            "verbose"
+          ],
+          "default": "compact",
+          "description": "Controls how much CLI and backend build output the NGIN extension writes to the Output panel."
+        },
+        "ngin.output.color": {
+          "type": "string",
+          "enum": [
+            "never",
+            "auto",
+            "always"
+          ],
+          "default": "never",
+          "description": "Controls ANSI color requested from the NGIN CLI in the Output panel. Use 'always' only if your VS Code build renders ANSI output correctly."
+        },
         "ngin.debug.miDebuggerPath": {
           "type": "string",
           "default": "",

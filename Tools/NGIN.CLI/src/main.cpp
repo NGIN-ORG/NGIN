@@ -18,6 +18,8 @@ namespace
             << "  --trace\n"
             << "  --plain\n"
             << "  --color auto|always|never\n"
+            << "  --ui auto|pretty|compact|plain|json\n"
+            << "  --backend-output stream|compact|silent\n"
             << "  --json  (alias for --format json where supported)\n\n"
             << "Commands:\n"
             << "  workspace list\n"

@@ -3,11 +3,33 @@
 #include "Model.hpp"
 
 #include <optional>
+#include <string>
 #include <tuple>
 #include <vector>
 
 namespace NGIN::CLI
 {
+    enum class BackendOutputMode
+    {
+        Stream,
+        Compact,
+        Silent,
+    };
+
+    struct BackendStepResult
+    {
+        std::string name{};
+        int exitCode{};
+        int durationMilliseconds{};
+        std::string output{};
+    };
+
+    struct BuildExecutionOptions
+    {
+        BackendOutputMode backendOutput{BackendOutputMode::Stream};
+        std::vector<BackendStepResult> *backendSteps{};
+    };
+
     struct ToolResolution
     {
         fs::path path{};
@@ -53,12 +75,14 @@ namespace NGIN::CLI
     [[nodiscard]] auto ConfigureLaunch(
         const ProjectManifest &project,
         const ProfileDefinition &profile,
-        const std::optional<fs::path> &outputPath) -> DiagnosticResult<ConfiguredBuildPaths>;
+        const std::optional<fs::path> &outputPath,
+        const BuildExecutionOptions &options = BuildExecutionOptions{}) -> DiagnosticResult<ConfiguredBuildPaths>;
 
     [[nodiscard]] auto BuildLaunch(
         const ProjectManifest &project,
         const ProfileDefinition &profile,
-        const std::optional<fs::path> &outputPath) -> DiagnosticResult<GeneratedLaunchPaths>;
+        const std::optional<fs::path> &outputPath,
+        const BuildExecutionOptions &options = BuildExecutionOptions{}) -> DiagnosticResult<GeneratedLaunchPaths>;
 
     [[nodiscard]] auto LoadLaunchManifestSummary(const fs::path &manifestPath) -> LaunchManifestSummary;
 }

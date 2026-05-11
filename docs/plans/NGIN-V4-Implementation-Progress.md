@@ -977,6 +977,12 @@ Current test coverage includes:
   parsing while presenting analyzer plans through the modern output surface
 - VS Code invokes the CLI with `--plain` by default so terminal color/styling
   improvements do not affect extension parsing, logs, or diagnostics
+- CLI build-backed commands now support backend output policies through
+  `--ui` and `--backend-output`, including compact capture that hides
+  CMake/Ninja logs on success and reports backend phase timings
+- VS Code defaults to compact backend output, adds output verbosity/color
+  settings, and wraps long NGIN commands in progress notifications with elapsed
+  time while preserving stable Output-panel logs
 
 ## Not Implemented Yet
 
