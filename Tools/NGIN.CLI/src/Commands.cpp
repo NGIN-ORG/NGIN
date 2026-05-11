@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdlib>
 #include <cstdint>
 #include <fstream>
 #include <iostream>
@@ -20,6 +21,10 @@
 #include <unordered_map>
 #include <unordered_set>
 
+#ifndef _WIN32
+#include <unistd.h>
+#endif
+
 namespace NGIN::CLI
 {
     namespace
@@ -29,6 +34,104 @@ namespace NGIN::CLI
             ProjectManifest project{};
             ProfileDefinition profile{};
         };
+
+        [[nodiscard]] auto IsQuiet(const ParsedArgs &args) -> bool
+        {
+            return args.verbosity == OutputVerbosity::Quiet;
+        }
+
+        [[nodiscard]] auto IsVerbose(const ParsedArgs &args) -> bool
+        {
+            return args.verbosity == OutputVerbosity::Verbose || args.verbosity == OutputVerbosity::Trace;
+        }
+
+        [[nodiscard]] auto UseColor(const ParsedArgs &args) -> bool
+        {
+            if (args.colorMode == OutputColorMode::Never)
+            {
+                return false;
+            }
+            if (args.colorMode == OutputColorMode::Always)
+            {
+                return true;
+            }
+            if (std::getenv("NO_COLOR") != nullptr)
+            {
+                return false;
+            }
+#ifndef _WIN32
+            return isatty(fileno(stdout)) != 0;
+#else
+            return false;
+#endif
+        }
+
+        [[nodiscard]] auto Style(const ParsedArgs &args, std::string_view code, std::string_view text) -> std::string
+        {
+            if (!UseColor(args))
+            {
+                return std::string{text};
+            }
+            return "\033[" + std::string{code} + "m" + std::string{text} + "\033[0m";
+        }
+
+        auto PrintTitle(const ParsedArgs &args, std::string_view title) -> void
+        {
+            if (IsQuiet(args))
+            {
+                return;
+            }
+            std::cout << Style(args, "1;36", title) << "\n";
+        }
+
+        auto PrintSection(const ParsedArgs &args, std::string_view title) -> void
+        {
+            if (IsQuiet(args))
+            {
+                return;
+            }
+            std::cout << "\n" << Style(args, "1", title) << "\n";
+        }
+
+        auto PrintField(const ParsedArgs &args, std::string_view name, const std::string &value) -> void
+        {
+            if (IsQuiet(args))
+            {
+                return;
+            }
+            std::cout << "  " << Style(args, "2", name) << "  " << value << "\n";
+        }
+
+        template <typename Value>
+        auto PrintField(const ParsedArgs &args, std::string_view name, const Value &value) -> void
+        {
+            std::ostringstream out{};
+            out << value;
+            PrintField(args, name, out.str());
+        }
+
+        auto PrintItem(const ParsedArgs &args, const std::string &label, const std::string &detail = {}) -> void
+        {
+            if (IsQuiet(args))
+            {
+                return;
+            }
+            std::cout << "  - " << label;
+            if (!detail.empty())
+            {
+                std::cout << "  " << detail;
+            }
+            std::cout << "\n";
+        }
+
+        auto PrintSuccess(const ParsedArgs &args, std::string_view text) -> void
+        {
+            if (IsQuiet(args))
+            {
+                return;
+            }
+            std::cout << "\n" << Style(args, "32", text) << "\n";
+        }
 
         [[nodiscard]] auto EffectiveLaunches(const ProjectManifest &project, const ProfileDefinition &profile) -> std::vector<LaunchDefinition>
         {
@@ -2121,6 +2224,46 @@ namespace NGIN::CLI
             {
                 args.format = argv[++index];
             }
+            else if (current == "--json")
+            {
+                args.format = "json";
+            }
+            else if (current == "--quiet" || current == "-q")
+            {
+                args.verbosity = OutputVerbosity::Quiet;
+            }
+            else if (current == "--verbose" || current == "-v")
+            {
+                args.verbosity = OutputVerbosity::Verbose;
+            }
+            else if (current == "--trace")
+            {
+                args.verbosity = OutputVerbosity::Trace;
+            }
+            else if (current == "--plain")
+            {
+                args.colorMode = OutputColorMode::Never;
+            }
+            else if (current == "--color" && index + 1 < argc)
+            {
+                const std::string mode = argv[++index];
+                if (mode == "auto")
+                {
+                    args.colorMode = OutputColorMode::Auto;
+                }
+                else if (mode == "always")
+                {
+                    args.colorMode = OutputColorMode::Always;
+                }
+                else if (mode == "never")
+                {
+                    args.colorMode = OutputColorMode::Never;
+                }
+                else
+                {
+                    throw std::runtime_error("--color expects auto, always, or never");
+                }
+            }
             else if (current == "--version" && index + 1 < argc)
             {
                 args.versionRange = argv[++index];
@@ -2966,13 +3109,15 @@ namespace NGIN::CLI
             const auto existingLock = ReadTextIfExists(lockPath);
             if (existingLock.empty())
             {
-                std::cout << "Locked restore failed\n";
+                PrintTitle(args, "NGIN restore");
+                std::cout << "error: locked restore failed\n";
                 std::cout << "  missing: " << lockPath << "\n";
                 return 1;
             }
             if (existingLock != expectedLock)
             {
-                std::cout << "Locked restore failed\n";
+                PrintTitle(args, "NGIN restore");
+                std::cout << "error: locked restore failed\n";
                 std::cout << "  path: " << lockPath << "\n";
                 std::cout << "  reason: resolved package graph differs from lock file\n";
                 return 1;
@@ -3008,13 +3153,22 @@ namespace NGIN::CLI
             WriteTextFile(lockPath, expectedLock);
         }
 
-        std::cout << "Restored packages\n";
-        std::cout << "  project: " << resolved.value->project.name << "\n";
-        std::cout << "  profile: " << resolved.value->profile.name << "\n";
-        std::cout << "  store: " << storeRoot << "\n";
-        std::cout << "  lock: " << lockPath << "\n";
-        std::cout << "  locked: " << (args.locked ? "true" : "false") << "\n";
-        std::cout << "  packages: " << resolved.value->orderedPackages.size() << "\n";
+        PrintTitle(args, "NGIN restore");
+        PrintField(args, "product", resolved.value->project.name);
+        PrintField(args, "profile", resolved.value->profile.name);
+        PrintField(args, "store", storeRoot);
+        PrintField(args, "lock", lockPath);
+        PrintField(args, "locked", args.locked ? "true" : "false");
+        PrintField(args, "packages", resolved.value->orderedPackages.size());
+        if (IsVerbose(args) && !resolved.value->orderedPackages.empty())
+        {
+            PrintSection(args, "Resolved packages");
+            for (const auto &package : resolved.value->orderedPackages)
+            {
+                PrintItem(args, package.manifest.name, package.manifest.version);
+            }
+        }
+        PrintSuccess(args, "Restore complete");
         return 0;
     }
 
@@ -4832,15 +4986,23 @@ namespace NGIN::CLI
             PrintDiagnostics(resolved.diagnostics, "Validation", std::cout);
             return 1;
         }
-        std::cout << "Validated profile: " << resolved.value->profile.name << "\n";
-        std::cout << "  project: " << resolved.value->project.name << "\n";
-        std::cout << "  packages: " << resolved.value->orderedPackages.size() << "\n";
-        std::cout << "  required modules: " << resolved.value->requiredModules.size() << "\n";
-        std::cout << "  optional modules: " << resolved.value->optionalModules.size() << "\n";
-        std::cout << "  libraries: " << resolved.value->libraries.size() << "\n";
-        std::cout << "  executables: " << resolved.value->executables.size() << "\n";
-        std::cout << "  selected executable: " << (resolved.value->selectedExecutable.has_value() ? resolved.value->selectedExecutable->name : "(none)") << "\n";
-        PrintDiagnostics(resolved.diagnostics, "Validation", std::cout);
+        PrintTitle(args, "NGIN validate");
+        PrintField(args, "product", resolved.value->project.name);
+        PrintField(args, "profile", resolved.value->profile.name);
+        PrintField(args, "packages", resolved.value->orderedPackages.size());
+        PrintField(args, "executable", resolved.value->selectedExecutable.has_value() ? resolved.value->selectedExecutable->name : "(none)");
+        if (IsVerbose(args))
+        {
+            PrintField(args, "required modules", resolved.value->requiredModules.size());
+            PrintField(args, "optional modules", resolved.value->optionalModules.size());
+            PrintField(args, "libraries", resolved.value->libraries.size());
+            PrintField(args, "executables", resolved.value->executables.size());
+        }
+        if (!IsQuiet(args))
+        {
+            PrintDiagnostics(resolved.diagnostics, "Validation", std::cout);
+            PrintSuccess(args, "Validation passed");
+        }
         return 0;
     }
 
@@ -5477,10 +5639,15 @@ namespace NGIN::CLI
             return 1;
         }
 
-        std::cout << "Cleaned profile: " << invocation.profile.name << "\n";
-        std::cout << "  project: " << invocation.project.name << "\n";
-        std::cout << "  output: " << *cleaned.value << "\n";
-        PrintDiagnostics(cleaned.diagnostics, "Clean", std::cout);
+        PrintTitle(args, "NGIN clean");
+        PrintField(args, "product", invocation.project.name);
+        PrintField(args, "profile", invocation.profile.name);
+        PrintField(args, "output", *cleaned.value);
+        if (!IsQuiet(args))
+        {
+            PrintDiagnostics(cleaned.diagnostics, "Clean", std::cout);
+            PrintSuccess(args, "Clean complete");
+        }
         return 0;
     }
 
@@ -5498,19 +5665,24 @@ namespace NGIN::CLI
             return 1;
         }
 
-        std::cout << "Configured build metadata for profile: " << invocation.profile.name << "\n";
-        std::cout << "  project: " << invocation.project.name << "\n";
-        std::cout << "  output: " << configured.value->outputDir << "\n";
+        PrintTitle(args, "NGIN configure");
+        PrintField(args, "product", invocation.project.name);
+        PrintField(args, "profile", invocation.profile.name);
+        PrintField(args, "output", configured.value->outputDir);
         if (configured.value->configured)
         {
-            std::cout << "  build directory: " << *configured.value->buildDir << "\n";
-            std::cout << "  compile commands: " << *configured.value->compileCommandsPath << "\n";
+            PrintField(args, "build dir", *configured.value->buildDir);
+            PrintField(args, "compile db", *configured.value->compileCommandsPath);
         }
         else
         {
-            std::cout << "  generated native build: (none)\n";
+            PrintField(args, "native build", "(none)");
         }
-        PrintDiagnostics(configured.diagnostics, "Configure", std::cout);
+        if (!IsQuiet(args))
+        {
+            PrintDiagnostics(configured.diagnostics, "Configure", std::cout);
+            PrintSuccess(args, "Configure complete");
+        }
         return 0;
     }
 
@@ -5529,12 +5701,17 @@ namespace NGIN::CLI
         }
 
         const auto summary = LoadLaunchManifestSummary(built.value->manifestPath);
-        std::cout << "Built profile: " << invocation.profile.name << "\n";
-        std::cout << "  project: " << invocation.project.name << "\n";
-        std::cout << "  output: " << built.value->outputDir << "\n";
-        std::cout << "  launch manifest: " << built.value->manifestPath << "\n";
-        std::cout << "  selected executable: " << (summary.selectedExecutable.has_value() && !summary.selectedExecutable->empty() ? *summary.selectedExecutable : "(none)") << "\n";
-        PrintDiagnostics(built.diagnostics, "Build", std::cout);
+        PrintTitle(args, "NGIN build");
+        PrintField(args, "product", invocation.project.name);
+        PrintField(args, "profile", invocation.profile.name);
+        PrintField(args, "output", built.value->outputDir);
+        PrintField(args, "launch", built.value->manifestPath);
+        PrintField(args, "executable", summary.selectedExecutable.has_value() && !summary.selectedExecutable->empty() ? *summary.selectedExecutable : "(none)");
+        if (!IsQuiet(args))
+        {
+            PrintDiagnostics(built.diagnostics, "Build", std::cout);
+            PrintSuccess(args, "Build complete");
+        }
         return 0;
     }
 
@@ -5553,12 +5730,17 @@ namespace NGIN::CLI
         }
 
         const auto summary = LoadLaunchManifestSummary(built.value->manifestPath);
-        std::cout << "Staged profile: " << invocation.profile.name << "\n";
-        std::cout << "  project: " << invocation.project.name << "\n";
-        std::cout << "  output: " << built.value->outputDir << "\n";
-        std::cout << "  launch manifest: " << built.value->manifestPath << "\n";
-        std::cout << "  selected executable: " << (summary.selectedExecutable.has_value() && !summary.selectedExecutable->empty() ? *summary.selectedExecutable : "(none)") << "\n";
-        PrintDiagnostics(built.diagnostics, "Stage", std::cout);
+        PrintTitle(args, "NGIN stage");
+        PrintField(args, "product", invocation.project.name);
+        PrintField(args, "profile", invocation.profile.name);
+        PrintField(args, "output", built.value->outputDir);
+        PrintField(args, "launch", built.value->manifestPath);
+        PrintField(args, "executable", summary.selectedExecutable.has_value() && !summary.selectedExecutable->empty() ? *summary.selectedExecutable : "(none)");
+        if (!IsQuiet(args))
+        {
+            PrintDiagnostics(built.diagnostics, "Stage", std::cout);
+            PrintSuccess(args, "Stage complete");
+        }
         return 0;
     }
 
@@ -5588,12 +5770,17 @@ namespace NGIN::CLI
         }
 
         const auto summary = LoadLaunchManifestSummary(built.value->manifestPath);
-        std::cout << "Rebuilt profile: " << invocation.profile.name << "\n";
-        std::cout << "  project: " << invocation.project.name << "\n";
-        std::cout << "  output: " << built.value->outputDir << "\n";
-        std::cout << "  launch manifest: " << built.value->manifestPath << "\n";
-        std::cout << "  selected executable: " << (summary.selectedExecutable.has_value() && !summary.selectedExecutable->empty() ? *summary.selectedExecutable : "(none)") << "\n";
-        PrintDiagnostics(built.diagnostics, "Rebuild", std::cout);
+        PrintTitle(args, "NGIN rebuild");
+        PrintField(args, "product", invocation.project.name);
+        PrintField(args, "profile", invocation.profile.name);
+        PrintField(args, "output", built.value->outputDir);
+        PrintField(args, "launch", built.value->manifestPath);
+        PrintField(args, "executable", summary.selectedExecutable.has_value() && !summary.selectedExecutable->empty() ? *summary.selectedExecutable : "(none)");
+        if (!IsQuiet(args))
+        {
+            PrintDiagnostics(built.diagnostics, "Rebuild", std::cout);
+            PrintSuccess(args, "Rebuild complete");
+        }
         return 0;
     }
 
@@ -5646,8 +5833,9 @@ namespace NGIN::CLI
         const auto &resolved = *resolvedResult.value;
         const auto analyzers = EffectiveAnalyzers(invocation.project, invocation.profile, resolved.selectedPackageFeatures);
 
-        std::cout << "Analyze product: " << invocation.project.name << "\n";
-        std::cout << "Profile: " << invocation.profile.name << "\n";
+        PrintTitle(args, "NGIN analyze");
+        PrintField(args, "product", invocation.project.name);
+        PrintField(args, "profile", invocation.profile.name);
         bool anyEnabled = false;
         bool needsConfigure = false;
         for (const auto &[_, analyzer] : analyzers)
@@ -5658,25 +5846,29 @@ namespace NGIN::CLI
             }
             anyEnabled = true;
             needsConfigure = needsConfigure || IsClangTidyAnalyzer(analyzer);
-            std::cout << "  analyzer " << analyzer.name
-                      << " scope=" << analyzer.scope
-                      << " severity=" << analyzer.severity;
-            if (!AnalyzerToolName(analyzer).empty() && AnalyzerToolName(analyzer) != analyzer.name)
+            if (!IsQuiet(args))
             {
-                std::cout << " tool=" << AnalyzerToolName(analyzer);
+                std::ostringstream detail{};
+                detail << "scope=" << analyzer.scope
+                       << " severity=" << analyzer.severity;
+                if (!AnalyzerToolName(analyzer).empty() && AnalyzerToolName(analyzer) != analyzer.name)
+                {
+                    detail << " tool=" << AnalyzerToolName(analyzer);
+                }
+                if (!analyzer.configPath.empty())
+                {
+                    detail << " config=" << analyzer.configPath;
+                }
+                PrintItem(args, analyzer.name, detail.str());
             }
-            if (!analyzer.configPath.empty())
-            {
-                std::cout << " config=" << analyzer.configPath;
-            }
-            std::cout << "\n";
         }
         if (!anyEnabled)
         {
-            std::cout << "  (no enabled analyzers)\n";
+            PrintField(args, "analyzers", "(none)");
         }
         if (!needsConfigure)
         {
+            PrintSuccess(args, "Analyze complete");
             return 0;
         }
 
@@ -5695,9 +5887,11 @@ namespace NGIN::CLI
         const auto sources = ResolveAnalyzerSources(resolved);
         if (sources.empty())
         {
-            std::cout << "  (no C++ source files selected for clang-tidy)\n";
+            PrintField(args, "sources", "(none)");
+            PrintSuccess(args, "Analyze complete");
             return 0;
         }
+        PrintField(args, "sources", sources.size());
 
         bool hasErrors = false;
         for (const auto &[_, analyzer] : analyzers)
@@ -5776,6 +5970,10 @@ namespace NGIN::CLI
                 }
             }
         }
+        if (!hasErrors)
+        {
+            PrintSuccess(args, "Analyze complete");
+        }
         return hasErrors ? 1 : 0;
     }
 
@@ -5822,16 +6020,21 @@ namespace NGIN::CLI
             WriteZipArchive(built.value->outputDir, publishOutput);
         }
 
-        std::cout << "Published profile: " << invocation.profile.name << "\n";
-        std::cout << "  project: " << invocation.project.name << "\n";
-        std::cout << "  publish: " << publish.name << "\n";
-        std::cout << "  kind: " << publish.kind << "\n";
+        PrintTitle(args, "NGIN publish");
+        PrintField(args, "product", invocation.project.name);
+        PrintField(args, "profile", invocation.profile.name);
+        PrintField(args, "publish", publish.name);
+        PrintField(args, "kind", publish.kind);
         if (!publish.format.empty())
         {
-            std::cout << "  format: " << publish.format << "\n";
+            PrintField(args, "format", publish.format);
         }
-        std::cout << "  output: " << publishOutput << "\n";
-        PrintDiagnostics(built.diagnostics, "Publish", std::cout);
+        PrintField(args, "output", publishOutput);
+        if (!IsQuiet(args))
+        {
+            PrintDiagnostics(built.diagnostics, "Publish", std::cout);
+            PrintSuccess(args, "Publish complete");
+        }
         return 0;
     }
 }

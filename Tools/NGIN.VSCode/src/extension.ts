@@ -1616,13 +1616,16 @@ class NginController implements vscode.Disposable {
   ): Promise<CliRunResult> {
     const cliPath = await this.resolveCliPath(workspaceRoot, cliOverride);
     await this.warnIfCliStale(cliPath, workspaceRoot);
+    const actualArgs = args.includes('--plain') || args.includes('--color')
+      ? args
+      : [...args, '--plain'];
 
     this.outputChannel.show(true);
-    this.outputChannel.appendLine(`> ${cliPath} ${args.join(' ')}`);
+    this.outputChannel.appendLine(`> ${cliPath} ${actualArgs.join(' ')}`);
 
     const result = await new Promise<CliRunResult>((resolve, reject) => {
       let combined = '';
-      const child = spawn(cliPath, args, { cwd: workspaceRoot });
+      const child = spawn(cliPath, actualArgs, { cwd: workspaceRoot });
 
       child.stdout.on('data', (chunk) => {
         const text = chunk.toString();

@@ -83,7 +83,7 @@ TEST_CASE("stage command builds and reports staged output")
     std::cout.rdbuf(previous);
 
     REQUIRE(exitCode == 0);
-    REQUIRE_THAT(captured.str(), ContainsSubstring("Staged profile:"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring("NGIN stage"));
     REQUIRE(fs::exists(temp.path() / "out/config/app.json"));
 }
 
@@ -119,8 +119,8 @@ TEST_CASE("analyze command reports declared non-clang analyzer plan")
     std::cout.rdbuf(previous);
 
     REQUIRE(exitCode == 0);
-    REQUIRE_THAT(captured.str(), ContainsSubstring("Analyze product: Analyze.App"));
-    REQUIRE_THAT(captured.str(), ContainsSubstring("analyzer example-analyzer scope=Build severity=Error config=analyzer.cfg"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring("NGIN analyze"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring("example-analyzer  scope=Build severity=Error config=analyzer.cfg"));
 
     ParsedArgs inspectArgs{};
     inspectArgs.projectPath = projectPath.string();

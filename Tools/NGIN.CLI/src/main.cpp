@@ -12,6 +12,13 @@ namespace
     {
         std::cout
             << "usage: ngin <command> [options]\n\n"
+            << "Output options:\n"
+            << "  --quiet | -q\n"
+            << "  --verbose | -v\n"
+            << "  --trace\n"
+            << "  --plain\n"
+            << "  --color auto|always|never\n"
+            << "  --json  (alias for --format json where supported)\n\n"
             << "Commands:\n"
             << "  workspace list\n"
             << "  workspace status\n"

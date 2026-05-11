@@ -315,8 +315,8 @@ TEST_CASE("workspace profile policy applies to projects without local profiles")
     std::cout.rdbuf(previous);
 
     REQUIRE(analyzeExitCode == 0);
-    REQUIRE_THAT(analyzeCaptured.str(), ContainsSubstring("analyzer workspace-clang-tidy scope=Build severity=Error config=.clang-tidy"));
-    REQUIRE_THAT(analyzeCaptured.str(), ContainsSubstring("analyzer workspace-app-analyzer scope=Build severity=Error"));
+    REQUIRE_THAT(analyzeCaptured.str(), ContainsSubstring("workspace-clang-tidy  scope=Build severity=Error config=.clang-tidy"));
+    REQUIRE_THAT(analyzeCaptured.str(), ContainsSubstring("workspace-app-analyzer  scope=Build severity=Error"));
 
     ParsedArgs runtimeExplainArgs{};
     runtimeExplainArgs.projectPath = args.projectPath;

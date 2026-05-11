@@ -969,6 +969,14 @@ Current test coverage includes:
   `.clang-tidy` open/create actions, and the `ngin-clang-tidy` snippet
 - VS Code internal/user-facing package-reference naming has been migrated to
   dependency/uses terminology where it affects active models and labels
+- CLI lifecycle commands now use a shared modern output surface with command
+  titles, aligned fields, item lists, success summaries, `--quiet`,
+  `--verbose`, `--trace`, `--plain`, `--color`, and `--json` alias support
+  where formatting is supported
+- CLI analyzer output keeps normalized diagnostic lines stable for editor
+  parsing while presenting analyzer plans through the modern output surface
+- VS Code invokes the CLI with `--plain` by default so terminal color/styling
+  improvements do not affect extension parsing, logs, or diagnostics
 
 ## Not Implemented Yet
 

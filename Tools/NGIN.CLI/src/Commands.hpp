@@ -4,6 +4,21 @@
 
 namespace NGIN::CLI
 {
+    enum class OutputVerbosity
+    {
+        Quiet,
+        Normal,
+        Verbose,
+        Trace,
+    };
+
+    enum class OutputColorMode
+    {
+        Auto,
+        Always,
+        Never,
+    };
+
     struct ParsedArgs
     {
         std::optional<std::string> projectPath{};
@@ -22,6 +37,8 @@ namespace NGIN::CLI
         std::optional<std::string> scope{};
         std::optional<std::string> launchName{};
         std::optional<std::string> graphPlan{};
+        OutputVerbosity verbosity{OutputVerbosity::Normal};
+        OutputColorMode colorMode{OutputColorMode::Auto};
         bool locked{false};
         std::vector<std::string> runArgs{};
     };
