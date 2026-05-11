@@ -198,6 +198,36 @@ TEST_CASE("package feature analyzer contributes clang-tidy to graph")
 
     REQUIRE(exitCode == 0);
     REQUIRE_THAT(captured.str(), ContainsSubstring("analyzer clang-tidy scope=Build severity=Warning config=.clang-tidy"));
+
+    WriteFile(projectPath,
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4" Name="PackageAnalyze.App">
+  <Application>
+    <Uses>
+      <Package Name="NGIN.Tooling.ClangTidy" Version="[0.1.0,0.2.0)" Scope="Dev">
+        <Feature Name="Analyzer" />
+      </Package>
+    </Uses>
+    <Build>
+      <Sources Path="src/**.cpp" />
+    </Build>
+    <Quality>
+      <Analyzer Name="clang-tidy" Severity="Error" />
+    </Quality>
+  </Application>
+</Project>
+)xml");
+
+    ParsedArgs inspectArgs{};
+    inspectArgs.projectPath = projectPath.string();
+    inspectArgs.format = "json";
+    std::ostringstream inspectCaptured{};
+    previous = std::cout.rdbuf(inspectCaptured.rdbuf());
+    const auto inspectExitCode = CmdInspect(temp.path(), inspectArgs);
+    std::cout.rdbuf(previous);
+
+    REQUIRE(inspectExitCode == 0);
+    REQUIRE_THAT(inspectCaptured.str(), ContainsSubstring(R"("name":"clang-tidy","tool":"clang-tidy","package":"NGIN.Tooling.ClangTidy","scope":"Build","severity":"Error","configPath":".clang-tidy","configOptional":true)"));
 }
 
 #ifndef _WIN32

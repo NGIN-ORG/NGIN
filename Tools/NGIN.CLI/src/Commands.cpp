@@ -993,22 +993,43 @@ namespace NGIN::CLI
             const std::vector<SelectedPackageFeature> &selectedFeatures = {}) -> std::map<std::string, AnalyzerDefinition>
         {
             std::map<std::string, AnalyzerDefinition> analyzers{};
+            const auto mergeAnalyzer = [&](AnalyzerDefinition selected)
+            {
+                if (selected.toolName.empty())
+                {
+                    selected.toolName = selected.name;
+                }
+
+                const auto existing = analyzers.find(selected.name);
+                if (existing != analyzers.end())
+                {
+                    if (selected.toolName == selected.name && !existing->second.toolName.empty())
+                    {
+                        selected.toolName = existing->second.toolName;
+                    }
+                    if (selected.packageName.empty())
+                    {
+                        selected.packageName = existing->second.packageName;
+                    }
+                    if (selected.configPath.empty())
+                    {
+                        selected.configPath = existing->second.configPath;
+                        selected.configOptional = existing->second.configOptional;
+                    }
+                }
+
+                analyzers[selected.name] = std::move(selected);
+            };
             const auto mergeSelected = [&](const std::vector<AnalyzerDefinition> &source)
             {
                 for (const auto &analyzer : source)
                 {
                     if (SelectionMatches(project, analyzer.selectors, profile))
                     {
-                        auto selected = analyzer;
-                        if (selected.toolName.empty())
-                        {
-                            selected.toolName = selected.name;
-                        }
-                        analyzers[selected.name] = std::move(selected);
+                        mergeAnalyzer(analyzer);
                     }
                 }
             };
-            mergeSelected(project.quality.analyzers);
             for (const auto &feature : selectedFeatures)
             {
                 for (const auto &analyzer : feature.quality.analyzers)
@@ -1024,10 +1045,11 @@ namespace NGIN::CLI
                         {
                             selected.packageName = feature.packageName;
                         }
-                        analyzers[selected.name] = std::move(selected);
+                        mergeAnalyzer(std::move(selected));
                     }
                 }
             }
+            mergeSelected(project.quality.analyzers);
             mergeSelected(profile.quality.analyzers);
             return analyzers;
         }
