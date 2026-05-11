@@ -983,6 +983,10 @@ Current test coverage includes:
 - VS Code defaults to compact backend output, adds output verbosity/color
   settings, and wraps long NGIN commands in progress notifications with elapsed
   time while preserving stable Output-panel logs
+- compact backend output is now the default CLI build-backed command behavior,
+  interactive terminals get a live elapsed backend progress line when
+  compatible, and `--verbose` now adds NGIN-owned resolved graph detail instead
+  of only acting like backend streaming
 
 ## Not Implemented Yet
 

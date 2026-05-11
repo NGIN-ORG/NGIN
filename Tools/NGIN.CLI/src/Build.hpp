@@ -28,6 +28,7 @@ namespace NGIN::CLI
     {
         BackendOutputMode backendOutput{BackendOutputMode::Stream};
         std::vector<BackendStepResult> *backendSteps{};
+        bool interactiveProgress{};
     };
 
     struct ToolResolution

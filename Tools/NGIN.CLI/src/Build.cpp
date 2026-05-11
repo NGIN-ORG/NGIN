@@ -23,13 +23,16 @@
 #include <cstdlib>
 #include <cstdint>
 #include <fstream>
+#include <iostream>
 #include <map>
 #include <sstream>
 #include <set>
 #include <string_view>
+#include <thread>
 #include <tuple>
 #include <unordered_map>
 #include <unordered_set>
+#include <atomic>
 
 namespace NGIN::CLI
 {
@@ -2004,7 +2007,43 @@ namespace NGIN::CLI
             }
             else
             {
-                result = RunProcessCapture(executable, arguments, workingDirectory);
+                std::atomic_bool finished{false};
+                std::thread progressThread{};
+                if (options.interactiveProgress)
+                {
+                    progressThread = std::thread([&finished, &name, started]()
+                    {
+                        constexpr std::array<char, 4> spinner{'|', '/', '-', '\\'};
+                        std::size_t index = 0;
+                        while (!finished.load(std::memory_order_relaxed))
+                        {
+                            const auto now = std::chrono::steady_clock::now();
+                            const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(now - started).count();
+                            std::cout << "\r  " << spinner[index++ % spinner.size()] << " " << name << " running " << seconds << "s" << std::flush;
+                            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                        }
+                    });
+                }
+                try
+                {
+                    result = RunProcessCapture(executable, arguments, workingDirectory);
+                }
+                catch (...)
+                {
+                    finished.store(true, std::memory_order_relaxed);
+                    if (progressThread.joinable())
+                    {
+                        progressThread.join();
+                        std::cout << "\r\033[2K" << std::flush;
+                    }
+                    throw;
+                }
+                finished.store(true, std::memory_order_relaxed);
+                if (progressThread.joinable())
+                {
+                    progressThread.join();
+                    std::cout << "\r\033[2K" << std::flush;
+                }
             }
             const auto finished = std::chrono::steady_clock::now();
             const auto duration = static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(finished - started).count());

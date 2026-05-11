@@ -66,6 +66,15 @@ namespace NGIN::CLI
 #endif
         }
 
+        [[nodiscard]] auto IsInteractiveTerminal() -> bool
+        {
+#ifndef _WIN32
+            return isatty(fileno(stdout)) != 0;
+#else
+            return false;
+#endif
+        }
+
         [[nodiscard]] auto Style(const ParsedArgs &args, std::string_view code, std::string_view text) -> std::string
         {
             if (!UseColor(args))
@@ -138,6 +147,7 @@ namespace NGIN::CLI
             return BuildExecutionOptions{
                 .backendOutput = args.verbosity == OutputVerbosity::Quiet ? BackendOutputMode::Silent : args.backendOutputMode,
                 .backendSteps = &backendSteps,
+                .interactiveProgress = args.backendOutputMode == BackendOutputMode::Compact && !IsQuiet(args) && args.colorMode != OutputColorMode::Never && IsInteractiveTerminal(),
             };
         }
 
@@ -194,6 +204,132 @@ namespace NGIN::CLI
                     std::cout << "    " << line << "\n";
                 }
             }
+        }
+
+        struct InputSummary
+        {
+            std::size_t sources{};
+            std::size_t headers{};
+            std::size_t config{};
+            std::size_t content{};
+            std::size_t staged{};
+        };
+
+        [[nodiscard]] auto SummarizeInputs(const std::vector<ResolvedInput> &inputs) -> InputSummary
+        {
+            InputSummary summary{};
+            for (const auto &input : inputs)
+            {
+                const auto kind = Lower(input.kind);
+                const auto role = Lower(input.role);
+                const auto contentKind = Lower(input.contentKind);
+                if (kind == "source" || role == "source")
+                {
+                    ++summary.sources;
+                }
+                else if (kind == "header" || role == "header")
+                {
+                    ++summary.headers;
+                }
+                else if (kind == "config" || contentKind == "config")
+                {
+                    ++summary.config;
+                }
+                else if (kind == "content" || contentKind == "content" || contentKind == "asset")
+                {
+                    ++summary.content;
+                }
+                if (!input.stagedRelativePath.empty())
+                {
+                    ++summary.staged;
+                }
+            }
+            return summary;
+        }
+
+        auto PrintVerboseResolvedDetails(
+            const ParsedArgs &args,
+            const ProjectManifest &project,
+            const ProfileDefinition &profile,
+            const fs::path &outputDir) -> void
+        {
+            if (!IsVerbose(args))
+            {
+                return;
+            }
+            const auto resolvedResult = ResolveLaunch(project, profile);
+            if (!resolvedResult.value.has_value() || resolvedResult.diagnostics.HasErrors())
+            {
+                return;
+            }
+            const auto &resolved = *resolvedResult.value;
+            const auto inputSummary = SummarizeInputs(resolved.inputs);
+
+            PrintSection(args, "Selection");
+            PrintField(args, "product kind", resolved.project.productKind);
+            PrintField(args, "build type", resolved.profile.buildType);
+            PrintField(args, "host platform", resolved.profile.hostPlatform);
+            PrintField(args, "target platform", resolved.profile.platform);
+            if (!resolved.profile.toolchain.empty())
+            {
+                PrintField(args, "toolchain", resolved.profile.toolchain);
+            }
+            if (!resolved.targetAbiTag.empty())
+            {
+                PrintField(args, "abi", resolved.targetAbiTag);
+            }
+
+            PrintSection(args, "Inputs");
+            PrintField(args, "sources", inputSummary.sources);
+            PrintField(args, "headers", inputSummary.headers);
+            PrintField(args, "config", inputSummary.config);
+            PrintField(args, "content", inputSummary.content);
+            PrintField(args, "staged", inputSummary.staged);
+
+            PrintSection(args, "Graph");
+            PrintField(args, "packages", resolved.orderedPackages.size());
+            PrintField(args, "features", resolved.selectedPackageFeatures.size());
+            PrintField(args, "generators", resolved.generators.size());
+            PrintField(args, "libraries", resolved.libraries.size());
+            PrintField(args, "executables", resolved.executables.size());
+            PrintField(args, "environment", resolved.environmentVariables.size());
+            PrintField(args, "runtime modules", resolved.requiredModules.size() + resolved.optionalModules.size());
+
+            if (!resolved.orderedPackages.empty())
+            {
+                PrintSection(args, "Packages");
+                for (const auto &package : resolved.orderedPackages)
+                {
+                    std::ostringstream detail{};
+                    detail << package.manifest.version;
+                    if (const auto scope = resolved.packageScopes.find(package.manifest.name); scope != resolved.packageScopes.end() && !scope->second.empty())
+                    {
+                        detail << " scope=" << scope->second;
+                    }
+                    detail << " source=" << package.source;
+                    PrintItem(args, package.manifest.name, detail.str());
+                }
+            }
+
+            if (!resolved.generators.empty())
+            {
+                PrintSection(args, "Generators");
+                for (const auto &generator : resolved.generators)
+                {
+                    std::ostringstream detail{};
+                    detail << "owner=" << generator.ownerKind << ":" << generator.ownerName;
+                    if (!generator.declaration.kind.empty())
+                    {
+                        detail << " kind=" << generator.declaration.kind;
+                    }
+                    PrintItem(args, generator.declaration.name, detail.str());
+                }
+            }
+
+            PrintSection(args, "Backend paths");
+            PrintField(args, "output", outputDir);
+            PrintField(args, "build dir", outputDir / ".ngin" / "cmake-build");
+            PrintField(args, "generated dir", outputDir / ".ngin" / "generated");
         }
 
         [[nodiscard]] auto EffectiveLaunches(const ProjectManifest &project, const ProfileDefinition &profile) -> std::vector<LaunchDefinition>
@@ -2320,12 +2456,12 @@ namespace NGIN::CLI
                 if (mode == "auto")
                 {
                     args.colorMode = OutputColorMode::Auto;
-                    args.backendOutputMode = BackendOutputMode::Stream;
+                    args.backendOutputMode = BackendOutputMode::Compact;
                 }
                 else if (mode == "pretty")
                 {
                     args.colorMode = OutputColorMode::Auto;
-                    args.backendOutputMode = BackendOutputMode::Stream;
+                    args.backendOutputMode = BackendOutputMode::Compact;
                 }
                 else if (mode == "compact")
                 {
@@ -5806,6 +5942,7 @@ namespace NGIN::CLI
         {
             PrintField(args, "native build", "(none)");
         }
+        PrintVerboseResolvedDetails(args, invocation.project, invocation.profile, configured.value->outputDir);
         if (!IsQuiet(args))
         {
             PrintBackendSteps(args, backendSteps, false);
@@ -5841,6 +5978,7 @@ namespace NGIN::CLI
         PrintField(args, "output", built.value->outputDir);
         PrintField(args, "launch", built.value->manifestPath);
         PrintField(args, "executable", summary.selectedExecutable.has_value() && !summary.selectedExecutable->empty() ? *summary.selectedExecutable : "(none)");
+        PrintVerboseResolvedDetails(args, invocation.project, invocation.profile, built.value->outputDir);
         if (!IsQuiet(args))
         {
             PrintBackendSteps(args, backendSteps, false);
@@ -5876,6 +6014,7 @@ namespace NGIN::CLI
         PrintField(args, "output", built.value->outputDir);
         PrintField(args, "launch", built.value->manifestPath);
         PrintField(args, "executable", summary.selectedExecutable.has_value() && !summary.selectedExecutable->empty() ? *summary.selectedExecutable : "(none)");
+        PrintVerboseResolvedDetails(args, invocation.project, invocation.profile, built.value->outputDir);
         if (!IsQuiet(args))
         {
             PrintBackendSteps(args, backendSteps, false);
@@ -5922,6 +6061,7 @@ namespace NGIN::CLI
         PrintField(args, "output", built.value->outputDir);
         PrintField(args, "launch", built.value->manifestPath);
         PrintField(args, "executable", summary.selectedExecutable.has_value() && !summary.selectedExecutable->empty() ? *summary.selectedExecutable : "(none)");
+        PrintVerboseResolvedDetails(args, invocation.project, invocation.profile, built.value->outputDir);
         if (!IsQuiet(args))
         {
             PrintBackendSteps(args, backendSteps, false);
@@ -6188,6 +6328,7 @@ namespace NGIN::CLI
             PrintField(args, "format", publish.format);
         }
         PrintField(args, "output", publishOutput);
+        PrintVerboseResolvedDetails(args, invocation.project, invocation.profile, built.value->outputDir);
         if (!IsQuiet(args))
         {
             PrintDiagnostics(built.diagnostics, "Publish", std::cout);

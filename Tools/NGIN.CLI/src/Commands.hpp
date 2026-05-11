@@ -40,7 +40,7 @@ namespace NGIN::CLI
         std::optional<std::string> graphPlan{};
         OutputVerbosity verbosity{OutputVerbosity::Normal};
         OutputColorMode colorMode{OutputColorMode::Auto};
-        BackendOutputMode backendOutputMode{BackendOutputMode::Stream};
+        BackendOutputMode backendOutputMode{BackendOutputMode::Compact};
         bool locked{false};
         std::vector<std::string> runArgs{};
     };
