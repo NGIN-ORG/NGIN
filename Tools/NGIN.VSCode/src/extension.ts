@@ -15,6 +15,7 @@ import {
   extractLocalSettingsWarnings,
   getExecutableCandidatePaths,
   getWorkingDirectoryCandidates,
+  normalizeInspectPayload,
   parseCliDiagnostics
 } from './core/helpers';
 import { addRootConfigInput, listConfigInputs, relativeManifestPath, removeConfigInputs, renameConfigInputs } from './core/projectAuthoring';
@@ -1645,17 +1646,15 @@ class NginController implements vscode.Disposable {
       throw new Error(result.stderr.trim() || `inspect exited with code ${result.exitCode}`);
     }
 
-    let payload: ProjectInspectPayload;
+    let rawPayload: unknown;
     try {
-      payload = JSON.parse(result.stdout) as ProjectInspectPayload;
+      rawPayload = JSON.parse(result.stdout);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(`inspect returned invalid JSON: ${message}`);
     }
 
-    if (payload.schemaVersion !== 1) {
-      throw new Error(`unsupported inspect schema version: ${String(payload.schemaVersion)}`);
-    }
+    const payload = normalizeInspectPayload(rawPayload);
 
     if (result.exitCode !== 0 && (!payload.diagnostics || payload.diagnostics.length === 0)) {
       throw new Error(result.stderr.trim() || `inspect exited with code ${result.exitCode}`);

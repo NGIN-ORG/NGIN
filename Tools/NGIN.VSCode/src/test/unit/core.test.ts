@@ -18,6 +18,7 @@ import {
   extractLocalSettingsWarnings,
   getExecutableCandidatePaths,
   getWorkingDirectoryCandidates,
+  normalizeInspectPayload,
   parseCliDiagnostics
 } from '../../core/helpers';
 import { addRootConfigInput, relativeManifestPath, removeConfigInputs, renameConfigInputs } from '../../core/projectAuthoring';
@@ -80,6 +81,88 @@ test('parseCliDiagnostics extracts structured file and generic errors', () => {
   assert.equal(diagnostics[3].column, 7);
   assert.equal(diagnostics[3].severity, 'warning');
   assert.equal(diagnostics[3].message, 'prefer auto [clang-tidy:modernize-use-auto]');
+});
+
+test('normalizeInspectPayload maps V4 composition graph inspect output to extension model', () => {
+  const payload = normalizeInspectPayload({
+    schemaVersion: '4.0',
+    kind: 'NGIN.CompositionGraph',
+    identity: {
+      project: 'Hello.Analyzer',
+      projectPath: '/repo/Examples/Hello.Analyzer/Hello.Analyzer.nginproj'
+    },
+    product: {
+      kind: 'Application'
+    },
+    selection: {
+      profile: 'Debug.Analyzer',
+      buildType: 'Debug',
+      targetPlatform: 'linux-x64',
+      operatingSystem: 'linux',
+      architecture: 'x64',
+      environment: 'local'
+    },
+    plans: {
+      packages: [
+        {
+          name: 'NGIN.Tooling.ClangTidy',
+          version: '0.1.0',
+          providerRoot: '/repo/Packages/NGIN.Tooling.ClangTidy',
+          closures: ['Dev']
+        }
+      ],
+      packageFeatures: [
+        {
+          package: 'NGIN.Tooling.ClangTidy',
+          packageVersion: '0.1.0',
+          feature: 'Analyzer'
+        }
+      ],
+      build: {
+        inputs: [
+          {
+            role: 'Source',
+            source: 'src/main.cpp',
+            owner: 'project:Hello.Analyzer'
+          }
+        ]
+      },
+      generators: [],
+      stage: {
+        files: []
+      },
+      runtime: {
+        requiredModules: []
+      },
+      environment: {
+        variables: []
+      },
+      launch: {
+        executable: 'Hello.Analyzer',
+        workingDirectory: '.'
+      },
+      quality: {
+        analyzers: [
+          {
+            name: 'clang-tidy',
+            package: 'NGIN.Tooling.ClangTidy'
+          }
+        ]
+      },
+      diagnostics: []
+    }
+  });
+
+  assert.equal(payload.schemaVersion, 1);
+  assert.equal(payload.project?.name, 'Hello.Analyzer');
+  assert.equal(payload.project?.type, 'Application');
+  assert.equal(payload.profile?.name, 'Debug.Analyzer');
+  assert.equal(payload.profile?.platform, 'linux-x64');
+  assert.equal(payload.packages?.[0]?.name, 'NGIN.Tooling.ClangTidy');
+  assert.equal(payload.packageFeatures?.[0]?.state, 'selected');
+  assert.equal(payload.inputs?.Source?.[0]?.source, 'src/main.cpp');
+  assert.equal(payload.launch?.executable?.name, 'Hello.Analyzer');
+  assert.equal(payload.capabilities?.providers[0]?.name, 'clang-tidy');
 });
 
 test('settings init output exposes the initialized settings path', () => {

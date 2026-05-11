@@ -935,6 +935,8 @@ Current test coverage includes:
 - package feature `Quality/Analyzer` contributions
 - `ngin analyze` clang-tidy execution through package/system tool resolution
 - clang-tidy diagnostics normalized for VS Code file, line, and column display
+- VS Code inspect consumption now accepts the V4 Composition Graph inspect
+  envelope and normalizes it into the existing project/sidebar inspect model
 
 ## Not Implemented Yet
 
