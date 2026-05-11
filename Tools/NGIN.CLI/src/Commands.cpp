@@ -28,6 +28,89 @@ namespace NGIN::CLI
             ProfileDefinition profile{};
         };
 
+        [[nodiscard]] auto EffectiveLaunches(const ProjectManifest &project, const ProfileDefinition &profile) -> std::vector<LaunchDefinition>
+        {
+            std::map<std::string, LaunchDefinition> byName{};
+            const auto merge = [&](const std::vector<LaunchDefinition> &launches)
+            {
+                for (const auto &launch : launches)
+                {
+                    if (launch.name.empty())
+                    {
+                        continue;
+                    }
+                    if (launch.disabled)
+                    {
+                        byName.erase(launch.name);
+                    }
+                    else
+                    {
+                        byName[launch.name] = launch;
+                    }
+                }
+            };
+            merge(project.launches);
+            merge(profile.launches);
+            if (byName.empty() && !profile.launch.name.empty() && !profile.launch.disabled)
+            {
+                byName[profile.launch.name] = profile.launch;
+            }
+            std::vector<LaunchDefinition> result{};
+            for (auto &[_, launch] : byName)
+            {
+                result.push_back(std::move(launch));
+            }
+            return result;
+        }
+
+        [[nodiscard]] auto SelectLaunch(
+            const ProjectManifest &project,
+            const ProfileDefinition &profile,
+            const std::optional<std::string> &requestedName) -> LaunchDefinition
+        {
+            const auto launches = EffectiveLaunches(project, profile);
+            const auto findLaunch = [&](const std::string &name) -> const LaunchDefinition *
+            {
+                const auto it = std::find_if(
+                    launches.begin(),
+                    launches.end(),
+                    [&](const LaunchDefinition &launch)
+                    {
+                        return launch.name == name;
+                    });
+                return it == launches.end() ? nullptr : &*it;
+            };
+
+            if (requestedName.has_value())
+            {
+                if (const auto *launch = findLaunch(*requestedName); launch != nullptr)
+                {
+                    return *launch;
+                }
+                throw std::runtime_error("profile '" + profile.name + "' does not declare launch '" + *requestedName + "'");
+            }
+            if (!profile.launch.name.empty())
+            {
+                if (const auto *launch = findLaunch(profile.launch.name); launch != nullptr)
+                {
+                    return *launch;
+                }
+            }
+            if (const auto *launch = findLaunch("default"); launch != nullptr)
+            {
+                return *launch;
+            }
+            if (launches.size() == 1)
+            {
+                return launches.front();
+            }
+            if (launches.empty())
+            {
+                return profile.launch;
+            }
+            throw std::runtime_error("profile '" + profile.name + "' has multiple launch entries; pass --launch <name>");
+        }
+
         [[nodiscard]] auto ResolveInvocation(const ParsedArgs &args) -> LoadedInvocation
         {
             auto project = LoadProjectManifest(ResolveProjectPath(args.projectPath));
@@ -60,9 +143,11 @@ namespace NGIN::CLI
                     }
                 }
             }
+            auto profile = ProfileWithWorkspacePolicy(project, workspace, selectedProfile);
+            profile.launch = SelectLaunch(project, profile, args.launchName);
             return LoadedInvocation{
                 .project = project,
-                .profile = ProfileWithWorkspacePolicy(project, workspace, selectedProfile),
+                .profile = std::move(profile),
             };
         }
 
@@ -1178,6 +1263,7 @@ namespace NGIN::CLI
             std::map<std::string, std::string> stagedFiles{};
             std::map<std::string, std::string> environment{};
             std::map<std::string, std::string> launch{};
+            std::map<std::string, std::string> launches{};
             std::set<std::string> defines{};
             std::set<std::string> packageFeatures{};
             std::set<std::string> generators{};
@@ -1304,6 +1390,18 @@ namespace NGIN::CLI
             snapshot.launch["Args"] = resolved.profile.launch.args;
             snapshot.launch["Name"] = resolved.profile.launch.name;
             snapshot.launch["Executable"] = resolved.selectedExecutable.has_value() ? resolved.selectedExecutable->name : "";
+            for (const auto &launch : EffectiveLaunches(resolved.project, resolved.profile))
+            {
+                auto value = std::string("executable=")
+                             + launch.executable.value_or(resolved.project.output.kind == "Executable" ? resolved.project.output.name : "")
+                             + " workingDirectory=" + launch.workingDirectory
+                             + " args=" + launch.args;
+                if (launch.name == resolved.profile.launch.name)
+                {
+                    value += " selected=true";
+                }
+                snapshot.launches[launch.name] = std::move(value);
+            }
             return snapshot;
         }
 
@@ -1852,6 +1950,10 @@ namespace NGIN::CLI
             else if (current == "--scope" && index + 1 < argc)
             {
                 args.scope = argv[++index];
+            }
+            else if (current == "--launch" && index + 1 < argc)
+            {
+                args.launchName = argv[++index];
             }
             else if (current == "--build-plan")
             {
@@ -3268,17 +3370,26 @@ namespace NGIN::CLI
         if (kind == "launch")
         {
             std::cout << "Launch: " << identity << "\n";
-            if (!resolved.value->profile.launch.name.empty() && resolved.value->profile.launch.name != identity)
+            const auto launches = EffectiveLaunches(resolved.value->project, resolved.value->profile);
+            const auto launchIt = std::find_if(
+                launches.begin(),
+                launches.end(),
+                [&](const LaunchDefinition &launch)
+                {
+                    return launch.name == identity;
+                });
+            if (launchIt == launches.end())
             {
-                std::cout << "  result: not selected\n";
+                std::cout << "  result: not found\n";
                 return 0;
             }
-            std::cout << "  result: selected\n";
-            std::cout << "  name: " << resolved.value->profile.launch.name << "\n";
+            const auto selected = launchIt->name == resolved.value->profile.launch.name;
+            std::cout << "  result: " << (selected ? "selected" : "available") << "\n";
+            std::cout << "  name: " << launchIt->name << "\n";
             std::cout << "  executable: "
-                      << (resolved.value->selectedExecutable.has_value() ? resolved.value->selectedExecutable->name : "(none)") << "\n";
-            std::cout << "  workingDirectory: " << resolved.value->profile.launch.workingDirectory << "\n";
-            std::cout << "  args: " << resolved.value->profile.launch.args << "\n";
+                      << (launchIt->executable.has_value() ? *launchIt->executable : resolved.value->selectedExecutable.has_value() ? resolved.value->selectedExecutable->name : "(none)") << "\n";
+            std::cout << "  workingDirectory: " << launchIt->workingDirectory << "\n";
+            std::cout << "  args: " << launchIt->args << "\n";
             return 0;
         }
 
@@ -3451,6 +3562,7 @@ namespace NGIN::CLI
         const auto effectivePublishes = EffectivePublishes(invocation.project, invocation.profile);
         const auto effectivePackageOutputs = EffectivePackageOutputs(invocation.project, invocation.profile);
         const auto effectiveAnalyzers = EffectiveAnalyzers(invocation.project, invocation.profile);
+        const auto effectiveLaunches = EffectiveLaunches(invocation.project, invocation.profile);
 
         auto projectProvenance = [&](std::string reason) -> CompositionGraph::Provenance
         {
@@ -3751,8 +3863,21 @@ namespace NGIN::CLI
                 .executable = resolved->selectedExecutable.has_value() ? resolved->selectedExecutable->name : "",
                 .workingDirectory = resolved->profile.launch.workingDirectory,
                 .args = resolved->profile.launch.args,
+                .selected = true,
                 .provenance = profileProvenance("selected launch entry"),
             };
+        }
+
+        for (const auto &launch : effectiveLaunches)
+        {
+            graph.launches.push_back(CompositionGraph::Launch{
+                .name = launch.name,
+                .executable = launch.executable.value_or(invocation.project.output.kind == "Executable" ? invocation.project.output.name : ""),
+                .workingDirectory = launch.workingDirectory,
+                .args = launch.args,
+                .selected = launch.name == invocation.profile.launch.name,
+                .provenance = profileProvenance(launch.name == invocation.profile.launch.name ? "selected launch entry" : "effective launch entry"),
+            });
         }
 
         for (const auto &output : effectivePackageOutputs)
@@ -4137,13 +4262,28 @@ namespace NGIN::CLI
             << "\"name\":" << Json(launch.name) << ","
             << "\"executable\":" << Json(launch.executable) << ","
             << "\"workingDirectory\":" << Json(launch.workingDirectory) << ","
-            << "\"args\":" << Json(launch.args);
+            << "\"args\":" << Json(launch.args) << ","
+            << "\"selected\":" << (launch.selected ? "true" : "false");
         if (includeProvenance)
         {
             out << ",\"provenance\":";
             WriteGraphProvenance(out, launch.provenance);
         }
         out << "}";
+    }
+
+    auto WriteGraphLaunches(std::ostream &out, const std::vector<CompositionGraph::Launch> &launches, bool includeProvenance) -> void
+    {
+        out << "[";
+        for (std::size_t index = 0; index < launches.size(); ++index)
+        {
+            if (index > 0)
+            {
+                out << ",";
+            }
+            WriteGraphLaunch(out, launches[index], includeProvenance);
+        }
+        out << "]";
     }
 
     auto WriteGraphPublishes(std::ostream &out, const std::vector<CompositionGraph::Publish> &publishes, bool includeProvenance) -> void
@@ -4361,6 +4501,10 @@ namespace NGIN::CLI
         WriteGraphLaunch(std::cout, graph.launch, false);
         std::cout << ",";
 
+        std::cout << "\"launches\":";
+        WriteGraphLaunches(std::cout, graph.launches, false);
+        std::cout << ",";
+
         std::cout << "\"packageOutputs\":";
         WriteGraphPackageOutputs(std::cout, graph.packageOutputs, false);
         std::cout << ",";
@@ -4434,7 +4578,11 @@ namespace NGIN::CLI
         }
         else if (plan == "launch")
         {
+            std::cout << "{\"selected\":";
             WriteGraphLaunch(std::cout, graph.launch, true);
+            std::cout << ",\"launches\":";
+            WriteGraphLaunches(std::cout, graph.launches, true);
+            std::cout << "}";
         }
         else if (plan == "package")
         {
@@ -4552,10 +4700,19 @@ namespace NGIN::CLI
         if (args.graphPlan == "launch")
         {
             std::cout << "Launch plan for profile: " << graph.identity.profile << "\n";
-            std::cout << "  name: " << (graph.launch.name.empty() ? "(default)" : graph.launch.name) << "\n";
-            std::cout << "  executable: " << (graph.launch.executable.empty() ? "(none)" : graph.launch.executable) << "\n";
-            std::cout << "  workingDirectory: " << graph.launch.workingDirectory << "\n";
-            std::cout << "  args: " << graph.launch.args << "\n";
+            const auto launches = graph.launches.empty() ? std::vector<CompositionGraph::Launch>{graph.launch} : graph.launches;
+            for (const auto &launch : launches)
+            {
+                std::cout << "  launch " << (launch.name.empty() ? "(default)" : launch.name)
+                          << (launch.selected ? " [selected]" : "") << "\n";
+                std::cout << "    executable: " << (launch.executable.empty() ? "(none)" : launch.executable) << "\n";
+                std::cout << "    workingDirectory: " << launch.workingDirectory << "\n";
+                std::cout << "    args: " << launch.args << "\n";
+            }
+            if (launches.empty())
+            {
+                std::cout << "  (none)\n";
+            }
             return 0;
         }
         if (args.graphPlan == "package")
@@ -5046,6 +5203,7 @@ namespace NGIN::CLI
         PrintSetDiff("Plugins", from.plugins, to.plugins, anyDiff);
         PrintMapDiff("Environment", from.environment, to.environment, anyDiff);
         PrintMapDiff("Launch", from.launch, to.launch, anyDiff);
+        PrintMapDiff("Launch entries", from.launches, to.launches, anyDiff);
         PrintSetDiff("Publishes", from.publishes, to.publishes, anyDiff);
         PrintSetDiff("Analyzers", from.analyzers, to.analyzers, anyDiff);
         PrintSetDiff("Artifacts", from.artifacts, to.artifacts, anyDiff);

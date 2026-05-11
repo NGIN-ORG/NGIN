@@ -850,6 +850,9 @@ Current test coverage includes:
 - V4 profile generator identity removal and replacement
 - V4 profile publish identity removal and replacement
 - V4 profile package output identity removal and replacement
+- V4 named launch entries with product/profile collections, same-scope
+  duplicate diagnostics, profile replacement/removal, explicit `--launch`
+  selection, graph/explain surface, and effective launch diff data
 - V4 same-scope duplicate diagnostics for generator, publish, package output,
   runtime module, and environment variable identities
 - V4 inspect package closure classification from dependency scopes
@@ -918,7 +921,7 @@ The next implementation slice should focus on one of these paths:
   where it leaks into user-facing labels or generated metadata
 - expand workspace profile product overlays beyond defaults
 - continue hardening overlay identity/remove/override semantics for remaining
-  non-package item families, especially launch edge cases, analyzer duplicates,
-  and build-setting duplicates
+  non-package item families, especially analyzer duplicates and build-setting
+  duplicates
 - add DEFLATE support or a compression backend for ZIP-backed `.nginpack`
   entries if package size becomes important

@@ -459,6 +459,59 @@ TEST_CASE("profile overlays can remove and replace package output identities")
     REQUIRE(manifest.find("Base package output") == std::string::npos);
 }
 
+TEST_CASE("profile overlays can remove and replace launch identities")
+{
+    TempDir temp{};
+    const auto projectPath = temp.path() / "LaunchOverlay.App.nginproj";
+    WriteFile(projectPath,
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4" Name="LaunchOverlay.App" DefaultProfile="shipping">
+  <Application>
+    <Build>
+      <Sources Path="src/**.cpp" />
+    </Build>
+    <Launch Name="app" Args="--base" />
+    <Launch Name="tools" Args="--tools" />
+  </Application>
+  <Profile Name="shipping">
+    <Defaults>
+      <BuildType Name="Release" />
+    </Defaults>
+    <Application>
+      <Launch Name="app" Args="--shipping" />
+      <Launch Remove="tools" />
+    </Application>
+  </Profile>
+</Project>
+)xml");
+    WriteFile(temp.path() / "src/main.cpp", "int main() { return 0; }\n");
+
+    const auto project = LoadProjectManifest(projectPath);
+    const std::optional<std::string> shippingProfile{"shipping"};
+    const auto &profile = ProfileByName(project, shippingProfile);
+
+    REQUIRE(project.launches.size() == 2);
+    REQUIRE(profile.launches.size() == 2);
+    REQUIRE(profile.launch.args == "--shipping");
+
+    ParsedArgs args{};
+    args.projectPath = projectPath.string();
+    args.profileName = "shipping";
+    args.graphPlan = "launch";
+
+    std::ostringstream captured{};
+    auto *previous = std::cout.rdbuf(captured.rdbuf());
+    const auto exitCode = CmdGraph(temp.path(), args);
+    std::cout.rdbuf(previous);
+
+    const auto output = captured.str();
+    REQUIRE(exitCode == 0);
+    REQUIRE_THAT(output, ContainsSubstring("launch app [selected]"));
+    REQUIRE_THAT(output, ContainsSubstring("args: --shipping"));
+    REQUIRE(output.find("launch tools") == std::string::npos);
+    REQUIRE(output.find("--tools") == std::string::npos);
+}
+
 TEST_CASE("same-scope duplicate overlay identities are rejected")
 {
     TempDir temp{};
@@ -534,6 +587,21 @@ TEST_CASE("same-scope duplicate overlay identities are rejected")
 </Project>
 )xml");
     REQUIRE_THAT(packageOutputError, ContainsSubstring("duplicate package output 'Output.Core' in the same overlay scope"));
+
+    const auto launchError = loadError(
+        "DuplicateLaunch.nginproj",
+        R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4" Name="DuplicateLaunch.App">
+  <Application>
+    <Build>
+      <Sources Path="src/**.cpp" />
+    </Build>
+    <Launch Name="app" Args="--a" />
+    <Launch Name="app" Args="--b" />
+  </Application>
+</Project>
+)xml");
+    REQUIRE_THAT(launchError, ContainsSubstring("duplicate launch 'app' in the same overlay scope"));
 
     const auto runtimeError = loadError(
         "DuplicateRuntime.nginproj",

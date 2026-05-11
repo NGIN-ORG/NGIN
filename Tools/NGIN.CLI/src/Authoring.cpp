@@ -3755,15 +3755,46 @@ namespace NGIN::CLI
             }
         }
 
-        auto ApplyLaunchNode(const XmlElement &node, const fs::path &, const ProjectManifest &project, LaunchDefinition &launch) -> void
+        auto UpsertLaunch(std::vector<LaunchDefinition> &launches, LaunchDefinition launch) -> void
         {
-            launch.name = Attribute(node, "Name").value_or(launch.name);
+            launches.erase(
+                std::remove_if(
+                    launches.begin(),
+                    launches.end(),
+                    [&](const LaunchDefinition &existing)
+                    {
+                        return existing.name == launch.name;
+                    }),
+                launches.end());
+            launches.push_back(std::move(launch));
+        }
+
+        [[nodiscard]] auto ParseLaunchNode(
+            const XmlElement &node,
+            const fs::path &path,
+            const ProjectManifest &project,
+            LaunchDefinition base,
+            const std::string &defaultName) -> LaunchDefinition
+        {
+            if (const auto remove = Attribute(node, "Remove"); remove.has_value() && !remove->empty())
+            {
+                LaunchDefinition removed{};
+                removed.name = *remove;
+                removed.disabled = true;
+                return removed;
+            }
+            base.name = Attribute(node, "Name").value_or(base.name.empty() ? defaultName : base.name);
+            if (base.name.empty())
+            {
+                throw std::runtime_error(path.string() + ": launch entry must declare Name or Remove");
+            }
             if (const auto executable = Attribute(node, "Executable"); executable.has_value() && !executable->empty())
             {
-                launch.executable = *executable == "$(OutputName)" ? project.output.name : *executable;
+                base.executable = *executable == "$(OutputName)" ? project.output.name : *executable;
             }
-            launch.workingDirectory = Attribute(node, "WorkingDirectory").value_or(launch.workingDirectory);
-            launch.args = Attribute(node, "Args").value_or(launch.args);
+            base.workingDirectory = Attribute(node, "WorkingDirectory").value_or(base.workingDirectory);
+            base.args = Attribute(node, "Args").value_or(base.args);
+            return base;
         }
 
         auto UpsertPackageOutput(std::vector<PackageOutputDefinition> &outputs, PackageOutputDefinition output) -> void
@@ -4164,13 +4195,31 @@ namespace NGIN::CLI
             {
                 ParseQualitySection(*quality, path, project.quality);
             }
-            if (const auto *launch = FindChild(product, "Launch"))
             {
-                ApplyLaunchNode(*launch, path, project, baseProfile.launch);
-            }
-            else if (const auto *run = FindChild(product, "Run"))
-            {
-                ApplyLaunchNode(*run, path, project, baseProfile.launch);
+                std::set<std::string> launchNames{};
+                auto addLaunch = [&](const XmlElement &node, const std::string &defaultName)
+                {
+                    const auto identity = Attribute(node, "Remove").value_or(Attribute(node, "Name").value_or(defaultName));
+                    RequireUniqueLocalName(launchNames, "launch", identity, path);
+                    auto launch = ParseLaunchNode(node, path, project, baseProfile.launch, defaultName);
+                    if (!launch.disabled && project.launches.empty())
+                    {
+                        baseProfile.launch = launch;
+                    }
+                    UpsertLaunch(project.launches, std::move(launch));
+                };
+                for (const auto *launch : ChildElements(product, "Launch"))
+                {
+                    addLaunch(*launch, "default");
+                }
+                for (const auto *run : ChildElements(product, "Run"))
+                {
+                    addLaunch(*run, "default");
+                }
+                if (project.launches.empty() && baseProfile.launch.executable.has_value())
+                {
+                    project.launches.push_back(baseProfile.launch);
+                }
             }
 
             std::unordered_map<std::string, std::size_t> profileIndexes{};
@@ -4215,13 +4264,40 @@ namespace NGIN::CLI
                     {
                         ParseRuntimeSection(*runtime, path, profile.runtime);
                     }
-                    if (const auto *launch = FindChild(*productOverlay, "Launch"))
                     {
-                        ApplyLaunchNode(*launch, path, project, profile.launch);
-                    }
-                    else if (const auto *run = FindChild(*productOverlay, "Run"))
-                    {
-                        ApplyLaunchNode(*run, path, project, profile.launch);
+                        std::set<std::string> launchNames{};
+                        auto addLaunch = [&](const XmlElement &node, const std::string &defaultName)
+                        {
+                            const auto identity = Attribute(node, "Remove").value_or(Attribute(node, "Name").value_or(defaultName));
+                            RequireUniqueLocalName(launchNames, "launch", identity, path);
+                            auto base = profile.launch;
+                            const auto findBase = [&](const std::vector<LaunchDefinition> &launches)
+                            {
+                                for (const auto &candidate : launches)
+                                {
+                                    if (!candidate.disabled && candidate.name == identity)
+                                    {
+                                        base = candidate;
+                                    }
+                                }
+                            };
+                            findBase(project.launches);
+                            findBase(profile.launches);
+                            auto launch = ParseLaunchNode(node, path, project, base, defaultName);
+                            if (!launch.disabled)
+                            {
+                                profile.launch = launch;
+                            }
+                            UpsertLaunch(profile.launches, std::move(launch));
+                        };
+                        for (const auto *launch : ChildElements(*productOverlay, "Launch"))
+                        {
+                            addLaunch(*launch, "default");
+                        }
+                        for (const auto *run : ChildElements(*productOverlay, "Run"))
+                        {
+                            addLaunch(*run, "default");
+                        }
                     }
                     if (const auto *environment = FindChild(*productOverlay, "Environment"))
                     {

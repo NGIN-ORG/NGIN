@@ -176,6 +176,64 @@ TEST_CASE("diff compares package lock files")
     REQUIRE_THAT(diff, ContainsSubstring("Package source changed: Package.Core local -> feed"));
 }
 
+TEST_CASE("graph and explain support named launch entries")
+{
+    TempDir temp{};
+    const auto projectPath = temp.path() / "NamedLaunch.App.nginproj";
+    WriteFile(projectPath,
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4" Name="NamedLaunch.App" DefaultProfile="dev">
+  <Application>
+    <Build>
+      <Sources Path="src/**.cpp" />
+    </Build>
+    <Launch Name="app" Args="--app" />
+    <Launch Name="tools" Args="--tools" />
+  </Application>
+  <Profile Name="dev">
+    <Defaults>
+      <BuildType Name="Debug" />
+    </Defaults>
+  </Profile>
+</Project>
+)xml");
+    WriteFile(temp.path() / "src/main.cpp", "int main() { return 0; }\n");
+
+    ParsedArgs graphArgs{};
+    graphArgs.projectPath = projectPath.string();
+    graphArgs.profileName = "dev";
+    graphArgs.graphPlan = "launch";
+    graphArgs.launchName = "tools";
+
+    std::ostringstream graphCaptured{};
+    auto *previous = std::cout.rdbuf(graphCaptured.rdbuf());
+    const auto graphExitCode = CmdGraph(temp.path(), graphArgs);
+    std::cout.rdbuf(previous);
+
+    const auto graphOutput = graphCaptured.str();
+    REQUIRE(graphExitCode == 0);
+    REQUIRE_THAT(graphOutput, ContainsSubstring("launch app"));
+    REQUIRE_THAT(graphOutput, ContainsSubstring("launch tools [selected]"));
+    REQUIRE_THAT(graphOutput, ContainsSubstring("args: --tools"));
+
+    ParsedArgs explainArgs{};
+    explainArgs.projectPath = projectPath.string();
+    explainArgs.profileName = "dev";
+    explainArgs.launchName = "tools";
+    explainArgs.packageName = "launch:app";
+
+    std::ostringstream explainCaptured{};
+    previous = std::cout.rdbuf(explainCaptured.rdbuf());
+    const auto explainExitCode = CmdExplainObject(temp.path(), explainArgs);
+    std::cout.rdbuf(previous);
+
+    const auto explainOutput = explainCaptured.str();
+    REQUIRE(explainExitCode == 0);
+    REQUIRE_THAT(explainOutput, ContainsSubstring("result: available"));
+    REQUIRE_THAT(explainOutput, ContainsSubstring("name: app"));
+    REQUIRE_THAT(explainOutput, ContainsSubstring("args: --app"));
+}
+
 TEST_CASE("explain object syntax answers resolved graph objects")
 {
     TempDir temp{};
@@ -323,7 +381,7 @@ TEST_CASE("graph plan switches print focused resolved plans")
     REQUIRE_THAT(graph("build"), ContainsSubstring("Build plan for profile: dev"));
     REQUIRE_THAT(graph("build"), ContainsSubstring("PLAN_APP=1"));
     REQUIRE_THAT(graph("stage"), ContainsSubstring("config/app.json <- config/app.json"));
-    REQUIRE_THAT(graph("launch"), ContainsSubstring("name: app"));
+    REQUIRE_THAT(graph("launch"), ContainsSubstring("launch app [selected]"));
     REQUIRE_THAT(graph("environment"), ContainsSubstring("env PLAN_ENV=dev"));
     REQUIRE_THAT(graph("environment"), ContainsSubstring("env PLAN_TOKEN=<redacted>"));
     REQUIRE_THAT(graph("package-output"), ContainsSubstring("package-output Plan.App version=1.0.0"));

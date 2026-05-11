@@ -1459,7 +1459,11 @@ namespace NGIN::CLI
         const auto workspaceRoot = RootDirFrom(project.path.parent_path());
         const auto workspace = workspaceRoot.has_value() ? TryLoadWorkspaceManifest(*workspaceRoot) : std::nullopt;
         const auto effectiveProject = ProjectWithWorkspacePolicy(project, workspace);
-        const auto effectiveProfile = ProfileWithWorkspacePolicy(effectiveProject, workspace, profile.name);
+        auto effectiveProfile = ProfileWithWorkspacePolicy(effectiveProject, workspace, profile.name);
+        if (!profile.launch.name.empty())
+        {
+            effectiveProfile.launch = profile.launch;
+        }
         const auto packageCatalog = LoadPackageCatalog(workspace, project.path);
         std::set<fs::path> warnedTrackedSettings{};
 

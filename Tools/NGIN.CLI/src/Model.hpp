@@ -566,6 +566,7 @@ namespace NGIN::CLI
         std::optional<std::string> executable{};
         std::string workingDirectory{"."};
         std::string args{};
+        bool disabled{false};
     };
 
     struct EnvironmentDefinition
@@ -608,6 +609,7 @@ namespace NGIN::CLI
         bool enableReflection{false};
         std::string environmentName{};
         LaunchDefinition launch{};
+        std::vector<LaunchDefinition> launches{};
         std::vector<ProjectReference> projectRefs{};
         std::vector<PackageReference> packageRefs{};
         std::vector<PackageFeatureUse> packageFeatureUses{};
@@ -643,6 +645,7 @@ namespace NGIN::CLI
         std::vector<PackageFeatureUse> packageFeatureUses{};
         std::vector<LocalSettingsImport> localSettingsImports{};
         RuntimeDefinition runtime{};
+        std::vector<LaunchDefinition> launches{};
         QualityDefinition quality{};
         std::vector<EnvironmentDefinition> environments{};
         std::vector<ProfileDefinition> profiles{};
@@ -891,6 +894,7 @@ namespace NGIN::CLI
             std::string executable{};
             std::string workingDirectory{};
             std::string args{};
+            bool selected{false};
             Provenance provenance{};
         };
 
@@ -936,6 +940,7 @@ namespace NGIN::CLI
         std::vector<RuntimeModule> runtimeModules{};
         std::vector<RuntimePlugin> runtimePlugins{};
         Launch launch{};
+        std::vector<Launch> launches{};
         std::vector<Publish> publishes{};
         std::vector<QualityAnalyzer> analyzers{};
     };

@@ -20,6 +20,7 @@ namespace NGIN::CLI
         std::optional<std::string> featureName{};
         std::optional<std::string> versionRange{};
         std::optional<std::string> scope{};
+        std::optional<std::string> launchName{};
         std::optional<std::string> graphPlan{};
         bool locked{false};
         std::vector<std::string> runArgs{};
