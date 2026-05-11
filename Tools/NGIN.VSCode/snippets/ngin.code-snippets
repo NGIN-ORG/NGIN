@@ -114,6 +114,17 @@
       "</Runtime>"
     ]
   },
+  "Clang-Tidy Analyzer Package": {
+    "scope": "ngin",
+    "prefix": "ngin-clang-tidy",
+    "body": [
+      "<Package Name=\"NGIN.Tooling.ClangTidy\"",
+      "         Version=\"[0.1.0,0.2.0)\"",
+      "         Scope=\"Dev\">",
+      "  <Feature Name=\"Analyzer\" />",
+      "</Package>"
+    ]
+  },
   "Command Generator": {
     "scope": "ngin",
     "prefix": "ngin-generator-command",
@@ -131,6 +142,17 @@
       "    </Outputs>",
       "  </Generator>",
       "</Generate>"
+    ]
+  },
+  "Quality Analyzer": {
+    "scope": "ngin",
+    "prefix": "ngin-analyzer",
+    "body": [
+      "<Quality>",
+      "  <Analyzer Name=\"$1\" Tool=\"$2\" Scope=\"$3\" Severity=\"$4\">",
+      "    <Config Path=\"$5\" Optional=\"true\" />",
+      "  </Analyzer>",
+      "</Quality>"
     ]
   },
   "Profile": {
@@ -151,6 +173,28 @@
     "prefix": "ngin-launch",
     "body": [
       "<Launch Name=\"$1\" Executable=\"$2\" WorkingDirectory=\"$(StageDir)\" />"
+    ]
+  },
+  "Publish": {
+    "scope": "ngin",
+    "prefix": "ngin-publish",
+    "body": [
+      "<Publish Name=\"$1\" Kind=\"Folder\" Output=\"$2\">",
+      "  <Include Stage=\"all\" />",
+      "  <Include RuntimeDependencies=\"true\" />",
+      "</Publish>"
+    ]
+  },
+  "Package Output": {
+    "scope": "ngin",
+    "prefix": "ngin-package-output",
+    "body": [
+      "<PackageOutput Name=\"$1\" Version=\"$2\">",
+      "  <Metadata>",
+      "    <Description>$3</Description>",
+      "    <License>$4</License>",
+      "  </Metadata>",
+      "</PackageOutput>"
     ]
   },
   "Config": {

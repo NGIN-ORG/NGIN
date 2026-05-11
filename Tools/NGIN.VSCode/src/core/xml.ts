@@ -11,7 +11,7 @@ import {
   PackageFeature,
   PackageFeatureUse,
   PackageManifest,
-  PackageReference,
+  DependencyUse,
   ProjectManifest,
   ProjectProfile,
   ProjectReference,
@@ -335,9 +335,9 @@ function parseProjectReferences(product: unknown, baseDirectory: string): Projec
     .filter((entry): entry is ProjectReference => Boolean(entry));
 }
 
-function parseDependencyEntries(product: unknown): PackageReference[] {
+function parseDependencyEntries(product: unknown): DependencyUse[] {
   const uses = (product as { Uses?: { Package?: unknown; Runtime?: unknown; Tool?: unknown } } | undefined)?.Uses;
-  const parse = (entry: unknown, kind: string): PackageReference | undefined => {
+  const parse = (entry: unknown, kind: string): DependencyUse | undefined => {
     const ref = entry as { Name?: string; Version?: string; Scope?: string; Optional?: string | boolean; Feature?: unknown } | undefined;
     if (!ref?.Name) {
       return undefined;
@@ -357,7 +357,7 @@ function parseDependencyEntries(product: unknown): PackageReference[] {
     ...asArray(uses?.Package).map((entry) => parse(entry, 'Package')),
     ...asArray(uses?.Runtime).map((entry) => parse(entry, 'Runtime')),
     ...asArray(uses?.Tool).map((entry) => parse(entry, 'Tool'))
-  ].filter((entry): entry is PackageReference => Boolean(entry));
+  ].filter((entry): entry is DependencyUse => Boolean(entry));
 }
 
 function parsePackageFeatureUses(product: unknown): PackageFeatureUse[] {
@@ -467,7 +467,7 @@ export function parseProjectManifest(xml: string, manifestPath: string): Project
         inputs,
         configInputs: configInputsFrom(inputs),
         projectRefs: parseProjectReferences(profileProduct.node, directory),
-        packageRefs: parseDependencyEntries(profileProduct.node),
+        dependencies: parseDependencyEntries(profileProduct.node),
         packageFeatureUses: parsePackageFeatureUses(profileProduct.node),
         generators: parseGenerators(profileProduct.node)
       };
@@ -487,7 +487,7 @@ export function parseProjectManifest(xml: string, manifestPath: string): Project
     buildSources: buildSourcesFrom(productInputs),
     conditions: parseConditions(root),
     projectRefs: parseProjectReferences(product.node, directory),
-    packageRefs: parseDependencyEntries(product.node),
+    dependencies: parseDependencyEntries(product.node),
     packageFeatureUses: parsePackageFeatureUses(product.node),
     generators: parseGenerators(product.node),
     profiles

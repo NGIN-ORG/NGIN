@@ -13,21 +13,23 @@ the terminal commands.
 
 - a single NGIN activity-bar Workspace view for project, profile, file,
   dependency, and artifact navigation
-- read-only resolved dependency details in the Workspace tree for the active
+- read-only graph-native dependency, build, stage, launch, publish, package
+  output, analyzer, and diagnostic details in the Workspace tree for the active
   project/profile, backed by `ngin inspect --format json`
 - a default visual `.nginproj` editor for common product, profile,
   dependency, source/config, feature, launch, and environment edits while
   preserving XML source
 - status bar items for the selected workspace, project, and profile
-- commands for configure, build, clean, rebuild, run, debug, validate, graph,
-  variable explanation, and local settings initialization
+- commands for configure, build, clean, rebuild, run, debug, validate, analyze,
+  graph, variable explanation, local settings initialization, and clang-tidy
+  analyzer package authoring
 - generated VS Code tasks for known project/profile pairs
 - `.nginlaunch`-based run and debug resolution
 - a custom `ngin` debug type that launches native C/C++ debug sessions
 - C/C++ profile-provider support for `ms-vscode.cpptools`
 - file registration and snippets for `.ngin`, `.nginproj`, `.nginpkg`,
   `.nginlaunch`, and `.nginsettings`
-- an current product-first `.nginproj` schema artifact for editor tooling
+- a current product-first `.nginproj` schema artifact for editor tooling
 - workspace/project parsing for product sections, direct project profiles,
   workspace package sources, and authored dependency scopes
 
@@ -47,6 +49,7 @@ The extension mirrors the CLI directly:
 - Rebuild maps to `ngin rebuild`
 - Run maps to `ngin run`
 - Validate maps to `ngin validate`
+- Analyze maps to `ngin analyze`
 - Graph maps to `ngin graph`
 - The active Projects-tree inspector maps to `ngin inspect --format json`
 - Explain Variables maps to `ngin variables explain`
@@ -73,13 +76,20 @@ build first if the launch manifest is missing or stale.
 The Workspace tree is product-centered. Project rows select the active product,
 manifest rows open `.nginproj` files, Profiles select the active profile,
 Dependencies contains authored project/package/runtime/tool uses plus resolved
-Packages, Features, Capabilities, Generators, Inputs, Launch, and Diagnostics
-for the active project/profile, Generated contains existing staged output, and
-Files contains declared source and config inputs.
+Packages, Features, Generators, Inputs, Stage, Runtime, Launch, Publish,
+Package Outputs, Analyzers, and Diagnostics for the active project/profile,
+Generated contains existing staged output, and Files contains declared source
+and config inputs.
 Right-click context menus expose project/profile
 actions, file navigation, path copying, and authored file operations. Generators
 are displayed generically; MetaGen appears only as a normal command generator
 contributed by its package feature.
+
+`NGIN: Analyze` keeps analyzer diagnostics separate from validation and inspect
+diagnostics. The official `NGIN.Tooling.ClangTidy` package can be added with
+`NGIN: Enable Clang-Tidy`; the extension can also open or create `.clang-tidy`.
+The package is a wrapper over `clang-tidy` from `NGIN_CLANG_TIDY` or `PATH`; the
+extension does not install LLVM binaries.
 
 ## Build And Install
 
@@ -136,6 +146,8 @@ NGIN: Select Profile
 NGIN: Build
 NGIN: Run
 NGIN: Debug
+NGIN: Analyze
+NGIN: Enable Clang-Tidy
 NGIN: Explain Variables
 NGIN: Initialize Local Settings
 ```

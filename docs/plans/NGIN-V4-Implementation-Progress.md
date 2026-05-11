@@ -798,6 +798,25 @@ The focused CLI suite passes:
 .ai/skills/test-cpp/scripts/test.sh cli
 ```
 
+The VS Code extension type checks and test suites pass:
+
+```bash
+cd Tools/NGIN.VSCode
+npm run typecheck
+npm run test:unit
+env -u ELECTRON_RUN_AS_NODE npm run test:integration
+```
+
+The analyzer example smoke test runs through the CLI and emits normalized
+clang-tidy diagnostics:
+
+```bash
+./build/dev/Tools/NGIN.CLI/ngin analyze \
+  --project Examples/Hello.Analyzer/Hello.Analyzer.nginproj \
+  --profile Debug.Analyzer \
+  --output .ngin/build/Hello.Analyzer/Debug.Analyzer
+```
+
 Current test coverage includes:
 
 - V4 minimal application project normalization
@@ -935,8 +954,21 @@ Current test coverage includes:
 - package feature `Quality/Analyzer` contributions
 - `ngin analyze` clang-tidy execution through package/system tool resolution
 - clang-tidy diagnostics normalized for VS Code file, line, and column display
-- VS Code inspect consumption now accepts the V4 Composition Graph inspect
-  envelope and normalizes it into the existing project/sidebar inspect model
+- VS Code inspect consumption is graph-native and accepts only the V4
+  `NGIN.CompositionGraph` envelope from `ngin inspect --format json`
+- VS Code sidebar and project editor resolved sections now consume graph plan
+  facets for packages, features, build inputs, generators, stage, runtime,
+  launch, publish, package outputs, analyzers, and diagnostics
+- VS Code validation, analyzer, and inspect diagnostics use separate diagnostic
+  collections so one workflow does not clear the others
+- VS Code analyzer diagnostics preserve file, line, column, severity, and
+  clang-tidy source tagging
+- VS Code can add the official `NGIN.Tooling.ClangTidy` analyzer package to a
+  product `Uses` section without duplicating the dependency or feature
+- VS Code command/menu/snippet surface includes `Analyze`, `Enable Clang-Tidy`,
+  `.clang-tidy` open/create actions, and the `ngin-clang-tidy` snippet
+- VS Code internal/user-facing package-reference naming has been migrated to
+  dependency/uses terminology where it affects active models and labels
 
 ## Not Implemented Yet
 
@@ -961,19 +993,13 @@ The following are still open and should not be described as complete:
   execution, coverage collection, and quality policy enforcement
 - final graph diff engine over a stable graph JSON schema
 - full V4 editor schema/completion metadata generated from the final schema
-- VS Code integration test pass against a freshly built V4 CLI in the current
-  workspace
 
 ## Next Iteration
 
 The next implementation slice should focus on one of these paths:
 
-- rename internal `PackageReference`/policy terminology where it leaks into V4
-  diagnostics or generated metadata
 - migrate remaining guides/examples/spec drafts outside the active V4 plans to
   V4 syntax
-- rename internal `PackageReference`/policy terminology in the VS Code extension
-  where it leaks into user-facing labels or generated metadata
 - harden workspace profile overlay provenance and diagnostics beyond the
   currently covered named product families
 - continue hardening overlay identity/remove/override semantics for remaining

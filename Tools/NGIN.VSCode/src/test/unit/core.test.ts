@@ -18,7 +18,7 @@ import {
   extractLocalSettingsWarnings,
   getExecutableCandidatePaths,
   getWorkingDirectoryCandidates,
-  normalizeInspectPayload,
+  parseCompositionGraphPayload,
   parseCliDiagnostics
 } from '../../core/helpers';
 import { addRootConfigInput, relativeManifestPath, removeConfigInputs, renameConfigInputs } from '../../core/projectAuthoring';
@@ -26,10 +26,11 @@ import { buildProjectTreeModels, buildStatusBarModel } from '../../ui/models';
 import { parseLaunchManifest, parseLocalSettingsManifest, parsePackageManifest, parseProjectManifest, parseWorkspaceManifest } from '../../core/xml';
 import {
   addProfile,
+  addClangTidyAnalyzerPackage,
   deleteProfile,
   setEnvironmentVariables,
   setInputEntries,
-  setPackageReferences,
+  setDependencyUses,
   setProfileFeatureState,
   updateProfile,
   updateProjectAttributes
@@ -80,11 +81,12 @@ test('parseCliDiagnostics extracts structured file and generic errors', () => {
   assert.equal(diagnostics[3].line, 4);
   assert.equal(diagnostics[3].column, 7);
   assert.equal(diagnostics[3].severity, 'warning');
+  assert.equal(diagnostics[3].source, 'clang-tidy');
   assert.equal(diagnostics[3].message, 'prefer auto [clang-tidy:modernize-use-auto]');
 });
 
-test('normalizeInspectPayload maps V4 composition graph inspect output to extension model', () => {
-  const payload = normalizeInspectPayload({
+test('parseCompositionGraphPayload maps V4 composition graph inspect output to extension model', () => {
+  const payload = parseCompositionGraphPayload({
     schemaVersion: '4.0',
     kind: 'NGIN.CompositionGraph',
     identity: {
@@ -153,16 +155,17 @@ test('normalizeInspectPayload maps V4 composition graph inspect output to extens
     }
   });
 
-  assert.equal(payload.schemaVersion, 1);
-  assert.equal(payload.project?.name, 'Hello.Analyzer');
-  assert.equal(payload.project?.type, 'Application');
-  assert.equal(payload.profile?.name, 'Debug.Analyzer');
-  assert.equal(payload.profile?.platform, 'linux-x64');
-  assert.equal(payload.packages?.[0]?.name, 'NGIN.Tooling.ClangTidy');
-  assert.equal(payload.packageFeatures?.[0]?.state, 'selected');
-  assert.equal(payload.inputs?.Source?.[0]?.source, 'src/main.cpp');
-  assert.equal(payload.launch?.executable?.name, 'Hello.Analyzer');
-  assert.equal(payload.capabilities?.providers[0]?.name, 'clang-tidy');
+  assert.equal(payload.schemaVersion, '4.0');
+  assert.equal(payload.kind, 'NGIN.CompositionGraph');
+  assert.equal(payload.identity?.project, 'Hello.Analyzer');
+  assert.equal(payload.product?.kind, 'Application');
+  assert.equal(payload.selection?.profile, 'Debug.Analyzer');
+  assert.equal(payload.selection?.targetPlatform, 'linux-x64');
+  assert.equal(payload.plans?.packages?.[0]?.name, 'NGIN.Tooling.ClangTidy');
+  assert.equal(payload.plans?.packageFeatures?.[0]?.feature, 'Analyzer');
+  assert.equal(payload.plans?.build?.inputs?.[0]?.source, 'src/main.cpp');
+  assert.equal(payload.plans?.launch?.executable, 'Hello.Analyzer');
+  assert.equal(payload.plans?.quality?.analyzers?.[0]?.name, 'clang-tidy');
 });
 
 test('settings init output exposes the initialized settings path', () => {
@@ -221,9 +224,9 @@ test('project manifests parse profiles, launch metadata, and local settings impo
   assert.deepEqual(project.buildSources, ['src/main.cpp']);
   assert.deepEqual(project.configInputs, ['config/app.cfg']);
   assert.deepEqual(project.projectRefs, [{ name: 'Engine.Library', path: '/repo/Examples/Engine.Library/Engine.Library.nginproj', profile: undefined }]);
-  assert.deepEqual(project.packageRefs, [{ name: 'NGIN.Core', version: undefined, scope: 'Target;Runtime', kind: 'Runtime', optional: false, features: [] }]);
+  assert.deepEqual(project.dependencies, [{ name: 'NGIN.Core', version: undefined, scope: 'Target;Runtime', kind: 'Runtime', optional: false, features: [] }]);
   assert.deepEqual(project.profiles[0].configInputs, ['config/runtime.cfg']);
-  assert.deepEqual(project.profiles[0].packageRefs, [{ name: 'NGIN.Reflection', version: undefined, scope: undefined, kind: 'Package', optional: true, features: [] }]);
+  assert.deepEqual(project.profiles[0].dependencies, [{ name: 'NGIN.Reflection', version: undefined, scope: undefined, kind: 'Package', optional: true, features: [] }]);
   assert.equal(project.profiles[0].launchExecutable, 'Hello.Hosted');
   assert.equal(project.profiles[0].operatingSystem, 'linux');
   assert.equal(project.profiles[0].architecture, 'x64');
@@ -316,6 +319,9 @@ test('extension manifest and snippets register local settings support', () => {
   assert.ok(commandIds.includes('ngin.variablesExplain'));
   assert.ok(commandIds.includes('ngin.settingsInit'));
   assert.ok(commandIds.includes('ngin.openProjectXmlSource'));
+  assert.ok(commandIds.includes('ngin.analyze'));
+  assert.ok(commandIds.includes('ngin.addClangTidyAnalyzerPackage'));
+  assert.ok(commandIds.includes('ngin.openClangTidyConfig'));
   assert.equal(commandIds.includes('ngin.metagen'), false);
 
   const activityViews = packageJson.contributes.views.ngin.map((entry: { id: string; name: string }) => `${entry.id}:${entry.name}`);
@@ -327,8 +333,12 @@ test('extension manifest and snippets register local settings support', () => {
   assert.ok(snippets['Local Settings File']);
   assert.ok(snippets['Application Project']);
   assert.ok(snippets['Runtime Dependency']);
+  assert.ok(snippets['Clang-Tidy Analyzer Package']);
   assert.equal(snippets['Model'], undefined);
   assert.ok(snippets['Command Generator']);
+  assert.ok(snippets['Quality Analyzer']);
+  assert.ok(snippets['Publish']);
+  assert.ok(snippets['Package Output']);
 });
 
 test('launch manifests surface selected executable and staged files', () => {
@@ -457,9 +467,9 @@ test('project editor authoring creates missing profiles for feature overrides', 
   assert.equal(setProfileFeatureState(unchanged, 'Runtime', 'NGIN.Core', 'Reflection', 'inherit'), unchanged);
 });
 
-test('project editor authoring manages package references inputs and environment variables', () => {
+test('project editor authoring manages dependency uses inputs and environment variables', () => {
   let xml = '<Project SchemaVersion="4" Name="App"><Application /><Profile Name="Runtime" /></Project>';
-  xml = setPackageReferences(xml, [{ name: 'NGIN.Core', version: '>=0.1.0 <0.2.0', optional: false }]);
+  xml = setDependencyUses(xml, [{ name: 'NGIN.Core', version: '>=0.1.0 <0.2.0', optional: false }]);
   assert.match(xml, /<Package Name="NGIN\.Core" Version="&gt;=0\.1\.0 &lt;0\.2\.0" Optional="false" \/>/);
 
   xml = setInputEntries(xml, 'Sources', [{ mode: 'Directory', path: 'src' }]);
@@ -508,7 +518,7 @@ test('project editor authoring preserves selectors on file rules', () => {
   });
 });
 
-test('project editor authoring keeps root and profile references separate', () => {
+test('project editor authoring keeps root and profile dependency uses separate', () => {
   let xml = [
     '<Project SchemaVersion="4" Name="App">',
     '  <Application />',
@@ -522,9 +532,22 @@ test('project editor authoring keeps root and profile references separate', () =
     '</Project>'
   ].join('\n');
 
-  xml = setPackageReferences(xml, [{ name: 'Root.Only' }]);
+  xml = setDependencyUses(xml, [{ name: 'Root.Only' }]);
   assert.match(xml, /<Package Name="Root\.Only" \/>/);
   assert.match(xml, /<Package Name="Profile\.Only" \/>/);
+});
+
+test('clang-tidy analyzer authoring adds official tooling dependency without duplicates', () => {
+  const base = '<Project SchemaVersion="4" Name="App"><Application /></Project>';
+  const added = addClangTidyAnalyzerPackage(base);
+
+  assert.match(added, /<Uses>/);
+  assert.match(added, /<Package Name="NGIN\.Tooling\.ClangTidy"[\s\S]*Scope="Dev">/);
+  assert.match(added, /<Feature Name="Analyzer" \/>/);
+
+  const unchanged = addClangTidyAnalyzerPackage(added);
+  assert.equal((unchanged.match(/NGIN\.Tooling\.ClangTidy/g) ?? []).length, 1);
+  assert.equal((unchanged.match(/Feature Name="Analyzer"/g) ?? []).length, 1);
 });
 
 test('project editor model surfaces parse errors and resolved feature states', () => {
@@ -541,17 +564,20 @@ test('project editor model surfaces parse errors and resolved feature states', (
     '/repo/App.nginproj',
     'file:///repo/App.nginproj',
     {
-      schemaVersion: 1,
-      packageFeatures: [
-        { package: 'NGIN.Core', feature: 'Reflection', state: 'selected' },
-        { package: 'NGIN.Core', feature: 'Missing', state: 'unavailable' }
-      ]
+      schemaVersion: '4.0',
+      kind: 'NGIN.CompositionGraph',
+      plans: {
+        packageFeatures: [
+          { package: 'NGIN.Core', feature: 'Reflection' },
+          { package: 'NGIN.Core', feature: 'Missing' }
+        ]
+      }
     },
     'Runtime'
   );
 
   assert.equal(model.features.find((feature) => feature.featureName === 'Reflection')?.state, 'use');
-  assert.equal(model.features.find((feature) => feature.featureName === 'Missing')?.readOnly, true);
+  assert.equal(model.features.find((feature) => feature.featureName === 'Missing')?.resolvedState, 'selected');
 });
 
 test('project editor model summarizes resolved inspect data for the project overview', () => {
@@ -560,27 +586,31 @@ test('project editor model summarizes resolved inspect data for the project over
     '/repo/App.nginproj',
     'file:///repo/App.nginproj',
     {
-      schemaVersion: 1,
-      project: { name: 'App', type: 'Application' },
+      schemaVersion: '4.0',
+      kind: 'NGIN.CompositionGraph',
+      identity: { project: 'App' },
+      product: { kind: 'Application' },
       workspace: { name: 'Workspace' },
-      profile: { name: 'Runtime', buildType: 'Debug', platform: 'linux-x64', environment: 'dev' },
+      selection: { profile: 'Runtime', buildType: 'Debug', targetPlatform: 'linux-x64', environment: 'dev' },
       outputDir: '/repo/.ngin/build/App/Runtime',
-      packages: [{ name: 'NGIN.Core', version: '0.1.0', requiredBy: ['project'] }],
-      packageFeatures: [
-        { package: 'NGIN.Core', feature: 'Reflection', state: 'selected' },
-        { package: 'NGIN.Core', feature: 'Diagnostics', state: 'available' }
-      ],
-      generators: [
-        { name: 'ReflectionMetaGen', state: 'active' },
-        { name: 'WindowsOnly', state: 'excluded' }
-      ],
-      inputs: {
-        Source: [{ source: 'src', mode: 'Directory', ownerName: 'App' }]
-      },
-      launch: { executable: { name: 'App' }, workingDirectory: '.' },
-      stagedFiles: [{ kind: 'executable', relativeDestination: 'bin/App' }],
-      environmentVariables: [{ name: 'TOKEN', secret: true, resolved: true, source: 'local' }],
-      diagnostics: [{ severity: 'warning', message: 'example' }]
+      plans: {
+        packages: [{ name: 'NGIN.Core', version: '0.1.0', closures: ['project'] }],
+        packageFeatures: [
+          { package: 'NGIN.Core', feature: 'Reflection' },
+          { package: 'NGIN.Core', feature: 'Diagnostics' }
+        ],
+        generators: [
+          { name: 'ReflectionMetaGen', state: 'active' },
+          { name: 'WindowsOnly', state: 'excluded' }
+        ],
+        build: {
+          inputs: [{ source: 'src', mode: 'Directory', ownerName: 'App', role: 'Source' }]
+        },
+        launch: { executable: 'App', workingDirectory: '.' },
+        stage: { files: [{ kind: 'executable', target: 'bin/App' }] },
+        environment: { variables: [{ name: 'TOKEN', secret: true, resolved: true, source: 'local' }] },
+        diagnostics: [{ severity: 'warning', message: 'example' }]
+      }
     },
     'Runtime'
   );
@@ -588,7 +618,7 @@ test('project editor model summarizes resolved inspect data for the project over
   assert.equal(model.resolved.workspaceName, 'Workspace');
   assert.equal(model.resolved.outputDir, '/repo/.ngin/build/App/Runtime');
   assert.equal(model.resolved.packageCount, 1);
-  assert.equal(model.resolved.activeFeatureCount, 1);
+  assert.equal(model.resolved.activeFeatureCount, 2);
   assert.equal(model.resolved.activeGeneratorCount, 1);
   assert.equal(model.resolved.stagedFileCount, 1);
   assert.equal(model.resolved.environmentVariableCount, 1);
@@ -734,7 +764,7 @@ test('project tree models mark the selected project and profile', () => {
           configInputs: ['config/app.cfg'],
           buildSources: [],
           projectRefs: [{ path: '/repo/Examples/Engine.Library/Engine.Library.nginproj' }],
-          packageRefs: [{ name: 'NGIN.Core' }],
+          dependencies: [{ name: 'NGIN.Core' }],
           profiles: [{ name: 'Runtime', operatingSystem: 'linux', architecture: 'x64', environment: 'development', configInputs: [] }]
         },
         {
@@ -768,7 +798,7 @@ test('project tree models mark the selected project and profile', () => {
         configInputs: ['config/app.cfg'],
         buildSources: [],
         projectRefs: [{ path: '/repo/Examples/Engine.Library/Engine.Library.nginproj' }],
-        packageRefs: [{ name: 'NGIN.Core' }],
+        dependencies: [{ name: 'NGIN.Core' }],
         profiles: [{ name: 'Runtime', operatingSystem: 'linux', architecture: 'x64', environment: 'development', configInputs: [] }]
       },
       profile: { name: 'Runtime', operatingSystem: 'linux', architecture: 'x64', environment: 'development', configInputs: [] }
@@ -808,7 +838,7 @@ test('project tree models expose inspect groups for the active project only', ()
     sourceRoots: [],
     configInputs: [],
     buildSources: [],
-    packageRefs: [{ name: 'NGIN.Core' }],
+    dependencies: [{ name: 'NGIN.Core' }],
     profiles: [{ name: 'Runtime', configInputs: [] }]
   };
 
@@ -827,27 +857,28 @@ test('project tree models expose inspect groups for the active project only', ()
       project: activeProject,
       profile: activeProject.profiles[0]
     },
-    inspect: {
-      schemaVersion: 1,
-      packages: [{ name: 'NGIN.Core', version: '0.1.0', manifestPath: '/repo/Packages/NGIN.Core/NGIN.Core.nginpkg', requiredBy: ['project'] }],
-      packageFeatures: [{ package: 'NGIN.Core', feature: 'Reflection', state: 'selected', manifestPath: '/repo/Packages/NGIN.Core/NGIN.Core.nginpkg' }],
-      capabilities: {
-        providers: [{ name: 'Reflection', package: 'NGIN.Core', feature: 'Reflection' }],
-        requirements: []
-      },
-      generators: [
-        { name: 'ReflectionMetaGen', kind: 'Command', state: 'active', ownerName: 'NGIN.Reflection.MetaGen::ReflectionCodegen', tool: 'MetaGen', outputs: [{ role: 'Source', path: 'generated/reflection.cpp' }] },
-        { name: 'WindowsOnly', kind: 'Command', state: 'excluded', reason: 'Platform expected windows-x64' }
-      ],
-      inputs: {
-        Source: [{ source: 'src', mode: 'Directory', ownerName: 'App' }],
-        Config: [{ source: 'config/app.cfg', stagedRelativePath: 'config/app.cfg', ownerName: 'App' }]
-      },
-      launch: { executable: { name: 'App', target: 'AppTarget' }, workingDirectory: '.' },
-      stagedFiles: [{ kind: 'config', relativeDestination: 'config/app.cfg' }],
-      environmentVariables: [{ name: 'TOKEN', value: '<redacted>', secret: true }],
-      lockFile: { path: '/repo/ngin.lock', status: 'missing' },
-      diagnostics: []
+    inspectGraph: {
+      schemaVersion: '4.0',
+      kind: 'NGIN.CompositionGraph',
+      plans: {
+        packages: [{ name: 'NGIN.Core', version: '0.1.0', manifestPath: '/repo/Packages/NGIN.Core/NGIN.Core.nginpkg', closures: ['project'] }],
+        packageFeatures: [{ package: 'NGIN.Core', feature: 'Reflection', manifestPath: '/repo/Packages/NGIN.Core/NGIN.Core.nginpkg' }],
+        generators: [
+          { name: 'ReflectionMetaGen', kind: 'Command', state: 'active', ownerName: 'NGIN.Reflection.MetaGen::ReflectionCodegen', tool: 'MetaGen', outputs: [{ role: 'Source', path: 'generated/reflection.cpp' }] },
+          { name: 'WindowsOnly', kind: 'Command', state: 'excluded', reason: 'Platform expected windows-x64' }
+        ],
+        build: {
+          inputs: [
+            { role: 'Source', source: 'src', mode: 'Directory', ownerName: 'App' },
+            { role: 'Config', source: 'config/app.cfg', stagedRelativePath: 'config/app.cfg', ownerName: 'App' }
+          ]
+        },
+        launch: { executable: 'App', workingDirectory: '.' },
+        launches: [{ name: 'default', executable: 'App', selected: true, workingDirectory: '.' }],
+        stage: { files: [{ kind: 'config', target: 'config/app.cfg' }] },
+        environment: { variables: [{ name: 'TOKEN', value: '<redacted>', secret: true }] },
+        diagnostics: []
+      }
     },
     launchManifestExists: false,
     stagedCompileCommandsAvailable: false
@@ -860,9 +891,9 @@ test('project tree models expose inspect groups for the active project only', ()
   assert.deepEqual(activeInspect?.groups.map((group) => group.kind), [
     'packages',
     'features',
-    'capabilities',
     'generators',
     'inputs',
+    'stage',
     'launch'
   ]);
   assert.deepEqual(activeInspect?.entriesByGroup.get('generators')?.map((entry) => `${entry.label}:${entry.description}`), [
@@ -881,13 +912,13 @@ test('project tree models expose inspect groups for the active project only', ()
     'Configs:1'
   ]);
   assert.deepEqual(activeInspect?.entriesByGroup.get('inputs')?.[0]?.children?.map((entry) => `${entry.label}:${entry.description}`), [
-    'src:Directory • App'
+    'src:Source • Directory • App'
   ]);
   assert.equal(models.inspectByProject.has(inactiveProject.path), false);
   assert.deepEqual(models.dependenciesByProject.get(inactiveProject.path)?.packages.map((entry) => entry.label), ['NGIN.Core']);
 });
 
-test('project tree dependency models group mixed references and deduplicate owners', () => {
+test('project tree dependency models group mixed uses and deduplicate owners', () => {
   const models = buildProjectTreeModels({
     workspace: {
       workspace: { path: '/repo/NGIN.ngin', directory: '/repo', name: 'NGIN', projectPaths: [] },
@@ -901,14 +932,14 @@ test('project tree dependency models group mixed references and deduplicate owne
           configInputs: [],
           buildSources: [],
           projectRefs: [{ path: '/repo/Engine.Library/Engine.Library.nginproj' }],
-          packageRefs: [{ name: 'NGIN.Core' }],
+          dependencies: [{ name: 'NGIN.Core' }],
           profiles: [
             {
               name: 'Runtime',
               environment: 'development',
               configInputs: [],
               projectRefs: [{ path: '/repo/Engine.Library/Engine.Library.nginproj' }],
-              packageRefs: [{ name: 'NGIN.Core' }, { name: 'NGIN.Reflection' }]
+              dependencies: [{ name: 'NGIN.Core' }, { name: 'NGIN.Reflection' }]
             }
           ]
         },

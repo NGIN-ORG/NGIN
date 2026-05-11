@@ -6,20 +6,20 @@ import {
   ProjectFeatureState,
   ProjectInputBlock,
   ProjectInputEdit,
-  ProjectPackageReferenceEdit,
+  ProjectDependencyUseEdit,
   setEnvironmentVariables,
   setInputEntries,
   setLaunch,
-  setPackageReferences,
+  setDependencyUses,
   setProfileFeatureState,
   updateProfile,
   updateProjectAttributes
 } from './authoring';
 import { buildProjectEditorModel } from './model';
-import { ProjectInspectPayload } from '../core/types';
+import { CompositionGraphPayload } from '../core/types';
 
 interface ProjectEditorInspectState {
-  inspect?: ProjectInspectPayload;
+  inspectGraph?: CompositionGraphPayload;
   activeProfile?: string;
 }
 
@@ -50,7 +50,7 @@ type ProjectEditorMessage =
       launchExecutable?: string;
       launchWorkingDirectory?: string;
     }
-  | { type: 'setPackageReferences'; profileName?: string; references: ProjectPackageReferenceEdit[] }
+  | { type: 'setDependencyUses'; profileName?: string; references: ProjectDependencyUseEdit[] }
   | { type: 'setInputEntries'; profileName?: string; block: ProjectInputBlock; entries: ProjectInputEdit[] }
   | { type: 'setFeatureState'; profileName: string; packageName: string; featureName: string; state: ProjectFeatureState }
   | { type: 'setEnvironmentVariables'; environmentName: string; variables: ProjectEnvironmentVariableEdit[] };
@@ -80,7 +80,7 @@ export class NginProjectEditorProvider implements vscode.CustomTextEditorProvide
     let inspectGeneration = 0;
 
     const postModel = async (state?: ProjectEditorInspectState): Promise<void> => {
-      const model = buildProjectEditorModel(document.getText(), document.uri.fsPath, document.uri.toString(), state?.inspect, state?.activeProfile);
+      const model = buildProjectEditorModel(document.getText(), document.uri.fsPath, document.uri.toString(), state?.inspectGraph, state?.activeProfile);
       await webviewPanel.webview.postMessage({ type: 'model', model });
     };
 
@@ -143,8 +143,8 @@ export class NginProjectEditorProvider implements vscode.CustomTextEditorProvide
       case 'updateProfile':
         await this.services.apply(document, (xml) => updateProfile(xml, message));
         return;
-      case 'setPackageReferences':
-        await this.services.apply(document, (xml) => setPackageReferences(xml, message.references, message.profileName));
+      case 'setDependencyUses':
+        await this.services.apply(document, (xml) => setDependencyUses(xml, message.references, message.profileName));
         return;
       case 'setInputEntries':
         await this.services.apply(document, (xml) => setInputEntries(xml, message.block, message.entries, message.profileName));
@@ -883,7 +883,7 @@ export class NginProjectEditorProvider implements vscode.CustomTextEditorProvide
     }
 
     function referencesForScope(scope) {
-      return scope ? model.profiles.find((profile) => profile.name === scope)?.packageReferences || [] : model.project.packageReferences;
+      return scope ? model.profiles.find((profile) => profile.name === scope)?.dependencies || [] : model.project.dependencies;
     }
 
     function packageSearchMatches(pkg) {
@@ -932,7 +932,7 @@ export class NginProjectEditorProvider implements vscode.CustomTextEditorProvide
     function renderAddPackageDialog() {
       if (!showAddPackageDialog) return '';
       return '<div class="modal-backdrop"><div class="modal-panel">' +
-        '<h2>Add Package Reference</h2><div class="grid">' +
+        '<h2>Add Dependency</h2><div class="grid">' +
         '<label><span>Scope</span><select id="new-reference-scope">' + optionList(profileNames(), activeReferenceScope, 'Project') + '</select></label>' +
         field('new-reference-name', 'Package', selectedPackageName || '', ' placeholder="NGIN.Core"') +
         field('new-reference-version', 'Version', '', ' placeholder=">=0.1.0 <0.2.0"') +
@@ -943,10 +943,22 @@ export class NginProjectEditorProvider implements vscode.CustomTextEditorProvide
 
     function renderPackages() {
       const filteredPackages = model.resolved.packages.filter(packageSearchMatches);
-      return '<div class="band"><h2>Packages</h2>' +
+      const toolingRows = model.resolved.toolingPackages.map((pkg) => [pkg.name, pkg.version || '', pkg.requiredBy.join(', ')]);
+      const analyzerRows = model.resolved.analyzers.map((analyzer) => [
+        analyzer.name,
+        analyzer.tool || '',
+        analyzer.packageName || '',
+        analyzer.severity || '',
+        analyzer.configPath ? analyzer.configPath + (analyzer.configOptional ? ' (optional)' : '') : ''
+      ]);
+      return '<div class="band"><h2>Dependencies</h2>' +
         '<div class="inline"><label class="search-row"><span>Search packages</span><input id="package-search" value="' + esc(packageSearchText) + '" placeholder="Package name or version"></label>' +
-        '<button class="secondary" id="add-reference">Add Package</button></div>' +
+        '<button class="secondary" id="add-reference">Add Dependency</button></div>' +
         '<div id="package-list">' + renderPackageList(filteredPackages) + '</div>' +
+        '</div><div class="band"><h2>Enabled Tooling Packages</h2>' +
+        table(['Package', 'Version', 'Closures'], toolingRows, 'No tooling packages are enabled for this profile.', 'minmax(220px, 1fr) 100px minmax(160px, 1fr)') +
+        '</div><div class="band"><h2>Analyzers</h2>' +
+        table(['Name', 'Tool', 'Package', 'Severity', 'Config'], analyzerRows, 'No analyzers are active for this profile.', 'minmax(140px, 1fr) minmax(140px, 1fr) minmax(220px, 1fr) 100px minmax(180px, 1fr)') +
         '</div>' +
         renderPackageDetailsDialog() +
         renderAddPackageDialog();
@@ -1265,7 +1277,7 @@ export class NginProjectEditorProvider implements vscode.CustomTextEditorProvide
           }]);
           activeReferenceScope = referenceScope || '';
           showAddPackageDialog = false;
-          post({ type: 'setPackageReferences', profileName: referenceScope, references: nextReferences });
+          post({ type: 'setDependencyUses', profileName: referenceScope, references: nextReferences });
         }
       }
       if (target.id === 'show-add-environment') {

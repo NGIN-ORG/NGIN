@@ -160,6 +160,21 @@
         "category": "NGIN"
       },
       {
+        "command": "ngin.addClangTidyAnalyzerPackage",
+        "title": "Enable Clang-Tidy",
+        "category": "NGIN"
+      },
+      {
+        "command": "ngin.openClangTidyConfig",
+        "title": "Open .clang-tidy",
+        "category": "NGIN"
+      },
+      {
+        "command": "ngin.createClangTidyConfig",
+        "title": "Create .clang-tidy",
+        "category": "NGIN"
+      },
+      {
         "command": "ngin.graph",
         "title": "Graph",
         "category": "NGIN"
@@ -360,6 +375,21 @@
           "command": "ngin.analyze",
           "when": "view == nginWorkspace && viewItem =~ /^(nginProject|nginProfile)$/",
           "group": "ngin.inspect@2"
+        },
+        {
+          "command": "ngin.addClangTidyAnalyzerPackage",
+          "when": "view == nginWorkspace && viewItem =~ /^(nginProject|nginProfile)$/",
+          "group": "ngin.inspect@2.1"
+        },
+        {
+          "command": "ngin.openClangTidyConfig",
+          "when": "view == nginWorkspace && viewItem =~ /^(nginProject|nginProfile)$/",
+          "group": "ngin.inspect@2.2"
+        },
+        {
+          "command": "ngin.createClangTidyConfig",
+          "when": "view == nginWorkspace && viewItem =~ /^(nginProject|nginProfile)$/",
+          "group": "ngin.inspect@2.3"
         },
         {
           "command": "ngin.graph",

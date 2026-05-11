@@ -3,7 +3,7 @@ import * as vscode from 'vscode';
 import { computeCompileCommandsPath, getFallbackCompileCommandsPath } from '../core/compileCommands';
 import { computeLaunchManifestPath, computeOutputDir } from '../core/helpers';
 import { findNearestWorkspaceManifest, loadWorkspaceProjects, pathExists } from '../core/discovery';
-import { PackageCatalogEntry, ProjectInspectPayload, ProjectProfile, ProjectManifest, WorkspaceManifest } from '../core/types';
+import { PackageCatalogEntry, CompositionGraphPayload, ProjectProfile, ProjectManifest, WorkspaceManifest } from '../core/types';
 
 const LAST_PROJECT_KEY = 'ngin.lastProject';
 const LAST_LAUNCH_MANIFEST_KEY = 'ngin.lastLaunchManifest';
@@ -41,7 +41,7 @@ export interface NginWorkspaceSnapshot {
   activeCompileCommandsPath?: string;
   activeCompileCommandsSource?: 'staged' | 'fallback';
   lastLaunchManifestPath?: string;
-  inspect?: ProjectInspectPayload;
+  inspectGraph?: CompositionGraphPayload;
   inspectError?: string;
 }
 

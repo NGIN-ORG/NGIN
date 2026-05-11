@@ -12,11 +12,140 @@
   <xs:element name="Project">
     <xs:complexType>
       <xs:sequence>
-        <xs:any minOccurs="0" maxOccurs="unbounded" processContents="lax" />
+        <xs:choice minOccurs="0" maxOccurs="unbounded">
+          <xs:element ref="Application" />
+          <xs:element ref="Library" />
+          <xs:element ref="Tool" />
+          <xs:element ref="Test" />
+          <xs:element ref="Benchmark" />
+          <xs:element ref="Plugin" />
+          <xs:element ref="Module" />
+          <xs:element ref="External" />
+          <xs:element ref="Profile" />
+          <xs:any processContents="lax" />
+        </xs:choice>
       </xs:sequence>
       <xs:attribute name="SchemaVersion" type="xs:string" fixed="4" />
       <xs:attribute name="Name" type="xs:string" use="required" />
       <xs:attribute name="DefaultProfile" type="xs:string" />
+      <xs:anyAttribute processContents="lax" />
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="Application" type="ProductType" />
+  <xs:element name="Library" type="ProductType" />
+  <xs:element name="Tool" type="ProductType" />
+  <xs:element name="Test" type="ProductType" />
+  <xs:element name="Benchmark" type="ProductType" />
+  <xs:element name="Plugin" type="ProductType" />
+  <xs:element name="Module" type="ProductType" />
+  <xs:element name="External" type="ProductType" />
+
+  <xs:complexType name="ProductType">
+    <xs:sequence>
+      <xs:choice minOccurs="0" maxOccurs="unbounded">
+        <xs:element name="Uses" type="UsesType" />
+        <xs:element name="Build" type="OpenSectionType" />
+        <xs:element name="Generate" type="OpenSectionType" />
+        <xs:element name="Stage" type="OpenSectionType" />
+        <xs:element name="Runtime" type="OpenSectionType" />
+        <xs:element name="Environment" type="OpenSectionType" />
+        <xs:element name="Quality" type="QualityType" />
+        <xs:element name="Exports" type="OpenSectionType" />
+        <xs:element name="Launch" type="NamedItemType" />
+        <xs:element name="Run" type="NamedItemType" />
+        <xs:element name="Publish" type="NamedItemType" />
+        <xs:element name="PackageOutput" type="NamedItemType" />
+        <xs:any processContents="lax" />
+      </xs:choice>
+    </xs:sequence>
+    <xs:anyAttribute processContents="lax" />
+  </xs:complexType>
+
+  <xs:complexType name="UsesType">
+    <xs:sequence>
+      <xs:choice minOccurs="0" maxOccurs="unbounded">
+        <xs:element name="Project" type="NamedItemType" />
+        <xs:element name="Package" type="DependencyUseType" />
+        <xs:element name="Runtime" type="DependencyUseType" />
+        <xs:element name="Tool" type="DependencyUseType" />
+        <xs:any processContents="lax" />
+      </xs:choice>
+    </xs:sequence>
+    <xs:anyAttribute processContents="lax" />
+  </xs:complexType>
+
+  <xs:complexType name="DependencyUseType">
+    <xs:sequence>
+      <xs:element name="Feature" type="NamedItemType" minOccurs="0" maxOccurs="unbounded" />
+    </xs:sequence>
+    <xs:attribute name="Name" type="xs:string" />
+    <xs:attribute name="Version" type="xs:string" />
+    <xs:attribute name="Scope" type="xs:string" />
+    <xs:attribute name="Remove" type="xs:string" />
+    <xs:anyAttribute processContents="lax" />
+  </xs:complexType>
+
+  <xs:complexType name="QualityType">
+    <xs:sequence>
+      <xs:choice minOccurs="0" maxOccurs="unbounded">
+        <xs:element name="Analyzer" type="AnalyzerType" />
+        <xs:any processContents="lax" />
+      </xs:choice>
+    </xs:sequence>
+    <xs:anyAttribute processContents="lax" />
+  </xs:complexType>
+
+  <xs:complexType name="AnalyzerType">
+    <xs:sequence>
+      <xs:element name="Config" type="NamedItemType" minOccurs="0" maxOccurs="1" />
+    </xs:sequence>
+    <xs:attribute name="Name" type="xs:string" />
+    <xs:attribute name="Tool" type="xs:string" />
+    <xs:attribute name="Scope" type="xs:string" />
+    <xs:attribute name="Severity" type="xs:string" />
+    <xs:attribute name="Enabled" type="xs:boolean" />
+    <xs:anyAttribute processContents="lax" />
+  </xs:complexType>
+
+  <xs:complexType name="OpenSectionType" mixed="true">
+    <xs:sequence>
+      <xs:any minOccurs="0" maxOccurs="unbounded" processContents="lax" />
+    </xs:sequence>
+    <xs:anyAttribute processContents="lax" />
+  </xs:complexType>
+
+  <xs:complexType name="NamedItemType" mixed="true">
+    <xs:sequence>
+      <xs:any minOccurs="0" maxOccurs="unbounded" processContents="lax" />
+    </xs:sequence>
+    <xs:attribute name="Name" type="xs:string" />
+    <xs:attribute name="Path" type="xs:string" />
+    <xs:attribute name="Source" type="xs:string" />
+    <xs:attribute name="Target" type="xs:string" />
+    <xs:attribute name="Value" type="xs:string" />
+    <xs:attribute name="Remove" type="xs:string" />
+    <xs:anyAttribute processContents="lax" />
+  </xs:complexType>
+
+  <xs:element name="Profile">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:choice minOccurs="0" maxOccurs="unbounded">
+          <xs:element name="Defaults" type="OpenSectionType" />
+          <xs:element ref="Application" />
+          <xs:element ref="Library" />
+          <xs:element ref="Tool" />
+          <xs:element ref="Test" />
+          <xs:element ref="Benchmark" />
+          <xs:element ref="Plugin" />
+          <xs:element ref="Module" />
+          <xs:element ref="External" />
+          <xs:any processContents="lax" />
+        </xs:choice>
+      </xs:sequence>
+      <xs:attribute name="Name" type="xs:string" use="required" />
+      <xs:attribute name="Extends" type="xs:string" />
       <xs:anyAttribute processContents="lax" />
     </xs:complexType>
   </xs:element>

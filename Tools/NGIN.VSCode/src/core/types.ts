@@ -54,7 +54,7 @@ export interface ProjectReference extends Omit<SelectorFields, 'profile'> {
   profile?: string;
 }
 
-export interface PackageReference extends SelectorFields {
+export interface DependencyUse extends SelectorFields {
   name: string;
   version?: string;
   scope?: string;
@@ -80,7 +80,7 @@ export interface PackageFeature extends SelectorFields {
   description?: string;
   provides?: PackageCapability[];
   requires?: PackageCapability[];
-  dependencies?: PackageReference[];
+  dependencies?: DependencyUse[];
   inputs?: InputDeclaration[];
   generators?: GeneratorDeclaration[];
 }
@@ -124,7 +124,7 @@ export interface ProjectProfile {
   inputs?: InputDeclaration[];
   configInputs: string[];
   projectRefs?: ProjectReference[];
-  packageRefs?: PackageReference[];
+  dependencies?: DependencyUse[];
   packageFeatureUses?: PackageFeatureUse[];
   generators?: GeneratorDeclaration[];
 }
@@ -142,7 +142,7 @@ export interface ProjectManifest {
   buildSources: string[];
   conditions?: ConditionDefinition[];
   projectRefs?: ProjectReference[];
-  packageRefs?: PackageReference[];
+  dependencies?: DependencyUse[];
   packageFeatureUses?: PackageFeatureUse[];
   generators?: GeneratorDeclaration[];
   profiles: ProjectProfile[];
@@ -226,6 +226,7 @@ export interface ParsedCliDiagnostic {
   column?: number;
   message: string;
   severity: 'error' | 'warning';
+  source?: string;
 }
 
 export interface LaunchResolution {
@@ -233,82 +234,57 @@ export interface LaunchResolution {
   workingDirectoryCandidates: string[];
 }
 
-export interface InspectDiagnostic {
+export interface GraphDiagnostic {
   severity: 'error' | 'warning';
   subject?: string;
   message: string;
 }
 
-export interface InspectPackage {
+export interface GraphPackagePlan {
   name: string;
   version?: string;
   manifestPath?: string;
   providerRoot?: string;
   source?: string;
-  requiredBy?: string[];
+  scope?: string;
+  closures?: string[];
 }
 
-export interface InspectPackageDependencyEdge {
-  from: string;
-  to: string;
-}
-
-export type InspectPackageFeatureState = 'selected' | 'available' | 'disabled' | 'conditionExcluded' | 'unavailable' | string;
-
-export interface InspectPackageFeature {
+export interface GraphPackageFeaturePlan {
   package: string;
   packageVersion?: string;
   feature: string;
-  state: InspectPackageFeatureState;
   description?: string;
   manifestPath?: string;
 }
 
-export interface InspectCapabilityProvider {
-  name: string;
-  package: string;
-  feature: string;
-  exclusive?: boolean;
-}
-
-export interface InspectCapabilityRequirement {
-  name: string;
-  package: string;
-  feature: string;
-  missing?: boolean;
-}
-
-export interface InspectCapabilities {
-  providers: InspectCapabilityProvider[];
-  requirements: InspectCapabilityRequirement[];
-  missingRequirements?: string[];
-  exclusiveConflicts?: string[];
-}
-
-export interface InspectGeneratorOutput {
+export interface GraphGeneratorOutput {
   role?: string;
   path?: string;
   target?: string;
 }
 
-export interface InspectGenerator {
+export interface GraphGeneratorPlan {
   name: string;
   kind?: string;
-  state: 'active' | 'excluded' | string;
+  state?: 'active' | 'excluded' | string;
   ownerKind?: string;
   ownerName?: string;
   package?: string;
   tool?: string;
+  toolName?: string;
   manifestPath?: string;
   reason?: string;
-  outputs?: InspectGeneratorOutput[];
+  outputs?: GraphGeneratorOutput[];
 }
 
-export interface InspectInput {
+export interface GraphBuildInput {
   name?: string;
+  kind?: string;
   role?: string;
   mode?: string;
   source?: string;
+  owner?: string;
   absoluteSourcePath?: string;
   visibility?: string;
   target?: string;
@@ -319,18 +295,22 @@ export interface InspectInput {
   manifestPath?: string;
 }
 
-export interface InspectLaunch {
-  executable?: LaunchExecutable | null;
+export interface GraphLaunchPlan {
+  name?: string;
+  executable?: string;
   workingDirectory?: string;
+  args?: string;
+  selected?: boolean;
 }
 
-export interface InspectStagedFile {
-  kind: string;
+export interface GraphStagedFile {
+  kind?: string;
   source?: string;
+  target?: string;
   relativeDestination?: string;
 }
 
-export interface InspectEnvironmentVariable {
+export interface GraphEnvironmentVariable {
   name: string;
   value?: string;
   secret?: boolean;
@@ -338,40 +318,90 @@ export interface InspectEnvironmentVariable {
   source?: string;
 }
 
-export interface InspectLockFile {
-  path?: string | null;
-  status?: string;
+export interface GraphPublishPlan {
+  name?: string;
+  kind?: string;
+  format?: string;
+  output?: string;
 }
 
-export interface ProjectInspectPayload {
-  schemaVersion: 1;
-  project?: {
-    name?: string;
-    path?: string;
-    type?: string;
+export interface GraphPackageOutputPlan {
+  name?: string;
+  version?: string;
+  output?: string;
+}
+
+export interface GraphAnalyzerPlan {
+  name: string;
+  tool?: string;
+  package?: string;
+  scope?: string;
+  severity?: 'error' | 'warning' | 'Error' | 'Warning' | string;
+  configPath?: string;
+  configOptional?: boolean;
+}
+
+export interface CompositionGraphPayload {
+  schemaVersion: '4.0';
+  kind: 'NGIN.CompositionGraph';
+  state?: string;
+  facets?: string[];
+  identity?: {
+    project?: string;
+    projectPath?: string;
+    product?: string;
+    profile?: string;
   };
-  profile?: {
-    name?: string;
+  product?: {
+    kind?: string;
+    outputType?: string;
+    outputName?: string;
+    targetName?: string;
+  };
+  selection?: {
+    profile?: string;
     buildType?: string;
     platform?: string;
+    targetPlatform?: string;
+    hostPlatform?: string;
     operatingSystem?: string;
     architecture?: string;
     environment?: string;
+    toolchain?: string;
+    abiTag?: string;
   };
   workspace?: {
     name?: string;
     path?: string;
   } | null;
   outputDir?: string;
-  packages?: InspectPackage[];
-  packageDependencyEdges?: InspectPackageDependencyEdge[];
-  packageFeatures?: InspectPackageFeature[];
-  capabilities?: InspectCapabilities;
-  generators?: InspectGenerator[];
-  inputs?: Record<string, InspectInput[]>;
-  launch?: InspectLaunch;
-  stagedFiles?: InspectStagedFile[];
-  environmentVariables?: InspectEnvironmentVariable[];
-  lockFile?: InspectLockFile;
-  diagnostics?: InspectDiagnostic[];
+  facetsSummary?: Record<string, number>;
+  plans?: {
+    packages?: GraphPackagePlan[];
+    packageFeatures?: GraphPackageFeaturePlan[];
+    build?: {
+      inputs?: GraphBuildInput[];
+      defines?: Array<{ name?: string; value?: string }>;
+    };
+    generators?: GraphGeneratorPlan[];
+    stage?: {
+      files?: GraphStagedFile[];
+    };
+    runtime?: {
+      requiredModules?: Array<{ name?: string; stage?: string; order?: string | number }>;
+      optionalModules?: Array<{ name?: string; stage?: string; order?: string | number }>;
+      plugins?: Array<{ name?: string; target?: string; load?: string }>;
+    };
+    environment?: {
+      variables?: GraphEnvironmentVariable[];
+    };
+    launch?: GraphLaunchPlan;
+    launches?: GraphLaunchPlan[];
+    publish?: GraphPublishPlan[];
+    packageOutputs?: GraphPackageOutputPlan[];
+    quality?: {
+      analyzers?: GraphAnalyzerPlan[];
+    };
+    diagnostics?: GraphDiagnostic[];
+  };
 }

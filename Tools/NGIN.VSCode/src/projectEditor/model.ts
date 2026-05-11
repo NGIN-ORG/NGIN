@@ -1,6 +1,6 @@
 import { XMLParser } from 'fast-xml-parser';
-import { InspectPackageFeature, ProjectInspectPayload } from '../core/types';
-import { ProjectFeatureState, ProjectInputBlock, ProjectInputEdit, ProjectPackageReferenceEdit } from './authoring';
+import { CompositionGraphPayload, GraphPackageFeaturePlan } from '../core/types';
+import { ProjectFeatureState, ProjectInputBlock, ProjectInputEdit, ProjectDependencyUseEdit } from './authoring';
 
 const parser = new XMLParser({
   ignoreAttributes: false,
@@ -46,7 +46,7 @@ export interface ProjectEditorProfile {
   environment?: string;
   launchExecutable?: string;
   launchWorkingDirectory?: string;
-  packageReferences: ProjectPackageReferenceEdit[];
+  dependencies: ProjectDependencyUseEdit[];
   featureUses: ProjectEditorFeatureUse[];
   inputs: Record<ProjectInputBlock, ProjectInputEdit[]>;
 }
@@ -104,6 +104,16 @@ export interface ProjectEditorResolvedEnvironmentVariable {
   resolved?: boolean;
 }
 
+export interface ProjectEditorResolvedAnalyzer {
+  name: string;
+  tool?: string;
+  packageName?: string;
+  scope?: string;
+  severity?: string;
+  configPath?: string;
+  configOptional?: boolean;
+}
+
 export interface ProjectEditorResolvedSummary {
   projectName?: string;
   projectType?: string;
@@ -129,6 +139,8 @@ export interface ProjectEditorResolvedSummary {
   packages: ProjectEditorResolvedPackage[];
   inputs: ProjectEditorResolvedInput[];
   environmentVariables: ProjectEditorResolvedEnvironmentVariable[];
+  analyzers: ProjectEditorResolvedAnalyzer[];
+  toolingPackages: ProjectEditorResolvedPackage[];
 }
 
 export interface ProjectEditorModel {
@@ -141,7 +153,7 @@ export interface ProjectEditorModel {
     defaultProfile?: string;
     launchExecutable?: string;
     launchWorkingDirectory?: string;
-    packageReferences: ProjectPackageReferenceEdit[];
+    dependencies: ProjectDependencyUseEdit[];
     inputs: Record<ProjectInputBlock, ProjectInputEdit[]>;
   };
   activeProfile?: string;
@@ -161,14 +173,14 @@ function emptyInputs(): Record<ProjectInputBlock, ProjectInputEdit[]> {
   };
 }
 
-function parsePackageReferences(node: unknown): ProjectPackageReferenceEdit[] {
+function parseDependencyUses(node: unknown): ProjectDependencyUseEdit[] {
   const parent = node as { Uses?: { Package?: unknown; Runtime?: unknown; Tool?: unknown } } | undefined;
   return [
     ...asArray(parent?.Uses?.Package),
     ...asArray(parent?.Uses?.Runtime),
     ...asArray(parent?.Uses?.Tool)
   ]
-    .map((entry): ProjectPackageReferenceEdit | undefined => {
+    .map((entry): ProjectDependencyUseEdit | undefined => {
       const ref = entry as { Name?: string; Version?: string; VersionRange?: string; Optional?: string | boolean } | undefined;
       if (!ref?.Name) {
         return undefined;
@@ -179,7 +191,7 @@ function parsePackageReferences(node: unknown): ProjectPackageReferenceEdit[] {
         optional: boolValue(ref.Optional)
       };
     })
-    .filter((entry): entry is ProjectPackageReferenceEdit => Boolean(entry));
+    .filter((entry): entry is ProjectDependencyUseEdit => Boolean(entry));
 }
 
 function parseFeatureUses(node: unknown): ProjectEditorFeatureUse[] {
@@ -308,78 +320,87 @@ function featureKey(packageName: string, featureName: string): string {
   return `${packageName}::${featureName}`;
 }
 
-function buildFeatures(inspect: ProjectInspectPayload | undefined, profiles: ProjectEditorProfile[], activeProfile: string | undefined): ProjectEditorFeature[] {
+function buildFeatures(inspect: CompositionGraphPayload | undefined, profiles: ProjectEditorProfile[], activeProfile: string | undefined): ProjectEditorFeature[] {
   const activeUses = new Map<string, ProjectFeatureState>();
   const profile = profiles.find((candidate) => candidate.name === activeProfile);
   for (const use of profile?.featureUses ?? []) {
     activeUses.set(featureKey(use.packageName, use.featureName), use.state);
   }
 
-  return (inspect?.packageFeatures ?? []).map((feature: InspectPackageFeature) => {
+  return (inspect?.plans?.packageFeatures ?? []).map((feature: GraphPackageFeaturePlan) => {
     const state = activeUses.get(featureKey(feature.package, feature.feature)) ?? 'inherit';
     return {
       packageName: feature.package,
       packageVersion: feature.packageVersion,
       featureName: feature.feature,
       state,
-      resolvedState: feature.state,
+      resolvedState: 'selected',
       description: feature.description,
       manifestPath: feature.manifestPath,
-      readOnly: feature.state === 'unavailable'
+      readOnly: false
     };
   });
 }
 
-function resolvedSummary(inspect: ProjectInspectPayload | undefined): ProjectEditorResolvedSummary {
-  const diagnostics = inspect?.diagnostics ?? [];
-  const packages = (inspect?.packages ?? []).map((entry) => ({
+function resolvedSummary(inspect: CompositionGraphPayload | undefined): ProjectEditorResolvedSummary {
+  const diagnostics = inspect?.plans?.diagnostics ?? [];
+  const packages = (inspect?.plans?.packages ?? []).map((entry) => ({
     name: entry.name,
     version: entry.version,
-    requiredBy: entry.requiredBy ?? [],
+    requiredBy: entry.closures ?? (entry.scope ? [entry.scope] : []),
     manifestPath: entry.manifestPath
   }));
-  const inputs = Object.entries(inspect?.inputs ?? {}).flatMap(([kind, entries]) =>
-    entries.map((entry) => ({
-      kind,
+  const inputs = (inspect?.plans?.build?.inputs ?? []).map((entry) => ({
+      kind: entry.kind ?? entry.role ?? 'Source',
       source: entry.source,
       mode: entry.mode,
-      ownerName: entry.ownerName,
+      ownerName: entry.ownerName ?? entry.owner,
       stagedRelativePath: entry.stagedRelativePath
-    }))
-  );
-  const environmentVariables = (inspect?.environmentVariables ?? []).map((entry) => ({
+    }));
+  const environmentVariables = (inspect?.plans?.environment?.variables ?? []).map((entry) => ({
     name: entry.name,
     source: entry.source,
     secret: entry.secret,
     resolved: entry.resolved
   }));
-  const features = inspect?.packageFeatures ?? [];
-  const generators = inspect?.generators ?? [];
+  const features = inspect?.plans?.packageFeatures ?? [];
+  const generators = inspect?.plans?.generators ?? [];
+  const analyzers = (inspect?.plans?.quality?.analyzers ?? []).map((entry) => ({
+    name: entry.name,
+    tool: entry.tool,
+    packageName: entry.package,
+    scope: entry.scope,
+    severity: entry.severity,
+    configPath: entry.configPath,
+    configOptional: entry.configOptional
+  }));
   return {
-    projectName: inspect?.project?.name,
-    projectType: inspect?.project?.type,
+    projectName: inspect?.identity?.project,
+    projectType: inspect?.product?.kind,
     workspaceName: inspect?.workspace?.name,
-    profileName: inspect?.profile?.name,
-    buildType: inspect?.profile?.buildType,
-    platform: inspect?.profile?.platform,
-    operatingSystem: inspect?.profile?.operatingSystem,
-    architecture: inspect?.profile?.architecture,
-    environment: inspect?.profile?.environment,
+    profileName: inspect?.selection?.profile,
+    buildType: inspect?.selection?.buildType,
+    platform: inspect?.selection?.targetPlatform ?? inspect?.selection?.platform,
+    operatingSystem: inspect?.selection?.operatingSystem,
+    architecture: inspect?.selection?.architecture,
+    environment: inspect?.selection?.environment,
     outputDir: inspect?.outputDir,
-    launchExecutable: inspect?.launch?.executable?.name,
-    launchWorkingDirectory: inspect?.launch?.workingDirectory,
+    launchExecutable: inspect?.plans?.launch?.executable,
+    launchWorkingDirectory: inspect?.plans?.launch?.workingDirectory,
     packageCount: packages.length,
     featureCount: features.length,
-    activeFeatureCount: features.filter((entry) => entry.state === 'selected').length,
+    activeFeatureCount: features.length,
     generatorCount: generators.length,
-    activeGeneratorCount: generators.filter((entry) => entry.state === 'active').length,
-    stagedFileCount: inspect?.stagedFiles?.length ?? 0,
+    activeGeneratorCount: generators.filter((entry) => entry.state === undefined || entry.state === 'active').length,
+    stagedFileCount: inspect?.plans?.stage?.files?.length ?? 0,
     environmentVariableCount: environmentVariables.length,
     diagnosticErrorCount: diagnostics.filter((diagnostic) => diagnostic.severity === 'error').length,
     diagnosticWarningCount: diagnostics.filter((diagnostic) => diagnostic.severity === 'warning').length,
     packages,
     inputs,
-    environmentVariables
+    environmentVariables,
+    analyzers,
+    toolingPackages: packages.filter((pkg) => pkg.name.startsWith('NGIN.Tooling.'))
   };
 }
 
@@ -398,21 +419,21 @@ export function buildProjectEditorModel(
   xml: string,
   manifestPath: string,
   uri: string,
-  inspect?: ProjectInspectPayload,
+  inspect?: CompositionGraphPayload,
   activeProfile?: string
 ): ProjectEditorModel {
   const base: ProjectEditorModel = {
     uri,
     path: manifestPath,
     project: {
-      packageReferences: [],
+      dependencies: [],
       inputs: emptyInputs()
     },
     activeProfile,
     profiles: [],
     environments: [],
     features: [],
-    diagnostics: (inspect?.diagnostics ?? []).map((diagnostic) => `${diagnostic.severity}: ${diagnostic.subject ? `${diagnostic.subject}: ` : ''}${diagnostic.message}`),
+    diagnostics: (inspect?.plans?.diagnostics ?? []).map((diagnostic) => `${diagnostic.severity}: ${diagnostic.subject ? `${diagnostic.subject}: ` : ''}${diagnostic.message}`),
     unsupportedSections: [],
     resolved: resolvedSummary(inspect)
   };
@@ -449,7 +470,7 @@ export function buildProjectEditorModel(
           environment: defaultsValue(profile, 'Environment'),
           launchExecutable: launch?.Executable,
           launchWorkingDirectory: launch?.WorkingDirectory,
-          packageReferences: parsePackageReferences(overlayProduct),
+          dependencies: parseDependencyUses(overlayProduct),
           featureUses: parseFeatureUses(overlayProduct),
           inputs: parseInputs(overlayProduct)
         };
@@ -466,7 +487,7 @@ export function buildProjectEditorModel(
         defaultProfile: root.DefaultProfile,
         launchExecutable: rootLaunch?.Executable,
         launchWorkingDirectory: rootLaunch?.WorkingDirectory,
-        packageReferences: parsePackageReferences(rootProduct),
+        dependencies: parseDependencyUses(rootProduct),
         inputs: parseInputs(rootProduct)
       },
       activeProfile: selectedProfile,

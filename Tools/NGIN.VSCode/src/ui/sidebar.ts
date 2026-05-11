@@ -450,10 +450,10 @@ class ProjectsTreeDataProvider implements vscode.TreeDataProvider<ProjectsTreeEl
         const dependencies = model.dependenciesByProject.get(element.projectPath);
         const items: ProjectsTreeElement[] = [];
         if (dependencies?.projects.length) {
-          items.push(new ProjectDependencyGroupTreeItem(element.projectPath, 'projects', 'Project References'));
+          items.push(new ProjectDependencyGroupTreeItem(element.projectPath, 'projects', 'Projects'));
         }
         if (dependencies?.packages.length) {
-          items.push(new ProjectDependencyGroupTreeItem(element.projectPath, 'packages', 'Package References'));
+          items.push(new ProjectDependencyGroupTreeItem(element.projectPath, 'packages', 'Packages'));
         }
         const inspectModel = model.inspectByProject.get(element.projectPath);
         items.push(...(inspectModel?.groups ?? []).map((group) => new ProjectInspectGroupTreeItem(group)));

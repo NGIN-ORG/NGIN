@@ -15,13 +15,14 @@ import {
   extractLocalSettingsWarnings,
   getExecutableCandidatePaths,
   getWorkingDirectoryCandidates,
-  normalizeInspectPayload,
-  parseCliDiagnostics
+  parseCliDiagnostics,
+  parseCompositionGraphPayload
 } from './core/helpers';
 import { addRootConfigInput, listConfigInputs, relativeManifestPath, removeConfigInputs, renameConfigInputs } from './core/projectAuthoring';
 import { createNativeDebugConfiguration, quoteShellArgument } from './core/debug';
-import { LaunchManifest, ProjectInspectPayload, ProjectManifest } from './core/types';
+import { LaunchManifest, CompositionGraphPayload, ProjectManifest } from './core/types';
 import { parseLaunchManifest, parseLocalSettingsManifest, parseProjectManifest } from './core/xml';
+import { addClangTidyAnalyzerPackage } from './projectEditor/authoring';
 import {
   NginCommandTarget,
   NginWorkspaceSnapshot,
@@ -217,13 +218,15 @@ class NginLocalSettingsCompletionProvider implements vscode.CompletionItemProvid
 
 class NginController implements vscode.Disposable {
   private readonly outputChannel = vscode.window.createOutputChannel('NGIN');
-  private readonly diagnostics = vscode.languages.createDiagnosticCollection('ngin');
+  private readonly validateDiagnostics = vscode.languages.createDiagnosticCollection('ngin.validate');
+  private readonly analyzeDiagnostics = vscode.languages.createDiagnosticCollection('ngin.analyze');
+  private readonly inspectDiagnostics = vscode.languages.createDiagnosticCollection('ngin.inspect');
   private readonly variableDocumentProvider = new NginVirtualDocumentProvider();
   private readonly workspaceState: WorkspaceStateService;
   private readonly sidebar: NginSidebarController;
   private readonly statusBar: NginStatusBarController;
   private readonly cppToolsProvider: NginCppToolsProviderService;
-  private readonly inspectCache = new Map<string, { payload?: ProjectInspectPayload; error?: string }>();
+  private readonly inspectCache = new Map<string, { payload?: CompositionGraphPayload; error?: string }>();
   private staleWarningShown = false;
   private readonly shownLocalSettingsWarnings = new Set<string>();
 
@@ -244,7 +247,9 @@ class NginController implements vscode.Disposable {
     this.sidebar.dispose();
     this.workspaceState.dispose();
     this.outputChannel.dispose();
-    this.diagnostics.dispose();
+    this.validateDiagnostics.dispose();
+    this.analyzeDiagnostics.dispose();
+    this.inspectDiagnostics.dispose();
     this.variableDocumentProvider.dispose();
   }
 
@@ -260,6 +265,9 @@ class NginController implements vscode.Disposable {
       vscode.commands.registerCommand('ngin.debug', (arg) => this.runHandled(() => this.debugCommand(this.asCommandTarget(arg)))),
       vscode.commands.registerCommand('ngin.validate', (arg) => this.runHandled(() => this.validateCommand(this.asCommandTarget(arg)))),
       vscode.commands.registerCommand('ngin.analyze', (arg) => this.runHandled(() => this.analyzeCommand(this.asCommandTarget(arg)))),
+      vscode.commands.registerCommand('ngin.addClangTidyAnalyzerPackage', (arg) => this.runHandled(() => this.addClangTidyAnalyzerPackageCommand(this.asCommandTarget(arg)))),
+      vscode.commands.registerCommand('ngin.openClangTidyConfig', (arg) => this.runHandled(() => this.openClangTidyConfigCommand(this.asCommandTarget(arg), false))),
+      vscode.commands.registerCommand('ngin.createClangTidyConfig', (arg) => this.runHandled(() => this.openClangTidyConfigCommand(this.asCommandTarget(arg), true))),
       vscode.commands.registerCommand('ngin.graph', (arg) => this.runHandled(() => this.graphCommand(this.asCommandTarget(arg)))),
       vscode.commands.registerCommand('ngin.variablesExplain', (arg) => this.runHandled(() => this.variablesExplainCommand(this.asCommandTarget(arg)))),
       vscode.commands.registerCommand('ngin.settingsInit', (arg) => this.runHandled(() => this.settingsInitCommand(this.asCommandTarget(arg)))),
@@ -509,7 +517,7 @@ class NginController implements vscode.Disposable {
     if (!forceRefresh) {
       const cached = this.inspectCache.get(key);
       if (cached) {
-        snapshot.inspect = cached.payload;
+        snapshot.inspectGraph = cached.payload;
         snapshot.inspectError = cached.error;
         return;
       }
@@ -517,8 +525,8 @@ class NginController implements vscode.Disposable {
 
     try {
       const payload = await this.runInspect(snapshot);
-      snapshot.inspect = payload;
-      snapshot.inspectError = payload.diagnostics?.some((diagnostic) => diagnostic.severity === 'error')
+      snapshot.inspectGraph = payload;
+      snapshot.inspectError = payload.plans?.diagnostics?.some((diagnostic) => diagnostic.severity === 'error')
         ? 'Inspect reported resolver diagnostics.'
         : undefined;
       this.inspectCache.set(key, { payload, error: snapshot.inspectError });
@@ -750,7 +758,9 @@ class NginController implements vscode.Disposable {
     const result = await this.runCli(
       context.workspace.root,
       ['validate', '--project', context.project.path, '--profile', context.profile.name],
-      vscode.Uri.file(context.project.path)
+      vscode.Uri.file(context.project.path),
+      undefined,
+      'validate'
     );
 
     if (result.exitCode !== 0) {
@@ -776,7 +786,9 @@ class NginController implements vscode.Disposable {
     const result = await this.runCli(
       context.workspace.root,
       ['analyze', '--project', context.project.path, '--profile', context.profile.name, '--output', outputDir],
-      vscode.Uri.file(context.project.path)
+      vscode.Uri.file(context.project.path),
+      undefined,
+      'analyze'
     );
 
     if (result.exitCode !== 0) {
@@ -1026,14 +1038,14 @@ class NginController implements vscode.Disposable {
     await vscode.commands.executeCommand('vscode.openWith', target, 'default', { preview: false });
   }
 
-  private async getProjectEditorInspectState(document: vscode.TextDocument): Promise<{ inspect?: ProjectInspectPayload; activeProfile?: string }> {
+  private async getProjectEditorInspectState(document: vscode.TextDocument): Promise<{ inspectGraph?: CompositionGraphPayload; activeProfile?: string }> {
     const snapshot = await this.workspaceState.getSnapshot(document.uri);
     if (!snapshot.workspace || !snapshot.context || comparablePath(snapshot.context.project.path) !== comparablePath(document.uri.fsPath)) {
       return {};
     }
     await this.attachInspectSnapshot(snapshot, false);
     return {
-      inspect: snapshot.inspect,
+      inspectGraph: snapshot.inspectGraph,
       activeProfile: snapshot.context.profile.name
     };
   }
@@ -1050,6 +1062,40 @@ class NginController implements vscode.Disposable {
   private async validateProjectEditor(uri: vscode.Uri): Promise<void> {
     await this.validateCommand({ preferredUri: uri }, { silent: false });
     await this.refreshUi(uri, true);
+  }
+
+  private async addClangTidyAnalyzerPackageCommand(target?: NginCommandTarget): Promise<void> {
+    const context = await this.resolveCommandContext(target);
+    if (!context) {
+      return;
+    }
+
+    const uri = vscode.Uri.file(context.project.path);
+    const document = await vscode.workspace.openTextDocument(uri);
+    await NginProjectEditorProvider.applyTextEdit(document, addClangTidyAnalyzerPackage(document.getText()));
+    await vscode.window.showTextDocument(document, { preview: false });
+    await this.refreshUi(uri, true);
+    void vscode.window.showInformationMessage(`Enabled clang-tidy analyzer package for ${context.project.name}`);
+  }
+
+  private async openClangTidyConfigCommand(target: NginCommandTarget | undefined, create: boolean): Promise<void> {
+    const context = await this.resolveCommandContext(target);
+    if (!context) {
+      return;
+    }
+
+    const configPath = path.join(context.project.directory, '.clang-tidy');
+    if (!(await pathExists(configPath))) {
+      if (!create) {
+        void vscode.window.showErrorMessage(`No .clang-tidy file exists for ${context.project.name}`);
+        return;
+      }
+      await vscode.workspace.fs.writeFile(
+        vscode.Uri.file(configPath),
+        Buffer.from('Checks: "-*,readability-*"\nWarningsAsErrors: ""\n', 'utf8')
+      );
+    }
+    await this.openPathCommand(configPath);
   }
 
   private async createProjectFileCommand(target: ProjectExplorerTarget | undefined, kind: 'source' | 'config'): Promise<void> {
@@ -1565,7 +1611,8 @@ class NginController implements vscode.Disposable {
     workspaceRoot: string,
     args: string[],
     diagnosticsResource?: vscode.Uri,
-    cliOverride?: string
+    cliOverride?: string,
+    diagnosticsKind?: 'validate' | 'analyze'
   ): Promise<CliRunResult> {
     const cliPath = await this.resolveCliPath(workspaceRoot, cliOverride);
     await this.warnIfCliStale(cliPath, workspaceRoot);
@@ -1599,12 +1646,14 @@ class NginController implements vscode.Disposable {
       });
     });
 
-    this.applyDiagnostics(result.output, diagnosticsResource);
+    if (diagnosticsKind) {
+      this.applyDiagnostics(result.output, diagnosticsResource, diagnosticsKind);
+    }
     this.surfaceLocalSettingsWarnings(result.output);
     return result;
   }
 
-  private async runInspect(snapshot: NginWorkspaceSnapshot): Promise<ProjectInspectPayload> {
+  private async runInspect(snapshot: NginWorkspaceSnapshot): Promise<CompositionGraphPayload> {
     if (!snapshot.workspace || !snapshot.context) {
       throw new Error('No active NGIN project/profile is selected.');
     }
@@ -1654,18 +1703,21 @@ class NginController implements vscode.Disposable {
       throw new Error(`inspect returned invalid JSON: ${message}`);
     }
 
-    const payload = normalizeInspectPayload(rawPayload);
+    const payload = parseCompositionGraphPayload(rawPayload);
 
-    if (result.exitCode !== 0 && (!payload.diagnostics || payload.diagnostics.length === 0)) {
+    this.applyInspectDiagnostics(payload, snapshot.context.project.path);
+
+    if (result.exitCode !== 0 && (!payload.plans?.diagnostics || payload.plans.diagnostics.length === 0)) {
       throw new Error(result.stderr.trim() || `inspect exited with code ${result.exitCode}`);
     }
 
     return payload;
   }
 
-  private applyDiagnostics(output: string, fallbackResource?: vscode.Uri): void {
+  private applyDiagnostics(output: string, fallbackResource: vscode.Uri | undefined, diagnosticsKind: 'validate' | 'analyze'): void {
     const parsed = parseCliDiagnostics(output);
-    this.diagnostics.clear();
+    const collection = diagnosticsKind === 'validate' ? this.validateDiagnostics : this.analyzeDiagnostics;
+    collection.clear();
 
     if (parsed.length === 0) {
       return;
@@ -1691,6 +1743,7 @@ class NginController implements vscode.Disposable {
         entry.message,
         entry.severity === 'warning' ? vscode.DiagnosticSeverity.Warning : vscode.DiagnosticSeverity.Error
       );
+      diagnostic.source = entry.source ?? (diagnosticsKind === 'validate' ? 'ngin validate' : 'ngin analyze');
 
       const key = resource.toString();
       const bucket = grouped.get(key) ?? [];
@@ -1699,8 +1752,29 @@ class NginController implements vscode.Disposable {
     }
 
     for (const [key, diagnostics] of grouped) {
-      this.diagnostics.set(vscode.Uri.parse(key), diagnostics);
+      collection.set(vscode.Uri.parse(key), diagnostics);
     }
+  }
+
+  private applyInspectDiagnostics(payload: CompositionGraphPayload, fallbackPath: string): void {
+    this.inspectDiagnostics.clear();
+    const diagnostics = payload.plans?.diagnostics ?? [];
+    if (!diagnostics.length) {
+      return;
+    }
+
+    this.inspectDiagnostics.set(
+      vscode.Uri.file(fallbackPath),
+      diagnostics.map((entry) => {
+        const diagnostic = new vscode.Diagnostic(
+          new vscode.Range(0, 0, 0, 1),
+          entry.subject ? `${entry.subject}: ${entry.message}` : entry.message,
+          entry.severity === 'warning' ? vscode.DiagnosticSeverity.Warning : vscode.DiagnosticSeverity.Error
+        );
+        diagnostic.source = 'ngin inspect';
+        return diagnostic;
+      })
+    );
   }
 
   private async resolveCliPath(workspaceRoot: string, cliOverride?: string): Promise<string> {
