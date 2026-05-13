@@ -265,7 +265,7 @@ cmake --build build/dev --target ngin_cli
 ```bash
 ./build/dev/Tools/NGIN.CLI/ngin validate \
   --project Examples/Hello.Native/Hello.Native.nginproj \
-  --profile Debug
+  --configuration Debug
 ```
 
 ### 5. Inspect the resolved project
@@ -273,7 +273,7 @@ cmake --build build/dev --target ngin_cli
 ```bash
 ./build/dev/Tools/NGIN.CLI/ngin graph \
   --project Examples/Hello.Native/Hello.Native.nginproj \
-  --profile Debug
+  --configuration Debug
 ```
 
 ### 6. Configure generated build metadata
@@ -281,7 +281,7 @@ cmake --build build/dev --target ngin_cli
 ```bash
 ./build/dev/Tools/NGIN.CLI/ngin configure \
   --project Examples/Hello.Native/Hello.Native.nginproj \
-  --profile Debug \
+  --configuration Debug \
   --output build/manual/Hello.Native
 ```
 
@@ -293,7 +293,7 @@ staging the application.
 ```bash
 ./build/dev/Tools/NGIN.CLI/ngin build \
   --project Examples/Hello.Native/Hello.Native.nginproj \
-  --profile Debug \
+  --configuration Debug \
   --output build/manual/Hello.Native
 ```
 
@@ -304,7 +304,7 @@ This builds the executable and creates a runnable output folder.
 ```bash
 ./build/dev/Tools/NGIN.CLI/ngin run \
   --project Examples/Hello.Native/Hello.Native.nginproj \
-  --profile Debug \
+  --configuration Debug \
   --output build/manual/Hello.Native
 ```
 
@@ -540,14 +540,19 @@ See [`Examples/README.md`](Examples/README.md) for the full example map.
 ### Project commands
 
 ```text
-ngin validate [--project <file>] [--profile <name>]
-ngin graph    [--project <file>] [--profile <name>]
-ngin configure [--project <file>] [--profile <name>] [--output <dir>]
-ngin build    [--project <file>] [--profile <name>] [--output <dir>]
-ngin run      [--project <file>] [--profile <name>] [--output <dir>] [-- <args...>]
-ngin clean    [--project <file>] [--profile <name>] [--output <dir>]
-ngin rebuild  [--project <file>] [--profile <name>] [--output <dir>]
+ngin validate [--project <file>] [--profile <name>] [--configuration <name>]
+ngin graph    [--project <file>] [--profile <name>] [--configuration <name>]
+ngin configure [--project <file>] [--profile <name>] [--configuration <name>] [--output <dir>]
+ngin build    [--project <file>] [--profile <name>] [--configuration <name>] [--output <dir>]
+ngin run      [--project <file>] [--profile <name>] [--configuration <name>] [--output <dir>] [-- <args...>]
+ngin clean    [--project <file>] [--profile <name>] [--configuration <name>] [--output <dir>]
+ngin rebuild  [--project <file>] [--profile <name>] [--configuration <name>] [--output <dir>]
 ```
+
+Use `--configuration Debug`, `Release`, `RelWithDebInfo`, or `MinSizeRel` for
+classic build-type selection. Use `--profile <name>` for product scenarios with
+custom behavior, such as `Runtime`, `Editor`, or `Shipping`; both flags can be
+combined when a profile should run with a different common build type.
 
 ### Workspace commands
 
@@ -562,8 +567,8 @@ ngin workspace doctor
 ```text
 ngin package list
 ngin package show <Package>
-ngin package lock [--project <file>] [--profile <name>] [--output <ngin.lock>]
-ngin package verify-lock [--project <file>] [--profile <name>] [--lock <ngin.lock>]
+ngin package lock [--project <file>] [--profile <name>] [--configuration <name>] [--output <ngin.lock>]
+ngin package verify-lock [--project <file>] [--profile <name>] [--configuration <name>] [--lock <ngin.lock>]
 ngin explain package-feature <Package> <Feature> [--project <file>] [--profile <name>]
 ```
 

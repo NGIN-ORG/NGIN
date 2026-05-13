@@ -33,6 +33,8 @@ namespace NGIN::CLI
         {
             ProjectManifest project{};
             ProfileDefinition profile{};
+            std::optional<std::string> configurationName{};
+            std::optional<std::string> configurationSource{};
         };
 
         [[nodiscard]] auto IsQuiet(const ParsedArgs &args) -> bool
@@ -261,6 +263,10 @@ namespace NGIN::CLI
                     PrintTitle(args_, "NGIN " + command_);
                     PrintField(args_, "product", event.project);
                     PrintField(args_, "profile", event.profile);
+                    if (const auto configuration = event.data.String("configuration"); configuration.has_value())
+                    {
+                        PrintField(args_, "configuration", *configuration);
+                    }
                     break;
                 case CliEventType::PhaseCompleted:
                     RecordPhase(event, 0);
@@ -542,8 +548,10 @@ namespace NGIN::CLI
             return exitCode;
         }
 
-        auto EmitSelection(CliEventEmitter &events, const ProjectManifest &project, const ProfileDefinition &profile) -> void
+        auto EmitSelection(CliEventEmitter &events, const LoadedInvocation &invocation) -> void
         {
+            const auto &project = invocation.project;
+            const auto &profile = invocation.profile;
             events.SetSelection(project.name, profile.name);
             EventData data{};
             data.AddString("projectPath", project.path.string())
@@ -552,6 +560,14 @@ namespace NGIN::CLI
                 .AddString("targetPlatform", profile.platform)
                 .AddString("buildType", profile.buildType)
                 .AddString("toolchain", profile.toolchain);
+            if (invocation.configurationName.has_value())
+            {
+                data.AddString("configuration", *invocation.configurationName);
+            }
+            if (invocation.configurationSource.has_value())
+            {
+                data.AddString("configurationSource", *invocation.configurationSource);
+            }
             events.Emit(CliEventType::CommandSelection, std::move(data));
         }
 
@@ -872,6 +888,35 @@ namespace NGIN::CLI
             throw std::runtime_error("profile '" + profile.name + "' has multiple launch entries; pass --launch <name>");
         }
 
+        [[nodiscard]] auto HasEffectiveProfile(
+            const ProjectManifest &project,
+            const std::optional<WorkspaceManifest> &workspace,
+            const std::string &name) -> bool
+        {
+            const auto hasProjectProfile = std::any_of(
+                project.profiles.begin(), project.profiles.end(),
+                [&](const ProfileDefinition &profile)
+                {
+                    return profile.name == name;
+                });
+            if (hasProjectProfile)
+            {
+                return true;
+            }
+            return workspace.has_value()
+                   && std::any_of(
+                       workspace->profiles.begin(), workspace->profiles.end(),
+                       [&](const WorkspaceManifest::ProfilePolicy &profile)
+                       {
+                           return profile.name == name;
+                       });
+        }
+
+        [[nodiscard]] auto SupportedBuildTypesForMessage() -> std::string
+        {
+            return "Debug, Release, RelWithDebInfo, or MinSizeRel";
+        }
+
         [[nodiscard]] auto ResolveInvocation(const ParsedArgs &args) -> LoadedInvocation
         {
             auto project = LoadProjectManifest(ResolveProjectPath(args.projectPath));
@@ -882,33 +927,50 @@ namespace NGIN::CLI
             }
             project = ProjectWithWorkspacePolicy(std::move(project), workspace);
             std::optional<std::string> selectedProfile = args.profileName;
+            std::optional<std::string> configurationSource{};
+            if (args.configurationName.has_value())
+            {
+                if (!IsSupportedBuildType(*args.configurationName))
+                {
+                    throw std::runtime_error(
+                        "unknown configuration '" + *args.configurationName + "'; expected "
+                        + SupportedBuildTypesForMessage() + ". Use --profile for custom product scenarios.");
+                }
+                if (selectedProfile.has_value())
+                {
+                    configurationSource = "buildTypeOverride";
+                }
+                else if (HasEffectiveProfile(project, workspace, *args.configurationName))
+                {
+                    selectedProfile = args.configurationName;
+                    configurationSource = "profile";
+                }
+                else
+                {
+                    configurationSource = "buildTypeOverride";
+                }
+            }
             if (!selectedProfile.has_value())
             {
                 if (workspace.has_value() && !workspace->defaultProfile.empty())
                 {
-                    const auto hasWorkspaceDefault = std::any_of(
-                        project.profiles.begin(), project.profiles.end(),
-                        [&](const ProfileDefinition &profile)
-                        {
-                            return profile.name == workspace->defaultProfile;
-                        });
-                    const auto hasWorkspaceProfile = std::any_of(
-                        workspace->profiles.begin(), workspace->profiles.end(),
-                        [&](const WorkspaceManifest::ProfilePolicy &profile)
-                        {
-                            return profile.name == workspace->defaultProfile;
-                        });
-                    if (hasWorkspaceDefault || hasWorkspaceProfile)
+                    if (HasEffectiveProfile(project, workspace, workspace->defaultProfile))
                     {
                         selectedProfile = workspace->defaultProfile;
                     }
                 }
             }
             auto profile = ProfileWithWorkspacePolicy(project, workspace, selectedProfile);
+            if (args.configurationName.has_value() && configurationSource.has_value() && *configurationSource == "buildTypeOverride")
+            {
+                profile.buildType = *args.configurationName;
+            }
             profile.launch = SelectLaunch(project, profile, args.launchName);
             return LoadedInvocation{
                 .project = project,
                 .profile = std::move(profile),
+                .configurationName = args.configurationName,
+                .configurationSource = std::move(configurationSource),
             };
         }
 
@@ -2891,6 +2953,14 @@ namespace NGIN::CLI
             {
                 args.profileName = argv[++index];
             }
+            else if (current == "--configuration" && index + 1 < argc)
+            {
+                args.configurationName = argv[++index];
+            }
+            else if (current == "--configuration")
+            {
+                throw std::runtime_error("--configuration expects Debug, Release, RelWithDebInfo, or MinSizeRel");
+            }
             else if (current == "--from-profile" && index + 1 < argc)
             {
                 args.fromProfileName = argv[++index];
@@ -3726,7 +3796,7 @@ namespace NGIN::CLI
         const auto commandStarted = std::chrono::steady_clock::now();
         EmitCommandStarted(events, args);
         const auto invocation = ResolveInvocation(args);
-        EmitSelection(events, invocation.project, invocation.profile);
+        EmitSelection(events, invocation);
         const auto packageOutputs = EffectivePackageOutputs(invocation.project, invocation.profile);
         if (packageOutputs.empty())
         {
@@ -3846,7 +3916,7 @@ namespace NGIN::CLI
         const auto commandStarted = std::chrono::steady_clock::now();
         EmitCommandStarted(events, args);
         const auto invocation = ResolveInvocation(args);
-        EmitSelection(events, invocation.project, invocation.profile);
+        EmitSelection(events, invocation);
         const auto resolved = ResolveLaunch(invocation.project, invocation.profile);
         if (!resolved.value.has_value() || resolved.diagnostics.HasErrors())
         {
@@ -3920,7 +3990,7 @@ namespace NGIN::CLI
         const auto commandStarted = std::chrono::steady_clock::now();
         EmitCommandStarted(events, args);
         const auto invocation = ResolveInvocation(args);
-        EmitSelection(events, invocation.project, invocation.profile);
+        EmitSelection(events, invocation);
         const auto resolved = ResolveLaunch(invocation.project, invocation.profile);
         if (!resolved.value.has_value() || resolved.diagnostics.HasErrors())
         {
@@ -6495,7 +6565,7 @@ namespace NGIN::CLI
         const auto commandStarted = std::chrono::steady_clock::now();
         EmitCommandStarted(events, args);
         const auto invocation = ResolveInvocation(args);
-        EmitSelection(events, invocation.project, invocation.profile);
+        EmitSelection(events, invocation);
         std::vector<BackendStepResult> backendSteps{};
         auto buildOptions = BuildOptionsForArgs(args, backendSteps, &events);
         const auto configured = ConfigureLaunch(
@@ -6523,7 +6593,7 @@ namespace NGIN::CLI
         const auto commandStarted = std::chrono::steady_clock::now();
         EmitCommandStarted(events, args);
         const auto invocation = ResolveInvocation(args);
-        EmitSelection(events, invocation.project, invocation.profile);
+        EmitSelection(events, invocation);
         std::vector<BackendStepResult> backendSteps{};
         auto buildOptions = BuildOptionsForArgs(args, backendSteps, &events);
         auto built = BuildLaunch(
@@ -6552,7 +6622,7 @@ namespace NGIN::CLI
         const auto commandStarted = std::chrono::steady_clock::now();
         EmitCommandStarted(events, args);
         const auto invocation = ResolveInvocation(args);
-        EmitSelection(events, invocation.project, invocation.profile);
+        EmitSelection(events, invocation);
         std::vector<BackendStepResult> backendSteps{};
         auto buildOptions = BuildOptionsForArgs(args, backendSteps, &events);
         auto built = BuildLaunch(
@@ -6581,7 +6651,7 @@ namespace NGIN::CLI
         const auto commandStarted = std::chrono::steady_clock::now();
         EmitCommandStarted(events, args);
         const auto invocation = ResolveInvocation(args);
-        EmitSelection(events, invocation.project, invocation.profile);
+        EmitSelection(events, invocation);
         const auto cleanResult = CleanLaunch(
             invocation.project,
             invocation.profile,
@@ -6621,7 +6691,7 @@ namespace NGIN::CLI
         const auto commandStarted = std::chrono::steady_clock::now();
         EmitCommandStarted(events, args);
         const auto invocation = ResolveInvocation(args);
-        EmitSelection(events, invocation.project, invocation.profile);
+        EmitSelection(events, invocation);
         return RunBuiltProduct(invocation.project, invocation.profile, args, events, commandStarted, "Run");
     }
 
@@ -6633,7 +6703,7 @@ namespace NGIN::CLI
         const auto commandStarted = std::chrono::steady_clock::now();
         EmitCommandStarted(events, args);
         const auto invocation = ResolveInvocation(args);
-        EmitSelection(events, invocation.project, invocation.profile);
+        EmitSelection(events, invocation);
         if (invocation.project.productKind != "Test")
         {
             throw std::runtime_error("ngin test requires a Test product project");
@@ -6649,7 +6719,7 @@ namespace NGIN::CLI
         const auto commandStarted = std::chrono::steady_clock::now();
         EmitCommandStarted(events, args);
         const auto invocation = ResolveInvocation(args);
-        EmitSelection(events, invocation.project, invocation.profile);
+        EmitSelection(events, invocation);
         if (invocation.project.productKind != "Benchmark")
         {
             throw std::runtime_error("ngin benchmark requires a Benchmark product project");
@@ -6665,7 +6735,7 @@ namespace NGIN::CLI
         const auto commandStarted = std::chrono::steady_clock::now();
         EmitCommandStarted(events, args);
         const auto invocation = ResolveInvocation(args);
-        EmitSelection(events, invocation.project, invocation.profile);
+        EmitSelection(events, invocation);
         const auto resolvedResult = ResolveLaunch(invocation.project, invocation.profile);
         if (resolvedResult.diagnostics.HasErrors())
         {
@@ -6897,7 +6967,7 @@ namespace NGIN::CLI
         const auto commandStarted = std::chrono::steady_clock::now();
         EmitCommandStarted(events, args);
         const auto invocation = ResolveInvocation(args);
-        EmitSelection(events, invocation.project, invocation.profile);
+        EmitSelection(events, invocation);
         const auto publishes = EffectivePublishes(invocation.project, invocation.profile);
         const auto &publish = SelectPublish(publishes, args.packageName);
         if (publish.kind != "Folder" && publish.kind != "Archive")

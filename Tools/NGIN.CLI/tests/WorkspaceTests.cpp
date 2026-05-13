@@ -106,6 +106,159 @@ TEST_CASE("workspace default profile participates in command profile selection")
     REQUIRE_THAT(captured.str(), ContainsSubstring(R"("name":"BuildType","value":"Release")"));
 }
 
+TEST_CASE("configuration overrides default profile build type")
+{
+    TempDir temp{};
+    const auto projectPath = temp.path() / "App/App.nginproj";
+    WriteFile(projectPath,
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4" Name="Config.App" DefaultProfile="dev">
+  <Application>
+    <Build>
+      <Sources Path="src/**.cpp" />
+    </Build>
+  </Application>
+  <Profile Name="dev">
+    <Defaults>
+      <BuildType Name="Debug" />
+    </Defaults>
+  </Profile>
+</Project>
+)xml");
+    WriteFile(temp.path() / "App/src/main.cpp", "int main() { return 0; }\n");
+
+    ParsedArgs args{};
+    args.projectPath = projectPath.string();
+    args.configurationName = "Release";
+    args.format = "json";
+
+    std::ostringstream captured{};
+    auto *previous = std::cout.rdbuf(captured.rdbuf());
+    const auto exitCode = CmdInspect(temp.path(), args);
+    std::cout.rdbuf(previous);
+
+    REQUIRE(exitCode == 0);
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("profile":"dev")"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("name":"BuildType","value":"Release")"));
+}
+
+TEST_CASE("configuration selects matching common profile")
+{
+    TempDir temp{};
+    const auto projectPath = temp.path() / "App/App.nginproj";
+    WriteFile(projectPath,
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4" Name="ConfigProfile.App" DefaultProfile="dev">
+  <Application>
+    <Build>
+      <Sources Path="src/**.cpp" />
+    </Build>
+  </Application>
+  <Profile Name="dev">
+    <Defaults>
+      <BuildType Name="Debug" />
+    </Defaults>
+  </Profile>
+  <Profile Name="Release">
+    <Defaults>
+      <BuildType Name="Release" />
+      <Environment Name="production" />
+    </Defaults>
+  </Profile>
+</Project>
+)xml");
+    WriteFile(temp.path() / "App/src/main.cpp", "int main() { return 0; }\n");
+
+    ParsedArgs args{};
+    args.projectPath = projectPath.string();
+    args.configurationName = "Release";
+    args.format = "json";
+
+    std::ostringstream captured{};
+    auto *previous = std::cout.rdbuf(captured.rdbuf());
+    const auto exitCode = CmdInspect(temp.path(), args);
+    std::cout.rdbuf(previous);
+
+    REQUIRE(exitCode == 0);
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("profile":"Release")"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("name":"Environment","value":"production")"));
+}
+
+TEST_CASE("configuration can override an explicit profile build type")
+{
+    TempDir temp{};
+    const auto projectPath = temp.path() / "App/App.nginproj";
+    WriteFile(projectPath,
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4" Name="ProfileConfig.App" DefaultProfile="dev">
+  <Application>
+    <Build>
+      <Sources Path="src/**.cpp" />
+    </Build>
+  </Application>
+  <Profile Name="Runtime">
+    <Defaults>
+      <BuildType Name="Debug" />
+      <Environment Name="development" />
+    </Defaults>
+  </Profile>
+</Project>
+)xml");
+    WriteFile(temp.path() / "App/src/main.cpp", "int main() { return 0; }\n");
+
+    ParsedArgs args{};
+    args.projectPath = projectPath.string();
+    args.profileName = "Runtime";
+    args.configurationName = "Release";
+    args.format = "json";
+
+    std::ostringstream captured{};
+    auto *previous = std::cout.rdbuf(captured.rdbuf());
+    const auto exitCode = CmdInspect(temp.path(), args);
+    std::cout.rdbuf(previous);
+
+    REQUIRE(exitCode == 0);
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("profile":"Runtime")"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("name":"BuildType","value":"Release")"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("name":"Environment","value":"development")"));
+}
+
+TEST_CASE("configuration rejects custom scenario names")
+{
+    TempDir temp{};
+    const auto projectPath = temp.path() / "App/App.nginproj";
+    WriteFile(projectPath,
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4" Name="CustomConfig.App" DefaultProfile="dev">
+  <Application>
+    <Build>
+      <Sources Path="src/**.cpp" />
+    </Build>
+  </Application>
+  <Profile Name="dev">
+    <Defaults>
+      <BuildType Name="Debug" />
+    </Defaults>
+  </Profile>
+  <Profile Name="Shipping">
+    <Defaults>
+      <BuildType Name="Release" />
+    </Defaults>
+  </Profile>
+</Project>
+)xml");
+    WriteFile(temp.path() / "App/src/main.cpp", "int main() { return 0; }\n");
+
+    ParsedArgs args{};
+    args.projectPath = projectPath.string();
+    args.configurationName = "Shipping";
+    args.format = "json";
+
+    REQUIRE_THROWS_WITH(
+        CmdInspect(temp.path(), args),
+        ContainsSubstring("unknown configuration 'Shipping'"));
+}
+
 TEST_CASE("workspace profile policy applies to projects without local profiles")
 {
     TempDir temp{};

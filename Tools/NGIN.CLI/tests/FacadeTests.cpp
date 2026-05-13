@@ -602,6 +602,7 @@ TEST_CASE("build command JSONL emits clean event stream")
     args.argv = {"build", "--project", projectPath.string(), "--events", "jsonl"};
     args.projectPath = projectPath.string();
     args.outputPath = (temp.path() / "out").string();
+    args.configurationName = "Release";
     args.eventOutputMode = EventOutputMode::JsonLines;
     args.backendOutputMode = BackendOutputMode::Compact;
 
@@ -615,6 +616,9 @@ TEST_CASE("build command JSONL emits clean event stream")
     REQUIRE_THAT(output, ContainsSubstring(R"("kind":"NGIN.CLI.Event")"));
     REQUIRE_THAT(output, ContainsSubstring(R"("type":"command.started")"));
     REQUIRE_THAT(output, ContainsSubstring(R"("type":"command.selection")"));
+    REQUIRE_THAT(output, ContainsSubstring(R"("configuration":"Release")"));
+    REQUIRE_THAT(output, ContainsSubstring(R"("configurationSource":"buildTypeOverride")"));
+    REQUIRE_THAT(output, ContainsSubstring(R"("buildType":"Release")"));
     REQUIRE_THAT(output, ContainsSubstring(R"("type":"phase.started")"));
     REQUIRE_THAT(output, ContainsSubstring(R"("type":"phase.completed")"));
     REQUIRE_THAT(output, ContainsSubstring(R"("type":"artifact.produced")"));

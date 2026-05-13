@@ -11,18 +11,18 @@ This spec defines the active user-facing surface of the native `ngin` CLI.
 
 Stable active commands:
 
-- `ngin build [--project <file>] [--profile <name>] [--output <dir>]`
-- `ngin configure [--project <file>] [--profile <name>] [--output <dir>]`
-- `ngin clean [--project <file>] [--profile <name>] [--output <dir>]`
-- `ngin rebuild [--project <file>] [--profile <name>] [--output <dir>]`
-- `ngin run [--project <file>] [--profile <name>] [--output <dir>] [-- <args...>]`
-- `ngin validate [--project <file>] [--profile <name>]`
-- `ngin graph [--project <file>] [--profile <name>]`
-- `ngin inspect [--project <file>] [--profile <name>] [--output <dir>] --format json`
+- `ngin build [--project <file>] [--profile <name>] [--configuration <name>] [--output <dir>]`
+- `ngin configure [--project <file>] [--profile <name>] [--configuration <name>] [--output <dir>]`
+- `ngin clean [--project <file>] [--profile <name>] [--configuration <name>] [--output <dir>]`
+- `ngin rebuild [--project <file>] [--profile <name>] [--configuration <name>] [--output <dir>]`
+- `ngin run [--project <file>] [--profile <name>] [--configuration <name>] [--output <dir>] [-- <args...>]`
+- `ngin validate [--project <file>] [--profile <name>] [--configuration <name>]`
+- `ngin graph [--project <file>] [--profile <name>] [--configuration <name>]`
+- `ngin inspect [--project <file>] [--profile <name>] [--configuration <name>] [--output <dir>] --format json`
 - `ngin package list`
 - `ngin package show <Package>`
-- `ngin package lock [--project <file>] [--profile <name>] [--output <file>]`
-- `ngin package verify-lock [--project <file>] [--profile <name>] [--lock <file>]`
+- `ngin package lock [--project <file>] [--profile <name>] [--configuration <name>] [--output <file>]`
+- `ngin package verify-lock [--project <file>] [--profile <name>] [--configuration <name>] [--lock <file>]`
 - `ngin explain condition <Name> [--project <file>] [--profile <name>]`
 - `ngin explain package-feature <Package> <Feature> [--project <file>] [--profile <name>]`
 - `ngin explain generator <Name> [--project <file>] [--profile <name>]`
@@ -40,8 +40,17 @@ Removed commands:
 
 ## Behavior
 
-- `--profile` always selects the project profile
+- `--profile` selects the project profile and remains the way to choose custom
+  product scenarios such as `Runtime`, `Editor`, or `Shipping`
+- `--configuration` accepts `Debug`, `Release`, `RelWithDebInfo`, or
+  `MinSizeRel`; without `--profile`, it selects a matching common-named
+  profile when present, otherwise it overrides the default profile's backend
+  build type for the current invocation
+- when both `--profile` and `--configuration` are present, `--profile` selects
+  the profile behavior and `--configuration` overrides only the effective
+  backend build type
 - backend build type comes from the selected project profile’s `BuildType`
+  after any `--configuration` override
 - `ngin configure` resolves the selected composition, writes generator context
   files, runs selected package/local command generators, generates backend CMake
   input, runs CMake configure, and emits generated build metadata such as
@@ -64,7 +73,7 @@ Build-backed lifecycle commands support a stable JSON Lines event stream for
 editor and CI consumers:
 
 ```bash
-ngin build --project <file.nginproj> --profile <name> --events jsonl
+ngin build --project <file.nginproj> --configuration Release --events jsonl
 ```
 
 `--events none` keeps normal human output. `--events jsonl` writes only

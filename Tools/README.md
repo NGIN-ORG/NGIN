@@ -51,23 +51,27 @@ Minimal example:
 ```bash
 ./build/dev/Tools/NGIN.CLI/ngin validate \
   --project Examples/Hello.Native/Hello.Native.nginproj \
-  --profile Debug
+  --configuration Debug
 
 ./build/dev/Tools/NGIN.CLI/ngin configure \
   --project Examples/Hello.Native/Hello.Native.nginproj \
-  --profile Debug \
+  --configuration Debug \
   --output build/manual/Hello.Native
 
 ./build/dev/Tools/NGIN.CLI/ngin build \
   --project Examples/Hello.Native/Hello.Native.nginproj \
-  --profile Debug \
+  --configuration Debug \
   --output build/manual/Hello.Native
 
 ./build/dev/Tools/NGIN.CLI/ngin run \
   --project Examples/Hello.Native/Hello.Native.nginproj \
-  --profile Debug \
+  --configuration Debug \
   --output build/manual/Hello.Native
 ```
+
+Use `--configuration Debug`, `Release`, `RelWithDebInfo`, or `MinSizeRel` for
+classic build-type selection. Use `--profile <name>` for custom product
+scenarios such as runtime/editor/shipping profiles.
 
 Use `clean` or `rebuild` when you need to reset generated artifacts for the
 selected project/profile/output scope.
