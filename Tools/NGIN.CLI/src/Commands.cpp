@@ -37,7 +37,7 @@ namespace NGIN::CLI
 
         [[nodiscard]] auto IsQuiet(const ParsedArgs &args) -> bool
         {
-            return args.verbosity == OutputVerbosity::Quiet;
+            return args.verbosity == OutputVerbosity::Quiet || args.eventOutputMode == EventOutputMode::JsonLines;
         }
 
         [[nodiscard]] auto IsVerbose(const ParsedArgs &args) -> bool
@@ -142,12 +142,13 @@ namespace NGIN::CLI
             std::cout << "\n" << Style(args, "32", text) << "\n";
         }
 
-        [[nodiscard]] auto BuildOptionsForArgs(const ParsedArgs &args, std::vector<BackendStepResult> &backendSteps) -> BuildExecutionOptions
+        [[nodiscard]] auto BuildOptionsForArgs(const ParsedArgs &args, std::vector<BackendStepResult> &backendSteps, CliEventEmitter *events = nullptr) -> BuildExecutionOptions
         {
             return BuildExecutionOptions{
-                .backendOutput = args.verbosity == OutputVerbosity::Quiet ? BackendOutputMode::Silent : args.backendOutputMode,
+                .backendOutput = args.verbosity == OutputVerbosity::Quiet && args.eventOutputMode != EventOutputMode::JsonLines ? BackendOutputMode::Silent : args.backendOutputMode,
                 .backendSteps = &backendSteps,
                 .interactiveProgress = args.backendOutputMode == BackendOutputMode::Compact && !IsQuiet(args) && args.colorMode != OutputColorMode::Never && IsInteractiveTerminal(),
+                .events = events != nullptr && events->Enabled() ? events : nullptr,
             };
         }
 
@@ -204,6 +205,151 @@ namespace NGIN::CLI
                     std::cout << "    " << line << "\n";
                 }
             }
+        }
+
+        [[nodiscard]] auto CommandDurationMilliseconds(std::chrono::steady_clock::time_point started) -> std::int64_t
+        {
+            return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started).count();
+        }
+
+        auto EmitCommandStarted(CliEventEmitter &events, const ParsedArgs &args) -> void
+        {
+            EventData data{};
+            data.AddStringArray("argv", args.argv);
+            data.AddString("workingDirectory", fs::current_path().string());
+            events.Emit(CliEventType::CommandStarted, std::move(data));
+        }
+
+        auto EmitCommandCompleted(CliEventEmitter &events, std::string status, int exitCode, std::chrono::steady_clock::time_point started) -> int
+        {
+            events.Emit(
+                CliEventType::CommandCompleted,
+                EventData{}
+                    .AddString("status", std::move(status))
+                    .AddNumber("exitCode", exitCode)
+                    .AddNumber("durationMs", CommandDurationMilliseconds(started)));
+            return exitCode;
+        }
+
+        auto EmitSelection(CliEventEmitter &events, const ProjectManifest &project, const ProfileDefinition &profile) -> void
+        {
+            events.SetSelection(project.name, profile.name);
+            EventData data{};
+            data.AddString("projectPath", project.path.string())
+                .AddString("productKind", project.productKind)
+                .AddString("hostPlatform", profile.hostPlatform)
+                .AddString("targetPlatform", profile.platform)
+                .AddString("buildType", profile.buildType)
+                .AddString("toolchain", profile.toolchain);
+            events.Emit(CliEventType::CommandSelection, std::move(data));
+        }
+
+        auto EmitDiagnostics(CliEventEmitter &events, const DiagnosticReport &report, std::string source) -> void
+        {
+            for (const auto &entry : report.entries)
+            {
+                EventData data{};
+                data.AddString("severity", entry.severity == DiagnosticSeverity::Warning ? "warning" : "error")
+                    .AddString("source", source)
+                    .AddString("message", entry.message);
+                if (!entry.subject.empty())
+                {
+                    data.AddString("subject", entry.subject);
+                }
+                events.Emit(CliEventType::Diagnostic, std::move(data));
+            }
+        }
+
+        auto EmitConfiguredArtifacts(CliEventEmitter &events, const ConfiguredBuildPaths &configured) -> void
+        {
+            events.Emit(
+                CliEventType::ArtifactProduced,
+                EventData{}.AddString("kind", "stage-directory").AddString("path", configured.outputDir.string()));
+            if (configured.compileCommandsPath.has_value())
+            {
+                events.Emit(
+                    CliEventType::ArtifactProduced,
+                    EventData{}.AddString("kind", "compile-database").AddString("path", configured.compileCommandsPath->string()));
+            }
+            EventData summary{};
+            summary.AddString("output", configured.outputDir.string())
+                .AddBool("configured", configured.configured);
+            if (configured.buildDir.has_value())
+            {
+                summary.AddString("buildDir", configured.buildDir->string());
+            }
+            if (configured.compileCommandsPath.has_value())
+            {
+                summary.AddString("compileDatabase", configured.compileCommandsPath->string());
+            }
+            events.Emit(CliEventType::Summary, std::move(summary));
+        }
+
+        auto EmitBuildArtifactsAndSummary(
+            CliEventEmitter &events,
+            const ProjectManifest &project,
+            const ProfileDefinition &profile,
+            const GeneratedLaunchPaths &built,
+            const LaunchManifestSummary &summary) -> void
+        {
+            events.Emit(
+                CliEventType::ArtifactProduced,
+                EventData{}.AddString("kind", "stage-directory").AddString("path", built.outputDir.string()));
+            events.Emit(
+                CliEventType::ArtifactProduced,
+                EventData{}.AddString("kind", "launch-manifest").AddString("path", built.manifestPath.string()));
+            if (summary.selectedExecutable.has_value() && !summary.selectedExecutable->empty())
+            {
+                events.Emit(
+                    CliEventType::ArtifactProduced,
+                    EventData{}
+                        .AddString("kind", "executable")
+                        .AddString("name", *summary.selectedExecutable)
+                        .AddString("path", (built.outputDir / "bin" / *summary.selectedExecutable).string()));
+            }
+
+            EventData data{};
+            data.AddString("output", built.outputDir.string())
+                .AddString("launch", built.manifestPath.string())
+                .AddString("executable", summary.selectedExecutable.value_or(""))
+                .AddNumber("packages", 0)
+                .AddNumber("sources", 0)
+                .AddNumber("headers", 0)
+                .AddNumber("stagedFiles", 0);
+
+            const auto resolvedResult = ResolveLaunch(project, profile);
+            if (resolvedResult.value.has_value() && !resolvedResult.diagnostics.HasErrors())
+            {
+                std::size_t sources = 0;
+                std::size_t headers = 0;
+                std::size_t staged = 0;
+                for (const auto &input : resolvedResult.value->inputs)
+                {
+                    const auto kind = Lower(input.kind);
+                    const auto role = Lower(input.role);
+                    if (kind == "source" || role == "source")
+                    {
+                        ++sources;
+                    }
+                    else if (kind == "header" || role == "header")
+                    {
+                        ++headers;
+                    }
+                    if (!input.stagedRelativePath.empty())
+                    {
+                        ++staged;
+                    }
+                }
+                data = EventData{};
+                data.AddString("output", built.outputDir.string())
+                    .AddString("launch", built.manifestPath.string())
+                    .AddString("executable", summary.selectedExecutable.value_or(""))
+                    .AddNumber("packages", static_cast<std::int64_t>(resolvedResult.value->orderedPackages.size()))
+                    .AddNumber("sources", static_cast<std::int64_t>(sources))
+                    .AddNumber("headers", static_cast<std::int64_t>(headers))
+                    .AddNumber("stagedFiles", static_cast<std::int64_t>(staged));
+            }
+            events.Emit(CliEventType::Summary, std::move(data));
         }
 
         struct InputSummary
@@ -1450,6 +1596,17 @@ namespace NGIN::CLI
             return message;
         }
 
+        [[nodiscard]] auto ClangTidyCodeFromMessage(const std::string &message) -> std::string
+        {
+            const std::regex checkSuffix{R"(\[clang-tidy:([A-Za-z0-9_.\-]+)\]$)"};
+            std::smatch match{};
+            if (std::regex_search(message, match, checkSuffix))
+            {
+                return match[1].str();
+            }
+            return {};
+        }
+
         [[nodiscard]] auto ParseClangTidyFindings(const std::string &output, const std::string &configuredSeverity) -> std::vector<AnalyzerFinding>
         {
             std::vector<AnalyzerFinding> findings{};
@@ -2381,6 +2538,10 @@ namespace NGIN::CLI
     auto ParseCommonArgs(int argc, char **argv, int startIndex) -> ParsedArgs
     {
         ParsedArgs args{};
+        for (int argIndex = std::max(1, startIndex - 1); argIndex < argc; ++argIndex)
+        {
+            args.argv.push_back(argv[argIndex]);
+        }
         for (int index = startIndex; index < argc; ++index)
         {
             const std::string current = argv[index];
@@ -2427,6 +2588,10 @@ namespace NGIN::CLI
             else if (current == "--format" && index + 1 < argc)
             {
                 args.format = argv[++index];
+                if (args.format == "jsonl")
+                {
+                    args.eventOutputMode = EventOutputMode::JsonLines;
+                }
             }
             else if (current == "--json")
             {
@@ -2478,9 +2643,31 @@ namespace NGIN::CLI
                     args.colorMode = OutputColorMode::Never;
                     args.backendOutputMode = BackendOutputMode::Silent;
                 }
+                else if (mode == "jsonl")
+                {
+                    args.eventOutputMode = EventOutputMode::JsonLines;
+                    args.colorMode = OutputColorMode::Never;
+                }
                 else
                 {
-                    throw std::runtime_error("--ui expects auto, pretty, compact, plain, or json");
+                    throw std::runtime_error("--ui expects auto, pretty, compact, plain, json, or jsonl");
+                }
+            }
+            else if (current == "--events" && index + 1 < argc)
+            {
+                const std::string mode = argv[++index];
+                if (mode == "none")
+                {
+                    args.eventOutputMode = EventOutputMode::None;
+                }
+                else if (mode == "jsonl")
+                {
+                    args.eventOutputMode = EventOutputMode::JsonLines;
+                    args.colorMode = OutputColorMode::Never;
+                }
+                else
+                {
+                    throw std::runtime_error("--events expects jsonl or none");
                 }
             }
             else if (current == "--backend-output" && index + 1 < argc)
@@ -5913,13 +6100,19 @@ namespace NGIN::CLI
     auto CmdConfigure(const fs::path &root, const ParsedArgs &args) -> int
     {
         (void)root;
+        JsonLinesCliEventSink jsonSink(std::cout);
+        CliEventEmitter events(args.eventOutputMode == EventOutputMode::JsonLines ? &jsonSink : nullptr);
+        events.SetCommand("configure");
+        const auto commandStarted = std::chrono::steady_clock::now();
+        EmitCommandStarted(events, args);
         const auto invocation = ResolveInvocation(args);
+        EmitSelection(events, invocation.project, invocation.profile);
         PrintTitle(args, "NGIN configure");
         PrintField(args, "product", invocation.project.name);
         PrintField(args, "profile", invocation.profile.name);
         std::cout << std::flush;
         std::vector<BackendStepResult> backendSteps{};
-        auto buildOptions = BuildOptionsForArgs(args, backendSteps);
+        auto buildOptions = BuildOptionsForArgs(args, backendSteps, &events);
         const auto configured = ConfigureLaunch(
             invocation.project,
             invocation.profile,
@@ -5927,11 +6120,16 @@ namespace NGIN::CLI
             buildOptions);
         if (!configured.value.has_value() || configured.diagnostics.HasErrors())
         {
-            PrintDiagnostics(configured.diagnostics, "Configure", std::cout);
+            EmitDiagnostics(events, configured.diagnostics, "ngin configure");
+            if (!IsQuiet(args))
+            {
+                PrintDiagnostics(configured.diagnostics, "Configure", std::cout);
+            }
             PrintBackendSteps(args, backendSteps, true);
-            return 1;
+            return EmitCommandCompleted(events, "failed", 1, commandStarted);
         }
 
+        EmitConfiguredArtifacts(events, *configured.value);
         PrintField(args, "output", configured.value->outputDir);
         if (configured.value->configured)
         {
@@ -5949,19 +6147,26 @@ namespace NGIN::CLI
             PrintDiagnostics(configured.diagnostics, "Configure", std::cout);
             PrintSuccess(args, "Configure complete");
         }
-        return 0;
+        EmitDiagnostics(events, configured.diagnostics, "ngin configure");
+        return EmitCommandCompleted(events, "success", 0, commandStarted);
     }
 
     auto CmdBuild(const fs::path &root, const ParsedArgs &args) -> int
     {
         (void)root;
+        JsonLinesCliEventSink jsonSink(std::cout);
+        CliEventEmitter events(args.eventOutputMode == EventOutputMode::JsonLines ? &jsonSink : nullptr);
+        events.SetCommand("build");
+        const auto commandStarted = std::chrono::steady_clock::now();
+        EmitCommandStarted(events, args);
         const auto invocation = ResolveInvocation(args);
+        EmitSelection(events, invocation.project, invocation.profile);
         PrintTitle(args, "NGIN build");
         PrintField(args, "product", invocation.project.name);
         PrintField(args, "profile", invocation.profile.name);
         std::cout << std::flush;
         std::vector<BackendStepResult> backendSteps{};
-        auto buildOptions = BuildOptionsForArgs(args, backendSteps);
+        auto buildOptions = BuildOptionsForArgs(args, backendSteps, &events);
         auto built = BuildLaunch(
             invocation.project,
             invocation.profile,
@@ -5969,12 +6174,17 @@ namespace NGIN::CLI
             buildOptions);
         if (!built.value.has_value() || built.diagnostics.HasErrors())
         {
-            PrintDiagnostics(built.diagnostics, "Build", std::cout);
+            EmitDiagnostics(events, built.diagnostics, "ngin build");
+            if (!IsQuiet(args))
+            {
+                PrintDiagnostics(built.diagnostics, "Build", std::cout);
+            }
             PrintBackendSteps(args, backendSteps, true);
-            return 1;
+            return EmitCommandCompleted(events, "failed", 1, commandStarted);
         }
 
         const auto summary = LoadLaunchManifestSummary(built.value->manifestPath);
+        EmitBuildArtifactsAndSummary(events, invocation.project, invocation.profile, *built.value, summary);
         PrintField(args, "output", built.value->outputDir);
         PrintField(args, "launch", built.value->manifestPath);
         PrintField(args, "executable", summary.selectedExecutable.has_value() && !summary.selectedExecutable->empty() ? *summary.selectedExecutable : "(none)");
@@ -5985,19 +6195,26 @@ namespace NGIN::CLI
             PrintDiagnostics(built.diagnostics, "Build", std::cout);
             PrintSuccess(args, "Build complete");
         }
-        return 0;
+        EmitDiagnostics(events, built.diagnostics, "ngin build");
+        return EmitCommandCompleted(events, "success", 0, commandStarted);
     }
 
     auto CmdStage(const fs::path &root, const ParsedArgs &args) -> int
     {
         (void)root;
+        JsonLinesCliEventSink jsonSink(std::cout);
+        CliEventEmitter events(args.eventOutputMode == EventOutputMode::JsonLines ? &jsonSink : nullptr);
+        events.SetCommand("stage");
+        const auto commandStarted = std::chrono::steady_clock::now();
+        EmitCommandStarted(events, args);
         const auto invocation = ResolveInvocation(args);
+        EmitSelection(events, invocation.project, invocation.profile);
         PrintTitle(args, "NGIN stage");
         PrintField(args, "product", invocation.project.name);
         PrintField(args, "profile", invocation.profile.name);
         std::cout << std::flush;
         std::vector<BackendStepResult> backendSteps{};
-        auto buildOptions = BuildOptionsForArgs(args, backendSteps);
+        auto buildOptions = BuildOptionsForArgs(args, backendSteps, &events);
         auto built = BuildLaunch(
             invocation.project,
             invocation.profile,
@@ -6005,12 +6222,17 @@ namespace NGIN::CLI
             buildOptions);
         if (!built.value.has_value() || built.diagnostics.HasErrors())
         {
-            PrintDiagnostics(built.diagnostics, "Stage", std::cout);
+            EmitDiagnostics(events, built.diagnostics, "ngin stage");
+            if (!IsQuiet(args))
+            {
+                PrintDiagnostics(built.diagnostics, "Stage", std::cout);
+            }
             PrintBackendSteps(args, backendSteps, true);
-            return 1;
+            return EmitCommandCompleted(events, "failed", 1, commandStarted);
         }
 
         const auto summary = LoadLaunchManifestSummary(built.value->manifestPath);
+        EmitBuildArtifactsAndSummary(events, invocation.project, invocation.profile, *built.value, summary);
         PrintField(args, "output", built.value->outputDir);
         PrintField(args, "launch", built.value->manifestPath);
         PrintField(args, "executable", summary.selectedExecutable.has_value() && !summary.selectedExecutable->empty() ? *summary.selectedExecutable : "(none)");
@@ -6021,13 +6243,20 @@ namespace NGIN::CLI
             PrintDiagnostics(built.diagnostics, "Stage", std::cout);
             PrintSuccess(args, "Stage complete");
         }
-        return 0;
+        EmitDiagnostics(events, built.diagnostics, "ngin stage");
+        return EmitCommandCompleted(events, "success", 0, commandStarted);
     }
 
     auto CmdRebuild(const fs::path &root, const ParsedArgs &args) -> int
     {
         (void)root;
+        JsonLinesCliEventSink jsonSink(std::cout);
+        CliEventEmitter events(args.eventOutputMode == EventOutputMode::JsonLines ? &jsonSink : nullptr);
+        events.SetCommand("rebuild");
+        const auto commandStarted = std::chrono::steady_clock::now();
+        EmitCommandStarted(events, args);
         const auto invocation = ResolveInvocation(args);
+        EmitSelection(events, invocation.project, invocation.profile);
         PrintTitle(args, "NGIN rebuild");
         PrintField(args, "product", invocation.project.name);
         PrintField(args, "profile", invocation.profile.name);
@@ -6038,12 +6267,16 @@ namespace NGIN::CLI
             args.outputPath.has_value() ? std::optional<fs::path>{*args.outputPath} : std::nullopt);
         if (!cleanResult.value.has_value() || cleanResult.diagnostics.HasErrors())
         {
-            PrintDiagnostics(cleanResult.diagnostics, "Rebuild", std::cout);
-            return 1;
+            EmitDiagnostics(events, cleanResult.diagnostics, "ngin rebuild");
+            if (!IsQuiet(args))
+            {
+                PrintDiagnostics(cleanResult.diagnostics, "Rebuild", std::cout);
+            }
+            return EmitCommandCompleted(events, "failed", 1, commandStarted);
         }
 
         std::vector<BackendStepResult> backendSteps{};
-        auto buildOptions = BuildOptionsForArgs(args, backendSteps);
+        auto buildOptions = BuildOptionsForArgs(args, backendSteps, &events);
         auto built = BuildLaunch(
             invocation.project,
             invocation.profile,
@@ -6052,12 +6285,17 @@ namespace NGIN::CLI
         AppendDiagnostics(built.diagnostics, cleanResult.diagnostics);
         if (!built.value.has_value() || built.diagnostics.HasErrors())
         {
-            PrintDiagnostics(built.diagnostics, "Rebuild", std::cout);
+            EmitDiagnostics(events, built.diagnostics, "ngin rebuild");
+            if (!IsQuiet(args))
+            {
+                PrintDiagnostics(built.diagnostics, "Rebuild", std::cout);
+            }
             PrintBackendSteps(args, backendSteps, true);
-            return 1;
+            return EmitCommandCompleted(events, "failed", 1, commandStarted);
         }
 
         const auto summary = LoadLaunchManifestSummary(built.value->manifestPath);
+        EmitBuildArtifactsAndSummary(events, invocation.project, invocation.profile, *built.value, summary);
         PrintField(args, "output", built.value->outputDir);
         PrintField(args, "launch", built.value->manifestPath);
         PrintField(args, "executable", summary.selectedExecutable.has_value() && !summary.selectedExecutable->empty() ? *summary.selectedExecutable : "(none)");
@@ -6068,7 +6306,8 @@ namespace NGIN::CLI
             PrintDiagnostics(built.diagnostics, "Rebuild", std::cout);
             PrintSuccess(args, "Rebuild complete");
         }
-        return 0;
+        EmitDiagnostics(events, built.diagnostics, "ngin rebuild");
+        return EmitCommandCompleted(events, "success", 0, commandStarted);
     }
 
     auto CmdRun(const fs::path &root, const ParsedArgs &args) -> int
@@ -6105,17 +6344,33 @@ namespace NGIN::CLI
     auto CmdAnalyze(const fs::path &root, const ParsedArgs &args) -> int
     {
         (void)root;
+        JsonLinesCliEventSink jsonSink(std::cout);
+        CliEventEmitter events(args.eventOutputMode == EventOutputMode::JsonLines ? &jsonSink : nullptr);
+        events.SetCommand("analyze");
+        const auto commandStarted = std::chrono::steady_clock::now();
+        EmitCommandStarted(events, args);
         const auto invocation = ResolveInvocation(args);
+        EmitSelection(events, invocation.project, invocation.profile);
         const auto resolvedResult = ResolveLaunch(invocation.project, invocation.profile);
         if (resolvedResult.diagnostics.HasErrors())
         {
-            PrintDiagnostics(resolvedResult.diagnostics, "Analyze", std::cout);
-            return 1;
+            EmitDiagnostics(events, resolvedResult.diagnostics, "ngin analyze");
+            if (!IsQuiet(args))
+            {
+                PrintDiagnostics(resolvedResult.diagnostics, "Analyze", std::cout);
+            }
+            return EmitCommandCompleted(events, "failed", 1, commandStarted);
         }
         if (!resolvedResult.value.has_value())
         {
-            std::cout << "\nAnalyze errors:\n  - failed to resolve project launch context\n";
-            return 1;
+            events.Emit(
+                CliEventType::Diagnostic,
+                EventData{}.AddString("severity", "error").AddString("source", "ngin analyze").AddString("message", "failed to resolve project launch context"));
+            if (!IsQuiet(args))
+            {
+                std::cout << "\nAnalyze errors:\n  - failed to resolve project launch context\n";
+            }
+            return EmitCommandCompleted(events, "failed", 1, commandStarted);
         }
         const auto &resolved = *resolvedResult.value;
         const auto analyzers = EffectiveAnalyzers(invocation.project, invocation.profile, resolved.selectedPackageFeatures);
@@ -6155,24 +6410,35 @@ namespace NGIN::CLI
         }
         if (!needsConfigure)
         {
+            events.Emit(CliEventType::Summary, EventData{}.AddNumber("analyzers", static_cast<std::int64_t>(analyzers.size())).AddNumber("findings", 0));
             PrintSuccess(args, "Analyze complete");
-            return 0;
+            return EmitCommandCompleted(events, "success", 0, commandStarted);
         }
 
         std::vector<BackendStepResult> backendSteps{};
-        auto buildOptions = BuildOptionsForArgs(args, backendSteps);
+        auto buildOptions = BuildOptionsForArgs(args, backendSteps, &events);
         const auto configured = ConfigureLaunch(invocation.project, invocation.profile, args.outputPath, buildOptions);
         if (configured.diagnostics.HasErrors())
         {
-            PrintDiagnostics(configured.diagnostics, "Analyze", std::cout);
+            EmitDiagnostics(events, configured.diagnostics, "ngin analyze");
+            if (!IsQuiet(args))
+            {
+                PrintDiagnostics(configured.diagnostics, "Analyze", std::cout);
+            }
             PrintBackendSteps(args, backendSteps, true);
-            return 1;
+            return EmitCommandCompleted(events, "failed", 1, commandStarted);
         }
         if (!configured.value.has_value() || !configured.value->compileCommandsPath.has_value())
         {
             PrintBackendSteps(args, backendSteps, true);
-            std::cout << "\nAnalyze errors:\n  - clang-tidy requires a configured compile_commands.json\n";
-            return 1;
+            events.Emit(
+                CliEventType::Diagnostic,
+                EventData{}.AddString("severity", "error").AddString("source", "ngin analyze").AddString("message", "clang-tidy requires a configured compile_commands.json"));
+            if (!IsQuiet(args))
+            {
+                std::cout << "\nAnalyze errors:\n  - clang-tidy requires a configured compile_commands.json\n";
+            }
+            return EmitCommandCompleted(events, "failed", 1, commandStarted);
         }
         PrintBackendSteps(args, backendSteps, false);
 
@@ -6180,12 +6446,16 @@ namespace NGIN::CLI
         if (sources.empty())
         {
             PrintField(args, "sources", "(none)");
+            events.Emit(CliEventType::Summary, EventData{}.AddNumber("sources", 0).AddNumber("findings", 0));
             PrintSuccess(args, "Analyze complete");
-            return 0;
+            return EmitCommandCompleted(events, "success", 0, commandStarted);
         }
         PrintField(args, "sources", sources.size());
 
         bool hasErrors = false;
+        int findingsCount = 0;
+        const auto analyzeStarted = std::chrono::steady_clock::now();
+        events.Emit(CliEventType::PhaseStarted, EventData{}.AddString("phase", "analyze").AddString("label", "Analyzer execution"));
         for (const auto &[_, analyzer] : analyzers)
         {
             if (!analyzer.enabled || !IsClangTidyAnalyzer(analyzer))
@@ -6195,8 +6465,15 @@ namespace NGIN::CLI
             const auto tool = ResolveAnalyzerTool(resolved, analyzer);
             if (!tool.has_value())
             {
-                std::cout << "\nAnalyze errors:\n"
-                          << "  - analyzer '" << analyzer.name << "' could not resolve clang-tidy. Install clang-tidy on PATH or set NGIN_CLANG_TIDY to the executable path.\n";
+                const auto message = "analyzer '" + analyzer.name + "' could not resolve clang-tidy. Install clang-tidy on PATH or set NGIN_CLANG_TIDY to the executable path.";
+                events.Emit(
+                    CliEventType::Diagnostic,
+                    EventData{}.AddString("severity", "error").AddString("source", "ngin analyze").AddString("message", message));
+                if (!IsQuiet(args))
+                {
+                    std::cout << "\nAnalyze errors:\n"
+                              << "  - " << message << "\n";
+                }
                 hasErrors = true;
                 continue;
             }
@@ -6213,8 +6490,15 @@ namespace NGIN::CLI
                 }
                 else if (!analyzer.configOptional)
                 {
-                    std::cout << "\nAnalyze errors:\n"
-                              << "  - analyzer '" << analyzer.name << "' config '" << candidate.string() << "' does not exist\n";
+                    const auto message = "analyzer '" + analyzer.name + "' config '" + candidate.string() + "' does not exist";
+                    events.Emit(
+                        CliEventType::Diagnostic,
+                        EventData{}.AddString("severity", "error").AddString("source", "ngin analyze").AddString("message", message));
+                    if (!IsQuiet(args))
+                    {
+                        std::cout << "\nAnalyze errors:\n"
+                                  << "  - " << message << "\n";
+                    }
                     hasErrors = true;
                     continue;
                 }
@@ -6236,7 +6520,21 @@ namespace NGIN::CLI
                 const auto findings = ParseClangTidyFindings(result.output, analyzer.severity);
                 for (const auto &finding : findings)
                 {
-                    PrintAnalyzerFinding(finding);
+                    ++findingsCount;
+                    events.Emit(
+                        CliEventType::Diagnostic,
+                        EventData{}
+                            .AddString("severity", finding.severity)
+                            .AddString("source", "clang-tidy")
+                            .AddString("code", ClangTidyCodeFromMessage(finding.message))
+                            .AddString("message", finding.message)
+                            .AddString("file", finding.file.string())
+                            .AddNumber("line", std::stoll(finding.line))
+                            .AddNumber("column", std::stoll(finding.column)));
+                    if (!IsQuiet(args))
+                    {
+                        PrintAnalyzerFinding(finding);
+                    }
                     if (finding.severity == "error")
                     {
                         hasErrors = true;
@@ -6244,13 +6542,23 @@ namespace NGIN::CLI
                 }
                 if (result.exitCode != 0 && findings.empty())
                 {
-                    std::cout << "\nAnalyze errors:\n"
-                              << "  - analyzer '" << analyzer.name << "' failed with exit code " << result.exitCode << "\n";
+                    const auto message = "analyzer '" + analyzer.name + "' failed with exit code " + std::to_string(result.exitCode);
+                    events.Emit(
+                        CliEventType::Diagnostic,
+                        EventData{}.AddString("severity", "error").AddString("source", "ngin analyze").AddString("message", message));
+                    if (!IsQuiet(args))
+                    {
+                        std::cout << "\nAnalyze errors:\n"
+                                  << "  - " << message << "\n";
+                    }
                     if (!result.output.empty())
                     {
+                        events.Emit(
+                            CliEventType::BackendOutput,
+                            EventData{}.AddString("phase", "analyze").AddString("stream", "combined").AddString("text", result.output));
                         std::istringstream output{result.output};
                         std::string line{};
-                        while (std::getline(output, line))
+                        while (!IsQuiet(args) && std::getline(output, line))
                         {
                             if (!line.empty())
                             {
@@ -6262,17 +6570,34 @@ namespace NGIN::CLI
                 }
             }
         }
+        const auto analyzeDuration = static_cast<std::int64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - analyzeStarted).count());
+        events.Emit(
+            hasErrors ? CliEventType::PhaseFailed : CliEventType::PhaseCompleted,
+            EventData{}
+                .AddString("phase", "analyze")
+                .AddString("label", "Analyzer execution")
+                .AddNumber("durationMs", analyzeDuration)
+                .AddNumber("exitCode", hasErrors ? 1 : 0));
+        events.Emit(
+            CliEventType::Summary,
+            EventData{}.AddNumber("sources", static_cast<std::int64_t>(sources.size())).AddNumber("findings", findingsCount));
         if (!hasErrors)
         {
             PrintSuccess(args, "Analyze complete");
         }
-        return hasErrors ? 1 : 0;
+        return EmitCommandCompleted(events, hasErrors ? "failed" : "success", hasErrors ? 1 : 0, commandStarted);
     }
 
     auto CmdPublish(const fs::path &root, const ParsedArgs &args) -> int
     {
         (void)root;
+        JsonLinesCliEventSink jsonSink(std::cout);
+        CliEventEmitter events(args.eventOutputMode == EventOutputMode::JsonLines ? &jsonSink : nullptr);
+        events.SetCommand("publish");
+        const auto commandStarted = std::chrono::steady_clock::now();
+        EmitCommandStarted(events, args);
         const auto invocation = ResolveInvocation(args);
+        EmitSelection(events, invocation.project, invocation.profile);
         const auto publishes = EffectivePublishes(invocation.project, invocation.profile);
         const auto &publish = SelectPublish(publishes, args.packageName);
         if (publish.kind != "Folder" && publish.kind != "Archive")
@@ -6289,7 +6614,7 @@ namespace NGIN::CLI
         PrintField(args, "profile", invocation.profile.name);
         std::cout << std::flush;
         std::vector<BackendStepResult> backendSteps{};
-        auto buildOptions = BuildOptionsForArgs(args, backendSteps);
+        auto buildOptions = BuildOptionsForArgs(args, backendSteps, &events);
         auto built = BuildLaunch(
             invocation.project,
             invocation.profile,
@@ -6297,9 +6622,13 @@ namespace NGIN::CLI
             buildOptions);
         if (!built.value.has_value() || built.diagnostics.HasErrors())
         {
-            PrintDiagnostics(built.diagnostics, "Publish", std::cout);
+            EmitDiagnostics(events, built.diagnostics, "ngin publish");
+            if (!IsQuiet(args))
+            {
+                PrintDiagnostics(built.diagnostics, "Publish", std::cout);
+            }
             PrintBackendSteps(args, backendSteps, true);
-            return 1;
+            return EmitCommandCompleted(events, "failed", 1, commandStarted);
         }
         PrintBackendSteps(args, backendSteps, false);
 
@@ -6320,6 +6649,18 @@ namespace NGIN::CLI
         {
             WriteZipArchive(built.value->outputDir, publishOutput);
         }
+        events.Emit(
+            CliEventType::ArtifactProduced,
+            EventData{}
+                .AddString("kind", publish.kind == "Folder" ? "publish-directory" : "publish-archive")
+                .AddString("name", publish.name)
+                .AddString("path", publishOutput.string()));
+        events.Emit(
+            CliEventType::Summary,
+            EventData{}
+                .AddString("publish", publish.name)
+                .AddString("kind", publish.kind)
+                .AddString("output", publishOutput.string()));
 
         PrintField(args, "publish", publish.name);
         PrintField(args, "kind", publish.kind);
@@ -6334,6 +6675,7 @@ namespace NGIN::CLI
             PrintDiagnostics(built.diagnostics, "Publish", std::cout);
             PrintSuccess(args, "Publish complete");
         }
-        return 0;
+        EmitDiagnostics(events, built.diagnostics, "ngin publish");
+        return EmitCommandCompleted(events, "success", 0, commandStarted);
     }
 }

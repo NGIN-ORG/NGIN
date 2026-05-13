@@ -549,3 +549,118 @@ TEST_CASE("process execution helper runs tools directly without a shell")
     REQUIRE(cmake.has_value());
     REQUIRE(RunProcess(cmake->path, {"--version"}) == 0);
 }
+
+TEST_CASE("build facade emits backend lifecycle events")
+{
+    const auto projectPath = RepoRoot() / "Examples/Hello.Native/Hello.Native.nginproj";
+    REQUIRE(fs::exists(projectPath));
+
+    const auto project = LoadProjectManifest(projectPath);
+    const std::optional<std::string> profileName{"Debug"};
+    const auto &profile = ProfileByName(project, profileName);
+    TempDir temp{};
+
+    RecordingCliEventSink sink{};
+    CliEventEmitter events{&sink};
+    events.SetCommand("build");
+    events.SetSelection(project.name, profile.name);
+    std::vector<BackendStepResult> backendSteps{};
+    BuildExecutionOptions options{
+        .backendOutput = BackendOutputMode::Compact,
+        .backendSteps = &backendSteps,
+        .interactiveProgress = false,
+        .events = &events,
+    };
+
+    const auto built = BuildLaunch(project, profile, temp.path() / "stage", options);
+    REQUIRE(built.value.has_value());
+    REQUIRE_FALSE(built.diagnostics.HasErrors());
+
+    const auto &emitted = sink.Events();
+    REQUIRE(std::any_of(emitted.begin(), emitted.end(), [](const CliEvent &event) { return event.type == CliEventType::PhaseStarted; }));
+    REQUIRE(std::any_of(emitted.begin(), emitted.end(), [](const CliEvent &event) { return event.type == CliEventType::PhaseCompleted; }));
+    REQUIRE_FALSE(std::any_of(emitted.begin(), emitted.end(), [](const CliEvent &event) { return event.type == CliEventType::BackendOutput; }));
+}
+
+TEST_CASE("build command JSONL emits clean event stream")
+{
+    TempDir temp{};
+    const auto projectPath = temp.path() / "Jsonl.App.nginproj";
+    WriteFile(projectPath,
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4" Name="Jsonl.App">
+  <Application>
+    <Build>
+      <Sources Path="src/**.cpp" />
+    </Build>
+  </Application>
+</Project>
+)xml");
+    WriteFile(temp.path() / "src/main.cpp", "int main() { return 0; }\n");
+
+    ParsedArgs args{};
+    args.argv = {"build", "--project", projectPath.string(), "--events", "jsonl"};
+    args.projectPath = projectPath.string();
+    args.outputPath = (temp.path() / "out").string();
+    args.eventOutputMode = EventOutputMode::JsonLines;
+    args.backendOutputMode = BackendOutputMode::Compact;
+
+    std::ostringstream captured{};
+    auto *previous = std::cout.rdbuf(captured.rdbuf());
+    const auto exitCode = CmdBuild(temp.path(), args);
+    std::cout.rdbuf(previous);
+
+    REQUIRE(exitCode == 0);
+    const auto output = captured.str();
+    REQUIRE_THAT(output, ContainsSubstring(R"("kind":"NGIN.CLI.Event")"));
+    REQUIRE_THAT(output, ContainsSubstring(R"("type":"command.started")"));
+    REQUIRE_THAT(output, ContainsSubstring(R"("type":"command.selection")"));
+    REQUIRE_THAT(output, ContainsSubstring(R"("type":"phase.started")"));
+    REQUIRE_THAT(output, ContainsSubstring(R"("type":"phase.completed")"));
+    REQUIRE_THAT(output, ContainsSubstring(R"("type":"artifact.produced")"));
+    REQUIRE_THAT(output, ContainsSubstring(R"("type":"summary")"));
+    REQUIRE_THAT(output, ContainsSubstring(R"("type":"command.completed")"));
+    REQUIRE_THAT(output, !ContainsSubstring(R"("type":"backend.output")"));
+
+    std::istringstream lines{output};
+    std::string line{};
+    while (std::getline(lines, line))
+    {
+        REQUIRE(line.rfind(R"({"schemaVersion":"1.0","kind":"NGIN.CLI.Event")", 0) == 0);
+    }
+}
+
+TEST_CASE("failed JSONL build includes compact backend output event")
+{
+    TempDir temp{};
+    const auto projectPath = temp.path() / "Broken.App.nginproj";
+    WriteFile(projectPath,
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4" Name="Broken.App">
+  <Application>
+    <Build>
+      <Sources Path="src/**.cpp" />
+    </Build>
+  </Application>
+</Project>
+)xml");
+    WriteFile(temp.path() / "src/main.cpp", "int main() { return ; }\n");
+
+    ParsedArgs args{};
+    args.argv = {"build", "--project", projectPath.string(), "--events", "jsonl"};
+    args.projectPath = projectPath.string();
+    args.outputPath = (temp.path() / "out").string();
+    args.eventOutputMode = EventOutputMode::JsonLines;
+    args.backendOutputMode = BackendOutputMode::Compact;
+
+    std::ostringstream captured{};
+    auto *previous = std::cout.rdbuf(captured.rdbuf());
+    const auto exitCode = CmdBuild(temp.path(), args);
+    std::cout.rdbuf(previous);
+
+    REQUIRE(exitCode == 1);
+    const auto output = captured.str();
+    REQUIRE_THAT(output, ContainsSubstring(R"("type":"phase.failed")"));
+    REQUIRE_THAT(output, ContainsSubstring(R"("type":"backend.output")"));
+    REQUIRE_THAT(output, ContainsSubstring(R"("status":"failed")"));
+}

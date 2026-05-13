@@ -58,6 +58,40 @@ Removed commands:
   generators, writing lock files, or mutating repository state
 - a workspace is optional
 
+## Event Stream Output
+
+Build-backed lifecycle commands support a stable JSON Lines event stream for
+editor and CI consumers:
+
+```bash
+ngin build --project <file.nginproj> --profile <name> --events jsonl
+```
+
+`--events none` keeps normal human output. `--events jsonl` writes only
+`NGIN.CLI.Event` JSON objects to stdout, one object per line. Human summaries,
+terminal color, and backend passthrough logs are not mixed into stdout in this
+mode. `--format jsonl` and `--ui jsonl` are accepted as aliases for selecting
+the event stream where common output flags are parsed.
+
+The event envelope is versioned independently from manifest and composition
+schemas:
+
+```json
+{"schemaVersion":"1.0","kind":"NGIN.CLI.Event","sequence":1,"timestamp":"2026-05-12T00:00:00.000Z","type":"command.started","command":"build","data":{}}
+```
+
+Initial event types are `command.started`, `command.selection`,
+`phase.started`, `phase.completed`, `phase.failed`, `backend.output`,
+`diagnostic`, `artifact.produced`, `summary`, and `command.completed`.
+`sequence` is monotonically increasing per process. Consumers must ignore
+unknown event types and fields. Additive optional fields are allowed in
+`schemaVersion` `1.x`; removing or renaming fields requires a new major event
+schema.
+
+Backend output events follow `--backend-output`: compact JSONL includes backend
+output only when a backend phase fails, stream mode includes captured backend
+output events on success, and silent mode suppresses backend output events.
+
 ## Inspection Direction
 
 - `ngin graph` is the active structural inspection command for resolved composition

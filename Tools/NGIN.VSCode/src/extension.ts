@@ -18,6 +18,13 @@ import {
   parseCliDiagnostics,
   parseCompositionGraphPayload
 } from './core/helpers';
+import {
+  diagnosticFromEvent,
+  eventLabel,
+  eventOutputLine,
+  NginEventDiagnostic,
+  NginJsonlEventParser
+} from './core/events';
 import { addRootConfigInput, listConfigInputs, relativeManifestPath, removeConfigInputs, renameConfigInputs } from './core/projectAuthoring';
 import { createNativeDebugConfiguration, quoteShellArgument } from './core/debug';
 import { LaunchManifest, CompositionGraphPayload, ProjectManifest } from './core/types';
@@ -45,6 +52,7 @@ interface BuildResult {
 interface CliRunResult {
   exitCode: number;
   output: string;
+  eventDiagnostics?: NginEventDiagnostic[];
 }
 
 interface NginTaskDefinition extends vscode.TaskDefinition {
@@ -1625,6 +1633,15 @@ class NginController implements vscode.Disposable {
     const verbosity = configuration.get<string>('output.verbosity') ?? 'compact';
     const color = configuration.get<string>('output.color') ?? 'never';
     const actualArgs = [...args];
+    const commandName = args[0] ?? 'command';
+    const progressCommands = new Set(['configure', 'build', 'rebuild', 'stage', 'publish', 'analyze']);
+    const useEvents = progressCommands.has(commandName);
+    if (useEvents && !actualArgs.includes('--events')) {
+      actualArgs.push('--events', 'jsonl');
+    }
+    if (useEvents && !actualArgs.includes('--backend-output')) {
+      actualArgs.push('--backend-output', verbosity === 'verbose' ? 'stream' : 'compact');
+    }
     if (!actualArgs.includes('--ui') && !actualArgs.includes('--backend-output')) {
       if (verbosity === 'compact') {
         actualArgs.push('--ui', 'compact', '--backend-output', 'compact');
@@ -1645,14 +1662,37 @@ class NginController implements vscode.Disposable {
     this.outputChannel.show(true);
     this.outputChannel.appendLine(`> ${cliPath} ${actualArgs.join(' ')}`);
 
-    const runProcess = () => new Promise<CliRunResult>((resolve, reject) => {
+    const runProcess = (onEventLabel?: (label: string) => void) => new Promise<CliRunResult>((resolve, reject) => {
       let combined = '';
+      const eventDiagnostics: NginEventDiagnostic[] = [];
+      const parser = useEvents ? new NginJsonlEventParser() : undefined;
       const child = spawn(cliPath, actualArgs, { cwd: workspaceRoot });
 
       child.stdout.on('data', (chunk) => {
         const text = chunk.toString();
         combined += text;
-        this.outputChannel.append(text);
+        if (parser) {
+          try {
+            for (const event of parser.push(text)) {
+              const label = eventLabel(event);
+              if (label) {
+                onEventLabel?.(label);
+              }
+              const line = eventOutputLine(event);
+              if (line) {
+                this.outputChannel.appendLine(line);
+              }
+              const diagnostic = diagnosticFromEvent(event);
+              if (diagnostic) {
+                eventDiagnostics.push(diagnostic);
+              }
+            }
+          } catch (error) {
+            this.outputChannel.append(text);
+          }
+        } else {
+          this.outputChannel.append(text);
+        }
       });
 
       child.stderr.on('data', (chunk) => {
@@ -1663,16 +1703,34 @@ class NginController implements vscode.Disposable {
 
       child.on('error', (error) => reject(error));
       child.on('close', (code) => {
+        if (parser) {
+          try {
+            for (const event of parser.finish()) {
+              const label = eventLabel(event);
+              if (label) {
+                onEventLabel?.(label);
+              }
+              const line = eventOutputLine(event);
+              if (line) {
+                this.outputChannel.appendLine(line);
+              }
+              const diagnostic = diagnosticFromEvent(event);
+              if (diagnostic) {
+                eventDiagnostics.push(diagnostic);
+              }
+            }
+          } catch {
+            // Keep the process result available; stale CLIs may not support JSONL yet.
+          }
+        }
         const exitCode = code ?? 0;
         if (exitCode !== 0) {
           combined += `\nerror: command exited with code ${exitCode}\n`;
         }
-        resolve({ exitCode, output: combined });
+        resolve({ exitCode, output: combined, eventDiagnostics });
       });
     });
 
-    const commandName = args[0] ?? 'command';
-    const progressCommands = new Set(['configure', 'build', 'rebuild', 'stage', 'publish', 'analyze']);
     const result = progressCommands.has(commandName)
       ? await vscode.window.withProgress(
         {
@@ -1688,7 +1746,7 @@ class NginController implements vscode.Disposable {
           }, 1000);
           try {
             progress.report({ message: 'starting' });
-            return await runProcess();
+            return await runProcess((label) => progress.report({ message: label }));
           } finally {
             clearInterval(timer);
           }
@@ -1696,7 +1754,11 @@ class NginController implements vscode.Disposable {
       : await runProcess();
 
     if (diagnosticsKind) {
-      this.applyDiagnostics(result.output, diagnosticsResource, diagnosticsKind);
+      if (result.eventDiagnostics?.length) {
+        this.applyEventDiagnostics(result.eventDiagnostics, diagnosticsResource, diagnosticsKind);
+      } else {
+        this.applyDiagnostics(result.output, diagnosticsResource, diagnosticsKind);
+      }
     }
     this.surfaceLocalSettingsWarnings(result.output);
     return result;
@@ -1793,6 +1855,46 @@ class NginController implements vscode.Disposable {
         entry.severity === 'warning' ? vscode.DiagnosticSeverity.Warning : vscode.DiagnosticSeverity.Error
       );
       diagnostic.source = entry.source ?? (diagnosticsKind === 'validate' ? 'ngin validate' : 'ngin analyze');
+
+      const key = resource.toString();
+      const bucket = grouped.get(key) ?? [];
+      bucket.push(diagnostic);
+      grouped.set(key, bucket);
+    }
+
+    for (const [key, diagnostics] of grouped) {
+      collection.set(vscode.Uri.parse(key), diagnostics);
+    }
+  }
+
+  private applyEventDiagnostics(entries: NginEventDiagnostic[], fallbackResource: vscode.Uri | undefined, diagnosticsKind: 'validate' | 'analyze'): void {
+    const collection = diagnosticsKind === 'validate' ? this.validateDiagnostics : this.analyzeDiagnostics;
+    collection.clear();
+
+    const grouped = new Map<string, vscode.Diagnostic[]>();
+    for (const entry of entries) {
+      const resource = entry.file
+        ? vscode.Uri.file(
+            path.isAbsolute(entry.file) || !fallbackResource
+              ? entry.file
+              : path.resolve(path.dirname(fallbackResource.fsPath), entry.file)
+          )
+        : fallbackResource;
+      if (!resource) {
+        continue;
+      }
+
+      const line = entry.line && entry.line > 0 ? entry.line - 1 : 0;
+      const column = entry.column && entry.column > 0 ? entry.column - 1 : 0;
+      const diagnostic = new vscode.Diagnostic(
+        new vscode.Range(line, column, line, column + 1),
+        entry.message,
+        entry.severity === 'warning' ? vscode.DiagnosticSeverity.Warning : vscode.DiagnosticSeverity.Error
+      );
+      diagnostic.source = entry.source ?? (diagnosticsKind === 'validate' ? 'ngin validate' : 'ngin analyze');
+      if (entry.code) {
+        diagnostic.code = entry.code;
+      }
 
       const key = resource.toString();
       const bucket = grouped.get(key) ?? [];

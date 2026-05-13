@@ -19,6 +19,7 @@ namespace
             << "  --plain\n"
             << "  --color auto|always|never\n"
             << "  --ui auto|pretty|compact|plain|json\n"
+            << "  --events none|jsonl\n"
             << "  --backend-output stream|compact|silent\n"
             << "  --json  (alias for --format json where supported)\n\n"
             << "Commands:\n"

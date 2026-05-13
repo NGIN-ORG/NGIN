@@ -22,6 +22,7 @@ namespace NGIN::CLI
 
     struct ParsedArgs
     {
+        std::vector<std::string> argv{};
         std::optional<std::string> projectPath{};
         std::optional<std::string> profileName{};
         std::optional<std::string> fromProfileName{};
@@ -41,8 +42,18 @@ namespace NGIN::CLI
         OutputVerbosity verbosity{OutputVerbosity::Normal};
         OutputColorMode colorMode{OutputColorMode::Auto};
         BackendOutputMode backendOutputMode{BackendOutputMode::Compact};
+        EventOutputMode eventOutputMode{EventOutputMode::None};
         bool locked{false};
         std::vector<std::string> runArgs{};
+    };
+
+    struct CommandExecutionContext
+    {
+        ParsedArgs args{};
+        ICliEventSink *events{};
+        std::string command{};
+        std::string project{};
+        std::string profile{};
     };
 
     [[nodiscard]] auto ParseCommonArgs(int argc, char **argv, int startIndex) -> ParsedArgs;

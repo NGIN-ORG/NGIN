@@ -91,12 +91,13 @@ diagnostics. The official `NGIN.Tooling.ClangTidy` package can be added with
 The package is a wrapper over `clang-tidy` from `NGIN_CLANG_TIDY` or `PATH`; the
 extension does not install LLVM binaries.
 
-Long-running build, stage, publish, and analyze commands use compact CLI output
-by default in VS Code. The Output panel shows stable NGIN summaries and backend
-phase timings, while progress notifications show elapsed time during active
-work. Configure `ngin.output.verbosity` to `normal` or `verbose` to show more
-backend output, and configure `ngin.output.color` if your VS Code build renders
-ANSI color in Output channels.
+Long-running configure, build, rebuild, stage, publish, and analyze commands
+use the CLI JSONL event stream in VS Code. The Output panel and progress
+notifications are rendered by the extension from `NGIN.CLI.Event` records rather
+than by parsing human terminal text. Analyzer diagnostics prefer structured
+`diagnostic` events and retain the older text parser only as a fallback.
+Configure `ngin.output.verbosity` to `verbose` to request backend output events,
+and configure `ngin.output.color` for commands that still use human output.
 
 ## Build And Install
 

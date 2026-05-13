@@ -987,6 +987,16 @@ Current test coverage includes:
   interactive terminals get a live elapsed backend progress line when
   compatible, and `--verbose` now adds NGIN-owned resolved graph detail instead
   of only acting like backend streaming
+- CLI lifecycle commands now expose `--events jsonl` with the
+  `NGIN.CLI.Event` `1.0` envelope for configure, build, stage, rebuild,
+  publish, and analyze. Build-backed phases emit phase timing events, compact
+  JSONL keeps backend logs out of successful streams, backend failures include
+  `backend.output`, and command/artifact/summary/completion events provide the
+  stable machine contract.
+- VS Code long-running configure/build/rebuild/stage/publish/analyze
+  invocations now request JSONL events, render extension-owned progress/output
+  summaries, and prefer structured analyzer diagnostic events with the existing
+  text diagnostic parser retained as fallback.
 
 ## Not Implemented Yet
 

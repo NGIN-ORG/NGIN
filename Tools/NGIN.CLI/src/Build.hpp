@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Events.hpp"
 #include "Model.hpp"
 
 #include <optional>
@@ -29,6 +30,7 @@ namespace NGIN::CLI
         BackendOutputMode backendOutput{BackendOutputMode::Stream};
         std::vector<BackendStepResult> *backendSteps{};
         bool interactiveProgress{};
+        CliEventEmitter *events{};
     };
 
     struct ToolResolution

@@ -2000,8 +2000,15 @@ namespace NGIN::CLI
             const BuildExecutionOptions &options) -> int
         {
             const auto started = std::chrono::steady_clock::now();
+            const auto phase = Lower(name).find("configure") != std::string::npos ? std::string{"configure"} : std::string{"build"};
+            if (options.events != nullptr)
+            {
+                options.events->Emit(
+                    CliEventType::PhaseStarted,
+                    EventData{}.AddString("phase", phase).AddString("label", name));
+            }
             ProcessResult result{};
-            if (options.backendOutput == BackendOutputMode::Stream)
+            if (options.backendOutput == BackendOutputMode::Stream && options.events == nullptr)
             {
                 result.exitCode = RunProcess(executable, arguments, workingDirectory);
             }
@@ -2047,6 +2054,32 @@ namespace NGIN::CLI
             }
             const auto finished = std::chrono::steady_clock::now();
             const auto duration = static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(finished - started).count());
+            if (options.events != nullptr && result.exitCode == 0 && options.backendOutput == BackendOutputMode::Stream && !result.output.empty())
+            {
+                options.events->Emit(
+                    CliEventType::BackendOutput,
+                    EventData{}.AddString("phase", phase).AddString("stream", "combined").AddString("text", result.output));
+            }
+            if (options.events != nullptr)
+            {
+                EventData data{};
+                data.AddString("phase", phase).AddString("label", name).AddNumber("durationMs", duration);
+                if (result.exitCode == 0)
+                {
+                    options.events->Emit(CliEventType::PhaseCompleted, std::move(data));
+                }
+                else
+                {
+                    data.AddNumber("exitCode", result.exitCode);
+                    options.events->Emit(CliEventType::PhaseFailed, std::move(data));
+                    if (options.backendOutput != BackendOutputMode::Silent && !result.output.empty())
+                    {
+                        options.events->Emit(
+                            CliEventType::BackendOutput,
+                            EventData{}.AddString("phase", phase).AddString("stream", "combined").AddString("text", result.output));
+                    }
+                }
+            }
             if (options.backendSteps != nullptr)
             {
                 options.backendSteps->push_back(BackendStepResult{

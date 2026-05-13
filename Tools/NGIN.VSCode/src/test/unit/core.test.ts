@@ -21,6 +21,7 @@ import {
   parseCompositionGraphPayload,
   parseCliDiagnostics
 } from '../../core/helpers';
+import { diagnosticFromEvent, eventLabel, NginJsonlEventParser } from '../../core/events';
 import { addRootConfigInput, relativeManifestPath, removeConfigInputs, renameConfigInputs } from '../../core/projectAuthoring';
 import { buildProjectTreeModels, buildStatusBarModel } from '../../ui/models';
 import { parseLaunchManifest, parseLocalSettingsManifest, parsePackageManifest, parseProjectManifest, parseWorkspaceManifest } from '../../core/xml';
@@ -83,6 +84,55 @@ test('parseCliDiagnostics extracts structured file and generic errors', () => {
   assert.equal(diagnostics[3].severity, 'warning');
   assert.equal(diagnostics[3].source, 'clang-tidy');
   assert.equal(diagnostics[3].message, 'prefer auto [clang-tidy:modernize-use-auto]');
+});
+
+test('NginJsonlEventParser handles split chunks and event helpers', () => {
+  const parser = new NginJsonlEventParser();
+  const line = JSON.stringify({
+    schemaVersion: '1.0',
+    kind: 'NGIN.CLI.Event',
+    sequence: 1,
+    timestamp: '2026-05-12T00:00:00.000Z',
+    type: 'phase.started',
+    command: 'build',
+    data: { phase: 'build', label: 'CMake build' }
+  });
+
+  assert.deepEqual(parser.push(line.slice(0, 20)), []);
+  const events = parser.push(line.slice(20) + '\n');
+  assert.equal(events.length, 1);
+  assert.equal(events[0].type, 'phase.started');
+  assert.equal(eventLabel(events[0]), 'CMake build');
+});
+
+test('diagnostic events map to extension diagnostic payloads', () => {
+  const parser = new NginJsonlEventParser();
+  const [event] = parser.push(JSON.stringify({
+    schemaVersion: '1.0',
+    kind: 'NGIN.CLI.Event',
+    sequence: 2,
+    timestamp: '2026-05-12T00:00:01.000Z',
+    type: 'diagnostic',
+    command: 'analyze',
+    data: {
+      severity: 'warning',
+      source: 'clang-tidy',
+      code: 'modernize-use-auto',
+      message: 'prefer auto',
+      file: '/workspace/src/main.cpp',
+      line: 4,
+      column: 7
+    }
+  }) + '\n');
+
+  const diagnostic = diagnosticFromEvent(event);
+  assert.ok(diagnostic);
+  assert.equal(diagnostic.severity, 'warning');
+  assert.equal(diagnostic.source, 'clang-tidy');
+  assert.equal(diagnostic.code, 'modernize-use-auto');
+  assert.equal(diagnostic.file, '/workspace/src/main.cpp');
+  assert.equal(diagnostic.line, 4);
+  assert.equal(diagnostic.column, 7);
 });
 
 test('parseCompositionGraphPayload maps V4 composition graph inspect output to extension model', () => {
