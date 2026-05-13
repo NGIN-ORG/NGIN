@@ -4106,7 +4106,8 @@ namespace NGIN::CLI
         }
 
         auto ParseEnvironmentSection(const XmlElement &environmentNode, const fs::path &path,
-                                     EnvironmentDefinition &environment) -> void
+                                     EnvironmentDefinition &environment,
+                                     const ContributionProvenance &provenance) -> void
         {
             std::set<std::string> localNames{};
             for (const auto *node : ChildElements(environmentNode))
@@ -4123,6 +4124,8 @@ namespace NGIN::CLI
                     variable.name = RequireAttribute(*node, "Name", path);
                     RequireUniqueLocalName(localNames, "environment variable", variable.name, path);
                     variable.value = RequireAttribute(*node, "Value", path);
+                    variable.provenance = provenance;
+                    variable.provenance.reason = "environment contribution";
                     UpsertEnvironmentVariable(environment.variables, std::move(variable));
                 }
                 else if (node->name == "Secret")
@@ -4143,6 +4146,8 @@ namespace NGIN::CLI
                     }
                     variable.required = BoolAttribute(*node, "Required");
                     variable.secret = true;
+                    variable.provenance = provenance;
+                    variable.provenance.reason = "secret environment contribution";
                     UpsertEnvironmentVariable(environment.variables, std::move(variable));
                 }
             }
@@ -4232,9 +4237,11 @@ namespace NGIN::CLI
         }
 
         auto ParsePackageOutputSection(const XmlElement &node, const fs::path &path, const ProjectManifest &project,
-                                       std::vector<PackageOutputDefinition> &outputs) -> void
+                                       std::vector<PackageOutputDefinition> &outputs,
+                                       const ContributionProvenance &provenance) -> void
         {
             PackageOutputDefinition output{};
+            output.provenance = provenance;
             if (const auto remove = Attribute(node, "Remove"); remove.has_value() && !remove->empty())
             {
                 output.name = *remove;
@@ -4290,9 +4297,11 @@ namespace NGIN::CLI
         }
 
         auto ParsePublishSection(const XmlElement &node, const fs::path &path,
-                                 std::vector<PublishDefinition> &publishes) -> void
+                                 std::vector<PublishDefinition> &publishes,
+                                 const ContributionProvenance &provenance) -> void
         {
             PublishDefinition publish{};
+            publish.provenance = provenance;
             if (const auto remove = Attribute(node, "Remove"); remove.has_value() && !remove->empty())
             {
                 publish.name = *remove;
@@ -4596,7 +4605,13 @@ namespace NGIN::CLI
                     RequireUniqueLocalName(packageOutputNames, "package output",
                                            RequireAttribute(*packageOutput, "Name", path), path);
                 }
-                ParsePackageOutputSection(*packageOutput, path, project, project.packageOutputs);
+                ParsePackageOutputSection(*packageOutput, path, project, project.packageOutputs,
+                                          ContributionProvenance{
+                                              .sourceKind = "project",
+                                              .sourceName = project.name,
+                                              .manifestPath = path,
+                                              .reason = "source product package output",
+                                          });
             }
             std::set<std::string> publishNames{};
             for (const auto *publish : ChildElements(product, "Publish"))
@@ -4610,13 +4625,25 @@ namespace NGIN::CLI
                     RequireUniqueLocalName(publishNames, "publish", Attribute(*publish, "Name").value_or("default"),
                                            path);
                 }
-                ParsePublishSection(*publish, path, project.publishes);
+                ParsePublishSection(*publish, path, project.publishes,
+                                    ContributionProvenance{
+                                        .sourceKind = "project",
+                                        .sourceName = project.name,
+                                        .manifestPath = path,
+                                        .reason = "project publish entry",
+                                    });
             }
             EnvironmentDefinition baseEnvironment{};
             baseEnvironment.name = baseProfile.environmentName;
             if (const auto *environment = FindChild(product, "Environment"))
             {
-                ParseEnvironmentSection(*environment, path, baseEnvironment);
+                ParseEnvironmentSection(*environment, path, baseEnvironment,
+                                        ContributionProvenance{
+                                            .sourceKind = "project",
+                                            .sourceName = project.name,
+                                            .manifestPath = path,
+                                            .reason = "project environment contribution",
+                                        });
             }
             if (const auto *quality = FindChild(rootElement, "Quality"))
             {
@@ -4633,6 +4660,12 @@ namespace NGIN::CLI
                         Attribute(node, "Remove").value_or(Attribute(node, "Name").value_or(defaultName));
                     RequireUniqueLocalName(launchNames, "launch", identity, path);
                     auto launch = ParseLaunchNode(node, path, project, baseProfile.launch, defaultName);
+                    launch.provenance = ContributionProvenance{
+                        .sourceKind = "project",
+                        .sourceName = project.name,
+                        .manifestPath = path,
+                        .reason = "project launch entry",
+                    };
                     if (!launch.disabled && project.launches.empty())
                     {
                         baseProfile.launch = launch;
@@ -4715,6 +4748,12 @@ namespace NGIN::CLI
                             findBase(project.launches);
                             findBase(profile.launches);
                             auto launch = ParseLaunchNode(node, path, project, base, defaultName);
+                            launch.provenance = ContributionProvenance{
+                                .sourceKind = "project-profile",
+                                .sourceName = profile.name,
+                                .manifestPath = path,
+                                .reason = "project profile launch entry",
+                            };
                             if (!launch.disabled)
                             {
                                 profile.launch = launch;
@@ -4735,7 +4774,13 @@ namespace NGIN::CLI
                         EnvironmentDefinition env{};
                         env.name = profile.environmentName;
                         env.variables = baseEnvironment.variables;
-                        ParseEnvironmentSection(*environment, path, env);
+                        ParseEnvironmentSection(*environment, path, env,
+                                                ContributionProvenance{
+                                                    .sourceKind = "project-profile",
+                                                    .sourceName = profile.name,
+                                                    .manifestPath = path,
+                                                    .reason = "project profile environment contribution",
+                                                });
                         project.environments.push_back(std::move(env));
                     }
                     if (const auto *quality = FindChild(*productOverlay, "Quality"))
@@ -4756,7 +4801,13 @@ namespace NGIN::CLI
                             RequireUniqueLocalName(packageOutputNames, "package output",
                                                    RequireAttribute(*packageOutput, "Name", path), path);
                         }
-                        ParsePackageOutputSection(*packageOutput, path, project, profile.packageOutputs);
+                        ParsePackageOutputSection(*packageOutput, path, project, profile.packageOutputs,
+                                                  ContributionProvenance{
+                                                      .sourceKind = "project-profile",
+                                                      .sourceName = profile.name,
+                                                      .manifestPath = path,
+                                                      .reason = "project profile package output",
+                                                  });
                     }
                     std::set<std::string> publishNames{};
                     for (const auto *publish : ChildElements(*productOverlay, "Publish"))
@@ -4770,7 +4821,13 @@ namespace NGIN::CLI
                             RequireUniqueLocalName(publishNames, "publish",
                                                    Attribute(*publish, "Name").value_or("default"), path);
                         }
-                        ParsePublishSection(*publish, path, profile.publishes);
+                        ParsePublishSection(*publish, path, profile.publishes,
+                                            ContributionProvenance{
+                                                .sourceKind = "project-profile",
+                                                .sourceName = profile.name,
+                                                .manifestPath = path,
+                                                .reason = "project profile publish entry",
+                                            });
                     }
                 }
                 profileIndexes.emplace(profile.name, project.profiles.size());
@@ -4947,6 +5004,19 @@ namespace NGIN::CLI
         const auto policyAppliesToProject = [&](const std::string &productKind) {
             return productKind.empty() || productKind == project.productKind;
         };
+        const auto workspaceSourceKind = [](const std::string &productKind) -> std::string {
+            return productKind.empty() ? "workspace-profile" : "workspace-product-profile";
+        };
+        const auto workspacePolicyProvenance =
+            [&](const WorkspaceManifest::ProfilePolicy &policy, const std::string &productKind,
+                std::string reason) -> ContributionProvenance {
+            return ContributionProvenance{
+                .sourceKind = workspaceSourceKind(productKind),
+                .sourceName = policy.name.empty() ? workspace->name : policy.name,
+                .manifestPath = workspace->path,
+                .reason = std::move(reason),
+            };
+        };
 
         auto prependGenerators = [&](ProfileDefinition &profile, const WorkspaceManifest::ProfilePolicy &policy) {
             std::vector<GeneratorDeclaration> workspaceGenerators{};
@@ -4962,6 +5032,10 @@ namespace NGIN::CLI
                 generator.kind = "Command";
                 generator.disabled = generatorPolicy.remove;
                 ApplyScopeSelector(scope, generator.selectors);
+                generator.provenance = workspacePolicyProvenance(
+                    policy, generatorPolicy.productKind,
+                    generatorPolicy.productKind.empty() ? "workspace profile generator policy"
+                                                        : "workspace product-kind generator policy");
                 if (!generator.disabled)
                 {
                     generator.toolName = generatorPolicy.toolName;
@@ -5026,6 +5100,10 @@ namespace NGIN::CLI
                 }
                 LaunchDefinition launch{};
                 launch.name = launchPolicy.name;
+                launch.provenance = workspacePolicyProvenance(
+                    policy, launchPolicy.productKind,
+                    launchPolicy.productKind.empty() ? "workspace profile launch policy"
+                                                     : "workspace product-kind launch policy");
                 if (launchPolicy.remove)
                 {
                     launch.disabled = true;
@@ -5080,6 +5158,10 @@ namespace NGIN::CLI
                 PublishDefinition publish{};
                 publish.name = publishPolicy.name;
                 publish.disabled = publishPolicy.remove;
+                publish.provenance = workspacePolicyProvenance(
+                    policy, publishPolicy.productKind,
+                    publishPolicy.productKind.empty() ? "workspace profile publish policy"
+                                                      : "workspace product-kind publish policy");
                 if (!publish.disabled)
                 {
                     publish.kind = publishPolicy.kind;
@@ -5113,6 +5195,10 @@ namespace NGIN::CLI
                 PackageOutputDefinition output{};
                 output.name = outputPolicy.name;
                 output.disabled = outputPolicy.remove;
+                output.provenance = workspacePolicyProvenance(
+                    policy, outputPolicy.productKind,
+                    outputPolicy.productKind.empty() ? "workspace profile package output policy"
+                                                     : "workspace product-kind package output policy");
                 if (!output.disabled)
                 {
                     output.version = outputPolicy.version;
@@ -5382,6 +5468,13 @@ namespace NGIN::CLI
                     variable.fromLocalSetting = variablePolicy.fromLocalSetting;
                     variable.required = variablePolicy.required;
                     variable.secret = variablePolicy.secret;
+                    variable.provenance = ContributionProvenance{
+                        .sourceKind = workspaceSourceKind(variablePolicy.productKind),
+                        .sourceName = policy.name.empty() ? workspace->name : policy.name,
+                        .manifestPath = workspace->path,
+                        .reason = variablePolicy.productKind.empty() ? "workspace profile environment policy"
+                                                                     : "workspace product-kind environment policy",
+                    };
                     UpsertEnvironmentVariable(environmentIt->variables, std::move(variable));
                 }
             }
@@ -5486,6 +5579,13 @@ namespace NGIN::CLI
                     RuntimeReference reference{};
                     reference.name = runtimePolicy.name;
                     reference.selectors = scopeSelectors;
+                    reference.provenance = ContributionProvenance{
+                        .sourceKind = workspaceSourceKind(runtimePolicy.productKind),
+                        .sourceName = policy.name.empty() ? workspace->name : policy.name,
+                        .manifestPath = workspace->path,
+                        .reason = runtimePolicy.productKind.empty() ? "workspace profile runtime policy"
+                                                                    : "workspace product-kind runtime policy",
+                    };
                     project.runtime.disableModules.erase(
                         std::remove_if(project.runtime.disableModules.begin(), project.runtime.disableModules.end(),
                                        [&](const RuntimeReference &existing) {
@@ -5518,11 +5618,25 @@ namespace NGIN::CLI
                 module.providesServices = runtimePolicy.providesServices;
                 module.requiresServices = runtimePolicy.requiresServices;
                 module.selectors = scopeSelectors;
+                module.provenance = ContributionProvenance{
+                    .sourceKind = workspaceSourceKind(runtimePolicy.productKind),
+                    .sourceName = policy.name.empty() ? workspace->name : policy.name,
+                    .manifestPath = workspace->path,
+                    .reason = runtimePolicy.productKind.empty() ? "workspace profile runtime policy"
+                                                                : "workspace product-kind runtime policy",
+                };
                 project.runtime.modules.push_back(std::move(module));
 
                 RuntimeReference reference{};
                 reference.name = runtimePolicy.name;
                 reference.selectors = scopeSelectors;
+                reference.provenance = ContributionProvenance{
+                    .sourceKind = workspaceSourceKind(runtimePolicy.productKind),
+                    .sourceName = policy.name.empty() ? workspace->name : policy.name,
+                    .manifestPath = workspace->path,
+                    .reason = runtimePolicy.productKind.empty() ? "workspace profile runtime policy"
+                                                                : "workspace product-kind runtime policy",
+                };
                 project.runtime.enableModules.push_back(std::move(reference));
             }
         };

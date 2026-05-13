@@ -213,7 +213,7 @@ namespace NGIN::CLI
                     }
                     selected.provenance = ContributionProvenance{
                         .sourceKind = "package-feature",
-                        .sourceName = feature.packageName + "/" + feature.featureName,
+                        .sourceName = feature.packageName + "::" + feature.featureName,
                         .manifestPath = feature.manifestPath,
                         .reason = "selected package feature analyzer",
                     };

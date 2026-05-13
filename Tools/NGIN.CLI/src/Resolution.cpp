@@ -151,6 +151,39 @@ namespace NGIN::CLI
             return Lower(input.kind);
         }
 
+        [[nodiscard]] auto SelectionProvenance(const ContributionProvenance &provenance,
+                                               const std::string &ownerKind,
+                                               const std::string &ownerName,
+                                               const fs::path &manifestPath,
+                                               const SelectorSet &selectors,
+                                               std::string reason) -> ContributionProvenance
+        {
+            if (!provenance.sourceKind.empty())
+            {
+                auto selected = provenance;
+                if (selected.reason.empty())
+                {
+                    selected.reason = std::move(reason);
+                }
+                return selected;
+            }
+            if (ownerKind == "project" && selectors.profile.has_value())
+            {
+                return ContributionProvenance{
+                    .sourceKind = "project-profile",
+                    .sourceName = *selectors.profile,
+                    .manifestPath = manifestPath,
+                    .reason = std::move(reason),
+                };
+            }
+            return ContributionProvenance{
+                .sourceKind = ownerKind,
+                .sourceName = ownerName,
+                .manifestPath = manifestPath,
+                .reason = std::move(reason),
+            };
+        }
+
         auto ExpandInputSources(
             const InputDeclaration &input,
             const fs::path &ownerDirectory,
@@ -1270,7 +1303,11 @@ namespace NGIN::CLI
                     AddError(result.diagnostics, "duplicate module declaration for '" + module.name + "' in '" + *providerIt->second.begin() + "' and project '" + unit.project.name + "'");
                     continue;
                 }
-                modules.emplace(module.name, module);
+                auto selectedModule = module;
+                selectedModule.provenance =
+                    SelectionProvenance(module.provenance, "project", unit.project.name, unit.project.path,
+                                        module.selectors, "project runtime module declaration");
+                modules.emplace(selectedModule.name, std::move(selectedModule));
                 providersByModule[module.name].insert(unit.project.name);
             }
             if (unit.environment.has_value())
@@ -1291,7 +1328,11 @@ namespace NGIN::CLI
                         AddError(result.diagnostics, "duplicate module declaration for '" + module.name + "' in '" + *providerIt->second.begin() + "' and environment '" + unit.environment->name + "'");
                         continue;
                     }
-                    modules.emplace(module.name, module);
+                    auto selectedModule = module;
+                    selectedModule.provenance =
+                        SelectionProvenance(module.provenance, "project", unit.project.name, unit.project.path,
+                                            module.selectors, "environment runtime module declaration");
+                    modules.emplace(selectedModule.name, std::move(selectedModule));
                     providersByModule[module.name].insert(unit.project.name + ":" + unit.environment->name);
                 }
             }
@@ -1311,7 +1352,11 @@ namespace NGIN::CLI
                     AddError(result.diagnostics, "duplicate module declaration for '" + module.name + "' in '" + *providerIt->second.begin() + "' and profile '" + unit.profile.name + "'");
                     continue;
                 }
-                modules.emplace(module.name, module);
+                auto selectedModule = module;
+                selectedModule.provenance =
+                    SelectionProvenance(module.provenance, "project", unit.project.name, unit.project.path,
+                                        module.selectors, "project profile runtime module declaration");
+                modules.emplace(selectedModule.name, std::move(selectedModule));
                 providersByModule[module.name].insert(unit.project.name + ":" + unit.profile.name);
             }
         }
@@ -1334,7 +1379,11 @@ namespace NGIN::CLI
                     AddError(result.diagnostics, "duplicate module declaration for '" + module.name + "' in '" + *providerIt->second.begin() + "' and package '" + package.manifest.name + "'");
                     continue;
                 }
-                modules.emplace(module.name, module);
+                auto selectedModule = module;
+                selectedModule.provenance =
+                    SelectionProvenance(module.provenance, "package", package.manifest.name, package.manifest.path,
+                                        module.selectors, "package runtime module declaration");
+                modules.emplace(selectedModule.name, std::move(selectedModule));
                 providersByModule[module.name].insert(package.manifest.name);
             }
             for (const auto &plugin : package.manifest.plugins)
@@ -1390,7 +1439,11 @@ namespace NGIN::CLI
                     AddError(result.diagnostics, "duplicate module declaration for '" + module.name + "' in '" + *providerIt->second.begin() + "' and package feature '" + owner + "'");
                     continue;
                 }
-                modules.emplace(module.name, module);
+                auto selectedModule = module;
+                selectedModule.provenance =
+                    SelectionProvenance(module.provenance, "package-feature", owner, packageIt->second->path,
+                                        module.selectors, "selected package feature runtime module declaration");
+                modules.emplace(selectedModule.name, std::move(selectedModule));
                 providersByModule[module.name].insert(owner);
             }
         }
@@ -1807,6 +1860,9 @@ namespace NGIN::CLI
                     resolvedInput.includePatterns = input.includePatterns;
                     resolvedInput.excludePatterns = input.excludePatterns;
                     resolvedInput.metadata = input.metadata;
+                    resolvedInput.provenance =
+                        SelectionProvenance(input.provenance, ownerKind, ownerName, manifestPath, input.selectors,
+                                            InputIsStaged(input) ? "staged file contribution" : "selected build input");
 
                     if (InputIsStaged(input))
                     {
@@ -1874,6 +1930,10 @@ namespace NGIN::CLI
                 for (const auto &variable : unit.environment->variables)
                 {
                     auto resolvedVariable = ResolveVariable(variable, localSettings, result.diagnostics);
+                    resolvedVariable.provenance =
+                        SelectionProvenance(variable.provenance, "project", unit.project.name, unit.project.path,
+                                            {}, variable.secret ? "secret environment contribution"
+                                                                : "environment contribution");
                     if (const auto it = variableIndex.find(resolvedVariable.name); it != variableIndex.end())
                     {
                         resolved.environmentVariables[it->second] = std::move(resolvedVariable);
@@ -1906,6 +1966,12 @@ namespace NGIN::CLI
                 for (const auto &variable : feature.variables)
                 {
                     auto resolvedVariable = ResolveVariable(variable, {}, result.diagnostics);
+                    resolvedVariable.provenance =
+                        SelectionProvenance(variable.provenance, "package-feature",
+                                            feature.packageName + "::" + feature.featureName,
+                                            feature.manifestPath, {}, variable.secret
+                                                ? "selected package feature secret environment contribution"
+                                                : "selected package feature environment contribution");
                     if (const auto it = variableIndex.find(resolvedVariable.name); it != variableIndex.end())
                     {
                         resolved.environmentVariables[it->second] = std::move(resolvedVariable);
@@ -2033,10 +2099,12 @@ namespace NGIN::CLI
             if (requiredSet.contains(name))
             {
                 resolved.requiredModules.push_back(name);
+                resolved.runtimeModuleProvenance[name] = modules.at(name).provenance;
             }
             else if (optionalSet.contains(name))
             {
                 resolved.optionalModules.push_back(name);
+                resolved.runtimeModuleProvenance[name] = modules.at(name).provenance;
             }
         }
         resolved.dependencyEdges = std::move(depEdges);

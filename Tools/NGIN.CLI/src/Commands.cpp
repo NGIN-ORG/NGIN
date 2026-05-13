@@ -4590,6 +4590,9 @@ namespace NGIN::CLI
                                                            resolved == nullptr ? std::vector<SelectedPackageFeature>{}
                                                                                : resolved->selectedPackageFeatures);
         const auto effectiveLaunches = EffectiveLaunches(invocation.project, invocation.profile);
+        const auto packageFeatureIdentity = [](const std::string &packageName, const std::string &featureName) {
+            return packageName + "::" + featureName;
+        };
 
         auto projectProvenance = [&](std::string reason) -> CompositionGraph::Provenance {
             return CompositionGraph::Provenance{
@@ -4623,11 +4626,60 @@ namespace NGIN::CLI
         };
         auto profileProvenance = [&](std::string reason) -> CompositionGraph::Provenance {
             return CompositionGraph::Provenance{
-                .sourceKind = "profile",
+                .sourceKind = "project-profile",
                 .sourceName = invocation.profile.name,
                 .manifestPath = invocation.project.path,
                 .reason = std::move(reason),
             };
+        };
+        auto namedContributionProvenance = [&](const ContributionProvenance &provenance,
+                                               const std::string &name,
+                                               bool profileItem,
+                                               std::string fallbackReason) -> CompositionGraph::Provenance {
+            if (!provenance.sourceKind.empty())
+            {
+                return contributionProvenance(provenance, std::move(fallbackReason));
+            }
+            if (profileItem)
+            {
+                return profileProvenance(std::move(fallbackReason));
+            }
+            (void)name;
+            return projectProvenance(std::move(fallbackReason));
+        };
+        auto ownerContributionProvenance = [&](const ContributionProvenance &provenance,
+                                               const std::string &ownerKind,
+                                               const std::string &ownerName,
+                                               const fs::path &manifestPath,
+                                               const SelectorSet &selectors,
+                                               std::string fallbackReason) -> CompositionGraph::Provenance {
+            if (!provenance.sourceKind.empty() || selectors.profile.has_value())
+            {
+                return contributionProvenance(provenance, std::move(fallbackReason), selectors);
+            }
+            if (ownerKind != "project")
+            {
+                return CompositionGraph::Provenance{
+                    .sourceKind = ownerKind,
+                    .sourceName = ownerName,
+                    .manifestPath = manifestPath,
+                    .reason = std::move(fallbackReason),
+                };
+            }
+            return projectProvenance(std::move(fallbackReason));
+        };
+        const auto launchIsProfileItem = [&](const std::string &name) {
+            return std::any_of(invocation.profile.launches.begin(), invocation.profile.launches.end(),
+                               [&](const LaunchDefinition &candidate) { return candidate.name == name; }) ||
+                   invocation.profile.launch.name == name;
+        };
+        const auto publishIsProfileItem = [&](const std::string &name) {
+            return std::any_of(invocation.profile.publishes.begin(), invocation.profile.publishes.end(),
+                               [&](const PublishDefinition &candidate) { return candidate.name == name; });
+        };
+        const auto packageOutputIsProfileItem = [&](const std::string &name) {
+            return std::any_of(invocation.profile.packageOutputs.begin(), invocation.profile.packageOutputs.end(),
+                               [&](const PackageOutputDefinition &candidate) { return candidate.name == name; });
         };
 
         CompositionGraph graph{};
@@ -4767,7 +4819,7 @@ namespace NGIN::CLI
                     .provenance =
                         CompositionGraph::Provenance{
                             .sourceKind = "package-feature",
-                            .sourceName = feature.packageName + "/" + feature.featureName,
+                            .sourceName = packageFeatureIdentity(feature.packageName, feature.featureName),
                             .manifestPath = feature.manifestPath,
                             .reason = "selected package feature",
                         },
@@ -4795,7 +4847,7 @@ namespace NGIN::CLI
                         .provenance =
                             CompositionGraph::Provenance{
                                 .sourceKind = "package-feature",
-                                .sourceName = feature.packageName + "/" + feature.featureName,
+                                .sourceName = packageFeatureIdentity(feature.packageName, feature.featureName),
                                 .manifestPath = feature.manifestPath,
                                 .reason = "selected package feature compile definition",
                             },
@@ -4810,13 +4862,11 @@ namespace NGIN::CLI
                     .owner = generator.ownerKind + ":" + generator.ownerName,
                     .tool = generator.declaration.toolName,
                     .outputs = generator.declaration.outputs.size(),
-                    .provenance =
-                        CompositionGraph::Provenance{
-                            .sourceKind = generator.ownerKind,
-                            .sourceName = generator.ownerName,
-                            .manifestPath = generator.manifestPath,
-                            .reason = "active generator declaration",
-                        },
+                    .provenance = ownerContributionProvenance(generator.declaration.provenance,
+                                                              generator.ownerKind, generator.ownerName,
+                                                              generator.manifestPath,
+                                                              generator.declaration.selectors,
+                                                              "active generator declaration"),
                 });
             }
 
@@ -4837,13 +4887,7 @@ namespace NGIN::CLI
                         .role = input.role,
                         .source = input.source,
                         .owner = input.ownerKind + ":" + input.ownerName,
-                        .provenance =
-                            CompositionGraph::Provenance{
-                                .sourceKind = input.ownerKind,
-                                .sourceName = input.ownerName,
-                                .manifestPath = input.manifestPath,
-                                .reason = "selected build input",
-                            },
+                        .provenance = contributionProvenance(input.provenance, "selected build input"),
                     });
                 }
                 if (!input.stagedRelativePath.empty())
@@ -4854,13 +4898,7 @@ namespace NGIN::CLI
                         .source = input.source,
                         .target = input.stagedRelativePath,
                         .owner = input.ownerKind + ":" + input.ownerName,
-                        .provenance =
-                            CompositionGraph::Provenance{
-                                .sourceKind = input.ownerKind,
-                                .sourceName = input.ownerName,
-                                .manifestPath = input.manifestPath,
-                                .reason = "staged file contribution",
-                            },
+                        .provenance = contributionProvenance(input.provenance, "staged file contribution"),
                     });
                 }
             }
@@ -4873,13 +4911,9 @@ namespace NGIN::CLI
                     .secret = variable.secret,
                     .resolved = variable.resolved,
                     .source = variable.resolvedSource,
-                    .provenance =
-                        CompositionGraph::Provenance{
-                            .sourceKind = "environment",
-                            .sourceName = variable.name,
-                            .manifestPath = invocation.project.path,
-                            .reason = variable.secret ? "secret environment contribution" : "environment contribution",
-                        },
+                    .provenance = contributionProvenance(variable.provenance,
+                                                         variable.secret ? "secret environment contribution"
+                                                                         : "environment contribution"),
                 });
             }
         }
@@ -4888,18 +4922,26 @@ namespace NGIN::CLI
         {
             for (const auto &module : resolved->requiredModules)
             {
+                const auto provenanceIt = resolved->runtimeModuleProvenance.find(module);
                 graph.runtimeModules.push_back(CompositionGraph::RuntimeModule{
                     .name = module,
                     .selection = "required",
-                    .provenance = profileProvenance("resolved required runtime module"),
+                    .provenance = provenanceIt == resolved->runtimeModuleProvenance.end()
+                                      ? profileProvenance("resolved required runtime module")
+                                      : contributionProvenance(provenanceIt->second,
+                                                               "resolved required runtime module"),
                 });
             }
             for (const auto &module : resolved->optionalModules)
             {
+                const auto provenanceIt = resolved->runtimeModuleProvenance.find(module);
                 graph.runtimeModules.push_back(CompositionGraph::RuntimeModule{
                     .name = module,
                     .selection = "optional",
-                    .provenance = profileProvenance("resolved optional runtime module"),
+                    .provenance = provenanceIt == resolved->runtimeModuleProvenance.end()
+                                      ? profileProvenance("resolved optional runtime module")
+                                      : contributionProvenance(provenanceIt->second,
+                                                               "resolved optional runtime module"),
                 });
             }
             for (const auto &plugin : resolved->enabledPlugins)
@@ -4915,7 +4957,9 @@ namespace NGIN::CLI
                 .workingDirectory = resolved->profile.launch.workingDirectory,
                 .args = resolved->profile.launch.args,
                 .selected = true,
-                .provenance = profileProvenance("selected launch entry"),
+                .provenance = namedContributionProvenance(
+                    resolved->profile.launch.provenance, resolved->profile.launch.name,
+                    launchIsProfileItem(resolved->profile.launch.name), "selected launch entry"),
             };
         }
 
@@ -4928,7 +4972,8 @@ namespace NGIN::CLI
                 .workingDirectory = launch.workingDirectory,
                 .args = launch.args,
                 .selected = launch.name == invocation.profile.launch.name,
-                .provenance = profileProvenance(
+                .provenance = namedContributionProvenance(
+                    launch.provenance, launch.name, launchIsProfileItem(launch.name),
                     launch.name == invocation.profile.launch.name ? "selected launch entry" : "effective launch entry"),
             });
         }
@@ -4944,7 +4989,9 @@ namespace NGIN::CLI
                 .tools = output.tools.size(),
                 .capabilities = output.capabilities.size(),
                 .abi = output.abiTag,
-                .provenance = projectProvenance("source product package output"),
+                .provenance = namedContributionProvenance(
+                    output.provenance, output.name, packageOutputIsProfileItem(output.name),
+                    "source product package output"),
             });
         }
 
@@ -4958,7 +5005,9 @@ namespace NGIN::CLI
                 .includeStage = publish.includeStage,
                 .includeRuntimeDependencies = publish.includeRuntimeDependencies,
                 .includeSymbols = publish.includeSymbols,
-                .provenance = profileProvenance("resolved publish entry"),
+                .provenance = namedContributionProvenance(
+                    publish.provenance, publish.name, publishIsProfileItem(publish.name),
+                    "resolved publish entry"),
             });
         }
 

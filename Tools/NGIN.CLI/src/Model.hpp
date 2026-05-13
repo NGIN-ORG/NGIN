@@ -625,6 +625,7 @@ namespace NGIN::CLI
         std::vector<std::string> includePatterns{};
         std::vector<std::string> excludePatterns{};
         std::vector<InputMetadataProperty> metadata{};
+        ContributionProvenance provenance{};
     };
 
     struct ResolvedBootstrap
@@ -829,6 +830,7 @@ namespace NGIN::CLI
         std::map<std::string, std::set<std::string>> packageEdges{};
         std::vector<std::string> requiredModules{};
         std::vector<std::string> optionalModules{};
+        std::map<std::string, ContributionProvenance> runtimeModuleProvenance{};
         std::map<std::string, std::set<std::string>> dependencyEdges{};
         std::vector<std::string> enabledPlugins{};
         std::string targetAbiTag{};

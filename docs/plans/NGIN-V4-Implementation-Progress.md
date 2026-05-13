@@ -967,6 +967,14 @@ Current test coverage includes:
   command-local merge paths
 - selected package feature staged input contributions retain package-feature
   provenance in graph stage output
+- graph provenance now uses the stable V4 source vocabulary for selected
+  project/profile/package-feature contributions, including `project-profile`
+  instead of generic profile ownership and `Package::Feature` source names for
+  package feature provenance
+- resolved stage/build inputs, environment variables, runtime modules,
+  generators, launch entries, publish entries, and package outputs now carry
+  contribution provenance into graph output when the authoring/resolution layer
+  can identify the selected source
 - CLI tests are split into focused authoring, workspace, command authoring,
   package, product, overlay, graph, and facade files with shared test support
 - official `NGIN.Tooling.ClangTidy` system-wrapper package for enabling
@@ -1033,6 +1041,7 @@ The following are still open and should not be described as complete:
   beyond the first-pass graph snapshot
 - final V4 overlay duplicate diagnostics and provenance freeze over the full
   shared selected-item surface
+- final graph JSON schema freeze and external consumer compatibility pass
 - full host/target dependency closure separation during restore/build
 - definition-driven project resolution beyond current workspace project,
   package source, version, provider, platform, and toolchain declarations
@@ -1055,7 +1064,7 @@ The next implementation slice should focus on one of these paths:
   V4 syntax
 - freeze the graph JSON contract once the remaining selected item families use
   shared identity, provenance, removal, and duplicate-diagnostic semantics
-- harden and freeze the provenance vocabulary emitted by graph/explain for the
-  shared selected-item families
+- add graph JSON schema/golden coverage for the stable selected-item contract
+  and run the VS Code consumer compatibility pass
 - add DEFLATE support or a compression backend for ZIP-backed `.nginpack`
   entries if package size becomes important
