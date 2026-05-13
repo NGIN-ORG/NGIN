@@ -44,6 +44,8 @@ namespace NGIN::CLI
                 std::string kind{};
                 std::string value{};
                 std::string visibility{"Private"};
+                bool remove{false};
+                std::string removeIdentity{};
             };
 
             struct AnalyzerPolicy
@@ -340,11 +342,22 @@ namespace NGIN::CLI
         std::string target{};
     };
 
+    struct ContributionProvenance
+    {
+        std::string sourceKind{};
+        std::string sourceName{};
+        fs::path manifestPath{};
+        std::string reason{};
+    };
+
     struct BuildSetting
     {
         std::string value{};
         std::string visibility{"Private"};
         SelectorSet selectors{};
+        ContributionProvenance provenance{};
+        bool disabled{false};
+        std::string removeIdentity{};
     };
 
     struct BuildVariable
@@ -531,6 +544,7 @@ namespace NGIN::CLI
         std::string configPath{};
         bool configOptional{false};
         SelectorSet selectors{};
+        ContributionProvenance provenance{};
     };
 
     struct QualityDefinition
@@ -1046,4 +1060,4 @@ namespace NGIN::CLI
         std::string workingDirectory{"."};
         std::optional<std::string> selectedExecutable{};
     };
-}
+} // namespace NGIN::CLI

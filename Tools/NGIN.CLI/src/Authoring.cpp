@@ -26,7 +26,8 @@ namespace NGIN::CLI
             const auto schemaVersion = SchemaVersion(node, path);
             if (schemaVersion != "4")
             {
-                throw std::runtime_error(path.string() + ": unsupported project SchemaVersion '" + schemaVersion + "' (expected '4')");
+                throw std::runtime_error(path.string() + ": unsupported project SchemaVersion '" + schemaVersion +
+                                         "' (expected '4')");
             }
             return schemaVersion;
         }
@@ -36,18 +37,21 @@ namespace NGIN::CLI
             const auto schemaVersion = RequireAttribute(node, "SchemaVersion", path);
             if (schemaVersion != "1")
             {
-                throw std::runtime_error(path.string() + ": unsupported local settings SchemaVersion '" + schemaVersion + "' (expected '1')");
+                throw std::runtime_error(path.string() + ": unsupported local settings SchemaVersion '" +
+                                         schemaVersion + "' (expected '1')");
             }
         }
 
         [[nodiscard]] auto IsValidStartupStage(const std::string_view value) -> bool
         {
-            return value == "Foundation" || value == "Platform" || value == "Services" || value == "Features" || value == "Presentation";
+            return value == "Foundation" || value == "Platform" || value == "Services" || value == "Features" ||
+                   value == "Presentation";
         }
 
         [[nodiscard]] auto IsValidModuleFamily(const std::string_view value) -> bool
         {
-            return value == "Base" || value == "Reflection" || value == "Core" || value == "Platform" || value == "Editor" || value == "Domain" || value == "App";
+            return value == "Base" || value == "Reflection" || value == "Core" || value == "Platform" ||
+                   value == "Editor" || value == "Domain" || value == "App";
         }
 
         [[nodiscard]] auto IsSupportedBuildVisibility(const std::string_view value) -> bool
@@ -62,8 +66,8 @@ namespace NGIN::CLI
 
         [[nodiscard]] auto IsSelectorAttribute(const std::string_view name) -> bool
         {
-            return name == "Profile" || name == "Platform" || name == "OperatingSystem" || name == "Architecture"
-                   || name == "BuildType" || name == "Environment";
+            return name == "Profile" || name == "Platform" || name == "OperatingSystem" || name == "Architecture" ||
+                   name == "BuildType" || name == "Environment";
         }
 
         [[nodiscard]] auto IsValidManifestIdentifier(const std::string_view value) -> bool
@@ -77,14 +81,10 @@ namespace NGIN::CLI
             {
                 return false;
             }
-            return std::all_of(
-                value.begin() + 1,
-                value.end(),
-                [](const char ch)
-                {
-                    const auto value = static_cast<unsigned char>(ch);
-                    return std::isalnum(value) || ch == '_' || ch == '.' || ch == '-';
-                });
+            return std::all_of(value.begin() + 1, value.end(), [](const char ch) {
+                const auto value = static_cast<unsigned char>(ch);
+                return std::isalnum(value) || ch == '_' || ch == '.' || ch == '-';
+            });
         }
 
         [[nodiscard]] auto HasSelectorAttributes(const XmlElement &node) -> bool
@@ -99,19 +99,19 @@ namespace NGIN::CLI
             return false;
         }
 
-        auto ValidateAllowedAttributes(const XmlElement &node, const fs::path &path, const std::vector<std::string_view> &allowed) -> void
+        auto ValidateAllowedAttributes(const XmlElement &node, const fs::path &path,
+                                       const std::vector<std::string_view> &allowed) -> void
         {
             for (NGIN::UIntSize index = 0; index < node.attributes.Size(); ++index)
             {
                 const auto name = node.attributes[index].name;
-                const auto isAllowed = std::any_of(
-                    allowed.begin(),
-                    allowed.end(),
-                    [name](const std::string_view allowedName)
-                    { return name == allowedName; });
+                const auto isAllowed =
+                    std::any_of(allowed.begin(), allowed.end(),
+                                [name](const std::string_view allowedName) { return name == allowedName; });
                 if (!isAllowed)
                 {
-                    throw std::runtime_error(path.string() + ": unsupported attribute '" + std::string(name) + "' on <" + std::string(node.name) + ">");
+                    throw std::runtime_error(path.string() + ": unsupported attribute '" + std::string(name) +
+                                             "' on <" + std::string(node.name) + ">");
                 }
             }
         }
@@ -185,10 +185,8 @@ namespace NGIN::CLI
             }
         }
 
-        auto MergeStringSelector(
-            std::optional<std::string> &target,
-            const std::optional<std::string> &source,
-            bool &impossible) -> void
+        auto MergeStringSelector(std::optional<std::string> &target, const std::optional<std::string> &source,
+                                 bool &impossible) -> void
         {
             if (!source.has_value())
             {
@@ -244,8 +242,7 @@ namespace NGIN::CLI
         {
             std::vector<std::string> entries{};
             std::string current{};
-            auto flush = [&]()
-            {
+            auto flush = [&]() {
                 auto value = Trim(current);
                 if (!value.empty())
                 {
@@ -267,7 +264,8 @@ namespace NGIN::CLI
             return entries;
         }
 
-        [[nodiscard]] auto OptionalPathListAttribute(const XmlElement &node, const std::string_view key) -> std::vector<std::string>
+        [[nodiscard]] auto OptionalPathListAttribute(const XmlElement &node, const std::string_view key)
+            -> std::vector<std::string>
         {
             if (const auto value = Attribute(node, key); value.has_value())
             {
@@ -347,8 +345,8 @@ namespace NGIN::CLI
 
         [[nodiscard]] auto IsSupportedInputKind(const std::string_view value) -> bool
         {
-            return value == "Source" || value == "Config" || value == "Content"
-                   || value == "Asset" || value == "Generated" || value == "ToolInput";
+            return value == "Source" || value == "Config" || value == "Content" || value == "Asset" ||
+                   value == "Generated" || value == "ToolInput";
         }
 
         [[nodiscard]] auto IsSupportedInputMode(const std::string_view value) -> bool
@@ -358,13 +356,14 @@ namespace NGIN::CLI
 
         [[nodiscard]] auto IsSupportedGeneratedRole(const std::string_view value) -> bool
         {
-            return value == "Source" || value == "Header" || value == "Content" || value == "Asset" || value == "ToolInput";
+            return value == "Source" || value == "Header" || value == "Content" || value == "Asset" ||
+                   value == "ToolInput";
         }
 
         [[nodiscard]] auto IsTypedInputBlock(const std::string_view name) -> bool
         {
-            return name == "Sources" || name == "Headers" || name == "Configs" || name == "Contents"
-                   || name == "Assets" || name == "Generated" || name == "ToolInputs";
+            return name == "Sources" || name == "Headers" || name == "Configs" || name == "Contents" ||
+                   name == "Assets" || name == "Generated" || name == "ToolInputs";
         }
 
         [[nodiscard]] auto IsStructuredInputEntry(const std::string_view name) -> bool
@@ -390,8 +389,7 @@ namespace NGIN::CLI
         {
             std::vector<std::string> entries{};
             std::string current{};
-            auto flush = [&]()
-            {
+            auto flush = [&]() {
                 auto value = Trim(current);
                 current.clear();
                 if (value.empty() || value.front() == '#')
@@ -423,15 +421,13 @@ namespace NGIN::CLI
             return {kind, {}};
         }
 
-        auto MergeInputMetadata(std::vector<InputMetadataProperty> &target, const std::vector<InputMetadataProperty> &source) -> void
+        auto MergeInputMetadata(std::vector<InputMetadataProperty> &target,
+                                const std::vector<InputMetadataProperty> &source) -> void
         {
             for (const auto &property : source)
             {
-                const auto existing = std::find_if(
-                    target.begin(),
-                    target.end(),
-                    [&](const InputMetadataProperty &candidate)
-                    {
+                const auto existing =
+                    std::find_if(target.begin(), target.end(), [&](const InputMetadataProperty &candidate) {
                         return candidate.name == property.name;
                     });
                 if (existing != target.end())
@@ -445,7 +441,8 @@ namespace NGIN::CLI
             }
         }
 
-        [[nodiscard]] auto ParseInputMetadata(const XmlElement &node, const fs::path &path) -> std::vector<InputMetadataProperty>
+        [[nodiscard]] auto ParseInputMetadata(const XmlElement &node, const fs::path &path)
+            -> std::vector<InputMetadataProperty>
         {
             std::vector<InputMetadataProperty> metadata{};
             if (const auto *metadataElement = FindChild(node, "Metadata"))
@@ -456,7 +453,8 @@ namespace NGIN::CLI
                     property.name = RequireAttribute(*propertyElement, "Name", path);
                     if (!IsValidManifestIdentifier(property.name))
                     {
-                        throw std::runtime_error(path.string() + ": invalid input metadata property name '" + property.name + "'");
+                        throw std::runtime_error(path.string() + ": invalid input metadata property name '" +
+                                                 property.name + "'");
                     }
                     property.value = RequireAttribute(*propertyElement, "Value", path);
                     MergeInputMetadata(metadata, {property});
@@ -465,7 +463,8 @@ namespace NGIN::CLI
             return metadata;
         }
 
-        auto ReadCommonInputAttributes(InputDeclaration &input, const XmlElement &node, const fs::path &path, const bool allowIdentityAttributes) -> void
+        auto ReadCommonInputAttributes(InputDeclaration &input, const XmlElement &node, const fs::path &path,
+                                       const bool allowIdentityAttributes) -> void
         {
             if (const auto value = Attribute(node, "Path"); value.has_value())
             {
@@ -525,7 +524,8 @@ namespace NGIN::CLI
             }
             if (input.kind == "Generated" && !IsSupportedGeneratedRole(input.role))
             {
-                throw std::runtime_error(path.string() + ": <Generated> requires Role=\"Source\", Role=\"Content\", Role=\"Asset\", or Role=\"ToolInput\"");
+                throw std::runtime_error(path.string() + ": <Generated> requires Role=\"Source\", Role=\"Content\", "
+                                                         "Role=\"Asset\", or Role=\"ToolInput\"");
             }
             if (!input.mode.empty() && !IsSupportedInputMode(input.mode))
             {
@@ -533,7 +533,8 @@ namespace NGIN::CLI
             }
             if (input.mode.empty())
             {
-                throw std::runtime_error(path.string() + ": input declarations must resolve to Mode=\"Directory\", Mode=\"File\", or Mode=\"Glob\"");
+                throw std::runtime_error(path.string() + ": input declarations must resolve to "
+                                                         "Mode=\"Directory\", Mode=\"File\", or Mode=\"Glob\"");
             }
             if (!input.visibility.empty() && !IsSupportedBuildVisibility(input.visibility))
             {
@@ -547,7 +548,8 @@ namespace NGIN::CLI
                 }
                 if (!input.includePatterns.empty() || !input.excludePatterns.empty() || !input.basePath.empty())
                 {
-                    throw std::runtime_error(path.string() + ": Include, Exclude, and BasePath are not valid on file input entries");
+                    throw std::runtime_error(path.string() + ": Include, Exclude, and BasePath are not valid "
+                                                             "on file input entries");
                 }
             }
             else if (input.mode == "Directory")
@@ -558,7 +560,8 @@ namespace NGIN::CLI
                 }
                 if (!input.target.empty())
                 {
-                    throw std::runtime_error(path.string() + ": Target is valid only on file input entries; use TargetRoot for directories");
+                    throw std::runtime_error(path.string() + ": Target is valid only on file input entries; "
+                                                             "use TargetRoot for directories");
                 }
             }
             else if (input.mode == "Glob")
@@ -569,10 +572,12 @@ namespace NGIN::CLI
                 }
                 if (!input.path.empty() || !input.target.empty())
                 {
-                    throw std::runtime_error(path.string() + ": glob input entries use Include/BasePath/TargetRoot, not Path or Target");
+                    throw std::runtime_error(path.string() + ": glob input entries use "
+                                                             "Include/BasePath/TargetRoot, not Path or Target");
                 }
             }
-            if (input.kind != "Content" && !(input.kind == "Generated" && input.role == "Content") && !input.contentKind.empty())
+            if (input.kind != "Content" && !(input.kind == "Generated" && input.role == "Content") &&
+                !input.contentKind.empty())
             {
                 throw std::runtime_error(path.string() + ": ContentKind is valid only on Content inputs");
             }
@@ -612,8 +617,8 @@ namespace NGIN::CLI
             {
                 return false;
             }
-            return !remove.kind.empty() || !remove.path.empty() || !remove.pattern.empty()
-                   || !remove.target.empty() || !remove.mode.empty() || !remove.visibility.empty();
+            return !remove.kind.empty() || !remove.path.empty() || !remove.pattern.empty() || !remove.target.empty() ||
+                   !remove.mode.empty() || !remove.visibility.empty();
         }
 
         [[nodiscard]] auto InputIdentityMatches(const InputDeclaration &left, const InputDeclaration &right) -> bool
@@ -622,27 +627,17 @@ namespace NGIN::CLI
             {
                 return left.name == right.name;
             }
-            return left.kind == right.kind
-                   && left.role == right.role
-                   && left.path == right.path
-                   && left.pattern == right.pattern
-                   && left.target == right.target
-                   && left.targetRoot == right.targetRoot
-                   && left.basePath == right.basePath
-                   && left.mode == right.mode
-                   && left.visibility == right.visibility;
+            return left.kind == right.kind && left.role == right.role && left.path == right.path &&
+                   left.pattern == right.pattern && left.target == right.target &&
+                   left.targetRoot == right.targetRoot && left.basePath == right.basePath && left.mode == right.mode &&
+                   left.visibility == right.visibility;
         }
 
         auto RemoveMatchingInputs(std::vector<InputDeclaration> &inputs, const InputRemove &remove) -> void
         {
             inputs.erase(
-                std::remove_if(
-                    inputs.begin(),
-                    inputs.end(),
-                    [&](const InputDeclaration &input)
-                    {
-                        return InputMatchesRemove(input, remove);
-                    }),
+                std::remove_if(inputs.begin(), inputs.end(),
+                               [&](const InputDeclaration &input) { return InputMatchesRemove(input, remove); }),
                 inputs.end());
         }
 
@@ -650,22 +645,19 @@ namespace NGIN::CLI
         {
             if (input.overrideExisting)
             {
-                inputs.erase(
-                    std::remove_if(
-                        inputs.begin(),
-                        inputs.end(),
-                        [&](const InputDeclaration &candidate)
-                        {
-                            return InputIdentityMatches(candidate, input);
-                        }),
-                    inputs.end());
+                inputs.erase(std::remove_if(inputs.begin(), inputs.end(),
+                                            [&](const InputDeclaration &candidate) {
+                                                return InputIdentityMatches(candidate, input);
+                                            }),
+                             inputs.end());
             }
             inputs.push_back(std::move(input));
         }
 
         [[nodiscard]] auto ParseInputRemove(const XmlElement &node, const fs::path &path) -> InputRemove
         {
-            ValidateAllowedAttributes(node, path, {"Name", "Kind", "Role", "Path", "Pattern", "Mode", "Visibility", "Target"});
+            ValidateAllowedAttributes(node, path,
+                                      {"Name", "Kind", "Role", "Path", "Pattern", "Mode", "Visibility", "Target"});
             InputRemove remove{};
             remove.name = Attribute(node, "Name").value_or("");
             auto [kind, role] = NormalizeRemoveKind(Attribute(node, "Kind").value_or(""));
@@ -692,8 +684,8 @@ namespace NGIN::CLI
             {
                 throw std::runtime_error(path.string() + ": unsupported input visibility '" + remove.visibility + "'");
             }
-            if (remove.name.empty() && remove.kind.empty() && remove.path.empty() && remove.pattern.empty()
-                && remove.mode.empty() && remove.visibility.empty() && remove.target.empty())
+            if (remove.name.empty() && remove.kind.empty() && remove.path.empty() && remove.pattern.empty() &&
+                remove.mode.empty() && remove.visibility.empty() && remove.target.empty())
             {
                 throw std::runtime_error(path.string() + ": <Remove> must declare Name or at least one input matcher");
             }
@@ -752,7 +744,8 @@ namespace NGIN::CLI
             return input;
         }
 
-        auto AddTypedInput(std::vector<InputDeclaration> &inputs, InputDeclaration input, const fs::path &path, const std::string &declaringScope) -> void
+        auto AddTypedInput(std::vector<InputDeclaration> &inputs, InputDeclaration input, const fs::path &path,
+                           const std::string &declaringScope) -> void
         {
             input.declaringScope = declaringScope;
             ValidateInputDeclaration(input, path);
@@ -791,9 +784,13 @@ namespace NGIN::CLI
             return input;
         }
 
-        [[nodiscard]] auto ParseStructuredInputEntry(const XmlElement &node, const fs::path &path, const InputDeclaration &base) -> InputDeclaration
+        [[nodiscard]] auto ParseStructuredInputEntry(const XmlElement &node, const fs::path &path,
+                                                     const InputDeclaration &base) -> InputDeclaration
         {
-            ValidateAllowedAttributes(node, path, {"Path", "Include", "Exclude", "BasePath", "Name", "Visibility", "Target", "TargetRoot", "ContentKind", "Required", "Override", "Profile", "Platform", "OperatingSystem", "Architecture", "BuildType", "Environment", "Condition"});
+            ValidateAllowedAttributes(node, path,
+                                      {"Path", "Include", "Exclude", "BasePath", "Name", "Visibility", "Target",
+                                       "TargetRoot", "ContentKind", "Required", "Override", "Profile", "Platform",
+                                       "OperatingSystem", "Architecture", "BuildType", "Environment", "Condition"});
             InputDeclaration input = base;
             input.path.clear();
             input.pattern.clear();
@@ -822,9 +819,13 @@ namespace NGIN::CLI
             return input;
         }
 
-        auto ApplyTypedInputBlock(const XmlElement &node, const fs::path &path, std::vector<InputDeclaration> &inputs, const std::string &declaringScope) -> void
+        auto ApplyTypedInputBlock(const XmlElement &node, const fs::path &path, std::vector<InputDeclaration> &inputs,
+                                  const std::string &declaringScope) -> void
         {
-            ValidateAllowedAttributes(node, path, {"Name", "Role", "Path", "Include", "Exclude", "BasePath", "Visibility", "TargetRoot", "ContentKind", "Required", "Profile", "Platform", "OperatingSystem", "Architecture", "BuildType", "Environment", "Condition"});
+            ValidateAllowedAttributes(node, path,
+                                      {"Name", "Role", "Path", "Include", "Exclude", "BasePath", "Visibility",
+                                       "TargetRoot", "ContentKind", "Required", "Profile", "Platform",
+                                       "OperatingSystem", "Architecture", "BuildType", "Environment", "Condition"});
             auto base = TypedBlockBase(node, path);
             if (const auto blockInput = InputFromBlockAttributes(base); blockInput.has_value())
             {
@@ -842,25 +843,30 @@ namespace NGIN::CLI
                 }
                 if (!IsStructuredInputEntry(child->name))
                 {
-                    throw std::runtime_error(path.string() + ": unsupported <" + std::string(node.name) + "> child <" + std::string(child->name) + ">");
+                    throw std::runtime_error(path.string() + ": unsupported <" + std::string(node.name) + "> child <" +
+                                             std::string(child->name) + ">");
                 }
                 AddTypedInput(inputs, ParseStructuredInputEntry(*child, path, base), path, declaringScope);
             }
         }
 
-        auto ApplyInputBlock(const XmlElement &parent, const fs::path &path, std::vector<InputDeclaration> &inputs, const std::string &declaringScope) -> void
+        auto ApplyInputBlock(const XmlElement &parent, const fs::path &path, std::vector<InputDeclaration> &inputs,
+                             const std::string &declaringScope) -> void
         {
             if (FindChild(parent, "Sources") != nullptr)
             {
-                throw std::runtime_error(path.string() + ": top-level <Sources> is no longer supported; use <Inputs><Sources ... />");
+                throw std::runtime_error(path.string() + ": top-level <Sources> is no longer supported; "
+                                                         "use <Inputs><Sources ... />");
             }
             if (FindChild(parent, "SourceRoots") != nullptr)
             {
-                throw std::runtime_error(path.string() + ": <SourceRoots> is no longer supported; use <Inputs><Sources Path=\"...\" />");
+                throw std::runtime_error(path.string() + ": <SourceRoots> is no longer supported; use "
+                                                         "<Inputs><Sources Path=\"...\" />");
             }
             if (FindChild(parent, "Contents") != nullptr)
             {
-                throw std::runtime_error(path.string() + ": top-level <Contents> is no longer supported; use <Inputs><Contents ... />");
+                throw std::runtime_error(path.string() + ": top-level <Contents> is no longer supported; "
+                                                         "use <Inputs><Contents ... />");
             }
             const auto *inputsElement = FindChild(parent, "Inputs");
             if (inputsElement == nullptr)
@@ -879,22 +885,26 @@ namespace NGIN::CLI
                 }
                 if (child->name == "Input" || child->name == "InputSet")
                 {
-                    throw std::runtime_error(path.string() + ": <Inputs><" + std::string(child->name) + "> is no longer supported; use typed input blocks");
+                    throw std::runtime_error(path.string() + ": <Inputs><" + std::string(child->name) +
+                                             "> is no longer supported; use typed input blocks");
                 }
                 if (child->name == "Config")
                 {
-                    throw std::runtime_error(path.string() + ": <Inputs><Config> is no longer supported; use <Inputs><Configs>...</Configs></Inputs>");
+                    throw std::runtime_error(path.string() + ": <Inputs><Config> is no longer supported; use "
+                                                             "<Inputs><Configs>...</Configs></Inputs>");
                 }
                 if (IsTypedInputBlock(child->name))
                 {
                     ApplyTypedInputBlock(*child, path, inputs, declaringScope);
                     continue;
                 }
-                throw std::runtime_error(path.string() + ": unsupported <Inputs> child <" + std::string(child->name) + ">");
+                throw std::runtime_error(path.string() + ": unsupported <Inputs> child <" + std::string(child->name) +
+                                         ">");
             }
         }
 
-        auto ParseVariables(const XmlElement &parent, const fs::path &path, std::vector<EnvironmentVariable> &out) -> void
+        auto ParseVariables(const XmlElement &parent, const fs::path &path, std::vector<EnvironmentVariable> &out)
+            -> void
         {
             if (const auto *variables = FindChild(parent, "Variables"))
             {
@@ -908,33 +918,42 @@ namespace NGIN::CLI
                     variable.required = BoolAttribute(*node, "Required");
                     variable.secret = BoolAttribute(*node, "Secret");
 
-                    const auto sourceCount = static_cast<int>(Attribute(*node, "Value").has_value())
-                                             + static_cast<int>(Attribute(*node, "FromEnvironment").has_value())
-                                             + static_cast<int>(Attribute(*node, "FromLocalSetting").has_value());
+                    const auto sourceCount = static_cast<int>(Attribute(*node, "Value").has_value()) +
+                                             static_cast<int>(Attribute(*node, "FromEnvironment").has_value()) +
+                                             static_cast<int>(Attribute(*node, "FromLocalSetting").has_value());
                     if (sourceCount != 1)
                     {
-                        throw std::runtime_error(path.string() + ": variable '" + variable.name + "' must declare exactly one of Value, FromEnvironment, or FromLocalSetting");
+                        throw std::runtime_error(path.string() + ": variable '" + variable.name +
+                                                 "' must declare exactly one of Value, "
+                                                 "FromEnvironment, or FromLocalSetting");
                     }
                     if (Attribute(*node, "FromEnvironment").has_value() && variable.fromEnvironment.empty())
                     {
-                        throw std::runtime_error(path.string() + ": variable '" + variable.name + "' has empty FromEnvironment");
+                        throw std::runtime_error(path.string() + ": variable '" + variable.name +
+                                                 "' has empty FromEnvironment");
                     }
                     if (Attribute(*node, "FromLocalSetting").has_value() && variable.fromLocalSetting.empty())
                     {
-                        throw std::runtime_error(path.string() + ": variable '" + variable.name + "' has empty FromLocalSetting");
+                        throw std::runtime_error(path.string() + ": variable '" + variable.name +
+                                                 "' has empty FromLocalSetting");
                     }
                     if (variable.secret && Attribute(*node, "Value").has_value())
                     {
-                        throw std::runtime_error(path.string() + ": variable '" + variable.name + "' may not combine Secret=\"true\" with a literal Value in a project manifest");
+                        throw std::runtime_error(path.string() + ": variable '" + variable.name +
+                                                 "' may not combine Secret=\"true\" with a "
+                                                 "literal Value in a project manifest");
                     }
                     out.push_back(std::move(variable));
                 }
             }
         }
 
-        [[nodiscard]] auto ParseToolDeclaration(const XmlElement &node, const fs::path &path, const bool requireName) -> ToolDeclaration
+        [[nodiscard]] auto ParseToolDeclaration(const XmlElement &node, const fs::path &path, const bool requireName)
+            -> ToolDeclaration
         {
-            ValidateAllowedAttributes(node, path, {"Name", "Kind", "Executable", "Profile", "Platform", "OperatingSystem", "Architecture", "BuildType", "Environment", "Condition"});
+            ValidateAllowedAttributes(node, path,
+                                      {"Name", "Kind", "Executable", "Profile", "Platform", "OperatingSystem",
+                                       "Architecture", "BuildType", "Environment", "Condition"});
             ToolDeclaration tool{};
             if (requireName)
             {
@@ -957,18 +976,25 @@ namespace NGIN::CLI
             }
             if (tool.executable.empty())
             {
-                throw std::runtime_error(path.string() + ": tool '" + (tool.name.empty() ? std::string{"<inline>"} : tool.name) + "' must declare Executable");
+                throw std::runtime_error(path.string() + ": tool '" +
+                                         (tool.name.empty() ? std::string{"<inline>"} : tool.name) +
+                                         "' must declare Executable");
             }
             return tool;
         }
 
-        [[nodiscard]] auto ParseGeneratorOutput(const XmlElement &node, const fs::path &path, const std::string &declaringScope) -> InputDeclaration
+        [[nodiscard]] auto ParseGeneratorOutput(const XmlElement &node, const fs::path &path,
+                                                const std::string &declaringScope) -> InputDeclaration
         {
             if (node.name != "Generated")
             {
-                throw std::runtime_error(path.string() + ": unsupported <Outputs> child <" + std::string(node.name) + ">");
+                throw std::runtime_error(path.string() + ": unsupported <Outputs> child <" + std::string(node.name) +
+                                         ">");
             }
-            ValidateAllowedAttributes(node, path, {"Name", "Role", "Path", "Visibility", "Target", "TargetRoot", "ContentKind", "Required", "Profile", "Platform", "OperatingSystem", "Architecture", "BuildType", "Environment", "Condition"});
+            ValidateAllowedAttributes(node, path,
+                                      {"Name", "Role", "Path", "Visibility", "Target", "TargetRoot", "ContentKind",
+                                       "Required", "Profile", "Platform", "OperatingSystem", "Architecture",
+                                       "BuildType", "Environment", "Condition"});
             InputDeclaration output{};
             output.kind = "Generated";
             output.role = RequireAttribute(node, "Role", path);
@@ -990,7 +1016,8 @@ namespace NGIN::CLI
             return output;
         }
 
-        auto ParseGenerators(const XmlElement &parent, const fs::path &path, std::vector<GeneratorDeclaration> &out, const std::string &declaringScope) -> void
+        auto ParseGenerators(const XmlElement &parent, const fs::path &path, std::vector<GeneratorDeclaration> &out,
+                             const std::string &declaringScope) -> void
         {
             const auto *generators = FindChild(parent, "Generators");
             if (generators == nullptr)
@@ -1000,7 +1027,9 @@ namespace NGIN::CLI
             std::set<std::string> names{};
             for (const auto *node : ChildElements(*generators, "Generator"))
             {
-                ValidateAllowedAttributes(*node, path, {"Name", "Kind", "Package", "Tool", "Profile", "Platform", "OperatingSystem", "Architecture", "BuildType", "Environment", "Condition"});
+                ValidateAllowedAttributes(*node, path,
+                                          {"Name", "Kind", "Package", "Tool", "Profile", "Platform", "OperatingSystem",
+                                           "Architecture", "BuildType", "Environment", "Condition"});
                 GeneratorDeclaration generator{};
                 generator.name = RequireAttribute(*node, "Name", path);
                 generator.kind = RequireAttribute(*node, "Kind", path);
@@ -1026,20 +1055,24 @@ namespace NGIN::CLI
                 }
                 if (generator.toolName.empty() && !generator.hasInlineTool)
                 {
-                    throw std::runtime_error(path.string() + ": command generator '" + generator.name + "' must declare Tool or inline <Tool>");
+                    throw std::runtime_error(path.string() + ": command generator '" + generator.name +
+                                             "' must declare Tool or inline <Tool>");
                 }
                 if (const auto *arguments = FindChild(*node, "Arguments"))
                 {
                     for (const auto *arg : ChildElements(*arguments, "Arg"))
                     {
-                        ValidateAllowedAttributes(*arg, path, {"Value", "Path", "Profile", "Platform", "OperatingSystem", "Architecture", "BuildType", "Environment", "Condition"});
+                        ValidateAllowedAttributes(*arg, path,
+                                                  {"Value", "Path", "Profile", "Platform", "OperatingSystem",
+                                                   "Architecture", "BuildType", "Environment", "Condition"});
                         GeneratorArgument argument{};
                         argument.value = Attribute(*arg, "Value").value_or("");
                         argument.path = Attribute(*arg, "Path").value_or("");
                         argument.selectors = ParseSelection(*arg, path);
                         if (argument.value.empty() == argument.path.empty())
                         {
-                            throw std::runtime_error(path.string() + ": generator argument must declare exactly one of Value or Path");
+                            throw std::runtime_error(path.string() +
+                                                     ": generator argument must declare exactly one of Value or Path");
                         }
                         generator.arguments.push_back(std::move(argument));
                     }
@@ -1048,15 +1081,18 @@ namespace NGIN::CLI
                 const auto *outputs = FindChild(*node, "Outputs");
                 if (outputs == nullptr)
                 {
-                    throw std::runtime_error(path.string() + ": generator '" + generator.name + "' must declare <Outputs>");
+                    throw std::runtime_error(path.string() + ": generator '" + generator.name +
+                                             "' must declare <Outputs>");
                 }
                 for (const auto *output : ChildElements(*outputs))
                 {
-                    generator.outputs.push_back(ParseGeneratorOutput(*output, path, declaringScope + ":" + generator.name));
+                    generator.outputs.push_back(
+                        ParseGeneratorOutput(*output, path, declaringScope + ":" + generator.name));
                 }
                 if (generator.outputs.empty())
                 {
-                    throw std::runtime_error(path.string() + ": generator '" + generator.name + "' must declare at least one output");
+                    throw std::runtime_error(path.string() + ": generator '" + generator.name +
+                                             "' must declare at least one output");
                 }
                 out.push_back(std::move(generator));
             }
@@ -1064,11 +1100,13 @@ namespace NGIN::CLI
 
         [[nodiscard]] auto ParseModuleDefinition(const XmlElement &node, const fs::path &path) -> ModuleDescriptor;
 
-        auto ParseRuntimeDefinition(const XmlElement &runtime, const fs::path &path, RuntimeDefinition &target, const bool allowModules) -> void
+        auto ParseRuntimeDefinition(const XmlElement &runtime, const fs::path &path, RuntimeDefinition &target,
+                                    const bool allowModules) -> void
         {
-            const auto parseRuntimeRef = [&](const XmlElement &node) -> RuntimeReference
-            {
-                ValidateAllowedAttributes(node, path, {"Name", "Profile", "Platform", "OperatingSystem", "Architecture", "BuildType", "Environment", "Condition"});
+            const auto parseRuntimeRef = [&](const XmlElement &node) -> RuntimeReference {
+                ValidateAllowedAttributes(node, path,
+                                          {"Name", "Profile", "Platform", "OperatingSystem", "Architecture",
+                                           "BuildType", "Environment", "Condition"});
                 RuntimeReference ref{};
                 ref.name = RequireAttribute(node, "Name", path);
                 ref.selectors = ParseSelection(node, path);
@@ -1116,7 +1154,8 @@ namespace NGIN::CLI
 
         [[nodiscard]] auto ResolveStartupStage(const XmlElement &node, std::string_view defaultStage) -> std::string
         {
-            if (const auto startupStage = Attribute(node, "StartupStage"); startupStage.has_value() && !startupStage->empty())
+            if (const auto startupStage = Attribute(node, "StartupStage");
+                startupStage.has_value() && !startupStage->empty())
             {
                 return *startupStage;
             }
@@ -1208,7 +1247,8 @@ namespace NGIN::CLI
             return base + "/" + path;
         }
 
-        [[nodiscard]] auto SafeCacheFileName(const std::string &value, const std::string &defaultExtension) -> std::string
+        [[nodiscard]] auto SafeCacheFileName(const std::string &value, const std::string &defaultExtension)
+            -> std::string
         {
             std::string out{};
             out.reserve(value.size() + defaultExtension.size());
@@ -1230,18 +1270,16 @@ namespace NGIN::CLI
             {
                 fs::create_directories(destination.parent_path());
             }
-            const auto command = std::string{"curl -fsSL --retry 2 --connect-timeout 10 --output "}
-                                 + ShellQuoteString(destination.string())
-                                 + " " + ShellQuoteString(url);
+            const auto command = std::string{"curl -fsSL --retry 2 --connect-timeout 10 --output "} +
+                                 ShellQuoteString(destination.string()) + " " + ShellQuoteString(url);
             if (std::system(command.c_str()) != 0)
             {
                 throw std::runtime_error("failed to download package source URL '" + url + "'");
             }
         }
 
-        [[nodiscard]] auto NetworkPackageCacheRoot(
-            const std::optional<WorkspaceManifest> &workspace,
-            const fs::path &projectPath) -> fs::path
+        [[nodiscard]] auto NetworkPackageCacheRoot(const std::optional<WorkspaceManifest> &workspace,
+                                                   const fs::path &projectPath) -> fs::path
         {
             if (workspace.has_value())
             {
@@ -1252,7 +1290,10 @@ namespace NGIN::CLI
 
         [[nodiscard]] auto ParseModuleDefinition(const XmlElement &node, const fs::path &path) -> ModuleDescriptor
         {
-            ValidateAllowedAttributes(node, path, {"Name", "Family", "Type", "StartupStage", "Version", "CompatiblePlatformRange", "ReflectionRequired", "Profile", "Platform", "OperatingSystem", "Architecture", "BuildType", "Environment", "Condition"});
+            ValidateAllowedAttributes(node, path,
+                                      {"Name", "Family", "Type", "StartupStage", "Version", "CompatiblePlatformRange",
+                                       "ReflectionRequired", "Profile", "Platform", "OperatingSystem", "Architecture",
+                                       "BuildType", "Environment", "Condition"});
             ModuleDescriptor module{};
             module.name = RequireAttribute(node, "Name", path);
             module.family = Attribute(node, "Family").value_or("App");
@@ -1308,7 +1349,9 @@ namespace NGIN::CLI
             return module;
         }
 
-        [[nodiscard]] auto ParseBuildSetting(const XmlElement &node, const fs::path &path, std::string_view valueAttribute, const SelectorSet &inheritedSelection = {}) -> BuildSetting
+        [[nodiscard]] auto ParseBuildSetting(const XmlElement &node, const fs::path &path,
+                                             std::string_view valueAttribute,
+                                             const SelectorSet &inheritedSelection = {}) -> BuildSetting
         {
             BuildSetting setting{};
             setting.value = RequireAttribute(node, valueAttribute, path);
@@ -1323,23 +1366,27 @@ namespace NGIN::CLI
 
         [[nodiscard]] auto IsConditionNodeName(const std::string_view name) -> bool
         {
-            return name == "Match" || name == "When" || name == "All" || name == "Any" || name == "Not" || name == "ConditionRef";
+            return name == "Match" || name == "When" || name == "All" || name == "Any" || name == "Not" ||
+                   name == "ConditionRef";
         }
 
         [[nodiscard]] auto ParseConditionNode(const XmlElement &node, const fs::path &path) -> ConditionNode
         {
             if (!Trim(TextContent(node)).empty())
             {
-                throw std::runtime_error(path.string() + ": <" + std::string(node.name) + "> condition nodes may not contain text");
+                throw std::runtime_error(path.string() + ": <" + std::string(node.name) +
+                                         "> condition nodes may not contain text");
             }
 
             ConditionNode parsed{};
             if (node.name == "Match" || node.name == "When")
             {
-                ValidateAllowedAttributes(node, path, {"Profile", "Platform", "OperatingSystem", "Architecture", "BuildType", "Environment"});
+                ValidateAllowedAttributes(
+                    node, path, {"Profile", "Platform", "OperatingSystem", "Architecture", "BuildType", "Environment"});
                 if (!HasSelectorAttributes(node))
                 {
-                    throw std::runtime_error(path.string() + ": <" + std::string(node.name) + "> must declare at least one selector attribute");
+                    throw std::runtime_error(path.string() + ": <" + std::string(node.name) +
+                                             "> must declare at least one selector attribute");
                 }
                 parsed.kind = ConditionNode::Kind::Match;
                 parsed.match = ParseSelectors(node, path);
@@ -1352,25 +1399,31 @@ namespace NGIN::CLI
                 parsed.conditionName = RequireAttribute(node, "Name", path);
                 if (!IsValidManifestIdentifier(parsed.conditionName))
                 {
-                    throw std::runtime_error(path.string() + ": invalid condition reference '" + parsed.conditionName + "'");
+                    throw std::runtime_error(path.string() + ": invalid condition reference '" + parsed.conditionName +
+                                             "'");
                 }
                 return parsed;
             }
             if (node.name == "All" || node.name == "Any" || node.name == "Not")
             {
                 ValidateAllowedAttributes(node, path, {});
-                parsed.kind = node.name == "All" ? ConditionNode::Kind::All : node.name == "Any" ? ConditionNode::Kind::Any : ConditionNode::Kind::Not;
+                parsed.kind = node.name == "All"   ? ConditionNode::Kind::All
+                              : node.name == "Any" ? ConditionNode::Kind::Any
+                                                   : ConditionNode::Kind::Not;
                 for (const auto *child : ChildElements(node))
                 {
                     if (!IsConditionNodeName(child->name))
                     {
-                        throw std::runtime_error(path.string() + ": unsupported condition child <" + std::string(child->name) + ">");
+                        throw std::runtime_error(path.string() + ": unsupported condition child <" +
+                                                 std::string(child->name) + ">");
                     }
                     parsed.children.push_back(ParseConditionNode(*child, path));
                 }
-                if ((parsed.kind == ConditionNode::Kind::All || parsed.kind == ConditionNode::Kind::Any) && parsed.children.empty())
+                if ((parsed.kind == ConditionNode::Kind::All || parsed.kind == ConditionNode::Kind::Any) &&
+                    parsed.children.empty())
                 {
-                    throw std::runtime_error(path.string() + ": <" + std::string(node.name) + "> must contain at least one condition node");
+                    throw std::runtime_error(path.string() + ": <" + std::string(node.name) +
+                                             "> must contain at least one condition node");
                 }
                 if (parsed.kind == ConditionNode::Kind::Not && parsed.children.size() != 1)
                 {
@@ -1390,22 +1443,26 @@ namespace NGIN::CLI
                 throw std::runtime_error(path.string() + ": invalid condition name '" + condition.name + "'");
             }
 
-            std::vector<std::string_view> allowedAttributes{"Name", "Profile", "Platform", "OperatingSystem", "Architecture", "BuildType", "Environment"};
+            std::vector<std::string_view> allowedAttributes{
+                "Name", "Profile", "Platform", "OperatingSystem", "Architecture", "BuildType", "Environment"};
             ValidateAllowedAttributes(node, path, allowedAttributes);
 
             const auto hasSelectors = HasSelectorAttributes(node);
             const auto children = ChildElements(node);
             if (hasSelectors && !children.empty())
             {
-                throw std::runtime_error(path.string() + ": condition '" + condition.name + "' may not mix selector attributes with child condition nodes");
+                throw std::runtime_error(path.string() + ": condition '" + condition.name +
+                                         "' may not mix selector attributes with child condition nodes");
             }
             if (!hasSelectors && children.empty())
             {
-                throw std::runtime_error(path.string() + ": condition '" + condition.name + "' must define exactly one body");
+                throw std::runtime_error(path.string() + ": condition '" + condition.name +
+                                         "' must define exactly one body");
             }
             if (children.size() > 1)
             {
-                throw std::runtime_error(path.string() + ": condition '" + condition.name + "' must define exactly one body");
+                throw std::runtime_error(path.string() + ": condition '" + condition.name +
+                                         "' must define exactly one body");
             }
             if (!Trim(TextContent(node)).empty())
             {
@@ -1421,13 +1478,15 @@ namespace NGIN::CLI
 
             if (!IsConditionNodeName(children.front()->name))
             {
-                throw std::runtime_error(path.string() + ": unsupported <Condition> child <" + std::string(children.front()->name) + ">");
+                throw std::runtime_error(path.string() + ": unsupported <Condition> child <" +
+                                         std::string(children.front()->name) + ">");
             }
             condition.body = ParseConditionNode(*children.front(), path);
             return condition;
         }
 
-        [[nodiscard]] auto ParseConditions(const XmlElement &root, const fs::path &path) -> std::vector<ConditionDefinition>
+        [[nodiscard]] auto ParseConditions(const XmlElement &root, const fs::path &path)
+            -> std::vector<ConditionDefinition>
         {
             const auto conditionSections = ChildElements(root, "Conditions");
             if (conditionSections.size() > 1)
@@ -1446,7 +1505,8 @@ namespace NGIN::CLI
             {
                 if (child->name != "Condition")
                 {
-                    throw std::runtime_error(path.string() + ": unsupported <Conditions> child <" + std::string(child->name) + ">");
+                    throw std::runtime_error(path.string() + ": unsupported <Conditions> child <" +
+                                             std::string(child->name) + ">");
                 }
                 auto condition = ParseConditionDefinition(*child, path);
                 condition.manifestPath = path;
@@ -1465,14 +1525,12 @@ namespace NGIN::CLI
             return conditions;
         }
 
-        [[nodiscard]] auto MatchCondition(
-            std::string name,
-            const std::optional<std::string> &profile = {},
-            const std::optional<std::string> &platform = {},
-            const std::optional<std::string> &operatingSystem = {},
-            const std::optional<std::string> &architecture = {},
-            const std::optional<std::string> &buildType = {},
-            const std::optional<std::string> &environment = {}) -> ConditionDefinition
+        [[nodiscard]] auto MatchCondition(std::string name, const std::optional<std::string> &profile = {},
+                                          const std::optional<std::string> &platform = {},
+                                          const std::optional<std::string> &operatingSystem = {},
+                                          const std::optional<std::string> &architecture = {},
+                                          const std::optional<std::string> &buildType = {},
+                                          const std::optional<std::string> &environment = {}) -> ConditionDefinition
         {
             ConditionDefinition condition{};
             condition.name = std::move(name);
@@ -1503,7 +1561,8 @@ namespace NGIN::CLI
             return condition;
         }
 
-        auto LoadProjectBuildDescriptor(ProjectBuildDescriptor &build, const XmlElement *buildElement, const fs::path &path) -> void
+        auto LoadProjectBuildDescriptor(ProjectBuildDescriptor &build, const XmlElement *buildElement,
+                                        const fs::path &path) -> void
         {
             if (buildElement == nullptr)
             {
@@ -1529,7 +1588,8 @@ namespace NGIN::CLI
                 build.language = *language;
                 build.languageExplicit = true;
             }
-            if (const auto languageStandard = Attribute(*buildElement, "LanguageStandard"); languageStandard.has_value() && !languageStandard->empty())
+            if (const auto languageStandard = Attribute(*buildElement, "LanguageStandard");
+                languageStandard.has_value() && !languageStandard->empty())
             {
                 build.languageStandard = *languageStandard;
                 build.languageExplicit = true;
@@ -1537,7 +1597,8 @@ namespace NGIN::CLI
             if (const auto *metaGen = FindChild(*buildElement, "MetaGen"))
             {
                 (void)metaGen;
-                throw std::runtime_error(path.string() + ": <Build><MetaGen> is no longer supported; use a package-provided command generator");
+                throw std::runtime_error(path.string() + ": <Build><MetaGen> is no longer supported; use a "
+                                                         "package-provided command generator");
             }
 
             if (const auto *sources = FindChild(*buildElement, "Sources"))
@@ -1597,7 +1658,8 @@ namespace NGIN::CLI
             }
         }
 
-        auto LoadPackageBuildDescriptor(PackageBuildDescriptor &build, const XmlElement *buildElement, const fs::path &path) -> void
+        auto LoadPackageBuildDescriptor(PackageBuildDescriptor &build, const XmlElement *buildElement,
+                                        const fs::path &path) -> void
         {
             if (buildElement == nullptr)
             {
@@ -1621,38 +1683,28 @@ namespace NGIN::CLI
             }
         }
 
-        auto ParseQualityAnalyzers(
-            const XmlElement &qualityNode,
-            const fs::path &path,
-            QualityDefinition &quality,
-            const bool allowRemove) -> void
+        auto ParseQualityAnalyzers(const XmlElement &qualityNode, const fs::path &path, QualityDefinition &quality,
+                                   const bool allowRemove) -> void
         {
             std::set<std::string> localNames{};
-            const auto requireUnique = [&](const std::string &name)
-            {
+            const auto requireUnique = [&](const std::string &name) {
                 if (name.empty())
                 {
                     throw std::runtime_error(path.string() + ": analyzer identity cannot be empty");
                 }
                 if (!localNames.insert(name).second)
                 {
-                    throw std::runtime_error(path.string() + ": duplicate analyzer '" + name + "' in the same overlay scope");
+                    throw std::runtime_error(path.string() + ": duplicate analyzer '" + name +
+                                             "' in the same overlay scope");
                 }
             };
-            const auto removeAnalyzer = [&](const std::string &name)
-            {
+            const auto removeAnalyzer = [&](const std::string &name) {
                 quality.analyzers.erase(
-                    std::remove_if(
-                        quality.analyzers.begin(),
-                        quality.analyzers.end(),
-                        [&](const AnalyzerDefinition &existing)
-                        {
-                            return existing.name == name;
-                        }),
+                    std::remove_if(quality.analyzers.begin(), quality.analyzers.end(),
+                                   [&](const AnalyzerDefinition &existing) { return existing.name == name; }),
                     quality.analyzers.end());
             };
-            const auto upsertAnalyzer = [&](AnalyzerDefinition analyzer)
-            {
+            const auto upsertAnalyzer = [&](AnalyzerDefinition analyzer) {
                 removeAnalyzer(analyzer.name);
                 quality.analyzers.push_back(std::move(analyzer));
             };
@@ -1670,7 +1722,10 @@ namespace NGIN::CLI
                     continue;
                 }
 
-                ValidateAllowedAttributes(*node, path, {"Name", "Tool", "Package", "Scope", "Enabled", "Severity", "Profile", "Platform", "OperatingSystem", "Architecture", "BuildType", "Environment", "Condition"});
+                ValidateAllowedAttributes(*node, path,
+                                          {"Name", "Tool", "Package", "Scope", "Enabled", "Severity", "Profile",
+                                           "Platform", "OperatingSystem", "Architecture", "BuildType", "Environment",
+                                           "Condition"});
                 AnalyzerDefinition analyzer{};
                 analyzer.name = RequireAttribute(*node, "Name", path);
                 requireUnique(analyzer.name);
@@ -1689,7 +1744,8 @@ namespace NGIN::CLI
             }
         }
 
-        auto ParsePackageFeatureDeclarations(const XmlElement &root, const fs::path &path, PackageManifest &package) -> void
+        auto ParsePackageFeatureDeclarations(const XmlElement &root, const fs::path &path, PackageManifest &package)
+            -> void
         {
             const auto *features = FindChild(root, "Features");
             if (features == nullptr)
@@ -1699,7 +1755,9 @@ namespace NGIN::CLI
             std::set<std::string> names{};
             for (const auto *node : ChildElements(*features, "Feature"))
             {
-                ValidateAllowedAttributes(*node, path, {"Name", "Description", "Profile", "Platform", "OperatingSystem", "Architecture", "BuildType", "Environment", "Condition"});
+                ValidateAllowedAttributes(*node, path,
+                                          {"Name", "Description", "Profile", "Platform", "OperatingSystem",
+                                           "Architecture", "BuildType", "Environment", "Condition"});
                 PackageManifest::Feature feature{};
                 feature.name = RequireAttribute(*node, "Name", path);
                 feature.description = Attribute(*node, "Description").value_or("");
@@ -1731,23 +1789,30 @@ namespace NGIN::CLI
                 {
                     for (const auto *dependency : ChildElements(*uses))
                     {
-                        if (dependency->name != "Package" && dependency->name != "Tool" && dependency->name != "Runtime")
+                        if (dependency->name != "Package" && dependency->name != "Tool" &&
+                            dependency->name != "Runtime")
                         {
                             continue;
                         }
-                        ValidateAllowedAttributes(*dependency, path, {"Name", "Version", "VersionRange", "Optional", "Scope", "Profile", "Platform", "OperatingSystem", "Architecture", "BuildType", "Environment", "Condition"});
+                        ValidateAllowedAttributes(*dependency, path,
+                                                  {"Name", "Version", "VersionRange", "Optional", "Scope", "Profile",
+                                                   "Platform", "OperatingSystem", "Architecture", "BuildType",
+                                                   "Environment", "Condition"});
                         PackageReference reference{};
                         reference.name = RequireAttribute(*dependency, "Name", path);
-                        reference.versionRange = Attribute(*dependency, "Version").value_or(Attribute(*dependency, "VersionRange").value_or(""));
+                        reference.versionRange = Attribute(*dependency, "Version")
+                                                     .value_or(Attribute(*dependency, "VersionRange").value_or(""));
                         reference.optional = BoolAttribute(*dependency, "Optional");
                         reference.selectors = ParseSelection(*dependency, path);
-                        reference.scope = Attribute(*dependency, "Scope").value_or(dependency->name == "Tool" ? "Build" : "");
+                        reference.scope =
+                            Attribute(*dependency, "Scope").value_or(dependency->name == "Tool" ? "Build" : "");
                         feature.packageRefs.push_back(std::move(reference));
                     }
                 }
                 ApplyInputBlock(*node, path, feature.inputs, "package-feature:" + package.name + ":" + feature.name);
                 LoadProjectBuildDescriptor(feature.build, FindChild(*node, "Build"), path);
-                ParseGenerators(*node, path, feature.generators, "package-feature:" + package.name + ":" + feature.name);
+                ParseGenerators(*node, path, feature.generators,
+                                "package-feature:" + package.name + ":" + feature.name);
                 if (const auto *quality = FindChild(*node, "Quality"))
                 {
                     ParseQualityAnalyzers(*quality, path, feature.quality, false);
@@ -1768,7 +1833,8 @@ namespace NGIN::CLI
             }
         }
 
-        [[nodiscard]] auto ConditionMap(const std::vector<ConditionDefinition> &source) -> std::unordered_map<std::string, const ConditionDefinition *>
+        [[nodiscard]] auto ConditionMap(const std::vector<ConditionDefinition> &source)
+            -> std::unordered_map<std::string, const ConditionDefinition *>
         {
             std::unordered_map<std::string, const ConditionDefinition *> conditions{};
             for (const auto &condition : source)
@@ -1778,7 +1844,8 @@ namespace NGIN::CLI
             return conditions;
         }
 
-        [[nodiscard]] auto ConditionMap(const ProjectManifest &project) -> std::unordered_map<std::string, const ConditionDefinition *>
+        [[nodiscard]] auto ConditionMap(const ProjectManifest &project)
+            -> std::unordered_map<std::string, const ConditionDefinition *>
         {
             return ConditionMap(project.conditions);
         }
@@ -1797,11 +1864,10 @@ namespace NGIN::CLI
 
         auto ValidateSelectionConditionRefs(
             const SelectorSet &selectors,
-            const std::unordered_map<std::string, const ConditionDefinition *> &conditions,
-            const fs::path &path) -> void
+            const std::unordered_map<std::string, const ConditionDefinition *> &conditions, const fs::path &path)
+            -> void
         {
-            const auto availableNames = [&]()
-            {
+            const auto availableNames = [&]() {
                 std::vector<std::string> names{};
                 names.reserve(conditions.size());
                 for (const auto &[name, _] : conditions)
@@ -1824,15 +1890,15 @@ namespace NGIN::CLI
             {
                 if (!conditions.contains(conditionName))
                 {
-                    throw std::runtime_error(path.string() + ": unknown condition '" + conditionName + "' (available: " + availableNames() + ")");
+                    throw std::runtime_error(path.string() + ": unknown condition '" + conditionName +
+                                             "' (available: " + availableNames() + ")");
                 }
             }
         }
 
-        auto ValidateInputConditionRefs(
-            const std::vector<InputDeclaration> &inputs,
-            const std::unordered_map<std::string, const ConditionDefinition *> &conditions,
-            const fs::path &path) -> void
+        auto ValidateInputConditionRefs(const std::vector<InputDeclaration> &inputs,
+                                        const std::unordered_map<std::string, const ConditionDefinition *> &conditions,
+                                        const fs::path &path) -> void
         {
             for (const auto &input : inputs)
             {
@@ -1842,8 +1908,8 @@ namespace NGIN::CLI
 
         auto ValidateBuildSettingConditionRefs(
             const std::vector<BuildSetting> &settings,
-            const std::unordered_map<std::string, const ConditionDefinition *> &conditions,
-            const fs::path &path) -> void
+            const std::unordered_map<std::string, const ConditionDefinition *> &conditions, const fs::path &path)
+            -> void
         {
             for (const auto &setting : settings)
             {
@@ -1853,8 +1919,8 @@ namespace NGIN::CLI
 
         auto ValidateRuntimeConditionRefs(
             const RuntimeDefinition &runtime,
-            const std::unordered_map<std::string, const ConditionDefinition *> &conditions,
-            const fs::path &path) -> void
+            const std::unordered_map<std::string, const ConditionDefinition *> &conditions, const fs::path &path)
+            -> void
         {
             for (const auto &module : runtime.modules)
             {
@@ -1880,8 +1946,8 @@ namespace NGIN::CLI
 
         auto ValidateGeneratorConditionRefs(
             const std::vector<GeneratorDeclaration> &generators,
-            const std::unordered_map<std::string, const ConditionDefinition *> &conditions,
-            const fs::path &path) -> void
+            const std::unordered_map<std::string, const ConditionDefinition *> &conditions, const fs::path &path)
+            -> void
         {
             for (const auto &generator : generators)
             {
@@ -1900,10 +1966,9 @@ namespace NGIN::CLI
         }
 
         auto ValidateReferenceConditionRefs(
-            const std::vector<ProjectReference> &projectRefs,
-            const std::vector<PackageReference> &packageRefs,
-            const std::unordered_map<std::string, const ConditionDefinition *> &conditions,
-            const fs::path &path) -> void
+            const std::vector<ProjectReference> &projectRefs, const std::vector<PackageReference> &packageRefs,
+            const std::unordered_map<std::string, const ConditionDefinition *> &conditions, const fs::path &path)
+            -> void
         {
             for (const auto &reference : projectRefs)
             {
@@ -1917,8 +1982,8 @@ namespace NGIN::CLI
 
         auto ValidateFeatureConditionRefs(
             const std::vector<FeatureFlag> &features,
-            const std::unordered_map<std::string, const ConditionDefinition *> &conditions,
-            const fs::path &path) -> void
+            const std::unordered_map<std::string, const ConditionDefinition *> &conditions, const fs::path &path)
+            -> void
         {
             for (const auto &feature : features)
             {
@@ -1928,8 +1993,8 @@ namespace NGIN::CLI
 
         auto ValidatePackageFeatureUseConditionRefs(
             const std::vector<PackageFeatureUse> &uses,
-            const std::unordered_map<std::string, const ConditionDefinition *> &conditions,
-            const fs::path &path) -> void
+            const std::unordered_map<std::string, const ConditionDefinition *> &conditions, const fs::path &path)
+            -> void
         {
             for (const auto &use : uses)
             {
@@ -1937,7 +2002,8 @@ namespace NGIN::CLI
             }
         }
 
-        auto ValidateConditionReferences(const std::vector<ConditionDefinition> &conditionDefinitions, const fs::path &path) -> void
+        auto ValidateConditionReferences(const std::vector<ConditionDefinition> &conditionDefinitions,
+                                         const fs::path &path) -> void
         {
             const auto conditions = ConditionMap(conditionDefinitions);
             for (const auto &condition : conditionDefinitions)
@@ -1962,8 +2028,7 @@ namespace NGIN::CLI
             };
             std::unordered_map<std::string, VisitState> state{};
             std::vector<std::string> chain{};
-            std::function<void(const std::string &)> visit = [&](const std::string &name)
-            {
+            std::function<void(const std::string &)> visit = [&](const std::string &name) {
                 if (const auto it = state.find(name); it != state.end())
                 {
                     if (it->second == VisitState::Visiting)
@@ -2067,15 +2132,11 @@ namespace NGIN::CLI
         }
 
         [[nodiscard]] auto ConditionNodeMatches(
-            const ConditionNode &node,
-            const ProjectManifest &project,
-            const ProfileDefinition &profile,
+            const ConditionNode &node, const ProjectManifest &project, const ProfileDefinition &profile,
             const std::unordered_map<std::string, const ConditionDefinition *> &conditions) -> bool;
 
         [[nodiscard]] auto ConditionRefMatches(
-            const std::string &name,
-            const ProjectManifest &project,
-            const ProfileDefinition &profile,
+            const std::string &name, const ProjectManifest &project, const ProfileDefinition &profile,
             const std::unordered_map<std::string, const ConditionDefinition *> &conditions) -> bool
         {
             const auto it = conditions.find(name);
@@ -2087,9 +2148,7 @@ namespace NGIN::CLI
         }
 
         [[nodiscard]] auto ConditionNodeMatches(
-            const ConditionNode &node,
-            const ProjectManifest &project,
-            const ProfileDefinition &profile,
+            const ConditionNode &node, const ProjectManifest &project, const ProfileDefinition &profile,
             const std::unordered_map<std::string, const ConditionDefinition *> &conditions) -> bool
         {
             switch (node.kind)
@@ -2097,25 +2156,22 @@ namespace NGIN::CLI
             case ConditionNode::Kind::Match:
                 return DirectSelectorsMatch(node.match, profile);
             case ConditionNode::Kind::All:
-                return std::all_of(
-                    node.children.begin(),
-                    node.children.end(),
-                    [&](const ConditionNode &child)
-                    { return ConditionNodeMatches(child, project, profile, conditions); });
+                return std::all_of(node.children.begin(), node.children.end(), [&](const ConditionNode &child) {
+                    return ConditionNodeMatches(child, project, profile, conditions);
+                });
             case ConditionNode::Kind::Any:
-                return std::any_of(
-                    node.children.begin(),
-                    node.children.end(),
-                    [&](const ConditionNode &child)
-                    { return ConditionNodeMatches(child, project, profile, conditions); });
+                return std::any_of(node.children.begin(), node.children.end(), [&](const ConditionNode &child) {
+                    return ConditionNodeMatches(child, project, profile, conditions);
+                });
             case ConditionNode::Kind::Not:
-                return node.children.size() == 1 && !ConditionNodeMatches(node.children.front(), project, profile, conditions);
+                return node.children.size() == 1 &&
+                       !ConditionNodeMatches(node.children.front(), project, profile, conditions);
             case ConditionNode::Kind::ConditionRef:
                 return ConditionRefMatches(node.conditionName, project, profile, conditions);
             }
             return false;
         }
-    }
+    } // namespace
 
     [[nodiscard]] auto IsSupportedBuildType(std::string_view value) -> bool
     {
@@ -2179,32 +2235,32 @@ namespace NGIN::CLI
         };
     }
 
-    [[nodiscard]] auto SelectionMatches(const std::vector<ConditionDefinition> &conditions, const SelectorSet &selectors, const ProfileDefinition &profile) -> bool
+    [[nodiscard]] auto SelectionMatches(const std::vector<ConditionDefinition> &conditions,
+                                        const SelectorSet &selectors, const ProfileDefinition &profile) -> bool
     {
         if (!DirectSelectorsMatch(selectors, profile))
         {
             return false;
         }
         const auto conditionMap = ConditionMap(conditions);
-        return std::all_of(
-            selectors.conditionRefs.begin(),
-            selectors.conditionRefs.end(),
-            [&](const std::string &conditionName)
-            { return ConditionRefMatches(conditionName, ProjectManifest{}, profile, conditionMap); });
+        return std::all_of(selectors.conditionRefs.begin(), selectors.conditionRefs.end(),
+                           [&](const std::string &conditionName) {
+                               return ConditionRefMatches(conditionName, ProjectManifest{}, profile, conditionMap);
+                           });
     }
 
-    [[nodiscard]] auto SelectionMatches(const ProjectManifest &project, const SelectorSet &selectors, const ProfileDefinition &profile) -> bool
+    [[nodiscard]] auto SelectionMatches(const ProjectManifest &project, const SelectorSet &selectors,
+                                        const ProfileDefinition &profile) -> bool
     {
         if (!DirectSelectorsMatch(selectors, profile))
         {
             return false;
         }
         const auto conditions = ConditionMap(project);
-        return std::all_of(
-            selectors.conditionRefs.begin(),
-            selectors.conditionRefs.end(),
-            [&](const std::string &conditionName)
-            { return ConditionRefMatches(conditionName, project, profile, conditions); });
+        return std::all_of(selectors.conditionRefs.begin(), selectors.conditionRefs.end(),
+                           [&](const std::string &conditionName) {
+                               return ConditionRefMatches(conditionName, project, profile, conditions);
+                           });
     }
 
     [[nodiscard]] auto WorkspaceFilePath(const fs::path &root) -> std::optional<fs::path>
@@ -2275,7 +2331,8 @@ namespace NGIN::CLI
         const auto schemaVersion = SchemaVersion(*rootElement, path);
         if (schemaVersion != "4")
         {
-            throw std::runtime_error(path.string() + ": unsupported definitions SchemaVersion '" + schemaVersion + "' (expected '4')");
+            throw std::runtime_error(path.string() + ": unsupported definitions SchemaVersion '" + schemaVersion +
+                                     "' (expected '4')");
         }
         if (const auto *platforms = FindChild(*rootElement, "Platforms"))
         {
@@ -2306,10 +2363,8 @@ namespace NGIN::CLI
         }
     }
 
-    auto ApplyWorkspacePolicyPlatform(
-        WorkspaceManifest::ProfilePolicy &policy,
-        const WorkspaceManifest &workspace,
-        std::string platformName) -> void
+    auto ApplyWorkspacePolicyPlatform(WorkspaceManifest::ProfilePolicy &policy, const WorkspaceManifest &workspace,
+                                      std::string platformName) -> void
     {
         if (platformName.empty())
         {
@@ -2320,12 +2375,9 @@ namespace NGIN::CLI
         {
             return;
         }
-        const auto workspacePlatform = std::find_if(
-            workspace.platforms.begin(), workspace.platforms.end(),
-            [&](const WorkspaceManifest::Platform &platform)
-            {
-                return platform.name == platformName;
-            });
+        const auto workspacePlatform =
+            std::find_if(workspace.platforms.begin(), workspace.platforms.end(),
+                         [&](const WorkspaceManifest::Platform &platform) { return platform.name == platformName; });
         if (workspacePlatform != workspace.platforms.end())
         {
             policy.operatingSystem = workspacePlatform->operatingSystem;
@@ -2340,11 +2392,8 @@ namespace NGIN::CLI
         }
     }
 
-    auto ParseWorkspaceDefaults(
-        const XmlElement &defaultsNode,
-        const fs::path &path,
-        const WorkspaceManifest &workspace,
-        WorkspaceManifest::ProfilePolicy &policy) -> void
+    auto ParseWorkspaceDefaults(const XmlElement &defaultsNode, const fs::path &path,
+                                const WorkspaceManifest &workspace, WorkspaceManifest::ProfilePolicy &policy) -> void
     {
         for (const auto *node : ChildElements(defaultsNode))
         {
@@ -2404,12 +2453,43 @@ namespace NGIN::CLI
         }
     }
 
-    auto ParseWorkspaceBuildPolicy(
-        const XmlElement &buildNode,
-        const fs::path &path,
-        WorkspaceManifest::ProfilePolicy &policy,
-        const std::string &productKind = {}) -> void
+    auto RequireUniqueWorkspacePolicyName(std::set<std::string> &names, const std::string &kind,
+                                          const std::string &name, const fs::path &path) -> void
     {
+        if (name.empty())
+        {
+            throw std::runtime_error(path.string() + ": " + kind + " identity cannot be empty");
+        }
+        if (!names.insert(name).second)
+        {
+            throw std::runtime_error(path.string() + ": duplicate " + kind + " '" + name +
+                                     "' in the same overlay scope");
+        }
+    }
+
+    [[nodiscard]] auto WorkspaceBuildSettingIdentity(const std::string &kind, const std::string &value,
+                                                     const std::string &visibility = "Private") -> std::string
+    {
+        if (kind == "Define")
+        {
+            if (const auto separator = value.find('='); separator != std::string::npos)
+            {
+                return value.substr(0, separator);
+            }
+            return value;
+        }
+        if (kind == "IncludePath")
+        {
+            return fs::path(value).lexically_normal().generic_string() + "|" + visibility;
+        }
+        return value;
+    }
+
+    auto ParseWorkspaceBuildPolicy(const XmlElement &buildNode, const fs::path &path,
+                                   WorkspaceManifest::ProfilePolicy &policy, const std::string &productKind = {})
+        -> void
+    {
+        std::set<std::string> localNames{};
         for (const auto *node : ChildElements(buildNode))
         {
             WorkspaceManifest::ProfilePolicy::BuildSettingPolicy setting{};
@@ -2417,11 +2497,28 @@ namespace NGIN::CLI
             if (node->name == "IncludePath")
             {
                 setting.kind = "IncludePath";
-                setting.value = RequireAttribute(*node, "Path", path);
                 setting.visibility = Attribute(*node, "Visibility").value_or(setting.visibility);
+                if (const auto remove = Attribute(*node, "Remove"); remove.has_value() && !remove->empty())
+                {
+                    setting.remove = true;
+                    setting.removeIdentity = WorkspaceBuildSettingIdentity(setting.kind, *remove, setting.visibility);
+                    RequireUniqueWorkspacePolicyName(localNames, "include path", setting.removeIdentity, path);
+                    policy.buildSettings.push_back(std::move(setting));
+                    continue;
+                }
+                setting.value = RequireAttribute(*node, "Path", path);
             }
             else if (node->name == "Define")
             {
+                if (const auto remove = Attribute(*node, "Remove"); remove.has_value() && !remove->empty())
+                {
+                    setting.kind = "Define";
+                    setting.remove = true;
+                    setting.removeIdentity = *remove;
+                    RequireUniqueWorkspacePolicyName(localNames, "define", setting.removeIdentity, path);
+                    policy.buildSettings.push_back(std::move(setting));
+                    continue;
+                }
                 const auto name = Attribute(*node, "Name").value_or("");
                 if (name.empty())
                 {
@@ -2438,33 +2535,59 @@ namespace NGIN::CLI
             else if (node->name == "CompileOption")
             {
                 setting.kind = "CompileOption";
+                if (const auto remove = Attribute(*node, "Remove"); remove.has_value() && !remove->empty())
+                {
+                    setting.remove = true;
+                    setting.removeIdentity = *remove;
+                    RequireUniqueWorkspacePolicyName(localNames, "compile option", setting.removeIdentity, path);
+                    policy.buildSettings.push_back(std::move(setting));
+                    continue;
+                }
                 setting.value = RequireAttribute(*node, "Value", path);
                 setting.visibility = Attribute(*node, "Visibility").value_or(setting.visibility);
             }
             else if (node->name == "LinkOption" || node->name == "LinkLibrary")
             {
                 setting.kind = "LinkOption";
+                if (const auto remove = Attribute(*node, "Remove"); remove.has_value() && !remove->empty())
+                {
+                    setting.remove = true;
+                    setting.removeIdentity = *remove;
+                    RequireUniqueWorkspacePolicyName(localNames, "link option", setting.removeIdentity, path);
+                    policy.buildSettings.push_back(std::move(setting));
+                    continue;
+                }
                 setting.value = Attribute(*node, "Value").value_or(Attribute(*node, "Name").value_or(""));
                 setting.visibility = Attribute(*node, "Visibility").value_or(setting.visibility);
             }
             if (!setting.kind.empty() && !setting.value.empty())
             {
+                BuildSetting parsed{};
+                parsed.value = setting.value;
+                parsed.visibility = setting.visibility;
+                RequireUniqueWorkspacePolicyName(
+                    localNames,
+                    setting.kind == "Define"          ? "define"
+                    : setting.kind == "IncludePath"   ? "include path"
+                    : setting.kind == "CompileOption" ? "compile option"
+                                                      : "link option",
+                    WorkspaceBuildSettingIdentity(setting.kind, parsed.value, parsed.visibility), path);
                 policy.buildSettings.push_back(std::move(setting));
             }
         }
     }
 
-    auto ParseWorkspaceQualityPolicy(
-        const XmlElement &qualityNode,
-        const fs::path &path,
-        WorkspaceManifest::ProfilePolicy &policy,
-        const std::string &productKind = {}) -> void
+    auto ParseWorkspaceQualityPolicy(const XmlElement &qualityNode, const fs::path &path,
+                                     WorkspaceManifest::ProfilePolicy &policy, const std::string &productKind = {})
+        -> void
     {
+        std::set<std::string> localNames{};
         for (const auto *node : ChildElements(qualityNode, "Analyzer"))
         {
             WorkspaceManifest::ProfilePolicy::AnalyzerPolicy analyzer{};
             analyzer.productKind = productKind;
             analyzer.name = RequireAttribute(*node, "Name", path);
+            RequireUniqueWorkspacePolicyName(localNames, "analyzer", analyzer.name, path);
             analyzer.toolName = Attribute(*node, "Tool").value_or(analyzer.name);
             analyzer.packageName = Attribute(*node, "Package").value_or("");
             analyzer.scope = Attribute(*node, "Scope").value_or(analyzer.scope);
@@ -2479,11 +2602,9 @@ namespace NGIN::CLI
         }
     }
 
-    auto ParseWorkspaceEnvironmentPolicy(
-        const XmlElement &environmentNode,
-        const fs::path &path,
-        WorkspaceManifest::ProfilePolicy &policy,
-        const std::string &productKind = {}) -> void
+    auto ParseWorkspaceEnvironmentPolicy(const XmlElement &environmentNode, const fs::path &path,
+                                         WorkspaceManifest::ProfilePolicy &policy, const std::string &productKind = {})
+        -> void
     {
         for (const auto *node : ChildElements(environmentNode))
         {
@@ -2516,7 +2637,8 @@ namespace NGIN::CLI
                 constexpr std::string_view localPrefix{"local:"};
                 if (source.rfind(localPrefix, 0) != 0)
                 {
-                    throw std::runtime_error(path.string() + ": workspace Secret '" + variable.name + "' currently requires From=\"local:<key>\"");
+                    throw std::runtime_error(path.string() + ": workspace Secret '" + variable.name +
+                                             "' currently requires From=\"local:<key>\"");
                 }
                 variable.fromLocalSetting = source.substr(localPrefix.size());
             }
@@ -2524,11 +2646,9 @@ namespace NGIN::CLI
         }
     }
 
-    auto ParseWorkspaceStagePolicy(
-        const XmlElement &stageNode,
-        const fs::path &path,
-        WorkspaceManifest::ProfilePolicy &policy,
-        const std::string &productKind = {}) -> void
+    auto ParseWorkspaceStagePolicy(const XmlElement &stageNode, const fs::path &path,
+                                   WorkspaceManifest::ProfilePolicy &policy, const std::string &productKind = {})
+        -> void
     {
         for (const auto *node : ChildElements(stageNode))
         {
@@ -2554,12 +2674,8 @@ namespace NGIN::CLI
         }
     }
 
-    auto ParseWorkspaceUsesPolicy(
-        const XmlElement &usesNode,
-        const fs::path &path,
-        const WorkspaceManifest &workspace,
-        WorkspaceManifest::ProfilePolicy &policy,
-        const std::string &productKind = {}) -> void
+    auto ParseWorkspaceUsesPolicy(const XmlElement &usesNode, const fs::path &path, const WorkspaceManifest &workspace,
+                                  WorkspaceManifest::ProfilePolicy &policy, const std::string &productKind = {}) -> void
     {
         for (const auto *node : ChildElements(usesNode))
         {
@@ -2583,13 +2699,15 @@ namespace NGIN::CLI
             use.versionRange = Attribute(*node, "Version").value_or(Attribute(*node, "VersionRange").value_or(""));
             use.scope = ScopeMutation(*node, use.kind == "Tool" ? "Build" : "");
             use.removeScope = Attribute(*node, "RemoveScope").value_or("");
-            if (const auto dependencyPath = Attribute(*node, "Path"); dependencyPath.has_value() && !dependencyPath->empty())
+            if (const auto dependencyPath = Attribute(*node, "Path");
+                dependencyPath.has_value() && !dependencyPath->empty())
             {
                 use.path = (workspace.path.parent_path() / *dependencyPath).lexically_normal();
             }
             for (const auto *feature : ChildElements(*node, "Feature"))
             {
-                if (const auto featureName = Attribute(*feature, "Name"); featureName.has_value() && !featureName->empty())
+                if (const auto featureName = Attribute(*feature, "Name");
+                    featureName.has_value() && !featureName->empty())
                 {
                     use.features.push_back(*featureName);
                 }
@@ -2598,11 +2716,9 @@ namespace NGIN::CLI
         }
     }
 
-    auto ParseWorkspaceRuntimePolicy(
-        const XmlElement &runtimeNode,
-        const fs::path &path,
-        WorkspaceManifest::ProfilePolicy &policy,
-        const std::string &productKind = {}) -> void
+    auto ParseWorkspaceRuntimePolicy(const XmlElement &runtimeNode, const fs::path &path,
+                                     WorkspaceManifest::ProfilePolicy &policy, const std::string &productKind = {})
+        -> void
     {
         for (const auto *node : ChildElements(runtimeNode, "Module"))
         {
@@ -2636,27 +2752,9 @@ namespace NGIN::CLI
         }
     }
 
-    auto RequireUniqueWorkspacePolicyName(
-        std::set<std::string> &names,
-        const std::string &kind,
-        const std::string &name,
-        const fs::path &path) -> void
-    {
-        if (name.empty())
-        {
-            throw std::runtime_error(path.string() + ": " + kind + " identity cannot be empty");
-        }
-        if (!names.insert(name).second)
-        {
-            throw std::runtime_error(path.string() + ": duplicate " + kind + " '" + name + "' in the same overlay scope");
-        }
-    }
-
-    auto ParseWorkspaceGeneratePolicy(
-        const XmlElement &generateNode,
-        const fs::path &path,
-        WorkspaceManifest::ProfilePolicy &policy,
-        const std::string &productKind = {}) -> void
+    auto ParseWorkspaceGeneratePolicy(const XmlElement &generateNode, const fs::path &path,
+                                      WorkspaceManifest::ProfilePolicy &policy, const std::string &productKind = {})
+        -> void
     {
         std::set<std::string> localNames{};
         for (const auto *node : ChildElements(generateNode, "Generator"))
@@ -2681,7 +2779,8 @@ namespace NGIN::CLI
             }
             if (generator.toolName.empty() && generator.toolExecutable.empty())
             {
-                throw std::runtime_error(path.string() + ": workspace generator '" + generator.name + "' must declare <Tool Name=\"...\"> or Executable");
+                throw std::runtime_error(path.string() + ": workspace generator '" + generator.name +
+                                         "' must declare <Tool Name=\"...\"> or Executable");
             }
             if (const auto *args = FindChild(*node, "Args"))
             {
@@ -2692,7 +2791,8 @@ namespace NGIN::CLI
                     argument.path = Attribute(*arg, "Path").value_or("");
                     if (argument.value.empty() == argument.path.empty())
                     {
-                        throw std::runtime_error(path.string() + ": workspace generator argument must declare exactly one of Value or Path");
+                        throw std::runtime_error(path.string() + ": workspace generator argument must "
+                                                                 "declare exactly one of Value or Path");
                     }
                     generator.arguments.push_back(std::move(argument));
                 }
@@ -2701,7 +2801,8 @@ namespace NGIN::CLI
             const auto *outputs = FindChild(*node, "Outputs");
             if (outputs == nullptr)
             {
-                throw std::runtime_error(path.string() + ": workspace generator '" + generator.name + "' must declare <Outputs>");
+                throw std::runtime_error(path.string() + ": workspace generator '" + generator.name +
+                                         "' must declare <Outputs>");
             }
             for (const auto *output : ChildElements(*outputs))
             {
@@ -2727,7 +2828,8 @@ namespace NGIN::CLI
                 }
                 else
                 {
-                    throw std::runtime_error(path.string() + ": unsupported workspace generator output <" + std::string(output->name) + ">");
+                    throw std::runtime_error(path.string() + ": unsupported workspace generator output <" +
+                                             std::string(output->name) + ">");
                 }
                 generator.outputs.push_back(std::move(parsed));
             }
@@ -2735,15 +2837,12 @@ namespace NGIN::CLI
         }
     }
 
-    auto ParseWorkspaceLaunchPolicy(
-        const XmlElement &overlayNode,
-        const fs::path &path,
-        WorkspaceManifest::ProfilePolicy &policy,
-        const std::string &productKind = {}) -> void
+    auto ParseWorkspaceLaunchPolicy(const XmlElement &overlayNode, const fs::path &path,
+                                    WorkspaceManifest::ProfilePolicy &policy, const std::string &productKind = {})
+        -> void
     {
         std::set<std::string> localNames{};
-        auto parse = [&](const XmlElement &node, const std::string &defaultName)
-        {
+        auto parse = [&](const XmlElement &node, const std::string &defaultName) {
             WorkspaceManifest::ProfilePolicy::LaunchPolicy launch{};
             launch.productKind = productKind;
             const auto identity = Attribute(node, "Remove").value_or(Attribute(node, "Name").value_or(defaultName));
@@ -2781,11 +2880,9 @@ namespace NGIN::CLI
         }
     }
 
-    auto ParseWorkspacePublishPolicy(
-        const XmlElement &overlayNode,
-        const fs::path &path,
-        WorkspaceManifest::ProfilePolicy &policy,
-        const std::string &productKind = {}) -> void
+    auto ParseWorkspacePublishPolicy(const XmlElement &overlayNode, const fs::path &path,
+                                     WorkspaceManifest::ProfilePolicy &policy, const std::string &productKind = {})
+        -> void
     {
         std::set<std::string> localNames{};
         for (const auto *node : ChildElements(overlayNode, "Publish"))
@@ -2812,18 +2909,17 @@ namespace NGIN::CLI
                 {
                     publish.includeStage = false;
                 }
-                publish.includeRuntimeDependencies = BoolAttribute(*include, "RuntimeDependencies", publish.includeRuntimeDependencies);
+                publish.includeRuntimeDependencies =
+                    BoolAttribute(*include, "RuntimeDependencies", publish.includeRuntimeDependencies);
                 publish.includeSymbols = BoolAttribute(*include, "Symbols", publish.includeSymbols);
             }
             policy.publishes.push_back(std::move(publish));
         }
     }
 
-    auto ParseWorkspacePackageOutputPolicy(
-        const XmlElement &overlayNode,
-        const fs::path &path,
-        WorkspaceManifest::ProfilePolicy &policy,
-        const std::string &productKind = {}) -> void
+    auto ParseWorkspacePackageOutputPolicy(const XmlElement &overlayNode, const fs::path &path,
+                                           WorkspaceManifest::ProfilePolicy &policy,
+                                           const std::string &productKind = {}) -> void
     {
         std::set<std::string> localNames{};
         for (const auto *node : ChildElements(overlayNode, "PackageOutput"))
@@ -2904,7 +3000,8 @@ namespace NGIN::CLI
         const auto schemaVersion = SchemaVersion(*rootElement, *path);
         if (schemaVersion != "4")
         {
-            throw std::runtime_error(path->string() + ": unsupported workspace SchemaVersion '" + schemaVersion + "' (expected '4')");
+            throw std::runtime_error(path->string() + ": unsupported workspace SchemaVersion '" + schemaVersion +
+                                     "' (expected '4')");
         }
 
         WorkspaceManifest workspace{};
@@ -2917,7 +3014,8 @@ namespace NGIN::CLI
         {
             for (const auto *import : ChildElements(*imports, "Import"))
             {
-                const auto importPath = (workspace.path.parent_path() / RequireAttribute(*import, "Path", *path)).lexically_normal();
+                const auto importPath =
+                    (workspace.path.parent_path() / RequireAttribute(*import, "Path", *path)).lexically_normal();
                 workspace.imports.push_back(importPath);
                 ParseDefinitionFragment(importPath, workspace);
             }
@@ -2942,7 +3040,8 @@ namespace NGIN::CLI
             for (const auto *provider : ChildElements(*packagesNode, "PackageProvider"))
             {
                 const auto name = RequireAttribute(*provider, "Name", *path);
-                const auto providerRoot = Attribute(*provider, "Root").value_or(Attribute(*provider, "Path").value_or(""));
+                const auto providerRoot =
+                    Attribute(*provider, "Root").value_or(Attribute(*provider, "Path").value_or(""));
                 if (!providerRoot.empty())
                 {
                     workspace.packageProviders[name] = (workspace.path.parent_path() / providerRoot).lexically_normal();
@@ -2950,7 +3049,8 @@ namespace NGIN::CLI
             }
             for (const auto *version : ChildElements(*packagesNode, "Version"))
             {
-                workspace.dependencyVersions[RequireAttribute(*version, "Name", *path)] = Attribute(*version, "Range").value_or(Attribute(*version, "Version").value_or(""));
+                workspace.dependencyVersions[RequireAttribute(*version, "Name", *path)] =
+                    Attribute(*version, "Range").value_or(Attribute(*version, "Version").value_or(""));
             }
         }
 
@@ -2958,7 +3058,8 @@ namespace NGIN::CLI
         {
             for (const auto *node : ChildElements(*projectsNode, "Project"))
             {
-                workspace.projects.push_back((workspace.path.parent_path() / RequireAttribute(*node, "Path", *path)).lexically_normal());
+                workspace.projects.push_back(
+                    (workspace.path.parent_path() / RequireAttribute(*node, "Path", *path)).lexically_normal());
             }
         }
         if (const auto *profiles = FindChild(*rootElement, "Profiles"))
@@ -3018,7 +3119,8 @@ namespace NGIN::CLI
                     }
                     if (const auto *environment = FindChild(*productOverlay, "Environment"))
                     {
-                        ParseWorkspaceEnvironmentPolicy(*environment, *path, profile, std::string{productOverlay->name});
+                        ParseWorkspaceEnvironmentPolicy(*environment, *path, profile,
+                                                        std::string{productOverlay->name});
                     }
                     if (const auto *stage = FindChild(*productOverlay, "Stage"))
                     {
@@ -3038,7 +3140,8 @@ namespace NGIN::CLI
                     }
                     ParseWorkspaceLaunchPolicy(*productOverlay, *path, profile, std::string{productOverlay->name});
                     ParseWorkspacePublishPolicy(*productOverlay, *path, profile, std::string{productOverlay->name});
-                    ParseWorkspacePackageOutputPolicy(*productOverlay, *path, profile, std::string{productOverlay->name});
+                    ParseWorkspacePackageOutputPolicy(*productOverlay, *path, profile,
+                                                      std::string{productOverlay->name});
                 }
                 workspace.profiles.push_back(std::move(profile));
             }
@@ -3055,14 +3158,13 @@ namespace NGIN::CLI
         return LoadWorkspaceManifest(root);
     }
 
-    [[nodiscard]] auto LoadPackageCatalog(
-        const std::optional<WorkspaceManifest> &workspace,
-        const fs::path &projectPath) -> std::unordered_map<std::string, PackageCatalogEntry>
+    [[nodiscard]] auto LoadPackageCatalog(const std::optional<WorkspaceManifest> &workspace,
+                                          const fs::path &projectPath)
+        -> std::unordered_map<std::string, PackageCatalogEntry>
     {
         std::unordered_map<std::string, PackageCatalogEntry> out;
         const auto networkCacheRoot = NetworkPackageCacheRoot(workspace, projectPath);
-        auto addManifest = [&](const fs::path &manifestPath)
-        {
+        auto addManifest = [&](const fs::path &manifestPath) {
             const auto canonicalManifestPath = fs::weakly_canonical(manifestPath);
             const auto manifest = LoadPackageManifest(canonicalManifestPath);
             fs::path providerRoot{};
@@ -3074,7 +3176,8 @@ namespace NGIN::CLI
             }
             if (workspace.has_value())
             {
-                if (const auto provider = workspace->packageProviders.find(manifest.name); provider != workspace->packageProviders.end())
+                if (const auto provider = workspace->packageProviders.find(manifest.name);
+                    provider != workspace->packageProviders.end())
                 {
                     providerRoot = provider->second;
                 }
@@ -3085,8 +3188,7 @@ namespace NGIN::CLI
                                            .providerRoot = providerRoot,
                                        });
         };
-        auto addFeedIndex = [&](const fs::path &feedPath, const std::optional<std::string> &sourceUrl = std::nullopt)
-        {
+        auto addFeedIndex = [&](const fs::path &feedPath, const std::optional<std::string> &sourceUrl = std::nullopt) {
             const auto feed = LoadXml(feedPath);
             const auto *rootElement = feed.document.Root();
             if (rootElement == nullptr || rootElement->name != "PackageFeed")
@@ -3096,7 +3198,8 @@ namespace NGIN::CLI
             const auto schemaVersion = SchemaVersion(*rootElement, feedPath);
             if (schemaVersion != "4")
             {
-                throw std::runtime_error(feedPath.string() + ": unsupported package feed SchemaVersion '" + schemaVersion + "' (expected '4')");
+                throw std::runtime_error(feedPath.string() + ": unsupported package feed SchemaVersion '" +
+                                         schemaVersion + "' (expected '4')");
             }
             const auto *packagesElement = FindChild(*rootElement, "Packages");
             if (packagesElement == nullptr)
@@ -3110,7 +3213,8 @@ namespace NGIN::CLI
                 if (sourceUrl.has_value())
                 {
                     const auto artifactUrl = JoinUrl(UrlParent(*sourceUrl), relativeManifestPath);
-                    const auto packageName = Attribute(*packageElement, "Name").value_or(SafeCacheFileName(artifactUrl, ""));
+                    const auto packageName =
+                        Attribute(*packageElement, "Name").value_or(SafeCacheFileName(artifactUrl, ""));
                     const auto packageVersion = Attribute(*packageElement, "Version").value_or("unknown");
                     auto fileName = fs::path(relativeManifestPath).filename();
                     if (fileName.empty())
@@ -3165,7 +3269,8 @@ namespace NGIN::CLI
             }
             for (const auto &entry : fs::recursive_directory_iterator(packageRoot))
             {
-                if (!entry.is_regular_file() || (entry.path().extension() != ".nginpkg" && entry.path().extension() != ".nginpack"))
+                if (!entry.is_regular_file() ||
+                    (entry.path().extension() != ".nginpkg" && entry.path().extension() != ".nginpack"))
                 {
                     continue;
                 }
@@ -3193,7 +3298,8 @@ namespace NGIN::CLI
         const auto schemaVersion = SchemaVersion(*rootElement, path);
         if (schemaVersion != "4")
         {
-            throw std::runtime_error(path.string() + ": unsupported package SchemaVersion '" + schemaVersion + "' (expected '4')");
+            throw std::runtime_error(path.string() + ": unsupported package SchemaVersion '" + schemaVersion +
+                                     "' (expected '4')");
         }
 
         PackageManifest package{};
@@ -3216,7 +3322,8 @@ namespace NGIN::CLI
                 }
                 PackageDependency parsed{};
                 parsed.name = RequireAttribute(*dependency, "Name", path);
-                parsed.versionRange = Attribute(*dependency, "Version").value_or(Attribute(*dependency, "VersionRange").value_or(""));
+                parsed.versionRange =
+                    Attribute(*dependency, "Version").value_or(Attribute(*dependency, "VersionRange").value_or(""));
                 parsed.optional = BoolAttribute(*dependency, "Optional");
                 parsed.scope = Attribute(*dependency, "Scope").value_or(dependency->name == "Tool" ? "Build" : "");
                 package.dependencies.push_back(std::move(parsed));
@@ -3379,11 +3486,12 @@ namespace NGIN::CLI
     {
         [[nodiscard]] auto IsProductElementName(const std::string_view name) -> bool
         {
-            return name == "Application" || name == "Library" || name == "Tool" || name == "Test"
-                   || name == "Benchmark" || name == "Plugin" || name == "Module" || name == "External";
+            return name == "Application" || name == "Library" || name == "Tool" || name == "Test" ||
+                   name == "Benchmark" || name == "Plugin" || name == "Module" || name == "External";
         }
 
-        [[nodiscard]] auto DefaultOutputKind(const std::string_view productKind, const XmlElement &product) -> std::string
+        [[nodiscard]] auto DefaultOutputKind(const std::string_view productKind, const XmlElement &product)
+            -> std::string
         {
             if (const auto output = Attribute(product, "Output"); output.has_value() && !output->empty())
             {
@@ -3414,7 +3522,8 @@ namespace NGIN::CLI
 
         [[nodiscard]] auto ProjectType(const std::string_view productKind) -> std::string
         {
-            if (productKind == "Library" || productKind == "Plugin" || productKind == "Module" || productKind == "External")
+            if (productKind == "Library" || productKind == "Plugin" || productKind == "Module" ||
+                productKind == "External")
             {
                 return "Library";
             }
@@ -3425,11 +3534,8 @@ namespace NGIN::CLI
             return "Application";
         }
 
-        [[nodiscard]] auto ProfileWithPlatform(
-            std::string name,
-            std::string buildType,
-            std::string platform,
-            std::string environment) -> ProfileDefinition
+        [[nodiscard]] auto ProfileWithPlatform(std::string name, std::string buildType, std::string platform,
+                                               std::string environment) -> ProfileDefinition
         {
             ProfileDefinition profile{};
             profile.name = std::move(name);
@@ -3465,13 +3571,9 @@ namespace NGIN::CLI
             return profile;
         }
 
-        [[nodiscard]] auto PathInput(
-            std::string kind,
-            std::string role,
-            const std::string &pathValue,
-            std::string visibility,
-            const std::string &target,
-            const std::string &scope) -> InputDeclaration
+        [[nodiscard]] auto PathInput(std::string kind, std::string role, const std::string &pathValue,
+                                     std::string visibility, const std::string &target, const std::string &scope)
+            -> InputDeclaration
         {
             InputDeclaration input{};
             input.kind = std::move(kind);
@@ -3517,6 +3619,11 @@ namespace NGIN::CLI
             }
         }
 
+        [[nodiscard]] auto NormalizeBuildPathIdentity(const std::string &path) -> std::string
+        {
+            return fs::path(path).lexically_normal().generic_string();
+        }
+
         [[nodiscard]] auto DefineIdentity(const std::string &value) -> std::string
         {
             if (const auto separator = value.find('='); separator != std::string::npos)
@@ -3526,47 +3633,119 @@ namespace NGIN::CLI
             return value;
         }
 
-        auto RequireUniqueLocalName(
-            std::set<std::string> &names,
-            const std::string &kind,
-            const std::string &name,
-            const fs::path &path) -> void
+        [[nodiscard]] auto SelectorIdentity(const SelectorSet &selectors) -> std::string
         {
-            if (!names.insert(name).second)
+            std::ostringstream identity{};
+            if (selectors.profile.has_value())
             {
-                throw std::runtime_error(path.string() + ": duplicate " + kind + " '" + name + "' in the same overlay scope");
+                identity << "|profile=" << *selectors.profile;
+            }
+            if (selectors.platform.has_value())
+            {
+                identity << "|platform=" << *selectors.platform;
+            }
+            if (selectors.operatingSystem.has_value())
+            {
+                identity << "|os=" << *selectors.operatingSystem;
+            }
+            if (selectors.architecture.has_value())
+            {
+                identity << "|arch=" << *selectors.architecture;
+            }
+            if (selectors.buildType.has_value())
+            {
+                identity << "|buildType=" << *selectors.buildType;
+            }
+            if (selectors.environment.has_value())
+            {
+                identity << "|environment=" << *selectors.environment;
+            }
+            for (const auto &condition : selectors.conditionRefs)
+            {
+                identity << "|condition=" << condition;
+            }
+            return identity.str();
+        }
+
+        [[nodiscard]] auto BuildSettingIdentity(const std::string &kind, const BuildSetting &setting) -> std::string
+        {
+            if (kind == "Define")
+            {
+                return DefineIdentity(setting.value);
+            }
+            if (kind == "IncludePath")
+            {
+                return NormalizeBuildPathIdentity(setting.value) + "|" + setting.visibility;
+            }
+            return setting.value + SelectorIdentity(setting.selectors);
+        }
+
+        [[nodiscard]] auto BuildSettingIdentityFromRemove(const std::string &kind, const std::string &value,
+                                                          const std::string &visibility = {}) -> std::string
+        {
+            if (kind == "Define")
+            {
+                return DefineIdentity(value);
+            }
+            if (kind == "IncludePath")
+            {
+                return NormalizeBuildPathIdentity(value) + "|" + (visibility.empty() ? "Private" : visibility);
+            }
+            return value;
+        }
+
+        auto RequireUniqueBuildSetting(std::set<std::string> &names, const std::string &kind,
+                                       const std::string &identity, const fs::path &path) -> void
+        {
+            if (!names.insert(kind + ":" + identity).second)
+            {
+                const auto displayKind = kind == "Define"          ? "define"
+                                         : kind == "IncludePath"   ? "include path"
+                                         : kind == "CompileOption" ? "compile option"
+                                                                   : "link option";
+                throw std::runtime_error(path.string() + ": duplicate " + displayKind + " '" + identity +
+                                         "' in the same overlay scope");
             }
         }
 
-        auto RemoveDefine(std::vector<BuildSetting> &settings, const std::string &name, const std::string &scope) -> void
+        auto RequireUniqueLocalName(std::set<std::string> &names, const std::string &kind, const std::string &name,
+                                    const fs::path &path) -> void
         {
-            settings.erase(
-                std::remove_if(
-                    settings.begin(),
-                    settings.end(),
-                    [&](const BuildSetting &setting)
-                    {
-                        if (DefineIdentity(setting.value) != name)
-                        {
-                            return false;
-                        }
-                        if (scope.rfind("profile:", 0) != 0)
-                        {
-                            return true;
-                        }
-                        SelectorSet scopeSelectors{};
-                        ApplyScopeSelector(scope, scopeSelectors);
-                        return setting.selectors.profile == scopeSelectors.profile;
-                    }),
-                settings.end());
+            if (!names.insert(name).second)
+            {
+                throw std::runtime_error(path.string() + ": duplicate " + kind + " '" + name +
+                                         "' in the same overlay scope");
+            }
+        }
+
+        auto AddBuildSettingRemoval(std::vector<BuildSetting> &settings, const std::string &kind,
+                                    const std::string &identity, const std::string &scope) -> void
+        {
+            (void)kind;
+            BuildSetting tombstone{};
+            tombstone.disabled = true;
+            tombstone.removeIdentity = identity;
+            ApplyScopeSelector(scope, tombstone.selectors);
+            settings.push_back(std::move(tombstone));
+        }
+
+        auto UpsertBuildSetting(std::vector<BuildSetting> &settings, const std::string &kind, BuildSetting setting,
+                                const std::string &scope) -> void
+        {
+            (void)kind;
+            ApplyScopeSelector(scope, setting.selectors);
+            settings.push_back(std::move(setting));
+        }
+
+        auto RemoveDefine(std::vector<BuildSetting> &settings, const std::string &name, const std::string &scope)
+            -> void
+        {
+            AddBuildSettingRemoval(settings, "Define", name, scope);
         }
 
         auto UpsertDefine(std::vector<BuildSetting> &settings, BuildSetting setting, const std::string &scope) -> void
         {
-            const auto identity = DefineIdentity(setting.value);
-            ApplyScopeSelector(scope, setting.selectors);
-            RemoveDefine(settings, identity, scope);
-            settings.push_back(std::move(setting));
+            UpsertBuildSetting(settings, "Define", std::move(setting), scope);
         }
 
         [[nodiscard]] auto StageIdentity(const InputDeclaration &input) -> std::string
@@ -3590,40 +3769,39 @@ namespace NGIN::CLI
             return input.kind + ":";
         }
 
-        auto RemoveStageInput(std::vector<InputDeclaration> &inputs, const std::string &kind, const std::string &identity, const std::string &scope) -> void
+        auto RemoveStageInput(std::vector<InputDeclaration> &inputs, const std::string &kind,
+                              const std::string &identity, const std::string &scope) -> void
         {
-            inputs.erase(
-                std::remove_if(
-                    inputs.begin(),
-                    inputs.end(),
-                    [&](const InputDeclaration &input)
-                    {
-                        if (input.kind != kind)
-                        {
-                            return false;
-                        }
-                        const auto inputIdentity = StageIdentity(input);
-                        const auto matchesIdentity = inputIdentity == kind + ":" + identity
-                                                     || input.target == identity
-                                                     || input.targetRoot == identity
-                                                     || input.path == identity
-                                                     || (!input.includePatterns.empty() && input.includePatterns.front() == identity);
-                        if (!matchesIdentity)
-                        {
-                            return false;
-                        }
-                        if (scope.rfind("profile:", 0) != 0)
-                        {
-                            return true;
-                        }
-                        SelectorSet scopeSelectors{};
-                        ApplyScopeSelector(scope, scopeSelectors);
-                        return !input.selectors.profile.has_value() || input.selectors.profile == scopeSelectors.profile;
-                    }),
-                inputs.end());
+            inputs.erase(std::remove_if(inputs.begin(), inputs.end(),
+                                        [&](const InputDeclaration &input) {
+                                            if (input.kind != kind)
+                                            {
+                                                return false;
+                                            }
+                                            const auto inputIdentity = StageIdentity(input);
+                                            const auto matchesIdentity =
+                                                inputIdentity == kind + ":" + identity || input.target == identity ||
+                                                input.targetRoot == identity || input.path == identity ||
+                                                (!input.includePatterns.empty() &&
+                                                 input.includePatterns.front() == identity);
+                                            if (!matchesIdentity)
+                                            {
+                                                return false;
+                                            }
+                                            if (scope.rfind("profile:", 0) != 0)
+                                            {
+                                                return true;
+                                            }
+                                            SelectorSet scopeSelectors{};
+                                            ApplyScopeSelector(scope, scopeSelectors);
+                                            return !input.selectors.profile.has_value() ||
+                                                   input.selectors.profile == scopeSelectors.profile;
+                                        }),
+                         inputs.end());
         }
 
-        auto UpsertStageInput(std::vector<InputDeclaration> &inputs, InputDeclaration input, const std::string &scope) -> void
+        auto UpsertStageInput(std::vector<InputDeclaration> &inputs, InputDeclaration input, const std::string &scope)
+            -> void
         {
             ApplyScopeSelector(scope, input.selectors);
             inputs.push_back(std::move(input));
@@ -3631,16 +3809,13 @@ namespace NGIN::CLI
 
         auto RemoveEnvironmentVariable(std::vector<EnvironmentVariable> &variables, const std::string &name) -> void
         {
-            variables.erase(
-                std::remove_if(
-                    variables.begin(),
-                    variables.end(),
-                    [&](const EnvironmentVariable &variable)
-                    { return variable.name == name; }),
-                variables.end());
+            variables.erase(std::remove_if(variables.begin(), variables.end(),
+                                           [&](const EnvironmentVariable &variable) { return variable.name == name; }),
+                            variables.end());
         }
 
-        auto UpsertEnvironmentVariable(std::vector<EnvironmentVariable> &variables, EnvironmentVariable variable) -> void
+        auto UpsertEnvironmentVariable(std::vector<EnvironmentVariable> &variables, EnvironmentVariable variable)
+            -> void
         {
             RemoveEnvironmentVariable(variables, variable.name);
             variables.push_back(std::move(variable));
@@ -3648,19 +3823,12 @@ namespace NGIN::CLI
 
         auto RemoveRuntimeModule(RuntimeDefinition &runtime, const std::string &name) -> void
         {
-            runtime.modules.erase(
-                std::remove_if(
-                    runtime.modules.begin(),
-                    runtime.modules.end(),
-                    [&](const ModuleDescriptor &module)
-                    { return module.name == name; }),
-                runtime.modules.end());
+            runtime.modules.erase(std::remove_if(runtime.modules.begin(), runtime.modules.end(),
+                                                 [&](const ModuleDescriptor &module) { return module.name == name; }),
+                                  runtime.modules.end());
             runtime.enableModules.erase(
-                std::remove_if(
-                    runtime.enableModules.begin(),
-                    runtime.enableModules.end(),
-                    [&](const RuntimeReference &reference)
-                    { return reference.name == name; }),
+                std::remove_if(runtime.enableModules.begin(), runtime.enableModules.end(),
+                               [&](const RuntimeReference &reference) { return reference.name == name; }),
                 runtime.enableModules.end());
             runtime.disableModules.push_back(RuntimeReference{.name = name});
         }
@@ -3670,11 +3838,8 @@ namespace NGIN::CLI
             const auto name = module.name;
             RemoveRuntimeModule(runtime, name);
             runtime.disableModules.erase(
-                std::remove_if(
-                    runtime.disableModules.begin(),
-                    runtime.disableModules.end(),
-                    [&](const RuntimeReference &reference)
-                    { return reference.name == name; }),
+                std::remove_if(runtime.disableModules.begin(), runtime.disableModules.end(),
+                               [&](const RuntimeReference &reference) { return reference.name == name; }),
                 runtime.disableModules.end());
             runtime.enableModules.push_back(RuntimeReference{.name = name});
             runtime.modules.push_back(std::move(module));
@@ -3683,13 +3848,8 @@ namespace NGIN::CLI
         auto RemoveGenerator(std::vector<GeneratorDeclaration> &generators, const std::string &name) -> void
         {
             generators.erase(
-                std::remove_if(
-                    generators.begin(),
-                    generators.end(),
-                    [&](const GeneratorDeclaration &generator)
-                    {
-                        return generator.name == name;
-                    }),
+                std::remove_if(generators.begin(), generators.end(),
+                               [&](const GeneratorDeclaration &generator) { return generator.name == name; }),
                 generators.end());
         }
 
@@ -3699,15 +3859,9 @@ namespace NGIN::CLI
             generators.push_back(std::move(generator));
         }
 
-        auto AddPathInput(
-            std::vector<InputDeclaration> &inputs,
-            const fs::path &manifestPath,
-            std::string kind,
-            std::string role,
-            const std::string &pathValue,
-            std::string visibility,
-            const std::string &target,
-            const std::string &scope) -> void
+        auto AddPathInput(std::vector<InputDeclaration> &inputs, const fs::path &manifestPath, std::string kind,
+                          std::string role, const std::string &pathValue, std::string visibility,
+                          const std::string &target, const std::string &scope) -> void
         {
             auto input = PathInput(std::move(kind), std::move(role), pathValue, std::move(visibility), target, scope);
             ApplyScopeSelector(scope, input.selectors);
@@ -3739,8 +3893,10 @@ namespace NGIN::CLI
             }
         }
 
-        auto ParseBuildSection(const XmlElement &buildNode, const fs::path &path, ProjectManifest &project, const std::string &scope) -> void
+        auto ParseBuildSection(const XmlElement &buildNode, const fs::path &path, ProjectManifest &project,
+                               const std::string &scope) -> void
         {
+            std::set<std::string> localNames{};
             for (const auto *node : ChildElements(buildNode))
             {
                 if (node->name == "Language")
@@ -3750,22 +3906,34 @@ namespace NGIN::CLI
                 }
                 if (node->name == "Sources")
                 {
-                    AddPathInput(project.inputs, path, "Source", "Source", RequireAttribute(*node, "Path", path), "Private", "", scope);
+                    AddPathInput(project.inputs, path, "Source", "Source", RequireAttribute(*node, "Path", path),
+                                 "Private", "", scope);
                     continue;
                 }
                 if (node->name == "Headers")
                 {
-                    AddPathInput(project.inputs, path, "Source", "Header", RequireAttribute(*node, "Path", path), Attribute(*node, "Visibility").value_or("Public"), "", scope);
+                    AddPathInput(project.inputs, path, "Source", "Header", RequireAttribute(*node, "Path", path),
+                                 Attribute(*node, "Visibility").value_or("Public"), "", scope);
                     continue;
                 }
                 if (node->name == "IncludePath")
                 {
+                    if (const auto remove = Attribute(*node, "Remove"); remove.has_value() && !remove->empty())
+                    {
+                        const auto visibility = Attribute(*node, "Visibility").value_or("Private");
+                        const auto identity = BuildSettingIdentityFromRemove("IncludePath", *remove, visibility);
+                        RequireUniqueBuildSetting(localNames, "IncludePath", identity, path);
+                        AddBuildSettingRemoval(project.build.includeDirectories, "IncludePath", identity, scope);
+                        continue;
+                    }
                     BuildSetting setting{};
                     setting.value = RequireAttribute(*node, "Path", path);
                     setting.visibility = Attribute(*node, "Visibility").value_or("Private");
                     ApplyScopeSelector(scope, setting.selectors);
                     ApplyWhenSelector(*node, setting.selectors);
-                    project.build.includeDirectories.push_back(std::move(setting));
+                    RequireUniqueBuildSetting(localNames, "IncludePath", BuildSettingIdentity("IncludePath", setting),
+                                              path);
+                    UpsertBuildSetting(project.build.includeDirectories, "IncludePath", std::move(setting), scope);
                     continue;
                 }
                 if (node->name == "Define")
@@ -3773,6 +3941,7 @@ namespace NGIN::CLI
                     BuildSetting setting{};
                     if (const auto remove = Attribute(*node, "Remove"); remove.has_value() && !remove->empty())
                     {
+                        RequireUniqueBuildSetting(localNames, "Define", *remove, path);
                         RemoveDefine(project.build.compileDefinitions, *remove, scope);
                         continue;
                     }
@@ -3788,21 +3957,36 @@ namespace NGIN::CLI
                     }
                     setting.visibility = Attribute(*node, "Visibility").value_or("Private");
                     ApplyWhenSelector(*node, setting.selectors);
+                    RequireUniqueBuildSetting(localNames, "Define", BuildSettingIdentity("Define", setting), path);
                     UpsertDefine(project.build.compileDefinitions, std::move(setting), scope);
                     continue;
                 }
                 if (node->name == "CompileOption")
                 {
+                    if (const auto remove = Attribute(*node, "Remove"); remove.has_value() && !remove->empty())
+                    {
+                        RequireUniqueBuildSetting(localNames, "CompileOption", *remove, path);
+                        AddBuildSettingRemoval(project.build.compileOptions, "CompileOption", *remove, scope);
+                        continue;
+                    }
                     BuildSetting setting{};
                     setting.value = RequireAttribute(*node, "Value", path);
                     setting.visibility = Attribute(*node, "Visibility").value_or("Private");
                     ApplyScopeSelector(scope, setting.selectors);
                     ApplyWhenSelector(*node, setting.selectors);
-                    project.build.compileOptions.push_back(std::move(setting));
+                    RequireUniqueBuildSetting(localNames, "CompileOption",
+                                              BuildSettingIdentity("CompileOption", setting), path);
+                    UpsertBuildSetting(project.build.compileOptions, "CompileOption", std::move(setting), scope);
                     continue;
                 }
                 if (node->name == "LinkOption" || node->name == "LinkLibrary")
                 {
+                    if (const auto remove = Attribute(*node, "Remove"); remove.has_value() && !remove->empty())
+                    {
+                        RequireUniqueBuildSetting(localNames, "LinkOption", *remove, path);
+                        AddBuildSettingRemoval(project.build.linkOptions, "LinkOption", *remove, scope);
+                        continue;
+                    }
                     BuildSetting setting{};
                     setting.value = Attribute(*node, "Value").value_or(Attribute(*node, "Name").value_or(""));
                     if (!setting.value.empty())
@@ -3810,14 +3994,17 @@ namespace NGIN::CLI
                         setting.visibility = Attribute(*node, "Visibility").value_or("Private");
                         ApplyScopeSelector(scope, setting.selectors);
                         ApplyWhenSelector(*node, setting.selectors);
-                        project.build.linkOptions.push_back(std::move(setting));
+                        RequireUniqueBuildSetting(localNames, "LinkOption", BuildSettingIdentity("LinkOption", setting),
+                                                  path);
+                        UpsertBuildSetting(project.build.linkOptions, "LinkOption", std::move(setting), scope);
                     }
                     continue;
                 }
             }
         }
 
-        auto ParseExportsSection(const XmlElement &exportsNode, const fs::path &path, ProjectManifest &project, const std::string &scope) -> void
+        auto ParseExportsSection(const XmlElement &exportsNode, const fs::path &path, ProjectManifest &project,
+                                 const std::string &scope) -> void
         {
             for (const auto *node : ChildElements(exportsNode))
             {
@@ -3838,7 +4025,8 @@ namespace NGIN::CLI
                 }
                 if (node->name == "Headers")
                 {
-                    AddPathInput(project.inputs, path, "Source", "Header", RequireAttribute(*node, "Path", path), "Public", "", scope);
+                    AddPathInput(project.inputs, path, "Source", "Header", RequireAttribute(*node, "Path", path),
+                                 "Public", "", scope);
                     continue;
                 }
                 if (node->name == "Define")
@@ -3872,11 +4060,8 @@ namespace NGIN::CLI
             }
         }
 
-        auto ParseUsesSection(
-            const XmlElement &usesNode,
-            const fs::path &path,
-            ProjectManifest &project,
-            const std::string &scope = {}) -> void
+        auto ParseUsesSection(const XmlElement &usesNode, const fs::path &path, ProjectManifest &project,
+                              const std::string &scope = {}) -> void
         {
             for (const auto *node : ChildElements(usesNode))
             {
@@ -3911,7 +4096,8 @@ namespace NGIN::CLI
                         project.packageRefs.push_back(std::move(package));
                         continue;
                     }
-                    if (const auto packagePath = Attribute(*node, "Path"); packagePath.has_value() && node->name == "Tool")
+                    if (const auto packagePath = Attribute(*node, "Path");
+                        packagePath.has_value() && node->name == "Tool")
                     {
                         ProjectReference reference{};
                         reference.path = (path.parent_path() / *packagePath).lexically_normal();
@@ -3921,8 +4107,10 @@ namespace NGIN::CLI
                     }
                     PackageReference package{};
                     package.name = RequireAttribute(*node, "Name", path);
-                    package.versionRange = Attribute(*node, "Version").value_or(Attribute(*node, "VersionRange").value_or(""));
-                    package.scope = ScopeMutation(*node, node->name == "Runtime" ? "Target;Runtime" : (node->name == "Tool" ? "Build" : ""));
+                    package.versionRange =
+                        Attribute(*node, "Version").value_or(Attribute(*node, "VersionRange").value_or(""));
+                    package.scope = ScopeMutation(
+                        *node, node->name == "Runtime" ? "Target;Runtime" : (node->name == "Tool" ? "Build" : ""));
                     package.removeScope = Attribute(*node, "RemoveScope").value_or("");
                     ApplyScopeSelector(scope, package.selectors);
                     project.packageRefs.push_back(package);
@@ -3948,7 +4136,8 @@ namespace NGIN::CLI
             }
         }
 
-        auto ParseStageSection(const XmlElement &stageNode, const fs::path &path, ProjectManifest &project, const std::string &scope) -> void
+        auto ParseStageSection(const XmlElement &stageNode, const fs::path &path, ProjectManifest &project,
+                               const std::string &scope) -> void
         {
             for (const auto *node : ChildElements(stageNode))
             {
@@ -3959,7 +4148,8 @@ namespace NGIN::CLI
                         RemoveStageInput(project.inputs, "Config", *remove, scope);
                         continue;
                     }
-                    auto input = PathInput("Config", "", RequireAttribute(*node, "Source", path), "Private", Attribute(*node, "Target").value_or(""), scope);
+                    auto input = PathInput("Config", "", RequireAttribute(*node, "Source", path), "Private",
+                                           Attribute(*node, "Target").value_or(""), scope);
                     input.overrideExisting = Attribute(*node, "Collision").value_or("") == "Override";
                     ValidateInputDeclaration(input, path);
                     UpsertStageInput(project.inputs, std::move(input), scope);
@@ -3971,7 +4161,8 @@ namespace NGIN::CLI
                         RemoveStageInput(project.inputs, "Content", *remove, scope);
                         continue;
                     }
-                    auto input = PathInput("Content", "", RequireAttribute(*node, "Source", path), "Private", Attribute(*node, "Target").value_or(""), scope);
+                    auto input = PathInput("Content", "", RequireAttribute(*node, "Source", path), "Private",
+                                           Attribute(*node, "Target").value_or(""), scope);
                     input.overrideExisting = Attribute(*node, "Collision").value_or("") == "Override";
                     ValidateInputDeclaration(input, path);
                     UpsertStageInput(project.inputs, std::move(input), scope);
@@ -3979,7 +4170,8 @@ namespace NGIN::CLI
             }
         }
 
-        auto ParseEnvironmentSection(const XmlElement &environmentNode, const fs::path &path, EnvironmentDefinition &environment) -> void
+        auto ParseEnvironmentSection(const XmlElement &environmentNode, const fs::path &path,
+                                     EnvironmentDefinition &environment) -> void
         {
             std::set<std::string> localNames{};
             for (const auto *node : ChildElements(environmentNode))
@@ -4021,26 +4213,14 @@ namespace NGIN::CLI
             }
         }
 
-        auto UpsertAnalyzer(std::vector<AnalyzerDefinition> &analyzers, AnalyzerDefinition analyzer) -> void
-        {
-            analyzers.erase(
-                std::remove_if(
-                    analyzers.begin(),
-                    analyzers.end(),
-                    [&](const AnalyzerDefinition &existing)
-                    {
-                        return existing.name == analyzer.name;
-                    }),
-                analyzers.end());
-            analyzers.push_back(std::move(analyzer));
-        }
-
-        auto ParseQualitySection(const XmlElement &qualityNode, const fs::path &path, QualityDefinition &quality) -> void
+        auto ParseQualitySection(const XmlElement &qualityNode, const fs::path &path, QualityDefinition &quality)
+            -> void
         {
             ParseQualityAnalyzers(qualityNode, path, quality, true);
         }
 
-        auto ParseRuntimeSection(const XmlElement &runtimeNode, const fs::path &path, RuntimeDefinition &runtime) -> void
+        auto ParseRuntimeSection(const XmlElement &runtimeNode, const fs::path &path, RuntimeDefinition &runtime)
+            -> void
         {
             std::set<std::string> localNames{};
             for (const auto *node : ChildElements(runtimeNode, "Module"))
@@ -4064,7 +4244,8 @@ namespace NGIN::CLI
                 }
                 for (const auto *requirement : ChildElements(*node, "Requires"))
                 {
-                    if (const auto service = Attribute(*requirement, "Service"); service.has_value() && !service->empty())
+                    if (const auto service = Attribute(*requirement, "Service");
+                        service.has_value() && !service->empty())
                     {
                         module.requiresServices.push_back(*service);
                     }
@@ -4076,23 +4257,14 @@ namespace NGIN::CLI
         auto UpsertLaunch(std::vector<LaunchDefinition> &launches, LaunchDefinition launch) -> void
         {
             launches.erase(
-                std::remove_if(
-                    launches.begin(),
-                    launches.end(),
-                    [&](const LaunchDefinition &existing)
-                    {
-                        return existing.name == launch.name;
-                    }),
+                std::remove_if(launches.begin(), launches.end(),
+                               [&](const LaunchDefinition &existing) { return existing.name == launch.name; }),
                 launches.end());
             launches.push_back(std::move(launch));
         }
 
-        [[nodiscard]] auto ParseLaunchNode(
-            const XmlElement &node,
-            const fs::path &path,
-            const ProjectManifest &project,
-            LaunchDefinition base,
-            const std::string &defaultName) -> LaunchDefinition
+        [[nodiscard]] auto ParseLaunchNode(const XmlElement &node, const fs::path &path, const ProjectManifest &project,
+                                           LaunchDefinition base, const std::string &defaultName) -> LaunchDefinition
         {
             if (const auto remove = Attribute(node, "Remove"); remove.has_value() && !remove->empty())
             {
@@ -4118,22 +4290,14 @@ namespace NGIN::CLI
         auto UpsertPackageOutput(std::vector<PackageOutputDefinition> &outputs, PackageOutputDefinition output) -> void
         {
             outputs.erase(
-                std::remove_if(
-                    outputs.begin(),
-                    outputs.end(),
-                    [&](const PackageOutputDefinition &existing)
-                    {
-                        return existing.name == output.name;
-                    }),
+                std::remove_if(outputs.begin(), outputs.end(),
+                               [&](const PackageOutputDefinition &existing) { return existing.name == output.name; }),
                 outputs.end());
             outputs.push_back(std::move(output));
         }
 
-        auto ParsePackageOutputSection(
-            const XmlElement &node,
-            const fs::path &path,
-            const ProjectManifest &project,
-            std::vector<PackageOutputDefinition> &outputs) -> void
+        auto ParsePackageOutputSection(const XmlElement &node, const fs::path &path, const ProjectManifest &project,
+                                       std::vector<PackageOutputDefinition> &outputs) -> void
         {
             PackageOutputDefinition output{};
             if (const auto remove = Attribute(node, "Remove"); remove.has_value() && !remove->empty())
@@ -4190,7 +4354,8 @@ namespace NGIN::CLI
             UpsertPackageOutput(outputs, std::move(output));
         }
 
-        auto ParsePublishSection(const XmlElement &node, const fs::path &path, std::vector<PublishDefinition> &publishes) -> void
+        auto ParsePublishSection(const XmlElement &node, const fs::path &path,
+                                 std::vector<PublishDefinition> &publishes) -> void
         {
             PublishDefinition publish{};
             if (const auto remove = Attribute(node, "Remove"); remove.has_value() && !remove->empty())
@@ -4198,13 +4363,8 @@ namespace NGIN::CLI
                 publish.name = *remove;
                 publish.disabled = true;
                 publishes.erase(
-                    std::remove_if(
-                        publishes.begin(),
-                        publishes.end(),
-                        [&](const PublishDefinition &existing)
-                        {
-                            return existing.name == publish.name;
-                        }),
+                    std::remove_if(publishes.begin(), publishes.end(),
+                                   [&](const PublishDefinition &existing) { return existing.name == publish.name; }),
                     publishes.end());
                 publishes.push_back(std::move(publish));
                 return;
@@ -4219,22 +4379,19 @@ namespace NGIN::CLI
                 {
                     publish.includeStage = false;
                 }
-                publish.includeRuntimeDependencies = BoolAttribute(*include, "RuntimeDependencies", publish.includeRuntimeDependencies);
+                publish.includeRuntimeDependencies =
+                    BoolAttribute(*include, "RuntimeDependencies", publish.includeRuntimeDependencies);
                 publish.includeSymbols = BoolAttribute(*include, "Symbols", publish.includeSymbols);
             }
             publishes.erase(
-                std::remove_if(
-                    publishes.begin(),
-                    publishes.end(),
-                    [&](const PublishDefinition &existing)
-                    {
-                        return existing.name == publish.name;
-                    }),
+                std::remove_if(publishes.begin(), publishes.end(),
+                               [&](const PublishDefinition &existing) { return existing.name == publish.name; }),
                 publishes.end());
             publishes.push_back(std::move(publish));
         }
 
-        [[nodiscard]] auto ParseProductGeneratorOutput(const XmlElement &node, const fs::path &path, const std::string &scope) -> InputDeclaration
+        [[nodiscard]] auto ParseProductGeneratorOutput(const XmlElement &node, const fs::path &path,
+                                                       const std::string &scope) -> InputDeclaration
         {
             std::string role;
             if (node.name == "Sources")
@@ -4251,14 +4408,17 @@ namespace NGIN::CLI
             }
             else
             {
-                throw std::runtime_error(path.string() + ": unsupported generator output <" + std::string(node.name) + ">");
+                throw std::runtime_error(path.string() + ": unsupported generator output <" + std::string(node.name) +
+                                         ">");
             }
-            auto output = PathInput("Generated", role, RequireAttribute(node, "Path", path), role == "Header" ? "Public" : "Private", "", scope);
+            auto output = PathInput("Generated", role, RequireAttribute(node, "Path", path),
+                                    role == "Header" ? "Public" : "Private", "", scope);
             ValidateInputDeclaration(output, path);
             return output;
         }
 
-        auto ParseGenerateSection(const XmlElement &generateNode, const fs::path &path, std::vector<GeneratorDeclaration> &generators, const std::string &scope) -> void
+        auto ParseGenerateSection(const XmlElement &generateNode, const fs::path &path,
+                                  std::vector<GeneratorDeclaration> &generators, const std::string &scope) -> void
         {
             std::set<std::string> localNames{};
             for (const auto *node : ChildElements(generateNode, "Generator"))
@@ -4291,7 +4451,8 @@ namespace NGIN::CLI
                 }
                 if (generator.toolName.empty() && !generator.hasInlineTool)
                 {
-                    throw std::runtime_error(path.string() + ": generator '" + generator.name + "' must declare <Tool Name=\"...\"> or Executable");
+                    throw std::runtime_error(path.string() + ": generator '" + generator.name +
+                                             "' must declare <Tool Name=\"...\"> or Executable");
                 }
                 if (const auto *args = FindChild(*node, "Args"))
                 {
@@ -4302,7 +4463,8 @@ namespace NGIN::CLI
                         argument.path = Attribute(*arg, "Path").value_or("");
                         if (argument.value.empty() == argument.path.empty())
                         {
-                            throw std::runtime_error(path.string() + ": generator argument must declare exactly one of Value or Path");
+                            throw std::runtime_error(path.string() +
+                                                     ": generator argument must declare exactly one of Value or Path");
                         }
                         generator.arguments.push_back(std::move(argument));
                     }
@@ -4313,28 +4475,35 @@ namespace NGIN::CLI
                     {
                         if (input->name == "Headers")
                         {
-                            AddPathInput(generator.inputs, path, "Source", "Header", RequireAttribute(*input, "Path", path), "Public", "", scope + ":" + generator.name);
+                            AddPathInput(generator.inputs, path, "Source", "Header",
+                                         RequireAttribute(*input, "Path", path), "Public", "",
+                                         scope + ":" + generator.name);
                         }
                         else if (input->name == "Sources" || input->name == "Files" || input->name == "File")
                         {
-                            AddPathInput(generator.inputs, path, "ToolInput", "", RequireAttribute(*input, "Path", path), "Private", "", scope + ":" + generator.name);
+                            AddPathInput(generator.inputs, path, "ToolInput", "",
+                                         RequireAttribute(*input, "Path", path), "Private", "",
+                                         scope + ":" + generator.name);
                         }
                     }
                 }
                 const auto *outputs = FindChild(*node, "Outputs");
                 if (outputs == nullptr)
                 {
-                    throw std::runtime_error(path.string() + ": generator '" + generator.name + "' must declare <Outputs>");
+                    throw std::runtime_error(path.string() + ": generator '" + generator.name +
+                                             "' must declare <Outputs>");
                 }
                 for (const auto *output : ChildElements(*outputs))
                 {
-                    generator.outputs.push_back(ParseProductGeneratorOutput(*output, path, scope + ":" + generator.name));
+                    generator.outputs.push_back(
+                        ParseProductGeneratorOutput(*output, path, scope + ":" + generator.name));
                 }
                 UpsertGenerator(generators, std::move(generator));
             }
         }
 
-        auto ApplyDefaults(const XmlElement &defaultsNode, const fs::path &path, ProjectBuildDescriptor &build, ProfileDefinition &profile) -> void
+        auto ApplyDefaults(const XmlElement &defaultsNode, const fs::path &path, ProjectBuildDescriptor &build,
+                           ProfileDefinition &profile) -> void
         {
             for (const auto *node : ChildElements(defaultsNode))
             {
@@ -4361,7 +4530,9 @@ namespace NGIN::CLI
                 }
                 else if (node->name == "TargetPlatform")
                 {
-                    const auto updated = ProfileWithPlatform(profile.name, profile.buildType, RequireAttribute(*node, "Name", path), profile.environmentName);
+                    const auto updated =
+                        ProfileWithPlatform(profile.name, profile.buildType, RequireAttribute(*node, "Name", path),
+                                            profile.environmentName);
                     profile.buildType = updated.buildType;
                     profile.platform = updated.platform;
                     profile.operatingSystem = updated.operatingSystem;
@@ -4394,13 +4565,15 @@ namespace NGIN::CLI
                 }
                 if (product != nullptr)
                 {
-                    throw std::runtime_error(path.string() + ": project must declare exactly one primary product element");
+                    throw std::runtime_error(path.string() +
+                                             ": project must declare exactly one primary product element");
                 }
                 product = child;
             }
             if (product == nullptr)
             {
-                throw std::runtime_error(path.string() + ": project must declare one product element such as <Application /> or <Library />");
+                throw std::runtime_error(path.string() + ": project must declare one product element such "
+                                                         "as <Application /> or <Library />");
             }
             return *product;
         }
@@ -4430,14 +4603,17 @@ namespace NGIN::CLI
                 {
                     if (builtinNames.contains(Lower(condition.name)))
                     {
-                        throw std::runtime_error(path.string() + ": condition '" + condition.name + "' cannot replace built-in condition");
+                        throw std::runtime_error(path.string() + ": condition '" + condition.name +
+                                                 "' cannot replace built-in condition");
                     }
                     project.conditions.push_back(std::move(condition));
                 }
             }
 
-            ProfileDefinition baseProfile = ProfileWithPlatform(project.defaultProfile, "Debug", "linux-x64", "development");
-            baseProfile.launch.executable = project.output.kind == "Executable" ? std::optional<std::string>{project.output.name} : std::nullopt;
+            ProfileDefinition baseProfile =
+                ProfileWithPlatform(project.defaultProfile, "Debug", "linux-x64", "development");
+            baseProfile.launch.executable =
+                project.output.kind == "Executable" ? std::optional<std::string>{project.output.name} : std::nullopt;
             baseProfile.launch.name = "default";
             baseProfile.launch.workingDirectory = "$(StageDir)";
 
@@ -4482,7 +4658,8 @@ namespace NGIN::CLI
                 }
                 else
                 {
-                    RequireUniqueLocalName(packageOutputNames, "package output", RequireAttribute(*packageOutput, "Name", path), path);
+                    RequireUniqueLocalName(packageOutputNames, "package output",
+                                           RequireAttribute(*packageOutput, "Name", path), path);
                 }
                 ParsePackageOutputSection(*packageOutput, path, project, project.packageOutputs);
             }
@@ -4495,7 +4672,8 @@ namespace NGIN::CLI
                 }
                 else
                 {
-                    RequireUniqueLocalName(publishNames, "publish", Attribute(*publish, "Name").value_or("default"), path);
+                    RequireUniqueLocalName(publishNames, "publish", Attribute(*publish, "Name").value_or("default"),
+                                           path);
                 }
                 ParsePublishSection(*publish, path, project.publishes);
             }
@@ -4515,9 +4693,9 @@ namespace NGIN::CLI
             }
             {
                 std::set<std::string> launchNames{};
-                auto addLaunch = [&](const XmlElement &node, const std::string &defaultName)
-                {
-                    const auto identity = Attribute(node, "Remove").value_or(Attribute(node, "Name").value_or(defaultName));
+                auto addLaunch = [&](const XmlElement &node, const std::string &defaultName) {
+                    const auto identity =
+                        Attribute(node, "Remove").value_or(Attribute(node, "Name").value_or(defaultName));
                     RequireUniqueLocalName(launchNames, "launch", identity, path);
                     auto launch = ParseLaunchNode(node, path, project, baseProfile.launch, defaultName);
                     if (!launch.disabled && project.launches.empty())
@@ -4551,7 +4729,8 @@ namespace NGIN::CLI
                     const auto parent = profileIndexes.find(*extends);
                     if (parent == profileIndexes.end())
                     {
-                        throw std::runtime_error(path.string() + ": profile '" + profile.name + "' extends unknown or later profile '" + *extends + "'");
+                        throw std::runtime_error(path.string() + ": profile '" + profile.name +
+                                                 "' extends unknown or later profile '" + *extends + "'");
                     }
                     profile = project.profiles[parent->second];
                     profile.name = RequireAttribute(*profileNode, "Name", path);
@@ -4584,13 +4763,12 @@ namespace NGIN::CLI
                     }
                     {
                         std::set<std::string> launchNames{};
-                        auto addLaunch = [&](const XmlElement &node, const std::string &defaultName)
-                        {
-                            const auto identity = Attribute(node, "Remove").value_or(Attribute(node, "Name").value_or(defaultName));
+                        auto addLaunch = [&](const XmlElement &node, const std::string &defaultName) {
+                            const auto identity =
+                                Attribute(node, "Remove").value_or(Attribute(node, "Name").value_or(defaultName));
                             RequireUniqueLocalName(launchNames, "launch", identity, path);
                             auto base = profile.launch;
-                            const auto findBase = [&](const std::vector<LaunchDefinition> &launches)
-                            {
+                            const auto findBase = [&](const std::vector<LaunchDefinition> &launches) {
                                 for (const auto &candidate : launches)
                                 {
                                     if (!candidate.disabled && candidate.name == identity)
@@ -4633,13 +4811,15 @@ namespace NGIN::CLI
                     std::set<std::string> packageOutputNames{};
                     for (const auto *packageOutput : ChildElements(*productOverlay, "PackageOutput"))
                     {
-                        if (const auto remove = Attribute(*packageOutput, "Remove"); remove.has_value() && !remove->empty())
+                        if (const auto remove = Attribute(*packageOutput, "Remove");
+                            remove.has_value() && !remove->empty())
                         {
                             RequireUniqueLocalName(packageOutputNames, "package output", *remove, path);
                         }
                         else
                         {
-                            RequireUniqueLocalName(packageOutputNames, "package output", RequireAttribute(*packageOutput, "Name", path), path);
+                            RequireUniqueLocalName(packageOutputNames, "package output",
+                                                   RequireAttribute(*packageOutput, "Name", path), path);
                         }
                         ParsePackageOutputSection(*packageOutput, path, project, profile.packageOutputs);
                     }
@@ -4652,7 +4832,8 @@ namespace NGIN::CLI
                         }
                         else
                         {
-                            RequireUniqueLocalName(publishNames, "publish", Attribute(*publish, "Name").value_or("default"), path);
+                            RequireUniqueLocalName(publishNames, "publish",
+                                                   Attribute(*publish, "Name").value_or("default"), path);
                         }
                         ParsePublishSection(*publish, path, profile.publishes);
                     }
@@ -4689,7 +4870,7 @@ namespace NGIN::CLI
             ValidateConditionReferences(project, path);
             return project;
         }
-    }
+    } // namespace
 
     [[nodiscard]] auto LoadProjectManifest(const fs::path &path) -> ProjectManifest
     {
@@ -4743,10 +4924,12 @@ namespace NGIN::CLI
         {
             return *discovered;
         }
-        throw std::runtime_error("no project manifest specified and no .nginproj file found in the current directory tree");
+        throw std::runtime_error("no project manifest specified and no .nginproj "
+                                 "file found in the current directory tree");
     }
 
-    [[nodiscard]] auto ProfileByName(const ProjectManifest &project, const std::optional<std::string> &profileName) -> const ProfileDefinition &
+    [[nodiscard]] auto ProfileByName(const ProjectManifest &project, const std::optional<std::string> &profileName)
+        -> const ProfileDefinition &
     {
         const auto desired = profileName.value_or(project.defaultProfile);
         for (const auto &profile : project.profiles)
@@ -4759,28 +4942,21 @@ namespace NGIN::CLI
         throw std::runtime_error("unknown profile '" + desired + "'");
     }
 
-    [[nodiscard]] auto ProfileWithWorkspacePolicy(
-        const ProjectManifest &project,
-        const std::optional<WorkspaceManifest> &workspace,
-        const std::optional<std::string> &profileName) -> ProfileDefinition
+    [[nodiscard]] auto ProfileWithWorkspacePolicy(const ProjectManifest &project,
+                                                  const std::optional<WorkspaceManifest> &workspace,
+                                                  const std::optional<std::string> &profileName) -> ProfileDefinition
     {
         const auto desired = profileName.value_or(project.defaultProfile);
-        const auto projectProfile = std::find_if(
-            project.profiles.begin(), project.profiles.end(),
-            [&](const ProfileDefinition &profile)
-            {
-                return profile.name == desired;
-            });
+        const auto projectProfile =
+            std::find_if(project.profiles.begin(), project.profiles.end(),
+                         [&](const ProfileDefinition &profile) { return profile.name == desired; });
 
         const WorkspaceManifest::ProfilePolicy *workspaceProfile = nullptr;
         if (workspace.has_value())
         {
-            const auto it = std::find_if(
-                workspace->profiles.begin(), workspace->profiles.end(),
-                [&](const WorkspaceManifest::ProfilePolicy &profile)
-                {
-                    return profile.name == desired;
-                });
+            const auto it =
+                std::find_if(workspace->profiles.begin(), workspace->profiles.end(),
+                             [&](const WorkspaceManifest::ProfilePolicy &profile) { return profile.name == desired; });
             if (it != workspace->profiles.end())
             {
                 workspaceProfile = &*it;
@@ -4802,8 +4978,7 @@ namespace NGIN::CLI
             return ProfileByName(project, profileName);
         }
 
-        const auto applyPolicy = [](ProfileDefinition &profile, const WorkspaceManifest::ProfilePolicy &policy)
-        {
+        const auto applyPolicy = [](ProfileDefinition &profile, const WorkspaceManifest::ProfilePolicy &policy) {
             if (policy.buildType.has_value())
             {
                 profile.buildType = *policy.buildType;
@@ -4834,13 +5009,11 @@ namespace NGIN::CLI
             }
         };
 
-        const auto policyAppliesToProject = [&](const std::string &productKind)
-        {
+        const auto policyAppliesToProject = [&](const std::string &productKind) {
             return productKind.empty() || productKind == project.productKind;
         };
 
-        auto prependGenerators = [&](ProfileDefinition &profile, const WorkspaceManifest::ProfilePolicy &policy)
-        {
+        auto prependGenerators = [&](ProfileDefinition &profile, const WorkspaceManifest::ProfilePolicy &policy) {
             std::vector<GeneratorDeclaration> workspaceGenerators{};
             const auto scope = "profile:" + policy.name;
             for (const auto &generatorPolicy : policy.generators)
@@ -4873,13 +5046,8 @@ namespace NGIN::CLI
                     }
                     for (const auto &outputPolicy : generatorPolicy.outputs)
                     {
-                        auto output = PathInput(
-                            outputPolicy.kind,
-                            outputPolicy.role,
-                            outputPolicy.path,
-                            outputPolicy.visibility,
-                            "",
-                            scope + ":" + generator.name);
+                        auto output = PathInput(outputPolicy.kind, outputPolicy.role, outputPolicy.path,
+                                                outputPolicy.visibility, "", scope + ":" + generator.name);
                         ValidateInputDeclaration(output, project.path);
                         generator.outputs.push_back(std::move(output));
                     }
@@ -4897,22 +5065,15 @@ namespace NGIN::CLI
             }
         };
 
-        auto prependLaunches = [&](ProfileDefinition &profile, const WorkspaceManifest::ProfilePolicy &policy)
-        {
+        auto prependLaunches = [&](ProfileDefinition &profile, const WorkspaceManifest::ProfilePolicy &policy) {
             std::vector<LaunchDefinition> workspaceLaunches{};
             const auto localLaunches = profile.launches;
-            const auto hasLocalLaunch = [&](const std::string &name)
-            {
-                return std::any_of(
-                    localLaunches.begin(),
-                    localLaunches.end(),
-                    [&](const LaunchDefinition &launch)
-                    {
-                        return launch.name == name;
-                    });
+            const auto hasLocalLaunch = [&](const std::string &name) {
+                return std::any_of(localLaunches.begin(), localLaunches.end(),
+                                   [&](const LaunchDefinition &launch) { return launch.name == name; });
             };
-            const auto findBase = [&](const std::string &name, const std::vector<LaunchDefinition> &source, LaunchDefinition &base)
-            {
+            const auto findBase = [&](const std::string &name, const std::vector<LaunchDefinition> &source,
+                                      LaunchDefinition &base) {
                 for (const auto &candidate : source)
                 {
                     if (!candidate.disabled && candidate.name == name)
@@ -4945,7 +5106,8 @@ namespace NGIN::CLI
                 }
                 if (launchPolicy.executable.has_value())
                 {
-                    launch.executable = *launchPolicy.executable == "$(OutputName)" ? project.output.name : *launchPolicy.executable;
+                    launch.executable =
+                        *launchPolicy.executable == "$(OutputName)" ? project.output.name : *launchPolicy.executable;
                 }
                 if (launchPolicy.workingDirectory.has_value())
                 {
@@ -4972,8 +5134,7 @@ namespace NGIN::CLI
             }
         };
 
-        auto prependPublishes = [&](ProfileDefinition &profile, const WorkspaceManifest::ProfilePolicy &policy)
-        {
+        auto prependPublishes = [&](ProfileDefinition &profile, const WorkspaceManifest::ProfilePolicy &policy) {
             std::vector<PublishDefinition> workspacePublishes{};
             for (const auto &publishPolicy : policy.publishes)
             {
@@ -5006,8 +5167,7 @@ namespace NGIN::CLI
             }
         };
 
-        auto prependPackageOutputs = [&](ProfileDefinition &profile, const WorkspaceManifest::ProfilePolicy &policy)
-        {
+        auto prependPackageOutputs = [&](ProfileDefinition &profile, const WorkspaceManifest::ProfilePolicy &policy) {
             std::vector<PackageOutputDefinition> workspaceOutputs{};
             for (const auto &outputPolicy : policy.packageOutputs)
             {
@@ -5044,8 +5204,8 @@ namespace NGIN::CLI
             }
         };
 
-        auto applyNamedWorkspacePolicy = [&](ProfileDefinition &profile, const WorkspaceManifest::ProfilePolicy &policy)
-        {
+        auto applyNamedWorkspacePolicy = [&](ProfileDefinition &profile,
+                                             const WorkspaceManifest::ProfilePolicy &policy) {
             prependGenerators(profile, policy);
             prependLaunches(profile, policy);
             prependPublishes(profile, policy);
@@ -5067,9 +5227,8 @@ namespace NGIN::CLI
         return effective;
     }
 
-    [[nodiscard]] auto ProjectWithWorkspacePolicy(
-        ProjectManifest project,
-        const std::optional<WorkspaceManifest> &workspace) -> ProjectManifest
+    [[nodiscard]] auto ProjectWithWorkspacePolicy(ProjectManifest project,
+                                                  const std::optional<WorkspaceManifest> &workspace) -> ProjectManifest
     {
         if (!workspace.has_value())
         {
@@ -5100,9 +5259,23 @@ namespace NGIN::CLI
             }
         }
 
-        const auto applyProfilePolicyContributions = [&](const WorkspaceManifest::ProfilePolicy &policy)
-        {
+        const auto applyProfilePolicyContributions = [&](const WorkspaceManifest::ProfilePolicy &policy) {
             const auto scope = policy.name.empty() ? std::string{} : "profile:" + policy.name;
+            const auto workspaceSourceKind = [](const std::string &productKind) -> std::string {
+                return productKind.empty() ? "workspace-profile" : "workspace-product-profile";
+            };
+            const auto insertWorkspaceBuildSetting = [&](std::vector<BuildSetting> &settings, BuildSetting setting) {
+                auto insertAt = settings.end();
+                if (!policy.name.empty())
+                {
+                    insertAt = std::find_if(settings.begin(), settings.end(), [&](const BuildSetting &existing) {
+                        return existing.selectors.profile == policy.name &&
+                               existing.provenance.sourceKind != "workspace-profile" &&
+                               existing.provenance.sourceKind != "workspace-product-profile";
+                    });
+                }
+                settings.insert(insertAt, std::move(setting));
+            };
             for (const auto &buildSetting : policy.buildSettings)
             {
                 if (!buildSetting.productKind.empty() && buildSetting.productKind != project.productKind)
@@ -5113,22 +5286,65 @@ namespace NGIN::CLI
                 setting.value = buildSetting.value;
                 setting.visibility = buildSetting.visibility;
                 ApplyScopeSelector(scope, setting.selectors);
+                setting.provenance = ContributionProvenance{
+                    .sourceKind = workspaceSourceKind(buildSetting.productKind),
+                    .sourceName = policy.name.empty() ? workspace->name : policy.name,
+                    .manifestPath = workspace->path,
+                    .reason = buildSetting.productKind.empty() ? "workspace profile build policy"
+                                                               : "workspace product-kind build policy",
+                };
 
                 if (buildSetting.kind == "IncludePath")
                 {
-                    project.build.includeDirectories.push_back(std::move(setting));
+                    if (buildSetting.remove)
+                    {
+                        AddBuildSettingRemoval(project.build.includeDirectories, buildSetting.kind,
+                                               buildSetting.removeIdentity, scope);
+                        project.build.includeDirectories.back().provenance = setting.provenance;
+                    }
+                    else
+                    {
+                        insertWorkspaceBuildSetting(project.build.includeDirectories, std::move(setting));
+                    }
                 }
                 else if (buildSetting.kind == "Define")
                 {
-                    UpsertDefine(project.build.compileDefinitions, std::move(setting), scope);
+                    if (buildSetting.remove)
+                    {
+                        AddBuildSettingRemoval(project.build.compileDefinitions, buildSetting.kind,
+                                               buildSetting.removeIdentity, scope);
+                        project.build.compileDefinitions.back().provenance = setting.provenance;
+                    }
+                    else
+                    {
+                        insertWorkspaceBuildSetting(project.build.compileDefinitions, std::move(setting));
+                    }
                 }
                 else if (buildSetting.kind == "CompileOption")
                 {
-                    project.build.compileOptions.push_back(std::move(setting));
+                    if (buildSetting.remove)
+                    {
+                        AddBuildSettingRemoval(project.build.compileOptions, buildSetting.kind,
+                                               buildSetting.removeIdentity, scope);
+                        project.build.compileOptions.back().provenance = setting.provenance;
+                    }
+                    else
+                    {
+                        insertWorkspaceBuildSetting(project.build.compileOptions, std::move(setting));
+                    }
                 }
                 else if (buildSetting.kind == "LinkOption")
                 {
-                    project.build.linkOptions.push_back(std::move(setting));
+                    if (buildSetting.remove)
+                    {
+                        AddBuildSettingRemoval(project.build.linkOptions, buildSetting.kind,
+                                               buildSetting.removeIdentity, scope);
+                        project.build.linkOptions.back().provenance = setting.provenance;
+                    }
+                    else
+                    {
+                        insertWorkspaceBuildSetting(project.build.linkOptions, std::move(setting));
+                    }
                 }
             }
 
@@ -5148,19 +5364,33 @@ namespace NGIN::CLI
                 analyzer.configPath = analyzerPolicy.configPath;
                 analyzer.configOptional = analyzerPolicy.configOptional;
                 ApplyScopeSelector(scope, analyzer.selectors);
-                UpsertAnalyzer(project.quality.analyzers, std::move(analyzer));
+                analyzer.provenance = ContributionProvenance{
+                    .sourceKind = workspaceSourceKind(analyzerPolicy.productKind),
+                    .sourceName = policy.name.empty() ? workspace->name : policy.name,
+                    .manifestPath = workspace->path,
+                    .reason = analyzerPolicy.productKind.empty() ? "workspace profile analyzer policy"
+                                                                 : "workspace product-kind analyzer policy",
+                };
+                auto insertAt = project.quality.analyzers.end();
+                if (!policy.name.empty())
+                {
+                    insertAt = std::find_if(project.quality.analyzers.begin(), project.quality.analyzers.end(),
+                                            [&](const AnalyzerDefinition &existing) {
+                                                return existing.selectors.profile == policy.name &&
+                                                       existing.provenance.sourceKind != "workspace-profile" &&
+                                                       existing.provenance.sourceKind != "workspace-product-profile";
+                                            });
+                }
+                project.quality.analyzers.insert(insertAt, std::move(analyzer));
             }
 
             if (!policy.environmentVariables.empty())
             {
-                const auto environmentName = policy.environmentName.value_or(policy.name.empty() ? "development" : policy.name);
+                const auto environmentName =
+                    policy.environmentName.value_or(policy.name.empty() ? "development" : policy.name);
                 auto environmentIt = std::find_if(
-                    project.environments.begin(),
-                    project.environments.end(),
-                    [&](const EnvironmentDefinition &environment)
-                    {
-                        return environment.name == environmentName;
-                    });
+                    project.environments.begin(), project.environments.end(),
+                    [&](const EnvironmentDefinition &environment) { return environment.name == environmentName; });
                 if (environmentIt == project.environments.end())
                 {
                     EnvironmentDefinition environment{};
@@ -5266,8 +5496,7 @@ namespace NGIN::CLI
                 }
                 SelectorSet scopeSelectors{};
                 ApplyScopeSelector(scope, scopeSelectors);
-                const auto sameProfileSelector = [&](const SelectorSet &selectors)
-                {
+                const auto sameProfileSelector = [&](const SelectorSet &selectors) {
                     return selectors.profile == scopeSelectors.profile;
                 };
                 if (runtimePolicy.remove)
@@ -5276,36 +5505,30 @@ namespace NGIN::CLI
                     reference.name = runtimePolicy.name;
                     reference.selectors = scopeSelectors;
                     project.runtime.disableModules.erase(
-                        std::remove_if(
-                            project.runtime.disableModules.begin(),
-                            project.runtime.disableModules.end(),
-                            [&](const RuntimeReference &existing)
-                            {
-                                return existing.name == reference.name && sameProfileSelector(existing.selectors);
-                            }),
+                        std::remove_if(project.runtime.disableModules.begin(), project.runtime.disableModules.end(),
+                                       [&](const RuntimeReference &existing) {
+                                           return existing.name == reference.name &&
+                                                  sameProfileSelector(existing.selectors);
+                                       }),
                         project.runtime.disableModules.end());
                     project.runtime.disableModules.push_back(std::move(reference));
                     continue;
                 }
 
-                project.runtime.modules.erase(
-                    std::remove_if(
-                        project.runtime.modules.begin(),
-                        project.runtime.modules.end(),
-                        [&](const ModuleDescriptor &existing)
-                        {
-                            return existing.name == runtimePolicy.name && sameProfileSelector(existing.selectors);
-                        }),
-                    project.runtime.modules.end());
-                project.runtime.enableModules.erase(
-                    std::remove_if(
-                        project.runtime.enableModules.begin(),
-                        project.runtime.enableModules.end(),
-                        [&](const RuntimeReference &existing)
-                        {
-                            return existing.name == runtimePolicy.name && sameProfileSelector(existing.selectors);
-                        }),
-                    project.runtime.enableModules.end());
+                project.runtime.modules.erase(std::remove_if(project.runtime.modules.begin(),
+                                                             project.runtime.modules.end(),
+                                                             [&](const ModuleDescriptor &existing) {
+                                                                 return existing.name == runtimePolicy.name &&
+                                                                        sameProfileSelector(existing.selectors);
+                                                             }),
+                                              project.runtime.modules.end());
+                project.runtime.enableModules.erase(std::remove_if(project.runtime.enableModules.begin(),
+                                                                   project.runtime.enableModules.end(),
+                                                                   [&](const RuntimeReference &existing) {
+                                                                       return existing.name == runtimePolicy.name &&
+                                                                              sameProfileSelector(existing.selectors);
+                                                                   }),
+                                                    project.runtime.enableModules.end());
 
                 ModuleDescriptor module{};
                 module.name = runtimePolicy.name;
@@ -5328,4 +5551,4 @@ namespace NGIN::CLI
         }
         return project;
     }
-}
+} // namespace NGIN::CLI

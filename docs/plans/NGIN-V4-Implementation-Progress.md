@@ -155,16 +155,23 @@ Implemented profile behavior:
   same destination without an explicit override
 - same-scope duplicate identity diagnostics for generators, publishes, package
   outputs, runtime modules, and environment variables
+- same-scope duplicate identity diagnostics for V4 build settings and quality
+  analyzers
 - environment variable replacement by name
+- build setting replacement and removal by identity in selected profile
+  overlays, workspace profile policy, graph/explain output, and generated CMake
+  emission
+- analyzer replacement by identity with workspace/project profile precedence
+  and provenance in graph output
 - generator replacement and removal by `Name` in selected profile overlays
 - publish replacement and removal by `Name` in selected profile overlays
 - package output replacement and removal by `Name` in selected profile overlays
 
 This is still not the final V4 overlay engine. Build definitions, staged
 inputs, dependency features, project/package removals, environment variables,
-runtime modules, generators, publishes, and package outputs have first-pass
-identity handling, but full provenance and duplicate diagnostics are not
-implemented for every item family.
+runtime modules, generators, publishes, package outputs, and analyzers have
+first-pass identity handling, but full provenance and duplicate diagnostics are
+not implemented for every item family.
 
 ### V4 Workspace Parsing
 
@@ -1033,10 +1040,7 @@ The next implementation slice should focus on one of these paths:
 
 - migrate remaining guides/examples/spec drafts outside the active V4 plans to
   V4 syntax
-- harden workspace profile overlay provenance and diagnostics beyond the
-  currently covered named product families
-- continue hardening overlay identity/remove/override semantics for remaining
-  non-package item families, especially analyzer duplicates and build-setting
-  duplicates
+- continue hardening overlay provenance and diagnostics for any item families
+  still outside the shared identity path
 - add DEFLATE support or a compression backend for ZIP-backed `.nginpack`
   entries if package size becomes important

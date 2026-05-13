@@ -149,7 +149,8 @@ TEST_CASE("profile Uses overlays can remove project references")
     REQUIRE(shipping.value->projectUnits[0].project.name == "ProjectRemove.App");
 }
 
-TEST_CASE("profile overlays carry selectors and can override staged outputs and environment")
+TEST_CASE("profile overlays carry selectors and can override staged outputs "
+          "and environment")
 {
     TempDir temp{};
     const auto projectPath = temp.path() / "Overlay.App.nginproj";
@@ -210,22 +211,84 @@ TEST_CASE("profile overlays carry selectors and can override staged outputs and 
     REQUIRE_FALSE(resolved.diagnostics.HasErrors());
     REQUIRE(resolved.value.has_value());
     REQUIRE(resolved.value->profile.launch.args == "--shipping");
-    REQUIRE(std::any_of(resolved.value->environmentVariables.begin(),
-                        resolved.value->environmentVariables.end(),
-                        [](const EnvironmentVariable &variable)
-                        { return variable.name == "GAME_ENV" && variable.value == "production"; }));
-    REQUIRE(std::any_of(resolved.value->inputs.begin(),
-                        resolved.value->inputs.end(),
-                        [](const ResolvedInput &input)
-                        {
-                            return input.kind == "Config"
-                                   && input.source == "config/prod.json"
-                                   && input.stagedRelativePath == fs::path("config/app.json");
+    REQUIRE(std::any_of(resolved.value->environmentVariables.begin(), resolved.value->environmentVariables.end(),
+                        [](const EnvironmentVariable &variable) {
+                            return variable.name == "GAME_ENV" && variable.value == "production";
                         }));
-    REQUIRE_FALSE(std::any_of(resolved.value->inputs.begin(),
-                              resolved.value->inputs.end(),
-                              [](const ResolvedInput &input)
-                              { return input.kind == "Config" && input.source == "config/base.json"; }));
+    REQUIRE(std::any_of(resolved.value->inputs.begin(), resolved.value->inputs.end(), [](const ResolvedInput &input) {
+        return input.kind == "Config" && input.source == "config/prod.json" &&
+               input.stagedRelativePath == fs::path("config/app.json");
+    }));
+    REQUIRE_FALSE(
+        std::any_of(resolved.value->inputs.begin(), resolved.value->inputs.end(), [](const ResolvedInput &input) {
+            return input.kind == "Config" && input.source == "config/base.json";
+        }));
+}
+
+TEST_CASE("profile build and analyzer overlays replace and remove by identity")
+{
+    TempDir temp{};
+    const auto projectPath = temp.path() / "BuildOverlay.App.nginproj";
+    WriteFile(projectPath,
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4" Name="BuildOverlay.App" DefaultProfile="shipping">
+  <Application>
+    <Build>
+      <Sources Path="src/**.cpp" />
+      <Define Name="APP_MODE" Value="dev" />
+      <Define Name="APP_DEBUG" Value="1" />
+      <CompileOption Value="-Wextra" />
+    </Build>
+    <Quality>
+      <Analyzer Name="clang-tidy" Severity="Warning" />
+    </Quality>
+  </Application>
+  <Profile Name="shipping">
+    <Application>
+      <Build>
+        <Define Name="APP_MODE" Value="shipping" />
+        <Define Remove="APP_DEBUG" />
+        <CompileOption Remove="-Wextra" />
+      </Build>
+      <Quality>
+        <Analyzer Name="clang-tidy" Severity="Error" />
+      </Quality>
+    </Application>
+  </Profile>
+</Project>
+)xml");
+    WriteFile(temp.path() / "src/main.cpp", "int main() { return 0; }\n");
+
+    ParsedArgs graphArgs{};
+    graphArgs.projectPath = projectPath.string();
+    graphArgs.profileName = "shipping";
+    graphArgs.format = "json";
+
+    std::ostringstream graphCaptured{};
+    auto *previous = std::cout.rdbuf(graphCaptured.rdbuf());
+    const auto graphExitCode = CmdGraph(temp.path(), graphArgs);
+    std::cout.rdbuf(previous);
+
+    REQUIRE(graphExitCode == 0);
+    REQUIRE_THAT(graphCaptured.str(), ContainsSubstring("APP_MODE=shipping"));
+    REQUIRE(graphCaptured.str().find("APP_MODE=dev") == std::string::npos);
+    REQUIRE(graphCaptured.str().find("APP_DEBUG=1") == std::string::npos);
+    REQUIRE_THAT(graphCaptured.str(), ContainsSubstring(R"("name":"clang-tidy")"));
+    REQUIRE_THAT(graphCaptured.str(), ContainsSubstring(R"("severity":"Error")"));
+
+    ParsedArgs explainArgs{};
+    explainArgs.projectPath = projectPath.string();
+    explainArgs.profileName = "shipping";
+    explainArgs.packageName = "define:APP_MODE";
+
+    std::ostringstream explainCaptured{};
+    previous = std::cout.rdbuf(explainCaptured.rdbuf());
+    const auto explainExitCode = CmdExplainObject(temp.path(), explainArgs);
+    std::cout.rdbuf(previous);
+
+    REQUIRE(explainExitCode == 0);
+    REQUIRE_THAT(explainCaptured.str(), ContainsSubstring("value: APP_MODE=shipping"));
+    REQUIRE_THAT(explainCaptured.str(), ContainsSubstring("owner: project-profile shipping"));
 }
 
 TEST_CASE("stage identity reports collisions without explicit override")
@@ -259,13 +322,9 @@ TEST_CASE("stage identity reports collisions without explicit override")
     const auto diagnostics = DiagnosticMessages(resolved.diagnostics);
 
     REQUIRE(resolved.diagnostics.HasErrors());
-    REQUIRE(std::any_of(
-        diagnostics.begin(),
-        diagnostics.end(),
-        [](const std::string &message)
-        {
-            return message.find("input destination collision at 'config/app.json'") != std::string::npos;
-        }));
+    REQUIRE(std::any_of(diagnostics.begin(), diagnostics.end(), [](const std::string &message) {
+        return message.find("input destination collision at 'config/app.json'") != std::string::npos;
+    }));
 }
 
 TEST_CASE("profile overlays can remove and replace generator identities")
@@ -325,7 +384,8 @@ TEST_CASE("profile overlays can remove and replace generator identities")
     REQUIRE(resolved.value->generators[0].declaration.name == "Reflection");
     REQUIRE(resolved.value->generators[0].declaration.outputs.size() == 1);
     REQUIRE(resolved.value->generators[0].declaration.outputs[0].includePatterns.size() == 1);
-    REQUIRE(resolved.value->generators[0].declaration.outputs[0].includePatterns[0] == "$(GeneratedDir)/reflection/shipping/**.cpp");
+    REQUIRE(resolved.value->generators[0].declaration.outputs[0].includePatterns[0] ==
+            "$(GeneratedDir)/reflection/shipping/**.cpp");
 }
 
 TEST_CASE("profile overlays can remove and replace publish identities")
@@ -516,8 +576,7 @@ TEST_CASE("same-scope duplicate overlay identities are rejected")
 {
     TempDir temp{};
 
-    auto loadError = [&](const std::string &name, const std::string &body) -> std::string
-    {
+    auto loadError = [&](const std::string &name, const std::string &body) -> std::string {
         const auto projectPath = temp.path() / name;
         WriteFile(projectPath, body);
         try
@@ -531,9 +590,74 @@ TEST_CASE("same-scope duplicate overlay identities are rejected")
         return {};
     };
 
-    const auto generatorError = loadError(
-        "DuplicateGenerator.nginproj",
-        R"xml(<?xml version="1.0" encoding="utf-8"?>
+    const auto defineError = loadError("DuplicateDefine.nginproj",
+                                       R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4" Name="DuplicateDefine.App">
+  <Application>
+    <Build>
+      <Define Name="APP_MODE" Value="dev" />
+      <Define Name="APP_MODE" Value="shipping" />
+    </Build>
+  </Application>
+</Project>
+)xml");
+    REQUIRE_THAT(defineError, ContainsSubstring("duplicate define 'APP_MODE' in the same overlay scope"));
+
+    const auto includePathError = loadError("DuplicateIncludePath.nginproj",
+                                            R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4" Name="DuplicateIncludePath.App">
+  <Application>
+    <Build>
+      <IncludePath Path="include/../include" Visibility="Public" />
+      <IncludePath Path="include" Visibility="Public" />
+    </Build>
+  </Application>
+</Project>
+)xml");
+    REQUIRE_THAT(includePathError,
+                 ContainsSubstring("duplicate include path 'include|Public' in the same overlay scope"));
+
+    const auto compileOptionError = loadError("DuplicateCompileOption.nginproj",
+                                              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4" Name="DuplicateCompileOption.App">
+  <Application>
+    <Build>
+      <CompileOption Value="-Wall" />
+      <CompileOption Value="-Wall" />
+    </Build>
+  </Application>
+</Project>
+)xml");
+    REQUIRE_THAT(compileOptionError, ContainsSubstring("duplicate compile option '-Wall' in the same overlay scope"));
+
+    const auto linkOptionError = loadError("DuplicateLinkOption.nginproj",
+                                           R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4" Name="DuplicateLinkOption.App">
+  <Application>
+    <Build>
+      <LinkLibrary Name="m" />
+      <LinkOption Value="m" />
+    </Build>
+  </Application>
+</Project>
+)xml");
+    REQUIRE_THAT(linkOptionError, ContainsSubstring("duplicate link option 'm' in the same overlay scope"));
+
+    const auto analyzerError = loadError("DuplicateAnalyzer.nginproj",
+                                         R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4" Name="DuplicateAnalyzer.App">
+  <Application>
+    <Quality>
+      <Analyzer Name="clang-tidy" Severity="Warning" />
+      <Analyzer Name="clang-tidy" Severity="Error" />
+    </Quality>
+  </Application>
+</Project>
+)xml");
+    REQUIRE_THAT(analyzerError, ContainsSubstring("duplicate analyzer 'clang-tidy' in the same overlay scope"));
+
+    const auto generatorError = loadError("DuplicateGenerator.nginproj",
+                                          R"xml(<?xml version="1.0" encoding="utf-8"?>
 <Project SchemaVersion="4" Name="DuplicateGenerator.App">
   <Application>
     <Build>
@@ -558,9 +682,8 @@ TEST_CASE("same-scope duplicate overlay identities are rejected")
 )xml");
     REQUIRE_THAT(generatorError, ContainsSubstring("duplicate generator 'Codegen' in the same overlay scope"));
 
-    const auto publishError = loadError(
-        "DuplicatePublish.nginproj",
-        R"xml(<?xml version="1.0" encoding="utf-8"?>
+    const auto publishError = loadError("DuplicatePublish.nginproj",
+                                        R"xml(<?xml version="1.0" encoding="utf-8"?>
 <Project SchemaVersion="4" Name="DuplicatePublish.App">
   <Application>
     <Build>
@@ -573,9 +696,8 @@ TEST_CASE("same-scope duplicate overlay identities are rejected")
 )xml");
     REQUIRE_THAT(publishError, ContainsSubstring("duplicate publish 'folder' in the same overlay scope"));
 
-    const auto packageOutputError = loadError(
-        "DuplicatePackageOutput.nginproj",
-        R"xml(<?xml version="1.0" encoding="utf-8"?>
+    const auto packageOutputError = loadError("DuplicatePackageOutput.nginproj",
+                                              R"xml(<?xml version="1.0" encoding="utf-8"?>
 <Project SchemaVersion="4" Name="DuplicatePackageOutput.Library">
   <Library>
     <Build>
@@ -586,11 +708,11 @@ TEST_CASE("same-scope duplicate overlay identities are rejected")
   </Library>
 </Project>
 )xml");
-    REQUIRE_THAT(packageOutputError, ContainsSubstring("duplicate package output 'Output.Core' in the same overlay scope"));
+    REQUIRE_THAT(packageOutputError,
+                 ContainsSubstring("duplicate package output 'Output.Core' in the same overlay scope"));
 
-    const auto launchError = loadError(
-        "DuplicateLaunch.nginproj",
-        R"xml(<?xml version="1.0" encoding="utf-8"?>
+    const auto launchError = loadError("DuplicateLaunch.nginproj",
+                                       R"xml(<?xml version="1.0" encoding="utf-8"?>
 <Project SchemaVersion="4" Name="DuplicateLaunch.App">
   <Application>
     <Build>
@@ -603,9 +725,8 @@ TEST_CASE("same-scope duplicate overlay identities are rejected")
 )xml");
     REQUIRE_THAT(launchError, ContainsSubstring("duplicate launch 'app' in the same overlay scope"));
 
-    const auto runtimeError = loadError(
-        "DuplicateRuntime.nginproj",
-        R"xml(<?xml version="1.0" encoding="utf-8"?>
+    const auto runtimeError = loadError("DuplicateRuntime.nginproj",
+                                        R"xml(<?xml version="1.0" encoding="utf-8"?>
 <Project SchemaVersion="4" Name="DuplicateRuntime.App">
   <Application>
     <Build>
@@ -620,9 +741,8 @@ TEST_CASE("same-scope duplicate overlay identities are rejected")
 )xml");
     REQUIRE_THAT(runtimeError, ContainsSubstring("duplicate runtime module 'App.Startup' in the same overlay scope"));
 
-    const auto environmentError = loadError(
-        "DuplicateEnvironment.nginproj",
-        R"xml(<?xml version="1.0" encoding="utf-8"?>
+    const auto environmentError = loadError("DuplicateEnvironment.nginproj",
+                                            R"xml(<?xml version="1.0" encoding="utf-8"?>
 <Project SchemaVersion="4" Name="DuplicateEnvironment.App">
   <Application>
     <Build>
@@ -635,5 +755,6 @@ TEST_CASE("same-scope duplicate overlay identities are rejected")
   </Application>
 </Project>
 )xml");
-    REQUIRE_THAT(environmentError, ContainsSubstring("duplicate environment variable 'APP_ENV' in the same overlay scope"));
+    REQUIRE_THAT(environmentError, ContainsSubstring("duplicate environment variable 'APP_ENV' in "
+                                                     "the same overlay scope"));
 }

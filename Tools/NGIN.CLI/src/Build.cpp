@@ -18,27 +18,26 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cctype>
 #include <chrono>
-#include <cstdlib>
 #include <cstdint>
+#include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <map>
-#include <sstream>
 #include <set>
+#include <sstream>
 #include <string_view>
 #include <thread>
 #include <tuple>
 #include <unordered_map>
 #include <unordered_set>
-#include <atomic>
 
 namespace NGIN::CLI
 {
-    auto ResolveToolPath(
-        const std::string &tool,
-        const std::optional<fs::path> &searchRoot) -> std::optional<ToolResolution>;
+    auto ResolveToolPath(const std::string &tool, const std::optional<fs::path> &searchRoot)
+        -> std::optional<ToolResolution>;
 
     namespace
     {
@@ -86,6 +85,96 @@ namespace NGIN::CLI
             candidates.push_back(path);
 #endif
             return candidates;
+        }
+
+        [[nodiscard]] auto BuildSettingDefineName(const std::string &value) -> std::string
+        {
+            if (const auto separator = value.find('='); separator != std::string::npos)
+            {
+                return value.substr(0, separator);
+            }
+            return value;
+        }
+
+        [[nodiscard]] auto BuildSettingSelectorIdentity(const SelectorSet &selectors) -> std::string
+        {
+            std::ostringstream identity{};
+            if (selectors.profile.has_value())
+            {
+                identity << "|profile=" << *selectors.profile;
+            }
+            if (selectors.platform.has_value())
+            {
+                identity << "|platform=" << *selectors.platform;
+            }
+            if (selectors.operatingSystem.has_value())
+            {
+                identity << "|os=" << *selectors.operatingSystem;
+            }
+            if (selectors.architecture.has_value())
+            {
+                identity << "|arch=" << *selectors.architecture;
+            }
+            if (selectors.buildType.has_value())
+            {
+                identity << "|buildType=" << *selectors.buildType;
+            }
+            if (selectors.environment.has_value())
+            {
+                identity << "|environment=" << *selectors.environment;
+            }
+            for (const auto &condition : selectors.conditionRefs)
+            {
+                identity << "|condition=" << condition;
+            }
+            return identity.str();
+        }
+
+        [[nodiscard]] auto BuildSettingIdentity(const std::string &kind, const BuildSetting &setting) -> std::string
+        {
+            if (kind == "Define")
+            {
+                return BuildSettingDefineName(setting.value);
+            }
+            if (kind == "IncludePath")
+            {
+                return fs::path(setting.value).lexically_normal().generic_string() + "|" + setting.visibility;
+            }
+            return setting.value + BuildSettingSelectorIdentity(setting.selectors);
+        }
+
+        [[nodiscard]] auto EffectiveBuildSettings(const ProjectManifest &project, const ProfileDefinition &profile,
+                                                  const std::vector<BuildSetting> &settings, const std::string &kind)
+            -> std::vector<BuildSetting>
+        {
+            std::map<std::string, BuildSetting> byIdentity{};
+            for (const auto &setting : settings)
+            {
+                if (!SelectionMatches(project, setting.selectors, profile))
+                {
+                    continue;
+                }
+                const auto identity = setting.disabled ? setting.removeIdentity : BuildSettingIdentity(kind, setting);
+                if (identity.empty())
+                {
+                    continue;
+                }
+                if (setting.disabled)
+                {
+                    byIdentity.erase(identity);
+                }
+                else
+                {
+                    byIdentity[identity] = setting;
+                }
+            }
+
+            std::vector<BuildSetting> result{};
+            for (auto &[_, setting] : byIdentity)
+            {
+                result.push_back(std::move(setting));
+            }
+            return result;
         }
 
         [[nodiscard]] auto IsExecutableCandidate(const fs::path &path) -> bool
@@ -215,19 +304,14 @@ namespace NGIN::CLI
                     directories.push_back(entry.path());
                 }
             }
-            std::sort(
-                directories.begin(),
-                directories.end(),
-                [](const fs::path &left, const fs::path &right)
-                {
-                    return left.filename().string() > right.filename().string();
-                });
+            std::sort(directories.begin(), directories.end(), [](const fs::path &left, const fs::path &right) {
+                return left.filename().string() > right.filename().string();
+            });
             return directories;
         }
 
-        [[nodiscard]] auto FindBundledToolPath(
-            const std::string &tool,
-            const std::optional<fs::path> &searchRoot) -> std::optional<ToolResolution>
+        [[nodiscard]] auto FindBundledToolPath(const std::string &tool, const std::optional<fs::path> &searchRoot)
+            -> std::optional<ToolResolution>
         {
             const auto host = CurrentHostId();
             if (!host.has_value())
@@ -435,7 +519,8 @@ namespace NGIN::CLI
             fs::path buildDir;
         };
 
-        [[nodiscard]] auto ResolveGeneratedBuildPaths(const ResolvedLaunch &resolved, const fs::path &outputDir) -> GeneratedBuildPaths
+        [[nodiscard]] auto ResolveGeneratedBuildPaths(const ResolvedLaunch &resolved, const fs::path &outputDir)
+            -> GeneratedBuildPaths
         {
             (void)resolved;
             const auto cacheRoot = outputDir / ".ngin";
@@ -447,10 +532,12 @@ namespace NGIN::CLI
 
         [[nodiscard]] auto ResolveBuildRoot(const ResolvedLaunch &resolved) -> fs::path
         {
-            return resolved.workspace.has_value() ? resolved.workspace->path.parent_path() : resolved.project.path.parent_path();
+            return resolved.workspace.has_value() ? resolved.workspace->path.parent_path()
+                                                  : resolved.project.path.parent_path();
         }
 
-        [[nodiscard]] auto ResolveOutputDir(const ResolvedLaunch &resolved, const std::optional<fs::path> &outputPath) -> fs::path
+        [[nodiscard]] auto ResolveOutputDir(const ResolvedLaunch &resolved, const std::optional<fs::path> &outputPath)
+            -> fs::path
         {
             if (outputPath.has_value())
             {
@@ -460,20 +547,22 @@ namespace NGIN::CLI
             return ResolveBuildRoot(resolved) / ".ngin" / "build" / resolved.project.name / resolved.profile.name;
         }
 
-        [[nodiscard]] auto PackageExposesSelectedExecutable(const PackageManifest &manifest, const std::optional<ExecutableArtifact> &selectedExecutable) -> bool
+        [[nodiscard]] auto PackageExposesSelectedExecutable(const PackageManifest &manifest,
+                                                            const std::optional<ExecutableArtifact> &selectedExecutable)
+            -> bool
         {
             if (!selectedExecutable.has_value())
             {
                 return false;
             }
-            return std::any_of(
-                manifest.artifacts.executables.begin(),
-                manifest.artifacts.executables.end(),
-                [&](const ExecutableArtifact &artifact)
-                { return artifact.exported && artifact.name == selectedExecutable->name; });
+            return std::any_of(manifest.artifacts.executables.begin(), manifest.artifacts.executables.end(),
+                               [&](const ExecutableArtifact &artifact) {
+                                   return artifact.exported && artifact.name == selectedExecutable->name;
+                               });
         }
 
-        [[nodiscard]] auto ReplaceAll(std::string text, const std::string &needle, const std::string &replacement) -> std::string
+        [[nodiscard]] auto ReplaceAll(std::string text, const std::string &needle, const std::string &replacement)
+            -> std::string
         {
             if (needle.empty())
             {
@@ -488,23 +577,21 @@ namespace NGIN::CLI
             return text;
         }
 
-        [[nodiscard]] auto ExpandProjectVariables(
-            const std::string &input,
-            const ProjectManifest &project,
-            const std::optional<WorkspaceManifest> &workspace) -> std::string
+        [[nodiscard]] auto ExpandProjectVariables(const std::string &input, const ProjectManifest &project,
+                                                  const std::optional<WorkspaceManifest> &workspace) -> std::string
         {
-            auto expanded = ReplaceAll(input, "${ProjectDir}", fs::weakly_canonical(project.path.parent_path()).string());
-            const auto workspaceDir = workspace.has_value() ? workspace->path.parent_path() : project.path.parent_path();
+            auto expanded =
+                ReplaceAll(input, "${ProjectDir}", fs::weakly_canonical(project.path.parent_path()).string());
+            const auto workspaceDir =
+                workspace.has_value() ? workspace->path.parent_path() : project.path.parent_path();
             expanded = ReplaceAll(expanded, "${WorkspaceDir}", workspaceDir.string());
             expanded = ReplaceAll(expanded, "${ProjectName}", project.name);
             expanded = ReplaceAll(expanded, "${ProjectTarget}", project.output.target);
             return expanded;
         }
 
-        [[nodiscard]] auto ResolveProjectPathValue(
-            const std::string &input,
-            const ProjectManifest &project,
-            const std::optional<WorkspaceManifest> &workspace) -> fs::path
+        [[nodiscard]] auto ResolveProjectPathValue(const std::string &input, const ProjectManifest &project,
+                                                   const std::optional<WorkspaceManifest> &workspace) -> fs::path
         {
             auto value = ExpandProjectVariables(input, project, workspace);
             fs::path path{value};
@@ -595,8 +682,8 @@ namespace NGIN::CLI
             std::vector<InputDeclaration> roots{};
             for (const auto &input : project.inputs)
             {
-                if (IsBuildInputKind(input) && input.mode == "Directory" && !input.path.empty()
-                    && SelectionMatches(project, input.selectors, profile))
+                if (IsBuildInputKind(input) && input.mode == "Directory" && !input.path.empty() &&
+                    SelectionMatches(project, input.selectors, profile))
                 {
                     roots.push_back(input);
                 }
@@ -606,8 +693,9 @@ namespace NGIN::CLI
 
         [[nodiscard]] auto IsStagedResolvedInput(const ResolvedInput &input) -> bool
         {
-            return input.kind == "Config" || input.kind == "Content" || input.kind == "Asset"
-                   || (input.kind == "Generated" && (input.role == "Content" || input.role == "Asset" || !input.target.empty() || !input.targetRoot.empty()));
+            return input.kind == "Config" || input.kind == "Content" || input.kind == "Asset" ||
+                   (input.kind == "Generated" && (input.role == "Content" || input.role == "Asset" ||
+                                                  !input.target.empty() || !input.targetRoot.empty()));
         }
 
         [[nodiscard]] auto StagedResolvedInputKind(const ResolvedInput &input) -> std::string
@@ -652,17 +740,17 @@ namespace NGIN::CLI
             return "FindPackage";
         }
 
-        [[nodiscard]] auto PackageNeedsBuildIntegration(const ResolvedPackage &package, const std::optional<ExecutableArtifact> &selectedExecutable) -> bool
+        [[nodiscard]] auto PackageNeedsBuildIntegration(const ResolvedPackage &package,
+                                                        const std::optional<ExecutableArtifact> &selectedExecutable)
+            -> bool
         {
             if (Lower(package.manifest.build.backend) != "cmake")
             {
                 return false;
             }
             const auto hasLibraries = std::any_of(
-                package.manifest.artifacts.libraries.begin(),
-                package.manifest.artifacts.libraries.end(),
-                [](const LibraryArtifact &artifact)
-                { return artifact.exported && !artifact.target.empty(); });
+                package.manifest.artifacts.libraries.begin(), package.manifest.artifacts.libraries.end(),
+                [](const LibraryArtifact &artifact) { return artifact.exported && !artifact.target.empty(); });
             return hasLibraries || PackageExposesSelectedExecutable(package.manifest, selectedExecutable);
         }
 
@@ -672,41 +760,40 @@ namespace NGIN::CLI
             {
                 return true;
             }
-            return std::any_of(
-                resolved.libraries.begin(),
-                resolved.libraries.end(),
-                [](const LibraryArtifact &artifact)
-                {
-                    return !artifact.target.empty() && Lower(artifact.linkage) != "interface" && Lower(artifact.origin) != "prebuilt";
-                });
+            return std::any_of(resolved.libraries.begin(), resolved.libraries.end(),
+                               [](const LibraryArtifact &artifact) {
+                                   return !artifact.target.empty() && Lower(artifact.linkage) != "interface" &&
+                                          Lower(artifact.origin) != "prebuilt";
+                               });
         }
 
-        [[nodiscard]] auto CollectGeneratedProjectSources(
-            const std::optional<WorkspaceManifest> &workspace,
-            const ProjectManifest &project,
-            const ProfileDefinition &profile,
-            DiagnosticReport &report) -> std::vector<fs::path>
+        [[nodiscard]] auto CollectGeneratedProjectSources(const std::optional<WorkspaceManifest> &workspace,
+                                                          const ProjectManifest &project,
+                                                          const ProfileDefinition &profile, DiagnosticReport &report)
+            -> std::vector<fs::path>
         {
             std::vector<fs::path> sources{};
             std::set<fs::path> unique{};
             std::size_t compiledSourceCount = 0;
 
-            auto addSource = [&](const fs::path &candidate)
-            {
+            auto addSource = [&](const fs::path &candidate) {
                 const auto normalized = candidate.lexically_normal();
                 if (!fs::exists(normalized))
                 {
-                    AddError(report, "project '" + project.name + "' source file '" + normalized.string() + "' does not exist");
+                    AddError(report,
+                             "project '" + project.name + "' source file '" + normalized.string() + "' does not exist");
                     return;
                 }
                 if (!fs::is_regular_file(normalized))
                 {
-                    AddError(report, "project '" + project.name + "' source path '" + normalized.string() + "' is not a file");
+                    AddError(report,
+                             "project '" + project.name + "' source path '" + normalized.string() + "' is not a file");
                     return;
                 }
                 if (!IsTargetSourceExtension(normalized))
                 {
-                    AddError(report, "project '" + project.name + "' source file '" + normalized.string() + "' has an unsupported extension");
+                    AddError(report, "project '" + project.name + "' source file '" + normalized.string() +
+                                         "' has an unsupported extension");
                     return;
                 }
                 if (unique.insert(normalized).second)
@@ -750,8 +837,7 @@ namespace NGIN::CLI
                     }
                 }
 
-                auto isExcluded = [&](const fs::path &candidate)
-                {
+                auto isExcluded = [&](const fs::path &candidate) {
                     const auto normalized = candidate.lexically_normal();
                     for (const auto &root : excludedRoots)
                     {
@@ -763,17 +849,18 @@ namespace NGIN::CLI
                     return std::find(excludedFiles.begin(), excludedFiles.end(), normalized) != excludedFiles.end();
                 };
 
-                auto addRootSources = [&](const InputDeclaration &root)
-                {
+                auto addRootSources = [&](const InputDeclaration &root) {
                     const auto sourceRoot = ResolveProjectPathValue(root.path, project, workspace);
                     if (!fs::exists(sourceRoot))
                     {
-                        AddError(report, "project '" + project.name + "' source root '" + sourceRoot.string() + "' does not exist");
+                        AddError(report, "project '" + project.name + "' source root '" + sourceRoot.string() +
+                                             "' does not exist");
                         return;
                     }
                     if (!fs::is_directory(sourceRoot))
                     {
-                        AddError(report, "project '" + project.name + "' source root '" + sourceRoot.string() + "' is not a directory");
+                        AddError(report, "project '" + project.name + "' source root '" + sourceRoot.string() +
+                                             "' is not a directory");
                         return;
                     }
                     for (const auto &entry : fs::recursive_directory_iterator(sourceRoot))
@@ -786,7 +873,8 @@ namespace NGIN::CLI
                         const auto relativePath = normalized.lexically_relative(sourceRoot);
                         if (!root.includePatterns.empty())
                         {
-                            if (!IsTargetSourceExtension(normalized) || !AnyGlobMatches(root.includePatterns, relativePath))
+                            if (!IsTargetSourceExtension(normalized) ||
+                                !AnyGlobMatches(root.includePatterns, relativePath))
                             {
                                 continue;
                             }
@@ -827,7 +915,8 @@ namespace NGIN::CLI
                         }
                         if (!fs::exists(globRoot) || !fs::is_directory(globRoot))
                         {
-                            AddError(report, "project '" + project.name + "' input glob base path '" + globRoot.string() + "' does not exist");
+                            AddError(report, "project '" + project.name + "' input glob base path '" +
+                                                 globRoot.string() + "' does not exist");
                             continue;
                         }
                         for (const auto &entry : fs::recursive_directory_iterator(globRoot))
@@ -869,12 +958,9 @@ namespace NGIN::CLI
             return outputDir / ".ngin" / "generated" / resolved.project.name / resolved.profile.name;
         }
 
-        [[nodiscard]] auto ExpandGeneratorMacros(
-            std::string value,
-            const ResolvedLaunch &resolved,
-            const fs::path &outputDir,
-            const fs::path &projectDir,
-            const fs::path &generatorContextPath = {}) -> std::string
+        [[nodiscard]] auto ExpandGeneratorMacros(std::string value, const ResolvedLaunch &resolved,
+                                                 const fs::path &outputDir, const fs::path &projectDir,
+                                                 const fs::path &generatorContextPath = {}) -> std::string
         {
             value = ReplaceAll(value, "$(ProjectDir)", projectDir.string());
             value = ReplaceAll(value, "$(ProjectName)", resolved.project.name);
@@ -888,15 +974,13 @@ namespace NGIN::CLI
             return value;
         }
 
-        [[nodiscard]] auto ResolveGeneratorPath(
-            const std::string &value,
-            const ResolvedLaunch &resolved,
-            const ResolvedGenerator &generator,
-            const fs::path &outputDir,
-            const fs::path &baseDir,
-            const fs::path &generatorContextPath = {}) -> fs::path
+        [[nodiscard]] auto ResolveGeneratorPath(const std::string &value, const ResolvedLaunch &resolved,
+                                                const ResolvedGenerator &generator, const fs::path &outputDir,
+                                                const fs::path &baseDir, const fs::path &generatorContextPath = {})
+            -> fs::path
         {
-            fs::path path{ExpandGeneratorMacros(value, resolved, outputDir, generator.ownerDirectory, generatorContextPath)};
+            fs::path path{
+                ExpandGeneratorMacros(value, resolved, outputDir, generator.ownerDirectory, generatorContextPath)};
             if (path.is_relative())
             {
                 path = baseDir / path;
@@ -904,17 +988,15 @@ namespace NGIN::CLI
             return path.lexically_normal();
         }
 
-        [[nodiscard]] auto GeneratorContextPath(const ResolvedLaunch &resolved,
-                                                const ResolvedGenerator &generator,
+        [[nodiscard]] auto GeneratorContextPath(const ResolvedLaunch &resolved, const ResolvedGenerator &generator,
                                                 const fs::path &outputDir) -> fs::path
         {
             return outputDir / ".ngin" / "generator-context" / resolved.project.name / resolved.profile.name /
                    (SanitizeIdentifier(generator.declaration.name) + ".ngingen.xml");
         }
 
-        [[nodiscard]] auto SelectedGeneratorOutputs(
-            const ResolvedLaunch &resolved,
-            const ResolvedGenerator &generator) -> std::vector<InputDeclaration>
+        [[nodiscard]] auto SelectedGeneratorOutputs(const ResolvedLaunch &resolved, const ResolvedGenerator &generator)
+            -> std::vector<InputDeclaration>
         {
             std::vector<InputDeclaration> outputs{};
             for (auto output : generator.declaration.outputs)
@@ -947,12 +1029,9 @@ namespace NGIN::CLI
             return relative.lexically_normal();
         }
 
-        auto AddGeneratedOutputInput(
-            ResolvedLaunch &resolved,
-            const ResolvedGenerator &generator,
-            const InputDeclaration &output,
-            const fs::path &absoluteOutput,
-            const fs::path &generatedDir) -> void
+        auto AddGeneratedOutputInput(ResolvedLaunch &resolved, const ResolvedGenerator &generator,
+                                     const InputDeclaration &output, const fs::path &absoluteOutput,
+                                     const fs::path &generatedDir) -> void
         {
             ResolvedInput input{};
             input.ownerKind = "generator";
@@ -981,7 +1060,9 @@ namespace NGIN::CLI
             resolved.inputs.push_back(std::move(input));
         }
 
-        [[nodiscard]] auto FindProjectUnitForGenerator(const ResolvedLaunch &resolved, const ResolvedGenerator &generator) -> const ResolvedProjectUnit *
+        [[nodiscard]] auto FindProjectUnitForGenerator(const ResolvedLaunch &resolved,
+                                                       const ResolvedGenerator &generator)
+            -> const ResolvedProjectUnit *
         {
             if (generator.ownerKind == "project")
             {
@@ -996,56 +1077,56 @@ namespace NGIN::CLI
             return resolved.projectUnits.empty() ? nullptr : &resolved.projectUnits.back();
         }
 
-        [[nodiscard]] auto ResolvePackageTool(const ResolvedLaunch &resolved, const ResolvedGenerator &generator, DiagnosticReport &report) -> std::optional<ToolDeclaration>
+        [[nodiscard]] auto ResolvePackageTool(const ResolvedLaunch &resolved, const ResolvedGenerator &generator,
+                                              DiagnosticReport &report) -> std::optional<ToolDeclaration>
         {
-            const auto packageName = generator.declaration.packageName.empty() ? generator.packageName : generator.declaration.packageName;
+            const auto packageName =
+                generator.declaration.packageName.empty() ? generator.packageName : generator.declaration.packageName;
             if (packageName.empty())
             {
-                AddError(report, "generator '" + generator.declaration.name + "' references tool '" + generator.declaration.toolName + "' without a package");
+                AddError(report, "generator '" + generator.declaration.name + "' references tool '" +
+                                     generator.declaration.toolName + "' without a package");
                 return std::nullopt;
             }
-            const auto packageIt = std::find_if(
-                resolved.orderedPackages.begin(), resolved.orderedPackages.end(),
-                [&](const ResolvedPackage &package)
-                {
-                    return package.manifest.name == packageName;
-                });
+            const auto packageIt =
+                std::find_if(resolved.orderedPackages.begin(), resolved.orderedPackages.end(),
+                             [&](const ResolvedPackage &package) { return package.manifest.name == packageName; });
             if (packageIt == resolved.orderedPackages.end())
             {
-                AddError(report, "generator '" + generator.declaration.name + "' references unknown package '" + packageName + "'");
+                AddError(report, "generator '" + generator.declaration.name + "' references unknown package '" +
+                                     packageName + "'");
                 return std::nullopt;
             }
             const auto toolIt = std::find_if(
-                packageIt->manifest.tools.begin(), packageIt->manifest.tools.end(),
-                [&](const ToolDeclaration &tool)
-                {
-                    return tool.name == generator.declaration.toolName
-                           && SelectionMatches(packageIt->manifest.conditions, tool.selectors, resolved.profile);
+                packageIt->manifest.tools.begin(), packageIt->manifest.tools.end(), [&](const ToolDeclaration &tool) {
+                    return tool.name == generator.declaration.toolName &&
+                           SelectionMatches(packageIt->manifest.conditions, tool.selectors, resolved.profile);
                 });
             if (toolIt == packageIt->manifest.tools.end())
             {
-                AddError(report, "generator '" + generator.declaration.name + "' references unknown package tool '" + packageName + "::" + generator.declaration.toolName + "'");
+                AddError(report, "generator '" + generator.declaration.name + "' references unknown package tool '" +
+                                     packageName + "::" + generator.declaration.toolName + "'");
                 return std::nullopt;
             }
             return *toolIt;
         }
 
-        [[nodiscard]] auto ResolveGeneratorTool(
-            const ResolvedLaunch &resolved,
-            const ResolvedGenerator &generator,
-            const fs::path &outputDir,
-            DiagnosticReport &report) -> std::optional<ToolResolution>
+        [[nodiscard]] auto ResolveGeneratorTool(const ResolvedLaunch &resolved, const ResolvedGenerator &generator,
+                                                const fs::path &outputDir, DiagnosticReport &report)
+            -> std::optional<ToolResolution>
         {
             if (generator.declaration.hasInlineTool)
             {
                 const auto &tool = generator.declaration.inlineTool;
                 if (!SelectionMatches(generator.conditions, tool.selectors, resolved.profile))
                 {
-                    AddError(report, "generator '" + generator.declaration.name + "' inline tool is not selected for profile '" + resolved.profile.name + "'");
+                    AddError(report, "generator '" + generator.declaration.name +
+                                         "' inline tool is not selected for profile '" + resolved.profile.name + "'");
                     return std::nullopt;
                 }
                 return ToolResolution{
-                    .path = ResolveGeneratorPath(tool.executable, resolved, generator, outputDir, generator.ownerDirectory),
+                    .path =
+                        ResolveGeneratorPath(tool.executable, resolved, generator, outputDir, generator.ownerDirectory),
                     .source = "inline",
                 };
             }
@@ -1067,7 +1148,8 @@ namespace NGIN::CLI
             };
             if (!fs::exists(resolvedTool.path) && tool->executable == "bin/ngin-metagen")
             {
-                const auto packageName = generator.declaration.packageName.empty() ? generator.packageName : generator.declaration.packageName;
+                const auto packageName = generator.declaration.packageName.empty() ? generator.packageName
+                                                                                   : generator.declaration.packageName;
                 const auto workspaceBuildTool =
                     ResolveBuildRoot(resolved) / "build" / "dev" / "Packages" / packageName / "ngin-metagen";
                 if (fs::exists(workspaceBuildTool))
@@ -1086,40 +1168,37 @@ namespace NGIN::CLI
             return resolvedTool;
         }
 
-        auto ValidateGeneratorInputs(
-            const ResolvedLaunch &resolved,
-            const ResolvedGenerator &generator,
-            const fs::path &outputDir,
-            DiagnosticReport &report) -> void
+        auto ValidateGeneratorInputs(const ResolvedLaunch &resolved, const ResolvedGenerator &generator,
+                                     const fs::path &outputDir, DiagnosticReport &report) -> void
         {
             for (const auto &input : generator.declaration.inputs)
             {
-                if (!SelectionMatches(generator.conditions, input.selectors, resolved.profile) || !input.required || input.path.empty())
+                if (!SelectionMatches(generator.conditions, input.selectors, resolved.profile) || !input.required ||
+                    input.path.empty())
                 {
                     continue;
                 }
-                const auto path = ResolveGeneratorPath(input.path, resolved, generator, outputDir, generator.ownerDirectory);
+                const auto path =
+                    ResolveGeneratorPath(input.path, resolved, generator, outputDir, generator.ownerDirectory);
                 if (!fs::exists(path))
                 {
-                    AddError(report, "generator '" + generator.declaration.name + "' input '" + input.path + "' does not exist");
+                    AddError(report, "generator '" + generator.declaration.name + "' input '" + input.path +
+                                         "' does not exist");
                 }
             }
         }
 
-        auto WriteGeneratorContext(const ResolvedLaunch &resolved,
-                                   const ResolvedGenerator &generator,
-                                   const ResolvedProjectUnit &unit,
-                                   const std::vector<InputDeclaration> &outputs,
-                                   const std::vector<fs::path> &absoluteOutputs,
-                                   const fs::path &outputDir,
-                                   const fs::path &contextPath,
-                                   DiagnosticReport &report) -> void
+        auto WriteGeneratorContext(const ResolvedLaunch &resolved, const ResolvedGenerator &generator,
+                                   const ResolvedProjectUnit &unit, const std::vector<InputDeclaration> &outputs,
+                                   const std::vector<fs::path> &absoluteOutputs, const fs::path &outputDir,
+                                   const fs::path &contextPath, DiagnosticReport &report) -> void
         {
             fs::create_directories(contextPath.parent_path());
             std::ofstream out(contextPath);
             if (!out)
             {
-                AddError(report, "generator '" + generator.declaration.name + "' failed to write context file '" + contextPath.string() + "'");
+                AddError(report, "generator '" + generator.declaration.name + "' failed to write context file '" +
+                                     contextPath.string() + "'");
                 return;
             }
 
@@ -1141,8 +1220,12 @@ namespace NGIN::CLI
             out << "                  Environment=\"" << EscapeXml(unit.profile.environmentName) << "\"\n";
             out << "                  ProjectDir=\"" << EscapeXml(unit.project.path.parent_path().string()) << "\"\n";
             out << "                  OutputDir=\"" << EscapeXml(outputDir.string()) << "\"\n";
-            out << "                  GeneratedDir=\"" << EscapeXml(ResolveGeneratedDir(resolved, outputDir).string()) << "\"\n";
-            out << "                  LanguageStandard=\"" << EscapeXml(unit.project.build.languageStandard.empty() ? std::string{"23"} : unit.project.build.languageStandard) << "\">\n";
+            out << "                  GeneratedDir=\"" << EscapeXml(ResolveGeneratedDir(resolved, outputDir).string())
+                << "\"\n";
+            out << "                  LanguageStandard=\""
+                << EscapeXml(unit.project.build.languageStandard.empty() ? std::string{"23"}
+                                                                         : unit.project.build.languageStandard)
+                << "\">\n";
 
             out << "  <Sources>\n";
             for (const auto &source : sources)
@@ -1165,18 +1248,15 @@ namespace NGIN::CLI
             for (const auto &sourceRoot : SelectedBuildInputRoots(unit.project, unit.profile))
             {
                 const auto includeDir = ResolveProjectPathValue(sourceRoot.path, unit.project, resolved.workspace);
-                out << "    <IncludeDirectory Path=\"" << EscapeXml(includeDir.string())
-                    << "\" Visibility=\"" << EscapeXml(sourceRoot.visibility) << "\" />\n";
+                out << "    <IncludeDirectory Path=\"" << EscapeXml(includeDir.string()) << "\" Visibility=\""
+                    << EscapeXml(sourceRoot.visibility) << "\" />\n";
             }
-            for (const auto &setting : unit.project.build.includeDirectories)
+            for (const auto &setting : EffectiveBuildSettings(unit.project, unit.profile,
+                                                              unit.project.build.includeDirectories, "IncludePath"))
             {
-                if (!SelectionMatches(unit.project, setting.selectors, unit.profile))
-                {
-                    continue;
-                }
                 const auto includeDir = ResolveProjectPathValue(setting.value, unit.project, resolved.workspace);
-                out << "    <IncludeDirectory Path=\"" << EscapeXml(includeDir.string())
-                    << "\" Visibility=\"" << EscapeXml(setting.visibility) << "\" />\n";
+                out << "    <IncludeDirectory Path=\"" << EscapeXml(includeDir.string()) << "\" Visibility=\""
+                    << EscapeXml(setting.visibility) << "\" />\n";
             }
             std::set<fs::path> packageIncludeDirs{};
             const auto workspaceRoot = ResolveBuildRoot(resolved);
@@ -1206,10 +1286,7 @@ namespace NGIN::CLI
             {
                 const auto packageIt = std::find_if(
                     resolved.orderedPackages.begin(), resolved.orderedPackages.end(),
-                    [&](const ResolvedPackage &package)
-                    {
-                        return package.manifest.name == feature.packageName;
-                    });
+                    [&](const ResolvedPackage &package) { return package.manifest.name == feature.packageName; });
                 if (packageIt == resolved.orderedPackages.end())
                 {
                     continue;
@@ -1221,30 +1298,26 @@ namespace NGIN::CLI
                         continue;
                     }
                     const auto includeDir = ResolvePackagePathValue(setting.value, feature.manifestPath);
-                    out << "    <IncludeDirectory Path=\"" << EscapeXml(includeDir.string())
-                        << "\" Visibility=\"" << EscapeXml(setting.visibility)
-                        << "\" Package=\"" << EscapeXml(feature.packageName) << "\" />\n";
+                    out << "    <IncludeDirectory Path=\"" << EscapeXml(includeDir.string()) << "\" Visibility=\""
+                        << EscapeXml(setting.visibility) << "\" Package=\"" << EscapeXml(feature.packageName)
+                        << "\" />\n";
                 }
             }
             out << "  </IncludeDirectories>\n";
 
             out << "  <CompileDefinitions>\n";
-            for (const auto &setting : unit.project.build.compileDefinitions)
+            for (const auto &setting :
+                 EffectiveBuildSettings(unit.project, unit.profile, unit.project.build.compileDefinitions, "Define"))
             {
-                if (SelectionMatches(unit.project, setting.selectors, unit.profile))
-                {
-                    out << "    <Definition Value=\"" << EscapeXml(ExpandProjectVariables(setting.value, unit.project, resolved.workspace))
-                        << "\" Visibility=\"" << EscapeXml(setting.visibility) << "\" />\n";
-                }
+                out << "    <Definition Value=\""
+                    << EscapeXml(ExpandProjectVariables(setting.value, unit.project, resolved.workspace))
+                    << "\" Visibility=\"" << EscapeXml(setting.visibility) << "\" />\n";
             }
             for (const auto &feature : resolved.selectedPackageFeatures)
             {
                 const auto packageIt = std::find_if(
                     resolved.orderedPackages.begin(), resolved.orderedPackages.end(),
-                    [&](const ResolvedPackage &package)
-                    {
-                        return package.manifest.name == feature.packageName;
-                    });
+                    [&](const ResolvedPackage &package) { return package.manifest.name == feature.packageName; });
                 if (packageIt == resolved.orderedPackages.end())
                 {
                     continue;
@@ -1253,31 +1326,27 @@ namespace NGIN::CLI
                 {
                     if (SelectionMatches(packageIt->manifest.conditions, setting.selectors, unit.profile))
                     {
-                        out << "    <Definition Value=\"" << EscapeXml(setting.value)
-                            << "\" Visibility=\"" << EscapeXml(setting.visibility)
-                            << "\" Package=\"" << EscapeXml(feature.packageName) << "\" />\n";
+                        out << "    <Definition Value=\"" << EscapeXml(setting.value) << "\" Visibility=\""
+                            << EscapeXml(setting.visibility) << "\" Package=\"" << EscapeXml(feature.packageName)
+                            << "\" />\n";
                     }
                 }
             }
             out << "  </CompileDefinitions>\n";
 
             out << "  <CompileOptions>\n";
-            for (const auto &setting : unit.project.build.compileOptions)
+            for (const auto &setting :
+                 EffectiveBuildSettings(unit.project, unit.profile, unit.project.build.compileOptions, "CompileOption"))
             {
-                if (SelectionMatches(unit.project, setting.selectors, unit.profile))
-                {
-                    out << "    <Option Value=\"" << EscapeXml(ExpandProjectVariables(setting.value, unit.project, resolved.workspace))
-                        << "\" Visibility=\"" << EscapeXml(setting.visibility) << "\" />\n";
-                }
+                out << "    <Option Value=\""
+                    << EscapeXml(ExpandProjectVariables(setting.value, unit.project, resolved.workspace))
+                    << "\" Visibility=\"" << EscapeXml(setting.visibility) << "\" />\n";
             }
             for (const auto &feature : resolved.selectedPackageFeatures)
             {
                 const auto packageIt = std::find_if(
                     resolved.orderedPackages.begin(), resolved.orderedPackages.end(),
-                    [&](const ResolvedPackage &package)
-                    {
-                        return package.manifest.name == feature.packageName;
-                    });
+                    [&](const ResolvedPackage &package) { return package.manifest.name == feature.packageName; });
                 if (packageIt == resolved.orderedPackages.end())
                 {
                     continue;
@@ -1286,9 +1355,9 @@ namespace NGIN::CLI
                 {
                     if (SelectionMatches(packageIt->manifest.conditions, setting.selectors, unit.profile))
                     {
-                        out << "    <Option Value=\"" << EscapeXml(setting.value)
-                            << "\" Visibility=\"" << EscapeXml(setting.visibility)
-                            << "\" Package=\"" << EscapeXml(feature.packageName) << "\" />\n";
+                        out << "    <Option Value=\"" << EscapeXml(setting.value) << "\" Visibility=\""
+                            << EscapeXml(setting.visibility) << "\" Package=\"" << EscapeXml(feature.packageName)
+                            << "\" />\n";
                     }
                 }
             }
@@ -1297,8 +1366,8 @@ namespace NGIN::CLI
             out << "  <Outputs>\n";
             for (std::size_t index = 0; index < outputs.size(); ++index)
             {
-                out << "    <Generated Role=\"" << EscapeXml(outputs[index].role)
-                    << "\" Path=\"" << EscapeXml(absoluteOutputs[index].string()) << "\" />\n";
+                out << "    <Generated Role=\"" << EscapeXml(outputs[index].role) << "\" Path=\""
+                    << EscapeXml(absoluteOutputs[index].string()) << "\" />\n";
             }
             out << "  </Outputs>\n";
             out << "</GeneratorContext>\n";
@@ -1325,7 +1394,8 @@ namespace NGIN::CLI
                 std::vector<fs::path> absoluteOutputs{};
                 for (const auto &output : outputs)
                 {
-                    absoluteOutputs.push_back(ResolveGeneratorPath(output.path, resolved, generator, outputDir, generatedDir));
+                    absoluteOutputs.push_back(
+                        ResolveGeneratorPath(output.path, resolved, generator, outputDir, generatedDir));
                 }
 
                 if (generator.declaration.kind == "Command")
@@ -1333,18 +1403,21 @@ namespace NGIN::CLI
                     const auto *unit = FindProjectUnitForGenerator(resolved, generator);
                     if (unit == nullptr)
                     {
-                        AddError(report, "generator '" + generator.declaration.name + "' could not resolve owning project");
+                        AddError(report,
+                                 "generator '" + generator.declaration.name + "' could not resolve owning project");
                         continue;
                     }
                     const auto contextPath = GeneratorContextPath(resolved, generator, outputDir);
-                    WriteGeneratorContext(resolved, generator, *unit, outputs, absoluteOutputs, outputDir, contextPath, report);
+                    WriteGeneratorContext(resolved, generator, *unit, outputs, absoluteOutputs, outputDir, contextPath,
+                                          report);
                     if (report.HasErrors())
                     {
                         continue;
                     }
                     if (!fs::exists(tool->path))
                     {
-                        AddError(report, "generator '" + generator.declaration.name + "' executable '" + tool->path.string() + "' does not exist");
+                        AddError(report, "generator '" + generator.declaration.name + "' executable '" +
+                                             tool->path.string() + "' does not exist");
                         continue;
                     }
                     std::vector<std::string> arguments{};
@@ -1356,11 +1429,14 @@ namespace NGIN::CLI
                         }
                         if (!argument.value.empty())
                         {
-                            arguments.push_back(ExpandGeneratorMacros(argument.value, resolved, outputDir, generator.ownerDirectory, contextPath));
+                            arguments.push_back(ExpandGeneratorMacros(argument.value, resolved, outputDir,
+                                                                      generator.ownerDirectory, contextPath));
                         }
                         else
                         {
-                            arguments.push_back(ResolveGeneratorPath(argument.path, resolved, generator, outputDir, generator.ownerDirectory, contextPath).string());
+                            arguments.push_back(ResolveGeneratorPath(argument.path, resolved, generator, outputDir,
+                                                                     generator.ownerDirectory, contextPath)
+                                                    .string());
                         }
                     }
                     if (RunProcess(tool->path, arguments, generator.ownerDirectory) != 0)
@@ -1383,7 +1459,8 @@ namespace NGIN::CLI
                     {
                         if (outputs[index].required)
                         {
-                            AddError(report, "generator '" + generator.declaration.name + "' did not produce declared output '" + absoluteOutput.string() + "'");
+                            AddError(report, "generator '" + generator.declaration.name +
+                                                 "' did not produce declared output '" + absoluteOutput.string() + "'");
                         }
                         continue;
                     }
@@ -1392,10 +1469,8 @@ namespace NGIN::CLI
             }
         }
 
-        auto AddGeneratedOutputSources(
-            const ResolvedLaunch &resolved,
-            const ResolvedProjectUnit &unit,
-            std::vector<fs::path> &sources) -> void
+        auto AddGeneratedOutputSources(const ResolvedLaunch &resolved, const ResolvedProjectUnit &unit,
+                                       std::vector<fs::path> &sources) -> void
         {
             std::set<fs::path> existing(sources.begin(), sources.end());
             for (const auto &input : resolved.inputs)
@@ -1406,20 +1481,18 @@ namespace NGIN::CLI
                 }
                 const auto generatorIt = std::find_if(
                     resolved.generators.begin(), resolved.generators.end(),
-                    [&](const ResolvedGenerator &generator)
-                    {
-                        return generator.declaration.name == input.ownerName;
-                    });
+                    [&](const ResolvedGenerator &generator) { return generator.declaration.name == input.ownerName; });
                 if (generatorIt == resolved.generators.end())
                 {
                     continue;
                 }
-                if (generatorIt->ownerKind == "project"
-                    && fs::weakly_canonical(generatorIt->manifestPath) != fs::weakly_canonical(unit.project.path))
+                if (generatorIt->ownerKind == "project" &&
+                    fs::weakly_canonical(generatorIt->manifestPath) != fs::weakly_canonical(unit.project.path))
                 {
                     continue;
                 }
-                if (generatorIt->ownerKind != "project" && fs::weakly_canonical(unit.project.path) != fs::weakly_canonical(resolved.project.path))
+                if (generatorIt->ownerKind != "project" &&
+                    fs::weakly_canonical(unit.project.path) != fs::weakly_canonical(resolved.project.path))
                 {
                     continue;
                 }
@@ -1437,8 +1510,8 @@ namespace NGIN::CLI
                 if (artifact.exported && !artifact.target.empty())
                 {
                     out << "if(NOT TARGET \"" << EscapeCMake(artifact.target) << "\")\n";
-                    out << "  message(FATAL_ERROR \"package '" << EscapeCMake(manifest.name)
-                        << "' expected target '" << EscapeCMake(artifact.target) << "'\")\n";
+                    out << "  message(FATAL_ERROR \"package '" << EscapeCMake(manifest.name) << "' expected target '"
+                        << EscapeCMake(artifact.target) << "'\")\n";
                     out << "endif()\n";
                 }
             }
@@ -1447,8 +1520,8 @@ namespace NGIN::CLI
                 if (artifact.exported && !artifact.target.empty())
                 {
                     out << "if(NOT TARGET \"" << EscapeCMake(artifact.target) << "\")\n";
-                    out << "  message(FATAL_ERROR \"package '" << EscapeCMake(manifest.name)
-                        << "' expected target '" << EscapeCMake(artifact.target) << "'\")\n";
+                    out << "  message(FATAL_ERROR \"package '" << EscapeCMake(manifest.name) << "' expected target '"
+                        << EscapeCMake(artifact.target) << "'\")\n";
                     out << "endif()\n";
                 }
             }
@@ -1459,16 +1532,18 @@ namespace NGIN::CLI
             for (const auto &option : build.options)
             {
                 const auto lowerValue = Lower(option.value);
-                const auto cacheType = lowerValue == "on" || lowerValue == "off" || lowerValue == "true" || lowerValue == "false" ? "BOOL" : "STRING";
-                out << "set(" << option.name << " \"" << EscapeCMake(option.value) << "\" CACHE " << cacheType << " \"\" FORCE)\n";
+                const auto cacheType =
+                    lowerValue == "on" || lowerValue == "off" || lowerValue == "true" || lowerValue == "false"
+                        ? "BOOL"
+                        : "STRING";
+                out << "set(" << option.name << " \"" << EscapeCMake(option.value) << "\" CACHE " << cacheType
+                    << " \"\" FORCE)\n";
             }
         }
 
-        [[nodiscard]] auto WriteGeneratedBuildProject(
-            const ResolvedLaunch &resolved,
-            const fs::path &outputDir,
-            const GeneratedBuildPaths &generatedPaths,
-            DiagnosticReport &report) -> bool
+        [[nodiscard]] auto WriteGeneratedBuildProject(const ResolvedLaunch &resolved, const fs::path &outputDir,
+                                                      const GeneratedBuildPaths &generatedPaths,
+                                                      DiagnosticReport &report) -> bool
         {
             if (!HasArtifactTargetsToBuild(resolved))
             {
@@ -1487,14 +1562,16 @@ namespace NGIN::CLI
             {
                 if (!library.target.empty() && !targetProviders.emplace(library.target, library.name).second)
                 {
-                    AddError(report, "duplicate build target '" + library.target + "' in artifacts '" + targetProviders.at(library.target) + "' and '" + library.name + "'");
+                    AddError(report, "duplicate build target '" + library.target + "' in artifacts '" +
+                                         targetProviders.at(library.target) + "' and '" + library.name + "'");
                 }
             }
             for (const auto &executable : resolved.executables)
             {
                 if (!executable.target.empty() && !targetProviders.emplace(executable.target, executable.name).second)
                 {
-                    AddError(report, "duplicate build target '" + executable.target + "' in artifacts '" + targetProviders.at(executable.target) + "' and '" + executable.name + "'");
+                    AddError(report, "duplicate build target '" + executable.target + "' in artifacts '" +
+                                         targetProviders.at(executable.target) + "' and '" + executable.name + "'");
                 }
             }
 
@@ -1506,42 +1583,47 @@ namespace NGIN::CLI
                 const auto buildMode = ProjectBuildMode(unit.project);
                 if (!IsSupportedProjectBuildMode(buildMode))
                 {
-                    AddError(report, "project '" + unit.project.name + "' uses unsupported build mode '" + buildMode + "'");
+                    AddError(report,
+                             "project '" + unit.project.name + "' uses unsupported build mode '" + buildMode + "'");
                     continue;
                 }
                 if (Lower(unit.project.build.backend) != "cmake")
                 {
-                    AddError(report, "project '" + unit.project.name + "' uses unsupported build backend '" + unit.project.build.backend + "'");
+                    AddError(report, "project '" + unit.project.name + "' uses unsupported build backend '" +
+                                         unit.project.build.backend + "'");
                     continue;
                 }
                 if (buildMode == "Generated")
                 {
                     if (Lower(unit.project.build.language) != "cxx")
                     {
-                        AddError(report, "project '" + unit.project.name + "' generated build currently supports only Language=\"CXX\"");
+                        AddError(report, "project '" + unit.project.name +
+                                             "' generated build currently supports only Language=\"CXX\"");
                         continue;
                     }
-                    auto sources = CollectGeneratedProjectSources(resolved.workspace, unit.project, unit.profile, report);
+                    auto sources =
+                        CollectGeneratedProjectSources(resolved.workspace, unit.project, unit.profile, report);
                     if (sources.empty() && unit.project.productKind != "External")
                     {
-                        AddError(report, "project '" + unit.project.name + "' generated build resolved no source files");
+                        AddError(report,
+                                 "project '" + unit.project.name + "' generated build resolved no source files");
                         continue;
                     }
-                for (const auto &source : sources)
-                {
-                    if (IsCompiledSourceExtension(source))
+                    for (const auto &source : sources)
                     {
-                        languages.insert(SourceLanguageFor(source));
+                        if (IsCompiledSourceExtension(source))
+                        {
+                            languages.insert(SourceLanguageFor(source));
+                        }
                     }
-                }
-                AddGeneratedOutputSources(resolved, unit, sources);
-                for (const auto &source : sources)
-                {
-                    if (IsCompiledSourceExtension(source))
+                    AddGeneratedOutputSources(resolved, unit, sources);
+                    for (const auto &source : sources)
                     {
-                        languages.insert(SourceLanguageFor(source));
+                        if (IsCompiledSourceExtension(source))
+                        {
+                            languages.insert(SourceLanguageFor(source));
+                        }
                     }
-                }
                     generatedSourcesByProject.emplace(unit.project.name, std::move(sources));
                 }
             }
@@ -1570,14 +1652,16 @@ namespace NGIN::CLI
                 }
                 if (Lower(package.manifest.build.backend) != "cmake")
                 {
-                    AddError(report, "package '" + package.manifest.name + "' uses unsupported build backend '" + package.manifest.build.backend + "'");
+                    AddError(report, "package '" + package.manifest.name + "' uses unsupported build backend '" +
+                                         package.manifest.build.backend + "'");
                     continue;
                 }
 
                 const auto mode = EffectivePackageBuildMode(package);
                 if (mode.empty())
                 {
-                    AddError(report, "package '" + package.manifest.name + "' does not define a usable CMake integration mode");
+                    AddError(report,
+                             "package '" + package.manifest.name + "' does not define a usable CMake integration mode");
                     continue;
                 }
 
@@ -1589,13 +1673,17 @@ namespace NGIN::CLI
                         continue;
                     }
                     out << "find_package(\"" << EscapeCMake(packageId) << "\" CONFIG QUIET)\n";
-                    if (!package.manifest.artifacts.libraries.empty() && !package.manifest.artifacts.libraries.front().target.empty())
+                    if (!package.manifest.artifacts.libraries.empty() &&
+                        !package.manifest.artifacts.libraries.front().target.empty())
                     {
-                        out << "if(NOT TARGET \"" << EscapeCMake(package.manifest.artifacts.libraries.front().target) << "\")\n";
+                        out << "if(NOT TARGET \"" << EscapeCMake(package.manifest.artifacts.libraries.front().target)
+                            << "\")\n";
                     }
-                    else if (!package.manifest.artifacts.executables.empty() && !package.manifest.artifacts.executables.front().target.empty())
+                    else if (!package.manifest.artifacts.executables.empty() &&
+                             !package.manifest.artifacts.executables.front().target.empty())
                     {
-                        out << "if(NOT TARGET \"" << EscapeCMake(package.manifest.artifacts.executables.front().target) << "\")\n";
+                        out << "if(NOT TARGET \"" << EscapeCMake(package.manifest.artifacts.executables.front().target)
+                            << "\")\n";
                     }
                     else
                     {
@@ -1609,11 +1697,13 @@ namespace NGIN::CLI
 
                 if (mode == "AddSubdirectory")
                 {
-                    const auto sourceDir = package.sourceDirectory.empty() ? package.manifest.path.parent_path() : package.sourceDirectory;
+                    const auto sourceDir =
+                        package.sourceDirectory.empty() ? package.manifest.path.parent_path() : package.sourceDirectory;
                     const auto cmakeLists = sourceDir / "CMakeLists.txt";
                     if (!fs::exists(cmakeLists))
                     {
-                        AddError(report, "package '" + package.manifest.name + "' requires a CMake project at '" + cmakeLists.string() + "'");
+                        AddError(report, "package '" + package.manifest.name + "' requires a CMake project at '" +
+                                             cmakeLists.string() + "'");
                         continue;
                     }
                     const auto key = "subdir:" + sourceDir.string();
@@ -1622,7 +1712,8 @@ namespace NGIN::CLI
                         continue;
                     }
                     EmitPackageBuildOptions(out, package.manifest.build);
-                    out << "add_subdirectory(\"" << ToCMakePath(sourceDir) << "\" \"${CMAKE_BINARY_DIR}/pkg_" << SanitizeIdentifier(package.manifest.name) << "\" EXCLUDE_FROM_ALL)\n";
+                    out << "add_subdirectory(\"" << ToCMakePath(sourceDir) << "\" \"${CMAKE_BINARY_DIR}/pkg_"
+                        << SanitizeIdentifier(package.manifest.name) << "\" EXCLUDE_FROM_ALL)\n";
                     EmitTargetChecks(out, package.manifest);
                     continue;
                 }
@@ -1633,7 +1724,8 @@ namespace NGIN::CLI
                     const auto cmakeLists = packageDir / "CMakeLists.txt";
                     if (!fs::exists(cmakeLists))
                     {
-                        AddError(report, "package '" + package.manifest.name + "' requires a manual CMake wrapper at '" + cmakeLists.string() + "'");
+                        AddError(report, "package '" + package.manifest.name +
+                                             "' requires a manual CMake wrapper at '" + cmakeLists.string() + "'");
                         continue;
                     }
                     const auto key = "manual:" + packageDir.string();
@@ -1642,12 +1734,14 @@ namespace NGIN::CLI
                         continue;
                     }
                     EmitPackageBuildOptions(out, package.manifest.build);
-                    out << "add_subdirectory(\"" << ToCMakePath(packageDir) << "\" \"${CMAKE_BINARY_DIR}/pkg_" << SanitizeIdentifier(package.manifest.name) << "\" EXCLUDE_FROM_ALL)\n";
+                    out << "add_subdirectory(\"" << ToCMakePath(packageDir) << "\" \"${CMAKE_BINARY_DIR}/pkg_"
+                        << SanitizeIdentifier(package.manifest.name) << "\" EXCLUDE_FROM_ALL)\n";
                     EmitTargetChecks(out, package.manifest);
                     continue;
                 }
 
-                AddError(report, "package '" + package.manifest.name + "' uses unsupported CMake integration mode '" + mode + "'");
+                AddError(report, "package '" + package.manifest.name + "' uses unsupported CMake integration mode '" +
+                                     mode + "'");
             }
             if (report.HasErrors())
             {
@@ -1668,10 +1762,12 @@ namespace NGIN::CLI
                     const auto cmakeLists = projectDir / "CMakeLists.txt";
                     if (!fs::exists(cmakeLists))
                     {
-                        AddError(report, "project '" + unit.project.name + "' requires a manual CMakeLists.txt at '" + cmakeLists.string() + "'");
+                        AddError(report, "project '" + unit.project.name + "' requires a manual CMakeLists.txt at '" +
+                                             cmakeLists.string() + "'");
                         continue;
                     }
-                    out << "add_subdirectory(\"" << ToCMakePath(projectDir) << "\" \"${CMAKE_BINARY_DIR}/proj_" << SanitizeIdentifier(unit.project.name) << "\")\n";
+                    out << "add_subdirectory(\"" << ToCMakePath(projectDir) << "\" \"${CMAKE_BINARY_DIR}/proj_"
+                        << SanitizeIdentifier(unit.project.name) << "\")\n";
                     continue;
                 }
 
@@ -1699,7 +1795,8 @@ namespace NGIN::CLI
                 }
                 else
                 {
-                    AddError(report, "project '" + unit.project.name + "' output kind '" + unit.project.output.kind + "' is not supported by generated CMake");
+                    AddError(report, "project '" + unit.project.name + "' output kind '" + unit.project.output.kind +
+                                         "' is not supported by generated CMake");
                     continue;
                 }
                 if (unit.project.productKind != "External")
@@ -1717,54 +1814,45 @@ namespace NGIN::CLI
                 for (const auto &sourceRoot : SelectedBuildInputRoots(unit.project, unit.profile))
                 {
                     const auto includeDir = ResolveProjectPathValue(sourceRoot.path, unit.project, resolved.workspace);
-                    out << "target_include_directories(\"" << EscapeCMake(targetName) << "\" " << ToCMakeVisibility(sourceRoot.visibility)
-                        << " \"" << ToCMakePath(includeDir) << "\")\n";
+                    out << "target_include_directories(\"" << EscapeCMake(targetName) << "\" "
+                        << ToCMakeVisibility(sourceRoot.visibility) << " \"" << ToCMakePath(includeDir) << "\")\n";
                 }
-                for (const auto &setting : unit.project.build.includeDirectories)
+                for (const auto &setting : EffectiveBuildSettings(unit.project, unit.profile,
+                                                                  unit.project.build.includeDirectories, "IncludePath"))
                 {
-                    if (!SelectionMatches(unit.project, setting.selectors, unit.profile))
-                    {
-                        continue;
-                    }
                     const auto includeDir = ResolveProjectPathValue(setting.value, unit.project, resolved.workspace);
-                    out << "target_include_directories(\"" << EscapeCMake(targetName) << "\" " << ToCMakeVisibility(setting.visibility)
-                        << " \"" << ToCMakePath(includeDir) << "\")\n";
+                    out << "target_include_directories(\"" << EscapeCMake(targetName) << "\" "
+                        << ToCMakeVisibility(setting.visibility) << " \"" << ToCMakePath(includeDir) << "\")\n";
                 }
-                for (const auto &setting : unit.project.build.compileDefinitions)
+                for (const auto &setting : EffectiveBuildSettings(unit.project, unit.profile,
+                                                                  unit.project.build.compileDefinitions, "Define"))
                 {
-                    if (!SelectionMatches(unit.project, setting.selectors, unit.profile))
-                    {
-                        continue;
-                    }
-                    out << "target_compile_definitions(\"" << EscapeCMake(targetName) << "\" " << ToCMakeVisibility(setting.visibility)
-                        << " \"" << EscapeCMake(ExpandProjectVariables(setting.value, unit.project, resolved.workspace)) << "\")\n";
+                    out << "target_compile_definitions(\"" << EscapeCMake(targetName) << "\" "
+                        << ToCMakeVisibility(setting.visibility) << " \""
+                        << EscapeCMake(ExpandProjectVariables(setting.value, unit.project, resolved.workspace))
+                        << "\")\n";
                 }
-                for (const auto &setting : unit.project.build.compileOptions)
+                for (const auto &setting : EffectiveBuildSettings(unit.project, unit.profile,
+                                                                  unit.project.build.compileOptions, "CompileOption"))
                 {
-                    if (!SelectionMatches(unit.project, setting.selectors, unit.profile))
-                    {
-                        continue;
-                    }
-                    out << "target_compile_options(\"" << EscapeCMake(targetName) << "\" " << ToCMakeVisibility(setting.visibility)
-                        << " \"" << EscapeCMake(ExpandProjectVariables(setting.value, unit.project, resolved.workspace)) << "\")\n";
+                    out << "target_compile_options(\"" << EscapeCMake(targetName) << "\" "
+                        << ToCMakeVisibility(setting.visibility) << " \""
+                        << EscapeCMake(ExpandProjectVariables(setting.value, unit.project, resolved.workspace))
+                        << "\")\n";
                 }
-                for (const auto &setting : unit.project.build.linkOptions)
+                for (const auto &setting :
+                     EffectiveBuildSettings(unit.project, unit.profile, unit.project.build.linkOptions, "LinkOption"))
                 {
-                    if (!SelectionMatches(unit.project, setting.selectors, unit.profile))
-                    {
-                        continue;
-                    }
-                    out << "target_link_options(\"" << EscapeCMake(targetName) << "\" " << ToCMakeVisibility(setting.visibility)
-                        << " \"" << EscapeCMake(ExpandProjectVariables(setting.value, unit.project, resolved.workspace)) << "\")\n";
+                    out << "target_link_options(\"" << EscapeCMake(targetName) << "\" "
+                        << ToCMakeVisibility(setting.visibility) << " \""
+                        << EscapeCMake(ExpandProjectVariables(setting.value, unit.project, resolved.workspace))
+                        << "\")\n";
                 }
                 for (const auto &feature : resolved.selectedPackageFeatures)
                 {
                     const auto packageIt = std::find_if(
                         resolved.orderedPackages.begin(), resolved.orderedPackages.end(),
-                        [&](const ResolvedPackage &package)
-                        {
-                            return package.manifest.name == feature.packageName;
-                        });
+                        [&](const ResolvedPackage &package) { return package.manifest.name == feature.packageName; });
                     if (packageIt == resolved.orderedPackages.end())
                     {
                         continue;
@@ -1776,8 +1864,8 @@ namespace NGIN::CLI
                             continue;
                         }
                         const auto includeDir = ResolvePackagePathValue(setting.value, feature.manifestPath);
-                        out << "target_include_directories(\"" << EscapeCMake(targetName) << "\" " << ToCMakeVisibility(setting.visibility)
-                            << " \"" << ToCMakePath(includeDir) << "\")\n";
+                        out << "target_include_directories(\"" << EscapeCMake(targetName) << "\" "
+                            << ToCMakeVisibility(setting.visibility) << " \"" << ToCMakePath(includeDir) << "\")\n";
                     }
                     for (const auto &setting : feature.build.compileDefinitions)
                     {
@@ -1785,8 +1873,8 @@ namespace NGIN::CLI
                         {
                             continue;
                         }
-                        out << "target_compile_definitions(\"" << EscapeCMake(targetName) << "\" " << ToCMakeVisibility(setting.visibility)
-                            << " \"" << EscapeCMake(setting.value) << "\")\n";
+                        out << "target_compile_definitions(\"" << EscapeCMake(targetName) << "\" "
+                            << ToCMakeVisibility(setting.visibility) << " \"" << EscapeCMake(setting.value) << "\")\n";
                     }
                     for (const auto &setting : feature.build.compileOptions)
                     {
@@ -1794,8 +1882,8 @@ namespace NGIN::CLI
                         {
                             continue;
                         }
-                        out << "target_compile_options(\"" << EscapeCMake(targetName) << "\" " << ToCMakeVisibility(setting.visibility)
-                            << " \"" << EscapeCMake(setting.value) << "\")\n";
+                        out << "target_compile_options(\"" << EscapeCMake(targetName) << "\" "
+                            << ToCMakeVisibility(setting.visibility) << " \"" << EscapeCMake(setting.value) << "\")\n";
                     }
                     for (const auto &setting : feature.build.linkOptions)
                     {
@@ -1803,8 +1891,8 @@ namespace NGIN::CLI
                         {
                             continue;
                         }
-                        out << "target_link_options(\"" << EscapeCMake(targetName) << "\" " << ToCMakeVisibility(setting.visibility)
-                            << " \"" << EscapeCMake(setting.value) << "\")\n";
+                        out << "target_link_options(\"" << EscapeCMake(targetName) << "\" "
+                            << ToCMakeVisibility(setting.visibility) << " \"" << EscapeCMake(setting.value) << "\")\n";
                     }
                 }
 
@@ -1812,8 +1900,7 @@ namespace NGIN::CLI
                 std::vector<PackageReference> packageRefs{};
                 {
                     std::unordered_map<std::string, std::size_t> indexByName{};
-                    const auto addPackageRef = [&](const PackageReference &reference)
-                    {
+                    const auto addPackageRef = [&](const PackageReference &reference) {
                         if (!SelectionMatches(unit.project, reference.selectors, unit.profile))
                         {
                             return;
@@ -1845,8 +1932,7 @@ namespace NGIN::CLI
                     }
                     for (const auto &feature : resolved.selectedPackageFeatures)
                     {
-                        const auto addResolvedPackageRef = [&](PackageReference reference)
-                        {
+                        const auto addResolvedPackageRef = [&](PackageReference reference) {
                             if (reference.name.empty())
                             {
                                 return;
@@ -1862,13 +1948,11 @@ namespace NGIN::CLI
                             }
                         };
                         addResolvedPackageRef(PackageReference{.name = feature.packageName});
-                        const auto packageIt = std::find_if(
-                            resolved.orderedPackages.begin(),
-                            resolved.orderedPackages.end(),
-                            [&](const ResolvedPackage &package)
-                            {
-                                return package.manifest.name == feature.packageName;
-                            });
+                        const auto packageIt =
+                            std::find_if(resolved.orderedPackages.begin(), resolved.orderedPackages.end(),
+                                         [&](const ResolvedPackage &package) {
+                                             return package.manifest.name == feature.packageName;
+                                         });
                         if (packageIt == resolved.orderedPackages.end())
                         {
                             continue;
@@ -1885,10 +1969,8 @@ namespace NGIN::CLI
                 for (const auto &packageRef : packageRefs)
                 {
                     const auto packageIt = std::find_if(
-                        resolved.orderedPackages.begin(),
-                        resolved.orderedPackages.end(),
-                        [&](const ResolvedPackage &package)
-                        { return package.manifest.name == packageRef.name; });
+                        resolved.orderedPackages.begin(), resolved.orderedPackages.end(),
+                        [&](const ResolvedPackage &package) { return package.manifest.name == packageRef.name; });
                     if (packageIt == resolved.orderedPackages.end())
                     {
                         continue;
@@ -1934,18 +2016,20 @@ namespace NGIN::CLI
                     const auto refIt = projectByPath.find(canonical);
                     if (refIt == projectByPath.end())
                     {
-                        AddError(report, "project '" + unit.project.name + "' references unknown project '" + projectRef.path.string() + "'");
+                        AddError(report, "project '" + unit.project.name + "' references unknown project '" +
+                                             projectRef.path.string() + "'");
                         continue;
                     }
                     const auto *referencedUnit = refIt->second;
                     const auto referencedKind = Lower(referencedUnit->project.output.kind);
                     if (referencedKind != "staticlibrary" && referencedKind != "sharedlibrary")
                     {
-                        AddError(report, "project '" + unit.project.name + "' references non-library project '" + referencedUnit->project.name + "'");
+                        AddError(report, "project '" + unit.project.name + "' references non-library project '" +
+                                             referencedUnit->project.name + "'");
                         continue;
                     }
-                    out << "target_link_libraries(\"" << EscapeCMake(targetName) << "\" " << linkVisibility
-                        << " \"" << EscapeCMake(referencedUnit->project.output.target) << "\")\n";
+                    out << "target_link_libraries(\"" << EscapeCMake(targetName) << "\" " << linkVisibility << " \""
+                        << EscapeCMake(referencedUnit->project.output.target) << "\")\n";
                 }
             }
             if (report.HasErrors())
@@ -1955,21 +2039,21 @@ namespace NGIN::CLI
 
             out << "add_custom_target(ngin_stage_artifacts)\n";
 
-            auto emitStageTarget = [&](const std::string &artifactName,
-                                       const std::string &targetName,
-                                       const std::string &subdir,
-                                       const bool copyFile)
-            {
+            auto emitStageTarget = [&](const std::string &artifactName, const std::string &targetName,
+                                       const std::string &subdir, const bool copyFile) {
                 const auto safeName = SanitizeIdentifier(artifactName);
                 out << "if(NOT TARGET \"" << EscapeCMake(targetName) << "\")\n";
-                out << "  message(FATAL_ERROR \"required build target '" << EscapeCMake(targetName) << "' is not available\")\n";
+                out << "  message(FATAL_ERROR \"required build target '" << EscapeCMake(targetName)
+                    << "' is not available\")\n";
                 out << "endif()\n";
                 out << "add_custom_target(stage_" << safeName;
                 if (copyFile)
                 {
                     out << "\n"
-                        << "  COMMAND ${CMAKE_COMMAND} -E make_directory \"" << ToCMakePath(outputDir / subdir) << "\"\n"
-                        << "  COMMAND ${CMAKE_COMMAND} -E copy_if_different \"$<TARGET_FILE:" << targetName << ">\" \"" << ToCMakePath(outputDir / subdir) << "/$<TARGET_FILE_NAME:" << targetName << ">\"\n";
+                        << "  COMMAND ${CMAKE_COMMAND} -E make_directory \"" << ToCMakePath(outputDir / subdir)
+                        << "\"\n"
+                        << "  COMMAND ${CMAKE_COMMAND} -E copy_if_different \"$<TARGET_FILE:" << targetName << ">\" \""
+                        << ToCMakePath(outputDir / subdir) << "/$<TARGET_FILE_NAME:" << targetName << ">\"\n";
                 }
                 out << "  DEPENDS \"" << EscapeCMake(targetName) << "\"\n";
                 out << "  VERBATIM)\n";
@@ -1984,7 +2068,8 @@ namespace NGIN::CLI
                 }
                 emitStageTarget(library.name, library.target, "lib", Lower(library.linkage) != "interface");
             }
-            if (resolved.selectedExecutable.has_value() && !resolved.selectedExecutable->target.empty() && Lower(resolved.selectedExecutable->origin) != "prebuilt")
+            if (resolved.selectedExecutable.has_value() && !resolved.selectedExecutable->target.empty() &&
+                Lower(resolved.selectedExecutable->origin) != "prebuilt")
             {
                 emitStageTarget(resolved.selectedExecutable->name, resolved.selectedExecutable->target, "bin", true);
             }
@@ -1992,20 +2077,18 @@ namespace NGIN::CLI
             return WriteTextFileIfChanged(generatedSourceDir / "CMakeLists.txt", content.str());
         }
 
-        [[nodiscard]] auto RunBackendProcess(
-            std::string name,
-            const fs::path &executable,
-            const std::vector<std::string> &arguments,
-            const std::optional<fs::path> &workingDirectory,
-            const BuildExecutionOptions &options) -> int
+        [[nodiscard]] auto RunBackendProcess(std::string name, const fs::path &executable,
+                                             const std::vector<std::string> &arguments,
+                                             const std::optional<fs::path> &workingDirectory,
+                                             const BuildExecutionOptions &options) -> int
         {
             const auto started = std::chrono::steady_clock::now();
-            const auto phase = Lower(name).find("configure") != std::string::npos ? std::string{"configure"} : std::string{"build"};
+            const auto phase =
+                Lower(name).find("configure") != std::string::npos ? std::string{"configure"} : std::string{"build"};
             if (options.events != nullptr)
             {
-                options.events->Emit(
-                    CliEventType::PhaseStarted,
-                    EventData{}.AddString("phase", phase).AddString("label", name));
+                options.events->Emit(CliEventType::PhaseStarted,
+                                     EventData{}.AddString("phase", phase).AddString("label", name));
             }
             ProcessResult result{};
             bool emittedStreamOutput = false;
@@ -2019,30 +2102,33 @@ namespace NGIN::CLI
                 std::thread progressThread{};
                 if (options.interactiveProgress)
                 {
-                    progressThread = std::thread([&finished, &name, started]()
-                    {
+                    progressThread = std::thread([&finished, &name, started]() {
                         constexpr std::array<char, 4> spinner{'|', '/', '-', '\\'};
                         std::size_t index = 0;
                         while (!finished.load(std::memory_order_relaxed))
                         {
                             const auto now = std::chrono::steady_clock::now();
-                            const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(now - started).count();
-                            std::cout << "\r  " << spinner[index++ % spinner.size()] << " " << name << " running " << seconds << "s" << std::flush;
+                            const auto seconds =
+                                std::chrono::duration_cast<std::chrono::seconds>(now - started).count();
+                            std::cout << "\r  " << spinner[index++ % spinner.size()] << " " << name << " running "
+                                      << seconds << "s" << std::flush;
                             std::this_thread::sleep_for(std::chrono::milliseconds(200));
                         }
                     });
                 }
                 try
                 {
-                    const auto callback = options.events != nullptr && options.backendOutput == BackendOutputMode::Stream
-                                              ? std::function<void(std::string_view)>{[&](std::string_view text)
-                                                {
-                                                    emittedStreamOutput = true;
-                                                    options.events->Emit(
-                                                        CliEventType::BackendOutput,
-                                                        EventData{}.AddString("phase", phase).AddString("stream", "combined").AddString("text", std::string{text}));
-                                                }}
-                                              : std::function<void(std::string_view)>{};
+                    const auto callback =
+                        options.events != nullptr && options.backendOutput == BackendOutputMode::Stream
+                            ? std::function<void(std::string_view)>{[&](std::string_view text) {
+                                  emittedStreamOutput = true;
+                                  options.events->Emit(CliEventType::BackendOutput,
+                                                       EventData{}
+                                                           .AddString("phase", phase)
+                                                           .AddString("stream", "combined")
+                                                           .AddString("text", std::string{text}));
+                              }}
+                            : std::function<void(std::string_view)>{};
                     result = RunProcessCapture(executable, arguments, workingDirectory, callback);
                 }
                 catch (...)
@@ -2063,12 +2149,15 @@ namespace NGIN::CLI
                 }
             }
             const auto finished = std::chrono::steady_clock::now();
-            const auto duration = static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(finished - started).count());
-            if (options.events != nullptr && result.exitCode == 0 && options.backendOutput == BackendOutputMode::Stream && !emittedStreamOutput && !result.output.empty())
+            const auto duration =
+                static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(finished - started).count());
+            if (options.events != nullptr && result.exitCode == 0 &&
+                options.backendOutput == BackendOutputMode::Stream && !emittedStreamOutput && !result.output.empty())
             {
-                options.events->Emit(
-                    CliEventType::BackendOutput,
-                    EventData{}.AddString("phase", phase).AddString("stream", "combined").AddString("text", result.output));
+                options.events->Emit(CliEventType::BackendOutput, EventData{}
+                                                                      .AddString("phase", phase)
+                                                                      .AddString("stream", "combined")
+                                                                      .AddString("text", result.output));
             }
             if (options.events != nullptr)
             {
@@ -2082,11 +2171,13 @@ namespace NGIN::CLI
                 {
                     data.AddNumber("exitCode", result.exitCode);
                     options.events->Emit(CliEventType::PhaseFailed, std::move(data));
-                    if (options.backendOutput != BackendOutputMode::Silent && options.backendOutput != BackendOutputMode::Stream && !result.output.empty())
+                    if (options.backendOutput != BackendOutputMode::Silent &&
+                        options.backendOutput != BackendOutputMode::Stream && !result.output.empty())
                     {
-                        options.events->Emit(
-                            CliEventType::BackendOutput,
-                            EventData{}.AddString("phase", phase).AddString("stream", "combined").AddString("text", result.output));
+                        options.events->Emit(CliEventType::BackendOutput, EventData{}
+                                                                              .AddString("phase", phase)
+                                                                              .AddString("stream", "combined")
+                                                                              .AddString("text", result.output));
                     }
                 }
             }
@@ -2096,17 +2187,16 @@ namespace NGIN::CLI
                     .name = std::move(name),
                     .exitCode = result.exitCode,
                     .durationMilliseconds = duration,
-                    .output = options.backendOutput == BackendOutputMode::Silent ? std::string{} : std::move(result.output),
+                    .output =
+                        options.backendOutput == BackendOutputMode::Silent ? std::string{} : std::move(result.output),
                 });
             }
             return result.exitCode;
         }
 
-        [[nodiscard]] auto ConfigureGeneratedBuild(
-            const ResolvedLaunch &resolved,
-            const fs::path &outputDir,
-            DiagnosticReport &report,
-            const BuildExecutionOptions &options) -> std::optional<GeneratedBuildPaths>
+        [[nodiscard]] auto ConfigureGeneratedBuild(const ResolvedLaunch &resolved, const fs::path &outputDir,
+                                                   DiagnosticReport &report, const BuildExecutionOptions &options)
+            -> std::optional<GeneratedBuildPaths>
         {
             if (!HasArtifactTargetsToBuild(resolved))
             {
@@ -2127,7 +2217,8 @@ namespace NGIN::CLI
             const auto cmakeTool = ResolveToolPath("cmake", toolSearchRoot);
             if (!cmakeTool.has_value())
             {
-                AddError(report, "missing tool: cmake. Install CMake, set NGIN_CMAKE, or fetch bundled tools into Tools/ThirdParty/BuildTools.");
+                AddError(report, "missing tool: cmake. Install CMake, set NGIN_CMAKE, or "
+                                 "fetch bundled tools into Tools/ThirdParty/BuildTools.");
                 return std::nullopt;
             }
             if (cmakeProjectChanged || !fs::exists(cmakeCachePath) || !fs::exists(compileCommandsPath))
@@ -2140,33 +2231,28 @@ namespace NGIN::CLI
                     "-DCMAKE_BUILD_TYPE=" + buildType,
                     "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON",
                 };
-                if (const auto ninjaPath = ResolveToolPath("ninja", toolSearchRoot).or_else([&toolSearchRoot]()
-                                                                         { return ResolveToolPath("ninja-build", toolSearchRoot); });
+                if (const auto ninjaPath = ResolveToolPath("ninja", toolSearchRoot).or_else([&toolSearchRoot]() {
+                        return ResolveToolPath("ninja-build", toolSearchRoot);
+                    });
                     ninjaPath.has_value())
                 {
                     configureArguments.push_back("-G");
                     configureArguments.push_back("Ninja");
                     configureArguments.push_back("-DCMAKE_MAKE_PROGRAM=" + ninjaPath->path.string());
                 }
-                if (RunBackendProcess(
-                        "CMake configure",
-                        cmakeTool->path,
-                        configureArguments,
-                        std::nullopt,
-                        options) != 0)
+                if (RunBackendProcess("CMake configure", cmakeTool->path, configureArguments, std::nullopt, options) !=
+                    0)
                 {
-                    AddError(report, "failed to configure generated CMake build project for profile '" + resolved.profile.name + "' with build type '" + buildType + "'");
+                    AddError(report, "failed to configure generated CMake build project for profile '" +
+                                         resolved.profile.name + "' with build type '" + buildType + "'");
                     return std::nullopt;
                 }
             }
             return generatedPaths;
         }
 
-        auto BuildArtifacts(
-            const ResolvedLaunch &resolved,
-            const fs::path &outputDir,
-            DiagnosticReport &report,
-            const BuildExecutionOptions &options) -> void
+        auto BuildArtifacts(const ResolvedLaunch &resolved, const fs::path &outputDir, DiagnosticReport &report,
+                            const BuildExecutionOptions &options) -> void
         {
             const auto generatedPaths = ConfigureGeneratedBuild(resolved, outputDir, report, options);
             if (!generatedPaths.has_value() || report.HasErrors())
@@ -2179,32 +2265,29 @@ namespace NGIN::CLI
             const auto cmakeTool = ResolveToolPath("cmake", toolSearchRoot);
             if (!cmakeTool.has_value())
             {
-                AddError(report, "missing tool: cmake. Install CMake, set NGIN_CMAKE, or fetch bundled tools into Tools/ThirdParty/BuildTools.");
+                AddError(report, "missing tool: cmake. Install CMake, set NGIN_CMAKE, or "
+                                 "fetch bundled tools into Tools/ThirdParty/BuildTools.");
                 return;
             }
-            if (RunBackendProcess(
-                    "CMake build",
-                    cmakeTool->path,
-                    {
-                        "--build",
-                        generatedPaths->buildDir.string(),
-                        "--config",
-                        buildType,
-                        "--target",
-                        "ngin_stage_artifacts",
-                    },
-                    std::nullopt,
-                    options) != 0)
+            if (RunBackendProcess("CMake build", cmakeTool->path,
+                                  {
+                                      "--build",
+                                      generatedPaths->buildDir.string(),
+                                      "--config",
+                                      buildType,
+                                      "--target",
+                                      "ngin_stage_artifacts",
+                                  },
+                                  std::nullopt, options) != 0)
             {
-                AddError(report, "failed to build or stage artifacts for profile '" + resolved.profile.name + "' with build type '" + buildType + "'");
+                AddError(report, "failed to build or stage artifacts for profile '" + resolved.profile.name +
+                                     "' with build type '" + buildType + "'");
             }
         }
 
-        auto CollectBuiltArtifactFiles(
-            const fs::path &outputDir,
-            std::map<fs::path, std::string> &collisions,
-            DiagnosticReport &report,
-            std::vector<std::tuple<std::string, fs::path, fs::path>> &staged) -> void
+        auto CollectBuiltArtifactFiles(const fs::path &outputDir, std::map<fs::path, std::string> &collisions,
+                                       DiagnosticReport &report,
+                                       std::vector<std::tuple<std::string, fs::path, fs::path>> &staged) -> void
         {
             for (const auto &subdir : {std::string("bin"), std::string("lib")})
             {
@@ -2249,11 +2332,10 @@ namespace NGIN::CLI
                 path = path.parent_path();
             }
         }
-    }
+    } // namespace
 
-    auto ResolveToolPath(
-        const std::string &tool,
-        const std::optional<fs::path> &searchRoot) -> std::optional<ToolResolution>
+    auto ResolveToolPath(const std::string &tool, const std::optional<fs::path> &searchRoot)
+        -> std::optional<ToolResolution>
     {
         const auto overrideName = ToolOverrideEnvironmentName(tool);
         if (const auto *overrideValue = std::getenv(overrideName.c_str());
@@ -2286,17 +2368,13 @@ namespace NGIN::CLI
         return std::nullopt;
     }
 
-    auto ToolExists(
-        const std::string &tool,
-        const std::optional<fs::path> &searchRoot) -> bool
+    auto ToolExists(const std::string &tool, const std::optional<fs::path> &searchRoot) -> bool
     {
         return ResolveToolPath(tool, searchRoot).has_value();
     }
 
-    auto RunProcess(
-        const fs::path &executable,
-        const std::vector<std::string> &arguments,
-        const std::optional<fs::path> &workingDirectory) -> int
+    auto RunProcess(const fs::path &executable, const std::vector<std::string> &arguments,
+                    const std::optional<fs::path> &workingDirectory) -> int
     {
 #if defined(_WIN32)
         std::wstring commandLine = QuoteWindowsArgument(executable.wstring());
@@ -2320,17 +2398,8 @@ namespace NGIN::CLI
         STARTUPINFOW startupInfo{};
         startupInfo.cb = sizeof(startupInfo);
         PROCESS_INFORMATION processInfo{};
-        if (!CreateProcessW(
-                nullptr,
-                commandBuffer.data(),
-                nullptr,
-                nullptr,
-                FALSE,
-                0,
-                nullptr,
-                workingDirectoryPtr,
-                &startupInfo,
-                &processInfo))
+        if (!CreateProcessW(nullptr, commandBuffer.data(), nullptr, nullptr, FALSE, 0, nullptr, workingDirectoryPtr,
+                            &startupInfo, &processInfo))
         {
             throw std::runtime_error("failed to start process '" + executable.string() + "'");
         }
@@ -2399,11 +2468,9 @@ namespace NGIN::CLI
 #endif
     }
 
-    auto RunProcessCapture(
-        const fs::path &executable,
-        const std::vector<std::string> &arguments,
-        const std::optional<fs::path> &workingDirectory,
-        const std::function<void(std::string_view)> &outputCallback) -> ProcessResult
+    auto RunProcessCapture(const fs::path &executable, const std::vector<std::string> &arguments,
+                           const std::optional<fs::path> &workingDirectory,
+                           const std::function<void(std::string_view)> &outputCallback) -> ProcessResult
     {
 #if defined(_WIN32)
         SECURITY_ATTRIBUTES securityAttributes{};
@@ -2444,17 +2511,8 @@ namespace NGIN::CLI
         startupInfo.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
 
         PROCESS_INFORMATION processInfo{};
-        if (!CreateProcessW(
-                nullptr,
-                commandBuffer.data(),
-                nullptr,
-                nullptr,
-                TRUE,
-                0,
-                nullptr,
-                workingDirectoryPtr,
-                &startupInfo,
-                &processInfo))
+        if (!CreateProcessW(nullptr, commandBuffer.data(), nullptr, nullptr, TRUE, 0, nullptr, workingDirectoryPtr,
+                            &startupInfo, &processInfo))
         {
             CloseHandle(readPipe);
             CloseHandle(writePipe);
@@ -2465,7 +2523,8 @@ namespace NGIN::CLI
         std::string output{};
         std::array<char, 4096> buffer{};
         DWORD bytesRead = 0;
-        while (ReadFile(readPipe, buffer.data(), static_cast<DWORD>(buffer.size()), &bytesRead, nullptr) && bytesRead > 0)
+        while (ReadFile(readPipe, buffer.data(), static_cast<DWORD>(buffer.size()), &bytesRead, nullptr) &&
+               bytesRead > 0)
         {
             output.append(buffer.data(), bytesRead);
             if (outputCallback)
@@ -2574,28 +2633,23 @@ namespace NGIN::CLI
 #endif
     }
 
-    auto WriteLaunchManifest(
-        const ResolvedLaunch &resolved,
-        const fs::path &outputDir,
-        const std::vector<std::tuple<std::string, fs::path, fs::path>> &staged) -> fs::path
+    auto WriteLaunchManifest(const ResolvedLaunch &resolved, const fs::path &outputDir,
+                             const std::vector<std::tuple<std::string, fs::path, fs::path>> &staged) -> fs::path
     {
         const auto manifestPath = outputDir / (resolved.project.name + "." + resolved.profile.name + ".nginlaunch");
         std::ofstream out(manifestPath);
         out << "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n";
-        out << "<LaunchManifest SchemaVersion=\"3\" Profile=\"" << EscapeXml(resolved.profile.name)
-            << "\" Project=\"" << EscapeXml(resolved.project.name)
-            << "\" Type=\"" << EscapeXml(resolved.project.type)
-            << "\" BuildType=\"" << EscapeXml(resolved.profile.buildType)
-            << "\" Platform=\"" << EscapeXml(resolved.profile.platform)
-            << "\" OperatingSystem=\"" << EscapeXml(resolved.profile.operatingSystem)
-            << "\" Architecture=\"" << EscapeXml(resolved.profile.architecture)
-            << "\">\n";
+        out << "<LaunchManifest SchemaVersion=\"3\" Profile=\"" << EscapeXml(resolved.profile.name) << "\" Project=\""
+            << EscapeXml(resolved.project.name) << "\" Type=\"" << EscapeXml(resolved.project.type) << "\" BuildType=\""
+            << EscapeXml(resolved.profile.buildType) << "\" Platform=\"" << EscapeXml(resolved.profile.platform)
+            << "\" OperatingSystem=\"" << EscapeXml(resolved.profile.operatingSystem) << "\" Architecture=\""
+            << EscapeXml(resolved.profile.architecture) << "\">\n";
         out << "  <Launch";
         if (resolved.selectedExecutable.has_value())
         {
-            out << " Executable=\"" << EscapeXml(resolved.selectedExecutable->name)
-                << "\" Target=\"" << EscapeXml(resolved.selectedExecutable->target)
-                << "\" Origin=\"" << EscapeXml(resolved.selectedExecutable->origin) << "\"";
+            out << " Executable=\"" << EscapeXml(resolved.selectedExecutable->name) << "\" Target=\""
+                << EscapeXml(resolved.selectedExecutable->target) << "\" Origin=\""
+                << EscapeXml(resolved.selectedExecutable->origin) << "\"";
         }
         if (!resolved.profile.launch.name.empty())
         {
@@ -2634,18 +2688,17 @@ namespace NGIN::CLI
         out << "    <Features>\n";
         for (const auto &feature : resolved.environmentFeatures)
         {
-            out << "      <Feature Name=\"" << EscapeXml(feature.name)
-                << "\" Enabled=\"" << (feature.enabled ? "true" : "false") << "\" />\n";
+            out << "      <Feature Name=\"" << EscapeXml(feature.name) << "\" Enabled=\""
+                << (feature.enabled ? "true" : "false") << "\" />\n";
         }
         out << "    </Features>\n";
         out << "  </Environment>\n";
         out << "  <Inputs>\n";
         for (const auto &input : resolved.inputs)
         {
-            out << "    <Input Kind=\"" << EscapeXml(input.kind)
-                << "\" Path=\"" << EscapeXml(input.source)
-                << "\" OwnerKind=\"" << EscapeXml(input.ownerKind)
-                << "\" Owner=\"" << EscapeXml(input.ownerName) << "\"";
+            out << "    <Input Kind=\"" << EscapeXml(input.kind) << "\" Path=\"" << EscapeXml(input.source)
+                << "\" OwnerKind=\"" << EscapeXml(input.ownerKind) << "\" Owner=\"" << EscapeXml(input.ownerName)
+                << "\"";
             if (!input.name.empty())
             {
                 out << " Name=\"" << EscapeXml(input.name) << "\"";
@@ -2688,39 +2741,32 @@ namespace NGIN::CLI
         out << "  <Bootstraps>\n";
         for (const auto &bootstrap : resolved.bootstraps)
         {
-            out << "    <Bootstrap Package=\"" << EscapeXml(bootstrap.packageName)
-                << "\" Mode=\"" << EscapeXml(bootstrap.mode)
-                << "\" EntryPoint=\"" << EscapeXml(bootstrap.entryPoint)
-                << "\" AutoApply=\"" << (bootstrap.autoApply ? "true" : "false")
-                << "\" />\n";
+            out << "    <Bootstrap Package=\"" << EscapeXml(bootstrap.packageName) << "\" Mode=\""
+                << EscapeXml(bootstrap.mode) << "\" EntryPoint=\"" << EscapeXml(bootstrap.entryPoint)
+                << "\" AutoApply=\"" << (bootstrap.autoApply ? "true" : "false") << "\" />\n";
         }
         out << "  </Bootstraps>\n";
         out << "  <Packages>\n";
         for (const auto &package : resolved.orderedPackages)
         {
-            out << "    <Package Name=\"" << EscapeXml(package.manifest.name)
-                << "\" Version=\"" << EscapeXml(package.manifest.version)
-                << "\" Source=\"" << EscapeXml(package.source) << "\" />\n";
+            out << "    <Package Name=\"" << EscapeXml(package.manifest.name) << "\" Version=\""
+                << EscapeXml(package.manifest.version) << "\" Source=\"" << EscapeXml(package.source) << "\" />\n";
         }
         out << "  </Packages>\n";
         out << "  <Artifacts>\n";
         out << "    <Libraries>\n";
         for (const auto &library : resolved.libraries)
         {
-            out << "      <Library Name=\"" << EscapeXml(library.name)
-                << "\" Target=\"" << EscapeXml(library.target)
-                << "\" Linkage=\"" << EscapeXml(library.linkage)
-                << "\" Origin=\"" << EscapeXml(library.origin)
+            out << "      <Library Name=\"" << EscapeXml(library.name) << "\" Target=\"" << EscapeXml(library.target)
+                << "\" Linkage=\"" << EscapeXml(library.linkage) << "\" Origin=\"" << EscapeXml(library.origin)
                 << "\" />\n";
         }
         out << "    </Libraries>\n";
         out << "    <Executables>\n";
         for (const auto &executable : resolved.executables)
         {
-            out << "      <Executable Name=\"" << EscapeXml(executable.name)
-                << "\" Target=\"" << EscapeXml(executable.target)
-                << "\" Origin=\"" << EscapeXml(executable.origin)
-                << "\" />\n";
+            out << "      <Executable Name=\"" << EscapeXml(executable.name) << "\" Target=\""
+                << EscapeXml(executable.target) << "\" Origin=\"" << EscapeXml(executable.origin) << "\" />\n";
         }
         out << "    </Executables>\n";
         out << "  </Artifacts>\n";
@@ -2743,10 +2789,9 @@ namespace NGIN::CLI
         out << "  <StagedFiles>\n";
         for (const auto &[kind, source, destination] : staged)
         {
-            out << "    <File Kind=\"" << EscapeXml(kind)
-                << "\" Source=\"" << EscapeXml(source.string())
-                << "\" Destination=\"" << EscapeXml(destination.string())
-                << "\" RelativeDestination=\"" << EscapeXml(fs::relative(destination, outputDir).string()) << "\" />\n";
+            out << "    <File Kind=\"" << EscapeXml(kind) << "\" Source=\"" << EscapeXml(source.string())
+                << "\" Destination=\"" << EscapeXml(destination.string()) << "\" RelativeDestination=\""
+                << EscapeXml(fs::relative(destination, outputDir).string()) << "\" />\n";
         }
         out << "  </StagedFiles>\n";
         out << "</LaunchManifest>\n";
@@ -2795,11 +2840,13 @@ namespace NGIN::CLI
                     for (const auto *file : ChildElements(*stagedFiles, "File"))
                     {
                         fs::path stagedPath{};
-                        if (const auto relativeDestination = Attribute(*file, "RelativeDestination"); relativeDestination.has_value() && !relativeDestination->empty())
+                        if (const auto relativeDestination = Attribute(*file, "RelativeDestination");
+                            relativeDestination.has_value() && !relativeDestination->empty())
                         {
                             stagedPath = outputDir / fs::path(*relativeDestination);
                         }
-                        else if (const auto destination = Attribute(*file, "Destination"); destination.has_value() && !destination->empty())
+                        else if (const auto destination = Attribute(*file, "Destination");
+                                 destination.has_value() && !destination->empty())
                         {
                             stagedPath = fs::path(*destination);
                         }
@@ -2810,7 +2857,8 @@ namespace NGIN::CLI
 
                         if (!IsPathWithinDirectory(stagedPath, outputDir))
                         {
-                            AddWarning(report, "skipped cleanup for staged file outside output directory: '" + stagedPath.string() + "'");
+                            AddWarning(report, "skipped cleanup for staged file outside output directory: '" +
+                                                   stagedPath.string() + "'");
                             continue;
                         }
 
@@ -2831,24 +2879,22 @@ namespace NGIN::CLI
             }
             catch (const std::exception &ex)
             {
-                AddWarning(report, "failed to clean previous launch manifest '" + manifestPath.string() + "': " + ex.what());
+                AddWarning(report,
+                           "failed to clean previous launch manifest '" + manifestPath.string() + "': " + ex.what());
             }
         }
-
     }
 
-    auto CleanLaunch(
-        const ProjectManifest &project,
-        const ProfileDefinition &profile,
-        const std::optional<fs::path> &outputPath) -> DiagnosticResult<fs::path>
+    auto CleanLaunch(const ProjectManifest &project, const ProfileDefinition &profile,
+                     const std::optional<fs::path> &outputPath) -> DiagnosticResult<fs::path>
     {
         DiagnosticResult<fs::path> result{};
 
         if (!IsSupportedBuildType(profile.buildType))
         {
-            AddError(
-                result.diagnostics,
-                "unsupported build type '" + profile.buildType + "' in profile '" + profile.name + "'. Expected one of: Debug, Release, RelWithDebInfo, MinSizeRel");
+            AddError(result.diagnostics, "unsupported build type '" + profile.buildType + "' in profile '" +
+                                             profile.name +
+                                             "'. Expected one of: Debug, Release, RelWithDebInfo, MinSizeRel");
             return result;
         }
 
@@ -2880,19 +2926,17 @@ namespace NGIN::CLI
         return result;
     }
 
-    auto ConfigureLaunch(
-        const ProjectManifest &project,
-        const ProfileDefinition &profile,
-        const std::optional<fs::path> &outputPath,
-        const BuildExecutionOptions &options) -> DiagnosticResult<ConfiguredBuildPaths>
+    auto ConfigureLaunch(const ProjectManifest &project, const ProfileDefinition &profile,
+                         const std::optional<fs::path> &outputPath, const BuildExecutionOptions &options)
+        -> DiagnosticResult<ConfiguredBuildPaths>
     {
         DiagnosticResult<ConfiguredBuildPaths> result{};
 
         if (!IsSupportedBuildType(profile.buildType))
         {
-            AddError(
-                result.diagnostics,
-                "unsupported build type '" + profile.buildType + "' in profile '" + profile.name + "'. Expected one of: Debug, Release, RelWithDebInfo, MinSizeRel");
+            AddError(result.diagnostics, "unsupported build type '" + profile.buildType + "' in profile '" +
+                                             profile.name +
+                                             "'. Expected one of: Debug, Release, RelWithDebInfo, MinSizeRel");
             return result;
         }
 
@@ -2932,19 +2976,17 @@ namespace NGIN::CLI
         return result;
     }
 
-    auto BuildLaunch(
-        const ProjectManifest &project,
-        const ProfileDefinition &profile,
-        const std::optional<fs::path> &outputPath,
-        const BuildExecutionOptions &options) -> DiagnosticResult<GeneratedLaunchPaths>
+    auto BuildLaunch(const ProjectManifest &project, const ProfileDefinition &profile,
+                     const std::optional<fs::path> &outputPath, const BuildExecutionOptions &options)
+        -> DiagnosticResult<GeneratedLaunchPaths>
     {
         DiagnosticResult<GeneratedLaunchPaths> result{};
 
         if (!IsSupportedBuildType(profile.buildType))
         {
-            AddError(
-                result.diagnostics,
-                "unsupported build type '" + profile.buildType + "' in profile '" + profile.name + "'. Expected one of: Debug, Release, RelWithDebInfo, MinSizeRel");
+            AddError(result.diagnostics, "unsupported build type '" + profile.buildType + "' in profile '" +
+                                             profile.name +
+                                             "'. Expected one of: Debug, Release, RelWithDebInfo, MinSizeRel");
             return result;
         }
 
@@ -2995,15 +3037,15 @@ namespace NGIN::CLI
             const auto source = content.absoluteSourcePath;
             if (!fs::exists(source))
             {
-                AddError(result.diagnostics, "missing " + content.kind + " input '" + content.source + "' declared by "
-                                                + content.ownerKind + " '" + content.ownerName + "'");
+                AddError(result.diagnostics, "missing " + content.kind + " input '" + content.source +
+                                                 "' declared by " + content.ownerKind + " '" + content.ownerName + "'");
                 continue;
             }
             const auto dest = resolvedOutputDir / content.stagedRelativePath;
             if (collisions.contains(dest))
             {
-                AddError(result.diagnostics, "build output collision at input '" + content.stagedRelativePath.string()
-                                                 + "' declared by " + content.ownerKind + " '" + content.ownerName + "'");
+                AddError(result.diagnostics, "build output collision at input '" + content.stagedRelativePath.string() +
+                                                 "' declared by " + content.ownerKind + " '" + content.ownerName + "'");
                 continue;
             }
             collisions[dest] = content.ownerKind + ":" + content.ownerName;
@@ -3049,4 +3091,4 @@ namespace NGIN::CLI
         }
         return summary;
     }
-}
+} // namespace NGIN::CLI

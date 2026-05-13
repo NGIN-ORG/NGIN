@@ -8,8 +8,8 @@
 
 #include <algorithm>
 #include <cctype>
-#include <cstdlib>
 #include <cstdint>
+#include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <iterator>
@@ -157,12 +157,17 @@ namespace NGIN::CLI
             std::cout << "\n" << Style(args, "31", text) << "\n";
         }
 
-        [[nodiscard]] auto BuildOptionsForArgs(const ParsedArgs &args, std::vector<BackendStepResult> &backendSteps, CliEventEmitter *events = nullptr) -> BuildExecutionOptions
+        [[nodiscard]] auto BuildOptionsForArgs(const ParsedArgs &args, std::vector<BackendStepResult> &backendSteps,
+                                               CliEventEmitter *events = nullptr) -> BuildExecutionOptions
         {
             return BuildExecutionOptions{
-                .backendOutput = args.verbosity == OutputVerbosity::Quiet && args.eventOutputMode != EventOutputMode::JsonLines ? BackendOutputMode::Silent : args.backendOutputMode,
+                .backendOutput =
+                    args.verbosity == OutputVerbosity::Quiet && args.eventOutputMode != EventOutputMode::JsonLines
+                        ? BackendOutputMode::Silent
+                        : args.backendOutputMode,
                 .backendSteps = &backendSteps,
-                .interactiveProgress = args.backendOutputMode == BackendOutputMode::Compact && !IsQuiet(args) && args.colorMode != OutputColorMode::Never && IsInteractiveTerminal(),
+                .interactiveProgress = args.backendOutputMode == BackendOutputMode::Compact && !IsQuiet(args) &&
+                                       args.colorMode != OutputColorMode::Never && IsInteractiveTerminal(),
                 .events = events != nullptr && events->Enabled() ? events : nullptr,
             };
         }
@@ -176,7 +181,8 @@ namespace NGIN::CLI
             return out.str();
         }
 
-        auto PrintBackendSteps(const ParsedArgs &args, const std::vector<BackendStepResult> &steps, bool includeOutput) -> void
+        auto PrintBackendSteps(const ParsedArgs &args, const std::vector<BackendStepResult> &steps, bool includeOutput)
+            -> void
         {
             if (IsQuiet(args) || steps.empty())
             {
@@ -245,7 +251,7 @@ namespace NGIN::CLI
 
         class HumanCliEventSink final : public ICliEventSink
         {
-        public:
+          public:
             HumanCliEventSink(const ParsedArgs &args, std::string command)
                 : args_(args), command_(std::move(command)), displayName_(CommandDisplayName(command_))
             {
@@ -295,7 +301,7 @@ namespace NGIN::CLI
                 }
             }
 
-        private:
+          private:
             auto RecordPhase(const CliEvent &event, int exitCode) -> void
             {
                 steps_.push_back(BackendStepResult{
@@ -319,13 +325,9 @@ namespace NGIN::CLI
                     std::cout << text << std::flush;
                     return;
                 }
-                auto stepIt = std::find_if(
-                    steps_.rbegin(),
-                    steps_.rend(),
-                    [&](const BackendStepResult &step)
-                    {
-                        return Lower(step.name).find(phase) != std::string::npos;
-                    });
+                auto stepIt = std::find_if(steps_.rbegin(), steps_.rend(), [&](const BackendStepResult &step) {
+                    return Lower(step.name).find(phase) != std::string::npos;
+                });
                 if (stepIt != steps_.rend())
                 {
                     stepIt->output += text;
@@ -359,7 +361,8 @@ namespace NGIN::CLI
                     return;
                 }
 
-                if (command_ == "build" || command_ == "stage" || command_ == "rebuild" || command_ == "run" || command_ == "test" || command_ == "benchmark")
+                if (command_ == "build" || command_ == "stage" || command_ == "rebuild" || command_ == "run" ||
+                    command_ == "test" || command_ == "benchmark")
                 {
                     PrintOptionalField(event, "output", "output");
                     PrintOptionalField(event, "launch", "launch");
@@ -495,9 +498,10 @@ namespace NGIN::CLI
 
         class CommandEventSession
         {
-        public:
+          public:
             CommandEventSession(const ParsedArgs &args, std::string command)
-                : args_(args), command_(std::move(command)), jsonSink_(std::cout), humanSink_(args_, command_), events_(&composite_)
+                : args_(args), command_(std::move(command)), jsonSink_(std::cout), humanSink_(args_, command_),
+                  events_(&composite_)
             {
                 if (args_.eventOutputMode == EventOutputMode::JsonLines)
                 {
@@ -515,7 +519,7 @@ namespace NGIN::CLI
                 return events_;
             }
 
-        private:
+          private:
             const ParsedArgs &args_;
             std::string command_{};
             JsonLinesCliEventSink jsonSink_;
@@ -526,7 +530,8 @@ namespace NGIN::CLI
 
         [[nodiscard]] auto CommandDurationMilliseconds(std::chrono::steady_clock::time_point started) -> std::int64_t
         {
-            return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started).count();
+            return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started)
+                .count();
         }
 
         auto EmitCommandStarted(CliEventEmitter &events, const ParsedArgs &args) -> void
@@ -537,14 +542,14 @@ namespace NGIN::CLI
             events.Emit(CliEventType::CommandStarted, std::move(data));
         }
 
-        auto EmitCommandCompleted(CliEventEmitter &events, std::string status, int exitCode, std::chrono::steady_clock::time_point started) -> int
+        auto EmitCommandCompleted(CliEventEmitter &events, std::string status, int exitCode,
+                                  std::chrono::steady_clock::time_point started) -> int
         {
-            events.Emit(
-                CliEventType::CommandCompleted,
-                EventData{}
-                    .AddString("status", std::move(status))
-                    .AddNumber("exitCode", exitCode)
-                    .AddNumber("durationMs", CommandDurationMilliseconds(started)));
+            events.Emit(CliEventType::CommandCompleted,
+                        EventData{}
+                            .AddString("status", std::move(status))
+                            .AddNumber("exitCode", exitCode)
+                            .AddNumber("durationMs", CommandDurationMilliseconds(started)));
             return exitCode;
         }
 
@@ -594,13 +599,13 @@ namespace NGIN::CLI
                 EventData{}.AddString("kind", "stage-directory").AddString("path", configured.outputDir.string()));
             if (configured.compileCommandsPath.has_value())
             {
-                events.Emit(
-                    CliEventType::ArtifactProduced,
-                    EventData{}.AddString("kind", "compile-database").AddString("path", configured.compileCommandsPath->string()));
+                events.Emit(CliEventType::ArtifactProduced,
+                            EventData{}
+                                .AddString("kind", "compile-database")
+                                .AddString("path", configured.compileCommandsPath->string()));
             }
             EventData summary{};
-            summary.AddString("output", configured.outputDir.string())
-                .AddBool("configured", configured.configured);
+            summary.AddString("output", configured.outputDir.string()).AddBool("configured", configured.configured);
             if (configured.buildDir.has_value())
             {
                 summary.AddString("buildDir", configured.buildDir->string());
@@ -612,27 +617,22 @@ namespace NGIN::CLI
             events.Emit(CliEventType::Summary, std::move(summary));
         }
 
-        auto EmitBuildArtifactsAndSummary(
-            CliEventEmitter &events,
-            const ProjectManifest &project,
-            const ProfileDefinition &profile,
-            const GeneratedLaunchPaths &built,
-            const LaunchManifestSummary &summary) -> void
+        auto EmitBuildArtifactsAndSummary(CliEventEmitter &events, const ProjectManifest &project,
+                                          const ProfileDefinition &profile, const GeneratedLaunchPaths &built,
+                                          const LaunchManifestSummary &summary) -> void
         {
-            events.Emit(
-                CliEventType::ArtifactProduced,
-                EventData{}.AddString("kind", "stage-directory").AddString("path", built.outputDir.string()));
+            events.Emit(CliEventType::ArtifactProduced,
+                        EventData{}.AddString("kind", "stage-directory").AddString("path", built.outputDir.string()));
             events.Emit(
                 CliEventType::ArtifactProduced,
                 EventData{}.AddString("kind", "launch-manifest").AddString("path", built.manifestPath.string()));
             if (summary.selectedExecutable.has_value() && !summary.selectedExecutable->empty())
             {
-                events.Emit(
-                    CliEventType::ArtifactProduced,
-                    EventData{}
-                        .AddString("kind", "executable")
-                        .AddString("name", *summary.selectedExecutable)
-                        .AddString("path", (built.outputDir / "bin" / *summary.selectedExecutable).string()));
+                events.Emit(CliEventType::ArtifactProduced,
+                            EventData{}
+                                .AddString("kind", "executable")
+                                .AddString("name", *summary.selectedExecutable)
+                                .AddString("path", (built.outputDir / "bin" / *summary.selectedExecutable).string()));
             }
 
             EventData data{};
@@ -720,11 +720,8 @@ namespace NGIN::CLI
             return summary;
         }
 
-        auto PrintVerboseResolvedDetails(
-            const ParsedArgs &args,
-            const ProjectManifest &project,
-            const ProfileDefinition &profile,
-            const fs::path &outputDir) -> void
+        auto PrintVerboseResolvedDetails(const ParsedArgs &args, const ProjectManifest &project,
+                                         const ProfileDefinition &profile, const fs::path &outputDir) -> void
         {
             if (!IsVerbose(args))
             {
@@ -775,7 +772,8 @@ namespace NGIN::CLI
                 {
                     std::ostringstream detail{};
                     detail << package.manifest.version;
-                    if (const auto scope = resolved.packageScopes.find(package.manifest.name); scope != resolved.packageScopes.end() && !scope->second.empty())
+                    if (const auto scope = resolved.packageScopes.find(package.manifest.name);
+                        scope != resolved.packageScopes.end() && !scope->second.empty())
                     {
                         detail << " scope=" << scope->second;
                     }
@@ -805,11 +803,11 @@ namespace NGIN::CLI
             PrintField(args, "generated dir", outputDir / ".ngin" / "generated");
         }
 
-        [[nodiscard]] auto EffectiveLaunches(const ProjectManifest &project, const ProfileDefinition &profile) -> std::vector<LaunchDefinition>
+        [[nodiscard]] auto EffectiveLaunches(const ProjectManifest &project, const ProfileDefinition &profile)
+            -> std::vector<LaunchDefinition>
         {
             std::map<std::string, LaunchDefinition> byName{};
-            const auto merge = [&](const std::vector<LaunchDefinition> &launches)
-            {
+            const auto merge = [&](const std::vector<LaunchDefinition> &launches) {
                 for (const auto &launch : launches)
                 {
                     if (launch.name.empty())
@@ -840,21 +838,13 @@ namespace NGIN::CLI
             return result;
         }
 
-        [[nodiscard]] auto SelectLaunch(
-            const ProjectManifest &project,
-            const ProfileDefinition &profile,
-            const std::optional<std::string> &requestedName) -> LaunchDefinition
+        [[nodiscard]] auto SelectLaunch(const ProjectManifest &project, const ProfileDefinition &profile,
+                                        const std::optional<std::string> &requestedName) -> LaunchDefinition
         {
             const auto launches = EffectiveLaunches(project, profile);
-            const auto findLaunch = [&](const std::string &name) -> const LaunchDefinition *
-            {
-                const auto it = std::find_if(
-                    launches.begin(),
-                    launches.end(),
-                    [&](const LaunchDefinition &launch)
-                    {
-                        return launch.name == name;
-                    });
+            const auto findLaunch = [&](const std::string &name) -> const LaunchDefinition * {
+                const auto it = std::find_if(launches.begin(), launches.end(),
+                                             [&](const LaunchDefinition &launch) { return launch.name == name; });
                 return it == launches.end() ? nullptr : &*it;
             };
 
@@ -864,7 +854,8 @@ namespace NGIN::CLI
                 {
                     return *launch;
                 }
-                throw std::runtime_error("profile '" + profile.name + "' does not declare launch '" + *requestedName + "'");
+                throw std::runtime_error("profile '" + profile.name + "' does not declare launch '" + *requestedName +
+                                         "'");
             }
             if (!profile.launch.name.empty())
             {
@@ -885,31 +876,24 @@ namespace NGIN::CLI
             {
                 return profile.launch;
             }
-            throw std::runtime_error("profile '" + profile.name + "' has multiple launch entries; pass --launch <name>");
+            throw std::runtime_error("profile '" + profile.name +
+                                     "' has multiple launch entries; pass --launch <name>");
         }
 
-        [[nodiscard]] auto HasEffectiveProfile(
-            const ProjectManifest &project,
-            const std::optional<WorkspaceManifest> &workspace,
-            const std::string &name) -> bool
+        [[nodiscard]] auto HasEffectiveProfile(const ProjectManifest &project,
+                                               const std::optional<WorkspaceManifest> &workspace,
+                                               const std::string &name) -> bool
         {
-            const auto hasProjectProfile = std::any_of(
-                project.profiles.begin(), project.profiles.end(),
-                [&](const ProfileDefinition &profile)
-                {
-                    return profile.name == name;
-                });
+            const auto hasProjectProfile =
+                std::any_of(project.profiles.begin(), project.profiles.end(),
+                            [&](const ProfileDefinition &profile) { return profile.name == name; });
             if (hasProjectProfile)
             {
                 return true;
             }
-            return workspace.has_value()
-                   && std::any_of(
-                       workspace->profiles.begin(), workspace->profiles.end(),
-                       [&](const WorkspaceManifest::ProfilePolicy &profile)
-                       {
-                           return profile.name == name;
-                       });
+            return workspace.has_value() &&
+                   std::any_of(workspace->profiles.begin(), workspace->profiles.end(),
+                               [&](const WorkspaceManifest::ProfilePolicy &profile) { return profile.name == name; });
         }
 
         [[nodiscard]] auto SupportedBuildTypesForMessage() -> std::string
@@ -932,9 +916,9 @@ namespace NGIN::CLI
             {
                 if (!IsSupportedBuildType(*args.configurationName))
                 {
-                    throw std::runtime_error(
-                        "unknown configuration '" + *args.configurationName + "'; expected "
-                        + SupportedBuildTypesForMessage() + ". Use --profile for custom product scenarios.");
+                    throw std::runtime_error("unknown configuration '" + *args.configurationName + "'; expected " +
+                                             SupportedBuildTypesForMessage() +
+                                             ". Use --profile for custom product scenarios.");
                 }
                 if (selectedProfile.has_value())
                 {
@@ -961,7 +945,8 @@ namespace NGIN::CLI
                 }
             }
             auto profile = ProfileWithWorkspacePolicy(project, workspace, selectedProfile);
-            if (args.configurationName.has_value() && configurationSource.has_value() && *configurationSource == "buildTypeOverride")
+            if (args.configurationName.has_value() && configurationSource.has_value() &&
+                *configurationSource == "buildTypeOverride")
             {
                 profile.buildType = *args.configurationName;
             }
@@ -993,12 +978,24 @@ namespace NGIN::CLI
             {
                 switch (ch)
                 {
-                case '&': escaped += "&amp;"; break;
-                case '<': escaped += "&lt;"; break;
-                case '>': escaped += "&gt;"; break;
-                case '"': escaped += "&quot;"; break;
-                case '\'': escaped += "&apos;"; break;
-                default: escaped += ch; break;
+                case '&':
+                    escaped += "&amp;";
+                    break;
+                case '<':
+                    escaped += "&lt;";
+                    break;
+                case '>':
+                    escaped += "&gt;";
+                    break;
+                case '"':
+                    escaped += "&quot;";
+                    break;
+                case '\'':
+                    escaped += "&apos;";
+                    break;
+                default:
+                    escaped += ch;
+                    break;
                 }
             }
             return escaped;
@@ -1026,19 +1023,17 @@ namespace NGIN::CLI
         {
             std::ostringstream out{};
             out << "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n";
-            out << "<LockFile SchemaVersion=\"1\" Project=\"" << EscapeXml(resolved.project.name)
-                << "\" Profile=\"" << EscapeXml(resolved.profile.name)
-                << "\" BuildType=\"" << EscapeXml(resolved.profile.buildType)
-                << "\" Toolchain=\"" << EscapeXml(resolved.profile.toolchain)
-                << "\" Platform=\"" << EscapeXml(resolved.profile.platform)
-                << "\" Environment=\"" << EscapeXml(resolved.profile.environmentName) << "\">\n";
+            out << "<LockFile SchemaVersion=\"1\" Project=\"" << EscapeXml(resolved.project.name) << "\" Profile=\""
+                << EscapeXml(resolved.profile.name) << "\" BuildType=\"" << EscapeXml(resolved.profile.buildType)
+                << "\" Toolchain=\"" << EscapeXml(resolved.profile.toolchain) << "\" Platform=\""
+                << EscapeXml(resolved.profile.platform) << "\" Environment=\""
+                << EscapeXml(resolved.profile.environmentName) << "\">\n";
             out << "  <Packages>\n";
             for (const auto &package : resolved.orderedPackages)
             {
-                out << "    <Package Name=\"" << EscapeXml(package.manifest.name)
-                    << "\" Version=\"" << EscapeXml(package.manifest.version)
-                    << "\" Manifest=\"" << EscapeXml(package.manifest.path.string())
-                    << "\" Source=\"" << EscapeXml(package.source) << "\"";
+                out << "    <Package Name=\"" << EscapeXml(package.manifest.name) << "\" Version=\""
+                    << EscapeXml(package.manifest.version) << "\" Manifest=\""
+                    << EscapeXml(package.manifest.path.string()) << "\" Source=\"" << EscapeXml(package.source) << "\"";
                 if (const auto scopeIt = resolved.packageScopes.find(package.manifest.name);
                     scopeIt != resolved.packageScopes.end() && !scopeIt->second.empty())
                 {
@@ -1054,18 +1049,16 @@ namespace NGIN::CLI
             out << "  <Features>\n";
             for (const auto &feature : resolved.selectedPackageFeatures)
             {
-                out << "    <Feature Package=\"" << EscapeXml(feature.packageName)
-                    << "\" Name=\"" << EscapeXml(feature.featureName)
-                    << "\" Version=\"" << EscapeXml(feature.packageVersion)
+                out << "    <Feature Package=\"" << EscapeXml(feature.packageName) << "\" Name=\""
+                    << EscapeXml(feature.featureName) << "\" Version=\"" << EscapeXml(feature.packageVersion)
                     << "\" Manifest=\"" << EscapeXml(feature.manifestPath.string()) << "\" />\n";
             }
             out << "  </Features>\n";
             out << "  <Capabilities>\n";
             for (const auto &provider : resolved.capabilityProviders)
             {
-                out << "    <Capability Name=\"" << EscapeXml(provider.capability)
-                    << "\" Package=\"" << EscapeXml(provider.packageName)
-                    << "\" Feature=\"" << EscapeXml(provider.featureName)
+                out << "    <Capability Name=\"" << EscapeXml(provider.capability) << "\" Package=\""
+                    << EscapeXml(provider.packageName) << "\" Feature=\"" << EscapeXml(provider.featureName)
                     << "\" Exclusive=\"" << (provider.exclusive ? "true" : "false") << "\" />\n";
             }
             out << "  </Capabilities>\n";
@@ -1100,9 +1093,10 @@ namespace NGIN::CLI
 
         [[nodiscard]] auto HasSelection(const SelectorSet &selectors) -> bool
         {
-            return selectors.impossible || selectors.profile.has_value() || selectors.operatingSystem.has_value()
-                   || selectors.platform.has_value() || selectors.architecture.has_value() || selectors.buildType.has_value()
-                   || selectors.environment.has_value() || !selectors.conditionRefs.empty();
+            return selectors.impossible || selectors.profile.has_value() || selectors.operatingSystem.has_value() ||
+                   selectors.platform.has_value() || selectors.architecture.has_value() ||
+                   selectors.buildType.has_value() || selectors.environment.has_value() ||
+                   !selectors.conditionRefs.empty();
         }
 
         [[nodiscard]] auto EscapeJson(const std::string &value) -> std::string
@@ -1113,13 +1107,27 @@ namespace NGIN::CLI
             {
                 switch (ch)
                 {
-                case '\\': escaped += "\\\\"; break;
-                case '"': escaped += "\\\""; break;
-                case '\b': escaped += "\\b"; break;
-                case '\f': escaped += "\\f"; break;
-                case '\n': escaped += "\\n"; break;
-                case '\r': escaped += "\\r"; break;
-                case '\t': escaped += "\\t"; break;
+                case '\\':
+                    escaped += "\\\\";
+                    break;
+                case '"':
+                    escaped += "\\\"";
+                    break;
+                case '\b':
+                    escaped += "\\b";
+                    break;
+                case '\f':
+                    escaped += "\\f";
+                    break;
+                case '\n':
+                    escaped += "\\n";
+                    break;
+                case '\r':
+                    escaped += "\\r";
+                    break;
+                case '\t':
+                    escaped += "\\t";
+                    break;
                 default:
                     if (ch < 0x20)
                     {
@@ -1151,8 +1159,7 @@ namespace NGIN::CLI
         auto PrintSelectorSummary(const SelectorSet &selectors) -> void
         {
             bool first = true;
-            const auto append = [&](const std::string &name, const std::optional<std::string> &value)
-            {
+            const auto append = [&](const std::string &name, const std::optional<std::string> &value) {
                 if (!value.has_value())
                 {
                     return;
@@ -1189,11 +1196,9 @@ namespace NGIN::CLI
             }
         }
 
-        auto PrintConditionalBuildSettings(
-            const std::string_view label,
-            const ProjectManifest &project,
-            const ProfileDefinition &profile,
-            const std::vector<BuildSetting> &settings) -> void
+        auto PrintConditionalBuildSettings(const std::string_view label, const ProjectManifest &project,
+                                           const ProfileDefinition &profile, const std::vector<BuildSetting> &settings)
+            -> void
         {
             bool printedHeader = false;
             for (const auto &setting : settings)
@@ -1208,18 +1213,15 @@ namespace NGIN::CLI
                     printedHeader = true;
                 }
                 std::cout << "      - " << setting.value << " "
-                          << (SelectionMatches(project, setting.selectors, profile) ? "included" : "excluded")
-                          << " (";
+                          << (SelectionMatches(project, setting.selectors, profile) ? "included" : "excluded") << " (";
                 PrintSelectorSummary(setting.selectors);
                 std::cout << ")\n";
             }
         }
 
-        auto PrintConditionalProjectReferences(
-            const std::string_view label,
-            const ProjectManifest &project,
-            const ProfileDefinition &profile,
-            const std::vector<ProjectReference> &references) -> void
+        auto PrintConditionalProjectReferences(const std::string_view label, const ProjectManifest &project,
+                                               const ProfileDefinition &profile,
+                                               const std::vector<ProjectReference> &references) -> void
         {
             bool printedHeader = false;
             for (const auto &reference : references)
@@ -1241,11 +1243,9 @@ namespace NGIN::CLI
             }
         }
 
-        auto PrintConditionalPackageReferences(
-            const std::string_view label,
-            const ProjectManifest &project,
-            const ProfileDefinition &profile,
-            const std::vector<PackageReference> &references) -> void
+        auto PrintConditionalPackageReferences(const std::string_view label, const ProjectManifest &project,
+                                               const ProfileDefinition &profile,
+                                               const std::vector<PackageReference> &references) -> void
         {
             bool printedHeader = false;
             for (const auto &reference : references)
@@ -1267,11 +1267,9 @@ namespace NGIN::CLI
             }
         }
 
-        auto PrintConditionalRuntimeRefs(
-            const std::string_view label,
-            const ProjectManifest &project,
-            const ProfileDefinition &profile,
-            const std::vector<RuntimeReference> &references) -> void
+        auto PrintConditionalRuntimeRefs(const std::string_view label, const ProjectManifest &project,
+                                         const ProfileDefinition &profile,
+                                         const std::vector<RuntimeReference> &references) -> void
         {
             bool printedHeader = false;
             for (const auto &reference : references)
@@ -1295,8 +1293,8 @@ namespace NGIN::CLI
 
         [[nodiscard]] auto ProductKindFromNewKind(std::string kind) -> std::string
         {
-            std::transform(kind.begin(), kind.end(), kind.begin(), [](unsigned char value)
-                           { return static_cast<char>(std::tolower(value)); });
+            std::transform(kind.begin(), kind.end(), kind.begin(),
+                           [](unsigned char value) { return static_cast<char>(std::tolower(value)); });
             if (kind == "app" || kind == "application")
             {
                 return "Application";
@@ -1382,10 +1380,8 @@ namespace NGIN::CLI
             return false;
         }
 
-        [[nodiscard]] auto InsertUseLine(
-            std::string text,
-            const std::string &productKind,
-            const std::string &dependencyLine) -> std::string
+        [[nodiscard]] auto InsertUseLine(std::string text, const std::string &productKind,
+                                         const std::string &dependencyLine) -> std::string
         {
             const auto productOpenEnd = FindProductOpenTagEnd(text, productKind);
             if (IsSelfClosingTag(text, productOpenEnd))
@@ -1395,12 +1391,8 @@ namespace NGIN::CLI
                 const auto indent = indentStart == std::string::npos
                                         ? std::string{}
                                         : text.substr(indentStart + 1, productOpenStart - indentStart - 1);
-                const auto replacement =
-                    "<" + productKind + ">\n"
-                    + indent + "  <Uses>\n"
-                    + dependencyLine
-                    + indent + "  </Uses>\n"
-                    + indent + "</" + productKind + ">";
+                const auto replacement = "<" + productKind + ">\n" + indent + "  <Uses>\n" + dependencyLine + indent +
+                                         "  </Uses>\n" + indent + "</" + productKind + ">";
                 const auto replaceStart = productOpenStart;
                 text.replace(replaceStart, productOpenEnd - replaceStart + 1, replacement);
                 return text;
@@ -1413,47 +1405,39 @@ namespace NGIN::CLI
             }
             const auto usesOpen = text.find("<Uses>", productOpenEnd);
             const auto usesClose = text.find("</Uses>", productOpenEnd);
-            if (usesOpen != std::string::npos && usesClose != std::string::npos && usesOpen < productClose && usesClose < productClose)
+            if (usesOpen != std::string::npos && usesClose != std::string::npos && usesOpen < productClose &&
+                usesClose < productClose)
             {
                 text.insert(usesClose, dependencyLine);
                 return text;
             }
 
-            const auto block =
-                std::string("\n    <Uses>\n")
-                + dependencyLine
-                + "    </Uses>\n";
+            const auto block = std::string("\n    <Uses>\n") + dependencyLine + "    </Uses>\n";
             text.insert(productOpenEnd + 1, block);
             return text;
         }
 
-        [[nodiscard]] auto InsertPackageUse(
-            std::string text,
-            const std::string &productKind,
-            const std::string &packageName,
-            const std::string &versionRange,
-            const std::string &scope) -> std::string
+        [[nodiscard]] auto InsertPackageUse(std::string text, const std::string &productKind,
+                                            const std::string &packageName, const std::string &versionRange,
+                                            const std::string &scope) -> std::string
         {
-            const auto dependencyLine =
-                std::string("      <Package Name=\"") + EscapeXml(packageName)
-                + "\" Version=\"" + EscapeXml(versionRange)
-                + "\" Scope=\"" + EscapeXml(scope) + "\" />\n";
+            const auto dependencyLine = std::string("      <Package Name=\"") + EscapeXml(packageName) +
+                                        "\" Version=\"" + EscapeXml(versionRange) + "\" Scope=\"" + EscapeXml(scope) +
+                                        "\" />\n";
             return InsertUseLine(std::move(text), productKind, dependencyLine);
         }
 
-        [[nodiscard]] auto InsertProjectReferenceUse(
-            std::string text,
-            const std::string &productKind,
-            const std::string &projectName,
-            const std::string &projectPath) -> std::string
+        [[nodiscard]] auto InsertProjectReferenceUse(std::string text, const std::string &productKind,
+                                                     const std::string &projectName, const std::string &projectPath)
+            -> std::string
         {
-            const auto dependencyLine =
-                std::string("      <Project Name=\"") + EscapeXml(projectName)
-                + "\" Path=\"" + EscapeXml(projectPath) + "\" />\n";
+            const auto dependencyLine = std::string("      <Project Name=\"") + EscapeXml(projectName) + "\" Path=\"" +
+                                        EscapeXml(projectPath) + "\" />\n";
             return InsertUseLine(std::move(text), productKind, dependencyLine);
         }
 
-        [[nodiscard]] auto RemovePackageUse(std::string text, const std::string &productKind, const std::string &packageName) -> std::string
+        [[nodiscard]] auto RemovePackageUse(std::string text, const std::string &productKind,
+                                            const std::string &packageName) -> std::string
         {
             const auto productOpenEnd = FindProductOpenTagEnd(text, productKind);
             const auto productClose = text.find("</" + productKind + ">", productOpenEnd);
@@ -1480,12 +1464,9 @@ namespace NGIN::CLI
             return text;
         }
 
-        [[nodiscard]] auto UpdatePackageUse(
-            std::string text,
-            const std::string &productKind,
-            const std::string &packageName,
-            const std::string &versionRange,
-            const std::string &scope) -> std::string
+        [[nodiscard]] auto UpdatePackageUse(std::string text, const std::string &productKind,
+                                            const std::string &packageName, const std::string &versionRange,
+                                            const std::string &scope) -> std::string
         {
             const auto productOpenEnd = FindProductOpenTagEnd(text, productKind);
             const auto productClose = text.find("</" + productKind + ">", productOpenEnd);
@@ -1509,10 +1490,8 @@ namespace NGIN::CLI
             const auto lineEnd = text.find('\n', tagEnd);
             const auto eraseEnd = lineEnd == std::string::npos ? tagEnd + 1 : lineEnd;
             const auto indent = text.substr(lineStart, packageStart - lineStart);
-            const auto replacement =
-                indent + "<Package Name=\"" + EscapeXml(packageName)
-                + "\" Version=\"" + EscapeXml(versionRange)
-                + "\" Scope=\"" + EscapeXml(scope) + "\" />";
+            const auto replacement = indent + "<Package Name=\"" + EscapeXml(packageName) + "\" Version=\"" +
+                                     EscapeXml(versionRange) + "\" Scope=\"" + EscapeXml(scope) + "\" />";
             text.replace(lineStart, eraseEnd - lineStart, replacement);
             return text;
         }
@@ -1521,8 +1500,8 @@ namespace NGIN::CLI
         {
             std::ostringstream manifest{};
             manifest << "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n\n";
-            manifest << "<Package SchemaVersion=\"4\" Name=\"" << EscapeXml(output.name)
-                     << "\" Version=\"" << EscapeXml(output.version) << "\">\n";
+            manifest << "<Package SchemaVersion=\"4\" Name=\"" << EscapeXml(output.name) << "\" Version=\""
+                     << EscapeXml(output.version) << "\">\n";
             if (!output.description.empty() || !output.license.empty())
             {
                 manifest << "  <Metadata>\n";
@@ -1561,7 +1540,8 @@ namespace NGIN::CLI
                 manifest << "    <Exports>\n";
                 for (const auto &tool : output.tools)
                 {
-                    manifest << "      <Tool Name=\"" << EscapeXml(tool) << "\" Executable=\"" << EscapeXml(tool) << "\" />\n";
+                    manifest << "      <Tool Name=\"" << EscapeXml(tool) << "\" Executable=\"" << EscapeXml(tool)
+                             << "\" />\n";
                 }
                 manifest << "    </Exports>\n";
                 manifest << "  </Tool>\n";
@@ -1597,8 +1577,7 @@ namespace NGIN::CLI
             }
 
             std::vector<std::string> closures{};
-            auto addIf = [&](const std::string &scopeName, const std::string &closureName)
-            {
+            auto addIf = [&](const std::string &scopeName, const std::string &closureName) {
                 if (scopes.contains(scopeName))
                 {
                     closures.push_back(closureName);
@@ -1643,8 +1622,8 @@ namespace NGIN::CLI
             for (NGIN::UIntSize index = 0; index < element.children.Size(); ++index)
             {
                 const auto &child = element.children[index];
-                if ((child.type == XmlNode::Type::Text || child.type == XmlNode::Type::CData)
-                    && !TrimView(child.text).empty())
+                if ((child.type == XmlNode::Type::Text || child.type == XmlNode::Type::CData) &&
+                    !TrimView(child.text).empty())
                 {
                     return true;
                 }
@@ -1728,7 +1707,8 @@ namespace NGIN::CLI
             const auto existing = ReadText(path);
             if (existing.find("<!--") != std::string::npos)
             {
-                throw std::runtime_error("format currently refuses XML comments so it does not drop authored comments");
+                throw std::runtime_error("format currently refuses XML comments so it does "
+                                         "not drop authored comments");
             }
             const auto loaded = LoadXml(path);
             const auto *rootElement = loaded.document.Root();
@@ -1742,7 +1722,8 @@ namespace NGIN::CLI
             return formatted.str();
         }
 
-        [[nodiscard]] auto EffectivePublishes(const ProjectManifest &project, const ProfileDefinition &profile) -> std::vector<PublishDefinition>
+        [[nodiscard]] auto EffectivePublishes(const ProjectManifest &project, const ProfileDefinition &profile)
+            -> std::vector<PublishDefinition>
         {
             std::map<std::string, PublishDefinition> byName{};
             for (const auto &publish : project.publishes)
@@ -1775,7 +1756,8 @@ namespace NGIN::CLI
             return result;
         }
 
-        [[nodiscard]] auto EffectivePackageOutputs(const ProjectManifest &project, const ProfileDefinition &profile) -> std::vector<PackageOutputDefinition>
+        [[nodiscard]] auto EffectivePackageOutputs(const ProjectManifest &project, const ProfileDefinition &profile)
+            -> std::vector<PackageOutputDefinition>
         {
             std::map<std::string, PackageOutputDefinition> byName{};
             for (const auto &output : project.packageOutputs)
@@ -1808,14 +1790,107 @@ namespace NGIN::CLI
             return result;
         }
 
-        [[nodiscard]] auto EffectiveAnalyzers(
-            const ProjectManifest &project,
-            const ProfileDefinition &profile,
-            const std::vector<SelectedPackageFeature> &selectedFeatures = {}) -> std::map<std::string, AnalyzerDefinition>
+        [[nodiscard]] auto BuildSettingDefineName(const std::string &value) -> std::string
+        {
+            if (const auto separator = value.find('='); separator != std::string::npos)
+            {
+                return value.substr(0, separator);
+            }
+            return value;
+        }
+
+        [[nodiscard]] auto NormalizeBuildSettingPath(const std::string &path) -> std::string
+        {
+            return fs::path(path).lexically_normal().generic_string();
+        }
+
+        [[nodiscard]] auto BuildSettingSelectorIdentity(const SelectorSet &selectors) -> std::string
+        {
+            std::ostringstream identity{};
+            if (selectors.profile.has_value())
+            {
+                identity << "|profile=" << *selectors.profile;
+            }
+            if (selectors.platform.has_value())
+            {
+                identity << "|platform=" << *selectors.platform;
+            }
+            if (selectors.operatingSystem.has_value())
+            {
+                identity << "|os=" << *selectors.operatingSystem;
+            }
+            if (selectors.architecture.has_value())
+            {
+                identity << "|arch=" << *selectors.architecture;
+            }
+            if (selectors.buildType.has_value())
+            {
+                identity << "|buildType=" << *selectors.buildType;
+            }
+            if (selectors.environment.has_value())
+            {
+                identity << "|environment=" << *selectors.environment;
+            }
+            for (const auto &condition : selectors.conditionRefs)
+            {
+                identity << "|condition=" << condition;
+            }
+            return identity.str();
+        }
+
+        [[nodiscard]] auto BuildSettingIdentity(const std::string &kind, const BuildSetting &setting) -> std::string
+        {
+            if (kind == "Define")
+            {
+                return BuildSettingDefineName(setting.value);
+            }
+            if (kind == "IncludePath")
+            {
+                return NormalizeBuildSettingPath(setting.value) + "|" + setting.visibility;
+            }
+            return setting.value + BuildSettingSelectorIdentity(setting.selectors);
+        }
+
+        [[nodiscard]] auto EffectiveBuildSettings(const ProjectManifest &project, const ProfileDefinition &profile,
+                                                  const std::vector<BuildSetting> &settings, const std::string &kind)
+            -> std::vector<BuildSetting>
+        {
+            std::map<std::string, BuildSetting> byIdentity{};
+            for (const auto &setting : settings)
+            {
+                if (!SelectionMatches(project, setting.selectors, profile))
+                {
+                    continue;
+                }
+                const auto identity = setting.disabled ? setting.removeIdentity : BuildSettingIdentity(kind, setting);
+                if (identity.empty())
+                {
+                    continue;
+                }
+                if (setting.disabled)
+                {
+                    byIdentity.erase(identity);
+                }
+                else
+                {
+                    byIdentity[identity] = setting;
+                }
+            }
+
+            std::vector<BuildSetting> result{};
+            for (auto &[_, setting] : byIdentity)
+            {
+                result.push_back(std::move(setting));
+            }
+            return result;
+        }
+
+        [[nodiscard]] auto EffectiveAnalyzers(const ProjectManifest &project, const ProfileDefinition &profile,
+                                              const std::vector<SelectedPackageFeature> &selectedFeatures = {})
+            -> std::map<std::string, AnalyzerDefinition>
         {
             std::map<std::string, AnalyzerDefinition> analyzers{};
-            const auto mergeAnalyzer = [&](AnalyzerDefinition selected)
-            {
+            const auto mergeAnalyzer = [&](AnalyzerDefinition selected) {
                 if (selected.toolName.empty())
                 {
                     selected.toolName = selected.name;
@@ -1841,8 +1916,7 @@ namespace NGIN::CLI
 
                 analyzers[selected.name] = std::move(selected);
             };
-            const auto mergeSelected = [&](const std::vector<AnalyzerDefinition> &source)
-            {
+            const auto mergeSelected = [&](const std::vector<AnalyzerDefinition> &source) {
                 for (const auto &analyzer : source)
                 {
                     if (SelectionMatches(project, analyzer.selectors, profile))
@@ -1866,6 +1940,12 @@ namespace NGIN::CLI
                         {
                             selected.packageName = feature.packageName;
                         }
+                        selected.provenance = ContributionProvenance{
+                            .sourceKind = "package-feature",
+                            .sourceName = feature.packageName + "/" + feature.featureName,
+                            .manifestPath = feature.manifestPath,
+                            .reason = "selected package feature analyzer",
+                        };
                         mergeAnalyzer(std::move(selected));
                     }
                 }
@@ -1885,29 +1965,20 @@ namespace NGIN::CLI
             return Lower(analyzer.name) == "clang-tidy" || Lower(AnalyzerToolName(analyzer)) == "clang-tidy";
         }
 
-        [[nodiscard]] auto ResolveAnalyzerTool(
-            const ResolvedLaunch &resolved,
-            const AnalyzerDefinition &analyzer) -> std::optional<ToolResolution>
+        [[nodiscard]] auto ResolveAnalyzerTool(const ResolvedLaunch &resolved, const AnalyzerDefinition &analyzer)
+            -> std::optional<ToolResolution>
         {
             auto toolName = AnalyzerToolName(analyzer);
             if (!analyzer.packageName.empty())
             {
                 const auto packageIt = std::find_if(
-                    resolved.orderedPackages.begin(),
-                    resolved.orderedPackages.end(),
-                    [&](const ResolvedPackage &package)
-                    {
-                        return package.manifest.name == analyzer.packageName;
-                    });
+                    resolved.orderedPackages.begin(), resolved.orderedPackages.end(),
+                    [&](const ResolvedPackage &package) { return package.manifest.name == analyzer.packageName; });
                 if (packageIt != resolved.orderedPackages.end())
                 {
-                    const auto toolIt = std::find_if(
-                        packageIt->manifest.tools.begin(),
-                        packageIt->manifest.tools.end(),
-                        [&](const ToolDeclaration &tool)
-                        {
-                            return tool.name == toolName;
-                        });
+                    const auto toolIt =
+                        std::find_if(packageIt->manifest.tools.begin(), packageIt->manifest.tools.end(),
+                                     [&](const ToolDeclaration &tool) { return tool.name == toolName; });
                     if (toolIt != packageIt->manifest.tools.end() && !toolIt->executable.empty())
                     {
                         toolName = toolIt->executable;
@@ -1980,7 +2051,8 @@ namespace NGIN::CLI
             return {};
         }
 
-        [[nodiscard]] auto ParseClangTidyFindings(const std::string &output, const std::string &configuredSeverity) -> std::vector<AnalyzerFinding>
+        [[nodiscard]] auto ParseClangTidyFindings(const std::string &output, const std::string &configuredSeverity)
+            -> std::vector<AnalyzerFinding>
         {
             std::vector<AnalyzerFinding> findings{};
             const std::regex diagnosticPattern{R"(^(.+):([0-9]+):([0-9]+):\s*(warning|error):\s*(.+)$)"};
@@ -2006,14 +2078,12 @@ namespace NGIN::CLI
 
         auto PrintAnalyzerFinding(const AnalyzerFinding &finding) -> void
         {
-            std::cout << "[" << finding.severity << "] "
-                      << finding.file.string() << ":"
-                      << finding.line << ":"
-                      << finding.column << ": "
-                      << finding.message << "\n";
+            std::cout << "[" << finding.severity << "] " << finding.file.string() << ":" << finding.line << ":"
+                      << finding.column << ": " << finding.message << "\n";
         }
 
-        [[nodiscard]] auto SelectPublish(const std::vector<PublishDefinition> &publishes, const std::optional<std::string> &name) -> const PublishDefinition &
+        [[nodiscard]] auto SelectPublish(const std::vector<PublishDefinition> &publishes,
+                                         const std::optional<std::string> &name) -> const PublishDefinition &
         {
             if (publishes.empty())
             {
@@ -2021,13 +2091,8 @@ namespace NGIN::CLI
             }
             if (name.has_value())
             {
-                const auto it = std::find_if(
-                    publishes.begin(),
-                    publishes.end(),
-                    [&](const PublishDefinition &publish)
-                    {
-                        return publish.name == *name;
-                    });
+                const auto it = std::find_if(publishes.begin(), publishes.end(),
+                                             [&](const PublishDefinition &publish) { return publish.name == *name; });
                 if (it == publishes.end())
                 {
                     throw std::runtime_error("project does not declare Publish '" + *name + "'");
@@ -2038,13 +2103,8 @@ namespace NGIN::CLI
             {
                 return publishes.front();
             }
-            const auto it = std::find_if(
-                publishes.begin(),
-                publishes.end(),
-                [](const PublishDefinition &publish)
-                {
-                    return publish.name == "default";
-                });
+            const auto it = std::find_if(publishes.begin(), publishes.end(),
+                                         [](const PublishDefinition &publish) { return publish.name == "default"; });
             if (it != publishes.end())
             {
                 return *it;
@@ -2135,13 +2195,8 @@ namespace NGIN::CLI
                 zipEntry.archivePath = fs::relative(entry.path(), source).generic_string();
                 entries.push_back(std::move(zipEntry));
             }
-            std::sort(
-                entries.begin(),
-                entries.end(),
-                [](const ZipEntry &left, const ZipEntry &right)
-                {
-                    return left.archivePath < right.archivePath;
-                });
+            std::sort(entries.begin(), entries.end(),
+                      [](const ZipEntry &left, const ZipEntry &right) { return left.archivePath < right.archivePath; });
             return entries;
         }
 
@@ -2219,16 +2274,15 @@ namespace NGIN::CLI
             return value.rfind("http://", 0) == 0 || value.rfind("https://", 0) == 0;
         }
 
-        [[nodiscard]] auto InsertPackageSource(std::string text, const std::string &name, const std::string &location) -> std::string
+        [[nodiscard]] auto InsertPackageSource(std::string text, const std::string &name, const std::string &location)
+            -> std::string
         {
             if (text.find("<Source Name=\"" + name + "\"") != std::string::npos)
             {
                 throw std::runtime_error("workspace already declares package source '" + name + "'");
             }
-            const auto sourceLine =
-                std::string("    <Source Name=\"") + EscapeXml(name) + "\" "
-                + (IsProbablyUrl(location) ? "Url=\"" : "Path=\"")
-                + EscapeXml(location) + "\" />\n";
+            const auto sourceLine = std::string("    <Source Name=\"") + EscapeXml(name) + "\" " +
+                                    (IsProbablyUrl(location) ? "Url=\"" : "Path=\"") + EscapeXml(location) + "\" />\n";
             auto packagesOpen = text.find("<Packages>");
             auto packagesClose = text.find("</Packages>");
             if (packagesOpen != std::string::npos && packagesClose != std::string::npos && packagesOpen < packagesClose)
@@ -2384,7 +2438,8 @@ namespace NGIN::CLI
             {
                 snapshot.publishes.insert(publish.name + " kind=" + publish.kind + " output=" + publish.output);
             }
-            for (const auto &[_, analyzer] : EffectiveAnalyzers(resolved.project, resolved.profile, resolved.selectedPackageFeatures))
+            for (const auto &[_, analyzer] :
+                 EffectiveAnalyzers(resolved.project, resolved.profile, resolved.selectedPackageFeatures))
             {
                 if (analyzer.enabled)
                 {
@@ -2399,13 +2454,14 @@ namespace NGIN::CLI
             snapshot.launch["WorkingDirectory"] = resolved.profile.launch.workingDirectory;
             snapshot.launch["Args"] = resolved.profile.launch.args;
             snapshot.launch["Name"] = resolved.profile.launch.name;
-            snapshot.launch["Executable"] = resolved.selectedExecutable.has_value() ? resolved.selectedExecutable->name : "";
+            snapshot.launch["Executable"] =
+                resolved.selectedExecutable.has_value() ? resolved.selectedExecutable->name : "";
             for (const auto &launch : EffectiveLaunches(resolved.project, resolved.profile))
             {
-                auto value = std::string("executable=")
-                             + launch.executable.value_or(resolved.project.output.kind == "Executable" ? resolved.project.output.name : "")
-                             + " workingDirectory=" + launch.workingDirectory
-                             + " args=" + launch.args;
+                auto value = std::string("executable=") +
+                             launch.executable.value_or(
+                                 resolved.project.output.kind == "Executable" ? resolved.project.output.name : "") +
+                             " workingDirectory=" + launch.workingDirectory + " args=" + launch.args;
                 if (launch.name == resolved.profile.launch.name)
                 {
                     value += " selected=true";
@@ -2415,11 +2471,8 @@ namespace NGIN::CLI
             return snapshot;
         }
 
-        auto PrintMapDiff(
-            const std::string &label,
-            const std::map<std::string, std::string> &from,
-            const std::map<std::string, std::string> &to,
-            bool &anyDiff) -> void
+        auto PrintMapDiff(const std::string &label, const std::map<std::string, std::string> &from,
+                          const std::map<std::string, std::string> &to, bool &anyDiff) -> void
         {
             std::set<std::string> keys{};
             for (const auto &[key, _] : from)
@@ -2431,8 +2484,7 @@ namespace NGIN::CLI
                 keys.insert(key);
             }
             bool printedHeader = false;
-            const auto header = [&]()
-            {
+            const auto header = [&]() {
                 if (!printedHeader)
                 {
                     std::cout << label << ":\n";
@@ -2466,11 +2518,8 @@ namespace NGIN::CLI
             }
         }
 
-        auto PrintSetDiff(
-            const std::string &label,
-            const std::set<std::string> &from,
-            const std::set<std::string> &to,
-            bool &anyDiff) -> void
+        auto PrintSetDiff(const std::string &label, const std::set<std::string> &from, const std::set<std::string> &to,
+                          bool &anyDiff) -> void
         {
             std::vector<std::string> added{};
             std::vector<std::string> removed{};
@@ -2534,10 +2583,8 @@ namespace NGIN::CLI
             return packages;
         }
 
-        auto PrintLockDiff(
-            const std::map<std::string, LockPackageEntry> &from,
-            const std::map<std::string, LockPackageEntry> &to,
-            bool &anyDiff) -> void
+        auto PrintLockDiff(const std::map<std::string, LockPackageEntry> &from,
+                           const std::map<std::string, LockPackageEntry> &to, bool &anyDiff) -> void
         {
             std::set<std::string> packageNames{};
             for (const auto &[name, _] : from)
@@ -2569,20 +2616,20 @@ namespace NGIN::CLI
                 if (fromIt->second.version != toIt->second.version)
                 {
                     anyDiff = true;
-                    std::cout << "Package changed: " << name << " " << fromIt->second.version
-                              << " -> " << toIt->second.version << "\n";
+                    std::cout << "Package changed: " << name << " " << fromIt->second.version << " -> "
+                              << toIt->second.version << "\n";
                 }
                 if (fromIt->second.scope != toIt->second.scope)
                 {
                     anyDiff = true;
-                    std::cout << "Package scope changed: " << name << " " << fromIt->second.scope
-                              << " -> " << toIt->second.scope << "\n";
+                    std::cout << "Package scope changed: " << name << " " << fromIt->second.scope << " -> "
+                              << toIt->second.scope << "\n";
                 }
                 if (fromIt->second.source != toIt->second.source)
                 {
                     anyDiff = true;
-                    std::cout << "Package source changed: " << name << " " << fromIt->second.source
-                              << " -> " << toIt->second.source << "\n";
+                    std::cout << "Package source changed: " << name << " " << fromIt->second.source << " -> "
+                              << toIt->second.source << "\n";
                 }
             }
         }
@@ -2666,21 +2713,16 @@ namespace NGIN::CLI
             return result;
         }
 
-        [[nodiscard]] auto RunBuiltProduct(
-            const ProjectManifest &project,
-            const ProfileDefinition &profile,
-            const ParsedArgs &args,
-            CliEventEmitter &events,
-            std::chrono::steady_clock::time_point commandStarted,
-            std::string_view diagnosticsTitle) -> int
+        [[nodiscard]] auto RunBuiltProduct(const ProjectManifest &project, const ProfileDefinition &profile,
+                                           const ParsedArgs &args, CliEventEmitter &events,
+                                           std::chrono::steady_clock::time_point commandStarted,
+                                           std::string_view diagnosticsTitle) -> int
         {
             std::vector<BackendStepResult> backendSteps{};
             auto buildOptions = BuildOptionsForArgs(args, backendSteps, &events);
             const auto built = BuildLaunch(
-                project,
-                profile,
-                args.outputPath.has_value() ? std::optional<fs::path>{*args.outputPath} : std::nullopt,
-                buildOptions);
+                project, profile,
+                args.outputPath.has_value() ? std::optional<fs::path>{*args.outputPath} : std::nullopt, buildOptions);
             if (!built.value.has_value() || built.diagnostics.HasErrors())
             {
                 EmitDiagnostics(events, built.diagnostics, "ngin " + std::string{Lower(std::string{diagnosticsTitle})});
@@ -2694,7 +2736,9 @@ namespace NGIN::CLI
                 throw std::runtime_error("launch manifest does not declare a selected executable");
             }
 
-            const auto executableName = *summary.selectedExecutable + (fs::exists(built.value->outputDir / "bin" / (*summary.selectedExecutable + ".exe")) ? ".exe" : "");
+            const auto executableName =
+                *summary.selectedExecutable +
+                (fs::exists(built.value->outputDir / "bin" / (*summary.selectedExecutable + ".exe")) ? ".exe" : "");
             const auto executablePath = built.value->outputDir / "bin" / executableName;
             if (!fs::exists(executablePath))
             {
@@ -2712,18 +2756,19 @@ namespace NGIN::CLI
             auto runArgs = SplitCommandLineArgs(profile.launch.args);
             runArgs.insert(runArgs.end(), args.runArgs.begin(), args.runArgs.end());
             const auto runStarted = std::chrono::steady_clock::now();
-            events.Emit(CliEventType::PhaseStarted, EventData{}.AddString("phase", "run").AddString("label", std::string{diagnosticsTitle} + " process"));
-            const auto result = RunProcessCapture(
-                executablePath,
-                runArgs,
-                workingDirectory,
-                [&](std::string_view text)
-                {
-                    events.Emit(
-                        CliEventType::BackendOutput,
-                        EventData{}.AddString("phase", "run").AddString("stream", "combined").AddString("text", std::string{text}));
+            events.Emit(
+                CliEventType::PhaseStarted,
+                EventData{}.AddString("phase", "run").AddString("label", std::string{diagnosticsTitle} + " process"));
+            const auto result =
+                RunProcessCapture(executablePath, runArgs, workingDirectory, [&](std::string_view text) {
+                    events.Emit(CliEventType::BackendOutput, EventData{}
+                                                                 .AddString("phase", "run")
+                                                                 .AddString("stream", "combined")
+                                                                 .AddString("text", std::string{text}));
                 });
-            const auto duration = static_cast<std::int64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - runStarted).count());
+            const auto duration = static_cast<std::int64_t>(
+                std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - runStarted)
+                    .count());
             EventData phaseData{};
             phaseData.AddString("phase", "run")
                 .AddString("label", std::string{diagnosticsTitle} + " process")
@@ -2737,13 +2782,12 @@ namespace NGIN::CLI
                 phaseData.AddNumber("exitCode", result.exitCode);
                 events.Emit(CliEventType::PhaseFailed, std::move(phaseData));
             }
-            return EmitCommandCompleted(events, result.exitCode == 0 ? "success" : "failed", result.exitCode, commandStarted);
+            return EmitCommandCompleted(events, result.exitCode == 0 ? "success" : "failed", result.exitCode,
+                                        commandStarted);
         }
 
-        auto PrintConditionalFeatures(
-            const ProjectManifest &project,
-            const ProfileDefinition &profile,
-            const std::optional<EnvironmentDefinition> &environment) -> void
+        auto PrintConditionalFeatures(const ProjectManifest &project, const ProfileDefinition &profile,
+                                      const std::optional<EnvironmentDefinition> &environment) -> void
         {
             if (!environment.has_value())
             {
@@ -2762,8 +2806,7 @@ namespace NGIN::CLI
                     printedHeader = true;
                 }
                 std::cout << "      - " << feature.name << " "
-                          << (SelectionMatches(project, feature.selectors, profile) ? "included" : "excluded")
-                          << " (";
+                          << (SelectionMatches(project, feature.selectors, profile) ? "included" : "excluded") << " (";
                 PrintSelectorSummary(feature.selectors);
                 std::cout << ")\n";
             }
@@ -2833,48 +2876,39 @@ namespace NGIN::CLI
         }
 
         [[nodiscard]] auto EvalConditionNode(
-            const ConditionNode &node,
-            const std::unordered_map<std::string, const ConditionDefinition *> &conditions,
+            const ConditionNode &node, const std::unordered_map<std::string, const ConditionDefinition *> &conditions,
             const ProfileDefinition &profile) -> bool
         {
             switch (node.kind)
             {
             case ConditionNode::Kind::Match:
                 return DirectSelectorMatches(node.match, profile);
-            case ConditionNode::Kind::ConditionRef:
-            {
+            case ConditionNode::Kind::ConditionRef: {
                 const auto it = conditions.find(node.conditionName);
                 return it != conditions.end() && EvalConditionNode(it->second->body, conditions, profile);
             }
             case ConditionNode::Kind::All:
-                return std::all_of(
-                    node.children.begin(),
-                    node.children.end(),
-                    [&](const ConditionNode &child)
-                    { return EvalConditionNode(child, conditions, profile); });
+                return std::all_of(node.children.begin(), node.children.end(), [&](const ConditionNode &child) {
+                    return EvalConditionNode(child, conditions, profile);
+                });
             case ConditionNode::Kind::Any:
-                return std::any_of(
-                    node.children.begin(),
-                    node.children.end(),
-                    [&](const ConditionNode &child)
-                    { return EvalConditionNode(child, conditions, profile); });
+                return std::any_of(node.children.begin(), node.children.end(), [&](const ConditionNode &child) {
+                    return EvalConditionNode(child, conditions, profile);
+                });
             case ConditionNode::Kind::Not:
                 return node.children.size() == 1 && !EvalConditionNode(node.children.front(), conditions, profile);
             }
             return false;
         }
 
-        auto PrintConditionNode(
-            const ConditionNode &node,
-            const std::unordered_map<std::string, const ConditionDefinition *> &conditions,
-            const ProfileDefinition &profile,
-            const int indent) -> bool
+        auto PrintConditionNode(const ConditionNode &node,
+                                const std::unordered_map<std::string, const ConditionDefinition *> &conditions,
+                                const ProfileDefinition &profile, const int indent) -> bool
         {
             const auto pad = std::string(static_cast<std::size_t>(indent), ' ');
             switch (node.kind)
             {
-            case ConditionNode::Kind::Match:
-            {
+            case ConditionNode::Kind::Match: {
                 const auto matched = DirectSelectorMatches(node.match, profile);
                 std::cout << pad << "- Match: " << (matched ? "matched" : "not matched");
                 if (HasSelection(node.match))
@@ -2886,8 +2920,7 @@ namespace NGIN::CLI
                 std::cout << "\n";
                 return matched;
             }
-            case ConditionNode::Kind::ConditionRef:
-            {
+            case ConditionNode::Kind::ConditionRef: {
                 const auto it = conditions.find(node.conditionName);
                 if (it == conditions.end())
                 {
@@ -2900,8 +2933,7 @@ namespace NGIN::CLI
                 PrintConditionNode(it->second->body, conditions, profile, indent + 2);
                 return matched;
             }
-            case ConditionNode::Kind::All:
-            {
+            case ConditionNode::Kind::All: {
                 std::cout << pad << "- All\n";
                 bool matched = true;
                 for (const auto &child : node.children)
@@ -2911,8 +2943,7 @@ namespace NGIN::CLI
                 std::cout << pad << "  result: " << (matched ? "matched" : "not matched") << "\n";
                 return matched;
             }
-            case ConditionNode::Kind::Any:
-            {
+            case ConditionNode::Kind::Any: {
                 std::cout << pad << "- Any\n";
                 bool matched = false;
                 for (const auto &child : node.children)
@@ -2922,10 +2953,10 @@ namespace NGIN::CLI
                 std::cout << pad << "  result: " << (matched ? "matched" : "not matched") << "\n";
                 return matched;
             }
-            case ConditionNode::Kind::Not:
-            {
+            case ConditionNode::Kind::Not: {
                 std::cout << pad << "- Not\n";
-                const auto childMatched = !node.children.empty() && PrintConditionNode(node.children.front(), conditions, profile, indent + 2);
+                const auto childMatched = !node.children.empty() &&
+                                          PrintConditionNode(node.children.front(), conditions, profile, indent + 2);
                 const auto matched = !childMatched;
                 std::cout << pad << "  result: " << (matched ? "matched" : "not matched") << "\n";
                 return matched;
@@ -2933,7 +2964,7 @@ namespace NGIN::CLI
             }
             return false;
         }
-    }
+    } // namespace
 
     auto ParseCommonArgs(int argc, char **argv, int startIndex) -> ParsedArgs
     {
@@ -2959,7 +2990,8 @@ namespace NGIN::CLI
             }
             else if (current == "--configuration")
             {
-                throw std::runtime_error("--configuration expects Debug, Release, RelWithDebInfo, or MinSizeRel");
+                throw std::runtime_error("--configuration expects Debug, Release, "
+                                         "RelWithDebInfo, or MinSizeRel");
             }
             else if (current == "--from-profile" && index + 1 < argc)
             {
@@ -3234,8 +3266,7 @@ namespace NGIN::CLI
         std::cout << "NGIN workspace doctor\n";
         std::cout << "  root: " << root << "\n";
         std::cout << "  workspace manifest: " << WorkspaceFilePath(root).value_or(root / "<missing>") << "\n";
-        const auto reportTool = [&root, &fail](const std::string &tool, const bool required)
-        {
+        const auto reportTool = [&root, &fail](const std::string &tool, const bool required) {
             const auto resolved = ResolveToolPath(tool, root);
             if (!resolved.has_value())
             {
@@ -3348,7 +3379,8 @@ namespace NGIN::CLI
         {
             std::cout << it->second.providerRoot << "\n";
         }
-        std::cout << "  build backend: " << (manifest.build.backend.empty() ? "(none)" : manifest.build.backend) << "\n";
+        std::cout << "  build backend: " << (manifest.build.backend.empty() ? "(none)" : manifest.build.backend)
+                  << "\n";
         std::cout << "  libraries: " << manifest.artifacts.libraries.size() << "\n";
         for (const auto &library : manifest.artifacts.libraries)
         {
@@ -3644,8 +3676,8 @@ namespace NGIN::CLI
         {
             throw std::runtime_error("package add requires a product-first project");
         }
-        if (std::any_of(project.packageRefs.begin(), project.packageRefs.end(), [&](const PackageReference &reference)
-                        { return reference.name == *args.packageName; }))
+        if (std::any_of(project.packageRefs.begin(), project.packageRefs.end(),
+                        [&](const PackageReference &reference) { return reference.name == *args.packageName; }))
         {
             throw std::runtime_error("project already references package '" + *args.packageName + "'");
         }
@@ -3685,10 +3717,9 @@ namespace NGIN::CLI
         const auto referencePathText = *args.packageName;
         const auto referencePath = fs::weakly_canonical(projectPath.parent_path() / referencePathText);
         const auto referencedProject = LoadProjectManifest(referencePath);
-        if (std::any_of(project.projectRefs.begin(), project.projectRefs.end(), [&](const ProjectReference &reference)
-                        {
-                            return !reference.path.empty() && fs::weakly_canonical(reference.path) == referencePath;
-                        }))
+        if (std::any_of(project.projectRefs.begin(), project.projectRefs.end(), [&](const ProjectReference &reference) {
+                return !reference.path.empty() && fs::weakly_canonical(reference.path) == referencePath;
+            }))
         {
             throw std::runtime_error("project already references project '" + referencedProject.name + "'");
         }
@@ -3722,8 +3753,8 @@ namespace NGIN::CLI
         {
             throw std::runtime_error("package remove requires a product-first project");
         }
-        if (std::none_of(project.packageRefs.begin(), project.packageRefs.end(), [&](const PackageReference &reference)
-                         { return reference.name == *args.packageName; }))
+        if (std::none_of(project.packageRefs.begin(), project.packageRefs.end(),
+                         [&](const PackageReference &reference) { return reference.name == *args.packageName; }))
         {
             throw std::runtime_error("project does not reference package '" + *args.packageName + "'");
         }
@@ -3760,12 +3791,9 @@ namespace NGIN::CLI
         {
             throw std::runtime_error("package update requires a product-first project");
         }
-        const auto referenceIt = std::find_if(
-            project.packageRefs.begin(), project.packageRefs.end(),
-            [&](const PackageReference &reference)
-            {
-                return reference.name == *args.packageName;
-            });
+        const auto referenceIt =
+            std::find_if(project.packageRefs.begin(), project.packageRefs.end(),
+                         [&](const PackageReference &reference) { return reference.name == *args.packageName; });
         if (referenceIt == project.packageRefs.end())
         {
             throw std::runtime_error("project does not reference package '" + *args.packageName + "'");
@@ -3806,12 +3834,9 @@ namespace NGIN::CLI
         const PackageOutputDefinition *selected = nullptr;
         if (args.packageName.has_value())
         {
-            const auto it = std::find_if(
-                packageOutputs.begin(), packageOutputs.end(),
-                [&](const PackageOutputDefinition &output)
-                {
-                    return output.name == *args.packageName;
-                });
+            const auto it =
+                std::find_if(packageOutputs.begin(), packageOutputs.end(),
+                             [&](const PackageOutputDefinition &output) { return output.name == *args.packageName; });
             if (it == packageOutputs.end())
             {
                 throw std::runtime_error("project does not declare PackageOutput '" + *args.packageName + "'");
@@ -3824,7 +3849,8 @@ namespace NGIN::CLI
         }
         else
         {
-            throw std::runtime_error("package pack requires a PackageOutput name when the project declares multiple outputs");
+            throw std::runtime_error("package pack requires a PackageOutput name when "
+                                     "the project declares multiple outputs");
         }
 
         fs::path manifestPath{};
@@ -3853,7 +3879,8 @@ namespace NGIN::CLI
         }
 
         const auto packageStarted = std::chrono::steady_clock::now();
-        events.Emit(CliEventType::PhaseStarted, EventData{}.AddString("phase", "package").AddString("label", "Package pack"));
+        events.Emit(CliEventType::PhaseStarted,
+                    EventData{}.AddString("phase", "package").AddString("label", "Package pack"));
         const auto manifest = GeneratePackageOutputManifest(*selected);
         if (!manifestPath.empty())
         {
@@ -3870,27 +3897,32 @@ namespace NGIN::CLI
                 fs::create_directories(archivePath->parent_path());
             }
             WriteZipFile(*archivePath, std::vector<ZipFileEntry>{
-                                            ZipFileEntry{
-                                                .path = "package.nginpkg",
-                                                .contents = manifest,
-                                            },
-                                        });
+                                           ZipFileEntry{
+                                               .path = "package.nginpkg",
+                                               .contents = manifest,
+                                           },
+                                       });
         }
-        const auto packageDuration = static_cast<std::int64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - packageStarted).count());
-        events.Emit(
-            CliEventType::PhaseCompleted,
-            EventData{}.AddString("phase", "package").AddString("label", "Package pack").AddNumber("durationMs", packageDuration));
+        const auto packageDuration = static_cast<std::int64_t>(
+            std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - packageStarted)
+                .count());
+        events.Emit(CliEventType::PhaseCompleted, EventData{}
+                                                      .AddString("phase", "package")
+                                                      .AddString("label", "Package pack")
+                                                      .AddNumber("durationMs", packageDuration));
         if (!manifestPath.empty())
         {
-            events.Emit(
-                CliEventType::ArtifactProduced,
-                EventData{}.AddString("kind", "package-manifest").AddString("name", selected->name).AddString("path", manifestPath.string()));
+            events.Emit(CliEventType::ArtifactProduced, EventData{}
+                                                            .AddString("kind", "package-manifest")
+                                                            .AddString("name", selected->name)
+                                                            .AddString("path", manifestPath.string()));
         }
         if (archivePath.has_value())
         {
-            events.Emit(
-                CliEventType::ArtifactProduced,
-                EventData{}.AddString("kind", "package-archive").AddString("name", selected->name).AddString("path", archivePath->string()));
+            events.Emit(CliEventType::ArtifactProduced, EventData{}
+                                                            .AddString("kind", "package-archive")
+                                                            .AddString("name", selected->name)
+                                                            .AddString("path", archivePath->string()));
         }
         EventData summary{};
         summary.AddString("project", invocation.project.path.string())
@@ -3924,19 +3956,25 @@ namespace NGIN::CLI
             return EmitCommandCompleted(events, "failed", 1, commandStarted);
         }
         const auto packageStarted = std::chrono::steady_clock::now();
-        events.Emit(CliEventType::PhaseStarted, EventData{}.AddString("phase", "package").AddString("label", "Package lock"));
-        const auto lockPath = args.outputPath.has_value() ? fs::path(*args.outputPath) : DefaultLockPath(*resolved.value);
+        events.Emit(CliEventType::PhaseStarted,
+                    EventData{}.AddString("phase", "package").AddString("label", "Package lock"));
+        const auto lockPath =
+            args.outputPath.has_value() ? fs::path(*args.outputPath) : DefaultLockPath(*resolved.value);
         if (!lockPath.parent_path().empty())
         {
             fs::create_directories(lockPath.parent_path());
         }
         std::ofstream out(lockPath);
         out << GenerateLockFile(*resolved.value);
-        const auto packageDuration = static_cast<std::int64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - packageStarted).count());
-        events.Emit(
-            CliEventType::PhaseCompleted,
-            EventData{}.AddString("phase", "package").AddString("label", "Package lock").AddNumber("durationMs", packageDuration));
-        events.Emit(CliEventType::ArtifactProduced, EventData{}.AddString("kind", "lock-file").AddString("path", lockPath.string()));
+        const auto packageDuration = static_cast<std::int64_t>(
+            std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - packageStarted)
+                .count());
+        events.Emit(CliEventType::PhaseCompleted, EventData{}
+                                                      .AddString("phase", "package")
+                                                      .AddString("label", "Package lock")
+                                                      .AddNumber("durationMs", packageDuration));
+        events.Emit(CliEventType::ArtifactProduced,
+                    EventData{}.AddString("kind", "lock-file").AddString("path", lockPath.string()));
         events.Emit(
             CliEventType::Summary,
             EventData{}
@@ -3999,7 +4037,8 @@ namespace NGIN::CLI
         }
 
         const auto restoreStarted = std::chrono::steady_clock::now();
-        events.Emit(CliEventType::PhaseStarted, EventData{}.AddString("phase", "restore").AddString("label", "Package restore"));
+        events.Emit(CliEventType::PhaseStarted,
+                    EventData{}.AddString("phase", "restore").AddString("label", "Package restore"));
         const auto lockPath = args.lockPath.has_value() ? fs::path(*args.lockPath) : DefaultLockPath(*resolved.value);
         const auto expectedLock = GenerateLockFile(*resolved.value);
         if (args.locked)
@@ -4007,42 +4046,55 @@ namespace NGIN::CLI
             const auto existingLock = ReadTextIfExists(lockPath);
             if (existingLock.empty())
             {
-                events.Emit(
-                    CliEventType::Diagnostic,
-                    EventData{}.AddString("severity", "error").AddString("source", "ngin restore").AddString("message", "locked restore failed: missing lock file").AddString("subject", lockPath.string()));
-                events.Emit(
-                    CliEventType::PhaseFailed,
-                    EventData{}.AddString("phase", "restore").AddString("label", "Package restore").AddNumber("durationMs", CommandDurationMilliseconds(restoreStarted)).AddNumber("exitCode", 1));
+                events.Emit(CliEventType::Diagnostic,
+                            EventData{}
+                                .AddString("severity", "error")
+                                .AddString("source", "ngin restore")
+                                .AddString("message", "locked restore failed: missing lock file")
+                                .AddString("subject", lockPath.string()));
+                events.Emit(CliEventType::PhaseFailed,
+                            EventData{}
+                                .AddString("phase", "restore")
+                                .AddString("label", "Package restore")
+                                .AddNumber("durationMs", CommandDurationMilliseconds(restoreStarted))
+                                .AddNumber("exitCode", 1));
                 return EmitCommandCompleted(events, "failed", 1, commandStarted);
             }
             if (existingLock != expectedLock)
             {
-                events.Emit(
-                    CliEventType::Diagnostic,
-                    EventData{}.AddString("severity", "error").AddString("source", "ngin restore").AddString("message", "locked restore failed: resolved package graph differs from lock file").AddString("subject", lockPath.string()));
-                events.Emit(
-                    CliEventType::PhaseFailed,
-                    EventData{}.AddString("phase", "restore").AddString("label", "Package restore").AddNumber("durationMs", CommandDurationMilliseconds(restoreStarted)).AddNumber("exitCode", 1));
+                events.Emit(CliEventType::Diagnostic,
+                            EventData{}
+                                .AddString("severity", "error")
+                                .AddString("source", "ngin restore")
+                                .AddString("message", "locked restore failed: resolved package "
+                                                      "graph differs from lock file")
+                                .AddString("subject", lockPath.string()));
+                events.Emit(CliEventType::PhaseFailed,
+                            EventData{}
+                                .AddString("phase", "restore")
+                                .AddString("label", "Package restore")
+                                .AddNumber("durationMs", CommandDurationMilliseconds(restoreStarted))
+                                .AddNumber("exitCode", 1));
                 return EmitCommandCompleted(events, "failed", 1, commandStarted);
             }
         }
 
-        const auto storeRoot = args.outputPath.has_value() ? fs::path(*args.outputPath) : DefaultPackageStorePath(*resolved.value);
+        const auto storeRoot =
+            args.outputPath.has_value() ? fs::path(*args.outputPath) : DefaultPackageStorePath(*resolved.value);
         fs::create_directories(storeRoot);
         for (const auto &package : resolved.value->orderedPackages)
         {
             const auto packageDir = storeRoot / package.manifest.name / package.manifest.version;
             fs::create_directories(packageDir);
-            fs::copy_file(
-                package.manifest.path,
-                packageDir / package.manifest.path.filename(),
-                fs::copy_options::overwrite_existing);
+            fs::copy_file(package.manifest.path, packageDir / package.manifest.path.filename(),
+                          fs::copy_options::overwrite_existing);
             if (package.manifest.path.extension() == ".nginpack")
             {
                 ExtractZipFile(package.manifest.path, packageDir);
                 if (!fs::exists(packageDir / "package.nginpkg"))
                 {
-                    WriteTextFile(packageDir / "package.nginpkg", ExtractNginPackManifestPayloadForRestore(package.manifest.path));
+                    WriteTextFile(packageDir / "package.nginpkg",
+                                  ExtractNginPackManifestPayloadForRestore(package.manifest.path));
                 }
             }
         }
@@ -4056,17 +4108,19 @@ namespace NGIN::CLI
             WriteTextFile(lockPath, expectedLock);
         }
 
-        events.Emit(
-            CliEventType::PhaseCompleted,
-            EventData{}.AddString("phase", "restore").AddString("label", "Package restore").AddNumber("durationMs", CommandDurationMilliseconds(restoreStarted)));
-        events.Emit(CliEventType::ArtifactProduced, EventData{}.AddString("kind", "lock-file").AddString("path", lockPath.string()));
-        events.Emit(
-            CliEventType::Summary,
-            EventData{}
-                .AddString("store", storeRoot.string())
-                .AddString("lock", lockPath.string())
-                .AddString("locked", args.locked ? "true" : "false")
-                .AddNumber("packages", static_cast<std::int64_t>(resolved.value->orderedPackages.size())));
+        events.Emit(CliEventType::PhaseCompleted,
+                    EventData{}
+                        .AddString("phase", "restore")
+                        .AddString("label", "Package restore")
+                        .AddNumber("durationMs", CommandDurationMilliseconds(restoreStarted)));
+        events.Emit(CliEventType::ArtifactProduced,
+                    EventData{}.AddString("kind", "lock-file").AddString("path", lockPath.string()));
+        events.Emit(CliEventType::Summary,
+                    EventData{}
+                        .AddString("store", storeRoot.string())
+                        .AddString("lock", lockPath.string())
+                        .AddString("locked", args.locked ? "true" : "false")
+                        .AddNumber("packages", static_cast<std::int64_t>(resolved.value->orderedPackages.size())));
         if (IsVerbose(args) && !resolved.value->orderedPackages.empty())
         {
             PrintSection(args, "Resolved packages");
@@ -4114,7 +4168,8 @@ namespace NGIN::CLI
         std::cout << "Initialized local settings\n";
         std::cout << "  settings: " << settingsPath << (createdSettings ? " [created]" : " [exists]") << "\n";
         std::cout << "  gitignore: " << gitignorePath << (updatedGitignore ? " [updated]" : " [ok]") << "\n";
-        std::cout << "  import from project manifests with a path relative to the project file\n";
+        std::cout << "  import from project manifests with a path relative to the "
+                     "project file\n";
         return 0;
     }
 
@@ -4182,7 +4237,8 @@ namespace NGIN::CLI
                 }
                 available << names[index];
             }
-            throw std::runtime_error("unknown condition '" + *args.packageName + "' (available: " + available.str() + ")");
+            throw std::runtime_error("unknown condition '" + *args.packageName + "' (available: " + available.str() +
+                                     ")");
         }
 
         const auto &condition = *it->second;
@@ -4190,8 +4246,7 @@ namespace NGIN::CLI
         std::cout << "Condition: " << condition.name << "\n";
         std::cout << "  result: " << (matched ? "matched" : "not matched") << "\n";
         std::cout << "  origin: " << ConditionOrigin(condition) << "\n";
-        std::cout << "  profile: " << invocation.profile.name
-                  << " BuildType=" << invocation.profile.buildType
+        std::cout << "  profile: " << invocation.profile.name << " BuildType=" << invocation.profile.buildType
                   << " Platform=" << invocation.profile.platform
                   << " OperatingSystem=" << invocation.profile.operatingSystem
                   << " Architecture=" << invocation.profile.architecture
@@ -4216,35 +4271,32 @@ namespace NGIN::CLI
             return 1;
         }
 
-        const auto packageIt = std::find_if(
-            resolved.value->orderedPackages.begin(), resolved.value->orderedPackages.end(),
-            [&](const ResolvedPackage &package)
-            {
-                return package.manifest.name == *args.packageName;
-            });
+        const auto packageIt =
+            std::find_if(resolved.value->orderedPackages.begin(), resolved.value->orderedPackages.end(),
+                         [&](const ResolvedPackage &package) { return package.manifest.name == *args.packageName; });
         if (packageIt == resolved.value->orderedPackages.end())
         {
             throw std::runtime_error("package '" + *args.packageName + "' is not selected");
         }
-        const auto featureIt = std::find_if(
-            packageIt->manifest.features.begin(), packageIt->manifest.features.end(),
-            [&](const PackageManifest::Feature &feature)
-            {
-                return feature.name == *args.featureName;
-            });
+        const auto featureIt =
+            std::find_if(packageIt->manifest.features.begin(), packageIt->manifest.features.end(),
+                         [&](const PackageManifest::Feature &feature) { return feature.name == *args.featureName; });
         if (featureIt == packageIt->manifest.features.end())
         {
-            throw std::runtime_error("package '" + *args.packageName + "' does not declare feature '" + *args.featureName + "'");
+            throw std::runtime_error("package '" + *args.packageName + "' does not declare feature '" +
+                                     *args.featureName + "'");
         }
         const auto selectedIt = std::find_if(
             resolved.value->selectedPackageFeatures.begin(), resolved.value->selectedPackageFeatures.end(),
-            [&](const SelectedPackageFeature &feature)
-            {
+            [&](const SelectedPackageFeature &feature) {
                 return feature.packageName == *args.packageName && feature.featureName == *args.featureName;
             });
-        const auto matchedSelectors = SelectionMatches(packageIt->manifest.conditions, featureIt->selectors, invocation.profile);
+        const auto matchedSelectors =
+            SelectionMatches(packageIt->manifest.conditions, featureIt->selectors, invocation.profile);
         std::cout << "Package feature: " << *args.packageName << "::" << *args.featureName << "\n";
-        std::cout << "  result: " << (selectedIt != resolved.value->selectedPackageFeatures.end() ? "selected" : "not selected") << "\n";
+        std::cout << "  result: "
+                  << (selectedIt != resolved.value->selectedPackageFeatures.end() ? "selected" : "not selected")
+                  << "\n";
         std::cout << "  selector result: " << (matchedSelectors ? "matched" : "not matched") << "\n";
         std::cout << "  manifest: " << packageIt->manifest.path << "\n";
         std::cout << "  dependencies: " << featureIt->packageRefs.size() << "\n";
@@ -4289,10 +4341,7 @@ namespace NGIN::CLI
         }
         const auto generatorIt = std::find_if(
             resolved.value->generators.begin(), resolved.value->generators.end(),
-            [&](const ResolvedGenerator &generator)
-            {
-                return generator.declaration.name == *args.packageName;
-            });
+            [&](const ResolvedGenerator &generator) { return generator.declaration.name == *args.packageName; });
         if (generatorIt == resolved.value->generators.end())
         {
             throw std::runtime_error("generator '" + *args.packageName + "' is not selected");
@@ -4334,10 +4383,12 @@ namespace NGIN::CLI
         return 0;
     }
 
-    [[nodiscard]] auto NamedConventions(const ProjectManifest &project, const ProfileDefinition &profile, const std::string &productKind)
+    [[nodiscard]] auto NamedConventions(const ProjectManifest &project, const ProfileDefinition &profile,
+                                        const std::string &productKind)
         -> std::vector<std::pair<std::string, std::string>>;
 
-    [[nodiscard]] auto BuildCompositionGraph(const LoadedInvocation &invocation, const DiagnosticResult<ResolvedLaunch> &resolvedResult)
+    [[nodiscard]] auto BuildCompositionGraph(const LoadedInvocation &invocation,
+                                             const DiagnosticResult<ResolvedLaunch> &resolvedResult)
         -> CompositionGraph;
 
     auto CmdExplainObject(const fs::path &root, const ParsedArgs &args) -> int
@@ -4370,12 +4421,14 @@ namespace NGIN::CLI
                 }
                 else
                 {
-                    const auto convention = invocation.project.build.language == "CXX" && invocation.project.build.languageStandard == "23"
-                                                ? "NGIN.Cpp.Defaults"
-                                                : "NGIN.Workspace.LanguageDefaults";
+                    const auto convention =
+                        invocation.project.build.language == "CXX" && invocation.project.build.languageStandard == "23"
+                            ? "NGIN.Cpp.Defaults"
+                            : "NGIN.Workspace.LanguageDefaults";
                     std::cout << "  convention: " << convention << "\n";
                     std::cout << "  reason: project did not declare Language\n";
-                    std::cout << "  override: <Language Standard=\"C++20\" Required=\"true\" Extensions=\"false\" />\n";
+                    std::cout << "  override: <Language Standard=\"C++20\" "
+                                 "Required=\"true\" Extensions=\"false\" />\n";
                 }
                 return 0;
             }
@@ -4401,7 +4454,10 @@ namespace NGIN::CLI
             }
             if (identity == "Toolchain")
             {
-                std::cout << "  value: " << (resolved.value->profile.toolchain.empty() ? "(default)" : resolved.value->profile.toolchain) << "\n";
+                std::cout << "  value: "
+                          << (resolved.value->profile.toolchain.empty() ? "(default)"
+                                                                        : resolved.value->profile.toolchain)
+                          << "\n";
                 std::cout << "  source: selected profile " << resolved.value->profile.name << "\n";
                 return 0;
             }
@@ -4417,12 +4473,8 @@ namespace NGIN::CLI
         if (kind == "convention")
         {
             std::cout << "Convention: " << identity << "\n";
-            const auto conventionIt = std::find_if(
-                graph.conventions.begin(), graph.conventions.end(),
-                [&](const auto &convention)
-                {
-                    return convention.name == identity;
-                });
+            const auto conventionIt = std::find_if(graph.conventions.begin(), graph.conventions.end(),
+                                                   [&](const auto &convention) { return convention.name == identity; });
             if (conventionIt == graph.conventions.end())
             {
                 std::cout << "  result: not selected\n";
@@ -4433,7 +4485,8 @@ namespace NGIN::CLI
             std::cout << "  project: " << graph.identity.project << "\n";
             std::cout << "  product: " << graph.identity.product << "\n";
             std::cout << "  profile: " << graph.identity.profile << "\n";
-            std::cout << "  provenance: " << conventionIt->provenance.sourceKind << " " << conventionIt->provenance.sourceName << "\n";
+            std::cout << "  provenance: " << conventionIt->provenance.sourceKind << " "
+                      << conventionIt->provenance.sourceName << "\n";
             return 0;
         }
 
@@ -4443,16 +4496,32 @@ namespace NGIN::CLI
             bool found = false;
             for (const auto &unit : resolved.value->projectUnits)
             {
-                for (const auto &setting : unit.project.build.compileDefinitions)
+                for (const auto &setting : EffectiveBuildSettings(unit.project, unit.profile,
+                                                                  unit.project.build.compileDefinitions, "Define"))
                 {
-                    if (DefineName(setting.value) != identity || !SelectionMatches(unit.project, setting.selectors, unit.profile))
+                    if (DefineName(setting.value) != identity)
                     {
                         continue;
                     }
                     found = true;
                     std::cout << "  value: " << setting.value << "\n";
-                    std::cout << "  owner: project " << unit.project.name << "\n";
-                    std::cout << "  manifest: " << unit.project.path << "\n";
+                    if (!setting.provenance.sourceKind.empty())
+                    {
+                        std::cout << "  owner: " << setting.provenance.sourceKind << " "
+                                  << setting.provenance.sourceName << "\n";
+                        std::cout << "  manifest: " << setting.provenance.manifestPath << "\n";
+                        std::cout << "  reason: " << setting.provenance.reason << "\n";
+                    }
+                    else if (setting.selectors.profile.has_value())
+                    {
+                        std::cout << "  owner: project-profile " << *setting.selectors.profile << "\n";
+                        std::cout << "  manifest: " << unit.project.path << "\n";
+                    }
+                    else
+                    {
+                        std::cout << "  owner: project " << unit.project.name << "\n";
+                        std::cout << "  manifest: " << unit.project.path << "\n";
+                    }
                 }
             }
             for (const auto &feature : resolved.value->selectedPackageFeatures)
@@ -4465,7 +4534,8 @@ namespace NGIN::CLI
                     }
                     found = true;
                     std::cout << "  value: " << setting.value << "\n";
-                    std::cout << "  owner: package feature " << feature.packageName << "/" << feature.featureName << "\n";
+                    std::cout << "  owner: package feature " << feature.packageName << "/" << feature.featureName
+                              << "\n";
                     std::cout << "  manifest: " << feature.manifestPath << "\n";
                 }
             }
@@ -4480,17 +4550,15 @@ namespace NGIN::CLI
         {
             std::cout << "Source: " << identity << "\n";
             const auto requested = fs::path(identity).lexically_normal();
-            const auto inputIt = std::find_if(
-                resolved.value->inputs.begin(), resolved.value->inputs.end(),
-                [&](const ResolvedInput &input)
-                {
-                    if (input.kind != "Source" && input.kind != "Generated")
-                    {
-                        return false;
-                    }
-                    return fs::path(input.source).lexically_normal() == requested
-                           || input.absoluteSourcePath.lexically_normal() == requested;
-                });
+            const auto inputIt = std::find_if(resolved.value->inputs.begin(), resolved.value->inputs.end(),
+                                              [&](const ResolvedInput &input) {
+                                                  if (input.kind != "Source" && input.kind != "Generated")
+                                                  {
+                                                      return false;
+                                                  }
+                                                  return fs::path(input.source).lexically_normal() == requested ||
+                                                         input.absoluteSourcePath.lexically_normal() == requested;
+                                              });
             if (inputIt == resolved.value->inputs.end())
             {
                 std::cout << "  result: not selected\n";
@@ -4511,12 +4579,9 @@ namespace NGIN::CLI
         {
             std::cout << "Stage: " << identity << "\n";
             const auto requested = fs::path(identity).lexically_normal();
-            const auto inputIt = std::find_if(
-                resolved.value->inputs.begin(), resolved.value->inputs.end(),
-                [&](const ResolvedInput &input)
-                {
-                    return input.stagedRelativePath == requested;
-                });
+            const auto inputIt =
+                std::find_if(resolved.value->inputs.begin(), resolved.value->inputs.end(),
+                             [&](const ResolvedInput &input) { return input.stagedRelativePath == requested; });
             if (inputIt == resolved.value->inputs.end())
             {
                 std::cout << "  result: not selected\n";
@@ -4533,12 +4598,9 @@ namespace NGIN::CLI
         if (kind == "package")
         {
             std::cout << "Package: " << identity << "\n";
-            const auto packageIt = std::find_if(
-                resolved.value->orderedPackages.begin(), resolved.value->orderedPackages.end(),
-                [&](const ResolvedPackage &package)
-                {
-                    return package.manifest.name == identity;
-                });
+            const auto packageIt =
+                std::find_if(resolved.value->orderedPackages.begin(), resolved.value->orderedPackages.end(),
+                             [&](const ResolvedPackage &package) { return package.manifest.name == identity; });
             if (packageIt == resolved.value->orderedPackages.end())
             {
                 std::cout << "  result: not selected\n";
@@ -4566,12 +4628,11 @@ namespace NGIN::CLI
             }
             const auto packageName = identity.substr(0, slash);
             const auto featureName = identity.substr(slash + 1);
-            const auto featureIt = std::find_if(
-                resolved.value->selectedPackageFeatures.begin(), resolved.value->selectedPackageFeatures.end(),
-                [&](const SelectedPackageFeature &feature)
-                {
-                    return feature.packageName == packageName && feature.featureName == featureName;
-                });
+            const auto featureIt =
+                std::find_if(resolved.value->selectedPackageFeatures.begin(),
+                             resolved.value->selectedPackageFeatures.end(), [&](const SelectedPackageFeature &feature) {
+                                 return feature.packageName == packageName && feature.featureName == featureName;
+                             });
             if (featureIt == resolved.value->selectedPackageFeatures.end())
             {
                 std::cout << "  result: not selected\n";
@@ -4588,10 +4649,7 @@ namespace NGIN::CLI
             std::cout << "Generator: " << identity << "\n";
             const auto generatorIt = std::find_if(
                 resolved.value->generators.begin(), resolved.value->generators.end(),
-                [&](const ResolvedGenerator &generator)
-                {
-                    return generator.declaration.name == identity;
-                });
+                [&](const ResolvedGenerator &generator) { return generator.declaration.name == identity; });
             if (generatorIt == resolved.value->generators.end())
             {
                 std::cout << "  result: not selected\n";
@@ -4609,13 +4667,8 @@ namespace NGIN::CLI
         {
             std::cout << "Launch: " << identity << "\n";
             const auto launches = EffectiveLaunches(resolved.value->project, resolved.value->profile);
-            const auto launchIt = std::find_if(
-                launches.begin(),
-                launches.end(),
-                [&](const LaunchDefinition &launch)
-                {
-                    return launch.name == identity;
-                });
+            const auto launchIt = std::find_if(launches.begin(), launches.end(),
+                                               [&](const LaunchDefinition &launch) { return launch.name == identity; });
             if (launchIt == launches.end())
             {
                 std::cout << "  result: not found\n";
@@ -4625,7 +4678,10 @@ namespace NGIN::CLI
             std::cout << "  result: " << (selected ? "selected" : "available") << "\n";
             std::cout << "  name: " << launchIt->name << "\n";
             std::cout << "  executable: "
-                      << (launchIt->executable.has_value() ? *launchIt->executable : resolved.value->selectedExecutable.has_value() ? resolved.value->selectedExecutable->name : "(none)") << "\n";
+                      << (launchIt->executable.has_value()                 ? *launchIt->executable
+                          : resolved.value->selectedExecutable.has_value() ? resolved.value->selectedExecutable->name
+                                                                           : "(none)")
+                      << "\n";
             std::cout << "  workingDirectory: " << launchIt->workingDirectory << "\n";
             std::cout << "  args: " << launchIt->args << "\n";
             return 0;
@@ -4635,12 +4691,9 @@ namespace NGIN::CLI
         {
             std::cout << "Publish: " << identity << "\n";
             const auto publishes = EffectivePublishes(resolved.value->project, resolved.value->profile);
-            const auto publishIt = std::find_if(
-                publishes.begin(), publishes.end(),
-                [&](const PublishDefinition &publish)
-                {
-                    return publish.name == identity;
-                });
+            const auto publishIt =
+                std::find_if(publishes.begin(), publishes.end(),
+                             [&](const PublishDefinition &publish) { return publish.name == identity; });
             if (publishIt == publishes.end())
             {
                 std::cout << "  result: not selected\n";
@@ -4654,7 +4707,8 @@ namespace NGIN::CLI
             }
             std::cout << "  output: " << publishIt->output << "\n";
             std::cout << "  includeStage: " << (publishIt->includeStage ? "true" : "false") << "\n";
-            std::cout << "  includeRuntimeDependencies: " << (publishIt->includeRuntimeDependencies ? "true" : "false") << "\n";
+            std::cout << "  includeRuntimeDependencies: " << (publishIt->includeRuntimeDependencies ? "true" : "false")
+                      << "\n";
             std::cout << "  includeSymbols: " << (publishIt->includeSymbols ? "true" : "false") << "\n";
             return 0;
         }
@@ -4663,13 +4717,9 @@ namespace NGIN::CLI
         {
             std::cout << "Package output: " << identity << "\n";
             const auto packageOutputs = EffectivePackageOutputs(invocation.project, invocation.profile);
-            const auto outputIt = std::find_if(
-                packageOutputs.begin(),
-                packageOutputs.end(),
-                [&](const PackageOutputDefinition &output)
-                {
-                    return output.name == identity;
-                });
+            const auto outputIt =
+                std::find_if(packageOutputs.begin(), packageOutputs.end(),
+                             [&](const PackageOutputDefinition &output) { return output.name == identity; });
             if (outputIt == packageOutputs.end())
             {
                 std::cout << "  result: not selected\n";
@@ -4703,13 +4753,9 @@ namespace NGIN::CLI
         if (kind == "env")
         {
             std::cout << "Environment variable: " << identity << "\n";
-            const auto variableIt = std::find_if(
-                resolved.value->environmentVariables.begin(),
-                resolved.value->environmentVariables.end(),
-                [&](const EnvironmentVariable &variable)
-                {
-                    return variable.name == identity;
-                });
+            const auto variableIt =
+                std::find_if(resolved.value->environmentVariables.begin(), resolved.value->environmentVariables.end(),
+                             [&](const EnvironmentVariable &variable) { return variable.name == identity; });
             if (variableIt == resolved.value->environmentVariables.end())
             {
                 std::cout << "  result: not selected\n";
@@ -4726,7 +4772,8 @@ namespace NGIN::CLI
         if (kind == "analyzer")
         {
             std::cout << "Analyzer: " << identity << "\n";
-            const auto analyzers = EffectiveAnalyzers(resolved.value->project, resolved.value->profile, resolved.value->selectedPackageFeatures);
+            const auto analyzers = EffectiveAnalyzers(resolved.value->project, resolved.value->profile,
+                                                      resolved.value->selectedPackageFeatures);
             const auto analyzerIt = analyzers.find(identity);
             if (analyzerIt == analyzers.end() || !analyzerIt->second.enabled)
             {
@@ -4751,22 +4798,26 @@ namespace NGIN::CLI
         if (kind == "runtime-module")
         {
             std::cout << "Runtime module: " << identity << "\n";
-            const auto required = std::find(resolved.value->requiredModules.begin(), resolved.value->requiredModules.end(), identity);
-            const auto optional = std::find(resolved.value->optionalModules.begin(), resolved.value->optionalModules.end(), identity);
+            const auto required =
+                std::find(resolved.value->requiredModules.begin(), resolved.value->requiredModules.end(), identity);
+            const auto optional =
+                std::find(resolved.value->optionalModules.begin(), resolved.value->optionalModules.end(), identity);
             if (required == resolved.value->requiredModules.end() && optional == resolved.value->optionalModules.end())
             {
                 std::cout << "  result: not selected\n";
                 return 0;
             }
             std::cout << "  result: selected\n";
-            std::cout << "  selection: " << (required != resolved.value->requiredModules.end() ? "required" : "optional") << "\n";
+            std::cout << "  selection: "
+                      << (required != resolved.value->requiredModules.end() ? "required" : "optional") << "\n";
             return 0;
         }
 
         throw std::runtime_error("unknown explain object kind '" + kind + "'");
     }
 
-    [[nodiscard]] auto NamedConventions(const ProjectManifest &project, const ProfileDefinition &profile, const std::string &productKind)
+    [[nodiscard]] auto NamedConventions(const ProjectManifest &project, const ProfileDefinition &profile,
+                                        const std::string &productKind)
         -> std::vector<std::pair<std::string, std::string>>
     {
         std::vector<std::pair<std::string, std::string>> conventions{};
@@ -4776,15 +4827,17 @@ namespace NGIN::CLI
         }
         if (!project.build.languageExplicit)
         {
-            conventions.emplace_back(
-                project.build.language == "CXX" && project.build.languageStandard == "23" ? "NGIN.Cpp.Defaults" : "NGIN.Workspace.LanguageDefaults",
-                "project did not declare a language override");
+            conventions.emplace_back(project.build.language == "CXX" && project.build.languageStandard == "23"
+                                         ? "NGIN.Cpp.Defaults"
+                                         : "NGIN.Workspace.LanguageDefaults",
+                                     "project did not declare a language override");
         }
         if (!project.build.backendExplicit)
         {
-            conventions.emplace_back(
-                project.build.backend == "CMake" && project.build.mode == "Generated" ? "NGIN.CMake.Generated" : "NGIN.Workspace.BackendDefaults",
-                "project did not declare a backend override");
+            conventions.emplace_back(project.build.backend == "CMake" && project.build.mode == "Generated"
+                                         ? "NGIN.CMake.Generated"
+                                         : "NGIN.Workspace.BackendDefaults",
+                                     "project did not declare a backend override");
         }
         if (!profile.name.empty())
         {
@@ -4797,21 +4850,20 @@ namespace NGIN::CLI
         return conventions;
     }
 
-    [[nodiscard]] auto BuildCompositionGraph(const LoadedInvocation &invocation, const DiagnosticResult<ResolvedLaunch> &resolvedResult)
-        -> CompositionGraph
+    [[nodiscard]] auto BuildCompositionGraph(const LoadedInvocation &invocation,
+                                             const DiagnosticResult<ResolvedLaunch> &resolvedResult) -> CompositionGraph
     {
         const auto *resolved = resolvedResult.value.has_value() ? &*resolvedResult.value : nullptr;
-        const auto productKind = invocation.project.productKind.empty() ? invocation.project.type : invocation.project.productKind;
+        const auto productKind =
+            invocation.project.productKind.empty() ? invocation.project.type : invocation.project.productKind;
         const auto effectivePublishes = EffectivePublishes(invocation.project, invocation.profile);
         const auto effectivePackageOutputs = EffectivePackageOutputs(invocation.project, invocation.profile);
-        const auto effectiveAnalyzers = EffectiveAnalyzers(
-            invocation.project,
-            invocation.profile,
-            resolved == nullptr ? std::vector<SelectedPackageFeature>{} : resolved->selectedPackageFeatures);
+        const auto effectiveAnalyzers = EffectiveAnalyzers(invocation.project, invocation.profile,
+                                                           resolved == nullptr ? std::vector<SelectedPackageFeature>{}
+                                                                               : resolved->selectedPackageFeatures);
         const auto effectiveLaunches = EffectiveLaunches(invocation.project, invocation.profile);
 
-        auto projectProvenance = [&](std::string reason) -> CompositionGraph::Provenance
-        {
+        auto projectProvenance = [&](std::string reason) -> CompositionGraph::Provenance {
             return CompositionGraph::Provenance{
                 .sourceKind = "project",
                 .sourceName = invocation.project.name,
@@ -4819,8 +4871,29 @@ namespace NGIN::CLI
                 .reason = std::move(reason),
             };
         };
-        auto profileProvenance = [&](std::string reason) -> CompositionGraph::Provenance
-        {
+        auto contributionProvenance = [&](const ContributionProvenance &provenance, std::string fallbackReason,
+                                          const SelectorSet &selectors = {}) -> CompositionGraph::Provenance {
+            if (!provenance.sourceKind.empty())
+            {
+                return CompositionGraph::Provenance{
+                    .sourceKind = provenance.sourceKind,
+                    .sourceName = provenance.sourceName,
+                    .manifestPath = provenance.manifestPath,
+                    .reason = provenance.reason.empty() ? std::move(fallbackReason) : provenance.reason,
+                };
+            }
+            if (selectors.profile.has_value())
+            {
+                return CompositionGraph::Provenance{
+                    .sourceKind = "project-profile",
+                    .sourceName = *selectors.profile,
+                    .manifestPath = invocation.project.path,
+                    .reason = std::move(fallbackReason),
+                };
+            }
+            return projectProvenance(std::move(fallbackReason));
+        };
+        auto profileProvenance = [&](std::string reason) -> CompositionGraph::Provenance {
             return CompositionGraph::Provenance{
                 .sourceKind = "profile",
                 .sourceName = invocation.profile.name,
@@ -4831,9 +4904,9 @@ namespace NGIN::CLI
 
         CompositionGraph graph{};
         graph.state = resolved == nullptr || resolvedResult.diagnostics.HasErrors() ? "diagnostic" : "resolved";
-        graph.facets = {
-            "identity", "workspace", "project", "product", "profile", "platform", "package", "build", "generate",
-            "stage", "runtime", "environment", "launch", "publish", "quality", "diagnostics", "provenance"};
+        graph.facets = {"identity", "workspace", "project",  "product",     "profile",   "platform",
+                        "package",  "build",     "generate", "stage",       "runtime",   "environment",
+                        "launch",   "publish",   "quality",  "diagnostics", "provenance"};
         graph.identity = CompositionGraph::Identity{
             .project = invocation.project.name,
             .projectPath = invocation.project.path,
@@ -4862,20 +4935,22 @@ namespace NGIN::CLI
             graph.conventions.push_back(CompositionGraph::Convention{
                 .name = name,
                 .reason = reason,
-                .provenance = CompositionGraph::Provenance{
-                    .sourceKind = "convention",
-                    .sourceName = name,
-                    .manifestPath = invocation.project.path,
-                    .reason = reason,
-                },
+                .provenance =
+                    CompositionGraph::Provenance{
+                        .sourceKind = "convention",
+                        .sourceName = name,
+                        .manifestPath = invocation.project.path,
+                        .reason = reason,
+                    },
             });
         }
 
         graph.properties.push_back(CompositionGraph::Property{
             .name = "Language",
             .value = invocation.project.build.language + invocation.project.build.languageStandard,
-            .provenance = invocation.project.build.languageExplicit ? projectProvenance("manifest language override")
-                                                                     : projectProvenance("selected by named language convention"),
+            .provenance = invocation.project.build.languageExplicit
+                              ? projectProvenance("manifest language override")
+                              : projectProvenance("selected by named language convention"),
         });
         graph.properties.push_back(CompositionGraph::Property{
             .name = "BuildType",
@@ -4906,7 +4981,8 @@ namespace NGIN::CLI
         graph.summary.packages = resolved == nullptr ? 0 : resolved->orderedPackages.size();
         graph.summary.packageFeatures = resolved == nullptr ? 0 : resolved->selectedPackageFeatures.size();
         graph.summary.generators = resolved == nullptr ? 0 : resolved->generators.size();
-        graph.summary.runtimeModules = resolved == nullptr ? 0 : resolved->requiredModules.size() + resolved->optionalModules.size();
+        graph.summary.runtimeModules =
+            resolved == nullptr ? 0 : resolved->requiredModules.size() + resolved->optionalModules.size();
         graph.summary.environmentVariables = resolved == nullptr ? 0 : resolved->environmentVariables.size();
         graph.summary.publishes = effectivePublishes.size();
         graph.summary.diagnostics = resolvedResult.diagnostics.entries.size();
@@ -4922,16 +4998,17 @@ namespace NGIN::CLI
         {
             for (const auto &package : resolved->orderedPackages)
             {
-                const auto scope = [&]() -> std::string
-                {
-                    if (const auto it = resolved->packageScopes.find(package.manifest.name); it != resolved->packageScopes.end())
+                const auto scope = [&]() -> std::string {
+                    if (const auto it = resolved->packageScopes.find(package.manifest.name);
+                        it != resolved->packageScopes.end())
                     {
                         return it->second;
                     }
                     return {};
                 }();
                 std::vector<std::string> dependencies{};
-                if (const auto edgeIt = resolved->packageEdges.find(package.manifest.name); edgeIt != resolved->packageEdges.end())
+                if (const auto edgeIt = resolved->packageEdges.find(package.manifest.name);
+                    edgeIt != resolved->packageEdges.end())
                 {
                     dependencies.assign(edgeIt->second.begin(), edgeIt->second.end());
                 }
@@ -4943,12 +5020,13 @@ namespace NGIN::CLI
                     .scope = scope,
                     .closures = PackageClosuresForScope(scope),
                     .dependencies = std::move(dependencies),
-                    .provenance = CompositionGraph::Provenance{
-                        .sourceKind = "package",
-                        .sourceName = package.manifest.name,
-                        .manifestPath = package.manifest.path,
-                        .reason = "resolved package dependency",
-                    },
+                    .provenance =
+                        CompositionGraph::Provenance{
+                            .sourceKind = "package",
+                            .sourceName = package.manifest.name,
+                            .manifestPath = package.manifest.path,
+                            .reason = "resolved package dependency",
+                        },
                 });
             }
 
@@ -4958,31 +5036,25 @@ namespace NGIN::CLI
                     .package = feature.packageName,
                     .feature = feature.featureName,
                     .packageVersion = feature.packageVersion,
-                    .provenance = CompositionGraph::Provenance{
-                        .sourceKind = "package-feature",
-                        .sourceName = feature.packageName + "/" + feature.featureName,
-                        .manifestPath = feature.manifestPath,
-                        .reason = "selected package feature",
-                    },
+                    .provenance =
+                        CompositionGraph::Provenance{
+                            .sourceKind = "package-feature",
+                            .sourceName = feature.packageName + "/" + feature.featureName,
+                            .manifestPath = feature.manifestPath,
+                            .reason = "selected package feature",
+                        },
                 });
             }
 
             for (const auto &unit : resolved->projectUnits)
             {
-                for (const auto &definition : unit.project.build.compileDefinitions)
+                for (const auto &definition : EffectiveBuildSettings(unit.project, unit.profile,
+                                                                     unit.project.build.compileDefinitions, "Define"))
                 {
-                    if (!SelectionMatches(unit.project, definition.selectors, unit.profile))
-                    {
-                        continue;
-                    }
                     graph.buildDefines.push_back(CompositionGraph::BuildDefine{
                         .value = definition.value,
-                        .provenance = CompositionGraph::Provenance{
-                            .sourceKind = "project",
-                            .sourceName = unit.project.name,
-                            .manifestPath = unit.project.path,
-                            .reason = "selected compile definition",
-                        },
+                        .provenance = contributionProvenance(definition.provenance, "selected compile definition",
+                                                             definition.selectors),
                     });
                 }
             }
@@ -4992,12 +5064,13 @@ namespace NGIN::CLI
                 {
                     graph.buildDefines.push_back(CompositionGraph::BuildDefine{
                         .value = definition.value,
-                        .provenance = CompositionGraph::Provenance{
-                            .sourceKind = "package-feature",
-                            .sourceName = feature.packageName + "/" + feature.featureName,
-                            .manifestPath = feature.manifestPath,
-                            .reason = "selected package feature compile definition",
-                        },
+                        .provenance =
+                            CompositionGraph::Provenance{
+                                .sourceKind = "package-feature",
+                                .sourceName = feature.packageName + "/" + feature.featureName,
+                                .manifestPath = feature.manifestPath,
+                                .reason = "selected package feature compile definition",
+                            },
                     });
                 }
             }
@@ -5009,12 +5082,13 @@ namespace NGIN::CLI
                     .owner = generator.ownerKind + ":" + generator.ownerName,
                     .tool = generator.declaration.toolName,
                     .outputs = generator.declaration.outputs.size(),
-                    .provenance = CompositionGraph::Provenance{
-                        .sourceKind = generator.ownerKind,
-                        .sourceName = generator.ownerName,
-                        .manifestPath = generator.manifestPath,
-                        .reason = "active generator declaration",
-                    },
+                    .provenance =
+                        CompositionGraph::Provenance{
+                            .sourceKind = generator.ownerKind,
+                            .sourceName = generator.ownerName,
+                            .manifestPath = generator.manifestPath,
+                            .reason = "active generator declaration",
+                        },
                 });
             }
 
@@ -5035,12 +5109,13 @@ namespace NGIN::CLI
                         .role = input.role,
                         .source = input.source,
                         .owner = input.ownerKind + ":" + input.ownerName,
-                        .provenance = CompositionGraph::Provenance{
-                            .sourceKind = input.ownerKind,
-                            .sourceName = input.ownerName,
-                            .manifestPath = input.manifestPath,
-                            .reason = "selected build input",
-                        },
+                        .provenance =
+                            CompositionGraph::Provenance{
+                                .sourceKind = input.ownerKind,
+                                .sourceName = input.ownerName,
+                                .manifestPath = input.manifestPath,
+                                .reason = "selected build input",
+                            },
                     });
                 }
                 if (!input.stagedRelativePath.empty())
@@ -5051,12 +5126,13 @@ namespace NGIN::CLI
                         .source = input.source,
                         .target = input.stagedRelativePath,
                         .owner = input.ownerKind + ":" + input.ownerName,
-                        .provenance = CompositionGraph::Provenance{
-                            .sourceKind = input.ownerKind,
-                            .sourceName = input.ownerName,
-                            .manifestPath = input.manifestPath,
-                            .reason = "staged file contribution",
-                        },
+                        .provenance =
+                            CompositionGraph::Provenance{
+                                .sourceKind = input.ownerKind,
+                                .sourceName = input.ownerName,
+                                .manifestPath = input.manifestPath,
+                                .reason = "staged file contribution",
+                            },
                     });
                 }
             }
@@ -5069,12 +5145,13 @@ namespace NGIN::CLI
                     .secret = variable.secret,
                     .resolved = variable.resolved,
                     .source = variable.resolvedSource,
-                    .provenance = CompositionGraph::Provenance{
-                        .sourceKind = "environment",
-                        .sourceName = variable.name,
-                        .manifestPath = invocation.project.path,
-                        .reason = variable.secret ? "secret environment contribution" : "environment contribution",
-                    },
+                    .provenance =
+                        CompositionGraph::Provenance{
+                            .sourceKind = "environment",
+                            .sourceName = variable.name,
+                            .manifestPath = invocation.project.path,
+                            .reason = variable.secret ? "secret environment contribution" : "environment contribution",
+                        },
                 });
             }
         }
@@ -5118,11 +5195,13 @@ namespace NGIN::CLI
         {
             graph.launches.push_back(CompositionGraph::Launch{
                 .name = launch.name,
-                .executable = launch.executable.value_or(invocation.project.output.kind == "Executable" ? invocation.project.output.name : ""),
+                .executable = launch.executable.value_or(
+                    invocation.project.output.kind == "Executable" ? invocation.project.output.name : ""),
                 .workingDirectory = launch.workingDirectory,
                 .args = launch.args,
                 .selected = launch.name == invocation.profile.launch.name,
-                .provenance = profileProvenance(launch.name == invocation.profile.launch.name ? "selected launch entry" : "effective launch entry"),
+                .provenance = profileProvenance(
+                    launch.name == invocation.profile.launch.name ? "selected launch entry" : "effective launch entry"),
             });
         }
 
@@ -5169,7 +5248,8 @@ namespace NGIN::CLI
                 .severity = analyzer.severity,
                 .configPath = analyzer.configPath,
                 .configOptional = analyzer.configOptional,
-                .provenance = profileProvenance("resolved quality analyzer"),
+                .provenance =
+                    contributionProvenance(analyzer.provenance, "resolved quality analyzer", analyzer.selectors),
             });
         }
 
@@ -5182,8 +5262,7 @@ namespace NGIN::CLI
             << "\"sourceKind\":" << Json(provenance.sourceKind) << ","
             << "\"sourceName\":" << Json(provenance.sourceName) << ","
             << "\"manifestPath\":" << JsonPath(provenance.manifestPath) << ","
-            << "\"reason\":" << Json(provenance.reason)
-            << "}";
+            << "\"reason\":" << Json(provenance.reason) << "}";
     }
 
     auto WriteGraphConventions(std::ostream &out, const std::vector<CompositionGraph::Convention> &conventions) -> void
@@ -5224,7 +5303,8 @@ namespace NGIN::CLI
         out << "]";
     }
 
-    auto WriteGraphStageFiles(std::ostream &out, const std::vector<CompositionGraph::StageFile> &files, bool includeProvenance) -> void
+    auto WriteGraphStageFiles(std::ostream &out, const std::vector<CompositionGraph::StageFile> &files,
+                              bool includeProvenance) -> void
     {
         out << "[";
         for (std::size_t index = 0; index < files.size(); ++index)
@@ -5248,7 +5328,8 @@ namespace NGIN::CLI
         out << "]";
     }
 
-    auto WriteGraphEnvironmentEntries(std::ostream &out, const std::vector<CompositionGraph::EnvironmentEntry> &entries, bool includeProvenance) -> void
+    auto WriteGraphEnvironmentEntries(std::ostream &out, const std::vector<CompositionGraph::EnvironmentEntry> &entries,
+                                      bool includeProvenance) -> void
     {
         out << "[";
         for (std::size_t index = 0; index < entries.size(); ++index)
@@ -5273,7 +5354,8 @@ namespace NGIN::CLI
         out << "]";
     }
 
-    auto WriteGraphPackageOutputs(std::ostream &out, const std::vector<CompositionGraph::PackageOutput> &outputs, bool includeProvenance) -> void
+    auto WriteGraphPackageOutputs(std::ostream &out, const std::vector<CompositionGraph::PackageOutput> &outputs,
+                                  bool includeProvenance) -> void
     {
         out << "[";
         for (std::size_t index = 0; index < outputs.size(); ++index)
@@ -5301,7 +5383,8 @@ namespace NGIN::CLI
         out << "]";
     }
 
-    auto WriteGraphPackages(std::ostream &out, const std::vector<CompositionGraph::Package> &packages, bool includeProvenance) -> void
+    auto WriteGraphPackages(std::ostream &out, const std::vector<CompositionGraph::Package> &packages,
+                            bool includeProvenance) -> void
     {
         out << "[";
         for (std::size_t index = 0; index < packages.size(); ++index)
@@ -5326,7 +5409,8 @@ namespace NGIN::CLI
                 out << Json(packages[index].closures[closureIndex]);
             }
             out << "],\"dependencies\":[";
-            for (std::size_t dependencyIndex = 0; dependencyIndex < packages[index].dependencies.size(); ++dependencyIndex)
+            for (std::size_t dependencyIndex = 0; dependencyIndex < packages[index].dependencies.size();
+                 ++dependencyIndex)
             {
                 if (dependencyIndex > 0)
                 {
@@ -5345,7 +5429,8 @@ namespace NGIN::CLI
         out << "]";
     }
 
-    auto WriteGraphPackageFeatures(std::ostream &out, const std::vector<CompositionGraph::PackageFeature> &features, bool includeProvenance) -> void
+    auto WriteGraphPackageFeatures(std::ostream &out, const std::vector<CompositionGraph::PackageFeature> &features,
+                                   bool includeProvenance) -> void
     {
         out << "[";
         for (std::size_t index = 0; index < features.size(); ++index)
@@ -5410,7 +5495,8 @@ namespace NGIN::CLI
         out << "]}";
     }
 
-    auto WriteGraphGenerators(std::ostream &out, const std::vector<CompositionGraph::Generator> &generators, bool includeProvenance) -> void
+    auto WriteGraphGenerators(std::ostream &out, const std::vector<CompositionGraph::Generator> &generators,
+                              bool includeProvenance) -> void
     {
         out << "[";
         for (std::size_t index = 0; index < generators.size(); ++index)
@@ -5521,7 +5607,8 @@ namespace NGIN::CLI
         out << "}";
     }
 
-    auto WriteGraphLaunches(std::ostream &out, const std::vector<CompositionGraph::Launch> &launches, bool includeProvenance) -> void
+    auto WriteGraphLaunches(std::ostream &out, const std::vector<CompositionGraph::Launch> &launches,
+                            bool includeProvenance) -> void
     {
         out << "[";
         for (std::size_t index = 0; index < launches.size(); ++index)
@@ -5535,7 +5622,8 @@ namespace NGIN::CLI
         out << "]";
     }
 
-    auto WriteGraphPublishes(std::ostream &out, const std::vector<CompositionGraph::Publish> &publishes, bool includeProvenance) -> void
+    auto WriteGraphPublishes(std::ostream &out, const std::vector<CompositionGraph::Publish> &publishes,
+                             bool includeProvenance) -> void
     {
         out << "[";
         for (std::size_t index = 0; index < publishes.size(); ++index)
@@ -5550,7 +5638,8 @@ namespace NGIN::CLI
                 << "\"format\":" << Json(publishes[index].format) << ","
                 << "\"output\":" << Json(publishes[index].output) << ","
                 << "\"includeStage\":" << (publishes[index].includeStage ? "true" : "false") << ","
-                << "\"includeRuntimeDependencies\":" << (publishes[index].includeRuntimeDependencies ? "true" : "false") << ","
+                << "\"includeRuntimeDependencies\":" << (publishes[index].includeRuntimeDependencies ? "true" : "false")
+                << ","
                 << "\"includeSymbols\":" << (publishes[index].includeSymbols ? "true" : "false");
             if (includeProvenance)
             {
@@ -5562,7 +5651,8 @@ namespace NGIN::CLI
         out << "]";
     }
 
-    auto WriteGraphAnalyzers(std::ostream &out, const std::vector<CompositionGraph::QualityAnalyzer> &analyzers, bool includeProvenance) -> void
+    auto WriteGraphAnalyzers(std::ostream &out, const std::vector<CompositionGraph::QualityAnalyzer> &analyzers,
+                             bool includeProvenance) -> void
     {
         out << "[";
         for (std::size_t index = 0; index < analyzers.size(); ++index)
@@ -5599,11 +5689,14 @@ namespace NGIN::CLI
         }
 
         const auto projectPath = projectDir / (name + ".nginproj");
-        WriteNewFile(projectPath,
-                     "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n\n"
-                     "<Project SchemaVersion=\"4\" Name=\"" + name + "\">\n"
-                     "  <" + productKind + " />\n"
-                     "</Project>\n");
+        WriteNewFile(projectPath, "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n\n"
+                                  "<Project SchemaVersion=\"4\" Name=\"" +
+                                      name +
+                                      "\">\n"
+                                      "  <" +
+                                      productKind +
+                                      " />\n"
+                                      "</Project>\n");
 
         if (productKind == "Library")
         {
@@ -5620,7 +5713,8 @@ namespace NGIN::CLI
         return 0;
     }
 
-    auto WriteCompositionGraphJson(const LoadedInvocation &invocation, const DiagnosticResult<ResolvedLaunch> &resolvedResult) -> void;
+    auto WriteCompositionGraphJson(const LoadedInvocation &invocation,
+                                   const DiagnosticResult<ResolvedLaunch> &resolvedResult) -> void;
 
     auto CmdInspect(const fs::path &root, const ParsedArgs &args) -> int
     {
@@ -5638,15 +5732,14 @@ namespace NGIN::CLI
         const auto resolvedResult = ResolveLaunch(invocation.project, invocation.profile);
         WriteCompositionGraphJson(invocation, resolvedResult);
         return resolvedResult.diagnostics.HasErrors() ? 1 : 0;
-
     }
 
-    auto WriteCompositionGraphJson(const LoadedInvocation &invocation, const DiagnosticResult<ResolvedLaunch> &resolvedResult) -> void
+    auto WriteCompositionGraphJson(const LoadedInvocation &invocation,
+                                   const DiagnosticResult<ResolvedLaunch> &resolvedResult) -> void
     {
         const auto graph = BuildCompositionGraph(invocation, resolvedResult);
 
-        auto writeDiagnostics = [&](const DiagnosticReport &diagnostics)
-        {
+        auto writeDiagnostics = [&](const DiagnosticReport &diagnostics) {
             std::cout << "[";
             for (std::size_t index = 0; index < diagnostics.entries.size(); ++index)
             {
@@ -5656,10 +5749,10 @@ namespace NGIN::CLI
                     std::cout << ",";
                 }
                 std::cout << "{"
-                          << "\"severity\":" << Json(entry.severity == DiagnosticSeverity::Error ? "error" : "warning") << ","
+                          << "\"severity\":" << Json(entry.severity == DiagnosticSeverity::Error ? "error" : "warning")
+                          << ","
                           << "\"subject\":" << Json(entry.subject) << ","
-                          << "\"message\":" << Json(entry.message)
-                          << "}";
+                          << "\"message\":" << Json(entry.message) << "}";
             }
             std::cout << "]";
         };
@@ -5682,8 +5775,7 @@ namespace NGIN::CLI
                   << "\"project\":" << Json(graph.identity.project) << ","
                   << "\"projectPath\":" << JsonPath(graph.identity.projectPath) << ","
                   << "\"product\":" << Json(graph.identity.product) << ","
-                  << "\"profile\":" << Json(graph.identity.profile)
-                  << "},\n";
+                  << "\"profile\":" << Json(graph.identity.profile) << "},\n";
         std::cout << "  \"conventions\": ";
         WriteGraphConventions(std::cout, graph.conventions);
         std::cout << ",\n";
@@ -5694,8 +5786,7 @@ namespace NGIN::CLI
                   << "\"kind\":" << Json(graph.product.kind) << ","
                   << "\"outputType\":" << Json(graph.product.outputType) << ","
                   << "\"outputName\":" << Json(graph.product.outputName) << ","
-                  << "\"targetName\":" << Json(graph.product.targetName)
-                  << "},\n";
+                  << "\"targetName\":" << Json(graph.product.targetName) << "},\n";
         std::cout << "  \"selection\": {"
                   << "\"profile\":" << Json(graph.selection.profile) << ","
                   << "\"hostPlatform\":" << Json(graph.selection.hostPlatform) << ","
@@ -5704,8 +5795,7 @@ namespace NGIN::CLI
                   << "\"architecture\":" << Json(graph.selection.architecture) << ","
                   << "\"toolchain\":" << Json(graph.selection.toolchain) << ","
                   << "\"environment\":" << Json(graph.selection.environment) << ","
-                  << "\"abiTag\":" << Json(graph.selection.abiTag)
-                  << "},\n";
+                  << "\"abiTag\":" << Json(graph.selection.abiTag) << "},\n";
         std::cout << "  \"facetsSummary\": {"
                   << "\"packages\":" << graph.summary.packages << ","
                   << "\"packageFeatures\":" << graph.summary.packageFeatures << ","
@@ -5717,8 +5807,7 @@ namespace NGIN::CLI
                   << "\"environmentVariables\":" << graph.summary.environmentVariables << ","
                   << "\"publishes\":" << graph.summary.publishes << ","
                   << "\"analyzers\":" << graph.summary.analyzers << ","
-                  << "\"diagnostics\":" << graph.summary.diagnostics
-                  << "},\n";
+                  << "\"diagnostics\":" << graph.summary.diagnostics << "},\n";
 
         std::cout << "  \"plans\": {";
         std::cout << "\"packages\":";
@@ -5775,15 +5864,13 @@ namespace NGIN::CLI
         std::cout << "}\n";
     }
 
-    auto WriteCompositionGraphPlanJson(
-        const LoadedInvocation &invocation,
-        const DiagnosticResult<ResolvedLaunch> &resolvedResult,
-        const std::string &plan) -> void
+    auto WriteCompositionGraphPlanJson(const LoadedInvocation &invocation,
+                                       const DiagnosticResult<ResolvedLaunch> &resolvedResult, const std::string &plan)
+        -> void
     {
         const auto graph = BuildCompositionGraph(invocation, resolvedResult);
         const auto *resolved = resolvedResult.value.has_value() ? &*resolvedResult.value : nullptr;
-        auto writeDiagnostics = [&](const DiagnosticReport &diagnostics)
-        {
+        auto writeDiagnostics = [&](const DiagnosticReport &diagnostics) {
             std::cout << "[";
             for (std::size_t index = 0; index < diagnostics.entries.size(); ++index)
             {
@@ -5793,10 +5880,10 @@ namespace NGIN::CLI
                     std::cout << ",";
                 }
                 std::cout << "{"
-                          << "\"severity\":" << Json(entry.severity == DiagnosticSeverity::Error ? "error" : "warning") << ","
+                          << "\"severity\":" << Json(entry.severity == DiagnosticSeverity::Error ? "error" : "warning")
+                          << ","
                           << "\"subject\":" << Json(entry.subject) << ","
-                          << "\"message\":" << Json(entry.message)
-                          << "}";
+                          << "\"message\":" << Json(entry.message) << "}";
             }
             std::cout << "]";
         };
@@ -5809,8 +5896,7 @@ namespace NGIN::CLI
         std::cout << "  \"identity\": {"
                   << "\"project\":" << Json(graph.identity.project) << ","
                   << "\"product\":" << Json(graph.identity.product) << ","
-                  << "\"profile\":" << Json(graph.identity.profile)
-                  << "},\n";
+                  << "\"profile\":" << Json(graph.identity.profile) << "},\n";
         std::cout << "  \"data\": ";
 
         if (resolved == nullptr)
@@ -5896,7 +5982,9 @@ namespace NGIN::CLI
         PrintField(args, "product", resolved.value->project.name);
         PrintField(args, "profile", resolved.value->profile.name);
         PrintField(args, "packages", resolved.value->orderedPackages.size());
-        PrintField(args, "executable", resolved.value->selectedExecutable.has_value() ? resolved.value->selectedExecutable->name : "(none)");
+        PrintField(args, "executable",
+                   resolved.value->selectedExecutable.has_value() ? resolved.value->selectedExecutable->name
+                                                                  : "(none)");
         if (IsVerbose(args))
         {
             PrintField(args, "required modules", resolved.value->requiredModules.size());
@@ -5946,9 +6034,8 @@ namespace NGIN::CLI
             std::cout << "Stage plan for profile: " << graph.identity.profile << "\n";
             for (const auto &file : graph.stageFiles)
             {
-                std::cout << "  - " << file.target.generic_string()
-                          << " <- " << file.source.generic_string()
-                          << " [" << file.kind << "]"
+                std::cout << "  - " << file.target.generic_string() << " <- " << file.source.generic_string() << " ["
+                          << file.kind << "]"
                           << " owner=" << file.owner << "\n";
             }
             if (graph.stageFiles.empty())
@@ -5960,7 +6047,8 @@ namespace NGIN::CLI
         if (args.graphPlan == "launch")
         {
             std::cout << "Launch plan for profile: " << graph.identity.profile << "\n";
-            const auto launches = graph.launches.empty() ? std::vector<CompositionGraph::Launch>{graph.launch} : graph.launches;
+            const auto launches =
+                graph.launches.empty() ? std::vector<CompositionGraph::Launch>{graph.launch} : graph.launches;
             for (const auto &launch : launches)
             {
                 std::cout << "  launch " << (launch.name.empty() ? "(default)" : launch.name)
@@ -5984,8 +6072,8 @@ namespace NGIN::CLI
             }
             for (const auto &package : graph.packages)
             {
-                std::cout << "  package " << package.name << " " << package.version
-                          << " source=" << package.source << "\n";
+                std::cout << "  package " << package.name << " " << package.version << " source=" << package.source
+                          << "\n";
                 if (!package.scope.empty())
                 {
                     std::cout << "    scope " << package.scope << "\n";
@@ -6014,8 +6102,7 @@ namespace NGIN::CLI
             }
             for (const auto &output : graph.packageOutputs)
             {
-                std::cout << "  package-output " << output.name
-                          << " version=" << output.version;
+                std::cout << "  package-output " << output.name << " version=" << output.version;
                 if (!output.from.empty())
                 {
                     std::cout << " from=" << output.from;
@@ -6025,10 +6112,8 @@ namespace NGIN::CLI
                     std::cout << " abi=" << output.abi;
                 }
                 std::cout << "\n";
-                std::cout << "    headers=" << output.headers
-                          << " libraries=" << output.libraries
-                          << " tools=" << output.tools
-                          << " capabilities=" << output.capabilities << "\n";
+                std::cout << "    headers=" << output.headers << " libraries=" << output.libraries
+                          << " tools=" << output.tools << " capabilities=" << output.capabilities << "\n";
             }
             return 0;
         }
@@ -6062,8 +6147,7 @@ namespace NGIN::CLI
             }
             for (const auto &variable : graph.environment)
             {
-                std::cout << "  env " << variable.name
-                          << "=" << variable.value
+                std::cout << "  env " << variable.name << "=" << variable.value
                           << " secret=" << (variable.secret ? "true" : "false")
                           << " resolved=" << (variable.resolved ? "true" : "false");
                 if (!variable.source.empty())
@@ -6083,9 +6167,7 @@ namespace NGIN::CLI
             }
             for (const auto &publish : graph.publishes)
             {
-                std::cout << "  publish " << publish.name
-                          << " kind=" << publish.kind
-                          << " output=" << publish.output;
+                std::cout << "  publish " << publish.name << " kind=" << publish.kind << " output=" << publish.output;
                 if (!publish.format.empty())
                 {
                     std::cout << " format=" << publish.format;
@@ -6102,8 +6184,7 @@ namespace NGIN::CLI
             std::cout << "Quality plan for profile: " << graph.identity.profile << "\n";
             for (const auto &analyzer : graph.analyzers)
             {
-                std::cout << "  analyzer " << analyzer.name
-                          << " scope=" << analyzer.scope
+                std::cout << "  analyzer " << analyzer.name << " scope=" << analyzer.scope
                           << " severity=" << analyzer.severity;
                 if (!analyzer.tool.empty() && analyzer.tool != analyzer.name)
                 {
@@ -6128,9 +6209,9 @@ namespace NGIN::CLI
             std::cout << "  mode: " << resolved.value->project.build.mode << "\n";
             std::cout << "  language: " << resolved.value->project.build.language
                       << resolved.value->project.build.languageStandard << "\n";
-            std::cout << "  output: " << resolved.value->project.output.kind
-                      << " " << resolved.value->project.output.name
-                      << " target=" << resolved.value->project.output.target << "\n";
+            std::cout << "  output: " << resolved.value->project.output.kind << " "
+                      << resolved.value->project.output.name << " target=" << resolved.value->project.output.target
+                      << "\n";
             std::cout << "  inputs:\n";
             for (const auto &input : graph.buildInputs)
             {
@@ -6145,18 +6226,18 @@ namespace NGIN::CLI
                 }
                 std::cout << " " << input.source << " owner=" << input.owner << "\n";
             }
-            if (std::none_of(graph.buildInputs.begin(),
-                             graph.buildInputs.end(),
-                             [](const CompositionGraph::BuildInput &input)
-                             { return input.kind == "Source" || input.kind == "Generated"; }))
+            if (std::none_of(graph.buildInputs.begin(), graph.buildInputs.end(),
+                             [](const CompositionGraph::BuildInput &input) {
+                                 return input.kind == "Source" || input.kind == "Generated";
+                             }))
             {
                 std::cout << "    (none)\n";
             }
             std::cout << "  defines:\n";
             for (const auto &definition : graph.buildDefines)
             {
-                std::cout << "    - " << definition.value
-                          << " owner=" << definition.provenance.sourceKind << ":" << definition.provenance.sourceName << "\n";
+                std::cout << "    - " << definition.value << " owner=" << definition.provenance.sourceKind << ":"
+                          << definition.provenance.sourceName << "\n";
             }
             if (graph.buildDefines.empty())
             {
@@ -6209,8 +6290,7 @@ namespace NGIN::CLI
         }
         for (const auto &generator : resolved.value->generators)
         {
-            std::cout << "  - " << generator.declaration.name
-                      << " kind=" << generator.declaration.kind
+            std::cout << "  - " << generator.declaration.name << " kind=" << generator.declaration.kind
                       << " owner=" << generator.ownerKind << ":" << generator.ownerName;
             if (!generator.declaration.toolName.empty())
             {
@@ -6225,8 +6305,8 @@ namespace NGIN::CLI
         }
         for (const auto &provider : resolved.value->capabilityProviders)
         {
-            std::cout << "  - " << provider.capability << " <- "
-                      << provider.packageName << "::" << provider.featureName;
+            std::cout << "  - " << provider.capability << " <- " << provider.packageName
+                      << "::" << provider.featureName;
             if (provider.exclusive)
             {
                 std::cout << " exclusive";
@@ -6285,7 +6365,8 @@ namespace NGIN::CLI
             {
                 std::cout << " origin=" << executable.origin;
             }
-            if (resolved.value->selectedExecutable.has_value() && resolved.value->selectedExecutable->name == executable.name)
+            if (resolved.value->selectedExecutable.has_value() &&
+                resolved.value->selectedExecutable->name == executable.name)
             {
                 std::cout << " selected";
             }
@@ -6318,29 +6399,29 @@ namespace NGIN::CLI
         for (const auto &unit : resolved.value->projectUnits)
         {
             const auto hasConditionalSelections =
-                std::any_of(unit.project.projectRefs.begin(), unit.project.projectRefs.end(), [](const ProjectReference &reference)
-                            { return HasSelection(reference.selectors); })
-                || std::any_of(unit.project.packageRefs.begin(), unit.project.packageRefs.end(), [](const PackageReference &reference)
-                               { return HasSelection(reference.selectors); })
-                || (unit.environment.has_value()
-                    && (std::any_of(unit.environment->projectRefs.begin(), unit.environment->projectRefs.end(), [](const ProjectReference &reference)
-                                    { return HasSelection(reference.selectors); })
-                        || std::any_of(unit.environment->packageRefs.begin(), unit.environment->packageRefs.end(), [](const PackageReference &reference)
-                                       { return HasSelection(reference.selectors); })
-                        || std::any_of(unit.environment->features.begin(), unit.environment->features.end(), [](const FeatureFlag &feature)
-                                       { return HasSelection(feature.selectors); })))
-                || std::any_of(unit.profile.projectRefs.begin(), unit.profile.projectRefs.end(), [](const ProjectReference &reference)
-                               { return HasSelection(reference.selectors); })
-                || std::any_of(unit.profile.packageRefs.begin(), unit.profile.packageRefs.end(), [](const PackageReference &reference)
-                               { return HasSelection(reference.selectors); })
-                || std::any_of(unit.project.runtime.enableModules.begin(), unit.project.runtime.enableModules.end(), [](const RuntimeReference &reference)
-                               { return HasSelection(reference.selectors); })
-                || std::any_of(unit.project.runtime.disableModules.begin(), unit.project.runtime.disableModules.end(), [](const RuntimeReference &reference)
-                               { return HasSelection(reference.selectors); })
-                || std::any_of(unit.profile.runtime.enableModules.begin(), unit.profile.runtime.enableModules.end(), [](const RuntimeReference &reference)
-                               { return HasSelection(reference.selectors); })
-                || std::any_of(unit.profile.runtime.disableModules.begin(), unit.profile.runtime.disableModules.end(), [](const RuntimeReference &reference)
-                               { return HasSelection(reference.selectors); });
+                std::any_of(unit.project.projectRefs.begin(), unit.project.projectRefs.end(),
+                            [](const ProjectReference &reference) { return HasSelection(reference.selectors); }) ||
+                std::any_of(unit.project.packageRefs.begin(), unit.project.packageRefs.end(),
+                            [](const PackageReference &reference) { return HasSelection(reference.selectors); }) ||
+                (unit.environment.has_value() &&
+                 (std::any_of(unit.environment->projectRefs.begin(), unit.environment->projectRefs.end(),
+                              [](const ProjectReference &reference) { return HasSelection(reference.selectors); }) ||
+                  std::any_of(unit.environment->packageRefs.begin(), unit.environment->packageRefs.end(),
+                              [](const PackageReference &reference) { return HasSelection(reference.selectors); }) ||
+                  std::any_of(unit.environment->features.begin(), unit.environment->features.end(),
+                              [](const FeatureFlag &feature) { return HasSelection(feature.selectors); }))) ||
+                std::any_of(unit.profile.projectRefs.begin(), unit.profile.projectRefs.end(),
+                            [](const ProjectReference &reference) { return HasSelection(reference.selectors); }) ||
+                std::any_of(unit.profile.packageRefs.begin(), unit.profile.packageRefs.end(),
+                            [](const PackageReference &reference) { return HasSelection(reference.selectors); }) ||
+                std::any_of(unit.project.runtime.enableModules.begin(), unit.project.runtime.enableModules.end(),
+                            [](const RuntimeReference &reference) { return HasSelection(reference.selectors); }) ||
+                std::any_of(unit.project.runtime.disableModules.begin(), unit.project.runtime.disableModules.end(),
+                            [](const RuntimeReference &reference) { return HasSelection(reference.selectors); }) ||
+                std::any_of(unit.profile.runtime.enableModules.begin(), unit.profile.runtime.enableModules.end(),
+                            [](const RuntimeReference &reference) { return HasSelection(reference.selectors); }) ||
+                std::any_of(unit.profile.runtime.disableModules.begin(), unit.profile.runtime.disableModules.end(),
+                            [](const RuntimeReference &reference) { return HasSelection(reference.selectors); });
             if (!hasConditionalSelections)
             {
                 continue;
@@ -6351,36 +6432,48 @@ namespace NGIN::CLI
                 printedSelectionHeader = true;
             }
             std::cout << "  - " << unit.project.name << ":\n";
-            PrintConditionalProjectReferences("Project references", unit.project, unit.profile, unit.project.projectRefs);
-            PrintConditionalPackageReferences("Package references", unit.project, unit.profile, unit.project.packageRefs);
+            PrintConditionalProjectReferences("Project references", unit.project, unit.profile,
+                                              unit.project.projectRefs);
+            PrintConditionalPackageReferences("Package references", unit.project, unit.profile,
+                                              unit.project.packageRefs);
             if (unit.environment.has_value())
             {
-                PrintConditionalProjectReferences("Environment project references", unit.project, unit.profile, unit.environment->projectRefs);
-                PrintConditionalPackageReferences("Environment package references", unit.project, unit.profile, unit.environment->packageRefs);
+                PrintConditionalProjectReferences("Environment project references", unit.project, unit.profile,
+                                                  unit.environment->projectRefs);
+                PrintConditionalPackageReferences("Environment package references", unit.project, unit.profile,
+                                                  unit.environment->packageRefs);
                 PrintConditionalFeatures(unit.project, unit.profile, unit.environment);
-                PrintConditionalRuntimeRefs("Environment enabled modules", unit.project, unit.profile, unit.environment->runtime.enableModules);
-                PrintConditionalRuntimeRefs("Environment disabled modules", unit.project, unit.profile, unit.environment->runtime.disableModules);
+                PrintConditionalRuntimeRefs("Environment enabled modules", unit.project, unit.profile,
+                                            unit.environment->runtime.enableModules);
+                PrintConditionalRuntimeRefs("Environment disabled modules", unit.project, unit.profile,
+                                            unit.environment->runtime.disableModules);
             }
-            PrintConditionalProjectReferences("Profile project references", unit.project, unit.profile, unit.profile.projectRefs);
-            PrintConditionalPackageReferences("Profile package references", unit.project, unit.profile, unit.profile.packageRefs);
-            PrintConditionalRuntimeRefs("Enabled modules", unit.project, unit.profile, unit.project.runtime.enableModules);
-            PrintConditionalRuntimeRefs("Disabled modules", unit.project, unit.profile, unit.project.runtime.disableModules);
-            PrintConditionalRuntimeRefs("Profile enabled modules", unit.project, unit.profile, unit.profile.runtime.enableModules);
-            PrintConditionalRuntimeRefs("Profile disabled modules", unit.project, unit.profile, unit.profile.runtime.disableModules);
+            PrintConditionalProjectReferences("Profile project references", unit.project, unit.profile,
+                                              unit.profile.projectRefs);
+            PrintConditionalPackageReferences("Profile package references", unit.project, unit.profile,
+                                              unit.profile.packageRefs);
+            PrintConditionalRuntimeRefs("Enabled modules", unit.project, unit.profile,
+                                        unit.project.runtime.enableModules);
+            PrintConditionalRuntimeRefs("Disabled modules", unit.project, unit.profile,
+                                        unit.project.runtime.disableModules);
+            PrintConditionalRuntimeRefs("Profile enabled modules", unit.project, unit.profile,
+                                        unit.profile.runtime.enableModules);
+            PrintConditionalRuntimeRefs("Profile disabled modules", unit.project, unit.profile,
+                                        unit.profile.runtime.disableModules);
         }
 
         bool printedBuildSettingsHeader = false;
         for (const auto &unit : resolved.value->projectUnits)
         {
             const auto hasConditionalBuildSettings =
-                std::any_of(unit.project.build.includeDirectories.begin(), unit.project.build.includeDirectories.end(), [](const BuildSetting &setting)
-                            { return HasSelection(setting.selectors); })
-                || std::any_of(unit.project.build.compileDefinitions.begin(), unit.project.build.compileDefinitions.end(), [](const BuildSetting &setting)
-                               { return HasSelection(setting.selectors); })
-                || std::any_of(unit.project.build.compileOptions.begin(), unit.project.build.compileOptions.end(), [](const BuildSetting &setting)
-                               { return HasSelection(setting.selectors); })
-                || std::any_of(unit.project.build.linkOptions.begin(), unit.project.build.linkOptions.end(), [](const BuildSetting &setting)
-                               { return HasSelection(setting.selectors); });
+                std::any_of(unit.project.build.includeDirectories.begin(), unit.project.build.includeDirectories.end(),
+                            [](const BuildSetting &setting) { return HasSelection(setting.selectors); }) ||
+                std::any_of(unit.project.build.compileDefinitions.begin(), unit.project.build.compileDefinitions.end(),
+                            [](const BuildSetting &setting) { return HasSelection(setting.selectors); }) ||
+                std::any_of(unit.project.build.compileOptions.begin(), unit.project.build.compileOptions.end(),
+                            [](const BuildSetting &setting) { return HasSelection(setting.selectors); }) ||
+                std::any_of(unit.project.build.linkOptions.begin(), unit.project.build.linkOptions.end(),
+                            [](const BuildSetting &setting) { return HasSelection(setting.selectors); });
             if (!hasConditionalBuildSettings)
             {
                 continue;
@@ -6391,9 +6484,12 @@ namespace NGIN::CLI
                 printedBuildSettingsHeader = true;
             }
             std::cout << "  - " << unit.project.name << ":\n";
-            PrintConditionalBuildSettings("IncludeDirectories", unit.project, unit.profile, unit.project.build.includeDirectories);
-            PrintConditionalBuildSettings("CompileDefinitions", unit.project, unit.profile, unit.project.build.compileDefinitions);
-            PrintConditionalBuildSettings("CompileOptions", unit.project, unit.profile, unit.project.build.compileOptions);
+            PrintConditionalBuildSettings("IncludeDirectories", unit.project, unit.profile,
+                                          unit.project.build.includeDirectories);
+            PrintConditionalBuildSettings("CompileDefinitions", unit.project, unit.profile,
+                                          unit.project.build.compileDefinitions);
+            PrintConditionalBuildSettings("CompileOptions", unit.project, unit.profile,
+                                          unit.project.build.compileOptions);
             PrintConditionalBuildSettings("LinkOptions", unit.project, unit.profile, unit.project.build.linkOptions);
         }
         PrintDiagnostics(resolved.diagnostics, "Graph", std::cout);
@@ -6407,7 +6503,8 @@ namespace NGIN::CLI
         {
             if (!args.fromLockPath.has_value() || !args.toLockPath.has_value())
             {
-                throw std::runtime_error("diff lock mode requires --from-lock <ngin.lock> and --to-lock <ngin.lock>");
+                throw std::runtime_error("diff lock mode requires --from-lock "
+                                         "<ngin.lock> and --to-lock <ngin.lock>");
             }
 
             const auto from = LoadLockPackages(*args.fromLockPath);
@@ -6482,9 +6579,8 @@ namespace NGIN::CLI
     auto CmdFormat(const fs::path &root, const ParsedArgs &args) -> int
     {
         (void)root;
-        const auto manifestPath = args.projectPath.has_value()
-                                      ? fs::weakly_canonical(*args.projectPath)
-                                      : ResolveProjectPath(args.projectPath);
+        const auto manifestPath = args.projectPath.has_value() ? fs::weakly_canonical(*args.projectPath)
+                                                               : ResolveProjectPath(args.projectPath);
         const auto formatted = FormatXmlManifest(manifestPath);
         WriteTextFile(manifestPath, formatted);
         std::cout << "Formatted manifest\n";
@@ -6503,30 +6599,44 @@ namespace NGIN::CLI
         std::cout << "{\n";
         std::cout << "  \"schemaVersion\": \"4.0\",\n";
         std::cout << "  \"format\": \"xml\",\n";
-        std::cout << "  \"fileTypes\": [\".nginproj\", \".nginpkg\", \".ngin\", \".ngin.xml\"],\n";
-        std::cout << "  \"productKinds\": [\"Application\", \"Library\", \"Tool\", \"Test\", \"Benchmark\", \"Plugin\", \"Module\", \"External\"],\n";
-        std::cout << "  \"dependencyKinds\": [\"Project\", \"Package\", \"Tool\", \"Runtime\"],\n";
-        std::cout << "  \"dependencyScopes\": [\"Build\", \"Target\", \"Runtime\", \"Test\", \"Dev\", \"Publish\"],\n";
+        std::cout << "  \"fileTypes\": [\".nginproj\", \".nginpkg\", \".ngin\", "
+                     "\".ngin.xml\"],\n";
+        std::cout << "  \"productKinds\": [\"Application\", \"Library\", \"Tool\", "
+                     "\"Test\", \"Benchmark\", \"Plugin\", \"Module\", \"External\"],\n";
+        std::cout << "  \"dependencyKinds\": [\"Project\", \"Package\", \"Tool\", "
+                     "\"Runtime\"],\n";
+        std::cout << "  \"dependencyScopes\": [\"Build\", \"Target\", \"Runtime\", "
+                     "\"Test\", \"Dev\", \"Publish\"],\n";
         std::cout << "  \"overlayOperations\": [\"Remove\"],\n";
-        std::cout << "  \"commonProductSections\": [\"Uses\", \"Build\", \"Generate\", \"Stage\", \"Environment\", \"Quality\"],\n";
+        std::cout << "  \"commonProductSections\": [\"Uses\", \"Build\", "
+                     "\"Generate\", \"Stage\", \"Environment\", \"Quality\"],\n";
         std::cout << "  \"productSections\": {\n";
         std::cout << "    \"Application\": [\"Runtime\", \"Launch\", \"Publish\"],\n";
         std::cout << "    \"Library\": [\"Exports\", \"PackageOutput\"],\n";
         std::cout << "    \"Tool\": [\"Run\", \"Stage\", \"PackageOutput\"],\n";
         std::cout << "    \"Test\": [\"Run\", \"Report\", \"TestSettings\"],\n";
         std::cout << "    \"Benchmark\": [\"Run\", \"Report\", \"BenchmarkSettings\"],\n";
-        std::cout << "    \"Plugin\": [\"Runtime\", \"Stage\", \"Exports\", \"PackageOutput\"],\n";
+        std::cout << "    \"Plugin\": [\"Runtime\", \"Stage\", \"Exports\", "
+                     "\"PackageOutput\"],\n";
         std::cout << "    \"Module\": [\"Runtime\", \"Exports\", \"PackageOutput\"],\n";
-        std::cout << "    \"External\": [\"Uses\", \"Exports\", \"Stage\", \"PackageOutput\"]\n";
+        std::cout << "    \"External\": [\"Uses\", \"Exports\", \"Stage\", "
+                     "\"PackageOutput\"]\n";
         std::cout << "  },\n";
-        std::cout << "  \"buildItems\": [\"Language\", \"Sources\", \"Headers\", \"IncludePath\", \"Define\", \"CompileOption\", \"LinkOption\", \"LinkLibrary\", \"PrecompiledHeader\", \"UnityBuild\"],\n";
+        std::cout << "  \"buildItems\": [\"Language\", \"Sources\", \"Headers\", "
+                     "\"IncludePath\", \"Define\", \"CompileOption\", \"LinkOption\", "
+                     "\"LinkLibrary\", \"PrecompiledHeader\", \"UnityBuild\"],\n";
         std::cout << "  \"stageItems\": [\"Config\", \"Content\"],\n";
         std::cout << "  \"runtimeItems\": [\"Module\", \"Plugin\", \"Setting\"],\n";
         std::cout << "  \"environmentItems\": [\"Env\", \"LaunchEnv\", \"Secret\"],\n";
         std::cout << "  \"publishKinds\": [\"Folder\", \"Archive\"],\n";
         std::cout << "  \"archiveFormats\": [\"zip\"],\n";
-        std::cout << "  \"explainKinds\": [\"property\", \"convention\", \"source\", \"define\", \"package\", \"feature\", \"stage\", \"generator\", \"launch\", \"publish\", \"package-output\", \"env\", \"analyzer\", \"runtime-module\", \"toolchain\"],\n";
-        std::cout << "  \"graphPlans\": [\"build\", \"stage\", \"package\", \"package-output\", \"launch\", \"runtime\", \"environment\", \"publish\", \"quality\"]\n";
+        std::cout << "  \"explainKinds\": [\"property\", \"convention\", \"source\", "
+                     "\"define\", \"package\", \"feature\", \"stage\", "
+                     "\"generator\", \"launch\", \"publish\", \"package-output\", "
+                     "\"env\", \"analyzer\", \"runtime-module\", \"toolchain\"],\n";
+        std::cout << "  \"graphPlans\": [\"build\", \"stage\", \"package\", "
+                     "\"package-output\", \"launch\", \"runtime\", \"environment\", "
+                     "\"publish\", \"quality\"]\n";
         std::cout << "}\n";
         return 0;
     }
@@ -6535,10 +6645,9 @@ namespace NGIN::CLI
     {
         (void)root;
         const auto invocation = ResolveInvocation(args);
-        const auto cleaned = CleanLaunch(
-            invocation.project,
-            invocation.profile,
-            args.outputPath.has_value() ? std::optional<fs::path>{*args.outputPath} : std::nullopt);
+        const auto cleaned =
+            CleanLaunch(invocation.project, invocation.profile,
+                        args.outputPath.has_value() ? std::optional<fs::path>{*args.outputPath} : std::nullopt);
         if (!cleaned.value.has_value() || cleaned.diagnostics.HasErrors())
         {
             PrintDiagnostics(cleaned.diagnostics, "Clean", std::cout);
@@ -6569,10 +6678,8 @@ namespace NGIN::CLI
         std::vector<BackendStepResult> backendSteps{};
         auto buildOptions = BuildOptionsForArgs(args, backendSteps, &events);
         const auto configured = ConfigureLaunch(
-            invocation.project,
-            invocation.profile,
-            args.outputPath.has_value() ? std::optional<fs::path>{*args.outputPath} : std::nullopt,
-            buildOptions);
+            invocation.project, invocation.profile,
+            args.outputPath.has_value() ? std::optional<fs::path>{*args.outputPath} : std::nullopt, buildOptions);
         if (!configured.value.has_value() || configured.diagnostics.HasErrors())
         {
             EmitDiagnostics(events, configured.diagnostics, "ngin configure");
@@ -6596,11 +6703,9 @@ namespace NGIN::CLI
         EmitSelection(events, invocation);
         std::vector<BackendStepResult> backendSteps{};
         auto buildOptions = BuildOptionsForArgs(args, backendSteps, &events);
-        auto built = BuildLaunch(
-            invocation.project,
-            invocation.profile,
-            args.outputPath.has_value() ? std::optional<fs::path>{*args.outputPath} : std::nullopt,
-            buildOptions);
+        auto built = BuildLaunch(invocation.project, invocation.profile,
+                                 args.outputPath.has_value() ? std::optional<fs::path>{*args.outputPath} : std::nullopt,
+                                 buildOptions);
         if (!built.value.has_value() || built.diagnostics.HasErrors())
         {
             EmitDiagnostics(events, built.diagnostics, "ngin build");
@@ -6625,11 +6730,9 @@ namespace NGIN::CLI
         EmitSelection(events, invocation);
         std::vector<BackendStepResult> backendSteps{};
         auto buildOptions = BuildOptionsForArgs(args, backendSteps, &events);
-        auto built = BuildLaunch(
-            invocation.project,
-            invocation.profile,
-            args.outputPath.has_value() ? std::optional<fs::path>{*args.outputPath} : std::nullopt,
-            buildOptions);
+        auto built = BuildLaunch(invocation.project, invocation.profile,
+                                 args.outputPath.has_value() ? std::optional<fs::path>{*args.outputPath} : std::nullopt,
+                                 buildOptions);
         if (!built.value.has_value() || built.diagnostics.HasErrors())
         {
             EmitDiagnostics(events, built.diagnostics, "ngin stage");
@@ -6652,10 +6755,9 @@ namespace NGIN::CLI
         EmitCommandStarted(events, args);
         const auto invocation = ResolveInvocation(args);
         EmitSelection(events, invocation);
-        const auto cleanResult = CleanLaunch(
-            invocation.project,
-            invocation.profile,
-            args.outputPath.has_value() ? std::optional<fs::path>{*args.outputPath} : std::nullopt);
+        const auto cleanResult =
+            CleanLaunch(invocation.project, invocation.profile,
+                        args.outputPath.has_value() ? std::optional<fs::path>{*args.outputPath} : std::nullopt);
         if (!cleanResult.value.has_value() || cleanResult.diagnostics.HasErrors())
         {
             EmitDiagnostics(events, cleanResult.diagnostics, "ngin rebuild");
@@ -6664,11 +6766,9 @@ namespace NGIN::CLI
 
         std::vector<BackendStepResult> backendSteps{};
         auto buildOptions = BuildOptionsForArgs(args, backendSteps, &events);
-        auto built = BuildLaunch(
-            invocation.project,
-            invocation.profile,
-            args.outputPath.has_value() ? std::optional<fs::path>{*args.outputPath} : std::nullopt,
-            buildOptions);
+        auto built = BuildLaunch(invocation.project, invocation.profile,
+                                 args.outputPath.has_value() ? std::optional<fs::path>{*args.outputPath} : std::nullopt,
+                                 buildOptions);
         AppendDiagnostics(built.diagnostics, cleanResult.diagnostics);
         if (!built.value.has_value() || built.diagnostics.HasErrors())
         {
@@ -6748,17 +6848,21 @@ namespace NGIN::CLI
         }
         if (!resolvedResult.value.has_value())
         {
-            events.Emit(
-                CliEventType::Diagnostic,
-                EventData{}.AddString("severity", "error").AddString("source", "ngin analyze").AddString("message", "failed to resolve project launch context"));
+            events.Emit(CliEventType::Diagnostic,
+                        EventData{}
+                            .AddString("severity", "error")
+                            .AddString("source", "ngin analyze")
+                            .AddString("message", "failed to resolve project launch context"));
             if (!IsQuiet(args))
             {
-                std::cout << "\nAnalyze errors:\n  - failed to resolve project launch context\n";
+                std::cout << "\nAnalyze errors:\n  - failed to resolve project launch "
+                             "context\n";
             }
             return EmitCommandCompleted(events, "failed", 1, commandStarted);
         }
         const auto &resolved = *resolvedResult.value;
-        const auto analyzers = EffectiveAnalyzers(invocation.project, invocation.profile, resolved.selectedPackageFeatures);
+        const auto analyzers =
+            EffectiveAnalyzers(invocation.project, invocation.profile, resolved.selectedPackageFeatures);
 
         bool anyEnabled = false;
         bool needsConfigure = false;
@@ -6773,8 +6877,7 @@ namespace NGIN::CLI
             if (!IsQuiet(args))
             {
                 std::ostringstream detail{};
-                detail << "scope=" << analyzer.scope
-                       << " severity=" << analyzer.severity;
+                detail << "scope=" << analyzer.scope << " severity=" << analyzer.severity;
                 if (!AnalyzerToolName(analyzer).empty() && AnalyzerToolName(analyzer) != analyzer.name)
                 {
                     detail << " tool=" << AnalyzerToolName(analyzer);
@@ -6792,7 +6895,9 @@ namespace NGIN::CLI
         }
         if (!needsConfigure)
         {
-            events.Emit(CliEventType::Summary, EventData{}.AddNumber("analyzers", static_cast<std::int64_t>(analyzers.size())).AddNumber("findings", 0));
+            events.Emit(CliEventType::Summary, EventData{}
+                                                   .AddNumber("analyzers", static_cast<std::int64_t>(analyzers.size()))
+                                                   .AddNumber("findings", 0));
             return EmitCommandCompleted(events, "success", 0, commandStarted);
         }
 
@@ -6810,12 +6915,15 @@ namespace NGIN::CLI
         }
         if (!configured.value.has_value() || !configured.value->compileCommandsPath.has_value())
         {
-            events.Emit(
-                CliEventType::Diagnostic,
-                EventData{}.AddString("severity", "error").AddString("source", "ngin analyze").AddString("message", "clang-tidy requires a configured compile_commands.json"));
+            events.Emit(CliEventType::Diagnostic,
+                        EventData{}
+                            .AddString("severity", "error")
+                            .AddString("source", "ngin analyze")
+                            .AddString("message", "clang-tidy requires a configured compile_commands.json"));
             if (!IsQuiet(args))
             {
-                std::cout << "\nAnalyze errors:\n  - clang-tidy requires a configured compile_commands.json\n";
+                std::cout << "\nAnalyze errors:\n  - clang-tidy requires a configured "
+                             "compile_commands.json\n";
             }
             return EmitCommandCompleted(events, "failed", 1, commandStarted);
         }
@@ -6830,7 +6938,8 @@ namespace NGIN::CLI
         bool hasErrors = false;
         int findingsCount = 0;
         const auto analyzeStarted = std::chrono::steady_clock::now();
-        events.Emit(CliEventType::PhaseStarted, EventData{}.AddString("phase", "analyze").AddString("label", "Analyzer execution"));
+        events.Emit(CliEventType::PhaseStarted,
+                    EventData{}.AddString("phase", "analyze").AddString("label", "Analyzer execution"));
         for (const auto &[_, analyzer] : analyzers)
         {
             if (!analyzer.enabled || !IsClangTidyAnalyzer(analyzer))
@@ -6840,10 +6949,13 @@ namespace NGIN::CLI
             const auto tool = ResolveAnalyzerTool(resolved, analyzer);
             if (!tool.has_value())
             {
-                const auto message = "analyzer '" + analyzer.name + "' could not resolve clang-tidy. Install clang-tidy on PATH or set NGIN_CLANG_TIDY to the executable path.";
-                events.Emit(
-                    CliEventType::Diagnostic,
-                    EventData{}.AddString("severity", "error").AddString("source", "ngin analyze").AddString("message", message));
+                const auto message = "analyzer '" + analyzer.name +
+                                     "' could not resolve clang-tidy. Install clang-tidy on PATH or set "
+                                     "NGIN_CLANG_TIDY to the executable path.";
+                events.Emit(CliEventType::Diagnostic, EventData{}
+                                                          .AddString("severity", "error")
+                                                          .AddString("source", "ngin analyze")
+                                                          .AddString("message", message));
                 if (!IsQuiet(args))
                 {
                     std::cout << "\nAnalyze errors:\n"
@@ -6865,10 +6977,12 @@ namespace NGIN::CLI
                 }
                 else if (!analyzer.configOptional)
                 {
-                    const auto message = "analyzer '" + analyzer.name + "' config '" + candidate.string() + "' does not exist";
-                    events.Emit(
-                        CliEventType::Diagnostic,
-                        EventData{}.AddString("severity", "error").AddString("source", "ngin analyze").AddString("message", message));
+                    const auto message =
+                        "analyzer '" + analyzer.name + "' config '" + candidate.string() + "' does not exist";
+                    events.Emit(CliEventType::Diagnostic, EventData{}
+                                                              .AddString("severity", "error")
+                                                              .AddString("source", "ngin analyze")
+                                                              .AddString("message", message));
                     if (!IsQuiet(args))
                     {
                         std::cout << "\nAnalyze errors:\n"
@@ -6896,16 +7010,15 @@ namespace NGIN::CLI
                 for (const auto &finding : findings)
                 {
                     ++findingsCount;
-                    events.Emit(
-                        CliEventType::Diagnostic,
-                        EventData{}
-                            .AddString("severity", finding.severity)
-                            .AddString("source", "clang-tidy")
-                            .AddString("code", ClangTidyCodeFromMessage(finding.message))
-                            .AddString("message", finding.message)
-                            .AddString("file", finding.file.string())
-                            .AddNumber("line", std::stoll(finding.line))
-                            .AddNumber("column", std::stoll(finding.column)));
+                    events.Emit(CliEventType::Diagnostic,
+                                EventData{}
+                                    .AddString("severity", finding.severity)
+                                    .AddString("source", "clang-tidy")
+                                    .AddString("code", ClangTidyCodeFromMessage(finding.message))
+                                    .AddString("message", finding.message)
+                                    .AddString("file", finding.file.string())
+                                    .AddNumber("line", std::stoll(finding.line))
+                                    .AddNumber("column", std::stoll(finding.column)));
                     if (!IsQuiet(args))
                     {
                         PrintAnalyzerFinding(finding);
@@ -6917,10 +7030,12 @@ namespace NGIN::CLI
                 }
                 if (result.exitCode != 0 && findings.empty())
                 {
-                    const auto message = "analyzer '" + analyzer.name + "' failed with exit code " + std::to_string(result.exitCode);
-                    events.Emit(
-                        CliEventType::Diagnostic,
-                        EventData{}.AddString("severity", "error").AddString("source", "ngin analyze").AddString("message", message));
+                    const auto message =
+                        "analyzer '" + analyzer.name + "' failed with exit code " + std::to_string(result.exitCode);
+                    events.Emit(CliEventType::Diagnostic, EventData{}
+                                                              .AddString("severity", "error")
+                                                              .AddString("source", "ngin analyze")
+                                                              .AddString("message", message));
                     if (!IsQuiet(args))
                     {
                         std::cout << "\nAnalyze errors:\n"
@@ -6928,9 +7043,10 @@ namespace NGIN::CLI
                     }
                     if (!result.output.empty())
                     {
-                        events.Emit(
-                            CliEventType::BackendOutput,
-                            EventData{}.AddString("phase", "analyze").AddString("stream", "combined").AddString("text", result.output));
+                        events.Emit(CliEventType::BackendOutput, EventData{}
+                                                                     .AddString("phase", "analyze")
+                                                                     .AddString("stream", "combined")
+                                                                     .AddString("text", result.output));
                         std::istringstream output{result.output};
                         std::string line{};
                         while (!IsQuiet(args) && std::getline(output, line))
@@ -6945,17 +7061,18 @@ namespace NGIN::CLI
                 }
             }
         }
-        const auto analyzeDuration = static_cast<std::int64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - analyzeStarted).count());
-        events.Emit(
-            hasErrors ? CliEventType::PhaseFailed : CliEventType::PhaseCompleted,
-            EventData{}
-                .AddString("phase", "analyze")
-                .AddString("label", "Analyzer execution")
-                .AddNumber("durationMs", analyzeDuration)
-                .AddNumber("exitCode", hasErrors ? 1 : 0));
-        events.Emit(
-            CliEventType::Summary,
-            EventData{}.AddNumber("sources", static_cast<std::int64_t>(sources.size())).AddNumber("findings", findingsCount));
+        const auto analyzeDuration = static_cast<std::int64_t>(
+            std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - analyzeStarted)
+                .count());
+        events.Emit(hasErrors ? CliEventType::PhaseFailed : CliEventType::PhaseCompleted,
+                    EventData{}
+                        .AddString("phase", "analyze")
+                        .AddString("label", "Analyzer execution")
+                        .AddNumber("durationMs", analyzeDuration)
+                        .AddNumber("exitCode", hasErrors ? 1 : 0));
+        events.Emit(CliEventType::Summary, EventData{}
+                                               .AddNumber("sources", static_cast<std::int64_t>(sources.size()))
+                                               .AddNumber("findings", findingsCount));
         return EmitCommandCompleted(events, hasErrors ? "failed" : "success", hasErrors ? 1 : 0, commandStarted);
     }
 
@@ -6981,11 +7098,9 @@ namespace NGIN::CLI
 
         std::vector<BackendStepResult> backendSteps{};
         auto buildOptions = BuildOptionsForArgs(args, backendSteps, &events);
-        auto built = BuildLaunch(
-            invocation.project,
-            invocation.profile,
-            args.outputPath.has_value() ? std::optional<fs::path>{*args.outputPath} : std::nullopt,
-            buildOptions);
+        auto built = BuildLaunch(invocation.project, invocation.profile,
+                                 args.outputPath.has_value() ? std::optional<fs::path>{*args.outputPath} : std::nullopt,
+                                 buildOptions);
         if (!built.value.has_value() || built.diagnostics.HasErrors())
         {
             EmitDiagnostics(events, built.diagnostics, "ngin publish");
@@ -7009,21 +7124,18 @@ namespace NGIN::CLI
         {
             WriteZipArchive(built.value->outputDir, publishOutput);
         }
-        events.Emit(
-            CliEventType::ArtifactProduced,
-            EventData{}
-                .AddString("kind", publish.kind == "Folder" ? "publish-directory" : "publish-archive")
-                .AddString("name", publish.name)
-                .AddString("path", publishOutput.string()));
-        events.Emit(
-            CliEventType::Summary,
-            EventData{}
-                .AddString("publish", publish.name)
-                .AddString("kind", publish.kind)
-                .AddString("output", publishOutput.string()));
+        events.Emit(CliEventType::ArtifactProduced,
+                    EventData{}
+                        .AddString("kind", publish.kind == "Folder" ? "publish-directory" : "publish-archive")
+                        .AddString("name", publish.name)
+                        .AddString("path", publishOutput.string()));
+        events.Emit(CliEventType::Summary, EventData{}
+                                               .AddString("publish", publish.name)
+                                               .AddString("kind", publish.kind)
+                                               .AddString("output", publishOutput.string()));
 
         PrintVerboseResolvedDetails(args, invocation.project, invocation.profile, built.value->outputDir);
         EmitDiagnostics(events, built.diagnostics, "ngin publish");
         return EmitCommandCompleted(events, "success", 0, commandStarted);
     }
-}
+} // namespace NGIN::CLI

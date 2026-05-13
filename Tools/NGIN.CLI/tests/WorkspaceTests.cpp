@@ -1,6 +1,7 @@
 #include "TestSupport.hpp"
 
-TEST_CASE("workspace parses projects, package sources, and central package versions")
+TEST_CASE("workspace parses projects, package sources, and central package "
+          "versions")
 {
     TempDir temp{};
     WriteFile(temp.path() / "build/platforms.ngin.xml",
@@ -254,9 +255,7 @@ TEST_CASE("configuration rejects custom scenario names")
     args.configurationName = "Shipping";
     args.format = "json";
 
-    REQUIRE_THROWS_WITH(
-        CmdInspect(temp.path(), args),
-        ContainsSubstring("unknown configuration 'Shipping'"));
+    REQUIRE_THROWS_WITH(CmdInspect(temp.path(), args), ContainsSubstring("unknown configuration 'Shipping'"));
 }
 
 TEST_CASE("workspace profile policy applies to projects without local profiles")
@@ -468,7 +467,8 @@ TEST_CASE("workspace profile policy applies to projects without local profiles")
     std::cout.rdbuf(previous);
 
     REQUIRE(analyzeExitCode == 0);
-    REQUIRE_THAT(analyzeCaptured.str(), ContainsSubstring("workspace-clang-tidy  scope=Build severity=Error config=.clang-tidy"));
+    REQUIRE_THAT(analyzeCaptured.str(), ContainsSubstring("workspace-clang-tidy  scope=Build "
+                                                          "severity=Error config=.clang-tidy"));
     REQUIRE_THAT(analyzeCaptured.str(), ContainsSubstring("workspace-app-analyzer  scope=Build severity=Error"));
 
     ParsedArgs runtimeExplainArgs{};
@@ -688,12 +688,117 @@ TEST_CASE("project profiles override workspace named product overlays")
     REQUIRE(outputCaptured.str().find("version=0.5.0") == std::string::npos);
 }
 
+TEST_CASE("project profile build and analyzer overlays override workspace policy")
+{
+    TempDir temp{};
+    const auto projectPath = temp.path() / "App/App.nginproj";
+    WriteFile(temp.path() / "Workspace.ngin",
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Workspace SchemaVersion="4" Name="BuildPrecedenceWorkspace" DefaultProfile="shipping">
+  <Projects>
+    <Project Path="App/App.nginproj" />
+    <Project Path="Lib/Lib.nginproj" />
+  </Projects>
+  <Profiles>
+    <Profile Name="shipping">
+      <Build>
+        <Define Name="APP_MODE" Value="workspace" />
+      </Build>
+      <Application>
+        <Build>
+          <Define Name="APP_ONLY" Value="1" />
+        </Build>
+      </Application>
+      <Quality>
+        <Analyzer Name="clang-tidy" Severity="Warning" />
+      </Quality>
+    </Profile>
+  </Profiles>
+</Workspace>
+)xml");
+    WriteFile(projectPath,
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4" Name="BuildPrecedence.App" DefaultProfile="shipping">
+  <Application>
+    <Build>
+      <Sources Path="src/**.cpp" />
+    </Build>
+  </Application>
+  <Profile Name="shipping">
+    <Application>
+      <Build>
+        <Define Name="APP_MODE" Value="project" />
+      </Build>
+      <Quality>
+        <Analyzer Name="clang-tidy" Severity="Error" />
+      </Quality>
+    </Application>
+  </Profile>
+</Project>
+)xml");
+    WriteFile(temp.path() / "Lib/Lib.nginproj",
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4" Name="BuildPrecedence.Lib" DefaultProfile="shipping">
+  <Library>
+    <Build>
+      <Sources Path="src/**.cpp" />
+    </Build>
+  </Library>
+</Project>
+)xml");
+    WriteFile(temp.path() / "App/src/main.cpp", "int main() { return 0; }\n");
+    WriteFile(temp.path() / "Lib/src/lib.cpp", "int lib() { return 1; }\n");
+
+    ParsedArgs appArgs{};
+    appArgs.projectPath = projectPath.string();
+    appArgs.profileName = "shipping";
+    appArgs.format = "json";
+
+    std::ostringstream appCaptured{};
+    auto *previous = std::cout.rdbuf(appCaptured.rdbuf());
+    const auto appExitCode = CmdGraph(temp.path(), appArgs);
+    std::cout.rdbuf(previous);
+
+    REQUIRE(appExitCode == 0);
+    REQUIRE_THAT(appCaptured.str(), ContainsSubstring("APP_MODE=project"));
+    REQUIRE_THAT(appCaptured.str(), ContainsSubstring("APP_ONLY=1"));
+    REQUIRE(appCaptured.str().find("APP_MODE=workspace") == std::string::npos);
+    REQUIRE_THAT(appCaptured.str(), ContainsSubstring(R"("name":"clang-tidy")"));
+    REQUIRE_THAT(appCaptured.str(), ContainsSubstring(R"("severity":"Error")"));
+
+    ParsedArgs buildPlanArgs = appArgs;
+    buildPlanArgs.graphPlan = "build";
+    std::ostringstream buildPlanCaptured{};
+    previous = std::cout.rdbuf(buildPlanCaptured.rdbuf());
+    const auto buildPlanExitCode = CmdGraph(temp.path(), buildPlanArgs);
+    std::cout.rdbuf(previous);
+
+    REQUIRE(buildPlanExitCode == 0);
+    REQUIRE_THAT(buildPlanCaptured.str(),
+                 ContainsSubstring(R"("sourceKind":"project-profile","sourceName":"shipping")"));
+    REQUIRE_THAT(buildPlanCaptured.str(),
+                 ContainsSubstring(R"("sourceKind":"workspace-product-profile","sourceName":"shipping")"));
+
+    ParsedArgs libArgs{};
+    libArgs.projectPath = (temp.path() / "Lib/Lib.nginproj").string();
+    libArgs.profileName = "shipping";
+    libArgs.format = "json";
+
+    std::ostringstream libCaptured{};
+    previous = std::cout.rdbuf(libCaptured.rdbuf());
+    const auto libExitCode = CmdGraph(temp.path(), libArgs);
+    std::cout.rdbuf(previous);
+
+    REQUIRE(libExitCode == 0);
+    REQUIRE_THAT(libCaptured.str(), ContainsSubstring("APP_MODE=workspace"));
+    REQUIRE(libCaptured.str().find("APP_ONLY=1") == std::string::npos);
+}
+
 TEST_CASE("workspace duplicate named overlay identities are rejected")
 {
     TempDir temp{};
 
-    auto loadError = [&](const std::string &body) -> std::string
-    {
+    auto loadError = [&](const std::string &body) -> std::string {
         WriteFile(temp.path() / "Workspace.ngin", body);
         try
         {
@@ -705,6 +810,82 @@ TEST_CASE("workspace duplicate named overlay identities are rejected")
         }
         return {};
     };
+
+    const auto defineError = loadError(
+        R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Workspace SchemaVersion="4" Name="DuplicateDefine">
+  <Profiles>
+    <Profile Name="ci">
+      <Build>
+        <Define Name="CI_MODE" Value="a" />
+        <Define Name="CI_MODE" Value="b" />
+      </Build>
+    </Profile>
+  </Profiles>
+</Workspace>
+)xml");
+    REQUIRE_THAT(defineError, ContainsSubstring("duplicate define 'CI_MODE' in the same overlay scope"));
+
+    const auto includePathError = loadError(
+        R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Workspace SchemaVersion="4" Name="DuplicateIncludePath">
+  <Profiles>
+    <Profile Name="ci">
+      <Build>
+        <IncludePath Path="include/../include" Visibility="Public" />
+        <IncludePath Path="include" Visibility="Public" />
+      </Build>
+    </Profile>
+  </Profiles>
+</Workspace>
+)xml");
+    REQUIRE_THAT(includePathError,
+                 ContainsSubstring("duplicate include path 'include|Public' in the same overlay scope"));
+
+    const auto compileOptionError = loadError(
+        R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Workspace SchemaVersion="4" Name="DuplicateCompileOption">
+  <Profiles>
+    <Profile Name="ci">
+      <Build>
+        <CompileOption Value="-Wall" />
+        <CompileOption Value="-Wall" />
+      </Build>
+    </Profile>
+  </Profiles>
+</Workspace>
+)xml");
+    REQUIRE_THAT(compileOptionError, ContainsSubstring("duplicate compile option '-Wall' in the same overlay scope"));
+
+    const auto linkOptionError = loadError(
+        R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Workspace SchemaVersion="4" Name="DuplicateLinkOption">
+  <Profiles>
+    <Profile Name="ci">
+      <Build>
+        <LinkLibrary Name="m" />
+        <LinkOption Value="m" />
+      </Build>
+    </Profile>
+  </Profiles>
+</Workspace>
+)xml");
+    REQUIRE_THAT(linkOptionError, ContainsSubstring("duplicate link option 'm' in the same overlay scope"));
+
+    const auto analyzerError = loadError(
+        R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Workspace SchemaVersion="4" Name="DuplicateAnalyzer">
+  <Profiles>
+    <Profile Name="ci">
+      <Quality>
+        <Analyzer Name="clang-tidy" Severity="Warning" />
+        <Analyzer Name="clang-tidy" Severity="Error" />
+      </Quality>
+    </Profile>
+  </Profiles>
+</Workspace>
+)xml");
+    REQUIRE_THAT(analyzerError, ContainsSubstring("duplicate analyzer 'clang-tidy' in the same overlay scope"));
 
     const auto launchError = loadError(
         R"xml(<?xml version="1.0" encoding="utf-8"?>
@@ -768,10 +949,12 @@ TEST_CASE("workspace duplicate named overlay identities are rejected")
   </Profiles>
 </Workspace>
 )xml");
-    REQUIRE_THAT(packageOutputError, ContainsSubstring("duplicate package output 'App.Bundle' in the same overlay scope"));
+    REQUIRE_THAT(packageOutputError,
+                 ContainsSubstring("duplicate package output 'App.Bundle' in the same overlay scope"));
 }
 
-TEST_CASE("workspace build defaults apply unless project declares explicit build settings")
+TEST_CASE("workspace build defaults apply unless project declares explicit "
+          "build settings")
 {
     TempDir temp{};
     WriteFile(temp.path() / "Workspace.ngin",
