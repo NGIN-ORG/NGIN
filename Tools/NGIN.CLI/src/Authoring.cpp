@@ -3678,26 +3678,27 @@ namespace NGIN::CLI
         {
             if (!input.target.empty())
             {
-                return input.kind + ":" + input.target;
+                return fs::path(input.target).lexically_normal().generic_string();
             }
             if (!input.targetRoot.empty())
             {
-                return input.kind + ":" + input.targetRoot;
+                return fs::path(input.targetRoot).lexically_normal().generic_string();
             }
             if (!input.path.empty())
             {
-                return input.kind + ":" + input.path;
+                return fs::path(input.path).lexically_normal().generic_string();
             }
             if (!input.includePatterns.empty())
             {
-                return input.kind + ":" + input.includePatterns.front();
+                return fs::path(input.includePatterns.front()).lexically_normal().generic_string();
             }
-            return input.kind + ":";
+            return {};
         }
 
         auto RemoveStageInput(std::vector<InputDeclaration> &inputs, const std::string &kind,
                               const std::string &identity, const std::string &scope) -> void
         {
+            const auto removeIdentity = fs::path(identity).lexically_normal().generic_string();
             inputs.erase(std::remove_if(inputs.begin(), inputs.end(),
                                         [&](const InputDeclaration &input) {
                                             if (input.kind != kind)
@@ -3706,7 +3707,7 @@ namespace NGIN::CLI
                                             }
                                             const auto inputIdentity = StageIdentity(input);
                                             const auto matchesIdentity =
-                                                inputIdentity == kind + ":" + identity || input.target == identity ||
+                                                inputIdentity == removeIdentity || input.target == identity ||
                                                 input.targetRoot == identity || input.path == identity ||
                                                 (!input.includePatterns.empty() &&
                                                  input.includePatterns.front() == identity);
@@ -3724,6 +3725,14 @@ namespace NGIN::CLI
                                                    input.selectors.profile == scopeSelectors.profile;
                                         }),
                          inputs.end());
+
+            InputDeclaration tombstone{};
+            tombstone.kind = kind;
+            tombstone.disabled = true;
+            tombstone.removeIdentity = removeIdentity;
+            ApplyScopeSelector(scope, tombstone.selectors);
+            tombstone.declaringScope = scope;
+            inputs.push_back(std::move(tombstone));
         }
 
         auto UpsertStageInput(std::vector<InputDeclaration> &inputs, InputDeclaration input, const std::string &scope)
@@ -5202,6 +5211,33 @@ namespace NGIN::CLI
                 }
                 settings.insert(insertAt, std::move(setting));
             };
+            const auto insertWorkspaceStageInput = [&](InputDeclaration input) {
+                auto insertAt = project.inputs.end();
+                if (!policy.name.empty())
+                {
+                    const auto identity = input.disabled ? input.removeIdentity : StageIdentity(input);
+                    const auto localWithSameIdentity =
+                        std::find_if(project.inputs.begin(), project.inputs.end(), [&](const InputDeclaration &existing) {
+                            if (existing.selectors.profile != policy.name)
+                            {
+                                return false;
+                            }
+                            const auto existingIdentity =
+                                existing.disabled ? existing.removeIdentity : StageIdentity(existing);
+                            return existingIdentity == identity;
+                        });
+                    if (localWithSameIdentity != project.inputs.end())
+                    {
+                        return;
+                    }
+                    insertAt = std::find_if(project.inputs.begin(), project.inputs.end(), [&](const InputDeclaration &existing) {
+                        return existing.selectors.profile == policy.name &&
+                               existing.provenance.sourceKind != "workspace-profile" &&
+                               existing.provenance.sourceKind != "workspace-product-profile";
+                    });
+                }
+                project.inputs.insert(insertAt, std::move(input));
+            };
             for (const auto &buildSetting : policy.buildSettings)
             {
                 if (!buildSetting.productKind.empty() && buildSetting.productKind != project.productKind)
@@ -5358,13 +5394,33 @@ namespace NGIN::CLI
                 }
                 if (stagePolicy.remove)
                 {
-                    RemoveStageInput(project.inputs, stagePolicy.kind, stagePolicy.target, scope);
+                    InputDeclaration tombstone{};
+                    tombstone.kind = stagePolicy.kind;
+                    tombstone.disabled = true;
+                    tombstone.removeIdentity = fs::path(stagePolicy.target).lexically_normal().generic_string();
+                    ApplyScopeSelector(scope, tombstone.selectors);
+                    tombstone.provenance = ContributionProvenance{
+                        .sourceKind = workspaceSourceKind(stagePolicy.productKind),
+                        .sourceName = policy.name.empty() ? workspace->name : policy.name,
+                        .manifestPath = workspace->path,
+                        .reason = stagePolicy.productKind.empty() ? "workspace profile stage policy"
+                                                                  : "workspace product-kind stage policy",
+                    };
+                    insertWorkspaceStageInput(std::move(tombstone));
                     continue;
                 }
                 auto input = PathInput(stagePolicy.kind, "", stagePolicy.source, "Private", stagePolicy.target, scope);
                 input.overrideExisting = stagePolicy.collision == "Override";
+                input.provenance = ContributionProvenance{
+                    .sourceKind = workspaceSourceKind(stagePolicy.productKind),
+                    .sourceName = policy.name.empty() ? workspace->name : policy.name,
+                    .manifestPath = workspace->path,
+                    .reason = stagePolicy.productKind.empty() ? "workspace profile stage policy"
+                                                              : "workspace product-kind stage policy",
+                };
                 ValidateInputDeclaration(input, project.path);
-                UpsertStageInput(project.inputs, std::move(input), scope);
+                ApplyScopeSelector(scope, input.selectors);
+                insertWorkspaceStageInput(std::move(input));
             }
 
             for (const auto &dependencyUse : policy.dependencyUses)

@@ -957,6 +957,16 @@ Current test coverage includes:
   mutations for project and workspace `Uses` overlays
 - package feature dependency requests are merged back through the dependency
   identity path so feature selection cannot create a duplicate package identity
+- staged inputs now use normalized staged target identity through the shared
+  overlay resolver for collision detection and `Collision="Override"`
+  replacement, including profile removal tombstones for inherited staged
+  outputs
+- project references, package references, package feature uses, generators,
+  runtime references, launch entries, publish entries, and package outputs now
+  resolve through shared overlay/effective-selection helpers instead of
+  command-local merge paths
+- selected package feature staged input contributions retain package-feature
+  provenance in graph stage output
 - CLI tests are split into focused authoring, workspace, command authoring,
   package, product, overlay, graph, and facade files with shared test support
 - official `NGIN.Tooling.ClangTidy` system-wrapper package for enabling
@@ -1021,8 +1031,8 @@ The following are still open and should not be described as complete:
 - final frozen graph JSON contract
 - stable named convention graph contributions and final provenance records
   beyond the first-pass graph snapshot
-- final V4 overlay duplicate diagnostics and provenance for every item family
-  beyond the currently covered named product items
+- final V4 overlay duplicate diagnostics and provenance freeze over the full
+  shared selected-item surface
 - full host/target dependency closure separation during restore/build
 - definition-driven project resolution beyond current workspace project,
   package source, version, provider, platform, and toolchain declarations
@@ -1043,10 +1053,9 @@ The next implementation slice should focus on one of these paths:
 
 - migrate remaining guides/examples/spec drafts outside the active V4 plans to
   V4 syntax
-- move staged inputs, dependency uses/package features, environment variables,
-  runtime modules, generators, publishes, and package outputs onto the shared
-  overlay/effective-selection path
 - freeze the graph JSON contract once the remaining selected item families use
   shared identity, provenance, removal, and duplicate-diagnostic semantics
+- harden and freeze the provenance vocabulary emitted by graph/explain for the
+  shared selected-item families
 - add DEFLATE support or a compression backend for ZIP-backed `.nginpack`
   entries if package size becomes important

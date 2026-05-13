@@ -263,6 +263,14 @@ namespace NGIN::CLI
         bool impossible{false};
     };
 
+    struct ContributionProvenance
+    {
+        std::string sourceKind{};
+        std::string sourceName{};
+        fs::path manifestPath{};
+        std::string reason{};
+    };
+
     struct PackageReference
     {
         std::string name{};
@@ -272,6 +280,7 @@ namespace NGIN::CLI
         SelectorSet selectors{};
         std::string scope{};
         std::string removeScope{};
+        ContributionProvenance provenance{};
     };
 
     struct ConditionNode
@@ -328,6 +337,9 @@ namespace NGIN::CLI
         std::string setName{};
         std::string declaringScope{};
         std::vector<InputMetadataProperty> metadata{};
+        ContributionProvenance provenance{};
+        bool disabled{false};
+        std::string removeIdentity{};
     };
 
     struct InputRemove
@@ -340,14 +352,6 @@ namespace NGIN::CLI
         std::string mode{};
         std::string visibility{};
         std::string target{};
-    };
-
-    struct ContributionProvenance
-    {
-        std::string sourceKind{};
-        std::string sourceName{};
-        fs::path manifestPath{};
-        std::string reason{};
     };
 
     struct BuildSetting
@@ -376,6 +380,8 @@ namespace NGIN::CLI
         bool secret{false};
         bool resolved{false};
         std::string resolvedSource{};
+        ContributionProvenance provenance{};
+        bool disabled{false};
     };
 
     struct LocalSettingsImport
@@ -411,6 +417,7 @@ namespace NGIN::CLI
         std::string versionRange{};
         bool disabled{false};
         SelectorSet selectors{};
+        ContributionProvenance provenance{};
     };
 
     struct CapabilityRequirement
@@ -480,6 +487,7 @@ namespace NGIN::CLI
         std::vector<GeneratorArgument> arguments{};
         std::vector<InputDeclaration> inputs{};
         std::vector<InputDeclaration> outputs{};
+        ContributionProvenance provenance{};
     };
 
     struct ModuleDescriptor
@@ -498,6 +506,8 @@ namespace NGIN::CLI
         std::vector<std::string> requiresServices{};
         std::vector<std::string> capabilities{};
         SelectorSet selectors{};
+        ContributionProvenance provenance{};
+        bool disabled{false};
     };
 
     struct PluginDescriptor
@@ -516,12 +526,14 @@ namespace NGIN::CLI
         std::optional<std::string> profile{};
         bool disabled{false};
         SelectorSet selectors{};
+        ContributionProvenance provenance{};
     };
 
     struct RuntimeReference
     {
         std::string name{};
         SelectorSet selectors{};
+        ContributionProvenance provenance{};
     };
 
     struct RuntimeDefinition
@@ -651,6 +663,7 @@ namespace NGIN::CLI
         std::vector<std::string> capabilities{};
         std::vector<std::string> targetPlatforms{};
         std::string abiTag{};
+        ContributionProvenance provenance{};
     };
 
     struct PublishDefinition
@@ -663,6 +676,7 @@ namespace NGIN::CLI
         bool includeStage{true};
         bool includeRuntimeDependencies{false};
         bool includeSymbols{true};
+        ContributionProvenance provenance{};
     };
 
     struct LaunchDefinition
@@ -672,6 +686,7 @@ namespace NGIN::CLI
         std::string workingDirectory{"."};
         std::string args{};
         bool disabled{false};
+        ContributionProvenance provenance{};
     };
 
     struct EnvironmentDefinition

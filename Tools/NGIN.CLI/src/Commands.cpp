@@ -804,41 +804,6 @@ namespace NGIN::CLI
             PrintField(args, "generated dir", outputDir / ".ngin" / "generated");
         }
 
-        [[nodiscard]] auto EffectiveLaunches(const ProjectManifest &project, const ProfileDefinition &profile)
-            -> std::vector<LaunchDefinition>
-        {
-            std::map<std::string, LaunchDefinition> byName{};
-            const auto merge = [&](const std::vector<LaunchDefinition> &launches) {
-                for (const auto &launch : launches)
-                {
-                    if (launch.name.empty())
-                    {
-                        continue;
-                    }
-                    if (launch.disabled)
-                    {
-                        byName.erase(launch.name);
-                    }
-                    else
-                    {
-                        byName[launch.name] = launch;
-                    }
-                }
-            };
-            merge(project.launches);
-            merge(profile.launches);
-            if (byName.empty() && !profile.launch.name.empty() && !profile.launch.disabled)
-            {
-                byName[profile.launch.name] = profile.launch;
-            }
-            std::vector<LaunchDefinition> result{};
-            for (auto &[_, launch] : byName)
-            {
-                result.push_back(std::move(launch));
-            }
-            return result;
-        }
-
         [[nodiscard]] auto SelectLaunch(const ProjectManifest &project, const ProfileDefinition &profile,
                                         const std::optional<std::string> &requestedName) -> LaunchDefinition
         {
@@ -1721,74 +1686,6 @@ namespace NGIN::CLI
             formatted << "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n\n";
             WriteFormattedElement(formatted, *rootElement, 0);
             return formatted.str();
-        }
-
-        [[nodiscard]] auto EffectivePublishes(const ProjectManifest &project, const ProfileDefinition &profile)
-            -> std::vector<PublishDefinition>
-        {
-            std::map<std::string, PublishDefinition> byName{};
-            for (const auto &publish : project.publishes)
-            {
-                if (publish.disabled)
-                {
-                    byName.erase(publish.name);
-                }
-                else
-                {
-                    byName[publish.name] = publish;
-                }
-            }
-            for (const auto &publish : profile.publishes)
-            {
-                if (publish.disabled)
-                {
-                    byName.erase(publish.name);
-                }
-                else
-                {
-                    byName[publish.name] = publish;
-                }
-            }
-            std::vector<PublishDefinition> result{};
-            for (auto &[_, publish] : byName)
-            {
-                result.push_back(std::move(publish));
-            }
-            return result;
-        }
-
-        [[nodiscard]] auto EffectivePackageOutputs(const ProjectManifest &project, const ProfileDefinition &profile)
-            -> std::vector<PackageOutputDefinition>
-        {
-            std::map<std::string, PackageOutputDefinition> byName{};
-            for (const auto &output : project.packageOutputs)
-            {
-                if (output.disabled)
-                {
-                    byName.erase(output.name);
-                }
-                else
-                {
-                    byName[output.name] = output;
-                }
-            }
-            for (const auto &output : profile.packageOutputs)
-            {
-                if (output.disabled)
-                {
-                    byName.erase(output.name);
-                }
-                else
-                {
-                    byName[output.name] = output;
-                }
-            }
-            std::vector<PackageOutputDefinition> result{};
-            for (auto &[_, output] : byName)
-            {
-                result.push_back(std::move(output));
-            }
-            return result;
         }
 
         [[nodiscard]] auto IsClangTidyAnalyzer(const AnalyzerDefinition &analyzer) -> bool

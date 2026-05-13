@@ -24,11 +24,24 @@ TEST_CASE("profile Uses overlays select package features")
   </Library>
   <Features>
     <Feature Name="Diagnostics">
+      <Uses>
+        <Package Name="Package.Helper" Version="[1.0.0,2.0.0)" Scope="Build" />
+      </Uses>
       <Build>
         <Define Name="PACKAGE_CORE_DIAGNOSTICS" Value="1" Visibility="Public" />
       </Build>
     </Feature>
   </Features>
+</Package>
+)xml");
+    WriteFile(temp.path() / "Packages/Helper/Helper.nginpkg",
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Package SchemaVersion="4" Name="Package.Helper" Version="1.0.0">
+  <Library Name="Package.Helper">
+    <Exports>
+      <LibraryTarget Name="Package::Helper" />
+    </Exports>
+  </Library>
 </Package>
 )xml");
     WriteFile(temp.path() / "Packages/Extra/Extra.nginpkg",
@@ -85,8 +98,16 @@ TEST_CASE("profile Uses overlays select package features")
     REQUIRE(dev.value->orderedPackages.size() == 2);
     REQUIRE_FALSE(shipping.diagnostics.HasErrors());
     REQUIRE(shipping.value.has_value());
-    REQUIRE(shipping.value->orderedPackages.size() == 1);
-    REQUIRE(shipping.value->orderedPackages[0].manifest.name == "Package.Core");
+    REQUIRE(shipping.value->orderedPackages.size() == 2);
+    REQUIRE(std::any_of(shipping.value->orderedPackages.begin(), shipping.value->orderedPackages.end(),
+                        [](const ResolvedPackage &package) {
+                            return package.manifest.name == "Package.Core";
+                        }));
+    REQUIRE(std::any_of(shipping.value->orderedPackages.begin(), shipping.value->orderedPackages.end(),
+                        [](const ResolvedPackage &package) {
+                            return package.manifest.name == "Package.Helper";
+                        }));
+    REQUIRE(shipping.value->packageScopes.at("Package.Helper") == "Build");
     REQUIRE(shipping.value->selectedPackageFeatures.size() == 1);
     REQUIRE(shipping.value->selectedPackageFeatures[0].packageName == "Package.Core");
     REQUIRE(shipping.value->selectedPackageFeatures[0].featureName == "Diagnostics");
@@ -147,6 +168,75 @@ TEST_CASE("profile Uses overlays can remove project references")
     REQUIRE(shipping.value.has_value());
     REQUIRE(shipping.value->projectUnits.size() == 1);
     REQUIRE(shipping.value->projectUnits[0].project.name == "ProjectRemove.App");
+}
+
+TEST_CASE("package feature stage contributions keep package-feature provenance")
+{
+    TempDir temp{};
+    WriteFile(temp.path() / "Workspace.ngin",
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Workspace SchemaVersion="4" Name="FeatureStageWorkspace">
+  <Projects>
+    <Project Path="App/App.nginproj" />
+  </Projects>
+  <Packages>
+    <Source Name="local" Path="Packages" />
+  </Packages>
+</Workspace>
+)xml");
+    WriteFile(temp.path() / "Packages/Assets/Assets.nginpkg",
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Package SchemaVersion="4" Name="Package.Assets" Version="1.0.0">
+  <Library Name="Package.Assets">
+    <Exports>
+      <LibraryTarget Name="Package::Assets" />
+    </Exports>
+  </Library>
+  <Features>
+    <Feature Name="Config">
+      <Inputs>
+        <Configs>
+          <File Path="content/feature.json" Target="config/feature.json" />
+        </Configs>
+      </Inputs>
+    </Feature>
+  </Features>
+</Package>
+)xml");
+    WriteFile(temp.path() / "Packages/Assets/content/feature.json", "{}\n");
+    WriteFile(temp.path() / "App/App.nginproj",
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4" Name="FeatureStage.App" DefaultProfile="dev">
+  <Application>
+    <Uses>
+      <Package Name="Package.Assets" Version="[1.0.0,2.0.0)">
+        <Feature Name="Config" />
+      </Package>
+    </Uses>
+    <Build>
+      <Sources Path="src/**.cpp" />
+    </Build>
+  </Application>
+  <Profile Name="dev" />
+</Project>
+)xml");
+    WriteFile(temp.path() / "App/src/main.cpp", "int main() { return 0; }\n");
+
+    ParsedArgs args{};
+    args.projectPath = (temp.path() / "App/App.nginproj").string();
+    args.profileName = "dev";
+    args.format = "json";
+    args.graphPlan = "stage";
+
+    std::ostringstream captured{};
+    auto *previous = std::cout.rdbuf(captured.rdbuf());
+    const auto exitCode = CmdGraph(temp.path(), args);
+    std::cout.rdbuf(previous);
+
+    REQUIRE(exitCode == 0);
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("target":"config/feature.json")"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("sourceKind":"package-feature")"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("sourceName":"Package.Assets::Config")"));
 }
 
 TEST_CASE("profile overlays carry selectors and can override staged outputs "
@@ -325,6 +415,45 @@ TEST_CASE("stage identity reports collisions without explicit override")
     REQUIRE(std::any_of(diagnostics.begin(), diagnostics.end(), [](const std::string &message) {
         return message.find("input destination collision at 'config/app.json'") != std::string::npos;
     }));
+}
+
+TEST_CASE("profile overlays remove inherited staged outputs by target identity")
+{
+    TempDir temp{};
+    const auto projectPath = temp.path() / "StageRemove.App.nginproj";
+    WriteFile(projectPath,
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4" Name="StageRemove.App" DefaultProfile="dev">
+  <Application>
+    <Build>
+      <Sources Path="src/**.cpp" />
+    </Build>
+    <Stage>
+      <Config Source="config/base.json" Target="config/app.json" />
+    </Stage>
+  </Application>
+  <Profile Name="dev">
+    <Application>
+      <Stage>
+        <Config Remove="config/app.json" />
+      </Stage>
+    </Application>
+  </Profile>
+</Project>
+)xml");
+    WriteFile(temp.path() / "src/main.cpp", "int main() { return 0; }\n");
+    WriteFile(temp.path() / "config/base.json", "{}\n");
+
+    const auto project = LoadProjectManifest(projectPath);
+    const auto resolved = ResolveLaunch(project, ProfileByName(project, "dev"));
+
+    REQUIRE_FALSE(resolved.diagnostics.HasErrors());
+    REQUIRE(resolved.value.has_value());
+    REQUIRE_FALSE(std::any_of(resolved.value->inputs.begin(), resolved.value->inputs.end(),
+                              [](const ResolvedInput &input) {
+                                  return input.kind == "Config" &&
+                                         input.stagedRelativePath == fs::path("config/app.json");
+                              }));
 }
 
 TEST_CASE("profile overlays can remove and replace generator identities")

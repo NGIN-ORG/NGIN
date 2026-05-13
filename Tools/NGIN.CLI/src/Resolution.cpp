@@ -2,6 +2,7 @@
 
 #include "Authoring.hpp"
 #include "Diagnostics.hpp"
+#include "Overlay.hpp"
 #include "Support.hpp"
 
 #include <algorithm>
@@ -647,199 +648,6 @@ namespace NGIN::CLI
             return std::vector<std::string>(nodes.begin(), nodes.end());
         }
 
-        auto MergeScopeList(std::string &target, const std::string &source) -> void
-        {
-            if (source.empty())
-            {
-                return;
-            }
-            std::set<std::string> scopes{};
-            std::stringstream existing{target};
-            std::string scope{};
-            while (std::getline(existing, scope, ';'))
-            {
-                if (!scope.empty())
-                {
-                    scopes.insert(scope);
-                }
-            }
-            std::stringstream incoming{source};
-            while (std::getline(incoming, scope, ';'))
-            {
-                if (!scope.empty())
-                {
-                    scopes.insert(scope);
-                }
-            }
-            target.clear();
-            for (const auto &entry : scopes)
-            {
-                if (!target.empty())
-                {
-                    target += ";";
-                }
-                target += entry;
-            }
-        }
-
-        auto RemoveScopeList(std::string &target, const std::string &source) -> void
-        {
-            if (source.empty() || target.empty())
-            {
-                return;
-            }
-            std::set<std::string> scopes{};
-            std::stringstream existing{target};
-            std::string scope{};
-            while (std::getline(existing, scope, ';'))
-            {
-                if (!scope.empty())
-                {
-                    scopes.insert(scope);
-                }
-            }
-            std::stringstream incoming{source};
-            while (std::getline(incoming, scope, ';'))
-            {
-                if (!scope.empty())
-                {
-                    scopes.erase(scope);
-                }
-            }
-            target.clear();
-            for (const auto &entry : scopes)
-            {
-                if (!target.empty())
-                {
-                    target += ";";
-                }
-                target += entry;
-            }
-        }
-
-        auto MergePackageReferences(
-            std::vector<PackageReference> &target,
-            const std::vector<PackageReference> &source,
-            DiagnosticReport &report) -> void
-        {
-            std::unordered_map<std::string, std::size_t> indexByName;
-            for (std::size_t index = 0; index < target.size(); ++index)
-            {
-                indexByName[target[index].name] = index;
-            }
-            for (const auto &reference : source)
-            {
-                if (reference.disabled)
-                {
-                    if (const auto it = indexByName.find(reference.name); it != indexByName.end())
-                    {
-                        target.erase(target.begin() + static_cast<std::ptrdiff_t>(it->second));
-                        indexByName.clear();
-                        for (std::size_t index = 0; index < target.size(); ++index)
-                        {
-                            indexByName[target[index].name] = index;
-                        }
-                    }
-                    continue;
-                }
-                if (const auto it = indexByName.find(reference.name); it != indexByName.end())
-                {
-                    auto &existing = target[it->second];
-                    if (!existing.versionRange.empty()
-                        && !reference.versionRange.empty()
-                        && existing.versionRange != reference.versionRange)
-                    {
-                        AddError(report,
-                                 "package '" + reference.name + "' has conflicting version ranges '"
-                                     + existing.versionRange + "' and '" + reference.versionRange + "'");
-                    }
-                    auto scope = existing.scope;
-                    MergeScopeList(scope, reference.scope);
-                    RemoveScopeList(scope, reference.removeScope);
-                    if (existing.versionRange.empty() && !reference.versionRange.empty())
-                    {
-                        existing.versionRange = reference.versionRange;
-                    }
-                    existing.optional = existing.optional && reference.optional;
-                    existing.scope = std::move(scope);
-                    continue;
-                }
-                if (reference.removeScope.empty())
-                {
-                    indexByName[reference.name] = target.size();
-                    target.push_back(reference);
-                    continue;
-                }
-                auto adjusted = reference;
-                RemoveScopeList(adjusted.scope, adjusted.removeScope);
-                if (adjusted.scope.empty() && adjusted.versionRange.empty())
-                {
-                    continue;
-                }
-                indexByName[adjusted.name] = target.size();
-                target.push_back(std::move(adjusted));
-            }
-        }
-
-        auto MergeSelectedPackageReferences(
-            std::vector<PackageReference> &target,
-            const std::vector<PackageReference> &source,
-            const ProjectManifest &project,
-            const ProfileDefinition &profile,
-            DiagnosticReport &report) -> void
-        {
-            std::vector<PackageReference> selected{};
-            for (const auto &reference : source)
-            {
-                if (SelectionMatches(project, reference.selectors, profile))
-                {
-                    selected.push_back(reference);
-                }
-            }
-            MergePackageReferences(target, selected, report);
-        }
-
-        auto MergeSelectedPackageFeatureUses(
-            std::vector<PackageFeatureUse> &target,
-            const std::vector<PackageFeatureUse> &source,
-            const ProjectManifest &project,
-            const ProfileDefinition &profile) -> void
-        {
-            std::unordered_map<std::string, std::size_t> indexByKey{};
-            for (std::size_t index = 0; index < target.size(); ++index)
-            {
-                indexByKey[target[index].packageName + "::" + target[index].featureName] = index;
-            }
-            for (const auto &use : source)
-            {
-                if (!SelectionMatches(project, use.selectors, profile))
-                {
-                    continue;
-                }
-                const auto key = use.packageName + "::" + use.featureName;
-                if (use.disabled)
-                {
-                    if (const auto it = indexByKey.find(key); it != indexByKey.end())
-                    {
-                        target.erase(target.begin() + static_cast<std::ptrdiff_t>(it->second));
-                        indexByKey.clear();
-                        for (std::size_t index = 0; index < target.size(); ++index)
-                        {
-                            indexByKey[target[index].packageName + "::" + target[index].featureName] = index;
-                        }
-                    }
-                    continue;
-                }
-                if (const auto it = indexByKey.find(key); it != indexByKey.end())
-                {
-                    target[it->second] = use;
-                    continue;
-                }
-                indexByKey[key] = target.size();
-                target.push_back(use);
-            }
-        }
-
         [[nodiscard]] auto EffectiveDependencyVersions(
             const std::optional<WorkspaceManifest> &workspace,
             const std::vector<ResolvedProjectUnit> &projectUnits) -> std::unordered_map<std::string, std::string>
@@ -879,29 +687,6 @@ namespace NGIN::CLI
             std::map<std::string, std::set<std::string>> edges{};
             std::map<std::string, std::string> scopes{};
         };
-
-        auto MergeStringSelection(
-            std::set<std::string> &enabled,
-            const std::vector<RuntimeReference> &add,
-            const std::vector<RuntimeReference> &remove,
-            const std::vector<ConditionDefinition> &conditions,
-            const ProfileDefinition &profile) -> void
-        {
-            for (const auto &name : add)
-            {
-                if (SelectionMatches(conditions, name.selectors, profile))
-                {
-                    enabled.insert(name.name);
-                }
-            }
-            for (const auto &name : remove)
-            {
-                if (SelectionMatches(conditions, name.selectors, profile))
-                {
-                    enabled.erase(name.name);
-                }
-            }
-        }
 
         auto CollectProjectClosure(
             const ProjectManifest &project,
@@ -950,39 +735,7 @@ namespace NGIN::CLI
                 CollectProjectClosure(referencedProject, referencedProfile, workspace, ordered, visiting, visited, report);
             };
 
-            std::vector<ProjectReference> selectedReferences{};
-            const auto applyReferences = [&](const std::vector<ProjectReference> &references)
-            {
-                for (const auto &reference : references)
-                {
-                    if (!SelectionMatches(project, reference.selectors, profile))
-                    {
-                        continue;
-                    }
-                    const auto referencePath = fs::weakly_canonical(reference.path);
-                    if (reference.disabled)
-                    {
-                        selectedReferences.erase(
-                            std::remove_if(
-                                selectedReferences.begin(),
-                                selectedReferences.end(),
-                                [&](const ProjectReference &existing)
-                                {
-                                    return fs::weakly_canonical(existing.path) == referencePath;
-                                }),
-                            selectedReferences.end());
-                        continue;
-                    }
-                    selectedReferences.push_back(reference);
-                }
-            };
-
-            applyReferences(project.projectRefs);
-            if (const auto *environment = FindEnvironment(project, profile.environmentName))
-            {
-                applyReferences(environment->projectRefs);
-            }
-            applyReferences(profile.projectRefs);
+            const auto selectedReferences = EffectiveProjectReferences(project, profile);
 
             for (const auto &reference : selectedReferences)
             {
@@ -1021,15 +774,9 @@ namespace NGIN::CLI
             std::vector<PackageFeatureUse> requestedFeatures{};
             for (const auto &unit : projectUnits)
             {
-                MergeSelectedPackageReferences(combinedRefs, unit.project.packageRefs, unit.project, unit.profile, report);
-                MergeSelectedPackageFeatureUses(requestedFeatures, unit.project.packageFeatureUses, unit.project, unit.profile);
-                if (unit.environment.has_value())
-                {
-                    MergeSelectedPackageReferences(combinedRefs, unit.environment->packageRefs, unit.project, unit.profile, report);
-                    MergeSelectedPackageFeatureUses(requestedFeatures, unit.environment->packageFeatureUses, unit.project, unit.profile);
-                }
-                MergeSelectedPackageReferences(combinedRefs, unit.profile.packageRefs, unit.project, unit.profile, report);
-                MergeSelectedPackageFeatureUses(requestedFeatures, unit.profile.packageFeatureUses, unit.project, unit.profile);
+                MergePackageReferences(combinedRefs, EffectivePackageReferences(unit.project, unit.profile, report), report);
+                const auto selectedFeatures = EffectivePackageFeatureUses(unit.project, unit.profile);
+                requestedFeatures.insert(requestedFeatures.end(), selectedFeatures.begin(), selectedFeatures.end());
             }
             if (report.HasErrors())
             {
@@ -1655,19 +1402,19 @@ namespace NGIN::CLI
         std::set<std::string> directModules{};
         for (const auto &unit : projectUnits)
         {
-            MergeStringSelection(directModules, unit.project.runtime.enableModules, unit.project.runtime.disableModules, unit.project.conditions, unit.profile);
+            MergeRuntimeReferences(directModules, unit.project.runtime.enableModules, unit.project.runtime.disableModules, unit.project.conditions, unit.profile);
             if (unit.environment.has_value())
             {
-                MergeStringSelection(directModules, unit.environment->runtime.enableModules, unit.environment->runtime.disableModules, unit.project.conditions, unit.profile);
+                MergeRuntimeReferences(directModules, unit.environment->runtime.enableModules, unit.environment->runtime.disableModules, unit.project.conditions, unit.profile);
             }
-            MergeStringSelection(directModules, unit.profile.runtime.enableModules, unit.profile.runtime.disableModules, unit.project.conditions, unit.profile);
+            MergeRuntimeReferences(directModules, unit.profile.runtime.enableModules, unit.profile.runtime.disableModules, unit.project.conditions, unit.profile);
         }
         for (const auto &feature : packageResolution.selectedFeatures)
         {
             const auto packageIt = packageByName.find(feature.packageName);
             if (packageIt != packageByName.end())
             {
-                MergeStringSelection(directModules, feature.runtime.enableModules, feature.runtime.disableModules, packageIt->second->conditions, effectiveProfile);
+                MergeRuntimeReferences(directModules, feature.runtime.enableModules, feature.runtime.disableModules, packageIt->second->conditions, effectiveProfile);
             }
         }
 
@@ -1681,19 +1428,19 @@ namespace NGIN::CLI
         }
         for (const auto &unit : projectUnits)
         {
-            MergeStringSelection(directPlugins, unit.project.runtime.enablePlugins, unit.project.runtime.disablePlugins, unit.project.conditions, unit.profile);
+            MergeRuntimeReferences(directPlugins, unit.project.runtime.enablePlugins, unit.project.runtime.disablePlugins, unit.project.conditions, unit.profile);
             if (unit.environment.has_value())
             {
-                MergeStringSelection(directPlugins, unit.environment->runtime.enablePlugins, unit.environment->runtime.disablePlugins, unit.project.conditions, unit.profile);
+                MergeRuntimeReferences(directPlugins, unit.environment->runtime.enablePlugins, unit.environment->runtime.disablePlugins, unit.project.conditions, unit.profile);
             }
-            MergeStringSelection(directPlugins, unit.profile.runtime.enablePlugins, unit.profile.runtime.disablePlugins, unit.project.conditions, unit.profile);
+            MergeRuntimeReferences(directPlugins, unit.profile.runtime.enablePlugins, unit.profile.runtime.disablePlugins, unit.project.conditions, unit.profile);
         }
         for (const auto &feature : packageResolution.selectedFeatures)
         {
             const auto packageIt = packageByName.find(feature.packageName);
             if (packageIt != packageByName.end())
             {
-                MergeStringSelection(directPlugins, feature.runtime.enablePlugins, feature.runtime.disablePlugins, packageIt->second->conditions, effectiveProfile);
+                MergeRuntimeReferences(directPlugins, feature.runtime.enablePlugins, feature.runtime.disablePlugins, packageIt->second->conditions, effectiveProfile);
             }
         }
 
@@ -1996,6 +1743,27 @@ namespace NGIN::CLI
                 {
                     continue;
                 }
+                if (input.disabled)
+                {
+                    const auto stageIdentity = fs::path(StageInputIdentity(input, {}));
+                    if (const auto index = inputIndexByDestination.find(stageIdentity);
+                        index != inputIndexByDestination.end() && index->second < resolved.inputs.size())
+                    {
+                        resolved.inputs.erase(resolved.inputs.begin() + static_cast<std::ptrdiff_t>(index->second));
+                        inputOwnersByDestination.erase(stageIdentity);
+                        inputIndexByDestination.clear();
+                        for (std::size_t resolvedIndex = 0; resolvedIndex < resolved.inputs.size(); ++resolvedIndex)
+                        {
+                            const auto &resolvedExisting = resolved.inputs[resolvedIndex];
+                            if (resolvedExisting.stagedRelativePath.empty())
+                            {
+                                continue;
+                            }
+                            inputIndexByDestination[resolvedExisting.stagedRelativePath] = resolvedIndex;
+                        }
+                    }
+                    continue;
+                }
                 std::vector<std::pair<std::string, fs::path>> expandedSources{};
                 ExpandInputSources(input, ownerDirectory, expandedSources);
                 if (input.mode == "Glob" && expandedSources.empty() && input.required)
@@ -2043,12 +1811,13 @@ namespace NGIN::CLI
                     if (InputIsStaged(input))
                     {
                         resolvedInput.stagedRelativePath = InputDefaultTarget(input, declaredSource);
-                        if (const auto it = inputOwnersByDestination.find(resolvedInput.stagedRelativePath);
+                        const auto stageIdentity = fs::path(StageInputIdentity(input, declaredSource));
+                        if (const auto it = inputOwnersByDestination.find(stageIdentity);
                             it != inputOwnersByDestination.end())
                         {
                             if (input.overrideExisting)
                             {
-                                if (const auto index = inputIndexByDestination.find(resolvedInput.stagedRelativePath);
+                                if (const auto index = inputIndexByDestination.find(stageIdentity);
                                     index != inputIndexByDestination.end() && index->second < resolved.inputs.size())
                                 {
                                     resolved.inputs[index->second] = std::move(resolvedInput);
@@ -2060,8 +1829,8 @@ namespace NGIN::CLI
                                                               + "' between '" + it->second + "' and '" + ownerName + "'");
                             continue;
                         }
-                        inputOwnersByDestination[resolvedInput.stagedRelativePath] = ownerKind + ":" + ownerName;
-                        inputIndexByDestination[resolvedInput.stagedRelativePath] = resolved.inputs.size();
+                        inputOwnersByDestination[stageIdentity] = ownerKind + ":" + ownerName;
+                        inputIndexByDestination[stageIdentity] = resolved.inputs.size();
                     }
                     resolved.inputs.push_back(std::move(resolvedInput));
                 }
@@ -2190,71 +1959,16 @@ namespace NGIN::CLI
         };
         auto collectProjectGenerators = [&](const ResolvedProjectUnit &unit)
         {
-            struct SelectedGenerator
-            {
-                GeneratorDeclaration declaration{};
-                std::string ownerKind{};
-                std::string ownerName{};
-                fs::path ownerDirectory{};
-                fs::path manifestPath{};
-                std::vector<ConditionDefinition> conditions{};
-            };
-
             const auto ownerProjectDirectory = unit.project.path.parent_path();
-            std::vector<SelectedGenerator> selected{};
-            const auto applyGenerators = [&](const std::vector<GeneratorDeclaration> &generators,
-                                             const std::string &ownerKind,
-                                             const std::string &ownerName,
-                                             const fs::path &ownerDirectory,
-                                             const fs::path &manifestPath,
-                                             const std::vector<ConditionDefinition> &conditions)
-            {
-                for (const auto &generator : generators)
-                {
-                    if (!SelectionMatches(conditions, generator.selectors, unit.profile))
-                    {
-                        continue;
-                    }
-                    selected.erase(
-                        std::remove_if(
-                            selected.begin(),
-                            selected.end(),
-                            [&](const SelectedGenerator &existing)
-                            {
-                                return existing.declaration.name == generator.name;
-                            }),
-                        selected.end());
-                    if (generator.disabled)
-                    {
-                        continue;
-                    }
-                    selected.push_back(SelectedGenerator{
-                        .declaration = generator,
-                        .ownerKind = ownerKind,
-                        .ownerName = ownerName,
-                        .ownerDirectory = ownerDirectory,
-                        .manifestPath = manifestPath,
-                        .conditions = conditions,
-                    });
-                }
-            };
-
-            applyGenerators(unit.project.generators, "project", unit.project.name, ownerProjectDirectory, unit.project.path, unit.project.conditions);
-            if (unit.environment.has_value())
-            {
-                applyGenerators(unit.environment->generators, "project", unit.project.name, ownerProjectDirectory, unit.project.path, unit.project.conditions);
-            }
-            applyGenerators(unit.profile.generators, "project", unit.project.name, ownerProjectDirectory, unit.project.path, unit.project.conditions);
-
-            for (auto &generator : selected)
+            for (auto &generator : EffectiveGenerators(unit.project, unit.profile))
             {
                 resolved.generators.push_back(ResolvedGenerator{
-                    .declaration = std::move(generator.declaration),
-                    .ownerKind = std::move(generator.ownerKind),
-                    .ownerName = std::move(generator.ownerName),
-                    .ownerDirectory = std::move(generator.ownerDirectory),
-                    .manifestPath = std::move(generator.manifestPath),
-                    .conditions = std::move(generator.conditions),
+                    .declaration = std::move(generator),
+                    .ownerKind = "project",
+                    .ownerName = unit.project.name,
+                    .ownerDirectory = ownerProjectDirectory,
+                    .manifestPath = unit.project.path,
+                    .conditions = unit.project.conditions,
                 });
             }
         };
