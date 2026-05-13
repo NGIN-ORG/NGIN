@@ -3,6 +3,7 @@
 #include "Events.hpp"
 #include "Model.hpp"
 
+#include <functional>
 #include <optional>
 #include <string>
 #include <tuple>
@@ -61,7 +62,8 @@ namespace NGIN::CLI
     [[nodiscard]] auto RunProcessCapture(
         const fs::path &executable,
         const std::vector<std::string> &arguments,
-        const std::optional<fs::path> &workingDirectory = std::nullopt) -> ProcessResult;
+        const std::optional<fs::path> &workingDirectory = std::nullopt,
+        const std::function<void(std::string_view)> &outputCallback = {}) -> ProcessResult;
 
     [[nodiscard]] auto WriteLaunchManifest(
         const ResolvedLaunch &resolved,

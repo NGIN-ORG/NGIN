@@ -80,6 +80,10 @@ schemas:
 {"schemaVersion":"1.0","kind":"NGIN.CLI.Event","sequence":1,"timestamp":"2026-05-12T00:00:00.000Z","type":"command.started","command":"build","data":{}}
 ```
 
+Event-enabled lifecycle commands include `configure`, `build`, `stage`,
+`rebuild`, `publish`, `analyze`, `restore`, `run`, `test`, `benchmark`,
+`package pack`, and `package lock`.
+
 Initial event types are `command.started`, `command.selection`,
 `phase.started`, `phase.completed`, `phase.failed`, `backend.output`,
 `diagnostic`, `artifact.produced`, `summary`, and `command.completed`.
@@ -89,8 +93,10 @@ unknown event types and fields. Additive optional fields are allowed in
 schema.
 
 Backend output events follow `--backend-output`: compact JSONL includes backend
-output only when a backend phase fails, stream mode includes captured backend
-output events on success, and silent mode suppresses backend output events.
+output only when a backend phase fails, stream mode emits incremental backend
+output events while the backend is running, and silent mode suppresses backend
+output events. Run/test/benchmark process output is represented as
+`backend.output` events in JSONL mode so stdout remains event-only.
 
 ## Inspection Direction
 

@@ -122,6 +122,70 @@ namespace NGIN::CLI
         return fields_.empty();
     }
 
+    auto EventData::String(std::string_view name) const -> std::optional<std::string>
+    {
+        for (const auto &field : fields_)
+        {
+            if (field.name == name)
+            {
+                if (const auto *value = std::get_if<std::string>(&field.value); value != nullptr)
+                {
+                    return *value;
+                }
+                return std::nullopt;
+            }
+        }
+        return std::nullopt;
+    }
+
+    auto EventData::Number(std::string_view name) const -> std::optional<std::int64_t>
+    {
+        for (const auto &field : fields_)
+        {
+            if (field.name == name)
+            {
+                if (const auto *value = std::get_if<std::int64_t>(&field.value); value != nullptr)
+                {
+                    return *value;
+                }
+                return std::nullopt;
+            }
+        }
+        return std::nullopt;
+    }
+
+    auto EventData::Bool(std::string_view name) const -> std::optional<bool>
+    {
+        for (const auto &field : fields_)
+        {
+            if (field.name == name)
+            {
+                if (const auto *value = std::get_if<bool>(&field.value); value != nullptr)
+                {
+                    return *value;
+                }
+                return std::nullopt;
+            }
+        }
+        return std::nullopt;
+    }
+
+    auto EventData::StringArray(std::string_view name) const -> std::optional<std::vector<std::string>>
+    {
+        for (const auto &field : fields_)
+        {
+            if (field.name == name)
+            {
+                if (const auto *value = std::get_if<std::vector<std::string>>(&field.value); value != nullptr)
+                {
+                    return *value;
+                }
+                return std::nullopt;
+            }
+        }
+        return std::nullopt;
+    }
+
     auto EventData::WriteJson(std::ostream &out) const -> void
     {
         out << "{";

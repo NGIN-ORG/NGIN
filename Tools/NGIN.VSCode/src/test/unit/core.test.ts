@@ -21,7 +21,7 @@ import {
   parseCompositionGraphPayload,
   parseCliDiagnostics
 } from '../../core/helpers';
-import { diagnosticFromEvent, eventLabel, NginJsonlEventParser } from '../../core/events';
+import { diagnosticFromEvent, eventLabel, NginJsonlEventParser, NginJsonlParseError } from '../../core/events';
 import { addRootConfigInput, relativeManifestPath, removeConfigInputs, renameConfigInputs } from '../../core/projectAuthoring';
 import { buildProjectTreeModels, buildStatusBarModel } from '../../ui/models';
 import { parseLaunchManifest, parseLocalSettingsManifest, parsePackageManifest, parseProjectManifest, parseWorkspaceManifest } from '../../core/xml';
@@ -133,6 +133,12 @@ test('diagnostic events map to extension diagnostic payloads', () => {
   assert.equal(diagnostic.file, '/workspace/src/main.cpp');
   assert.equal(diagnostic.line, 4);
   assert.equal(diagnostic.column, 7);
+});
+
+test('NginJsonlEventParser ignores non-event JSON and rejects malformed lines', () => {
+  const parser = new NginJsonlEventParser();
+  assert.deepEqual(parser.push('{"kind":"Other"}\n'), []);
+  assert.throws(() => parser.push('{not json}\n'), NginJsonlParseError);
 });
 
 test('parseCompositionGraphPayload maps V4 composition graph inspect output to extension model', () => {

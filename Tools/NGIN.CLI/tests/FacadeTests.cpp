@@ -664,3 +664,145 @@ TEST_CASE("failed JSONL build includes compact backend output event")
     REQUIRE_THAT(output, ContainsSubstring(R"("type":"backend.output")"));
     REQUIRE_THAT(output, ContainsSubstring(R"("status":"failed")"));
 }
+
+TEST_CASE("JSONL build stream mode emits backend output before phase completion")
+{
+    TempDir temp{};
+    const auto projectPath = temp.path() / "Stream.App.nginproj";
+    WriteFile(projectPath,
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4" Name="Stream.App">
+  <Application>
+    <Build>
+      <Sources Path="src/**.cpp" />
+    </Build>
+  </Application>
+</Project>
+)xml");
+    WriteFile(temp.path() / "src/main.cpp", "int main() { return 0; }\n");
+
+    ParsedArgs args{};
+    args.argv = {"build", "--project", projectPath.string(), "--events", "jsonl", "--backend-output", "stream"};
+    args.projectPath = projectPath.string();
+    args.outputPath = (temp.path() / "out").string();
+    args.eventOutputMode = EventOutputMode::JsonLines;
+    args.backendOutputMode = BackendOutputMode::Stream;
+
+    std::ostringstream captured{};
+    auto *previous = std::cout.rdbuf(captured.rdbuf());
+    const auto exitCode = CmdBuild(temp.path(), args);
+    std::cout.rdbuf(previous);
+
+    REQUIRE(exitCode == 0);
+    const auto output = captured.str();
+    const auto backendOutput = output.find(R"("type":"backend.output")");
+    const auto buildCompleted = output.find(R"("type":"phase.completed","command":"build")", backendOutput == std::string::npos ? 0 : backendOutput);
+    REQUIRE(backendOutput != std::string::npos);
+    REQUIRE(buildCompleted != std::string::npos);
+    REQUIRE(backendOutput < buildCompleted);
+}
+
+TEST_CASE("package pack and lock commands emit JSONL lifecycle events")
+{
+    TempDir temp{};
+    const auto projectPath = temp.path() / "Game.Engine.nginproj";
+    WriteFile(projectPath,
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4" Name="Game.Engine">
+  <Library>
+    <PackageOutput Name="Game.Engine" Version="1.0.0">
+      <Metadata>
+        <Description>Engine package.</Description>
+      </Metadata>
+      <Exports>
+        <Library Name="Game::Engine" />
+      </Exports>
+    </PackageOutput>
+  </Library>
+</Project>
+)xml");
+
+    ParsedArgs packArgs{};
+    packArgs.argv = {"package", "pack", "--project", projectPath.string(), "--events", "jsonl"};
+    packArgs.projectPath = projectPath.string();
+    packArgs.outputPath = (temp.path() / "dist").string();
+    packArgs.eventOutputMode = EventOutputMode::JsonLines;
+
+    std::ostringstream packOutput{};
+    auto *previous = std::cout.rdbuf(packOutput.rdbuf());
+    const auto packExitCode = CmdPackagePack(temp.path(), packArgs);
+    std::cout.rdbuf(previous);
+
+    REQUIRE(packExitCode == 0);
+    REQUIRE_THAT(packOutput.str(), ContainsSubstring(R"("type":"artifact.produced")"));
+    REQUIRE_THAT(packOutput.str(), ContainsSubstring(R"("kind":"package-manifest")"));
+    REQUIRE_THAT(packOutput.str(), ContainsSubstring(R"("kind":"package-archive")"));
+    REQUIRE_THAT(packOutput.str(), ContainsSubstring(R"("type":"command.completed")"));
+
+    ParsedArgs lockArgs{};
+    lockArgs.argv = {"package", "lock", "--project", projectPath.string(), "--events", "jsonl"};
+    lockArgs.projectPath = projectPath.string();
+    lockArgs.outputPath = (temp.path() / "ngin.lock").string();
+    lockArgs.eventOutputMode = EventOutputMode::JsonLines;
+
+    std::ostringstream lockOutput{};
+    previous = std::cout.rdbuf(lockOutput.rdbuf());
+    const auto lockExitCode = CmdPackageLock(temp.path(), lockArgs);
+    std::cout.rdbuf(previous);
+
+    REQUIRE(lockExitCode == 0);
+    REQUIRE_THAT(lockOutput.str(), ContainsSubstring(R"("kind":"lock-file")"));
+    REQUIRE_THAT(lockOutput.str(), ContainsSubstring(R"("type":"summary")"));
+    REQUIRE_THAT(lockOutput.str(), ContainsSubstring(R"("status":"success")"));
+}
+
+TEST_CASE("restore and run commands emit JSONL lifecycle events")
+{
+    TempDir temp{};
+    const auto projectPath = temp.path() / "Run.App.nginproj";
+    WriteFile(projectPath,
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4" Name="Run.App">
+  <Application>
+    <Build>
+      <Sources Path="src/**.cpp" />
+    </Build>
+  </Application>
+</Project>
+)xml");
+    WriteFile(temp.path() / "src/main.cpp", "#include <iostream>\nint main() { std::cout << \"hello-run\\n\"; return 0; }\n");
+
+    ParsedArgs restoreArgs{};
+    restoreArgs.argv = {"restore", "--project", projectPath.string(), "--events", "jsonl"};
+    restoreArgs.projectPath = projectPath.string();
+    restoreArgs.outputPath = (temp.path() / "store").string();
+    restoreArgs.eventOutputMode = EventOutputMode::JsonLines;
+
+    std::ostringstream restoreOutput{};
+    auto *previous = std::cout.rdbuf(restoreOutput.rdbuf());
+    const auto restoreExitCode = CmdRestore(temp.path(), restoreArgs);
+    std::cout.rdbuf(previous);
+
+    REQUIRE(restoreExitCode == 0);
+    REQUIRE_THAT(restoreOutput.str(), ContainsSubstring(R"("phase":"restore")"));
+    REQUIRE_THAT(restoreOutput.str(), ContainsSubstring(R"("kind":"lock-file")"));
+    REQUIRE_THAT(restoreOutput.str(), ContainsSubstring(R"("type":"command.completed")"));
+
+    ParsedArgs runArgs{};
+    runArgs.argv = {"run", "--project", projectPath.string(), "--events", "jsonl"};
+    runArgs.projectPath = projectPath.string();
+    runArgs.outputPath = (temp.path() / "out").string();
+    runArgs.eventOutputMode = EventOutputMode::JsonLines;
+    runArgs.backendOutputMode = BackendOutputMode::Compact;
+
+    std::ostringstream runOutput{};
+    previous = std::cout.rdbuf(runOutput.rdbuf());
+    const auto runExitCode = CmdRun(temp.path(), runArgs);
+    std::cout.rdbuf(previous);
+
+    REQUIRE(runExitCode == 0);
+    REQUIRE_THAT(runOutput.str(), ContainsSubstring(R"("phase":"run")"));
+    REQUIRE_THAT(runOutput.str(), ContainsSubstring(R"("type":"backend.output")"));
+    REQUIRE_THAT(runOutput.str(), ContainsSubstring("hello-run"));
+    REQUIRE_THAT(runOutput.str(), ContainsSubstring(R"("status":"success")"));
+}

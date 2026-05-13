@@ -2008,6 +2008,7 @@ namespace NGIN::CLI
                     EventData{}.AddString("phase", phase).AddString("label", name));
             }
             ProcessResult result{};
+            bool emittedStreamOutput = false;
             if (options.backendOutput == BackendOutputMode::Stream && options.events == nullptr)
             {
                 result.exitCode = RunProcess(executable, arguments, workingDirectory);
@@ -2033,7 +2034,16 @@ namespace NGIN::CLI
                 }
                 try
                 {
-                    result = RunProcessCapture(executable, arguments, workingDirectory);
+                    const auto callback = options.events != nullptr && options.backendOutput == BackendOutputMode::Stream
+                                              ? std::function<void(std::string_view)>{[&](std::string_view text)
+                                                {
+                                                    emittedStreamOutput = true;
+                                                    options.events->Emit(
+                                                        CliEventType::BackendOutput,
+                                                        EventData{}.AddString("phase", phase).AddString("stream", "combined").AddString("text", std::string{text}));
+                                                }}
+                                              : std::function<void(std::string_view)>{};
+                    result = RunProcessCapture(executable, arguments, workingDirectory, callback);
                 }
                 catch (...)
                 {
@@ -2054,7 +2064,7 @@ namespace NGIN::CLI
             }
             const auto finished = std::chrono::steady_clock::now();
             const auto duration = static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(finished - started).count());
-            if (options.events != nullptr && result.exitCode == 0 && options.backendOutput == BackendOutputMode::Stream && !result.output.empty())
+            if (options.events != nullptr && result.exitCode == 0 && options.backendOutput == BackendOutputMode::Stream && !emittedStreamOutput && !result.output.empty())
             {
                 options.events->Emit(
                     CliEventType::BackendOutput,
@@ -2072,7 +2082,7 @@ namespace NGIN::CLI
                 {
                     data.AddNumber("exitCode", result.exitCode);
                     options.events->Emit(CliEventType::PhaseFailed, std::move(data));
-                    if (options.backendOutput != BackendOutputMode::Silent && !result.output.empty())
+                    if (options.backendOutput != BackendOutputMode::Silent && options.backendOutput != BackendOutputMode::Stream && !result.output.empty())
                     {
                         options.events->Emit(
                             CliEventType::BackendOutput,
@@ -2392,7 +2402,8 @@ namespace NGIN::CLI
     auto RunProcessCapture(
         const fs::path &executable,
         const std::vector<std::string> &arguments,
-        const std::optional<fs::path> &workingDirectory) -> ProcessResult
+        const std::optional<fs::path> &workingDirectory,
+        const std::function<void(std::string_view)> &outputCallback) -> ProcessResult
     {
 #if defined(_WIN32)
         SECURITY_ATTRIBUTES securityAttributes{};
@@ -2457,6 +2468,10 @@ namespace NGIN::CLI
         while (ReadFile(readPipe, buffer.data(), static_cast<DWORD>(buffer.size()), &bytesRead, nullptr) && bytesRead > 0)
         {
             output.append(buffer.data(), bytesRead);
+            if (outputCallback)
+            {
+                outputCallback(std::string_view{buffer.data(), static_cast<std::size_t>(bytesRead)});
+            }
         }
         CloseHandle(readPipe);
 
@@ -2523,6 +2538,10 @@ namespace NGIN::CLI
             if (bytesRead > 0)
             {
                 output.append(buffer.data(), static_cast<std::size_t>(bytesRead));
+                if (outputCallback)
+                {
+                    outputCallback(std::string_view{buffer.data(), static_cast<std::size_t>(bytesRead)});
+                }
                 continue;
             }
             if (bytesRead < 0 && errno == EINTR)

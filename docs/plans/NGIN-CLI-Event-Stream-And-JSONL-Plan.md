@@ -1,6 +1,13 @@
 # NGIN CLI Event Stream And JSONL Output Plan
 
-Status: Implementation-Facing Design Plan
+Status: Implemented
+
+Implementation note: the `NGIN.CLI.Event` `1.0` JSONL stream is implemented
+for configure, build, stage, rebuild, publish, analyze, restore, run, test,
+benchmark, package pack, and package lock. Human lifecycle output for these
+commands is rendered from events, backend stream mode emits incremental output
+events, and VS Code consumes JSONL for long-running command progress and
+analyzer diagnostics.
 
 ## Purpose
 
@@ -829,4 +836,3 @@ Compatibility rules:
 - command handlers no longer directly assemble most lifecycle output.
 - compact, verbose, plain, and JSONL modes are renderer choices over the same
   events.
-

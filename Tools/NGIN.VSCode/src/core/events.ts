@@ -22,6 +22,14 @@ export interface NginEventDiagnostic {
   column?: number;
 }
 
+export class NginJsonlParseError extends Error {
+  constructor(line: string, cause: unknown) {
+    const message = cause instanceof Error ? cause.message : String(cause);
+    super(`invalid NGIN CLI JSONL event: ${message}: ${line.slice(0, 160)}`);
+    this.name = 'NginJsonlParseError';
+  }
+}
+
 export class NginJsonlEventParser {
   private pending = '';
 
@@ -41,7 +49,12 @@ export class NginJsonlEventParser {
         continue;
       }
 
-      const parsed = JSON.parse(line) as unknown;
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(line) as unknown;
+      } catch (error) {
+        throw new NginJsonlParseError(line, error);
+      }
       if (isNginCliEvent(parsed)) {
         events.push(parsed);
       }
@@ -56,7 +69,12 @@ export class NginJsonlEventParser {
     if (!trailing) {
       return [];
     }
-    const parsed = JSON.parse(trailing) as unknown;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(trailing) as unknown;
+    } catch (error) {
+      throw new NginJsonlParseError(trailing, error);
+    }
     return isNginCliEvent(parsed) ? [parsed] : [];
   }
 }
@@ -104,6 +122,11 @@ export function eventOutputLine(event: NginCliEvent): string | undefined {
   }
   if (event.type === 'backend.output') {
     return typeof event.data.text === 'string' ? event.data.text : undefined;
+  }
+  if (event.type === 'artifact.produced') {
+    const kind = typeof event.data.kind === 'string' ? event.data.kind : 'artifact';
+    const path = typeof event.data.path === 'string' ? event.data.path : undefined;
+    return path ? `${kind} ${path}` : undefined;
   }
   if (event.type === 'diagnostic') {
     const severity = typeof event.data.severity === 'string' ? event.data.severity : 'error';

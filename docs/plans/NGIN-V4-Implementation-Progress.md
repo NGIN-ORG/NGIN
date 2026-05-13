@@ -993,6 +993,11 @@ Current test coverage includes:
   JSONL keeps backend logs out of successful streams, backend failures include
   `backend.output`, and command/artifact/summary/completion events provide the
   stable machine contract.
+- The event stream now covers restore, package pack, package lock, run, test,
+  and benchmark. Human lifecycle output for event-enabled commands is rendered
+  from the event stream, backend stream mode emits incremental `backend.output`
+  chunks, and run/test/benchmark process output is represented as events in
+  JSONL mode.
 - VS Code long-running configure/build/rebuild/stage/publish/analyze
   invocations now request JSONL events, render extension-owned progress/output
   summaries, and prefer structured analyzer diagnostic events with the existing

@@ -23,6 +23,7 @@ import {
   eventLabel,
   eventOutputLine,
   NginEventDiagnostic,
+  NginJsonlParseError,
   NginJsonlEventParser
 } from './core/events';
 import { addRootConfigInput, listConfigInputs, relativeManifestPath, removeConfigInputs, renameConfigInputs } from './core/projectAuthoring';
@@ -53,6 +54,7 @@ interface CliRunResult {
   exitCode: number;
   output: string;
   eventDiagnostics?: NginEventDiagnostic[];
+  eventCommandSucceeded?: boolean;
 }
 
 interface NginTaskDefinition extends vscode.TaskDefinition {
@@ -728,6 +730,7 @@ class NginController implements vscode.Disposable {
     }
 
     await this.buildProject(context);
+    await this.refreshUi(context.workspace.folder?.uri, true);
   }
 
   private async cleanCommand(target?: NginCommandTarget): Promise<void> {
@@ -760,6 +763,7 @@ class NginController implements vscode.Disposable {
     }
 
     await this.buildProject(context, { command: 'rebuild' });
+    await this.refreshUi(context.workspace.folder?.uri, true);
   }
 
   private async validateCommand(target?: NginCommandTarget, options?: { silent?: boolean }): Promise<void> {
@@ -811,6 +815,9 @@ class NginController implements vscode.Disposable {
       throw new Error(`ngin analyze failed for ${context.project.name} [${context.profile.name}]`);
     }
 
+    if (result.eventCommandSucceeded) {
+      await this.refreshUi(context.workspace.folder?.uri, true);
+    }
     if (!options?.silent) {
       void vscode.window.showInformationMessage(`Analyzed ${context.project.name} [${context.profile.name}]`);
     }
@@ -1665,6 +1672,8 @@ class NginController implements vscode.Disposable {
     const runProcess = (onEventLabel?: (label: string) => void) => new Promise<CliRunResult>((resolve, reject) => {
       let combined = '';
       const eventDiagnostics: NginEventDiagnostic[] = [];
+      let eventParseError: Error | undefined;
+      let eventCommandSucceeded = false;
       const parser = useEvents ? new NginJsonlEventParser() : undefined;
       const child = spawn(cliPath, actualArgs, { cwd: workspaceRoot });
 
@@ -1686,9 +1695,13 @@ class NginController implements vscode.Disposable {
               if (diagnostic) {
                 eventDiagnostics.push(diagnostic);
               }
+              if (event.type === 'command.completed' && event.data.status === 'success') {
+                eventCommandSucceeded = true;
+              }
             }
           } catch (error) {
-            this.outputChannel.append(text);
+            eventParseError = error instanceof Error ? error : new Error(String(error));
+            this.outputChannel.appendLine(eventParseError.message);
           }
         } else {
           this.outputChannel.append(text);
@@ -1718,16 +1731,20 @@ class NginController implements vscode.Disposable {
               if (diagnostic) {
                 eventDiagnostics.push(diagnostic);
               }
+              if (event.type === 'command.completed' && event.data.status === 'success') {
+                eventCommandSucceeded = true;
+              }
             }
-          } catch {
-            // Keep the process result available; stale CLIs may not support JSONL yet.
+          } catch (error) {
+            eventParseError = error instanceof Error ? error : new Error(String(error));
+            this.outputChannel.appendLine(eventParseError.message);
           }
         }
-        const exitCode = code ?? 0;
+        const exitCode = eventParseError instanceof NginJsonlParseError && (code ?? 0) === 0 ? 1 : code ?? 0;
         if (exitCode !== 0) {
           combined += `\nerror: command exited with code ${exitCode}\n`;
         }
-        resolve({ exitCode, output: combined, eventDiagnostics });
+        resolve({ exitCode, output: combined, eventDiagnostics, eventCommandSucceeded });
       });
     });
 

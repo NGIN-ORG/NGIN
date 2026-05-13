@@ -45,6 +45,10 @@ namespace NGIN::CLI
         auto AddStringArray(std::string name, std::vector<std::string> value) -> EventData &;
 
         [[nodiscard]] auto Empty() const -> bool;
+        [[nodiscard]] auto String(std::string_view name) const -> std::optional<std::string>;
+        [[nodiscard]] auto Number(std::string_view name) const -> std::optional<std::int64_t>;
+        [[nodiscard]] auto Bool(std::string_view name) const -> std::optional<bool>;
+        [[nodiscard]] auto StringArray(std::string_view name) const -> std::optional<std::vector<std::string>>;
         auto WriteJson(std::ostream &out) const -> void;
 
     private:
