@@ -2,6 +2,7 @@
 
 #include "Authoring.hpp"
 #include "Diagnostics.hpp"
+#include "Overlay.hpp"
 #include "Resolution.hpp"
 #include "Support.hpp"
 
@@ -85,96 +86,6 @@ namespace NGIN::CLI
             candidates.push_back(path);
 #endif
             return candidates;
-        }
-
-        [[nodiscard]] auto BuildSettingDefineName(const std::string &value) -> std::string
-        {
-            if (const auto separator = value.find('='); separator != std::string::npos)
-            {
-                return value.substr(0, separator);
-            }
-            return value;
-        }
-
-        [[nodiscard]] auto BuildSettingSelectorIdentity(const SelectorSet &selectors) -> std::string
-        {
-            std::ostringstream identity{};
-            if (selectors.profile.has_value())
-            {
-                identity << "|profile=" << *selectors.profile;
-            }
-            if (selectors.platform.has_value())
-            {
-                identity << "|platform=" << *selectors.platform;
-            }
-            if (selectors.operatingSystem.has_value())
-            {
-                identity << "|os=" << *selectors.operatingSystem;
-            }
-            if (selectors.architecture.has_value())
-            {
-                identity << "|arch=" << *selectors.architecture;
-            }
-            if (selectors.buildType.has_value())
-            {
-                identity << "|buildType=" << *selectors.buildType;
-            }
-            if (selectors.environment.has_value())
-            {
-                identity << "|environment=" << *selectors.environment;
-            }
-            for (const auto &condition : selectors.conditionRefs)
-            {
-                identity << "|condition=" << condition;
-            }
-            return identity.str();
-        }
-
-        [[nodiscard]] auto BuildSettingIdentity(const std::string &kind, const BuildSetting &setting) -> std::string
-        {
-            if (kind == "Define")
-            {
-                return BuildSettingDefineName(setting.value);
-            }
-            if (kind == "IncludePath")
-            {
-                return fs::path(setting.value).lexically_normal().generic_string() + "|" + setting.visibility;
-            }
-            return setting.value + BuildSettingSelectorIdentity(setting.selectors);
-        }
-
-        [[nodiscard]] auto EffectiveBuildSettings(const ProjectManifest &project, const ProfileDefinition &profile,
-                                                  const std::vector<BuildSetting> &settings, const std::string &kind)
-            -> std::vector<BuildSetting>
-        {
-            std::map<std::string, BuildSetting> byIdentity{};
-            for (const auto &setting : settings)
-            {
-                if (!SelectionMatches(project, setting.selectors, profile))
-                {
-                    continue;
-                }
-                const auto identity = setting.disabled ? setting.removeIdentity : BuildSettingIdentity(kind, setting);
-                if (identity.empty())
-                {
-                    continue;
-                }
-                if (setting.disabled)
-                {
-                    byIdentity.erase(identity);
-                }
-                else
-                {
-                    byIdentity[identity] = setting;
-                }
-            }
-
-            std::vector<BuildSetting> result{};
-            for (auto &[_, setting] : byIdentity)
-            {
-                result.push_back(std::move(setting));
-            }
-            return result;
         }
 
         [[nodiscard]] auto IsExecutableCandidate(const fs::path &path) -> bool

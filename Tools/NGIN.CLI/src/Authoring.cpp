@@ -1,5 +1,6 @@
 #include "Authoring.hpp"
 
+#include "Overlay.hpp"
 #include "Support.hpp"
 
 #include <algorithm>
@@ -2467,22 +2468,13 @@ namespace NGIN::CLI
         }
     }
 
-    [[nodiscard]] auto WorkspaceBuildSettingIdentity(const std::string &kind, const std::string &value,
-                                                     const std::string &visibility = "Private") -> std::string
+    [[nodiscard]] auto BuildSettingPolicyIdentity(const std::string &kind, const std::string &value,
+                                                  const std::string &visibility = "Private") -> std::string
     {
-        if (kind == "Define")
-        {
-            if (const auto separator = value.find('='); separator != std::string::npos)
-            {
-                return value.substr(0, separator);
-            }
-            return value;
-        }
-        if (kind == "IncludePath")
-        {
-            return fs::path(value).lexically_normal().generic_string() + "|" + visibility;
-        }
-        return value;
+        BuildSetting setting{};
+        setting.value = value;
+        setting.visibility = visibility;
+        return BuildSettingIdentity(kind, setting);
     }
 
     auto ParseWorkspaceBuildPolicy(const XmlElement &buildNode, const fs::path &path,
@@ -2501,7 +2493,7 @@ namespace NGIN::CLI
                 if (const auto remove = Attribute(*node, "Remove"); remove.has_value() && !remove->empty())
                 {
                     setting.remove = true;
-                    setting.removeIdentity = WorkspaceBuildSettingIdentity(setting.kind, *remove, setting.visibility);
+                    setting.removeIdentity = BuildSettingPolicyIdentity(setting.kind, *remove, setting.visibility);
                     RequireUniqueWorkspacePolicyName(localNames, "include path", setting.removeIdentity, path);
                     policy.buildSettings.push_back(std::move(setting));
                     continue;
@@ -2571,7 +2563,7 @@ namespace NGIN::CLI
                     : setting.kind == "IncludePath"   ? "include path"
                     : setting.kind == "CompileOption" ? "compile option"
                                                       : "link option",
-                    WorkspaceBuildSettingIdentity(setting.kind, parsed.value, parsed.visibility), path);
+                    BuildSettingPolicyIdentity(setting.kind, parsed.value, parsed.visibility), path);
                 policy.buildSettings.push_back(std::move(setting));
             }
         }
@@ -3619,79 +3611,13 @@ namespace NGIN::CLI
             }
         }
 
-        [[nodiscard]] auto NormalizeBuildPathIdentity(const std::string &path) -> std::string
-        {
-            return fs::path(path).lexically_normal().generic_string();
-        }
-
-        [[nodiscard]] auto DefineIdentity(const std::string &value) -> std::string
-        {
-            if (const auto separator = value.find('='); separator != std::string::npos)
-            {
-                return value.substr(0, separator);
-            }
-            return value;
-        }
-
-        [[nodiscard]] auto SelectorIdentity(const SelectorSet &selectors) -> std::string
-        {
-            std::ostringstream identity{};
-            if (selectors.profile.has_value())
-            {
-                identity << "|profile=" << *selectors.profile;
-            }
-            if (selectors.platform.has_value())
-            {
-                identity << "|platform=" << *selectors.platform;
-            }
-            if (selectors.operatingSystem.has_value())
-            {
-                identity << "|os=" << *selectors.operatingSystem;
-            }
-            if (selectors.architecture.has_value())
-            {
-                identity << "|arch=" << *selectors.architecture;
-            }
-            if (selectors.buildType.has_value())
-            {
-                identity << "|buildType=" << *selectors.buildType;
-            }
-            if (selectors.environment.has_value())
-            {
-                identity << "|environment=" << *selectors.environment;
-            }
-            for (const auto &condition : selectors.conditionRefs)
-            {
-                identity << "|condition=" << condition;
-            }
-            return identity.str();
-        }
-
-        [[nodiscard]] auto BuildSettingIdentity(const std::string &kind, const BuildSetting &setting) -> std::string
-        {
-            if (kind == "Define")
-            {
-                return DefineIdentity(setting.value);
-            }
-            if (kind == "IncludePath")
-            {
-                return NormalizeBuildPathIdentity(setting.value) + "|" + setting.visibility;
-            }
-            return setting.value + SelectorIdentity(setting.selectors);
-        }
-
         [[nodiscard]] auto BuildSettingIdentityFromRemove(const std::string &kind, const std::string &value,
                                                           const std::string &visibility = {}) -> std::string
         {
-            if (kind == "Define")
-            {
-                return DefineIdentity(value);
-            }
-            if (kind == "IncludePath")
-            {
-                return NormalizeBuildPathIdentity(value) + "|" + (visibility.empty() ? "Private" : visibility);
-            }
-            return value;
+            BuildSetting setting{};
+            setting.value = value;
+            setting.visibility = visibility.empty() ? "Private" : visibility;
+            return BuildSettingIdentity(kind, setting);
         }
 
         auto RequireUniqueBuildSetting(std::set<std::string> &names, const std::string &kind,

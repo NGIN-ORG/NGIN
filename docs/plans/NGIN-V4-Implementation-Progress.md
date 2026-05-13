@@ -163,6 +163,8 @@ Implemented profile behavior:
   emission
 - analyzer replacement by identity with workspace/project profile precedence
   and provenance in graph output
+- shared build-setting/analyzer overlay resolver used by duplicate diagnostics,
+  graph/explain output, analyzer execution, and generated CMake emission
 - generator replacement and removal by `Name` in selected profile overlays
 - publish replacement and removal by `Name` in selected profile overlays
 - package output replacement and removal by `Name` in selected profile overlays
@@ -170,8 +172,9 @@ Implemented profile behavior:
 This is still not the final V4 overlay engine. Build definitions, staged
 inputs, dependency features, project/package removals, environment variables,
 runtime modules, generators, publishes, package outputs, and analyzers have
-first-pass identity handling, but full provenance and duplicate diagnostics are
-not implemented for every item family.
+first-pass identity handling. Build settings and analyzers now share one
+effective overlay path, but full provenance and duplicate diagnostics are not
+implemented for every item family.
 
 ### V4 Workspace Parsing
 
@@ -1040,7 +1043,10 @@ The next implementation slice should focus on one of these paths:
 
 - migrate remaining guides/examples/spec drafts outside the active V4 plans to
   V4 syntax
-- continue hardening overlay provenance and diagnostics for any item families
-  still outside the shared identity path
+- move staged inputs, dependency uses/package features, environment variables,
+  runtime modules, generators, publishes, and package outputs onto the shared
+  overlay/effective-selection path
+- freeze the graph JSON contract once the remaining selected item families use
+  shared identity, provenance, removal, and duplicate-diagnostic semantics
 - add DEFLATE support or a compression backend for ZIP-backed `.nginpack`
   entries if package size becomes important

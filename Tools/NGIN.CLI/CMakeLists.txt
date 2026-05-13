@@ -16,6 +16,7 @@ _ngin_cli_apply_defaults(ngin_cli_model)
 
 add_library(ngin_cli_authoring STATIC
   src/Authoring.cpp
+  src/Overlay.cpp
 )
 target_link_libraries(ngin_cli_authoring PUBLIC ngin_cli_model PRIVATE NGIN::Base)
 _ngin_cli_apply_defaults(ngin_cli_authoring)
