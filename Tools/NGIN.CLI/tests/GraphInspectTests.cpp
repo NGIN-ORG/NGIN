@@ -476,3 +476,252 @@ TEST_CASE("graph plan switches print focused resolved plans")
     REQUIRE_THAT(buildJsonCaptured.str(), ContainsSubstring(R"("reason":"selected compile definition")"));
     REQUIRE_THAT(buildJsonCaptured.str(), ContainsSubstring(R"("kind":"Source","role":"Source","source":"src/main.cpp")"));
 }
+
+TEST_CASE("graph json contract carries selected item provenance")
+{
+    TempDir temp{};
+    WriteFile(temp.path() / "Workspace.ngin",
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Workspace SchemaVersion="4" Name="GraphContractWorkspace" DefaultProfile="contract">
+  <Projects>
+    <Project Path="App/App.nginproj" />
+  </Projects>
+  <Packages>
+    <Source Name="local" Path="Packages" />
+  </Packages>
+  <Profiles>
+    <Profile Name="contract">
+      <Defaults>
+        <BuildType Name="Release" />
+        <TargetPlatform Name="linux-x64" />
+        <HostPlatform Name="host" />
+        <Environment Name="contract" />
+      </Defaults>
+      <Application>
+        <Build>
+          <Define Name="WORKSPACE_DEFINE" Value="1" />
+        </Build>
+        <Stage>
+          <Config Source="config/workspace.json" Target="config/workspace.json" />
+        </Stage>
+        <Runtime>
+          <Module Name="Workspace.Contract.Module" Stage="Startup">
+            <Provides Service="Workspace.Contract.Ready" />
+          </Module>
+        </Runtime>
+        <Environment>
+          <Env Name="WORKSPACE_ENV" Value="workspace" />
+        </Environment>
+        <Quality>
+          <Analyzer Name="workspace-analyzer" Severity="Error" />
+        </Quality>
+      </Application>
+    </Profile>
+  </Profiles>
+</Workspace>
+)xml");
+    WriteFile(temp.path() / "Packages/Package.Contract/Package.Contract.nginpkg",
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Package SchemaVersion="4" Name="Package.Contract" Version="1.0.0">
+  <Library Name="Package.Contract">
+    <Exports>
+      <LibraryTarget Name="Package::Contract" />
+    </Exports>
+  </Library>
+  <Features>
+    <Feature Name="Diagnostics">
+      <Inputs>
+        <Configs>
+          <File Path="content/feature.json" Target="config/feature.json" />
+        </Configs>
+      </Inputs>
+      <Build>
+        <Define Name="PACKAGE_FEATURE" Value="1" Visibility="Public" />
+      </Build>
+      <Runtime>
+        <Modules>
+          <Module Name="Package.Contract.Diagnostics" StartupStage="Features" />
+        </Modules>
+        <EnableModules>
+          <ModuleRef Name="Package.Contract.Diagnostics" />
+        </EnableModules>
+      </Runtime>
+      <Variables>
+        <Variable Name="FEATURE_ENV" Value="feature" />
+      </Variables>
+      <Quality>
+        <Analyzer Name="feature-analyzer" Severity="Warning" />
+      </Quality>
+    </Feature>
+  </Features>
+</Package>
+)xml");
+    const auto projectPath = temp.path() / "App/App.nginproj";
+    WriteFile(projectPath,
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4" Name="Contract.App" DefaultProfile="contract">
+  <Application>
+    <Uses>
+      <Package Name="Package.Contract" Version="[1.0.0,2.0.0)" Scope="Target">
+        <Feature Name="Diagnostics" />
+      </Package>
+    </Uses>
+    <Build>
+      <Sources Path="src/**.cpp" />
+      <Define Name="PROJECT_DEFINE" Value="1" />
+    </Build>
+    <Stage>
+      <Config Source="config/base.json" Target="config/app.json" />
+    </Stage>
+    <Runtime>
+      <Module Name="Project.Contract.Module" Stage="Startup">
+        <Provides Service="Project.Contract.Ready" />
+      </Module>
+    </Runtime>
+    <Environment>
+      <Env Name="PROJECT_ENV" Value="project" />
+      <Secret Name="PROJECT_SECRET" From="local:contract.secret" Required="false" />
+    </Environment>
+    <Launch Name="app" Args="--project" />
+    <Publish Name="folder" Kind="Folder" Output="dist/project" />
+    <PackageOutput Name="Contract.App" Version="1.0.0">
+      <Exports>
+        <Capability Name="Contract.App" />
+      </Exports>
+    </PackageOutput>
+    <Quality>
+      <Analyzer Name="project-analyzer" Severity="Warning" />
+    </Quality>
+  </Application>
+  <Profile Name="contract">
+    <Defaults>
+      <BuildType Name="Release" />
+      <TargetPlatform Name="linux-x64" />
+      <HostPlatform Name="host" />
+      <Environment Name="contract" />
+    </Defaults>
+    <Application>
+      <Build>
+        <Define Name="PROFILE_DEFINE" Value="1" />
+      </Build>
+      <Stage>
+        <Config Source="config/profile.json" Target="config/app.json" Collision="Override" />
+      </Stage>
+      <Environment>
+        <Env Name="PROFILE_ENV" Value="profile" />
+      </Environment>
+      <Launch Name="app" Args="--profile" />
+      <Publish Name="archive" Kind="Archive" Format="zip" Output="dist/profile.zip" />
+      <PackageOutput Name="Contract.Profile" Version="2.0.0">
+        <Exports>
+          <Capability Name="Contract.Profile" />
+        </Exports>
+      </PackageOutput>
+      <Quality>
+        <Analyzer Name="profile-analyzer" Severity="Error" />
+      </Quality>
+    </Application>
+  </Profile>
+</Project>
+)xml");
+    WriteFile(temp.path() / "App/src/main.cpp", "int main() { return 0; }\n");
+    WriteFile(temp.path() / "App/config/base.json", "{}\n");
+    WriteFile(temp.path() / "App/config/profile.json", "{}\n");
+    WriteFile(temp.path() / "App/config/workspace.json", "{}\n");
+    WriteFile(temp.path() / "Packages/Package.Contract/content/feature.json", "{}\n");
+
+    auto graphJson = [&](std::optional<std::string> plan = std::nullopt)
+    {
+        ParsedArgs args{};
+        args.projectPath = projectPath.string();
+        args.profileName = "contract";
+        args.format = "json";
+        args.graphPlan = std::move(plan);
+
+        std::ostringstream captured{};
+        auto *previous = std::cout.rdbuf(captured.rdbuf());
+        const auto exitCode = CmdGraph(temp.path(), args);
+        std::cout.rdbuf(previous);
+        INFO(captured.str());
+        REQUIRE(exitCode == 0);
+        return captured.str();
+    };
+
+    const auto fullGraph = graphJson();
+    REQUIRE_THAT(fullGraph, ContainsSubstring(R"("kind": "NGIN.CompositionGraph")"));
+    REQUIRE_THAT(fullGraph, ContainsSubstring(R"("identity": {"project":"Contract.App")"));
+    REQUIRE_THAT(fullGraph, ContainsSubstring(R"("product":"Application","profile":"contract")"));
+    REQUIRE_THAT(fullGraph, ContainsSubstring(R"("packageFeatures":[)"));
+    REQUIRE_THAT(fullGraph, ContainsSubstring(R"("package":"Package.Contract")"));
+    REQUIRE_THAT(fullGraph, ContainsSubstring(R"("feature":"Diagnostics")"));
+    REQUIRE_THAT(fullGraph, ContainsSubstring(R"("packageVersion":"1.0.0")"));
+    REQUIRE_THAT(fullGraph, ContainsSubstring(R"("facetsSummary":)"));
+    REQUIRE_THAT(fullGraph, ContainsSubstring(R"("environmentVariables":5)"));
+    REQUIRE_THAT(fullGraph, ContainsSubstring(R"("stagedFiles":3)"));
+
+    const auto buildPlan = graphJson("build");
+    REQUIRE_THAT(buildPlan, ContainsSubstring(R"("kind": "NGIN.CompositionGraphPlan")"));
+    REQUIRE_THAT(buildPlan, ContainsSubstring(R"("plan": "build")"));
+    REQUIRE_THAT(buildPlan, ContainsSubstring(R"("value":"PROJECT_DEFINE=1","provenance":{"sourceKind":"project","sourceName":"Contract.App")"));
+    REQUIRE_THAT(buildPlan, ContainsSubstring(R"("value":"PROFILE_DEFINE=1","provenance":{"sourceKind":"project-profile","sourceName":"contract")"));
+    REQUIRE_THAT(buildPlan, ContainsSubstring(R"("value":"WORKSPACE_DEFINE=1","provenance":{"sourceKind":"workspace-product-profile","sourceName":"contract")"));
+    REQUIRE_THAT(buildPlan, ContainsSubstring(R"("value":"PACKAGE_FEATURE=1","provenance":{"sourceKind":"package-feature","sourceName":"Package.Contract::Diagnostics")"));
+    REQUIRE_THAT(buildPlan, ContainsSubstring(R"("kind":"Source","role":"Source","source":"src/main.cpp")"));
+
+    const auto packagePlan = graphJson("package");
+    REQUIRE_THAT(packagePlan, ContainsSubstring(R"("plan": "package")"));
+    REQUIRE_THAT(packagePlan, ContainsSubstring(R"("name":"Package.Contract","version":"1.0.0")"));
+    REQUIRE_THAT(packagePlan, ContainsSubstring(R"("closures":["Target"])"));
+    REQUIRE_THAT(packagePlan, ContainsSubstring(R"("feature":"Diagnostics","packageVersion":"1.0.0","provenance":{"sourceKind":"package-feature","sourceName":"Package.Contract::Diagnostics")"));
+
+    const auto stagePlan = graphJson("stage");
+    REQUIRE_THAT(stagePlan, ContainsSubstring(R"("plan": "stage")"));
+    REQUIRE_THAT(stagePlan, ContainsSubstring(R"("source":"config/profile.json")"));
+    REQUIRE_THAT(stagePlan, ContainsSubstring(R"("target":"config/app.json","owner":"project:Contract.App","provenance":{"sourceKind":"project-profile","sourceName":"contract")"));
+    REQUIRE_THAT(stagePlan, ContainsSubstring(R"("target":"config/workspace.json","owner":"project:Contract.App","provenance":{"sourceKind":"workspace-product-profile","sourceName":"contract")"));
+    REQUIRE_THAT(stagePlan, ContainsSubstring(R"("target":"config/feature.json","owner":"package-feature:Package.Contract::Diagnostics","provenance":{"sourceKind":"package-feature","sourceName":"Package.Contract::Diagnostics")"));
+    REQUIRE(stagePlan.find("config/base.json") == std::string::npos);
+
+    const auto runtimePlan = graphJson("runtime");
+    REQUIRE_THAT(runtimePlan, ContainsSubstring(R"("plan": "runtime")"));
+    REQUIRE_THAT(runtimePlan, ContainsSubstring(R"("name":"Project.Contract.Module","provenance":{"sourceKind":"project","sourceName":"Contract.App")"));
+    REQUIRE_THAT(runtimePlan, ContainsSubstring(R"("name":"Workspace.Contract.Module","provenance":{"sourceKind":"workspace-product-profile","sourceName":"contract")"));
+    REQUIRE_THAT(runtimePlan, ContainsSubstring(R"("name":"Package.Contract.Diagnostics","provenance":{"sourceKind":"package-feature","sourceName":"Package.Contract::Diagnostics")"));
+
+    const auto environmentPlan = graphJson("environment");
+    REQUIRE_THAT(environmentPlan, ContainsSubstring(R"("plan": "environment")"));
+    REQUIRE_THAT(environmentPlan, ContainsSubstring(R"("name":"PROJECT_ENV","value":"project","secret":false)"));
+    REQUIRE_THAT(environmentPlan, ContainsSubstring(R"("name":"PROJECT_SECRET","value":"<redacted>","secret":true)"));
+    REQUIRE_THAT(environmentPlan, ContainsSubstring(R"("reason":"secret environment contribution")"));
+    REQUIRE_THAT(environmentPlan, ContainsSubstring(R"("name":"PROFILE_ENV","value":"profile","secret":false,"resolved":true,"source":"project Value","provenance":{"sourceKind":"project-profile","sourceName":"contract")"));
+    REQUIRE_THAT(environmentPlan, ContainsSubstring(R"("name":"WORKSPACE_ENV","value":"workspace","secret":false,"resolved":true,"source":"project Value","provenance":{"sourceKind":"workspace-product-profile","sourceName":"contract")"));
+    REQUIRE_THAT(environmentPlan, ContainsSubstring(R"("name":"FEATURE_ENV","value":"feature","secret":false,"resolved":true,"source":"project Value","provenance":{"sourceKind":"package-feature","sourceName":"Package.Contract::Diagnostics")"));
+
+    const auto launchPlan = graphJson("launch");
+    REQUIRE_THAT(launchPlan, ContainsSubstring(R"("plan": "launch")"));
+    REQUIRE_THAT(launchPlan,
+                 ContainsSubstring("\"name\":\"app\",\"executable\":\"Contract.App\","
+                                   "\"workingDirectory\":\"$(StageDir)\",\"args\":\"--profile\","
+                                   "\"selected\":true,\"provenance\":{\"sourceKind\":\"project-profile\","
+                                   "\"sourceName\":\"contract\""));
+
+    const auto packageOutputPlan = graphJson("package-output");
+    REQUIRE_THAT(packageOutputPlan, ContainsSubstring(R"("plan": "package-output")"));
+    REQUIRE_THAT(packageOutputPlan, ContainsSubstring(R"("name":"Contract.App","version":"1.0.0")"));
+    REQUIRE_THAT(packageOutputPlan, ContainsSubstring(R"("name":"Contract.Profile","version":"2.0.0")"));
+    REQUIRE_THAT(packageOutputPlan, ContainsSubstring(R"("sourceKind":"project-profile","sourceName":"contract")"));
+
+    const auto publishPlan = graphJson("publish");
+    REQUIRE_THAT(publishPlan, ContainsSubstring(R"("plan": "publish")"));
+    REQUIRE_THAT(publishPlan, ContainsSubstring(R"("name":"folder","kind":"Folder","format":"","output":"dist/project")"));
+    REQUIRE_THAT(publishPlan, ContainsSubstring(R"("name":"archive","kind":"Archive","format":"zip","output":"dist/profile.zip")"));
+    REQUIRE_THAT(publishPlan, ContainsSubstring(R"("sourceKind":"project-profile","sourceName":"contract")"));
+
+    const auto qualityPlan = graphJson("quality");
+    REQUIRE_THAT(qualityPlan, ContainsSubstring(R"("plan": "quality")"));
+    REQUIRE_THAT(qualityPlan, ContainsSubstring(R"("name":"project-analyzer","tool":"project-analyzer","package":"","scope":"Build","severity":"Warning")"));
+    REQUIRE_THAT(qualityPlan, ContainsSubstring(R"("name":"profile-analyzer","tool":"profile-analyzer","package":"","scope":"Build","severity":"Error")"));
+    REQUIRE_THAT(qualityPlan, ContainsSubstring(R"("name":"workspace-analyzer","tool":"workspace-analyzer","package":"","scope":"Build","severity":"Error")"));
+    REQUIRE_THAT(qualityPlan, ContainsSubstring(R"("name":"feature-analyzer","tool":"feature-analyzer","package":"Package.Contract","scope":"Build","severity":"Warning")"));
+    REQUIRE_THAT(qualityPlan, ContainsSubstring(R"("sourceKind":"package-feature","sourceName":"Package.Contract::Diagnostics")"));
+}

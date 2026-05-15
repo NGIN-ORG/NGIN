@@ -240,6 +240,13 @@ export interface GraphDiagnostic {
   message: string;
 }
 
+export interface GraphProvenance {
+  sourceKind?: string;
+  sourceName?: string;
+  manifestPath?: string;
+  reason?: string;
+}
+
 export interface GraphPackagePlan {
   name: string;
   version?: string;
@@ -248,6 +255,7 @@ export interface GraphPackagePlan {
   source?: string;
   scope?: string;
   closures?: string[];
+  provenance?: GraphProvenance;
 }
 
 export interface GraphPackageFeaturePlan {
@@ -256,6 +264,7 @@ export interface GraphPackageFeaturePlan {
   feature: string;
   description?: string;
   manifestPath?: string;
+  provenance?: GraphProvenance;
 }
 
 export interface GraphGeneratorOutput {
@@ -276,6 +285,7 @@ export interface GraphGeneratorPlan {
   manifestPath?: string;
   reason?: string;
   outputs?: GraphGeneratorOutput[];
+  provenance?: GraphProvenance;
 }
 
 export interface GraphBuildInput {
@@ -293,6 +303,13 @@ export interface GraphBuildInput {
   ownerKind?: string;
   ownerName?: string;
   manifestPath?: string;
+  provenance?: GraphProvenance;
+}
+
+export interface GraphBuildDefine {
+  name?: string;
+  value?: string;
+  provenance?: GraphProvenance;
 }
 
 export interface GraphLaunchPlan {
@@ -301,6 +318,7 @@ export interface GraphLaunchPlan {
   workingDirectory?: string;
   args?: string;
   selected?: boolean;
+  provenance?: GraphProvenance;
 }
 
 export interface GraphStagedFile {
@@ -308,6 +326,7 @@ export interface GraphStagedFile {
   source?: string;
   target?: string;
   relativeDestination?: string;
+  provenance?: GraphProvenance;
 }
 
 export interface GraphEnvironmentVariable {
@@ -316,6 +335,21 @@ export interface GraphEnvironmentVariable {
   secret?: boolean;
   resolved?: boolean;
   source?: string;
+  provenance?: GraphProvenance;
+}
+
+export interface GraphRuntimeModulePlan {
+  name?: string;
+  stage?: string;
+  order?: string | number;
+  provenance?: GraphProvenance;
+}
+
+export interface GraphRuntimePluginPlan {
+  name?: string;
+  target?: string;
+  load?: string;
+  provenance?: GraphProvenance;
 }
 
 export interface GraphPublishPlan {
@@ -323,12 +357,14 @@ export interface GraphPublishPlan {
   kind?: string;
   format?: string;
   output?: string;
+  provenance?: GraphProvenance;
 }
 
 export interface GraphPackageOutputPlan {
   name?: string;
   version?: string;
   output?: string;
+  provenance?: GraphProvenance;
 }
 
 export interface GraphAnalyzerPlan {
@@ -339,6 +375,7 @@ export interface GraphAnalyzerPlan {
   severity?: 'error' | 'warning' | 'Error' | 'Warning' | string;
   configPath?: string;
   configOptional?: boolean;
+  provenance?: GraphProvenance;
 }
 
 export interface CompositionGraphPayload {
@@ -381,16 +418,16 @@ export interface CompositionGraphPayload {
     packageFeatures?: GraphPackageFeaturePlan[];
     build?: {
       inputs?: GraphBuildInput[];
-      defines?: Array<{ name?: string; value?: string }>;
+      defines?: Array<string | GraphBuildDefine>;
     };
     generators?: GraphGeneratorPlan[];
     stage?: {
       files?: GraphStagedFile[];
     };
     runtime?: {
-      requiredModules?: Array<{ name?: string; stage?: string; order?: string | number }>;
-      optionalModules?: Array<{ name?: string; stage?: string; order?: string | number }>;
-      plugins?: Array<{ name?: string; target?: string; load?: string }>;
+      requiredModules?: Array<string | GraphRuntimeModulePlan>;
+      optionalModules?: Array<string | GraphRuntimeModulePlan>;
+      plugins?: Array<string | GraphRuntimePluginPlan>;
     };
     environment?: {
       variables?: GraphEnvironmentVariable[];

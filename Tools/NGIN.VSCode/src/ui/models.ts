@@ -424,21 +424,36 @@ export function buildInspectTreeModel(snapshot: NginWorkspaceSnapshot, projectPa
   }
 
   const runtimeEntries: ProjectTreeInspectEntryModel[] = [
-    ...(plans?.runtime?.requiredModules ?? []).map((module) => ({
-      label: module.name ?? '(module)',
-      description: ['required', module.stage, module.order === undefined ? undefined : String(module.order)].filter(Boolean).join(' • ') || undefined,
-      icon: 'symbol-module'
-    })),
-    ...(plans?.runtime?.optionalModules ?? []).map((module) => ({
-      label: module.name ?? '(module)',
-      description: ['optional', module.stage, module.order === undefined ? undefined : String(module.order)].filter(Boolean).join(' • ') || undefined,
-      icon: 'symbol-module'
-    })),
-    ...(plans?.runtime?.plugins ?? []).map((plugin) => ({
-      label: plugin.name ?? '(plugin)',
-      description: [plugin.load, plugin.target].filter(Boolean).join(' • ') || undefined,
-      icon: 'extensions'
-    }))
+    ...(plans?.runtime?.requiredModules ?? []).map((module) => {
+      const moduleName = typeof module === 'string' ? module : module.name;
+      const moduleStage = typeof module === 'string' ? undefined : module.stage;
+      const moduleOrder = typeof module === 'string' ? undefined : module.order;
+      return {
+        label: moduleName ?? '(module)',
+        description: ['required', moduleStage, moduleOrder === undefined ? undefined : String(moduleOrder)].filter(Boolean).join(' • ') || undefined,
+        icon: 'symbol-module'
+      };
+    }),
+    ...(plans?.runtime?.optionalModules ?? []).map((module) => {
+      const moduleName = typeof module === 'string' ? module : module.name;
+      const moduleStage = typeof module === 'string' ? undefined : module.stage;
+      const moduleOrder = typeof module === 'string' ? undefined : module.order;
+      return {
+        label: moduleName ?? '(module)',
+        description: ['optional', moduleStage, moduleOrder === undefined ? undefined : String(moduleOrder)].filter(Boolean).join(' • ') || undefined,
+        icon: 'symbol-module'
+      };
+    }),
+    ...(plans?.runtime?.plugins ?? []).map((plugin) => {
+      const pluginName = typeof plugin === 'string' ? plugin : plugin.name;
+      const pluginLoad = typeof plugin === 'string' ? undefined : plugin.load;
+      const pluginTarget = typeof plugin === 'string' ? undefined : plugin.target;
+      return {
+        label: pluginName ?? '(plugin)',
+        description: [pluginLoad, pluginTarget].filter(Boolean).join(' • ') || undefined,
+        icon: 'extensions'
+      };
+    })
   ];
   if (runtimeEntries.length > 0) {
     entriesByGroup.set('runtime', runtimeEntries);

@@ -975,6 +975,10 @@ Current test coverage includes:
   generators, launch entries, publish entries, and package outputs now carry
   contribution provenance into graph output when the authoring/resolution layer
   can identify the selected source
+- focused graph JSON contract coverage now pins selected-item provenance across
+  package features, build definitions, staged files, runtime modules,
+  environment variables including redacted secrets, launches, publishes,
+  package outputs, and quality analyzers
 - CLI tests are split into focused authoring, workspace, command authoring,
   package, product, overlay, graph, and facade files with shared test support
 - official `NGIN.Tooling.ClangTidy` system-wrapper package for enabling
@@ -987,6 +991,9 @@ Current test coverage includes:
 - VS Code sidebar and project editor resolved sections now consume graph plan
   facets for packages, features, build inputs, generators, stage, runtime,
   launch, publish, package outputs, analyzers, and diagnostics
+- VS Code graph model types now carry optional selected-item provenance and
+  accept both current full-graph runtime string arrays and provenance-capable
+  runtime object arrays
 - VS Code validation, analyzer, and inspect diagnostics use separate diagnostic
   collections so one workflow does not clear the others
 - VS Code analyzer diagnostics preserve file, line, column, severity, and
@@ -1064,7 +1071,7 @@ The next implementation slice should focus on one of these paths:
   V4 syntax
 - freeze the graph JSON contract once the remaining selected item families use
   shared identity, provenance, removal, and duplicate-diagnostic semantics
-- add graph JSON schema/golden coverage for the stable selected-item contract
-  and run the VS Code consumer compatibility pass
+- derive a formal graph JSON schema/golden artifact from the now-pinned
+  selected-item contract
 - add DEFLATE support or a compression backend for ZIP-backed `.nginpack`
   entries if package size becomes important

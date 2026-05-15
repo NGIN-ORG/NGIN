@@ -166,22 +166,51 @@ test('parseCompositionGraphPayload maps V4 composition graph inspect output to e
           name: 'NGIN.Tooling.ClangTidy',
           version: '0.1.0',
           providerRoot: '/repo/Packages/NGIN.Tooling.ClangTidy',
-          closures: ['Dev']
+          closures: ['Dev'],
+          provenance: {
+            sourceKind: 'project',
+            sourceName: 'Hello.Analyzer',
+            manifestPath: '/repo/Examples/Hello.Analyzer/Hello.Analyzer.nginproj',
+            reason: 'resolved package dependency'
+          }
         }
       ],
       packageFeatures: [
         {
           package: 'NGIN.Tooling.ClangTidy',
           packageVersion: '0.1.0',
-          feature: 'Analyzer'
+          feature: 'Analyzer',
+          provenance: {
+            sourceKind: 'package-feature',
+            sourceName: 'NGIN.Tooling.ClangTidy::Analyzer',
+            manifestPath: '/repo/Packages/NGIN.Tooling.ClangTidy/NGIN.Tooling.ClangTidy.nginpkg',
+            reason: 'selected package feature'
+          }
         }
       ],
       build: {
+        defines: [
+          {
+            value: 'HELLO_ANALYZER=1',
+            provenance: {
+              sourceKind: 'project-profile',
+              sourceName: 'Debug.Analyzer',
+              manifestPath: '/repo/Examples/Hello.Analyzer/Hello.Analyzer.nginproj',
+              reason: 'selected compile definition'
+            }
+          }
+        ],
         inputs: [
           {
             role: 'Source',
             source: 'src/main.cpp',
-            owner: 'project:Hello.Analyzer'
+            owner: 'project:Hello.Analyzer',
+            provenance: {
+              sourceKind: 'project',
+              sourceName: 'Hello.Analyzer',
+              manifestPath: '/repo/Examples/Hello.Analyzer/Hello.Analyzer.nginproj',
+              reason: 'selected build input'
+            }
           }
         ]
       },
@@ -190,20 +219,54 @@ test('parseCompositionGraphPayload maps V4 composition graph inspect output to e
         files: []
       },
       runtime: {
-        requiredModules: []
+        requiredModules: [
+          {
+            name: 'Hello.Analyzer.Runtime',
+            provenance: {
+              sourceKind: 'package-feature',
+              sourceName: 'NGIN.Tooling.ClangTidy::Analyzer',
+              manifestPath: '/repo/Packages/NGIN.Tooling.ClangTidy/NGIN.Tooling.ClangTidy.nginpkg',
+              reason: 'resolved required runtime module'
+            }
+          }
+        ]
       },
       environment: {
-        variables: []
+        variables: [
+          {
+            name: 'HELLO_ANALYZER_TOKEN',
+            value: '<redacted>',
+            secret: true,
+            provenance: {
+              sourceKind: 'project',
+              sourceName: 'Hello.Analyzer',
+              manifestPath: '/repo/Examples/Hello.Analyzer/Hello.Analyzer.nginproj',
+              reason: 'secret environment contribution'
+            }
+          }
+        ]
       },
       launch: {
         executable: 'Hello.Analyzer',
-        workingDirectory: '.'
+        workingDirectory: '.',
+        provenance: {
+          sourceKind: 'project-profile',
+          sourceName: 'Debug.Analyzer',
+          manifestPath: '/repo/Examples/Hello.Analyzer/Hello.Analyzer.nginproj',
+          reason: 'selected launch'
+        }
       },
       quality: {
         analyzers: [
           {
             name: 'clang-tidy',
-            package: 'NGIN.Tooling.ClangTidy'
+            package: 'NGIN.Tooling.ClangTidy',
+            provenance: {
+              sourceKind: 'package-feature',
+              sourceName: 'NGIN.Tooling.ClangTidy::Analyzer',
+              manifestPath: '/repo/Packages/NGIN.Tooling.ClangTidy/NGIN.Tooling.ClangTidy.nginpkg',
+              reason: 'selected analyzer'
+            }
           }
         ]
       },
@@ -218,10 +281,17 @@ test('parseCompositionGraphPayload maps V4 composition graph inspect output to e
   assert.equal(payload.selection?.profile, 'Debug.Analyzer');
   assert.equal(payload.selection?.targetPlatform, 'linux-x64');
   assert.equal(payload.plans?.packages?.[0]?.name, 'NGIN.Tooling.ClangTidy');
+  assert.equal(payload.plans?.packages?.[0]?.provenance?.sourceKind, 'project');
   assert.equal(payload.plans?.packageFeatures?.[0]?.feature, 'Analyzer');
+  assert.equal(payload.plans?.packageFeatures?.[0]?.provenance?.sourceName, 'NGIN.Tooling.ClangTidy::Analyzer');
   assert.equal(payload.plans?.build?.inputs?.[0]?.source, 'src/main.cpp');
+  assert.equal(payload.plans?.build?.inputs?.[0]?.provenance?.reason, 'selected build input');
   assert.equal(payload.plans?.launch?.executable, 'Hello.Analyzer');
+  assert.equal(payload.plans?.launch?.provenance?.sourceKind, 'project-profile');
+  assert.equal(payload.plans?.environment?.variables?.[0]?.value, '<redacted>');
+  assert.equal(payload.plans?.environment?.variables?.[0]?.provenance?.reason, 'secret environment contribution');
   assert.equal(payload.plans?.quality?.analyzers?.[0]?.name, 'clang-tidy');
+  assert.equal(payload.plans?.quality?.analyzers?.[0]?.provenance?.sourceKind, 'package-feature');
 });
 
 test('settings init output exposes the initialized settings path', () => {
