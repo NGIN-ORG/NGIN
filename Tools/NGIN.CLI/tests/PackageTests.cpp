@@ -647,7 +647,7 @@ TEST_CASE("package provider override is exposed in resolved package metadata")
 
     REQUIRE(exitCode == 0);
     REQUIRE_THAT(captured.str(), ContainsSubstring(R"("source":"provider")"));
-    REQUIRE_THAT(captured.str(), ContainsSubstring((temp.path() / "Providers/Core").lexically_normal().string()));
+    REQUIRE_THAT(captured.str(), ContainsSubstring((temp.path() / "Providers/Core").lexically_normal().generic_string()));
 }
 
 TEST_CASE("restore writes package store and lock file")

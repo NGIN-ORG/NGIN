@@ -2183,12 +2183,22 @@ namespace NGIN::CLI
             throw std::runtime_error("publish requires a name when the project declares multiple publishes");
         }
 
+        [[nodiscard]] auto IsPublishInternalPath(const fs::path &relativePath) -> bool
+        {
+            const auto begin = relativePath.begin();
+            return begin != relativePath.end() && begin->generic_string() == ".ngin";
+        }
+
         auto CopyDirectoryContents(const fs::path &source, const fs::path &destination) -> void
         {
             fs::create_directories(destination);
             for (const auto &entry : fs::recursive_directory_iterator(source))
             {
                 const auto relative = fs::relative(entry.path(), source);
+                if (IsPublishInternalPath(relative))
+                {
+                    continue;
+                }
                 const auto target = destination / relative;
                 if (entry.is_directory())
                 {
@@ -2257,13 +2267,18 @@ namespace NGIN::CLI
             std::vector<ZipEntry> entries{};
             for (const auto &entry : fs::recursive_directory_iterator(source))
             {
+                const auto relative = fs::relative(entry.path(), source);
+                if (IsPublishInternalPath(relative))
+                {
+                    continue;
+                }
                 if (!entry.is_regular_file())
                 {
                     continue;
                 }
                 ZipEntry zipEntry{};
                 zipEntry.sourcePath = entry.path();
-                zipEntry.archivePath = fs::relative(entry.path(), source).generic_string();
+                zipEntry.archivePath = relative.generic_string();
                 entries.push_back(std::move(zipEntry));
             }
             std::sort(entries.begin(), entries.end(),
