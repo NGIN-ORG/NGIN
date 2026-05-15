@@ -65,6 +65,11 @@ namespace NGIN::CLI
             return value == "Manual" || value == "FindPackage" || value == "AddSubdirectory";
         }
 
+        [[nodiscard]] auto IsSupportedExternalPackageProviderKind(const std::string_view value) -> bool
+        {
+            return value == "Vcpkg" || value == "Conan";
+        }
+
         [[nodiscard]] auto IsSelectorAttribute(const std::string_view name) -> bool
         {
             return name == "Profile" || name == "Platform" || name == "OperatingSystem" || name == "Architecture" ||
@@ -1668,9 +1673,18 @@ namespace NGIN::CLI
             }
             build.backend = Attribute(*buildElement, "Backend").value_or("");
             build.mode = Attribute(*buildElement, "Mode").value_or("");
+            build.provider = Attribute(*buildElement, "Provider").value_or("");
+            build.providerPackage = Attribute(*buildElement, "ProviderPackage").value_or("");
+            build.providerVersion = Attribute(*buildElement, "ProviderVersion").value_or("");
+            build.cmakePackage = Attribute(*buildElement, "CMakePackage").value_or("");
             if (!build.mode.empty() && !IsSupportedPackageBuildMode(build.mode))
             {
                 throw std::runtime_error(path.string() + ": unknown package build mode '" + build.mode + "'");
+            }
+            if (!build.provider.empty() && build.mode != "FindPackage")
+            {
+                throw std::runtime_error(path.string() +
+                                         ": package build Provider is only supported with Mode=\"FindPackage\"");
             }
             if (const auto *options = FindChild(*buildElement, "Options"))
             {
@@ -3038,6 +3052,25 @@ namespace NGIN::CLI
                 {
                     workspace.packageProviders[name] = (workspace.path.parent_path() / providerRoot).lexically_normal();
                 }
+            }
+            for (const auto *provider : ChildElements(*packagesNode, "Provider"))
+            {
+                WorkspaceManifest::PackageProvider parsed{};
+                parsed.name = RequireAttribute(*provider, "Name", *path);
+                parsed.kind = RequireAttribute(*provider, "Kind", *path);
+                if (!IsSupportedExternalPackageProviderKind(parsed.kind))
+                {
+                    throw std::runtime_error(path->string() + ": unknown package provider kind '" + parsed.kind + "'");
+                }
+                const auto providerRoot =
+                    Attribute(*provider, "Root").value_or(Attribute(*provider, "Path").value_or(""));
+                if (!providerRoot.empty())
+                {
+                    parsed.root = (workspace.path.parent_path() / providerRoot).lexically_normal();
+                }
+                parsed.triplet = Attribute(*provider, "Triplet").value_or("");
+                parsed.profile = Attribute(*provider, "Profile").value_or("");
+                workspace.externalPackageProviders[parsed.name] = std::move(parsed);
             }
             for (const auto *version : ChildElements(*packagesNode, "Version"))
             {

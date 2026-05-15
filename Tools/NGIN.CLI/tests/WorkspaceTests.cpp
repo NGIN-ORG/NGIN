@@ -60,6 +60,44 @@ TEST_CASE("workspace parses projects, package sources, and central package "
     REQUIRE(workspace.dependencyVersions.at("NGIN.Core") == "[0.1.0,0.2.0)");
 }
 
+TEST_CASE("workspace parses external package providers")
+{
+    TempDir temp{};
+    WriteFile(temp.path() / "Workspace.ngin",
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Workspace SchemaVersion="4" Name="Providers">
+  <Packages>
+    <Provider Name="vcpkg" Kind="Vcpkg" Root="Tools/vcpkg" Triplet="x64-linux" />
+    <Provider Name="conan" Kind="Conan" Profile="linux-gcc-debug" />
+  </Packages>
+</Workspace>
+)xml");
+
+    const auto workspace = LoadWorkspaceManifest(temp.path());
+
+    REQUIRE(workspace.externalPackageProviders.size() == 2);
+    REQUIRE(workspace.externalPackageProviders.at("vcpkg").kind == "Vcpkg");
+    REQUIRE(workspace.externalPackageProviders.at("vcpkg").root == (temp.path() / "Tools/vcpkg").lexically_normal());
+    REQUIRE(workspace.externalPackageProviders.at("vcpkg").triplet == "x64-linux");
+    REQUIRE(workspace.externalPackageProviders.at("conan").kind == "Conan");
+    REQUIRE(workspace.externalPackageProviders.at("conan").profile == "linux-gcc-debug");
+}
+
+TEST_CASE("workspace rejects unknown external package provider kind")
+{
+    TempDir temp{};
+    WriteFile(temp.path() / "Workspace.ngin",
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Workspace SchemaVersion="4" Name="Providers">
+  <Packages>
+    <Provider Name="custom" Kind="Custom" />
+  </Packages>
+</Workspace>
+)xml");
+
+    REQUIRE_THROWS_WITH(LoadWorkspaceManifest(temp.path()), ContainsSubstring("unknown package provider kind 'Custom'"));
+}
+
 TEST_CASE("workspace default profile participates in command profile selection")
 {
     TempDir temp{};

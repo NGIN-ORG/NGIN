@@ -36,6 +36,15 @@ namespace NGIN::CLI
             std::string runtimeLibrary{};
         };
 
+        struct PackageProvider
+        {
+            std::string name{};
+            std::string kind{};
+            fs::path root{};
+            std::string triplet{};
+            std::string profile{};
+        };
+
         struct ProfilePolicy
         {
             struct BuildSettingPolicy
@@ -206,6 +215,7 @@ namespace NGIN::CLI
         std::vector<fs::path> packageSources{};
         std::vector<std::string> packageSourceUrls{};
         std::unordered_map<std::string, fs::path> packageProviders{};
+        std::unordered_map<std::string, PackageProvider> externalPackageProviders{};
         std::unordered_map<std::string, std::string> dependencyVersions{};
         std::string versionResolution{"HighestCompatible"};
         std::string defaultFeatures{"Explicit"};
@@ -441,6 +451,10 @@ namespace NGIN::CLI
     {
         std::string backend{"CMake"};
         std::string mode{};
+        std::string provider{};
+        std::string providerPackage{};
+        std::string providerVersion{};
+        std::string cmakePackage{};
         std::vector<BuildVariable> options{};
     };
 
@@ -944,6 +958,10 @@ namespace NGIN::CLI
             std::string name{};
             std::string version{};
             std::string source{};
+            std::string provider{};
+            std::string providerKind{};
+            std::string providerPackage{};
+            std::string providerVersion{};
             fs::path providerRoot{};
             std::string scope{};
             std::vector<std::string> closures{};

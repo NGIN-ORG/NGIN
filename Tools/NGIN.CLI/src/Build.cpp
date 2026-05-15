@@ -458,6 +458,58 @@ namespace NGIN::CLI
             return ResolveBuildRoot(resolved) / ".ngin" / "build" / resolved.project.name / resolved.profile.name;
         }
 
+        [[nodiscard]] auto ProviderStateRoot(const ResolvedLaunch &resolved, std::string_view providerName) -> fs::path
+        {
+            return ResolveBuildRoot(resolved) / ".ngin" / "providers" / SanitizeIdentifier(std::string{providerName}) /
+                   SanitizeIdentifier(resolved.profile.name);
+        }
+
+        [[nodiscard]] auto ProviderMetadataPath(const ResolvedLaunch &resolved, std::string_view providerName) -> fs::path
+        {
+            return ProviderStateRoot(resolved, providerName) / "ngin-provider.xml";
+        }
+
+        struct ProviderRestoreMetadata
+        {
+            std::string provider{};
+            std::string kind{};
+            fs::path toolchainFile{};
+            fs::path installRoot{};
+            fs::path prefixPath{};
+        };
+
+        [[nodiscard]] auto LoadProviderRestoreMetadata(const ResolvedLaunch &resolved,
+                                                       std::string_view providerName,
+                                                       DiagnosticReport &report) -> std::optional<ProviderRestoreMetadata>
+        {
+            const auto metadataPath = ProviderMetadataPath(resolved, providerName);
+            if (!fs::exists(metadataPath))
+            {
+                AddError(report, "package provider '" + std::string{providerName} +
+                                     "' has not been restored. Run `ngin restore` before configure/build.");
+                return std::nullopt;
+            }
+            const auto loaded = LoadXml(metadataPath);
+            const auto *rootElement = loaded.document.Root();
+            if (rootElement == nullptr || rootElement->name != "ProviderRestore")
+            {
+                AddError(report, metadataPath.string() + ": expected ProviderRestore root element");
+                return std::nullopt;
+            }
+            return ProviderRestoreMetadata{
+                .provider = Attribute(*rootElement, "Provider").value_or(std::string{providerName}),
+                .kind = Attribute(*rootElement, "Kind").value_or(""),
+                .toolchainFile = Attribute(*rootElement, "ToolchainFile").value_or(""),
+                .installRoot = Attribute(*rootElement, "InstallRoot").value_or(""),
+                .prefixPath = Attribute(*rootElement, "PrefixPath").value_or(""),
+            };
+        }
+
+        [[nodiscard]] auto CMakePackageName(const PackageManifest &manifest) -> std::string
+        {
+            return manifest.build.cmakePackage.empty() ? manifest.name : manifest.build.cmakePackage;
+        }
+
         [[nodiscard]] auto PackageExposesSelectedExecutable(const PackageManifest &manifest,
                                                             const std::optional<ExecutableArtifact> &selectedExecutable)
             -> bool
@@ -674,6 +726,7 @@ namespace NGIN::CLI
             return std::any_of(resolved.libraries.begin(), resolved.libraries.end(),
                                [](const LibraryArtifact &artifact) {
                                    return !artifact.target.empty() && Lower(artifact.linkage) != "interface" &&
+                                          Lower(artifact.origin) != "imported" &&
                                           Lower(artifact.origin) != "prebuilt";
                                });
         }
@@ -1641,12 +1694,20 @@ namespace NGIN::CLI
 
                 if (mode == "FindPackage")
                 {
-                    const auto packageId = package.manifest.name;
-                    if (!addedPackageKeys.insert("find:" + packageId).second)
+                    const auto packageId = CMakePackageName(package.manifest);
+                    if (!package.manifest.build.provider.empty())
                     {
-                        continue;
+                        (void)LoadProviderRestoreMetadata(resolved, package.manifest.build.provider, report);
+                        if (report.HasErrors())
+                        {
+                            continue;
+                        }
                     }
-                    out << "find_package(\"" << EscapeCMake(packageId) << "\" CONFIG QUIET)\n";
+                    const auto alreadyFound = !addedPackageKeys.insert("find:" + packageId).second;
+                    if (!alreadyFound)
+                    {
+                        out << "find_package(\"" << EscapeCMake(packageId) << "\" CONFIG QUIET)\n";
+                    }
                     if (!package.manifest.artifacts.libraries.empty() &&
                         !package.manifest.artifacts.libraries.front().target.empty())
                     {
@@ -1663,7 +1724,10 @@ namespace NGIN::CLI
                     {
                         out << "if(TRUE)\n";
                     }
-                    out << "  find_package(\"" << EscapeCMake(packageId) << "\" QUIET)\n";
+                    if (!alreadyFound)
+                    {
+                        out << "  find_package(\"" << EscapeCMake(packageId) << "\" QUIET)\n";
+                    }
                     out << "endif()\n";
                     EmitTargetChecks(out, package.manifest);
                     continue;
@@ -2040,7 +2104,9 @@ namespace NGIN::CLI
                 {
                     continue;
                 }
-                emitStageTarget(library.name, library.target, "lib", Lower(library.linkage) != "interface");
+                const auto origin = Lower(library.origin);
+                emitStageTarget(library.name, library.target, "lib",
+                                Lower(library.linkage) != "interface" && origin != "imported");
             }
             if (resolved.selectedExecutable.has_value() && !resolved.selectedExecutable->target.empty() &&
                 Lower(resolved.selectedExecutable->origin) != "prebuilt")
@@ -2168,6 +2234,62 @@ namespace NGIN::CLI
             return result.exitCode;
         }
 
+        struct CMakeProviderInputs
+        {
+            fs::path vcpkgToolchainFile{};
+            std::vector<fs::path> prefixPaths{};
+        };
+
+        [[nodiscard]] auto CollectCMakeProviderInputs(const ResolvedLaunch &resolved, DiagnosticReport &report)
+            -> CMakeProviderInputs
+        {
+            CMakeProviderInputs inputs{};
+            std::set<std::string> loadedProviders{};
+            for (const auto &package : resolved.orderedPackages)
+            {
+                const auto &providerName = package.manifest.build.provider;
+                if (providerName.empty() || !loadedProviders.insert(providerName).second)
+                {
+                    continue;
+                }
+                const auto metadata = LoadProviderRestoreMetadata(resolved, providerName, report);
+                if (!metadata.has_value())
+                {
+                    continue;
+                }
+                if (metadata->kind == "Vcpkg")
+                {
+                    if (metadata->toolchainFile.empty())
+                    {
+                        AddError(report, "vcpkg provider '" + providerName +
+                                             "' restore metadata does not declare ToolchainFile");
+                        continue;
+                    }
+                    if (!inputs.vcpkgToolchainFile.empty() && inputs.vcpkgToolchainFile != metadata->toolchainFile)
+                    {
+                        AddError(report, "multiple vcpkg toolchain files are not supported in one generated build");
+                        continue;
+                    }
+                    inputs.vcpkgToolchainFile = metadata->toolchainFile;
+                    continue;
+                }
+                if (metadata->kind == "Conan")
+                {
+                    if (metadata->prefixPath.empty())
+                    {
+                        AddError(report, "Conan provider '" + providerName +
+                                             "' restore metadata does not declare PrefixPath");
+                        continue;
+                    }
+                    inputs.prefixPaths.push_back(metadata->prefixPath);
+                    continue;
+                }
+                AddError(report, "package provider '" + providerName + "' has unsupported restore kind '" +
+                                     metadata->kind + "'");
+            }
+            return inputs;
+        }
+
         [[nodiscard]] auto ConfigureGeneratedBuild(const ResolvedLaunch &resolved, const fs::path &outputDir,
                                                    DiagnosticReport &report, const BuildExecutionOptions &options)
             -> std::optional<GeneratedBuildPaths>
@@ -2197,6 +2319,11 @@ namespace NGIN::CLI
             }
             if (cmakeProjectChanged || !fs::exists(cmakeCachePath) || !fs::exists(compileCommandsPath))
             {
+                const auto providerInputs = CollectCMakeProviderInputs(resolved, report);
+                if (report.HasErrors())
+                {
+                    return std::nullopt;
+                }
                 std::vector<std::string> configureArguments{
                     "-S",
                     generatedPaths.sourceDir.string(),
@@ -2205,6 +2332,23 @@ namespace NGIN::CLI
                     "-DCMAKE_BUILD_TYPE=" + buildType,
                     "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON",
                 };
+                if (!providerInputs.vcpkgToolchainFile.empty())
+                {
+                    configureArguments.push_back("-DCMAKE_TOOLCHAIN_FILE=" + providerInputs.vcpkgToolchainFile.string());
+                }
+                if (!providerInputs.prefixPaths.empty())
+                {
+                    std::ostringstream prefixPath{};
+                    for (std::size_t index = 0; index < providerInputs.prefixPaths.size(); ++index)
+                    {
+                        if (index != 0)
+                        {
+                            prefixPath << ";";
+                        }
+                        prefixPath << providerInputs.prefixPaths[index].string();
+                    }
+                    configureArguments.push_back("-DCMAKE_PREFIX_PATH=" + prefixPath.str());
+                }
                 if (const auto ninjaPath = ResolveToolPath("ninja", toolSearchRoot).or_else([&toolSearchRoot]() {
                         return ResolveToolPath("ninja-build", toolSearchRoot);
                     });

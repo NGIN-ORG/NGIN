@@ -252,7 +252,7 @@ namespace NGIN::CLI
             {
                 const auto base = fs::path(input.path).lexically_normal();
                 const auto relative = sourceRelative.lexically_relative(base);
-                if (!relative.empty() && relative.native().find("..") != 0)
+                if (!relative.empty() && relative.generic_string().find("..") != 0)
                 {
                     preserved = relative;
                 }
@@ -261,7 +261,7 @@ namespace NGIN::CLI
             {
                 const auto base = fs::path(input.basePath).lexically_normal();
                 const auto relative = sourceRelative.lexically_relative(base);
-                if (!relative.empty() && relative.native().find("..") != 0)
+                if (!relative.empty() && relative.generic_string().find("..") != 0)
                 {
                     preserved = relative;
                 }

@@ -967,6 +967,8 @@ namespace NGIN::CLI
             return escaped;
         }
 
+        auto WriteTextFile(const fs::path &path, const std::string &contents) -> void;
+
         [[nodiscard]] auto DefaultLockPath(const ResolvedLaunch &resolved) -> fs::path
         {
             if (resolved.workspace.has_value())
@@ -985,6 +987,324 @@ namespace NGIN::CLI
             return resolved.project.path.parent_path() / ".ngin" / "packages";
         }
 
+        [[nodiscard]] auto SanitizePathComponent(std::string value) -> std::string
+        {
+            for (auto &ch : value)
+            {
+                const auto valid = std::isalnum(static_cast<unsigned char>(ch)) || ch == '_' || ch == '-' || ch == '.';
+                if (!valid)
+                {
+                    ch = '_';
+                }
+            }
+            return value.empty() ? "default" : value;
+        }
+
+        [[nodiscard]] auto ProviderStateRoot(const ResolvedLaunch &resolved, std::string_view providerName) -> fs::path
+        {
+            const auto root = resolved.workspace.has_value() ? resolved.workspace->path.parent_path()
+                                                             : resolved.project.path.parent_path();
+            return root / ".ngin" / "providers" / SanitizePathComponent(std::string{providerName}) /
+                   SanitizePathComponent(resolved.profile.name);
+        }
+
+        [[nodiscard]] auto ProviderMetadataPath(const ResolvedLaunch &resolved, std::string_view providerName) -> fs::path
+        {
+            return ProviderStateRoot(resolved, providerName) / "ngin-provider.xml";
+        }
+
+        [[nodiscard]] auto ProviderPackageName(const PackageManifest &manifest) -> std::string
+        {
+            return manifest.build.providerPackage.empty() ? manifest.name : manifest.build.providerPackage;
+        }
+
+        [[nodiscard]] auto ProviderPackageVersion(const PackageManifest &manifest) -> std::string
+        {
+            return manifest.build.providerVersion.empty() ? manifest.version : manifest.build.providerVersion;
+        }
+
+        [[nodiscard]] auto CMakePackageName(const PackageManifest &manifest) -> std::string
+        {
+            return manifest.build.cmakePackage.empty() ? manifest.name : manifest.build.cmakePackage;
+        }
+
+        [[nodiscard]] auto ProviderToolExecutable(const WorkspaceManifest::PackageProvider &provider) -> fs::path
+        {
+            const auto executableName = Lower(provider.kind) == "vcpkg" ? std::string{"vcpkg"} : std::string{"conan"};
+            if (!provider.root.empty())
+            {
+#if defined(_WIN32)
+                const auto rooted = provider.root / (executableName + ".exe");
+#else
+                const auto rooted = provider.root / executableName;
+#endif
+                if (fs::exists(rooted))
+                {
+                    return rooted;
+                }
+            }
+            if (const auto resolved = ResolveToolPath(executableName, provider.root.empty() ? std::nullopt
+                                                                                            : std::optional<fs::path>{provider.root});
+                resolved.has_value())
+            {
+                return resolved->path;
+            }
+            return {};
+        }
+
+        [[nodiscard]] auto VcpkgRootForProvider(const WorkspaceManifest::PackageProvider &provider) -> fs::path
+        {
+            if (!provider.root.empty())
+            {
+                return provider.root;
+            }
+            if (const auto *root = std::getenv("VCPKG_ROOT"); root != nullptr && root[0] != '\0')
+            {
+                return fs::path{root};
+            }
+            return {};
+        }
+
+        auto EmitRestoreFailure(CliEventEmitter &events, std::chrono::steady_clock::time_point restoreStarted,
+                                std::chrono::steady_clock::time_point commandStarted, std::string message,
+                                std::string subject = {}) -> int
+        {
+            events.Emit(CliEventType::Diagnostic,
+                        EventData{}
+                            .AddString("severity", "error")
+                            .AddString("source", "ngin restore")
+                            .AddString("message", std::move(message))
+                            .AddString("subject", std::move(subject)));
+            events.Emit(CliEventType::PhaseFailed,
+                        EventData{}
+                            .AddString("phase", "restore")
+                            .AddString("label", "Package restore")
+                            .AddNumber("durationMs", CommandDurationMilliseconds(restoreStarted))
+                            .AddNumber("exitCode", 1));
+            return EmitCommandCompleted(events, "failed", 1, commandStarted);
+        }
+
+        struct ProviderRestoreGroup
+        {
+            WorkspaceManifest::PackageProvider provider{};
+            std::vector<const ResolvedPackage *> packages{};
+        };
+
+        [[nodiscard]] auto CollectProviderRestoreGroups(const ResolvedLaunch &resolved,
+                                                        std::string &error) -> std::vector<ProviderRestoreGroup>
+        {
+            std::vector<ProviderRestoreGroup> groups{};
+            std::unordered_map<std::string, std::size_t> indexByProvider{};
+            for (const auto &package : resolved.orderedPackages)
+            {
+                const auto &providerName = package.manifest.build.provider;
+                if (providerName.empty())
+                {
+                    continue;
+                }
+                if (!resolved.workspace.has_value())
+                {
+                    error = "package '" + package.manifest.name + "' references provider '" + providerName +
+                            "' without a workspace";
+                    return {};
+                }
+                const auto providerIt = resolved.workspace->externalPackageProviders.find(providerName);
+                if (providerIt == resolved.workspace->externalPackageProviders.end())
+                {
+                    error = "package '" + package.manifest.name + "' references unknown package provider '" +
+                            providerName + "'";
+                    return {};
+                }
+                auto [it, inserted] = indexByProvider.emplace(providerName, groups.size());
+                if (inserted)
+                {
+                    groups.push_back(ProviderRestoreGroup{.provider = providerIt->second});
+                }
+                groups[it->second].packages.push_back(&package);
+            }
+            return groups;
+        }
+
+        auto WriteProviderMetadata(const ResolvedLaunch &resolved, const ProviderRestoreGroup &group,
+                                   const fs::path &toolchainFile, const fs::path &installRoot,
+                                   const fs::path &prefixPath) -> void
+        {
+            const auto metadataPath = ProviderMetadataPath(resolved, group.provider.name);
+            std::ostringstream out{};
+            out << "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n";
+            out << "<ProviderRestore SchemaVersion=\"1\" Provider=\"" << EscapeXml(group.provider.name)
+                << "\" Kind=\"" << EscapeXml(group.provider.kind)
+                << "\" Profile=\"" << EscapeXml(resolved.profile.name)
+                << "\" Root=\"" << EscapeXml(ProviderStateRoot(resolved, group.provider.name).string()) << "\"";
+            if (!toolchainFile.empty())
+            {
+                out << " ToolchainFile=\"" << EscapeXml(toolchainFile.string()) << "\"";
+            }
+            if (!installRoot.empty())
+            {
+                out << " InstallRoot=\"" << EscapeXml(installRoot.string()) << "\"";
+            }
+            if (!prefixPath.empty())
+            {
+                out << " PrefixPath=\"" << EscapeXml(prefixPath.string()) << "\"";
+            }
+            out << ">\n";
+            out << "  <Packages>\n";
+            for (const auto *package : group.packages)
+            {
+                out << "    <Package Name=\"" << EscapeXml(package->manifest.name)
+                    << "\" ProviderPackage=\"" << EscapeXml(ProviderPackageName(package->manifest))
+                    << "\" ProviderVersion=\"" << EscapeXml(ProviderPackageVersion(package->manifest))
+                    << "\" CMakePackage=\"" << EscapeXml(CMakePackageName(package->manifest)) << "\" />\n";
+            }
+            out << "  </Packages>\n";
+            out << "</ProviderRestore>\n";
+            WriteTextFile(metadataPath, out.str());
+        }
+
+        auto RunProviderRestoreProcess(const WorkspaceManifest::PackageProvider &provider,
+                                       const std::vector<std::string> &arguments, const fs::path &workingDirectory,
+                                       const ParsedArgs &args, CliEventEmitter &events) -> ProcessResult
+        {
+            const auto executable = ProviderToolExecutable(provider);
+            if (executable.empty())
+            {
+                return ProcessResult{.exitCode = 127,
+                                     .output = "missing tool: " + Lower(provider.kind) +
+                                               ". Install it, set PATH, or configure provider Root."};
+            }
+            const auto callback =
+                args.backendOutputMode == BackendOutputMode::Stream
+                    ? std::function<void(std::string_view)>{[&](std::string_view text) {
+                          events.Emit(CliEventType::BackendOutput,
+                                      EventData{}
+                                          .AddString("phase", "restore")
+                                          .AddString("stream", "combined")
+                                          .AddString("text", std::string{text}));
+                      }}
+                    : std::function<void(std::string_view)>{};
+            return RunProcessCapture(executable, arguments, workingDirectory, callback);
+        }
+
+        auto RestoreExternalProviderPackages(const ResolvedLaunch &resolved, const ParsedArgs &args,
+                                             CliEventEmitter &events, std::string &error) -> bool
+        {
+            auto groups = CollectProviderRestoreGroups(resolved, error);
+            if (!error.empty())
+            {
+                return false;
+            }
+            for (const auto &group : groups)
+            {
+                const auto stateRoot = ProviderStateRoot(resolved, group.provider.name);
+                fs::create_directories(stateRoot);
+
+                if (group.provider.kind == "Vcpkg")
+                {
+                    const auto vcpkgRoot = VcpkgRootForProvider(group.provider);
+                    if (vcpkgRoot.empty())
+                    {
+                        error = "vcpkg provider '" + group.provider.name +
+                                "' requires Root or VCPKG_ROOT so CMake can use the vcpkg toolchain file";
+                        return false;
+                    }
+                    const auto toolchainFile = vcpkgRoot / "scripts" / "buildsystems" / "vcpkg.cmake";
+                    const auto installRoot = stateRoot / "installed";
+
+                    std::ostringstream manifest{};
+                    manifest << "{\n"
+                             << "  \"name\": \"ngin-" << SanitizePathComponent(resolved.project.name) << "\",\n"
+                             << "  \"version-string\": \"0.0.0\",\n"
+                             << "  \"dependencies\": [\n";
+                    for (std::size_t index = 0; index < group.packages.size(); ++index)
+                    {
+                        if (index != 0)
+                        {
+                            manifest << ",\n";
+                        }
+                        manifest << "    " << JsonString(ProviderPackageName(group.packages[index]->manifest));
+                    }
+                    manifest << "\n  ]\n}\n";
+                    WriteTextFile(stateRoot / "vcpkg.json", manifest.str());
+
+                    std::vector<std::string> arguments{
+                        "install",
+                        "--x-manifest-root",
+                        stateRoot.string(),
+                        "--x-install-root",
+                        installRoot.string(),
+                    };
+                    if (!group.provider.triplet.empty())
+                    {
+                        arguments.push_back("--triplet");
+                        arguments.push_back(group.provider.triplet);
+                    }
+                    const auto result = RunProviderRestoreProcess(group.provider, arguments, stateRoot, args, events);
+                    if (result.exitCode != 0)
+                    {
+                        if (!result.output.empty() && args.backendOutputMode != BackendOutputMode::Silent &&
+                            args.backendOutputMode != BackendOutputMode::Stream)
+                        {
+                            events.Emit(CliEventType::BackendOutput, EventData{}
+                                                                          .AddString("phase", "restore")
+                                                                          .AddString("stream", "combined")
+                                                                          .AddString("text", result.output));
+                        }
+                        error = "vcpkg provider '" + group.provider.name + "' restore failed";
+                        return false;
+                    }
+                    WriteProviderMetadata(resolved, group, toolchainFile, installRoot, {});
+                    continue;
+                }
+
+                if (group.provider.kind == "Conan")
+                {
+                    std::ostringstream conanfile{};
+                    conanfile << "[requires]\n";
+                    for (const auto *package : group.packages)
+                    {
+                        conanfile << ProviderPackageName(package->manifest) << "/"
+                                  << ProviderPackageVersion(package->manifest) << "\n";
+                    }
+                    conanfile << "\n[generators]\nCMakeDeps\n";
+                    WriteTextFile(stateRoot / "conanfile.txt", conanfile.str());
+
+                    std::vector<std::string> arguments{
+                        "install",
+                        stateRoot.string(),
+                        "--output-folder",
+                        stateRoot.string(),
+                        "--build=missing",
+                    };
+                    if (!group.provider.profile.empty())
+                    {
+                        arguments.push_back("--profile");
+                        arguments.push_back(group.provider.profile);
+                    }
+                    const auto result = RunProviderRestoreProcess(group.provider, arguments, stateRoot, args, events);
+                    if (result.exitCode != 0)
+                    {
+                        if (!result.output.empty() && args.backendOutputMode != BackendOutputMode::Silent &&
+                            args.backendOutputMode != BackendOutputMode::Stream)
+                        {
+                            events.Emit(CliEventType::BackendOutput, EventData{}
+                                                                          .AddString("phase", "restore")
+                                                                          .AddString("stream", "combined")
+                                                                          .AddString("text", result.output));
+                        }
+                        error = "Conan provider '" + group.provider.name + "' restore failed";
+                        return false;
+                    }
+                    WriteProviderMetadata(resolved, group, {}, {}, stateRoot);
+                    continue;
+                }
+
+                error = "package provider '" + group.provider.name + "' has unsupported kind '" + group.provider.kind + "'";
+                return false;
+            }
+            return true;
+        }
+
         [[nodiscard]] auto GenerateLockFile(const ResolvedLaunch &resolved) -> std::string
         {
             std::ostringstream out{};
@@ -1000,6 +1320,29 @@ namespace NGIN::CLI
                 out << "    <Package Name=\"" << EscapeXml(package.manifest.name) << "\" Version=\""
                     << EscapeXml(package.manifest.version) << "\" Manifest=\""
                     << EscapeXml(package.manifest.path.string()) << "\" Source=\"" << EscapeXml(package.source) << "\"";
+                if (!package.manifest.build.provider.empty())
+                {
+                    std::string providerKind{};
+                    if (resolved.workspace.has_value())
+                    {
+                        if (const auto providerIt =
+                                resolved.workspace->externalPackageProviders.find(package.manifest.build.provider);
+                            providerIt != resolved.workspace->externalPackageProviders.end())
+                        {
+                            providerKind = providerIt->second.kind;
+                        }
+                    }
+                    out << " Provider=\"" << EscapeXml(package.manifest.build.provider) << "\"";
+                    if (!providerKind.empty())
+                    {
+                        out << " ProviderKind=\"" << EscapeXml(providerKind) << "\"";
+                    }
+                    out << " ProviderPackage=\"" << EscapeXml(ProviderPackageName(package.manifest)) << "\""
+                        << " ProviderVersion=\"" << EscapeXml(ProviderPackageVersion(package.manifest)) << "\""
+                        << " CMakePackage=\"" << EscapeXml(CMakePackageName(package.manifest)) << "\""
+                        << " ProviderMetadata=\""
+                        << EscapeXml(ProviderMetadataPath(resolved, package.manifest.build.provider).string()) << "\"";
+                }
                 if (const auto scopeIt = resolved.packageScopes.find(package.manifest.name);
                     scopeIt != resolved.packageScopes.end() && !scopeIt->second.empty())
                 {
@@ -3342,6 +3685,38 @@ namespace NGIN::CLI
                 std::cout << "\n";
             }
         }
+        if (!workspace.externalPackageProviders.empty())
+        {
+            std::cout << "External package providers:\n";
+            std::vector<std::string> names{};
+            for (const auto &[name, _] : workspace.externalPackageProviders)
+            {
+                names.push_back(name);
+            }
+            std::sort(names.begin(), names.end());
+            for (const auto &name : names)
+            {
+                const auto &provider = workspace.externalPackageProviders.at(name);
+                std::cout << "  - " << provider.name << " (" << provider.kind << ")";
+                if (!provider.root.empty())
+                {
+                    std::cout << " root=" << provider.root.string();
+                    if (!fs::exists(provider.root))
+                    {
+                        std::cout << " [missing]";
+                    }
+                }
+                if (!provider.triplet.empty())
+                {
+                    std::cout << " triplet=" << provider.triplet;
+                }
+                if (!provider.profile.empty())
+                {
+                    std::cout << " profile=" << provider.profile;
+                }
+                std::cout << "\n";
+            }
+        }
         return 0;
     }
 
@@ -3805,6 +4180,12 @@ namespace NGIN::CLI
                                 .AddNumber("exitCode", 1));
                 return EmitCommandCompleted(events, "failed", 1, commandStarted);
             }
+        }
+
+        std::string providerRestoreError{};
+        if (!RestoreExternalProviderPackages(*resolved.value, args, events, providerRestoreError))
+        {
+            return EmitRestoreFailure(events, restoreStarted, commandStarted, providerRestoreError);
         }
 
         const auto storeRoot =
@@ -4796,6 +5177,22 @@ namespace NGIN::CLI
                     .name = package.manifest.name,
                     .version = package.manifest.version,
                     .source = package.source,
+                    .provider = package.manifest.build.provider,
+                    .providerKind = [&]() -> std::string {
+                        if (!resolved->workspace.has_value() || package.manifest.build.provider.empty())
+                        {
+                            return {};
+                        }
+                        if (const auto providerIt =
+                                resolved->workspace->externalPackageProviders.find(package.manifest.build.provider);
+                            providerIt != resolved->workspace->externalPackageProviders.end())
+                        {
+                            return providerIt->second.kind;
+                        }
+                        return {};
+                    }(),
+                    .providerPackage = ProviderPackageName(package.manifest),
+                    .providerVersion = ProviderPackageVersion(package.manifest),
                     .providerRoot = package.sourceDirectory,
                     .scope = scope,
                     .closures = PackageClosuresForScope(scope),
@@ -5174,6 +5571,10 @@ namespace NGIN::CLI
                 << "\"name\":" << Json(packages[index].name) << ","
                 << "\"version\":" << Json(packages[index].version) << ","
                 << "\"source\":" << Json(packages[index].source) << ","
+                << "\"provider\":" << Json(packages[index].provider) << ","
+                << "\"providerKind\":" << Json(packages[index].providerKind) << ","
+                << "\"providerPackage\":" << Json(packages[index].providerPackage) << ","
+                << "\"providerVersion\":" << Json(packages[index].providerVersion) << ","
                 << "\"providerRoot\":" << JsonPath(packages[index].providerRoot) << ","
                 << "\"scope\":" << Json(packages[index].scope) << ","
                 << "\"closures\":[";
@@ -5851,6 +6252,12 @@ namespace NGIN::CLI
             {
                 std::cout << "  package " << package.name << " " << package.version << " source=" << package.source
                           << "\n";
+                if (!package.provider.empty())
+                {
+                    std::cout << "    provider " << package.provider << " kind=" << package.providerKind
+                              << " package=" << package.providerPackage << " version=" << package.providerVersion
+                              << "\n";
+                }
                 if (!package.scope.empty())
                 {
                     std::cout << "    scope " << package.scope << "\n";

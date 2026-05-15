@@ -722,3 +722,211 @@ TEST_CASE("restore writes package store and lock file")
     WriteFile(temp.path() / "ngin.lock", "<Lock />\n");
     REQUIRE(CmdRestore(temp.path(), lockedArgs) == 1);
 }
+
+#ifndef _WIN32
+TEST_CASE("restore runs vcpkg and conan providers and configure consumes metadata")
+{
+    TempDir temp{};
+    const auto vcpkgRoot = temp.path() / "Tools/vcpkg";
+    const auto conanRoot = temp.path() / "Tools/conan";
+    fs::create_directories(vcpkgRoot / "scripts/buildsystems");
+    fs::create_directories(conanRoot);
+
+    const auto vcpkgStateRoot = temp.path() / ".ngin/providers/vcpkg/dev";
+    WriteFile(vcpkgRoot / "scripts/buildsystems/vcpkg.cmake",
+              "list(APPEND CMAKE_PREFIX_PATH \"" + (vcpkgStateRoot / "installed").string() + "\")\n");
+    WriteFile(vcpkgRoot / "vcpkg",
+              "#!/bin/sh\n"
+              "echo raw-vcpkg-output\n"
+              "printf '%s\\n' \"$@\" > \"" +
+                  (temp.path() / "vcpkg.args").string() +
+                  "\"\n"
+                  "install=''\n"
+                  "while [ \"$#\" -gt 0 ]; do\n"
+                  "  if [ \"$1\" = '--x-install-root' ]; then shift; install=\"$1\"; fi\n"
+                  "  shift\n"
+                  "done\n"
+                  "mkdir -p \"$install/share/fmt\"\n"
+                  "cat > \"$install/share/fmt/fmtConfig.cmake\" <<'EOF'\n"
+                  "if(NOT TARGET fmt::fmt)\n"
+                  "  add_library(fmt::fmt INTERFACE IMPORTED)\n"
+                  "endif()\n"
+                  "EOF\n");
+    fs::permissions(vcpkgRoot / "vcpkg", fs::perms::owner_exec | fs::perms::owner_read | fs::perms::owner_write);
+
+    WriteFile(conanRoot / "conan",
+              "#!/bin/sh\n"
+              "echo raw-conan-output\n"
+              "printf '%s\\n' \"$@\" > \"" +
+                  (temp.path() / "conan.args").string() +
+                  "\"\n"
+                  "out=''\n"
+                  "while [ \"$#\" -gt 0 ]; do\n"
+                  "  if [ \"$1\" = '--output-folder' ]; then shift; out=\"$1\"; fi\n"
+                  "  shift\n"
+                  "done\n"
+                  "mkdir -p \"$out\"\n"
+                  "cat > \"$out/ZLIBConfig.cmake\" <<'EOF'\n"
+                  "if(NOT TARGET ZLIB::ZLIB)\n"
+                  "  add_library(ZLIB::ZLIB INTERFACE IMPORTED)\n"
+                  "endif()\n"
+                  "EOF\n");
+    fs::permissions(conanRoot / "conan", fs::perms::owner_exec | fs::perms::owner_read | fs::perms::owner_write);
+
+    WriteFile(temp.path() / "Workspace.ngin",
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Workspace SchemaVersion="4" Name="ExternalProviders" DefaultProfile="dev">
+  <Projects>
+    <Project Path="App/App.nginproj" />
+  </Projects>
+  <Packages>
+    <Source Name="local" Path="Packages" />
+)xml" +
+                  std::string{"    <Provider Name=\"vcpkg\" Kind=\"Vcpkg\" Root=\""} +
+                  fs::relative(vcpkgRoot, temp.path()).string() +
+                  "\" Triplet=\"x64-linux\" />\n"
+                  "    <Provider Name=\"conan\" Kind=\"Conan\" Root=\"" +
+                  fs::relative(conanRoot, temp.path()).string() +
+                  "\" Profile=\"linux-gcc-debug\" />\n"
+                  "  </Packages>\n"
+                  "</Workspace>\n");
+    WriteFile(temp.path() / "Packages/fmt/fmt.nginpkg",
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Package SchemaVersion="4" Name="fmt" Version="10.2.1">
+  <Build Backend="CMake" Mode="FindPackage" Provider="vcpkg" ProviderPackage="fmt" ProviderVersion="10.2.1" CMakePackage="fmt" />
+  <Library Name="fmt">
+    <Exports>
+      <LibraryTarget Name="fmt::fmt" />
+    </Exports>
+  </Library>
+</Package>
+)xml");
+    WriteFile(temp.path() / "Packages/zlib/zlib.nginpkg",
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Package SchemaVersion="4" Name="zlib" Version="1.3.1">
+  <Build Backend="CMake" Mode="FindPackage" Provider="conan" ProviderPackage="zlib" ProviderVersion="1.3.1" CMakePackage="ZLIB" />
+  <Library Name="zlib">
+    <Exports>
+      <LibraryTarget Name="ZLIB::ZLIB" />
+    </Exports>
+  </Library>
+</Package>
+)xml");
+    WriteFile(temp.path() / "App/App.nginproj",
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4" Name="Provider.App" DefaultProfile="dev">
+  <Application>
+    <Uses>
+      <Package Name="fmt" Version="[10.0.0,11.0.0)" Scope="Target" />
+      <Package Name="zlib" Version="[1.0.0,2.0.0)" Scope="Target" />
+    </Uses>
+    <Build>
+      <Sources Path="src/**.cpp" />
+    </Build>
+  </Application>
+  <Profile Name="dev">
+    <Defaults>
+      <BuildType Name="Debug" />
+    </Defaults>
+  </Profile>
+</Project>
+)xml");
+    WriteFile(temp.path() / "App/src/main.cpp", "int main() { return 0; }\n");
+
+    ParsedArgs restoreArgs{};
+    restoreArgs.projectPath = (temp.path() / "App/App.nginproj").string();
+    restoreArgs.eventOutputMode = EventOutputMode::JsonLines;
+    restoreArgs.backendOutputMode = BackendOutputMode::Compact;
+
+    std::ostringstream restoreOutput{};
+    auto *previous = std::cout.rdbuf(restoreOutput.rdbuf());
+    const auto restoreExitCode = CmdRestore(temp.path(), restoreArgs);
+    std::cout.rdbuf(previous);
+
+    REQUIRE(restoreExitCode == 0);
+    REQUIRE_THAT(restoreOutput.str(), !ContainsSubstring("raw-vcpkg-output"));
+    REQUIRE_THAT(restoreOutput.str(), !ContainsSubstring("raw-conan-output"));
+    std::istringstream restoreLines{restoreOutput.str()};
+    std::string line{};
+    while (std::getline(restoreLines, line))
+    {
+        REQUIRE(line.rfind(R"({"schemaVersion":"1.0","kind":"NGIN.CLI.Event")", 0) == 0);
+    }
+
+    REQUIRE_THAT(ReadFile(temp.path() / "vcpkg.args"), ContainsSubstring("--x-manifest-root"));
+    REQUIRE_THAT(ReadFile(temp.path() / "vcpkg.args"), ContainsSubstring("--triplet"));
+    REQUIRE_THAT(ReadFile(temp.path() / "conan.args"), ContainsSubstring("--output-folder"));
+    REQUIRE_THAT(ReadFile(temp.path() / "conan.args"), ContainsSubstring("--profile"));
+    REQUIRE_THAT(ReadFile(vcpkgStateRoot / "vcpkg.json"), ContainsSubstring(R"("fmt")"));
+    REQUIRE_THAT(ReadFile(temp.path() / ".ngin/providers/conan/dev/conanfile.txt"), ContainsSubstring("zlib/1.3.1"));
+    REQUIRE_THAT(ReadFile(temp.path() / ".ngin/providers/vcpkg/dev/ngin-provider.xml"),
+                 ContainsSubstring(R"(ToolchainFile=)"));
+    REQUIRE_THAT(ReadFile(temp.path() / ".ngin/providers/conan/dev/ngin-provider.xml"),
+                 ContainsSubstring(R"(PrefixPath=)"));
+    REQUIRE_THAT(ReadFile(temp.path() / "ngin.lock"), ContainsSubstring(R"(Provider="vcpkg")"));
+    REQUIRE_THAT(ReadFile(temp.path() / "ngin.lock"), ContainsSubstring(R"(ProviderKind="Conan")"));
+
+    ParsedArgs configureArgs{};
+    configureArgs.projectPath = (temp.path() / "App/App.nginproj").string();
+    configureArgs.outputPath = (temp.path() / "out").string();
+    REQUIRE(CmdConfigure(temp.path(), configureArgs) == 0);
+
+    const auto generatedCMake = ReadFile(temp.path() / "out/.ngin/cmake-src/CMakeLists.txt");
+    REQUIRE_THAT(generatedCMake, ContainsSubstring(R"(find_package("fmt" CONFIG QUIET))"));
+    REQUIRE_THAT(generatedCMake, ContainsSubstring(R"(find_package("ZLIB" CONFIG QUIET))"));
+}
+
+TEST_CASE("configure fails for provider package before restore")
+{
+    TempDir temp{};
+    WriteFile(temp.path() / "Workspace.ngin",
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Workspace SchemaVersion="4" Name="MissingRestore">
+  <Projects>
+    <Project Path="App/App.nginproj" />
+  </Projects>
+  <Packages>
+    <Source Name="local" Path="Packages" />
+    <Provider Name="vcpkg" Kind="Vcpkg" Root="Tools/vcpkg" Triplet="x64-linux" />
+  </Packages>
+</Workspace>
+)xml");
+    WriteFile(temp.path() / "Packages/fmt/fmt.nginpkg",
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Package SchemaVersion="4" Name="fmt" Version="10.2.1">
+  <Build Backend="CMake" Mode="FindPackage" Provider="vcpkg" CMakePackage="fmt" />
+  <Library Name="fmt">
+    <Exports>
+      <LibraryTarget Name="fmt::fmt" />
+    </Exports>
+  </Library>
+</Package>
+)xml");
+    WriteFile(temp.path() / "App/App.nginproj",
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4" Name="MissingRestore.App">
+  <Application>
+    <Uses>
+      <Package Name="fmt" Version="[10.0.0,11.0.0)" Scope="Target" />
+    </Uses>
+    <Build>
+      <Sources Path="src/**.cpp" />
+    </Build>
+  </Application>
+</Project>
+)xml");
+    WriteFile(temp.path() / "App/src/main.cpp", "int main() { return 0; }\n");
+
+    ParsedArgs args{};
+    args.projectPath = (temp.path() / "App/App.nginproj").string();
+    args.outputPath = (temp.path() / "out").string();
+
+    std::ostringstream captured{};
+    auto *previous = std::cout.rdbuf(captured.rdbuf());
+    const auto exitCode = CmdConfigure(temp.path(), args);
+    std::cout.rdbuf(previous);
+
+    REQUIRE(exitCode == 1);
+    REQUIRE_THAT(captured.str(), ContainsSubstring("Run `ngin restore` before configure/build"));
+}
+#endif

@@ -184,3 +184,49 @@ TEST_CASE("package manifest parses tool exports")
     REQUIRE(package.artifacts.executables.size() == 1);
     REQUIRE(package.artifacts.executables[0].name == "NGIN.Reflection.MetaGen");
 }
+
+TEST_CASE("package manifest parses external provider build metadata")
+{
+    TempDir temp{};
+    const auto packagePath = temp.path() / "fmt.nginpkg";
+    WriteFile(packagePath,
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Package SchemaVersion="4" Name="fmt" Version="10.2.1">
+  <Build Backend="CMake"
+         Mode="FindPackage"
+         Provider="vcpkg"
+         ProviderPackage="fmt"
+         ProviderVersion="10.2.1"
+         CMakePackage="fmt" />
+  <Library Name="fmt">
+    <Exports>
+      <LibraryTarget Name="fmt::fmt" />
+    </Exports>
+  </Library>
+</Package>
+)xml");
+
+    const auto package = LoadPackageManifest(packagePath);
+
+    REQUIRE(package.build.backend == "CMake");
+    REQUIRE(package.build.mode == "FindPackage");
+    REQUIRE(package.build.provider == "vcpkg");
+    REQUIRE(package.build.providerPackage == "fmt");
+    REQUIRE(package.build.providerVersion == "10.2.1");
+    REQUIRE(package.build.cmakePackage == "fmt");
+}
+
+TEST_CASE("package manifest rejects provider metadata outside FindPackage mode")
+{
+    TempDir temp{};
+    const auto packagePath = temp.path() / "bad.nginpkg";
+    WriteFile(packagePath,
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Package SchemaVersion="4" Name="bad" Version="1.0.0">
+  <Build Backend="CMake" Mode="AddSubdirectory" Provider="vcpkg" />
+</Package>
+)xml");
+
+    REQUIRE_THROWS_WITH(LoadPackageManifest(packagePath),
+                        ContainsSubstring(R"(Provider is only supported with Mode="FindPackage")"));
+}

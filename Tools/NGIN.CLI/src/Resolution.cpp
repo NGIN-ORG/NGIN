@@ -56,6 +56,11 @@ namespace NGIN::CLI
             return matchesOperatingSystem && matchesArchitecture;
         }
 
+        [[nodiscard]] auto EffectivePackageBuildMode(const PackageManifest &manifest) -> std::string
+        {
+            return manifest.build.mode.empty() ? "FindPackage" : manifest.build.mode;
+        }
+
         [[nodiscard]] auto FindEnvironment(
             const ProjectManifest &project,
             const std::string &name) -> const EnvironmentDefinition *
@@ -89,7 +94,7 @@ namespace NGIN::CLI
                 {
                     const auto base = fs::path(input.path).lexically_normal();
                     const auto relative = sourceRelative.lexically_relative(base);
-                    if (!relative.empty() && relative.native().find("..") != 0)
+                    if (!relative.empty() && relative.generic_string().find("..") != 0)
                     {
                         preserved = relative;
                     }
@@ -98,7 +103,7 @@ namespace NGIN::CLI
                 {
                     const auto base = fs::path(input.basePath).lexically_normal();
                     const auto relative = sourceRelative.lexically_relative(base);
-                    if (!relative.empty() && relative.native().find("..") != 0)
+                    if (!relative.empty() && relative.generic_string().find("..") != 0)
                     {
                         preserved = relative;
                     }
@@ -933,6 +938,35 @@ namespace NGIN::CLI
                 {
                     AddError(report, "package '" + ref.name + "' compatible platform range does not include platform version '" + platformVersion + "'");
                     continue;
+                }
+                if (!manifest.build.provider.empty())
+                {
+                    if (Lower(manifest.build.backend) != "cmake" || EffectivePackageBuildMode(manifest) != "FindPackage")
+                    {
+                        AddError(report, "package '" + ref.name +
+                                             "' external provider integration requires Backend=\"CMake\" and "
+                                             "Mode=\"FindPackage\"");
+                        continue;
+                    }
+                    if (!workspace.has_value())
+                    {
+                        AddError(report, "package '" + ref.name + "' references provider '" +
+                                             manifest.build.provider + "' without a workspace");
+                        continue;
+                    }
+                    const auto providerIt = workspace->externalPackageProviders.find(manifest.build.provider);
+                    if (providerIt == workspace->externalPackageProviders.end())
+                    {
+                        AddError(report, "package '" + ref.name + "' references unknown package provider '" +
+                                             manifest.build.provider + "'");
+                        continue;
+                    }
+                    if (providerIt->second.kind != "Vcpkg" && providerIt->second.kind != "Conan")
+                    {
+                        AddError(report, "package provider '" + providerIt->second.name + "' has unsupported kind '" +
+                                             providerIt->second.kind + "'");
+                        continue;
+                    }
                 }
 
                 for (const auto &input : manifest.inputs)
