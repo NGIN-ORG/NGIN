@@ -124,6 +124,13 @@ namespace NGIN::CLI::Tests
             path_ = fs::temp_directory_path() /
                     ("ngin-cli-tests-" + std::to_string(now) + "-" + std::to_string(std::rand()));
             fs::create_directories(path_);
+
+            std::error_code error;
+            const auto canonical = fs::weakly_canonical(path_, error);
+            if (!error)
+            {
+                path_ = canonical;
+            }
         }
 
         ~TempDir()
@@ -154,6 +161,15 @@ namespace NGIN::CLI::Tests
         std::ostringstream content{};
         content << input.rdbuf();
         return content.str();
+    }
+
+    [[nodiscard]] inline auto PlatformExecutableName(const std::string &name) -> std::string
+    {
+#if defined(_WIN32)
+        return name + ".exe";
+#else
+        return name;
+#endif
     }
 
     inline auto WriteNginPack(

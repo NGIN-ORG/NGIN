@@ -1915,7 +1915,7 @@ namespace NGIN::CLI
                                     continue;
                                 }
                             }
-                            AddError(result.diagnostics, "input destination collision at '" + resolvedInput.stagedRelativePath.string()
+                            AddError(result.diagnostics, "input destination collision at '" + resolvedInput.stagedRelativePath.generic_string()
                                                               + "' between '" + it->second + "' and '" + ownerName + "'");
                             continue;
                         }

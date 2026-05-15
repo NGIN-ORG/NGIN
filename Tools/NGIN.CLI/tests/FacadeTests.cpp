@@ -383,7 +383,7 @@ TEST_CASE("publish command writes folder publish output")
 
     REQUIRE(CmdPublish(temp.path(), args) == 0);
     REQUIRE(fs::exists(temp.path() / "dist/Publish.App/config/app.json"));
-    REQUIRE(fs::exists(temp.path() / "dist/Publish.App/bin/Publish.App"));
+    REQUIRE(fs::exists(temp.path() / "dist/Publish.App/bin" / PlatformExecutableName("Publish.App")));
 
     WriteFile(temp.path() / "dist/Publish.App/stale.txt", "stale\n");
     REQUIRE(fs::exists(temp.path() / "dist/Publish.App/stale.txt"));
@@ -401,7 +401,7 @@ TEST_CASE("publish command writes folder publish output")
     const auto archive = ReadFile(temp.path() / "dist/Publish.App.zip");
     REQUIRE(archive.rfind("PK\003\004", 0) == 0);
     REQUIRE_THAT(archive, ContainsSubstring("config/app.json"));
-    REQUIRE_THAT(archive, ContainsSubstring("bin/Publish.App"));
+    REQUIRE_THAT(archive, ContainsSubstring("bin/" + PlatformExecutableName("Publish.App")));
 }
 
 TEST_CASE("launch manifests redact resolved secret variables")

@@ -1462,7 +1462,7 @@ namespace NGIN::CLI
 
         [[nodiscard]] auto JsonPath(const fs::path &path) -> std::string
         {
-            return Json(path.string());
+            return Json(path.generic_string());
         }
 
         auto PrintSelectorSummary(const SelectorSet &selectors) -> void

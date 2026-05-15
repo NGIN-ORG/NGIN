@@ -2851,7 +2851,7 @@ namespace NGIN::CLI
             }
             if (!input.stagedRelativePath.empty())
             {
-                out << " Destination=\"" << EscapeXml(input.stagedRelativePath.string()) << "\"";
+                out << " Destination=\"" << EscapeXml(input.stagedRelativePath.generic_string()) << "\"";
             }
             out << " />\n";
         }
@@ -2908,8 +2908,8 @@ namespace NGIN::CLI
         for (const auto &[kind, source, destination] : staged)
         {
             out << "    <File Kind=\"" << EscapeXml(kind) << "\" Source=\"" << EscapeXml(source.string())
-                << "\" Destination=\"" << EscapeXml(destination.string()) << "\" RelativeDestination=\""
-                << EscapeXml(fs::relative(destination, outputDir).string()) << "\" />\n";
+                << "\" Destination=\"" << EscapeXml(destination.generic_string()) << "\" RelativeDestination=\""
+                << EscapeXml(fs::relative(destination, outputDir).generic_string()) << "\" />\n";
         }
         out << "  </StagedFiles>\n";
         out << "</LaunchManifest>\n";
@@ -3162,7 +3162,7 @@ namespace NGIN::CLI
             const auto dest = resolvedOutputDir / content.stagedRelativePath;
             if (collisions.contains(dest))
             {
-                AddError(result.diagnostics, "build output collision at input '" + content.stagedRelativePath.string() +
+                AddError(result.diagnostics, "build output collision at input '" + content.stagedRelativePath.generic_string() +
                                                  "' declared by " + content.ownerKind + " '" + content.ownerName + "'");
                 continue;
             }
