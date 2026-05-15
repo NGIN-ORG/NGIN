@@ -634,6 +634,70 @@ TEST_CASE("build command JSONL emits clean event stream")
     }
 }
 
+#ifndef _WIN32
+TEST_CASE("configure command JSONL captures generator stdout")
+{
+    TempDir temp{};
+    const auto generatorTool = temp.path() / "noisy-generator";
+    WriteFile(generatorTool,
+              "#!/bin/sh\n"
+              "out=\"$1\"\n"
+              "mkdir -p \"$(dirname \"$out\")\"\n"
+              "echo \"generator-raw-output\"\n"
+              "printf 'int generated_symbol() { return 0; }\\n' > \"$out\"\n"
+              "exit 0\n");
+    fs::permissions(generatorTool, fs::perms::owner_exec | fs::perms::owner_read | fs::perms::owner_write);
+
+    const auto projectPath = temp.path() / "Jsonl.Generated.App.nginproj";
+    const auto manifest = std::string{"<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+                                      "<Project SchemaVersion=\"4\" Name=\"Jsonl.Generated.App\">\n"
+                                      "  <Application>\n"
+                                      "    <Build>\n"
+                                      "      <Sources Path=\"src/**.cpp\" />\n"
+                                      "    </Build>\n"
+                                      "    <Generate>\n"
+                                      "      <Generator Name=\"NoisyGen\">\n"
+                                      "        <Tool Executable=\""} +
+                          generatorTool.string() +
+                          "\" />\n"
+                          "        <Args>\n"
+                          "          <Arg Path=\"$(GeneratedDir)/noisy.cpp\" />\n"
+                          "        </Args>\n"
+                          "        <Outputs>\n"
+                          "          <Sources Path=\"$(GeneratedDir)/noisy.cpp\" />\n"
+                          "        </Outputs>\n"
+                          "      </Generator>\n"
+                          "    </Generate>\n"
+                          "  </Application>\n"
+                          "</Project>\n";
+    WriteFile(projectPath, manifest);
+    WriteFile(temp.path() / "src/main.cpp", "int main() { return 0; }\n");
+
+    ParsedArgs args{};
+    args.argv = {"configure", "--project", projectPath.string(), "--events", "jsonl"};
+    args.projectPath = projectPath.string();
+    args.outputPath = (temp.path() / "out").string();
+    args.eventOutputMode = EventOutputMode::JsonLines;
+    args.backendOutputMode = BackendOutputMode::Compact;
+
+    std::ostringstream captured{};
+    auto *previous = std::cout.rdbuf(captured.rdbuf());
+    const auto exitCode = CmdConfigure(temp.path(), args);
+    std::cout.rdbuf(previous);
+
+    REQUIRE(exitCode == 0);
+    const auto output = captured.str();
+    REQUIRE_THAT(output, !ContainsSubstring("generator-raw-output"));
+
+    std::istringstream lines{output};
+    std::string line{};
+    while (std::getline(lines, line))
+    {
+        REQUIRE(line.rfind(R"({"schemaVersion":"1.0","kind":"NGIN.CLI.Event")", 0) == 0);
+    }
+}
+#endif
+
 TEST_CASE("failed JSONL build includes compact backend output event")
 {
     TempDir temp{};

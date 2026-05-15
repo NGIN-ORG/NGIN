@@ -1284,7 +1284,69 @@ namespace NGIN::CLI
             out << "</GeneratorContext>\n";
         }
 
-        auto ExecuteGenerators(ResolvedLaunch &resolved, const fs::path &outputDir, DiagnosticReport &report) -> void
+        [[nodiscard]] auto RunGeneratorProcess(const std::string &generatorName, const fs::path &executable,
+                                               const std::vector<std::string> &arguments,
+                                               const std::optional<fs::path> &workingDirectory,
+                                               const BuildExecutionOptions &options) -> int
+        {
+            const auto name = "Generator " + generatorName;
+            const auto started = std::chrono::steady_clock::now();
+            ProcessResult result{};
+            bool emittedStreamOutput = false;
+            if (options.backendOutput == BackendOutputMode::Stream && options.events == nullptr)
+            {
+                result.exitCode = RunProcess(executable, arguments, workingDirectory);
+            }
+            else
+            {
+                const auto callback =
+                    options.events != nullptr && options.backendOutput == BackendOutputMode::Stream
+                        ? std::function<void(std::string_view)>{[&](std::string_view text) {
+                              emittedStreamOutput = true;
+                              options.events->Emit(CliEventType::BackendOutput,
+                                                   EventData{}
+                                                       .AddString("phase", "generate")
+                                                       .AddString("stream", "combined")
+                                                       .AddString("text", std::string{text}));
+                          }}
+                        : std::function<void(std::string_view)>{};
+                result = RunProcessCapture(executable, arguments, workingDirectory, callback);
+            }
+            const auto finished = std::chrono::steady_clock::now();
+            const auto duration =
+                static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(finished - started).count());
+            if (options.events != nullptr && result.exitCode == 0 &&
+                options.backendOutput == BackendOutputMode::Stream && !emittedStreamOutput && !result.output.empty())
+            {
+                options.events->Emit(CliEventType::BackendOutput, EventData{}
+                                                                      .AddString("phase", "generate")
+                                                                      .AddString("stream", "combined")
+                                                                      .AddString("text", result.output));
+            }
+            if (options.events != nullptr && result.exitCode != 0 &&
+                options.backendOutput != BackendOutputMode::Silent &&
+                options.backendOutput != BackendOutputMode::Stream && !result.output.empty())
+            {
+                options.events->Emit(CliEventType::BackendOutput, EventData{}
+                                                                  .AddString("phase", "generate")
+                                                                  .AddString("stream", "combined")
+                                                                  .AddString("text", result.output));
+            }
+            if (options.backendSteps != nullptr)
+            {
+                options.backendSteps->push_back(BackendStepResult{
+                    .name = name,
+                    .exitCode = result.exitCode,
+                    .durationMilliseconds = duration,
+                    .output =
+                        options.backendOutput == BackendOutputMode::Silent ? std::string{} : std::move(result.output),
+                });
+            }
+            return result.exitCode;
+        }
+
+        auto ExecuteGenerators(ResolvedLaunch &resolved, const fs::path &outputDir, DiagnosticReport &report,
+                               const BuildExecutionOptions &options) -> void
         {
             const auto generatedDir = ResolveGeneratedDir(resolved, outputDir);
             for (const auto &generator : resolved.generators)
@@ -1350,7 +1412,8 @@ namespace NGIN::CLI
                                                     .string());
                         }
                     }
-                    if (RunProcess(tool->path, arguments, generator.ownerDirectory) != 0)
+                    if (RunGeneratorProcess(generator.declaration.name, tool->path, arguments,
+                                            generator.ownerDirectory, options) != 0)
                     {
                         AddError(report, "generator '" + generator.declaration.name + "' command failed");
                     }
@@ -2861,7 +2924,7 @@ namespace NGIN::CLI
         auto resolved = std::move(*resolvedResult.value);
         const auto resolvedOutputDir = ResolveOutputDir(resolved, outputPath);
         fs::create_directories(resolvedOutputDir);
-        ExecuteGenerators(resolved, resolvedOutputDir, result.diagnostics);
+        ExecuteGenerators(resolved, resolvedOutputDir, result.diagnostics, options);
         if (result.diagnostics.HasErrors())
         {
             return result;
@@ -2921,7 +2984,7 @@ namespace NGIN::CLI
         std::map<fs::path, std::string> collisions{};
         std::vector<std::tuple<std::string, fs::path, fs::path>> staged{};
 
-        ExecuteGenerators(resolved, resolvedOutputDir, result.diagnostics);
+        ExecuteGenerators(resolved, resolvedOutputDir, result.diagnostics, options);
         if (result.diagnostics.HasErrors())
         {
             return result;
