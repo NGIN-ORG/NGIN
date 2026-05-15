@@ -284,7 +284,7 @@ export interface GraphGeneratorPlan {
   toolName?: string;
   manifestPath?: string;
   reason?: string;
-  outputs?: GraphGeneratorOutput[];
+  outputs?: GraphGeneratorOutput[] | number;
   provenance?: GraphProvenance;
 }
 

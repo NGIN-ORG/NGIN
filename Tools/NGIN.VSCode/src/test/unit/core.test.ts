@@ -1096,6 +1096,56 @@ test('project tree dependency models group mixed uses and deduplicate owners', (
   ]);
 });
 
+test('project tree generator inspect entries tolerate numeric output counts', () => {
+  const project = {
+    path: '/repo/App/App.nginproj',
+    directory: '/repo/App',
+    name: 'App',
+    sourceRoots: [],
+    configInputs: [],
+    buildSources: [],
+    profiles: [{ name: 'Debug', configInputs: [] }]
+  };
+
+  const models = buildProjectTreeModels({
+    workspace: {
+      workspace: { path: '/repo/NGIN.ngin', directory: '/repo', name: 'NGIN', projectPaths: [] },
+      projects: [project],
+      root: '/repo'
+    },
+    context: {
+      workspace: {
+        workspace: { path: '/repo/NGIN.ngin', directory: '/repo', name: 'NGIN', projectPaths: [] },
+        projects: [project],
+        root: '/repo'
+      },
+      project,
+      profile: project.profiles[0]
+    },
+    inspectGraph: {
+      schemaVersion: '4.0',
+      kind: 'NGIN.CompositionGraph',
+      plans: {
+        generators: [
+          { name: 'ReflectionMetaGen', kind: 'Command', ownerName: 'App', tool: 'MetaGen', outputs: 1 }
+        ]
+      }
+    },
+    launchManifestExists: false,
+    stagedCompileCommandsAvailable: false
+  });
+
+  const generator = models.inspectByProject.get(project.path)?.entriesByGroup.get('generators')?.[0];
+  assert.equal(generator?.label, 'ReflectionMetaGen');
+  assert.match(generator?.tooltip ?? '', /Outputs: 1/);
+  assert.deepEqual(generator?.children?.map((entry) => entry.label), [
+    'State',
+    'Kind',
+    'Owner',
+    'Tool'
+  ]);
+});
+
 test('status bar models expose the compact NGIN bottom-bar actions', () => {
   const model = buildStatusBarModel({
     workspace: {

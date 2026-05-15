@@ -1,4 +1,5 @@
 import * as path from 'node:path';
+import type { GraphGeneratorOutput } from '../core/types';
 import { NginCommandTarget, NginWorkspaceSnapshot } from '../state/workspaceState';
 
 export interface ProjectTreeProjectModel {
@@ -299,6 +300,24 @@ function inputLabel(input: { source?: string; absoluteSourcePath?: string; name?
   return input.source || input.absoluteSourcePath || input.name || '(unnamed)';
 }
 
+function generatorOutputs(outputs: unknown): GraphGeneratorOutput[] {
+  if (!Array.isArray(outputs)) {
+    return [];
+  }
+  return outputs.filter((output): output is GraphGeneratorOutput => typeof output === 'object' && output !== null);
+}
+
+function generatorOutputsTooltip(outputs: unknown): string | undefined {
+  const detailedOutputs = generatorOutputs(outputs);
+  if (detailedOutputs.length > 0) {
+    return `Outputs:\n${detailedOutputs.map((output) => `- ${output.role ?? 'Output'} ${output.path ?? ''}`).join('\n')}`;
+  }
+  if (typeof outputs === 'number') {
+    return `Outputs: ${outputs}`;
+  }
+  return undefined;
+}
+
 export function buildInspectTreeModel(snapshot: NginWorkspaceSnapshot, projectPath: string): ProjectTreeInspectModel | undefined {
   if (!snapshot.context || comparablePath(snapshot.context.project.path) !== comparablePath(projectPath)) {
     return undefined;
@@ -343,34 +362,37 @@ export function buildInspectTreeModel(snapshot: NginWorkspaceSnapshot, projectPa
   }
 
   if (plans?.generators?.length) {
-    entriesByGroup.set('generators', plans.generators.map((generator) => ({
-      label: generator.name,
-      description: [inspectStateLabel(generator.state ?? 'active'), generator.ownerName, generator.tool ?? generator.toolName].filter(Boolean).join(' • ') || undefined,
-      tooltip: [
-        generator.kind ? `Kind: ${generator.kind}` : undefined,
-        generator.reason ? `Reason: ${generator.reason}` : undefined,
-        generator.outputs?.length ? `Outputs:\n${generator.outputs.map((output) => `- ${output.role ?? 'Output'} ${output.path ?? ''}`).join('\n')}` : undefined,
-        generator.manifestPath
-      ].filter(Boolean).join('\n'),
-      icon: generator.state === undefined || generator.state === 'active' ? 'run' : 'circle-slash',
-      targetPath: generator.manifestPath,
-      children: [
-        detailEntry('State', inspectStateLabel(generator.state ?? 'active'), generator.state === undefined || generator.state === 'active' ? 'check' : 'circle-slash'),
-        detailEntry('Kind', generator.kind, 'symbol-method'),
-        detailEntry('Owner', generator.ownerName, 'references'),
-        detailEntry('Owner Kind', generator.ownerKind, 'symbol-property'),
-        detailEntry('Package', generator.package, 'package'),
-        detailEntry('Tool', generator.tool ?? generator.toolName, 'tools'),
-        detailEntry('Reason', generator.reason, 'comment'),
-        ...(generator.outputs ?? []).map((output) => detailEntry(
-          output.role ?? 'Output',
-          output.path ?? output.target,
-          output.role === 'Source' ? 'file-code' : 'file-binary',
-          [output.path, output.target].filter(Boolean).join('\n') || undefined
-        )),
-        detailEntry('Manifest', generator.manifestPath, 'file-code', generator.manifestPath, generator.manifestPath)
-      ].filter((entry) => Boolean(entry.description))
-    })));
+    entriesByGroup.set('generators', plans.generators.map((generator) => {
+      const outputs = generatorOutputs(generator.outputs);
+      return {
+        label: generator.name,
+        description: [inspectStateLabel(generator.state ?? 'active'), generator.ownerName, generator.tool ?? generator.toolName].filter(Boolean).join(' • ') || undefined,
+        tooltip: [
+          generator.kind ? `Kind: ${generator.kind}` : undefined,
+          generator.reason ? `Reason: ${generator.reason}` : undefined,
+          generatorOutputsTooltip(generator.outputs),
+          generator.manifestPath
+        ].filter(Boolean).join('\n'),
+        icon: generator.state === undefined || generator.state === 'active' ? 'run' : 'circle-slash',
+        targetPath: generator.manifestPath,
+        children: [
+          detailEntry('State', inspectStateLabel(generator.state ?? 'active'), generator.state === undefined || generator.state === 'active' ? 'check' : 'circle-slash'),
+          detailEntry('Kind', generator.kind, 'symbol-method'),
+          detailEntry('Owner', generator.ownerName, 'references'),
+          detailEntry('Owner Kind', generator.ownerKind, 'symbol-property'),
+          detailEntry('Package', generator.package, 'package'),
+          detailEntry('Tool', generator.tool ?? generator.toolName, 'tools'),
+          detailEntry('Reason', generator.reason, 'comment'),
+          ...outputs.map((output) => detailEntry(
+            output.role ?? 'Output',
+            output.path ?? output.target,
+            output.role === 'Source' ? 'file-code' : 'file-binary',
+            [output.path, output.target].filter(Boolean).join('\n') || undefined
+          )),
+          detailEntry('Manifest', generator.manifestPath, 'file-code', generator.manifestPath, generator.manifestPath)
+        ].filter((entry) => Boolean(entry.description))
+      };
+    }));
   }
 
   const inputKindEntries: ProjectTreeInspectEntryModel[] = [];
