@@ -25,6 +25,24 @@ namespace NGIN::CLI::Tests
 {
     namespace fs = std::filesystem;
 
+    inline auto SetEnvironmentVariableForTest(const std::string &name, const std::string &value) -> void
+    {
+#if defined(_WIN32)
+        (void)_putenv_s(name.c_str(), value.c_str());
+#else
+        (void)setenv(name.c_str(), value.c_str(), 1);
+#endif
+    }
+
+    inline auto UnsetEnvironmentVariableForTest(const std::string &name) -> void
+    {
+#if defined(_WIN32)
+        (void)_putenv_s(name.c_str(), "");
+#else
+        (void)unsetenv(name.c_str());
+#endif
+    }
+
     class ScopedCurrentPath
     {
     public:
@@ -52,18 +70,18 @@ namespace NGIN::CLI::Tests
             {
                 previous_ = existing;
             }
-            setenv(name.c_str(), value.c_str(), 1);
+            SetEnvironmentVariableForTest(name, value);
         }
 
         ~ScopedEnvironmentVariable()
         {
             if (previous_.has_value())
             {
-                setenv(name_.c_str(), previous_->c_str(), 1);
+                SetEnvironmentVariableForTest(name_, *previous_);
             }
             else
             {
-                unsetenv(name_.c_str());
+                UnsetEnvironmentVariableForTest(name_);
             }
         }
 
@@ -81,14 +99,14 @@ namespace NGIN::CLI::Tests
             {
                 previous_ = existing;
             }
-            unsetenv(name.c_str());
+            UnsetEnvironmentVariableForTest(name);
         }
 
         ~ScopedUnsetEnvironmentVariable()
         {
             if (previous_.has_value())
             {
-                setenv(name_.c_str(), previous_->c_str(), 1);
+                SetEnvironmentVariableForTest(name_, *previous_);
             }
         }
 
