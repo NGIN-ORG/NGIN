@@ -64,6 +64,36 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes ninja-build
 
+      - name: Ensure LLVM libclang
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $llvmRoot = "C:\Program Files\LLVM"
+          $required = @(
+            "$llvmRoot\include\clang-c\Index.h",
+            "$llvmRoot\lib\libclang.lib",
+            "$llvmRoot\bin\libclang.dll"
+          )
+          if ($required | Where-Object { -not (Test-Path $_) }) {
+            choco upgrade llvm --version=18.1.8 --allow-downgrade -y
+          }
+          "C:\Program Files\LLVM\bin" >> $env:GITHUB_PATH
+          "LLVM_INSTALL_DIR=C:\Program Files\LLVM" >> $env:GITHUB_ENV
+          "LLVM_DIR=C:\Program Files\LLVM\lib\cmake\llvm" >> $env:GITHUB_ENV
+          "Clang_DIR=C:\Program Files\LLVM\lib\cmake\clang" >> $env:GITHUB_ENV
+          "LIBCLANG_INCLUDE_DIR=C:\Program Files\LLVM\include" >> $env:GITHUB_ENV
+          "LIBCLANG_LIBRARY=C:\Program Files\LLVM\lib\libclang.lib" >> $env:GITHUB_ENV
+          "CMAKE_PREFIX_PATH=C:\Program Files\LLVM" >> $env:GITHUB_ENV
+
+      - name: Verify libclang
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          clang --version
+          if (-not (Test-Path "C:\Program Files\LLVM\include\clang-c\Index.h")) { throw "Missing clang-c\Index.h" }
+          if (-not (Test-Path "C:\Program Files\LLVM\lib\libclang.lib")) { throw "Missing libclang.lib" }
+          if (-not (Test-Path "C:\Program Files\LLVM\bin\libclang.dll")) { throw "Missing libclang.dll" }
+
       - name: Set up MSVC
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
