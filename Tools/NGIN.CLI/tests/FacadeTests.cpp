@@ -398,10 +398,17 @@ TEST_CASE("publish command writes folder publish output")
     archiveArgs.outputPath = (temp.path() / "build-archive").string();
 
     REQUIRE(CmdPublish(temp.path(), archiveArgs) == 0);
-    const auto archive = ReadFile(temp.path() / "dist/Publish.App.zip");
-    REQUIRE(archive.rfind("PK\003\004", 0) == 0);
-    REQUIRE_THAT(archive, ContainsSubstring("config/app.json"));
-    REQUIRE_THAT(archive, ContainsSubstring("bin/" + PlatformExecutableName("Publish.App")));
+    const auto archivePath = temp.path() / "dist/Publish.App.zip";
+    const auto archiveEntries = ZipCentralEntries(archivePath);
+    REQUIRE(std::any_of(archiveEntries.begin(), archiveEntries.end(), [](const ZipCentralEntry &entry) {
+        return entry.path == "config/app.json";
+    }));
+    REQUIRE(std::any_of(archiveEntries.begin(), archiveEntries.end(), [](const ZipCentralEntry &entry) {
+        return entry.path == "bin/" + PlatformExecutableName("Publish.App");
+    }));
+    REQUIRE_FALSE(std::any_of(archiveEntries.begin(), archiveEntries.end(), [](const ZipCentralEntry &entry) {
+        return entry.path.starts_with(".ngin/");
+    }));
 }
 
 TEST_CASE("launch manifests redact resolved secret variables")

@@ -2192,11 +2192,16 @@ namespace NGIN::CLI
         auto CopyDirectoryContents(const fs::path &source, const fs::path &destination) -> void
         {
             fs::create_directories(destination);
-            for (const auto &entry : fs::recursive_directory_iterator(source))
+            for (fs::recursive_directory_iterator it(source), end; it != end; ++it)
             {
+                const auto &entry = *it;
                 const auto relative = fs::relative(entry.path(), source);
                 if (IsPublishInternalPath(relative))
                 {
+                    if (entry.is_directory())
+                    {
+                        it.disable_recursion_pending();
+                    }
                     continue;
                 }
                 const auto target = destination / relative;
@@ -2265,11 +2270,16 @@ namespace NGIN::CLI
         [[nodiscard]] auto GatherZipEntries(const fs::path &source) -> std::vector<ZipEntry>
         {
             std::vector<ZipEntry> entries{};
-            for (const auto &entry : fs::recursive_directory_iterator(source))
+            for (fs::recursive_directory_iterator it(source), end; it != end; ++it)
             {
+                const auto &entry = *it;
                 const auto relative = fs::relative(entry.path(), source);
                 if (IsPublishInternalPath(relative))
                 {
+                    if (entry.is_directory())
+                    {
+                        it.disable_recursion_pending();
+                    }
                     continue;
                 }
                 if (!entry.is_regular_file())
