@@ -1,33 +1,89 @@
+Here is the full README rewritten around the “easy build system” story, using your old README as the source material.
+
 # NGIN
 
-NGIN is a C++ project toolchain and optional application runtime.
+A friendly C++ build system that turns project manifests into runnable apps.
 
-It has two main parts:
+NGIN is for C++ projects that want a simple build story:
 
-1. **The `ngin` CLI**
-   A command-line tool for describing, validating, building, packaging, staging,
-   and running C++ projects.
+```bash
+ngin build
+ngin run
+```
 
-2. **`NGIN.Core`**
-   An optional C++ runtime library for applications that want a structured
-   startup model with services, profile, modules, plugins, lifecycle hooks,
-   reflection, and diagnostics.
+That is the main idea.
 
-You can use the CLI without using `NGIN.Core`.
+You describe your project once in a `.nginproj` file. NGIN uses that description to build the project, prepare the runnable output folder, and run the app locally.
 
-That means NGIN can be used in two ways:
+No pile of glue scripts.
 
-- as a build and project workflow for normal C++ applications
-- as a fuller application framework when you also link `NGIN.Core`
+No “remember to copy this folder next to the executable”.
 
-NGIN does not replace CMake. CMake is currently the build backend. NGIN sits
-above it and generates backend input from project metadata.
+No mystery run command hiding in an old README.
 
-> NGIN is unrelated to the nginx web server.
+Just:
+
+```bash
+ngin build
+ngin run
+```
+
+> NGIN is unrelated to the nginx web server. Same letters, different beast.
 
 ---
 
-## Why NGIN Exists
+## What NGIN is
+
+NGIN is a C++ build system, package-aware project toolchain, and optional application runtime.
+
+It has two main parts:
+
+### `ngin`
+
+The command-line build tool.
+
+This is the part most projects use.
+
+It can build, stage, run, inspect, validate, and package C++ projects.
+
+### `NGIN.Core`
+
+An optional C++ runtime library.
+
+Use it when your application wants a structured startup model with services, modules, plugins, lifecycle hooks, reflection, diagnostics, and profile loading.
+
+You do not need `NGIN.Core` to use NGIN as a build system.
+
+A normal C++ app can use the CLI only.
+
+---
+
+## The simple story
+
+Most of the time, NGIN should feel boring in the best possible way:
+
+```bash
+ngin build
+ngin run
+```
+
+`ngin build` builds your project and prepares a runnable output folder.
+
+`ngin run` runs the staged application locally.
+
+That is the workflow NGIN is built around.
+
+Behind the scenes, NGIN can resolve packages, generate backend build files, copy runtime files, prepare launch metadata, and apply profiles.
+
+But you do not need to think about all of that first.
+
+You ask NGIN to build the app.
+
+NGIN handles the project machinery.
+
+---
+
+## Why NGIN exists
 
 C++ projects often start simple:
 
@@ -37,193 +93,86 @@ MyTool/
   src/main.cpp
 ```
 
-For a small project, that may be enough.
+For small projects, that can be enough.
 
-But larger native projects tend to grow beyond the build file. The actual shape
-of the application gets spread across many places:
+But native projects tend to grow.
+
+Eventually you may have:
 
 ```text
 MyGame/
-  CMakeLists.txt          build targets, include paths, link rules
-  config/dev.json         runtime profile
-  scripts/stage.sh        copy files into a runnable folder
-  scripts/run-dev.sh      local launch command
-  packages/               reusable libraries or feature bundles
-  README.md               notes about what has to be copied where
+  CMakeLists.txt
+  config/dev.json
+  scripts/stage.sh
+  scripts/run-dev.sh
+  packages/
+  tools/
+  assets/
+  README.md
 ```
 
-After a while, simple questions become hard to answer:
+At that point, the build is no longer just “compile these files”.
 
-- What applications exist in this repository?
-- What does each application depend on?
-- Which profile am I building?
-- Which files should be copied next to the executable?
-- What does the local run command actually run?
-- Which parts are project-specific, and which parts are reusable packages?
+The real project shape is spread across:
 
-NGIN exists to put those answers in one explicit model.
+* build files
+* scripts
+* copied config files
+* package notes
+* local run commands
+* README instructions
+* someone’s memory
+
+NGIN exists to put those things back into one explicit project model.
+
+A project should be able to answer:
+
+* What am I building?
+* Which sources belong to it?
+* What packages does it use?
+* Which profile is active?
+* What needs to be copied next to the executable?
+* How do I run it locally?
+
+NGIN makes those answers part of the build system.
 
 ---
 
-## The Short Version
+## How NGIN fits with CMake
 
-With NGIN, a project is described by a `.nginproj` file.
+NGIN currently uses CMake as its native build backend.
 
-That file can describe things like:
+That means CMake still does the low-level compiler and linker work.
 
-- source folders
-- output type, such as an executable or library
-- dependencies on other projects or packages
-- build backend settings
-- named profiles
-- files that should be copied into the runnable output folder
-- local run settings
-
-The `ngin` CLI can then use that project file to:
+But for an NGIN project, the normal developer workflow goes through the `ngin` CLI.
 
 ```text
-validate  -> check that the project makes sense
-graph     -> show what the project resolves to
-build     -> generate backend input and build the output
-stage     -> create a runnable folder
-run       -> run the staged application locally
+.nginproj
+   -> ngin
+      -> generated CMake
+         -> Ninja / compiler / linker
+            -> built output
+               -> staged runnable app
 ```
 
-A **staged folder** is the folder you actually run from. It contains the built
-executable plus the files it needs locally, such as config files, content files,
-package outputs, copied libraries, and generated launch metadata.
+In plain language:
+
+* NGIN is the build system you use.
+* CMake is currently the generated backend.
+* Ninja, your compiler, and your linker still do the native build work.
+* The project model lives in NGIN manifests.
+
+NGIN is not trying to pretend compilers do not exist.
+
+It is trying to make the project easier to build, package, stage, and run.
 
 ---
 
-## The Developer Workflow
+## Quick start
 
-NGIN is built around a direct project workflow:
+This quick start builds the `ngin` CLI from this repository and runs the smallest example project.
 
-- one project file describes the project
-- a CLI understands that project file
-- projects can reference other projects
-- packages can contribute reusable functionality
-- build, run, inspect, and package workflows go through one tool
-
-For C++, CMake still does the actual backend build work. NGIN provides the
-higher-level project model around it.
-
----
-
-## The Two Parts Of NGIN
-
-### 1. The `ngin` CLI
-
-The CLI is the first thing most users should learn.
-
-It is responsible for the project workflow:
-
-- reading `.nginproj`, `.nginpkg`, and workspace files
-- resolving project and package references
-- validating project profiles
-- generating CMake input
-- configuring generated build metadata
-- building projects
-- creating runnable output folders
-- generating local launch metadata
-- running staged applications
-- inspecting workspaces and packages
-
-A plain C++ project can use this layer without linking any NGIN runtime library.
-
-### 2. `NGIN.Core`
-
-`NGIN.Core` is a C++ library that applications may choose to link.
-
-It is for applications that want a managed startup structure instead of writing
-all startup wiring manually.
-
-It can provide:
-
-- application lifecycle
-- service registration
-- profile loading
-- modules
-- plugins
-- reflection
-- diagnostics
-- structured startup and shutdown
-
-This is sometimes called a **hosted runtime** in the NGIN documentation.
-
-In plain language, that means:
-
-> Your `main()` starts an NGIN application host, and the host coordinates app
-> startup, services, modules, profile, and shutdown.
-
-You do not need `NGIN.Core` for a normal executable. It is only for applications
-that want that structured runtime model.
-
----
-
-## When To Use Only The CLI
-
-Use the CLI-only path when you want NGIN to manage the project shape, build,
-staging, and local run workflow, but your application still has a normal C++
-entry point.
-
-This is useful for:
-
-- command-line tools
-- simple applications
-- native utilities
-- game clients or servers with their own startup code
-- projects that want generated CMake input
-- projects that need predictable staged output folders
-- repositories with multiple related C++ projects
-
-In this mode, NGIN is mostly a project and build workflow.
-
----
-
-## When To Use `NGIN.Core`
-
-Use `NGIN.Core` when the application itself should use NGIN’s runtime model.
-
-This is useful when your app needs:
-
-- service-based architecture
-- modules that can be registered and started consistently
-- plugin loading
-- shared profile infrastructure
-- lifecycle hooks
-- diagnostics and reflection support
-- a common startup pattern across multiple applications
-
-In this mode, NGIN is both:
-
-- the project/build/staging toolchain
-- the runtime structure of the application
-
----
-
-## When Not To Use NGIN
-
-You probably do not need NGIN if your project is still comfortable as:
-
-- one executable
-- a few source files
-- minimal dependencies
-- no copied runtime files
-- no local staging step
-- one straightforward `CMakeLists.txt`
-
-That is fine. NGIN is meant for the point where C++ project structure starts
-spreading beyond the build file.
-
----
-
-## Quick Start
-
-This quick start builds the `ngin` CLI from this repository and runs the
-smallest example project.
-
-The smallest example is:
+The example is a normal C++ executable:
 
 ```text
 Examples/Hello.Native/
@@ -231,16 +180,14 @@ Examples/Hello.Native/
   src/main.cpp
 ```
 
-It is a normal C++ executable managed by the NGIN CLI.
-
 ### Prerequisites
 
 You need:
 
-- CMake 3.20 or newer
-- Ninja
-- a C++23-capable compiler
-- a normal C++ development environment for your platform
+* CMake 3.20 or newer
+* Ninja
+* a C++23-capable compiler
+* a normal C++ development environment for your platform
 
 ### 1. Configure the repository
 
@@ -254,41 +201,7 @@ cmake --preset dev
 cmake --build build/dev --target ngin_cli
 ```
 
-### 3. Check the workspace
-
-```bash
-./build/dev/Tools/NGIN.CLI/ngin workspace doctor
-```
-
-### 4. Validate the example project
-
-```bash
-./build/dev/Tools/NGIN.CLI/ngin validate \
-  --project Examples/Hello.Native/Hello.Native.nginproj \
-  --configuration Debug
-```
-
-### 5. Inspect the resolved project
-
-```bash
-./build/dev/Tools/NGIN.CLI/ngin graph \
-  --project Examples/Hello.Native/Hello.Native.nginproj \
-  --configuration Debug
-```
-
-### 6. Configure generated build metadata
-
-```bash
-./build/dev/Tools/NGIN.CLI/ngin configure \
-  --project Examples/Hello.Native/Hello.Native.nginproj \
-  --configuration Debug \
-  --output build/manual/Hello.Native
-```
-
-This generates backend CMake input and compile commands without building or
-staging the application.
-
-### 7. Build and stage the example
+### 3. Build the example
 
 ```bash
 ./build/dev/Tools/NGIN.CLI/ngin build \
@@ -297,9 +210,9 @@ staging the application.
   --output build/manual/Hello.Native
 ```
 
-This builds the executable and creates a runnable output folder.
+This builds the project and creates a runnable staged output folder.
 
-### 8. Run the staged example
+### 4. Run the example
 
 ```bash
 ./build/dev/Tools/NGIN.CLI/ngin run \
@@ -308,24 +221,50 @@ This builds the executable and creates a runnable output folder.
   --output build/manual/Hello.Native
 ```
 
-The core flow is:
+That is the core loop:
 
-```text
-.nginproj
-  -> validate the project
-  -> inspect the resolved structure
-  -> generate CMake input
-  -> configure build metadata
-  -> build the executable
-  -> create a runnable folder
-  -> run it locally
+```bash
+ngin build
+ngin run
 ```
+
+Everything else is there when you need it.
 
 ---
 
-## What A Minimal Project Manifest Looks Like
+## What is a staged folder?
 
-A small `.nginproj` file looks like this:
+A staged folder is the folder your app actually runs from.
+
+It contains the built executable plus whatever the app needs nearby.
+
+For example:
+
+* config files
+* content files
+* copied libraries
+* package outputs
+* generated launch metadata
+
+Think of staging as packing a lunchbox for your app.
+
+The executable goes in.
+
+The config goes in.
+
+The content files go in.
+
+The libraries go in.
+
+Then NGIN runs the app from that packed folder.
+
+This makes local runs predictable, because the app runs from the same kind of layout every time.
+
+---
+
+## A tiny `.nginproj`
+
+A small NGIN project file can look like this:
 
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
@@ -368,19 +307,243 @@ A small `.nginproj` file looks like this:
 
 This says:
 
-- the project is named `MyApp`
-- it produces an application
-- source files are under `src`
-- `LocalDebug` names the local debug selection rule
-- the output executable and generated CMake backend come from product-first conventions
-- the default profile is `Debug`
-- the `Debug` profile builds a debug Linux x64 executable
-- `MYAPP_LOCAL_DEBUG` is emitted only when `LocalDebug` matches
-- local runs should launch `MyApp` from the staged folder
+* the project is named `MyApp`
+* it builds an application
+* source files live under `src`
+* the default profile is `Debug`
+* the `Debug` profile builds for `linux-x64`
+* the build type is `Debug`
+* the environment is `local`
+* `MYAPP_LOCAL_DEBUG` is only emitted when the `LocalDebug` condition matches
+* local runs launch the output executable from the staged folder
+
+The goal is not to make XML exciting.
+
+The goal is to make the project explicit.
 
 ---
 
-## Main File Types
+## What can a project describe?
+
+A `.nginproj` file can describe things like:
+
+* source folders
+* output type, such as executable or library
+* dependencies on other projects
+* dependencies on packages
+* build profiles
+* target platform
+* build backend settings
+* runtime files
+* staged output
+* local run settings
+
+You do not need all of that for a small project.
+
+Start with the basics.
+
+Add the rest when the project grows teeth.
+
+---
+
+## Build profiles
+
+A profile is a named way to build or run the same project.
+
+Examples:
+
+```text
+Debug
+Release
+Debug.Asan
+Debug.Diagnostics
+Release.Shipping
+Editor
+Runtime
+```
+
+Profiles are useful when the same project needs different settings for different situations.
+
+A profile can select things like:
+
+* build type
+* operating system
+* architecture
+* environment
+* launch settings
+* extra references
+* config overlays
+* runtime modules
+* plugins
+
+Think of a profile as a named mode for the project.
+
+You can keep the command simple:
+
+```bash
+ngin build --profile Debug
+```
+
+or use a classic build configuration:
+
+```bash
+ngin build --configuration Release
+```
+
+---
+
+## Packages
+
+NGIN is package-aware.
+
+A package is reusable functionality with an identity.
+
+A package may contribute:
+
+* libraries
+* executables
+* headers
+* config files
+* content files
+* tools
+* modules
+* plugins
+* startup behavior
+
+Use a package when something should be consumed dependency-style by one or more projects.
+
+As a practical rule:
+
+* keep something as a project while it mainly belongs to one repository
+* make it a package when it needs reusable identity, versioning, or distribution
+
+The package commands are there when you need them:
+
+```bash
+ngin package list
+ngin package show <Package>
+ngin package lock
+```
+
+But you do not need to start there.
+
+Start with:
+
+```bash
+ngin build
+```
+
+---
+
+## Workspaces
+
+A workspace groups projects and package locations for a repository.
+
+Single-project usage does not require a workspace.
+
+Workspaces become useful when a repository contains multiple apps, tools, packages, and local dependencies.
+
+A workspace can answer questions like:
+
+* Which projects exist in this repository?
+* Where are local packages found?
+* Which package providers are available?
+* Is the workspace configured correctly?
+
+Useful workspace commands:
+
+```bash
+ngin workspace list
+ngin workspace status
+ngin workspace doctor
+```
+
+Again, these are support tools.
+
+The main workflow is still:
+
+```bash
+ngin build
+ngin run
+```
+
+---
+
+## Optional runtime: `NGIN.Core`
+
+NGIN can be just a build system.
+
+That is the default mental model.
+
+But applications can also choose to link `NGIN.Core`.
+
+`NGIN.Core` is a C++ runtime library for applications that want a managed startup structure instead of wiring everything manually.
+
+It can provide:
+
+* application lifecycle
+* service registration
+* profile loading
+* modules
+* plugins
+* reflection
+* diagnostics
+* structured startup and shutdown
+
+In plain language:
+
+> Your `main()` starts an NGIN application host, and the host coordinates startup, services, modules, profiles, plugins, diagnostics, and shutdown.
+
+Use `NGIN.Core` when your app wants that structure.
+
+Do not use it when you just want a normal executable.
+
+NGIN the build system works either way.
+
+---
+
+## When to use NGIN
+
+NGIN is useful when your project has started collecting build-adjacent stuff.
+
+For example:
+
+* multiple applications or tools
+* reusable libraries
+* local packages
+* generated backend build files
+* runtime config files
+* copied assets or content
+* local run commands
+* debug/release/shipping profiles
+* platform-specific settings
+* staged output folders
+* plugins or modules
+* tools that need to run as part of the project
+
+It is especially useful when “how to build and run this” should be obvious from the project files instead of reconstructed from scripts and notes.
+
+---
+
+## When not to use NGIN
+
+You probably do not need NGIN yet if your project is still happily living as:
+
+* one executable
+* a few source files
+* minimal dependencies
+* no copied runtime files
+* no packages
+* no staging step
+* one straightforward `CMakeLists.txt`
+
+That is completely fine.
+
+NGIN is for the point where the project starts becoming a small ecosystem.
+
+---
+
+## Main file types
 
 NGIN uses a few manifest files.
 
@@ -388,7 +551,7 @@ NGIN uses a few manifest files.
 
 Describes one project.
 
-A project is usually one app, tool, or library.
+A project is usually one application, tool, or library.
 
 Examples:
 
@@ -402,15 +565,13 @@ AssetCompiler.nginproj
 
 Describes a reusable package.
 
-A package can provide reusable libraries, tools, modules, plugins, config,
-content, or other files that projects consume.
+A package can provide reusable libraries, tools, modules, plugins, config, content, or other files that projects consume.
 
 ### `.ngin`
 
 Describes a workspace.
 
-A workspace is an optional repository-level file that ties together multiple
-projects, package roots, and local package providers.
+A workspace is an optional repository-level file that ties together multiple projects, package roots, and local package providers.
 
 This repository uses:
 
@@ -422,41 +583,42 @@ NGIN.ngin
 
 Describes how to run a staged output locally.
 
-This file is generated by NGIN during build/staging. It is local tooling
-metadata, not something you normally write by hand.
+This file is generated by NGIN during build/staging.
+
+You normally do not write it by hand.
 
 ---
 
-## Main Concepts
+## Concepts in plain language
 
 ### Project
 
 A project is one thing you can build.
 
-That usually means:
+Usually that means:
 
-- an application
-- a command-line tool
-- a library
-- a game client
-- a game server
-- an editor
-- an asset pipeline tool
+* an application
+* a command-line tool
+* a library
+* a game client
+* a game server
+* an editor
+* an asset pipeline tool
 
-If two outputs have different identities, they should usually be separate
-projects.
+If two outputs have different identities, they should usually be separate projects.
 
 For example:
 
 ```text
-MyTool
-MyEditor
+Game.Client
+Game.Server
+Game.Editor
 AssetCompiler
 ```
 
 ### Profile
 
-A profile is one named way to build or run the same project.
+A profile is a named mode for a project.
 
 Examples:
 
@@ -464,66 +626,44 @@ Examples:
 Debug
 Release
 Debug.Asan
-Debug.Diagnostics
 Release.Shipping
+Editor
+Runtime
 ```
 
-Profiles are useful when the same project needs different settings for
-different situations.
-
-A profile can select things like:
-
-- build type
-- operating system
-- architecture
-- environment
-- launch settings
-- extra references
-- config overlays
-- runtime modules or plugins
+Use profiles when the same project needs different settings in different situations.
 
 ### Package
 
-A package is reusable functionality.
+A package is reusable project stuff with a name.
 
-Use a package when something should be consumed dependency-style by one or more
-projects.
-
-A package may contribute:
-
-- libraries
-- executables
-- headers
-- config files
-- content files
-- modules
-- plugins
-- startup behavior
-
-As a practical rule:
-
-- keep something as a project while it mainly belongs to one repository
-- make it a package when it needs reusable identity and independent versioning
+It can contribute code, tools, headers, config, content, modules, plugins, or startup behavior.
 
 ### Workspace
 
-A workspace groups projects and package locations for a repository.
+A workspace is the map of a bigger repository.
 
-Single-project usage does not require a workspace, but workspaces are useful for
-larger repositories with multiple apps, tools, packages, and local dependencies.
+It ties projects and package locations together.
+
+### Staged folder
+
+A staged folder is the runnable app folder.
+
+It is where the executable and its nearby runtime files live.
 
 ---
 
-## Example Learning Path
+## Examples
 
-The examples are arranged so each one adds one idea.
+The examples are arranged as a learning path.
+
+Start small, then add one idea at a time.
 
 1. [`Examples/Hello.Native`](Examples/Hello.Native/README.md)
-   Smallest CLI-managed C++ executable.
+   The smallest CLI-managed C++ executable.
 
 2. [`Examples/Hello.Hosted`](Examples/Hello.Hosted/README.md)
-   Smallest application that links `NGIN.Core`, registers a real static module,
-   and selects it from the manifest.
+   The smallest application that links `NGIN.Core`, registers a static module, and selects it from the manifest.
 
 3. [`Examples/Hello.Reflection`](Examples/Hello.Reflection/README.md)
    Reflection code generation through `NGIN.Reflection.MetaGen`.
@@ -535,24 +675,42 @@ See [`Examples/README.md`](Examples/README.md) for the full example map.
 
 ---
 
-## CLI Commands
+## Useful commands when you need more
+
+You do not need all of these on day one.
+
+Most of the time, start with:
+
+```bash
+ngin build
+ngin run
+```
+
+When something needs inspecting, NGIN has more tools.
 
 ### Project commands
 
-```text
-ngin validate [--project <file>] [--profile <name>] [--configuration <name>]
-ngin graph    [--project <file>] [--profile <name>] [--configuration <name>]
-ngin configure [--project <file>] [--profile <name>] [--configuration <name>] [--output <dir>]
-ngin build    [--project <file>] [--profile <name>] [--configuration <name>] [--output <dir>]
-ngin run      [--project <file>] [--profile <name>] [--configuration <name>] [--output <dir>] [-- <args...>]
-ngin clean    [--project <file>] [--profile <name>] [--configuration <name>] [--output <dir>]
-ngin rebuild  [--project <file>] [--profile <name>] [--configuration <name>] [--output <dir>]
-```
+| Command          | Use it when                                    |
+| ---------------- | ---------------------------------------------- |
+| `ngin build`     | You want to build and stage the project        |
+| `ngin run`       | You want to run the staged app                 |
+| `ngin validate`  | You want to check that the project makes sense |
+| `ngin graph`     | You want to see what NGIN resolved             |
+| `ngin configure` | You only want generated backend files          |
+| `ngin clean`     | You want to remove generated output            |
+| `ngin rebuild`   | You want a clean build                         |
 
-Use `--configuration Debug`, `Release`, `RelWithDebInfo`, or `MinSizeRel` for
-classic build-type selection. Use `--profile <name>` for product scenarios with
-custom behavior, such as `Runtime`, `Editor`, or `Shipping`; both flags can be
-combined when a profile should run with a different common build type.
+Full shape:
+
+```text
+ngin validate  [--project <file>] [--profile <name>] [--configuration <name>]
+ngin graph     [--project <file>] [--profile <name>] [--configuration <name>]
+ngin configure [--project <file>] [--profile <name>] [--configuration <name>] [--output <dir>]
+ngin build     [--project <file>] [--profile <name>] [--configuration <name>] [--output <dir>]
+ngin run       [--project <file>] [--profile <name>] [--configuration <name>] [--output <dir>] [-- <args...>]
+ngin clean     [--project <file>] [--profile <name>] [--configuration <name>] [--output <dir>]
+ngin rebuild   [--project <file>] [--profile <name>] [--configuration <name>] [--output <dir>]
+```
 
 ### Workspace commands
 
@@ -572,33 +730,35 @@ ngin package verify-lock [--project <file>] [--profile <name>] [--configuration 
 ngin explain package-feature <Package> <Feature> [--project <file>] [--profile <name>]
 ```
 
-For the exact command contract, see
-[`docs/specs/006-cli-contract.md`](docs/specs/006-cli-contract.md).
+For the exact command contract, see [`docs/specs/006-cli-contract.md`](docs/specs/006-cli-contract.md).
 
 ---
 
-## How NGIN Compares
+## How NGIN compares
 
-| Tool        | Main focus                                                                          |
-| ----------- | ----------------------------------------------------------------------------------- |
-| CMake       | Describing and generating native build systems                                      |
-| NGIN CLI    | Project model, CMake generation, package/project references, staging, and local run |
-| `NGIN.Core` | Optional C++ application host and runtime services                                  |
-| Premake     | Scripted generation of build files                                                  |
-| Bazel       | Large-scale hermetic build graph and caching                                        |
+| Tool        | Main focus                                                                       |
+| ----------- | -------------------------------------------------------------------------------- |
+| NGIN        | C++ build system, package-aware project model, staging, profiles, and local runs |
+| CMake       | Native build generation backend                                                  |
+| Ninja       | Fast low-level build executor                                                    |
+| `NGIN.Core` | Optional C++ application host and runtime services                               |
+| Premake     | Scripted generation of build files                                               |
+| Bazel       | Large-scale hermetic build graph and caching                                     |
 
-NGIN does not try to replace all of these tools.
+NGIN is not trying to be every tool at once.
 
-The intended relationship with CMake is:
+The intended relationship is:
 
 ```text
-NGIN describes the C++ project at the application level.
-CMake performs the backend build.
+NGIN describes the project.
+CMake currently provides the generated native backend.
+Ninja/compiler/linker build the actual binaries.
+NGIN stages and runs the result.
 ```
 
 ---
 
-## Repository Map
+## Repository map
 
 ```text
 Tools/
@@ -617,35 +777,57 @@ docs/                specs, architecture notes, plans, and historical drafts
 
 Useful entry points:
 
-- [`Tools/NGIN.CLI`](Tools/NGIN.CLI/)
-- [`Tools/NGIN.VSCode`](Tools/NGIN.VSCode/)
-- [`Tools/README.md`](Tools/README.md)
-- [`Examples`](Examples/)
-- [`Packages`](Packages/)
-- [`Packages/NGIN.Core`](Packages/NGIN.Core/)
-- [`Dependencies`](Dependencies/)
-- [`docs`](docs/)
+* [`Tools/NGIN.CLI`](Tools/NGIN.CLI/)
+* [`Tools/NGIN.VSCode`](Tools/NGIN.VSCode/)
+* [`Tools/README.md`](Tools/README.md)
+* [`Examples`](Examples/)
+* [`Packages`](Packages/)
+* [`Packages/NGIN.Core`](Packages/NGIN.Core/)
+* [`Dependencies`](Dependencies/)
+* [`docs`](docs/)
 
 ---
 
-## Documentation Map
+## Documentation
 
 Start with:
 
-- [`Examples/README.md`](Examples/README.md) for learning by running projects
-- [`Tools/README.md`](Tools/README.md) for CLI, VS Code, and backend tool details
-- [`docs/README.md`](docs/README.md) for deeper design references
+* [`Examples/README.md`](Examples/README.md) for learning by running projects
+* [`Tools/README.md`](Tools/README.md) for CLI, VS Code, and backend tool details
+* [`docs/README.md`](docs/README.md) for deeper design references
 
 The active contracts live in [`docs/specs`](docs/specs/).
 
 Useful starting specs:
 
-- [`001-core-concepts.md`](docs/specs/001-core-concepts.md)
-- [`002-project-and-target-manifest.md`](docs/specs/002-project-and-target-manifest.md)
-- [`003-package-manifest-and-runtime-contributions.md`](docs/specs/003-package-manifest-and-runtime-contributions.md)
-- [`006-cli-contract.md`](docs/specs/006-cli-contract.md)
-- [`010-workspace-and-project-model.md`](docs/specs/010-workspace-and-project-model.md)
-- [`012-tooling-and-runtime-boundary.md`](docs/specs/012-tooling-and-runtime-boundary.md)
+* [`001-core-concepts.md`](docs/specs/001-core-concepts.md)
+* [`002-project-and-target-manifest.md`](docs/specs/002-project-and-target-manifest.md)
+* [`003-package-manifest-and-runtime-contributions.md`](docs/specs/003-package-manifest-and-runtime-contributions.md)
+* [`006-cli-contract.md`](docs/specs/006-cli-contract.md)
+* [`010-workspace-and-project-model.md`](docs/specs/010-workspace-and-project-model.md)
+* [`012-tooling-and-runtime-boundary.md`](docs/specs/012-tooling-and-runtime-boundary.md)
 
-Architecture notes and older drafts are useful background, but the specs are the
-source of truth for active behavior.
+Architecture notes and older drafts are useful background, but the specs are the source of truth for active behavior.
+
+---
+
+## The short pitch
+
+NGIN is a C++ build system where the main workflow is simple:
+
+```bash
+ngin build
+ngin run
+```
+
+Packages, profiles, staging, generated CMake, launch metadata, and runtime files are handled by the project model.
+
+You can inspect and customize those things when you need to.
+
+But you do not need to start there.
+
+Build the app.
+
+Run the app.
+
+Let NGIN carry the boxes.
