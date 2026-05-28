@@ -648,8 +648,25 @@ TEST_CASE("graph json contract carries selected item provenance")
     };
 
     const auto fullGraph = graphJson();
+    REQUIRE_THAT(fullGraph, ContainsSubstring(R"("schemaVersion": "4.0")"));
     REQUIRE_THAT(fullGraph, ContainsSubstring(R"("kind": "NGIN.CompositionGraph")"));
+    REQUIRE_THAT(fullGraph, ContainsSubstring(R"("state": "resolved")"));
+    REQUIRE_THAT(fullGraph, ContainsSubstring(R"("facets": [)"));
     REQUIRE_THAT(fullGraph, ContainsSubstring(R"("identity": {"project":"Contract.App")"));
+    REQUIRE_THAT(fullGraph, ContainsSubstring(R"("conventions": [)"));
+    REQUIRE_THAT(fullGraph, ContainsSubstring(R"("properties": [)"));
+    REQUIRE_THAT(fullGraph, ContainsSubstring(R"("product": {"kind":"Application")"));
+    REQUIRE_THAT(fullGraph, ContainsSubstring(R"("selection": {"profile":"contract")"));
+    REQUIRE_THAT(fullGraph, ContainsSubstring(R"("facetsSummary":)"));
+    REQUIRE_THAT(fullGraph, ContainsSubstring(R"("plans": {"packages":)"));
+    REQUIRE_THAT(fullGraph, ContainsSubstring(R"("generators":)"));
+    REQUIRE_THAT(fullGraph, ContainsSubstring(R"("runtime":)"));
+    REQUIRE_THAT(fullGraph, ContainsSubstring(R"("environment":)"));
+    REQUIRE_THAT(fullGraph, ContainsSubstring(R"("launches":)"));
+    REQUIRE_THAT(fullGraph, ContainsSubstring(R"("packageOutputs":)"));
+    REQUIRE_THAT(fullGraph, ContainsSubstring(R"("publish":)"));
+    REQUIRE_THAT(fullGraph, ContainsSubstring(R"("quality":)"));
+    REQUIRE_THAT(fullGraph, ContainsSubstring(R"("diagnostics":)"));
     REQUIRE_THAT(fullGraph, ContainsSubstring(R"("product":"Application","profile":"contract")"));
     REQUIRE_THAT(fullGraph, ContainsSubstring(R"("packageFeatures":[)"));
     REQUIRE_THAT(fullGraph, ContainsSubstring(R"("package":"Package.Contract")"));
@@ -718,10 +735,44 @@ TEST_CASE("graph json contract carries selected item provenance")
     REQUIRE_THAT(publishPlan, ContainsSubstring(R"("sourceKind":"project-profile","sourceName":"contract")"));
 
     const auto qualityPlan = graphJson("quality");
+    REQUIRE_THAT(qualityPlan, ContainsSubstring(R"("schemaVersion": "4.0")"));
+    REQUIRE_THAT(qualityPlan, ContainsSubstring(R"("kind": "NGIN.CompositionGraphPlan")"));
     REQUIRE_THAT(qualityPlan, ContainsSubstring(R"("plan": "quality")"));
+    REQUIRE_THAT(qualityPlan, ContainsSubstring(R"("identity": {"project":"Contract.App")"));
+    REQUIRE_THAT(qualityPlan, ContainsSubstring(R"("data": {"analyzers":[)"));
+    REQUIRE_THAT(qualityPlan, ContainsSubstring(R"("diagnostics": [])"));
     REQUIRE_THAT(qualityPlan, ContainsSubstring(R"("name":"project-analyzer","tool":"project-analyzer","package":"","scope":"Build","severity":"Warning")"));
     REQUIRE_THAT(qualityPlan, ContainsSubstring(R"("name":"profile-analyzer","tool":"profile-analyzer","package":"","scope":"Build","severity":"Error")"));
     REQUIRE_THAT(qualityPlan, ContainsSubstring(R"("name":"workspace-analyzer","tool":"workspace-analyzer","package":"","scope":"Build","severity":"Error")"));
     REQUIRE_THAT(qualityPlan, ContainsSubstring(R"("name":"feature-analyzer","tool":"feature-analyzer","package":"Package.Contract","scope":"Build","severity":"Warning")"));
     REQUIRE_THAT(qualityPlan, ContainsSubstring(R"("sourceKind":"package-feature","sourceName":"Package.Contract::Diagnostics")"));
+}
+
+TEST_CASE("frozen graph schema artifact documents the emitted contract")
+{
+    const auto schema = ReadFile(RepoRoot() / "docs/schemas/ngin-composition-graph-v4.schema.json");
+
+    REQUIRE_THAT(schema, ContainsSubstring(R"("$id": "https://ngin.dev/schemas/ngin-composition-graph-v4.schema.json")"));
+    REQUIRE_THAT(schema, ContainsSubstring(R"("NGIN.CompositionGraph")"));
+    REQUIRE_THAT(schema, ContainsSubstring(R"("NGIN.CompositionGraphPlan")"));
+    REQUIRE_THAT(schema, ContainsSubstring(R"("schemaVersion")"));
+    REQUIRE_THAT(schema, ContainsSubstring(R"("facetsSummary")"));
+    REQUIRE_THAT(schema, ContainsSubstring(R"("packages")"));
+    REQUIRE_THAT(schema, ContainsSubstring(R"("packageFeatures")"));
+    REQUIRE_THAT(schema, ContainsSubstring(R"("build")"));
+    REQUIRE_THAT(schema, ContainsSubstring(R"("generators")"));
+    REQUIRE_THAT(schema, ContainsSubstring(R"("stage")"));
+    REQUIRE_THAT(schema, ContainsSubstring(R"("runtime")"));
+    REQUIRE_THAT(schema, ContainsSubstring(R"("environment")"));
+    REQUIRE_THAT(schema, ContainsSubstring(R"("launches")"));
+    REQUIRE_THAT(schema, ContainsSubstring(R"("packageOutputs")"));
+    REQUIRE_THAT(schema, ContainsSubstring(R"("publish")"));
+    REQUIRE_THAT(schema, ContainsSubstring(R"("quality")"));
+    REQUIRE_THAT(schema, ContainsSubstring("<redacted>"));
+
+    const auto spec = ReadFile(RepoRoot() / "docs/specs/013-composition-graph-json-contract.md");
+    REQUIRE_THAT(spec, ContainsSubstring("Status: Frozen V4 Contract"));
+    REQUIRE_THAT(spec, ContainsSubstring("docs/schemas/ngin-composition-graph-v4.schema.json"));
+    REQUIRE_THAT(spec, ContainsSubstring("Consumers should prefer the plan slices"));
+    REQUIRE_THAT(spec, ContainsSubstring("Secrets are always redacted"));
 }

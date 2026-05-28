@@ -788,6 +788,43 @@ Implemented support:
 - root project condition parsing for `SchemaVersion="4"`
 - `When="condition-name"` selectors on V4 build settings
 
+### V4 Graph Contract Freeze
+
+The V4 Composition Graph JSON contract is now frozen as the stable phase-one
+machine contract for CLI and editor consumers.
+
+Frozen contract artifacts:
+
+- `docs/specs/013-composition-graph-json-contract.md`
+- `docs/schemas/ngin-composition-graph-v4.schema.json`
+- `ngin schema --format json` graph contract metadata
+- VS Code `CompositionGraphPayload` typings aligned with the frozen graph
+  surface
+
+Frozen envelope contracts:
+
+- `schemaVersion: "4.0"`
+- `kind: "NGIN.CompositionGraph"` for `inspect --format json` and
+  `graph --format json`
+- `kind: "NGIN.CompositionGraphPlan"` for focused plan JSON
+- stable full-graph top-level fields: `state`, `facets`, `identity`,
+  `conventions`, `properties`, `product`, `selection`, `facetsSummary`, and
+  `plans`
+- stable plan slices for packages, package features, build, generators, stage,
+  runtime, environment, launch, launches, package outputs, publish, quality,
+  and diagnostics
+- stable provenance source vocabulary for convention, project,
+  project-profile, workspace-profile, workspace-product-profile, package, and
+  package-feature contributions
+- secret redaction as `"<redacted>"`
+
+Compatibility policy:
+
+- `4.x` graph producers may add optional fields.
+- `4.x` graph consumers must ignore unknown fields.
+- removing documented fields, changing documented field types, changing
+  secret redaction, or moving plan data requires a new major graph schema.
+
 ## Verified
 
 The CLI target builds successfully:
@@ -979,6 +1016,10 @@ Current test coverage includes:
   package features, build definitions, staged files, runtime modules,
   environment variables including redacted secrets, launches, publishes,
   package outputs, and quality analyzers
+- frozen V4 Composition Graph JSON schema artifact and spec are parseable and
+  covered by focused CLI contract tests
+- `ngin schema --format json` exposes the frozen graph schema/spec paths and
+  stable graph field sets
 - CLI tests are split into focused authoring, workspace, command authoring,
   package, product, overlay, graph, and facade files with shared test support
 - official `NGIN.Tooling.ClangTidy` system-wrapper package for enabling
@@ -1038,17 +1079,11 @@ Current test coverage includes:
   summaries, and prefer structured analyzer diagnostic events with the existing
   text diagnostic parser retained as fallback.
 
-## Not Implemented Yet
+## Deferred Post-V4 Epics
 
-The following are still open and should not be described as complete:
+The following are intentionally outside the V4 freeze and should be tracked as
+named future work instead of keeping V4 open-ended:
 
-- final V4 Composition Graph data model
-- final frozen graph JSON contract
-- stable named convention graph contributions and final provenance records
-  beyond the first-pass graph snapshot
-- final V4 overlay duplicate diagnostics and provenance freeze over the full
-  shared selected-item surface
-- final graph JSON schema freeze and external consumer compatibility pass
 - full host/target dependency closure separation during restore/build
 - definition-driven project resolution beyond current workspace project,
   package source, version, provider, platform, and toolchain declarations
@@ -1060,18 +1095,21 @@ The following are still open and should not be described as complete:
 - DEFLATE compression support inside ZIP-backed `.nginpack` archives
 - analyzer execution beyond the phase-one clang-tidy runner, formatter
   execution, coverage collection, and quality policy enforcement
-- final graph diff engine over a stable graph JSON schema
-- full V4 editor schema/completion metadata generated from the final schema
+- graph diff expansion beyond the frozen phase-one graph slices
+- generated editor schema/completion metadata beyond the current CLI schema
+  metadata and VS Code graph typings
 
 ## Next Iteration
 
-The next implementation slice should focus on one of these paths:
+V4 should now be treated as phase-one complete. The next implementation slice
+should use one of these names instead of reopening the V4 umbrella:
 
-- migrate remaining guides/examples/spec drafts outside the active V4 plans to
-  V4 syntax
-- freeze the graph JSON contract once the remaining selected item families use
-  shared identity, provenance, removal, and duplicate-diagnostic semantics
-- derive a formal graph JSON schema/golden artifact from the now-pinned
-  selected-item contract
-- add DEFLATE support or a compression backend for ZIP-backed `.nginpack`
-  entries if package size becomes important
+- `Packages`: host/target closure separation, binary/source mode selection,
+  package compression, feeds, and lock-file expansion
+- `External Providers`: system, CMake package, pkg-config, vcpkg, and Conan
+  adapters
+- `Platform ABI`: toolchain compatibility and binary package ABI matching
+- `Trust`: signing, SBOM, and trust policy
+- `Quality`: formatter execution, coverage collection, and policy enforcement
+- `Docs`: migrate remaining legacy/background guides and examples to V4 syntax
+  where they are still active user-facing material

@@ -6839,6 +6839,20 @@ namespace NGIN::CLI
         std::cout << "  \"environmentItems\": [\"Env\", \"LaunchEnv\", \"Secret\"],\n";
         std::cout << "  \"publishKinds\": [\"Folder\", \"Archive\"],\n";
         std::cout << "  \"archiveFormats\": [\"zip\"],\n";
+        std::cout << "  \"graphJson\": {\n";
+        std::cout << "    \"schemaVersion\": \"4.0\",\n";
+        std::cout << "    \"fullKind\": \"NGIN.CompositionGraph\",\n";
+        std::cout << "    \"planKind\": \"NGIN.CompositionGraphPlan\",\n";
+        std::cout << "    \"schemaPath\": \"docs/schemas/ngin-composition-graph-v4.schema.json\",\n";
+        std::cout << "    \"specPath\": \"docs/specs/013-composition-graph-json-contract.md\",\n";
+        std::cout << "    \"stableTopLevelFields\": [\"schemaVersion\", \"kind\", \"state\", "
+                     "\"facets\", \"identity\", \"conventions\", \"properties\", "
+                     "\"product\", \"selection\", \"facetsSummary\", \"plans\"],\n";
+        std::cout << "    \"planFields\": [\"packages\", \"packageFeatures\", \"build\", "
+                     "\"generators\", \"stage\", \"runtime\", \"environment\", "
+                     "\"launch\", \"launches\", \"packageOutputs\", \"publish\", "
+                     "\"quality\", \"diagnostics\"]\n";
+        std::cout << "  },\n";
         std::cout << "  \"explainKinds\": [\"property\", \"convention\", \"source\", "
                      "\"define\", \"package\", \"feature\", \"stage\", "
                      "\"generator\", \"launch\", \"publish\", \"package-output\", "

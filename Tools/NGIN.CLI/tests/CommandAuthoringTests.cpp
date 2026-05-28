@@ -157,6 +157,13 @@ TEST_CASE("schema command emits editor metadata")
     REQUIRE_THAT(captured.str(), ContainsSubstring(R"("Application": ["Runtime", "Launch", "Publish"])"));
     REQUIRE_THAT(captured.str(), ContainsSubstring(R"("publishKinds": ["Folder", "Archive"])"));
     REQUIRE_THAT(captured.str(), ContainsSubstring(R"("archiveFormats": ["zip"])"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("graphJson": {)"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("fullKind": "NGIN.CompositionGraph")"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("planKind": "NGIN.CompositionGraphPlan")"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("schemaPath": "docs/schemas/ngin-composition-graph-v4.schema.json")"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("specPath": "docs/specs/013-composition-graph-json-contract.md")"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("stableTopLevelFields": [)"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("planFields": [)"));
     REQUIRE_THAT(captured.str(), ContainsSubstring(R"("environment")"));
     REQUIRE_THAT(captured.str(), ContainsSubstring(R"("publish")"));
     REQUIRE_THAT(captured.str(), ContainsSubstring(R"("package-output")"));

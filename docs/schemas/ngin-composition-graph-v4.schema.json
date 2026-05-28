@@ -1,0 +1,567 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ngin.dev/schemas/ngin-composition-graph-v4.schema.json",
+  "title": "NGIN Composition Graph V4 JSON Contract",
+  "description": "Stable V4 Composition Graph and focused plan JSON envelopes emitted by ngin inspect and ngin graph.",
+  "oneOf": [
+    { "$ref": "#/$defs/compositionGraph" },
+    { "$ref": "#/$defs/compositionGraphPlan" }
+  ],
+  "$defs": {
+    "stringArray": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "provenance": {
+      "type": "object",
+      "required": ["sourceKind", "sourceName", "manifestPath", "reason"],
+      "properties": {
+        "sourceKind": {
+          "type": "string",
+          "enum": [
+            "convention",
+            "project",
+            "project-profile",
+            "workspace-profile",
+            "workspace-product-profile",
+            "package",
+            "package-feature"
+          ]
+        },
+        "sourceName": { "type": "string" },
+        "manifestPath": { "type": "string" },
+        "reason": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "diagnostic": {
+      "type": "object",
+      "required": ["severity", "subject", "message"],
+      "properties": {
+        "severity": { "type": "string", "enum": ["error", "warning"] },
+        "subject": { "type": "string" },
+        "message": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "identity": {
+      "type": "object",
+      "required": ["project", "projectPath", "product", "profile"],
+      "properties": {
+        "project": { "type": "string" },
+        "projectPath": { "type": "string" },
+        "product": { "type": "string" },
+        "profile": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "planIdentity": {
+      "type": "object",
+      "required": ["project", "product", "profile"],
+      "properties": {
+        "project": { "type": "string" },
+        "product": { "type": "string" },
+        "profile": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "product": {
+      "type": "object",
+      "required": ["kind", "outputType", "outputName", "targetName"],
+      "properties": {
+        "kind": { "type": "string" },
+        "outputType": { "type": "string" },
+        "outputName": { "type": "string" },
+        "targetName": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "selection": {
+      "type": "object",
+      "required": [
+        "profile",
+        "hostPlatform",
+        "targetPlatform",
+        "operatingSystem",
+        "architecture",
+        "toolchain",
+        "environment",
+        "abiTag"
+      ],
+      "properties": {
+        "profile": { "type": "string" },
+        "hostPlatform": { "type": "string" },
+        "targetPlatform": { "type": "string" },
+        "operatingSystem": { "type": "string" },
+        "architecture": { "type": "string" },
+        "toolchain": { "type": "string" },
+        "environment": { "type": "string" },
+        "abiTag": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "convention": {
+      "type": "object",
+      "required": ["name", "reason", "provenance"],
+      "properties": {
+        "name": { "type": "string" },
+        "reason": { "type": "string" },
+        "provenance": { "$ref": "#/$defs/provenance" }
+      },
+      "additionalProperties": true
+    },
+    "property": {
+      "type": "object",
+      "required": ["name", "value", "provenance"],
+      "properties": {
+        "name": { "type": "string" },
+        "value": {
+          "type": "string",
+          "description": "Secret values are emitted as the literal <redacted>."
+        },
+        "provenance": { "$ref": "#/$defs/provenance" }
+      },
+      "additionalProperties": true
+    },
+    "facetsSummary": {
+      "type": "object",
+      "required": [
+        "packages",
+        "packageFeatures",
+        "sources",
+        "headers",
+        "generators",
+        "stagedFiles",
+        "runtimeModules",
+        "environmentVariables",
+        "publishes",
+        "analyzers",
+        "diagnostics"
+      ],
+      "properties": {
+        "packages": { "type": "integer", "minimum": 0 },
+        "packageFeatures": { "type": "integer", "minimum": 0 },
+        "sources": { "type": "integer", "minimum": 0 },
+        "headers": { "type": "integer", "minimum": 0 },
+        "generators": { "type": "integer", "minimum": 0 },
+        "stagedFiles": { "type": "integer", "minimum": 0 },
+        "runtimeModules": { "type": "integer", "minimum": 0 },
+        "environmentVariables": { "type": "integer", "minimum": 0 },
+        "publishes": { "type": "integer", "minimum": 0 },
+        "analyzers": { "type": "integer", "minimum": 0 },
+        "diagnostics": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": true
+    },
+    "package": {
+      "type": "object",
+      "required": [
+        "name",
+        "version",
+        "source",
+        "provider",
+        "providerKind",
+        "providerPackage",
+        "providerVersion",
+        "providerRoot",
+        "scope",
+        "closures",
+        "dependencies"
+      ],
+      "properties": {
+        "name": { "type": "string" },
+        "version": { "type": "string" },
+        "source": { "type": "string" },
+        "provider": { "type": "string" },
+        "providerKind": { "type": "string" },
+        "providerPackage": { "type": "string" },
+        "providerVersion": { "type": "string" },
+        "providerRoot": { "type": "string" },
+        "scope": { "type": "string" },
+        "closures": { "$ref": "#/$defs/stringArray" },
+        "dependencies": { "$ref": "#/$defs/stringArray" },
+        "provenance": { "$ref": "#/$defs/provenance" }
+      },
+      "additionalProperties": true
+    },
+    "packageFeature": {
+      "type": "object",
+      "required": ["package", "feature", "packageVersion"],
+      "properties": {
+        "package": { "type": "string" },
+        "feature": { "type": "string" },
+        "packageVersion": { "type": "string" },
+        "provenance": { "$ref": "#/$defs/provenance" }
+      },
+      "additionalProperties": true
+    },
+    "buildDefine": {
+      "oneOf": [
+        { "type": "string" },
+        {
+          "type": "object",
+          "required": ["value", "provenance"],
+          "properties": {
+            "value": { "type": "string" },
+            "provenance": { "$ref": "#/$defs/provenance" }
+          },
+          "additionalProperties": true
+        }
+      ]
+    },
+    "buildInput": {
+      "type": "object",
+      "required": ["kind", "role", "source", "owner"],
+      "properties": {
+        "kind": { "type": "string" },
+        "role": { "type": "string" },
+        "source": { "type": "string" },
+        "owner": { "type": "string" },
+        "provenance": { "$ref": "#/$defs/provenance" }
+      },
+      "additionalProperties": true
+    },
+    "buildPlan": {
+      "type": "object",
+      "required": ["defines", "inputs"],
+      "properties": {
+        "defines": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/buildDefine" }
+        },
+        "inputs": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/buildInput" }
+        }
+      },
+      "additionalProperties": true
+    },
+    "generator": {
+      "type": "object",
+      "required": ["name", "owner", "tool", "outputs"],
+      "properties": {
+        "name": { "type": "string" },
+        "owner": { "type": "string" },
+        "tool": { "type": "string" },
+        "outputs": { "type": "integer", "minimum": 0 },
+        "provenance": { "$ref": "#/$defs/provenance" }
+      },
+      "additionalProperties": true
+    },
+    "stageFile": {
+      "type": "object",
+      "required": ["kind", "source", "target", "owner"],
+      "properties": {
+        "kind": { "type": "string" },
+        "source": { "type": "string" },
+        "target": { "type": "string" },
+        "owner": { "type": "string" },
+        "provenance": { "$ref": "#/$defs/provenance" }
+      },
+      "additionalProperties": true
+    },
+    "stagePlan": {
+      "type": "object",
+      "required": ["files"],
+      "properties": {
+        "files": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/stageFile" }
+        }
+      },
+      "additionalProperties": true
+    },
+    "runtimeModule": {
+      "oneOf": [
+        { "type": "string" },
+        {
+          "type": "object",
+          "required": ["name", "provenance"],
+          "properties": {
+            "name": { "type": "string" },
+            "provenance": { "$ref": "#/$defs/provenance" }
+          },
+          "additionalProperties": true
+        }
+      ]
+    },
+    "runtimePlugin": {
+      "oneOf": [
+        { "type": "string" },
+        {
+          "type": "object",
+          "required": ["name", "provenance"],
+          "properties": {
+            "name": { "type": "string" },
+            "provenance": { "$ref": "#/$defs/provenance" }
+          },
+          "additionalProperties": true
+        }
+      ]
+    },
+    "runtimePlan": {
+      "type": "object",
+      "required": ["requiredModules", "optionalModules", "plugins"],
+      "properties": {
+        "requiredModules": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/runtimeModule" }
+        },
+        "optionalModules": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/runtimeModule" }
+        },
+        "plugins": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/runtimePlugin" }
+        }
+      },
+      "additionalProperties": true
+    },
+    "environmentVariable": {
+      "type": "object",
+      "required": ["name", "value", "secret", "resolved", "source"],
+      "properties": {
+        "name": { "type": "string" },
+        "value": { "type": "string" },
+        "secret": { "type": "boolean" },
+        "resolved": { "type": "boolean" },
+        "source": { "type": "string" },
+        "provenance": { "$ref": "#/$defs/provenance" }
+      },
+      "additionalProperties": true
+    },
+    "environmentPlan": {
+      "type": "object",
+      "required": ["variables"],
+      "properties": {
+        "variables": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/environmentVariable" }
+        }
+      },
+      "additionalProperties": true
+    },
+    "launch": {
+      "type": "object",
+      "required": ["name", "executable", "workingDirectory", "args", "selected"],
+      "properties": {
+        "name": { "type": "string" },
+        "executable": { "type": "string" },
+        "workingDirectory": { "type": "string" },
+        "args": { "type": "string" },
+        "selected": { "type": "boolean" },
+        "provenance": { "$ref": "#/$defs/provenance" }
+      },
+      "additionalProperties": true
+    },
+    "packageOutput": {
+      "type": "object",
+      "required": ["name", "version", "from", "headers", "libraries", "tools", "capabilities", "abi"],
+      "properties": {
+        "name": { "type": "string" },
+        "version": { "type": "string" },
+        "from": { "type": "string" },
+        "headers": { "type": "integer", "minimum": 0 },
+        "libraries": { "type": "integer", "minimum": 0 },
+        "tools": { "type": "integer", "minimum": 0 },
+        "capabilities": { "type": "integer", "minimum": 0 },
+        "abi": { "type": "string" },
+        "provenance": { "$ref": "#/$defs/provenance" }
+      },
+      "additionalProperties": true
+    },
+    "publish": {
+      "type": "object",
+      "required": [
+        "name",
+        "kind",
+        "format",
+        "output",
+        "includeStage",
+        "includeRuntimeDependencies",
+        "includeSymbols"
+      ],
+      "properties": {
+        "name": { "type": "string" },
+        "kind": { "type": "string" },
+        "format": { "type": "string" },
+        "output": { "type": "string" },
+        "includeStage": { "type": "boolean" },
+        "includeRuntimeDependencies": { "type": "boolean" },
+        "includeSymbols": { "type": "boolean" },
+        "provenance": { "$ref": "#/$defs/provenance" }
+      },
+      "additionalProperties": true
+    },
+    "qualityAnalyzer": {
+      "type": "object",
+      "required": ["name", "tool", "package", "scope", "severity", "configPath", "configOptional"],
+      "properties": {
+        "name": { "type": "string" },
+        "tool": { "type": "string" },
+        "package": { "type": "string" },
+        "scope": { "type": "string" },
+        "severity": { "type": "string" },
+        "configPath": { "type": "string" },
+        "configOptional": { "type": "boolean" },
+        "provenance": { "$ref": "#/$defs/provenance" }
+      },
+      "additionalProperties": true
+    },
+    "qualityPlan": {
+      "type": "object",
+      "required": ["analyzers"],
+      "properties": {
+        "analyzers": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/qualityAnalyzer" }
+        }
+      },
+      "additionalProperties": true
+    },
+    "plans": {
+      "type": "object",
+      "required": [
+        "packages",
+        "packageFeatures",
+        "build",
+        "generators",
+        "stage",
+        "runtime",
+        "environment",
+        "launch",
+        "launches",
+        "packageOutputs",
+        "publish",
+        "quality",
+        "diagnostics"
+      ],
+      "properties": {
+        "packages": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/package" }
+        },
+        "packageFeatures": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/packageFeature" }
+        },
+        "build": { "$ref": "#/$defs/buildPlan" },
+        "generators": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/generator" }
+        },
+        "stage": { "$ref": "#/$defs/stagePlan" },
+        "runtime": { "$ref": "#/$defs/runtimePlan" },
+        "environment": { "$ref": "#/$defs/environmentPlan" },
+        "launch": { "$ref": "#/$defs/launch" },
+        "launches": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/launch" }
+        },
+        "packageOutputs": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/packageOutput" }
+        },
+        "publish": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/publish" }
+        },
+        "quality": { "$ref": "#/$defs/qualityPlan" },
+        "diagnostics": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/diagnostic" }
+        }
+      },
+      "additionalProperties": true
+    },
+    "compositionGraph": {
+      "type": "object",
+      "required": [
+        "schemaVersion",
+        "kind",
+        "state",
+        "facets",
+        "identity",
+        "conventions",
+        "properties",
+        "product",
+        "selection",
+        "facetsSummary",
+        "plans"
+      ],
+      "properties": {
+        "schemaVersion": { "const": "4.0" },
+        "kind": { "const": "NGIN.CompositionGraph" },
+        "state": { "type": "string", "enum": ["resolved", "diagnostic"] },
+        "facets": { "$ref": "#/$defs/stringArray" },
+        "identity": { "$ref": "#/$defs/identity" },
+        "conventions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/convention" }
+        },
+        "properties": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/property" }
+        },
+        "product": { "$ref": "#/$defs/product" },
+        "selection": { "$ref": "#/$defs/selection" },
+        "facetsSummary": { "$ref": "#/$defs/facetsSummary" },
+        "plans": { "$ref": "#/$defs/plans" }
+      },
+      "additionalProperties": true
+    },
+    "compositionGraphPlan": {
+      "type": "object",
+      "required": [
+        "schemaVersion",
+        "kind",
+        "plan",
+        "state",
+        "identity",
+        "data",
+        "diagnostics"
+      ],
+      "properties": {
+        "schemaVersion": { "const": "4.0" },
+        "kind": { "const": "NGIN.CompositionGraphPlan" },
+        "plan": {
+          "type": "string",
+          "enum": [
+            "build",
+            "stage",
+            "package",
+            "package-output",
+            "launch",
+            "runtime",
+            "environment",
+            "publish",
+            "quality"
+          ]
+        },
+        "state": { "type": "string", "enum": ["resolved", "diagnostic"] },
+        "identity": { "$ref": "#/$defs/planIdentity" },
+        "data": {
+          "anyOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/buildPlan" },
+            { "$ref": "#/$defs/stagePlan" },
+            { "$ref": "#/$defs/runtimePlan" },
+            { "$ref": "#/$defs/environmentPlan" },
+            { "$ref": "#/$defs/launch" },
+            { "$ref": "#/$defs/qualityPlan" },
+            {
+              "type": "object",
+              "additionalProperties": true
+            }
+          ]
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/diagnostic" }
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

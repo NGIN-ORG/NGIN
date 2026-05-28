@@ -30,6 +30,8 @@ the terminal commands.
 - file registration and snippets for `.ngin`, `.nginproj`, `.nginpkg`,
   `.nginlaunch`, and `.nginsettings`
 - a current product-first `.nginproj` schema artifact for editor tooling
+- graph inspection backed by the frozen V4 Composition Graph JSON contract in
+  `docs/specs/013-composition-graph-json-contract.md`
 - workspace/project parsing for product sections, direct project profiles,
   workspace package sources, and authored dependency scopes
 

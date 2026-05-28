@@ -53,6 +53,13 @@ If you are trying to understand NGIN as a user:
   `.ngin` workspace file contract.
 - [`specs/012-tooling-and-runtime-boundary.md`](specs/012-tooling-and-runtime-boundary.md)  
   Boundary between NGIN tooling and the optional hosted runtime.
+- [`specs/013-composition-graph-json-contract.md`](specs/013-composition-graph-json-contract.md)
+  Frozen V4 Composition Graph JSON contract for CLI and editor consumers.
+
+## Machine-Readable Schemas
+
+- [`schemas/ngin-composition-graph-v4.schema.json`](schemas/ngin-composition-graph-v4.schema.json)
+  JSON Schema for `NGIN.CompositionGraph` and `NGIN.CompositionGraphPlan`.
 
 ## Background Material
 

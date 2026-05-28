@@ -247,14 +247,31 @@ export interface GraphProvenance {
   reason?: string;
 }
 
+export interface GraphConvention {
+  name: string;
+  reason?: string;
+  provenance?: GraphProvenance;
+}
+
+export interface GraphProperty {
+  name: string;
+  value?: string;
+  provenance?: GraphProvenance;
+}
+
 export interface GraphPackagePlan {
   name: string;
   version?: string;
   manifestPath?: string;
   providerRoot?: string;
   source?: string;
+  provider?: string;
+  providerKind?: string;
+  providerPackage?: string;
+  providerVersion?: string;
   scope?: string;
   closures?: string[];
+  dependencies?: string[];
   provenance?: GraphProvenance;
 }
 
@@ -325,6 +342,7 @@ export interface GraphStagedFile {
   kind?: string;
   source?: string;
   target?: string;
+  owner?: string;
   relativeDestination?: string;
   provenance?: GraphProvenance;
 }
@@ -357,13 +375,22 @@ export interface GraphPublishPlan {
   kind?: string;
   format?: string;
   output?: string;
+  includeStage?: boolean;
+  includeRuntimeDependencies?: boolean;
+  includeSymbols?: boolean;
   provenance?: GraphProvenance;
 }
 
 export interface GraphPackageOutputPlan {
   name?: string;
   version?: string;
+  from?: string;
   output?: string;
+  headers?: number;
+  libraries?: number;
+  tools?: number;
+  capabilities?: number;
+  abi?: string;
   provenance?: GraphProvenance;
 }
 
@@ -395,6 +422,8 @@ export interface CompositionGraphPayload {
     outputName?: string;
     targetName?: string;
   };
+  conventions?: GraphConvention[];
+  properties?: GraphProperty[];
   selection?: {
     profile?: string;
     buildType?: string;

@@ -1472,7 +1472,7 @@ Recommended order:
   providers, or both.
 - Whether workspace profile overlays can target all products of a kind, named
   projects only, or both.
-- Exact graph JSON schema shape and versioning policy.
+- Future graph JSON schema additions after the frozen `4.0` contract.
 - Exact `.nginpack`, static feed, lock file, and package store formats.
 - Exact ABI tag dimensions per platform/toolchain family.
 - Whether source projects may emit multiple `PackageOutput` entries.
@@ -1498,3 +1498,9 @@ V4 is not done when the parser accepts `SchemaVersion="4"`. V4 is done when:
 - tests, benchmarks, analyzers, and publish are part of normal workflow
 - editor tooling consumes the same graph as the CLI
 - active docs teach V4 as the normal path
+
+The phase-one V4 freeze satisfies this definition for the active authoring,
+CLI, runtime-reader, and VS Code surfaces. Work such as full external provider
+adapters, signing/SBOM/trust, richer quality runners, and binary ABI package
+selection belongs to named post-V4 epics rather than keeping the V4 contract
+open.
