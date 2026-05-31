@@ -45,7 +45,7 @@
     "@vscode/vsce": "^3.9.1",
     "esbuild": "^0.28.0",
     "mocha": "^11.1.0",
-    "ovsx": "^0.10.12",
+    "ovsx": "^1.0.0",
     "typescript": "^6.0.3"
   },
   "overrides": {
