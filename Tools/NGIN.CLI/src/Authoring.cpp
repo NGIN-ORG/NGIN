@@ -1677,6 +1677,9 @@ namespace NGIN::CLI
             build.providerPackage = Attribute(*buildElement, "ProviderPackage").value_or("");
             build.providerVersion = Attribute(*buildElement, "ProviderVersion").value_or("");
             build.cmakePackage = Attribute(*buildElement, "CMakePackage").value_or("");
+            build.linkage = Attribute(*buildElement, "Linkage").value_or("");
+            build.runtimeDeployment = Attribute(*buildElement, "RuntimeDeployment").value_or("");
+            build.runtimeArtifacts = Attribute(*buildElement, "RuntimeArtifacts").value_or("");
             if (!build.mode.empty() && !IsSupportedPackageBuildMode(build.mode))
             {
                 throw std::runtime_error(path.string() + ": unknown package build mode '" + build.mode + "'");

@@ -36,6 +36,7 @@ namespace NGIN::CLI
         std::optional<std::string> format{};
         std::optional<std::string> packageName{};
         std::optional<std::string> featureName{};
+        std::optional<std::string> algorithmName{};
         std::optional<std::string> versionRange{};
         std::optional<std::string> scope{};
         std::optional<std::string> launchName{};
@@ -74,6 +75,8 @@ namespace NGIN::CLI
     auto CmdPackagePack(const fs::path &root, const ParsedArgs &args) -> int;
     auto CmdPackageLock(const fs::path &root, const ParsedArgs &args) -> int;
     auto CmdPackageVerifyLock(const fs::path &root, const ParsedArgs &args) -> int;
+    auto CmdCryptoInfo(const fs::path &root, const ParsedArgs &args) -> int;
+    auto CmdCryptoExplain(const fs::path &root, const ParsedArgs &args) -> int;
     auto CmdRestore(const fs::path &root, const ParsedArgs &args) -> int;
     auto CmdSettingsInit(const fs::path &root, const ParsedArgs &args) -> int;
     auto CmdVariablesExplain(const fs::path &root, const ParsedArgs &args) -> int;

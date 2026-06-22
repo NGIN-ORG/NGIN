@@ -455,6 +455,9 @@ namespace NGIN::CLI
         std::string providerPackage{};
         std::string providerVersion{};
         std::string cmakePackage{};
+        std::string linkage{};
+        std::string runtimeDeployment{};
+        std::string runtimeArtifacts{};
         std::vector<BuildVariable> options{};
     };
 
@@ -962,6 +965,9 @@ namespace NGIN::CLI
             std::string providerKind{};
             std::string providerPackage{};
             std::string providerVersion{};
+            std::string linkage{};
+            std::string runtimeDeployment{};
+            std::string runtimeArtifacts{};
             fs::path providerRoot{};
             std::string scope{};
             std::vector<std::string> closures{};

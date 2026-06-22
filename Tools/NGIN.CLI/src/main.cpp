@@ -32,6 +32,8 @@ namespace
             << "  new <app|lib|tool|test|benchmark|plugin> <Name>\n"
             << "  settings init [--project <file.nginproj>]\n"
             << "  variables explain [--project <file.nginproj>] [--profile <name>] [--configuration <name>]\n"
+            << "  crypto info\n"
+            << "  crypto explain --algorithm <name> [--project <file.nginproj>] [--profile <name>] [--format json]\n"
             << "  explain condition <Name> [--project <file.nginproj>] [--profile <name>] [--configuration <name>]\n"
             << "  explain package-feature <PackageName> <FeatureName> [--project <file.nginproj>] [--profile <name>] [--configuration <name>]\n"
             << "  explain generator <Name> [--project <file.nginproj>] [--profile <name>] [--configuration <name>]\n"
@@ -232,6 +234,23 @@ auto main(int argc, char **argv) -> int
                 return NGIN::CLI::CmdVariablesExplain(root, NGIN::CLI::ParseCommonArgs(argc, argv, 3));
             }
             throw std::runtime_error("unknown variables subcommand '" + subcommand + "'");
+        }
+        if (command == "crypto")
+        {
+            if (argc < 3)
+            {
+                throw std::runtime_error("crypto requires a subcommand");
+            }
+            const std::string subcommand = argv[2];
+            if (subcommand == "info")
+            {
+                return NGIN::CLI::CmdCryptoInfo(root, NGIN::CLI::ParseCommonArgs(argc, argv, 3));
+            }
+            if (subcommand == "explain")
+            {
+                return NGIN::CLI::CmdCryptoExplain(root, NGIN::CLI::ParseCommonArgs(argc, argv, 3));
+            }
+            throw std::runtime_error("unknown crypto subcommand '" + subcommand + "'");
         }
         if (command == "explain")
         {

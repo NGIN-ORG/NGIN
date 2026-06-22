@@ -10,6 +10,19 @@ The important distinction is ownership:
 - Source code usually lives elsewhere.
 - [`NGIN.Core`](NGIN.Core/) is the locally owned hosted runtime package and does
   contain source code.
+- [`OpenSSL`](OpenSSL/) is a CMake `FindPackage` wrapper for the `OpenSSL::Crypto`
+  target used by optional crypto provider integration; it declares a
+  `CryptoProvider` feature for graph capability discovery and provider-package
+  metadata for restore-capable workspace overrides, linkage support, and runtime
+  artifact hints.
+- [`libsodium`](libsodium/) is a CMake `FindPackage`/pkg-config wrapper that
+  normalizes common libsodium installs to `libsodium::libsodium` for optional
+  NGIN.Base crypto provider integration; it remains provider-manager-neutral
+  until a workspace binds it to vcpkg, Conan, or another provider.
+- [`BoringSSL`](BoringSSL/) is a CMake `FindPackage` wrapper that normalizes
+  common BoringSSL libcrypto layouts to `BoringSSL::Crypto` for future optional
+  crypto provider integration and declares the common `boringssl` provider
+  package name plus libcrypto linkage/runtime metadata.
 - First-party library source trees usually live under `../Dependencies/NGIN/`.
 - Third-party source trees usually live under `../Dependencies/ThirdParty/`.
 
@@ -24,6 +37,7 @@ A package wrapper may declare:
 - runtime modules and plugins
 - staged config, content, or other files
 - optional backend build hints
+- optional linkage and runtime deployment hints
 
 Package wrappers describe reusable behavior. Workspace-local source ownership is
 resolved through the workspace file and its `PackageSources` and

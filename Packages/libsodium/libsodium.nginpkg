@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Package SchemaVersion="4"
+         Name="libsodium"
+         Version="1.0.19"
+         CompatiblePlatformRange=">=0.1.0-alpha.1 &lt;0.2.0">
+  <Metadata>
+    <Description>libsodium package-backed provider metadata for NGIN.Base crypto.</Description>
+    <License>ISC</License>
+  </Metadata>
+  <Build Backend="CMake"
+         Mode="FindPackage"
+         ProviderPackage="libsodium"
+         ProviderVersion="1.0.19"
+         CMakePackage="libsodium"
+         Linkage="Static;Shared"
+         RuntimeDeployment="PackageRuntimeLibraries"
+         RuntimeArtifacts="libsodium" />
+  <Library Name="libsodium">
+    <Exports>
+      <LibraryTarget Name="libsodium::libsodium" />
+    </Exports>
+  </Library>
+  <Features>
+    <Feature Name="CryptoProvider"
+             Description="Expose libsodium as a package-backed crypto provider candidate.">
+      <Provides>
+        <Capability Name="Crypto.Provider.libsodium" />
+        <Capability Name="Crypto.Algorithm.Random" />
+        <Capability Name="Crypto.Algorithm.XChaCha20Poly1305" />
+        <Capability Name="Crypto.Algorithm.Ed25519" />
+        <Capability Name="Crypto.Algorithm.X25519" />
+        <Capability Name="Crypto.Algorithm.Argon2id" />
+      </Provides>
+    </Feature>
+  </Features>
+  <Compatibility>
+    <OperatingSystems>
+      <OperatingSystem Name="linux" />
+      <OperatingSystem Name="windows" />
+      <OperatingSystem Name="macos" />
+    </OperatingSystems>
+  </Compatibility>
+</Package>

@@ -1,0 +1,156 @@
+name: Crypto Provider CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/crypto-provider-ci.yml"
+      - "Dependencies/NGIN/NGIN.Base/**"
+      - "Packages/BoringSSL/**"
+      - "Packages/OpenSSL/**"
+      - "Packages/libsodium/**"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/crypto-provider-ci.yml"
+      - "Dependencies/NGIN/NGIN.Base/**"
+      - "Packages/BoringSSL/**"
+      - "Packages/OpenSSL/**"
+      - "Packages/libsodium/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: crypto-provider-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  libsodium:
+    name: libsodium provider vectors
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Install prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libsodium-dev
+
+      - name: Configure NGIN.Base with libsodium
+        run: >
+          cmake
+          -S Dependencies/NGIN/NGIN.Base
+          -B build/ngin-base-libsodium
+          -DNGIN_BASE_BUILD_TESTS=ON
+          -DNGIN_BASE_BUILD_EXAMPLES=OFF
+          -DNGIN_BASE_BUILD_BENCHMARKS=OFF
+          -DNGIN_BASE_CRYPTO_WITH_LIBSODIUM=ON
+          -DNGIN_BASE_CRYPTO_REQUIRE_PROVIDER=libsodium
+          -DNGIN_BASE_CRYPTO_REQUIRE_ALGORITHMS="random;xchacha20-poly1305;ed25519;x25519;argon2id"
+          -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build libsodium provider tests
+        run: >
+          cmake
+          --build build/ngin-base-libsodium
+          --config Release
+          --target
+          Crypto_BackendTests
+          Crypto_AeadTests
+          Crypto_AsymmetricTests
+          Crypto_KdfTests
+          Crypto_SignatureTests
+          Crypto_TokenTests
+          Crypto_ProviderConformanceTests
+          Include_CryptoTests
+
+      - name: Run libsodium provider tests
+        run: >
+          ctest
+          --test-dir build/ngin-base-libsodium
+          --output-on-failure
+          -C Release
+          -R "^Base\\.(Crypto\\.(Backend|Aead|Asymmetric|Kdf|Signature|Token|ProviderConformance)|Include\\.Crypto)\\."
+
+      - name: Upload CTest logs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: libsodium-provider-ctest-logs
+          path: build/ngin-base-libsodium/Testing/Temporary/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  boringssl:
+    name: BoringSSL provider vectors
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Install prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes golang-go ninja-build
+
+      - name: Checkout BoringSSL
+        run: |
+          git clone --depth 1 https://boringssl.googlesource.com/boringssl build/boringssl-src
+
+      - name: Build BoringSSL crypto
+        run: |
+          cmake -S build/boringssl-src -B build/boringssl-build -GNinja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/boringssl-build --target crypto
+
+      - name: Configure NGIN.Base with BoringSSL
+        run: >
+          cmake
+          -S Dependencies/NGIN/NGIN.Base
+          -B build/ngin-base-boringssl
+          -DNGIN_BASE_BUILD_TESTS=ON
+          -DNGIN_BASE_BUILD_EXAMPLES=OFF
+          -DNGIN_BASE_BUILD_BENCHMARKS=OFF
+          -DNGIN_BASE_CRYPTO_WITH_BORINGSSL=ON
+          -DNGIN_BASE_CRYPTO_REQUIRE_PROVIDER=boringssl
+          -DNGIN_BASE_CRYPTO_REQUIRE_ALGORITHMS="random;sha256;hmac-sha256;hkdf-sha256;pbkdf2-sha256;aes-256-gcm;chacha20-poly1305;ed25519;x25519"
+          -DBORINGSSL_INCLUDE_DIR="${{ github.workspace }}/build/boringssl-src/include"
+          -DBORINGSSL_CRYPTO_LIBRARY="${{ github.workspace }}/build/boringssl-build/libcrypto.a"
+          -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build BoringSSL provider tests
+        run: >
+          cmake
+          --build build/ngin-base-boringssl
+          --config Release
+          --target
+          Crypto_BackendTests
+          Crypto_ProviderConformanceTests
+          Include_CryptoTests
+
+      - name: Run BoringSSL provider tests
+        run: >
+          ctest
+          --test-dir build/ngin-base-boringssl
+          --output-on-failure
+          -C Release
+          -R "^Base\\.(Crypto\\.(Backend|ProviderConformance)|Include\\.Crypto)\\."
+
+      - name: Upload CTest logs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: boringssl-provider-ctest-logs
+          path: build/ngin-base-boringssl/Testing/Temporary/
+          if-no-files-found: ignore
+          retention-days: 14

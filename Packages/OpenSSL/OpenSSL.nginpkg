@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Package SchemaVersion="4"
+         Name="OpenSSL"
+         Version="3.0.0"
+         CompatiblePlatformRange=">=0.1.0-alpha.1 &lt;0.2.0">
+  <Metadata>
+    <Description>OpenSSL libcrypto package-backed provider metadata for NGIN.Base crypto.</Description>
+    <License>Apache-2.0</License>
+  </Metadata>
+  <Build Backend="CMake"
+         Mode="FindPackage"
+         ProviderPackage="openssl"
+         ProviderVersion="3.0.0"
+         CMakePackage="OpenSSL"
+         Linkage="Static;Shared"
+         RuntimeDeployment="PackageRuntimeLibraries"
+         RuntimeArtifacts="libcrypto">
+    <Options>
+      <Option Name="NGIN_BASE_CRYPTO_WITH_OPENSSL" Value="ON" />
+    </Options>
+  </Build>
+  <Library Name="OpenSSL.Crypto">
+    <Exports>
+      <LibraryTarget Name="OpenSSL::Crypto" />
+    </Exports>
+  </Library>
+  <Features>
+    <Feature Name="CryptoProvider"
+             Description="Expose OpenSSL libcrypto as a package-backed crypto provider candidate.">
+      <Provides>
+        <Capability Name="Crypto.Provider.openssl" />
+        <Capability Name="Crypto.Algorithm.Random" />
+        <Capability Name="Crypto.Algorithm.Sha256" />
+        <Capability Name="Crypto.Algorithm.Sha512" />
+        <Capability Name="Crypto.Algorithm.HmacSha256" />
+        <Capability Name="Crypto.Algorithm.HmacSha512" />
+        <Capability Name="Crypto.Algorithm.HkdfSha256" />
+        <Capability Name="Crypto.Algorithm.HkdfSha512" />
+        <Capability Name="Crypto.Algorithm.Pbkdf2Sha256" />
+        <Capability Name="Crypto.Algorithm.Pbkdf2Sha512" />
+        <Capability Name="Crypto.Algorithm.Aes128Gcm" />
+        <Capability Name="Crypto.Algorithm.Aes256Gcm" />
+        <Capability Name="Crypto.Algorithm.ChaCha20Poly1305" />
+        <Capability Name="Crypto.Algorithm.Ed25519" />
+        <Capability Name="Crypto.Algorithm.EcdsaP256Sha256" />
+        <Capability Name="Crypto.Algorithm.RsaPssSha256" />
+        <Capability Name="Crypto.Algorithm.RsaOaepSha256" />
+        <Capability Name="Crypto.Algorithm.X25519" />
+      </Provides>
+    </Feature>
+  </Features>
+  <Compatibility>
+    <OperatingSystems>
+      <OperatingSystem Name="linux" />
+      <OperatingSystem Name="windows" />
+      <OperatingSystem Name="macos" />
+    </OperatingSystems>
+  </Compatibility>
+</Package>

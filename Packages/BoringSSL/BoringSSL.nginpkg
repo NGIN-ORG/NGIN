@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Package SchemaVersion="4"
+         Name="BoringSSL"
+         Version="0.0.0"
+         CompatiblePlatformRange=">=0.1.0-alpha.1 &lt;0.2.0">
+  <Metadata>
+    <Description>BoringSSL libcrypto package-backed provider metadata for NGIN.Base crypto.</Description>
+    <License>ISC-style OpenSSL/BoringSSL license</License>
+  </Metadata>
+  <Build Backend="CMake"
+         Mode="FindPackage"
+         ProviderPackage="boringssl"
+         CMakePackage="BoringSSL"
+         Linkage="Static;Shared"
+         RuntimeDeployment="PackageRuntimeLibraries"
+         RuntimeArtifacts="libcrypto">
+    <Options>
+      <Option Name="NGIN_BASE_CRYPTO_WITH_BORINGSSL" Value="ON" />
+    </Options>
+  </Build>
+  <Library Name="BoringSSL.Crypto">
+    <Exports>
+      <LibraryTarget Name="BoringSSL::Crypto" />
+    </Exports>
+  </Library>
+  <Features>
+    <Feature Name="CryptoProvider"
+             Description="Expose BoringSSL libcrypto as a package-backed crypto provider candidate.">
+      <Provides>
+        <Capability Name="Crypto.Provider.boringssl" />
+        <Capability Name="Crypto.Algorithm.Random" />
+        <Capability Name="Crypto.Algorithm.Sha256" />
+        <Capability Name="Crypto.Algorithm.Sha512" />
+        <Capability Name="Crypto.Algorithm.HmacSha256" />
+        <Capability Name="Crypto.Algorithm.HmacSha512" />
+        <Capability Name="Crypto.Algorithm.HkdfSha256" />
+        <Capability Name="Crypto.Algorithm.HkdfSha512" />
+        <Capability Name="Crypto.Algorithm.Pbkdf2Sha256" />
+        <Capability Name="Crypto.Algorithm.Pbkdf2Sha512" />
+        <Capability Name="Crypto.Algorithm.Aes128Gcm" />
+        <Capability Name="Crypto.Algorithm.Aes256Gcm" />
+        <Capability Name="Crypto.Algorithm.ChaCha20Poly1305" />
+        <Capability Name="Crypto.Algorithm.Ed25519" />
+        <Capability Name="Crypto.Algorithm.EcdsaP256Sha256" />
+        <Capability Name="Crypto.Algorithm.RsaPssSha256" />
+        <Capability Name="Crypto.Algorithm.RsaOaepSha256" />
+        <Capability Name="Crypto.Algorithm.X25519" />
+      </Provides>
+    </Feature>
+  </Features>
+  <Compatibility>
+    <OperatingSystems>
+      <OperatingSystem Name="linux" />
+      <OperatingSystem Name="windows" />
+      <OperatingSystem Name="macos" />
+    </OperatingSystems>
+  </Compatibility>
+</Package>

@@ -72,6 +72,7 @@ include(Catch)
 add_executable(NGINCliTests
   AuthoringTests.cpp
   CommandAuthoringTests.cpp
+  CryptoCommandTests.cpp
   FacadeTests.cpp
   GraphInspectTests.cpp
   OverlayTests.cpp
