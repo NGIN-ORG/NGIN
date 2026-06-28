@@ -1,0 +1,179 @@
+name: Crypto Fuzz CI
+
+on:
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: "libFuzzer runs per target"
+        required: false
+        default: "5000"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/crypto-fuzz-ci.yml"
+      - "Dependencies/NGIN/NGIN.Base/**"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/crypto-fuzz-ci.yml"
+      - "Dependencies/NGIN/NGIN.Base/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: crypto-fuzz-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FUZZ_RUNS: ${{ inputs.runs || '5000' }}
+
+jobs:
+  parser-fuzzers:
+    name: Parser fuzzers
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Install prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes clang ninja-build
+
+      - name: Configure fuzzer build
+        env:
+          CC: clang
+          CXX: clang++
+        run: >
+          cmake
+          -S Dependencies/NGIN/NGIN.Base
+          -B build/ngin-base-crypto-fuzz-ci
+          -GNinja
+          -DNGIN_BASE_BUILD_TESTS=ON
+          -DNGIN_BASE_BUILD_FUZZERS=ON
+          -DNGIN_BASE_BUILD_EXAMPLES=OFF
+          -DNGIN_BASE_BUILD_BENCHMARKS=OFF
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo
+
+      - name: Build parser fuzzers
+        run: >
+          cmake
+          --build build/ngin-base-crypto-fuzz-ci
+          --config RelWithDebInfo
+          --target
+          Crypto_DerFuzzer
+          Crypto_JwtFuzzer
+          Crypto_KeyFormatFuzzer
+          Crypto_PasetoFuzzer
+          Crypto_PemFuzzer
+          Crypto_X509Fuzzer
+
+      - name: Run fuzzer startup checks
+        run: >
+          ctest
+          --test-dir build/ngin-base-crypto-fuzz-ci
+          --output-on-failure
+          -C RelWithDebInfo
+          -L Crypto.Fuzz
+
+      - name: Run bounded parser fuzz campaign
+        run: |
+          set -euo pipefail
+          mkdir -p build/fuzz-artifacts/parser
+          for fuzzer in \
+            Crypto_DerFuzzer \
+            Crypto_JwtFuzzer \
+            Crypto_KeyFormatFuzzer \
+            Crypto_PasetoFuzzer \
+            Crypto_PemFuzzer \
+            Crypto_X509Fuzzer
+          do
+            "build/ngin-base-crypto-fuzz-ci/tests/${fuzzer}" \
+              -runs="${FUZZ_RUNS}" \
+              -max_len=4096 \
+              -print_final_stats=1 \
+              -artifact_prefix="${GITHUB_WORKSPACE}/build/fuzz-artifacts/parser/"
+          done
+
+      - name: Upload fuzzer artifacts
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: crypto-parser-fuzzer-artifacts
+          path: build/fuzz-artifacts/parser/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  libsodium-paseto-fuzzer:
+    name: libsodium PASETO fuzzer
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Install prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes clang libsodium-dev ninja-build
+
+      - name: Configure libsodium fuzzer build
+        env:
+          CC: clang
+          CXX: clang++
+        run: >
+          cmake
+          -S Dependencies/NGIN/NGIN.Base
+          -B build/ngin-base-crypto-fuzz-libsodium-ci
+          -GNinja
+          -DNGIN_BASE_BUILD_TESTS=ON
+          -DNGIN_BASE_BUILD_FUZZERS=ON
+          -DNGIN_BASE_BUILD_EXAMPLES=OFF
+          -DNGIN_BASE_BUILD_BENCHMARKS=OFF
+          -DNGIN_BASE_CRYPTO_WITH_LIBSODIUM=ON
+          -DNGIN_BASE_CRYPTO_REQUIRE_PROVIDER=libsodium
+          -DNGIN_BASE_CRYPTO_REQUIRE_ALGORITHMS="random;xchacha20-poly1305;ed25519;x25519;argon2id"
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo
+
+      - name: Build libsodium PASETO fuzzer
+        run: >
+          cmake
+          --build build/ngin-base-crypto-fuzz-libsodium-ci
+          --config RelWithDebInfo
+          --target
+          Crypto_PasetoFuzzer
+
+      - name: Run libsodium PASETO startup check
+        run: >
+          ctest
+          --test-dir build/ngin-base-crypto-fuzz-libsodium-ci
+          --output-on-failure
+          -C RelWithDebInfo
+          -R "^Base\\.Crypto\\.Fuzz\\.Paseto\\.Startup$"
+
+      - name: Run bounded libsodium PASETO fuzz campaign
+        run: |
+          set -euo pipefail
+          mkdir -p build/fuzz-artifacts/libsodium-paseto
+          build/ngin-base-crypto-fuzz-libsodium-ci/tests/Crypto_PasetoFuzzer \
+            -runs="${FUZZ_RUNS}" \
+            -max_len=4096 \
+            -print_final_stats=1 \
+            -artifact_prefix="${GITHUB_WORKSPACE}/build/fuzz-artifacts/libsodium-paseto/"
+
+      - name: Upload fuzzer artifacts
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: crypto-libsodium-paseto-fuzzer-artifacts
+          path: build/fuzz-artifacts/libsodium-paseto/
+          if-no-files-found: ignore
+          retention-days: 14
