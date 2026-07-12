@@ -111,6 +111,7 @@ TEST_CASE("external project exports imported interface target")
     REQUIRE_THAT(generated, ContainsSubstring("target_include_directories(\"OpenSSL::SSL\" INTERFACE \"" + (temp.path() / "External/include").generic_string() + "\")"));
     REQUIRE_THAT(generated, ContainsSubstring(R"(target_compile_definitions("OpenSSL::SSL" INTERFACE "HAS_OPENSSL=1"))"));
     REQUIRE_THAT(generated, ContainsSubstring(R"(target_link_libraries("External.App" PRIVATE "OpenSSL::SSL"))"));
+    REQUIRE_THAT(generated, !ContainsSubstring("CMAKE_SUPPRESS_REGENERATION"));
 }
 
 TEST_CASE("tool run and package output metadata parse")

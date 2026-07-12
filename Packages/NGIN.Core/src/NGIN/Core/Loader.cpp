@@ -352,11 +352,11 @@ auto FilesystemPluginCatalog::CollectDescriptors(
               KernelErrorCode::InternalError, "Loader", ToString(searchPath),
               "filesystem plugin scan failed"));
         }
-        if (!next.Value()) {
+        if (!next->HasEntry()) {
           break;
         }
 
-        const auto &entry = entries->Current();
+        const auto &entry = next->Entry();
         if (entry.type != NGIN::IO::EntryType::File) {
           continue;
         }
@@ -378,10 +378,8 @@ auto FilesystemPluginCatalog::CollectDescriptors(
         }
 
         ModuleDescriptor descriptor{};
-        auto parse = ParseDescriptorFromXml(
-            ToString(path),
-            std::string_view{input.Value().Data(), input.Value().Size()},
-            descriptor);
+        auto parse = ParseDescriptorFromXml(ToString(path),
+                                            input.Value().View(), descriptor);
         if (!parse) {
           return NGIN::Utilities::Unexpected<KernelError>(parse.Error());
         }

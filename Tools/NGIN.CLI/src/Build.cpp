@@ -1584,7 +1584,6 @@ WriteGeneratedBuildProject(const ResolvedLaunch &resolved,
     out << " " << language;
   }
   out << ")\n";
-  out << "set(CMAKE_SUPPRESS_REGENERATION ON)\n";
 
   std::unordered_set<std::string> addedPackageKeys{};
   for (const auto &package : resolved.orderedPackages) {
