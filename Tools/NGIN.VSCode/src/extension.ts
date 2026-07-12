@@ -78,6 +78,7 @@ interface ProjectExplorerTarget extends NginCommandTarget {
   fsPath?: string;
   role?: 'manifest' | 'source' | 'config' | 'generated';
   isDirectory?: boolean;
+  explainIdentity?: string;
 }
 
 function comparablePath(value: string): string {
@@ -280,6 +281,9 @@ class NginController implements vscode.Disposable {
       vscode.commands.registerCommand('ngin.createClangTidyConfig', (arg) => this.runHandled(() => this.openClangTidyConfigCommand(this.asCommandTarget(arg), true))),
       vscode.commands.registerCommand('ngin.graph', (arg) => this.runHandled(() => this.graphCommand(this.asCommandTarget(arg)))),
       vscode.commands.registerCommand('ngin.variablesExplain', (arg) => this.runHandled(() => this.variablesExplainCommand(this.asCommandTarget(arg)))),
+      vscode.commands.registerCommand('ngin.explainSelection', (arg) => this.runHandled(() => this.explainSelectionCommand(this.asExplorerTarget(arg)))),
+      vscode.commands.registerCommand('ngin.showResolvedInputs', (arg) => this.runHandled(() => this.showInspectDetailsCommand('inputs', this.asCommandTarget(arg)))),
+      vscode.commands.registerCommand('ngin.showInactiveTooling', (arg) => this.runHandled(() => this.showInspectDetailsCommand('tooling', this.asCommandTarget(arg)))),
       vscode.commands.registerCommand('ngin.settingsInit', (arg) => this.runHandled(() => this.settingsInitCommand(this.asCommandTarget(arg)))),
       vscode.commands.registerCommand('ngin.workspaceStatus', () => this.runHandled(() => this.workspaceCommand('status'))),
       vscode.commands.registerCommand('ngin.workspaceDoctor', () => this.runHandled(() => this.workspaceCommand('doctor'))),
@@ -500,7 +504,8 @@ class NginController implements vscode.Disposable {
       profileName: candidate.profileName,
       fsPath,
       role: candidate.role,
-      isDirectory: candidate.isDirectory
+      isDirectory: candidate.isDirectory,
+      explainIdentity: candidate.explainIdentity
     };
   }
 
@@ -861,6 +866,46 @@ class NginController implements vscode.Disposable {
       result.output
     );
     await this.warnIfLocalSettingsNotIgnored(context);
+  }
+
+  private async explainSelectionCommand(target?: ProjectExplorerTarget): Promise<void> {
+    if (!target?.explainIdentity) {
+      throw new Error('The selected item does not provide an NGIN explain identity.');
+    }
+    const context = await this.resolveCommandContext(target);
+    if (!context) {
+      return;
+    }
+
+    const result = await this.runCli(
+      context.workspace.root,
+      ['explain', target.explainIdentity, '--project', context.project.path, '--profile', context.profile.name],
+      vscode.Uri.file(context.project.path)
+    );
+    if (result.exitCode !== 0) {
+      throw new Error(`ngin explain failed for ${target.explainIdentity}`);
+    }
+    await this.openVirtualVariablesDocument(
+      `NGIN Explain - ${target.explainIdentity.replace(/[^A-Za-z0-9._-]+/g, '-')}`,
+      result.output
+    );
+  }
+
+  private async showInspectDetailsCommand(kind: 'inputs' | 'tooling', target?: NginCommandTarget): Promise<void> {
+    const snapshot = await this.workspaceState.getSnapshot(target?.preferredUri);
+    if (!snapshot.workspace || !snapshot.context) {
+      throw new Error('No active NGIN project/profile is selected.');
+    }
+    const graph = await this.runInspect(snapshot);
+    const value = kind === 'inputs'
+      ? graph.plans?.build?.inputs ?? []
+      : (graph.plans?.generators ?? []).filter((generator) => generator.state === 'excluded');
+    const title = kind === 'inputs' ? 'Resolved Inputs' : 'Inactive Tooling';
+    const content = value.length > 0 ? JSON.stringify(value, null, 2) : `(no ${title.toLowerCase()})\n`;
+    await this.openVirtualVariablesDocument(
+      `NGIN ${title} - ${snapshot.context.project.name} [${snapshot.context.profile.name}]`,
+      content
+    );
   }
 
   private async settingsInitCommand(target?: NginCommandTarget): Promise<void> {

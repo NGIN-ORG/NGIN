@@ -17,9 +17,10 @@ export interface ProjectTreeManifestModel {
   tooltip?: string;
   projectPath: string;
   filePath: string;
+  description?: string;
 }
 
-export type ProjectTreeGroupKind = 'files' | 'source' | 'config' | 'dependencies' | 'generated' | 'profiles';
+export type ProjectTreeGroupKind = 'dependencies' | 'tooling' | 'launch' | 'artifacts' | 'problems';
 
 export interface ProjectTreeGroupModel {
   kind: 'group';
@@ -29,19 +30,10 @@ export interface ProjectTreeGroupModel {
   icon: string;
   projectPath: string;
   group: ProjectTreeGroupKind;
-}
-
-export interface ProjectTreeProfileModel {
-  kind: 'profile';
-  label: string;
   description?: string;
-  tooltip?: string;
-  projectPath: string;
-  profileName: string;
-  selected: boolean;
 }
 
-export type ProjectTreeDependencyKind = 'projects' | 'packages';
+export type ProjectTreeDependencyKind = 'projects' | 'direct' | 'transitive';
 
 export interface ProjectTreeDependencyModel {
   kind: ProjectTreeDependencyKind;
@@ -50,11 +42,14 @@ export interface ProjectTreeDependencyModel {
   tooltip?: string;
   projectPath: string;
   targetPath?: string;
+  explainIdentity?: string;
+  children?: ProjectTreeInspectEntryModel[];
 }
 
 export interface ProjectTreeDependenciesModel {
   projects: ProjectTreeDependencyModel[];
-  packages: ProjectTreeDependencyModel[];
+  direct: ProjectTreeDependencyModel[];
+  transitive: ProjectTreeDependencyModel[];
 }
 
 export type ProjectTreeInspectGroupKind =
@@ -64,11 +59,13 @@ export type ProjectTreeInspectGroupKind =
   | 'inputs'
   | 'stage'
   | 'runtime'
+  | 'tooling'
   | 'launch'
   | 'publish'
   | 'packageOutputs'
   | 'analyzers'
-  | 'diagnostics';
+  | 'diagnostics'
+  | 'problems';
 
 export interface ProjectTreeInspectGroupModel {
   kind: ProjectTreeInspectGroupKind;
@@ -85,6 +82,8 @@ export interface ProjectTreeInspectEntryModel {
   icon?: string;
   targetPath?: string;
   children?: ProjectTreeInspectEntryModel[];
+  explainIdentity?: string;
+  context?: 'tooling' | 'launch' | 'problem' | 'detail';
 }
 
 export interface ProjectTreeInspectModel {
@@ -92,14 +91,13 @@ export interface ProjectTreeInspectModel {
   entriesByGroup: Map<ProjectTreeInspectGroupKind, ProjectTreeInspectEntryModel[]>;
 }
 
-export type ProjectTreeChildModel = ProjectTreeManifestModel | ProjectTreeGroupModel | ProjectTreeProfileModel;
+export type ProjectTreeChildModel = ProjectTreeManifestModel | ProjectTreeGroupModel;
 
 export interface ProjectTreeModels {
   workspaceLabel?: string;
   workspaceDescription?: string;
   projects: ProjectTreeProjectModel[];
   childrenByProject: Map<string, ProjectTreeChildModel[]>;
-  profilesByProject: Map<string, ProjectTreeProfileModel[]>;
   dependenciesByProject: Map<string, ProjectTreeDependenciesModel>;
   inspectByProject: Map<string, ProjectTreeInspectModel>;
 }
@@ -146,11 +144,12 @@ function buildProjectDependencies(snapshot: NginWorkspaceSnapshot, projectPath: 
   const workspace = snapshot.workspace;
   const project = workspace?.projects.find((candidate) => comparablePath(candidate.path) === comparablePath(projectPath));
   if (!workspace || !project) {
-    return { projects: [], packages: [] };
+    return { projects: [], direct: [], transitive: [] };
   }
 
   const projectRefs = new Map<string, { path: string; owners: Set<string> }>();
-  const dependencies = new Map<string, { name: string; owners: Set<string> }>();
+  const authoredPackages = new Map<string, Set<string>>();
+  const selectedProfile = snapshot.context?.project.path === project.path ? snapshot.context.profile : undefined;
 
   const addProjectRef = (referencePath: string, owner: string): void => {
     const key = comparablePath(referencePath);
@@ -163,12 +162,9 @@ function buildProjectDependencies(snapshot: NginWorkspaceSnapshot, projectPath: 
   };
 
   const addPackageRef = (name: string, owner: string): void => {
-    const existing = dependencies.get(name);
-    if (existing) {
-      existing.owners.add(owner);
-      return;
-    }
-    dependencies.set(name, { name, owners: new Set([owner]) });
+    const owners = authoredPackages.get(name) ?? new Set<string>();
+    owners.add(owner);
+    authoredPackages.set(name, owners);
   };
 
   for (const reference of project.projectRefs ?? []) {
@@ -177,12 +173,12 @@ function buildProjectDependencies(snapshot: NginWorkspaceSnapshot, projectPath: 
   for (const reference of project.dependencies ?? []) {
     addPackageRef(reference.name, 'Project');
   }
-  for (const profile of project.profiles) {
-    for (const reference of profile.projectRefs ?? []) {
-      addProjectRef(reference.path, profile.name);
+  if (selectedProfile) {
+    for (const reference of selectedProfile.projectRefs ?? []) {
+      addProjectRef(reference.path, selectedProfile.name);
     }
-    for (const reference of profile.dependencies ?? []) {
-      addPackageRef(reference.name, profile.name);
+    for (const reference of selectedProfile.dependencies ?? []) {
+      addPackageRef(reference.name, selectedProfile.name);
     }
   }
 
@@ -193,7 +189,7 @@ function buildProjectDependencies(snapshot: NginWorkspaceSnapshot, projectPath: 
       return {
         kind: 'projects',
         label,
-        description: ownerDescription(reference.owners),
+        description: 'workspace',
         tooltip: reference.path,
         projectPath: project.path,
         targetPath: reference.path
@@ -202,23 +198,50 @@ function buildProjectDependencies(snapshot: NginWorkspaceSnapshot, projectPath: 
     .sort((left, right) => left.label.localeCompare(right.label));
 
   const packageCatalog = workspace.packageCatalog ?? {};
-  const packageDependencies = Array.from(dependencies.values())
-    .map((reference): ProjectTreeDependencyModel => {
-      const resolved = packageCatalog[reference.name];
+  const resolvedPackages = snapshot.context?.project.path === project.path
+    ? snapshot.inspectGraph?.plans?.packages ?? []
+    : [];
+  const resolvedByName = new Map(resolvedPackages.map((pkg) => [pkg.name, pkg]));
+  const allNames = new Set([...authoredPackages.keys(), ...resolvedByName.keys()]);
+  const packageFeatures = snapshot.inspectGraph?.plans?.packageFeatures ?? [];
+  const packageModels = Array.from(allNames)
+    .map((name): ProjectTreeDependencyModel => {
+      const pkg = resolvedByName.get(name);
+      const catalogEntry = packageCatalog[name];
+      const direct = authoredPackages.has(name);
+      const relationship = direct ? 'direct' : 'transitive';
+      const scope = pkg?.scope ?? pkg?.closures?.join(', ');
+      const features = packageFeatures.filter((feature) => feature.package === name);
       return {
-        kind: 'packages',
-        label: reference.name,
-        description: ownerDescription(reference.owners),
-        tooltip: resolved?.path ?? reference.name,
+        kind: relationship,
+        label: name,
+        description: [relationship, scope].filter(Boolean).join(' · '),
+        tooltip: [pkg?.version, pkg?.manifestPath ?? catalogEntry?.path].filter(Boolean).join('\n') || name,
         projectPath: project.path,
-        targetPath: resolved?.path
+        targetPath: pkg?.manifestPath ?? catalogEntry?.path,
+        explainIdentity: `package:${name}`,
+        children: [
+          detailEntry('Version', pkg?.version, 'tag'),
+          detailEntry('Scope', scope, 'references'),
+          detailEntry('Declared By', ownerDescription(authoredPackages.get(name) ?? new Set()), 'references'),
+          ...features.map((feature) => ({
+            label: feature.feature,
+            description: 'enabled feature',
+            tooltip: feature.description,
+            icon: 'symbol-property',
+            explainIdentity: `feature:${feature.package}/${feature.feature}`,
+            context: 'detail' as const
+          })),
+          detailEntry('Manifest', pkg?.manifestPath ?? catalogEntry?.path, 'file-code', pkg?.manifestPath ?? catalogEntry?.path, pkg?.manifestPath ?? catalogEntry?.path)
+        ].filter((entry) => Boolean(entry.description))
       };
     })
     .sort((left, right) => left.label.localeCompare(right.label));
 
   return {
     projects: projectDependencies,
-    packages: packageDependencies
+    direct: packageModels.filter((dependency) => dependency.kind === 'direct'),
+    transitive: packageModels.filter((dependency) => dependency.kind === 'transitive')
   };
 }
 
@@ -485,8 +508,10 @@ export function buildInspectTreeModel(snapshot: NginWorkspaceSnapshot, projectPa
   for (const launch of plans?.launches ?? (plans?.launch ? [plans.launch] : [])) {
     launchEntries.push({
       label: launch.name ?? 'default',
-      description: [launch.selected ? 'Selected' : undefined, launch.executable].filter(Boolean).join(' • ') || undefined,
+      description: launch.executable,
       icon: launch.selected ? 'play-circle' : 'play',
+      explainIdentity: `launch:${launch.name ?? 'default'}`,
+      context: 'launch',
       children: [
         detailEntry('Executable', launch.executable, 'target'),
         detailEntry('Working Directory', launch.workingDirectory, 'folder-opened'),
@@ -548,7 +573,7 @@ export function buildInspectTreeModel(snapshot: NginWorkspaceSnapshot, projectPa
   }
 
   const diagnosticEntries = [
-    ...(snapshot.inspectError ? [{
+    ...(snapshot.inspectError && !(plans?.diagnostics?.length) ? [{
       label: snapshot.inspectError,
       description: 'Inspect',
       icon: 'warning'
@@ -562,20 +587,39 @@ export function buildInspectTreeModel(snapshot: NginWorkspaceSnapshot, projectPa
   ];
   if (diagnosticEntries.length > 0) {
     entriesByGroup.set('diagnostics', diagnosticEntries);
+    entriesByGroup.set('problems', diagnosticEntries.map((entry) => ({ ...entry, context: 'problem' })));
+  }
+
+  const generatorEntries = entriesByGroup.get('generators') ?? [];
+  const toolingEntries = [
+    ...(plans?.generators ?? []).flatMap((generator, index) => {
+      const entry = generatorEntries[index];
+      if (!entry || generator.state === 'excluded') {
+        return [];
+      }
+      return [{
+        ...entry,
+        label: /reflection|metagen/i.test(entry.label) ? 'Reflection code generation' : entry.label,
+        description: [generator.tool ?? generator.toolName, 'active'].filter(Boolean).join(' · '),
+        explainIdentity: `generator:${generator.name}`,
+        context: 'tooling' as const
+      }];
+    }),
+    ...(entriesByGroup.get('analyzers') ?? []).map((entry) => ({
+      ...entry,
+      description: [entry.description, 'analyzer'].filter(Boolean).join(' · '),
+      explainIdentity: `analyzer:${entry.label}`,
+      context: 'tooling' as const
+    }))
+  ];
+  if (toolingEntries.length > 0) {
+    entriesByGroup.set('tooling', toolingEntries);
   }
 
   const metadata: Array<{ kind: ProjectTreeInspectGroupKind; label: string; icon: string; tooltip: string }> = [
-    { kind: 'packages', label: 'Resolved Packages', icon: 'package', tooltip: 'Resolved packages for the active profile.' },
-    { kind: 'features', label: 'Features', icon: 'symbol-property', tooltip: 'Selected and available package features.' },
-    { kind: 'generators', label: 'Generators', icon: 'run', tooltip: 'Active and excluded generators for the active profile.' },
-    { kind: 'inputs', label: 'Inputs', icon: 'files', tooltip: 'Resolved typed inputs.' },
-    { kind: 'stage', label: 'Stage', icon: 'files', tooltip: 'Resolved staged files.' },
-    { kind: 'runtime', label: 'Runtime', icon: 'symbol-module', tooltip: 'Resolved runtime modules and plugins.' },
-    { kind: 'launch', label: 'Launch', icon: 'play-circle', tooltip: 'Launch, staged file, environment, and lock metadata.' },
-    { kind: 'publish', label: 'Publish', icon: 'cloud-upload', tooltip: 'Resolved publish entries.' },
-    { kind: 'packageOutputs', label: 'Package Outputs', icon: 'archive', tooltip: 'Resolved package outputs.' },
-    { kind: 'analyzers', label: 'Analyzers', icon: 'search', tooltip: 'Resolved quality analyzers.' },
-    { kind: 'diagnostics', label: 'Diagnostics', icon: 'warning', tooltip: 'Resolved project diagnostics.' }
+    { kind: 'tooling', label: 'Tooling', icon: 'tools', tooltip: 'Active generators and analyzers for the selected profile.' },
+    { kind: 'launch', label: 'Launch', icon: 'play-circle', tooltip: 'Selected launch and environment.' },
+    { kind: 'problems', label: 'Problems', icon: 'warning', tooltip: 'Resolver and inspection problems.' }
   ];
 
   const groups = metadata
@@ -591,20 +635,27 @@ export function buildInspectTreeModel(snapshot: NginWorkspaceSnapshot, projectPa
 export function buildProjectTreeModels(snapshot: NginWorkspaceSnapshot): ProjectTreeModels {
   const projects: ProjectTreeProjectModel[] = [];
   const childrenByProject = new Map<string, ProjectTreeChildModel[]>();
-  const profilesByProject = new Map<string, ProjectTreeProfileModel[]>();
   const dependenciesByProject = new Map<string, ProjectTreeDependenciesModel>();
   const inspectByProject = new Map<string, ProjectTreeInspectModel>();
 
   if (!snapshot.workspace) {
-    return { projects, childrenByProject, profilesByProject, dependenciesByProject, inspectByProject };
+    return { projects, childrenByProject, dependenciesByProject, inspectByProject };
   }
 
   for (const project of snapshot.workspace.projects) {
     const selectedProject = snapshot.context?.project.path === project.path;
+    const resolvedProblemCount = selectedProject ? snapshot.inspectGraph?.plans?.diagnostics?.length ?? 0 : 0;
+    const problemCount = resolvedProblemCount + (selectedProject && snapshot.inspectError && resolvedProblemCount === 0 ? 1 : 0);
     projects.push({
       kind: 'project',
       label: project.name,
-      description: selectedProject ? 'Selected' : path.relative(snapshot.workspace.root, project.path),
+      description: selectedProject
+        ? [
+            'active',
+            snapshot.context?.profile.name ?? project.defaultProfile ?? 'default',
+            problemCount > 0 ? `${problemCount} ${problemCount === 1 ? 'problem' : 'problems'}` : undefined
+          ].filter(Boolean).join(' · ')
+        : undefined,
       tooltip: project.path,
       projectPath: project.path,
       selected: selectedProject
@@ -613,37 +664,13 @@ export function buildProjectTreeModels(snapshot: NginWorkspaceSnapshot): Project
     const children: ProjectTreeChildModel[] = [
       {
         kind: 'manifest',
-        label: path.basename(project.path),
+        label: 'Manifest',
+        description: path.basename(project.path),
         tooltip: project.path,
         projectPath: project.path,
         filePath: project.path
       }
     ];
-
-    const profiles = project.profiles.map((profile) => ({
-      kind: 'profile' as const,
-      label: profile.name,
-      description: snapshot.context?.project.path === project.path && snapshot.context.profile.name === profile.name
-        ? 'Current'
-        : profile.environment || [profile.operatingSystem, profile.architecture].filter(Boolean).join('/'),
-      tooltip: `${project.name} [${profile.name}]`,
-      projectPath: project.path,
-      profileName: profile.name,
-      selected: snapshot.context?.project.path === project.path && snapshot.context.profile.name === profile.name
-    }));
-    profilesByProject.set(project.path, profiles);
-
-    if (profiles.length > 0) {
-      children.push({
-        kind: 'group',
-        id: `${project.path}:profiles`,
-        label: 'Profiles',
-        tooltip: 'Project profiles. Click one to make it current.',
-        icon: 'symbol-enum',
-        projectPath: project.path,
-        group: 'profiles'
-      });
-    }
 
     const dependencies = buildProjectDependencies(snapshot, project.path);
     dependenciesByProject.set(project.path, dependencies);
@@ -651,41 +678,63 @@ export function buildProjectTreeModels(snapshot: NginWorkspaceSnapshot): Project
     if (inspectModel) {
       inspectByProject.set(project.path, inspectModel);
     }
-    if ((inspectModel?.groups.length ?? 0) > 0 || dependencies.projects.length > 0 || dependencies.packages.length > 0) {
+    const dependencyCount = dependencies.projects.length + dependencies.direct.length + dependencies.transitive.length;
+    if (selectedProject && dependencyCount > 0) {
       children.push({
         kind: 'group',
         id: `${project.path}:dependencies`,
         label: 'Dependencies',
-        tooltip: 'Authored uses plus resolved packages, features, generators, launch, publish, analyzers, and diagnostics.',
+        description: String(dependencyCount),
+        tooltip: 'Workspace references and direct/transitive package dependencies.',
         icon: 'references',
         projectPath: project.path,
         group: 'dependencies'
       });
     }
 
-    children.push({
-      kind: 'group',
-      id: `${project.path}:generated`,
-      label: 'Generated',
-      tooltip: 'Existing generated output and staged artifacts.',
-      icon: 'symbol-misc',
-      projectPath: project.path,
-      group: 'generated'
-    });
+    if (selectedProject) {
+      for (const group of (inspectModel?.groups ?? []).filter((candidate) => candidate.kind !== 'problems')) {
+        const entries = inspectModel?.entriesByGroup.get(group.kind) ?? [];
+        children.push({
+          kind: 'group',
+          id: `${project.path}:${group.kind}`,
+          label: group.label,
+          description: group.kind === 'problems' || group.kind === 'tooling' ? String(entries.length) : undefined,
+          tooltip: group.tooltip,
+          icon: group.icon,
+          projectPath: project.path,
+          group: group.kind as 'tooling' | 'launch' | 'problems'
+        });
+      }
+    }
 
-    const hasSourceInputs = project.sourceRoots.length > 0 || project.buildSources.length > 0;
-    const hasConfigInputs = project.configInputs.length > 0
-      || project.profiles.some((profile) => profile.configInputs.length > 0);
-    if (hasSourceInputs || hasConfigInputs) {
+    if (selectedProject && (snapshot.launchManifestExists || snapshot.stagedCompileCommandsAvailable)) {
       children.push({
         kind: 'group',
-        id: `${project.path}:files`,
-        label: 'Files',
-        tooltip: 'Declared source and config inputs.',
-        icon: 'files',
+        id: `${project.path}:artifacts`,
+        label: 'Artifacts',
+        tooltip: 'Executable, staged application, launch metadata, and compile database.',
+        icon: 'archive',
         projectPath: project.path,
-        group: 'files'
+        group: 'artifacts'
       });
+    }
+
+    if (selectedProject) {
+      const problems = inspectModel?.groups.find((group) => group.kind === 'problems');
+      if (problems) {
+        const entries = inspectModel?.entriesByGroup.get('problems') ?? [];
+        children.push({
+          kind: 'group',
+          id: `${project.path}:problems`,
+          label: problems.label,
+          description: String(entries.length),
+          tooltip: problems.tooltip,
+          icon: problems.icon,
+          projectPath: project.path,
+          group: 'problems'
+        });
+      }
     }
 
     childrenByProject.set(project.path, children);
@@ -696,7 +745,6 @@ export function buildProjectTreeModels(snapshot: NginWorkspaceSnapshot): Project
     workspaceDescription: snapshot.workspace.root,
     projects,
     childrenByProject,
-    profilesByProject,
     dependenciesByProject,
     inspectByProject
   };

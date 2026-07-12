@@ -58,6 +58,9 @@ suite('NGIN Tools Extension', () => {
     assert.ok(commands.includes('ngin.rebuild'));
     assert.ok(commands.includes('ngin.variablesExplain'));
     assert.ok(commands.includes('ngin.settingsInit'));
+    assert.ok(commands.includes('ngin.explainSelection'));
+    assert.ok(commands.includes('ngin.showResolvedInputs'));
+    assert.ok(commands.includes('ngin.showInactiveTooling'));
   });
 
   test('validate command can execute in the sample workspace', async () => {
@@ -79,6 +82,23 @@ suite('NGIN Tools Extension', () => {
     assert.match(document.getText(), /Variables for profile: Debug/);
     assert.match(document.getText(), /\(none\)/);
     assert.doesNotMatch(document.getText(), /local-development-token|secret-token/);
+  });
+
+  test('advanced sidebar inspection commands open graph-backed readonly documents', async () => {
+    const extension = vscode.extensions.getExtension('ngin.ngin-tools');
+    assert.ok(extension);
+    await extension.activate();
+
+    await vscode.commands.executeCommand('ngin.showResolvedInputs', sampleTarget());
+    const inputs = await waitForActiveDocument((candidate) => candidate.uri.scheme === 'ngin-variables' && candidate.uri.path.includes('Resolved Inputs'));
+    assert.match(inputs.getText(), /"role"/);
+
+    await vscode.commands.executeCommand('ngin.explainSelection', {
+      ...sampleTarget(),
+      explainIdentity: 'package:NGIN.Core'
+    });
+    const explanation = await waitForActiveDocument((candidate) => candidate.uri.scheme === 'ngin-variables' && candidate.uri.path.includes('NGIN Explain'));
+    assert.match(explanation.getText(), /Package: NGIN.Core/);
   });
 
   test('settings init creates and opens local settings in an explicit temporary workspace', async () => {

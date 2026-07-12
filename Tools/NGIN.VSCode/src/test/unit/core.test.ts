@@ -448,7 +448,15 @@ test('extension manifest and snippets register local settings support', () => {
   assert.ok(commandIds.includes('ngin.analyze'));
   assert.ok(commandIds.includes('ngin.addClangTidyAnalyzerPackage'));
   assert.ok(commandIds.includes('ngin.openClangTidyConfig'));
+  assert.ok(commandIds.includes('ngin.explainSelection'));
+  assert.ok(commandIds.includes('ngin.showResolvedInputs'));
+  assert.ok(commandIds.includes('ngin.showInactiveTooling'));
   assert.equal(commandIds.includes('ngin.metagen'), false);
+
+  const titleActions = packageJson.contributes.menus['view/title']
+    .filter((entry: { group?: string }) => entry.group?.startsWith('navigation'))
+    .map((entry: { command: string }) => entry.command);
+  assert.deepEqual(titleActions, ['ngin.build', 'ngin.run', 'ngin.selectProfile', 'ngin.refresh']);
 
   const activityViews = packageJson.contributes.views.ngin.map((entry: { id: string; name: string }) => `${entry.id}:${entry.name}`);
   assert.deepEqual(activityViews, ['nginWorkspace:Workspace']);
@@ -929,21 +937,20 @@ test('project tree models mark the selected project and profile', () => {
       },
       profile: { name: 'Runtime', operatingSystem: 'linux', architecture: 'x64', environment: 'development', configInputs: [] }
     },
-    launchManifestExists: false,
-    stagedCompileCommandsAvailable: false
+    launchManifestExists: true,
+    stagedCompileCommandsAvailable: true
   });
 
   assert.equal(models.projects[0].selected, true);
+  assert.equal(models.projects[0].description, 'active · Runtime');
   assert.deepEqual(models.childrenByProject.get('/repo/Examples/Hello.Hosted/Hello.Hosted.nginproj')?.map((entry) => entry.kind === 'group' ? entry.group : entry.kind), [
     'manifest',
-    'profiles',
     'dependencies',
-    'generated',
-    'files'
+    'artifacts'
   ]);
+  assert.equal(models.childrenByProject.get('/repo/Examples/Hello.Hosted/Hello.Hosted.nginproj')?.[0]?.description, 'Hello.Hosted.nginproj');
   assert.deepEqual(models.dependenciesByProject.get('/repo/Examples/Hello.Hosted/Hello.Hosted.nginproj')?.projects.map((entry) => entry.label), ['Engine.Library']);
-  assert.deepEqual(models.dependenciesByProject.get('/repo/Examples/Hello.Hosted/Hello.Hosted.nginproj')?.packages.map((entry) => entry.label), ['NGIN.Core']);
-  assert.equal(models.profilesByProject.get('/repo/Examples/Hello.Hosted/Hello.Hosted.nginproj')?.[0].selected, true);
+  assert.deepEqual(models.dependenciesByProject.get('/repo/Examples/Hello.Hosted/Hello.Hosted.nginproj')?.direct.map((entry) => entry.label), ['NGIN.Core']);
 });
 
 test('project tree models expose inspect groups for the active project only', () => {
@@ -1003,7 +1010,7 @@ test('project tree models expose inspect groups for the active project only', ()
         launches: [{ name: 'default', executable: 'App', selected: true, workingDirectory: '.' }],
         stage: { files: [{ kind: 'config', target: 'config/app.cfg' }] },
         environment: { variables: [{ name: 'TOKEN', value: '<redacted>', secret: true }] },
-        diagnostics: []
+        diagnostics: [{ severity: 'warning', subject: 'Launch', message: 'Example warning' }]
       }
     },
     launchManifestExists: false,
@@ -1011,16 +1018,18 @@ test('project tree models expose inspect groups for the active project only', ()
   });
 
   assert.equal(models.childrenByProject.get(activeProject.path)?.some((entry) => entry.kind === 'group' && entry.label === 'Dependencies'), true);
-  assert.equal(models.childrenByProject.get(inactiveProject.path)?.some((entry) => entry.kind === 'group' && entry.label === 'Dependencies'), true);
+  assert.equal(models.childrenByProject.get(inactiveProject.path)?.some((entry) => entry.kind === 'group' && entry.label === 'Dependencies'), false);
+  assert.equal(models.projects[0].description, 'active · Runtime · 1 problem');
 
   const activeInspect = models.inspectByProject.get(activeProject.path);
   assert.deepEqual(activeInspect?.groups.map((group) => group.kind), [
-    'packages',
-    'features',
-    'generators',
-    'inputs',
-    'stage',
-    'launch'
+    'tooling',
+    'launch',
+    'problems'
+  ]);
+  assert.equal(models.childrenByProject.get(activeProject.path)?.find((entry) => entry.kind === 'group' && entry.group === 'problems')?.description, '1');
+  assert.deepEqual(activeInspect?.entriesByGroup.get('tooling')?.map((entry) => `${entry.label}:${entry.description}`), [
+    'Reflection code generation:MetaGen · active'
   ]);
   assert.deepEqual(activeInspect?.entriesByGroup.get('generators')?.map((entry) => `${entry.label}:${entry.description}`), [
     'ReflectionMetaGen:Active • NGIN.Reflection.MetaGen::ReflectionCodegen • MetaGen',
@@ -1041,10 +1050,10 @@ test('project tree models expose inspect groups for the active project only', ()
     'src:Source • Directory • App'
   ]);
   assert.equal(models.inspectByProject.has(inactiveProject.path), false);
-  assert.deepEqual(models.dependenciesByProject.get(inactiveProject.path)?.packages.map((entry) => entry.label), ['NGIN.Core']);
+  assert.deepEqual(models.dependenciesByProject.get(activeProject.path)?.transitive.map((entry) => entry.label), ['NGIN.Core']);
 });
 
-test('project tree dependency models group mixed uses and deduplicate owners', () => {
+test('project tree dependency models group authored base uses', () => {
   const models = buildProjectTreeModels({
     workspace: {
       workspace: { path: '/repo/NGIN.ngin', directory: '/repo', name: 'NGIN', projectPaths: [] },
@@ -1089,10 +1098,9 @@ test('project tree dependency models group mixed uses and deduplicate owners', (
   });
 
   const dependencies = models.dependenciesByProject.get('/repo/App/App.nginproj');
-  assert.deepEqual(dependencies?.projects.map((entry) => `${entry.label}:${entry.description}`), ['Engine.Library:Project, Runtime']);
-  assert.deepEqual(dependencies?.packages.map((entry) => `${entry.label}:${entry.description}:${entry.targetPath ?? 'unresolved'}`), [
-    'NGIN.Core:Project, Runtime:/repo/Packages/NGIN.Core/NGIN.Core.nginpkg',
-    'NGIN.Reflection:Runtime:unresolved'
+  assert.deepEqual(dependencies?.projects.map((entry) => `${entry.label}:${entry.description}`), ['Engine.Library:workspace']);
+  assert.deepEqual(dependencies?.direct.map((entry) => `${entry.label}:${entry.description}:${entry.targetPath ?? 'unresolved'}`), [
+    'NGIN.Core:direct:/repo/Packages/NGIN.Core/NGIN.Core.nginpkg'
   ]);
 });
 

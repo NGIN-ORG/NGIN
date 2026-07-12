@@ -11,11 +11,12 @@ the terminal commands.
 
 ## What It Provides
 
-- a single NGIN activity-bar Workspace view for project, profile, file,
-  dependency, and artifact navigation
-- read-only graph-native dependency, build, stage, launch, publish, package
-  output, analyzer, and diagnostic details in the Workspace tree for the active
-  project/profile, backed by `ngin inspect --format json`
+- a project-first NGIN Workspace view with prominent Build, Run, and Profile
+  actions
+- a compact active-project tree for the manifest, dependencies, tooling,
+  launch selection, artifacts, and current problems
+- advanced graph-native input, inactive-tooling, graph, and explanation views
+  backed by `ngin inspect --format json` and `ngin explain`
 - a default visual `.nginproj` editor for common product, profile,
   dependency, source/config, feature, launch, and environment edits while
   preserving XML source
@@ -76,16 +77,24 @@ without producing a `.nginlaunch` file. Run and debug use the staged
 build first if the launch manifest is missing or stale.
 
 The Workspace tree is product-centered. Project rows select the active product,
-manifest rows open `.nginproj` files, Profiles select the active profile,
-Dependencies contains authored project/package/runtime/tool uses plus resolved
-Packages, Features, Generators, Inputs, Stage, Runtime, Launch, Publish,
-Package Outputs, Analyzers, and Diagnostics for the active project/profile,
-Generated contains existing staged output, and Files contains declared source
-and config inputs.
-Right-click context menus expose project/profile
-actions, file navigation, path copying, and authored file operations. Generators
-are displayed generically; MetaGen appears only as a normal command generator
-contributed by its package feature.
+and the active row includes the selected profile. Build, Run, Profile, and
+Refresh are available from the view title. Less frequent actions such as
+Configure, Rebuild, Clean, Validate, Debug, Graph, resolved-input inspection,
+and inactive-tooling inspection live in the title overflow menu.
+
+Only the active project expands into resolved profile-specific information.
+Dependencies distinguishes workspace project references, direct packages, and
+transitive packages. Package features are details of their owning dependency.
+Tooling summarizes active generators and analyzers. Launch shows the effective
+launch choice, Artifacts exposes the executable, staged application folder,
+launch manifest, and compile database, and Problems appears only when inspect
+reports a problem. Source membership and resolved inputs are intentionally not
+duplicated from VS Code Explorer in the default tree.
+
+Right-click dependency, tooling, and launch items to run the matching
+`ngin explain` operation. Resolved inputs and excluded generators remain
+available through `NGIN: Show Resolved Inputs` and
+`NGIN: Show Inactive Tooling`.
 
 `NGIN: Analyze` keeps analyzer diagnostics separate from validation and inspect
 diagnostics. The official `NGIN.Tooling.ClangTidy` package can be added with
@@ -142,10 +151,8 @@ Open the repository root in VS Code. The extension activates when it finds
 Typical flow:
 
 1. Open the NGIN activity-bar Workspace view.
-2. Choose a project/profile from the tree, or open a project manifest from its
-   manifest row or project context menu.
-3. Expand Dependencies to inspect packages, features, generators, and
-   diagnostics.
+2. Choose a project from the tree and a profile from the view toolbar.
+3. Expand Dependencies, Tooling, Launch, or Artifacts when details are needed.
 4. Edit common `.nginproj` fields in the visual editor or reopen XML source for
    unsupported sections.
 5. Run Validate, Build, Run, Debug, or Graph from the status bar, command
@@ -160,6 +167,9 @@ NGIN: Build
 NGIN: Run
 NGIN: Debug
 NGIN: Analyze
+NGIN: Show Resolved Inputs
+NGIN: Show Inactive Tooling
+NGIN: Explain Selection
 NGIN: Enable Clang-Tidy
 NGIN: Explain Variables
 NGIN: Initialize Local Settings

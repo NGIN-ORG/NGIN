@@ -3,21 +3,18 @@ import { promises as fs } from 'node:fs';
 import * as vscode from 'vscode';
 import { computeCompileCommandsPath } from '../core/compileCommands';
 import { pathExists, readTextFile } from '../core/discovery';
-import { computeLaunchManifestPath, computeOutputDir } from '../core/helpers';
-import { ProjectManifest, StagedFile } from '../core/types';
+import { computeLaunchManifestPath } from '../core/helpers';
+import { ProjectManifest } from '../core/types';
 import { parseLaunchManifest } from '../core/xml';
 import { NginWorkspaceSnapshot } from '../state/workspaceState';
 import {
   buildProjectTreeModels,
   ProjectTreeChildModel,
-  ProjectTreeProfileModel,
   ProjectTreeDependencyKind,
   ProjectTreeDependencyModel,
   ProjectTreeGroupKind,
   ProjectTreeGroupModel,
   ProjectTreeInspectEntryModel,
-  ProjectTreeInspectGroupKind,
-  ProjectTreeInspectGroupModel,
   ProjectTreeManifestModel,
   ProjectTreeProjectModel,
 } from './models';
@@ -53,7 +50,7 @@ class ProjectTreeItem extends vscode.TreeItem {
     this.fsPath = model.projectPath;
     this.description = model.description;
     this.tooltip = model.tooltip;
-    this.iconPath = new vscode.ThemeIcon(model.selected ? 'pass-filled' : 'project');
+    this.iconPath = new vscode.ThemeIcon(model.selected ? 'target' : 'project');
     this.contextValue = 'nginProject';
     this.command = {
       command: 'ngin.setActiveProject',
@@ -72,6 +69,7 @@ class ProjectManifestTreeItem extends vscode.TreeItem {
     this.projectPath = model.projectPath;
     this.fsPath = model.filePath;
     this.tooltip = model.tooltip;
+    this.description = model.description;
     this.iconPath = new vscode.ThemeIcon('file-code');
     this.contextValue = 'nginProjectManifest';
     this.command = {
@@ -91,6 +89,7 @@ class ProjectGroupTreeItem extends vscode.TreeItem {
     this.projectPath = model.projectPath;
     this.group = model.group;
     this.tooltip = model.tooltip;
+    this.description = model.description;
     this.iconPath = new vscode.ThemeIcon(model.icon);
     this.contextValue = `nginProjectGroup.${model.group}`;
   }
@@ -114,17 +113,23 @@ class ProjectDependencyTreeItem extends vscode.TreeItem {
   readonly dependencyKind: ProjectTreeDependencyKind;
   readonly targetPath?: string;
   readonly fsPath?: string;
+  readonly explainIdentity?: string;
+  readonly children?: ProjectTreeInspectEntryModel[];
 
   constructor(model: ProjectTreeDependencyModel) {
-    super(model.label, vscode.TreeItemCollapsibleState.None);
+    super(model.label, model.children?.length ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None);
     this.projectPath = model.projectPath;
     this.dependencyKind = model.kind;
     this.targetPath = model.targetPath;
     this.fsPath = model.targetPath;
+    this.explainIdentity = model.explainIdentity;
+    this.children = model.children;
     this.description = model.description;
     this.tooltip = model.tooltip;
     this.iconPath = new vscode.ThemeIcon(model.kind === 'projects' ? 'project' : 'package');
-    this.contextValue = model.targetPath ? 'nginProjectDependency' : 'nginProjectDependency.unresolved';
+    this.contextValue = model.kind === 'projects'
+      ? 'nginProjectReference'
+      : model.targetPath ? 'nginProjectDependency' : 'nginProjectDependency.unresolved';
     if (model.targetPath) {
       this.command = {
         command: 'ngin.internal.openPath',
@@ -135,25 +140,13 @@ class ProjectDependencyTreeItem extends vscode.TreeItem {
   }
 }
 
-class ProjectInspectGroupTreeItem extends vscode.TreeItem {
-  readonly projectPath: string;
-  readonly inspectGroup: ProjectTreeInspectGroupKind;
-
-  constructor(model: ProjectTreeInspectGroupModel) {
-    super(model.label, vscode.TreeItemCollapsibleState.Collapsed);
-    this.projectPath = model.projectPath;
-    this.inspectGroup = model.kind;
-    this.tooltip = model.tooltip;
-    this.iconPath = new vscode.ThemeIcon(model.icon);
-    this.contextValue = `nginProjectInspectGroup.${model.kind}`;
-  }
-}
-
 class ProjectInspectEntryTreeItem extends vscode.TreeItem {
   readonly targetPath?: string;
   readonly fsPath?: string;
+  readonly projectPath?: string;
+  readonly explainIdentity?: string;
 
-  constructor(public readonly model: ProjectTreeInspectEntryModel) {
+  constructor(public readonly model: ProjectTreeInspectEntryModel, projectPath?: string) {
     super(
       model.label,
       model.children?.length ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None
@@ -162,8 +155,12 @@ class ProjectInspectEntryTreeItem extends vscode.TreeItem {
     this.tooltip = model.tooltip;
     this.targetPath = model.targetPath;
     this.fsPath = model.targetPath;
+    this.projectPath = projectPath;
+    this.explainIdentity = model.explainIdentity;
     this.iconPath = new vscode.ThemeIcon(model.icon ?? 'symbol-property');
-    this.contextValue = model.targetPath ? 'nginProjectInspectEntry.openable' : 'nginProjectInspectEntry';
+    this.contextValue = model.context
+      ? `nginProjectInspectEntry.${model.context}${model.targetPath ? '.openable' : ''}`
+      : model.targetPath ? 'nginProjectInspectEntry.openable' : 'nginProjectInspectEntry';
     if (model.targetPath) {
       this.command = {
         command: 'ngin.internal.openPath',
@@ -223,101 +220,9 @@ class ProjectFolderTreeItem extends vscode.TreeItem {
   }
 }
 
-class ProjectConfigFolderTreeItem extends ProjectFolderTreeItem {
-  readonly relativePath: string;
-
-  constructor(projectPath: string, folderPath: string, relativePath: string, label?: string) {
-    super(projectPath, folderPath, 'config', label);
-    this.relativePath = relativePath;
-  }
-}
-
-class ProjectConfigFileTreeItem extends ProjectFileTreeItem {
-  readonly relativePath: string;
-
-  constructor(projectPath: string, filePath: string, relativePath: string, description?: string) {
-    super(projectPath, filePath, 'config', path.basename(relativePath), description);
-    this.relativePath = relativePath;
-  }
-}
-
-class GeneratedProfileTreeItem extends vscode.TreeItem {
-  readonly projectPath: string;
-  readonly profileName: string;
-  readonly outputDir: string;
-  readonly fsPath: string;
-  readonly role = 'generated' as const;
-  readonly isDirectory = true;
-
-  constructor(projectPath: string, profileName: string, outputDir: string) {
-    super(profileName, vscode.TreeItemCollapsibleState.Collapsed);
-    this.projectPath = projectPath;
-    this.profileName = profileName;
-    this.outputDir = outputDir;
-    this.fsPath = outputDir;
-    this.description = path.basename(outputDir);
-    this.tooltip = outputDir;
-    this.iconPath = new vscode.ThemeIcon('archive');
-    this.contextValue = 'nginProjectGeneratedProfile';
-  }
-}
-
-class GeneratedStagedFilesTreeItem extends vscode.TreeItem {
-  readonly projectPath: string;
-  readonly outputDir: string;
-  readonly launchManifestPath: string;
-  readonly fsPath: string;
-  readonly role = 'generated' as const;
-  readonly isDirectory = true;
-
-  constructor(projectPath: string, outputDir: string, launchManifestPath: string) {
-    super('Staged Files', vscode.TreeItemCollapsibleState.Collapsed);
-    this.projectPath = projectPath;
-    this.outputDir = outputDir;
-    this.launchManifestPath = launchManifestPath;
-    this.fsPath = outputDir;
-    this.iconPath = new vscode.ThemeIcon('files');
-    this.contextValue = 'nginProjectGeneratedFolder';
-  }
-}
-
-class ProfileTreeItem extends vscode.TreeItem {
-  readonly projectPath: string;
-  readonly profileName: string;
-
-  constructor(model: ProjectTreeProfileModel) {
-    super(model.label, vscode.TreeItemCollapsibleState.None);
-    this.projectPath = model.projectPath;
-    this.profileName = model.profileName;
-    this.description = model.description;
-    this.tooltip = model.tooltip;
-    this.iconPath = new vscode.ThemeIcon(model.selected ? 'play-circle' : 'symbol-enum');
-    this.contextValue = 'nginProfile';
-    this.command = {
-      command: 'ngin.selectProfile',
-      title: model.label,
-      arguments: [{ projectPath: model.projectPath, profileName: model.profileName }]
-    };
-  }
-}
-
 function comparablePath(value: string): string {
   const normalized = path.normalize(value);
   return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
-}
-
-function resolveProjectPath(project: ProjectManifest, value: string): string {
-  return path.isAbsolute(value) ? path.normalize(value) : path.resolve(project.directory, value);
-}
-
-function allConfigInputs(project: ProjectManifest): Array<{ source: string; owner: string }> {
-  return [
-    ...project.configInputs.map((source) => ({ source, owner: 'Project' })),
-    ...project.profiles.flatMap((profile) => profile.configInputs.map((source) => ({
-      source,
-      owner: profile.name
-    })))
-  ];
 }
 
 async function readDirectoryItems(projectPath: string, folderPath: string, role: 'source' | 'generated'): Promise<Array<ProjectFolderTreeItem | ProjectFileTreeItem>> {
@@ -342,46 +247,6 @@ async function readDirectoryItems(projectPath: string, folderPath: string, role:
   }
 }
 
-function directConfigChildren(
-  project: ProjectManifest,
-  projectPath: string,
-  relativePath: string,
-  sources: Array<{ source: string; owner: string }>
-): Array<ProjectConfigFolderTreeItem | ProjectConfigFileTreeItem> {
-  const folders = new Map<string, string>();
-  const files: ProjectConfigFileTreeItem[] = [];
-  const normalizedFolder = relativePath ? path.normalize(relativePath) : '';
-
-  for (const entry of sources) {
-    const normalizedSource = path.normalize(entry.source);
-    const parent = path.dirname(normalizedSource) === '.' ? '' : path.dirname(normalizedSource);
-    if (parent === normalizedFolder) {
-      files.push(new ProjectConfigFileTreeItem(projectPath, resolveProjectPath(project, entry.source), entry.source, entry.owner));
-      continue;
-    }
-
-    const relativeToFolder = normalizedFolder ? path.relative(normalizedFolder, normalizedSource) : normalizedSource;
-    if (relativeToFolder.startsWith('..') || path.isAbsolute(relativeToFolder)) {
-      continue;
-    }
-
-    const firstSegment = relativeToFolder.split(path.sep)[0];
-    if (!firstSegment || firstSegment === path.basename(normalizedSource)) {
-      continue;
-    }
-
-    const childRelative = normalizedFolder ? path.join(normalizedFolder, firstSegment) : firstSegment;
-    folders.set(childRelative, resolveProjectPath(project, childRelative));
-  }
-
-  return [
-    ...Array.from(folders.entries())
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([childRelative, childPath]) => new ProjectConfigFolderTreeItem(projectPath, childPath, childRelative, path.basename(childRelative))),
-    ...files.sort((left, right) => String(left.label).localeCompare(String(right.label)))
-  ];
-}
-
 type ProjectsTreeElement =
   | WorkspaceTreeItem
   | ProjectTreeItem
@@ -389,15 +254,9 @@ type ProjectsTreeElement =
   | ProjectGroupTreeItem
   | ProjectDependencyGroupTreeItem
   | ProjectDependencyTreeItem
-  | ProjectInspectGroupTreeItem
   | ProjectInspectEntryTreeItem
   | ProjectFolderTreeItem
-  | ProjectFileTreeItem
-  | ProjectConfigFolderTreeItem
-  | ProjectConfigFileTreeItem
-  | GeneratedProfileTreeItem
-  | GeneratedStagedFilesTreeItem
-  | ProfileTreeItem;
+  | ProjectFileTreeItem;
 
 class ProjectsTreeDataProvider implements vscode.TreeDataProvider<ProjectsTreeElement> {
   private readonly onDidChangeTreeDataEmitter = new vscode.EventEmitter<void>();
@@ -437,39 +296,28 @@ class ProjectsTreeDataProvider implements vscode.TreeDataProvider<ProjectsTreeEl
       if (!project) {
         return [];
       }
-      if (element.group === 'files') {
-        return this.getFileGroupChildren(project);
-      }
-      if (element.group === 'source') {
-        return this.getSourceChildren(project);
-      }
-      if (element.group === 'config') {
-        return directConfigChildren(project, project.path, '', allConfigInputs(project));
-      }
       if (element.group === 'dependencies') {
         const dependencies = model.dependenciesByProject.get(element.projectPath);
         const items: ProjectsTreeElement[] = [];
         if (dependencies?.projects.length) {
-          items.push(new ProjectDependencyGroupTreeItem(element.projectPath, 'projects', 'Projects'));
+          items.push(new ProjectDependencyGroupTreeItem(element.projectPath, 'projects', 'Project References'));
         }
-        if (dependencies?.packages.length) {
-          items.push(new ProjectDependencyGroupTreeItem(element.projectPath, 'packages', 'Packages'));
+        if (dependencies?.direct.length) {
+          items.push(new ProjectDependencyGroupTreeItem(element.projectPath, 'direct', 'Direct'));
         }
-        const inspectModel = model.inspectByProject.get(element.projectPath);
-        items.push(...(inspectModel?.groups ?? []).map((group) => new ProjectInspectGroupTreeItem(group)));
+        if (dependencies?.transitive.length) {
+          items.push(new ProjectDependencyGroupTreeItem(element.projectPath, 'transitive', 'Transitive'));
+        }
         return items;
       }
-      if (element.group === 'generated') {
-        return this.getGeneratedProfileChildren(project);
+      if (element.group === 'artifacts') {
+        return this.getActiveArtifactChildren(project);
       }
-      if (element.group === 'profiles') {
-        return (model.profilesByProject.get(element.projectPath) ?? []).map((profile) => new ProfileTreeItem(profile));
+      if (element.group === 'tooling' || element.group === 'launch' || element.group === 'problems') {
+        const inspectModel = model.inspectByProject.get(element.projectPath);
+        return (inspectModel?.entriesByGroup.get(element.group) ?? [])
+          .map((entry) => new ProjectInspectEntryTreeItem(entry, element.projectPath));
       }
-    }
-
-    if (element instanceof ProjectConfigFolderTreeItem) {
-      const project = this.findProject(element.projectPath);
-      return project ? directConfigChildren(project, project.path, element.relativePath, allConfigInputs(project)) : [];
     }
 
     if (element instanceof ProjectDependencyGroupTreeItem) {
@@ -480,25 +328,16 @@ class ProjectsTreeDataProvider implements vscode.TreeDataProvider<ProjectsTreeEl
       return dependencies[element.dependencyKind].map((dependency) => new ProjectDependencyTreeItem(dependency));
     }
 
-    if (element instanceof ProjectInspectGroupTreeItem) {
-      const inspectModel = model.inspectByProject.get(element.projectPath);
-      return (inspectModel?.entriesByGroup.get(element.inspectGroup) ?? []).map((entry) => new ProjectInspectEntryTreeItem(entry));
+    if (element instanceof ProjectDependencyTreeItem) {
+      return (element.children ?? []).map((entry) => new ProjectInspectEntryTreeItem(entry, element.projectPath));
     }
 
     if (element instanceof ProjectInspectEntryTreeItem) {
-      return (element.model.children ?? []).map((entry) => new ProjectInspectEntryTreeItem(entry));
+      return (element.model.children ?? []).map((entry) => new ProjectInspectEntryTreeItem(entry, element.projectPath));
     }
 
     if (element instanceof ProjectFolderTreeItem) {
       return readDirectoryItems(element.projectPath, element.fsPath, element.role === 'generated' ? 'generated' : 'source');
-    }
-
-    if (element instanceof GeneratedProfileTreeItem) {
-      return this.getGeneratedArtifactChildren(element);
-    }
-
-    if (element instanceof GeneratedStagedFilesTreeItem) {
-      return this.getStagedFileChildren(element);
     }
 
     return [];
@@ -508,117 +347,48 @@ class ProjectsTreeDataProvider implements vscode.TreeDataProvider<ProjectsTreeEl
     if (model.kind === 'manifest') {
       return new ProjectManifestTreeItem(model);
     }
-    if (model.kind === 'group') {
-      return new ProjectGroupTreeItem(model);
-    }
-    return new ProfileTreeItem(model);
+    return new ProjectGroupTreeItem(model);
   }
 
   private findProject(projectPath: string): ProjectManifest | undefined {
     return this.snapshot.workspace?.projects.find((project) => comparablePath(project.path) === comparablePath(projectPath));
   }
 
-  private getFileGroupChildren(project: ProjectManifest): ProjectsTreeElement[] {
-    const children: ProjectsTreeElement[] = [];
-    if (project.sourceRoots.length > 0 || project.buildSources.length > 0) {
-      children.push(this.createChildTreeItem({
-        kind: 'group',
-        id: `${project.path}:source`,
-        label: 'Sources',
-        tooltip: 'Declared source roots and explicit build sources.',
-        icon: 'folder-library',
-        projectPath: project.path,
-        group: 'source'
-      }));
-    }
-
-    const hasConfigInputs = project.configInputs.length > 0
-      || project.profiles.some((profile) => profile.configInputs.length > 0);
-    if (hasConfigInputs) {
-      children.push(this.createChildTreeItem({
-        kind: 'group',
-        id: `${project.path}:config`,
-        label: 'Config',
-        tooltip: 'Declared root and profile config inputs.',
-        icon: 'settings',
-        projectPath: project.path,
-        group: 'config'
-      }));
-    }
-
-    return children;
-  }
-
-  private getSourceChildren(project: ProjectManifest): ProjectsTreeElement[] {
-    const seen = new Set<string>();
-    const items: ProjectsTreeElement[] = [];
-    for (const sourceRoot of project.sourceRoots) {
-      const sourceRootPath = resolveProjectPath(project, sourceRoot);
-      const key = comparablePath(sourceRootPath);
-      if (!seen.has(key)) {
-        seen.add(key);
-        items.push(new ProjectFolderTreeItem(project.path, sourceRootPath, 'source', sourceRoot));
-      }
-    }
-    for (const source of project.buildSources) {
-      const sourcePath = resolveProjectPath(project, source);
-      const key = comparablePath(sourcePath);
-      if (!seen.has(key)) {
-        seen.add(key);
-        items.push(new ProjectFileTreeItem(project.path, sourcePath, 'source', path.basename(source), source));
-      }
-    }
-    return items;
-  }
-
-  private async getGeneratedProfileChildren(project: ProjectManifest): Promise<ProjectsTreeElement[]> {
-    const workspace = this.snapshot.workspace;
-    if (!workspace) {
+  private async getActiveArtifactChildren(project: ProjectManifest): Promise<ProjectsTreeElement[]> {
+    const outputDir = this.snapshot.outputDir;
+    if (!outputDir) {
       return [];
     }
 
+    const launchManifestPath = this.snapshot.launchManifestPath
+      ?? computeLaunchManifestPath(outputDir, project.name, this.snapshot.context?.profile.name ?? project.defaultProfile ?? 'dev');
+    const compileCommandsPath = computeCompileCommandsPath(outputDir);
     const items: ProjectsTreeElement[] = [];
-    for (const profile of project.profiles) {
-      const outputDir = computeOutputDir(workspace.root, project.name, profile.name, this.snapshot.buildOutputRoot);
-      const launchManifestPath = computeLaunchManifestPath(outputDir, project.name, profile.name);
-      const compileCommandsPath = computeCompileCommandsPath(outputDir);
-      if (await pathExists(outputDir) || await pathExists(launchManifestPath) || await pathExists(compileCommandsPath)) {
-        items.push(new GeneratedProfileTreeItem(project.path, profile.name, outputDir));
-      }
-    }
-    return items;
-  }
 
-  private async getGeneratedArtifactChildren(element: GeneratedProfileTreeItem): Promise<ProjectsTreeElement[]> {
-    const project = this.findProject(element.projectPath);
-    if (!project) {
-      return [];
-    }
-
-    const launchManifestPath = computeLaunchManifestPath(element.outputDir, project.name, element.profileName);
-    const compileCommandsPath = computeCompileCommandsPath(element.outputDir);
-    const items: ProjectsTreeElement[] = [];
     if (await pathExists(launchManifestPath)) {
-      items.push(new ProjectFileTreeItem(element.projectPath, launchManifestPath, 'generated', path.basename(launchManifestPath), 'launch'));
-      items.push(new GeneratedStagedFilesTreeItem(element.projectPath, element.outputDir, launchManifestPath));
+      try {
+        const launch = parseLaunchManifest(await readTextFile(launchManifestPath), launchManifestPath);
+        const executable = launch.stagedFiles.find((file) => file.kind.toLowerCase() === 'executable');
+        if (executable) {
+          const executablePath = path.isAbsolute(executable.destination)
+            ? executable.destination
+            : path.resolve(outputDir, executable.destination);
+          items.push(new ProjectFileTreeItem(project.path, executablePath, 'generated', 'Executable', executable.relativeDestination));
+        }
+      } catch {
+        // Keep the remaining artifacts available even when launch metadata is incomplete.
+      }
+
+      items.push(new ProjectFolderTreeItem(project.path, outputDir, 'generated', 'Staged application folder'));
+      items.push(new ProjectFileTreeItem(project.path, launchManifestPath, 'generated', 'Launch manifest', path.basename(launchManifestPath)));
     }
+
     if (await pathExists(compileCommandsPath)) {
-      items.push(new ProjectFileTreeItem(element.projectPath, compileCommandsPath, 'generated', 'compile_commands.json', 'compile database'));
+      items.push(new ProjectFileTreeItem(project.path, compileCommandsPath, 'generated', 'compile_commands.json', 'compile database'));
     }
     return items;
   }
 
-  private async getStagedFileChildren(element: GeneratedStagedFilesTreeItem): Promise<ProjectsTreeElement[]> {
-    try {
-      const launch = parseLaunchManifest(await readTextFile(element.launchManifestPath), element.launchManifestPath);
-      return launch.stagedFiles.map((file) => {
-        const destination = path.isAbsolute(file.destination) ? file.destination : path.resolve(element.outputDir, file.destination);
-        return new ProjectFileTreeItem(element.projectPath, destination, 'generated', file.relativeDestination ?? path.basename(destination), file.kind);
-      });
-    } catch {
-      return [];
-    }
-  }
 }
 
 export class NginSidebarController implements vscode.Disposable {
