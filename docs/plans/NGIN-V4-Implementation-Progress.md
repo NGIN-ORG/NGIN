@@ -678,6 +678,8 @@ Implemented publish behavior:
 - inspect JSON `publishes`
 - graph `--publish-plan`
 - profile diff publish entries
+- profile-scoped CLI release publishes, so Linux, Windows, thin, and bundled
+  targets are exposed only by their matching release profiles
 
 The current publish command builds and stages the selected product. Folder
 publish copies the staged layout to the output directory and removes stale
@@ -688,6 +690,11 @@ platform, identity, vendor, contact, and machine-install policy before build.
 The NGIN CLI is authored as a V4 Tool product and can publish thin or bundled
 release artifacts. Mandatory signing, SBOM, trust policy, and `.nginpack`
 integration are still future work.
+
+Configure and build reject a target operating system or architecture that
+differs from the detected host before invoking the generated backend.
+Cross-compilation remains unsupported until an explicit toolchain capability
+is modeled.
 
 ### Repository Example Migration
 

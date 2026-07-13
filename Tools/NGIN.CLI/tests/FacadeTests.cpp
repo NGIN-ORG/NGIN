@@ -600,6 +600,39 @@ TEST_CASE("build facade writes launch manifests and preserves unrelated output "
     REQUIRE(*summary.selectedExecutable == "Hello.Hosted");
 }
 
+TEST_CASE("build facade rejects a foreign target before backend configuration")
+{
+    TempDir temp{};
+    const auto projectPath = temp.path() / "Foreign.Target.nginproj";
+    WriteFile(projectPath,
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4" Name="Foreign.Target">
+  <Application />
+</Project>
+)xml");
+    WriteFile(temp.path() / "src/main.cpp", "int main() { return 0; }\n");
+
+    const auto project = LoadProjectManifest(projectPath);
+    auto profile = ProfileByName(project, std::nullopt);
+    const auto host = DetectHostPlatform();
+    ApplyTargetPlatform(profile, host.operatingSystem == "windows" ? "linux-x64" : "windows-x64");
+    const auto outputDir = temp.path() / "stage";
+
+    const auto configured = ConfigureLaunch(project, profile, outputDir);
+    REQUIRE_FALSE(configured.value.has_value());
+    REQUIRE(configured.diagnostics.HasErrors());
+    REQUIRE_THAT(configured.diagnostics.entries.front().message,
+                 ContainsSubstring("does not match build host '" + host.name + "'"));
+    REQUIRE_THAT(configured.diagnostics.entries.front().message,
+                 ContainsSubstring("cross-compilation is not supported"));
+    REQUIRE_FALSE(fs::exists(outputDir));
+
+    const auto built = BuildLaunch(project, profile, outputDir);
+    REQUIRE_FALSE(built.value.has_value());
+    REQUIRE(built.diagnostics.HasErrors());
+    REQUIRE_FALSE(fs::exists(outputDir));
+}
+
 TEST_CASE("clean facade removes owned generated artifacts and preserves "
           "unrelated files")
 {

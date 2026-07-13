@@ -158,6 +158,11 @@ The CLI itself is also a V4 Tool product at `NGIN.CLI/NGIN.CLI.nginproj`.
 Release profiles can publish thin or bundled ZIP/MSI/TGZ/DEB artifacts through
 `ngin publish`.
 
+Each release profile exposes only its corresponding thin or bundled publish
+targets. Native Windows artifacts must be built on Windows and native Linux
+artifacts must be built on Linux; the generated backend rejects foreign
+operating-system or architecture targets before configuration.
+
 ## Staged Output
 
 `ngin configure` prepares the generated CMake build tree and compile database

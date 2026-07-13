@@ -24,62 +24,6 @@
                Target="share/ngin/licenses/THIRD_PARTY_TOOLS.md" />
     </Stage>
 
-    <Publish Name="windows-zip"
-             Kind="Archive"
-             Format="zip"
-             Output="../../dist/ngin-$(ProjectVersion)-windows-x86_64.zip" />
-    <Publish Name="windows-msi"
-             Kind="Installer"
-             Format="msi"
-             Output="../../dist/ngin-$(ProjectVersion)-windows-x86_64.msi">
-      <Installer Identifier="NGIN-ORG.NGIN.CLI"
-                 Vendor="NGIN"
-                 Contact="https://github.com/NGIN-ORG/NGIN"
-                 Scope="Machine"
-                 AddToPath="true" />
-    </Publish>
-    <Publish Name="windows-zip-bundled"
-             Kind="Archive"
-             Format="zip"
-             Output="../../dist/ngin-$(ProjectVersion)-windows-x86_64-bundled.zip" />
-    <Publish Name="windows-msi-bundled"
-             Kind="Installer"
-             Format="msi"
-             Output="../../dist/ngin-$(ProjectVersion)-windows-x86_64-bundled.msi">
-      <Installer Identifier="NGIN-ORG.NGIN.CLI"
-                 Vendor="NGIN"
-                 Contact="https://github.com/NGIN-ORG/NGIN"
-                 Scope="Machine"
-                 AddToPath="true" />
-    </Publish>
-    <Publish Name="linux-tgz"
-             Kind="Archive"
-             Format="tgz"
-             Output="../../dist/ngin-$(ProjectVersion)-linux-x86_64.tgz" />
-    <Publish Name="linux-deb"
-             Kind="Installer"
-             Format="deb"
-             Output="../../dist/ngin-$(ProjectVersion)-linux-x86_64.deb">
-      <Installer Identifier="NGIN-ORG.NGIN.CLI"
-                 Vendor="NGIN"
-                 Contact="https://github.com/NGIN-ORG/NGIN"
-                 Scope="Machine"
-                 AddToPath="true" />
-    </Publish>
-    <Publish Name="linux-tgz-bundled"
-             Kind="Archive"
-             Format="tgz"
-             Output="../../dist/ngin-$(ProjectVersion)-linux-x86_64-bundled.tgz" />
-    <Publish Name="linux-deb-bundled"
-             Kind="Installer"
-             Format="deb"
-             Output="../../dist/ngin-$(ProjectVersion)-linux-x86_64-bundled.deb">
-      <Installer Identifier="NGIN-ORG.NGIN.CLI"
-                 Vendor="NGIN"
-                 Contact="https://github.com/NGIN-ORG/NGIN"
-                 Scope="Machine"
-                 AddToPath="true" />
-    </Publish>
   </Tool>
 
   <Profile Name="Release.Linux">
@@ -93,11 +37,41 @@
         <LinkOption Value="-static-libstdc++" />
         <LinkOption Value="-static-libgcc" />
       </Build>
+      <Publish Name="linux-tgz"
+               Kind="Archive"
+               Format="tgz"
+               Output="../../dist/ngin-$(ProjectVersion)-linux-x86_64.tgz" />
+      <Publish Name="linux-deb"
+               Kind="Installer"
+               Format="deb"
+               Output="../../dist/ngin-$(ProjectVersion)-linux-x86_64.deb">
+        <Installer Identifier="NGIN-ORG.NGIN.CLI"
+                   Vendor="NGIN"
+                   Contact="https://github.com/NGIN-ORG/NGIN"
+                   Scope="Machine"
+                   AddToPath="true" />
+      </Publish>
     </Tool>
   </Profile>
 
   <Profile Name="Release.Linux.Bundled" Extends="Release.Linux">
     <Tool>
+      <Publish Remove="linux-tgz" />
+      <Publish Remove="linux-deb" />
+      <Publish Name="linux-tgz-bundled"
+               Kind="Archive"
+               Format="tgz"
+               Output="../../dist/ngin-$(ProjectVersion)-linux-x86_64-bundled.tgz" />
+      <Publish Name="linux-deb-bundled"
+               Kind="Installer"
+               Format="deb"
+               Output="../../dist/ngin-$(ProjectVersion)-linux-x86_64-bundled.deb">
+        <Installer Identifier="NGIN-ORG.NGIN.CLI"
+                   Vendor="NGIN"
+                   Contact="https://github.com/NGIN-ORG/NGIN"
+                   Scope="Machine"
+                   AddToPath="true" />
+      </Publish>
       <Stage>
         <Content Source="../ThirdParty/BuildTools/toolchains.json"
                  Target="share/ngin/tools/toolchains.json" />
@@ -121,11 +95,41 @@
       <Build>
         <CompileOption Value="/MT" />
       </Build>
+      <Publish Name="windows-zip"
+               Kind="Archive"
+               Format="zip"
+               Output="../../dist/ngin-$(ProjectVersion)-windows-x86_64.zip" />
+      <Publish Name="windows-msi"
+               Kind="Installer"
+               Format="msi"
+               Output="../../dist/ngin-$(ProjectVersion)-windows-x86_64.msi">
+        <Installer Identifier="NGIN-ORG.NGIN.CLI"
+                   Vendor="NGIN"
+                   Contact="https://github.com/NGIN-ORG/NGIN"
+                   Scope="Machine"
+                   AddToPath="true" />
+      </Publish>
     </Tool>
   </Profile>
 
   <Profile Name="Release.Windows.Bundled" Extends="Release.Windows">
     <Tool>
+      <Publish Remove="windows-zip" />
+      <Publish Remove="windows-msi" />
+      <Publish Name="windows-zip-bundled"
+               Kind="Archive"
+               Format="zip"
+               Output="../../dist/ngin-$(ProjectVersion)-windows-x86_64-bundled.zip" />
+      <Publish Name="windows-msi-bundled"
+               Kind="Installer"
+               Format="msi"
+               Output="../../dist/ngin-$(ProjectVersion)-windows-x86_64-bundled.msi">
+        <Installer Identifier="NGIN-ORG.NGIN.CLI"
+                   Vendor="NGIN"
+                   Contact="https://github.com/NGIN-ORG/NGIN"
+                   Scope="Machine"
+                   AddToPath="true" />
+      </Publish>
       <Stage>
         <Content Source="../ThirdParty/BuildTools/toolchains.json"
                  Target="share/ngin/tools/toolchains.json" />

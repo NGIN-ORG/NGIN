@@ -1,3 +1,4 @@
+#include "Overlay.hpp"
 #include "TestSupport.hpp"
 
 TEST_CASE("host target platforms resolve to the detected host identity") {
@@ -49,6 +50,35 @@ TEST_CASE("CMake and self-hosted CLI manifest versions stay synchronized") {
                                  " LANGUAGES CXX)"));
   REQUIRE(project.output.name == "ngin");
   REQUIRE(project.output.target == "ngin");
+}
+
+TEST_CASE(
+    "self-hosted CLI release profiles expose only matching publish targets") {
+  const auto project =
+      LoadProjectManifest(RepoRoot() / "Tools/NGIN.CLI/NGIN.CLI.nginproj");
+  const auto publishNames = [&](const std::string &profileName) {
+    const auto publishes =
+        EffectivePublishes(project, ProfileByName(project, profileName));
+    std::vector<std::string> names{};
+    std::transform(
+        publishes.begin(), publishes.end(), std::back_inserter(names),
+        [](const PublishDefinition &publish) { return publish.name; });
+    std::sort(names.begin(), names.end());
+    return names;
+  };
+
+  const std::vector<std::string> linuxThin{"linux-deb", "linux-tgz"};
+  const std::vector<std::string> linuxBundled{"linux-deb-bundled",
+                                              "linux-tgz-bundled"};
+  const std::vector<std::string> windowsThin{"windows-msi", "windows-zip"};
+  const std::vector<std::string> windowsBundled{"windows-msi-bundled",
+                                                "windows-zip-bundled"};
+
+  REQUIRE(project.publishes.empty());
+  REQUIRE(publishNames("Release.Linux") == linuxThin);
+  REQUIRE(publishNames("Release.Linux.Bundled") == linuxBundled);
+  REQUIRE(publishNames("Release.Windows") == windowsThin);
+  REQUIRE(publishNames("Release.Windows.Bundled") == windowsBundled);
 }
 
 TEST_CASE("workspace, project, and package manifests parse through authoring "

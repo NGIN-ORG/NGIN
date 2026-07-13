@@ -3,6 +3,7 @@
 #include "Authoring.hpp"
 #include "Diagnostics.hpp"
 #include "Overlay.hpp"
+#include "Platform.hpp"
 #include "Resolution.hpp"
 #include "Support.hpp"
 
@@ -42,6 +43,21 @@ auto ResolveToolPath(const std::string &tool,
     -> std::optional<ToolResolution>;
 
 namespace {
+auto ValidateNativeBuildTarget(const ProfileDefinition &profile,
+                               DiagnosticReport &report) -> bool {
+  const auto host = DetectHostPlatform();
+  if (profile.operatingSystem == host.operatingSystem &&
+      profile.architecture == host.architecture) {
+    return true;
+  }
+  AddError(report,
+           "target platform '" + profile.platform + "' (" +
+               profile.operatingSystem + "/" + profile.architecture +
+               ") does not match build host '" + host.name +
+               "'; cross-compilation is not supported by the current backend");
+  return false;
+}
+
 [[nodiscard]] auto HasPathSeparator(const std::string &value) -> bool {
   return value.find('/') != std::string::npos ||
          value.find('\\') != std::string::npos;
@@ -2990,6 +3006,9 @@ auto ConfigureLaunch(const ProjectManifest &project,
             "'. Expected one of: Debug, Release, RelWithDebInfo, MinSizeRel");
     return result;
   }
+  if (!ValidateNativeBuildTarget(profile, result.diagnostics)) {
+    return result;
+  }
 
   auto resolvedResult = ResolveLaunch(project, profile);
   AppendDiagnostics(result.diagnostics, resolvedResult.diagnostics);
@@ -3038,6 +3057,9 @@ auto BuildLaunch(const ProjectManifest &project,
         "unsupported build type '" + profile.buildType + "' in profile '" +
             profile.name +
             "'. Expected one of: Debug, Release, RelWithDebInfo, MinSizeRel");
+    return result;
+  }
+  if (!ValidateNativeBuildTarget(profile, result.diagnostics)) {
     return result;
   }
 
