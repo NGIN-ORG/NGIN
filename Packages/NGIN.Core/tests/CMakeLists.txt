@@ -76,6 +76,13 @@ if(NOT _have_catch2)
   message(FATAL_ERROR "Catch2::Catch2WithMain was not found or created")
 endif()
 
+if(TARGET Catch2)
+  get_target_property(_catch2_is_imported Catch2 IMPORTED)
+  if(NOT _catch2_is_imported)
+    target_compile_features(Catch2 PRIVATE cxx_std_17)
+  endif()
+endif()
+
 if(_catch2_extra_dir)
   list(APPEND CMAKE_MODULE_PATH "${_catch2_extra_dir}")
 endif()
@@ -94,6 +101,12 @@ else()
   target_compile_options(NGINCoreTests PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
+set(_ngin_core_test_dl_paths)
+if(TARGET NGIN.Core.Shared)
+  list(APPEND _ngin_core_test_dl_paths DL_PATHS $<TARGET_FILE_DIR:NGIN.Core.Shared>)
+endif()
+
 catch_discover_tests(NGINCoreTests
   TEST_PREFIX "Core."
-  WORKING_DIRECTORY $<TARGET_FILE_DIR:NGINCoreTests>)
+  WORKING_DIRECTORY $<TARGET_FILE_DIR:NGINCoreTests>
+  ${_ngin_core_test_dl_paths})
