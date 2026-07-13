@@ -1,5 +1,3 @@
-Here is the full README rewritten around the “easy build system” story, using your old README as the source material.
-
 # NGIN
 
 A friendly C++ build system that turns project manifests into runnable apps.
