@@ -28,10 +28,14 @@ import { parseLaunchManifest, parseLocalSettingsManifest, parsePackageManifest, 
 import {
   addProfile,
   deleteProfile,
+  removeToolRunOverride,
   setEnvironmentVariables,
   setInputEntries,
   setDependencyUses,
   setProfileFeatureState,
+  setToolConfigOverride,
+  setToolReportOverride,
+  setToolRunOverride,
   updateProfile,
   updateProjectAttributes
 } from '../../projectEditor/authoring';
@@ -459,6 +463,12 @@ test('extension manifest and snippets register local settings support', () => {
   assert.ok(commandIds.includes('ngin.analyze'));
   assert.ok(commandIds.includes('ngin.addToolAction'));
   assert.ok(commandIds.includes('ngin.runToolRun'));
+  assert.ok(commandIds.includes('ngin.configureToolRun'));
+  assert.ok(commandIds.includes('ngin.runToolActiveFile'));
+  assert.ok(commandIds.includes('ngin.runToolChangedFiles'));
+  assert.ok(commandIds.includes('ngin.previewToolChanges'));
+  assert.ok(commandIds.includes('ngin.applyToolRunEdits'));
+  assert.ok(commandIds.includes('ngin.diagnoseToolRun'));
   assert.ok(commandIds.includes('ngin.applyToolEdits'));
   assert.ok(commandIds.includes('ngin.toolingPlan'));
   assert.ok(commandIds.includes('ngin.explainSelection'));
@@ -482,7 +492,9 @@ test('extension manifest and snippets register local settings support', () => {
   assert.equal(settings['ngin.validate.onSave'], undefined);
   assert.equal(settings['ngin.analyze.onSave'], undefined);
   assert.equal(settings['ngin.tooling.validateManifestOnSave'].default, false);
-  assert.equal(settings['ngin.tooling.runActiveFileOnSave'].default, false);
+  assert.deepEqual(settings['ngin.tooling.runOnSave'].default, {});
+  assert.equal(settings['ngin.tooling.runActiveFileOnSave'], undefined);
+  assert.deepEqual(settings['ngin.tooling.runOnSave'].additionalProperties.enum, ['activeFile', 'all']);
 
   const snippets = JSON.parse(readFileSync(path.join(process.cwd(), 'snippets/ngin.code-snippets'), 'utf8'));
   assert.ok(snippets['Local Settings File']);
@@ -690,6 +702,81 @@ test('project editor authoring keeps root and profile dependency uses separate',
   xml = setDependencyUses(xml, [{ name: 'Root.Only' }]);
   assert.match(xml, /<Package Name="Root\.Only" \/>/);
   assert.match(xml, /<Package Name="Profile\.Only" \/>/);
+});
+
+test('project editor authoring creates and resets general tool run overrides', () => {
+  const xml = [
+    '<Project SchemaVersion="4" Name="App" DefaultProfile="Debug">',
+    '  <Application><Build><Sources Path="src/**.cpp" /></Build></Application>',
+    '  <Profile Name="Debug"><Defaults><BuildType Name="Debug" /></Defaults></Profile>',
+    '</Project>'
+  ].join('\n');
+  const configured = setToolRunOverride(xml, {
+    name: 'project-analysis',
+    inputContract: 'cpp.translation-units/v1',
+    inputScope: 'ProductClosure',
+    includeGenerated: false,
+    includes: ['src/**'],
+    excludes: ['src/vendor/**'],
+    gate: true,
+    failOn: 'Warning',
+    baseline: 'quality/baseline.json',
+    newFindingsOnly: true,
+    cache: 'ReadWrite',
+    jobs: '2',
+    timeout: '30s',
+    failureStrategy: 'DependencyAware'
+  }, 'Debug');
+  assert.match(configured, /<Profile Name="Debug">[\s\S]*<Tooling>/);
+  assert.match(configured, /<Run Name="project-analysis">/);
+  assert.match(configured, /<Input Contract="cpp\.translation-units\/v1" Scope="ProductClosure" IncludeGenerated="false" Merge="Replace">/);
+  assert.match(configured, /<Include Path="src\/\*\*" \/>/);
+  assert.match(configured, /<Policy Gate="true" FailOn="Warning" Baseline="quality\/baseline\.json" NewFindingsOnly="true" \/>/);
+  assert.match(configured, /<Execution Jobs="2" Timeout="30s" Cache="ReadWrite" FailureStrategy="DependencyAware" \/>/);
+  const reset = removeToolRunOverride(configured, 'project-analysis', 'Debug');
+  assert.doesNotMatch(reset, /<Run Name="project-analysis">/);
+  assert.match(reset, /<BuildType Name="Debug" \/>/);
+
+  const existing = xml.replace(
+    '</Defaults></Profile>',
+    '</Defaults><Tooling><Run Name="project-analysis"><Policy Gate="true" FailOn="Fatal"><Budget Rule="security" Max="0" /></Policy></Run></Tooling></Profile>'
+  );
+  const inputOnly = setToolRunOverride(existing, {
+    name: 'project-analysis', inputContract: 'files/v1', inputScope: 'Product', includeGenerated: true,
+    includes: [], excludes: [], gate: false, failOn: 'Error', newFindingsOnly: false,
+    cache: 'Off', jobs: 'Auto', failureStrategy: 'DependencyAware'
+  }, 'Debug', ['inputs']);
+  assert.match(inputOnly, /<Policy Gate="true" FailOn="Fatal"><Budget Rule="security" Max="0" \/><\/Policy>/);
+  assert.doesNotMatch(inputOnly, /<Execution/);
+});
+
+test('project editor authoring adds and updates named tool configurations and reports', () => {
+  const xml = [
+    '<Project SchemaVersion="4" Name="App" DefaultProfile="Debug">',
+    '  <Application />',
+    '  <Profile Name="Debug"><Tooling><Run Name="analysis" /></Tooling></Profile>',
+    '</Project>'
+  ].join('\n');
+  const configured = setToolConfigOverride(xml, 'analysis', {
+    name: 'primary', path: 'quality/tool.yml', optional: true
+  }, 'Debug');
+  assert.match(configured, /<Run Name="analysis">[\s\S]*<Config Name="primary" Path="quality\/tool\.yml" Optional="true" \/>/);
+
+  const updated = setToolConfigOverride(configured, 'analysis', {
+    name: 'primary', path: 'quality/strict.yml', optional: false
+  }, 'Debug');
+  assert.equal((updated.match(/<Config Name="primary"/g) ?? []).length, 1);
+  assert.match(updated, /<Config Name="primary" Path="quality\/strict\.yml" Optional="false" \/>/);
+
+  const reported = setToolReportOverride(updated, 'analysis', {
+    name: 'ci', format: 'sarif', path: '$(OutputDir)/analysis.sarif'
+  }, 'Debug');
+  assert.match(reported, /<Reports>[\s\S]*<Report Name="ci" Format="sarif" Path="\$\(OutputDir\)\/analysis\.sarif" \/>[\s\S]*<\/Reports>/);
+  const reportUpdated = setToolReportOverride(reported, 'analysis', {
+    name: 'ci', format: 'json', path: 'reports/analysis.json'
+  }, 'Debug');
+  assert.equal((reportUpdated.match(/<Report Name="ci"/g) ?? []).length, 1);
+  assert.match(reportUpdated, /<Report Name="ci" Format="json" Path="reports\/analysis\.json" \/>/);
 });
 
 test('project editor model surfaces parse errors and resolved feature states', () => {
@@ -1011,6 +1098,8 @@ test('project tree models expose inspect groups for the active project only', ()
         tooling: {
           runs: [{
             name: 'cpp-static-analysis',
+            displayName: 'C++ Static Analysis',
+            description: 'Find C++ issues.',
             action: 'NGIN.Tooling.ClangTidy::analyze',
             kind: 'Analyze',
             tool: 'clang-tidy',
@@ -1019,6 +1108,7 @@ test('project tree models expose inspect groups for the active project only', ()
             package: 'NGIN.Tooling.ClangTidy',
             driver: 'clang-tidy-driver',
             driverSource: 'builtin-adapter',
+            capabilities: ['diagnostics', 'fixes', 'active-file', 'changed-files'],
             state: 'ready',
             inputContract: 'cpp.translation-units/v1',
             inputScope: 'ProductClosure',
@@ -1027,7 +1117,9 @@ test('project tree models expose inspect groups for the active project only', ()
             failOn: 'Warning',
             cache: 'Off',
             dependencies: ['phase:configure'],
-            configPaths: ['.clang-tidy']
+            configPaths: ['.clang-tidy'],
+            originProvenance: { sourceKind: 'package-feature', sourceName: 'NGIN.Tooling.ClangTidy::Analyzer' },
+            provenance: { sourceKind: 'project-profile', sourceName: 'Runtime' }
           }]
         },
         build: {
@@ -1041,6 +1133,20 @@ test('project tree models expose inspect groups for the active project only', ()
         stage: { files: [{ kind: 'config', target: 'config/app.cfg' }] },
         environment: { variables: [{ name: 'TOKEN', value: '<redacted>', secret: true }] },
         diagnostics: [{ severity: 'warning', subject: 'Launch', message: 'Example warning' }]
+      }
+    },
+    toolResults: {
+      'cpp-static-analysis': {
+        path: '/repo/.ngin/build/App/Runtime/tooling/cpp-static-analysis/result.json',
+        modifiedAt: '2026-07-13T12:00:00.000Z',
+        run: 'cpp-static-analysis',
+        executionStatus: 'succeeded',
+        gateStatus: 'not-evaluated',
+        cacheStatus: 'hit',
+        durationMs: 1250,
+        diagnostics: [{ severity: 'warning' }],
+        edits: [{ applicability: 'automatic' }],
+        artifacts: []
       }
     },
     launchManifestExists: false,
@@ -1060,18 +1166,21 @@ test('project tree models expose inspect groups for the active project only', ()
   assert.equal(models.childrenByProject.get(activeProject.path)?.find((entry) => entry.kind === 'group' && entry.group === 'problems')?.description, '1');
   assert.deepEqual(activeInspect?.entriesByGroup.get('tooling')?.map((entry) => `${entry.label}:${entry.description}`), [
     'Reflection code generation:MetaGen · active',
-    'cpp-static-analysis:Analyze · Ready'
+    'C++ Static Analysis:Analyze · 1 warning'
   ]);
   const toolRun = activeInspect?.entriesByGroup.get('tooling')?.[1];
-  assert.equal(toolRun?.tooltip, 'Analyze with clang-tidy\nReady\nFiles: Product Closure • includes generated files\nPolicy: Non-blocking');
+  assert.equal(toolRun?.tooltip, 'Find C++ issues.\nAnalyze with clang-tidy\nReady\nFiles: Project and dependencies • includes generated files\nPolicy: Non-blocking');
   assert.deepEqual(toolRun?.children?.map((entry) => `${entry.label}:${entry.description}`), [
     'Tool:clang-tidy',
-    'Files:Product Closure • includes generated files',
+    'Inputs:Project and dependencies • includes generated files',
     'Policy:Non-blocking',
     'Configuration:.clang-tidy',
+    'Last Run:1 warning • 1.3s • cache hit',
+    'Results:result.json',
     'Advanced:Execution and integration details'
   ]);
   assert.deepEqual(toolRun?.children?.at(-1)?.children?.map((entry) => entry.label), [
+    'Run Identity',
     'Action',
     'Tool Resolution',
     'Driver',
@@ -1079,8 +1188,13 @@ test('project tree models expose inspect groups for the active project only', ()
     'Package',
     'Input Contract',
     'Cache',
-    'Depends On'
+    'Depends On',
+    'Provided By',
+    'Effective Override'
   ]);
+  assert.equal(toolRun?.context, 'toolRun.ready.activeFile.changedFiles.edits');
+  assert.equal(toolRun?.children?.find((entry) => entry.label === 'Configuration')?.targetKind, 'configuration');
+  assert.equal(toolRun?.children?.find((entry) => entry.label === 'Results')?.targetKind, 'file');
   assert.deepEqual(activeInspect?.entriesByGroup.get('generators')?.map((entry) => `${entry.label}:${entry.description}`), [
     'ReflectionMetaGen:Active • NGIN.Reflection.MetaGen::ReflectionCodegen • MetaGen',
     'WindowsOnly:Excluded'

@@ -65,7 +65,7 @@ namespace
             << "  quality baseline create|update|verify --run <RunName> [--output <file>]\n"
             << "  tool list [--available] [--project <file.nginproj>] [--profile <name>] [--format json]\n"
             << "  tool plan [--project <file.nginproj>] [--profile <name>] [--format json]\n"
-            << "  tool doctor [--project <file.nginproj>] [--profile <name>] [--format json]\n"
+            << "  tool doctor [--run <RunName>] [--project <file.nginproj>] [--profile <name>] [--format json]\n"
             << "  tool run <RunName> [--project <file.nginproj>] [--profile <name>]\n"
             << "  tool results [RunId] [--run <RunName>] [--project <file.nginproj>] [--profile <name>] [--format json]\n"
             << "  tool edits [RunId] --run <RunName> [--project <file.nginproj>] [--profile <name>] [--format json]\n"

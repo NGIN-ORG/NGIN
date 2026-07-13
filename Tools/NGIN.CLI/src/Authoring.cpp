@@ -1827,11 +1827,13 @@ namespace NGIN::CLI
                 }
 
                 ValidateAllowedAttributes(*node, path,
-                                          {"Name", "Action", "Enabled", "Profile",
+                                          {"Name", "DisplayName", "Description", "Action", "Enabled", "Profile",
                                            "Platform", "OperatingSystem", "Architecture", "BuildType", "Environment",
                                            "Condition"});
                 ToolRunDefinition run{};
                 run.name = RequireAttribute(*node, "Name", path);
+                run.displayName = Attribute(*node, "DisplayName").value_or("");
+                run.description = Attribute(*node, "Description").value_or("");
                 requireUnique(run.name);
                 run.action = Attribute(*node, "Action").value_or("");
                 run.enabled = BoolAttribute(*node, "Enabled", run.enabled);
@@ -1892,16 +1894,22 @@ namespace NGIN::CLI
                                               {"Gate", "FailOn", "Baseline", "NewFindingsOnly",
                                                "MaxFindings", "MaxWarnings"});
                     run.hasPolicy = true;
+                    run.policy.gateExplicit = Attribute(*policy, "Gate").has_value();
                     run.policy.gate = BoolAttribute(*policy, "Gate", false);
+                    run.policy.failOnExplicit = Attribute(*policy, "FailOn").has_value();
                     run.policy.failOn = Attribute(*policy, "FailOn").value_or(run.policy.failOn);
                     if (!IsToolFailSeverity(run.policy.failOn))
                     {
                         throw std::runtime_error(path.string() + ": unsupported tool gate severity '" +
                                                  run.policy.failOn + "'");
                     }
+                    run.policy.baselineExplicit = Attribute(*policy, "Baseline").has_value();
                     run.policy.baseline = Attribute(*policy, "Baseline").value_or("");
+                    run.policy.newFindingsOnlyExplicit = Attribute(*policy, "NewFindingsOnly").has_value();
                     run.policy.newFindingsOnly = BoolAttribute(*policy, "NewFindingsOnly", false);
+                    run.policy.maxFindingsExplicit = Attribute(*policy, "MaxFindings").has_value();
                     run.policy.maxFindings = ParseToolLimit(*policy, "MaxFindings", path);
+                    run.policy.maxWarningsExplicit = Attribute(*policy, "MaxWarnings").has_value();
                     run.policy.maxWarnings = ParseToolLimit(*policy, "MaxWarnings", path);
                     std::set<std::string> mappedRules{};
                     for (const auto *mapping : ChildElements(*policy, "Severity"))
@@ -1966,13 +1974,20 @@ namespace NGIN::CLI
                                               {"Jobs", "Timeout", "Cache", "FailureStrategy", "Weight",
                                                "MaxParallelism", "ExclusiveResource"});
                     run.hasExecution = true;
+                    run.execution.jobsExplicit = Attribute(*execution, "Jobs").has_value();
                     run.execution.jobs = Attribute(*execution, "Jobs").value_or(run.execution.jobs);
+                    run.execution.timeoutExplicit = Attribute(*execution, "Timeout").has_value();
                     run.execution.timeout = Attribute(*execution, "Timeout").value_or("");
+                    run.execution.cacheExplicit = Attribute(*execution, "Cache").has_value();
                     run.execution.cache = Attribute(*execution, "Cache").value_or(run.execution.cache);
+                    run.execution.failureStrategyExplicit = Attribute(*execution, "FailureStrategy").has_value();
                     run.execution.failureStrategy =
                         Attribute(*execution, "FailureStrategy").value_or(run.execution.failureStrategy);
                     run.execution.weight = ParsePositiveToolInteger(*execution, "Weight", 1, path);
+                    run.execution.weightExplicit = Attribute(*execution, "Weight").has_value();
                     run.execution.maxParallelism = ParsePositiveToolInteger(*execution, "MaxParallelism", 1, path);
+                    run.execution.maxParallelismExplicit = Attribute(*execution, "MaxParallelism").has_value();
+                    run.execution.exclusiveResourceExplicit = Attribute(*execution, "ExclusiveResource").has_value();
                     run.execution.exclusiveResource = Attribute(*execution, "ExclusiveResource").value_or("");
                     if (!IsToolCacheMode(run.execution.cache))
                     {
@@ -2879,6 +2894,8 @@ namespace NGIN::CLI
                 continue;
             }
             run.name = RequireAttribute(*node, "Name", path);
+            run.displayName = Attribute(*node, "DisplayName").value_or("");
+            run.description = Attribute(*node, "Description").value_or("");
             RequireUniqueWorkspacePolicyName(localNames, "tool run", run.name, path);
             run.action = Attribute(*node, "Action").value_or("");
             run.enabled = BoolAttribute(*node, "Enabled", run.enabled);
@@ -2921,16 +2938,22 @@ namespace NGIN::CLI
             if (const auto *gate = FindChild(*node, "Policy"))
             {
                 run.hasPolicy = true;
+                run.gateExplicit = Attribute(*gate, "Gate").has_value();
                 run.gate = BoolAttribute(*gate, "Gate", false);
+                run.failOnExplicit = Attribute(*gate, "FailOn").has_value();
                 run.failOn = Attribute(*gate, "FailOn").value_or(run.failOn);
                 if (!IsToolFailSeverity(run.failOn))
                 {
                     throw std::runtime_error(path.string() + ": unsupported tool gate severity '" + run.failOn +
                                              "'");
                 }
+                run.baselineExplicit = Attribute(*gate, "Baseline").has_value();
                 run.baseline = Attribute(*gate, "Baseline").value_or("");
+                run.newFindingsOnlyExplicit = Attribute(*gate, "NewFindingsOnly").has_value();
                 run.newFindingsOnly = BoolAttribute(*gate, "NewFindingsOnly", false);
+                run.maxFindingsExplicit = Attribute(*gate, "MaxFindings").has_value();
                 run.maxFindings = ParseToolLimit(*gate, "MaxFindings", path);
+                run.maxWarningsExplicit = Attribute(*gate, "MaxWarnings").has_value();
                 run.maxWarnings = ParseToolLimit(*gate, "MaxWarnings", path);
                 std::set<std::string> severityRules{};
                 for (const auto *severity : ChildElements(*gate, "Severity"))
@@ -2984,12 +3007,19 @@ namespace NGIN::CLI
             if (const auto *execution = FindChild(*node, "Execution"))
             {
                 run.hasExecution = true;
+                run.jobsExplicit = Attribute(*execution, "Jobs").has_value();
                 run.jobs = Attribute(*execution, "Jobs").value_or(run.jobs);
+                run.timeoutExplicit = Attribute(*execution, "Timeout").has_value();
                 run.timeout = Attribute(*execution, "Timeout").value_or("");
+                run.cacheExplicit = Attribute(*execution, "Cache").has_value();
                 run.cache = Attribute(*execution, "Cache").value_or(run.cache);
+                run.failureStrategyExplicit = Attribute(*execution, "FailureStrategy").has_value();
                 run.failureStrategy = Attribute(*execution, "FailureStrategy").value_or(run.failureStrategy);
+                run.weightExplicit = Attribute(*execution, "Weight").has_value();
                 run.weight = ParsePositiveToolInteger(*execution, "Weight", 1, path);
+                run.maxParallelismExplicit = Attribute(*execution, "MaxParallelism").has_value();
                 run.maxParallelism = ParsePositiveToolInteger(*execution, "MaxParallelism", 1, path);
+                run.exclusiveResourceExplicit = Attribute(*execution, "ExclusiveResource").has_value();
                 run.exclusiveResource = Attribute(*execution, "ExclusiveResource").value_or("");
                 if (!IsToolCacheMode(run.cache))
                 {
@@ -6102,6 +6132,8 @@ namespace NGIN::CLI
                 }
                 ToolRunDefinition run{};
                 run.name = runPolicy.name;
+                run.displayName = runPolicy.displayName;
+                run.description = runPolicy.description;
                 run.action = runPolicy.action;
                 run.enabled = runPolicy.enabled;
                 run.disabled = runPolicy.remove;
@@ -6124,11 +6156,17 @@ namespace NGIN::CLI
                     });
                 }
                 run.policy.gate = runPolicy.gate;
+                run.policy.gateExplicit = runPolicy.gateExplicit;
                 run.policy.failOn = runPolicy.failOn;
+                run.policy.failOnExplicit = runPolicy.failOnExplicit;
                 run.policy.baseline = runPolicy.baseline;
+                run.policy.baselineExplicit = runPolicy.baselineExplicit;
                 run.policy.newFindingsOnly = runPolicy.newFindingsOnly;
+                run.policy.newFindingsOnlyExplicit = runPolicy.newFindingsOnlyExplicit;
                 run.policy.maxFindings = runPolicy.maxFindings;
+                run.policy.maxFindingsExplicit = runPolicy.maxFindingsExplicit;
                 run.policy.maxWarnings = runPolicy.maxWarnings;
+                run.policy.maxWarningsExplicit = runPolicy.maxWarningsExplicit;
                 for (const auto &mapping : runPolicy.severityMappings)
                     run.policy.severityMappings.push_back({.rule = mapping.rule, .severity = mapping.severity});
                 for (const auto &suppression : runPolicy.suppressions)
@@ -6142,12 +6180,19 @@ namespace NGIN::CLI
                     run.policy.ruleBudgets.push_back({.rule = budget.rule, .maximum = budget.maximum});
                 run.hasPolicy = runPolicy.hasPolicy;
                 run.execution.jobs = runPolicy.jobs;
+                run.execution.jobsExplicit = runPolicy.jobsExplicit;
                 run.execution.timeout = runPolicy.timeout;
+                run.execution.timeoutExplicit = runPolicy.timeoutExplicit;
                 run.execution.cache = runPolicy.cache;
+                run.execution.cacheExplicit = runPolicy.cacheExplicit;
                 run.execution.failureStrategy = runPolicy.failureStrategy;
+                run.execution.failureStrategyExplicit = runPolicy.failureStrategyExplicit;
                 run.execution.weight = runPolicy.weight;
+                run.execution.weightExplicit = runPolicy.weightExplicit;
                 run.execution.maxParallelism = runPolicy.maxParallelism;
+                run.execution.maxParallelismExplicit = runPolicy.maxParallelismExplicit;
                 run.execution.exclusiveResource = runPolicy.exclusiveResource;
+                run.execution.exclusiveResourceExplicit = runPolicy.exclusiveResourceExplicit;
                 run.hasExecution = runPolicy.hasExecution;
                 run.dependencies = runPolicy.dependencies;
                 for (const auto &reportPolicy : runPolicy.reports)

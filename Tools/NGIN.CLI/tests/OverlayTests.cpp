@@ -120,6 +120,7 @@ TEST_CASE("tool run overlays append input filters and merge named configs and re
     project.name = "Overlay.App";
     ToolRunDefinition base{};
     base.name = "audit";
+    base.displayName = "Base Audit";
     base.action = "Example.Tooling::analyze";
     base.hasInput = true;
     base.input.contract = "files/v1";
@@ -133,12 +134,25 @@ TEST_CASE("tool run overlays append input filters and merge named configs and re
     base.reports = {
         ToolReportDefinition{.name = "json", .format = "json", .path = "base.json"},
     };
+    base.hasPolicy = true;
+    base.policy.gate = false;
+    base.policy.gateExplicit = true;
+    base.policy.failOn = "Error";
+    base.policy.failOnExplicit = true;
+    base.policy.ruleBudgets.push_back({.rule = "security", .maximum = 0});
+    base.hasExecution = true;
+    base.execution.cache = "ReadWrite";
+    base.execution.cacheExplicit = true;
+    base.execution.weight = 4;
+    base.execution.weightExplicit = true;
+    base.provenance = {.sourceKind = "package-feature", .sourceName = "Example::Audit"};
     project.tooling.runs.push_back(base);
 
     ProfileDefinition profile{};
     profile.name = "ci";
     ToolRunDefinition overlay{};
     overlay.name = "audit";
+    overlay.displayName = "CI Audit";
     overlay.hasInput = true;
     overlay.input.merge = "Append";
     overlay.input.includes = {"include/**"};
@@ -150,12 +164,20 @@ TEST_CASE("tool run overlays append input filters and merge named configs and re
         ToolReportDefinition{.name = "json", .format = "json", .path = "ci.json"},
         ToolReportDefinition{.name = "sarif", .format = "sarif", .path = "ci.sarif"},
     };
+    overlay.hasPolicy = true;
+    overlay.policy.gate = true;
+    overlay.policy.gateExplicit = true;
+    overlay.hasExecution = true;
+    overlay.execution.cache = "ReadOnly";
+    overlay.execution.cacheExplicit = true;
+    overlay.provenance = {.sourceKind = "project-profile", .sourceName = "ci"};
     profile.tooling.runs.push_back(overlay);
 
     const auto effective = EffectiveToolRuns(project, profile, {});
     REQUIRE(effective.size() == 1);
     const auto &run = effective.at("audit");
     REQUIRE(run.action == "Example.Tooling::analyze");
+    REQUIRE(run.displayName == "CI Audit");
     REQUIRE(run.input.contract == "files/v1");
     REQUIRE(run.input.scope == "ProductClosure");
     REQUIRE(run.input.includes == std::vector<std::string>{"src/**", "include/**"});
@@ -167,6 +189,13 @@ TEST_CASE("tool run overlays append input filters and merge named configs and re
     REQUIRE(run.reports.size() == 2);
     REQUIRE(run.reports[0].path == "ci.json");
     REQUIRE(run.reports[1].format == "sarif");
+    REQUIRE(run.policy.gate);
+    REQUIRE(run.policy.failOn == "Error");
+    REQUIRE(run.policy.ruleBudgets.size() == 1);
+    REQUIRE(run.execution.cache == "ReadOnly");
+    REQUIRE(run.execution.weight == 4);
+    REQUIRE(run.originProvenance.sourceKind == "package-feature");
+    REQUIRE(run.provenance.sourceKind == "project-profile");
 }
 
 TEST_CASE("profile Uses overlays can remove project references")

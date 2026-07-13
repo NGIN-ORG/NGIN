@@ -220,7 +220,8 @@ TEST_CASE("package feature analyzer contributes clang-tidy to graph")
     REQUIRE(inspectExitCode == 0);
     REQUIRE_THAT(inspectCaptured.str(), ContainsSubstring(R"("tooling":{"tools":[)"));
     REQUIRE_THAT(inspectCaptured.str(), ContainsSubstring(R"("runs":[)"));
-    REQUIRE_THAT(inspectCaptured.str(), ContainsSubstring(R"("name":"cpp-static-analysis","action":"NGIN.Tooling.ClangTidy::analyze","kind":"Analyze")"));
+    REQUIRE_THAT(inspectCaptured.str(), ContainsSubstring(R"("name":"cpp-static-analysis","displayName":")"));
+    REQUIRE_THAT(inspectCaptured.str(), ContainsSubstring(R"("action":"NGIN.Tooling.ClangTidy::analyze","kind":"Analyze")"));
     REQUIRE_THAT(inspectCaptured.str(), ContainsSubstring(R"("gate":true,"failOn":"Warning")"));
 }
 

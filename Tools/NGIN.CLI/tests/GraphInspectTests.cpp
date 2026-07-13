@@ -550,7 +550,9 @@ TEST_CASE("graph json contract carries selected item provenance")
         <Variable Name="FEATURE_ENV" Value="feature" />
       </Variables>
       <Tooling>
-        <Run Name="feature-analysis" Action="Package.Contract::analyze">
+        <Run Name="feature-analysis" DisplayName="Feature Analysis"
+             Description="Analyze feature inputs."
+             Action="Package.Contract::analyze">
           <Input Contract="cpp.translation-units/v1" Scope="ProductClosure" />
         </Run>
       </Tooling>
@@ -658,6 +660,7 @@ TEST_CASE("graph json contract carries selected item provenance")
     REQUIRE_THAT(fullGraph, ContainsSubstring(R"("schemaVersion": "4.0")"));
     REQUIRE_THAT(fullGraph, ContainsSubstring(R"("kind": "NGIN.CompositionGraph")"));
     REQUIRE_THAT(fullGraph, ContainsSubstring(R"("state": "resolved")"));
+    REQUIRE_THAT(fullGraph, ContainsSubstring(R"("originProvenance":{"sourceKind":"package-feature")"));
     REQUIRE_THAT(fullGraph, ContainsSubstring(R"("facets": [)"));
     REQUIRE_THAT(fullGraph, ContainsSubstring(R"("identity": {"project":"Contract.App")"));
     REQUIRE_THAT(fullGraph, ContainsSubstring(R"("conventions": [)"));
@@ -758,11 +761,15 @@ TEST_CASE("graph json contract carries selected item provenance")
     REQUIRE_THAT(toolingPlan, ContainsSubstring(R"("identity":"Package.Contract::contract-driver")"));
     REQUIRE_THAT(toolingPlan, ContainsSubstring(R"("identity":"input-set:project-analysis")"));
     REQUIRE_THAT(toolingPlan, ContainsSubstring(R"("diagnostics": [])"));
-    REQUIRE_THAT(toolingPlan, ContainsSubstring(R"("name":"project-analysis","action":"Package.Contract::analyze","kind":"Analyze")"));
-    REQUIRE_THAT(toolingPlan, ContainsSubstring(R"("name":"profile-analysis","action":"Package.Contract::analyze","kind":"Analyze")"));
-    REQUIRE_THAT(toolingPlan, ContainsSubstring(R"("name":"workspace-analysis","action":"Package.Contract::analyze","kind":"Analyze")"));
-    REQUIRE_THAT(toolingPlan, ContainsSubstring(R"("name":"feature-analysis","action":"Package.Contract::analyze","kind":"Analyze")"));
-    REQUIRE_THAT(toolingPlan, ContainsSubstring(R"("name":"disabled-analysis","action":"Package.Contract::analyze","kind":"Analyze")"));
+    REQUIRE_THAT(toolingPlan, ContainsSubstring(R"("name":"project-analysis","displayName":")"));
+    REQUIRE_THAT(toolingPlan, ContainsSubstring(R"("name":"profile-analysis","displayName":")"));
+    REQUIRE_THAT(toolingPlan, ContainsSubstring(R"("name":"workspace-analysis","displayName":")"));
+    REQUIRE_THAT(toolingPlan, ContainsSubstring(R"("name":"feature-analysis","displayName":")"));
+    REQUIRE_THAT(toolingPlan, ContainsSubstring(R"("displayName":"Feature Analysis","description":"Analyze feature inputs.")"));
+    REQUIRE_THAT(toolingPlan, ContainsSubstring(R"("name":"disabled-analysis","displayName":")"));
+    REQUIRE_THAT(toolingPlan, ContainsSubstring(R"("action":"Package.Contract::analyze","kind":"Analyze")"));
+    REQUIRE_THAT(toolingPlan, ContainsSubstring(R"("capabilities":[)"));
+    REQUIRE_THAT(toolingPlan, ContainsSubstring(R"("originProvenance":{"sourceKind":"package-feature")"));
     REQUIRE_THAT(toolingPlan, ContainsSubstring(R"("state":"disabled")"));
     REQUIRE_THAT(toolingPlan, ContainsSubstring(R"("sourceKind":"package-feature","sourceName":"Package.Contract::Diagnostics")"));
 

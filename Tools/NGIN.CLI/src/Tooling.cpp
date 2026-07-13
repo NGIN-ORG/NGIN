@@ -1851,7 +1851,8 @@ namespace NGIN::CLI
                                    std::string_view driverName,
                                    const ToolDriverResult &result,
                                    std::optional<bool> gateFailed,
-                                   const fs::path &path) -> void
+                                   const fs::path &path,
+                                   std::int64_t durationMilliseconds) -> void
     {
         fs::create_directories(path.parent_path());
         std::ofstream out(path, std::ios::binary | std::ios::trunc);
@@ -1881,6 +1882,7 @@ namespace NGIN::CLI
         out << ",\"gateStatus\":";
         WriteString(out, !gateFailed.has_value() ? "not-evaluated" : *gateFailed ? "failed" : "passed");
         out << ",\"cacheStatus\":"; WriteString(out, result.cacheStatus);
+        out << ",\"durationMs\":" << durationMilliseconds;
         out << ",\"diagnostics\":[";
         for (std::size_t index = 0; index < result.diagnostics.size(); ++index)
         {

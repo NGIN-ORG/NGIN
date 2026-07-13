@@ -105,6 +105,8 @@ namespace NGIN::CLI
 
                 std::string productKind{};
                 std::string name{};
+                std::string displayName{};
+                std::string description{};
                 std::string action{};
                 bool enabled{true};
                 bool remove{false};
@@ -121,22 +123,35 @@ namespace NGIN::CLI
                 std::vector<ConfigPolicy> configs{};
                 bool hasPolicy{false};
                 bool gate{false};
+                bool gateExplicit{false};
                 std::string failOn{"Error"};
+                bool failOnExplicit{false};
                 std::string baseline{};
+                bool baselineExplicit{false};
                 bool newFindingsOnly{false};
+                bool newFindingsOnlyExplicit{false};
                 std::optional<std::size_t> maxFindings{};
+                bool maxFindingsExplicit{false};
                 std::optional<std::size_t> maxWarnings{};
+                bool maxWarningsExplicit{false};
                 std::vector<SeverityPolicy> severityMappings{};
                 std::vector<SuppressionPolicy> suppressions{};
                 std::vector<RuleBudgetPolicy> ruleBudgets{};
                 bool hasExecution{false};
                 std::string jobs{"Auto"};
+                bool jobsExplicit{false};
                 std::string timeout{};
+                bool timeoutExplicit{false};
                 std::string cache{"Off"};
+                bool cacheExplicit{false};
                 std::string failureStrategy{"DependencyAware"};
+                bool failureStrategyExplicit{false};
                 std::size_t weight{1};
+                bool weightExplicit{false};
                 std::size_t maxParallelism{1};
+                bool maxParallelismExplicit{false};
                 std::string exclusiveResource{};
+                bool exclusiveResourceExplicit{false};
                 std::vector<std::string> dependencies{};
                 std::vector<ReportPolicy> reports{};
             };
@@ -722,11 +737,17 @@ namespace NGIN::CLI
         };
 
         bool gate{false};
+        bool gateExplicit{false};
         std::string failOn{"Error"};
+        bool failOnExplicit{false};
         std::string baseline{};
+        bool baselineExplicit{false};
         bool newFindingsOnly{false};
+        bool newFindingsOnlyExplicit{false};
         std::optional<std::size_t> maxFindings{};
+        bool maxFindingsExplicit{false};
         std::optional<std::size_t> maxWarnings{};
+        bool maxWarningsExplicit{false};
         std::vector<SeverityMapping> severityMappings{};
         std::vector<Suppression> suppressions{};
         std::vector<RuleBudget> ruleBudgets{};
@@ -735,17 +756,26 @@ namespace NGIN::CLI
     struct ToolExecutionDefinition
     {
         std::string jobs{"Auto"};
+        bool jobsExplicit{false};
         std::string timeout{};
+        bool timeoutExplicit{false};
         std::string cache{"Off"};
+        bool cacheExplicit{false};
         std::string failureStrategy{"DependencyAware"};
+        bool failureStrategyExplicit{false};
         std::size_t weight{1};
+        bool weightExplicit{false};
         std::size_t maxParallelism{1};
+        bool maxParallelismExplicit{false};
         std::string exclusiveResource{};
+        bool exclusiveResourceExplicit{false};
     };
 
     struct ToolRunDefinition
     {
         std::string name{};
+        std::string displayName{};
+        std::string description{};
         std::string action{};
         std::string packageName{};
         std::string packageFeature{};
@@ -763,6 +793,7 @@ namespace NGIN::CLI
         std::vector<ToolReportDefinition> reports{};
         SelectorSet selectors{};
         ContributionProvenance provenance{};
+        ContributionProvenance originProvenance{};
     };
 
     struct ToolingDefinition
@@ -1239,6 +1270,8 @@ namespace NGIN::CLI
         struct ToolRun
         {
             std::string name{};
+            std::string displayName{};
+            std::string description{};
             std::string action{};
             std::string actionKind{};
             std::string packageName{};
@@ -1250,13 +1283,16 @@ namespace NGIN::CLI
             std::string driverPath{};
             std::string driverSource{};
             std::string driverProtocol{};
+            std::vector<std::string> capabilities{};
             std::string state{"ready"};
             std::string diagnostic{};
             std::string inputContract{};
             std::string inputScope{};
             bool includeGenerated{};
             std::size_t configCount{};
+            std::vector<std::string> configNames{};
             std::vector<std::string> configPaths{};
+            std::vector<bool> configOptional{};
             std::vector<std::string> includes{};
             std::vector<std::string> excludes{};
             std::vector<std::string> inputFiles{};
@@ -1272,10 +1308,12 @@ namespace NGIN::CLI
             std::size_t maxParallelism{1};
             std::string exclusiveResource{};
             std::size_t reportCount{};
+            std::vector<std::string> reportNames{};
             std::vector<std::string> reportPaths{};
             std::vector<std::string> reportFormats{};
             std::vector<std::string> dependencies{};
             Provenance provenance{};
+            Provenance originProvenance{};
         };
 
         struct Tool

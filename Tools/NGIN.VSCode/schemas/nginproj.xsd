@@ -108,6 +108,8 @@
       </xs:choice>
     </xs:sequence>
     <xs:attribute name="Name" type="xs:string" />
+    <xs:attribute name="DisplayName" type="xs:string" />
+    <xs:attribute name="Description" type="xs:string" />
     <xs:attribute name="Action" type="xs:string" />
     <xs:attribute name="Enabled" type="xs:boolean" />
     <xs:attribute name="Remove" type="xs:string" />
@@ -139,6 +141,7 @@
       <xs:sequence>
         <xs:choice minOccurs="0" maxOccurs="unbounded">
           <xs:element name="Defaults" type="OpenSectionType" />
+          <xs:element name="Tooling" type="ToolingType" />
           <xs:element ref="Application" />
           <xs:element ref="Library" />
           <xs:element ref="Tool" />

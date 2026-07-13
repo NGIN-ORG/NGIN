@@ -1055,7 +1055,9 @@ Current test coverage includes:
 - VS Code discovers and authors any package action through CLI-owned
   `add tool-action`; it contains no official-package-specific authoring logic
 - VS Code command/menu/snippet surface includes `Analyze`, `Add Tool Action`,
-  `Run Tool Run`, `Show Tooling Plan`, and general tooling snippets
+  `Run Tool`, capability-aware active/changed-file runs, safe per-run
+  configuration, run-on-save, preview/apply, diagnosis, result history,
+  `Show Tooling Plan`, and general tooling snippets
 - VS Code internal/user-facing package-reference naming has been migrated to
   dependency/uses terminology where it affects active models and labels
 - CLI lifecycle commands now use a shared modern output surface with command

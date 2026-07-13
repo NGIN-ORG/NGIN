@@ -1,5 +1,5 @@
 import * as path from 'node:path';
-import type { GraphGeneratorOutput } from '../core/types';
+import type { GraphGeneratorOutput, StoredToolResultSummary } from '../core/types';
 import { NginCommandTarget, NginWorkspaceSnapshot } from '../state/workspaceState';
 
 export interface ProjectTreeProjectModel {
@@ -81,9 +81,10 @@ export interface ProjectTreeInspectEntryModel {
   tooltip?: string;
   icon?: string;
   targetPath?: string;
+  targetKind?: 'file' | 'configuration' | 'report';
   children?: ProjectTreeInspectEntryModel[];
   explainIdentity?: string;
-  context?: 'tooling' | 'toolRun' | 'launch' | 'problem' | 'detail';
+  context?: string;
 }
 
 export interface ProjectTreeInspectModel {
@@ -283,6 +284,18 @@ function readableToolValue(value?: string): string | undefined {
     .replace(/^./, (first) => first.toUpperCase());
 }
 
+function toolInputScopeLabel(value?: string): string | undefined {
+  switch (value) {
+    case 'Product': return 'This project';
+    case 'ProductClosure': return 'Project and dependencies';
+    case 'Workspace': return 'Entire workspace';
+    case 'Explicit': return 'Explicit patterns';
+    case 'ActiveFile': return 'Active file';
+    case 'ChangedFiles': return 'Changed files';
+    default: return readableToolValue(value);
+  }
+}
+
 function toolRunPolicyLabel(gate?: boolean, failOn?: string): string {
   if (!gate) {
     return 'Non-blocking';
@@ -290,19 +303,42 @@ function toolRunPolicyLabel(gate?: boolean, failOn?: string): string {
   return failOn ? `Fails on ${failOn.toLowerCase()} or higher` : 'Blocking';
 }
 
+function toolRunResultLabel(result: StoredToolResultSummary | undefined): string | undefined {
+  if (!result) return undefined;
+  if (result.executionStatus && result.executionStatus !== 'succeeded') return readableToolValue(result.executionStatus);
+  if (result.gateStatus === 'failed') return 'Gate failed';
+  const findings = result.diagnostics.filter((diagnostic) => !diagnostic.suppressed);
+  const errors = findings.filter((diagnostic) => ['error', 'fatal'].includes(diagnostic.severity?.toLowerCase() ?? '')).length;
+  const warnings = findings.filter((diagnostic) => diagnostic.severity?.toLowerCase() === 'warning').length;
+  if (errors) return `${errors} ${errors === 1 ? 'error' : 'errors'}`;
+  if (warnings) return `${warnings} ${warnings === 1 ? 'warning' : 'warnings'}`;
+  return findings.length ? `${findings.length} findings` : 'No findings';
+}
+
+function toolRunContext(run: { state?: string; capabilities?: string[]; kind?: string }, result?: StoredToolResultSummary): string {
+  const parts = ['toolRun', run.state ?? 'ready'];
+  const capabilities = new Set((run.capabilities ?? []).map((capability) => capability.toLowerCase()));
+  if (capabilities.has('active-file')) parts.push('activeFile');
+  if (capabilities.has('changed-files')) parts.push('changedFiles');
+  if (result?.edits.length) parts.push('edits');
+  return parts.join('.');
+}
+
 function detailEntry(
   label: string,
   description?: string,
   icon = 'symbol-field',
   tooltip?: string,
-  targetPath?: string
+  targetPath?: string,
+  targetKind: ProjectTreeInspectEntryModel['targetKind'] = 'file'
 ): ProjectTreeInspectEntryModel {
   return {
     label,
     description,
     icon,
     tooltip,
-    targetPath
+    targetPath,
+    targetKind
   };
 }
 
@@ -580,11 +616,14 @@ export function buildInspectTreeModel(snapshot: NginWorkspaceSnapshot, projectPa
   if (plans?.tooling?.runs?.length) {
     entriesByGroup.set('toolRuns', plans.tooling.runs.map((run) => {
       const state = inspectStateLabel(run.state ?? 'ready');
+      const result = snapshot.toolResults?.[run.name];
+      const resultLabel = toolRunResultLabel(result);
       const files = [
-        readableToolValue(run.inputScope),
+        toolInputScopeLabel(run.inputScope),
         run.includeGenerated ? 'includes generated files' : undefined
       ].filter(Boolean).join(' • ');
       const advanced = [
+        detailEntry('Run Identity', run.name, 'key'),
         detailEntry('Action', run.action, 'symbol-method'),
         detailEntry('Tool Resolution', [run.toolSource, run.toolPath].filter(Boolean).join(' • '), 'tools'),
         detailEntry('Driver', run.driver, 'server-process'),
@@ -593,22 +632,29 @@ export function buildInspectTreeModel(snapshot: NginWorkspaceSnapshot, projectPa
         detailEntry('Input Contract', run.inputContract, 'symbol-interface'),
         detailEntry('Cache', run.cache, 'database'),
         detailEntry('Depends On', run.dependencies?.join(', '), 'references'),
-        ...(run.reportPaths ?? []).map((report, index) => detailEntry(
-          `Report ${index + 1}`,
-          report,
-          'file-text',
-          undefined,
-          report.includes('$(') ? undefined : path.resolve(path.dirname(projectPath), report)
-        ))
+        detailEntry('Provided By', [run.originProvenance?.sourceKind, run.originProvenance?.sourceName].filter(Boolean).join(' • '), 'source-control'),
+        detailEntry('Effective Override', [run.provenance?.sourceKind, run.provenance?.sourceName].filter(Boolean).join(' • '), 'layers')
       ].filter((entry) => Boolean(entry.description));
-      const configurations = (run.configPaths ?? []).map((config) => detailEntry(
-        'Configuration',
-        config,
+      const configurations = (run.configPaths ?? []).map((config, index) => detailEntry(
+        run.configNames?.[index] ? `Configuration — ${run.configNames[index]}` : 'Configuration',
+        [config, run.configOptional?.[index] ? 'optional' : undefined].filter(Boolean).join(' • '),
         'settings-gear',
         undefined,
-        config.includes('$(') ? undefined : path.resolve(path.dirname(projectPath), config)
+        config.includes('$(') ? undefined : path.resolve(path.dirname(projectPath), config),
+        'configuration'
+      ));
+      const reports = (run.reportPaths ?? []).map((report, index) => detailEntry(
+        run.reportNames?.[index] ? `Report — ${run.reportNames[index]}` : `Report ${index + 1}`,
+        [run.reportFormats?.[index], report].filter(Boolean).join(' • '),
+        'file-text',
+        report,
+        report.includes('$(OutputDir)') && snapshot.outputDir
+          ? report.replace('$(OutputDir)', snapshot.outputDir)
+          : report.includes('$(') ? undefined : path.resolve(path.dirname(projectPath), report),
+        'report'
       ));
       const tooltip = [
+        run.description,
         [run.kind, run.tool ? `with ${run.tool}` : undefined].filter(Boolean).join(' '),
         state,
         files ? `Files: ${files}` : undefined,
@@ -617,9 +663,11 @@ export function buildInspectTreeModel(snapshot: NginWorkspaceSnapshot, projectPa
       ].filter(Boolean).join('\n');
 
       return {
-        label: run.name,
-        description: [run.kind, state].filter(Boolean).join(' · ') || undefined,
+        label: run.displayName || run.name,
+        description: [run.kind, resultLabel ?? state].filter(Boolean).join(' · ') || undefined,
         tooltip,
+        explainIdentity: `run:${run.name}`,
+        context: toolRunContext(run, result),
         icon: run.state === 'invalid' ? 'error'
           : run.state === 'unavailable' ? 'warning'
             : run.state === 'disabled' || run.state === 'excluded' ? 'circle-slash'
@@ -627,9 +675,20 @@ export function buildInspectTreeModel(snapshot: NginWorkspaceSnapshot, projectPa
                 : run.kind === 'Report' ? 'file-text' : 'search',
         children: [
           detailEntry('Tool', run.tool, 'tools'),
-          detailEntry('Files', files || undefined, 'files'),
+          detailEntry('Inputs', files || undefined, 'files'),
           detailEntry('Policy', toolRunPolicyLabel(run.gate, run.failOn), run.gate ? 'warning' : 'pass'),
           ...configurations,
+          ...(result ? [detailEntry(
+            'Last Run',
+            [resultLabel, result.durationMs === undefined ? undefined : `${(result.durationMs / 1000).toFixed(1)}s`,
+              result.cacheStatus && result.cacheStatus !== 'disabled' ? `cache ${result.cacheStatus}` : undefined].filter(Boolean).join(' • '),
+            result.executionStatus === 'succeeded' ? 'history' : 'error',
+            new Date(result.modifiedAt).toLocaleString()
+          ), detailEntry('Results', path.basename(result.path), 'json', result.path, result.path)] : []),
+          ...reports,
+          ...(result?.artifacts ?? []).flatMap((artifact, index) => artifact.path ? [detailEntry(
+            `Artifact ${index + 1}`, artifact.path, 'file-binary', artifact.path, artifact.path, 'report'
+          )] : []),
           ...(run.diagnostic ? [detailEntry('Problem', run.diagnostic, 'error')] : []),
           ...(advanced.length ? [{
             label: 'Advanced',
@@ -675,11 +734,7 @@ export function buildInspectTreeModel(snapshot: NginWorkspaceSnapshot, projectPa
         context: 'tooling' as const
       }];
     }),
-    ...(entriesByGroup.get('toolRuns') ?? []).map((entry) => ({
-      ...entry,
-      explainIdentity: `run:${entry.label}`,
-      context: 'toolRun' as const
-    }))
+    ...(entriesByGroup.get('toolRuns') ?? [])
   ];
   if (toolingEntries.length > 0) {
     entriesByGroup.set('tooling', toolingEntries);

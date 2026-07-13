@@ -945,10 +945,10 @@ export class NginProjectEditorProvider implements vscode.CustomTextEditorProvide
       const filteredPackages = model.resolved.packages.filter(packageSearchMatches);
       const toolingRows = model.resolved.toolingPackages.map((pkg) => [pkg.name, pkg.version || '', pkg.requiredBy.join(', ')]);
       const toolRunRows = model.resolved.toolRuns.map((run) => [
-        run.name,
+        run.displayName || run.name,
         run.kind || '',
         run.tool || '',
-        run.driver || '',
+        (run.inputScope || 'Product') + (run.includeGenerated ? ' + generated' : ''),
         run.state || '',
         run.gate ? 'Gate: ' + (run.failOn || 'Error') : 'Report only'
       ]);
@@ -959,7 +959,7 @@ export class NginProjectEditorProvider implements vscode.CustomTextEditorProvide
         '</div><div class="band"><h2>Enabled Tooling Packages</h2>' +
         table(['Package', 'Version', 'Closures'], toolingRows, 'No tooling packages are enabled for this profile.', 'minmax(220px, 1fr) 100px minmax(160px, 1fr)') +
         '</div><div class="band"><h2>Tool Runs</h2>' +
-        table(['Name', 'Kind', 'Tool', 'Driver', 'State', 'Policy'], toolRunRows, 'No tool runs are active for this profile.', 'minmax(140px, 1fr) 100px minmax(140px, 1fr) minmax(140px, 1fr) 100px minmax(140px, 1fr)') +
+        table(['Name', 'Kind', 'Tool', 'Inputs', 'State', 'Policy'], toolRunRows, 'No tool runs are active for this profile.', 'minmax(180px, 1fr) 100px minmax(120px, 1fr) minmax(170px, 1fr) 100px minmax(140px, 1fr)') +
         '</div>' +
         renderPackageDetailsDialog() +
         renderAddPackageDialog();

@@ -198,6 +198,54 @@
         "icon": "$(play)"
       },
       {
+        "command": "ngin.runToolActiveFile",
+        "title": "Run on Active File",
+        "category": "NGIN"
+      },
+      {
+        "command": "ngin.runToolChangedFiles",
+        "title": "Run on Changed Files…",
+        "category": "NGIN"
+      },
+      {
+        "command": "ngin.previewToolChanges",
+        "title": "Preview Changes",
+        "category": "NGIN",
+        "icon": "$(preview)"
+      },
+      {
+        "command": "ngin.configureToolRun",
+        "title": "Configure Tool…",
+        "category": "NGIN",
+        "icon": "$(settings-gear)"
+      },
+      {
+        "command": "ngin.configureToolRunOnSave",
+        "title": "Configure Run on Save…",
+        "category": "NGIN"
+      },
+      {
+        "command": "ngin.diagnoseToolRun",
+        "title": "Diagnose Tool",
+        "category": "NGIN",
+        "icon": "$(wrench)"
+      },
+      {
+        "command": "ngin.clearToolDiagnostics",
+        "title": "Clear Tool Diagnostics",
+        "category": "NGIN"
+      },
+      {
+        "command": "ngin.copyToolInvocation",
+        "title": "Copy Tool Invocation",
+        "category": "NGIN"
+      },
+      {
+        "command": "ngin.applyToolRunEdits",
+        "title": "Apply Changes",
+        "category": "NGIN"
+      },
+      {
         "command": "ngin.addToolAction",
         "title": "Add Tool Action",
         "category": "NGIN"
@@ -438,12 +486,62 @@
         },
         {
           "command": "ngin.runToolRun",
-          "when": "view == nginWorkspace && viewItem == nginProjectInspectEntry.toolRun",
+          "when": "view == nginWorkspace && viewItem =~ /^nginProjectInspectEntry\\.toolRun\\.ready/ && !(viewItem =~ /\\.edits/)",
           "group": "inline@1"
         },
         {
+          "command": "ngin.previewToolChanges",
+          "when": "view == nginWorkspace && viewItem =~ /^nginProjectInspectEntry\\.toolRun\\.ready.*\\.edits/",
+          "group": "inline@1"
+        },
+        {
+          "command": "ngin.diagnoseToolRun",
+          "when": "view == nginWorkspace && viewItem =~ /^nginProjectInspectEntry\\.toolRun\\.(unavailable|invalid)/",
+          "group": "inline@1"
+        },
+        {
+          "command": "ngin.runToolRun",
+          "when": "view == nginWorkspace && viewItem =~ /^nginProjectInspectEntry\\.toolRun\\.ready/",
+          "group": "ngin.tool@1"
+        },
+        {
+          "command": "ngin.runToolActiveFile",
+          "when": "view == nginWorkspace && viewItem =~ /^nginProjectInspectEntry\\.toolRun\\.ready.*\\.activeFile/",
+          "group": "ngin.tool@2"
+        },
+        {
+          "command": "ngin.runToolChangedFiles",
+          "when": "view == nginWorkspace && viewItem =~ /^nginProjectInspectEntry\\.toolRun\\.ready.*\\.changedFiles/",
+          "group": "ngin.tool@3"
+        },
+        {
+          "command": "ngin.configureToolRun",
+          "when": "view == nginWorkspace && viewItem =~ /^nginProjectInspectEntry\\.toolRun/",
+          "group": "ngin.tool@4"
+        },
+        {
+          "command": "ngin.configureToolRunOnSave",
+          "when": "view == nginWorkspace && viewItem =~ /^nginProjectInspectEntry\\.toolRun/",
+          "group": "ngin.tool@5"
+        },
+        {
+          "command": "ngin.applyToolRunEdits",
+          "when": "view == nginWorkspace && viewItem =~ /^nginProjectInspectEntry\\.toolRun.*\\.edits/",
+          "group": "ngin.tool@6"
+        },
+        {
+          "command": "ngin.clearToolDiagnostics",
+          "when": "view == nginWorkspace && viewItem =~ /^nginProjectInspectEntry\\.toolRun/",
+          "group": "ngin.inspect@3"
+        },
+        {
+          "command": "ngin.copyToolInvocation",
+          "when": "view == nginWorkspace && viewItem =~ /^nginProjectInspectEntry\\.toolRun/",
+          "group": "ngin.inspect@4"
+        },
+        {
           "command": "ngin.explainSelection",
-          "when": "view == nginWorkspace && viewItem =~ /^(nginProjectDependency|nginProjectInspectEntry\\.(tooling|launch|detail))/",
+          "when": "view == nginWorkspace && viewItem =~ /^(nginProjectDependency|nginProjectInspectEntry\\.(tooling|toolRun|launch|detail))/",
           "group": "ngin.inspect@1"
         },
         {
@@ -541,15 +639,14 @@
           "default": false,
           "description": "Validate the current NGIN project after saving an NGIN manifest."
         },
-        "ngin.tooling.runOnManifestSave": {
-          "type": "boolean",
-          "default": false,
-          "description": "Run enabled NGIN Analyze actions after saving an NGIN manifest."
-        },
-        "ngin.tooling.runActiveFileOnSave": {
-          "type": "boolean",
-          "default": false,
-          "description": "Run Analyze actions that explicitly use ActiveFile input after saving a source file."
+        "ngin.tooling.runOnSave": {
+          "type": "object",
+          "default": {},
+          "additionalProperties": {
+            "type": "string",
+            "enum": ["activeFile", "all"]
+          },
+          "markdownDescription": "Per-run save behavior keyed by stable tool run identity. Use `activeFile` for source saves or `all` for manifest saves. Configure this from a Tooling tree item."
         },
         "ngin.tooling.activeFileDebounceMs": {
           "type": "number",

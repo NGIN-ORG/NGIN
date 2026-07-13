@@ -5783,11 +5783,16 @@ auto CmdExplainObject(const fs::path &root, const ParsedArgs &args) -> int {
     const auto binding = BindToolRun(*resolved.value, runIt->second);
     std::cout << "  result: " << (runIt->second.excluded ? "excluded"
                                     : runIt->second.enabled ? "selected" : "disabled") << "\n";
+    std::cout << "  display name: " << (runIt->second.displayName.empty() ? runIt->second.name
+                                                                          : runIt->second.displayName) << "\n";
+    if (!runIt->second.description.empty())
+      std::cout << "  description: " << runIt->second.description << "\n";
     std::cout << "  action: " << runIt->second.action << "\n";
     std::cout << "  state: " << (runIt->second.excluded ? "excluded"
                                   : runIt->second.enabled ? binding.state : "disabled") << "\n";
     std::cout << "  input contract: " << runIt->second.input.contract << "\n";
     std::cout << "  input scope: " << runIt->second.input.scope << "\n";
+    std::cout << "  include generated: " << (runIt->second.input.includeGenerated ? "true" : "false") << "\n";
     std::cout << "  gate: " << (runIt->second.policy.gate ? "true" : "false") << "\n";
     std::cout << "  fail on: " << runIt->second.policy.failOn << "\n";
     if (binding.tool.has_value())
@@ -5796,6 +5801,12 @@ auto CmdExplainObject(const fs::path &root, const ParsedArgs &args) -> int {
       std::cout << "  driver: " << binding.driver->name << "\n";
     if (!binding.diagnostic.empty())
       std::cout << "  diagnostic: " << binding.diagnostic << "\n";
+    if (!runIt->second.originProvenance.sourceKind.empty())
+      std::cout << "  provided by: " << runIt->second.originProvenance.sourceKind << ":"
+                << runIt->second.originProvenance.sourceName << "\n";
+    if (!runIt->second.provenance.sourceKind.empty())
+      std::cout << "  effective override: " << runIt->second.provenance.sourceKind << ":"
+                << runIt->second.provenance.sourceName << "\n";
     return 0;
   }
 
@@ -6579,6 +6590,8 @@ BuildCompositionGraph(const LoadedInvocation &invocation,
       });
     graph.toolRuns.push_back(CompositionGraph::ToolRun{
         .name = run.name,
+        .displayName = run.displayName,
+        .description = run.description,
         .action = run.action,
         .actionKind = binding.action.has_value() ? binding.action->kind : "",
         .packageName = packageName,
@@ -6590,13 +6603,16 @@ BuildCompositionGraph(const LoadedInvocation &invocation,
         .driverPath = resolvedDriver.has_value() ? resolvedDriver->path.string() : "",
         .driverSource = resolvedDriver.has_value() ? resolvedDriver->source : "",
         .driverProtocol = binding.driver.has_value() ? binding.driver->protocol : "",
+        .capabilities = binding.action.has_value() ? binding.action->capabilities : std::vector<std::string>{},
         .state = executionState,
         .diagnostic = executionDiagnostic,
         .inputContract = inputContract,
         .inputScope = binding.run.input.scope,
         .includeGenerated = run.input.includeGenerated,
         .configCount = run.configs.size(),
+        .configNames = [&] { std::vector<std::string> values{}; for (const auto &config : run.configs) values.push_back(config.name); return values; }(),
         .configPaths = [&] { std::vector<std::string> values{}; for (const auto &config : run.configs) values.push_back(config.path); return values; }(),
+        .configOptional = [&] { std::vector<bool> values{}; for (const auto &config : run.configs) values.push_back(config.optional); return values; }(),
         .includes = run.input.includes,
         .excludes = run.input.excludes,
         .inputFiles = inputFiles,
@@ -6612,12 +6628,16 @@ BuildCompositionGraph(const LoadedInvocation &invocation,
         .maxParallelism = run.execution.maxParallelism,
         .exclusiveResource = run.execution.exclusiveResource,
         .reportCount = run.reports.size(),
+        .reportNames = [&] { std::vector<std::string> values{}; for (const auto &report : run.reports) values.push_back(report.name); return values; }(),
         .reportPaths = [&] { std::vector<std::string> values{}; for (const auto &report : run.reports) values.push_back(report.path); return values; }(),
         .reportFormats = [&] { std::vector<std::string> values{}; for (const auto &report : run.reports) values.push_back(report.format); return values; }(),
         .dependencies = dependencies,
         .provenance = contributionProvenance(run.provenance,
                                              "resolved tool run",
                                              run.selectors),
+        .originProvenance = contributionProvenance(run.originProvenance,
+                                                   "original tool run declaration",
+                                                   {}),
     });
   }
 
@@ -7026,6 +7046,8 @@ auto WriteGraphToolRuns(
     }
     out << "{"
         << "\"name\":" << Json(runs[index].name) << ","
+        << "\"displayName\":" << Json(runs[index].displayName) << ","
+        << "\"description\":" << Json(runs[index].description) << ","
         << "\"action\":" << Json(runs[index].action) << ","
         << "\"kind\":" << Json(runs[index].actionKind) << ","
         << "\"package\":" << Json(runs[index].packageName) << ","
@@ -7037,13 +7059,24 @@ auto WriteGraphToolRuns(
         << "\"driverPath\":" << Json(runs[index].driverPath) << ","
         << "\"driverSource\":" << Json(runs[index].driverSource) << ","
         << "\"driverProtocol\":" << Json(runs[index].driverProtocol) << ","
+        << "\"capabilities\":";
+    writeStrings(runs[index].capabilities);
+    out << ","
         << "\"state\":" << Json(runs[index].state) << ","
         << "\"diagnostic\":" << Json(runs[index].diagnostic) << ","
         << "\"inputContract\":" << Json(runs[index].inputContract) << ","
         << "\"inputScope\":" << Json(runs[index].inputScope) << ","
         << "\"includeGenerated\":" << (runs[index].includeGenerated ? "true" : "false") << ","
-        << "\"configCount\":" << runs[index].configCount << ",\"configPaths\":";
+        << "\"configCount\":" << runs[index].configCount << ",\"configNames\":";
+    writeStrings(runs[index].configNames);
+    out << ",\"configPaths\":";
     writeStrings(runs[index].configPaths);
+    out << ",\"configOptional\":[";
+    for (std::size_t valueIndex = 0; valueIndex < runs[index].configOptional.size(); ++valueIndex) {
+      if (valueIndex > 0) out << ',';
+      out << (runs[index].configOptional[valueIndex] ? "true" : "false");
+    }
+    out << ']';
     out << ",\"includes\":";
     writeStrings(runs[index].includes);
     out << ",\"excludes\":";
@@ -7062,7 +7095,9 @@ auto WriteGraphToolRuns(
         << "\"weight\":" << runs[index].weight << ","
         << "\"maxParallelism\":" << runs[index].maxParallelism << ","
         << "\"exclusiveResource\":" << Json(runs[index].exclusiveResource) << ","
-        << "\"reportCount\":" << runs[index].reportCount << ",\"reportPaths\":";
+        << "\"reportCount\":" << runs[index].reportCount << ",\"reportNames\":";
+    writeStrings(runs[index].reportNames);
+    out << ",\"reportPaths\":";
     writeStrings(runs[index].reportPaths);
     out << ",\"reportFormats\":";
     writeStrings(runs[index].reportFormats);
@@ -7071,6 +7106,8 @@ auto WriteGraphToolRuns(
     if (includeProvenance) {
       out << ",\"provenance\":";
       WriteGraphProvenance(out, runs[index].provenance);
+      out << ",\"originProvenance\":";
+      WriteGraphProvenance(out, runs[index].originProvenance);
     }
     out << "}";
   }
@@ -7403,7 +7440,7 @@ auto WriteCompositionGraphJson(
   std::cout << ",";
 
   std::cout << "\"tooling\":";
-  WriteGraphToolingPlan(std::cout, graph, false);
+  WriteGraphToolingPlan(std::cout, graph, true);
   std::cout << ",";
 
   std::cout << "\"diagnostics\":";
@@ -7725,6 +7762,7 @@ auto CmdGraph(const fs::path &root, const ParsedArgs &args) -> int {
                 << " scope=" << run.inputScope
                 << " gate=" << (run.gate ? "true" : "false")
                 << " failOn=" << run.failOn;
+      if (!run.displayName.empty()) std::cout << " display=\"" << run.displayName << "\"";
       if (!run.tool.empty()) std::cout << " tool=" << run.tool;
       if (!run.driver.empty()) std::cout << " driver=" << run.driver;
       std::cout << "\n";
@@ -8511,6 +8549,7 @@ auto CmdToolDoctor(const fs::path &root, const ParsedArgs &args) -> int {
   struct Check { std::string name; std::string state; std::string detail; };
   std::vector<Check> checks{};
   for (const auto &[_, run] : effective) {
+    if (args.toolRunName.has_value() && run.name != *args.toolRunName) continue;
     if (!run.enabled) {
       checks.push_back({run.name, run.excluded ? "excluded" : "disabled",
                         run.excluded ? "run was excluded by an overlay" : "run is disabled"});
@@ -8632,6 +8671,10 @@ auto CmdToolDoctor(const fs::path &root, const ParsedArgs &args) -> int {
                                                 " tool=" + resolvedTool.path.string()});
       }
     }
+  }
+  if (args.toolRunName.has_value() && checks.empty()) {
+    std::cerr << "error: tool run not found: " << *args.toolRunName << "\n";
+    return 2;
   }
   if (args.format == "json") {
     std::cout << "{\"schemaVersion\":\"1.0\",\"kind\":\"NGIN.ToolDoctor\",\"healthy\":"
@@ -9170,6 +9213,7 @@ auto CmdAnalyze(const fs::path &root, const ParsedArgs &args) -> int {
                              .AddString("provenance", "run:" + run.name));
       return;
     }
+    const auto runStarted = std::chrono::steady_clock::now();
     bool runInvalidPlan = false;
     if (!binding.driver.has_value() ||
         (binding.driver->adapter.empty() && binding.driver->executable.empty())) {
@@ -9799,11 +9843,13 @@ auto CmdAnalyze(const fs::path &root, const ParsedArgs &args) -> int {
         hasExecutionFailures.store(true);
     }
     const auto resultPath = outputDirectory / "result.json";
-      WriteNormalizedToolResult(request, run.name, binding.driver->name,
-                                driverResult,
-                                run.policy.gate || baselineOperation == "verify"
-                                    ? std::optional<bool>{runGateFailed} : std::nullopt,
-                                resultPath);
+    const auto runDuration = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - runStarted).count();
+    WriteNormalizedToolResult(request, run.name, binding.driver->name,
+                              driverResult,
+                              run.policy.gate || baselineOperation == "verify"
+                                  ? std::optional<bool>{runGateFailed} : std::nullopt,
+                              resultPath, runDuration);
     events.Emit(CliEventType::ArtifactProduced,
                 EventData{}.AddString("kind", "tool-result")
                            .AddString("run", run.name)
@@ -9846,6 +9892,7 @@ auto CmdAnalyze(const fs::path &root, const ParsedArgs &args) -> int {
                                                         ? "not-evaluated"
                                                         : runGateFailed ? "failed" : "passed")
                            .AddString("cacheStatus", driverResult.cacheStatus)
+                           .AddNumber("durationMs", runDuration)
                            .AddNumber("findings", static_cast<std::int64_t>(driverResult.diagnostics.size()))
                            .AddNumber("edits", static_cast<std::int64_t>(driverResult.edits.size()))
                            .AddNumber("artifacts", static_cast<std::int64_t>(driverResult.artifacts.size())));

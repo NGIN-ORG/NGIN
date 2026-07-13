@@ -396,9 +396,11 @@
     },
     "toolRun": {
       "type": "object",
-      "required": ["name", "action", "kind", "package", "packageFeature", "tool", "toolPath", "toolSource", "driver", "driverPath", "driverSource", "driverProtocol", "state", "diagnostic", "inputContract", "inputScope", "includeGenerated", "configCount", "configPaths", "includes", "excludes", "inputFiles", "gate", "failOn", "baseline", "newFindingsOnly", "cache", "jobs", "timeout", "failureStrategy", "weight", "maxParallelism", "exclusiveResource", "reportCount", "reportPaths", "reportFormats", "dependencies"],
+      "required": ["name", "displayName", "description", "action", "kind", "package", "packageFeature", "tool", "toolPath", "toolSource", "driver", "driverPath", "driverSource", "driverProtocol", "capabilities", "state", "diagnostic", "inputContract", "inputScope", "includeGenerated", "configCount", "configNames", "configPaths", "configOptional", "includes", "excludes", "inputFiles", "gate", "failOn", "baseline", "newFindingsOnly", "cache", "jobs", "timeout", "failureStrategy", "weight", "maxParallelism", "exclusiveResource", "reportCount", "reportNames", "reportPaths", "reportFormats", "dependencies"],
       "properties": {
         "name": { "type": "string" },
+        "displayName": { "type": "string" },
+        "description": { "type": "string" },
         "action": { "type": "string" },
         "kind": { "type": "string", "enum": ["Analyze", "Format", "Scan", "Transform", "Report", "Custom", ""] },
         "package": { "type": "string" },
@@ -410,13 +412,16 @@
         "driverPath": { "type": "string" },
         "driverSource": { "type": "string" },
         "driverProtocol": { "type": "string" },
+        "capabilities": { "type": "array", "items": { "type": "string" } },
         "state": { "type": "string", "enum": ["ready", "disabled", "excluded", "unavailable", "invalid"] },
         "diagnostic": { "type": "string" },
         "inputContract": { "type": "string" },
         "inputScope": { "type": "string", "enum": ["Product", "ProductClosure", "Workspace", "Explicit", "ActiveFile", "ChangedFiles"] },
         "includeGenerated": { "type": "boolean" },
         "configCount": { "type": "integer", "minimum": 0 },
+        "configNames": { "type": "array", "items": { "type": "string" } },
         "configPaths": { "type": "array", "items": { "type": "string" } },
+        "configOptional": { "type": "array", "items": { "type": "boolean" } },
         "includes": { "type": "array", "items": { "type": "string" } },
         "excludes": { "type": "array", "items": { "type": "string" } },
         "inputFiles": { "type": "array", "items": { "type": "string" } },
@@ -432,10 +437,12 @@
         "maxParallelism": { "type": "integer", "minimum": 1 },
         "exclusiveResource": { "type": "string" },
         "reportCount": { "type": "integer", "minimum": 0 },
+        "reportNames": { "type": "array", "items": { "type": "string" } },
         "reportPaths": { "type": "array", "items": { "type": "string" } },
         "reportFormats": { "type": "array", "items": { "type": "string" } },
         "dependencies": { "type": "array", "items": { "type": "string" } },
-        "provenance": { "$ref": "#/$defs/provenance" }
+        "provenance": { "$ref": "#/$defs/provenance" },
+        "originProvenance": { "$ref": "#/$defs/provenance" }
       },
       "additionalProperties": true
     },

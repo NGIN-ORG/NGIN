@@ -1,4 +1,5 @@
 import * as path from 'node:path';
+import { promises as fs } from 'node:fs';
 import { spawn } from 'node:child_process';
 import * as vscode from 'vscode';
 import {
@@ -28,7 +29,7 @@ import {
 } from './core/events';
 import { addRootConfigInput, listConfigInputs, relativeManifestPath, removeConfigInputs, renameConfigInputs } from './core/projectAuthoring';
 import { createNativeDebugConfiguration, quoteShellArgument } from './core/debug';
-import { LaunchManifest, CompositionGraphPayload, ProjectManifest } from './core/types';
+import { LaunchManifest, CompositionGraphPayload, GraphToolRunPlan, ProjectManifest, StoredToolResultSummary } from './core/types';
 import { parseLaunchManifest, parseLocalSettingsManifest, parseProjectManifest } from './core/xml';
 import {
   NginCommandTarget,
@@ -41,6 +42,13 @@ import { NginSidebarController } from './ui/sidebar';
 import { NginStatusBarController } from './ui/statusBar';
 import { NginCppToolsProviderService } from './cpptools/provider';
 import { NginProjectEditorProvider } from './projectEditor/provider';
+import {
+  ProjectToolRunOverrideEdit,
+  removeToolRunOverride,
+  setToolConfigOverride,
+  setToolReportOverride,
+  setToolRunOverride
+} from './projectEditor/authoring';
 
 const SUPPORTED_LANGUAGE_ID = 'ngin';
 
@@ -111,6 +119,33 @@ interface ToolEditsResponse {
 function comparablePath(value: string): string {
   const normalized = path.normalize(value);
   return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+}
+
+function readableToolValue(value?: string): string {
+  return (value ?? '')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/[-_]+/g, ' ')
+    .replace(/^./, (first) => first.toUpperCase());
+}
+
+function inspectStateLabel(value?: string): string {
+  return readableToolValue(value ?? 'ready');
+}
+
+function inputScopeLabel(value: string): string {
+  switch (value) {
+    case 'Product': return 'This project';
+    case 'ProductClosure': return 'Project and dependencies';
+    case 'Workspace': return 'Entire workspace';
+    case 'Explicit': return 'Explicit patterns';
+    case 'ActiveFile': return 'Active file';
+    case 'ChangedFiles': return 'Changed files';
+    default: return readableToolValue(value);
+  }
+}
+
+function splitToolPatterns(value: string): string[] {
+  return value.split(',').map((entry) => entry.trim()).filter(Boolean);
 }
 
 function isPathWithinDirectory(candidate: string, directory: string): boolean {
@@ -325,6 +360,15 @@ class NginController implements vscode.Disposable {
       vscode.commands.registerCommand('ngin.analyzeChangedFiles', (arg) => this.runHandled(() => this.analyzeChangedFilesCommand(this.asCommandTarget(arg)))),
       vscode.commands.registerCommand('ngin.addToolAction', (arg) => this.runHandled(() => this.addToolActionCommand(this.asCommandTarget(arg)))),
       vscode.commands.registerCommand('ngin.runToolRun', (arg) => this.runHandled(() => this.runToolRunCommand(this.asExplorerTarget(arg)))),
+      vscode.commands.registerCommand('ngin.runToolActiveFile', (arg) => this.runHandled(() => this.runToolRunCommand(this.asExplorerTarget(arg), 'activeFile'))),
+      vscode.commands.registerCommand('ngin.runToolChangedFiles', (arg) => this.runHandled(() => this.runToolRunCommand(this.asExplorerTarget(arg), 'changedFiles'))),
+      vscode.commands.registerCommand('ngin.previewToolChanges', (arg) => this.runHandled(() => this.previewToolChangesCommand(this.asExplorerTarget(arg)))),
+      vscode.commands.registerCommand('ngin.configureToolRun', (arg) => this.runHandled(() => this.configureToolRunCommand(this.asExplorerTarget(arg)))),
+      vscode.commands.registerCommand('ngin.configureToolRunOnSave', (arg) => this.runHandled(() => this.configureToolRunOnSaveCommand(this.asExplorerTarget(arg)))),
+      vscode.commands.registerCommand('ngin.diagnoseToolRun', (arg) => this.runHandled(() => this.diagnoseToolRunCommand(this.asExplorerTarget(arg)))),
+      vscode.commands.registerCommand('ngin.clearToolDiagnostics', (arg) => this.runHandled(() => this.clearToolDiagnosticsCommand(this.asExplorerTarget(arg)))),
+      vscode.commands.registerCommand('ngin.copyToolInvocation', (arg) => this.runHandled(() => this.copyToolInvocationCommand(this.asExplorerTarget(arg)))),
+      vscode.commands.registerCommand('ngin.applyToolRunEdits', (arg) => this.runHandled(() => this.applyToolRunEditsCommand(this.asExplorerTarget(arg)))),
       vscode.commands.registerCommand('ngin.applyToolEdits', (uri: vscode.Uri, metadata: ToolDiagnosticMetadata) => this.runHandled(() => this.applyToolEditsCommand(uri, metadata))),
       vscode.commands.registerCommand('ngin.toolingPlan', (arg) => this.runHandled(() => this.toolingPlanCommand(this.asCommandTarget(arg)))),
       vscode.commands.registerCommand('ngin.graph', (arg) => this.runHandled(() => this.graphCommand(this.asCommandTarget(arg)))),
@@ -352,7 +396,7 @@ class NginController implements vscode.Disposable {
       vscode.commands.registerCommand('ngin.refresh', () => this.runHandled(() => this.refreshUi(undefined, true))),
       vscode.commands.registerCommand('ngin.internal.pickProject', (arg) => this.runHandled(() => this.pickProjectFromStatusBar(this.asCommandTarget(arg)))),
       vscode.commands.registerCommand('ngin.internal.pickProfile', (arg) => this.runHandled(() => this.pickProfileFromStatusBar(this.asCommandTarget(arg)))),
-      vscode.commands.registerCommand('ngin.internal.openPath', (filePath) => this.runHandled(() => this.openPathCommand(filePath))),
+      vscode.commands.registerCommand('ngin.internal.openPath', (filePath, targetKind) => this.runHandled(() => this.openPathCommand(filePath, targetKind))),
       vscode.commands.registerCommand('ngin.internal.revealPath', (filePath) => this.runHandled(() => this.revealPathCommand(filePath))),
       vscode.window.registerCustomEditorProvider(
         NginProjectEditorProvider.viewType,
@@ -563,9 +607,38 @@ class NginController implements vscode.Disposable {
   private async refreshUi(preferredUri?: vscode.Uri, forceInspectRefresh = false): Promise<void> {
     const snapshot = await this.workspaceState.getSnapshot(preferredUri);
     await this.attachInspectSnapshot(snapshot, forceInspectRefresh);
+    await this.attachToolResults(snapshot);
     this.sidebar.refresh(snapshot);
     this.statusBar.refresh(snapshot);
     await this.cppToolsProvider.refresh(snapshot);
+  }
+
+  private async attachToolResults(snapshot: NginWorkspaceSnapshot): Promise<void> {
+    if (!snapshot.outputDir || !snapshot.inspectGraph?.plans?.tooling?.runs?.length) return;
+    const results: Record<string, StoredToolResultSummary> = {};
+    await Promise.all(snapshot.inspectGraph.plans.tooling.runs.map(async (run) => {
+      const resultPath = path.join(snapshot.outputDir!, 'tooling', run.name, 'result.json');
+      try {
+        const [document, stats] = await Promise.all([readTextFile(resultPath), fs.stat(resultPath)]);
+        const parsed = JSON.parse(document) as Partial<StoredToolResultSummary>;
+        results[run.name] = {
+          path: resultPath,
+          modifiedAt: stats.mtime.toISOString(),
+          runId: parsed.runId,
+          run: run.name,
+          executionStatus: parsed.executionStatus,
+          gateStatus: parsed.gateStatus,
+          cacheStatus: parsed.cacheStatus,
+          durationMs: parsed.durationMs,
+          diagnostics: Array.isArray(parsed.diagnostics) ? parsed.diagnostics : [],
+          edits: Array.isArray(parsed.edits) ? parsed.edits : [],
+          artifacts: Array.isArray(parsed.artifacts) ? parsed.artifacts : []
+        };
+      } catch {
+        // A run without a stored result has simply not executed yet.
+      }
+    }));
+    snapshot.toolResults = results;
   }
 
   private inspectCacheKey(snapshot: NginWorkspaceSnapshot): string | undefined {
@@ -998,27 +1071,396 @@ class NginController implements vscode.Disposable {
     void vscode.window.showInformationMessage(`Added ${action} as tool run ${runName}`);
   }
 
-  private async runToolRunCommand(target?: ProjectExplorerTarget): Promise<void> {
+  private async resolveToolRun(target?: ProjectExplorerTarget): Promise<{
+    context: ResolvedCommandContext;
+    run: GraphToolRunPlan;
+  } | undefined> {
+    const context = await this.resolveCommandContext(target);
+    if (!context) return undefined;
+    const snapshot = await this.workspaceState.getSnapshot(vscode.Uri.file(context.project.path));
+    const graph = await this.runInspect(snapshot);
+    const runs = graph.plans?.tooling?.runs ?? [];
+    const requested = target?.explainIdentity?.startsWith('run:')
+      ? target.explainIdentity.slice('run:'.length)
+      : undefined;
+    let run = requested ? runs.find((candidate) => candidate.name === requested) : undefined;
+    if (!run) {
+      const picked = await vscode.window.showQuickPick(runs.map((candidate) => ({
+        label: candidate.displayName || candidate.name,
+        description: [candidate.kind, inspectStateLabel(candidate.state)].filter(Boolean).join(' · '),
+        detail: candidate.description || candidate.name,
+        run: candidate
+      })), {
+        title: `Select tool for ${context.project.name} [${context.profile.name}]`,
+        placeHolder: runs.length ? 'Choose a tool run' : 'No tool runs are available'
+      });
+      run = picked?.run;
+    }
+    return run ? { context, run } : undefined;
+  }
+
+  private async runToolRunCommand(target?: ProjectExplorerTarget, selection?: 'activeFile' | 'changedFiles'): Promise<void> {
     if (!vscode.workspace.isTrusted) {
       throw new Error('Trust this workspace before running development tools.');
     }
-    if (!target?.explainIdentity?.startsWith('run:')) {
-      throw new Error('Select a resolved tool run.');
+    const resolved = await this.resolveToolRun(target);
+    if (!resolved) return;
+    const { context, run } = resolved;
+    if ((run.state ?? 'ready') !== 'ready') {
+      throw new Error(`${run.displayName || run.name} is ${run.state ?? 'not runnable'}${run.diagnostic ? `: ${run.diagnostic}` : ''}`);
     }
-    const context = await this.resolveCommandContext(target);
-    if (!context) return;
-    const runName = target.explainIdentity.slice('run:'.length);
+    const capabilities = new Set((run.capabilities ?? []).map((capability) => capability.toLowerCase()));
+    const selectionArgs: string[] = [];
+    if (selection === 'activeFile') {
+      if (!capabilities.has('active-file')) throw new Error(`${run.displayName || run.name} does not support active-file input.`);
+      const editor = vscode.window.activeTextEditor;
+      if (!editor || editor.document.uri.scheme !== 'file') throw new Error('Open a source file before running this tool on the active file.');
+      selectionArgs.push('--file', editor.document.uri.fsPath);
+    } else if (selection === 'changedFiles') {
+      if (!capabilities.has('changed-files')) throw new Error(`${run.displayName || run.name} does not support changed-file input.`);
+      const key = `ngin.tooling.changedBase:${context.project.path}:${run.name}`;
+      const previous = this.context.workspaceState.get<string>(key) ?? 'HEAD';
+      const revision = await vscode.window.showInputBox({
+        title: `Run ${run.displayName || run.name} on changed files`,
+        prompt: 'Git revision used as the comparison base',
+        value: previous,
+        validateInput: (value) => value.trim() ? undefined : 'A revision is required'
+      });
+      if (!revision) return;
+      await this.context.workspaceState.update(key, revision.trim());
+      selectionArgs.push('--changed-since', revision.trim());
+    }
     const result = await this.runCli(
       context.workspace.root,
-      ['tool', 'run', runName, '--project', context.project.path, '--profile', context.profile.name,
-        '--output', this.workspaceState.computeOutputDirectory(context)],
+      ['tool', 'run', run.name, '--project', context.project.path, '--profile', context.profile.name,
+        '--output', this.workspaceState.computeOutputDirectory(context), ...selectionArgs],
       vscode.Uri.file(context.project.path),
       undefined,
       'analyze'
     );
-    if (result.exitCode !== 0) throw new Error(`Tool run ${runName} failed.`);
+    if (result.exitCode !== 0) throw new Error(`${run.displayName || run.name} failed.`);
     await this.refreshUi(vscode.Uri.file(context.project.path), true);
-    void vscode.window.showInformationMessage(`Completed tool run ${runName}.`);
+    void vscode.window.showInformationMessage(`Completed ${run.displayName || run.name}.`);
+  }
+
+  private toolRunOverride(run: GraphToolRunPlan): ProjectToolRunOverrideEdit {
+    return {
+      name: run.name,
+      inputContract: run.inputContract,
+      inputScope: (run.inputScope as ProjectToolRunOverrideEdit['inputScope']) || 'Product',
+      includeGenerated: run.includeGenerated === true,
+      includes: [...(run.includes ?? [])],
+      excludes: [...(run.excludes ?? [])],
+      gate: run.gate === true,
+      failOn: (run.failOn as ProjectToolRunOverrideEdit['failOn']) || 'Error',
+      baseline: run.baseline,
+      newFindingsOnly: run.newFindingsOnly === true,
+      cache: (run.cache as ProjectToolRunOverrideEdit['cache']) || 'Off',
+      jobs: run.jobs || 'Auto',
+      timeout: run.timeout,
+      failureStrategy: (run.failureStrategy as ProjectToolRunOverrideEdit['failureStrategy']) || 'DependencyAware'
+    };
+  }
+
+  private async configureToolRunCommand(target?: ProjectExplorerTarget): Promise<void> {
+    if (!vscode.workspace.isTrusted) throw new Error('Trust this workspace before editing tool configuration.');
+    const resolved = await this.resolveToolRun(target);
+    if (!resolved) return;
+    const { context, run } = resolved;
+    const section = await vscode.window.showQuickPick([
+      { label: 'Inputs', description: 'Scope, generated files, include and exclude patterns', value: 'inputs' },
+      { label: 'Configuration Files', description: 'Add or change a named tool configuration', value: 'configuration' },
+      { label: 'Policy', description: 'Blocking behavior, severity threshold, and baseline', value: 'policy' },
+      { label: 'Execution', description: 'Cache, jobs, timeout, and failure strategy', value: 'execution' },
+      { label: 'Reports', description: 'Add or change a named report output', value: 'reports' },
+      { label: 'Run on Save', description: 'Personal workspace behavior for this run', value: 'onSave' },
+      { label: 'Reset Override', description: 'Return to the inherited configuration', value: 'reset' }
+    ], { title: `Configure ${run.displayName || run.name}` });
+    if (!section) return;
+    if (section.value === 'onSave') {
+      await this.configureToolRunOnSaveCommand(target, resolved);
+      return;
+    }
+    const scope = await vscode.window.showQuickPick([
+      { label: `Current profile (${context.profile.name})`, description: 'Recommended', profileName: context.profile.name },
+      { label: 'Whole product', description: `All profiles of ${context.project.name}`, profileName: undefined }
+    ], { title: section.value === 'reset' ? 'Reset override from' : 'Store override in' });
+    if (!scope) return;
+    const document = await vscode.workspace.openTextDocument(context.project.path);
+    if (section.value === 'reset') {
+      const confirmed = await vscode.window.showWarningMessage(
+        `Remove the ${scope.profileName ? `${scope.profileName} profile` : 'product'} override for ${run.displayName || run.name}?`,
+        { modal: true }, 'Remove Override');
+      if (confirmed !== 'Remove Override') return;
+      await NginProjectEditorProvider.applyTextEdit(document, removeToolRunOverride(document.getText(), run.name, scope.profileName));
+    } else if (section.value === 'configuration') {
+      const configurations = (run.configNames ?? []).map((name, index) => ({
+        label: name,
+        description: run.configPaths?.[index] || 'No path configured',
+        name,
+        path: run.configPaths?.[index] ?? '',
+        optional: run.configOptional?.[index] === true
+      }));
+      const selected = await vscode.window.showQuickPick([
+        ...configurations,
+        { label: '$(add) Add named configuration', description: 'Create a new run-level configuration override', name: '', path: '', optional: false }
+      ], { title: 'Configuration file' });
+      if (!selected) return;
+      const name = selected.name || await vscode.window.showInputBox({
+        title: 'Configuration name',
+        prompt: 'Stable name used by the tool driver',
+        validateInput: (value) => value.trim() ? undefined : 'A name is required'
+      });
+      if (!name) return;
+      const configPath = await vscode.window.showInputBox({
+        title: `Path for ${name}`,
+        prompt: 'Project-relative configuration path',
+        value: selected.path,
+        validateInput: (value) => value.trim() ? undefined : 'A path is required'
+      });
+      if (!configPath) return;
+      const optional = await vscode.window.showQuickPick([
+        { label: 'Required', description: 'The run is invalid when the file is missing', value: false },
+        { label: 'Optional', description: 'Run with tool defaults when the file is missing', value: true }
+      ], { title: `Availability of ${name}`, placeHolder: selected.optional ? 'Currently optional' : 'Currently required' });
+      if (!optional) return;
+      await NginProjectEditorProvider.applyTextEdit(document, setToolConfigOverride(document.getText(), run.name, {
+        name: name.trim(), path: configPath.trim(), optional: optional.value
+      }, scope.profileName));
+    } else if (section.value === 'reports') {
+      const reports = (run.reportNames ?? []).map((name, index) => ({
+        label: name,
+        description: [run.reportFormats?.[index], run.reportPaths?.[index]].filter(Boolean).join(' · ') || 'No output configured',
+        name,
+        format: run.reportFormats?.[index] ?? 'json',
+        path: run.reportPaths?.[index] ?? ''
+      }));
+      const selected = await vscode.window.showQuickPick([
+        ...reports,
+        { label: '$(add) Add named report', description: 'Create a new run-level report output', name: '', format: 'json', path: '' }
+      ], { title: 'Report output' });
+      if (!selected) return;
+      const name = selected.name || await vscode.window.showInputBox({
+        title: 'Report name',
+        prompt: 'Stable name used to identify this output',
+        validateInput: (value) => value.trim() ? undefined : 'A name is required'
+      });
+      if (!name) return;
+      const format = await vscode.window.showInputBox({
+        title: `Format for ${name}`,
+        prompt: 'Format understood by the selected tool driver, such as sarif, json, or text',
+        value: selected.format,
+        validateInput: (value) => value.trim() ? undefined : 'A format is required'
+      });
+      if (!format) return;
+      const reportPath = await vscode.window.showInputBox({
+        title: `Output path for ${name}`,
+        prompt: 'Output path; NGIN variables such as $(OutputDir) are supported',
+        value: selected.path,
+        validateInput: (value) => value.trim() ? undefined : 'A path is required'
+      });
+      if (!reportPath) return;
+      await NginProjectEditorProvider.applyTextEdit(document, setToolReportOverride(document.getText(), run.name, {
+        name: name.trim(), format: format.trim(), path: reportPath.trim()
+      }, scope.profileName));
+    } else {
+      const edit = this.toolRunOverride(run);
+      if (section.value === 'inputs') {
+        const inputScope = await vscode.window.showQuickPick(
+          ['Product', 'ProductClosure', 'Workspace', 'Explicit', 'ActiveFile', 'ChangedFiles'].map((value) => ({
+            label: inputScopeLabel(value), value: value as ProjectToolRunOverrideEdit['inputScope'],
+            description: value === edit.inputScope ? 'Current' : undefined
+          })), { title: 'Input scope' });
+        if (!inputScope) return;
+        edit.inputScope = inputScope.value;
+        const generated = await vscode.window.showQuickPick([
+          { label: 'Include generated files', value: true },
+          { label: 'Exclude generated files', value: false }
+        ], { title: 'Generated files', placeHolder: edit.includeGenerated ? 'Currently included' : 'Currently excluded' });
+        if (!generated) return;
+        edit.includeGenerated = generated.value;
+        const includes = await vscode.window.showInputBox({ title: 'Include patterns', prompt: 'Comma-separated; empty means all files in scope', value: edit.includes.join(', ') });
+        if (includes === undefined) return;
+        edit.includes = splitToolPatterns(includes);
+        const excludes = await vscode.window.showInputBox({ title: 'Exclude patterns', prompt: 'Comma-separated', value: edit.excludes.join(', ') });
+        if (excludes === undefined) return;
+        edit.excludes = splitToolPatterns(excludes);
+      } else if (section.value === 'policy') {
+        const gate = await vscode.window.showQuickPick([
+          { label: 'Non-blocking', description: 'Report findings without failing the command', value: false },
+          { label: 'Blocking', description: 'Fail when the configured threshold is reached', value: true }
+        ], { title: 'Policy behavior', placeHolder: edit.gate ? 'Currently blocking' : 'Currently non-blocking' });
+        if (!gate) return;
+        edit.gate = gate.value;
+        const failOn = await vscode.window.showQuickPick(['Info', 'Warning', 'Error', 'Fatal'].map((value) => ({ label: value, value: value as ProjectToolRunOverrideEdit['failOn'] })), { title: 'Failure threshold' });
+        if (!failOn) return;
+        edit.failOn = failOn.value;
+        const baseline = await vscode.window.showInputBox({ title: 'Baseline', prompt: 'Optional project-relative baseline path', value: edit.baseline ?? '' });
+        if (baseline === undefined) return;
+        edit.baseline = baseline.trim() || undefined;
+        const findings = await vscode.window.showQuickPick([
+          { label: 'All findings', value: false },
+          { label: 'New findings only', value: true }
+        ], { title: 'Baseline behavior' });
+        if (!findings) return;
+        edit.newFindingsOnly = findings.value;
+      } else if (section.value === 'execution') {
+        const cache = await vscode.window.showQuickPick(['Off', 'ReadOnly', 'WriteOnly', 'ReadWrite'].map((value) => ({ label: readableToolValue(value), value: value as ProjectToolRunOverrideEdit['cache'] })), { title: 'Cache mode' });
+        if (!cache) return;
+        edit.cache = cache.value;
+        const jobs = await vscode.window.showInputBox({ title: 'Jobs', prompt: 'Auto or a positive integer', value: edit.jobs, validateInput: (value) => value === 'Auto' || /^[1-9][0-9]*$/.test(value) ? undefined : 'Use Auto or a positive integer' });
+        if (!jobs) return;
+        edit.jobs = jobs;
+        const timeout = await vscode.window.showInputBox({ title: 'Timeout', prompt: 'Optional duration such as 30s or 10m', value: edit.timeout ?? '', validateInput: (value) => !value || /^[1-9][0-9]*(ms|s|m|h)$/.test(value) ? undefined : 'Use a duration such as 30s or 10m' });
+        if (timeout === undefined) return;
+        edit.timeout = timeout || undefined;
+        const strategy = await vscode.window.showQuickPick(['DependencyAware', 'Continue', 'FailFast'].map((value) => ({ label: readableToolValue(value), value: value as ProjectToolRunOverrideEdit['failureStrategy'] })), { title: 'Failure strategy' });
+        if (!strategy) return;
+        edit.failureStrategy = strategy.value;
+      }
+      await NginProjectEditorProvider.applyTextEdit(
+        document,
+        setToolRunOverride(document.getText(), edit, scope.profileName, [section.value as 'inputs' | 'policy' | 'execution'])
+      );
+    }
+    await document.save();
+    this.inspectCache.clear();
+    await this.refreshUi(vscode.Uri.file(context.project.path), true);
+    void vscode.window.showInformationMessage(`Updated ${run.displayName || run.name} for ${scope.profileName ?? 'the whole product'}.`);
+  }
+
+  private async configureToolRunOnSaveCommand(target?: ProjectExplorerTarget, existing?: { context: ResolvedCommandContext; run: GraphToolRunPlan }): Promise<void> {
+    const resolved = existing ?? await this.resolveToolRun(target);
+    if (!resolved) return;
+    const { context, run } = resolved;
+    const capabilities = new Set((run.capabilities ?? []).map((capability) => capability.toLowerCase()));
+    const choices = [
+      { label: 'Off', value: 'off' },
+      ...(capabilities.has('active-file') ? [{ label: 'Active file on save', value: 'activeFile' }] : []),
+      { label: 'Full run when the manifest is saved', value: 'all' }
+    ];
+    const mode = await vscode.window.showQuickPick(choices, { title: `Run on Save — ${run.displayName || run.name}` });
+    if (!mode) return;
+    const configuration = this.getConfiguration(context.workspace.folder);
+    const current = { ...(configuration.get<Record<string, string>>('tooling.runOnSave') ?? {}) };
+    if (mode.value === 'off') delete current[run.name]; else current[run.name] = mode.value;
+    await configuration.update('tooling.runOnSave', current, vscode.ConfigurationTarget.Workspace);
+  }
+
+  private async diagnoseToolRunCommand(target?: ProjectExplorerTarget): Promise<void> {
+    const resolved = await this.resolveToolRun(target);
+    if (!resolved) return;
+    const { context, run } = resolved;
+    const result = await this.runCli(context.workspace.root,
+      ['tool', 'doctor', '--run', run.name, '--project', context.project.path, '--profile', context.profile.name],
+      vscode.Uri.file(context.project.path));
+    if (result.exitCode !== 0) throw new Error(`Tool diagnosis found a problem with ${run.displayName || run.name}.`);
+  }
+
+  private async clearToolDiagnosticsCommand(target?: ProjectExplorerTarget): Promise<void> {
+    const resolved = await this.resolveToolRun(target);
+    if (!resolved) return;
+    const owner = `${vscode.Uri.file(resolved.context.project.path).toString()}::${resolved.context.profile.name}::${resolved.run.name}`;
+    this.analyzeDiagnosticsByOwner.delete(owner);
+    this.rebuildAnalyzeDiagnostics();
+  }
+
+  private async copyToolInvocationCommand(target?: ProjectExplorerTarget): Promise<void> {
+    const resolved = await this.resolveToolRun(target);
+    if (!resolved) return;
+    const { context, run } = resolved;
+    const command = `ngin tool run ${quoteShellArgument(run.name)} --project ${quoteShellArgument(path.relative(context.workspace.root, context.project.path))} --profile ${quoteShellArgument(context.profile.name)}`;
+    await vscode.env.clipboard.writeText(command);
+    void vscode.window.showInformationMessage(`Copied invocation for ${run.displayName || run.name}.`);
+  }
+
+  private async applyToolRunEditsCommand(target?: ProjectExplorerTarget): Promise<void> {
+    const resolved = await this.resolveToolRun(target);
+    if (!resolved) return;
+    await this.applyToolEditsCommand(vscode.Uri.file(resolved.context.project.path), {
+      run: resolved.run.name,
+      editSetIds: ['*']
+    });
+    await this.refreshUi(vscode.Uri.file(resolved.context.project.path), true);
+    void vscode.window.showInformationMessage(`Applied available changes from ${resolved.run.displayName || resolved.run.name}.`);
+  }
+
+  private async loadToolEditSets(context: ResolvedCommandContext, run: string): Promise<ToolEditPayload[]> {
+    const result = await this.runCli(
+      context.workspace.root,
+      ['tool', 'edits', '--run', run, '--format', 'json', '--project', context.project.path,
+        '--profile', context.profile.name, '--output', this.workspaceState.computeOutputDirectory(context)],
+      vscode.Uri.file(context.project.path)
+    );
+    if (result.exitCode !== 0) throw new Error(`Could not load edits from ${run}.`);
+    let payload: ToolEditsResponse;
+    try {
+      payload = JSON.parse(result.output) as ToolEditsResponse;
+    } catch {
+      throw new Error(`Tool edits for ${run} returned malformed JSON.`);
+    }
+    if (payload.kind !== 'NGIN.ToolEdits') {
+      throw new Error(`Tool edits for ${run} returned an unsupported payload.`);
+    }
+    return (payload.results ?? []).flatMap((entry) => entry.edits ?? []);
+  }
+
+  private async previewToolChangesCommand(target?: ProjectExplorerTarget): Promise<void> {
+    const resolved = await this.resolveToolRun(target);
+    if (!resolved) return;
+    const editSets = await this.loadToolEditSets(resolved.context, resolved.run.name);
+    if (!editSets.length) throw new Error(`No changes are available from ${resolved.run.displayName || resolved.run.name}.`);
+    const selectedSet = editSets.length === 1 ? editSets[0] : (await vscode.window.showQuickPick(editSets.map((editSet) => ({
+      label: editSet.label || editSet.id,
+      description: readableToolValue(editSet.applicability),
+      editSet
+    })), { title: `Preview changes from ${resolved.run.displayName || resolved.run.name}` }))?.editSet;
+    if (!selectedSet) return;
+    const files = (selectedSet.files ?? []).filter((entry) => entry.path?.absolute);
+    if (!files.length) throw new Error(`Change '${selectedSet.label || selectedSet.id}' does not contain file edits.`);
+    const selectedFile = files.length === 1 ? files[0] : (await vscode.window.showQuickPick(files.map((file) => ({
+      label: path.basename(file.path!.absolute!),
+      description: path.relative(resolved.context.workspace.root, file.path!.absolute!),
+      file
+    })), { title: selectedSet.label || selectedSet.id }))?.file;
+    const filePath = selectedFile?.path?.absolute;
+    if (!selectedFile || !filePath || !path.isAbsolute(filePath) ||
+        !isPathWithinDirectory(filePath, resolved.context.workspace.root)) {
+      throw new Error(`Tool edit '${selectedSet.id}' targets a path outside the workspace.`);
+    }
+    const targetUri = vscode.Uri.file(filePath);
+    const document = await vscode.workspace.openTextDocument(targetUri);
+    if (document.isDirty) throw new Error(`Save ${path.basename(filePath)} before previewing tool-proposed changes.`);
+    const contents = await vscode.workspace.fs.readFile(targetUri);
+    if (selectedFile.expectedDigest && toolContentDigest(contents) !== selectedFile.expectedDigest) {
+      throw new Error(`${path.basename(filePath)} changed after the edit was produced; rerun the tool.`);
+    }
+    const replacements = (selectedFile.edits ?? []).map((edit) => {
+      const start = edit.range?.start;
+      const end = edit.range?.end;
+      if (!start?.line || !start.column || !end?.line || !end.column || typeof edit.newText !== 'string') {
+        throw new Error(`Tool edit '${selectedSet.id}' contains an invalid range.`);
+      }
+      const startPosition = new vscode.Position(start.line - 1, start.column - 1);
+      const endPosition = new vscode.Position(end.line - 1, end.column - 1);
+      if (!document.validatePosition(startPosition).isEqual(startPosition) ||
+          !document.validatePosition(endPosition).isEqual(endPosition) || endPosition.isBefore(startPosition)) {
+        throw new Error(`Tool edit '${selectedSet.id}' contains a range outside ${path.basename(filePath)}.`);
+      }
+      return { start: document.offsetAt(startPosition), end: document.offsetAt(endPosition), newText: edit.newText };
+    }).sort((left, right) => left.start - right.start || left.end - right.end);
+    for (let index = 1; index < replacements.length; ++index) {
+      if (replacements[index].start < replacements[index - 1].end) {
+        throw new Error(`Tool edit '${selectedSet.id}' contains overlapping ranges.`);
+      }
+    }
+    let proposed = document.getText();
+    for (const replacement of replacements.reverse()) {
+      proposed = proposed.slice(0, replacement.start) + replacement.newText + proposed.slice(replacement.end);
+    }
+    const preview = await vscode.workspace.openTextDocument({ content: proposed, language: document.languageId });
+    await vscode.commands.executeCommand('vscode.diff', targetUri, preview.uri,
+      `Preview: ${selectedSet.label || selectedSet.id} — ${path.basename(filePath)}`);
   }
 
   private provideToolCodeActions(document: vscode.TextDocument, context: vscode.CodeActionContext): vscode.CodeAction[] {
@@ -1043,33 +1485,16 @@ class NginController implements vscode.Disposable {
     const context = await this.resolveCommandContext({ preferredUri: uri });
     if (!context) return;
     const triggeringDocument = vscode.workspace.textDocuments.find((document) => document.uri.toString() === uri.toString());
-    if (triggeringDocument?.isDirty) {
+    if (metadata.documentVersion !== undefined && triggeringDocument?.isDirty) {
       throw new Error('Save the document before applying tool-proposed edits.');
     }
     if (triggeringDocument && metadata.documentVersion !== undefined &&
         triggeringDocument.version !== metadata.documentVersion) {
       throw new Error('The document changed after the tool result was produced; rerun the tool.');
     }
-    const result = await this.runCli(
-      context.workspace.root,
-      ['tool', 'edits', '--run', metadata.run, '--format', 'json', '--project', context.project.path,
-        '--profile', context.profile.name, '--output', this.workspaceState.computeOutputDirectory(context)],
-      vscode.Uri.file(context.project.path),
-      undefined
-    );
-    if (result.exitCode !== 0) throw new Error(`Could not load edits from ${metadata.run}.`);
-    let payload: ToolEditsResponse;
-    try {
-      payload = JSON.parse(result.output) as ToolEditsResponse;
-    } catch {
-      throw new Error(`Tool edits for ${metadata.run} returned malformed JSON.`);
-    }
-    if (payload.kind !== 'NGIN.ToolEdits') {
-      throw new Error(`Tool edits for ${metadata.run} returned an unsupported payload.`);
-    }
     const selectedIds = new Set(metadata.editSetIds);
-    const editSets = (payload.results ?? []).flatMap((entry) => entry.edits ?? [])
-      .filter((editSet) => selectedIds.has(editSet.id));
+    const editSets = (await this.loadToolEditSets(context, metadata.run))
+      .filter((editSet) => selectedIds.has('*') || selectedIds.has(editSet.id));
     if (editSets.length === 0) {
       throw new Error('The selected edit set is no longer available; rerun the tool.');
     }
@@ -1263,12 +1688,24 @@ class NginController implements vscode.Disposable {
     await vscode.debug.startDebugging(context.workspace.folder, debugConfiguration);
   }
 
-  private async openPathCommand(filePath: unknown): Promise<void> {
+  private async openPathCommand(filePath: unknown, targetKind?: unknown): Promise<void> {
     if (typeof filePath !== 'string' || !filePath) {
       return;
     }
 
     if (!(await pathExists(filePath))) {
+      if (targetKind === 'configuration' && vscode.workspace.isTrusted) {
+        const create = await vscode.window.showInformationMessage(
+          `Configuration file does not exist: ${filePath}`,
+          'Create Configuration');
+        if (create === 'Create Configuration') {
+          await fs.mkdir(path.dirname(filePath), { recursive: true });
+          await fs.writeFile(filePath, '', { flag: 'wx' });
+          const document = await vscode.workspace.openTextDocument(vscode.Uri.file(filePath));
+          await vscode.window.showTextDocument(document, { preview: false });
+          return;
+        }
+      }
       void vscode.window.showErrorMessage(`Path not found: ${filePath}`);
       return;
     }
@@ -1799,16 +2236,15 @@ class NginController implements vscode.Disposable {
         if (configuration.get<boolean>('tooling.validateManifestOnSave')) {
           await this.validateCommand({ preferredUri: document.uri }, { silent: true });
         }
-        if (configuration.get<boolean>('tooling.runOnManifestSave')) {
-          await this.analyzeCommand({ preferredUri: document.uri }, { silent: true });
-        }
+        await this.runConfiguredSaveTools(document, 'all');
         await this.refreshUi(document.uri, true);
       } catch {
         // Silent save actions still update diagnostics through CLI event parsing.
       }
       return;
     }
-    if (!configuration.get<boolean>('tooling.runActiveFileOnSave')) {
+    const runOnSave = configuration.get<Record<string, string>>('tooling.runOnSave') ?? {};
+    if (!Object.values(runOnSave).includes('activeFile')) {
       return;
     }
     const key = document.uri.toString();
@@ -1817,20 +2253,30 @@ class NginController implements vscode.Disposable {
     const delay = Math.max(0, configuration.get<number>('tooling.activeFileDebounceMs') ?? 350);
     this.activeFileTimers.set(key, setTimeout(() => {
       this.activeFileTimers.delete(key);
-      void this.runHandled(async () => {
-        const context = await this.resolveCommandContext({ preferredUri: document.uri }, false);
-        if (!context) return;
-        const outputDir = this.workspaceState.computeOutputDirectory(context);
-        await this.runCli(
-          context.workspace.root,
-          ['analyze', '--project', context.project.path, '--profile', context.profile.name,
-            '--output', outputDir, '--input-mode', 'ActiveFile', '--file', document.uri.fsPath],
-          vscode.Uri.file(context.project.path),
-          undefined,
-          'analyze'
-        );
-      });
+      void this.runHandled(() => this.runConfiguredSaveTools(document, 'activeFile'));
     }, delay));
+  }
+
+  private async runConfiguredSaveTools(document: vscode.TextDocument, mode: 'activeFile' | 'all'): Promise<void> {
+    const configuration = this.getConfiguration(vscode.workspace.getWorkspaceFolder(document.uri));
+    const configured = configuration.get<Record<string, string>>('tooling.runOnSave') ?? {};
+    const names = Object.entries(configured).filter(([, selected]) => selected === mode).map(([name]) => name);
+    if (!names.length || !vscode.workspace.isTrusted) return;
+    const context = await this.resolveCommandContext({ preferredUri: document.uri }, false);
+    if (!context) return;
+    const snapshot = await this.workspaceState.getSnapshot(vscode.Uri.file(context.project.path));
+    const graph = await this.runInspect(snapshot);
+    const runs = graph.plans?.tooling?.runs ?? [];
+    for (const name of names) {
+      const run = runs.find((candidate) => candidate.name === name);
+      if (!run || (run.state ?? 'ready') !== 'ready') continue;
+      if (mode === 'activeFile' && !(run.capabilities ?? []).some((capability) => capability.toLowerCase() === 'active-file')) continue;
+      const args = ['tool', 'run', name, '--project', context.project.path, '--profile', context.profile.name,
+        '--output', this.workspaceState.computeOutputDirectory(context)];
+      if (mode === 'activeFile') args.push('--file', document.uri.fsPath);
+      await this.runCli(context.workspace.root, args, vscode.Uri.file(context.project.path), undefined, 'analyze');
+    }
+    await this.refreshUi(vscode.Uri.file(context.project.path), true);
   }
 
   private async buildProject(

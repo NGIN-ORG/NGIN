@@ -100,10 +100,15 @@ available through `NGIN: Show Resolved Inputs` and
 diagnostics. `NGIN: Show Tooling Plan` displays every effective run using the
 same package-neutral graph contract as the CLI. Tool-specific configuration and
 installation remain owned by the package and driver rather than the extension.
-Each run in the Tooling tree presents its tool, file scope, policy, and
-configuration first. Use the inline play button (`NGIN: Run Tool`) to execute
-that run; driver, protocol, cache, dependency, and resolution details remain
-available under its collapsed Advanced entry.
+Each run in the Tooling tree presents its inputs, policy, configuration, last
+result, and reports first. Use the inline play or preview button to execute the
+run. `NGIN: Configure Tool…` creates an explicit current-profile or product
+override for inputs, generated files, policy, and execution without editing the
+providing package. Named configuration files and report outputs use the same
+safe override flow. Run-on-save behavior is configured per stable run identity.
+Driver, protocol, cache, dependency, resolution, and provenance details remain
+available under its collapsed Advanced entry. Unavailable runs offer Diagnose
+instead of Run, and edit-producing runs keep Preview and Apply Changes separate.
 `NGIN: Add Tool Action` delegates package/action discovery and manifest
 authoring to the CLI and contains no package-specific TypeScript logic.
 `NGIN: Analyze Active File` and `NGIN: Analyze Changed Files…` use capability-
@@ -178,6 +183,9 @@ NGIN: Debug
 NGIN: Analyze
 NGIN: Analyze Active File
 NGIN: Analyze Changed Files…
+NGIN: Run Tool
+NGIN: Configure Tool…
+NGIN: Configure Run on Save…
 NGIN: Show Resolved Inputs
 NGIN: Show Inactive Tooling
 NGIN: Explain Selection

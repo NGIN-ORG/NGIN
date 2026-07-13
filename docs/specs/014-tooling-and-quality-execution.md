@@ -35,7 +35,9 @@ Invalid or unavailable enabled runs fail resolution.
 
 ```xml
 <Tooling>
-  <Run Name="cpp-analysis" Action="Vendor.Tooling::analyze">
+  <Run Name="cpp-analysis" DisplayName="C++ Analysis"
+       Description="Check C++ sources for correctness and maintainability."
+       Action="Vendor.Tooling::analyze">
     <Input Contract="cpp.translation-units/v1" Scope="ProductClosure"
            IncludeGenerated="true">
       <Include Path="src/**" />
@@ -64,6 +66,11 @@ Run identity controls overlay replacement and removal. A profile override may
 omit `Action` when the run exists in a lower-precedence scope. Removal uses
 `<Run Remove="cpp-analysis" />`. Legacy `Quality` and `Analyzer` elements are
 errors.
+
+`DisplayName` and `Description` are optional presentation metadata. `Name`
+remains the stable overlay, CLI, result, and dependency identity. Resolved run
+provenance records both the original declaration and the effective overriding
+scope so tooling can explain inherited values without editing package manifests.
 
 Input scopes are `Product`, `ProductClosure`, `Workspace`, `Explicit`,
 `ActiveFile`, and `ChangedFiles`. C++ translation-unit requests come from the
@@ -140,7 +147,7 @@ input selection, configs, policy, execution, and reports.
 
 ```text
 ngin tool list [--available] [--format json]
-ngin tool doctor
+ngin tool doctor [--run <RunName>]
 ngin tool plan
 ngin tool run <RunName> [--check|--apply]
 ngin tool results [RunId] [--run <RunName>] --format json
@@ -176,7 +183,8 @@ The C/C++ provider consumes graph translation units first, so editor
 configuration, analyzer requests, and the build compile database share the
 same commands and command digests.
 
-Save settings are `ngin.tooling.validateManifestOnSave`,
-`ngin.tooling.runOnManifestSave`, `ngin.tooling.runActiveFileOnSave`, and
-`ngin.tooling.activeFileDebounceMs`. Active-file saves run only explicitly
-compatible actions.
+Save settings are `ngin.tooling.validateManifestOnSave`, the per-run
+`ngin.tooling.runOnSave` map, and `ngin.tooling.activeFileDebounceMs`.
+`runOnSave` values are `activeFile` or `all`; active-file saves run only actions
+advertising that capability. Editor configuration authors explicit product or
+profile overlays and never mutates the package that supplied a default run.

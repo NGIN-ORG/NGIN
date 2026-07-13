@@ -119,9 +119,10 @@
     "prefix": "ngin-tooling-run",
     "body": [
       "<Tooling>",
-      "  <Run Name=\"${1:quality}\" Action=\"${2:Package.Name::action}\">",
-      "    <Input Scope=\"${3:Product}\" IncludeGenerated=\"${4:false}\" />",
-      "    <Policy Gate=\"${5:true}\" FailOn=\"${6:Warning}\" />",
+      "  <Run Name=\"${1:quality}\" DisplayName=\"${2:Quality Check}\"",
+      "       Description=\"${3:Check the selected inputs.}\" Action=\"${4:Package.Name::action}\">",
+      "    <Input Scope=\"${5:Product}\" IncludeGenerated=\"${6:false}\" />",
+      "    <Policy Gate=\"${7:true}\" FailOn=\"${8:Warning}\" />",
       "  </Run>",
       "</Tooling>"
     ]

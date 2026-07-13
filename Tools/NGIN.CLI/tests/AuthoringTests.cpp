@@ -241,7 +241,9 @@ TEST_CASE("tool runs parse dependency and scheduler resource declarations") {
             R"xml(<Project SchemaVersion="4" Name="Scheduler.App">
   <Application>
     <Tooling>
-      <Run Name="analyze" Action="Example.Tooling::analyze">
+      <Run Name="analyze" DisplayName="Project Analysis"
+           Description="Analyze the selected project inputs."
+           Action="Example.Tooling::analyze">
         <Input Contract="files/v1" Scope="Product" Merge="Append">
           <Include Path="src/**" />
         </Input>
@@ -264,6 +266,8 @@ TEST_CASE("tool runs parse dependency and scheduler resource declarations") {
   const auto project = LoadProjectManifest(projectPath);
   REQUIRE(project.tooling.runs.size() == 2);
   const auto &analyze = project.tooling.runs[0];
+  REQUIRE(analyze.displayName == "Project Analysis");
+  REQUIRE(analyze.description == "Analyze the selected project inputs.");
   REQUIRE(analyze.input.merge == "Append");
   REQUIRE(analyze.input.scopeExplicit);
   REQUIRE(analyze.execution.weight == 2);

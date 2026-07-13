@@ -214,6 +214,10 @@ namespace NGIN::CLI
             if (existing != runs.end())
             {
                 auto merged = existing->second;
+                if (!selected.displayName.empty())
+                    merged.displayName = selected.displayName;
+                if (!selected.description.empty())
+                    merged.description = selected.description;
                 if (!selected.action.empty())
                     merged.action = selected.action;
                 if (!selected.packageName.empty())
@@ -248,12 +252,68 @@ namespace NGIN::CLI
                     merged.configs = mergeConfigs(std::move(merged.configs), selected.configs);
                 if (selected.hasPolicy)
                 {
-                    merged.policy = selected.policy;
+                    auto policy = merged.policy;
+                    if (selected.policy.gateExplicit) policy.gate = selected.policy.gate;
+                    if (selected.policy.failOnExplicit) policy.failOn = selected.policy.failOn;
+                    if (selected.policy.baselineExplicit) policy.baseline = selected.policy.baseline;
+                    if (selected.policy.newFindingsOnlyExplicit)
+                        policy.newFindingsOnly = selected.policy.newFindingsOnly;
+                    if (selected.policy.maxFindingsExplicit) policy.maxFindings = selected.policy.maxFindings;
+                    if (selected.policy.maxWarningsExplicit) policy.maxWarnings = selected.policy.maxWarnings;
+                    for (const auto &mapping : selected.policy.severityMappings)
+                    {
+                        const auto item = std::find_if(policy.severityMappings.begin(), policy.severityMappings.end(),
+                                                       [&](const auto &candidate) { return candidate.rule == mapping.rule; });
+                        if (item == policy.severityMappings.end()) policy.severityMappings.push_back(mapping);
+                        else *item = mapping;
+                    }
+                    for (const auto &suppression : selected.policy.suppressions)
+                    {
+                        const auto item = std::find_if(policy.suppressions.begin(), policy.suppressions.end(),
+                                                       [&](const auto &candidate) {
+                                                           return (!suppression.rule.empty() && candidate.rule == suppression.rule) ||
+                                                                  (!suppression.fingerprint.empty() && candidate.fingerprint == suppression.fingerprint);
+                                                       });
+                        if (item == policy.suppressions.end()) policy.suppressions.push_back(suppression);
+                        else *item = suppression;
+                    }
+                    for (const auto &budget : selected.policy.ruleBudgets)
+                    {
+                        const auto item = std::find_if(policy.ruleBudgets.begin(), policy.ruleBudgets.end(),
+                                                       [&](const auto &candidate) { return candidate.rule == budget.rule; });
+                        if (item == policy.ruleBudgets.end()) policy.ruleBudgets.push_back(budget);
+                        else *item = budget;
+                    }
+                    policy.gateExplicit = policy.gateExplicit || selected.policy.gateExplicit;
+                    policy.failOnExplicit = policy.failOnExplicit || selected.policy.failOnExplicit;
+                    policy.baselineExplicit = policy.baselineExplicit || selected.policy.baselineExplicit;
+                    policy.newFindingsOnlyExplicit = policy.newFindingsOnlyExplicit || selected.policy.newFindingsOnlyExplicit;
+                    policy.maxFindingsExplicit = policy.maxFindingsExplicit || selected.policy.maxFindingsExplicit;
+                    policy.maxWarningsExplicit = policy.maxWarningsExplicit || selected.policy.maxWarningsExplicit;
+                    merged.policy = std::move(policy);
                     merged.hasPolicy = true;
                 }
                 if (selected.hasExecution)
                 {
-                    merged.execution = selected.execution;
+                    auto execution = merged.execution;
+                    if (selected.execution.jobsExplicit) execution.jobs = selected.execution.jobs;
+                    if (selected.execution.timeoutExplicit) execution.timeout = selected.execution.timeout;
+                    if (selected.execution.cacheExplicit) execution.cache = selected.execution.cache;
+                    if (selected.execution.failureStrategyExplicit)
+                        execution.failureStrategy = selected.execution.failureStrategy;
+                    if (selected.execution.weightExplicit) execution.weight = selected.execution.weight;
+                    if (selected.execution.maxParallelismExplicit)
+                        execution.maxParallelism = selected.execution.maxParallelism;
+                    if (selected.execution.exclusiveResourceExplicit)
+                        execution.exclusiveResource = selected.execution.exclusiveResource;
+                    execution.jobsExplicit = execution.jobsExplicit || selected.execution.jobsExplicit;
+                    execution.timeoutExplicit = execution.timeoutExplicit || selected.execution.timeoutExplicit;
+                    execution.cacheExplicit = execution.cacheExplicit || selected.execution.cacheExplicit;
+                    execution.failureStrategyExplicit = execution.failureStrategyExplicit || selected.execution.failureStrategyExplicit;
+                    execution.weightExplicit = execution.weightExplicit || selected.execution.weightExplicit;
+                    execution.maxParallelismExplicit = execution.maxParallelismExplicit || selected.execution.maxParallelismExplicit;
+                    execution.exclusiveResourceExplicit = execution.exclusiveResourceExplicit || selected.execution.exclusiveResourceExplicit;
+                    merged.execution = std::move(execution);
                     merged.hasExecution = true;
                 }
                 if (!selected.reports.empty())
@@ -265,6 +325,8 @@ namespace NGIN::CLI
                 runs[selected.name] = std::move(merged);
                 return;
             }
+            if (selected.originProvenance.sourceKind.empty())
+                selected.originProvenance = selected.provenance;
             runs[selected.name] = std::move(selected);
         };
         const auto mergeSelected = [&](const std::vector<ToolRunDefinition> &source) {

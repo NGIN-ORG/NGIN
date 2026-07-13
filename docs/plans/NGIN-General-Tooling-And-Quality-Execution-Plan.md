@@ -308,6 +308,8 @@ feature contributions all normalize to `ToolRunDefinition`.
 
   <Tooling>
     <Run Name="cpp-static-analysis"
+         DisplayName="C++ Static Analysis"
+         Description="Check C++ sources for correctness and maintainability."
          Action="Vendor.Tooling.CppAudit::analyze">
       <Input Contract="cpp.translation-units/v1"
              Scope="ProductClosure"
@@ -973,10 +975,10 @@ profiles. A cancelled or stale run cannot replace a newer completed result.
 Replace the ambiguous analyzer-on-manifest-save setting with:
 
 - `ngin.tooling.validateManifestOnSave`
-- `ngin.tooling.runOnManifestSave`
-- `ngin.tooling.runActiveFileOnSave`
+- `ngin.tooling.runOnSave`, a map from stable run identity to `activeFile` or
+  `all`
 - `ngin.tooling.activeFileDebounceMs`
-- per-kind/per-run enablement
+- per-run enablement configured from the resolved Tooling dashboard
 
 Active-file execution is offered only for runs advertising that capability.
 Saving a C++ file should not trigger a full project configure and analysis by

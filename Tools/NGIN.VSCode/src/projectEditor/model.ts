@@ -106,6 +106,8 @@ export interface ProjectEditorResolvedEnvironmentVariable {
 
 export interface ProjectEditorResolvedToolRun {
   name: string;
+  displayName?: string;
+  description?: string;
   action?: string;
   kind?: string;
   tool?: string;
@@ -113,6 +115,7 @@ export interface ProjectEditorResolvedToolRun {
   packageName?: string;
   state?: string;
   inputScope?: string;
+  includeGenerated?: boolean;
   gate?: boolean;
   failOn?: string;
   cache?: string;
@@ -371,6 +374,8 @@ function resolvedSummary(inspect: CompositionGraphPayload | undefined): ProjectE
   const generators = inspect?.plans?.generators ?? [];
   const toolRuns = (inspect?.plans?.tooling?.runs ?? []).map((entry) => ({
     name: entry.name,
+    displayName: entry.displayName,
+    description: entry.description,
     action: entry.action,
     kind: entry.kind,
     tool: entry.tool,
@@ -378,6 +383,7 @@ function resolvedSummary(inspect: CompositionGraphPayload | undefined): ProjectE
     packageName: entry.package,
     state: entry.state,
     inputScope: entry.inputScope,
+    includeGenerated: entry.includeGenerated,
     gate: entry.gate,
     failOn: entry.failOn,
     cache: entry.cache

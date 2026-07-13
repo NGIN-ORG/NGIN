@@ -54,6 +54,8 @@
              Description="Run clang-tidy through the NGIN analyzer workflow.">
       <Tooling>
         <Run Name="cpp-static-analysis"
+             DisplayName="C++ Static Analysis"
+             Description="Find C++ correctness, maintainability, and style issues."
              Action="NGIN.Tooling.ClangTidy::analyze">
           <Input Contract="cpp.translation-units/v1"
                  Scope="ProductClosure"

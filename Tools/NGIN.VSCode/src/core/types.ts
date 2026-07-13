@@ -396,6 +396,8 @@ export interface GraphPackageOutputPlan {
 
 export interface GraphToolRunPlan {
   name: string;
+  displayName?: string;
+  description?: string;
   action?: string;
   kind?: 'Analyze' | 'Format' | 'Scan' | 'Transform' | 'Report' | 'Custom' | string;
   tool?: string;
@@ -407,13 +409,16 @@ export interface GraphToolRunPlan {
   driverPath?: string;
   driverSource?: string;
   driverProtocol?: string;
+  capabilities?: string[];
   state?: 'ready' | 'disabled' | 'excluded' | 'unavailable' | 'invalid' | string;
   diagnostic?: string;
   inputContract?: string;
   inputScope?: string;
   includeGenerated?: boolean;
   configCount?: number;
+  configNames?: string[];
   configPaths?: string[];
+  configOptional?: boolean[];
   includes?: string[];
   excludes?: string[];
   inputFiles?: string[];
@@ -429,10 +434,26 @@ export interface GraphToolRunPlan {
   maxParallelism?: number;
   exclusiveResource?: string;
   reportCount?: number;
+  reportNames?: string[];
   reportPaths?: string[];
   reportFormats?: string[];
   dependencies?: string[];
   provenance?: GraphProvenance;
+  originProvenance?: GraphProvenance;
+}
+
+export interface StoredToolResultSummary {
+  path: string;
+  modifiedAt: string;
+  runId?: string;
+  run: string;
+  executionStatus?: string;
+  gateStatus?: string;
+  cacheStatus?: string;
+  durationMs?: number;
+  diagnostics: Array<{ severity?: string; suppressed?: boolean }>;
+  edits: Array<{ applicability?: string }>;
+  artifacts: Array<{ kind?: string; path?: string }>;
 }
 
 export interface GraphToolRegistryEntry {

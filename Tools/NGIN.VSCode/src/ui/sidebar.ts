@@ -145,6 +145,7 @@ class ProjectInspectEntryTreeItem extends vscode.TreeItem {
   readonly fsPath?: string;
   readonly projectPath?: string;
   readonly explainIdentity?: string;
+  readonly targetKind?: ProjectTreeInspectEntryModel['targetKind'];
 
   constructor(public readonly model: ProjectTreeInspectEntryModel, projectPath?: string) {
     super(
@@ -157,6 +158,7 @@ class ProjectInspectEntryTreeItem extends vscode.TreeItem {
     this.fsPath = model.targetPath;
     this.projectPath = projectPath;
     this.explainIdentity = model.explainIdentity;
+    this.targetKind = model.targetKind;
     this.iconPath = new vscode.ThemeIcon(model.icon ?? 'symbol-property');
     this.contextValue = model.context
       ? `nginProjectInspectEntry.${model.context}${model.targetPath ? '.openable' : ''}`
@@ -165,7 +167,7 @@ class ProjectInspectEntryTreeItem extends vscode.TreeItem {
       this.command = {
         command: 'ngin.internal.openPath',
         title: model.label,
-        arguments: [model.targetPath]
+        arguments: [model.targetPath, model.targetKind]
       };
     }
   }

@@ -47,6 +47,35 @@ export interface ProjectEnvironmentVariableEdit {
   secret?: boolean;
 }
 
+export interface ProjectToolRunOverrideEdit {
+  name: string;
+  inputContract?: string;
+  inputScope: 'Product' | 'ProductClosure' | 'Workspace' | 'Explicit' | 'ActiveFile' | 'ChangedFiles';
+  includeGenerated: boolean;
+  includes: string[];
+  excludes: string[];
+  gate: boolean;
+  failOn: 'Info' | 'Warning' | 'Error' | 'Fatal';
+  baseline?: string;
+  newFindingsOnly: boolean;
+  cache: 'Off' | 'ReadOnly' | 'WriteOnly' | 'ReadWrite';
+  jobs: string;
+  timeout?: string;
+  failureStrategy: 'Continue' | 'FailFast' | 'DependencyAware';
+}
+
+export interface ProjectToolConfigOverrideEdit {
+  name: string;
+  path: string;
+  optional: boolean;
+}
+
+export interface ProjectToolReportOverrideEdit {
+  name: string;
+  format: string;
+  path: string;
+}
+
 const productKinds = ['Application', 'Library', 'Tool', 'Test', 'Benchmark', 'Plugin', 'Module', 'External'];
 
 function escapeAttribute(value: string): string {
@@ -276,6 +305,206 @@ function ensureProductSection(xml: string, sectionName: string, profileName?: st
     throw new Error(`Failed to create <${sectionName}> section.`);
   }
   return { xml: next, section };
+}
+
+function ensureToolingSection(xml: string, profileName?: string): { xml: string; section: NonNullable<ReturnType<typeof findDirectSection>> } {
+  if (!profileName) {
+    return ensureProductSection(xml, 'Tooling');
+  }
+  let next = ensureProfile(xml, profileName);
+  let range = scopeRange(next, profileName);
+  let section = findDirectSection(next, range.start, range.end, 'Tooling');
+  if (!section) {
+    const insertion = `\n${range.indent}<Tooling>\n${range.indent}</Tooling>`;
+    next = replaceRange(next, range.closeInsertIndex, range.closeInsertIndex, insertion);
+    range = scopeRange(next, profileName);
+    section = findDirectSection(next, range.start, range.end, 'Tooling');
+  }
+  if (!section) {
+    throw new Error('Failed to create <Tooling>.');
+  }
+  return { xml: next, section };
+}
+
+function findDirectToolRun(xml: string, section: NonNullable<ReturnType<typeof findDirectSection>>, name: string): NonNullable<ReturnType<typeof findDirectSection>> | undefined {
+  const source = xml.slice(section.bodyStart, section.bodyEnd);
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(`<Run\\b(?=[^>]*\\sName=(["'])${escaped}\\1)[^>]*(?:/>|>)`, 'g');
+  for (const match of source.matchAll(pattern)) {
+    if (match.index === undefined || directChildDepth(source.slice(0, match.index)) !== 0) continue;
+    const start = section.bodyStart + match.index;
+    const openEnd = start + match[0].length;
+    if (/\/>$/.test(match[0])) {
+      return { start, end: openEnd, openEnd, bodyStart: openEnd, bodyEnd: openEnd, indent: indentationBefore(xml, start) };
+    }
+    const bodyEnd = xml.indexOf('</Run>', openEnd);
+    if (bodyEnd >= 0 && bodyEnd <= section.bodyEnd) {
+      return { start, end: bodyEnd + '</Run>'.length, openEnd, bodyStart: openEnd, bodyEnd, indent: indentationBefore(xml, start) };
+    }
+  }
+  return undefined;
+}
+
+function ensureToolRunElement(xml: string, name: string, profileName?: string): {
+  xml: string;
+  tooling: NonNullable<ReturnType<typeof findDirectSection>>;
+  run: NonNullable<ReturnType<typeof findDirectSection>>;
+} {
+  let ensured = ensureToolingSection(xml, profileName);
+  let run = findDirectToolRun(ensured.xml, ensured.section, name);
+  if (!run) {
+    const indent = childIndent(ensured.section.indent);
+    const runXml = `${indent}<Run Name="${escapeAttribute(name)}">\n${indent}</Run>`;
+    const next = replaceRange(ensured.xml, ensured.section.bodyEnd, ensured.section.bodyEnd, `\n${runXml}`);
+    ensured = ensureToolingSection(next, profileName);
+    run = findDirectToolRun(ensured.xml, ensured.section, name);
+  } else if (run.bodyStart === run.bodyEnd) {
+    const openTag = ensured.xml.slice(run.start, run.openEnd).replace(/\s*\/>$/, '>');
+    const next = replaceRange(ensured.xml, run.start, run.end, `${openTag}\n${run.indent}</Run>`);
+    ensured = ensureToolingSection(next, profileName);
+    run = findDirectToolRun(ensured.xml, ensured.section, name);
+  }
+  if (!run) throw new Error(`Failed to create tool run override: ${name}`);
+  return { xml: ensured.xml, tooling: ensured.section, run };
+}
+
+function findDirectNamedElement(
+  xml: string,
+  start: number,
+  end: number,
+  elementName: string,
+  name: string
+): NonNullable<ReturnType<typeof findDirectSection>> | undefined {
+  const source = xml.slice(start, end);
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(`<${elementName}\\b(?=[^>]*\\sName=(["'])${escaped}\\1)[^>]*(?:/>|>)`, 'g');
+  for (const match of source.matchAll(pattern)) {
+    if (match.index === undefined || directChildDepth(source.slice(0, match.index)) !== 0) continue;
+    const itemStart = start + match.index;
+    const openEnd = itemStart + match[0].length;
+    if (/\/>$/.test(match[0])) return { start: itemStart, end: openEnd, openEnd, bodyStart: openEnd, bodyEnd: openEnd, indent: indentationBefore(xml, itemStart) };
+    const closeText = `</${elementName}>`;
+    const bodyEnd = xml.indexOf(closeText, openEnd);
+    if (bodyEnd >= 0 && bodyEnd <= end) return { start: itemStart, end: bodyEnd + closeText.length, openEnd, bodyStart: openEnd, bodyEnd, indent: indentationBefore(xml, itemStart) };
+  }
+  return undefined;
+}
+
+function replaceDirectRunChild(xml: string, run: NonNullable<ReturnType<typeof findDirectSection>>, name: string, replacement: string): string {
+  const child = findDirectSection(xml, run.bodyStart, run.bodyEnd, name);
+  if (child) return replaceRange(xml, child.start, child.end, replacement);
+  return replaceRange(xml, run.bodyEnd, run.bodyEnd, `\n${replacement}`);
+}
+
+function toolInputXml(edit: ProjectToolRunOverrideEdit, indent: string): string {
+  const open = setAttributes('<Input>', {
+    Contract: edit.inputContract,
+    Scope: edit.inputScope,
+    IncludeGenerated: edit.includeGenerated,
+    Merge: 'Replace'
+  });
+  const entries = [
+    ...edit.includes.map((pattern) => `${childIndent(indent)}<Include Path="${escapeAttribute(pattern)}" />`),
+    ...edit.excludes.map((pattern) => `${childIndent(indent)}<Exclude Path="${escapeAttribute(pattern)}" />`)
+  ];
+  return entries.length
+    ? `${indent}${open}\n${entries.join('\n')}\n${indent}</Input>`
+    : `${indent}${open.replace(/>$/, ' />')}`;
+}
+
+export function setToolRunOverride(
+  xml: string,
+  edit: ProjectToolRunOverrideEdit,
+  profileName?: string,
+  sections: Array<'inputs' | 'policy' | 'execution'> = ['inputs', 'policy', 'execution']
+): string {
+  const ensured = ensureToolRunElement(xml, edit.name, profileName);
+  let run = ensured.run;
+  let next = ensured.xml;
+  const child = childIndent(run.indent);
+  if (sections.includes('inputs')) {
+    next = replaceDirectRunChild(next, run, 'Input', toolInputXml(edit, child));
+    run = findDirectToolRun(next, ensureToolingSection(next, profileName).section, edit.name)!;
+  }
+  if (sections.includes('policy')) {
+    const policy = setAttributes('<Policy />', {
+      Gate: edit.gate,
+      FailOn: edit.failOn,
+      Baseline: edit.baseline,
+      NewFindingsOnly: edit.newFindingsOnly
+    });
+    next = replaceDirectRunChild(next, run, 'Policy', `${child}${policy}`);
+    run = findDirectToolRun(next, ensureToolingSection(next, profileName).section, edit.name)!;
+  }
+  if (sections.includes('execution')) {
+    const execution = setAttributes('<Execution />', {
+      Jobs: edit.jobs,
+      Timeout: edit.timeout,
+      Cache: edit.cache,
+      FailureStrategy: edit.failureStrategy
+    });
+    next = replaceDirectRunChild(next, run, 'Execution', `${child}${execution}`);
+  }
+  return next;
+}
+
+export function setToolConfigOverride(
+  xml: string,
+  runName: string,
+  edit: ProjectToolConfigOverrideEdit,
+  profileName?: string
+): string {
+  const ensured = ensureToolRunElement(xml, runName, profileName);
+  const existing = findDirectNamedElement(ensured.xml, ensured.run.bodyStart, ensured.run.bodyEnd, 'Config', edit.name);
+  const indent = childIndent(ensured.run.indent);
+  const tag = `${indent}${setAttributes('<Config />', { Name: edit.name, Path: edit.path, Optional: edit.optional })}`;
+  return existing
+    ? replaceRange(ensured.xml, existing.start, existing.end, tag)
+    : replaceRange(ensured.xml, ensured.run.bodyEnd, ensured.run.bodyEnd, `\n${tag}`);
+}
+
+export function setToolReportOverride(
+  xml: string,
+  runName: string,
+  edit: ProjectToolReportOverrideEdit,
+  profileName?: string
+): string {
+  let ensured = ensureToolRunElement(xml, runName, profileName);
+  let reports = findDirectSection(ensured.xml, ensured.run.bodyStart, ensured.run.bodyEnd, 'Reports');
+  if (!reports) {
+    const indent = childIndent(ensured.run.indent);
+    const next = replaceRange(ensured.xml, ensured.run.bodyEnd, ensured.run.bodyEnd, `\n${indent}<Reports>\n${indent}</Reports>`);
+    ensured = ensureToolRunElement(next, runName, profileName);
+    reports = findDirectSection(ensured.xml, ensured.run.bodyStart, ensured.run.bodyEnd, 'Reports');
+  }
+  if (!reports) throw new Error(`Failed to create reports for tool run: ${runName}`);
+  const existing = findDirectNamedElement(ensured.xml, reports.bodyStart, reports.bodyEnd, 'Report', edit.name);
+  const indent = childIndent(reports.indent);
+  const tag = `${indent}${setAttributes('<Report />', { Name: edit.name, Format: edit.format, Path: edit.path })}`;
+  return existing
+    ? replaceRange(ensured.xml, existing.start, existing.end, tag)
+    : replaceRange(ensured.xml, reports.bodyEnd, reports.bodyEnd, `\n${tag}`);
+}
+
+export function removeToolRunOverride(xml: string, name: string, profileName?: string): string {
+  let section: NonNullable<ReturnType<typeof findDirectSection>> | undefined;
+  if (profileName) {
+    const profile = findProfile(xml, profileName);
+    if (!profile) return xml;
+    section = findDirectSection(xml, profile.bodyStart, profile.bodyEnd, 'Tooling');
+  } else {
+    const open = projectOpenMatch(xml);
+    const product = findDirectSection(xml, open.index! + open[0].length, projectCloseIndex(xml), rootProductKind(xml));
+    if (product) section = findDirectSection(xml, product.bodyStart, product.bodyEnd, 'Tooling');
+  }
+  if (!section) return xml;
+  const run = findDirectToolRun(xml, section, name);
+  if (!run) return xml;
+  let start = run.start;
+  let end = run.end;
+  if (xml[end] === '\n') end += 1;
+  else if (xml[start - 1] === '\n') start -= 1;
+  return replaceRange(xml, start, end, '');
 }
 
 function formatDependencyUse(reference: ProjectDependencyUseEdit, indent: string): string {

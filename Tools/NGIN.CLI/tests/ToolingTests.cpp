@@ -474,6 +474,7 @@ TEST_CASE("analyze executes a package-provided external driver without tool-spec
     REQUIRE(fs::exists(normalizedResult));
     REQUIRE_THAT(ReadFile(normalizedResult), ContainsSubstring(R"("kind":"NGIN.ToolResult")"));
     REQUIRE_THAT(ReadFile(normalizedResult), ContainsSubstring(R"("gateStatus":"failed")"));
+    REQUIRE_THAT(ReadFile(normalizedResult), ContainsSubstring(R"("durationMs":)"));
 
     ParsedArgs resultArgs{};
     resultArgs.projectPath = projectPath.string();
@@ -524,6 +525,17 @@ TEST_CASE("analyze executes a package-provided external driver without tool-spec
     REQUIRE(doctorExitCode == 0);
     REQUIRE_THAT(captured.str(), ContainsSubstring(R"("kind":"NGIN.ToolDoctor")"));
     REQUIRE_THAT(captured.str(), ContainsSubstring(R"("healthy":true)"));
+
+    listArgs.toolRunName = "example-analysis";
+    captured.str({});
+    captured.clear();
+    previous = std::cout.rdbuf(captured.rdbuf());
+    const auto focusedDoctorExitCode = CmdToolDoctor(temp.path(), listArgs);
+    std::cout.rdbuf(previous);
+    REQUIRE(focusedDoctorExitCode == 0);
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("run":"example-analysis")"));
+    REQUIRE_THAT(captured.str(), !ContainsSubstring(R"("run":"example-format")"));
+    listArgs.toolRunName.reset();
 
     args.toolRunName = "example-analysis";
     captured.str({});

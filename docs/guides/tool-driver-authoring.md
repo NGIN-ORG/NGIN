@@ -49,6 +49,11 @@ Use a package-relative executable for a shipped driver. Use
 `SystemExecutable` only for the underlying tool. Both processes run for the
 resolved host platform; request inputs retain target platform and ABI.
 
+Package-contributed runs should provide optional, tool-neutral `DisplayName`
+and `Description` attributes. `Name` remains the stable CLI, overlay,
+dependency, result, and editor-settings identity; presentation metadata may be
+overridden without changing that identity.
+
 ## Request Handling
 
 NGIN invokes a normal run as:

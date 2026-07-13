@@ -254,7 +254,8 @@ namespace NGIN::CLI
                                    std::string_view driverName,
                                    const ToolDriverResult &result,
                                    std::optional<bool> gateFailed,
-                                   const fs::path &path) -> void;
+                                   const fs::path &path,
+                                   std::int64_t durationMilliseconds = 0) -> void;
 
     auto WriteToolReport(const ToolDriverRequest &request,
                          std::string_view runName,
