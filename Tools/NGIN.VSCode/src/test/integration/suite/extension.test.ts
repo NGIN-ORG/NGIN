@@ -56,6 +56,7 @@ suite('NGIN Tools Extension', () => {
     const commands = await vscode.commands.getCommands(true);
     assert.ok(commands.includes('ngin.clean'));
     assert.ok(commands.includes('ngin.rebuild'));
+    assert.ok(commands.includes('ngin.publish'));
     assert.ok(commands.includes('ngin.variablesExplain'));
     assert.ok(commands.includes('ngin.settingsInit'));
     assert.ok(commands.includes('ngin.explainSelection'));

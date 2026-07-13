@@ -141,6 +141,12 @@
         "icon": "$(tools)"
       },
       {
+        "command": "ngin.publish",
+        "title": "Publish…",
+        "category": "NGIN",
+        "icon": "$(cloud-upload)"
+      },
+      {
         "command": "ngin.configure",
         "title": "Configure",
         "category": "NGIN"
@@ -406,14 +412,19 @@
           "group": "navigation@2"
         },
         {
-          "command": "ngin.selectProfile",
+          "command": "ngin.publish",
           "when": "view == nginWorkspace",
           "group": "navigation@3"
         },
         {
-          "command": "ngin.refresh",
+          "command": "ngin.selectProfile",
           "when": "view == nginWorkspace",
           "group": "navigation@4"
+        },
+        {
+          "command": "ngin.refresh",
+          "when": "view == nginWorkspace",
+          "group": "navigation@5"
         },
         {
           "command": "ngin.validate",
@@ -565,9 +576,24 @@
           "group": "ngin.actions@4"
         },
         {
-          "command": "ngin.debug",
+          "command": "ngin.publish",
           "when": "view == nginWorkspace && viewItem =~ /^(nginProject|nginProfile)$/",
           "group": "ngin.actions@5"
+        },
+        {
+          "command": "ngin.debug",
+          "when": "view == nginWorkspace && viewItem =~ /^(nginProject|nginProfile)$/",
+          "group": "ngin.actions@6"
+        },
+        {
+          "command": "ngin.publish",
+          "when": "view == nginWorkspace && viewItem == nginProjectGroup.publish",
+          "group": "inline@1"
+        },
+        {
+          "command": "ngin.publish",
+          "when": "view == nginWorkspace && viewItem == nginProjectInspectEntry.publish",
+          "group": "inline@1"
         },
         {
           "command": "ngin.validate",

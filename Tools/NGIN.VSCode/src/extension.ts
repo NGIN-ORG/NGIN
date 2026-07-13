@@ -20,10 +20,12 @@ import {
   parseCompositionGraphPayload
 } from './core/helpers';
 import {
+  artifactFromEvent,
   diagnosticFromEvent,
   eventLabel,
   eventOutputLine,
   NginEventDiagnostic,
+  NginProducedArtifact,
   NginJsonlParseError,
   NginJsonlEventParser
 } from './core/events';
@@ -62,6 +64,7 @@ interface CliRunResult {
   output: string;
   eventDiagnostics?: NginEventDiagnostic[];
   eventCommandSucceeded?: boolean;
+  artifacts?: NginProducedArtifact[];
 }
 
 interface NginTaskDefinition extends vscode.TaskDefinition {
@@ -355,6 +358,7 @@ class NginController implements vscode.Disposable {
       vscode.commands.registerCommand('ngin.selectProfile', (arg) => this.runHandled(() => this.selectProfileCommand(this.asCommandTarget(arg)))),
       vscode.commands.registerCommand('ngin.configure', (arg) => this.runHandled(() => this.configureCommand(this.asCommandTarget(arg)))),
       vscode.commands.registerCommand('ngin.build', (arg) => this.runHandled(() => this.buildCommand(this.asCommandTarget(arg)))),
+      vscode.commands.registerCommand('ngin.publish', (arg) => this.runHandled(() => this.publishCommand(this.asCommandTarget(arg)))),
       vscode.commands.registerCommand('ngin.clean', (arg) => this.runHandled(() => this.cleanCommand(this.asCommandTarget(arg)))),
       vscode.commands.registerCommand('ngin.rebuild', (arg) => this.runHandled(() => this.rebuildCommand(this.asCommandTarget(arg)))),
       vscode.commands.registerCommand('ngin.run', (arg) => this.runHandled(() => this.runCommand(this.asCommandTarget(arg)))),
@@ -580,14 +584,15 @@ class NginController implements vscode.Disposable {
     }
 
     const candidate = value as NginCommandTarget;
-    if (!candidate.preferredUri && !candidate.projectPath && !candidate.profileName) {
+    if (!candidate.preferredUri && !candidate.projectPath && !candidate.profileName && !candidate.publishName) {
       return undefined;
     }
 
     return {
       preferredUri: candidate.preferredUri,
       projectPath: candidate.projectPath,
-      profileName: candidate.profileName
+      profileName: candidate.profileName,
+      publishName: candidate.publishName
     };
   }
 
@@ -870,6 +875,76 @@ class NginController implements vscode.Disposable {
 
     await this.buildProject(context);
     await this.refreshUi(context.workspace.folder?.uri, true);
+  }
+
+  private async publishCommand(target?: NginCommandTarget): Promise<void> {
+    if (!vscode.workspace.isTrusted) {
+      throw new Error('Trust this workspace before publishing NGIN artifacts.');
+    }
+    const context = await this.resolveCommandContext(target);
+    if (!context) {
+      return;
+    }
+
+    const outputDir = this.workspaceState.computeOutputDirectory(context);
+    const graph = await this.runInspect({
+      workspace: context.workspace,
+      context,
+      outputDir,
+      launchManifestExists: false,
+      stagedCompileCommandsAvailable: false
+    });
+    const publishes = (graph.plans?.publish ?? []).filter((publish) => Boolean(publish.name));
+    if (publishes.length === 0) {
+      throw new Error(`${context.project.name} [${context.profile.name}] has no resolved publish targets.`);
+    }
+
+    let selected = target?.publishName
+      ? publishes.find((publish) => publish.name === target.publishName)
+      : undefined;
+    if (target?.publishName && !selected) {
+      throw new Error(`Publish target '${target.publishName}' is not available for ${context.project.name} [${context.profile.name}].`);
+    }
+    if (!selected) {
+      const picked = await vscode.window.showQuickPick(
+        publishes.map((publish) => ({
+          label: publish.name!,
+          description: [publish.kind, publish.format].filter(Boolean).join(' • '),
+          detail: publish.output,
+          publish
+        })),
+        {
+          title: `Publish ${context.project.name} [${context.profile.name}]`,
+          placeHolder: 'Select a resolved publish target'
+        }
+      );
+      selected = picked?.publish;
+    }
+    if (!selected?.name) {
+      return;
+    }
+
+    const result = await this.runCli(
+      context.workspace.root,
+      ['publish', selected.name, '--project', context.project.path, '--profile', context.profile.name, '--output', outputDir],
+      vscode.Uri.file(context.project.path)
+    );
+    if (result.exitCode !== 0) {
+      throw new Error(`ngin publish ${selected.name} failed for ${context.project.name} [${context.profile.name}]`);
+    }
+
+    await this.refreshUi(context.workspace.folder?.uri, true);
+    const artifact = result.artifacts?.find((candidate) => candidate.publish === selected.name)
+      ?? result.artifacts?.at(-1);
+    const message = artifact?.path
+      ? `Published ${selected.name}: ${artifact.path}`
+      : `Published ${selected.name} for ${context.project.name} [${context.profile.name}]`;
+    const action = artifact?.path
+      ? await vscode.window.showInformationMessage(message, 'Reveal Artifact')
+      : await vscode.window.showInformationMessage(message);
+    if (action === 'Reveal Artifact' && artifact?.path) {
+      await this.revealPathCommand(artifact.path);
+    }
   }
 
   private async cleanCommand(target?: NginCommandTarget): Promise<void> {
@@ -2553,6 +2628,7 @@ class NginController implements vscode.Disposable {
     const runProcess = (onEventLabel?: (label: string) => void, cancellation?: vscode.CancellationToken) => new Promise<CliRunResult>((resolve, reject) => {
       let combined = '';
       const eventDiagnostics: NginEventDiagnostic[] = [];
+      const artifacts: NginProducedArtifact[] = [];
       let eventParseError: Error | undefined;
       let eventCommandSucceeded = false;
       const parser = useEvents ? new NginJsonlEventParser() : undefined;
@@ -2592,6 +2668,10 @@ class NginController implements vscode.Disposable {
               if (diagnostic) {
                 eventDiagnostics.push(diagnostic);
               }
+              const artifact = artifactFromEvent(event);
+              if (artifact) {
+                artifacts.push(artifact);
+              }
               if (event.type === 'command.completed' && event.data.status === 'success') {
                 eventCommandSucceeded = true;
               }
@@ -2630,6 +2710,10 @@ class NginController implements vscode.Disposable {
               if (diagnostic) {
                 eventDiagnostics.push(diagnostic);
               }
+              const artifact = artifactFromEvent(event);
+              if (artifact) {
+                artifacts.push(artifact);
+              }
               if (event.type === 'command.completed' && event.data.status === 'success') {
                 eventCommandSucceeded = true;
               }
@@ -2644,7 +2728,7 @@ class NginController implements vscode.Disposable {
         if (exitCode !== 0) {
           combined += `\nerror: command exited with code ${exitCode}\n`;
         }
-        resolve({ exitCode, output: combined, eventDiagnostics, eventCommandSucceeded });
+        resolve({ exitCode, output: combined, eventDiagnostics, eventCommandSucceeded, artifacts });
       });
     });
 

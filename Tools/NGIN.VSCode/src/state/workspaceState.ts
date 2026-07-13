@@ -13,6 +13,7 @@ export interface NginCommandTarget {
   preferredUri?: vscode.Uri;
   projectPath?: string;
   profileName?: string;
+  publishName?: string;
 }
 
 export interface ResolvedWorkspaceInfo {

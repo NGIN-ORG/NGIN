@@ -20,7 +20,7 @@ export interface ProjectTreeManifestModel {
   description?: string;
 }
 
-export type ProjectTreeGroupKind = 'dependencies' | 'tooling' | 'launch' | 'artifacts' | 'problems';
+export type ProjectTreeGroupKind = 'dependencies' | 'tooling' | 'launch' | 'publish' | 'artifacts' | 'problems';
 
 export interface ProjectTreeGroupModel {
   kind: 'group';
@@ -84,6 +84,7 @@ export interface ProjectTreeInspectEntryModel {
   targetKind?: 'file' | 'configuration' | 'report';
   children?: ProjectTreeInspectEntryModel[];
   explainIdentity?: string;
+  publishName?: string;
   context?: string;
 }
 
@@ -608,7 +609,11 @@ export function buildInspectTreeModel(snapshot: NginWorkspaceSnapshot, projectPa
     entriesByGroup.set('publish', plans.publish.map((publish) => ({
       label: publish.name ?? '(publish)',
       description: [publish.kind, publish.format, publish.output].filter(Boolean).join(' • ') || undefined,
-      icon: 'cloud-upload'
+      tooltip: publish.output,
+      icon: 'cloud-upload',
+      publishName: publish.name,
+      explainIdentity: publish.name ? `publish:${publish.name}` : undefined,
+      context: 'publish'
     })));
   }
 
@@ -750,6 +755,7 @@ export function buildInspectTreeModel(snapshot: NginWorkspaceSnapshot, projectPa
   const metadata: Array<{ kind: ProjectTreeInspectGroupKind; label: string; icon: string; tooltip: string }> = [
     { kind: 'tooling', label: 'Tooling', icon: 'tools', tooltip: 'Active generators and tool runs for the selected profile.' },
     { kind: 'launch', label: 'Launch', icon: 'play-circle', tooltip: 'Selected launch and environment.' },
+    { kind: 'publish', label: 'Publish', icon: 'cloud-upload', tooltip: 'Resolved publish targets for the selected profile.' },
     { kind: 'problems', label: 'Problems', icon: 'warning', tooltip: 'Resolver and inspection problems.' }
   ];
 
@@ -830,11 +836,13 @@ export function buildProjectTreeModels(snapshot: NginWorkspaceSnapshot): Project
           kind: 'group',
           id: `${project.path}:${group.kind}`,
           label: group.label,
-          description: group.kind === 'problems' || group.kind === 'tooling' ? String(entries.length) : undefined,
+          description: group.kind === 'problems' || group.kind === 'tooling' || group.kind === 'publish'
+            ? String(entries.length)
+            : undefined,
           tooltip: group.tooltip,
           icon: group.icon,
           projectPath: project.path,
-          group: group.kind as 'tooling' | 'launch' | 'problems'
+          group: group.kind as ProjectTreeGroupKind
         });
       }
     }

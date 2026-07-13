@@ -5,23 +5,23 @@ It is an editor front end over the native `ngin` CLI, not a separate project
 model or build system.
 
 Use it when you want to select projects and profiles, configure build
-metadata, build, run, debug, validate, inspect resolved project state, inspect
-graphs, or generate metadata from VS Code while keeping the same behavior as
-the terminal commands.
+metadata, build, publish, run, debug, validate, inspect resolved project state,
+inspect graphs, or generate metadata from VS Code while keeping the same
+behavior as the terminal commands.
 
 ## What It Provides
 
-- a project-first NGIN Workspace view with prominent Build, Run, and Profile
-  actions
+- a project-first NGIN Workspace view with prominent Build, Run, Publish, and
+  Profile actions
 - a compact active-project tree for the manifest, dependencies, tooling,
-  launch selection, artifacts, and current problems
+  launch selection, publish targets, artifacts, and current problems
 - advanced graph-native input, inactive-tooling, graph, and explanation views
   backed by `ngin inspect --format json` and `ngin explain`
 - a default visual `.nginproj` editor for common product, profile,
   dependency, source/config, feature, launch, and environment edits while
   preserving XML source
 - status bar items for the selected workspace, project, and profile
-- commands for configure, build, clean, rebuild, run, debug, validate, analyze,
+- commands for configure, build, publish, clean, rebuild, run, debug, validate, analyze,
   graph and tooling-plan inspection, variable explanation, and local settings
   initialization
 - generated VS Code tasks for known project/profile pairs
@@ -50,6 +50,8 @@ The extension mirrors the CLI directly:
 - selected profile maps to `--profile`
 - Configure maps to `ngin configure`
 - Build maps to `ngin build`
+- Publish maps to `ngin publish <name>` using a target from the resolved
+  publish plan
 - Clean maps to `ngin clean`
 - Rebuild maps to `ngin rebuild`
 - Run maps to `ngin run`
@@ -79,7 +81,7 @@ without producing a `.nginlaunch` file. Run and debug use the staged
 build first if the launch manifest is missing or stale.
 
 The Workspace tree is product-centered. Project rows select the active product,
-and the active row includes the selected profile. Build, Run, Profile, and
+and the active row includes the selected profile. Build, Run, Publish, Profile, and
 Refresh are available from the view title. Less frequent actions such as
 Configure, Rebuild, Clean, Validate, Debug, Graph, resolved-input inspection,
 and inactive-tooling inspection live in the title overflow menu.
@@ -87,8 +89,9 @@ and inactive-tooling inspection live in the title overflow menu.
 Only the active project expands into resolved profile-specific information.
 Dependencies distinguishes workspace project references, direct packages, and
 transitive packages. Package features are details of their owning dependency.
-Tooling summarizes active generators and package-provided tool runs. Launch shows the effective
-launch choice, Artifacts exposes the executable, staged application folder,
+Tooling summarizes active generators and package-provided tool runs. Launch
+shows the effective launch choice, Publish lists the effective archive and
+installer targets, Artifacts exposes the executable, staged application folder,
 launch manifest, and compile database, and Problems appears only when inspect
 reports a problem. Source membership and resolved inputs are intentionally not
 duplicated from VS Code Explorer in the default tree.
@@ -176,11 +179,11 @@ Typical flow:
 
 1. Open the NGIN activity-bar Workspace view.
 2. Choose a project from the tree and a profile from the view toolbar.
-3. Expand Dependencies, Tooling, Launch, or Artifacts when details are needed.
+3. Expand Dependencies, Tooling, Launch, Publish, or Artifacts when details are needed.
 4. Edit common `.nginproj` fields in the visual editor or reopen XML source for
    unsupported sections.
-5. Run Validate, Build, Run, Debug, or Graph from the status bar, command
-   palette, or project/profile context menu.
+5. Run Validate, Build, Publish, Run, Debug, or Graph from the view toolbar,
+   command palette, status bar where available, or project/profile context menu.
 
 The same flow is available from the command palette with commands such as:
 
@@ -188,6 +191,7 @@ The same flow is available from the command palette with commands such as:
 NGIN: Select Project
 NGIN: Select Profile
 NGIN: Build
+NGIN: Publish…
 NGIN: Run
 NGIN: Debug
 NGIN: Analyze

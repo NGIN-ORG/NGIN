@@ -35,6 +35,7 @@ class WorkspaceTreeItem extends vscode.TreeItem {
 interface ProjectExplorerTarget {
   projectPath?: string;
   profileName?: string;
+  publishName?: string;
   fsPath?: string;
   role?: 'manifest' | 'source' | 'config' | 'generated';
   isDirectory?: boolean;
@@ -145,6 +146,7 @@ class ProjectInspectEntryTreeItem extends vscode.TreeItem {
   readonly fsPath?: string;
   readonly projectPath?: string;
   readonly explainIdentity?: string;
+  readonly publishName?: string;
   readonly targetKind?: ProjectTreeInspectEntryModel['targetKind'];
 
   constructor(public readonly model: ProjectTreeInspectEntryModel, projectPath?: string) {
@@ -158,12 +160,19 @@ class ProjectInspectEntryTreeItem extends vscode.TreeItem {
     this.fsPath = model.targetPath;
     this.projectPath = projectPath;
     this.explainIdentity = model.explainIdentity;
+    this.publishName = model.publishName;
     this.targetKind = model.targetKind;
     this.iconPath = new vscode.ThemeIcon(model.icon ?? 'symbol-property');
     this.contextValue = model.context
       ? `nginProjectInspectEntry.${model.context}${model.targetPath ? '.openable' : ''}`
       : model.targetPath ? 'nginProjectInspectEntry.openable' : 'nginProjectInspectEntry';
-    if (model.targetPath) {
+    if (model.publishName) {
+      this.command = {
+        command: 'ngin.publish',
+        title: `Publish ${model.publishName}`,
+        arguments: [{ projectPath, publishName: model.publishName } satisfies ProjectExplorerTarget]
+      };
+    } else if (model.targetPath) {
       this.command = {
         command: 'ngin.internal.openPath',
         title: model.label,
@@ -315,7 +324,7 @@ class ProjectsTreeDataProvider implements vscode.TreeDataProvider<ProjectsTreeEl
       if (element.group === 'artifacts') {
         return this.getActiveArtifactChildren(project);
       }
-      if (element.group === 'tooling' || element.group === 'launch' || element.group === 'problems') {
+      if (element.group === 'tooling' || element.group === 'launch' || element.group === 'publish' || element.group === 'problems') {
         const inspectModel = model.inspectByProject.get(element.projectPath);
         return (inspectModel?.entriesByGroup.get(element.group) ?? [])
           .map((entry) => new ProjectInspectEntryTreeItem(entry, element.projectPath));

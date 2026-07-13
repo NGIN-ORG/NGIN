@@ -21,7 +21,7 @@ import {
   parseCompositionGraphPayload,
   parseCliDiagnostics
 } from '../../core/helpers';
-import { diagnosticFromEvent, eventLabel, NginJsonlEventParser, NginJsonlParseError } from '../../core/events';
+import { artifactFromEvent, diagnosticFromEvent, eventLabel, NginJsonlEventParser, NginJsonlParseError } from '../../core/events';
 import { addRootConfigInput, relativeManifestPath, removeConfigInputs, renameConfigInputs } from '../../core/projectAuthoring';
 import { buildProjectTreeModels, buildStatusBarModel } from '../../ui/models';
 import { parseLaunchManifest, parseLocalSettingsManifest, parsePackageManifest, parseProjectManifest, parseWorkspaceManifest } from '../../core/xml';
@@ -144,6 +144,34 @@ test('diagnostic events map to extension diagnostic payloads', () => {
   assert.deepEqual(diagnostic.relatedLocations, [{
     file: '/workspace/include/main.hpp', line: 2, column: 3, message: 'declared here'
   }]);
+});
+
+test('artifact events expose resolved publish metadata', () => {
+  const artifact = artifactFromEvent({
+    schemaVersion: '1.0',
+    kind: 'NGIN.CLI.Event',
+    sequence: 3,
+    timestamp: '2026-07-13T00:00:00.000Z',
+    type: 'artifact.produced',
+    command: 'publish',
+    data: {
+      kind: 'Archive',
+      publish: 'linux-tgz',
+      name: 'linux-tgz',
+      format: 'tgz',
+      version: '0.1.0',
+      path: '/repo/dist/ngin-0.1.0-linux-x86_64.tgz'
+    }
+  });
+
+  assert.deepEqual(artifact, {
+    kind: 'Archive',
+    publish: 'linux-tgz',
+    name: 'linux-tgz',
+    format: 'tgz',
+    version: '0.1.0',
+    path: '/repo/dist/ngin-0.1.0-linux-x86_64.tgz'
+  });
 });
 
 test('NginJsonlEventParser ignores non-event JSON and rejects malformed lines', () => {
@@ -461,6 +489,7 @@ test('extension manifest and snippets register local settings support', () => {
   assert.ok(commandIds.includes('ngin.settingsInit'));
   assert.ok(commandIds.includes('ngin.openProjectXmlSource'));
   assert.ok(commandIds.includes('ngin.analyze'));
+  assert.ok(commandIds.includes('ngin.publish'));
   assert.ok(commandIds.includes('ngin.addToolAction'));
   assert.ok(commandIds.includes('ngin.runToolRun'));
   assert.ok(commandIds.includes('ngin.configureToolRun'));
@@ -482,7 +511,7 @@ test('extension manifest and snippets register local settings support', () => {
   const titleActions = packageJson.contributes.menus['view/title']
     .filter((entry: { group?: string }) => entry.group?.startsWith('navigation'))
     .map((entry: { command: string }) => entry.command);
-  assert.deepEqual(titleActions, ['ngin.build', 'ngin.run', 'ngin.selectProfile', 'ngin.refresh']);
+  assert.deepEqual(titleActions, ['ngin.build', 'ngin.run', 'ngin.publish', 'ngin.selectProfile', 'ngin.refresh']);
 
   const activityViews = packageJson.contributes.views.ngin.map((entry: { id: string; name: string }) => `${entry.id}:${entry.name}`);
   assert.deepEqual(activityViews, ['nginWorkspace:Workspace']);
@@ -1131,6 +1160,7 @@ test('project tree models expose inspect groups for the active project only', ()
         },
         launch: { executable: 'App', workingDirectory: '.' },
         launches: [{ name: 'default', executable: 'App', selected: true, workingDirectory: '.' }],
+        publish: [{ name: 'linux-tgz', kind: 'Archive', format: 'tgz', output: 'dist/app-linux.tgz' }],
         stage: { files: [{ kind: 'config', target: 'config/app.cfg' }] },
         environment: { variables: [{ name: 'TOKEN', value: '<redacted>', secret: true }] },
         diagnostics: [{ severity: 'warning', subject: 'Launch', message: 'Example warning' }]
@@ -1163,8 +1193,14 @@ test('project tree models expose inspect groups for the active project only', ()
   assert.deepEqual(activeInspect?.groups.map((group) => group.kind), [
     'tooling',
     'launch',
+    'publish',
     'problems'
   ]);
+  assert.deepEqual(activeInspect?.entriesByGroup.get('publish')?.map((entry) => ({
+    label: entry.label,
+    publishName: entry.publishName,
+    context: entry.context
+  })), [{ label: 'linux-tgz', publishName: 'linux-tgz', context: 'publish' }]);
   assert.equal(models.childrenByProject.get(activeProject.path)?.find((entry) => entry.kind === 'group' && entry.group === 'problems')?.description, '1');
   assert.deepEqual(activeInspect?.entriesByGroup.get('tooling')?.map((entry) => `${entry.label}:${entry.description}`), [
     'Reflection code generation:MetaGen · active',

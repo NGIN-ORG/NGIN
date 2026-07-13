@@ -37,6 +37,15 @@ export interface NginEventDiagnostic {
   editSetIds?: string[];
 }
 
+export interface NginProducedArtifact {
+  path: string;
+  kind?: string;
+  publish?: string;
+  name?: string;
+  format?: string;
+  version?: string;
+}
+
 export class NginJsonlParseError extends Error {
   constructor(line: string, cause: unknown) {
     const message = cause instanceof Error ? cause.message : String(cause);
@@ -149,6 +158,20 @@ export function eventOutputLine(event: NginCliEvent): string | undefined {
     return message ? `${severity}: ${message}` : undefined;
   }
   return eventLabel(event);
+}
+
+export function artifactFromEvent(event: NginCliEvent): NginProducedArtifact | undefined {
+  if (event.type !== 'artifact.produced' || typeof event.data.path !== 'string') {
+    return undefined;
+  }
+  return {
+    path: event.data.path,
+    kind: typeof event.data.kind === 'string' ? event.data.kind : undefined,
+    publish: typeof event.data.publish === 'string' ? event.data.publish : undefined,
+    name: typeof event.data.name === 'string' ? event.data.name : undefined,
+    format: typeof event.data.format === 'string' ? event.data.format : undefined,
+    version: typeof event.data.version === 'string' ? event.data.version : undefined
+  };
 }
 
 export function diagnosticFromEvent(event: NginCliEvent): NginEventDiagnostic | undefined {
