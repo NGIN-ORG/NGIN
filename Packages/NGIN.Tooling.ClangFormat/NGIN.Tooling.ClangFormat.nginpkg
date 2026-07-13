@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Package SchemaVersion="4"
+         Name="NGIN.Tooling.ClangFormat"
+         Version="0.1.0"
+         CompatiblePlatformRange=">=0.1.0-alpha.1 &lt;0.2.0">
+  <Build Backend="CMake" Mode="Manual" />
+
+  <Tool Name="NGIN.Tooling.ClangFormat">
+    <Exports>
+      <Tool Name="clang-format"
+            Kind="Development">
+        <SystemExecutable Name="clang-format"
+                          OverrideEnvironment="NGIN_CLANG_FORMAT" />
+      </Tool>
+    </Exports>
+  </Tool>
+
+  <ToolDrivers>
+    <Driver Name="stdout-format-driver"
+            Protocol="NGIN.ToolDriver/1"
+            Version="1.0.0"
+            Adapter="builtin.stdout-transform.v1">
+      <Capabilities>
+        <Capability Name="edits" />
+        <Capability Name="active-file" />
+        <Capability Name="changed-files" />
+        <Capability Name="document-formatting" />
+      </Capabilities>
+      <ProbeArguments>
+        <Arg Value="--version" />
+      </ProbeArguments>
+      <Arguments>
+        <Arg Value="--style=file:$(Config)" />
+        <Arg Value="$(InputContentFile)" />
+      </Arguments>
+    </Driver>
+  </ToolDrivers>
+
+  <ToolActions>
+    <Action Name="format"
+            Kind="Format"
+            Tool="clang-format"
+            Driver="stdout-format-driver">
+      <Accepts Contract="files/v1" />
+      <Capabilities>
+        <Capability Name="edits" />
+        <Capability Name="active-file" />
+        <Capability Name="changed-files" />
+        <Capability Name="document-formatting" />
+      </Capabilities>
+      <Defaults>
+        <Input Scope="Product" />
+      </Defaults>
+    </Action>
+  </ToolActions>
+
+  <Features>
+    <Feature Name="Formatter"
+             Description="Format C and C++ sources through the NGIN tooling workflow.">
+      <Tooling>
+        <Run Name="cpp-format"
+             DisplayName="C++ Formatting"
+             Description="Keep project-owned C and C++ source files consistently formatted."
+             Action="NGIN.Tooling.ClangFormat::format">
+          <Input Contract="files/v1"
+                 Scope="Product"
+                 IncludeGenerated="false">
+            <Include Path="**/*.c" />
+            <Include Path="**/*.cc" />
+            <Include Path="**/*.cpp" />
+            <Include Path="**/*.cxx" />
+            <Include Path="**/*.h" />
+            <Include Path="**/*.hh" />
+            <Include Path="**/*.hpp" />
+            <Include Path="**/*.hxx" />
+          </Input>
+          <Config Name="primary"
+                  Path=".clang-format"
+                  Optional="true" />
+          <Execution Jobs="Auto"
+                     Cache="Off"
+                     FailureStrategy="DependencyAware" />
+        </Run>
+      </Tooling>
+    </Feature>
+  </Features>
+
+  <Compatibility>
+    <OperatingSystems>
+      <OperatingSystem Name="linux" />
+      <OperatingSystem Name="windows" />
+      <OperatingSystem Name="macos" />
+    </OperatingSystems>
+  </Compatibility>
+</Package>

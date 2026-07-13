@@ -33,6 +33,7 @@ set(NGIN_HELLO_NATIVE_PROJECT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/Examples/Hello.N
 set(NGIN_HELLO_HOSTED_PROJECT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/Examples/Hello.Hosted/Hello.Hosted.nginproj")
 set(NGIN_HELLO_REFLECTION_PROJECT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/Examples/Hello.Reflection/Hello.Reflection.nginproj")
 set(NGIN_HELLO_ANALYZER_PROJECT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/Examples/Hello.Analyzer/Hello.Analyzer.nginproj")
+set(NGIN_HELLO_FORMATTER_PROJECT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/Examples/Hello.Formatter/Hello.Formatter.nginproj")
 set(NGIN_HELLO_HOSTED_BUILD_OUTPUT "${NGIN_WORKSPACE_STAGE_DIR}/Hello.Hosted/Debug")
 set(NGIN_PROJECTREF_CONFIG_PROJECT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/Tools/NGIN.CLI/tests/fixtures/ProjectRef.Config/Root/ProjectRef.Config.Root.nginproj")
 set(NGIN_PROJECTREF_CONFIG_COLLISION_PROJECT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/Tools/NGIN.CLI/tests/fixtures/ProjectRef.Config/CollisionRoot/ProjectRef.Config.CollisionRoot.nginproj")
@@ -123,6 +124,14 @@ add_test(NAME ngin.validate.hello_analyzer
 
 add_test(NAME ngin.graph.hello_analyzer_tooling
   COMMAND $<TARGET_FILE:ngin_cli> graph --project "${NGIN_HELLO_ANALYZER_PROJECT_PATH}" --profile Debug.Analyzer --tooling-plan
+)
+
+add_test(NAME ngin.validate.hello_formatter
+  COMMAND $<TARGET_FILE:ngin_cli> validate --project "${NGIN_HELLO_FORMATTER_PROJECT_PATH}" --profile Debug.Formatter
+)
+
+add_test(NAME ngin.graph.hello_formatter_tooling
+  COMMAND $<TARGET_FILE:ngin_cli> graph --project "${NGIN_HELLO_FORMATTER_PROJECT_PATH}" --profile Debug.Formatter --tooling-plan
 )
 
 add_test(NAME ngin.graph.workspace

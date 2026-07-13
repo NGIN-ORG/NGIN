@@ -23,6 +23,11 @@ The important distinction is ownership:
   common BoringSSL libcrypto layouts to `BoringSSL::Crypto` for future optional
   crypto provider integration and declares the common `boringssl` provider
   package name plus libcrypto linkage/runtime metadata.
+- [`NGIN.Tooling.ClangTidy`](NGIN.Tooling.ClangTidy/) exposes clang-tidy as a
+  package-selected Analyze action.
+- [`NGIN.Tooling.ClangFormat`](NGIN.Tooling.ClangFormat/) exposes clang-format
+  as a package-selected Format action through the general stdout-transform
+  adapter.
 - First-party library source trees usually live under `../Dependencies/NGIN/`.
 - Third-party source trees usually live under `../Dependencies/ThirdParty/`.
 

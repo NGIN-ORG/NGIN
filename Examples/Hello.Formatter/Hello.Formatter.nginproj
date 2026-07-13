@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4"
+         Name="Hello.Formatter"
+         DefaultProfile="Debug.Formatter">
+
+  <Application>
+    <Uses>
+      <Package Name="NGIN.Tooling.ClangFormat"
+               Version="[0.1.0,0.2.0)"
+               Scope="Dev">
+        <Feature Name="Formatter" />
+      </Package>
+    </Uses>
+
+    <Build>
+      <Sources Path="src/**.cpp" />
+    </Build>
+
+    <Launch Executable="$(OutputName)"
+            WorkingDirectory="." />
+  </Application>
+
+  <Profile Name="Debug.Formatter">
+    <Defaults>
+      <BuildType Name="Debug" />
+      <TargetPlatform Name="linux-x64" />
+      <Environment Name="local" />
+    </Defaults>
+  </Profile>
+</Project>

@@ -450,6 +450,7 @@ export interface StoredToolResultSummary {
   executionStatus?: string;
   gateStatus?: string;
   cacheStatus?: string;
+  changeStatus?: 'clean' | 'proposed' | 'applied' | string;
   durationMs?: number;
   diagnostics: Array<{ severity?: string; suppressed?: boolean }>;
   edits: Array<{ applicability?: string }>;

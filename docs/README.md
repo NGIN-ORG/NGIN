@@ -19,7 +19,8 @@ If you are trying to understand NGIN as a user:
 2. Compare it with `Examples/Hello.Hosted`.
 3. Run `Examples/Hello.Reflection` when you need generator-backed reflection.
 4. Run `Examples/Hello.Analyzer` when you need package-provided tool execution.
-5. Read the specs below when you need exact contracts.
+5. Run `Examples/Hello.Formatter` when you need edit-producing format actions.
+6. Read the specs below when you need exact contracts.
 
 ## Guides
 

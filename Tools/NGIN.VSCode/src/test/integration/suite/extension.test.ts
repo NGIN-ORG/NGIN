@@ -71,6 +71,39 @@ suite('NGIN Tools Extension', () => {
     await vscode.commands.executeCommand('ngin.validate', sampleTarget());
   });
 
+  test('document formatting uses a graph-selected NGIN format run for dirty editor content', async () => {
+    const extension = vscode.extensions.getExtension('ngin.ngin-tools');
+    assert.ok(extension);
+    await extension.activate();
+
+    const sourcePath = path.join(repoRoot(), 'Examples/Hello.Formatter/src/main.cpp');
+    const original = await fs.readFile(sourcePath, 'utf8');
+    const document = await vscode.workspace.openTextDocument(vscode.Uri.file(sourcePath));
+    const editor = await vscode.window.showTextDocument(document);
+    try {
+      assert.equal(await editor.edit((edit) => edit.insert(new vscode.Position(0, 0), ' ')), true);
+      assert.equal(document.isDirty, true);
+      const edits = await vscode.commands.executeCommand<vscode.TextEdit[]>(
+        'vscode.executeFormatDocumentProvider',
+        document.uri,
+        { insertSpaces: true, tabSize: 4 }
+      );
+      assert.ok(edits?.length);
+      const resultPath = path.join(
+        repoRoot(), '.ngin/build/Hello.Formatter/Debug.Formatter/tooling/cpp-format/result.json'
+      );
+      const normalized = JSON.parse(await fs.readFile(resultPath, 'utf8')) as {
+        changeStatus?: string;
+        edits?: Array<{ files?: Array<{ edits?: Array<{ newText?: string }> }> }>;
+      };
+      assert.equal(normalized.changeStatus, 'proposed');
+      assert.match(normalized.edits?.[0]?.files?.[0]?.edits?.[0]?.newText ?? '', /int main\(\)/);
+      assert.equal(await fs.readFile(sourcePath, 'utf8'), original);
+    } finally {
+      await vscode.commands.executeCommand('workbench.action.files.revert');
+    }
+  });
+
   test('variables explain opens a redacted readonly document without prompting', async () => {
     const extension = vscode.extensions.getExtension('ngin.ngin-tools');
     assert.ok(extension);

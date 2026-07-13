@@ -208,6 +208,29 @@ TEST_CASE("tool actions reject capabilities not provided by their driver") {
                       ContainsSubstring("capability 'edits' not provided by driver 'driver'"));
 }
 
+TEST_CASE("tool drivers preserve package-owned argument templates") {
+  TempDir temp{};
+  const auto packagePath = temp.path() / "Transform.Tooling.nginpkg";
+  WriteFile(packagePath,
+            R"xml(<Package SchemaVersion="4" Name="Transform.Tooling" Version="1.0.0">
+  <ToolDrivers>
+    <Driver Name="driver" Protocol="NGIN.ToolDriver/1" Adapter="builtin.stdout-transform.v1">
+      <Arguments>
+        <Arg Value="--config=$(Config)" />
+        <Arg Value="$(InputContentFile)" />
+      </Arguments>
+      <ProbeArguments><Arg Value="--version" /></ProbeArguments>
+    </Driver>
+  </ToolDrivers>
+</Package>)xml");
+
+  const auto package = LoadPackageManifest(packagePath);
+  REQUIRE(package.toolDrivers.size() == 1);
+  REQUIRE(package.toolDrivers[0].probeArguments == std::vector<std::string>{"--version"});
+  REQUIRE(package.toolDrivers[0].arguments ==
+          std::vector<std::string>{"--config=$(Config)", "$(InputContentFile)"});
+}
+
 TEST_CASE("tool actions declare explicit environment and secret requirements") {
   TempDir temp{};
   const auto packagePath = temp.path() / "Environment.Tooling.nginpkg";

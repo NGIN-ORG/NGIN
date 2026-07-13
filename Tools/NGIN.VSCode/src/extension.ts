@@ -164,6 +164,11 @@ function toolContentDigest(contents: Uint8Array): string {
   return hash.toString(16).padStart(16, '0');
 }
 
+function toolProtocolEndPosition(text: string): { line: number; column: number } {
+  const lines = text.split('\n');
+  return { line: lines.length, column: Buffer.byteLength(lines.at(-1) ?? '', 'utf8') + 1 };
+}
+
 function homeLocalSettingsPath(): string | undefined {
   const home = process.env.HOME || process.env.USERPROFILE;
   return home ? path.join(home, '.ngin', 'settings.nginsettings') : undefined;
@@ -423,6 +428,10 @@ class NginController implements vscode.Disposable {
       vscode.languages.registerCodeActionsProvider({ scheme: 'file' }, {
         provideCodeActions: (document, _range, context) => this.provideToolCodeActions(document, context)
       }, { providedCodeActionKinds: [vscode.CodeActionKind.QuickFix] }),
+      vscode.languages.registerDocumentFormattingEditProvider({ scheme: 'file' }, {
+        provideDocumentFormattingEdits: (document, _options, cancellation) =>
+          this.provideDocumentFormattingEdits(document, cancellation)
+      }),
       vscode.tasks.registerTaskProvider('ngin', new NginTaskProvider(this)),
       vscode.debug.registerDebugConfigurationProvider('ngin', new NginDebugConfigurationProvider(this)),
       this.workspaceState.onDidChange(() => {
@@ -629,6 +638,7 @@ class NginController implements vscode.Disposable {
           executionStatus: parsed.executionStatus,
           gateStatus: parsed.gateStatus,
           cacheStatus: parsed.cacheStatus,
+          changeStatus: parsed.changeStatus,
           durationMs: parsed.durationMs,
           diagnostics: Array.isArray(parsed.diagnostics) ? parsed.diagnostics : [],
           edits: Array.isArray(parsed.edits) ? parsed.edits : [],
@@ -1385,12 +1395,21 @@ class NginController implements vscode.Disposable {
     void vscode.window.showInformationMessage(`Applied available changes from ${resolved.run.displayName || resolved.run.name}.`);
   }
 
-  private async loadToolEditSets(context: ResolvedCommandContext, run: string): Promise<ToolEditPayload[]> {
+  private async loadToolEditSets(
+    context: ResolvedCommandContext,
+    run: string,
+    showProgress = true,
+    cancellation?: vscode.CancellationToken
+  ): Promise<ToolEditPayload[]> {
     const result = await this.runCli(
       context.workspace.root,
       ['tool', 'edits', '--run', run, '--format', 'json', '--project', context.project.path,
         '--profile', context.profile.name, '--output', this.workspaceState.computeOutputDirectory(context)],
-      vscode.Uri.file(context.project.path)
+      vscode.Uri.file(context.project.path),
+      undefined,
+      undefined,
+      showProgress,
+      cancellation
     );
     if (result.exitCode !== 0) throw new Error(`Could not load edits from ${run}.`);
     let payload: ToolEditsResponse;
@@ -1403,6 +1422,106 @@ class NginController implements vscode.Disposable {
       throw new Error(`Tool edits for ${run} returned an unsupported payload.`);
     }
     return (payload.results ?? []).flatMap((entry) => entry.edits ?? []);
+  }
+
+  private async provideDocumentFormattingEdits(
+    document: vscode.TextDocument,
+    cancellation: vscode.CancellationToken
+  ): Promise<vscode.TextEdit[]> {
+    if (document.uri.scheme !== 'file' || !vscode.workspace.isTrusted) return [];
+    if (!(await this.workspaceState.getWorkspaceInfo(document.uri))) return [];
+    const context = await this.resolveCommandContext({ preferredUri: document.uri }, false);
+    if (!context) return [];
+    const snapshot = await this.workspaceState.getSnapshot(vscode.Uri.file(context.project.path));
+    const graph = await this.runInspect(snapshot);
+    const documentPath = comparablePath(document.uri.fsPath);
+    const candidates = (graph.plans?.tooling?.runs ?? []).filter((run) => {
+      const capabilities = new Set((run.capabilities ?? []).map((capability) => capability.toLowerCase()));
+      const acceptsDocument = (run.inputFiles ?? []).some((input) => {
+        const resolvedInput = path.isAbsolute(input) ? input : path.resolve(context.project.directory, input);
+        return comparablePath(resolvedInput) === documentPath;
+      });
+      return run.kind === 'Format' && (run.state ?? 'ready') === 'ready' &&
+        capabilities.has('document-formatting') && capabilities.has('active-file') && acceptsDocument;
+    });
+    if (!candidates.length) return [];
+
+    const configuredRun = this.getConfiguration(context.workspace.folder)
+      .get<string>('tooling.defaultFormatRun')?.trim();
+    const run = configuredRun
+      ? candidates.find((candidate) => candidate.name === configuredRun)
+      : candidates.length === 1 ? candidates[0] : undefined;
+    if (!run) {
+      if (configuredRun) {
+        throw new Error(`Configured NGIN format run '${configuredRun}' does not accept ${path.basename(document.uri.fsPath)}.`);
+      }
+      throw new Error(`Multiple NGIN format runs accept this document. Set ngin.tooling.defaultFormatRun to one of: ${candidates.map((candidate) => candidate.name).join(', ')}.`);
+    }
+
+    const outputDirectory = this.workspaceState.computeOutputDirectory(context);
+    const snapshotDirectory = path.join(outputDirectory, 'tooling', '.editor-inputs');
+    await fs.mkdir(snapshotDirectory, { recursive: true });
+    const snapshotPath = path.join(
+      snapshotDirectory,
+      `${run.name.replace(/[^A-Za-z0-9_.-]/g, '_')}-${Date.now()}-${process.hrtime.bigint()}-${path.basename(document.uri.fsPath)}`
+    );
+    await fs.writeFile(snapshotPath, document.getText(), 'utf8');
+    try {
+      const result = await this.runCli(
+        context.workspace.root,
+        ['tool', 'run', run.name, '--project', context.project.path, '--profile', context.profile.name,
+          '--output', outputDirectory, '--file', document.uri.fsPath, '--input-content', snapshotPath],
+        vscode.Uri.file(context.project.path),
+        undefined,
+        undefined,
+        false,
+        cancellation
+      );
+      if (result.exitCode !== 0) {
+        if (cancellation.isCancellationRequested) return [];
+        throw new Error(`${run.displayName || run.name} failed while formatting this document.`);
+      }
+    } finally {
+      await fs.rm(snapshotPath, { force: true });
+      await fs.rmdir(snapshotDirectory).catch(() => undefined);
+    }
+
+    if (cancellation.isCancellationRequested) return [];
+    const editSets = await this.loadToolEditSets(context, run.name, false, cancellation);
+    const currentDigest = toolContentDigest(Buffer.from(document.getText(), 'utf8'));
+    const edits: vscode.TextEdit[] = [];
+    const ranges: vscode.Range[] = [];
+    for (const editSet of editSets) {
+      if (editSet.applicability === 'unsafe') continue;
+      for (const fileEdit of editSet.files ?? []) {
+        if (!fileEdit.path?.absolute || comparablePath(fileEdit.path.absolute) !== documentPath) continue;
+        if (fileEdit.expectedDigest && fileEdit.expectedDigest !== currentDigest) {
+          throw new Error(`${path.basename(document.uri.fsPath)} changed while ${run.displayName || run.name} was running.`);
+        }
+        for (const edit of fileEdit.edits ?? []) {
+          const start = edit.range?.start;
+          const end = edit.range?.end;
+          if (!start?.line || !start.column || !end?.line || !end.column || typeof edit.newText !== 'string') {
+            throw new Error(`Tool edit '${editSet.id}' contains an invalid range.`);
+          }
+          const protocolEnd = toolProtocolEndPosition(document.getText());
+          const fullFileReplacement = start.line === 1 && start.column === 1 &&
+            end.line === protocolEnd.line && end.column === protocolEnd.column;
+          const range = fullFileReplacement
+            ? new vscode.Range(document.positionAt(0), document.positionAt(document.getText().length))
+            : new vscode.Range(start.line - 1, start.column - 1, end.line - 1, end.column - 1);
+          if (!document.validateRange(range).isEqual(range)) {
+            throw new Error(`Tool edit '${editSet.id}' contains a range outside ${path.basename(document.uri.fsPath)}.`);
+          }
+          if (ranges.some((candidate) => candidate.intersection(range) !== undefined)) {
+            throw new Error(`Tool edit '${editSet.id}' overlaps another proposed formatting edit.`);
+          }
+          ranges.push(range);
+          edits.push(vscode.TextEdit.replace(range, edit.newText));
+        }
+      }
+    }
+    return edits;
   }
 
   private async previewToolChangesCommand(target?: ProjectExplorerTarget): Promise<void> {
@@ -2385,7 +2504,9 @@ class NginController implements vscode.Disposable {
     args: string[],
     diagnosticsResource?: vscode.Uri,
     cliOverride?: string,
-    diagnosticsKind?: 'validate' | 'analyze'
+    diagnosticsKind?: 'validate' | 'analyze',
+    showProgress = true,
+    cancellation?: vscode.CancellationToken
   ): Promise<CliRunResult> {
     const cliPath = await this.resolveCliPath(workspaceRoot, cliOverride);
     await this.warnIfCliStale(cliPath, workspaceRoot);
@@ -2400,7 +2521,9 @@ class NginController implements vscode.Disposable {
     const runGeneration = (this.cliRunGeneration.get(runKey) ?? 0) + 1;
     this.cliRunGeneration.set(runKey, runGeneration);
     const progressCommands = new Set(['configure', 'build', 'rebuild', 'stage', 'publish', 'analyze', 'tool']);
-    const useEvents = progressCommands.has(commandName);
+    const toolQuery = commandName === 'tool' &&
+      new Set(['list', 'plan', 'results', 'edits']).has(args[1] ?? '');
+    const useEvents = progressCommands.has(commandName) && !toolQuery;
     if (useEvents && !actualArgs.includes('--events')) {
       actualArgs.push('--events', 'jsonl');
     }
@@ -2525,7 +2648,7 @@ class NginController implements vscode.Disposable {
       });
     });
 
-    const result = progressCommands.has(commandName)
+    const result = useEvents && showProgress
       ? await vscode.window.withProgress(
         {
           location: vscode.ProgressLocation.Notification,
@@ -2545,7 +2668,7 @@ class NginController implements vscode.Disposable {
             clearInterval(timer);
           }
         })
-      : await runProcess();
+      : await runProcess(undefined, cancellation);
 
     if (diagnosticsKind && this.cliRunGeneration.get(runKey) === runGeneration) {
       if (result.eventDiagnostics?.length) {

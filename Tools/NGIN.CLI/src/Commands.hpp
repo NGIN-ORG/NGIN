@@ -47,9 +47,11 @@ namespace NGIN::CLI
         bool toolOnlyGated{false};
         std::optional<std::string> toolInputMode{};
         std::vector<std::string> toolFiles{};
+        std::optional<std::string> toolInputContentPath{};
         std::optional<std::string> toolChangedSince{};
         bool toolApplyEdits{false};
         bool toolPreviewEdits{false};
+        std::optional<std::string> toolEditMode{};
         bool toolAllowUnsafeEdits{false};
         bool toolNoConfigure{false};
         bool toolNoCache{false};

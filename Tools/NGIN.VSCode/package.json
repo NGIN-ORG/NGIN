@@ -654,6 +654,11 @@
           "minimum": 0,
           "description": "Debounce delay for active-file tool runs after saving a source file."
         },
+        "ngin.tooling.defaultFormatRun": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Stable NGIN tool run identity used for VS Code document formatting when more than one ready Format run accepts a document. Leave empty when the project has one matching formatter."
+        },
         "ngin.cli.warnIfStale": {
           "type": "boolean",
           "default": true,

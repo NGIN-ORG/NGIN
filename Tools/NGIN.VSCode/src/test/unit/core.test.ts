@@ -493,6 +493,7 @@ test('extension manifest and snippets register local settings support', () => {
   assert.equal(settings['ngin.analyze.onSave'], undefined);
   assert.equal(settings['ngin.tooling.validateManifestOnSave'].default, false);
   assert.deepEqual(settings['ngin.tooling.runOnSave'].default, {});
+  assert.equal(settings['ngin.tooling.defaultFormatRun'].default, '');
   assert.equal(settings['ngin.tooling.runActiveFileOnSave'], undefined);
   assert.deepEqual(settings['ngin.tooling.runOnSave'].additionalProperties.enum, ['activeFile', 'all']);
 
@@ -1143,6 +1144,7 @@ test('project tree models expose inspect groups for the active project only', ()
         executionStatus: 'succeeded',
         gateStatus: 'not-evaluated',
         cacheStatus: 'hit',
+        changeStatus: 'proposed',
         durationMs: 1250,
         diagnostics: [{ severity: 'warning' }],
         edits: [{ applicability: 'automatic' }],

@@ -131,8 +131,10 @@ namespace NGIN::CLI
         fs::path workingDirectory{};
         fs::path outputDirectory{};
         std::vector<fs::path> configs{};
+        std::vector<std::string> arguments{};
         std::string inputContract{};
         std::vector<fs::path> files{};
+        std::optional<fs::path> inputContentPath{};
         struct TranslationUnit
         {
             fs::path source{};
@@ -156,6 +158,7 @@ namespace NGIN::CLI
         };
         std::vector<EnvironmentValue> environment{};
         std::vector<std::string> capabilitiesRequested{};
+        std::string editMode{"preview"};
         std::optional<std::uint64_t> timeoutMilliseconds{};
         std::size_t maximumOutputBytes{16U * 1024U * 1024U};
         std::size_t jobs{1};
@@ -182,6 +185,7 @@ namespace NGIN::CLI
         std::string rawOutput{};
         std::string driverLog{};
         std::string cacheStatus{"disabled"};
+        std::string changeStatus{"clean"};
     };
 
     struct ToolDriverStreamEvent
@@ -241,7 +245,8 @@ namespace NGIN::CLI
                                               const fs::path &requestPath)
         -> ToolDriverProbeResult;
     [[nodiscard]] auto ProbeBuiltinToolAdapter(std::string_view adapter,
-                                               const ToolResolution &tool)
+                                               const ToolResolution &tool,
+                                               const std::vector<std::string> &probeArguments = {})
         -> ToolDriverProbeResult;
 
     [[nodiscard]] auto ExecuteBuiltinToolAdapter(

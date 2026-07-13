@@ -256,6 +256,8 @@ TEST_CASE("external tool driver receives a request file and executes through the
     const auto requestText = ReadFile(requestPath);
     REQUIRE_THAT(requestText, ContainsSubstring(R"("kind":"NGIN.ToolDriver.Request")"));
     REQUIRE_THAT(requestText, ContainsSubstring(R"("contract":"files/v1")"));
+    REQUIRE_THAT(requestText, ContainsSubstring(R"("arguments":[])"));
+    REQUIRE_THAT(requestText, ContainsSubstring(R"("editMode":"preview")"));
     REQUIRE_THAT(requestText, ContainsSubstring(R"("capabilitiesRequested":["diagnostics"])"));
     REQUIRE_THAT(requestText, ContainsSubstring(R"("environment":{"MODE":"strict","TOKEN":"secret-value"})"));
     REQUIRE((fs::status(requestPath).permissions() & fs::perms::group_read) == fs::perms::none);
@@ -342,6 +344,62 @@ TEST_CASE("registered bootstrap adapter exports clang-tidy replacements as gener
     REQUIRE(result.edits[0].files[0].expectedDigest == ToolFileDigest(source));
     REQUIRE(result.edits[0].files[0].edits[0].newText == "int32_t");
     REQUIRE(result.diagnostics[0].editSetIds == std::vector<std::string>{result.edits[0].id});
+}
+
+TEST_CASE("registered stdout transform adapter proposes full-file edits without mutating inputs")
+{
+    TempDir temp{};
+    const auto source = temp.path() / "main.cpp";
+    WriteFile(source, "int main(){return 0;}\n");
+    const auto tool = temp.path() / "fake-transform";
+    WriteFile(tool,
+              "#!/bin/sh\n"
+              "if test \"$1\" = '--version'; then echo 'fake-transform 1.2.3'; exit 0; fi\n"
+              "printf '%s\\n' 'int main() { return 0; }'\n");
+    fs::permissions(tool, fs::perms::owner_exec | fs::perms::owner_read | fs::perms::owner_write);
+    ToolDriverRequest request{
+        .runId = "stdout-transform",
+        .workspaceRoot = temp.path(),
+        .projectName = "App",
+        .projectPath = temp.path() / "App.nginproj",
+        .profile = "dev",
+        .actionName = "Example::format",
+        .actionKind = "Format",
+        .tool = ToolResolution{.path = tool, .source = "test"},
+        .workingDirectory = temp.path(),
+        .outputDirectory = temp.path() / "out",
+        .arguments = {"$(InputFile)"},
+        .inputContract = "files/v1",
+        .files = {source},
+    };
+
+    const auto probe = ProbeBuiltinToolAdapter(
+        "builtin.stdout-transform.v1", request.tool, {"--version"});
+    REQUIRE(probe.available);
+    REQUIRE(probe.toolVersion == "1.2.3");
+    REQUIRE(std::ranges::find(probe.capabilities, "document-formatting") != probe.capabilities.end());
+
+    const auto result = ExecuteBuiltinToolAdapter("builtin.stdout-transform.v1", request, temp.path());
+    REQUIRE(result.executionStatus == "succeeded");
+    REQUIRE(result.edits.size() == 1);
+    REQUIRE(result.edits[0].applicability == "automatic");
+    REQUIRE(result.edits[0].files[0].expectedDigest == ToolFileDigest(source));
+    REQUIRE(result.edits[0].files[0].edits.size() == 1);
+    REQUIRE(result.edits[0].files[0].edits[0].start.line == 1);
+    REQUIRE(result.edits[0].files[0].edits[0].end.line == 2);
+    REQUIRE(result.edits[0].files[0].edits[0].newText == "int main() { return 0; }\n");
+    REQUIRE(ReadFile(source) == "int main(){return 0;}\n");
+
+    const auto editorContent = temp.path() / "editor-main.cpp";
+    WriteFile(editorContent, "int main(){ return 1; }\n");
+    auto editorRequest = request;
+    editorRequest.inputContentPath = editorContent;
+    const auto editorResult = ExecuteBuiltinToolAdapter(
+        "builtin.stdout-transform.v1", editorRequest, temp.path());
+    REQUIRE(editorResult.edits.size() == 1);
+    REQUIRE(editorResult.edits[0].files[0].file == source);
+    REQUIRE(editorResult.edits[0].files[0].expectedDigest == ToolFileDigest(editorContent));
+    REQUIRE(ReadFile(source) == "int main(){return 0;}\n");
 }
 
 TEST_CASE("analyze executes a package-provided external driver without tool-specific CLI code")
@@ -440,7 +498,7 @@ TEST_CASE("analyze executes a package-provided external driver without tool-spec
               "echo \"{\\\"schemaVersion\\\":\\\"1.0\\\",\\\"kind\\\":\\\"NGIN.ToolDriver.Event\\\",\\\"runId\\\":\\\"$run_id\\\",\\\"sequence\\\":2,\\\"type\\\":\\\"progress\\\",\\\"data\\\":{\\\"stage\\\":\\\"processing\\\",\\\"message\\\":\\\"streamed before completion\\\",\\\"current\\\":1,\\\"total\\\":1}}\"\n"
               "echo \"{\\\"schemaVersion\\\":\\\"1.0\\\",\\\"kind\\\":\\\"NGIN.ToolDriver.Event\\\",\\\"runId\\\":\\\"$run_id\\\",\\\"sequence\\\":3,\\\"type\\\":\\\"diagnostic\\\",\\\"data\\\":{\\\"severity\\\":\\\"warning\\\",\\\"code\\\":\\\"example-rule\\\",\\\"message\\\":\\\"external finding\\\",\\\"editSetIds\\\":[\\\"format-fix\\\"]}}\"\n"
               "if grep -q '\"kind\":\"Format\"' \"$request\"; then\n"
-              "  echo \"{\\\"schemaVersion\\\":\\\"1.0\\\",\\\"kind\\\":\\\"NGIN.ToolDriver.Event\\\",\\\"runId\\\":\\\"$run_id\\\",\\\"sequence\\\":4,\\\"type\\\":\\\"edit.proposed\\\",\\\"data\\\":{\\\"id\\\":\\\"format-fix\\\",\\\"label\\\":\\\"Format source\\\",\\\"applicability\\\":\\\"automatic\\\",\\\"files\\\":[{\\\"path\\\":{\\\"absolute\\\":\\\"" + (temp.path() / "App/src/main.cpp").string() + "\\\"},\\\"expectedDigest\\\":\\\"" + sourceDigest + "\\\",\\\"edits\\\":[{\\\"range\\\":{\\\"start\\\":{\\\"line\\\":1,\\\"column\\\":1},\\\"end\\\":{\\\"line\\\":1,\\\"column\\\":1}},\\\"newText\\\":\\\"// formatted \\\"}]}]}}\"\n"
+              "  echo \"{\\\"schemaVersion\\\":\\\"1.0\\\",\\\"kind\\\":\\\"NGIN.ToolDriver.Event\\\",\\\"runId\\\":\\\"$run_id\\\",\\\"sequence\\\":4,\\\"type\\\":\\\"edit.proposed\\\",\\\"data\\\":{\\\"id\\\":\\\"format-fix\\\",\\\"label\\\":\\\"Format source\\\",\\\"applicability\\\":\\\"automatic\\\",\\\"files\\\":[{\\\"path\\\":{\\\"absolute\\\":\\\"" + (temp.path() / "App/src/main.cpp").string() + "\\\"},\\\"expectedDigest\\\":\\\"" + sourceDigest + "\\\",\\\"edits\\\":[{\\\"range\\\":{\\\"start\\\":{\\\"line\\\":1,\\\"column\\\":1},\\\"end\\\":{\\\"line\\\":1,\\\"column\\\":1}},\\\"newText\\\":\\\"/* formatted */ \\\"}]}]}}\"\n"
               "  sequence=5\n"
               "else\n"
               "  sequence=4\n"
@@ -474,6 +532,7 @@ TEST_CASE("analyze executes a package-provided external driver without tool-spec
     REQUIRE(fs::exists(normalizedResult));
     REQUIRE_THAT(ReadFile(normalizedResult), ContainsSubstring(R"("kind":"NGIN.ToolResult")"));
     REQUIRE_THAT(ReadFile(normalizedResult), ContainsSubstring(R"("gateStatus":"failed")"));
+    REQUIRE_THAT(ReadFile(normalizedResult), ContainsSubstring(R"("changeStatus":"clean")"));
     REQUIRE_THAT(ReadFile(normalizedResult), ContainsSubstring(R"("durationMs":)"));
 
     ParsedArgs resultArgs{};
@@ -558,6 +617,8 @@ TEST_CASE("analyze executes a package-provided external driver without tool-spec
     REQUIRE(formatExitCode == 0);
     REQUIRE_THAT(captured.str(), ContainsSubstring(R"("run":"example-format")"));
     REQUIRE_THAT(captured.str(), ContainsSubstring(R"("editSetId":"format-fix")"));
+    REQUIRE_THAT(ReadFile(temp.path() / "out/tooling/example-format/result.json"),
+                 ContainsSubstring(R"("changeStatus":"proposed")"));
     const auto sarif = temp.path() / "out/tooling/example-format/format.sarif";
     REQUIRE(fs::exists(sarif));
     REQUIRE_THAT(ReadFile(sarif), ContainsSubstring(R"("version":"2.1.0")"));
@@ -565,8 +626,6 @@ TEST_CASE("analyze executes a package-provided external driver without tool-spec
     REQUIRE_THAT(ReadFile(sarif), ContainsSubstring(R"("fixes":[)"));
     REQUIRE_THAT(ReadFile(sarif), ContainsSubstring(R"("artifacts":[)"));
 
-    args.toolActionKind.reset();
-    args.toolCommandName.reset();
     args.toolRunName = "example-format";
     captured.str({});
     captured.clear();
@@ -576,6 +635,34 @@ TEST_CASE("analyze executes a package-provided external driver without tool-spec
     REQUIRE(formatRunExitCode == 0);
     REQUIRE_THAT(captured.str(), ContainsSubstring(R"("kind":"tool-cache")"));
     REQUIRE_THAT(captured.str(), ContainsSubstring(R"("status":"hit")"));
+    args.toolRunName.reset();
+
+    args.toolEditMode = "check";
+    captured.str({});
+    captured.clear();
+    previous = std::cout.rdbuf(captured.rdbuf());
+    const auto formatCheckExitCode = CmdAnalyze(temp.path(), args);
+    std::cout.rdbuf(previous);
+    REQUIRE(formatCheckExitCode == 1);
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("status":"changes-required")"));
+    REQUIRE(ReadFile(temp.path() / "App/src/main.cpp") == "int main() { return 0; }\n");
+
+    args.toolEditMode = "apply";
+    args.toolApplyEdits = true;
+    captured.str({});
+    captured.clear();
+    previous = std::cout.rdbuf(captured.rdbuf());
+    const auto formatApplyExitCode = CmdAnalyze(temp.path(), args);
+    std::cout.rdbuf(previous);
+    REQUIRE(formatApplyExitCode == 0);
+    REQUIRE(ReadFile(temp.path() / "App/src/main.cpp") == "/* formatted */ int main() { return 0; }\n");
+    REQUIRE_THAT(ReadFile(temp.path() / "out/tooling/example-format/result.json"),
+                 ContainsSubstring(R"("changeStatus":"applied")"));
+
+    args.toolActionKind.reset();
+    args.toolCommandName.reset();
+    args.toolEditMode.reset();
+    args.toolApplyEdits = false;
 
     for (const auto &[kind, runName] : std::vector<std::pair<std::string, std::string>>{
              {"Scan", "example-scan"}, {"Report", "example-report"}}) {
@@ -587,6 +674,7 @@ TEST_CASE("analyze executes a package-provided external driver without tool-spec
         previous = std::cout.rdbuf(captured.rdbuf());
         const auto semanticExitCode = CmdAnalyze(temp.path(), args);
         std::cout.rdbuf(previous);
+        INFO(captured.str());
         REQUIRE(semanticExitCode == 0);
         REQUIRE_THAT(captured.str(), ContainsSubstring("\"run\":\"" + runName + "\""));
         if (kind == "Scan") {

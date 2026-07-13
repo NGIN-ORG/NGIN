@@ -3,7 +3,7 @@
   "$id": "https://ngin.dev/schemas/ngin-tool-result-v1.schema.json",
   "title": "NGIN Normalized Tool Result 1",
   "type": "object",
-  "required": ["schemaVersion", "kind", "runId", "run", "executionStatus", "gateStatus", "diagnostics", "edits", "artifacts", "metrics"],
+  "required": ["schemaVersion", "kind", "runId", "run", "executionStatus", "gateStatus", "changeStatus", "diagnostics", "edits", "artifacts", "metrics"],
   "properties": {
     "schemaVersion": { "const": "1.0" },
     "kind": { "const": "NGIN.ToolResult" },
@@ -16,6 +16,7 @@
     "skipReason": { "type": "string" },
     "gateStatus": { "enum": ["passed", "failed", "not-evaluated"] },
     "cacheStatus": { "enum": ["disabled", "miss", "hit", "written"] },
+    "changeStatus": { "enum": ["clean", "proposed", "applied"] },
     "diagnostics": { "type": "array", "items": { "type": "object", "required": ["severity", "intrinsicSeverity", "effectiveSeverity", "message", "fingerprint", "suppressed", "baselined"], "additionalProperties": true } },
     "edits": { "type": "array", "items": { "type": "object", "required": ["id", "files"], "additionalProperties": true } },
     "artifacts": { "type": "array", "items": { "type": "object", "required": ["kind", "path"], "additionalProperties": true } },

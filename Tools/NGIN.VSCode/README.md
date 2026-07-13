@@ -28,6 +28,8 @@ the terminal commands.
 - `.nginlaunch`-based run and debug resolution
 - a custom `ngin` debug type that launches native C/C++ debug sessions
 - C/C++ profile-provider support for `ms-vscode.cpptools`
+- standard VS Code Format Document and format-on-save support backed by ready,
+  capability-declaring NGIN `Format` runs
 - file registration and snippets for `.ngin`, `.nginproj`, `.nginpkg`,
   `.nginlaunch`, and `.nginsettings`
 - a current product-first `.nginproj` schema artifact for editor tooling
@@ -115,6 +117,14 @@ authoring to the CLI and contains no package-specific TypeScript logic.
 checked CLI input scopes. Tool quick fixes read stored, digest-bound edit sets
 and apply them as native VS Code workspace edits after stale-document and
 workspace-trust validation.
+
+Format Document follows the same general graph contract. A ready `Format` run
+must advertise `document-formatting` and `active-file`, and its resolved inputs
+must include the current document. The extension sends the current editor
+buffer as a non-mutating content overlay and returns normalized NGIN edits to
+VS Code. If multiple runs accept the same document, set
+`ngin.tooling.defaultFormatRun` to the stable run name. Select `NGIN Tools` as
+the default formatter for the desired language to use VS Code format-on-save.
 
 Long-running configure, build, rebuild, stage, publish, and analyze commands
 use the CLI JSONL event stream in VS Code. The Output panel and progress

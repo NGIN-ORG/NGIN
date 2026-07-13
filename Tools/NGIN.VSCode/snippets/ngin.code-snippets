@@ -151,11 +151,14 @@
     "prefix": "ngin-tool-action",
     "body": [
       "<ToolDrivers>",
-      "  <Driver Name=\"${1:driver}\" Protocol=\"NGIN.ToolDriver/1\" Executable=\"${2:driver-executable}\" />",
+      "  <Driver Name=\"${1:driver}\" Protocol=\"NGIN.ToolDriver/1\" Executable=\"${2:driver-executable}\">",
+      "    <Capabilities><Capability Name=\"${3:diagnostics}\" /></Capabilities>",
+      "  </Driver>",
       "</ToolDrivers>",
       "<ToolActions>",
-      "  <Action Name=\"${3:analyze}\" Kind=\"${4:Analyze}\" Tool=\"${5:tool}\" Driver=\"${1:driver}\">",
-      "    <Accepts Contract=\"${6:files/v1}\" />",
+      "  <Action Name=\"${4:analyze}\" Kind=\"${5:Analyze}\" Tool=\"${6:tool}\" Driver=\"${1:driver}\">",
+      "    <Accepts Contract=\"${7:files/v1}\" />",
+      "    <Capabilities><Capability Name=\"${3:diagnostics}\" /></Capabilities>",
       "  </Action>",
       "</ToolActions>"
     ]

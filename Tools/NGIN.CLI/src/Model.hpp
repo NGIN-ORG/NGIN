@@ -584,6 +584,8 @@ namespace NGIN::CLI
         std::string version{};
         bool probe{false};
         std::vector<std::string> capabilities{};
+        std::vector<std::string> probeArguments{};
+        std::vector<std::string> arguments{};
         SelectorSet selectors{};
     };
 

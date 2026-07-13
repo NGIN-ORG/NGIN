@@ -625,6 +625,24 @@ Current behavior:
 The official `NGIN.Tooling.ClangTidy` package is a system wrapper. It
 does not redistribute LLVM binaries.
 
+### Format Command
+
+`ngin format` is the semantic entry point for enabled `Format` actions and is
+a check by default.
+
+Current behavior:
+
+- general check, preview, and apply modes are owned by NGIN rather than drivers
+- normalized results distinguish `clean`, `proposed`, and `applied` changes
+- the reusable `builtin.stdout-transform.v1` adapter turns deterministic tool
+  stdout into digest-bound full-file edits using package-owned arguments
+- the official `NGIN.Tooling.ClangFormat` system wrapper and
+  `Hello.Formatter` example exercise product-owned, generated-file-excluding
+  C/C++ formatting
+- VS Code exposes eligible graph-declared Format runs through Format Document
+  and format-on-save, including dirty editor buffers via a general content
+  overlay contract
+
 ### Stage Command
 
 `ngin stage` is available as a public lifecycle command.

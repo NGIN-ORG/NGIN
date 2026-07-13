@@ -129,9 +129,16 @@ Normative schemas:
 Every external execution writes `tooling/<run>/request.json`; every execution
 writes normalized `tooling/<run>/result.json`. Declared `json`, `jsonl`, `text`,
 and `sarif` reports are rendered from normalized results. Cache entries are
-keyed by action/tool identity, platforms, capabilities, configs, inputs, job
+keyed by action/tool identity, platforms, capabilities, configs, driver
+arguments, edit mode, inputs, job
 budget, and compilation-command digests. Only successful completed results are
 written.
+
+NGIN owns edit behavior independently of the underlying tool. Drivers only
+propose digest-bound edit sets. `check` is non-mutating and returns process code
+`1` when edits are required, `preview` is non-mutating and succeeds with stored
+proposals, and `apply` applies validated edits explicitly. Normalized results
+report `changeStatus` as `clean`, `proposed`, or `applied`.
 
 ## Graph And CLI
 
@@ -163,9 +170,13 @@ capability. `--jobs` sets the global scheduler worker budget; each run's
 `Execution Jobs` controls its driver budget. `--no-cache` disables cache use,
 and `--no-configure` requires a fresh compatible compilation-unit plan. `--apply`
 applies digest-validated edits; `--allow-unsafe` is required for unsafe sets.
+`--input-content <path>` supplies a one-file content overlay while retaining
+the authored file as the edit target. It lets editor formatting check dirty
+document contents without first mutating the authored file.
 
-Tool command process codes are `0` success, `1` gate failure, `2` invalid or
-unavailable plan, `3` execution failure, `4` cancellation, and `5` timeout.
+Tool command process codes are `0` success, `1` gate failure or changes
+required in check mode, `2` invalid or unavailable plan, `3` execution failure,
+`4` cancellation, and `5` timeout.
 Structured `NGIN.CLI.Event` completion records are authoritative for editor
 integrations.
 
@@ -184,7 +195,12 @@ configuration, analyzer requests, and the build compile database share the
 same commands and command digests.
 
 Save settings are `ngin.tooling.validateManifestOnSave`, the per-run
-`ngin.tooling.runOnSave` map, and `ngin.tooling.activeFileDebounceMs`.
+`ngin.tooling.runOnSave` map, `ngin.tooling.activeFileDebounceMs`, and
+`ngin.tooling.defaultFormatRun` for disambiguating multiple eligible formatters.
 `runOnSave` values are `activeFile` or `all`; active-file saves run only actions
 advertising that capability. Editor configuration authors explicit product or
 profile overlays and never mutates the package that supplied a default run.
+Ready `Format` runs advertising `document-formatting` and `active-file` are
+also exposed through VS Code's standard Format Document/format-on-save API.
+The extension passes a content overlay to the CLI and consumes normalized edit
+sets; it contains no formatter-specific invocation logic.

@@ -671,6 +671,9 @@ Start small, then add one idea at a time.
 4. [`Examples/Hello.Analyzer`](Examples/Hello.Analyzer/README.md)
    A package-provided Analyze action and driver through `NGIN.Tooling.ClangTidy`.
 
+5. [`Examples/Hello.Formatter`](Examples/Hello.Formatter/README.md)
+   Check, preview, apply, and editor formatting through `NGIN.Tooling.ClangFormat`.
+
 See [`Examples/README.md`](Examples/README.md) for the full example map.
 
 ---

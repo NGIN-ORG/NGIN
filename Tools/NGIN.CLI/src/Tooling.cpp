@@ -1088,6 +1088,12 @@ namespace NGIN::CLI
             if (index > 0) out << ',';
             writePath(request.configs[index]);
         }
+        out << "],\"arguments\":[";
+        for (std::size_t index = 0; index < request.arguments.size(); ++index)
+        {
+            if (index > 0) out << ',';
+            WriteString(out, request.arguments[index]);
+        }
         out << "],\"inputSets\":[{\"contract\":";
         WriteString(out, request.inputContract);
         out << ",\"identity\":";
@@ -1105,7 +1111,13 @@ namespace NGIN::CLI
                               ? "Artifact" : "Source");
             out << ",\"ownerKind\":\"project\",\"ownerName\":";
             WriteString(out, request.projectName);
-            out << ",\"generated\":false}";
+            out << ",\"generated\":false";
+            if (request.inputContentPath.has_value() && request.files.size() == 1)
+            {
+                out << ",\"contentPath\":";
+                writePath(*request.inputContentPath);
+            }
+            out << '}';
         }
         out << "],\"translationUnits\":[";
         for (std::size_t index = 0; index < request.translationUnits.size(); ++index)
@@ -1136,7 +1148,8 @@ namespace NGIN::CLI
             writePath(request.priorResultPaths[index]);
         }
         out << "]}],\"options\":{\"maximumOutputBytes\":" << request.maximumOutputBytes
-            << ",\"jobs\":" << request.jobs;
+            << ",\"jobs\":" << request.jobs << ",\"editMode\":";
+        WriteString(out, request.editMode);
         if (request.timeoutMilliseconds.has_value())
             out << ",\"timeoutMilliseconds\":" << *request.timeoutMilliseconds;
         out << "},\"environment\":{";
@@ -1347,7 +1360,7 @@ namespace NGIN::CLI
             request.tool.path.generic_string(), request.tool.source,
             request.tool.version, request.tool.digest,
             request.hostPlatform, request.targetPlatform, request.targetAbi,
-            request.inputContract, std::to_string(request.jobs),
+            request.inputContract, std::to_string(request.jobs), request.editMode,
             std::to_string(request.maximumOutputBytes),
             request.timeoutMilliseconds.has_value() ? std::to_string(*request.timeoutMilliseconds) : ""};
         const auto addFile = [&](const fs::path &path) {
@@ -1358,7 +1371,9 @@ namespace NGIN::CLI
             parts.push_back(contents.str());
         };
         for (const auto &config : request.configs) addFile(config);
+        parts.insert(parts.end(), request.arguments.begin(), request.arguments.end());
         for (const auto &file : request.files) addFile(file);
+        if (request.inputContentPath.has_value()) addFile(*request.inputContentPath);
         for (const auto &result : request.priorResultPaths) addFile(result);
         for (const auto &unit : request.translationUnits)
         {
@@ -1685,20 +1700,37 @@ namespace NGIN::CLI
     }
 
     auto ProbeBuiltinToolAdapter(std::string_view adapter,
-                                 const ToolResolution &tool) -> ToolDriverProbeResult
+                                 const ToolResolution &tool,
+                                 const std::vector<std::string> &probeArguments)
+        -> ToolDriverProbeResult
     {
         ToolDriverProbeResult result{};
-        if (adapter != "builtin.clang-tidy.v1")
+        if (adapter != "builtin.clang-tidy.v1" &&
+            adapter != "builtin.stdout-transform.v1")
         {
             result.protocolError = "no registered tool adapter named '" + std::string(adapter) + "'";
             return result;
         }
-        const auto process = RunLimitedProcess(
-            tool.path, {"--version"}, tool.path.parent_path(), 5000, 1024U * 1024U);
         result.driverVersion = "1.0.0";
         result.protocols = {"NGIN.ToolDriver/1"};
-        result.capabilities = {"diagnostics", "related-locations", "fixes",
-                               "active-file", "changed-files"};
+        result.capabilities = adapter == "builtin.clang-tidy.v1"
+            ? std::vector<std::string>{"diagnostics", "related-locations", "fixes",
+                                       "active-file", "changed-files"}
+            : std::vector<std::string>{"edits", "active-file", "changed-files",
+                                       "document-formatting"};
+        const auto effectiveProbeArguments = adapter == "builtin.clang-tidy.v1"
+                                                 ? std::vector<std::string>{"--version"}
+                                                 : probeArguments;
+        if (effectiveProbeArguments.empty())
+        {
+            result.completed = true;
+            result.available = true;
+            result.hostCompatible = true;
+            result.toolVersion = tool.version;
+            return result;
+        }
+        const auto process = RunLimitedProcess(
+            tool.path, effectiveProbeArguments, tool.path.parent_path(), 5000, 1024U * 1024U);
         result.driverLog = process.errorOutput;
         result.rawOutput = process.output;
         if (process.exitCode != 0 || process.timedOut || process.outputLimitExceeded)
@@ -1726,6 +1758,116 @@ namespace NGIN::CLI
         ToolDriverResult aggregate{};
         aggregate.executionStatus = "succeeded";
         aggregate.completed = true;
+        if (adapter == "builtin.stdout-transform.v1")
+        {
+            if (request.actionKind != "Format" && request.actionKind != "Transform")
+            {
+                aggregate.executionStatus = "failed";
+                aggregate.protocolError = "registered adapter does not support action kind '" +
+                                          request.actionKind + "'";
+                return aggregate;
+            }
+
+            const auto expandArgument = [&](std::string value, const fs::path &input) {
+                const auto replaceAll = [&](std::string_view token, std::string_view replacement) {
+                    std::size_t offset = 0;
+                    while ((offset = value.find(token, offset)) != std::string::npos)
+                    {
+                        value.replace(offset, token.size(), replacement);
+                        offset += replacement.size();
+                    }
+                };
+                replaceAll("$(InputFile)", input.string());
+                replaceAll("$(InputContentFile)",
+                           request.inputContentPath.has_value() && request.files.size() == 1
+                               ? request.inputContentPath->string()
+                               : input.string());
+                replaceAll("$(Config)", request.configs.empty() ? "" : request.configs.front().string());
+                replaceAll("$(WorkspaceRoot)", request.workspaceRoot.string());
+                replaceAll("$(ProjectPath)", request.projectPath.string());
+                replaceAll("$(WorkingDirectory)", request.workingDirectory.string());
+                replaceAll("$(OutputDirectory)", request.outputDirectory.string());
+                return value;
+            };
+
+            for (const auto &input : request.files)
+            {
+                const auto contentInput = request.inputContentPath.has_value() && request.files.size() == 1
+                                              ? *request.inputContentPath
+                                              : input;
+                std::ifstream source(contentInput, std::ios::binary);
+                if (!source)
+                {
+                    aggregate.executionStatus = "failed";
+                    aggregate.protocolError = input.string() + ": failed to read transform input";
+                    break;
+                }
+                std::ostringstream contents{};
+                contents << source.rdbuf();
+                const auto original = contents.str();
+
+                std::vector<std::string> arguments{};
+                bool hasInputArgument = false;
+                for (const auto &argumentTemplate : request.arguments)
+                {
+                    if (argumentTemplate.contains("$(Config)") && request.configs.empty()) continue;
+                    hasInputArgument = hasInputArgument || argumentTemplate.contains("$(InputFile)") ||
+                                       argumentTemplate.contains("$(InputContentFile)");
+                    arguments.push_back(expandArgument(argumentTemplate, input));
+                }
+                if (!hasInputArgument) arguments.push_back(input.string());
+
+                const auto process = RunLimitedProcess(
+                    request.tool.path, arguments, request.workingDirectory,
+                    request.timeoutMilliseconds, request.maximumOutputBytes);
+                aggregate.processExitCode = std::max(aggregate.processExitCode, process.exitCode);
+                aggregate.driverLog += process.errorOutput;
+                if (process.cancelled)
+                {
+                    aggregate.executionStatus = "cancelled";
+                    aggregate.protocolError = "adapter tool execution was cancelled";
+                    break;
+                }
+                if (process.timedOut)
+                {
+                    aggregate.executionStatus = "timed-out";
+                    aggregate.protocolError = "adapter tool exceeded its timeout";
+                    break;
+                }
+                if (process.outputLimitExceeded)
+                {
+                    aggregate.executionStatus = "failed";
+                    aggregate.protocolError = "adapter tool exceeded its output limit";
+                    break;
+                }
+                if (process.exitCode != 0)
+                {
+                    aggregate.executionStatus = "failed";
+                    aggregate.protocolError = "registered adapter tool process exited with code " +
+                                              std::to_string(process.exitCode);
+                    break;
+                }
+                if (process.output == original) continue;
+
+                aggregate.edits.push_back(ToolProtocolEditSet{
+                    .id = "stdout-transform-" + StableCommandDigest(
+                        {input.generic_string(), original, process.output}),
+                    .label = (request.actionKind == "Format" ? "Format " : "Transform ") +
+                             input.filename().string(),
+                    .applicability = "automatic",
+                    .files = {ToolProtocolFileEdits{
+                        .file = input,
+                        .expectedDigest = StableCommandDigest({original}),
+                        .edits = {ToolProtocolTextEdit{
+                            .start = ToolProtocolPosition{.line = 1, .column = 1},
+                            .end = PositionAtByteOffset(original, original.size()),
+                            .newText = process.output,
+                        }},
+                    }},
+                });
+            }
+            return aggregate;
+        }
         if (adapter != "builtin.clang-tidy.v1")
         {
             aggregate.executionStatus = "failed";
@@ -1882,6 +2024,7 @@ namespace NGIN::CLI
         out << ",\"gateStatus\":";
         WriteString(out, !gateFailed.has_value() ? "not-evaluated" : *gateFailed ? "failed" : "passed");
         out << ",\"cacheStatus\":"; WriteString(out, result.cacheStatus);
+        out << ",\"changeStatus\":"; WriteString(out, result.changeStatus);
         out << ",\"durationMs\":" << durationMilliseconds;
         out << ",\"diagnostics\":[";
         for (std::size_t index = 0; index < result.diagnostics.size(); ++index)
@@ -2034,6 +2177,8 @@ namespace NGIN::CLI
             WriteString(out, result.executionStatus);
             out << ",\"gateStatus\":";
             WriteString(out, !gateFailed.has_value() ? "not-evaluated" : *gateFailed ? "failed" : "passed");
+            out << ",\"changeStatus\":";
+            WriteString(out, result.changeStatus);
             out << "}}\n";
             return;
         }

@@ -145,6 +145,13 @@ auto PrintFailure(const ParsedArgs &args, std::string_view text) -> void {
   std::cout << "\n" << Style(args, "31", text) << "\n";
 }
 
+auto PrintNotice(const ParsedArgs &args, std::string_view text) -> void {
+  if (IsQuiet(args)) {
+    return;
+  }
+  std::cout << "\n" << Style(args, "33", text) << "\n";
+}
+
 enum class CliCryptoAlgorithmKind {
   Random,
   Sha256,
@@ -1004,6 +1011,10 @@ private:
         PrintField(args_, "sources",
                    *sources == 0 ? "(none)" : std::to_string(*sources));
       }
+      if (const auto changes = event.data.Number("changes");
+          changes.has_value() && *changes > 0) {
+        PrintField(args_, "changes", *changes);
+      }
     }
   }
 
@@ -1018,7 +1029,7 @@ private:
   auto PrintCompletion(const CliEvent &event) -> void {
     const auto status =
         event.data.String("status").value_or(failed_ ? "failed" : "success");
-    const auto includeOutput = status != "success";
+    const auto includeOutput = status != "success" && status != "changes-required";
     PrintBackendSteps(args_, steps_, includeOutput);
     if (includeOutput && !backendOutput_.empty()) {
       PrintSection(args_, "Backend output");
@@ -1033,6 +1044,8 @@ private:
     PrintDiagnostics();
     if (status == "success") {
       PrintSuccess(args_, displayName_ + " complete");
+    } else if (status == "changes-required") {
+      PrintNotice(args_, displayName_ + " found changes");
     } else {
       PrintFailure(args_, displayName_ + " failed");
     }
@@ -1125,7 +1138,8 @@ auto EmitCommandCompleted(CliEventEmitter &events, std::string status,
                           int exitCode,
                           std::chrono::steady_clock::time_point started)
     -> int {
-  const auto category = exitCode == 0 ? "success"
+  const auto category = status == "changes-required" ? "changes-required"
+                        : exitCode == 0 ? "success"
                         : exitCode == 1 ? "gate-failed"
                         : exitCode == 2 ? "invalid-plan"
                         : exitCode == 3 ? "execution-failed"
@@ -3951,14 +3965,18 @@ auto ParseCommonArgs(int argc, char **argv, int startIndex) -> ParsedArgs {
         throw std::runtime_error("--input-mode expects ActiveFile or ChangedFiles");
     } else if (current == "--file" && index + 1 < argc) {
       args.toolFiles.push_back(argv[++index]);
+    } else if (current == "--input-content" && index + 1 < argc) {
+      args.toolInputContentPath = argv[++index];
     } else if (current == "--changed-since" && index + 1 < argc) {
       args.toolChangedSince = argv[++index];
     } else if (current == "--apply" || current == "--fix" ||
                current == "--apply-fixes") {
       args.toolApplyEdits = true;
+      args.toolEditMode = "apply";
     } else if (current == "--fix-preview") {
       args.toolPreviewEdits = true;
       args.toolApplyEdits = false;
+      args.toolEditMode = "preview";
     } else if (current == "--allow-unsafe") {
       args.toolAllowUnsafeEdits = true;
     } else if (current == "--jobs" && index + 1 < argc) {
@@ -3967,6 +3985,7 @@ auto ParseCommonArgs(int argc, char **argv, int startIndex) -> ParsedArgs {
       args.toolJobs = static_cast<std::size_t>(value);
     } else if (current == "--check") {
       args.toolApplyEdits = false;
+      args.toolEditMode = "check";
     } else if (current == "--no-configure") {
       args.toolNoConfigure = true;
     } else if (current == "--no-cache") {
@@ -8567,7 +8586,8 @@ auto CmdToolDoctor(const fs::path &root, const ParsedArgs &args) -> int {
         healthy = false;
         checks.push_back({run.name, "unavailable", "tool executable could not be resolved"});
       } else {
-        const auto probe = ProbeBuiltinToolAdapter(binding.driver->adapter, *tool);
+        const auto probe = ProbeBuiltinToolAdapter(
+            binding.driver->adapter, *tool, binding.driver->probeArguments);
         const auto requiredToolVersion = !binding.action->toolVersionRange.empty()
                                              ? binding.action->toolVersionRange
                                              : binding.tool->versionRange;
@@ -9140,10 +9160,12 @@ auto CmdAnalyze(const fs::path &root, const ParsedArgs &args) -> int {
 
   std::atomic_int findingsCount{0};
   std::atomic_size_t metricsCount{0};
+  std::atomic_size_t changesCount{0};
   std::atomic_size_t sourcesCount{0};
   std::atomic_size_t skippedRuns{0};
   std::atomic_bool hasInvalidPlan{false};
   std::atomic_bool hasGateFailures{false};
+  std::atomic_bool hasChangesRequired{false};
   std::atomic_bool hasExecutionFailures{false};
   std::atomic_bool hasCancellation{false};
   std::atomic_bool hasTimeout{false};
@@ -9191,6 +9213,7 @@ auto CmdAnalyze(const fs::path &root, const ParsedArgs &args) -> int {
                              .AddString("executionStatus", "skipped")
                              .AddString("gateStatus", "not-evaluated")
                              .AddString("cacheStatus", "disabled")
+                             .AddString("changeStatus", "clean")
                              .AddString("skipReason", reason));
       runOutcomes.at(run.name) = "skipped";
       ++skippedRuns;
@@ -9202,6 +9225,7 @@ auto CmdAnalyze(const fs::path &root, const ParsedArgs &args) -> int {
                     ",\"action\":" + JsonString(run.action) +
                     ",\"tool\":\"\",\"driver\":\"\",\"executionStatus\":\"skipped\","
                     "\"gateStatus\":\"not-evaluated\",\"cacheStatus\":\"disabled\","
+                    "\"changeStatus\":\"clean\","
                     "\"skipReason\":" + JsonString(reason) +
                     ",\"diagnostics\":[],\"edits\":[],\"artifacts\":[],\"metrics\":[]}\n");
       completedToolResultPaths[runIndex] = resultPath;
@@ -9302,6 +9326,30 @@ auto CmdAnalyze(const fs::path &root, const ParsedArgs &args) -> int {
         selectedInputContract.starts_with("build.") ||
         selectedInputContract.starts_with("stage."))
       sources = ResolveToolArtifacts(configuredPaths->outputDir);
+    std::optional<fs::path> inputContentPath{};
+    if (args.toolInputContentPath.has_value()) {
+      if (sources.size() != 1) {
+        events.Emit(CliEventType::Diagnostic,
+                    EventData{}.AddString("severity", "error")
+                               .AddString("source", commandSource)
+                               .AddString("run", run.name)
+                               .AddString("message", "--input-content requires exactly one selected input file"));
+        hasInvalidPlan = true;
+        runOutcomes.at(run.name) = "invalid";
+        return;
+      }
+      inputContentPath = fs::absolute(*args.toolInputContentPath);
+      if (!fs::is_regular_file(*inputContentPath)) {
+        events.Emit(CliEventType::Diagnostic,
+                    EventData{}.AddString("severity", "error")
+                               .AddString("source", commandSource)
+                               .AddString("run", run.name)
+                               .AddString("message", "--input-content does not name a readable file"));
+        hasInvalidPlan = true;
+        runOutcomes.at(run.name) = "invalid";
+        return;
+      }
+    }
     sourcesCount += sources.size();
     std::vector<fs::path> configs{};
     if (configPath.has_value()) configs.push_back(*configPath);
@@ -9330,7 +9378,8 @@ auto CmdAnalyze(const fs::path &root, const ParsedArgs &args) -> int {
           .version = binding.driver->version,
           .digest = binding.driver->adapter,
       };
-      const auto probe = ProbeBuiltinToolAdapter(binding.driver->adapter, resolvedTool);
+      const auto probe = ProbeBuiltinToolAdapter(
+          binding.driver->adapter, resolvedTool, binding.driver->probeArguments);
       if (!probe.available || !probe.hostCompatible || !probe.protocolError.empty()) {
         events.Emit(CliEventType::Diagnostic,
                     EventData{}.AddString("severity", "error")
@@ -9403,8 +9452,10 @@ auto CmdAnalyze(const fs::path &root, const ParsedArgs &args) -> int {
         .workingDirectory = invocation.project.path.parent_path(),
         .outputDirectory = outputDirectory,
         .configs = std::move(configs),
+        .arguments = binding.driver->arguments,
         .inputContract = selectedInputContract,
         .files = sources,
+        .inputContentPath = inputContentPath,
         .priorResultPaths = std::move(priorResultPaths),
         .environment = [&] {
           std::vector<ToolDriverRequest::EnvironmentValue> values{};
@@ -9425,6 +9476,7 @@ auto CmdAnalyze(const fs::path &root, const ParsedArgs &args) -> int {
           return values;
         }(),
         .capabilitiesRequested = binding.action->capabilities,
+        .editMode = args.toolEditMode.value_or("preview"),
         .timeoutMilliseconds = ParseToolTimeoutMilliseconds(run.execution.timeout),
         .jobs = run.execution.jobs == "Auto"
                     ? std::max<std::size_t>(1, std::thread::hardware_concurrency())
@@ -9676,7 +9728,8 @@ auto CmdAnalyze(const fs::path &root, const ParsedArgs &args) -> int {
                              .AddString("run", run.name)
                              .AddString("path", baselinePath->string()));
     }
-    if (args.toolApplyEdits && !driverResult.edits.empty()) {
+    if (args.toolApplyEdits && driverResult.executionStatus == "succeeded" &&
+        !driverResult.edits.empty()) {
       const auto unsafe = std::any_of(driverResult.edits.begin(), driverResult.edits.end(),
                                       [](const ToolProtocolEditSet &edit) {
                                         return edit.applicability == "unsafe";
@@ -9707,6 +9760,16 @@ auto CmdAnalyze(const fs::path &root, const ParsedArgs &args) -> int {
         }
       }
     }
+    if (driverResult.edits.empty())
+      driverResult.changeStatus = "clean";
+    else if (args.toolApplyEdits && driverResult.executionStatus == "succeeded" &&
+             !runInvalidPlan)
+      driverResult.changeStatus = "applied";
+    else
+      driverResult.changeStatus = "proposed";
+    changesCount += driverResult.edits.size();
+    const auto changesRequired = request.editMode == "check" && !driverResult.edits.empty();
+    if (changesRequired) hasChangesRequired.store(true);
 
     const auto today = CurrentUtcDate();
     for (auto &finding : driverResult.diagnostics) {
@@ -9892,6 +9955,7 @@ auto CmdAnalyze(const fs::path &root, const ParsedArgs &args) -> int {
                                                         ? "not-evaluated"
                                                         : runGateFailed ? "failed" : "passed")
                            .AddString("cacheStatus", driverResult.cacheStatus)
+                           .AddString("changeStatus", driverResult.changeStatus)
                            .AddNumber("durationMs", runDuration)
                            .AddNumber("findings", static_cast<std::int64_t>(driverResult.diagnostics.size()))
                            .AddNumber("edits", static_cast<std::int64_t>(driverResult.edits.size()))
@@ -9899,6 +9963,7 @@ auto CmdAnalyze(const fs::path &root, const ParsedArgs &args) -> int {
     const auto outcome = runInvalidPlan ? "invalid"
                          : driverResult.executionStatus != "succeeded" ? driverResult.executionStatus
                          : runGateFailed ? "gate-failed"
+                         : changesRequired ? "changes-required"
                                          : "succeeded";
     runOutcomes.at(run.name) = outcome;
     if (run.execution.failureStrategy == "FailFast" && outcome != std::string_view{"succeeded"})
@@ -9923,16 +9988,18 @@ auto CmdAnalyze(const fs::path &root, const ParsedArgs &args) -> int {
                         : hasTimeout.load() ? 5
                         : hasExecutionFailures.load() ? 3
                         : hasInvalidPlan.load() ? 2
-                        : hasGateFailures.load() ? 1
+                        : hasGateFailures.load() || hasChangesRequired.load() ? 1
                         : 0;
-  const auto completionStatus = exitCode == 0 ? "success"
-                                : exitCode == 1 ? "gate-failed"
+  const std::string completionStatus = exitCode == 0 ? "success"
+                                : exitCode == 1 && hasGateFailures.load() ? "gate-failed"
+                                : exitCode == 1 ? "changes-required"
                                 : exitCode == 2 ? "invalid"
                                 : exitCode == 3 ? "execution-failed"
                                 : exitCode == 4 ? "cancelled"
                                               : "timed-out";
-  events.Emit(exitCode != 0 ? CliEventType::PhaseFailed
-                        : CliEventType::PhaseCompleted,
+  events.Emit(exitCode != 0 && completionStatus != "changes-required"
+                  ? CliEventType::PhaseFailed
+                  : CliEventType::PhaseCompleted,
               EventData{}
                   .AddString("phase", commandName)
                   .AddString("label", "Tool execution")
@@ -9945,6 +10012,7 @@ auto CmdAnalyze(const fs::path &root, const ParsedArgs &args) -> int {
           .AddNumber("skippedRuns", static_cast<std::int64_t>(skippedRuns.load()))
           .AddNumber("sources", static_cast<std::int64_t>(sourcesCount.load()))
           .AddNumber("findings", findingsCount.load())
+          .AddNumber("changes", static_cast<std::int64_t>(changesCount.load()))
           .AddNumber("metrics", static_cast<std::int64_t>(metricsCount.load())));
   return EmitCommandCompleted(events, completionStatus, exitCode, commandStarted);
 }

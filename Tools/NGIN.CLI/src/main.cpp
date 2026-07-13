@@ -403,7 +403,11 @@ auto main(int argc, char **argv) -> int
             }
             auto args = NGIN::CLI::ParseCommonArgs(argc, argv, 2);
             args.toolCommandName = command;
-            if (command == "format") args.toolActionKind = "Format";
+            if (command == "format")
+            {
+                args.toolActionKind = "Format";
+                if (!args.toolEditMode.has_value()) args.toolEditMode = "check";
+            }
             else if (command == "scan") args.toolActionKind = "Scan";
             else if (command == "report") args.toolActionKind = "Report";
             else args.toolOnlyGated = true;

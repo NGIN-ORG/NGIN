@@ -66,6 +66,11 @@ The request is one UTF-8 JSON document. Read arguments and paths as typed
 fields and arrays; never pass them through a shell. Inputs are already selected,
 so the driver must not rediscover files by walking the workspace.
 
+The request includes package-owned driver `arguments` and the effective
+`options.editMode`. A one-file editor invocation may attach `contentPath` to a
+file input; read that content while continuing to target the normal `path` in
+proposed edits.
+
 - `files/v1` uses `inputSets[].files`.
 - `cpp.translation-units/v1` uses `inputSets[].translationUnits`, including the
   exact compiler argument vector and command digest.
@@ -98,6 +103,23 @@ execution.
 Proposed edits use applicability `automatic`, `suggested`, or `unsafe`. Include
 the digest of every source file as observed by the driver. NGIN and editors
 reject stale, out-of-workspace, malformed, or overlapping edits.
+
+Drivers always propose edits and must not implement check/apply mutation.
+NGIN maps proposals to `clean`, `proposed`, or `applied` results and owns the
+process exit behavior for changes required.
+
+Official system-tool wrappers may use a registered, tool-neutral adapter.
+`builtin.stdout-transform.v1` executes once per selected input and turns stdout
+into a full-file edit. Its package-owned `<Arguments>` supports
+`$(InputFile)`, `$(InputContentFile)`, `$(Config)`, `$(WorkspaceRoot)`,
+`$(ProjectPath)`, `$(WorkingDirectory)`, and `$(OutputDirectory)`. An argument
+containing `$(Config)` is omitted when the optional configuration is absent.
+This adapter is suitable for deterministic stdout formatters and transforms;
+it does not encode a specific vendor tool.
+Registered adapters do not assume a version command. A wrapper that needs tool
+version discovery declares package-owned `<ProbeArguments><Arg
+Value="--version" /></ProbeArguments>` (or the tool's equivalent); omitting the
+section performs availability probing without executing a version command.
 
 ## Probe
 

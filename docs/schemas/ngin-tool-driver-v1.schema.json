@@ -54,6 +54,7 @@
         "ownerKind": { "type": "string" },
         "ownerName": { "type": "string" },
         "generated": { "type": "boolean" },
+        "contentPath": { "$ref": "#/$defs/path" },
         "digest": { "type": "string" }
       },
       "additionalProperties": true
@@ -90,7 +91,7 @@
     },
     "request": {
       "type": "object",
-      "required": ["schemaVersion", "kind", "runId", "workspace", "project", "profile", "action", "tool", "driver", "host", "target", "workingDirectory", "outputDirectory", "configs", "inputSets", "options", "environment", "capabilitiesRequested"],
+      "required": ["schemaVersion", "kind", "runId", "workspace", "project", "profile", "action", "tool", "driver", "host", "target", "workingDirectory", "outputDirectory", "configs", "arguments", "inputSets", "options", "environment", "capabilitiesRequested"],
       "properties": {
         "schemaVersion": { "const": "1.0" },
         "kind": { "const": "NGIN.ToolDriver.Request" },
@@ -146,8 +147,19 @@
         "workingDirectory": { "type": "string" },
         "outputDirectory": { "type": "string" },
         "configs": { "type": "array", "items": { "$ref": "#/$defs/path" } },
+        "arguments": { "type": "array", "items": { "type": "string" } },
         "inputSets": { "type": "array", "items": { "$ref": "#/$defs/inputSet" } },
-        "options": { "type": "object" },
+        "options": {
+          "type": "object",
+          "required": ["maximumOutputBytes", "jobs", "editMode"],
+          "properties": {
+            "maximumOutputBytes": { "type": "integer", "minimum": 1 },
+            "jobs": { "type": "integer", "minimum": 1 },
+            "editMode": { "enum": ["check", "preview", "apply"] },
+            "timeoutMilliseconds": { "type": "integer", "minimum": 1 }
+          },
+          "additionalProperties": true
+        },
         "environment": { "type": "object", "additionalProperties": { "type": "string" } },
         "capabilitiesRequested": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
       },

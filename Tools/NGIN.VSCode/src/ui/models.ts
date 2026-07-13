@@ -312,7 +312,14 @@ function toolRunResultLabel(result: StoredToolResultSummary | undefined): string
   const warnings = findings.filter((diagnostic) => diagnostic.severity?.toLowerCase() === 'warning').length;
   if (errors) return `${errors} ${errors === 1 ? 'error' : 'errors'}`;
   if (warnings) return `${warnings} ${warnings === 1 ? 'warning' : 'warnings'}`;
-  return findings.length ? `${findings.length} findings` : 'No findings';
+  if (findings.length) return `${findings.length} findings`;
+  if (result.changeStatus === 'proposed') {
+    return `${result.edits.length} ${result.edits.length === 1 ? 'change' : 'changes'} available`;
+  }
+  if (result.changeStatus === 'applied') {
+    return `${result.edits.length} ${result.edits.length === 1 ? 'change' : 'changes'} applied`;
+  }
+  return 'No findings';
 }
 
 function toolRunContext(run: { state?: string; capabilities?: string[]; kind?: string }, result?: StoredToolResultSummary): string {
@@ -320,7 +327,7 @@ function toolRunContext(run: { state?: string; capabilities?: string[]; kind?: s
   const capabilities = new Set((run.capabilities ?? []).map((capability) => capability.toLowerCase()));
   if (capabilities.has('active-file')) parts.push('activeFile');
   if (capabilities.has('changed-files')) parts.push('changedFiles');
-  if (result?.edits.length) parts.push('edits');
+  if (result?.changeStatus === 'proposed' && result.edits.length) parts.push('edits');
   return parts.join('.');
 }
 

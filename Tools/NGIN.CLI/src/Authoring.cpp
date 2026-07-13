@@ -3999,6 +3999,22 @@ namespace NGIN::CLI
                         parsed.capabilities.push_back(name);
                     }
                 }
+                if (const auto *arguments = FindChild(*driver, "Arguments"))
+                {
+                    for (const auto *argument : ChildElements(*arguments, "Arg"))
+                    {
+                        ValidateAllowedAttributes(*argument, path, {"Value"});
+                        parsed.arguments.push_back(RequireAttribute(*argument, "Value", path));
+                    }
+                }
+                if (const auto *arguments = FindChild(*driver, "ProbeArguments"))
+                {
+                    for (const auto *argument : ChildElements(*arguments, "Arg"))
+                    {
+                        ValidateAllowedAttributes(*argument, path, {"Value"});
+                        parsed.probeArguments.push_back(RequireAttribute(*argument, "Value", path));
+                    }
+                }
                 package.toolDrivers.push_back(std::move(parsed));
             }
         }

@@ -19,6 +19,10 @@ end-to-end behavior that can be validated, built, run, and inspected.
    A package-provided Analyze action and driver through the
    `NGIN.Tooling.ClangTidy` package.
 
+5. [`Hello.Formatter`](Hello.Formatter/README.md)
+   Check, preview, apply, and editor document formatting through the
+   `NGIN.Tooling.ClangFormat` package.
+
 ## Naming
 
 Examples use CMake-like profiles:
