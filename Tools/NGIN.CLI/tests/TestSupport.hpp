@@ -4,6 +4,7 @@
 #include "Build.hpp"
 #include "Commands.hpp"
 #include "Diagnostics.hpp"
+#include "Platform.hpp"
 #include "Resolution.hpp"
 #include "Support.hpp"
 

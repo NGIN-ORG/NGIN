@@ -959,10 +959,10 @@ namespace NGIN::CLI
         std::string name{};
         std::string buildType{"Debug"};
         std::string hostPlatform{"host"};
-        std::string platform{"linux-x64"};
+        std::string platform{"host"};
         std::string toolchain{};
-        std::string operatingSystem{"linux"};
-        std::string architecture{"x64"};
+        std::string operatingSystem{};
+        std::string architecture{};
         bool enableReflection{false};
         std::string environmentName{};
         LaunchDefinition launch{};

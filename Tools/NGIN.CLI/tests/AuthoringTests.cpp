@@ -1,5 +1,43 @@
 #include "TestSupport.hpp"
 
+TEST_CASE("host target platforms resolve to the detected host identity") {
+  const PlatformIdentity windowsHost{
+      .name = "windows-x64",
+      .operatingSystem = "windows",
+      .architecture = "x64",
+  };
+  const PlatformIdentity linuxHost{
+      .name = "linux-x64",
+      .operatingSystem = "linux",
+      .architecture = "x64",
+  };
+  const std::span<const WorkspaceManifest::Platform> noWorkspacePlatforms{};
+
+  REQUIRE(ResolvePlatformIdentity("host", noWorkspacePlatforms, windowsHost).name == "windows-x64");
+  REQUIRE(ResolvePlatformIdentity("host", noWorkspacePlatforms, linuxHost).name == "linux-x64");
+  REQUIRE(ResolvePlatformIdentity("linux-x64", noWorkspacePlatforms, windowsHost).name == "linux-x64");
+  REQUIRE_THROWS_WITH(ResolvePlatformIdentity("unknown", noWorkspacePlatforms, linuxHost),
+                      "unknown target platform 'unknown'");
+}
+
+TEST_CASE("workspace-defined target platforms retain their declared identity") {
+  const std::vector<WorkspaceManifest::Platform> platforms{{
+      .name = "desktop",
+      .operatingSystem = "windows",
+      .architecture = "x64",
+  }};
+  const PlatformIdentity linuxHost{
+      .name = "linux-x64",
+      .operatingSystem = "linux",
+      .architecture = "x64",
+  };
+
+  const auto resolved = ResolvePlatformIdentity("desktop", platforms, linuxHost);
+  REQUIRE(resolved.name == "desktop");
+  REQUIRE(resolved.operatingSystem == "windows");
+  REQUIRE(resolved.architecture == "x64");
+}
+
 TEST_CASE("CMake and self-hosted CLI manifest versions stay synchronized") {
   const auto project = LoadProjectManifest(
       RepoRoot() / "Tools/NGIN.CLI/NGIN.CLI.nginproj");

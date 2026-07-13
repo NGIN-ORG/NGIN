@@ -22,7 +22,7 @@
   <Profile Name="Debug">
     <Defaults>
       <BuildType Name="Debug" />
-      <TargetPlatform Name="linux-x64" />
+      <TargetPlatform Name="host" />
       <Environment Name="local" />
     </Defaults>
 

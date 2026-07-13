@@ -60,6 +60,40 @@ TEST_CASE("workspace parses projects, package sources, and central package "
     REQUIRE(workspace.dependencyVersions.at("NGIN.Core") == "[0.1.0,0.2.0)");
 }
 
+TEST_CASE("workspace host target default overrides a project platform default")
+{
+    TempDir temp{};
+    WriteFile(temp.path() / "Workspace.ngin",
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Workspace SchemaVersion="4" Name="NativeWorkspace" DefaultProfile="dev">
+  <Projects>
+    <Project Path="App/App.nginproj" />
+  </Projects>
+  <Defaults>
+    <TargetPlatform Name="host" />
+  </Defaults>
+</Workspace>
+)xml");
+    WriteFile(temp.path() / "App/App.nginproj",
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4" Name="App">
+  <Defaults>
+    <TargetPlatform Name="linux-x64" />
+  </Defaults>
+  <Application />
+</Project>
+)xml");
+
+    const auto workspace = LoadWorkspaceManifest(temp.path());
+    const auto project = LoadProjectManifest(temp.path() / "App/App.nginproj");
+    const auto effective = ProfileWithWorkspacePolicy(project, workspace, "dev");
+    const auto host = DetectHostPlatform();
+
+    REQUIRE(effective.platform == host.name);
+    REQUIRE(effective.operatingSystem == host.operatingSystem);
+    REQUIRE(effective.architecture == host.architecture);
+}
+
 TEST_CASE("workspace parses external package providers")
 {
     TempDir temp{};

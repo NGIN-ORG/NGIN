@@ -19,7 +19,7 @@
     <Backend Name="CMake"
              Mode="Generated" />
     <HostPlatform Name="host" />
-    <TargetPlatform Name="linux-x64" />
+    <TargetPlatform Name="host" />
   </Defaults>
 
   <Packages>

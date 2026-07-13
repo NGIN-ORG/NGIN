@@ -302,7 +302,7 @@ A small NGIN project file can look like this:
   <Profile Name="Debug">
     <Defaults>
       <BuildType Name="Debug" />
-      <TargetPlatform Name="linux-x64" />
+      <TargetPlatform Name="host" />
       <Environment Name="local" />
     </Defaults>
 
@@ -322,7 +322,7 @@ This says:
 * it builds an application
 * source files live under `src`
 * the default profile is `Debug`
-* the `Debug` profile builds for `linux-x64`
+* the `Debug` profile builds for the current host platform
 * the build type is `Debug`
 * the environment is `local`
 * `MYAPP_LOCAL_DEBUG` is only emitted when the `LocalDebug` condition matches

@@ -27,6 +27,9 @@ TEST_CASE("minimal application project normalizes to generated executable")
     REQUIRE(project.build.languageStandard == "23");
     REQUIRE(profile.name == "dev");
     REQUIRE(profile.buildType == "Debug");
+    REQUIRE(profile.platform == DetectHostPlatform().name);
+    REQUIRE(profile.operatingSystem == DetectHostPlatform().operatingSystem);
+    REQUIRE(profile.architecture == DetectHostPlatform().architecture);
     REQUIRE(profile.environmentName == "development");
     REQUIRE(profile.launch.executable == "Hello.Native");
     REQUIRE(profile.launch.args.empty());

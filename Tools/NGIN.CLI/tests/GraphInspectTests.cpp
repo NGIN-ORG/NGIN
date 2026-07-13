@@ -32,7 +32,9 @@ TEST_CASE("inspect emits product identity")
     REQUIRE_THAT(json, ContainsSubstring(R"("properties": [)"));
     REQUIRE_THAT(json, ContainsSubstring(R"("sourceKind":"convention")"));
     REQUIRE_THAT(json, ContainsSubstring(R"("reason":"selected by named language convention")"));
-    REQUIRE_THAT(json, ContainsSubstring(R"("selection": {"profile":"dev","hostPlatform":"host","targetPlatform":"linux-x64")"));
+    REQUIRE_THAT(json,
+                 ContainsSubstring(R"("selection": {"profile":"dev","hostPlatform":"host","targetPlatform":")" +
+                                   DetectHostPlatform().name + R"(")"));
     REQUIRE_THAT(json, ContainsSubstring(R"("facetsSummary":)"));
     REQUIRE_THAT(json, ContainsSubstring(R"("sources":1)"));
     REQUIRE_THAT(json, ContainsSubstring(R"("plans": {"packages":)"));

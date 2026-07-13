@@ -2491,16 +2491,6 @@ namespace NGIN::CLI
         return value == "Generated" || value == "Manual";
     }
 
-    [[nodiscard]] auto IsValidOperatingSystem(std::string_view value) -> bool
-    {
-        return value == "linux" || value == "windows" || value == "macos";
-    }
-
-    [[nodiscard]] auto IsValidArchitecture(std::string_view value) -> bool
-    {
-        return value == "x64" || value == "arm64";
-    }
-
     [[nodiscard]] auto IsSupportedProjectType(std::string_view value) -> bool
     {
         return value == "Application" || value == "Tool" || value == "Library";
@@ -2679,25 +2669,9 @@ namespace NGIN::CLI
             return;
         }
         policy.targetPlatform = platformName;
-        if (platformName == "host")
-        {
-            return;
-        }
-        const auto workspacePlatform =
-            std::find_if(workspace.platforms.begin(), workspace.platforms.end(),
-                         [&](const WorkspaceManifest::Platform &platform) { return platform.name == platformName; });
-        if (workspacePlatform != workspace.platforms.end())
-        {
-            policy.operatingSystem = workspacePlatform->operatingSystem;
-            policy.architecture = workspacePlatform->architecture;
-            return;
-        }
-        const auto dash = platformName.find('-');
-        if (dash != std::string::npos)
-        {
-            policy.operatingSystem = platformName.substr(0, dash);
-            policy.architecture = platformName.substr(dash + 1);
-        }
+        const auto resolved = ResolvePlatformIdentity(platformName, workspace.platforms);
+        policy.operatingSystem = resolved.operatingSystem;
+        policy.architecture = resolved.architecture;
     }
 
     auto ParseWorkspaceDefaults(const XmlElement &defaultsNode, const fs::path &path,
@@ -4275,33 +4249,7 @@ namespace NGIN::CLI
             ProfileDefinition profile{};
             profile.name = std::move(name);
             profile.buildType = buildType.empty() ? "Debug" : std::move(buildType);
-            profile.platform = platform.empty() || platform == "host" ? "linux-x64" : std::move(platform);
-            if (profile.platform == "windows-x64")
-            {
-                profile.operatingSystem = "windows";
-                profile.architecture = "x64";
-            }
-            else if (profile.platform == "macos-x64")
-            {
-                profile.operatingSystem = "macos";
-                profile.architecture = "x64";
-            }
-            else if (profile.platform == "macos-arm64")
-            {
-                profile.operatingSystem = "macos";
-                profile.architecture = "arm64";
-            }
-            else if (profile.platform == "linux-arm64")
-            {
-                profile.operatingSystem = "linux";
-                profile.architecture = "arm64";
-            }
-            else
-            {
-                profile.platform = "linux-x64";
-                profile.operatingSystem = "linux";
-                profile.architecture = "x64";
-            }
+            ApplyTargetPlatform(profile, platform);
             profile.environmentName = environment.empty() ? "development" : std::move(environment);
             return profile;
         }
@@ -5321,7 +5269,7 @@ namespace NGIN::CLI
             }
 
             ProfileDefinition baseProfile =
-                ProfileWithPlatform(project.defaultProfile, "Debug", "linux-x64", "development");
+                ProfileWithPlatform(project.defaultProfile, "Debug", "host", "development");
             baseProfile.launch.executable =
                 project.output.kind == "Executable" ? std::optional<std::string>{project.output.name} : std::nullopt;
             baseProfile.launch.name = "default";
@@ -5745,7 +5693,7 @@ namespace NGIN::CLI
             return ProfileByName(project, profileName);
         }
 
-        const auto applyPolicy = [](ProfileDefinition &profile, const WorkspaceManifest::ProfilePolicy &policy) {
+        const auto applyPolicy = [&](ProfileDefinition &profile, const WorkspaceManifest::ProfilePolicy &policy) {
             if (policy.buildType.has_value())
             {
                 profile.buildType = *policy.buildType;
@@ -5754,9 +5702,12 @@ namespace NGIN::CLI
             {
                 profile.hostPlatform = *policy.hostPlatform;
             }
-            if (policy.targetPlatform.has_value() && *policy.targetPlatform != "host")
+            if (policy.targetPlatform.has_value())
             {
-                profile.platform = *policy.targetPlatform;
+                ApplyTargetPlatform(profile, *policy.targetPlatform,
+                                    workspace.has_value()
+                                        ? std::span<const WorkspaceManifest::Platform>{workspace->platforms}
+                                        : std::span<const WorkspaceManifest::Platform>{});
             }
             if (policy.operatingSystem.has_value())
             {

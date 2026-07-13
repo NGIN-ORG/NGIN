@@ -140,6 +140,9 @@ Implemented profile behavior:
 - profile `Extends`
 - profile `Defaults`
 - separate `HostPlatform` profile metadata
+- `TargetPlatform Name="host"` resolves to the CLI host's concrete platform,
+  operating system, and architecture; native development manifests use this
+  portable default while release profiles retain explicit targets
 - product-specific `Build`, `Stage`, `Runtime`, `Environment`, and `Launch`
   fragments
 - product-specific `Uses` fragments for profile-selected project/package
