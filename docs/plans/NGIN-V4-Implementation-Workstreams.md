@@ -466,7 +466,9 @@ wrappers.
 - `ngin test`
 - `ngin benchmark`
 - `ngin analyze`
-- `ngin format`
+- `ngin format`, `ngin scan`, `ngin report`, and `ngin quality` over the
+  general tool-action framework
+- `ngin manifest format` for authored XML formatting
 - `ngin diff`
 - `ngin publish`
 - object-identity `ngin explain`

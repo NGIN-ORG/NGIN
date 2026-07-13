@@ -944,12 +944,13 @@ export class NginProjectEditorProvider implements vscode.CustomTextEditorProvide
     function renderPackages() {
       const filteredPackages = model.resolved.packages.filter(packageSearchMatches);
       const toolingRows = model.resolved.toolingPackages.map((pkg) => [pkg.name, pkg.version || '', pkg.requiredBy.join(', ')]);
-      const analyzerRows = model.resolved.analyzers.map((analyzer) => [
-        analyzer.name,
-        analyzer.tool || '',
-        analyzer.packageName || '',
-        analyzer.severity || '',
-        analyzer.configPath ? analyzer.configPath + (analyzer.configOptional ? ' (optional)' : '') : ''
+      const toolRunRows = model.resolved.toolRuns.map((run) => [
+        run.name,
+        run.kind || '',
+        run.tool || '',
+        run.driver || '',
+        run.state || '',
+        run.gate ? 'Gate: ' + (run.failOn || 'Error') : 'Report only'
       ]);
       return '<div class="band"><h2>Dependencies</h2>' +
         '<div class="inline"><label class="search-row"><span>Search packages</span><input id="package-search" value="' + esc(packageSearchText) + '" placeholder="Package name or version"></label>' +
@@ -957,8 +958,8 @@ export class NginProjectEditorProvider implements vscode.CustomTextEditorProvide
         '<div id="package-list">' + renderPackageList(filteredPackages) + '</div>' +
         '</div><div class="band"><h2>Enabled Tooling Packages</h2>' +
         table(['Package', 'Version', 'Closures'], toolingRows, 'No tooling packages are enabled for this profile.', 'minmax(220px, 1fr) 100px minmax(160px, 1fr)') +
-        '</div><div class="band"><h2>Analyzers</h2>' +
-        table(['Name', 'Tool', 'Package', 'Severity', 'Config'], analyzerRows, 'No analyzers are active for this profile.', 'minmax(140px, 1fr) minmax(140px, 1fr) minmax(220px, 1fr) 100px minmax(180px, 1fr)') +
+        '</div><div class="band"><h2>Tool Runs</h2>' +
+        table(['Name', 'Kind', 'Tool', 'Driver', 'State', 'Policy'], toolRunRows, 'No tool runs are active for this profile.', 'minmax(140px, 1fr) 100px minmax(140px, 1fr) minmax(140px, 1fr) 100px minmax(140px, 1fr)') +
         '</div>' +
         renderPackageDetailsDialog() +
         renderAddPackageDialog();

@@ -63,7 +63,7 @@ export type ProjectTreeInspectGroupKind =
   | 'launch'
   | 'publish'
   | 'packageOutputs'
-  | 'analyzers'
+  | 'toolRuns'
   | 'diagnostics'
   | 'problems';
 
@@ -83,7 +83,7 @@ export interface ProjectTreeInspectEntryModel {
   targetPath?: string;
   children?: ProjectTreeInspectEntryModel[];
   explainIdentity?: string;
-  context?: 'tooling' | 'launch' | 'problem' | 'detail';
+  context?: 'tooling' | 'toolRun' | 'launch' | 'problem' | 'detail';
 }
 
 export interface ProjectTreeInspectModel {
@@ -556,18 +556,39 @@ export function buildInspectTreeModel(snapshot: NginWorkspaceSnapshot, projectPa
     })));
   }
 
-  if (plans?.quality?.analyzers?.length) {
-    entriesByGroup.set('analyzers', plans.quality.analyzers.map((analyzer) => ({
-      label: analyzer.name,
-      description: [analyzer.severity, analyzer.package].filter(Boolean).join(' • ') || undefined,
-      icon: 'search',
+  if (plans?.tooling?.runs?.length) {
+    entriesByGroup.set('toolRuns', plans.tooling.runs.map((run) => ({
+      label: run.name,
+      description: [run.kind, run.state, run.package].filter(Boolean).join(' • ') || undefined,
+      icon: run.kind === 'Format' ? 'symbol-color' : run.kind === 'Report' ? 'file-text' : 'search',
       children: [
-        detailEntry('Tool', analyzer.tool, 'tools'),
-        detailEntry('Package', analyzer.package, 'package'),
-        detailEntry('Scope', analyzer.scope, 'symbol-property'),
-        detailEntry('Severity', analyzer.severity, 'warning'),
-        detailEntry('Config', analyzer.configPath, 'settings'),
-        detailEntry('Config Optional', analyzer.configOptional === undefined ? undefined : String(analyzer.configOptional), analyzer.configOptional ? 'check' : 'circle-slash')
+        detailEntry('Action', run.action, 'symbol-method'),
+        detailEntry('Tool', run.tool, 'tools'),
+        detailEntry('Tool Resolution', [run.toolSource, run.toolPath].filter(Boolean).join(' • '), 'tools'),
+        detailEntry('Driver', run.driver, 'server-process'),
+        detailEntry('Driver Resolution', [run.driverSource, run.driverPath].filter(Boolean).join(' • '), 'server-process'),
+        detailEntry('Package', run.package, 'package'),
+        detailEntry('Plan Diagnostic', run.diagnostic, run.state === 'invalid' || run.state === 'unavailable' ? 'error' : 'warning'),
+        detailEntry('Input Contract', run.inputContract, 'symbol-interface'),
+        detailEntry('Input Scope', run.inputScope, 'symbol-property'),
+        detailEntry('Gate', run.gate === undefined ? undefined : String(run.gate), run.gate ? 'error' : 'check'),
+        detailEntry('Fail On', run.failOn, 'warning'),
+        detailEntry('Cache', run.cache, 'database'),
+        detailEntry('Depends On', run.dependencies?.join(', '), 'references'),
+        ...(run.configPaths ?? []).map((config, index) => detailEntry(
+          `Config ${index + 1}`,
+          config,
+          'settings-gear',
+          undefined,
+          config.includes('$(') ? undefined : path.resolve(path.dirname(projectPath), config)
+        )),
+        ...(run.reportPaths ?? []).map((report, index) => detailEntry(
+          `Report ${index + 1}`,
+          report,
+          'file-text',
+          undefined,
+          report.includes('$(') ? undefined : path.resolve(path.dirname(projectPath), report)
+        ))
       ].filter((entry) => Boolean(entry.description))
     })));
   }
@@ -605,11 +626,10 @@ export function buildInspectTreeModel(snapshot: NginWorkspaceSnapshot, projectPa
         context: 'tooling' as const
       }];
     }),
-    ...(entriesByGroup.get('analyzers') ?? []).map((entry) => ({
+    ...(entriesByGroup.get('toolRuns') ?? []).map((entry) => ({
       ...entry,
-      description: [entry.description, 'analyzer'].filter(Boolean).join(' · '),
-      explainIdentity: `analyzer:${entry.label}`,
-      context: 'tooling' as const
+      explainIdentity: `run:${entry.label}`,
+      context: 'toolRun' as const
     }))
   ];
   if (toolingEntries.length > 0) {
@@ -617,7 +637,7 @@ export function buildInspectTreeModel(snapshot: NginWorkspaceSnapshot, projectPa
   }
 
   const metadata: Array<{ kind: ProjectTreeInspectGroupKind; label: string; icon: string; tooltip: string }> = [
-    { kind: 'tooling', label: 'Tooling', icon: 'tools', tooltip: 'Active generators and analyzers for the selected profile.' },
+    { kind: 'tooling', label: 'Tooling', icon: 'tools', tooltip: 'Active generators and tool runs for the selected profile.' },
     { kind: 'launch', label: 'Launch', icon: 'play-circle', tooltip: 'Selected launch and environment.' },
     { kind: 'problems', label: 'Problems', icon: 'warning', tooltip: 'Resolver and inspection problems.' }
   ];

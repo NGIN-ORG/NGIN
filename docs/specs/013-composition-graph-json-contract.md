@@ -1,6 +1,10 @@
 # NGIN Composition Graph JSON Contract
 
-Status: Frozen V4 Contract
+Status: V4 Contract Refreeze In Progress
+
+The unshipped phase-one `quality.analyzers` slice has been removed under the
+approved tooling-framework breaking-change policy. The replacement is the
+general `tooling.runs` plan. No consumer compatibility alias is provided.
 
 This document defines the stable machine-readable Composition Graph JSON
 contract emitted by:
@@ -76,7 +80,7 @@ The stable `plans` object contains:
 - `launches`
 - `packageOutputs`
 - `publish`
-- `quality`
+- `tooling`
 - `diagnostics`
 
 Consumers should prefer the plan slices over legacy command-local text output.
@@ -113,7 +117,7 @@ Supported `plan` values are:
 - `runtime`
 - `environment`
 - `publish`
-- `quality`
+- `tooling`
 
 The `data` field uses the same object shapes as the matching full graph
 `plans` entry. Focused plan output includes provenance-bearing selected items
@@ -165,7 +169,7 @@ Consumers must not infer the real value from `source`, `reason`, or
 ## Compatibility Boundary
 
 The freeze closes the V4 graph consumer contract. It does not mean every
-future package, trust, external-provider, platform, or quality subsystem is
+future package, trust, external-provider, platform, or tooling subsystem is
 implemented. Those systems may add optional fields or new plan entries under a
 future minor `4.x` contract, or may introduce a new major graph schema if they
 need breaking semantics.

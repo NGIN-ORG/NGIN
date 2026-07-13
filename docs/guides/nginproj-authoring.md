@@ -370,10 +370,10 @@ Libraries describe build inputs and exported product contracts.
 `PackageOutput` is a package produced by this source product. It is not the
 same as a consumed `Package` dependency.
 
-## Clang-Tidy Analyzer
+## Package-Provided Tooling
 
-Projects can opt into the official clang-tidy analyzer wrapper through normal
-package feature authoring. The package does not ship LLVM binaries in phase one;
+Projects can opt into the official clang-tidy tool action through normal
+package feature authoring. The package does not ship LLVM binaries;
 it resolves `clang-tidy` from `PATH` or from the `NGIN_CLANG_TIDY` environment
 variable.
 
@@ -396,15 +396,17 @@ variable.
 </Project>
 ```
 
-Run analyzers with:
+Inspect and run the effective tooling with:
 
 ```bash
+ngin tool list --project Game.Client.nginproj --profile dev
+ngin tool doctor --project Game.Client.nginproj --profile dev
 ngin analyze --project Game.Client.nginproj --profile dev
 ```
 
-`Severity="Warning"` reports clang-tidy findings as warnings and exits
-successfully. Override the analyzer locally with `Severity="Error"` when CI
-should fail on findings.
+Drivers preserve the tool's intrinsic diagnostic severity. CI gating is a
+separate run policy; override the contributed run by identity with
+`<Policy Gate="true" FailOn="Warning" />` when warnings should fail the run.
 
 ## Workspace Imports
 

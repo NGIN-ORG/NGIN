@@ -50,7 +50,7 @@
         <xs:element name="Stage" type="OpenSectionType" />
         <xs:element name="Runtime" type="OpenSectionType" />
         <xs:element name="Environment" type="OpenSectionType" />
-        <xs:element name="Quality" type="QualityType" />
+        <xs:element name="Tooling" type="ToolingType" />
         <xs:element name="Exports" type="OpenSectionType" />
         <xs:element name="Launch" type="NamedItemType" />
         <xs:element name="Run" type="NamedItemType" />
@@ -86,25 +86,31 @@
     <xs:anyAttribute processContents="lax" />
   </xs:complexType>
 
-  <xs:complexType name="QualityType">
+  <xs:complexType name="ToolingType">
     <xs:sequence>
       <xs:choice minOccurs="0" maxOccurs="unbounded">
-        <xs:element name="Analyzer" type="AnalyzerType" />
+        <xs:element name="Run" type="ToolRunType" />
         <xs:any processContents="lax" />
       </xs:choice>
     </xs:sequence>
     <xs:anyAttribute processContents="lax" />
   </xs:complexType>
 
-  <xs:complexType name="AnalyzerType">
+  <xs:complexType name="ToolRunType">
     <xs:sequence>
-      <xs:element name="Config" type="NamedItemType" minOccurs="0" maxOccurs="1" />
+      <xs:choice minOccurs="0" maxOccurs="unbounded">
+        <xs:element name="Input" type="OpenSectionType" />
+        <xs:element name="Config" type="NamedItemType" />
+        <xs:element name="Policy" type="OpenSectionType" />
+        <xs:element name="Execution" type="OpenSectionType" />
+        <xs:element name="DependsOn" type="OpenSectionType" />
+        <xs:element name="Reports" type="OpenSectionType" />
+      </xs:choice>
     </xs:sequence>
     <xs:attribute name="Name" type="xs:string" />
-    <xs:attribute name="Tool" type="xs:string" />
-    <xs:attribute name="Scope" type="xs:string" />
-    <xs:attribute name="Severity" type="xs:string" />
+    <xs:attribute name="Action" type="xs:string" />
     <xs:attribute name="Enabled" type="xs:boolean" />
+    <xs:attribute name="Remove" type="xs:string" />
     <xs:anyAttribute processContents="lax" />
   </xs:complexType>
 

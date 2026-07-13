@@ -1054,7 +1054,7 @@ namespace NGIN::CLI
                     selected.runtime = featureIt->runtime;
                     selected.variables = featureIt->variables;
                     selected.generators = featureIt->generators;
-                    selected.quality = featureIt->quality;
+                    selected.tooling = featureIt->tooling;
                     result.selectedFeatures.push_back(std::move(selected));
                 }
 
@@ -1783,6 +1783,20 @@ namespace NGIN::CLI
         resolved.workspace = workspace;
         resolved.project = effectiveProject;
         resolved.profile = effectiveProfile;
+        const auto mergeToolingResolutionPolicy = [](ToolingResolutionPolicy &target,
+                                                     const ToolingResolutionPolicy &overlay) {
+            if (overlay.allowPathExplicit) target.allowPath = overlay.allowPath;
+            if (overlay.requireVersionExplicit) target.requireVersion = overlay.requireVersion;
+            if (overlay.requireTrustedPackageExplicit)
+                target.requireTrustedPackage = overlay.requireTrustedPackage;
+        };
+        if (workspace.has_value())
+            mergeToolingResolutionPolicy(resolved.toolingResolutionPolicy,
+                                         workspace->toolingResolutionPolicy);
+        mergeToolingResolutionPolicy(resolved.toolingResolutionPolicy,
+                                     effectiveProject.toolingResolutionPolicy);
+        mergeToolingResolutionPolicy(resolved.toolingResolutionPolicy,
+                                     effectiveProfile.toolingResolutionPolicy);
         if (workspace.has_value())
         {
             const auto platformIt = std::find_if(
@@ -2142,6 +2156,182 @@ namespace NGIN::CLI
             }
         }
         resolved.dependencyEdges = std::move(depEdges);
+
+        const auto effectiveToolRuns = EffectiveToolRuns(
+            resolved.project, resolved.profile, resolved.selectedPackageFeatures);
+        for (const auto &[_, run] : effectiveToolRuns)
+        {
+            if (!run.enabled) continue;
+            for (const auto &dependency : run.dependencies)
+            {
+                const auto dependencyIt = effectiveToolRuns.find(dependency);
+                if (dependencyIt == effectiveToolRuns.end() || !dependencyIt->second.enabled)
+                    AddError(result.diagnostics, "tool run '" + run.name +
+                                                     "' depends on missing or disabled run '" + dependency + "'",
+                             "Tooling");
+            }
+        }
+        enum class ToolVisitState { Visiting, Visited };
+        std::map<std::string, ToolVisitState> toolVisitState{};
+        std::vector<std::string> toolVisitChain{};
+        std::function<void(const std::string &)> visitToolRun = [&](const std::string &name) {
+            if (const auto state = toolVisitState.find(name); state != toolVisitState.end())
+            {
+                if (state->second == ToolVisitState::Visiting)
+                {
+                    auto cycle = name;
+                    for (auto it = toolVisitChain.rbegin(); it != toolVisitChain.rend() && *it != name; ++it)
+                        cycle = *it + " -> " + cycle;
+                    AddError(result.diagnostics, "tool run dependency cycle: " + cycle + " -> " + name,
+                             "Tooling");
+                }
+                return;
+            }
+            toolVisitState[name] = ToolVisitState::Visiting;
+            toolVisitChain.push_back(name);
+            const auto runIt = effectiveToolRuns.find(name);
+            if (runIt != effectiveToolRuns.end() && runIt->second.enabled)
+                for (const auto &dependency : runIt->second.dependencies)
+                    if (effectiveToolRuns.contains(dependency)) visitToolRun(dependency);
+            toolVisitChain.pop_back();
+            toolVisitState[name] = ToolVisitState::Visited;
+        };
+        for (const auto &[name, run] : effectiveToolRuns)
+            if (run.enabled) visitToolRun(name);
+        std::map<std::string, std::string> toolReportOwners{};
+        for (const auto &[_, run] : effectiveToolRuns)
+        {
+            if (!run.enabled)
+            {
+                continue;
+            }
+            const auto separator = run.action.find("::");
+            if (separator == std::string::npos || separator == 0 || separator + 2 >= run.action.size())
+            {
+                AddError(result.diagnostics, "tool run '" + run.name +
+                                                 "' action must be package-qualified as Package::Action",
+                         "Tooling");
+                continue;
+            }
+            const auto packageName = run.action.substr(0, separator);
+            const auto actionName = run.action.substr(separator + 2);
+            const auto packageIt = std::find_if(
+                resolved.orderedPackages.begin(), resolved.orderedPackages.end(),
+                [&](const ResolvedPackage &package) { return package.manifest.name == packageName; });
+            if (packageIt == resolved.orderedPackages.end())
+            {
+                AddError(result.diagnostics, "tool run '" + run.name + "' requires selected package '" +
+                                                 packageName + "'",
+                         "Tooling");
+                continue;
+            }
+            const auto actionIt = std::find_if(
+                packageIt->manifest.toolActions.begin(), packageIt->manifest.toolActions.end(),
+                [&](const ToolActionDeclaration &action) { return action.name == actionName; });
+            if (actionIt == packageIt->manifest.toolActions.end())
+            {
+                AddError(result.diagnostics, "tool run '" + run.name + "' references unknown action '" +
+                                                 run.action + "'",
+                         "Tooling");
+                continue;
+            }
+            if (!SelectionMatches(packageIt->manifest.conditions, actionIt->selectors, resolved.profile))
+            {
+                AddError(result.diagnostics, "tool run '" + run.name +
+                                                 "' action is incompatible with the selected profile",
+                         "Tooling");
+                continue;
+            }
+            const auto driverIt = std::find_if(
+                packageIt->manifest.toolDrivers.begin(), packageIt->manifest.toolDrivers.end(),
+                [&](const ToolDriverDeclaration &driver) { return driver.name == actionIt->driverName; });
+            const auto toolIt = std::find_if(
+                packageIt->manifest.tools.begin(), packageIt->manifest.tools.end(),
+                [&](const ToolDeclaration &tool) { return tool.name == actionIt->toolName; });
+            if (driverIt == packageIt->manifest.toolDrivers.end() || toolIt == packageIt->manifest.tools.end())
+            {
+                AddError(result.diagnostics, "tool run '" + run.name +
+                                                 "' action has unresolved tool or driver",
+                         "Tooling");
+                continue;
+            }
+            if (!SelectionMatches(packageIt->manifest.conditions, driverIt->selectors, resolved.profile) ||
+                !SelectionMatches(packageIt->manifest.conditions, toolIt->selectors, resolved.profile))
+            {
+                AddError(result.diagnostics, "tool run '" + run.name +
+                                                 "' tool or driver is incompatible with the selected profile",
+                         "Tooling");
+                continue;
+            }
+            if (!actionIt->driverVersionRange.empty() &&
+                !VersionSatisfies(driverIt->version, actionIt->driverVersionRange))
+            {
+                AddError(result.diagnostics, "tool run '" + run.name + "' driver version '" +
+                                                 driverIt->version + "' does not satisfy '" +
+                                                 actionIt->driverVersionRange + "'",
+                         "Tooling");
+            }
+            const auto requiredToolVersion = !actionIt->toolVersionRange.empty()
+                                                 ? actionIt->toolVersionRange : toolIt->versionRange;
+            if (!requiredToolVersion.empty() && !driverIt->probe)
+            {
+                AddError(result.diagnostics, "tool run '" + run.name +
+                                                 "' requires tool version discovery but its driver does not support Probe",
+                         "Tooling");
+            }
+            if (resolved.toolingResolutionPolicy.requireVersion && !driverIt->probe)
+            {
+                AddError(result.diagnostics, "tool run '" + run.name +
+                                                 "' must probe tool and driver versions under the effective ToolingPolicy",
+                         "Tooling");
+            }
+            const auto contract = run.input.contract.empty()
+                                      ? (actionIt->inputContracts.empty() ? std::string{}
+                                                                         : actionIt->inputContracts.front())
+                                      : run.input.contract;
+            if (!contract.empty() && !actionIt->inputContracts.empty() &&
+                std::find(actionIt->inputContracts.begin(), actionIt->inputContracts.end(), contract) ==
+                    actionIt->inputContracts.end())
+            {
+                AddError(result.diagnostics, "tool run '" + run.name +
+                                                 "' requests unsupported input contract '" + contract + "'",
+                         "Tooling");
+            }
+            const auto effectiveScope = run.hasInput ? run.input.scope : actionIt->defaultInputScope;
+            const std::string requiredModeCapability = effectiveScope == "ActiveFile" ? "active-file"
+                                                      : effectiveScope == "ChangedFiles" ? "changed-files" : "";
+            if (!requiredModeCapability.empty() &&
+                std::find(actionIt->capabilities.begin(), actionIt->capabilities.end(),
+                          requiredModeCapability) == actionIt->capabilities.end())
+            {
+                AddError(result.diagnostics, "tool run '" + run.name + "' input scope requires capability '" +
+                                                 requiredModeCapability + "'",
+                         "Tooling");
+            }
+            for (const auto &report : run.reports)
+            {
+                if (report.path.empty())
+                {
+                    AddError(result.diagnostics, "tool run '" + run.name +
+                                                     "' report '" + report.name + "' requires a path",
+                             "Tooling");
+                    continue;
+                }
+                const auto [owner, inserted] = toolReportOwners.emplace(report.path, run.name);
+                if (!inserted && owner->second != run.name)
+                {
+                    AddError(result.diagnostics, "tool report path '" + report.path +
+                                                     "' is produced by both runs '" + owner->second +
+                                                     "' and '" + run.name + "'",
+                             "Tooling");
+                }
+            }
+        }
+        if (result.diagnostics.HasErrors())
+        {
+            return result;
+        }
+
         ResolveArtifacts(resolved.projectUnits, resolved.orderedPackages, resolved.project, resolved.profile, result.diagnostics, resolved.libraries, resolved.executables, resolved.selectedExecutable);
         if (result.diagnostics.HasErrors())
         {
@@ -2150,5 +2340,10 @@ namespace NGIN::CLI
 
         result.value = std::move(resolved);
         return result;
+    }
+
+    auto VersionRangeContains(std::string_view range, std::string_view version) -> bool
+    {
+        return VersionSatisfies(std::string(version), std::string(range));
     }
 }

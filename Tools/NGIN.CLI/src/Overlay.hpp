@@ -23,11 +23,9 @@ namespace NGIN::CLI
                                               const std::vector<BuildSetting> &settings, const std::string &kind)
         -> std::vector<BuildSetting>;
 
-    [[nodiscard]] auto EffectiveAnalyzers(const ProjectManifest &project, const ProfileDefinition &profile,
-                                          const std::vector<SelectedPackageFeature> &selectedFeatures = {})
-        -> std::map<std::string, AnalyzerDefinition>;
-
-    [[nodiscard]] auto AnalyzerToolName(const AnalyzerDefinition &analyzer) -> std::string;
+    [[nodiscard]] auto EffectiveToolRuns(const ProjectManifest &project, const ProfileDefinition &profile,
+                                         const std::vector<SelectedPackageFeature> &selectedFeatures = {})
+        -> std::map<std::string, ToolRunDefinition>;
 
     [[nodiscard]] auto StageInputIdentity(const InputDeclaration &input, const std::string &declaredSource)
         -> std::string;

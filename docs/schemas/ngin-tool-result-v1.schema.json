@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ngin.dev/schemas/ngin-tool-result-v1.schema.json",
+  "title": "NGIN Normalized Tool Result 1",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "runId", "run", "executionStatus", "gateStatus", "diagnostics", "edits", "artifacts", "metrics"],
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "kind": { "const": "NGIN.ToolResult" },
+    "runId": { "type": "string", "minLength": 1 },
+    "run": { "type": "string", "minLength": 1 },
+    "action": { "type": "string" },
+    "tool": { "type": "string" },
+    "driver": { "type": "string" },
+    "executionStatus": { "enum": ["succeeded", "failed", "cancelled", "timed-out", "unavailable", "skipped"] },
+    "skipReason": { "type": "string" },
+    "gateStatus": { "enum": ["passed", "failed", "not-evaluated"] },
+    "cacheStatus": { "enum": ["disabled", "miss", "hit", "written"] },
+    "diagnostics": { "type": "array", "items": { "type": "object", "required": ["severity", "intrinsicSeverity", "effectiveSeverity", "message", "fingerprint", "suppressed", "baselined"], "additionalProperties": true } },
+    "edits": { "type": "array", "items": { "type": "object", "required": ["id", "files"], "additionalProperties": true } },
+    "artifacts": { "type": "array", "items": { "type": "object", "required": ["kind", "path"], "additionalProperties": true } },
+    "metrics": { "type": "array", "items": { "type": "object", "required": ["name", "value"], "additionalProperties": true } },
+    "durationMs": { "type": "integer", "minimum": 0 }
+  },
+  "additionalProperties": true
+}

@@ -41,6 +41,22 @@ namespace NGIN::CLI
         std::optional<std::string> scope{};
         std::optional<std::string> launchName{};
         std::optional<std::string> graphPlan{};
+        std::optional<std::string> toolRunName{};
+        std::optional<std::string> toolActionKind{};
+        std::optional<std::string> toolCommandName{};
+        bool toolOnlyGated{false};
+        std::optional<std::string> toolInputMode{};
+        std::vector<std::string> toolFiles{};
+        std::optional<std::string> toolChangedSince{};
+        bool toolApplyEdits{false};
+        bool toolPreviewEdits{false};
+        bool toolAllowUnsafeEdits{false};
+        bool toolNoConfigure{false};
+        bool toolNoCache{false};
+        std::optional<std::string> toolBaselineOperation{};
+        std::optional<std::string> toolBaselinePath{};
+        std::optional<std::size_t> toolJobs{};
+        bool toolListAvailable{false};
         OutputVerbosity verbosity{OutputVerbosity::Normal};
         OutputColorMode colorMode{OutputColorMode::Auto};
         BackendOutputMode backendOutputMode{BackendOutputMode::Compact};
@@ -70,6 +86,7 @@ namespace NGIN::CLI
     auto CmdPackageSourcesRemove(const fs::path &root, const ParsedArgs &args) -> int;
     auto CmdPackageAdd(const fs::path &root, const ParsedArgs &args) -> int;
     auto CmdProjectReferenceAdd(const fs::path &root, const ParsedArgs &args) -> int;
+    auto CmdToolActionAdd(const fs::path &root, const ParsedArgs &args) -> int;
     auto CmdPackageRemove(const fs::path &root, const ParsedArgs &args) -> int;
     auto CmdPackageUpdate(const fs::path &root, const ParsedArgs &args) -> int;
     auto CmdPackagePack(const fs::path &root, const ParsedArgs &args) -> int;
@@ -89,7 +106,7 @@ namespace NGIN::CLI
     auto CmdValidate(const fs::path &root, const ParsedArgs &args) -> int;
     auto CmdGraph(const fs::path &root, const ParsedArgs &args) -> int;
     auto CmdDiff(const fs::path &root, const ParsedArgs &args) -> int;
-    auto CmdFormat(const fs::path &root, const ParsedArgs &args) -> int;
+    auto CmdManifestFormat(const fs::path &root, const ParsedArgs &args) -> int;
     auto CmdSchema(const fs::path &root, const ParsedArgs &args) -> int;
     auto CmdClean(const fs::path &root, const ParsedArgs &args) -> int;
     auto CmdConfigure(const fs::path &root, const ParsedArgs &args) -> int;
@@ -100,5 +117,10 @@ namespace NGIN::CLI
     auto CmdTest(const fs::path &root, const ParsedArgs &args) -> int;
     auto CmdBenchmark(const fs::path &root, const ParsedArgs &args) -> int;
     auto CmdAnalyze(const fs::path &root, const ParsedArgs &args) -> int;
+    auto CmdToolList(const fs::path &root, const ParsedArgs &args) -> int;
+    auto CmdToolDoctor(const fs::path &root, const ParsedArgs &args) -> int;
+    auto CmdToolRun(const fs::path &root, const ParsedArgs &args) -> int;
+    auto CmdToolResults(const fs::path &root, const ParsedArgs &args) -> int;
+    auto CmdToolEdits(const fs::path &root, const ParsedArgs &args) -> int;
     auto CmdPublish(const fs::path &root, const ParsedArgs &args) -> int;
 }

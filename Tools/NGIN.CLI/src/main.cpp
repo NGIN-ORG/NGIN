@@ -43,10 +43,11 @@ namespace
             << "  restore [--project <file.nginproj>] [--profile <name>] [--configuration <name>] [--output <package-store-dir>] [--locked]\n"
             << "  add package <PackageName> --version <range> [--scope <scope>] [--project <file.nginproj>]\n"
             << "  add project-reference <Path> [--project <file.nginproj>]\n"
-            << "  graph [--project <file.nginproj>] [--profile <name>] [--configuration <name>] [--format json|--build-plan|--stage-plan|--package-plan|--package-output-plan|--launch-plan|--runtime-plan|--environment-plan|--publish-plan|--quality-plan]\n"
+            << "  add tool-action <Package::Action> [--run <RunName>] [--project <file.nginproj>]\n"
+            << "  graph [--project <file.nginproj>] [--profile <name>] [--configuration <name>] [--format json|--build-plan|--stage-plan|--package-plan|--package-output-plan|--launch-plan|--runtime-plan|--environment-plan|--publish-plan|--tooling-plan]\n"
             << "  diff [--project <file.nginproj>] --from-profile <name> --to-profile <name>\n"
             << "  diff --from-lock <old-ngin.lock> --to-lock <new-ngin.lock>\n"
-            << "  format [--project <file.nginproj|file.ngin|file.nginpkg>]\n"
+            << "  manifest format [--project <file.nginproj|file.ngin|file.nginpkg>]\n"
             << "  schema [--format json]\n"
             << "  configure [--project <file.nginproj>] [--profile <name>] [--configuration <name>] [--output <dir>]\n"
             << "  clean [--project <file.nginproj>] [--profile <name>] [--configuration <name>] [--output <dir>]\n"
@@ -56,7 +57,18 @@ namespace
             << "  run [--project <file.nginproj>] [--profile <name>] [--configuration <name>] [--output <dir>] [-- <args...>]\n"
             << "  test [--project <file.nginproj>] [--profile <name>] [--configuration <name>] [--output <dir>] [-- <args...>]\n"
             << "  benchmark [--project <file.nginproj>] [--profile <name>] [--configuration <name>] [--output <dir>] [-- <args...>]\n"
-            << "  analyze [--project <file.nginproj>] [--profile <name>] [--configuration <name>]\n"
+            << "  analyze [--project <file.nginproj>] [--profile <name>] [--file <path>|--changed-since <revision>] [--jobs <n>] [--no-cache] [--no-configure] [--fix-preview|--apply-fixes]\n"
+            << "  format [--project <file.nginproj>] [--profile <name>] [--file <path>|--changed-since <revision>] [--check|--apply] [--jobs <n>] [--allow-unsafe]\n"
+            << "  scan [--project <file.nginproj>] [--profile <name>] [--configuration <name>]\n"
+            << "  report [--project <file.nginproj>] [--profile <name>] [--configuration <name>]\n"
+            << "  quality [--project <file.nginproj>] [--profile <name>] [--configuration <name>]\n"
+            << "  quality baseline create|update|verify --run <RunName> [--output <file>]\n"
+            << "  tool list [--available] [--project <file.nginproj>] [--profile <name>] [--format json]\n"
+            << "  tool plan [--project <file.nginproj>] [--profile <name>] [--format json]\n"
+            << "  tool doctor [--project <file.nginproj>] [--profile <name>] [--format json]\n"
+            << "  tool run <RunName> [--project <file.nginproj>] [--profile <name>]\n"
+            << "  tool results [RunId] [--run <RunName>] [--project <file.nginproj>] [--profile <name>] [--format json]\n"
+            << "  tool edits [RunId] --run <RunName> [--project <file.nginproj>] [--profile <name>] [--format json]\n"
             << "  publish [PublishName] [--project <file.nginproj>] [--profile <name>] [--configuration <name>] [--output <build-dir>]\n"
             << "  package list\n"
             << "  package add <PackageName> --version <range> [--scope <scope>] [--project <file.nginproj>]\n"
@@ -74,6 +86,7 @@ namespace
 
 auto main(int argc, char **argv) -> int
 {
+    std::string command{};
     try
     {
         const auto root = NGIN::CLI::RootDir(argv[0]);
@@ -83,7 +96,7 @@ auto main(int argc, char **argv) -> int
             return 0;
         }
 
-        const std::string command = argv[1];
+        command = argv[1];
         if (command == "new")
         {
             if (argc < 4)
@@ -207,6 +220,16 @@ auto main(int argc, char **argv) -> int
                 args.featureName.reset();
                 return NGIN::CLI::CmdProjectReferenceAdd(root, args);
             }
+            if (subcommand == "tool-action")
+            {
+                if (!args.featureName.has_value())
+                {
+                    throw std::runtime_error("add tool-action requires Package::Action");
+                }
+                args.packageName = args.featureName;
+                args.featureName.reset();
+                return NGIN::CLI::CmdToolActionAdd(root, args);
+            }
             throw std::runtime_error("unknown add subcommand '" + subcommand + "'");
         }
         if (command == "settings")
@@ -309,9 +332,13 @@ auto main(int argc, char **argv) -> int
         {
             return NGIN::CLI::CmdDiff(root, NGIN::CLI::ParseCommonArgs(argc, argv, 2));
         }
-        if (command == "format")
+        if (command == "manifest")
         {
-            return NGIN::CLI::CmdFormat(root, NGIN::CLI::ParseCommonArgs(argc, argv, 2));
+            if (argc < 3 || std::string(argv[2]) != "format")
+            {
+                throw std::runtime_error("manifest requires the format subcommand");
+            }
+            return NGIN::CLI::CmdManifestFormat(root, NGIN::CLI::ParseCommonArgs(argc, argv, 3));
         }
         if (command == "schema")
         {
@@ -351,7 +378,82 @@ auto main(int argc, char **argv) -> int
         }
         if (command == "analyze")
         {
-            return NGIN::CLI::CmdAnalyze(root, NGIN::CLI::ParseCommonArgs(argc, argv, 2));
+            auto args = NGIN::CLI::ParseCommonArgs(argc, argv, 2);
+            args.toolActionKind = "Analyze";
+            args.toolCommandName = "analyze";
+            return NGIN::CLI::CmdAnalyze(root, args);
+        }
+        if (command == "format" || command == "scan" || command == "report" || command == "quality")
+        {
+            if (command == "quality" && argc >= 4 && std::string(argv[2]) == "baseline")
+            {
+                auto args = NGIN::CLI::ParseCommonArgs(argc, argv, 4);
+                if (!args.packageName.has_value() ||
+                    (*args.packageName != "create" && *args.packageName != "update" &&
+                     *args.packageName != "verify"))
+                    throw std::runtime_error("quality baseline expects create, update, or verify");
+                if (!args.toolRunName.has_value())
+                    throw std::runtime_error("quality baseline requires --run <RunName>");
+                args.toolBaselineOperation = args.packageName;
+                args.packageName.reset();
+                args.toolBaselinePath = args.outputPath;
+                args.outputPath.reset();
+                args.toolCommandName = "quality baseline";
+                return NGIN::CLI::CmdAnalyze(root, args);
+            }
+            auto args = NGIN::CLI::ParseCommonArgs(argc, argv, 2);
+            args.toolCommandName = command;
+            if (command == "format") args.toolActionKind = "Format";
+            else if (command == "scan") args.toolActionKind = "Scan";
+            else if (command == "report") args.toolActionKind = "Report";
+            else args.toolOnlyGated = true;
+            return NGIN::CLI::CmdAnalyze(root, args);
+        }
+        if (command == "tool")
+        {
+            if (argc < 3)
+            {
+                throw std::runtime_error("tool requires list, plan, doctor, run, results, or edits");
+            }
+            const std::string subcommand = argv[2];
+            auto args = NGIN::CLI::ParseCommonArgs(argc, argv, 3);
+            if (subcommand == "list")
+            {
+                return NGIN::CLI::CmdToolList(root, args);
+            }
+            if (subcommand == "plan")
+            {
+                args.graphPlan = "tooling";
+                return NGIN::CLI::CmdGraph(root, args);
+            }
+            if (subcommand == "doctor")
+            {
+                return NGIN::CLI::CmdToolDoctor(root, args);
+            }
+            if (subcommand == "run")
+            {
+                if (!args.packageName.has_value())
+                {
+                    throw std::runtime_error("tool run requires a run name");
+                }
+                args.toolRunName = args.packageName;
+                args.packageName.reset();
+                args.toolCommandName = "tool run";
+                return NGIN::CLI::CmdToolRun(root, args);
+            }
+            if (subcommand == "results")
+            {
+                return NGIN::CLI::CmdToolResults(root, args);
+            }
+            if (subcommand == "edits")
+            {
+                if (!args.toolRunName.has_value() && !args.packageName.has_value())
+                {
+                    throw std::runtime_error("tool edits requires --run <RunName> or a run id");
+                }
+                return NGIN::CLI::CmdToolEdits(root, args);
+            }
+            throw std::runtime_error("unknown tool subcommand '" + subcommand + "'");
         }
         if (command == "publish")
         {
@@ -363,6 +465,9 @@ auto main(int argc, char **argv) -> int
     catch (const std::exception &ex)
     {
         std::cerr << "error: " << ex.what() << "\n";
+        if (command == "tool" || command == "analyze" || command == "format" ||
+            command == "scan" || command == "report" || command == "quality")
+            return 2;
         return 1;
     }
 }

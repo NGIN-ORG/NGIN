@@ -22,8 +22,8 @@ the terminal commands.
   preserving XML source
 - status bar items for the selected workspace, project, and profile
 - commands for configure, build, clean, rebuild, run, debug, validate, analyze,
-  graph, variable explanation, local settings initialization, and clang-tidy
-  analyzer package authoring
+  graph and tooling-plan inspection, variable explanation, and local settings
+  initialization
 - generated VS Code tasks for known project/profile pairs
 - `.nginlaunch`-based run and debug resolution
 - a custom `ngin` debug type that launches native C/C++ debug sessions
@@ -85,7 +85,7 @@ and inactive-tooling inspection live in the title overflow menu.
 Only the active project expands into resolved profile-specific information.
 Dependencies distinguishes workspace project references, direct packages, and
 transitive packages. Package features are details of their owning dependency.
-Tooling summarizes active generators and analyzers. Launch shows the effective
+Tooling summarizes active generators and package-provided tool runs. Launch shows the effective
 launch choice, Artifacts exposes the executable, staged application folder,
 launch manifest, and compile database, and Problems appears only when inspect
 reports a problem. Source membership and resolved inputs are intentionally not
@@ -96,17 +96,22 @@ Right-click dependency, tooling, and launch items to run the matching
 available through `NGIN: Show Resolved Inputs` and
 `NGIN: Show Inactive Tooling`.
 
-`NGIN: Analyze` keeps analyzer diagnostics separate from validation and inspect
-diagnostics. The official `NGIN.Tooling.ClangTidy` package can be added with
-`NGIN: Enable Clang-Tidy`; the extension can also open or create `.clang-tidy`.
-The package is a wrapper over `clang-tidy` from `NGIN_CLANG_TIDY` or `PATH`; the
-extension does not install LLVM binaries.
+`NGIN: Analyze` keeps tool-run diagnostics separate from validation and inspect
+diagnostics. `NGIN: Show Tooling Plan` displays every effective run using the
+same package-neutral graph contract as the CLI. Tool-specific configuration and
+installation remain owned by the package and driver rather than the extension.
+`NGIN: Add Tool Action` delegates package/action discovery and manifest
+authoring to the CLI and contains no package-specific TypeScript logic.
+`NGIN: Analyze Active File` and `NGIN: Analyze Changed Files…` use capability-
+checked CLI input scopes. Tool quick fixes read stored, digest-bound edit sets
+and apply them as native VS Code workspace edits after stale-document and
+workspace-trust validation.
 
 Long-running configure, build, rebuild, stage, publish, and analyze commands
 use the CLI JSONL event stream in VS Code. The Output panel and progress
 notifications are rendered by the extension from `NGIN.CLI.Event` records rather
-than by parsing human terminal text. Analyzer diagnostics prefer structured
-`diagnostic` events and retain the older text parser only as a fallback.
+than by parsing human terminal text. Tool diagnostics require structured
+`diagnostic` events; the legacy analyzer text fallback has been removed.
 Artifact events are shown in the Output panel, successful event completions can
 refresh the workspace tree, malformed JSONL is surfaced as a CLI compatibility
 error, and non-event JSON lines are ignored. Configure `ngin.output.verbosity`
@@ -167,10 +172,12 @@ NGIN: Build
 NGIN: Run
 NGIN: Debug
 NGIN: Analyze
+NGIN: Analyze Active File
+NGIN: Analyze Changed Files…
 NGIN: Show Resolved Inputs
 NGIN: Show Inactive Tooling
 NGIN: Explain Selection
-NGIN: Enable Clang-Tidy
+NGIN: Add Tool Action
 NGIN: Explain Variables
 NGIN: Initialize Local Settings
 ```

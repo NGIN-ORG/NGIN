@@ -432,45 +432,6 @@ export function setDependencyUses(xml: string, references: ProjectDependencyUseE
   return replaceRange(ensured.xml, ensured.section.bodyStart, ensured.section.bodyEnd, replacement);
 }
 
-export function addClangTidyAnalyzerPackage(xml: string): string {
-  const ensured = ensureProductSection(xml, 'Uses');
-  const body = ensured.xml.slice(ensured.section.bodyStart, ensured.section.bodyEnd);
-  const packagePattern = /<Package\b(?=[^>]*\sName=(["'])NGIN\.Tooling\.ClangTidy\1)[^>]*(?:\/>|>[\s\S]*?<\/Package>)/;
-  const existing = body.match(packagePattern);
-  if (existing?.[0]?.includes('<Feature') && /<Feature\b(?=[^>]*\sName=(["'])Analyzer\1)/.test(existing[0])) {
-    return ensured.xml;
-  }
-
-  if (existing?.index !== undefined) {
-    const absoluteStart = ensured.section.bodyStart + existing.index;
-    const absoluteEnd = absoluteStart + existing[0].length;
-    const indent = indentationBefore(ensured.xml, absoluteStart);
-    const featureLine = `${childIndent(indent)}<Feature Name="Analyzer" />`;
-    if (existing[0].endsWith('/>')) {
-      const open = existing[0].replace(/\s*\/>$/, '>');
-      return replaceRange(ensured.xml, absoluteStart, absoluteEnd, `${open}\n${featureLine}\n${indent}</Package>`);
-    }
-
-    const close = existing[0].lastIndexOf('</Package>');
-    return replaceRange(
-      ensured.xml,
-      absoluteStart,
-      absoluteEnd,
-      `${existing[0].slice(0, close)}${featureLine}\n${indent}${existing[0].slice(close)}`
-    );
-  }
-
-  const indent = childIndent(ensured.section.indent);
-  const packageBlock = [
-    `${indent}<Package Name="NGIN.Tooling.ClangTidy"`,
-    `${indent}         Version="[0.1.0,0.2.0)"`,
-    `${indent}         Scope="Dev">`,
-    `${childIndent(indent)}<Feature Name="Analyzer" />`,
-    `${indent}</Package>`
-  ].join('\n');
-  return replaceRange(ensured.xml, ensured.section.bodyEnd, ensured.section.bodyEnd, `${packageBlock}\n`);
-}
-
 export function setInputEntries(xml: string, block: ProjectInputBlock, entries: ProjectInputEdit[], profileName?: string): string {
   const sectionName = block === 'Configs' ? 'Stage' : 'Build';
   const ensured = ensureProductSection(xml, sectionName, profileName);

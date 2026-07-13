@@ -10,7 +10,14 @@ export interface NginCliEvent {
   data: Record<string, unknown>;
 }
 
-export type NginEventDiagnosticSeverity = 'error' | 'warning';
+export type NginEventDiagnosticSeverity = 'note' | 'info' | 'warning' | 'error' | 'fatal';
+
+export interface NginEventRelatedLocation {
+  file: string;
+  line: number;
+  column: number;
+  message: string;
+}
 
 export interface NginEventDiagnostic {
   severity: NginEventDiagnosticSeverity;
@@ -20,6 +27,14 @@ export interface NginEventDiagnostic {
   file?: string;
   line?: number;
   column?: number;
+  endLine?: number;
+  endColumn?: number;
+  run?: string;
+  action?: string;
+  fingerprint?: string;
+  tags?: string[];
+  relatedLocations?: NginEventRelatedLocation[];
+  editSetIds?: string[];
 }
 
 export class NginJsonlParseError extends Error {
@@ -140,11 +155,24 @@ export function diagnosticFromEvent(event: NginCliEvent): NginEventDiagnostic | 
   if (event.type !== 'diagnostic') {
     return undefined;
   }
+  if (event.data.suppressed === true) {
+    return undefined;
+  }
   const message = typeof event.data.message === 'string' ? event.data.message : undefined;
   if (!message) {
     return undefined;
   }
-  const severity = event.data.severity === 'warning' ? 'warning' : 'error';
+  const rawSeverity = typeof event.data.severity === 'string' ? event.data.severity : 'error';
+  const severity: NginEventDiagnosticSeverity = ['note', 'info', 'warning', 'error', 'fatal'].includes(rawSeverity)
+    ? rawSeverity as NginEventDiagnosticSeverity
+    : 'error';
+  const relatedLocations = Array.isArray(event.data.relatedLocations)
+    ? event.data.relatedLocations.flatMap((value): NginEventRelatedLocation[] => {
+      if (typeof value !== 'string') return [];
+      const match = value.match(/^(.*):(\d+):(\d+):(.*)$/);
+      return match ? [{ file: match[1], line: Number(match[2]), column: Number(match[3]), message: match[4] }] : [];
+    })
+    : undefined;
   return {
     severity,
     source: typeof event.data.source === 'string' ? event.data.source : undefined,
@@ -152,6 +180,16 @@ export function diagnosticFromEvent(event: NginCliEvent): NginEventDiagnostic | 
     message,
     file: typeof event.data.file === 'string' ? event.data.file : undefined,
     line: typeof event.data.line === 'number' ? event.data.line : undefined,
-    column: typeof event.data.column === 'number' ? event.data.column : undefined
+    column: typeof event.data.column === 'number' ? event.data.column : undefined,
+    endLine: typeof event.data.endLine === 'number' ? event.data.endLine : undefined,
+    endColumn: typeof event.data.endColumn === 'number' ? event.data.endColumn : undefined,
+    run: typeof event.data.run === 'string' ? event.data.run : undefined,
+    action: typeof event.data.action === 'string' ? event.data.action : undefined,
+    fingerprint: typeof event.data.fingerprint === 'string' ? event.data.fingerprint : undefined,
+    tags: Array.isArray(event.data.tags) ? event.data.tags.filter((value): value is string => typeof value === 'string') : undefined,
+    relatedLocations,
+    editSetIds: Array.isArray(event.data.editSetIds)
+      ? event.data.editSetIds.filter((value): value is string => typeof value === 'string')
+      : undefined
   };
 }

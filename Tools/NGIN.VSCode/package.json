@@ -14,6 +14,12 @@
   "engines": {
     "vscode": "^1.86.0"
   },
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "Inspection remains available, but NGIN build and tooling processes require workspace trust."
+    }
+  },
   "categories": [
     "Other",
     "Programming Languages",
@@ -171,18 +177,33 @@
         "category": "NGIN"
       },
       {
-        "command": "ngin.addClangTidyAnalyzerPackage",
-        "title": "Enable Clang-Tidy",
+        "command": "ngin.analyzeActiveFile",
+        "title": "Analyze Active File",
         "category": "NGIN"
       },
       {
-        "command": "ngin.openClangTidyConfig",
-        "title": "Open .clang-tidy",
+        "command": "ngin.analyzeChangedFiles",
+        "title": "Analyze Changed Files…",
         "category": "NGIN"
       },
       {
-        "command": "ngin.createClangTidyConfig",
-        "title": "Create .clang-tidy",
+        "command": "ngin.applyToolEdits",
+        "title": "Apply Tool Edits",
+        "category": "NGIN"
+      },
+      {
+        "command": "ngin.runToolRun",
+        "title": "Run Tool Run",
+        "category": "NGIN"
+      },
+      {
+        "command": "ngin.addToolAction",
+        "title": "Add Tool Action",
+        "category": "NGIN"
+      },
+      {
+        "command": "ngin.toolingPlan",
+        "title": "Show Tooling Plan",
         "category": "NGIN"
       },
       {
@@ -415,6 +436,11 @@
           "group": "navigation@5"
         },
         {
+          "command": "ngin.runToolRun",
+          "when": "view == nginWorkspace && viewItem == nginProjectInspectEntry.toolRun",
+          "group": "inline@1"
+        },
+        {
           "command": "ngin.explainSelection",
           "when": "view == nginWorkspace && viewItem =~ /^(nginProjectDependency|nginProjectInspectEntry\\.(tooling|launch|detail))/",
           "group": "ngin.inspect@1"
@@ -455,19 +481,14 @@
           "group": "ngin.inspect@2"
         },
         {
-          "command": "ngin.addClangTidyAnalyzerPackage",
+          "command": "ngin.addToolAction",
           "when": "view == nginWorkspace && viewItem =~ /^(nginProject|nginProfile)$/",
           "group": "ngin.inspect@2.1"
         },
         {
-          "command": "ngin.openClangTidyConfig",
+          "command": "ngin.toolingPlan",
           "when": "view == nginWorkspace && viewItem =~ /^(nginProject|nginProfile)$/",
           "group": "ngin.inspect@2.2"
-        },
-        {
-          "command": "ngin.createClangTidyConfig",
-          "when": "view == nginWorkspace && viewItem =~ /^(nginProject|nginProfile)$/",
-          "group": "ngin.inspect@2.3"
         },
         {
           "command": "ngin.graph",
@@ -514,15 +535,26 @@
           "default": "",
           "markdownDescription": "Optional staged output root. When set, build output is written to `<outputRoot>/<project>/<profile>`."
         },
-        "ngin.validate.onSave": {
+        "ngin.tooling.validateManifestOnSave": {
           "type": "boolean",
           "default": false,
           "description": "Validate the current NGIN project after saving an NGIN manifest."
         },
-        "ngin.analyze.onSave": {
+        "ngin.tooling.runOnManifestSave": {
           "type": "boolean",
           "default": false,
-          "description": "Run NGIN analyzers after saving an NGIN manifest."
+          "description": "Run enabled NGIN Analyze actions after saving an NGIN manifest."
+        },
+        "ngin.tooling.runActiveFileOnSave": {
+          "type": "boolean",
+          "default": false,
+          "description": "Run Analyze actions that explicitly use ActiveFile input after saving a source file."
+        },
+        "ngin.tooling.activeFileDebounceMs": {
+          "type": "number",
+          "default": 350,
+          "minimum": 0,
+          "description": "Debounce delay for active-file tool runs after saving a source file."
         },
         "ngin.cli.warnIfStale": {
           "type": "boolean",

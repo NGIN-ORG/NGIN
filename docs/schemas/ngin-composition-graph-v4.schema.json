@@ -135,7 +135,7 @@
         "runtimeModules",
         "environmentVariables",
         "publishes",
-        "analyzers",
+        "toolRuns",
         "diagnostics"
       ],
       "properties": {
@@ -148,7 +148,7 @@
         "runtimeModules": { "type": "integer", "minimum": 0 },
         "environmentVariables": { "type": "integer", "minimum": 0 },
         "publishes": { "type": "integer", "minimum": 0 },
-        "analyzers": { "type": "integer", "minimum": 0 },
+        "toolRuns": { "type": "integer", "minimum": 0 },
         "diagnostics": { "type": "integer", "minimum": 0 }
       },
       "additionalProperties": true
@@ -394,29 +394,169 @@
       },
       "additionalProperties": true
     },
-    "qualityAnalyzer": {
+    "toolRun": {
       "type": "object",
-      "required": ["name", "tool", "package", "scope", "severity", "configPath", "configOptional"],
+      "required": ["name", "action", "kind", "package", "packageFeature", "tool", "toolPath", "toolSource", "driver", "driverPath", "driverSource", "driverProtocol", "state", "diagnostic", "inputContract", "inputScope", "includeGenerated", "configCount", "configPaths", "includes", "excludes", "inputFiles", "gate", "failOn", "baseline", "newFindingsOnly", "cache", "jobs", "timeout", "failureStrategy", "weight", "maxParallelism", "exclusiveResource", "reportCount", "reportPaths", "reportFormats", "dependencies"],
       "properties": {
         "name": { "type": "string" },
-        "tool": { "type": "string" },
+        "action": { "type": "string" },
+        "kind": { "type": "string", "enum": ["Analyze", "Format", "Scan", "Transform", "Report", "Custom", ""] },
         "package": { "type": "string" },
-        "scope": { "type": "string" },
-        "severity": { "type": "string" },
-        "configPath": { "type": "string" },
-        "configOptional": { "type": "boolean" },
+        "packageFeature": { "type": "string" },
+        "tool": { "type": "string" },
+        "toolPath": { "type": "string" },
+        "toolSource": { "type": "string" },
+        "driver": { "type": "string" },
+        "driverPath": { "type": "string" },
+        "driverSource": { "type": "string" },
+        "driverProtocol": { "type": "string" },
+        "state": { "type": "string", "enum": ["ready", "disabled", "excluded", "unavailable", "invalid"] },
+        "diagnostic": { "type": "string" },
+        "inputContract": { "type": "string" },
+        "inputScope": { "type": "string", "enum": ["Product", "ProductClosure", "Workspace", "Explicit", "ActiveFile", "ChangedFiles"] },
+        "includeGenerated": { "type": "boolean" },
+        "configCount": { "type": "integer", "minimum": 0 },
+        "configPaths": { "type": "array", "items": { "type": "string" } },
+        "includes": { "type": "array", "items": { "type": "string" } },
+        "excludes": { "type": "array", "items": { "type": "string" } },
+        "inputFiles": { "type": "array", "items": { "type": "string" } },
+        "gate": { "type": "boolean" },
+        "failOn": { "type": "string", "enum": ["Info", "Warning", "Error", "Fatal"] },
+        "baseline": { "type": "string" },
+        "newFindingsOnly": { "type": "boolean" },
+        "cache": { "type": "string", "enum": ["Off", "ReadOnly", "WriteOnly", "ReadWrite"] },
+        "jobs": { "type": "string" },
+        "timeout": { "type": "string" },
+        "failureStrategy": { "type": "string", "enum": ["Continue", "FailFast", "DependencyAware"] },
+        "weight": { "type": "integer", "minimum": 1 },
+        "maxParallelism": { "type": "integer", "minimum": 1 },
+        "exclusiveResource": { "type": "string" },
+        "reportCount": { "type": "integer", "minimum": 0 },
+        "reportPaths": { "type": "array", "items": { "type": "string" } },
+        "reportFormats": { "type": "array", "items": { "type": "string" } },
+        "dependencies": { "type": "array", "items": { "type": "string" } },
         "provenance": { "$ref": "#/$defs/provenance" }
       },
       "additionalProperties": true
     },
-    "qualityPlan": {
+    "toolingPlan": {
       "type": "object",
-      "required": ["analyzers"],
+      "required": ["tools", "drivers", "actions", "runs", "inputSets", "dependencies", "policies", "reports", "diagnostics"],
       "properties": {
-        "analyzers": {
+        "tools": {
           "type": "array",
-          "items": { "$ref": "#/$defs/qualityAnalyzer" }
-        }
+          "items": {
+            "type": "object",
+            "required": ["identity", "name", "package", "kind", "executable", "resolvedPath", "resolutionSource", "versionRange", "systemExecutable"],
+            "properties": {
+              "identity": { "type": "string" },
+              "name": { "type": "string" },
+              "package": { "type": "string" },
+              "resolvedPath": { "type": "string" },
+              "resolutionSource": { "type": "string" },
+              "systemExecutable": { "type": "boolean" },
+              "provenance": { "$ref": "#/$defs/provenance" }
+            },
+            "additionalProperties": true
+          }
+        },
+        "drivers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["identity", "name", "package", "protocol", "version", "executable", "resolvedPath", "resolutionSource", "probe", "capabilities"],
+            "properties": {
+              "identity": { "type": "string" },
+              "protocol": { "type": "string" },
+              "probe": { "type": "boolean" },
+              "capabilities": { "type": "array", "items": { "type": "string" } },
+              "provenance": { "$ref": "#/$defs/provenance" }
+            },
+            "additionalProperties": true
+          }
+        },
+        "actions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["identity", "name", "package", "kind", "tool", "driver", "inputContracts", "capabilities", "defaultInputScope", "environment"],
+            "properties": {
+              "identity": { "type": "string" },
+              "kind": { "type": "string" },
+              "inputContracts": { "type": "array", "items": { "type": "string" } },
+              "capabilities": { "type": "array", "items": { "type": "string" } },
+              "environment": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["name", "required", "secret", "cacheKey", "resolved"],
+                  "properties": {
+                    "name": { "type": "string" },
+                    "required": { "type": "boolean" },
+                    "secret": { "type": "boolean" },
+                    "cacheKey": { "type": "boolean" },
+                    "resolved": { "type": "boolean" }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "provenance": { "$ref": "#/$defs/provenance" }
+            },
+            "additionalProperties": true
+          }
+        },
+        "runs": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/toolRun" }
+        },
+        "inputSets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["identity", "run", "contract", "scope", "state", "source", "signature", "includeGenerated", "files", "translationUnits"],
+            "properties": {
+              "identity": { "type": "string" },
+              "contract": { "type": "string" },
+              "files": { "type": "array", "items": { "type": "string" } },
+              "translationUnits": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["source", "workingDirectory", "compiler", "arguments", "targetPlatform", "language", "owner", "generated", "commandDigest"],
+                  "properties": {
+                    "source": { "type": "string" },
+                    "workingDirectory": { "type": "string" },
+                    "compiler": { "type": "string" },
+                    "arguments": { "type": "array", "items": { "type": "string" } },
+                    "targetPlatform": { "type": "string" },
+                    "language": { "type": "string" },
+                    "owner": { "type": "string" },
+                    "generated": { "type": "boolean" },
+                    "commandDigest": { "type": "string" }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            },
+            "additionalProperties": true
+          }
+        },
+        "dependencies": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["from", "to", "kind"],
+            "properties": {
+              "from": { "type": "string" },
+              "to": { "type": "string" },
+              "kind": { "type": "string", "enum": ["run", "phase"] }
+            },
+            "additionalProperties": false
+          }
+        },
+        "policies": { "type": "array", "items": { "type": "object" } },
+        "reports": { "type": "array", "items": { "type": "object" } },
+        "diagnostics": { "type": "array", "items": { "type": "object" } }
       },
       "additionalProperties": true
     },
@@ -434,7 +574,7 @@
         "launches",
         "packageOutputs",
         "publish",
-        "quality",
+        "tooling",
         "diagnostics"
       ],
       "properties": {
@@ -467,7 +607,7 @@
           "type": "array",
           "items": { "$ref": "#/$defs/publish" }
         },
-        "quality": { "$ref": "#/$defs/qualityPlan" },
+        "tooling": { "$ref": "#/$defs/toolingPlan" },
         "diagnostics": {
           "type": "array",
           "items": { "$ref": "#/$defs/diagnostic" }
@@ -536,7 +676,7 @@
             "runtime",
             "environment",
             "publish",
-            "quality"
+            "tooling"
           ]
         },
         "state": { "type": "string", "enum": ["resolved", "diagnostic"] },
@@ -549,7 +689,7 @@
             { "$ref": "#/$defs/runtimePlan" },
             { "$ref": "#/$defs/environmentPlan" },
             { "$ref": "#/$defs/launch" },
-            { "$ref": "#/$defs/qualityPlan" },
+            { "$ref": "#/$defs/toolingPlan" },
             {
               "type": "object",
               "additionalProperties": true

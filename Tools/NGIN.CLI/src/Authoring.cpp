@@ -1701,64 +1701,341 @@ namespace NGIN::CLI
             }
         }
 
-        auto ParseQualityAnalyzers(const XmlElement &qualityNode, const fs::path &path, QualityDefinition &quality,
-                                   const bool allowRemove) -> void
+        [[nodiscard]] auto IsToolActionKind(const std::string_view value) -> bool
+        {
+            return value == "Analyze" || value == "Format" || value == "Scan" || value == "Transform" ||
+                   value == "Report" || value == "Custom";
+        }
+
+        [[nodiscard]] auto IsToolInputScope(const std::string_view value) -> bool
+        {
+            return value == "Product" || value == "ProductClosure" || value == "Workspace" ||
+                   value == "Explicit" || value == "ActiveFile" || value == "ChangedFiles";
+        }
+
+        [[nodiscard]] auto IsToolInputMerge(const std::string_view value) -> bool
+        {
+            return value == "Replace" || value == "Append";
+        }
+
+        [[nodiscard]] auto IsToolFailSeverity(const std::string_view value) -> bool
+        {
+            return value == "Info" || value == "Warning" || value == "Error" || value == "Fatal";
+        }
+
+        [[nodiscard]] auto IsToolNormalizedSeverity(const std::string_view value) -> bool
+        {
+            return value == "note" || value == "info" || value == "warning" ||
+                   value == "error" || value == "fatal";
+        }
+
+        [[nodiscard]] auto IsToolCacheMode(const std::string_view value) -> bool
+        {
+            return value == "Off" || value == "ReadOnly" || value == "WriteOnly" || value == "ReadWrite";
+        }
+
+        [[nodiscard]] auto IsToolFailureStrategy(const std::string_view value) -> bool
+        {
+            return value == "Continue" || value == "FailFast" || value == "DependencyAware";
+        }
+
+        [[nodiscard]] auto ParseToolLimit(const XmlElement &node, std::string_view name,
+                                          const fs::path &path) -> std::optional<std::size_t>
+        {
+            const auto value = Attribute(node, name);
+            if (!value.has_value()) return std::nullopt;
+            std::size_t consumed = 0;
+            try
+            {
+                const auto parsed = std::stoull(*value, &consumed);
+                if (consumed != value->size()) throw std::invalid_argument("trailing characters");
+                return static_cast<std::size_t>(parsed);
+            }
+            catch (const std::exception &)
+            {
+                throw std::runtime_error(path.string() + ": " + std::string(name) +
+                                         " expects a non-negative integer");
+            }
+        }
+
+        [[nodiscard]] auto IsToolJobs(const std::string &value) -> bool
+        {
+            if (value == "Auto") return true;
+            if (value.empty() || !std::all_of(value.begin(), value.end(), [](unsigned char ch) { return std::isdigit(ch); }))
+                return false;
+            return std::stoull(value) > 0;
+        }
+
+        [[nodiscard]] auto IsToolTimeout(const std::string &value) -> bool
+        {
+            if (value.empty()) return true;
+            static const std::regex pattern{R"(^[1-9][0-9]*(ms|s|m|h)$)"};
+            return std::regex_match(value, pattern);
+        }
+
+        [[nodiscard]] auto ParsePositiveToolInteger(const XmlElement &node, std::string_view name,
+                                                    std::size_t fallback, const fs::path &path) -> std::size_t
+        {
+            const auto value = Attribute(node, name);
+            if (!value.has_value()) return fallback;
+            if (!IsToolJobs(*value))
+                throw std::runtime_error(path.string() + ": tool execution " + std::string(name) +
+                                         " expects a positive integer");
+            return static_cast<std::size_t>(std::stoull(*value));
+        }
+
+        auto ParseToolingRuns(const XmlElement &toolingNode, const fs::path &path, ToolingDefinition &tooling,
+                              const bool allowRemove) -> void
         {
             std::set<std::string> localNames{};
             const auto requireUnique = [&](const std::string &name) {
                 if (name.empty())
                 {
-                    throw std::runtime_error(path.string() + ": analyzer identity cannot be empty");
+                    throw std::runtime_error(path.string() + ": tool run identity cannot be empty");
                 }
                 if (!localNames.insert(name).second)
                 {
-                    throw std::runtime_error(path.string() + ": duplicate analyzer '" + name +
+                    throw std::runtime_error(path.string() + ": duplicate tool run '" + name +
                                              "' in the same overlay scope");
                 }
             };
-            const auto removeAnalyzer = [&](const std::string &name) {
-                quality.analyzers.erase(
-                    std::remove_if(quality.analyzers.begin(), quality.analyzers.end(),
-                                   [&](const AnalyzerDefinition &existing) { return existing.name == name; }),
-                    quality.analyzers.end());
+            const auto removeRun = [&](const std::string &name) {
+                tooling.runs.erase(
+                    std::remove_if(tooling.runs.begin(), tooling.runs.end(),
+                                   [&](const ToolRunDefinition &existing) { return existing.name == name; }),
+                    tooling.runs.end());
             };
-            const auto upsertAnalyzer = [&](AnalyzerDefinition analyzer) {
-                removeAnalyzer(analyzer.name);
-                quality.analyzers.push_back(std::move(analyzer));
+            const auto upsertRun = [&](ToolRunDefinition run) {
+                removeRun(run.name);
+                tooling.runs.push_back(std::move(run));
             };
 
-            for (const auto *node : ChildElements(qualityNode, "Analyzer"))
+            for (const auto *node : ChildElements(toolingNode, "Run"))
             {
                 if (const auto remove = Attribute(*node, "Remove"); remove.has_value() && !remove->empty())
                 {
                     if (!allowRemove)
                     {
-                        throw std::runtime_error(path.string() + ": package feature analyzers do not support Remove");
+                        throw std::runtime_error(path.string() + ": package feature tool runs do not support Remove");
                     }
                     requireUnique(*remove);
-                    removeAnalyzer(*remove);
+                    ToolRunDefinition removed{};
+                    removed.name = *remove;
+                    removed.disabled = true;
+                    upsertRun(std::move(removed));
                     continue;
                 }
 
                 ValidateAllowedAttributes(*node, path,
-                                          {"Name", "Tool", "Package", "Scope", "Enabled", "Severity", "Profile",
+                                          {"Name", "Action", "Enabled", "Profile",
                                            "Platform", "OperatingSystem", "Architecture", "BuildType", "Environment",
                                            "Condition"});
-                AnalyzerDefinition analyzer{};
-                analyzer.name = RequireAttribute(*node, "Name", path);
-                requireUnique(analyzer.name);
-                analyzer.toolName = Attribute(*node, "Tool").value_or(analyzer.name);
-                analyzer.packageName = Attribute(*node, "Package").value_or("");
-                analyzer.scope = Attribute(*node, "Scope").value_or(analyzer.scope);
-                analyzer.enabled = BoolAttribute(*node, "Enabled", analyzer.enabled);
-                analyzer.severity = Attribute(*node, "Severity").value_or(analyzer.severity);
-                analyzer.selectors = ParseSelection(*node, path);
-                if (const auto *config = FindChild(*node, "Config"))
+                ToolRunDefinition run{};
+                run.name = RequireAttribute(*node, "Name", path);
+                requireUnique(run.name);
+                run.action = Attribute(*node, "Action").value_or("");
+                run.enabled = BoolAttribute(*node, "Enabled", run.enabled);
+                run.selectors = ParseSelection(*node, path);
+
+                if (const auto *input = FindChild(*node, "Input"))
                 {
-                    analyzer.configPath = RequireAttribute(*config, "Path", path);
-                    analyzer.configOptional = BoolAttribute(*config, "Optional", analyzer.configOptional);
+                    ValidateAllowedAttributes(*input, path, {"Contract", "Scope", "IncludeGenerated", "Merge"});
+                    run.hasInput = true;
+                    run.input.contract = Attribute(*input, "Contract").value_or("");
+                    run.input.scope = Attribute(*input, "Scope").value_or(run.input.scope);
+                    run.input.merge = Attribute(*input, "Merge").value_or(run.input.merge);
+                    run.input.contractExplicit = Attribute(*input, "Contract").has_value();
+                    run.input.scopeExplicit = Attribute(*input, "Scope").has_value();
+                    run.input.includeGeneratedExplicit = Attribute(*input, "IncludeGenerated").has_value();
+                    if (!IsToolInputScope(run.input.scope))
+                    {
+                        throw std::runtime_error(path.string() + ": unsupported tool input scope '" +
+                                                 run.input.scope + "'");
+                    }
+                    if (!IsToolInputMerge(run.input.merge))
+                    {
+                        throw std::runtime_error(path.string() + ": unsupported tool input merge '" +
+                                                 run.input.merge + "'");
+                    }
+                    run.input.includeGenerated = BoolAttribute(*input, "IncludeGenerated", false);
+                    for (const auto *include : ChildElements(*input, "Include"))
+                    {
+                        ValidateAllowedAttributes(*include, path, {"Path"});
+                        run.input.includes.push_back(RequireAttribute(*include, "Path", path));
+                    }
+                    for (const auto *exclude : ChildElements(*input, "Exclude"))
+                    {
+                        ValidateAllowedAttributes(*exclude, path, {"Path"});
+                        run.input.excludes.push_back(RequireAttribute(*exclude, "Path", path));
+                    }
                 }
-                upsertAnalyzer(std::move(analyzer));
+
+                std::set<std::string> configNames{};
+                for (const auto *config : ChildElements(*node, "Config"))
+                {
+                    ValidateAllowedAttributes(*config, path, {"Name", "Path", "Optional"});
+                    ToolConfigDefinition parsed{};
+                    parsed.name = Attribute(*config, "Name").value_or(parsed.name);
+                    if (!configNames.insert(parsed.name).second)
+                    {
+                        throw std::runtime_error(path.string() + ": duplicate tool config '" + parsed.name +
+                                                 "' in run '" + run.name + "'");
+                    }
+                    parsed.path = RequireAttribute(*config, "Path", path);
+                    parsed.optional = BoolAttribute(*config, "Optional", false);
+                    run.configs.push_back(std::move(parsed));
+                }
+
+                if (const auto *policy = FindChild(*node, "Policy"))
+                {
+                    ValidateAllowedAttributes(*policy, path,
+                                              {"Gate", "FailOn", "Baseline", "NewFindingsOnly",
+                                               "MaxFindings", "MaxWarnings"});
+                    run.hasPolicy = true;
+                    run.policy.gate = BoolAttribute(*policy, "Gate", false);
+                    run.policy.failOn = Attribute(*policy, "FailOn").value_or(run.policy.failOn);
+                    if (!IsToolFailSeverity(run.policy.failOn))
+                    {
+                        throw std::runtime_error(path.string() + ": unsupported tool gate severity '" +
+                                                 run.policy.failOn + "'");
+                    }
+                    run.policy.baseline = Attribute(*policy, "Baseline").value_or("");
+                    run.policy.newFindingsOnly = BoolAttribute(*policy, "NewFindingsOnly", false);
+                    run.policy.maxFindings = ParseToolLimit(*policy, "MaxFindings", path);
+                    run.policy.maxWarnings = ParseToolLimit(*policy, "MaxWarnings", path);
+                    std::set<std::string> mappedRules{};
+                    for (const auto *mapping : ChildElements(*policy, "Severity"))
+                    {
+                        ValidateAllowedAttributes(*mapping, path, {"Rule", "To"});
+                        ToolPolicyDefinition::SeverityMapping parsed{
+                            .rule = RequireAttribute(*mapping, "Rule", path),
+                            .severity = RequireAttribute(*mapping, "To", path),
+                        };
+                        if (!mappedRules.insert(parsed.rule).second)
+                            throw std::runtime_error(path.string() + ": duplicate severity mapping for rule '" +
+                                                     parsed.rule + "'");
+                        if (!IsToolNormalizedSeverity(parsed.severity))
+                            throw std::runtime_error(path.string() + ": unsupported mapped severity '" +
+                                                     parsed.severity + "'");
+                        run.policy.severityMappings.push_back(std::move(parsed));
+                    }
+                    std::set<std::string> suppressionIdentities{};
+                    for (const auto *suppression : ChildElements(*policy, "Suppress"))
+                    {
+                        ValidateAllowedAttributes(*suppression, path,
+                                                  {"Rule", "Fingerprint", "Reason", "Expires"});
+                        ToolPolicyDefinition::Suppression parsed{
+                            .rule = Attribute(*suppression, "Rule").value_or(""),
+                            .fingerprint = Attribute(*suppression, "Fingerprint").value_or(""),
+                            .reason = RequireAttribute(*suppression, "Reason", path),
+                            .expires = Attribute(*suppression, "Expires").value_or(""),
+                        };
+                        if (parsed.rule.empty() == parsed.fingerprint.empty())
+                            throw std::runtime_error(path.string() +
+                                                     ": tool suppression requires exactly one of Rule or Fingerprint");
+                        const auto identity = parsed.rule.empty() ? "fingerprint:" + parsed.fingerprint
+                                                                 : "rule:" + parsed.rule;
+                        if (!suppressionIdentities.insert(identity).second)
+                            throw std::runtime_error(path.string() + ": duplicate tool suppression '" +
+                                                     identity + "'");
+                        if (!parsed.expires.empty() &&
+                            !std::regex_match(parsed.expires, std::regex{R"(^[0-9]{4}-[0-9]{2}-[0-9]{2}$)"}))
+                            throw std::runtime_error(path.string() +
+                                                     ": tool suppression Expires expects YYYY-MM-DD");
+                        run.policy.suppressions.push_back(std::move(parsed));
+                    }
+                    std::set<std::string> budgetRules{};
+                    for (const auto *budget : ChildElements(*policy, "Budget"))
+                    {
+                        ValidateAllowedAttributes(*budget, path, {"Rule", "Max"});
+                        const auto rule = RequireAttribute(*budget, "Rule", path);
+                        (void)RequireAttribute(*budget, "Max", path);
+                        if (!budgetRules.insert(rule).second)
+                            throw std::runtime_error(path.string() + ": duplicate tool budget for rule '" + rule + "'");
+                        const auto maximum = ParseToolLimit(*budget, "Max", path);
+                        run.policy.ruleBudgets.push_back(ToolPolicyDefinition::RuleBudget{
+                            .rule = rule,
+                            .maximum = maximum.value_or(0),
+                        });
+                    }
+                }
+
+                if (const auto *execution = FindChild(*node, "Execution"))
+                {
+                    ValidateAllowedAttributes(*execution, path,
+                                              {"Jobs", "Timeout", "Cache", "FailureStrategy", "Weight",
+                                               "MaxParallelism", "ExclusiveResource"});
+                    run.hasExecution = true;
+                    run.execution.jobs = Attribute(*execution, "Jobs").value_or(run.execution.jobs);
+                    run.execution.timeout = Attribute(*execution, "Timeout").value_or("");
+                    run.execution.cache = Attribute(*execution, "Cache").value_or(run.execution.cache);
+                    run.execution.failureStrategy =
+                        Attribute(*execution, "FailureStrategy").value_or(run.execution.failureStrategy);
+                    run.execution.weight = ParsePositiveToolInteger(*execution, "Weight", 1, path);
+                    run.execution.maxParallelism = ParsePositiveToolInteger(*execution, "MaxParallelism", 1, path);
+                    run.execution.exclusiveResource = Attribute(*execution, "ExclusiveResource").value_or("");
+                    if (!IsToolCacheMode(run.execution.cache))
+                    {
+                        throw std::runtime_error(path.string() + ": unsupported tool cache mode '" +
+                                                 run.execution.cache + "'");
+                    }
+                    if (!IsToolJobs(run.execution.jobs))
+                        throw std::runtime_error(path.string() + ": tool execution Jobs expects Auto or a positive integer");
+                    if (!IsToolTimeout(run.execution.timeout))
+                        throw std::runtime_error(path.string() + ": tool execution Timeout expects <n>ms, <n>s, <n>m, or <n>h");
+                    if (!IsToolFailureStrategy(run.execution.failureStrategy))
+                    {
+                        throw std::runtime_error(path.string() + ": unsupported tool failure strategy '" +
+                                                 run.execution.failureStrategy + "'");
+                    }
+                }
+
+                std::set<std::string> dependencyNames{};
+                for (const auto *dependency : ChildElements(*node, "DependsOn"))
+                {
+                    ValidateAllowedAttributes(*dependency, path, {"Run"});
+                    const auto name = RequireAttribute(*dependency, "Run", path);
+                    if (name == run.name)
+                        throw std::runtime_error(path.string() + ": tool run '" + run.name +
+                                                 "' cannot depend on itself");
+                    if (!dependencyNames.insert(name).second)
+                        throw std::runtime_error(path.string() + ": duplicate dependency '" + name +
+                                                 "' in tool run '" + run.name + "'");
+                    run.dependencies.push_back(name);
+                }
+
+                if (const auto *reports = FindChild(*node, "Reports"))
+                {
+                    std::set<std::string> reportNames{};
+                    for (const auto *report : ChildElements(*reports, "Report"))
+                    {
+                        ValidateAllowedAttributes(*report, path, {"Name", "Format", "Path"});
+                        ToolReportDefinition parsed{};
+                        parsed.name = RequireAttribute(*report, "Name", path);
+                        if (!reportNames.insert(parsed.name).second)
+                        {
+                            throw std::runtime_error(path.string() + ": duplicate tool report '" + parsed.name +
+                                                     "' in run '" + run.name + "'");
+                        }
+                        parsed.format = RequireAttribute(*report, "Format", path);
+                        parsed.path = RequireAttribute(*report, "Path", path);
+                        run.reports.push_back(std::move(parsed));
+                    }
+                }
+
+                if (run.action.empty())
+                {
+                    const auto inherited = std::find_if(
+                        tooling.runs.begin(), tooling.runs.end(),
+                        [&](const ToolRunDefinition &existing) {
+                            return existing.name == run.name && !existing.action.empty();
+                        });
+                    if (inherited == tooling.runs.end())
+                    {
+                        throw std::runtime_error(path.string() + ": tool run '" + run.name + "' requires Action");
+                    }
+                }
+                upsertRun(std::move(run));
             }
         }
 
@@ -1831,15 +2108,13 @@ namespace NGIN::CLI
                 LoadProjectBuildDescriptor(feature.build, FindChild(*node, "Build"), path);
                 ParseGenerators(*node, path, feature.generators,
                                 "package-feature:" + package.name + ":" + feature.name);
-                if (const auto *quality = FindChild(*node, "Quality"))
+                if (const auto *tooling = FindChild(*node, "Tooling"))
                 {
-                    ParseQualityAnalyzers(*quality, path, feature.quality, false);
-                    for (auto &analyzer : feature.quality.analyzers)
+                    ParseToolingRuns(*tooling, path, feature.tooling, false);
+                    for (auto &run : feature.tooling.runs)
                     {
-                        if (analyzer.packageName.empty())
-                        {
-                            analyzer.packageName = package.name;
-                        }
+                        run.packageName = package.name;
+                        run.packageFeature = feature.name;
                     }
                 }
                 ParseVariables(*node, path, feature.variables);
@@ -2586,28 +2861,204 @@ namespace NGIN::CLI
         }
     }
 
-    auto ParseWorkspaceQualityPolicy(const XmlElement &qualityNode, const fs::path &path,
+    auto ParseWorkspaceToolingPolicy(const XmlElement &toolingNode, const fs::path &path,
                                      WorkspaceManifest::ProfilePolicy &policy, const std::string &productKind = {})
         -> void
     {
         std::set<std::string> localNames{};
-        for (const auto *node : ChildElements(qualityNode, "Analyzer"))
+        for (const auto *node : ChildElements(toolingNode, "Run"))
         {
-            WorkspaceManifest::ProfilePolicy::AnalyzerPolicy analyzer{};
-            analyzer.productKind = productKind;
-            analyzer.name = RequireAttribute(*node, "Name", path);
-            RequireUniqueWorkspacePolicyName(localNames, "analyzer", analyzer.name, path);
-            analyzer.toolName = Attribute(*node, "Tool").value_or(analyzer.name);
-            analyzer.packageName = Attribute(*node, "Package").value_or("");
-            analyzer.scope = Attribute(*node, "Scope").value_or(analyzer.scope);
-            analyzer.enabled = BoolAttribute(*node, "Enabled", analyzer.enabled);
-            analyzer.severity = Attribute(*node, "Severity").value_or(analyzer.severity);
-            if (const auto *config = FindChild(*node, "Config"))
+            WorkspaceManifest::ProfilePolicy::ToolRunPolicy run{};
+            run.productKind = productKind;
+            if (const auto remove = Attribute(*node, "Remove"); remove.has_value() && !remove->empty())
             {
-                analyzer.configPath = RequireAttribute(*config, "Path", path);
-                analyzer.configOptional = BoolAttribute(*config, "Optional", analyzer.configOptional);
+                run.name = *remove;
+                run.remove = true;
+                RequireUniqueWorkspacePolicyName(localNames, "tool run", run.name, path);
+                policy.toolRuns.push_back(std::move(run));
+                continue;
             }
-            policy.analyzers.push_back(std::move(analyzer));
+            run.name = RequireAttribute(*node, "Name", path);
+            RequireUniqueWorkspacePolicyName(localNames, "tool run", run.name, path);
+            run.action = Attribute(*node, "Action").value_or("");
+            run.enabled = BoolAttribute(*node, "Enabled", run.enabled);
+            if (const auto *input = FindChild(*node, "Input"))
+            {
+                ValidateAllowedAttributes(*input, path, {"Contract", "Scope", "IncludeGenerated", "Merge"});
+                run.hasInput = true;
+                run.inputContract = Attribute(*input, "Contract").value_or("");
+                run.inputScope = Attribute(*input, "Scope").value_or(run.inputScope);
+                run.inputMerge = Attribute(*input, "Merge").value_or(run.inputMerge);
+                run.inputContractExplicit = Attribute(*input, "Contract").has_value();
+                run.inputScopeExplicit = Attribute(*input, "Scope").has_value();
+                run.includeGeneratedExplicit = Attribute(*input, "IncludeGenerated").has_value();
+                if (!IsToolInputScope(run.inputScope))
+                {
+                    throw std::runtime_error(path.string() + ": unsupported tool input scope '" + run.inputScope +
+                                             "'");
+                }
+                if (!IsToolInputMerge(run.inputMerge))
+                    throw std::runtime_error(path.string() + ": unsupported tool input merge '" +
+                                             run.inputMerge + "'");
+                run.includeGenerated = BoolAttribute(*input, "IncludeGenerated", false);
+                for (const auto *include : ChildElements(*input, "Include"))
+                    run.includes.push_back(RequireAttribute(*include, "Path", path));
+                for (const auto *exclude : ChildElements(*input, "Exclude"))
+                    run.excludes.push_back(RequireAttribute(*exclude, "Path", path));
+            }
+            std::set<std::string> configNames{};
+            for (const auto *config : ChildElements(*node, "Config"))
+            {
+                WorkspaceManifest::ProfilePolicy::ToolRunPolicy::ConfigPolicy parsed{};
+                parsed.name = Attribute(*config, "Name").value_or(parsed.name);
+                if (!configNames.insert(parsed.name).second)
+                    throw std::runtime_error(path.string() + ": duplicate tool config '" + parsed.name +
+                                             "' in run '" + run.name + "'");
+                parsed.path = RequireAttribute(*config, "Path", path);
+                parsed.optional = BoolAttribute(*config, "Optional", false);
+                run.configs.push_back(std::move(parsed));
+            }
+            if (const auto *gate = FindChild(*node, "Policy"))
+            {
+                run.hasPolicy = true;
+                run.gate = BoolAttribute(*gate, "Gate", false);
+                run.failOn = Attribute(*gate, "FailOn").value_or(run.failOn);
+                if (!IsToolFailSeverity(run.failOn))
+                {
+                    throw std::runtime_error(path.string() + ": unsupported tool gate severity '" + run.failOn +
+                                             "'");
+                }
+                run.baseline = Attribute(*gate, "Baseline").value_or("");
+                run.newFindingsOnly = BoolAttribute(*gate, "NewFindingsOnly", false);
+                run.maxFindings = ParseToolLimit(*gate, "MaxFindings", path);
+                run.maxWarnings = ParseToolLimit(*gate, "MaxWarnings", path);
+                std::set<std::string> severityRules{};
+                for (const auto *severity : ChildElements(*gate, "Severity"))
+                {
+                    WorkspaceManifest::ProfilePolicy::ToolRunPolicy::SeverityPolicy parsed{};
+                    parsed.rule = RequireAttribute(*severity, "Rule", path);
+                    parsed.severity = RequireAttribute(*severity, "To", path);
+                    if (!IsToolNormalizedSeverity(parsed.severity))
+                        throw std::runtime_error(path.string() + ": unsupported mapped tool severity '" +
+                                                 parsed.severity + "'");
+                    if (!severityRules.insert(parsed.rule).second)
+                        throw std::runtime_error(path.string() + ": duplicate severity mapping for rule '" +
+                                                 parsed.rule + "'");
+                    run.severityMappings.push_back(std::move(parsed));
+                }
+                std::set<std::string> suppressionIdentities{};
+                for (const auto *suppression : ChildElements(*gate, "Suppress"))
+                {
+                    WorkspaceManifest::ProfilePolicy::ToolRunPolicy::SuppressionPolicy parsed{};
+                    parsed.rule = Attribute(*suppression, "Rule").value_or("");
+                    parsed.fingerprint = Attribute(*suppression, "Fingerprint").value_or("");
+                    parsed.reason = RequireAttribute(*suppression, "Reason", path);
+                    parsed.expires = Attribute(*suppression, "Expires").value_or("");
+                    if ((parsed.rule.empty() && parsed.fingerprint.empty()) ||
+                        (!parsed.rule.empty() && !parsed.fingerprint.empty()))
+                        throw std::runtime_error(path.string() +
+                                                 ": tool suppression requires exactly one of Rule or Fingerprint");
+                    const auto identity = !parsed.rule.empty() ? "rule:" + parsed.rule
+                                                               : "fingerprint:" + parsed.fingerprint;
+                    if (!suppressionIdentities.insert(identity).second)
+                        throw std::runtime_error(path.string() + ": duplicate tool suppression '" + identity + "'");
+                    if (!parsed.expires.empty() &&
+                        !std::regex_match(parsed.expires, std::regex{R"(^[0-9]{4}-[0-9]{2}-[0-9]{2}$)"}))
+                        throw std::runtime_error(path.string() +
+                                                 ": tool suppression Expires expects YYYY-MM-DD");
+                    run.suppressions.push_back(std::move(parsed));
+                }
+                std::set<std::string> budgetRules{};
+                for (const auto *budget : ChildElements(*gate, "Budget"))
+                {
+                    const auto rule = RequireAttribute(*budget, "Rule", path);
+                    if (!budgetRules.insert(rule).second)
+                        throw std::runtime_error(path.string() + ": duplicate budget for rule '" + rule + "'");
+                    (void)RequireAttribute(*budget, "Max", path);
+                    run.ruleBudgets.push_back({
+                        .rule = rule,
+                        .maximum = ParseToolLimit(*budget, "Max", path).value_or(0),
+                    });
+                }
+            }
+            if (const auto *execution = FindChild(*node, "Execution"))
+            {
+                run.hasExecution = true;
+                run.jobs = Attribute(*execution, "Jobs").value_or(run.jobs);
+                run.timeout = Attribute(*execution, "Timeout").value_or("");
+                run.cache = Attribute(*execution, "Cache").value_or(run.cache);
+                run.failureStrategy = Attribute(*execution, "FailureStrategy").value_or(run.failureStrategy);
+                run.weight = ParsePositiveToolInteger(*execution, "Weight", 1, path);
+                run.maxParallelism = ParsePositiveToolInteger(*execution, "MaxParallelism", 1, path);
+                run.exclusiveResource = Attribute(*execution, "ExclusiveResource").value_or("");
+                if (!IsToolCacheMode(run.cache))
+                {
+                    throw std::runtime_error(path.string() + ": unsupported tool cache mode '" + run.cache + "'");
+                }
+                if (!IsToolJobs(run.jobs))
+                    throw std::runtime_error(path.string() + ": tool execution Jobs expects Auto or a positive integer");
+                if (!IsToolTimeout(run.timeout))
+                    throw std::runtime_error(path.string() + ": tool execution Timeout expects <n>ms, <n>s, <n>m, or <n>h");
+                if (!IsToolFailureStrategy(run.failureStrategy))
+                    throw std::runtime_error(path.string() + ": unsupported tool failure strategy '" +
+                                             run.failureStrategy + "'");
+            }
+            std::set<std::string> dependencyNames{};
+            for (const auto *dependency : ChildElements(*node, "DependsOn"))
+            {
+                const auto name = RequireAttribute(*dependency, "Run", path);
+                if (name == run.name)
+                    throw std::runtime_error(path.string() + ": tool run '" + run.name +
+                                             "' cannot depend on itself");
+                if (!dependencyNames.insert(name).second)
+                    throw std::runtime_error(path.string() + ": duplicate dependency '" + name +
+                                             "' in tool run '" + run.name + "'");
+                run.dependencies.push_back(name);
+            }
+            if (const auto *reports = FindChild(*node, "Reports"))
+            {
+                std::set<std::string> reportNames{};
+                for (const auto *report : ChildElements(*reports, "Report"))
+                {
+                    WorkspaceManifest::ProfilePolicy::ToolRunPolicy::ReportPolicy parsed{};
+                    parsed.name = RequireAttribute(*report, "Name", path);
+                    if (!reportNames.insert(parsed.name).second)
+                        throw std::runtime_error(path.string() + ": duplicate tool report '" + parsed.name +
+                                                 "' in run '" + run.name + "'");
+                    parsed.format = RequireAttribute(*report, "Format", path);
+                    parsed.path = RequireAttribute(*report, "Path", path);
+                    run.reports.push_back(std::move(parsed));
+                }
+            }
+            policy.toolRuns.push_back(std::move(run));
+        }
+    }
+
+    auto ParseToolingResolutionPolicy(const XmlElement &owner, const fs::path &path,
+                                      ToolingResolutionPolicy &policy) -> void
+    {
+        const auto *toolingPolicy = FindChild(owner, "ToolingPolicy");
+        if (toolingPolicy == nullptr) return;
+        const auto *resolution = FindChild(*toolingPolicy, "Resolution");
+        if (resolution == nullptr)
+            throw std::runtime_error(path.string() + ": ToolingPolicy requires Resolution");
+        ValidateAllowedAttributes(*resolution, path,
+                                  {"AllowPath", "RequireVersion", "RequireTrustedPackage"});
+        if (Attribute(*resolution, "AllowPath").has_value())
+        {
+            policy.allowPath = BoolAttribute(*resolution, "AllowPath", policy.allowPath);
+            policy.allowPathExplicit = true;
+        }
+        if (Attribute(*resolution, "RequireVersion").has_value())
+        {
+            policy.requireVersion = BoolAttribute(*resolution, "RequireVersion", policy.requireVersion);
+            policy.requireVersionExplicit = true;
+        }
+        if (Attribute(*resolution, "RequireTrustedPackage").has_value())
+        {
+            policy.requireTrustedPackage =
+                BoolAttribute(*resolution, "RequireTrustedPackage", policy.requireTrustedPackage);
+            policy.requireTrustedPackageExplicit = true;
         }
     }
 
@@ -3018,6 +3469,7 @@ namespace NGIN::CLI
         workspace.name = RequireAttribute(*rootElement, "Name", *path);
         workspace.defaultProfile = Attribute(*rootElement, "DefaultProfile").value_or("");
         workspace.platformVersion = Attribute(*rootElement, "PlatformVersion").value_or("0.1.0");
+        ParseToolingResolutionPolicy(*rootElement, *path, workspace.toolingResolutionPolicy);
 
         if (const auto *imports = FindChild(*rootElement, "Imports"))
         {
@@ -3104,9 +3556,14 @@ namespace NGIN::CLI
                 {
                     ParseWorkspaceBuildPolicy(*build, *path, profile);
                 }
-                if (const auto *quality = FindChild(*node, "Quality"))
+                if (FindChild(*node, "Quality") != nullptr)
                 {
-                    ParseWorkspaceQualityPolicy(*quality, *path, profile);
+                    throw std::runtime_error(path->string() +
+                                             ": legacy <Quality>/<Analyzer> is not supported; use <Tooling>/<Run>");
+                }
+                if (const auto *tooling = FindChild(*node, "Tooling"))
+                {
+                    ParseWorkspaceToolingPolicy(*tooling, *path, profile);
                 }
                 if (const auto *environment = FindChild(*node, "Environment"))
                 {
@@ -3141,9 +3598,14 @@ namespace NGIN::CLI
                     {
                         ParseWorkspaceBuildPolicy(*build, *path, profile, std::string{productOverlay->name});
                     }
-                    if (const auto *quality = FindChild(*productOverlay, "Quality"))
+                    if (FindChild(*productOverlay, "Quality") != nullptr)
                     {
-                        ParseWorkspaceQualityPolicy(*quality, *path, profile, std::string{productOverlay->name});
+                        throw std::runtime_error(path->string() +
+                                                 ": legacy <Quality>/<Analyzer> is not supported; use <Tooling>/<Run>");
+                    }
+                    if (const auto *tooling = FindChild(*productOverlay, "Tooling"))
+                    {
+                        ParseWorkspaceToolingPolicy(*tooling, *path, profile, std::string{productOverlay->name});
                     }
                     if (const auto *environment = FindChild(*productOverlay, "Environment"))
                     {
@@ -3421,18 +3883,205 @@ namespace NGIN::CLI
             {
                 for (const auto *tool : ChildElements(*exports, "Tool"))
                 {
+                    ValidateAllowedAttributes(*tool, path,
+                                              {"Name", "Kind", "Executable", "OverrideEnvironment",
+                                               "VersionRange", "Profile", "Platform", "OperatingSystem",
+                                               "Architecture", "BuildType", "Environment", "Condition"});
                     ToolDeclaration declaration{};
                     declaration.name = Attribute(*tool, "Name").value_or(toolProductName);
                     declaration.kind = Attribute(*tool, "Kind").value_or("Generator");
-                    declaration.executable = RequireAttribute(*tool, "Executable", path);
+                    declaration.executable = Attribute(*tool, "Executable").value_or("");
+                    declaration.overrideEnvironment = Attribute(*tool, "OverrideEnvironment").value_or("");
+                    declaration.versionRange = Attribute(*tool, "VersionRange").value_or("");
+                    declaration.selectors = ParseSelection(*tool, path);
+                    if (const auto *system = FindChild(*tool, "SystemExecutable"))
+                    {
+                        ValidateAllowedAttributes(*system, path, {"Name", "OverrideEnvironment", "VersionRange"});
+                        if (!declaration.executable.empty())
+                            throw std::runtime_error(path.string() + ": tool '" + declaration.name +
+                                                     "' cannot declare both Executable and SystemExecutable");
+                        declaration.systemExecutable = true;
+                        declaration.executable = RequireAttribute(*system, "Name", path);
+                        declaration.overrideEnvironment =
+                            Attribute(*system, "OverrideEnvironment").value_or(declaration.overrideEnvironment);
+                        declaration.versionRange =
+                            Attribute(*system, "VersionRange").value_or(declaration.versionRange);
+                    }
+                    if (declaration.executable.empty())
+                        throw std::runtime_error(path.string() + ": tool '" + declaration.name +
+                                                 "' requires Executable or SystemExecutable");
                     package.tools.push_back(declaration);
 
-                    ExecutableArtifact artifact{};
-                    artifact.name = declaration.name;
-                    artifact.target = declaration.executable;
-                    artifact.exported = true;
-                    package.artifacts.executables.push_back(std::move(artifact));
+                    if (!declaration.systemExecutable)
+                    {
+                        ExecutableArtifact artifact{};
+                        artifact.name = declaration.name;
+                        artifact.target = declaration.executable;
+                        artifact.exported = true;
+                        package.artifacts.executables.push_back(std::move(artifact));
+                    }
                 }
+            }
+        }
+
+        if (const auto *drivers = FindChild(*rootElement, "ToolDrivers"))
+        {
+            std::set<std::string> names{};
+            for (const auto *driver : ChildElements(*drivers, "Driver"))
+            {
+                ValidateAllowedAttributes(*driver, path,
+                                          {"Name", "Protocol", "Executable", "Adapter", "OverrideEnvironment",
+                                           "Version", "Probe", "Profile", "Platform",
+                                           "OperatingSystem", "Architecture", "BuildType", "Environment",
+                                           "Condition"});
+                ToolDriverDeclaration parsed{};
+                parsed.name = RequireAttribute(*driver, "Name", path);
+                if (!names.insert(parsed.name).second)
+                {
+                    throw std::runtime_error(path.string() + ": duplicate tool driver '" + parsed.name + "'");
+                }
+                parsed.protocol = Attribute(*driver, "Protocol").value_or(parsed.protocol);
+                if (parsed.protocol != "NGIN.ToolDriver/1")
+                {
+                    throw std::runtime_error(path.string() + ": unsupported tool driver protocol '" +
+                                             parsed.protocol + "'");
+                }
+                parsed.executable = Attribute(*driver, "Executable").value_or("");
+                parsed.adapter = Attribute(*driver, "Adapter").value_or("");
+                parsed.overrideEnvironment = Attribute(*driver, "OverrideEnvironment").value_or("");
+                parsed.version = Attribute(*driver, "Version").value_or(package.version);
+                parsed.probe = BoolAttribute(*driver, "Probe", false);
+                if (parsed.executable.empty() == parsed.adapter.empty())
+                {
+                    throw std::runtime_error(path.string() + ": tool driver '" + parsed.name +
+                                             "' requires exactly one of Executable or Adapter");
+                }
+                parsed.selectors = ParseSelection(*driver, path);
+                if (const auto *capabilities = FindChild(*driver, "Capabilities"))
+                {
+                    std::set<std::string> capabilityNames{};
+                    for (const auto *capability : ChildElements(*capabilities, "Capability"))
+                    {
+                        const auto name = RequireAttribute(*capability, "Name", path);
+                        if (!capabilityNames.insert(name).second)
+                            throw std::runtime_error(path.string() + ": duplicate capability '" + name +
+                                                     "' on tool driver '" + parsed.name + "'");
+                        parsed.capabilities.push_back(name);
+                    }
+                }
+                package.toolDrivers.push_back(std::move(parsed));
+            }
+        }
+
+        if (const auto *actions = FindChild(*rootElement, "ToolActions"))
+        {
+            std::set<std::string> names{};
+            for (const auto *action : ChildElements(*actions, "Action"))
+            {
+                ValidateAllowedAttributes(*action, path,
+                                          {"Name", "Kind", "Tool", "Driver", "ToolVersionRange",
+                                           "DriverVersionRange", "Profile", "Platform",
+                                           "OperatingSystem", "Architecture", "BuildType", "Environment",
+                                           "Condition"});
+                ToolActionDeclaration parsed{};
+                parsed.name = RequireAttribute(*action, "Name", path);
+                if (!names.insert(parsed.name).second)
+                {
+                    throw std::runtime_error(path.string() + ": duplicate tool action '" + parsed.name + "'");
+                }
+                parsed.kind = Attribute(*action, "Kind").value_or(parsed.kind);
+                if (!IsToolActionKind(parsed.kind))
+                {
+                    throw std::runtime_error(path.string() + ": unsupported tool action kind '" + parsed.kind + "'");
+                }
+                parsed.toolName = RequireAttribute(*action, "Tool", path);
+                parsed.driverName = RequireAttribute(*action, "Driver", path);
+                parsed.toolVersionRange = Attribute(*action, "ToolVersionRange").value_or("");
+                parsed.driverVersionRange = Attribute(*action, "DriverVersionRange").value_or("");
+                parsed.selectors = ParseSelection(*action, path);
+                std::set<std::string> inputContracts{};
+                for (const auto *accepts : ChildElements(*action, "Accepts"))
+                {
+                    const auto contract = RequireAttribute(*accepts, "Contract", path);
+                    if (!inputContracts.insert(contract).second)
+                        throw std::runtime_error(path.string() + ": duplicate input contract '" + contract +
+                                                 "' on tool action '" + parsed.name + "'");
+                    parsed.inputContracts.push_back(contract);
+                }
+                if (parsed.inputContracts.empty())
+                    throw std::runtime_error(path.string() + ": tool action '" + parsed.name +
+                                             "' requires at least one Accepts contract");
+                if (const auto *capabilities = FindChild(*action, "Capabilities"))
+                {
+                    std::set<std::string> capabilityNames{};
+                    for (const auto *capability : ChildElements(*capabilities, "Capability"))
+                    {
+                        const auto name = RequireAttribute(*capability, "Name", path);
+                        if (!capabilityNames.insert(name).second)
+                            throw std::runtime_error(path.string() + ": duplicate capability '" + name +
+                                                     "' on tool action '" + parsed.name + "'");
+                        parsed.capabilities.push_back(name);
+                    }
+                }
+                if (const auto *environment = FindChild(*action, "Environment"))
+                {
+                    std::set<std::string> names{};
+                    for (const auto *variable : ChildElements(*environment, "Variable"))
+                    {
+                        ValidateAllowedAttributes(*variable, path,
+                                                  {"Name", "Required", "Secret", "CacheKey"});
+                        ToolActionDeclaration::EnvironmentRequirement requirement{};
+                        requirement.name = RequireAttribute(*variable, "Name", path);
+                        if (!names.insert(requirement.name).second)
+                            throw std::runtime_error(path.string() + ": duplicate environment requirement '" +
+                                                     requirement.name + "' on tool action '" + parsed.name + "'");
+                        requirement.required = !Attribute(*variable, "Required").has_value() ||
+                                               BoolAttribute(*variable, "Required");
+                        requirement.secret = BoolAttribute(*variable, "Secret");
+                        requirement.cacheKey = BoolAttribute(*variable, "CacheKey");
+                        parsed.environment.push_back(std::move(requirement));
+                    }
+                }
+                if (const auto *defaults = FindChild(*action, "Defaults"))
+                {
+                    if (const auto *input = FindChild(*defaults, "Input"))
+                    {
+                        parsed.defaultInputScope = Attribute(*input, "Scope").value_or(parsed.defaultInputScope);
+                        if (!IsToolInputScope(parsed.defaultInputScope))
+                        {
+                            throw std::runtime_error(path.string() + ": unsupported tool input scope '" +
+                                                     parsed.defaultInputScope + "'");
+                        }
+                    }
+                }
+                package.toolActions.push_back(std::move(parsed));
+            }
+        }
+
+        for (const auto &action : package.toolActions)
+        {
+            if (std::none_of(package.tools.begin(), package.tools.end(),
+                             [&](const ToolDeclaration &tool) { return tool.name == action.toolName; }))
+            {
+                throw std::runtime_error(path.string() + ": tool action '" + action.name +
+                                         "' references unknown tool '" + action.toolName + "'");
+            }
+            if (std::none_of(package.toolDrivers.begin(), package.toolDrivers.end(),
+                             [&](const ToolDriverDeclaration &driver) { return driver.name == action.driverName; }))
+            {
+                throw std::runtime_error(path.string() + ": tool action '" + action.name +
+                                         "' references unknown driver '" + action.driverName + "'");
+            }
+            const auto &driver = *std::find_if(
+                package.toolDrivers.begin(), package.toolDrivers.end(),
+                [&](const ToolDriverDeclaration &candidate) { return candidate.name == action.driverName; });
+            for (const auto &capability : action.capabilities)
+            {
+                if (std::find(driver.capabilities.begin(), driver.capabilities.end(), capability) ==
+                    driver.capabilities.end())
+                    throw std::runtime_error(path.string() + ": tool action '" + action.name +
+                                             "' requests capability '" + capability +
+                                             "' not provided by driver '" + driver.name + "'");
             }
         }
 
@@ -3446,6 +4095,10 @@ namespace NGIN::CLI
             {
                 ValidateSelectionConditionRefs(tool.selectors, conditions, path);
             }
+            for (const auto &driver : package.toolDrivers)
+                ValidateSelectionConditionRefs(driver.selectors, conditions, path);
+            for (const auto &action : package.toolActions)
+                ValidateSelectionConditionRefs(action.selectors, conditions, path);
             for (const auto &module : package.modules)
             {
                 ValidateSelectionConditionRefs(module.selectors, conditions, path);
@@ -3465,9 +4118,9 @@ namespace NGIN::CLI
                 ValidateBuildSettingConditionRefs(feature.build.linkOptions, conditions, path);
                 ValidateRuntimeConditionRefs(feature.runtime, conditions, path);
                 ValidateGeneratorConditionRefs(feature.generators, conditions, path);
-                for (const auto &analyzer : feature.quality.analyzers)
+                for (const auto &run : feature.tooling.runs)
                 {
-                    ValidateSelectionConditionRefs(analyzer.selectors, conditions, path);
+                    ValidateSelectionConditionRefs(run.selectors, conditions, path);
                 }
             }
         }
@@ -4189,10 +4842,10 @@ namespace NGIN::CLI
             }
         }
 
-        auto ParseQualitySection(const XmlElement &qualityNode, const fs::path &path, QualityDefinition &quality)
+        auto ParseToolingSection(const XmlElement &toolingNode, const fs::path &path, ToolingDefinition &tooling)
             -> void
         {
-            ParseQualityAnalyzers(qualityNode, path, quality, true);
+            ParseToolingRuns(toolingNode, path, tooling, true);
         }
 
         auto ParseRuntimeSection(const XmlElement &runtimeNode, const fs::path &path, RuntimeDefinition &runtime)
@@ -4681,14 +5334,17 @@ namespace NGIN::CLI
                                             .reason = "project environment contribution",
                                         });
             }
-            if (const auto *quality = FindChild(rootElement, "Quality"))
+            if (FindChild(rootElement, "Quality") != nullptr || FindChild(product, "Quality") != nullptr)
             {
-                ParseQualitySection(*quality, path, project.quality);
+                throw std::runtime_error(path.string() +
+                                         ": legacy <Quality>/<Analyzer> is not supported; use <Tooling>/<Run>");
             }
-            if (const auto *quality = FindChild(product, "Quality"))
+            if (const auto *tooling = FindChild(product, "Tooling"))
             {
-                ParseQualitySection(*quality, path, project.quality);
+                ParseToolingSection(*tooling, path, project.tooling);
             }
+            ParseToolingResolutionPolicy(product, path, project.toolingResolutionPolicy);
+            baseProfile.toolingResolutionPolicy = project.toolingResolutionPolicy;
             {
                 std::set<std::string> launchNames{};
                 auto addLaunch = [&](const XmlElement &node, const std::string &defaultName) {
@@ -4745,6 +5401,7 @@ namespace NGIN::CLI
                 }
                 if (const auto *productOverlay = FindChild(*profileNode, productKind))
                 {
+                    ParseToolingResolutionPolicy(*productOverlay, path, profile.toolingResolutionPolicy);
                     if (const auto *build = FindChild(*productOverlay, "Build"))
                     {
                         ParseBuildSection(*build, path, project, "profile:" + profile.name);
@@ -4819,10 +5476,15 @@ namespace NGIN::CLI
                                                 });
                         project.environments.push_back(std::move(env));
                     }
-                    if (const auto *quality = FindChild(*productOverlay, "Quality"))
+                    if (FindChild(*productOverlay, "Quality") != nullptr)
                     {
-                        profile.quality = project.quality;
-                        ParseQualitySection(*quality, path, profile.quality);
+                        throw std::runtime_error(path.string() +
+                                                 ": legacy <Quality>/<Analyzer> is not supported; use <Tooling>/<Run>");
+                    }
+                    if (const auto *tooling = FindChild(*productOverlay, "Tooling"))
+                    {
+                        profile.tooling = project.tooling;
+                        ParseToolingSection(*tooling, path, profile.tooling);
                     }
                     std::set<std::string> packageOutputNames{};
                     for (const auto *packageOutput : ChildElements(*productOverlay, "PackageOutput"))
@@ -5432,40 +6094,89 @@ namespace NGIN::CLI
                 }
             }
 
-            for (const auto &analyzerPolicy : policy.analyzers)
+            for (const auto &runPolicy : policy.toolRuns)
             {
-                if (!analyzerPolicy.productKind.empty() && analyzerPolicy.productKind != project.productKind)
+                if (!runPolicy.productKind.empty() && runPolicy.productKind != project.productKind)
                 {
                     continue;
                 }
-                AnalyzerDefinition analyzer{};
-                analyzer.name = analyzerPolicy.name;
-                analyzer.toolName = analyzerPolicy.toolName.empty() ? analyzer.name : analyzerPolicy.toolName;
-                analyzer.packageName = analyzerPolicy.packageName;
-                analyzer.scope = analyzerPolicy.scope;
-                analyzer.enabled = analyzerPolicy.enabled;
-                analyzer.severity = analyzerPolicy.severity;
-                analyzer.configPath = analyzerPolicy.configPath;
-                analyzer.configOptional = analyzerPolicy.configOptional;
-                ApplyScopeSelector(scope, analyzer.selectors);
-                analyzer.provenance = ContributionProvenance{
-                    .sourceKind = workspaceSourceKind(analyzerPolicy.productKind),
+                ToolRunDefinition run{};
+                run.name = runPolicy.name;
+                run.action = runPolicy.action;
+                run.enabled = runPolicy.enabled;
+                run.disabled = runPolicy.remove;
+                run.input.contract = runPolicy.inputContract;
+                run.input.scope = runPolicy.inputScope;
+                run.input.merge = runPolicy.inputMerge;
+                run.input.contractExplicit = runPolicy.inputContractExplicit;
+                run.input.scopeExplicit = runPolicy.inputScopeExplicit;
+                run.input.includeGeneratedExplicit = runPolicy.includeGeneratedExplicit;
+                run.input.includeGenerated = runPolicy.includeGenerated;
+                run.input.includes = runPolicy.includes;
+                run.input.excludes = runPolicy.excludes;
+                run.hasInput = runPolicy.hasInput;
+                for (const auto &configPolicy : runPolicy.configs)
+                {
+                    run.configs.push_back(ToolConfigDefinition{
+                        .name = configPolicy.name,
+                        .path = configPolicy.path,
+                        .optional = configPolicy.optional,
+                    });
+                }
+                run.policy.gate = runPolicy.gate;
+                run.policy.failOn = runPolicy.failOn;
+                run.policy.baseline = runPolicy.baseline;
+                run.policy.newFindingsOnly = runPolicy.newFindingsOnly;
+                run.policy.maxFindings = runPolicy.maxFindings;
+                run.policy.maxWarnings = runPolicy.maxWarnings;
+                for (const auto &mapping : runPolicy.severityMappings)
+                    run.policy.severityMappings.push_back({.rule = mapping.rule, .severity = mapping.severity});
+                for (const auto &suppression : runPolicy.suppressions)
+                    run.policy.suppressions.push_back({
+                        .rule = suppression.rule,
+                        .fingerprint = suppression.fingerprint,
+                        .reason = suppression.reason,
+                        .expires = suppression.expires,
+                    });
+                for (const auto &budget : runPolicy.ruleBudgets)
+                    run.policy.ruleBudgets.push_back({.rule = budget.rule, .maximum = budget.maximum});
+                run.hasPolicy = runPolicy.hasPolicy;
+                run.execution.jobs = runPolicy.jobs;
+                run.execution.timeout = runPolicy.timeout;
+                run.execution.cache = runPolicy.cache;
+                run.execution.failureStrategy = runPolicy.failureStrategy;
+                run.execution.weight = runPolicy.weight;
+                run.execution.maxParallelism = runPolicy.maxParallelism;
+                run.execution.exclusiveResource = runPolicy.exclusiveResource;
+                run.hasExecution = runPolicy.hasExecution;
+                run.dependencies = runPolicy.dependencies;
+                for (const auto &reportPolicy : runPolicy.reports)
+                {
+                    run.reports.push_back(ToolReportDefinition{
+                        .name = reportPolicy.name,
+                        .format = reportPolicy.format,
+                        .path = reportPolicy.path,
+                    });
+                }
+                ApplyScopeSelector(scope, run.selectors);
+                run.provenance = ContributionProvenance{
+                    .sourceKind = workspaceSourceKind(runPolicy.productKind),
                     .sourceName = policy.name.empty() ? workspace->name : policy.name,
                     .manifestPath = workspace->path,
-                    .reason = analyzerPolicy.productKind.empty() ? "workspace profile analyzer policy"
-                                                                 : "workspace product-kind analyzer policy",
+                    .reason = runPolicy.productKind.empty() ? "workspace profile tool run policy"
+                                                            : "workspace product-kind tool run policy",
                 };
-                auto insertAt = project.quality.analyzers.end();
+                auto insertAt = project.tooling.runs.end();
                 if (!policy.name.empty())
                 {
-                    insertAt = std::find_if(project.quality.analyzers.begin(), project.quality.analyzers.end(),
-                                            [&](const AnalyzerDefinition &existing) {
+                    insertAt = std::find_if(project.tooling.runs.begin(), project.tooling.runs.end(),
+                                            [&](const ToolRunDefinition &existing) {
                                                 return existing.selectors.profile == policy.name &&
                                                        existing.provenance.sourceKind != "workspace-profile" &&
                                                        existing.provenance.sourceKind != "workspace-product-profile";
                                             });
                 }
-                project.quality.analyzers.insert(insertAt, std::move(analyzer));
+                project.tooling.runs.insert(insertAt, std::move(run));
             }
 
             if (!policy.environmentVariables.empty())

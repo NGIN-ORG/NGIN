@@ -74,14 +74,12 @@ export function parseCliDiagnostics(output: string): ParsedCliDiagnostic[] {
 
     const locationMatch = body.match(/^((?:[A-Za-z]:)?[^:]+):(\d+):(\d+):\s+(.+)$/);
     if (locationMatch && looksLikePath(locationMatch[1])) {
-      const sourceMatch = locationMatch[4].match(/\[(clang-tidy):[^\]]+\]$/);
       diagnostics.push({
         file: locationMatch[1],
         line: Number(locationMatch[2]),
         column: Number(locationMatch[3]),
         message: locationMatch[4],
-        severity,
-        source: sourceMatch?.[1]
+        severity
       });
       continue;
     }

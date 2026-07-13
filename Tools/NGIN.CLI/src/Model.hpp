@@ -15,6 +15,16 @@ namespace NGIN::CLI
 {
     namespace fs = std::filesystem;
 
+    struct ToolingResolutionPolicy
+    {
+        bool allowPath{true};
+        bool requireVersion{false};
+        bool requireTrustedPackage{false};
+        bool allowPathExplicit{false};
+        bool requireVersionExplicit{false};
+        bool requireTrustedPackageExplicit{false};
+    };
+
     struct WorkspaceManifest
     {
         struct Platform
@@ -57,17 +67,78 @@ namespace NGIN::CLI
                 std::string removeIdentity{};
             };
 
-            struct AnalyzerPolicy
+            struct ToolRunPolicy
             {
+                struct ConfigPolicy
+                {
+                    std::string name{"primary"};
+                    std::string path{};
+                    bool optional{false};
+                };
+
+                struct ReportPolicy
+                {
+                    std::string name{};
+                    std::string format{};
+                    std::string path{};
+                };
+
+                struct SeverityPolicy
+                {
+                    std::string rule{};
+                    std::string severity{};
+                };
+
+                struct SuppressionPolicy
+                {
+                    std::string rule{};
+                    std::string fingerprint{};
+                    std::string reason{};
+                    std::string expires{};
+                };
+
+                struct RuleBudgetPolicy
+                {
+                    std::string rule{};
+                    std::size_t maximum{};
+                };
+
                 std::string productKind{};
                 std::string name{};
-                std::string toolName{};
-                std::string packageName{};
-                std::string scope{"Build"};
+                std::string action{};
                 bool enabled{true};
-                std::string severity{"Warning"};
-                std::string configPath{};
-                bool configOptional{false};
+                bool remove{false};
+                bool hasInput{false};
+                std::string inputContract{};
+                std::string inputScope{"Product"};
+                std::string inputMerge{"Replace"};
+                bool inputContractExplicit{false};
+                bool inputScopeExplicit{false};
+                bool includeGeneratedExplicit{false};
+                bool includeGenerated{false};
+                std::vector<std::string> includes{};
+                std::vector<std::string> excludes{};
+                std::vector<ConfigPolicy> configs{};
+                bool hasPolicy{false};
+                bool gate{false};
+                std::string failOn{"Error"};
+                std::string baseline{};
+                bool newFindingsOnly{false};
+                std::optional<std::size_t> maxFindings{};
+                std::optional<std::size_t> maxWarnings{};
+                std::vector<SeverityPolicy> severityMappings{};
+                std::vector<SuppressionPolicy> suppressions{};
+                std::vector<RuleBudgetPolicy> ruleBudgets{};
+                bool hasExecution{false};
+                std::string jobs{"Auto"};
+                std::string timeout{};
+                std::string cache{"Off"};
+                std::string failureStrategy{"DependencyAware"};
+                std::size_t weight{1};
+                std::size_t maxParallelism{1};
+                std::string exclusiveResource{};
+                std::vector<std::string> dependencies{};
+                std::vector<ReportPolicy> reports{};
             };
 
             struct EnvironmentVariablePolicy
@@ -192,7 +263,7 @@ namespace NGIN::CLI
             std::optional<std::string> backend{};
             std::optional<std::string> buildMode{};
             std::vector<BuildSettingPolicy> buildSettings{};
-            std::vector<AnalyzerPolicy> analyzers{};
+            std::vector<ToolRunPolicy> toolRuns{};
             std::vector<EnvironmentVariablePolicy> environmentVariables{};
             std::vector<StageInputPolicy> stageInputs{};
             std::vector<DependencyUsePolicy> dependencyUses{};
@@ -220,6 +291,7 @@ namespace NGIN::CLI
         std::string versionResolution{"HighestCompatible"};
         std::string defaultFeatures{"Explicit"};
         std::string lockFile{"Optional"};
+        ToolingResolutionPolicy toolingResolutionPolicy{};
         std::vector<fs::path> projects{};
     };
 
@@ -481,6 +553,44 @@ namespace NGIN::CLI
         std::string name{};
         std::string kind{"Generator"};
         std::string executable{};
+        std::string overrideEnvironment{};
+        std::string versionRange{};
+        bool systemExecutable{false};
+        SelectorSet selectors{};
+    };
+
+    struct ToolDriverDeclaration
+    {
+        std::string name{};
+        std::string protocol{"NGIN.ToolDriver/1"};
+        std::string executable{};
+        std::string adapter{};
+        std::string overrideEnvironment{};
+        std::string version{};
+        bool probe{false};
+        std::vector<std::string> capabilities{};
+        SelectorSet selectors{};
+    };
+
+    struct ToolActionDeclaration
+    {
+        struct EnvironmentRequirement
+        {
+            std::string name{};
+            bool required{true};
+            bool secret{false};
+            bool cacheKey{false};
+        };
+        std::string name{};
+        std::string kind{"Custom"};
+        std::string toolName{};
+        std::string driverName{};
+        std::string toolVersionRange{};
+        std::string driverVersionRange{};
+        std::vector<std::string> inputContracts{};
+        std::vector<std::string> capabilities{};
+        std::vector<EnvironmentRequirement> environment{};
+        std::string defaultInputScope{"Product"};
         SelectorSet selectors{};
     };
 
@@ -562,23 +672,102 @@ namespace NGIN::CLI
         std::vector<RuntimeReference> disablePlugins{};
     };
 
-    struct AnalyzerDefinition
+    struct ToolConfigDefinition
+    {
+        std::string name{"primary"};
+        std::string path{};
+        bool optional{false};
+    };
+
+    struct ToolReportDefinition
     {
         std::string name{};
-        std::string toolName{};
+        std::string format{};
+        std::string path{};
+    };
+
+    struct ToolInputDefinition
+    {
+        std::string contract{};
+        std::string scope{"Product"};
+        bool includeGenerated{false};
+        std::string merge{"Replace"};
+        bool contractExplicit{false};
+        bool scopeExplicit{false};
+        bool includeGeneratedExplicit{false};
+        std::vector<std::string> includes{};
+        std::vector<std::string> excludes{};
+    };
+
+    struct ToolPolicyDefinition
+    {
+        struct SeverityMapping
+        {
+            std::string rule{};
+            std::string severity{};
+        };
+
+        struct Suppression
+        {
+            std::string rule{};
+            std::string fingerprint{};
+            std::string reason{};
+            std::string expires{};
+        };
+
+        struct RuleBudget
+        {
+            std::string rule{};
+            std::size_t maximum{};
+        };
+
+        bool gate{false};
+        std::string failOn{"Error"};
+        std::string baseline{};
+        bool newFindingsOnly{false};
+        std::optional<std::size_t> maxFindings{};
+        std::optional<std::size_t> maxWarnings{};
+        std::vector<SeverityMapping> severityMappings{};
+        std::vector<Suppression> suppressions{};
+        std::vector<RuleBudget> ruleBudgets{};
+    };
+
+    struct ToolExecutionDefinition
+    {
+        std::string jobs{"Auto"};
+        std::string timeout{};
+        std::string cache{"Off"};
+        std::string failureStrategy{"DependencyAware"};
+        std::size_t weight{1};
+        std::size_t maxParallelism{1};
+        std::string exclusiveResource{};
+    };
+
+    struct ToolRunDefinition
+    {
+        std::string name{};
+        std::string action{};
         std::string packageName{};
-        std::string scope{"Build"};
+        std::string packageFeature{};
         bool enabled{true};
-        std::string severity{"Warning"};
-        std::string configPath{};
-        bool configOptional{false};
+        bool disabled{false};
+        bool excluded{false};
+        ToolInputDefinition input{};
+        bool hasInput{false};
+        std::vector<ToolConfigDefinition> configs{};
+        ToolPolicyDefinition policy{};
+        bool hasPolicy{false};
+        ToolExecutionDefinition execution{};
+        bool hasExecution{false};
+        std::vector<std::string> dependencies{};
+        std::vector<ToolReportDefinition> reports{};
         SelectorSet selectors{};
         ContributionProvenance provenance{};
     };
 
-    struct QualityDefinition
+    struct ToolingDefinition
     {
-        std::vector<AnalyzerDefinition> analyzers{};
+        std::vector<ToolRunDefinition> runs{};
     };
 
     struct PackageManifest
@@ -599,6 +788,8 @@ namespace NGIN::CLI
         std::vector<ModuleDescriptor> modules{};
         std::vector<PluginDescriptor> plugins{};
         std::vector<ToolDeclaration> tools{};
+        std::vector<ToolDriverDeclaration> toolDrivers{};
+        std::vector<ToolActionDeclaration> toolActions{};
         struct Feature
         {
             std::string name{};
@@ -612,7 +803,7 @@ namespace NGIN::CLI
             RuntimeDefinition runtime{};
             std::vector<EnvironmentVariable> variables{};
             std::vector<GeneratorDeclaration> generators{};
-            QualityDefinition quality{};
+            ToolingDefinition tooling{};
         };
         std::vector<Feature> features{};
     };
@@ -741,7 +932,8 @@ namespace NGIN::CLI
         RuntimeDefinition runtime{};
         std::vector<PackageOutputDefinition> packageOutputs{};
         std::vector<PublishDefinition> publishes{};
-        QualityDefinition quality{};
+        ToolingDefinition tooling{};
+        ToolingResolutionPolicy toolingResolutionPolicy{};
     };
 
     struct ProjectManifest
@@ -769,7 +961,8 @@ namespace NGIN::CLI
         std::vector<LocalSettingsImport> localSettingsImports{};
         RuntimeDefinition runtime{};
         std::vector<LaunchDefinition> launches{};
-        QualityDefinition quality{};
+        ToolingDefinition tooling{};
+        ToolingResolutionPolicy toolingResolutionPolicy{};
         std::vector<EnvironmentDefinition> environments{};
         std::vector<ProfileDefinition> profiles{};
     };
@@ -805,7 +998,7 @@ namespace NGIN::CLI
         RuntimeDefinition runtime{};
         std::vector<EnvironmentVariable> variables{};
         std::vector<GeneratorDeclaration> generators{};
-        QualityDefinition quality{};
+        ToolingDefinition tooling{};
     };
 
     struct ResolvedGenerator
@@ -852,6 +1045,7 @@ namespace NGIN::CLI
         std::vector<std::string> enabledPlugins{};
         std::string targetAbiTag{};
         std::optional<WorkspaceManifest::Toolchain> selectedToolchain{};
+        ToolingResolutionPolicy toolingResolutionPolicy{};
         std::vector<LibraryArtifact> libraries{};
         std::vector<ExecutableArtifact> executables{};
         std::optional<ExecutableArtifact> selectedExecutable{};
@@ -920,7 +1114,7 @@ namespace NGIN::CLI
             std::size_t runtimeModules{};
             std::size_t environmentVariables{};
             std::size_t publishes{};
-            std::size_t analyzers{};
+            std::size_t toolRuns{};
             std::size_t diagnostics{};
         };
 
@@ -1042,16 +1236,159 @@ namespace NGIN::CLI
             Provenance provenance{};
         };
 
-        struct QualityAnalyzer
+        struct ToolRun
         {
             std::string name{};
-            std::string tool{};
+            std::string action{};
+            std::string actionKind{};
             std::string packageName{};
-            std::string scope{};
-            std::string severity{};
-            std::string configPath{};
-            bool configOptional{};
+            std::string packageFeature{};
+            std::string tool{};
+            std::string toolPath{};
+            std::string toolSource{};
+            std::string driver{};
+            std::string driverPath{};
+            std::string driverSource{};
+            std::string driverProtocol{};
+            std::string state{"ready"};
+            std::string diagnostic{};
+            std::string inputContract{};
+            std::string inputScope{};
+            bool includeGenerated{};
+            std::size_t configCount{};
+            std::vector<std::string> configPaths{};
+            std::vector<std::string> includes{};
+            std::vector<std::string> excludes{};
+            std::vector<std::string> inputFiles{};
+            bool gate{};
+            std::string failOn{};
+            std::string baseline{};
+            bool newFindingsOnly{};
+            std::string cache{};
+            std::string jobs{};
+            std::string timeout{};
+            std::string failureStrategy{};
+            std::size_t weight{1};
+            std::size_t maxParallelism{1};
+            std::string exclusiveResource{};
+            std::size_t reportCount{};
+            std::vector<std::string> reportPaths{};
+            std::vector<std::string> reportFormats{};
+            std::vector<std::string> dependencies{};
             Provenance provenance{};
+        };
+
+        struct Tool
+        {
+            std::string identity{};
+            std::string name{};
+            std::string packageName{};
+            std::string kind{};
+            std::string executable{};
+            std::string resolvedPath{};
+            std::string resolutionSource{};
+            std::string versionRange{};
+            bool systemExecutable{};
+            Provenance provenance{};
+        };
+
+        struct ToolDriver
+        {
+            std::string identity{};
+            std::string name{};
+            std::string packageName{};
+            std::string protocol{};
+            std::string version{};
+            std::string executable{};
+            std::string resolvedPath{};
+            std::string resolutionSource{};
+            bool probe{};
+            std::vector<std::string> capabilities{};
+            Provenance provenance{};
+        };
+
+        struct ToolAction
+        {
+            struct EnvironmentRequirement
+            {
+                std::string name{};
+                bool required{};
+                bool secret{};
+                bool cacheKey{};
+                bool resolved{};
+            };
+            std::string identity{};
+            std::string name{};
+            std::string packageName{};
+            std::string kind{};
+            std::string tool{};
+            std::string driver{};
+            std::vector<std::string> inputContracts{};
+            std::vector<std::string> capabilities{};
+            std::string defaultInputScope{};
+            std::vector<EnvironmentRequirement> environment{};
+            Provenance provenance{};
+        };
+
+        struct ToolInputSet
+        {
+            struct TranslationUnit
+            {
+                std::string source{};
+                std::string workingDirectory{};
+                std::string compiler{};
+                std::vector<std::string> arguments{};
+                std::string targetPlatform{};
+                std::string language{};
+                std::string owner{};
+                bool generated{};
+                std::string commandDigest{};
+            };
+            std::string identity{};
+            std::string run{};
+            std::string contract{};
+            std::string scope{};
+            std::string state{"resolved"};
+            std::string source{};
+            std::string signature{};
+            bool includeGenerated{};
+            std::vector<std::string> files{};
+            std::vector<TranslationUnit> translationUnits{};
+        };
+
+        struct ToolPolicy
+        {
+            std::string identity{};
+            std::string run{};
+            bool gate{};
+            std::string failOn{};
+            std::string baseline{};
+            bool newFindingsOnly{};
+            std::optional<std::size_t> maxFindings{};
+            std::optional<std::size_t> maxWarnings{};
+        };
+
+        struct ToolReport
+        {
+            std::string identity{};
+            std::string run{};
+            std::string name{};
+            std::string format{};
+            std::string path{};
+        };
+
+        struct ToolDependency
+        {
+            std::string from{};
+            std::string to{};
+            std::string kind{};
+        };
+
+        struct ToolPlanDiagnostic
+        {
+            std::string run{};
+            std::string severity{};
+            std::string message{};
         };
 
         std::string schemaVersion{"4.0"};
@@ -1077,7 +1414,15 @@ namespace NGIN::CLI
         Launch launch{};
         std::vector<Launch> launches{};
         std::vector<Publish> publishes{};
-        std::vector<QualityAnalyzer> analyzers{};
+        std::vector<Tool> tools{};
+        std::vector<ToolDriver> toolDrivers{};
+        std::vector<ToolAction> toolActions{};
+        std::vector<ToolRun> toolRuns{};
+        std::vector<ToolInputSet> toolInputSets{};
+        std::vector<ToolPolicy> toolPolicies{};
+        std::vector<ToolReport> toolReports{};
+        std::vector<ToolDependency> toolDependencies{};
+        std::vector<ToolPlanDiagnostic> toolDiagnostics{};
     };
 
     struct GeneratedLaunchPaths

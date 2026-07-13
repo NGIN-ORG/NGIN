@@ -348,11 +348,6 @@ TEST_CASE("workspace profile policy applies to projects without local profiles")
       <Build>
         <Define Name="WORKSPACE_SHIPPING" Value="1" />
       </Build>
-      <Quality>
-        <Analyzer Name="workspace-clang-tidy" Severity="Error">
-          <Config Path=".clang-tidy" />
-        </Analyzer>
-      </Quality>
       <Environment>
         <Env Name="WORKSPACE_ENV" Value="production" />
       </Environment>
@@ -372,9 +367,6 @@ TEST_CASE("workspace profile policy applies to projects without local profiles")
         <Build>
           <Define Name="WORKSPACE_APPLICATION" Value="1" />
         </Build>
-        <Quality>
-          <Analyzer Name="workspace-app-analyzer" Severity="Error" />
-        </Quality>
         <Environment>
           <Env Name="WORKSPACE_APP_ENV" Value="1" />
         </Environment>
@@ -495,19 +487,6 @@ TEST_CASE("workspace profile policy applies to projects without local profiles")
 
     REQUIRE(libraryExplainExitCode == 0);
     REQUIRE_THAT(libraryExplainCaptured.str(), ContainsSubstring("result: not selected"));
-
-    ParsedArgs analyzeArgs{};
-    analyzeArgs.projectPath = args.projectPath;
-    analyzeArgs.profileName = "shipping";
-    std::ostringstream analyzeCaptured{};
-    previous = std::cout.rdbuf(analyzeCaptured.rdbuf());
-    const auto analyzeExitCode = CmdAnalyze(temp.path(), analyzeArgs);
-    std::cout.rdbuf(previous);
-
-    REQUIRE(analyzeExitCode == 0);
-    REQUIRE_THAT(analyzeCaptured.str(), ContainsSubstring("workspace-clang-tidy  scope=Build "
-                                                          "severity=Error config=.clang-tidy"));
-    REQUIRE_THAT(analyzeCaptured.str(), ContainsSubstring("workspace-app-analyzer  scope=Build severity=Error"));
 
     ParsedArgs runtimeExplainArgs{};
     runtimeExplainArgs.projectPath = args.projectPath;
@@ -726,7 +705,7 @@ TEST_CASE("project profiles override workspace named product overlays")
     REQUIRE(outputCaptured.str().find("version=0.5.0") == std::string::npos);
 }
 
-TEST_CASE("project profile build and analyzer overlays override workspace policy")
+TEST_CASE("project profile build overlays override workspace policy")
 {
     TempDir temp{};
     const auto projectPath = temp.path() / "App/App.nginproj";
@@ -747,9 +726,6 @@ TEST_CASE("project profile build and analyzer overlays override workspace policy
           <Define Name="APP_ONLY" Value="1" />
         </Build>
       </Application>
-      <Quality>
-        <Analyzer Name="clang-tidy" Severity="Warning" />
-      </Quality>
     </Profile>
   </Profiles>
 </Workspace>
@@ -767,9 +743,6 @@ TEST_CASE("project profile build and analyzer overlays override workspace policy
       <Build>
         <Define Name="APP_MODE" Value="project" />
       </Build>
-      <Quality>
-        <Analyzer Name="clang-tidy" Severity="Error" />
-      </Quality>
     </Application>
   </Profile>
 </Project>
@@ -801,8 +774,6 @@ TEST_CASE("project profile build and analyzer overlays override workspace policy
     REQUIRE_THAT(appCaptured.str(), ContainsSubstring("APP_MODE=project"));
     REQUIRE_THAT(appCaptured.str(), ContainsSubstring("APP_ONLY=1"));
     REQUIRE(appCaptured.str().find("APP_MODE=workspace") == std::string::npos);
-    REQUIRE_THAT(appCaptured.str(), ContainsSubstring(R"("name":"clang-tidy")"));
-    REQUIRE_THAT(appCaptured.str(), ContainsSubstring(R"("severity":"Error")"));
 
     ParsedArgs buildPlanArgs = appArgs;
     buildPlanArgs.graphPlan = "build";
@@ -830,6 +801,40 @@ TEST_CASE("project profile build and analyzer overlays override workspace policy
     REQUIRE(libExitCode == 0);
     REQUIRE_THAT(libCaptured.str(), ContainsSubstring("APP_MODE=workspace"));
     REQUIRE(libCaptured.str().find("APP_ONLY=1") == std::string::npos);
+}
+
+TEST_CASE("workspace tool policies preserve severity suppressions and budgets")
+{
+    TempDir temp{};
+    WriteFile(temp.path() / "Workspace.ngin",
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Workspace SchemaVersion="4" Name="ToolPolicyWorkspace">
+  <Profiles>
+    <Profile Name="ci">
+      <Tooling>
+        <Run Name="analysis" Action="Example.Tooling::analyze">
+          <Policy Gate="true" FailOn="Warning" MaxFindings="4">
+            <Severity Rule="style" To="info" />
+            <Suppress Rule="legacy" Reason="accepted debt" Expires="2099-01-01" />
+            <Budget Rule="security" Max="0" />
+          </Policy>
+        </Run>
+      </Tooling>
+    </Profile>
+  </Profiles>
+</Workspace>
+)xml");
+
+    const auto workspace = LoadWorkspaceManifest(temp.path());
+    REQUIRE(workspace.profiles.size() == 1);
+    REQUIRE(workspace.profiles[0].toolRuns.size() == 1);
+    const auto &run = workspace.profiles[0].toolRuns[0];
+    REQUIRE(run.severityMappings.size() == 1);
+    REQUIRE(run.severityMappings[0].severity == "info");
+    REQUIRE(run.suppressions.size() == 1);
+    REQUIRE(run.suppressions[0].reason == "accepted debt");
+    REQUIRE(run.ruleBudgets.size() == 1);
+    REQUIRE(run.ruleBudgets[0].maximum == 0);
 }
 
 TEST_CASE("workspace duplicate named overlay identities are rejected")
@@ -910,20 +915,20 @@ TEST_CASE("workspace duplicate named overlay identities are rejected")
 )xml");
     REQUIRE_THAT(linkOptionError, ContainsSubstring("duplicate link option 'm' in the same overlay scope"));
 
-    const auto analyzerError = loadError(
+    const auto toolRunError = loadError(
         R"xml(<?xml version="1.0" encoding="utf-8"?>
-<Workspace SchemaVersion="4" Name="DuplicateAnalyzer">
+<Workspace SchemaVersion="4" Name="DuplicateToolRun">
   <Profiles>
     <Profile Name="ci">
-      <Quality>
-        <Analyzer Name="clang-tidy" Severity="Warning" />
-        <Analyzer Name="clang-tidy" Severity="Error" />
-      </Quality>
+      <Tooling>
+        <Run Name="static-analysis" Action="Example.Tooling::analyze" />
+        <Run Name="static-analysis" Action="Example.Tooling::scan" />
+      </Tooling>
     </Profile>
   </Profiles>
 </Workspace>
 )xml");
-    REQUIRE_THAT(analyzerError, ContainsSubstring("duplicate analyzer 'clang-tidy' in the same overlay scope"));
+    REQUIRE_THAT(toolRunError, ContainsSubstring("duplicate tool run 'static-analysis' in the same overlay scope"));
 
     const auto launchError = loadError(
         R"xml(<?xml version="1.0" encoding="utf-8"?>

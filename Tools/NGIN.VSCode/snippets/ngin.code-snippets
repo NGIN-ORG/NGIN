@@ -114,15 +114,16 @@
       "</Runtime>"
     ]
   },
-  "Clang-Tidy Analyzer Package": {
+  "Tooling Run": {
     "scope": "ngin",
-    "prefix": "ngin-clang-tidy",
+    "prefix": "ngin-tooling-run",
     "body": [
-      "<Package Name=\"NGIN.Tooling.ClangTidy\"",
-      "         Version=\"[0.1.0,0.2.0)\"",
-      "         Scope=\"Dev\">",
-      "  <Feature Name=\"Analyzer\" />",
-      "</Package>"
+      "<Tooling>",
+      "  <Run Name=\"${1:quality}\" Action=\"${2:Package.Name::action}\">",
+      "    <Input Scope=\"${3:Product}\" IncludeGenerated=\"${4:false}\" />",
+      "    <Policy Gate=\"${5:true}\" FailOn=\"${6:Warning}\" />",
+      "  </Run>",
+      "</Tooling>"
     ]
   },
   "Command Generator": {
@@ -144,15 +145,18 @@
       "</Generate>"
     ]
   },
-  "Quality Analyzer": {
+  "Tool Driver and Action": {
     "scope": "ngin",
-    "prefix": "ngin-analyzer",
+    "prefix": "ngin-tool-action",
     "body": [
-      "<Quality>",
-      "  <Analyzer Name=\"$1\" Tool=\"$2\" Scope=\"$3\" Severity=\"$4\">",
-      "    <Config Path=\"$5\" Optional=\"true\" />",
-      "  </Analyzer>",
-      "</Quality>"
+      "<ToolDrivers>",
+      "  <Driver Name=\"${1:driver}\" Protocol=\"NGIN.ToolDriver/1\" Executable=\"${2:driver-executable}\" />",
+      "</ToolDrivers>",
+      "<ToolActions>",
+      "  <Action Name=\"${3:analyze}\" Kind=\"${4:Analyze}\" Tool=\"${5:tool}\" Driver=\"${1:driver}\">",
+      "    <Accepts Contract=\"${6:files/v1}\" />",
+      "  </Action>",
+      "</ToolActions>"
     ]
   },
   "Profile": {

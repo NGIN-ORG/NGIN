@@ -394,15 +394,115 @@ export interface GraphPackageOutputPlan {
   provenance?: GraphProvenance;
 }
 
-export interface GraphAnalyzerPlan {
+export interface GraphToolRunPlan {
   name: string;
+  action?: string;
+  kind?: 'Analyze' | 'Format' | 'Scan' | 'Transform' | 'Report' | 'Custom' | string;
   tool?: string;
+  toolPath?: string;
+  toolSource?: string;
   package?: string;
-  scope?: string;
-  severity?: 'error' | 'warning' | 'Error' | 'Warning' | string;
-  configPath?: string;
-  configOptional?: boolean;
+  packageFeature?: string;
+  driver?: string;
+  driverPath?: string;
+  driverSource?: string;
+  driverProtocol?: string;
+  state?: 'ready' | 'disabled' | 'excluded' | 'unavailable' | 'invalid' | string;
+  diagnostic?: string;
+  inputContract?: string;
+  inputScope?: string;
+  includeGenerated?: boolean;
+  configCount?: number;
+  configPaths?: string[];
+  includes?: string[];
+  excludes?: string[];
+  inputFiles?: string[];
+  gate?: boolean;
+  failOn?: 'Info' | 'Warning' | 'Error' | 'Fatal' | string;
+  baseline?: string;
+  newFindingsOnly?: boolean;
+  cache?: 'Off' | 'ReadOnly' | 'WriteOnly' | 'ReadWrite' | string;
+  jobs?: string;
+  timeout?: string;
+  failureStrategy?: 'Continue' | 'FailFast' | 'DependencyAware' | string;
+  weight?: number;
+  maxParallelism?: number;
+  exclusiveResource?: string;
+  reportCount?: number;
+  reportPaths?: string[];
+  reportFormats?: string[];
+  dependencies?: string[];
   provenance?: GraphProvenance;
+}
+
+export interface GraphToolRegistryEntry {
+  identity: string;
+  name?: string;
+  package?: string;
+  kind?: string;
+  executable?: string;
+  resolvedPath?: string;
+  resolutionSource?: string;
+  versionRange?: string;
+  systemExecutable?: boolean;
+  provenance?: GraphProvenance;
+}
+
+export interface GraphToolDriverEntry {
+  identity: string;
+  name?: string;
+  package?: string;
+  protocol?: string;
+  version?: string;
+  executable?: string;
+  resolvedPath?: string;
+  resolutionSource?: string;
+  probe?: boolean;
+  capabilities?: string[];
+  provenance?: GraphProvenance;
+}
+
+export interface GraphToolActionEntry {
+  identity: string;
+  name?: string;
+  package?: string;
+  kind?: string;
+  tool?: string;
+  driver?: string;
+  inputContracts?: string[];
+  capabilities?: string[];
+  defaultInputScope?: string;
+  environment?: Array<{
+    name: string;
+    required: boolean;
+    secret: boolean;
+    cacheKey: boolean;
+    resolved: boolean;
+  }>;
+  provenance?: GraphProvenance;
+}
+
+export interface GraphToolInputSetEntry {
+  identity: string;
+  run?: string;
+  contract?: string;
+  scope?: string;
+  state?: string;
+  source?: string;
+  signature?: string;
+  includeGenerated?: boolean;
+  files?: string[];
+  translationUnits?: Array<{
+    source: string;
+    workingDirectory: string;
+    compiler: string;
+    arguments: string[];
+    targetPlatform: string;
+    language: string;
+    owner: string;
+    generated: boolean;
+    commandDigest: string;
+  }>;
 }
 
 export interface CompositionGraphPayload {
@@ -465,8 +565,16 @@ export interface CompositionGraphPayload {
     launches?: GraphLaunchPlan[];
     publish?: GraphPublishPlan[];
     packageOutputs?: GraphPackageOutputPlan[];
-    quality?: {
-      analyzers?: GraphAnalyzerPlan[];
+    tooling?: {
+      tools?: GraphToolRegistryEntry[];
+      drivers?: GraphToolDriverEntry[];
+      actions?: GraphToolActionEntry[];
+      runs?: GraphToolRunPlan[];
+      inputSets?: GraphToolInputSetEntry[];
+      dependencies?: Array<{ from: string; to: string; kind: 'run' | 'phase' | string }>;
+      policies?: Array<Record<string, unknown>>;
+      reports?: Array<Record<string, unknown>>;
+      diagnostics?: Array<{ run?: string; severity?: string; message?: string }>;
     };
     diagnostics?: GraphDiagnostic[];
   };

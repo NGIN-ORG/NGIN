@@ -467,7 +467,7 @@ A profile may affect:
 - runtime modules
 - launch arguments
 - tests
-- analyzers
+- tool runs and quality gates
 - publish artifacts
 - package policy
 - trust policy
@@ -804,10 +804,11 @@ projects. It does not replace project identity.
         <Toolchain Name="clang-lld" />
       </Defaults>
 
-      <Quality>
-        <TreatWarningsAsErrors Enabled="true" />
-        <Analyzer Name="clang-tidy" Enabled="true" />
-      </Quality>
+      <Tooling>
+        <Run Name="cpp-static-analysis">
+          <Policy Gate="true" FailOn="Warning" />
+        </Run>
+      </Tooling>
     </Profile>
 
     <Profile Name="shipping">
@@ -1393,7 +1394,12 @@ ngin test
 ngin benchmark
 ngin analyze
 ngin format
+ngin scan
+ngin report
+ngin quality
 ngin publish
+
+ngin manifest format
 
 ngin graph
 ngin inspect --format json

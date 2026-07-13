@@ -113,6 +113,39 @@ TEST_CASE("project-reference add edits Uses project dependencies")
     REQUIRE_THAT(ReadFile(appPath), ContainsSubstring(R"(<Project Name="Lib" Path="../Lib/Lib.nginproj" />)"));
 }
 
+TEST_CASE("tool-action add discovers package actions and authors general runs")
+{
+    TempDir temp{};
+    const auto projectPath = temp.path() / "App/App.nginproj";
+    WriteFile(temp.path() / "Workspace.ngin",
+              R"xml(<Workspace SchemaVersion="4" Name="ToolAuthoring">
+  <Projects><Project Path="App/App.nginproj" /></Projects>
+  <Packages><Source Name="local" Path="Packages" /></Packages>
+</Workspace>)xml");
+    WriteFile(projectPath,
+              R"xml(<Project SchemaVersion="4" Name="App"><Application /></Project>)xml");
+    WriteFile(temp.path() / "Packages/Example.Tooling/Example.Tooling.nginpkg",
+              R"xml(<Package SchemaVersion="4" Name="Example.Tooling" Version="1.2.3">
+  <Tool Name="Example.Tooling"><Exports><Tool Name="tool" Executable="tool" /></Exports></Tool>
+  <ToolDrivers><Driver Name="driver" Protocol="NGIN.ToolDriver/1" Executable="driver" /></ToolDrivers>
+  <ToolActions><Action Name="scan" Kind="Scan" Tool="tool" Driver="driver"><Accepts Contract="files/v1" /></Action></ToolActions>
+</Package>)xml");
+
+    ParsedArgs args{};
+    args.projectPath = projectPath.string();
+    args.packageName = "Example.Tooling::scan";
+    args.toolRunName = "security-scan";
+    REQUIRE(CmdToolActionAdd(temp.path(), args) == 0);
+
+    const auto project = LoadProjectManifest(projectPath);
+    REQUIRE(project.packageRefs.size() == 1);
+    REQUIRE(project.packageRefs[0].name == "Example.Tooling");
+    REQUIRE(project.packageRefs[0].scope == "Dev");
+    REQUIRE(project.tooling.runs.size() == 1);
+    REQUIRE(project.tooling.runs[0].name == "security-scan");
+    REQUIRE(project.tooling.runs[0].action == "Example.Tooling::scan");
+}
+
 TEST_CASE("format command rewrites product manifests with deterministic XML layout")
 {
     TempDir temp{};
@@ -124,7 +157,7 @@ TEST_CASE("format command rewrites product manifests with deterministic XML layo
     ParsedArgs args{};
     args.projectPath = projectPath.string();
 
-    REQUIRE(CmdFormat(temp.path(), args) == 0);
+    REQUIRE(CmdManifestFormat(temp.path(), args) == 0);
 
     const auto formatted = ReadFile(projectPath);
     REQUIRE_THAT(formatted, ContainsSubstring("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n\n"));
@@ -169,7 +202,8 @@ TEST_CASE("schema command emits editor metadata")
     REQUIRE_THAT(captured.str(), ContainsSubstring(R"("package-output")"));
     REQUIRE_THAT(captured.str(), ContainsSubstring(R"("convention")"));
     REQUIRE_THAT(captured.str(), ContainsSubstring(R"("env")"));
-    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("analyzer")"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("tooling")"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("run")"));
 }
 
 TEST_CASE("package pack writes package manifest from PackageOutput")

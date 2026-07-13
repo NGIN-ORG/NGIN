@@ -1,0 +1,247 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ngin.dev/schemas/ngin-tool-driver-v1.schema.json",
+  "title": "NGIN Tool Driver Protocol 1",
+  "oneOf": [
+    { "$ref": "#/$defs/request" },
+    { "$ref": "#/$defs/event" }
+  ],
+  "$defs": {
+    "path": {
+      "type": "object",
+      "required": ["absolute", "workspaceRelative"],
+      "properties": {
+        "absolute": { "type": "string" },
+        "workspaceRelative": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "position": {
+      "type": "object",
+      "required": ["line", "column"],
+      "properties": {
+        "line": { "type": "integer", "minimum": 1 },
+        "column": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "range": {
+      "type": "object",
+      "required": ["start"],
+      "properties": {
+        "start": { "$ref": "#/$defs/position" },
+        "end": { "$ref": "#/$defs/position" }
+      },
+      "additionalProperties": false
+    },
+    "location": {
+      "type": "object",
+      "required": ["file", "range"],
+      "properties": {
+        "file": { "$ref": "#/$defs/path" },
+        "range": { "$ref": "#/$defs/range" },
+        "message": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "fileInput": {
+      "type": "object",
+      "required": ["path", "role", "ownerKind", "ownerName", "generated"],
+      "properties": {
+        "path": { "$ref": "#/$defs/path" },
+        "role": { "type": "string" },
+        "contentKind": { "type": "string" },
+        "ownerKind": { "type": "string" },
+        "ownerName": { "type": "string" },
+        "generated": { "type": "boolean" },
+        "digest": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "translationUnit": {
+      "type": "object",
+      "required": ["source", "workingDirectory", "compiler", "arguments", "targetPlatform", "generated", "commandDigest"],
+      "properties": {
+        "source": { "$ref": "#/$defs/path" },
+        "workingDirectory": { "type": "string" },
+        "compiler": { "type": "string" },
+        "arguments": { "type": "array", "items": { "type": "string" } },
+        "targetPlatform": { "type": "string" },
+        "language": { "type": "string" },
+        "standard": { "type": "string" },
+        "owner": { "type": "string" },
+        "generated": { "type": "boolean" },
+        "commandDigest": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "inputSet": {
+      "type": "object",
+      "required": ["contract", "identity"],
+      "properties": {
+        "contract": { "type": "string" },
+        "identity": { "type": "string" },
+        "files": { "type": "array", "items": { "$ref": "#/$defs/fileInput" } },
+        "translationUnits": { "type": "array", "items": { "$ref": "#/$defs/translationUnit" } },
+        "artifacts": { "type": "array", "items": { "$ref": "#/$defs/path" } },
+        "priorResultPaths": { "type": "array", "items": { "$ref": "#/$defs/path" } }
+      },
+      "additionalProperties": true
+    },
+    "request": {
+      "type": "object",
+      "required": ["schemaVersion", "kind", "runId", "workspace", "project", "profile", "action", "tool", "driver", "host", "target", "workingDirectory", "outputDirectory", "configs", "inputSets", "options", "environment", "capabilitiesRequested"],
+      "properties": {
+        "schemaVersion": { "const": "1.0" },
+        "kind": { "const": "NGIN.ToolDriver.Request" },
+        "runId": { "type": "string", "minLength": 1 },
+        "workspace": {
+          "type": "object",
+          "required": ["root", "name"],
+          "properties": { "root": { "type": "string" }, "name": { "type": "string" } },
+          "additionalProperties": true
+        },
+        "project": {
+          "type": "object",
+          "required": ["path", "name"],
+          "properties": { "path": { "type": "string" }, "name": { "type": "string" } },
+          "additionalProperties": true
+        },
+        "profile": { "type": "string" },
+        "action": {
+          "type": "object",
+          "required": ["name", "kind"],
+          "properties": {
+            "name": { "type": "string" },
+            "kind": { "enum": ["Analyze", "Format", "Scan", "Transform", "Report", "Custom"] }
+          },
+          "additionalProperties": true
+        },
+        "tool": {
+          "type": "object",
+          "required": ["path", "source"],
+          "properties": {
+            "path": { "type": "string" },
+            "version": { "type": "string" },
+            "digest": { "type": "string" },
+            "source": { "type": "string" }
+          },
+          "additionalProperties": true
+        },
+        "driver": {
+          "type": "object",
+          "required": ["name", "protocol", "path", "source", "version", "digest"],
+          "properties": {
+            "name": { "type": "string" },
+            "protocol": { "const": "NGIN.ToolDriver/1" },
+            "path": { "type": "string" },
+            "source": { "type": "string" },
+            "version": { "type": "string" },
+            "digest": { "type": "string" }
+          },
+          "additionalProperties": true
+        },
+        "host": { "type": "object", "required": ["platform"], "properties": { "platform": { "type": "string" } }, "additionalProperties": true },
+        "target": { "type": "object", "required": ["platform"], "properties": { "platform": { "type": "string" }, "abi": { "type": "string" } }, "additionalProperties": true },
+        "workingDirectory": { "type": "string" },
+        "outputDirectory": { "type": "string" },
+        "configs": { "type": "array", "items": { "$ref": "#/$defs/path" } },
+        "inputSets": { "type": "array", "items": { "$ref": "#/$defs/inputSet" } },
+        "options": { "type": "object" },
+        "environment": { "type": "object", "additionalProperties": { "type": "string" } },
+        "capabilitiesRequested": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+      },
+      "additionalProperties": true
+    },
+    "diagnosticData": {
+      "type": "object",
+      "required": ["severity", "message"],
+      "properties": {
+        "severity": { "enum": ["note", "info", "warning", "error", "fatal"] },
+        "originalSeverity": { "type": "string" },
+        "originalCode": { "type": "string" },
+        "code": { "type": "string" },
+        "message": { "type": "string" },
+        "documentationUrl": { "type": "string" },
+        "primaryLocation": { "$ref": "#/$defs/location" },
+        "relatedLocations": { "type": "array", "items": { "$ref": "#/$defs/location" } },
+        "tags": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "fingerprint": { "type": "string" },
+        "editSetIds": { "type": "array", "items": { "type": "string" } },
+        "suppressed": { "type": "boolean" },
+        "suppressionSource": { "type": "string" },
+        "suppressionReason": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "textEdit": {
+      "type": "object",
+      "required": ["range", "newText"],
+      "properties": {
+        "range": {
+          "type": "object",
+          "required": ["start", "end"],
+          "properties": {
+            "start": { "$ref": "#/$defs/position" },
+            "end": { "$ref": "#/$defs/position" }
+          },
+          "additionalProperties": false
+        },
+        "newText": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "editData": {
+      "type": "object",
+      "required": ["id", "files"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "label": { "type": "string" },
+        "applicability": { "enum": ["automatic", "suggested", "unsafe"] },
+        "files": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["path", "expectedDigest", "edits"],
+            "properties": {
+              "path": { "$ref": "#/$defs/path" },
+              "expectedDigest": { "type": "string", "minLength": 1 },
+              "edits": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/textEdit" } }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "event": {
+      "type": "object",
+      "required": ["schemaVersion", "kind", "runId", "sequence", "type", "data"],
+      "properties": {
+        "schemaVersion": { "const": "1.0" },
+        "kind": { "const": "NGIN.ToolDriver.Event" },
+        "runId": { "type": "string", "minLength": 1 },
+        "sequence": { "type": "integer", "minimum": 1 },
+        "type": { "enum": ["run.started", "progress", "diagnostic", "edit.proposed", "artifact.produced", "metric", "log", "run.completed", "probe.completed"] },
+        "data": {
+          "anyOf": [
+            { "$ref": "#/$defs/diagnosticData" },
+            { "type": "object", "additionalProperties": true }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "type": { "const": "diagnostic" } } },
+          "then": { "properties": { "data": { "$ref": "#/$defs/diagnosticData" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "edit.proposed" } } },
+          "then": { "properties": { "data": { "$ref": "#/$defs/editData" } } }
+        }
+      ],
+      "additionalProperties": true
+    }
+  }
+}

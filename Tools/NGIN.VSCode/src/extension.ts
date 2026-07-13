@@ -30,7 +30,6 @@ import { addRootConfigInput, listConfigInputs, relativeManifestPath, removeConfi
 import { createNativeDebugConfiguration, quoteShellArgument } from './core/debug';
 import { LaunchManifest, CompositionGraphPayload, ProjectManifest } from './core/types';
 import { parseLaunchManifest, parseLocalSettingsManifest, parseProjectManifest } from './core/xml';
-import { addClangTidyAnalyzerPackage } from './projectEditor/authoring';
 import {
   NginCommandTarget,
   NginWorkspaceSnapshot,
@@ -81,6 +80,34 @@ interface ProjectExplorerTarget extends NginCommandTarget {
   explainIdentity?: string;
 }
 
+interface ToolDiagnosticMetadata {
+  run: string;
+  editSetIds: string[];
+  documentVersion?: number;
+}
+
+interface ToolEditPayload {
+  id: string;
+  label?: string;
+  applicability?: 'automatic' | 'suggested' | 'unsafe' | string;
+  files?: Array<{
+    path?: { absolute?: string; workspaceRelative?: string };
+    expectedDigest?: string;
+    edits?: Array<{
+      range?: {
+        start?: { line?: number; column?: number };
+        end?: { line?: number; column?: number };
+      };
+      newText?: string;
+    }>;
+  }>;
+}
+
+interface ToolEditsResponse {
+  kind?: string;
+  results?: Array<{ edits?: ToolEditPayload[] }>;
+}
+
 function comparablePath(value: string): string {
   const normalized = path.normalize(value);
   return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
@@ -89,6 +116,17 @@ function comparablePath(value: string): string {
 function isPathWithinDirectory(candidate: string, directory: string): boolean {
   const relative = path.relative(directory, candidate);
   return relative === '' || Boolean(relative) && !relative.startsWith('..') && !path.isAbsolute(relative);
+}
+
+function toolContentDigest(contents: Uint8Array): string {
+  let hash = 14695981039346656037n;
+  const prime = 1099511628211n;
+  const mask = (1n << 64n) - 1n;
+  for (const value of contents) {
+    hash = ((hash ^ BigInt(value)) * prime) & mask;
+  }
+  hash = ((hash ^ 0xffn) * prime) & mask;
+  return hash.toString(16).padStart(16, '0');
 }
 
 function homeLocalSettingsPath(): string | undefined {
@@ -232,6 +270,11 @@ class NginController implements vscode.Disposable {
   private readonly validateDiagnostics = vscode.languages.createDiagnosticCollection('ngin.validate');
   private readonly analyzeDiagnostics = vscode.languages.createDiagnosticCollection('ngin.analyze');
   private readonly inspectDiagnostics = vscode.languages.createDiagnosticCollection('ngin.inspect');
+  private readonly analyzeDiagnosticsByOwner = new Map<string, Map<string, vscode.Diagnostic[]>>();
+  private readonly toolDiagnosticMetadata = new WeakMap<vscode.Diagnostic, ToolDiagnosticMetadata>();
+  private readonly cliRunGeneration = new Map<string, number>();
+  private readonly activeCliProcesses = new Map<string, ReturnType<typeof spawn>>();
+  private readonly activeFileTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly variableDocumentProvider = new NginVirtualDocumentProvider();
   private readonly workspaceState: WorkspaceStateService;
   private readonly sidebar: NginSidebarController;
@@ -253,6 +296,8 @@ class NginController implements vscode.Disposable {
   }
 
   dispose(): void {
+    for (const timer of this.activeFileTimers.values()) clearTimeout(timer);
+    for (const child of this.activeCliProcesses.values()) child.kill('SIGTERM');
     this.cppToolsProvider.dispose();
     this.statusBar.dispose();
     this.sidebar.dispose();
@@ -276,9 +321,12 @@ class NginController implements vscode.Disposable {
       vscode.commands.registerCommand('ngin.debug', (arg) => this.runHandled(() => this.debugCommand(this.asCommandTarget(arg)))),
       vscode.commands.registerCommand('ngin.validate', (arg) => this.runHandled(() => this.validateCommand(this.asCommandTarget(arg)))),
       vscode.commands.registerCommand('ngin.analyze', (arg) => this.runHandled(() => this.analyzeCommand(this.asCommandTarget(arg)))),
-      vscode.commands.registerCommand('ngin.addClangTidyAnalyzerPackage', (arg) => this.runHandled(() => this.addClangTidyAnalyzerPackageCommand(this.asCommandTarget(arg)))),
-      vscode.commands.registerCommand('ngin.openClangTidyConfig', (arg) => this.runHandled(() => this.openClangTidyConfigCommand(this.asCommandTarget(arg), false))),
-      vscode.commands.registerCommand('ngin.createClangTidyConfig', (arg) => this.runHandled(() => this.openClangTidyConfigCommand(this.asCommandTarget(arg), true))),
+      vscode.commands.registerCommand('ngin.analyzeActiveFile', () => this.runHandled(() => this.analyzeActiveFileCommand())),
+      vscode.commands.registerCommand('ngin.analyzeChangedFiles', (arg) => this.runHandled(() => this.analyzeChangedFilesCommand(this.asCommandTarget(arg)))),
+      vscode.commands.registerCommand('ngin.addToolAction', (arg) => this.runHandled(() => this.addToolActionCommand(this.asCommandTarget(arg)))),
+      vscode.commands.registerCommand('ngin.runToolRun', (arg) => this.runHandled(() => this.runToolRunCommand(this.asExplorerTarget(arg)))),
+      vscode.commands.registerCommand('ngin.applyToolEdits', (uri: vscode.Uri, metadata: ToolDiagnosticMetadata) => this.runHandled(() => this.applyToolEditsCommand(uri, metadata))),
+      vscode.commands.registerCommand('ngin.toolingPlan', (arg) => this.runHandled(() => this.toolingPlanCommand(this.asCommandTarget(arg)))),
       vscode.commands.registerCommand('ngin.graph', (arg) => this.runHandled(() => this.graphCommand(this.asCommandTarget(arg)))),
       vscode.commands.registerCommand('ngin.variablesExplain', (arg) => this.runHandled(() => this.variablesExplainCommand(this.asCommandTarget(arg)))),
       vscode.commands.registerCommand('ngin.explainSelection', (arg) => this.runHandled(() => this.explainSelectionCommand(this.asExplorerTarget(arg)))),
@@ -328,6 +376,9 @@ class NginController implements vscode.Disposable {
         '.'
       ),
       vscode.workspace.onDidSaveTextDocument((document) => this.handleDocumentSaved(document)),
+      vscode.languages.registerCodeActionsProvider({ scheme: 'file' }, {
+        provideCodeActions: (document, _range, context) => this.provideToolCodeActions(document, context)
+      }, { providedCodeActionKinds: [vscode.CodeActionKind.QuickFix] }),
       vscode.tasks.registerTaskProvider('ngin', new NginTaskProvider(this)),
       vscode.debug.registerDebugConfigurationProvider('ngin', new NginDebugConfigurationProvider(this)),
       this.workspaceState.onDidChange(() => {
@@ -798,16 +849,27 @@ class NginController implements vscode.Disposable {
     }
   }
 
-  private async analyzeCommand(target?: NginCommandTarget, options?: { silent?: boolean }): Promise<void> {
+  private async analyzeCommand(
+    target?: NginCommandTarget,
+    options?: { silent?: boolean; file?: string; changedSince?: string }
+  ): Promise<void> {
+    if (!vscode.workspace.isTrusted) {
+      if (!options?.silent) throw new Error('Trust this workspace before running development tools.');
+      return;
+    }
     const context = await this.resolveCommandContext(target, !options?.silent);
     if (!context) {
       return;
     }
 
     const outputDir = this.workspaceState.computeOutputDirectory(context);
+    const selectionArgs = options?.file
+      ? ['--file', options.file]
+      : options?.changedSince ? ['--changed-since', options.changedSince] : [];
     const result = await this.runCli(
       context.workspace.root,
-      ['analyze', '--project', context.project.path, '--profile', context.profile.name, '--output', outputDir],
+      ['analyze', '--project', context.project.path, '--profile', context.profile.name,
+        '--output', outputDir, ...selectionArgs],
       vscode.Uri.file(context.project.path),
       undefined,
       'analyze'
@@ -828,6 +890,28 @@ class NginController implements vscode.Disposable {
     }
   }
 
+  private async analyzeActiveFileCommand(): Promise<void> {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor || editor.document.uri.scheme !== 'file') {
+      throw new Error('Open a source file before running active-file analysis.');
+    }
+    await this.analyzeCommand(
+      { preferredUri: editor.document.uri },
+      { file: editor.document.uri.fsPath }
+    );
+  }
+
+  private async analyzeChangedFilesCommand(target?: NginCommandTarget): Promise<void> {
+    const revision = await vscode.window.showInputBox({
+      title: 'Analyze Changed Files',
+      prompt: 'Git revision used as the comparison base',
+      value: 'HEAD',
+      validateInput: (value) => value.trim() ? undefined : 'A revision is required'
+    });
+    if (!revision) return;
+    await this.analyzeCommand(target, { changedSince: revision.trim() });
+  }
+
   private async graphCommand(target?: NginCommandTarget): Promise<void> {
     const context = await this.resolveCommandContext(target);
     if (!context) {
@@ -842,6 +926,194 @@ class NginController implements vscode.Disposable {
 
     if (result.exitCode !== 0) {
       throw new Error(`ngin graph failed for ${context.project.name} [${context.profile.name}]`);
+    }
+  }
+
+  private async toolingPlanCommand(target?: NginCommandTarget): Promise<void> {
+    const context = await this.resolveCommandContext(target);
+    if (!context) {
+      return;
+    }
+
+    const result = await this.runCli(
+      context.workspace.root,
+      ['graph', '--tooling-plan', '--project', context.project.path, '--profile', context.profile.name],
+      vscode.Uri.file(context.project.path)
+    );
+    if (result.exitCode !== 0) {
+      throw new Error(`ngin tooling plan failed for ${context.project.name} [${context.profile.name}]`);
+    }
+  }
+
+  private async addToolActionCommand(target?: NginCommandTarget): Promise<void> {
+    const context = await this.resolveCommandContext(target);
+    if (!context) {
+      return;
+    }
+    const listResult = await this.runCli(
+      context.workspace.root,
+      ['tool', 'list', '--available', '--format', 'json', '--project', context.project.path,
+        '--profile', context.profile.name],
+      vscode.Uri.file(context.project.path)
+    );
+    let availableActions: Array<{ identity: string; kind?: string; version?: string; inputContracts?: string[] }> = [];
+    try {
+      const payload = JSON.parse(listResult.output) as { availableActions?: typeof availableActions };
+      availableActions = payload.availableActions ?? [];
+    } catch {
+      // The CLI error below provides the actionable failure when discovery output is invalid.
+    }
+    if (listResult.exitCode !== 0) throw new Error('Could not discover available tool actions.');
+    const selected = await vscode.window.showQuickPick(
+      availableActions.map((candidate) => ({
+        label: candidate.identity,
+        description: [candidate.kind, candidate.version].filter(Boolean).join(' • '),
+        detail: candidate.inputContracts?.join(', ')
+      })),
+      { title: 'Add NGIN Tool Action', placeHolder: 'Select a package-provided action' }
+    );
+    const action = selected?.label;
+    if (!action) {
+      return;
+    }
+    const defaultRun = action.slice(action.lastIndexOf('::') + 2);
+    const runName = await vscode.window.showInputBox({
+      title: 'Tool Run Identity',
+      value: defaultRun,
+      prompt: 'Stable run identity used by project and profile overlays',
+      validateInput: (value) => value.trim() ? undefined : 'A run identity is required'
+    });
+    if (!runName) {
+      return;
+    }
+    const result = await this.runCli(
+      context.workspace.root,
+      ['add', 'tool-action', action, '--run', runName, '--project', context.project.path],
+      vscode.Uri.file(context.project.path)
+    );
+    if (result.exitCode !== 0) {
+      throw new Error(`Could not add tool action ${action}`);
+    }
+    await this.refreshUi(vscode.Uri.file(context.project.path), true);
+    void vscode.window.showInformationMessage(`Added ${action} as tool run ${runName}`);
+  }
+
+  private async runToolRunCommand(target?: ProjectExplorerTarget): Promise<void> {
+    if (!vscode.workspace.isTrusted) {
+      throw new Error('Trust this workspace before running development tools.');
+    }
+    if (!target?.explainIdentity?.startsWith('run:')) {
+      throw new Error('Select a resolved tool run.');
+    }
+    const context = await this.resolveCommandContext(target);
+    if (!context) return;
+    const runName = target.explainIdentity.slice('run:'.length);
+    const result = await this.runCli(
+      context.workspace.root,
+      ['tool', 'run', runName, '--project', context.project.path, '--profile', context.profile.name,
+        '--output', this.workspaceState.computeOutputDirectory(context)],
+      vscode.Uri.file(context.project.path),
+      undefined,
+      'analyze'
+    );
+    if (result.exitCode !== 0) throw new Error(`Tool run ${runName} failed.`);
+    await this.refreshUi(vscode.Uri.file(context.project.path), true);
+  }
+
+  private provideToolCodeActions(document: vscode.TextDocument, context: vscode.CodeActionContext): vscode.CodeAction[] {
+    return context.diagnostics.flatMap((diagnostic) => {
+      const metadata = this.toolDiagnosticMetadata.get(diagnostic);
+      if (!metadata?.editSetIds.length) return [];
+      const action = new vscode.CodeAction(`Apply NGIN fixes from ${metadata.run}`, vscode.CodeActionKind.QuickFix);
+      action.diagnostics = [diagnostic];
+      action.command = {
+        command: 'ngin.applyToolEdits',
+        title: action.title,
+        arguments: [document.uri, metadata]
+      };
+      return [action];
+    });
+  }
+
+  private async applyToolEditsCommand(uri: vscode.Uri, metadata: ToolDiagnosticMetadata): Promise<void> {
+    if (!vscode.workspace.isTrusted) {
+      throw new Error('Trust this workspace before applying tool-proposed edits.');
+    }
+    const context = await this.resolveCommandContext({ preferredUri: uri });
+    if (!context) return;
+    const triggeringDocument = vscode.workspace.textDocuments.find((document) => document.uri.toString() === uri.toString());
+    if (triggeringDocument?.isDirty) {
+      throw new Error('Save the document before applying tool-proposed edits.');
+    }
+    if (triggeringDocument && metadata.documentVersion !== undefined &&
+        triggeringDocument.version !== metadata.documentVersion) {
+      throw new Error('The document changed after the tool result was produced; rerun the tool.');
+    }
+    const result = await this.runCli(
+      context.workspace.root,
+      ['tool', 'edits', '--run', metadata.run, '--format', 'json', '--project', context.project.path,
+        '--profile', context.profile.name, '--output', this.workspaceState.computeOutputDirectory(context)],
+      vscode.Uri.file(context.project.path),
+      undefined
+    );
+    if (result.exitCode !== 0) throw new Error(`Could not load edits from ${metadata.run}.`);
+    let payload: ToolEditsResponse;
+    try {
+      payload = JSON.parse(result.output) as ToolEditsResponse;
+    } catch {
+      throw new Error(`Tool edits for ${metadata.run} returned malformed JSON.`);
+    }
+    if (payload.kind !== 'NGIN.ToolEdits') {
+      throw new Error(`Tool edits for ${metadata.run} returned an unsupported payload.`);
+    }
+    const selectedIds = new Set(metadata.editSetIds);
+    const editSets = (payload.results ?? []).flatMap((entry) => entry.edits ?? [])
+      .filter((editSet) => selectedIds.has(editSet.id));
+    if (editSets.length === 0) {
+      throw new Error('The selected edit set is no longer available; rerun the tool.');
+    }
+    if (editSets.some((editSet) => editSet.applicability === 'unsafe')) {
+      throw new Error('Unsafe tool edits cannot be applied as an editor quick fix.');
+    }
+
+    const workspaceEdit = new vscode.WorkspaceEdit();
+    const rangesByFile = new Map<string, vscode.Range[]>();
+    for (const editSet of editSets) {
+      for (const fileEdit of editSet.files ?? []) {
+        const filePath = fileEdit.path?.absolute;
+        if (!filePath || !path.isAbsolute(filePath) ||
+            !isPathWithinDirectory(filePath, context.workspace.root)) {
+          throw new Error(`Tool edit '${editSet.id}' targets a path outside the workspace.`);
+        }
+        const targetUri = vscode.Uri.file(filePath);
+        const openDocument = vscode.workspace.textDocuments.find((document) => document.uri.toString() === targetUri.toString());
+        if (openDocument?.isDirty) {
+          throw new Error(`Save ${path.basename(filePath)} before applying tool-proposed edits.`);
+        }
+        const contents = await vscode.workspace.fs.readFile(targetUri);
+        if (fileEdit.expectedDigest && toolContentDigest(contents) !== fileEdit.expectedDigest) {
+          throw new Error(`${path.basename(filePath)} changed after the edit was produced; rerun the tool.`);
+        }
+        const existingRanges = rangesByFile.get(targetUri.toString()) ?? [];
+        for (const textEdit of fileEdit.edits ?? []) {
+          const start = textEdit.range?.start;
+          const end = textEdit.range?.end;
+          if (!start?.line || !start.column || !end?.line || !end.column ||
+              typeof textEdit.newText !== 'string') {
+            throw new Error(`Tool edit '${editSet.id}' contains an invalid range.`);
+          }
+          const range = new vscode.Range(start.line - 1, start.column - 1, end.line - 1, end.column - 1);
+          if (existingRanges.some((candidate) => candidate.intersection(range) !== undefined)) {
+            throw new Error(`Tool edit '${editSet.id}' contains overlapping ranges.`);
+          }
+          existingRanges.push(range);
+          workspaceEdit.replace(targetUri, range, textEdit.newText);
+        }
+        rangesByFile.set(targetUri.toString(), existingRanges);
+      }
+    }
+    if (!(await vscode.workspace.applyEdit(workspaceEdit))) {
+      throw new Error(`VS Code refused edits from ${metadata.run}.`);
     }
   }
 
@@ -1127,40 +1399,6 @@ class NginController implements vscode.Disposable {
   private async validateProjectEditor(uri: vscode.Uri): Promise<void> {
     await this.validateCommand({ preferredUri: uri }, { silent: false });
     await this.refreshUi(uri, true);
-  }
-
-  private async addClangTidyAnalyzerPackageCommand(target?: NginCommandTarget): Promise<void> {
-    const context = await this.resolveCommandContext(target);
-    if (!context) {
-      return;
-    }
-
-    const uri = vscode.Uri.file(context.project.path);
-    const document = await vscode.workspace.openTextDocument(uri);
-    await NginProjectEditorProvider.applyTextEdit(document, addClangTidyAnalyzerPackage(document.getText()));
-    await vscode.window.showTextDocument(document, { preview: false });
-    await this.refreshUi(uri, true);
-    void vscode.window.showInformationMessage(`Enabled clang-tidy analyzer package for ${context.project.name}`);
-  }
-
-  private async openClangTidyConfigCommand(target: NginCommandTarget | undefined, create: boolean): Promise<void> {
-    const context = await this.resolveCommandContext(target);
-    if (!context) {
-      return;
-    }
-
-    const configPath = path.join(context.project.directory, '.clang-tidy');
-    if (!(await pathExists(configPath))) {
-      if (!create) {
-        void vscode.window.showErrorMessage(`No .clang-tidy file exists for ${context.project.name}`);
-        return;
-      }
-      await vscode.workspace.fs.writeFile(
-        vscode.Uri.file(configPath),
-        Buffer.from('Checks: "-*,readability-*"\nWarningsAsErrors: ""\n', 'utf8')
-      );
-    }
-    await this.openPathCommand(configPath);
   }
 
   private async createProjectFileCommand(target: ProjectExplorerTarget | undefined, kind: 'source' | 'config'): Promise<void> {
@@ -1551,24 +1789,47 @@ class NginController implements vscode.Disposable {
   }
 
   private async handleDocumentSaved(document: vscode.TextDocument): Promise<void> {
-    if (document.languageId !== SUPPORTED_LANGUAGE_ID) {
+    if (document.uri.scheme !== 'file') {
       return;
     }
-
-    const isProjectManifest = document.uri.scheme === 'file' && document.uri.fsPath.endsWith('.nginproj');
-    if (!isProjectManifest && !this.getConfiguration(vscode.workspace.getWorkspaceFolder(document.uri)).get<boolean>('validate.onSave')) {
-      return;
-    }
-
-    try {
-      await this.validateCommand({ preferredUri: document.uri }, { silent: true });
-      if (this.getConfiguration(vscode.workspace.getWorkspaceFolder(document.uri)).get<boolean>('analyze.onSave')) {
-        await this.analyzeCommand({ preferredUri: document.uri }, { silent: true });
+    const configuration = this.getConfiguration(vscode.workspace.getWorkspaceFolder(document.uri));
+    if (document.languageId === SUPPORTED_LANGUAGE_ID) {
+      try {
+        if (configuration.get<boolean>('tooling.validateManifestOnSave')) {
+          await this.validateCommand({ preferredUri: document.uri }, { silent: true });
+        }
+        if (configuration.get<boolean>('tooling.runOnManifestSave')) {
+          await this.analyzeCommand({ preferredUri: document.uri }, { silent: true });
+        }
+        await this.refreshUi(document.uri, true);
+      } catch {
+        // Silent save actions still update diagnostics through CLI event parsing.
       }
-      await this.refreshUi(document.uri, true);
-    } catch {
-      // Silent validate/analyze-on-save still updates diagnostics through CLI output parsing.
+      return;
     }
+    if (!configuration.get<boolean>('tooling.runActiveFileOnSave')) {
+      return;
+    }
+    const key = document.uri.toString();
+    const existing = this.activeFileTimers.get(key);
+    if (existing) clearTimeout(existing);
+    const delay = Math.max(0, configuration.get<number>('tooling.activeFileDebounceMs') ?? 350);
+    this.activeFileTimers.set(key, setTimeout(() => {
+      this.activeFileTimers.delete(key);
+      void this.runHandled(async () => {
+        const context = await this.resolveCommandContext({ preferredUri: document.uri }, false);
+        if (!context) return;
+        const outputDir = this.workspaceState.computeOutputDirectory(context);
+        await this.runCli(
+          context.workspace.root,
+          ['analyze', '--project', context.project.path, '--profile', context.profile.name,
+            '--output', outputDir, '--input-mode', 'ActiveFile', '--file', document.uri.fsPath],
+          vscode.Uri.file(context.project.path),
+          undefined,
+          'analyze'
+        );
+      });
+    }, delay));
   }
 
   private async buildProject(
@@ -1686,7 +1947,12 @@ class NginController implements vscode.Disposable {
     const color = configuration.get<string>('output.color') ?? 'never';
     const actualArgs = [...args];
     const commandName = args[0] ?? 'command';
-    const progressCommands = new Set(['configure', 'build', 'rebuild', 'stage', 'publish', 'analyze']);
+    const profileIndex = actualArgs.indexOf('--profile');
+    const diagnosticsOwner = `${diagnosticsResource?.toString() ?? '<none>'}::${profileIndex >= 0 ? actualArgs[profileIndex + 1] ?? '<none>' : '<none>'}`;
+    const runKey = `${commandName}::${diagnosticsOwner}`;
+    const runGeneration = (this.cliRunGeneration.get(runKey) ?? 0) + 1;
+    this.cliRunGeneration.set(runKey, runGeneration);
+    const progressCommands = new Set(['configure', 'build', 'rebuild', 'stage', 'publish', 'analyze', 'tool']);
     const useEvents = progressCommands.has(commandName);
     if (useEvents && !actualArgs.includes('--events')) {
       actualArgs.push('--events', 'jsonl');
@@ -1714,13 +1980,29 @@ class NginController implements vscode.Disposable {
     this.outputChannel.show(true);
     this.outputChannel.appendLine(`> ${cliPath} ${actualArgs.join(' ')}`);
 
-    const runProcess = (onEventLabel?: (label: string) => void) => new Promise<CliRunResult>((resolve, reject) => {
+    const runProcess = (onEventLabel?: (label: string) => void, cancellation?: vscode.CancellationToken) => new Promise<CliRunResult>((resolve, reject) => {
       let combined = '';
       const eventDiagnostics: NginEventDiagnostic[] = [];
       let eventParseError: Error | undefined;
       let eventCommandSucceeded = false;
       const parser = useEvents ? new NginJsonlEventParser() : undefined;
-      const child = spawn(cliPath, actualArgs, { cwd: workspaceRoot });
+      const previousProcess = this.activeCliProcesses.get(runKey);
+      if (previousProcess && !previousProcess.killed) {
+        if (process.platform !== 'win32' && previousProcess.pid) {
+          try { process.kill(-previousProcess.pid, 'SIGTERM'); } catch { previousProcess.kill('SIGTERM'); }
+        } else {
+          previousProcess.kill('SIGTERM');
+        }
+      }
+      const child = spawn(cliPath, actualArgs, { cwd: workspaceRoot, detached: process.platform !== 'win32' });
+      this.activeCliProcesses.set(runKey, child);
+      const cancellationSubscription = cancellation?.onCancellationRequested(() => {
+        if (process.platform !== 'win32' && child.pid) {
+          try { process.kill(-child.pid, 'SIGTERM'); } catch { child.kill('SIGTERM'); }
+        } else {
+          child.kill('SIGTERM');
+        }
+      });
 
       child.stdout.on('data', (chunk) => {
         const text = chunk.toString();
@@ -1761,6 +2043,8 @@ class NginController implements vscode.Disposable {
 
       child.on('error', (error) => reject(error));
       child.on('close', (code) => {
+        if (this.activeCliProcesses.get(runKey) === child) this.activeCliProcesses.delete(runKey);
+        cancellationSubscription?.dispose();
         if (parser) {
           try {
             for (const event of parser.finish()) {
@@ -1785,7 +2069,8 @@ class NginController implements vscode.Disposable {
             this.outputChannel.appendLine(eventParseError.message);
           }
         }
-        const exitCode = eventParseError instanceof NginJsonlParseError && (code ?? 0) === 0 ? 1 : code ?? 0;
+        const processExitCode = cancellation?.isCancellationRequested ? 130 : code ?? 0;
+        const exitCode = eventParseError instanceof NginJsonlParseError && processExitCode === 0 ? 1 : processExitCode;
         if (exitCode !== 0) {
           combined += `\nerror: command exited with code ${exitCode}\n`;
         }
@@ -1798,9 +2083,9 @@ class NginController implements vscode.Disposable {
         {
           location: vscode.ProgressLocation.Notification,
           title: `NGIN ${commandName}`,
-          cancellable: false
+          cancellable: true
         },
-        async (progress) => {
+        async (progress, cancellation) => {
           const started = Date.now();
           const timer = setInterval(() => {
             const elapsedSeconds = Math.max(1, Math.floor((Date.now() - started) / 1000));
@@ -1808,18 +2093,20 @@ class NginController implements vscode.Disposable {
           }, 1000);
           try {
             progress.report({ message: 'starting' });
-            return await runProcess((label) => progress.report({ message: label }));
+            return await runProcess((label) => progress.report({ message: label }), cancellation);
           } finally {
             clearInterval(timer);
           }
         })
       : await runProcess();
 
-    if (diagnosticsKind) {
+    if (diagnosticsKind && this.cliRunGeneration.get(runKey) === runGeneration) {
       if (result.eventDiagnostics?.length) {
-        this.applyEventDiagnostics(result.eventDiagnostics, diagnosticsResource, diagnosticsKind);
+        this.applyEventDiagnostics(result.eventDiagnostics, diagnosticsResource, diagnosticsKind, diagnosticsOwner);
+      } else if (diagnosticsKind === 'analyze') {
+        this.applyEventDiagnostics([], diagnosticsResource, diagnosticsKind, diagnosticsOwner);
       } else {
-        this.applyDiagnostics(result.output, diagnosticsResource, diagnosticsKind);
+        this.applyDiagnostics(result.output, diagnosticsResource, diagnosticsKind, diagnosticsOwner);
       }
     }
     this.surfaceLocalSettingsWarnings(result.output);
@@ -1887,12 +2174,17 @@ class NginController implements vscode.Disposable {
     return payload;
   }
 
-  private applyDiagnostics(output: string, fallbackResource: vscode.Uri | undefined, diagnosticsKind: 'validate' | 'analyze'): void {
+  private applyDiagnostics(output: string, fallbackResource: vscode.Uri | undefined, diagnosticsKind: 'validate' | 'analyze', diagnosticsOwner: string): void {
     const parsed = parseCliDiagnostics(output);
     const collection = diagnosticsKind === 'validate' ? this.validateDiagnostics : this.analyzeDiagnostics;
-    collection.clear();
+    if (diagnosticsKind === 'validate') {
+      collection.clear();
+    }
 
     if (parsed.length === 0) {
+      if (diagnosticsKind === 'analyze') {
+        this.replaceAnalyzeDiagnostics(diagnosticsOwner, new Map());
+      }
       return;
     }
 
@@ -1924,16 +2216,22 @@ class NginController implements vscode.Disposable {
       grouped.set(key, bucket);
     }
 
-    for (const [key, diagnostics] of grouped) {
-      collection.set(vscode.Uri.parse(key), diagnostics);
+    if (diagnosticsKind === 'analyze') {
+      this.replaceAnalyzeDiagnostics(diagnosticsOwner, grouped);
+    } else {
+      for (const [key, diagnostics] of grouped) {
+        collection.set(vscode.Uri.parse(key), diagnostics);
+      }
     }
   }
 
-  private applyEventDiagnostics(entries: NginEventDiagnostic[], fallbackResource: vscode.Uri | undefined, diagnosticsKind: 'validate' | 'analyze'): void {
+  private applyEventDiagnostics(entries: NginEventDiagnostic[], fallbackResource: vscode.Uri | undefined, diagnosticsKind: 'validate' | 'analyze', diagnosticsOwner: string): void {
     const collection = diagnosticsKind === 'validate' ? this.validateDiagnostics : this.analyzeDiagnostics;
-    collection.clear();
+    if (diagnosticsKind === 'validate') {
+      collection.clear();
+    }
 
-    const grouped = new Map<string, vscode.Diagnostic[]>();
+    const groupedByOwner = new Map<string, Map<string, vscode.Diagnostic[]>>();
     for (const entry of entries) {
       const resource = entry.file
         ? vscode.Uri.file(
@@ -1948,24 +2246,95 @@ class NginController implements vscode.Disposable {
 
       const line = entry.line && entry.line > 0 ? entry.line - 1 : 0;
       const column = entry.column && entry.column > 0 ? entry.column - 1 : 0;
+      const endLine = entry.endLine && entry.endLine > 0 ? entry.endLine - 1 : line;
+      const endColumn = entry.endColumn && entry.endColumn > 0 ? entry.endColumn - 1 : column + 1;
       const diagnostic = new vscode.Diagnostic(
-        new vscode.Range(line, column, line, column + 1),
+        new vscode.Range(line, column, endLine, endColumn),
         entry.message,
-        entry.severity === 'warning' ? vscode.DiagnosticSeverity.Warning : vscode.DiagnosticSeverity.Error
+        entry.severity === 'fatal' || entry.severity === 'error'
+          ? vscode.DiagnosticSeverity.Error
+          : entry.severity === 'warning'
+            ? vscode.DiagnosticSeverity.Warning
+            : entry.severity === 'info'
+              ? vscode.DiagnosticSeverity.Information
+              : vscode.DiagnosticSeverity.Hint
       );
-      diagnostic.source = entry.source ?? (diagnosticsKind === 'validate' ? 'ngin validate' : 'ngin analyze');
+      diagnostic.source = entry.run ? `${entry.source ?? 'ngin tool'} (${entry.run})` : entry.source ?? (diagnosticsKind === 'validate' ? 'ngin validate' : 'ngin analyze');
       if (entry.code) {
         diagnostic.code = entry.code;
       }
+      if (entry.tags?.includes('unnecessary')) {
+        diagnostic.tags = [...(diagnostic.tags ?? []), vscode.DiagnosticTag.Unnecessary];
+      }
+      if (entry.tags?.includes('deprecated')) {
+        diagnostic.tags = [...(diagnostic.tags ?? []), vscode.DiagnosticTag.Deprecated];
+      }
+      diagnostic.relatedInformation = entry.relatedLocations?.map((related) => new vscode.DiagnosticRelatedInformation(
+        new vscode.Location(
+          vscode.Uri.file(related.file),
+          new vscode.Position(Math.max(0, related.line - 1), Math.max(0, related.column - 1))
+        ),
+        related.message || 'Related location'
+      ));
+      if (entry.run && entry.editSetIds?.length) {
+        const openDocument = vscode.workspace.textDocuments.find((document) => document.uri.toString() === resource.toString());
+        this.toolDiagnosticMetadata.set(diagnostic, {
+          run: entry.run,
+          editSetIds: entry.editSetIds,
+          documentVersion: openDocument?.version
+        });
+      }
 
+      const ownerKey = `${diagnosticsOwner}::${entry.run ?? '<execution>'}`;
+      const grouped = groupedByOwner.get(ownerKey) ?? new Map<string, vscode.Diagnostic[]>();
       const key = resource.toString();
       const bucket = grouped.get(key) ?? [];
       bucket.push(diagnostic);
       grouped.set(key, bucket);
+      groupedByOwner.set(ownerKey, grouped);
     }
 
-    for (const [key, diagnostics] of grouped) {
-      collection.set(vscode.Uri.parse(key), diagnostics);
+    if (diagnosticsKind === 'analyze') {
+      for (const key of [...this.analyzeDiagnosticsByOwner.keys()]) {
+        if (key.startsWith(`${diagnosticsOwner}::`)) {
+          this.analyzeDiagnosticsByOwner.delete(key);
+        }
+      }
+      for (const [owner, grouped] of groupedByOwner) {
+        this.analyzeDiagnosticsByOwner.set(owner, grouped);
+      }
+      this.rebuildAnalyzeDiagnostics();
+    } else {
+      for (const grouped of groupedByOwner.values()) {
+        for (const [key, diagnostics] of grouped) {
+          collection.set(vscode.Uri.parse(key), diagnostics);
+        }
+      }
+    }
+  }
+
+  private replaceAnalyzeDiagnostics(owner: string, grouped: Map<string, vscode.Diagnostic[]>): void {
+    for (const key of [...this.analyzeDiagnosticsByOwner.keys()]) {
+      if (key.startsWith(`${owner}::`) || key === owner) {
+        this.analyzeDiagnosticsByOwner.delete(key);
+      }
+    }
+    if (grouped.size > 0) {
+      this.analyzeDiagnosticsByOwner.set(owner, grouped);
+    }
+    this.rebuildAnalyzeDiagnostics();
+  }
+
+  private rebuildAnalyzeDiagnostics(): void {
+    this.analyzeDiagnostics.clear();
+    const merged = new Map<string, vscode.Diagnostic[]>();
+    for (const grouped of this.analyzeDiagnosticsByOwner.values()) {
+      for (const [uri, diagnostics] of grouped) {
+        merged.set(uri, [...(merged.get(uri) ?? []), ...diagnostics]);
+      }
+    }
+    for (const [uri, diagnostics] of merged) {
+      this.analyzeDiagnostics.set(vscode.Uri.parse(uri), diagnostics);
     }
   }
 

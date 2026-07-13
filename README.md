@@ -669,7 +669,7 @@ Start small, then add one idea at a time.
    Reflection code generation through `NGIN.Reflection.MetaGen`.
 
 4. [`Examples/Hello.Analyzer`](Examples/Hello.Analyzer/README.md)
-   clang-tidy analyzer wiring through `NGIN.Tooling.ClangTidy`.
+   A package-provided Analyze action and driver through `NGIN.Tooling.ClangTidy`.
 
 See [`Examples/README.md`](Examples/README.md) for the full example map.
 

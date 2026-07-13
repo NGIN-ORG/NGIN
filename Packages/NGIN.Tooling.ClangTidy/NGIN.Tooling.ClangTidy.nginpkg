@@ -8,23 +8,66 @@
   <Tool Name="NGIN.Tooling.ClangTidy">
     <Exports>
       <Tool Name="clang-tidy"
-            Kind="Analyzer"
-            Executable="clang-tidy" />
+            Kind="Development">
+        <SystemExecutable Name="clang-tidy"
+                          OverrideEnvironment="NGIN_CLANG_TIDY" />
+      </Tool>
     </Exports>
   </Tool>
+
+  <ToolDrivers>
+    <Driver Name="clang-tidy-driver"
+            Protocol="NGIN.ToolDriver/1"
+            Version="1.0.0"
+            Adapter="builtin.clang-tidy.v1">
+      <Capabilities>
+        <Capability Name="diagnostics" />
+        <Capability Name="related-locations" />
+        <Capability Name="fixes" />
+        <Capability Name="active-file" />
+        <Capability Name="changed-files" />
+      </Capabilities>
+    </Driver>
+  </ToolDrivers>
+
+  <ToolActions>
+    <Action Name="analyze"
+            Kind="Analyze"
+            Tool="clang-tidy"
+            Driver="clang-tidy-driver">
+      <Accepts Contract="cpp.translation-units/v1" />
+      <Capabilities>
+        <Capability Name="diagnostics" />
+        <Capability Name="related-locations" />
+        <Capability Name="fixes" />
+        <Capability Name="active-file" />
+        <Capability Name="changed-files" />
+      </Capabilities>
+      <Defaults>
+        <Input Scope="ProductClosure" />
+      </Defaults>
+    </Action>
+  </ToolActions>
 
   <Features>
     <Feature Name="Analyzer"
              Description="Run clang-tidy through the NGIN analyzer workflow.">
-      <Quality>
-        <Analyzer Name="clang-tidy"
-                  Tool="clang-tidy"
-                  Scope="Build"
-                  Severity="Warning">
-          <Config Path=".clang-tidy"
+      <Tooling>
+        <Run Name="cpp-static-analysis"
+             Action="NGIN.Tooling.ClangTidy::analyze">
+          <Input Contract="cpp.translation-units/v1"
+                 Scope="ProductClosure"
+                 IncludeGenerated="true" />
+          <Config Name="primary"
+                  Path=".clang-tidy"
                   Optional="true" />
-        </Analyzer>
-      </Quality>
+          <Policy Gate="false"
+                  FailOn="Warning" />
+          <Execution Jobs="Auto"
+                     Cache="Off"
+                     FailureStrategy="DependencyAware" />
+        </Run>
+      </Tooling>
     </Feature>
   </Features>
 

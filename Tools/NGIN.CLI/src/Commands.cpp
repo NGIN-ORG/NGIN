@@ -6,22 +6,27 @@
 #include "Overlay.hpp"
 #include "Resolution.hpp"
 #include "Support.hpp"
+#include "Tooling.hpp"
 
 #include <NGIN/Crypto/Backend/CryptoContext.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <array>
 #include <cctype>
 #include <cstdint>
 #include <cstdlib>
 #include <fstream>
+#include <future>
 #include <iostream>
 #include <iterator>
 #include <map>
+#include <mutex>
 #include <regex>
 #include <set>
 #include <sstream>
 #include <stdexcept>
+#include <thread>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -859,7 +864,22 @@ public:
       RecordBackendOutput(event);
       break;
     case CliEventType::Diagnostic:
-      if (command_ != "analyze") {
+      if (command_ == "analyze" || command_ == "format" || command_ == "scan" ||
+          command_ == "report" || command_ == "quality" || command_ == "tool run") {
+        const auto message = event.data.String("message").value_or("");
+        const auto severity = event.data.String("severity").value_or("error");
+        const auto file = event.data.String("file");
+        if (!message.empty() && file.has_value() && !IsQuiet(args_)) {
+          std::cout << "[" << severity << "] " << *file;
+          if (const auto line = event.data.Number("line"); line.has_value())
+            std::cout << ":" << *line;
+          if (const auto column = event.data.Number("column"); column.has_value())
+            std::cout << ":" << *column;
+          std::cout << ": " << message << "\n";
+        } else {
+          diagnostics_.push_back(event);
+        }
+      } else {
         diagnostics_.push_back(event);
       }
       break;
@@ -977,7 +997,8 @@ private:
       return;
     }
 
-    if (command_ == "analyze") {
+    if (command_ == "analyze" || command_ == "format" || command_ == "scan" ||
+        command_ == "report" || command_ == "quality" || command_ == "tool run") {
       if (const auto sources = event.data.Number("sources");
           sources.has_value()) {
         PrintField(args_, "sources",
@@ -1078,6 +1099,20 @@ CommandDurationMilliseconds(std::chrono::steady_clock::time_point started)
       .count();
 }
 
+[[nodiscard]] auto CurrentUtcDate() -> std::string {
+  const auto now = std::chrono::system_clock::to_time_t(
+      std::chrono::system_clock::now());
+  std::tm utc{};
+#if defined(_WIN32)
+  gmtime_s(&utc, &now);
+#else
+  gmtime_r(&now, &utc);
+#endif
+  std::ostringstream text{};
+  text << std::put_time(&utc, "%Y-%m-%d");
+  return text.str();
+}
+
 auto EmitCommandStarted(CliEventEmitter &events, const ParsedArgs &args)
     -> void {
   EventData data{};
@@ -1090,10 +1125,18 @@ auto EmitCommandCompleted(CliEventEmitter &events, std::string status,
                           int exitCode,
                           std::chrono::steady_clock::time_point started)
     -> int {
+  const auto category = exitCode == 0 ? "success"
+                        : exitCode == 1 ? "gate-failed"
+                        : exitCode == 2 ? "invalid-plan"
+                        : exitCode == 3 ? "execution-failed"
+                        : exitCode == 4 ? "cancelled"
+                        : exitCode == 5 ? "timed-out"
+                                        : "failed";
   events.Emit(
       CliEventType::CommandCompleted,
       EventData{}
           .AddString("status", std::move(status))
+          .AddString("category", category)
           .AddNumber("exitCode", exitCode)
           .AddNumber("durationMs", CommandDurationMilliseconds(started)));
   return exitCode;
@@ -2252,6 +2295,29 @@ auto WriteTextFile(const fs::path &path, const std::string &contents) -> void {
   return InsertUseLine(std::move(text), productKind, dependencyLine);
 }
 
+[[nodiscard]] auto InsertToolRun(std::string text,
+                                 const std::string &productKind,
+                                 const std::string &runName,
+                                 const std::string &action) -> std::string {
+  const auto productOpenEnd = FindProductOpenTagEnd(text, productKind);
+  if (IsSelfClosingTag(text, productOpenEnd))
+    throw std::runtime_error("cannot add a tool run before expanding the product section");
+  const auto productClose = text.find("</" + productKind + ">", productOpenEnd);
+  if (productClose == std::string::npos)
+    throw std::runtime_error("project file has no closing </" + productKind + "> element");
+  const auto runLine = std::string("      <Run Name=\"") + EscapeXml(runName) +
+                       "\" Action=\"" + EscapeXml(action) + "\" />\n";
+  const auto toolingOpen = text.find("<Tooling>", productOpenEnd);
+  const auto toolingClose = text.find("</Tooling>", productOpenEnd);
+  if (toolingOpen != std::string::npos && toolingClose != std::string::npos &&
+      toolingOpen < productClose && toolingClose < productClose) {
+    text.insert(toolingClose, runLine);
+    return text;
+  }
+  text.insert(productClose, "    <Tooling>\n" + runLine + "    </Tooling>\n");
+  return text;
+}
+
 [[nodiscard]] auto RemovePackageUse(std::string text,
                                     const std::string &productKind,
                                     const std::string &packageName)
@@ -2512,56 +2578,285 @@ auto WriteFormattedElement(std::ostream &out, const XmlElement &element,
   return formatted.str();
 }
 
-[[nodiscard]] auto IsClangTidyAnalyzer(const AnalyzerDefinition &analyzer)
-    -> bool {
-  return Lower(analyzer.name) == "clang-tidy" ||
-         Lower(AnalyzerToolName(analyzer)) == "clang-tidy";
+struct ToolRunBinding {
+  ToolRunDefinition run{};
+  std::optional<ToolActionDeclaration> action{};
+  std::optional<ToolDriverDeclaration> driver{};
+  std::optional<ToolDeclaration> tool{};
+  std::string state{"ready"};
+  std::string diagnostic{};
+};
+
+[[nodiscard]] auto ActionPackageName(const ToolRunDefinition &run)
+    -> std::string {
+  if (!run.packageName.empty()) {
+    return run.packageName;
+  }
+  const auto separator = run.action.find("::");
+  return separator == std::string::npos ? std::string{}
+                                         : run.action.substr(0, separator);
 }
 
-[[nodiscard]] auto ResolveAnalyzerTool(const ResolvedLaunch &resolved,
-                                       const AnalyzerDefinition &analyzer)
-    -> std::optional<ToolResolution> {
-  auto toolName = AnalyzerToolName(analyzer);
-  if (!analyzer.packageName.empty()) {
-    const auto packageIt = std::find_if(
-        resolved.orderedPackages.begin(), resolved.orderedPackages.end(),
-        [&](const ResolvedPackage &package) {
-          return package.manifest.name == analyzer.packageName;
-        });
-    if (packageIt != resolved.orderedPackages.end()) {
-      const auto toolIt = std::find_if(
-          packageIt->manifest.tools.begin(), packageIt->manifest.tools.end(),
-          [&](const ToolDeclaration &tool) { return tool.name == toolName; });
-      if (toolIt != packageIt->manifest.tools.end() &&
-          !toolIt->executable.empty()) {
-        toolName = toolIt->executable;
-      }
+[[nodiscard]] auto ActionLocalName(const ToolRunDefinition &run)
+    -> std::string {
+  const auto separator = run.action.find("::");
+  return separator == std::string::npos ? run.action
+                                         : run.action.substr(separator + 2);
+}
+
+[[nodiscard]] auto BindToolRun(const ResolvedLaunch &resolved,
+                               const ToolRunDefinition &run)
+    -> ToolRunBinding {
+  ToolRunBinding binding{.run = run};
+  const auto packageName = ActionPackageName(run);
+  const auto actionName = ActionLocalName(run);
+  if (packageName.empty()) {
+    binding.state = "invalid";
+    binding.diagnostic = "tool run '" + run.name +
+                         "' action must be package-qualified";
+    return binding;
+  }
+  const auto packageIt = std::find_if(
+      resolved.orderedPackages.begin(), resolved.orderedPackages.end(),
+      [&](const ResolvedPackage &package) {
+        return package.manifest.name == packageName;
+      });
+  if (packageIt == resolved.orderedPackages.end()) {
+    binding.state = "unavailable";
+    binding.diagnostic = "tool run '" + run.name + "' requires package '" +
+                         packageName + "'";
+    return binding;
+  }
+  const auto actionIt = std::find_if(
+      packageIt->manifest.toolActions.begin(),
+      packageIt->manifest.toolActions.end(),
+      [&](const ToolActionDeclaration &action) {
+        return action.name == actionName;
+      });
+  if (actionIt == packageIt->manifest.toolActions.end()) {
+    binding.state = "invalid";
+    binding.diagnostic = "tool run '" + run.name +
+                         "' references unknown action '" + run.action + "'";
+    return binding;
+  }
+  if (!SelectionMatches(packageIt->manifest.conditions, actionIt->selectors,
+                        resolved.profile)) {
+    binding.state = "excluded";
+    binding.diagnostic = "tool run '" + run.name +
+                         "' action is incompatible with the selected profile";
+    return binding;
+  }
+  binding.action = *actionIt;
+  for (const auto &requirement : actionIt->environment) {
+    const auto variable = std::find_if(
+        resolved.environmentVariables.begin(), resolved.environmentVariables.end(),
+        [&](const EnvironmentVariable &candidate) { return candidate.name == requirement.name; });
+    if (variable == resolved.environmentVariables.end() || !variable->resolved) {
+      if (!requirement.required) continue;
+      binding.state = "invalid";
+      binding.diagnostic = "tool run '" + run.name + "' requires resolved environment variable '" +
+                           requirement.name + "'";
+      return binding;
     }
+    if (variable->secret != requirement.secret) {
+      binding.state = "invalid";
+      binding.diagnostic = "tool run '" + run.name + "' environment variable '" + requirement.name +
+                           "' secret classification does not match its action declaration";
+      return binding;
+    }
+  }
+  if (!run.hasInput) binding.run.input.scope = actionIt->defaultInputScope;
+  const auto driverIt = std::find_if(
+      packageIt->manifest.toolDrivers.begin(),
+      packageIt->manifest.toolDrivers.end(),
+      [&](const ToolDriverDeclaration &driver) {
+        return driver.name == actionIt->driverName;
+      });
+  const auto toolIt = std::find_if(
+      packageIt->manifest.tools.begin(), packageIt->manifest.tools.end(),
+      [&](const ToolDeclaration &tool) {
+        return tool.name == actionIt->toolName;
+      });
+  if (driverIt == packageIt->manifest.toolDrivers.end() ||
+      toolIt == packageIt->manifest.tools.end()) {
+    binding.state = "invalid";
+    binding.diagnostic = "tool run '" + run.name +
+                         "' action has unresolved tool or driver";
+    return binding;
+  }
+  if (!SelectionMatches(packageIt->manifest.conditions, driverIt->selectors,
+                        resolved.profile) ||
+      !SelectionMatches(packageIt->manifest.conditions, toolIt->selectors,
+                        resolved.profile)) {
+    binding.state = "unavailable";
+    binding.diagnostic = "tool run '" + run.name +
+                         "' tool or driver is incompatible with the selected profile";
+    return binding;
+  }
+  binding.driver = *driverIt;
+  binding.tool = *toolIt;
+  const auto contract = run.input.contract.empty()
+                            ? (actionIt->inputContracts.empty()
+                                   ? std::string{}
+                                   : actionIt->inputContracts.front())
+                            : run.input.contract;
+  if (!contract.empty() && !actionIt->inputContracts.empty() &&
+      std::find(actionIt->inputContracts.begin(),
+                actionIt->inputContracts.end(), contract) ==
+          actionIt->inputContracts.end()) {
+    binding.state = "invalid";
+    binding.diagnostic = "tool run '" + run.name +
+                         "' requests unsupported input contract '" +
+                         contract + "'";
+  }
+  const auto &effectiveScope = binding.run.input.scope;
+  const std::string requiredModeCapability = effectiveScope == "ActiveFile" ? "active-file"
+                                            : effectiveScope == "ChangedFiles" ? "changed-files" : "";
+  if (!requiredModeCapability.empty() &&
+      std::find(actionIt->capabilities.begin(), actionIt->capabilities.end(),
+                requiredModeCapability) == actionIt->capabilities.end()) {
+    binding.state = "invalid";
+    binding.diagnostic = "tool run '" + run.name + "' input scope requires capability '" +
+                         requiredModeCapability + "'";
+  }
+  return binding;
+}
+
+[[nodiscard]] auto ResolveToolExecutable(const ResolvedLaunch &resolved,
+                                         const ToolRunBinding &binding)
+    -> std::optional<ToolResolution> {
+  if (!binding.tool.has_value()) {
+    return std::nullopt;
+  }
+  const auto packageName = ActionPackageName(binding.run);
+  const auto packageIt = std::find_if(
+      resolved.orderedPackages.begin(), resolved.orderedPackages.end(),
+      [&](const ResolvedPackage &package) { return package.manifest.name == packageName; });
+  if (!binding.tool->overrideEnvironment.empty()) {
+    if (const auto *overrideValue = std::getenv(binding.tool->overrideEnvironment.c_str());
+        overrideValue != nullptr && std::string_view{overrideValue}.size() > 0) {
+      if (const auto resolution = ResolveToolPath(overrideValue); resolution.has_value())
+        return ToolResolution{.path = resolution->path,
+                              .source = binding.tool->overrideEnvironment};
+      return std::nullopt;
+    }
+  }
+  if (packageIt != resolved.orderedPackages.end() && !binding.tool->systemExecutable) {
+    const auto packageCandidate = packageIt->manifest.path.parent_path() /
+                                  binding.tool->executable;
+    if (const auto resolution = ResolveToolPath(packageCandidate.string()); resolution.has_value())
+      return ToolResolution{.path = resolution->path,
+                            .source = "package:" + packageName};
   }
   const auto searchRoot =
       resolved.workspace.has_value()
           ? std::optional<fs::path>{resolved.workspace->path.parent_path()}
           : std::optional<fs::path>{resolved.project.path.parent_path()};
-  return ResolveToolPath(toolName, searchRoot);
+  return ResolveToolPath(binding.tool->executable, searchRoot);
 }
 
-[[nodiscard]] auto ResolveAnalyzerSources(const ResolvedLaunch &resolved)
+[[nodiscard]] auto ResolveDriverExecutable(const ResolvedLaunch &resolved,
+                                           const ToolRunBinding &binding)
+    -> std::optional<ToolResolution> {
+  if (!binding.driver.has_value() || binding.driver->executable.empty())
+    return std::nullopt;
+  if (!binding.driver->overrideEnvironment.empty()) {
+    if (const auto *overrideValue = std::getenv(binding.driver->overrideEnvironment.c_str());
+        overrideValue != nullptr && std::string_view{overrideValue}.size() > 0) {
+      if (const auto resolution = ResolveToolPath(overrideValue); resolution.has_value())
+        return ToolResolution{.path = resolution->path,
+                              .source = binding.driver->overrideEnvironment};
+      return std::nullopt;
+    }
+  }
+  const auto packageName = ActionPackageName(binding.run);
+  const auto packageIt = std::find_if(
+      resolved.orderedPackages.begin(), resolved.orderedPackages.end(),
+      [&](const ResolvedPackage &package) { return package.manifest.name == packageName; });
+  if (packageIt != resolved.orderedPackages.end()) {
+    const auto packageCandidate = packageIt->manifest.path.parent_path() /
+                                  binding.driver->executable;
+    if (const auto resolution = ResolveToolPath(packageCandidate.string()); resolution.has_value())
+      return ToolResolution{.path = resolution->path,
+                            .source = "package:" + packageName};
+  }
+  const auto searchRoot = resolved.workspace.has_value()
+                              ? std::optional<fs::path>{resolved.workspace->path.parent_path()}
+                              : std::optional<fs::path>{resolved.project.path.parent_path()};
+  return ResolveToolPath(binding.driver->executable, searchRoot);
+}
+
+[[nodiscard]] auto IsTrustedToolResolutionSource(std::string_view source) -> bool {
+  return source == "builtin-adapter" || source.starts_with("package:") ||
+         source.starts_with("bundled:");
+}
+
+[[nodiscard]] auto ToolResolutionPolicyError(
+    const ToolingResolutionPolicy &policy,
+    const ToolResolution &tool,
+    const ToolResolution &driver) -> std::string {
+  if (!policy.allowPath && (tool.source == "PATH" || driver.source == "PATH"))
+    return "effective ToolingPolicy forbids PATH tool resolution";
+  if (policy.requireTrustedPackage &&
+      (!IsTrustedToolResolutionSource(tool.source) ||
+       !IsTrustedToolResolutionSource(driver.source)))
+    return "effective ToolingPolicy requires package or bundled tool and driver executables";
+  return {};
+}
+
+[[nodiscard]] auto ResolveToolSources(const ResolvedLaunch &resolved,
+                                      const ToolRunDefinition &run,
+                                      std::string_view inputContract,
+                                      const std::vector<std::string> &selectedFiles = {})
     -> std::vector<fs::path> {
   std::vector<fs::path> sources{};
   std::unordered_set<std::string> seen{};
   for (const auto &input : resolved.inputs) {
-    if (input.role != "Source") {
+    if (input.absoluteSourcePath.empty() || !fs::is_regular_file(input.absoluteSourcePath)) {
+      continue;
+    }
+    if (!run.input.includeGenerated &&
+        (input.ownerKind == "generator" || input.kind == "Generated")) {
+      continue;
+    }
+    if (run.input.scope == "Product" &&
+        input.ownerName != resolved.project.name) {
       continue;
     }
     const auto path = input.absoluteSourcePath.empty()
                           ? fs::path(input.source)
                           : input.absoluteSourcePath;
-    const auto extension = Lower(path.extension().string());
-    if (extension != ".cpp" && extension != ".cc" && extension != ".cxx" &&
-        extension != ".c++") {
+    if (inputContract == "cpp.translation-units/v1") {
+      const auto extension = Lower(path.extension().string());
+      if (extension != ".c" && extension != ".cpp" && extension != ".cc" &&
+          extension != ".cxx" && extension != ".c++") {
+        continue;
+      }
+    }
+    const auto relative = path.lexically_relative(
+        resolved.workspace.has_value()
+            ? resolved.workspace->path.parent_path()
+            : resolved.project.path.parent_path()).generic_string();
+    if (!run.input.includes.empty() &&
+        !AnyGlobMatches(run.input.includes, relative)) {
+      continue;
+    }
+    if (!run.input.excludes.empty() &&
+        AnyGlobMatches(run.input.excludes, relative)) {
+      continue;
+    }
+    if (run.input.scope == "Explicit" && run.input.includes.empty()) {
       continue;
     }
     const auto key = path.lexically_normal().string();
+    if ((run.input.scope == "ActiveFile" || run.input.scope == "ChangedFiles") &&
+        std::none_of(selectedFiles.begin(), selectedFiles.end(), [&](const std::string &selected) {
+          auto selectedPath = fs::path(selected);
+          if (selectedPath.is_relative()) selectedPath = resolved.project.path.parent_path() / selectedPath;
+          return fs::weakly_canonical(selectedPath) == fs::weakly_canonical(path);
+        })) {
+      continue;
+    }
     if (seen.insert(key).second) {
       sources.push_back(path);
     }
@@ -2569,66 +2864,81 @@ auto WriteFormattedElement(std::ostream &out, const XmlElement &element,
   return sources;
 }
 
-struct AnalyzerFinding {
-  std::string severity{};
-  fs::path file{};
-  std::string line{};
-  std::string column{};
-  std::string message{};
-};
+[[nodiscard]] auto ResolvedCompilationDatabasePath(const ResolvedLaunch &resolved)
+    -> fs::path {
+  const auto buildRoot = resolved.workspace.has_value()
+                             ? resolved.workspace->path.parent_path()
+                             : resolved.project.path.parent_path();
+  return buildRoot / ".ngin" / "build" / resolved.project.name /
+         resolved.profile.name / ".ngin" / "cmake-build" /
+         "compile_commands.json";
+}
 
-[[nodiscard]] auto NormalizeClangTidyMessage(std::string message)
-    -> std::string {
-  const std::regex checkSuffix{R"( \[([A-Za-z0-9_.\-]+)\]$)"};
-  std::smatch match{};
-  if (std::regex_search(message, match, checkSuffix)) {
-    const auto check = match[1].str();
-    if (check.rfind("clang-tidy:", 0) != 0) {
-      message = std::regex_replace(message, checkSuffix,
-                                   " [clang-tidy:" + check + "]");
+[[nodiscard]] auto ResolveToolArtifacts(const fs::path &outputDirectory)
+    -> std::vector<fs::path> {
+  std::vector<fs::path> artifacts{};
+  for (const auto &folder : {"bin", "lib", "symbols", "reports"}) {
+    const auto root = outputDirectory / folder;
+    std::error_code error{};
+    if (!fs::exists(root, error)) continue;
+    for (fs::recursive_directory_iterator iterator(root, error), end;
+         iterator != end && !error; iterator.increment(error))
+      if (iterator->is_regular_file(error)) artifacts.push_back(iterator->path());
+  }
+  std::sort(artifacts.begin(), artifacts.end());
+  artifacts.erase(std::unique(artifacts.begin(), artifacts.end()), artifacts.end());
+  return artifacts;
+}
+
+[[nodiscard]] auto ResolveChangedToolFiles(const ResolvedLaunch &resolved,
+                                           std::string_view revision)
+    -> std::vector<std::string> {
+  if (revision.empty()) {
+    throw std::runtime_error("--changed-since expects a non-empty revision");
+  }
+  const auto workspaceRoot = resolved.workspace.has_value()
+                                 ? resolved.workspace->path.parent_path()
+                                 : resolved.project.path.parent_path();
+  const auto git = ResolveToolPath("git", workspaceRoot);
+  if (!git.has_value()) {
+    throw std::runtime_error("--changed-since requires git on PATH or in the configured tool roots");
+  }
+  const auto process = RunProcessCapture(
+      git->path, {"diff", "--name-only", "-z", std::string(revision), "--"},
+      workspaceRoot);
+  if (process.exitCode != 0) {
+    throw std::runtime_error("git could not resolve changed files since '" +
+                             std::string(revision) + "': " + process.output);
+  }
+  std::vector<std::string> files{};
+  std::size_t offset = 0;
+  while (offset < process.output.size()) {
+    const auto end = process.output.find('\0', offset);
+    const auto length = (end == std::string::npos ? process.output.size() : end) - offset;
+    if (length != 0) {
+      files.push_back((workspaceRoot / process.output.substr(offset, length))
+                          .lexically_normal().string());
     }
+    if (end == std::string::npos) break;
+    offset = end + 1;
   }
-  return message;
+  return files;
 }
 
-[[nodiscard]] auto ClangTidyCodeFromMessage(const std::string &message)
-    -> std::string {
-  const std::regex checkSuffix{R"(\[clang-tidy:([A-Za-z0-9_.\-]+)\]$)"};
-  std::smatch match{};
-  if (std::regex_search(message, match, checkSuffix)) {
-    return match[1].str();
-  }
-  return {};
+[[nodiscard]] auto FindingSeverityRank(std::string_view severity) -> int {
+  const auto value = Lower(std::string{severity});
+  if (value == "fatal") return 4;
+  if (value == "error") return 3;
+  if (value == "warning") return 2;
+  if (value == "info") return 1;
+  return 0;
 }
 
-[[nodiscard]] auto ParseClangTidyFindings(const std::string &output,
-                                          const std::string &configuredSeverity)
-    -> std::vector<AnalyzerFinding> {
-  std::vector<AnalyzerFinding> findings{};
-  const std::regex diagnosticPattern{
-      R"(^(.+):([0-9]+):([0-9]+):\s*(warning|error):\s*(.+)$)"};
-  std::istringstream lines{output};
-  std::string line{};
-  while (std::getline(lines, line)) {
-    std::smatch match{};
-    if (!std::regex_match(line, match, diagnosticPattern)) {
-      continue;
-    }
-    findings.push_back(AnalyzerFinding{
-        .severity = Lower(configuredSeverity) == "error" ? "error" : "warning",
-        .file = fs::path(match[1].str()),
-        .line = match[2].str(),
-        .column = match[3].str(),
-        .message = NormalizeClangTidyMessage(match[5].str()),
-    });
-  }
-  return findings;
-}
-
-auto PrintAnalyzerFinding(const AnalyzerFinding &finding) -> void {
-  std::cout << "[" << finding.severity << "] " << finding.file.string() << ":"
-            << finding.line << ":" << finding.column << ": " << finding.message
-            << "\n";
+[[nodiscard]] auto ToolRunGateFails(const ToolRunDefinition &run,
+                                    std::string_view severity) -> bool {
+  return run.policy.gate &&
+         FindingSeverityRank(severity) >=
+             FindingSeverityRank(run.policy.failOn);
 }
 
 [[nodiscard]] auto
@@ -2899,7 +3209,7 @@ struct DiffSnapshot {
   std::set<std::string> plugins{};
   std::set<std::string> artifacts{};
   std::set<std::string> publishes{};
-  std::set<std::string> analyzers{};
+  std::set<std::string> toolRuns{};
 };
 
 [[nodiscard]] auto RedactedEnvironmentValue(const EnvironmentVariable &variable)
@@ -2986,17 +3296,33 @@ struct DiffSnapshot {
     snapshot.publishes.insert(publish.name + " kind=" + publish.kind +
                               " output=" + publish.output);
   }
-  for (const auto &[_, analyzer] :
-       EffectiveAnalyzers(resolved.project, resolved.profile,
-                          resolved.selectedPackageFeatures)) {
-    if (analyzer.enabled) {
-      auto value = analyzer.name + " scope=" + analyzer.scope +
-                   " severity=" + analyzer.severity;
-      if (!analyzer.configPath.empty()) {
-        value += " config=" + analyzer.configPath;
-      }
-      snapshot.analyzers.insert(std::move(value));
-    }
+  for (const auto &[_, run] : EffectiveToolRuns(
+           resolved.project, resolved.profile,
+           resolved.selectedPackageFeatures)) {
+    const auto binding = BindToolRun(resolved, run);
+    auto value = run.name + " state=" + (run.excluded ? "excluded" : run.enabled ? binding.state : "disabled") +
+                 " action=" + run.action +
+                 " kind=" + (binding.action.has_value() ? binding.action->kind : "") +
+                 " tool=" + (binding.tool.has_value() ? binding.tool->name : "") +
+                 " toolVersion=" + (binding.tool.has_value() ? binding.tool->versionRange : "") +
+                 " driver=" + (binding.driver.has_value() ? binding.driver->name : "") +
+                 " driverVersion=" + (binding.driver.has_value() ? binding.driver->version : "") +
+                 " protocol=" + (binding.driver.has_value() ? binding.driver->protocol : "") +
+                 " contract=" + run.input.contract +
+                 " scope=" + run.input.scope +
+                 " generated=" + (run.input.includeGenerated ? "true" : "false") +
+                 " gate=" + (run.policy.gate ? "true" : "false") +
+                 " failOn=" + run.policy.failOn +
+                 " baseline=" + run.policy.baseline +
+                 " cache=" + run.execution.cache +
+                 " timeout=" + run.execution.timeout;
+    for (const auto &config : run.configs)
+      value += " config=" + config.name + ":" + config.path;
+    for (const auto &include : run.input.includes) value += " include=" + include;
+    for (const auto &exclude : run.input.excludes) value += " exclude=" + exclude;
+    for (const auto &report : run.reports)
+      value += " report=" + report.name + ":" + report.format + ":" + report.path;
+    snapshot.toolRuns.insert(std::move(value));
   }
   snapshot.launch["WorkingDirectory"] =
       resolved.profile.launch.workingDirectory;
@@ -3617,6 +3943,36 @@ auto ParseCommonArgs(int argc, char **argv, int startIndex) -> ParsedArgs {
       args.scope = argv[++index];
     } else if (current == "--launch" && index + 1 < argc) {
       args.launchName = argv[++index];
+    } else if (current == "--run" && index + 1 < argc) {
+      args.toolRunName = argv[++index];
+    } else if (current == "--input-mode" && index + 1 < argc) {
+      args.toolInputMode = argv[++index];
+      if (*args.toolInputMode != "ActiveFile" && *args.toolInputMode != "ChangedFiles")
+        throw std::runtime_error("--input-mode expects ActiveFile or ChangedFiles");
+    } else if (current == "--file" && index + 1 < argc) {
+      args.toolFiles.push_back(argv[++index]);
+    } else if (current == "--changed-since" && index + 1 < argc) {
+      args.toolChangedSince = argv[++index];
+    } else if (current == "--apply" || current == "--fix" ||
+               current == "--apply-fixes") {
+      args.toolApplyEdits = true;
+    } else if (current == "--fix-preview") {
+      args.toolPreviewEdits = true;
+      args.toolApplyEdits = false;
+    } else if (current == "--allow-unsafe") {
+      args.toolAllowUnsafeEdits = true;
+    } else if (current == "--jobs" && index + 1 < argc) {
+      const auto value = std::stoull(argv[++index]);
+      if (value == 0) throw std::runtime_error("--jobs expects a positive integer");
+      args.toolJobs = static_cast<std::size_t>(value);
+    } else if (current == "--check") {
+      args.toolApplyEdits = false;
+    } else if (current == "--no-configure") {
+      args.toolNoConfigure = true;
+    } else if (current == "--no-cache") {
+      args.toolNoCache = true;
+    } else if (current == "--available") {
+      args.toolListAvailable = true;
     } else if (current == "--build-plan") {
       args.graphPlan = "build";
     } else if (current == "--stage-plan") {
@@ -3631,8 +3987,10 @@ auto ParseCommonArgs(int argc, char **argv, int startIndex) -> ParsedArgs {
       args.graphPlan = "runtime";
     } else if (current == "--publish-plan") {
       args.graphPlan = "publish";
+    } else if (current == "--tooling-plan") {
+      args.graphPlan = "tooling";
     } else if (current == "--quality-plan") {
-      args.graphPlan = "quality";
+      throw std::runtime_error("--quality-plan was removed; use --tooling-plan");
     } else if (current == "--environment-plan") {
       args.graphPlan = "environment";
     } else if (current == "--locked") {
@@ -4122,6 +4480,62 @@ auto CmdProjectReferenceAdd(const fs::path &root, const ParsedArgs &args)
   std::cout << "  project: " << projectPath << "\n";
   std::cout << "  reference: " << referencedProject.name << "\n";
   std::cout << "  path: " << referencePathText << "\n";
+  return 0;
+}
+
+auto CmdToolActionAdd(const fs::path &root, const ParsedArgs &args) -> int {
+  if (!args.packageName.has_value())
+    throw std::runtime_error("add tool-action requires Package::Action");
+  const auto separator = args.packageName->find("::");
+  if (separator == std::string::npos || separator == 0 ||
+      separator + 2 >= args.packageName->size())
+    throw std::runtime_error("tool action must be package-qualified as Package::Action");
+  const auto packageName = args.packageName->substr(0, separator);
+  const auto actionName = args.packageName->substr(separator + 2);
+  const auto runName = args.toolRunName.value_or(actionName);
+
+  const auto projectPath = ResolveProjectPath(args.projectPath);
+  const auto project = LoadProjectManifest(projectPath);
+  if (project.productKind.empty())
+    throw std::runtime_error("add tool-action requires a product-first project");
+  if (std::any_of(project.tooling.runs.begin(), project.tooling.runs.end(),
+                  [&](const ToolRunDefinition &run) { return run.name == runName; }))
+    throw std::runtime_error("project already declares tool run '" + runName + "'");
+
+  const auto workspace = LoadWorkspaceManifest(root);
+  const auto catalog = LoadPackageCatalog(workspace, projectPath);
+  const auto packageEntry = catalog.find(packageName);
+  if (packageEntry == catalog.end())
+    throw std::runtime_error("unknown tooling package '" + packageName + "'");
+  const auto package = LoadPackageManifest(packageEntry->second.manifestPath);
+  const auto action = std::find_if(package.toolActions.begin(), package.toolActions.end(),
+                                   [&](const ToolActionDeclaration &candidate) {
+                                     return candidate.name == actionName;
+                                   });
+  if (action == package.toolActions.end())
+    throw std::runtime_error("package '" + packageName +
+                             "' does not export tool action '" + actionName + "'");
+
+  auto text = ReadTextIfExists(projectPath);
+  if (text.empty())
+    throw std::runtime_error(projectPath.string() + ": failed to read project file");
+  const auto hasPackage = std::any_of(
+      project.packageRefs.begin(), project.packageRefs.end(),
+      [&](const PackageReference &reference) { return reference.name == packageName; });
+  if (!hasPackage)
+    text = InsertPackageUse(std::move(text), project.productKind, packageName,
+                            "[" + package.version + "]", "Dev");
+  text = InsertToolRun(std::move(text), project.productKind, runName,
+                       *args.packageName);
+  WriteTextFile(projectPath, text);
+  (void)LoadProjectManifest(projectPath);
+
+  std::cout << "Added tool action\n";
+  std::cout << "  project: " << projectPath << "\n";
+  std::cout << "  run: " << runName << "\n";
+  std::cout << "  action: " << *args.packageName << " [" << action->kind << "]\n";
+  std::cout << "  package: " << packageName << " " << package.version
+            << (hasPackage ? " [existing]" : " [added]") << "\n";
   return 0;
 }
 
@@ -5270,26 +5684,118 @@ auto CmdExplainObject(const fs::path &root, const ParsedArgs &args) -> int {
     return 0;
   }
 
-  if (kind == "analyzer") {
-    std::cout << "Analyzer: " << identity << "\n";
-    const auto analyzers =
-        EffectiveAnalyzers(resolved.value->project, resolved.value->profile,
-                           resolved.value->selectedPackageFeatures);
-    const auto analyzerIt = analyzers.find(identity);
-    if (analyzerIt == analyzers.end() || !analyzerIt->second.enabled) {
+  if (kind == "tool") {
+    std::cout << "Tool: " << identity << "\n";
+    const auto item = std::find_if(graph.tools.begin(), graph.tools.end(),
+                                   [&](const auto &tool) {
+                                     return tool.identity == identity || tool.name == identity;
+                                   });
+    if (item == graph.tools.end()) {
       std::cout << "  result: not selected\n";
       return 0;
     }
     std::cout << "  result: selected\n";
-    std::cout << "  tool: " << AnalyzerToolName(analyzerIt->second) << "\n";
-    if (!analyzerIt->second.packageName.empty()) {
-      std::cout << "  package: " << analyzerIt->second.packageName << "\n";
+    std::cout << "  identity: " << item->identity << "\n";
+    std::cout << "  package: " << item->packageName << "\n";
+    std::cout << "  kind: " << item->kind << "\n";
+    std::cout << "  executable: " << item->executable << "\n";
+    std::cout << "  resolved path: " << item->resolvedPath << "\n";
+    std::cout << "  resolution source: " << item->resolutionSource << "\n";
+    std::cout << "  version range: " << item->versionRange << "\n";
+    return 0;
+  }
+
+  if (kind == "driver") {
+    std::cout << "Tool driver: " << identity << "\n";
+    const auto item = std::find_if(graph.toolDrivers.begin(), graph.toolDrivers.end(),
+                                   [&](const auto &driver) {
+                                     return driver.identity == identity || driver.name == identity;
+                                   });
+    if (item == graph.toolDrivers.end()) {
+      std::cout << "  result: not selected\n";
+      return 0;
     }
-    std::cout << "  scope: " << analyzerIt->second.scope << "\n";
-    std::cout << "  severity: " << analyzerIt->second.severity << "\n";
-    if (!analyzerIt->second.configPath.empty()) {
-      std::cout << "  config: " << analyzerIt->second.configPath << "\n";
+    std::cout << "  result: selected\n";
+    std::cout << "  identity: " << item->identity << "\n";
+    std::cout << "  package: " << item->packageName << "\n";
+    std::cout << "  protocol: " << item->protocol << "\n";
+    std::cout << "  version: " << item->version << "\n";
+    std::cout << "  executable: " << item->executable << "\n";
+    std::cout << "  resolved path: " << item->resolvedPath << "\n";
+    std::cout << "  resolution source: " << item->resolutionSource << "\n";
+    return 0;
+  }
+
+  if (kind == "action") {
+    std::cout << "Tool action: " << identity << "\n";
+    const auto item = std::find_if(graph.toolActions.begin(), graph.toolActions.end(),
+                                   [&](const auto &action) {
+                                     return action.identity == identity || action.name == identity;
+                                   });
+    if (item == graph.toolActions.end()) {
+      std::cout << "  result: not selected\n";
+      return 0;
     }
+    std::cout << "  result: selected\n";
+    std::cout << "  identity: " << item->identity << "\n";
+    std::cout << "  package: " << item->packageName << "\n";
+    std::cout << "  kind: " << item->kind << "\n";
+    std::cout << "  tool: " << item->tool << "\n";
+    std::cout << "  driver: " << item->driver << "\n";
+    std::cout << "  default input scope: " << item->defaultInputScope << "\n";
+    return 0;
+  }
+
+  if (kind == "input-set") {
+    std::cout << "Tool input set: " << identity << "\n";
+    const auto item = std::find_if(graph.toolInputSets.begin(), graph.toolInputSets.end(),
+                                   [&](const auto &inputSet) {
+                                     return inputSet.identity == identity ||
+                                            inputSet.identity == "input-set:" + identity ||
+                                            inputSet.run == identity;
+                                   });
+    if (item == graph.toolInputSets.end()) {
+      std::cout << "  result: not selected\n";
+      return 0;
+    }
+    std::cout << "  result: selected\n";
+    std::cout << "  identity: " << item->identity << "\n";
+    std::cout << "  run: " << item->run << "\n";
+    std::cout << "  contract: " << item->contract << "\n";
+    std::cout << "  scope: " << item->scope << "\n";
+    std::cout << "  state: " << item->state << "\n";
+    std::cout << "  source: " << item->source << "\n";
+    std::cout << "  signature: " << item->signature << "\n";
+    std::cout << "  files: " << item->files.size() << "\n";
+    return 0;
+  }
+
+  if (kind == "run") {
+    std::cout << "Tool run: " << identity << "\n";
+    const auto runs = EffectiveToolRuns(
+        resolved.value->project, resolved.value->profile,
+        resolved.value->selectedPackageFeatures);
+    const auto runIt = runs.find(identity);
+    if (runIt == runs.end()) {
+      std::cout << "  result: not selected\n";
+      return 0;
+    }
+    const auto binding = BindToolRun(*resolved.value, runIt->second);
+    std::cout << "  result: " << (runIt->second.excluded ? "excluded"
+                                    : runIt->second.enabled ? "selected" : "disabled") << "\n";
+    std::cout << "  action: " << runIt->second.action << "\n";
+    std::cout << "  state: " << (runIt->second.excluded ? "excluded"
+                                  : runIt->second.enabled ? binding.state : "disabled") << "\n";
+    std::cout << "  input contract: " << runIt->second.input.contract << "\n";
+    std::cout << "  input scope: " << runIt->second.input.scope << "\n";
+    std::cout << "  gate: " << (runIt->second.policy.gate ? "true" : "false") << "\n";
+    std::cout << "  fail on: " << runIt->second.policy.failOn << "\n";
+    if (binding.tool.has_value())
+      std::cout << "  tool: " << binding.tool->name << "\n";
+    if (binding.driver.has_value())
+      std::cout << "  driver: " << binding.driver->name << "\n";
+    if (!binding.diagnostic.empty())
+      std::cout << "  diagnostic: " << binding.diagnostic << "\n";
     return 0;
   }
 
@@ -5364,7 +5870,7 @@ BuildCompositionGraph(const LoadedInvocation &invocation,
       EffectivePublishes(invocation.project, invocation.profile);
   const auto effectivePackageOutputs =
       EffectivePackageOutputs(invocation.project, invocation.profile);
-  const auto effectiveAnalyzers = EffectiveAnalyzers(
+  const auto effectiveToolRuns = EffectiveToolRuns(
       invocation.project, invocation.profile,
       resolved == nullptr ? std::vector<SelectedPackageFeature>{}
                           : resolved->selectedPackageFeatures);
@@ -5477,7 +5983,7 @@ BuildCompositionGraph(const LoadedInvocation &invocation,
   graph.facets = {"identity",  "workspace", "project", "product",
                   "profile",   "platform",  "package", "build",
                   "generate",  "stage",     "runtime", "environment",
-                  "launch",    "publish",   "quality", "diagnostics",
+                  "launch",    "publish",   "tooling", "diagnostics",
                   "provenance"};
   graph.identity = CompositionGraph::Identity{
       .project = invocation.project.name,
@@ -5566,9 +6072,9 @@ BuildCompositionGraph(const LoadedInvocation &invocation,
       resolved == nullptr ? 0 : resolved->environmentVariables.size();
   graph.summary.publishes = effectivePublishes.size();
   graph.summary.diagnostics = resolvedResult.diagnostics.entries.size();
-  for (const auto &[_, analyzer] : effectiveAnalyzers) {
-    if (analyzer.enabled) {
-      ++graph.summary.analyzers;
+  for (const auto &[_, run] : effectiveToolRuns) {
+    if (run.enabled) {
+      ++graph.summary.toolRuns;
     }
   }
 
@@ -5823,22 +6329,315 @@ BuildCompositionGraph(const LoadedInvocation &invocation,
     });
   }
 
-  for (const auto &[_, analyzer] : effectiveAnalyzers) {
-    if (!analyzer.enabled) {
-      continue;
+  for (const auto &[_, run] : effectiveToolRuns) {
+    const auto binding = resolved == nullptr
+                             ? ToolRunBinding{.run = run,
+                                              .state = "unavailable",
+                                              .diagnostic = "project graph did not resolve"}
+                             : BindToolRun(*resolved, run);
+    const auto inputContract = !run.input.contract.empty()
+                                   ? run.input.contract
+                                   : binding.action.has_value() &&
+                                             !binding.action->inputContracts.empty()
+                                         ? binding.action->inputContracts.front()
+                                         : std::string{};
+    const auto resolvedTool = resolved != nullptr && run.enabled && binding.state == "ready"
+                                  ? ResolveToolExecutable(*resolved, binding)
+                                  : std::nullopt;
+    std::optional<ToolResolution> resolvedDriver{};
+    if (resolved != nullptr && run.enabled && binding.driver.has_value() && binding.state == "ready") {
+      if (!binding.driver->adapter.empty())
+        resolvedDriver = ToolResolution{.path = binding.driver->adapter, .source = "builtin-adapter"};
+      else
+        resolvedDriver = ResolveDriverExecutable(*resolved, binding);
     }
-    graph.analyzers.push_back(CompositionGraph::QualityAnalyzer{
-        .name = analyzer.name,
-        .tool = AnalyzerToolName(analyzer),
-        .packageName = analyzer.packageName,
-        .scope = analyzer.scope,
-        .severity = analyzer.severity,
-        .configPath = analyzer.configPath,
-        .configOptional = analyzer.configOptional,
-        .provenance = contributionProvenance(analyzer.provenance,
-                                             "resolved quality analyzer",
-                                             analyzer.selectors),
+    auto executionState = run.excluded ? std::string{"excluded"}
+                          : !run.enabled ? std::string{"disabled"}
+                          : binding.state == "ready" &&
+                                  (!resolvedTool.has_value() || !resolvedDriver.has_value())
+                              ? std::string{"unavailable"} : binding.state;
+    auto executionDiagnostic = binding.diagnostic;
+    if (executionState == "unavailable" && executionDiagnostic.empty())
+      executionDiagnostic = !resolvedTool.has_value() ? "tool executable could not be resolved"
+                                                      : "driver executable could not be resolved";
+    if (resolved != nullptr && resolvedTool.has_value() && resolvedDriver.has_value()) {
+      if (const auto policyError = ToolResolutionPolicyError(
+              resolved->toolingResolutionPolicy, *resolvedTool, *resolvedDriver);
+          !policyError.empty()) {
+        executionState = "invalid";
+        executionDiagnostic = policyError;
+      }
+    }
+    const auto packageName = ActionPackageName(run);
+    const auto registryProvenance = [&] {
+      CompositionGraph::Provenance value{.sourceKind = "package", .sourceName = packageName,
+                                         .reason = "selected package tooling registry"};
+      if (resolved != nullptr) {
+        const auto package = std::find_if(resolved->orderedPackages.begin(), resolved->orderedPackages.end(),
+                                          [&](const ResolvedPackage &candidate) {
+                                            return candidate.manifest.name == packageName;
+                                          });
+        if (package != resolved->orderedPackages.end()) value.manifestPath = package->manifest.path;
+      }
+      return value;
+    }();
+    auto inputFiles = resolved == nullptr
+                          ? std::vector<std::string>{}
+                          : [&] {
+                              std::vector<std::string> values{};
+                              for (const auto &source : ResolveToolSources(
+                                       *resolved, binding.run, inputContract))
+                                values.push_back(source.string());
+                              return values;
+                            }();
+    auto inputSetState = inputContract == "cpp.translation-units/v1"
+                             ? std::string{"requires-configure"}
+                             : std::string{"resolved"};
+    auto inputSetSource = inputContract == "cpp.translation-units/v1"
+                              ? std::string{"graph.compilation-units"}
+                              : std::string{"composition-graph.inputs"};
+    std::string inputSetSignature{};
+    std::vector<CompositionGraph::ToolInputSet::TranslationUnit> inputTranslationUnits{};
+    if (resolved != nullptr && run.enabled && inputContract == "cpp.translation-units/v1") {
+      const auto compilationDatabase = ResolvedCompilationDatabasePath(*resolved);
+      if (fs::exists(compilationDatabase)) {
+        try {
+          auto storedSignature = ReadTextIfExists(
+              CompilationPlanSignaturePath(compilationDatabase));
+          while (!storedSignature.empty() && std::isspace(
+                     static_cast<unsigned char>(storedSignature.back())))
+            storedSignature.pop_back();
+          if (storedSignature != CompilationPlanSignature(*resolved)) {
+            inputSetState = "requires-configure";
+            inputSetSource = compilationDatabase.string();
+            executionDiagnostic = "configured compilation-unit plan is stale";
+          } else {
+          std::vector<fs::path> selected{};
+          for (const auto &file : inputFiles) selected.emplace_back(file);
+          const auto units = LoadToolTranslationUnits(
+              compilationDatabase, selected, resolved->profile.platform,
+              resolved->project.name);
+          inputFiles.clear();
+          for (const auto &unit : units) {
+            inputFiles.push_back(unit.source.string());
+            inputTranslationUnits.push_back(CompositionGraph::ToolInputSet::TranslationUnit{
+                .source = unit.source.string(),
+                .workingDirectory = unit.workingDirectory.string(),
+                .compiler = unit.compiler,
+                .arguments = unit.arguments,
+                .targetPlatform = unit.targetPlatform,
+                .language = unit.language,
+                .owner = unit.owner,
+                .generated = unit.generated,
+                .commandDigest = unit.commandDigest,
+            });
+          }
+          inputSetState = "resolved";
+          inputSetSource = compilationDatabase.string();
+          inputSetSignature = CompilationPlanSignature(*resolved);
+          if (units.empty() && !selected.empty()) {
+            inputSetState = "invalid";
+            executionState = "invalid";
+            executionDiagnostic = "configured compilation-unit plan contains no matching translation units";
+          }
+          }
+        } catch (const std::exception &error) {
+          inputSetState = "invalid";
+          executionState = "invalid";
+          executionDiagnostic = error.what();
+        }
+      }
+    }
+    const auto dependencies = [&] {
+      std::vector<std::string> values{};
+      for (const auto &dependency : run.dependencies)
+        values.push_back("run:" + dependency);
+      const auto append = [&](std::string value) {
+        if (std::find(values.begin(), values.end(), value) == values.end())
+          values.push_back(std::move(value));
+      };
+      if (inputContract == "cpp.translation-units/v1") {
+        append("phase:configure");
+      } else if (inputContract == "tool.results/v1") {
+        for (const auto &[identity, candidate] : effectiveToolRuns)
+          if (candidate.enabled && identity != run.name) append("run:" + identity);
+      } else if (inputContract == "artifacts/v1" || inputContract.starts_with("build.")) {
+        append("phase:build");
+      } else if (inputContract.starts_with("stage.")) {
+        append("phase:stage");
+      }
+      return values;
+    }();
+
+    if (binding.tool.has_value()) {
+      const auto identity = packageName + "::" + binding.tool->name;
+      if (std::ranges::none_of(graph.tools, [&](const auto &entry) { return entry.identity == identity; }))
+        graph.tools.push_back(CompositionGraph::Tool{
+            .identity = identity,
+            .name = binding.tool->name,
+            .packageName = packageName,
+            .kind = binding.tool->kind,
+            .executable = binding.tool->executable,
+            .resolvedPath = resolvedTool.has_value() ? resolvedTool->path.string() : "",
+            .resolutionSource = resolvedTool.has_value() ? resolvedTool->source : "",
+            .versionRange = binding.tool->versionRange,
+            .systemExecutable = binding.tool->systemExecutable,
+            .provenance = registryProvenance,
+        });
+    }
+    if (binding.driver.has_value()) {
+      const auto identity = packageName + "::" + binding.driver->name;
+      if (std::ranges::none_of(graph.toolDrivers, [&](const auto &entry) { return entry.identity == identity; }))
+        graph.toolDrivers.push_back(CompositionGraph::ToolDriver{
+            .identity = identity,
+            .name = binding.driver->name,
+            .packageName = packageName,
+            .protocol = binding.driver->protocol,
+            .version = binding.driver->version,
+            .executable = binding.driver->adapter.empty() ? binding.driver->executable : binding.driver->adapter,
+            .resolvedPath = resolvedDriver.has_value() ? resolvedDriver->path.string() : "",
+            .resolutionSource = resolvedDriver.has_value() ? resolvedDriver->source : "",
+            .probe = binding.driver->probe,
+            .capabilities = binding.driver->capabilities,
+            .provenance = registryProvenance,
+        });
+    }
+    if (binding.action.has_value() &&
+        std::ranges::none_of(graph.toolActions, [&](const auto &entry) { return entry.identity == run.action; }))
+      graph.toolActions.push_back(CompositionGraph::ToolAction{
+          .identity = run.action,
+          .name = binding.action->name,
+          .packageName = packageName,
+          .kind = binding.action->kind,
+          .tool = packageName + "::" + binding.action->toolName,
+          .driver = packageName + "::" + binding.action->driverName,
+          .inputContracts = binding.action->inputContracts,
+          .capabilities = binding.action->capabilities,
+          .defaultInputScope = binding.action->defaultInputScope,
+          .environment = [&] {
+            std::vector<CompositionGraph::ToolAction::EnvironmentRequirement> values{};
+            for (const auto &requirement : binding.action->environment) {
+              const auto requirementResolved = resolved != nullptr && std::any_of(
+                  resolved->environmentVariables.begin(), resolved->environmentVariables.end(),
+                  [&](const EnvironmentVariable &candidate) {
+                    return candidate.name == requirement.name && candidate.resolved &&
+                           candidate.secret == requirement.secret;
+                  });
+              values.push_back(CompositionGraph::ToolAction::EnvironmentRequirement{
+                  .name = requirement.name,
+                  .required = requirement.required,
+                  .secret = requirement.secret,
+                  .cacheKey = requirement.cacheKey,
+                  .resolved = requirementResolved,
+              });
+            }
+            return values;
+          }(),
+          .provenance = registryProvenance,
+      });
+    graph.toolInputSets.push_back(CompositionGraph::ToolInputSet{
+        .identity = "input-set:" + run.name,
+        .run = run.name,
+        .contract = inputContract,
+        .scope = binding.run.input.scope,
+        .state = inputSetState,
+        .source = inputSetSource,
+        .signature = inputSetSignature,
+        .includeGenerated = run.input.includeGenerated,
+        .files = inputFiles,
+        .translationUnits = std::move(inputTranslationUnits),
     });
+    graph.toolPolicies.push_back(CompositionGraph::ToolPolicy{
+        .identity = "policy:" + run.name,
+        .run = run.name,
+        .gate = run.policy.gate,
+        .failOn = run.policy.failOn,
+        .baseline = run.policy.baseline,
+        .newFindingsOnly = run.policy.newFindingsOnly,
+        .maxFindings = run.policy.maxFindings,
+        .maxWarnings = run.policy.maxWarnings,
+    });
+    for (const auto &report : run.reports)
+      graph.toolReports.push_back(CompositionGraph::ToolReport{
+          .identity = "report:" + run.name + ":" + report.name,
+          .run = run.name,
+          .name = report.name,
+          .format = report.format,
+          .path = report.path,
+      });
+    for (const auto &dependency : dependencies)
+      graph.toolDependencies.push_back(CompositionGraph::ToolDependency{
+          .from = "run:" + run.name,
+          .to = dependency,
+          .kind = dependency.starts_with("run:") ? "run" : "phase",
+      });
+    if (!executionDiagnostic.empty())
+      graph.toolDiagnostics.push_back(CompositionGraph::ToolPlanDiagnostic{
+          .run = run.name,
+          .severity = executionState == "invalid" || executionState == "unavailable" ? "error" : "warning",
+          .message = executionDiagnostic,
+      });
+    graph.toolRuns.push_back(CompositionGraph::ToolRun{
+        .name = run.name,
+        .action = run.action,
+        .actionKind = binding.action.has_value() ? binding.action->kind : "",
+        .packageName = packageName,
+        .packageFeature = run.packageFeature,
+        .tool = binding.tool.has_value() ? binding.tool->name : "",
+        .toolPath = resolvedTool.has_value() ? resolvedTool->path.string() : "",
+        .toolSource = resolvedTool.has_value() ? resolvedTool->source : "",
+        .driver = binding.driver.has_value() ? binding.driver->name : "",
+        .driverPath = resolvedDriver.has_value() ? resolvedDriver->path.string() : "",
+        .driverSource = resolvedDriver.has_value() ? resolvedDriver->source : "",
+        .driverProtocol = binding.driver.has_value() ? binding.driver->protocol : "",
+        .state = executionState,
+        .diagnostic = executionDiagnostic,
+        .inputContract = inputContract,
+        .inputScope = binding.run.input.scope,
+        .includeGenerated = run.input.includeGenerated,
+        .configCount = run.configs.size(),
+        .configPaths = [&] { std::vector<std::string> values{}; for (const auto &config : run.configs) values.push_back(config.path); return values; }(),
+        .includes = run.input.includes,
+        .excludes = run.input.excludes,
+        .inputFiles = inputFiles,
+        .gate = run.policy.gate,
+        .failOn = run.policy.failOn,
+        .baseline = run.policy.baseline,
+        .newFindingsOnly = run.policy.newFindingsOnly,
+        .cache = run.execution.cache,
+        .jobs = run.execution.jobs,
+        .timeout = run.execution.timeout,
+        .failureStrategy = run.execution.failureStrategy,
+        .weight = run.execution.weight,
+        .maxParallelism = run.execution.maxParallelism,
+        .exclusiveResource = run.execution.exclusiveResource,
+        .reportCount = run.reports.size(),
+        .reportPaths = [&] { std::vector<std::string> values{}; for (const auto &report : run.reports) values.push_back(report.path); return values; }(),
+        .reportFormats = [&] { std::vector<std::string> values{}; for (const auto &report : run.reports) values.push_back(report.format); return values; }(),
+        .dependencies = dependencies,
+        .provenance = contributionProvenance(run.provenance,
+                                             "resolved tool run",
+                                             run.selectors),
+    });
+  }
+
+  std::map<std::string, std::string> reportPathOwners{};
+  for (const auto &report : graph.toolReports) {
+    const auto key = report.path.find("$(OutputDir)") == std::string::npos
+                         ? fs::path(report.path).lexically_normal().generic_string()
+                         : report.run + ":" + report.path;
+    const auto [owner, inserted] = reportPathOwners.emplace(key, report.run + ":" + report.name);
+    if (inserted) continue;
+    const auto message = "tool report path collision for '" + report.path +
+                         "' between '" + owner->second + "' and '" + report.run +
+                         ":" + report.name + "'";
+    graph.toolDiagnostics.push_back(CompositionGraph::ToolPlanDiagnostic{
+        .run = report.run, .severity = "error", .message = message});
+    for (auto &run : graph.toolRuns)
+      if (run.name == report.run || owner->second.starts_with(run.name + ":")) {
+        run.state = "invalid";
+        run.diagnostic = message;
+      }
   }
 
   return graph;
@@ -6208,31 +7007,226 @@ auto WriteGraphPublishes(
   out << "]";
 }
 
-auto WriteGraphAnalyzers(
+auto WriteGraphToolRuns(
     std::ostream &out,
-    const std::vector<CompositionGraph::QualityAnalyzer> &analyzers,
+    const std::vector<CompositionGraph::ToolRun> &runs,
     bool includeProvenance) -> void {
+  const auto writeStrings = [&](const std::vector<std::string> &values) {
+    out << '[';
+    for (std::size_t valueIndex = 0; valueIndex < values.size(); ++valueIndex) {
+      if (valueIndex > 0) out << ',';
+      out << Json(values[valueIndex]);
+    }
+    out << ']';
+  };
   out << "[";
-  for (std::size_t index = 0; index < analyzers.size(); ++index) {
+  for (std::size_t index = 0; index < runs.size(); ++index) {
     if (index > 0) {
       out << ",";
     }
     out << "{"
-        << "\"name\":" << Json(analyzers[index].name) << ","
-        << "\"tool\":" << Json(analyzers[index].tool) << ","
-        << "\"package\":" << Json(analyzers[index].packageName) << ","
-        << "\"scope\":" << Json(analyzers[index].scope) << ","
-        << "\"severity\":" << Json(analyzers[index].severity) << ","
-        << "\"configPath\":" << Json(analyzers[index].configPath) << ","
-        << "\"configOptional\":"
-        << (analyzers[index].configOptional ? "true" : "false");
+        << "\"name\":" << Json(runs[index].name) << ","
+        << "\"action\":" << Json(runs[index].action) << ","
+        << "\"kind\":" << Json(runs[index].actionKind) << ","
+        << "\"package\":" << Json(runs[index].packageName) << ","
+        << "\"packageFeature\":" << Json(runs[index].packageFeature) << ","
+        << "\"tool\":" << Json(runs[index].tool) << ","
+        << "\"toolPath\":" << Json(runs[index].toolPath) << ","
+        << "\"toolSource\":" << Json(runs[index].toolSource) << ","
+        << "\"driver\":" << Json(runs[index].driver) << ","
+        << "\"driverPath\":" << Json(runs[index].driverPath) << ","
+        << "\"driverSource\":" << Json(runs[index].driverSource) << ","
+        << "\"driverProtocol\":" << Json(runs[index].driverProtocol) << ","
+        << "\"state\":" << Json(runs[index].state) << ","
+        << "\"diagnostic\":" << Json(runs[index].diagnostic) << ","
+        << "\"inputContract\":" << Json(runs[index].inputContract) << ","
+        << "\"inputScope\":" << Json(runs[index].inputScope) << ","
+        << "\"includeGenerated\":" << (runs[index].includeGenerated ? "true" : "false") << ","
+        << "\"configCount\":" << runs[index].configCount << ",\"configPaths\":";
+    writeStrings(runs[index].configPaths);
+    out << ",\"includes\":";
+    writeStrings(runs[index].includes);
+    out << ",\"excludes\":";
+    writeStrings(runs[index].excludes);
+    out << ",\"inputFiles\":";
+    writeStrings(runs[index].inputFiles);
+    out << ","
+        << "\"gate\":" << (runs[index].gate ? "true" : "false") << ","
+        << "\"failOn\":" << Json(runs[index].failOn) << ","
+        << "\"baseline\":" << Json(runs[index].baseline) << ","
+        << "\"newFindingsOnly\":" << (runs[index].newFindingsOnly ? "true" : "false") << ","
+        << "\"cache\":" << Json(runs[index].cache) << ","
+        << "\"jobs\":" << Json(runs[index].jobs) << ","
+        << "\"timeout\":" << Json(runs[index].timeout) << ","
+        << "\"failureStrategy\":" << Json(runs[index].failureStrategy) << ","
+        << "\"weight\":" << runs[index].weight << ","
+        << "\"maxParallelism\":" << runs[index].maxParallelism << ","
+        << "\"exclusiveResource\":" << Json(runs[index].exclusiveResource) << ","
+        << "\"reportCount\":" << runs[index].reportCount << ",\"reportPaths\":";
+    writeStrings(runs[index].reportPaths);
+    out << ",\"reportFormats\":";
+    writeStrings(runs[index].reportFormats);
+    out << ",\"dependencies\":";
+    writeStrings(runs[index].dependencies);
     if (includeProvenance) {
       out << ",\"provenance\":";
-      WriteGraphProvenance(out, analyzers[index].provenance);
+      WriteGraphProvenance(out, runs[index].provenance);
     }
     out << "}";
   }
   out << "]";
+}
+
+auto WriteGraphToolingPlan(std::ostream &out, const CompositionGraph &graph,
+                           bool includeProvenance) -> void {
+  const auto writeStrings = [&](const std::vector<std::string> &values) {
+    out << '[';
+    for (std::size_t index = 0; index < values.size(); ++index) {
+      if (index != 0) out << ',';
+      out << Json(values[index]);
+    }
+    out << ']';
+  };
+  out << "{\"tools\":[";
+  for (std::size_t index = 0; index < graph.tools.size(); ++index) {
+    if (index != 0) out << ',';
+    const auto &tool = graph.tools[index];
+    out << "{\"identity\":" << Json(tool.identity)
+        << ",\"name\":" << Json(tool.name)
+        << ",\"package\":" << Json(tool.packageName)
+        << ",\"kind\":" << Json(tool.kind)
+        << ",\"executable\":" << Json(tool.executable)
+        << ",\"resolvedPath\":" << Json(tool.resolvedPath)
+        << ",\"resolutionSource\":" << Json(tool.resolutionSource)
+        << ",\"versionRange\":" << Json(tool.versionRange)
+        << ",\"systemExecutable\":" << (tool.systemExecutable ? "true" : "false");
+    if (includeProvenance) { out << ",\"provenance\":"; WriteGraphProvenance(out, tool.provenance); }
+    out << '}';
+  }
+  out << "],\"drivers\":[";
+  for (std::size_t index = 0; index < graph.toolDrivers.size(); ++index) {
+    if (index != 0) out << ',';
+    const auto &driver = graph.toolDrivers[index];
+    out << "{\"identity\":" << Json(driver.identity)
+        << ",\"name\":" << Json(driver.name)
+        << ",\"package\":" << Json(driver.packageName)
+        << ",\"protocol\":" << Json(driver.protocol)
+        << ",\"version\":" << Json(driver.version)
+        << ",\"executable\":" << Json(driver.executable)
+        << ",\"resolvedPath\":" << Json(driver.resolvedPath)
+        << ",\"resolutionSource\":" << Json(driver.resolutionSource)
+        << ",\"probe\":" << (driver.probe ? "true" : "false")
+        << ",\"capabilities\":";
+    writeStrings(driver.capabilities);
+    if (includeProvenance) { out << ",\"provenance\":"; WriteGraphProvenance(out, driver.provenance); }
+    out << '}';
+  }
+  out << "],\"actions\":[";
+  for (std::size_t index = 0; index < graph.toolActions.size(); ++index) {
+    if (index != 0) out << ',';
+    const auto &action = graph.toolActions[index];
+    out << "{\"identity\":" << Json(action.identity)
+        << ",\"name\":" << Json(action.name)
+        << ",\"package\":" << Json(action.packageName)
+        << ",\"kind\":" << Json(action.kind)
+        << ",\"tool\":" << Json(action.tool)
+        << ",\"driver\":" << Json(action.driver)
+        << ",\"inputContracts\":";
+    writeStrings(action.inputContracts);
+    out << ",\"capabilities\":";
+    writeStrings(action.capabilities);
+    out << ",\"defaultInputScope\":" << Json(action.defaultInputScope)
+        << ",\"environment\":[";
+    for (std::size_t requirementIndex = 0; requirementIndex < action.environment.size(); ++requirementIndex) {
+      if (requirementIndex != 0) out << ',';
+      const auto &requirement = action.environment[requirementIndex];
+      out << "{\"name\":" << Json(requirement.name)
+          << ",\"required\":" << (requirement.required ? "true" : "false")
+          << ",\"secret\":" << (requirement.secret ? "true" : "false")
+          << ",\"cacheKey\":" << (requirement.cacheKey ? "true" : "false")
+          << ",\"resolved\":" << (requirement.resolved ? "true" : "false") << '}';
+    }
+    out << ']';
+    if (includeProvenance) { out << ",\"provenance\":"; WriteGraphProvenance(out, action.provenance); }
+    out << '}';
+  }
+  out << "],\"runs\":";
+  WriteGraphToolRuns(out, graph.toolRuns, includeProvenance);
+  out << ",\"inputSets\":[";
+  for (std::size_t index = 0; index < graph.toolInputSets.size(); ++index) {
+    if (index != 0) out << ',';
+    const auto &input = graph.toolInputSets[index];
+    out << "{\"identity\":" << Json(input.identity)
+        << ",\"run\":" << Json(input.run)
+        << ",\"contract\":" << Json(input.contract)
+        << ",\"scope\":" << Json(input.scope)
+        << ",\"state\":" << Json(input.state)
+        << ",\"source\":" << Json(input.source)
+        << ",\"signature\":" << Json(input.signature)
+        << ",\"includeGenerated\":" << (input.includeGenerated ? "true" : "false")
+        << ",\"files\":";
+    writeStrings(input.files);
+    out << ",\"translationUnits\":[";
+    for (std::size_t unitIndex = 0; unitIndex < input.translationUnits.size(); ++unitIndex) {
+      if (unitIndex != 0) out << ',';
+      const auto &unit = input.translationUnits[unitIndex];
+      out << "{\"source\":" << Json(unit.source)
+          << ",\"workingDirectory\":" << Json(unit.workingDirectory)
+          << ",\"compiler\":" << Json(unit.compiler)
+          << ",\"arguments\":";
+      writeStrings(unit.arguments);
+      out << ",\"targetPlatform\":" << Json(unit.targetPlatform)
+          << ",\"language\":" << Json(unit.language)
+          << ",\"owner\":" << Json(unit.owner)
+          << ",\"generated\":" << (unit.generated ? "true" : "false")
+          << ",\"commandDigest\":" << Json(unit.commandDigest) << '}';
+    }
+    out << ']';
+    out << '}';
+  }
+  out << "],\"dependencies\":[";
+  for (std::size_t index = 0; index < graph.toolDependencies.size(); ++index) {
+    if (index != 0) out << ',';
+    const auto &dependency = graph.toolDependencies[index];
+    out << "{\"from\":" << Json(dependency.from)
+        << ",\"to\":" << Json(dependency.to)
+        << ",\"kind\":" << Json(dependency.kind) << '}';
+  }
+  out << "],\"policies\":[";
+  for (std::size_t index = 0; index < graph.toolPolicies.size(); ++index) {
+    if (index != 0) out << ',';
+    const auto &policy = graph.toolPolicies[index];
+    out << "{\"identity\":" << Json(policy.identity)
+        << ",\"run\":" << Json(policy.run)
+        << ",\"gate\":" << (policy.gate ? "true" : "false")
+        << ",\"failOn\":" << Json(policy.failOn)
+        << ",\"baseline\":" << Json(policy.baseline)
+        << ",\"newFindingsOnly\":" << (policy.newFindingsOnly ? "true" : "false")
+        << ",\"maxFindings\":";
+    if (policy.maxFindings.has_value()) out << *policy.maxFindings; else out << "null";
+    out << ",\"maxWarnings\":";
+    if (policy.maxWarnings.has_value()) out << *policy.maxWarnings; else out << "null";
+    out << '}';
+  }
+  out << "],\"reports\":[";
+  for (std::size_t index = 0; index < graph.toolReports.size(); ++index) {
+    if (index != 0) out << ',';
+    const auto &report = graph.toolReports[index];
+    out << "{\"identity\":" << Json(report.identity)
+        << ",\"run\":" << Json(report.run)
+        << ",\"name\":" << Json(report.name)
+        << ",\"format\":" << Json(report.format)
+        << ",\"path\":" << Json(report.path) << '}';
+  }
+  out << "],\"diagnostics\":[";
+  for (std::size_t index = 0; index < graph.toolDiagnostics.size(); ++index) {
+    if (index != 0) out << ',';
+    const auto &diagnostic = graph.toolDiagnostics[index];
+    out << "{\"run\":" << Json(diagnostic.run)
+        << ",\"severity\":" << Json(diagnostic.severity)
+        << ",\"message\":" << Json(diagnostic.message) << '}';
+  }
+  out << "]}";
 }
 
 auto CmdNew(const fs::path &root, const std::string &kind,
@@ -6360,7 +7354,7 @@ auto WriteCompositionGraphJson(
             << "\"environmentVariables\":" << graph.summary.environmentVariables
             << ","
             << "\"publishes\":" << graph.summary.publishes << ","
-            << "\"analyzers\":" << graph.summary.analyzers << ","
+            << "\"toolRuns\":" << graph.summary.toolRuns << ","
             << "\"diagnostics\":" << graph.summary.diagnostics << "},\n";
 
   std::cout << "  \"plans\": {";
@@ -6408,9 +7402,9 @@ auto WriteCompositionGraphJson(
   WriteGraphPublishes(std::cout, graph.publishes, false);
   std::cout << ",";
 
-  std::cout << "\"quality\":{\"analyzers\":";
-  WriteGraphAnalyzers(std::cout, graph.analyzers, false);
-  std::cout << "},";
+  std::cout << "\"tooling\":";
+  WriteGraphToolingPlan(std::cout, graph, false);
+  std::cout << ",";
 
   std::cout << "\"diagnostics\":";
   writeDiagnostics(resolvedResult.diagnostics);
@@ -6492,10 +7486,8 @@ auto WriteCompositionGraphPlanJson(
     std::cout << "{\"publishes\":";
     WriteGraphPublishes(std::cout, graph.publishes, true);
     std::cout << "}";
-  } else if (plan == "quality") {
-    std::cout << "{\"analyzers\":";
-    WriteGraphAnalyzers(std::cout, graph.analyzers, true);
-    std::cout << "}";
+  } else if (plan == "tooling") {
+    WriteGraphToolingPlan(std::cout, graph, true);
   } else {
     WriteGraphBuildPlan(std::cout, graph, true);
   }
@@ -6512,6 +7504,25 @@ auto CmdValidate(const fs::path &root, const ParsedArgs &args) -> int {
   if (!resolved.value.has_value() || resolved.diagnostics.HasErrors()) {
     PrintDiagnostics(resolved.diagnostics, "Validation", std::cout);
     return 1;
+  }
+  for (const auto &[_, run] : EffectiveToolRuns(
+           invocation.project, invocation.profile, resolved.value->selectedPackageFeatures)) {
+    if (!run.enabled) continue;
+    const auto binding = BindToolRun(*resolved.value, run);
+    if (binding.state != "ready" || !ResolveToolExecutable(*resolved.value, binding).has_value()) {
+      std::cout << "\nValidation errors:\n  - tool run '" << run.name
+                << "' is unavailable: "
+                << (binding.diagnostic.empty() ? "tool executable could not be resolved" : binding.diagnostic)
+                << "\n";
+      return 1;
+    }
+    if (binding.driver.has_value() && binding.driver->adapter.empty()) {
+      if (!ResolveDriverExecutable(*resolved.value, binding).has_value()) {
+        std::cout << "\nValidation errors:\n  - tool run '" << run.name
+                  << "' driver executable could not be resolved\n";
+        return 1;
+      }
+    }
   }
   PrintTitle(args, "NGIN validate");
   PrintField(args, "product", resolved.value->project.name);
@@ -6705,21 +7716,36 @@ auto CmdGraph(const fs::path &root, const ParsedArgs &args) -> int {
     }
     return 0;
   }
-  if (args.graphPlan == "quality") {
-    std::cout << "Quality plan for profile: " << graph.identity.profile << "\n";
-    for (const auto &analyzer : graph.analyzers) {
-      std::cout << "  analyzer " << analyzer.name << " scope=" << analyzer.scope
-                << " severity=" << analyzer.severity;
-      if (!analyzer.tool.empty() && analyzer.tool != analyzer.name) {
-        std::cout << " tool=" << analyzer.tool;
-      }
-      if (!analyzer.configPath.empty()) {
-        std::cout << " config=" << analyzer.configPath;
-      }
+  if (args.graphPlan == "tooling") {
+    std::cout << "Tooling plan for profile: " << graph.identity.profile << "\n";
+    for (const auto &run : graph.toolRuns) {
+      std::cout << "  run " << run.name << " action=" << run.action
+                << " kind=" << run.actionKind << " state=" << run.state
+                << " input=" << run.inputContract
+                << " scope=" << run.inputScope
+                << " gate=" << (run.gate ? "true" : "false")
+                << " failOn=" << run.failOn;
+      if (!run.tool.empty()) std::cout << " tool=" << run.tool;
+      if (!run.driver.empty()) std::cout << " driver=" << run.driver;
       std::cout << "\n";
+      std::cout << "    inputs=" << run.inputFiles.size()
+                << " configs=" << run.configCount
+                << " reports=" << run.reportCount
+                << " jobs=" << run.jobs
+                << " timeout=" << (run.timeout.empty() ? "none" : run.timeout)
+                << " cache=" << run.cache
+                << " failureStrategy=" << run.failureStrategy << "\n";
+      if (!run.dependencies.empty()) {
+        std::cout << "    dependsOn=";
+        for (std::size_t index = 0; index < run.dependencies.size(); ++index) {
+          if (index > 0) std::cout << ',';
+          std::cout << run.dependencies[index];
+        }
+        std::cout << "\n";
+      }
     }
-    if (graph.analyzers.empty()) {
-      std::cout << "  analyzers: (none)\n";
+    if (graph.toolRuns.empty()) {
+      std::cout << "  runs: (none)\n";
     }
     return 0;
   }
@@ -7102,7 +8128,7 @@ auto CmdDiff(const fs::path &root, const ParsedArgs &args) -> int {
   PrintMapDiff("Launch", from.launch, to.launch, anyDiff);
   PrintMapDiff("Launch entries", from.launches, to.launches, anyDiff);
   PrintSetDiff("Publishes", from.publishes, to.publishes, anyDiff);
-  PrintSetDiff("Analyzers", from.analyzers, to.analyzers, anyDiff);
+  PrintSetDiff("Tool runs", from.toolRuns, to.toolRuns, anyDiff);
   PrintSetDiff("Artifacts", from.artifacts, to.artifacts, anyDiff);
 
   if (!anyDiff) {
@@ -7111,7 +8137,7 @@ auto CmdDiff(const fs::path &root, const ParsedArgs &args) -> int {
   return 0;
 }
 
-auto CmdFormat(const fs::path &root, const ParsedArgs &args) -> int {
+auto CmdManifestFormat(const fs::path &root, const ParsedArgs &args) -> int {
   (void)root;
   const auto manifestPath = args.projectPath.has_value()
                                 ? fs::weakly_canonical(*args.projectPath)
@@ -7143,7 +8169,7 @@ auto CmdSchema(const fs::path &root, const ParsedArgs &args) -> int {
                "\"Test\", \"Dev\", \"Publish\"],\n";
   std::cout << "  \"overlayOperations\": [\"Remove\"],\n";
   std::cout << "  \"commonProductSections\": [\"Uses\", \"Build\", "
-               "\"Generate\", \"Stage\", \"Environment\", \"Quality\"],\n";
+               "\"Generate\", \"Stage\", \"Environment\", \"Tooling\"],\n";
   std::cout << "  \"productSections\": {\n";
   std::cout << "    \"Application\": [\"Runtime\", \"Launch\", \"Publish\"],\n";
   std::cout << "    \"Library\": [\"Exports\", \"PackageOutput\"],\n";
@@ -7184,15 +8210,16 @@ auto CmdSchema(const fs::path &root, const ParsedArgs &args) -> int {
       << "    \"planFields\": [\"packages\", \"packageFeatures\", \"build\", "
          "\"generators\", \"stage\", \"runtime\", \"environment\", "
          "\"launch\", \"launches\", \"packageOutputs\", \"publish\", "
-         "\"quality\", \"diagnostics\"]\n";
+         "\"tooling\", \"diagnostics\"]\n";
   std::cout << "  },\n";
   std::cout << "  \"explainKinds\": [\"property\", \"convention\", \"source\", "
                "\"define\", \"package\", \"feature\", \"stage\", "
                "\"generator\", \"launch\", \"publish\", \"package-output\", "
-               "\"env\", \"analyzer\", \"runtime-module\", \"toolchain\"],\n";
+               "\"env\", \"tool\", \"driver\", \"action\", \"run\", "
+               "\"input-set\", \"runtime-module\", \"toolchain\"],\n";
   std::cout << "  \"graphPlans\": [\"build\", \"stage\", \"package\", "
                "\"package-output\", \"launch\", \"runtime\", \"environment\", "
-               "\"publish\", \"quality\"]\n";
+               "\"publish\", \"tooling\"]\n";
   std::cout << "}\n";
   return 0;
 }
@@ -7387,9 +8414,375 @@ auto CmdBenchmark(const fs::path &root, const ParsedArgs &args) -> int {
                          commandStarted, "Benchmark");
 }
 
+auto CmdToolList(const fs::path &root, const ParsedArgs &args) -> int {
+  const auto invocation = ResolveInvocation(args);
+  const auto resolvedResult = ResolveLaunch(invocation.project, invocation.profile);
+  if (!resolvedResult.value.has_value() || resolvedResult.diagnostics.HasErrors()) {
+    PrintDiagnostics(resolvedResult.diagnostics, "Tool list", std::cerr);
+    return 2;
+  }
+  const auto &resolved = *resolvedResult.value;
+  const auto effective = EffectiveToolRuns(
+      invocation.project, invocation.profile, resolved.selectedPackageFeatures);
+  struct AvailableAction { std::string identity; std::string kind; std::string version; std::vector<std::string> contracts; };
+  std::vector<AvailableAction> availableActions{};
+  if (args.toolListAvailable) {
+    const auto workspace = LoadWorkspaceManifest(root);
+    const auto catalog = LoadPackageCatalog(workspace, invocation.project.path);
+    for (const auto &[_, entry] : catalog) {
+      const auto package = LoadPackageManifest(entry.manifestPath);
+      for (const auto &action : package.toolActions)
+        availableActions.push_back({package.name + "::" + action.name, action.kind,
+                                    package.version, action.inputContracts});
+    }
+    std::sort(availableActions.begin(), availableActions.end(),
+              [](const auto &left, const auto &right) { return left.identity < right.identity; });
+  }
+
+  if (args.format == "json") {
+    std::cout << "{\"schemaVersion\":\"1.0\",\"kind\":\"NGIN.ToolList\",\"runs\":[";
+    bool first = true;
+    for (const auto &[_, run] : effective) {
+      if (!first) std::cout << ',';
+      first = false;
+      const auto binding = BindToolRun(resolved, run);
+      std::cout << "{\"name\":" << JsonString(run.name)
+                << ",\"action\":" << JsonString(run.action)
+                << ",\"actionKind\":" << JsonString(binding.action.has_value() ? binding.action->kind : "")
+                << ",\"state\":" << JsonString(run.excluded ? "excluded" : run.enabled ? binding.state : "disabled")
+                << ",\"inputContract\":" << JsonString(run.input.contract)
+                << ",\"inputScope\":" << JsonString(run.input.scope)
+                << ",\"gate\":" << (run.policy.gate ? "true" : "false")
+                << ",\"failOn\":" << JsonString(run.policy.failOn)
+                << '}';
+    }
+    std::cout << "],\"availableActions\":[";
+    for (std::size_t index = 0; index < availableActions.size(); ++index) {
+      if (index > 0) std::cout << ',';
+      std::cout << "{\"identity\":" << JsonString(availableActions[index].identity)
+                << ",\"kind\":" << JsonString(availableActions[index].kind)
+                << ",\"version\":" << JsonString(availableActions[index].version)
+                << ",\"inputContracts\":[";
+      for (std::size_t contract = 0; contract < availableActions[index].contracts.size(); ++contract) {
+        if (contract > 0) std::cout << ',';
+        std::cout << JsonString(availableActions[index].contracts[contract]);
+      }
+      std::cout << "]}";
+    }
+    std::cout << "]}\n";
+    return 0;
+  }
+
+  std::cout << "Tool runs for " << invocation.project.name << " ["
+            << invocation.profile.name << "]\n";
+  if (effective.empty()) std::cout << "  (none)\n";
+  for (const auto &[_, run] : effective) {
+    const auto binding = BindToolRun(resolved, run);
+    std::cout << "  - " << run.name << " ["
+              << (run.excluded ? "excluded" : run.enabled ? binding.state : "disabled") << "] action="
+              << run.action;
+    if (binding.action.has_value()) std::cout << " kind=" << binding.action->kind;
+    std::cout << " input=" << run.input.contract << " scope=" << run.input.scope
+              << " gate=" << (run.policy.gate ? "true" : "false")
+              << " failOn=" << run.policy.failOn << "\n";
+  }
+  if (args.toolListAvailable) {
+    std::cout << "Available package actions\n";
+    if (availableActions.empty()) std::cout << "  (none)\n";
+    for (const auto &action : availableActions)
+      std::cout << "  - " << action.identity << " [" << action.kind << "] version="
+                << action.version << "\n";
+  }
+  return 0;
+}
+
+auto CmdToolDoctor(const fs::path &root, const ParsedArgs &args) -> int {
+  (void)root;
+  const auto invocation = ResolveInvocation(args);
+  const auto resolvedResult = ResolveLaunch(invocation.project, invocation.profile);
+  if (!resolvedResult.value.has_value() || resolvedResult.diagnostics.HasErrors()) {
+    PrintDiagnostics(resolvedResult.diagnostics, "Tool doctor", std::cerr);
+    return 2;
+  }
+  const auto &resolved = *resolvedResult.value;
+  const auto effective = EffectiveToolRuns(
+      invocation.project, invocation.profile, resolved.selectedPackageFeatures);
+  bool healthy = true;
+  struct Check { std::string name; std::string state; std::string detail; };
+  std::vector<Check> checks{};
+  for (const auto &[_, run] : effective) {
+    if (!run.enabled) {
+      checks.push_back({run.name, run.excluded ? "excluded" : "disabled",
+                        run.excluded ? "run was excluded by an overlay" : "run is disabled"});
+      continue;
+    }
+    const auto binding = BindToolRun(resolved, run);
+    if (binding.state != "ready") {
+      healthy = false;
+      checks.push_back({run.name, binding.state, binding.diagnostic});
+      continue;
+    }
+    if (!binding.driver->adapter.empty()) {
+      const auto tool = ResolveToolExecutable(resolved, binding);
+      if (!tool.has_value()) {
+        healthy = false;
+        checks.push_back({run.name, "unavailable", "tool executable could not be resolved"});
+      } else {
+        const auto probe = ProbeBuiltinToolAdapter(binding.driver->adapter, *tool);
+        const auto requiredToolVersion = !binding.action->toolVersionRange.empty()
+                                             ? binding.action->toolVersionRange
+                                             : binding.tool->versionRange;
+        const auto compatible = (requiredToolVersion.empty() ||
+                                 (!probe.toolVersion.empty() &&
+                                  VersionRangeContains(requiredToolVersion, probe.toolVersion))) &&
+                                (binding.action->driverVersionRange.empty() ||
+                                 VersionRangeContains(binding.action->driverVersionRange,
+                                                      probe.driverVersion)) &&
+                                (!resolved.toolingResolutionPolicy.requireVersion ||
+                                 (!probe.toolVersion.empty() && !probe.driverVersion.empty()));
+        if (!probe.available || !probe.protocolError.empty() || !compatible) {
+          healthy = false;
+          checks.push_back({run.name, "unavailable",
+                            !probe.protocolError.empty() ? probe.protocolError
+                                                        : "adapter reported an incompatible version"});
+        } else {
+          checks.push_back({run.name, "ready", "adapter=" + binding.driver->adapter +
+                                                " driverVersion=" + probe.driverVersion +
+                                                " tool=" + tool->path.string() +
+                                                " toolVersion=" + probe.toolVersion});
+        }
+      }
+      continue;
+    }
+    const auto driver = ResolveDriverExecutable(resolved, binding);
+    const auto tool = ResolveToolExecutable(resolved, binding);
+    if (!driver.has_value() || !tool.has_value()) {
+      healthy = false;
+      checks.push_back({run.name, "unavailable",
+                        !driver.has_value() ? "driver executable could not be resolved"
+                                            : "tool executable could not be resolved"});
+    } else {
+      auto resolvedDriver = *driver;
+      auto resolvedTool = *tool;
+      resolvedDriver.version = binding.driver->version;
+      resolvedDriver.digest = ToolFileDigest(resolvedDriver.path);
+      resolvedTool.digest = ToolFileDigest(resolvedTool.path);
+      const auto policyError = ToolResolutionPolicyError(
+          resolved.toolingResolutionPolicy, resolvedTool, resolvedDriver);
+      if (!policyError.empty()) {
+        healthy = false;
+        checks.push_back({run.name, "invalid", policyError});
+      } else if (binding.driver->probe) {
+        const auto workspaceRoot = resolved.workspace.has_value()
+                                       ? resolved.workspace->path.parent_path()
+                                       : invocation.project.path.parent_path();
+        const auto probeRunId = "doctor-" + SanitizePathComponent(run.name);
+        ToolDriverRequest request{
+            .runId = probeRunId,
+            .workspaceName = resolved.workspace.has_value() ? resolved.workspace->name : "",
+            .workspaceRoot = workspaceRoot,
+            .projectName = invocation.project.name,
+            .projectPath = invocation.project.path,
+            .profile = invocation.profile.name,
+            .actionName = run.action,
+            .actionKind = binding.action->kind,
+            .tool = resolvedTool,
+            .driverName = binding.driver->name,
+            .driverProtocol = binding.driver->protocol,
+            .driver = resolvedDriver,
+            .hostPlatform = invocation.profile.hostPlatform,
+            .targetPlatform = invocation.profile.platform,
+            .targetAbi = resolved.targetAbiTag,
+            .workingDirectory = invocation.project.path.parent_path(),
+            .outputDirectory = workspaceRoot / ".ngin" / "cache" / "tooling" / "doctor" / run.name,
+            .inputContract = run.input.contract,
+            .capabilitiesRequested = binding.action->capabilities,
+        };
+        const auto probe = ExecuteToolDriverProbe(
+            resolvedDriver.path, request, request.outputDirectory / "request.json");
+        const auto missingCapability = std::find_if(
+            request.capabilitiesRequested.begin(), request.capabilitiesRequested.end(),
+            [&](const std::string &capability) {
+              return std::find(probe.capabilities.begin(), probe.capabilities.end(), capability) ==
+                     probe.capabilities.end();
+            });
+        const auto versionCompatible =
+            (binding.action->toolVersionRange.empty() ||
+             VersionRangeContains(binding.action->toolVersionRange, probe.toolVersion)) &&
+            (binding.action->driverVersionRange.empty() ||
+             VersionRangeContains(binding.action->driverVersionRange, probe.driverVersion));
+        if (!probe.available || !probe.hostCompatible || !probe.protocolError.empty() ||
+            missingCapability != request.capabilitiesRequested.end() || !versionCompatible) {
+          healthy = false;
+          const auto detail = !probe.protocolError.empty() ? probe.protocolError
+                              : !probe.reason.empty() ? probe.reason
+                              : missingCapability != request.capabilitiesRequested.end()
+                                  ? "probe is missing capability '" + *missingCapability + "'"
+                                  : !versionCompatible ? "probe reported an incompatible version"
+                                                       : "probe reported unavailable";
+          checks.push_back({run.name, "unavailable", detail});
+        } else {
+          checks.push_back({run.name, "ready",
+                            "driver=" + resolvedDriver.path.string() + " version=" +
+                                probe.driverVersion + " tool=" + resolvedTool.path.string() +
+                                " version=" + probe.toolVersion});
+        }
+      } else {
+        checks.push_back({run.name, "ready", "driver=" + resolvedDriver.path.string() +
+                                                " tool=" + resolvedTool.path.string()});
+      }
+    }
+  }
+  if (args.format == "json") {
+    std::cout << "{\"schemaVersion\":\"1.0\",\"kind\":\"NGIN.ToolDoctor\",\"healthy\":"
+              << (healthy ? "true" : "false") << ",\"checks\":[";
+    for (std::size_t index = 0; index < checks.size(); ++index) {
+      if (index > 0) std::cout << ',';
+      std::cout << "{\"run\":" << JsonString(checks[index].name)
+                << ",\"state\":" << JsonString(checks[index].state)
+                << ",\"detail\":" << JsonString(checks[index].detail) << '}';
+    }
+    std::cout << "]}\n";
+  } else {
+    std::cout << "Tool doctor for " << invocation.project.name << " ["
+              << invocation.profile.name << "]\n";
+    for (const auto &check : checks)
+      std::cout << "  - " << check.name << " [" << check.state << "] " << check.detail << "\n";
+    if (checks.empty()) std::cout << "  (no tool runs)\n";
+  }
+  return healthy ? 0 : 2;
+}
+
+namespace {
+struct StoredToolResult {
+  fs::path path{};
+  std::string document{};
+};
+
+[[nodiscard]] auto ToolResultRoot(const LoadedInvocation &invocation,
+                                  const ResolvedLaunch &resolved,
+                                  const ParsedArgs &args) -> fs::path {
+  if (args.outputPath.has_value()) return fs::absolute(*args.outputPath) / "tooling";
+  const auto buildRoot = resolved.workspace.has_value()
+                             ? resolved.workspace->path.parent_path()
+                             : invocation.project.path.parent_path();
+  return buildRoot / ".ngin" / "build" / invocation.project.name /
+         invocation.profile.name / "tooling";
+}
+
+[[nodiscard]] auto FindStoredToolResults(const LoadedInvocation &invocation,
+                                         const ResolvedLaunch &resolved,
+                                         const ParsedArgs &args)
+    -> std::vector<StoredToolResult> {
+  const auto resultRoot = ToolResultRoot(invocation, resolved, args);
+  std::vector<StoredToolResult> results{};
+  std::error_code error{};
+  if (!fs::exists(resultRoot, error)) return results;
+  for (fs::recursive_directory_iterator iterator(resultRoot, error), end;
+       iterator != end && !error; iterator.increment(error)) {
+    if (!iterator->is_regular_file(error) || iterator->path().filename() != "result.json") continue;
+    if (args.toolRunName.has_value() &&
+        iterator->path().parent_path().filename() != *args.toolRunName) continue;
+    auto document = ReadTextIfExists(iterator->path());
+    if (document.empty()) continue;
+    if (args.packageName.has_value() &&
+        document.find("\"runId\":" + JsonString(*args.packageName)) == std::string::npos)
+      continue;
+    results.push_back(StoredToolResult{.path = iterator->path(), .document = std::move(document)});
+  }
+  std::sort(results.begin(), results.end(), [](const auto &left, const auto &right) {
+    return left.path.generic_string() < right.path.generic_string();
+  });
+  return results;
+}
+
+[[nodiscard]] auto ExtractJsonArrayMember(std::string_view document,
+                                          std::string_view member) -> std::string {
+  const auto key = "\"" + std::string(member) + "\"";
+  auto position = document.find(key);
+  if (position == std::string_view::npos) return "[]";
+  position = document.find('[', position + key.size());
+  if (position == std::string_view::npos) return "[]";
+  const auto start = position;
+  std::size_t depth = 0;
+  bool inString = false;
+  bool escaped = false;
+  for (; position < document.size(); ++position) {
+    const auto character = document[position];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (character == '\\') escaped = true;
+      else if (character == '"') inString = false;
+      continue;
+    }
+    if (character == '"') inString = true;
+    else if (character == '[') ++depth;
+    else if (character == ']' && --depth == 0)
+      return std::string(document.substr(start, position - start + 1));
+  }
+  throw std::runtime_error("stored tool result contains a malformed '" +
+                           std::string(member) + "' array");
+}
+}  // namespace
+
+auto CmdToolResults(const fs::path &root, const ParsedArgs &args) -> int {
+  (void)root;
+  const auto invocation = ResolveInvocation(args);
+  const auto resolved = ResolveLaunch(invocation.project, invocation.profile);
+  if (!resolved.value.has_value() || resolved.diagnostics.HasErrors()) {
+    PrintDiagnostics(resolved.diagnostics, "Tool results", std::cerr);
+    return 2;
+  }
+  const auto results = FindStoredToolResults(invocation, *resolved.value, args);
+  if (args.format == "json") {
+    std::cout << "{\"schemaVersion\":\"1.0\",\"kind\":\"NGIN.ToolResults\",\"results\":[";
+    for (std::size_t index = 0; index < results.size(); ++index) {
+      if (index != 0) std::cout << ',';
+      std::cout << results[index].document;
+    }
+    std::cout << "]}\n";
+  } else {
+    std::cout << "Stored tool results for " << invocation.project.name << " ["
+              << invocation.profile.name << "]\n";
+    for (const auto &result : results) std::cout << "  - " << result.path << '\n';
+    if (results.empty()) std::cout << "  (none)\n";
+  }
+  return results.empty() && (args.toolRunName.has_value() || args.packageName.has_value()) ? 2 : 0;
+}
+
+auto CmdToolEdits(const fs::path &root, const ParsedArgs &args) -> int {
+  (void)root;
+  const auto invocation = ResolveInvocation(args);
+  const auto resolved = ResolveLaunch(invocation.project, invocation.profile);
+  if (!resolved.value.has_value() || resolved.diagnostics.HasErrors()) {
+    PrintDiagnostics(resolved.diagnostics, "Tool edits", std::cerr);
+    return 2;
+  }
+  const auto results = FindStoredToolResults(invocation, *resolved.value, args);
+  std::cout << "{\"schemaVersion\":\"1.0\",\"kind\":\"NGIN.ToolEdits\",\"results\":[";
+  for (std::size_t index = 0; index < results.size(); ++index) {
+    if (index != 0) std::cout << ',';
+    std::cout << "{\"resultPath\":" << JsonString(results[index].path.string())
+              << ",\"edits\":" << ExtractJsonArrayMember(results[index].document, "edits") << '}';
+  }
+  std::cout << "]}\n";
+  return results.empty() ? 2 : 0;
+}
+
+auto CmdToolRun(const fs::path &root, const ParsedArgs &args) -> int {
+  auto runArgs = args;
+  if (!runArgs.toolCommandName.has_value()) runArgs.toolCommandName = "tool run";
+  return CmdAnalyze(root, runArgs);
+}
+
 auto CmdAnalyze(const fs::path &root, const ParsedArgs &args) -> int {
   (void)root;
-  CommandEventSession session{args, "analyze"};
+  const auto commandName = args.toolCommandName.value_or("analyze");
+  const auto commandSource = "ngin " + commandName;
+  auto desiredActionKind = args.toolActionKind;
+  if (!desiredActionKind.has_value() && commandName == "analyze")
+    desiredActionKind = "Analyze";
+  CommandEventSession session{args, commandName};
   auto &events = session.Events();
   const auto commandStarted = std::chrono::steady_clock::now();
   EmitCommandStarted(events, args);
@@ -7402,7 +8795,7 @@ auto CmdAnalyze(const fs::path &root, const ParsedArgs &args) -> int {
     if (!IsQuiet(args)) {
       PrintDiagnostics(resolvedResult.diagnostics, "Analyze", std::cout);
     }
-    return EmitCommandCompleted(events, "failed", 1, commandStarted);
+    return EmitCommandCompleted(events, "invalid", 2, commandStarted);
   }
   if (!resolvedResult.value.has_value()) {
     events.Emit(
@@ -7415,218 +8808,1098 @@ auto CmdAnalyze(const fs::path &root, const ParsedArgs &args) -> int {
       std::cout << "\nAnalyze errors:\n  - failed to resolve project launch "
                    "context\n";
     }
-    return EmitCommandCompleted(events, "failed", 1, commandStarted);
+    return EmitCommandCompleted(events, "invalid", 2, commandStarted);
   }
   const auto &resolved = *resolvedResult.value;
-  const auto analyzers = EffectiveAnalyzers(
+  const auto allRuns = EffectiveToolRuns(
       invocation.project, invocation.profile, resolved.selectedPackageFeatures);
 
-  bool anyEnabled = false;
+  if (!args.toolFiles.empty() && args.toolChangedSince.has_value()) {
+    events.Emit(CliEventType::Diagnostic,
+                EventData{}.AddString("severity", "error")
+                           .AddString("source", commandSource)
+                           .AddString("message", "--file and --changed-since are mutually exclusive"));
+    return EmitCommandCompleted(events, "invalid", 2, commandStarted);
+  }
+  std::vector<std::string> selectedFiles = args.toolFiles;
+  if (args.toolChangedSince.has_value()) {
+    try {
+      selectedFiles = ResolveChangedToolFiles(resolved, *args.toolChangedSince);
+    } catch (const std::exception &error) {
+      events.Emit(CliEventType::Diagnostic,
+                  EventData{}.AddString("severity", "error")
+                             .AddString("source", commandSource)
+                             .AddString("message", error.what()));
+      return EmitCommandCompleted(events, "invalid", 2, commandStarted);
+    }
+  }
+
+  std::vector<ToolRunBinding> runs{};
   bool needsConfigure = false;
-  for (const auto &[_, analyzer] : analyzers) {
-    if (!analyzer.enabled) {
+  bool needsBuild = false;
+  bool hasErrors = false;
+  for (const auto &[_, authoredRun] : allRuns) {
+    if (!authoredRun.enabled) {
       continue;
     }
-    anyEnabled = true;
-    needsConfigure = needsConfigure || IsClangTidyAnalyzer(analyzer);
+    if (args.toolRunName.has_value() && authoredRun.name != *args.toolRunName) {
+      continue;
+    }
+    auto run = authoredRun;
+    if (args.toolInputMode.has_value()) {
+      run.input.scope = *args.toolInputMode;
+      run.hasInput = true;
+    } else if (args.toolChangedSince.has_value()) {
+      run.input.scope = "ChangedFiles";
+      run.hasInput = true;
+    } else if (!args.toolFiles.empty()) {
+      run.input.scope = "ActiveFile";
+      run.hasInput = true;
+    }
+    auto binding = BindToolRun(resolved, run);
+    if (binding.action.has_value() && !run.hasInput) {
+      run.input.scope = binding.action->defaultInputScope;
+      binding.run.input.scope = run.input.scope;
+    }
+    if (!binding.action.has_value()) {
+      continue;
+    }
+    if (desiredActionKind.has_value() &&
+        binding.action->kind != *desiredActionKind) {
+      continue;
+    }
+    if (args.toolOnlyGated && !run.policy.gate) {
+      continue;
+    }
+    const auto requiresSelectionCapability = [&](std::string_view capability,
+                                                 std::string_view option) {
+      const auto actionSupports = std::find(binding.action->capabilities.begin(),
+                                            binding.action->capabilities.end(), capability) !=
+                                  binding.action->capabilities.end();
+      const auto driverSupports = binding.driver.has_value() &&
+                                  std::find(binding.driver->capabilities.begin(),
+                                            binding.driver->capabilities.end(), capability) !=
+                                      binding.driver->capabilities.end();
+      if (actionSupports && driverSupports) return;
+      binding.state = "invalid";
+      binding.diagnostic = "selection override '" + std::string(option) +
+                           "' requires capability '" + std::string(capability) + "'";
+    };
+    if (!args.toolFiles.empty()) requiresSelectionCapability("active-file", "--file");
+    if (args.toolChangedSince.has_value())
+      requiresSelectionCapability("changed-files", "--changed-since");
+    if (binding.state != "ready") {
+      events.Emit(CliEventType::Diagnostic,
+                  EventData{}
+                      .AddString("severity", "error")
+                      .AddString("source", commandSource)
+                      .AddString("run", run.name)
+                      .AddString("message", binding.diagnostic));
+      hasErrors = true;
+    }
+    const auto inputContract = !run.input.contract.empty()
+                                   ? run.input.contract
+                                   : binding.action->inputContracts.empty()
+                                         ? std::string{}
+                                         : binding.action->inputContracts.front();
+    needsConfigure = needsConfigure || inputContract == "cpp.translation-units/v1";
+    needsBuild = needsBuild || inputContract == "artifacts/v1" ||
+                              inputContract.starts_with("build.") ||
+                              inputContract.starts_with("stage.");
     if (!IsQuiet(args)) {
       std::ostringstream detail{};
-      detail << "scope=" << analyzer.scope << " severity=" << analyzer.severity;
-      if (!AnalyzerToolName(analyzer).empty() &&
-          AnalyzerToolName(analyzer) != analyzer.name) {
-        detail << " tool=" << AnalyzerToolName(analyzer);
+      detail << "action=" << run.action << " state=" << binding.state
+             << " input=" << inputContract << " scope=" << run.input.scope
+             << " gate=" << (run.policy.gate ? "true" : "false")
+             << " failOn=" << run.policy.failOn;
+      PrintItem(args, run.name, detail.str());
+    }
+    binding.run = std::move(run);
+    runs.push_back(std::move(binding));
+  }
+  if (runs.empty()) {
+    if (args.toolRunName.has_value()) {
+      events.Emit(CliEventType::Diagnostic,
+                  EventData{}.AddString("severity", "error")
+                             .AddString("source", "ngin tool run")
+                             .AddString("run", *args.toolRunName)
+                             .AddString("message", "no enabled matching run named '" +
+                                                       *args.toolRunName + "' exists"));
+      return EmitCommandCompleted(events, "failed", 2, commandStarted);
+    }
+    PrintField(args, "runs", "(none)");
+  }
+  const auto runContract = [](const ToolRunBinding &binding) {
+    if (!binding.run.input.contract.empty()) return binding.run.input.contract;
+    return binding.action.has_value() && !binding.action->inputContracts.empty()
+               ? binding.action->inputContracts.front() : std::string{};
+  };
+  std::map<std::string, std::string> reportOwners{};
+  const auto defaultBuildRoot = resolved.workspace.has_value()
+                                    ? resolved.workspace->path.parent_path()
+                                    : invocation.project.path.parent_path();
+  const auto toolingOutputRoot = args.outputPath.has_value()
+                                     ? fs::absolute(*args.outputPath) / "tooling"
+                                     : defaultBuildRoot / ".ngin" / "build" /
+                                           invocation.project.name / invocation.profile.name / "tooling";
+  for (const auto &binding : runs) {
+    for (const auto &report : binding.run.reports) {
+      auto value = report.path;
+      if (const auto variable = value.find("$(OutputDir)"); variable != std::string::npos)
+        value.replace(variable, std::string{"$(OutputDir)"}.size(),
+                      (toolingOutputRoot / binding.run.name).string());
+      auto path = fs::path(value);
+      if (path.is_relative()) path = invocation.project.path.parent_path() / path;
+      const auto key = path.lexically_normal().generic_string();
+      const auto [owner, inserted] = reportOwners.emplace(key, binding.run.name + ":" + report.name);
+      if (!inserted) {
+        events.Emit(CliEventType::Diagnostic,
+                    EventData{}.AddString("severity", "error")
+                               .AddString("source", commandSource)
+                               .AddString("run", binding.run.name)
+                               .AddString("message", "tool report path collision at '" + key +
+                                                         "' between '" + owner->second + "' and '" +
+                                                         binding.run.name + ":" + report.name + "'"));
+        hasErrors = true;
       }
-      if (!analyzer.configPath.empty()) {
-        detail << " config=" << analyzer.configPath;
-      }
-      PrintItem(args, analyzer.name, detail.str());
     }
   }
-  if (!anyEnabled) {
-    PrintField(args, "analyzers", "(none)");
+  std::map<std::string, std::size_t> runIndices{};
+  for (std::size_t index = 0; index < runs.size(); ++index)
+    runIndices.emplace(runs[index].run.name, index);
+  std::vector<ToolScheduleNode> scheduleNodes{};
+  scheduleNodes.reserve(runs.size());
+  for (std::size_t index = 0; index < runs.size(); ++index) {
+    std::set<std::string> dependencies{};
+    for (const auto &dependency : runs[index].run.dependencies)
+      if (runIndices.contains(dependency)) dependencies.insert(dependency);
+    if (runContract(runs[index]) == "tool.results/v1")
+      for (std::size_t candidate = 0; candidate < runs.size(); ++candidate)
+        if (candidate != index && runContract(runs[candidate]) != "tool.results/v1")
+          dependencies.insert(runs[candidate].run.name);
+    scheduleNodes.push_back(ToolScheduleNode{
+        .identity = runs[index].run.name,
+        .dependencies = {dependencies.begin(), dependencies.end()},
+        .weight = runs[index].run.execution.weight,
+        .maxParallelism = runs[index].run.execution.maxParallelism,
+        .exclusiveResource = args.toolApplyEdits
+                                 ? std::string{"workspace-edits"}
+                                 : runs[index].run.execution.exclusiveResource,
+        .failureStrategy = runs[index].run.execution.failureStrategy,
+    });
   }
-  if (!needsConfigure) {
+  const auto globalWorkerBudget = args.toolJobs.value_or(
+      std::max<std::size_t>(1, std::thread::hardware_concurrency()));
+  ToolSchedulePlan schedule{};
+  try {
+    schedule = BuildToolSchedule(scheduleNodes, globalWorkerBudget);
+  } catch (const std::exception &error) {
+    events.Emit(CliEventType::Diagnostic,
+                EventData{}.AddString("severity", "error")
+                           .AddString("source", commandSource)
+                           .AddString("message", error.what()));
+    return EmitCommandCompleted(events, "invalid", 2, commandStarted);
+  }
+  if (hasErrors) {
+    return EmitCommandCompleted(events, "failed", 2, commandStarted);
+  }
+  if (runs.empty()) {
     events.Emit(
         CliEventType::Summary,
         EventData{}
-            .AddNumber("analyzers", static_cast<std::int64_t>(analyzers.size()))
+            .AddNumber("runs", 0)
             .AddNumber("findings", 0));
     return EmitCommandCompleted(events, "success", 0, commandStarted);
   }
 
-  std::vector<BackendStepResult> backendSteps{};
-  auto buildOptions = BuildOptionsForArgs(args, backendSteps, &events);
-  const auto configured = ConfigureLaunch(
-      invocation.project, invocation.profile, args.outputPath, buildOptions);
-  if (configured.diagnostics.HasErrors()) {
-    EmitDiagnostics(events, configured.diagnostics, "ngin analyze");
-    if (!IsQuiet(args)) {
-      PrintDiagnostics(configured.diagnostics, "Analyze", std::cout);
+  std::optional<ConfiguredBuildPaths> configuredPaths{};
+  if (needsBuild) {
+    std::vector<BackendStepResult> backendSteps{};
+    auto buildOptions = BuildOptionsForArgs(args, backendSteps, &events);
+    const auto built = BuildLaunch(
+        invocation.project, invocation.profile, args.outputPath, buildOptions);
+    if (!built.value.has_value() || built.diagnostics.HasErrors()) {
+      EmitDiagnostics(events, built.diagnostics, commandSource);
+      return EmitCommandCompleted(events, "execution-failed", 3, commandStarted);
     }
-    return EmitCommandCompleted(events, "failed", 1, commandStarted);
+    configuredPaths = ConfiguredBuildPaths{
+        .outputDir = built.value->outputDir,
+        .buildDir = built.value->outputDir / ".ngin" / "cmake-build",
+        .compileCommandsPath = built.value->outputDir / ".ngin" / "cmake-build" /
+                               "compile_commands.json",
+        .configured = true,
+    };
   }
-  if (!configured.value.has_value() ||
-      !configured.value->compileCommandsPath.has_value()) {
-    events.Emit(
-        CliEventType::Diagnostic,
-        EventData{}
-            .AddString("severity", "error")
-            .AddString("source", "ngin analyze")
-            .AddString(
-                "message",
-                "clang-tidy requires a configured compile_commands.json"));
-    if (!IsQuiet(args)) {
-      std::cout << "\nAnalyze errors:\n  - clang-tidy requires a configured "
-                   "compile_commands.json\n";
+  if (needsConfigure) {
+    if (configuredPaths.has_value()) {
+      // The build phase already produced the compilation-unit source of truth.
+    } else if (args.toolNoConfigure) {
+      const auto buildRoot = resolved.workspace.has_value()
+                                 ? resolved.workspace->path.parent_path()
+                                 : invocation.project.path.parent_path();
+      const auto outputDirectory = args.outputPath.has_value()
+                                       ? fs::absolute(*args.outputPath)
+                                       : buildRoot / ".ngin" / "build" /
+                                             invocation.project.name / invocation.profile.name;
+      const auto buildDirectory = outputDirectory / ".ngin" / "cmake-build";
+      const auto compileCommands = buildDirectory / "compile_commands.json";
+      const auto signaturePath = CompilationPlanSignaturePath(compileCommands);
+      const auto expectedSignature = CompilationPlanSignature(resolved);
+      auto storedSignature = ReadTextIfExists(signaturePath);
+      while (!storedSignature.empty() && std::isspace(
+                 static_cast<unsigned char>(storedSignature.back())))
+        storedSignature.pop_back();
+      if (!fs::exists(compileCommands) || storedSignature != expectedSignature) {
+        events.Emit(CliEventType::Diagnostic,
+                    EventData{}.AddString("severity", "error")
+                               .AddString("source", commandSource)
+                               .AddString("message", "--no-configure requires a fresh compatible compilation-unit plan at " +
+                                                         compileCommands.string() +
+                                                         "; run without --no-configure to regenerate it"));
+        return EmitCommandCompleted(events, "invalid", 2, commandStarted);
+      }
+      configuredPaths = ConfiguredBuildPaths{
+          .outputDir = outputDirectory,
+          .buildDir = buildDirectory,
+          .compileCommandsPath = compileCommands,
+          .configured = false,
+      };
+    } else {
+      std::vector<BackendStepResult> backendSteps{};
+      auto buildOptions = BuildOptionsForArgs(args, backendSteps, &events);
+      const auto configured = ConfigureLaunch(
+          invocation.project, invocation.profile, args.outputPath, buildOptions);
+      if (configured.diagnostics.HasErrors()) {
+        EmitDiagnostics(events, configured.diagnostics, commandSource);
+        if (!IsQuiet(args)) {
+          PrintDiagnostics(configured.diagnostics, "Tooling", std::cout);
+        }
+        return EmitCommandCompleted(events, "invalid", 2, commandStarted);
+      }
+      if (!configured.value.has_value() || !configured.value->compileCommandsPath.has_value()) {
+        events.Emit(
+            CliEventType::Diagnostic,
+            EventData{}
+                .AddString("severity", "error")
+                .AddString("source", commandSource)
+                .AddString(
+                    "message",
+                    "selected tool runs require a configured compilation-unit plan"));
+        if (!IsQuiet(args)) {
+          std::cout << "\nTooling errors:\n  - selected tool runs require a "
+                       "configured compilation-unit plan\n";
+        }
+        return EmitCommandCompleted(events, "invalid", 2, commandStarted);
+      }
+      configuredPaths = *configured.value;
     }
-    return EmitCommandCompleted(events, "failed", 1, commandStarted);
   }
 
-  const auto sources = ResolveAnalyzerSources(resolved);
-  if (sources.empty()) {
-    events.Emit(CliEventType::Summary,
-                EventData{}.AddNumber("sources", 0).AddNumber("findings", 0));
-    return EmitCommandCompleted(events, "success", 0, commandStarted);
-  }
-
-  bool hasErrors = false;
-  int findingsCount = 0;
+  std::atomic_int findingsCount{0};
+  std::atomic_size_t metricsCount{0};
+  std::atomic_size_t sourcesCount{0};
+  std::atomic_size_t skippedRuns{0};
+  std::atomic_bool hasInvalidPlan{false};
+  std::atomic_bool hasGateFailures{false};
+  std::atomic_bool hasExecutionFailures{false};
+  std::atomic_bool hasCancellation{false};
+  std::atomic_bool hasTimeout{false};
+  std::vector<std::optional<fs::path>> completedToolResultPaths(runs.size());
+  std::map<std::string, std::string> runOutcomes{};
+  for (const auto &binding : runs) runOutcomes.emplace(binding.run.name, "");
+  std::atomic_bool failFastTriggered{false};
   const auto analyzeStarted = std::chrono::steady_clock::now();
   events.Emit(CliEventType::PhaseStarted,
               EventData{}
-                  .AddString("phase", "analyze")
-                  .AddString("label", "Analyzer execution"));
-  for (const auto &[_, analyzer] : analyzers) {
-    if (!analyzer.enabled || !IsClangTidyAnalyzer(analyzer)) {
-      continue;
+                  .AddString("phase", commandName)
+                  .AddString("label", "Tool execution"));
+  const auto runOutputDirectory = [&](std::string_view runName) {
+    if (configuredPaths.has_value())
+      return configuredPaths->outputDir / "tooling" / runName;
+    if (!args.outputPath.has_value())
+      return invocation.project.path.parent_path() / ".ngin" / "build" /
+             invocation.project.name / invocation.profile.name / "tooling" / runName;
+    return fs::path(*args.outputPath) / "tooling" / runName;
+  };
+  const auto executeRun = [&](std::size_t runIndex,
+                              std::vector<fs::path> priorResultPaths) {
+    const auto &binding = runs[runIndex];
+    const auto &run = binding.run;
+    std::vector<std::string> failedPrerequisites{};
+    for (const auto &dependency : run.dependencies) {
+      const auto outcome = runOutcomes.find(dependency);
+      if (outcome != runOutcomes.end() && !outcome->second.empty() &&
+          outcome->second != "succeeded")
+        failedPrerequisites.push_back(dependency + " (" + outcome->second + ")");
     }
-    const auto tool = ResolveAnalyzerTool(resolved, analyzer);
-    if (!tool.has_value()) {
-      const auto message =
-          "analyzer '" + analyzer.name +
-          "' could not resolve clang-tidy. Install clang-tidy on PATH or set "
-          "NGIN_CLANG_TIDY to the executable path.";
+    if (runContract(binding) == "tool.results/v1")
+      for (const auto &[dependency, outcome] : runOutcomes)
+        if (dependency != run.name && !outcome.empty() && outcome != "succeeded")
+          failedPrerequisites.push_back(dependency + " (" + outcome + ")");
+    if (failFastTriggered.load() ||
+        (run.execution.failureStrategy == "DependencyAware" && !failedPrerequisites.empty())) {
+      const auto reason = failFastTriggered.load()
+                              ? std::string{"a previous run triggered FailFast"}
+                              : std::string{"prerequisite failure: "} +
+                                    [&] { std::ostringstream text{}; for (std::size_t index = 0; index < failedPrerequisites.size(); ++index) { if (index) text << ", "; text << failedPrerequisites[index]; } return text.str(); }();
+      events.Emit(CliEventType::ToolRunCompleted,
+                  EventData{}.AddString("run", run.name)
+                             .AddString("action", run.action)
+                             .AddString("executionStatus", "skipped")
+                             .AddString("gateStatus", "not-evaluated")
+                             .AddString("cacheStatus", "disabled")
+                             .AddString("skipReason", reason));
+      runOutcomes.at(run.name) = "skipped";
+      ++skippedRuns;
+      const auto resultPath = runOutputDirectory(run.name) / "result.json";
+      WriteTextFile(resultPath,
+                    "{\"schemaVersion\":\"1.0\",\"kind\":\"NGIN.ToolResult\","
+                    "\"runId\":" + JsonString(run.name + "-skipped") +
+                    ",\"run\":" + JsonString(run.name) +
+                    ",\"action\":" + JsonString(run.action) +
+                    ",\"tool\":\"\",\"driver\":\"\",\"executionStatus\":\"skipped\","
+                    "\"gateStatus\":\"not-evaluated\",\"cacheStatus\":\"disabled\","
+                    "\"skipReason\":" + JsonString(reason) +
+                    ",\"diagnostics\":[],\"edits\":[],\"artifacts\":[],\"metrics\":[]}\n");
+      completedToolResultPaths[runIndex] = resultPath;
+      events.Emit(CliEventType::ArtifactProduced,
+                  EventData{}.AddString("kind", "tool-result")
+                             .AddString("run", run.name)
+                             .AddString("path", resultPath.string())
+                             .AddString("digest", ToolFileDigest(resultPath))
+                             .AddString("provenance", "run:" + run.name));
+      return;
+    }
+    bool runInvalidPlan = false;
+    if (!binding.driver.has_value() ||
+        (binding.driver->adapter.empty() && binding.driver->executable.empty())) {
+      const auto message = "tool run '" + run.name + "' driver '" +
+                           (binding.driver.has_value() ? binding.driver->name
+                                                       : std::string{"<missing>"}) +
+                           "' is not executable";
       events.Emit(CliEventType::Diagnostic,
                   EventData{}
                       .AddString("severity", "error")
                       .AddString("source", "ngin analyze")
+                      .AddString("run", run.name)
+                      .AddString("message", message));
+      hasInvalidPlan = true;
+      runInvalidPlan = true;
+      runOutcomes.at(run.name) = "invalid";
+      return;
+    }
+    const auto tool = ResolveToolExecutable(resolved, binding);
+    if (!tool.has_value()) {
+      const auto message = "tool run '" + run.name + "' could not resolve tool '" +
+                           (binding.tool.has_value() ? binding.tool->name
+                                                     : std::string{"<missing>"}) + "'";
+      events.Emit(CliEventType::Diagnostic,
+                  EventData{}
+                      .AddString("severity", "error")
+                      .AddString("source", "ngin analyze")
+                      .AddString("run", run.name)
                       .AddString("message", message));
       if (!IsQuiet(args)) {
         std::cout << "\nAnalyze errors:\n"
                   << "  - " << message << "\n";
       }
-      hasErrors = true;
-      continue;
+      hasInvalidPlan = true;
+      runOutcomes.at(run.name) = "invalid";
+      return;
     }
 
     std::optional<fs::path> configPath{};
-    if (!analyzer.configPath.empty()) {
+    if (!run.configs.empty()) {
+      const auto &config = run.configs.front();
       const auto candidate =
-          fs::path(analyzer.configPath).is_absolute()
-              ? fs::path(analyzer.configPath)
-              : invocation.project.path.parent_path() / analyzer.configPath;
+          fs::path(config.path).is_absolute()
+              ? fs::path(config.path)
+              : invocation.project.path.parent_path() / config.path;
       if (fs::exists(candidate)) {
         configPath = candidate;
-      } else if (!analyzer.configOptional) {
-        const auto message = "analyzer '" + analyzer.name + "' config '" +
+      } else if (!config.optional) {
+        const auto message = "tool run '" + run.name + "' config '" +
                              candidate.string() + "' does not exist";
         events.Emit(CliEventType::Diagnostic,
                     EventData{}
                         .AddString("severity", "error")
                         .AddString("source", "ngin analyze")
+                        .AddString("run", run.name)
                         .AddString("message", message));
         if (!IsQuiet(args)) {
           std::cout << "\nAnalyze errors:\n"
                     << "  - " << message << "\n";
         }
-        hasErrors = true;
-        continue;
+        hasInvalidPlan = true;
+        runInvalidPlan = true;
+        runOutcomes.at(run.name) = "invalid";
+        return;
       }
     }
 
-    for (const auto &source : sources) {
-      std::vector<std::string> commandArgs{
-          "-p",
-          configured.value->buildDir.value_or(configured.value->outputDir)
-              .string(),
-      };
-      if (configPath.has_value()) {
-        commandArgs.push_back("--config-file=" + configPath->string());
-      }
-      commandArgs.push_back(source.string());
-
-      const auto result = RunProcessCapture(
-          tool->path, commandArgs, invocation.project.path.parent_path());
-      const auto findings =
-          ParseClangTidyFindings(result.output, analyzer.severity);
-      for (const auto &finding : findings) {
-        ++findingsCount;
-        events.Emit(
-            CliEventType::Diagnostic,
-            EventData{}
-                .AddString("severity", finding.severity)
-                .AddString("source", "clang-tidy")
-                .AddString("code", ClangTidyCodeFromMessage(finding.message))
-                .AddString("message", finding.message)
-                .AddString("file", finding.file.string())
-                .AddNumber("line", std::stoll(finding.line))
-                .AddNumber("column", std::stoll(finding.column)));
-        if (!IsQuiet(args)) {
-          PrintAnalyzerFinding(finding);
-        }
-        if (finding.severity == "error") {
-          hasErrors = true;
-        }
-      }
-      if (result.exitCode != 0 && findings.empty()) {
-        const auto message = "analyzer '" + analyzer.name +
-                             "' failed with exit code " +
-                             std::to_string(result.exitCode);
+    const auto selectedInputContract = run.input.contract.empty() &&
+                                               !binding.action->inputContracts.empty()
+                                           ? binding.action->inputContracts.front()
+                                           : run.input.contract;
+    auto sources = ResolveToolSources(resolved, run, selectedInputContract, selectedFiles);
+    if (selectedInputContract == "tool.results/v1") sources.clear();
+    if (run.input.scope == "ActiveFile" && sources.empty()) {
+      events.Emit(CliEventType::Diagnostic,
+                  EventData{}.AddString("severity", "error")
+                             .AddString("source", commandSource)
+                             .AddString("run", run.name)
+                             .AddString("message", "the selected active file is not an input accepted by this run"));
+      hasInvalidPlan = true;
+      runOutcomes.at(run.name) = "invalid";
+      return;
+    }
+    const auto outputDirectory = runOutputDirectory(run.name);
+    if (selectedInputContract == "artifacts/v1" ||
+        selectedInputContract.starts_with("build.") ||
+        selectedInputContract.starts_with("stage."))
+      sources = ResolveToolArtifacts(configuredPaths->outputDir);
+    sourcesCount += sources.size();
+    std::vector<fs::path> configs{};
+    if (configPath.has_value()) configs.push_back(*configPath);
+    auto resolvedTool = *tool;
+    resolvedTool.digest = ToolFileDigest(resolvedTool.path);
+    ToolResolution resolvedDriver{};
+    if (binding.driver->adapter.empty()) {
+      const auto driverExecutable = ResolveDriverExecutable(resolved, binding);
+      if (!driverExecutable.has_value()) {
         events.Emit(CliEventType::Diagnostic,
-                    EventData{}
-                        .AddString("severity", "error")
-                        .AddString("source", "ngin analyze")
-                        .AddString("message", message));
-        if (!IsQuiet(args)) {
-          std::cout << "\nAnalyze errors:\n"
-                    << "  - " << message << "\n";
-        }
-        if (!result.output.empty()) {
-          events.Emit(CliEventType::BackendOutput,
-                      EventData{}
-                          .AddString("phase", "analyze")
-                          .AddString("stream", "combined")
-                          .AddString("text", result.output));
-          std::istringstream output{result.output};
-          std::string line{};
-          while (!IsQuiet(args) && std::getline(output, line)) {
-            if (!line.empty()) {
-              std::cout << "    " << line << "\n";
-            }
+                    EventData{}.AddString("severity", "error")
+                               .AddString("source", commandSource)
+                               .AddString("run", run.name)
+                               .AddString("message", "driver executable could not be resolved"));
+        hasInvalidPlan = true;
+        runOutcomes.at(run.name) = "invalid";
+        return;
+      }
+      resolvedDriver = *driverExecutable;
+      resolvedDriver.version = binding.driver->version;
+      resolvedDriver.digest = ToolFileDigest(resolvedDriver.path);
+    } else {
+      resolvedDriver = ToolResolution{
+          .path = binding.driver->adapter,
+          .source = "builtin-adapter",
+          .version = binding.driver->version,
+          .digest = binding.driver->adapter,
+      };
+      const auto probe = ProbeBuiltinToolAdapter(binding.driver->adapter, resolvedTool);
+      if (!probe.available || !probe.hostCompatible || !probe.protocolError.empty()) {
+        events.Emit(CliEventType::Diagnostic,
+                    EventData{}.AddString("severity", "error")
+                               .AddString("source", commandSource)
+                               .AddString("run", run.name)
+                               .AddString("message", probe.protocolError.empty()
+                                                         ? "registered adapter tool is unavailable"
+                                                         : probe.protocolError));
+        hasInvalidPlan = true;
+        runOutcomes.at(run.name) = "invalid";
+        return;
+      }
+      resolvedTool.version = probe.toolVersion;
+      resolvedDriver.version = probe.driverVersion;
+      const auto requiredToolVersion = !binding.action->toolVersionRange.empty()
+                                           ? binding.action->toolVersionRange
+                                           : binding.tool->versionRange;
+      if ((!requiredToolVersion.empty() &&
+           (resolvedTool.version.empty() ||
+            !VersionRangeContains(requiredToolVersion, resolvedTool.version))) ||
+          (!binding.action->driverVersionRange.empty() &&
+           !VersionRangeContains(binding.action->driverVersionRange, resolvedDriver.version))) {
+        events.Emit(CliEventType::Diagnostic,
+                    EventData{}.AddString("severity", "error")
+                               .AddString("source", commandSource)
+                               .AddString("run", run.name)
+                               .AddString("message", "registered adapter resolved an incompatible tool or driver version"));
+        hasInvalidPlan = true;
+        runOutcomes.at(run.name) = "invalid";
+        return;
+      }
+      events.Emit(CliEventType::ToolProgress,
+                  EventData{}.AddString("run", run.name)
+                             .AddString("stage", "probe")
+                             .AddString("driverVersion", probe.driverVersion)
+                             .AddString("toolVersion", probe.toolVersion)
+                             .AddBool("cached", false));
+    }
+    if (const auto policyError = ToolResolutionPolicyError(
+            resolved.toolingResolutionPolicy, resolvedTool, resolvedDriver);
+        !policyError.empty()) {
+      events.Emit(CliEventType::Diagnostic,
+                  EventData{}.AddString("severity", "error")
+                             .AddString("source", commandSource)
+                             .AddString("run", run.name)
+                             .AddString("message", policyError));
+      hasInvalidPlan = true;
+      runOutcomes.at(run.name) = "invalid";
+      return;
+    }
+    ToolDriverRequest request{
+        .runId = run.name + "-" + std::to_string(
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count()),
+        .workspaceName = resolved.workspace.has_value() ? resolved.workspace->name : "",
+        .workspaceRoot = resolved.workspace.has_value() ? resolved.workspace->path.parent_path()
+                                                       : invocation.project.path.parent_path(),
+        .projectName = invocation.project.name,
+        .projectPath = invocation.project.path,
+        .profile = invocation.profile.name,
+        .actionName = run.action,
+        .actionKind = binding.action->kind,
+        .tool = std::move(resolvedTool),
+        .driverName = binding.driver->name,
+        .driverProtocol = binding.driver->protocol,
+        .driver = std::move(resolvedDriver),
+        .hostPlatform = invocation.profile.hostPlatform,
+        .targetPlatform = invocation.profile.platform,
+        .targetAbi = resolved.targetAbiTag,
+        .workingDirectory = invocation.project.path.parent_path(),
+        .outputDirectory = outputDirectory,
+        .configs = std::move(configs),
+        .inputContract = selectedInputContract,
+        .files = sources,
+        .priorResultPaths = std::move(priorResultPaths),
+        .environment = [&] {
+          std::vector<ToolDriverRequest::EnvironmentValue> values{};
+          for (const auto &requirement : binding.action->environment) {
+            const auto variable = std::find_if(
+                resolved.environmentVariables.begin(), resolved.environmentVariables.end(),
+                [&](const EnvironmentVariable &candidate) {
+                  return candidate.name == requirement.name && candidate.resolved;
+                });
+            if (variable != resolved.environmentVariables.end())
+              values.push_back(ToolDriverRequest::EnvironmentValue{
+                  .name = requirement.name,
+                  .value = variable->value,
+                  .secret = requirement.secret,
+                  .cacheKey = requirement.cacheKey,
+              });
           }
+          return values;
+        }(),
+        .capabilitiesRequested = binding.action->capabilities,
+        .timeoutMilliseconds = ParseToolTimeoutMilliseconds(run.execution.timeout),
+        .jobs = run.execution.jobs == "Auto"
+                    ? std::max<std::size_t>(1, std::thread::hardware_concurrency())
+                    : static_cast<std::size_t>(std::stoull(run.execution.jobs)),
+    };
+    if (binding.driver->probe && binding.driver->adapter.empty()) {
+      const auto probeIdentity = request.driver.digest + "-" + request.tool.digest + "-" +
+                                 SanitizePathComponent(request.hostPlatform);
+      const auto probeRunId = "probe-" + probeIdentity;
+      const auto probeRoot = request.workspaceRoot / ".ngin" / "cache" / "tooling" / "probes";
+      const auto probeCachePath = probeRoot / (probeIdentity + ".jsonl");
+      auto probeRequest = request;
+      probeRequest.runId = probeRunId;
+      ToolDriverProbeResult probe{};
+      const auto probeWasCached = fs::exists(probeCachePath);
+      if (probeWasCached) {
+        probe = ParseToolDriverProbeEvents(ReadText(probeCachePath), probeRunId);
+      } else {
+        probe = ExecuteToolDriverProbe(request.driver.path, probeRequest,
+                                       probeRoot / (probeIdentity + ".request.json"));
+        if (probe.completed && probe.protocolError.empty())
+          WriteTextFile(probeCachePath, probe.rawOutput);
+      }
+      if (!probe.available || !probe.hostCompatible || !probe.protocolError.empty()) {
+        const auto reason = !probe.protocolError.empty() ? probe.protocolError
+                            : !probe.reason.empty() ? probe.reason
+                                                   : "driver probe reported the tool unavailable";
+        events.Emit(CliEventType::Diagnostic,
+                    EventData{}.AddString("severity", "error")
+                               .AddString("source", commandSource)
+                               .AddString("run", run.name)
+                               .AddString("message", reason));
+        hasInvalidPlan = true;
+        runOutcomes.at(run.name) = "invalid";
+        return;
+      }
+      for (const auto &capability : request.capabilitiesRequested)
+        if (std::find(probe.capabilities.begin(), probe.capabilities.end(), capability) ==
+            probe.capabilities.end()) {
+          events.Emit(CliEventType::Diagnostic,
+                      EventData{}.AddString("severity", "error")
+                                 .AddString("source", commandSource)
+                                 .AddString("run", run.name)
+                                 .AddString("message", "driver probe does not provide requested capability '" +
+                                                           capability + "'"));
+          hasInvalidPlan = true;
+          runOutcomes.at(run.name) = "invalid";
         }
-        hasErrors = true;
+      if (!runOutcomes.at(run.name).empty()) return;
+      request.driver.version = probe.driverVersion;
+      request.tool.version = probe.toolVersion;
+      const auto requiredToolVersion = !binding.action->toolVersionRange.empty()
+                                           ? binding.action->toolVersionRange
+                                           : binding.tool->versionRange;
+      if (!requiredToolVersion.empty() &&
+          (probe.toolVersion.empty() ||
+           !VersionRangeContains(requiredToolVersion, probe.toolVersion))) {
+        events.Emit(CliEventType::Diagnostic,
+                    EventData{}.AddString("severity", "error")
+                               .AddString("source", commandSource)
+                               .AddString("run", run.name)
+                               .AddString("message", "resolved tool version '" + probe.toolVersion +
+                                                         "' does not satisfy '" + requiredToolVersion + "'"));
+        hasInvalidPlan = true;
+        runOutcomes.at(run.name) = "invalid";
+        return;
+      }
+      if (!binding.action->driverVersionRange.empty() &&
+          (probe.driverVersion.empty() ||
+           !VersionRangeContains(binding.action->driverVersionRange, probe.driverVersion))) {
+        events.Emit(CliEventType::Diagnostic,
+                    EventData{}.AddString("severity", "error")
+                               .AddString("source", commandSource)
+                               .AddString("run", run.name)
+                               .AddString("message", "probed driver version '" + probe.driverVersion +
+                                                         "' does not satisfy '" +
+                                                         binding.action->driverVersionRange + "'"));
+        hasInvalidPlan = true;
+        runOutcomes.at(run.name) = "invalid";
+        return;
+      }
+      if (resolved.toolingResolutionPolicy.requireVersion &&
+          (request.driver.version.empty() || request.tool.version.empty())) {
+        events.Emit(CliEventType::Diagnostic,
+                    EventData{}.AddString("severity", "error")
+                               .AddString("source", commandSource)
+                               .AddString("run", run.name)
+                               .AddString("message", "effective ToolingPolicy requires resolved tool and driver versions"));
+        hasInvalidPlan = true;
+        runOutcomes.at(run.name) = "invalid";
+        return;
+      }
+      events.Emit(CliEventType::ToolProgress,
+                  EventData{}.AddString("run", run.name)
+                             .AddString("stage", "probe")
+                             .AddString("driverVersion", probe.driverVersion)
+                             .AddString("toolVersion", probe.toolVersion)
+                             .AddBool("cached", probeWasCached));
+    }
+    if (request.inputContract == "tool.results/v1" && fs::exists(outputDirectory.parent_path())) {
+      for (const auto &entry : fs::directory_iterator(outputDirectory.parent_path())) {
+        const auto candidate = entry.path() / "result.json";
+        if (entry.is_directory() && entry.path() != outputDirectory && fs::exists(candidate) &&
+            std::find(request.priorResultPaths.begin(), request.priorResultPaths.end(), candidate) ==
+                request.priorResultPaths.end())
+          request.priorResultPaths.push_back(candidate);
+      }
+      std::sort(request.priorResultPaths.begin(), request.priorResultPaths.end());
+    }
+    if (request.inputContract == "cpp.translation-units/v1" &&
+        configuredPaths.has_value() && configuredPaths->compileCommandsPath.has_value()) {
+      if (!sources.empty())
+        request.translationUnits = LoadToolTranslationUnits(
+            *configuredPaths->compileCommandsPath, sources,
+            invocation.profile.platform, invocation.project.name);
+      if (request.translationUnits.empty() && !sources.empty()) {
+        events.Emit(CliEventType::Diagnostic,
+                    EventData{}.AddString("severity", "error")
+                               .AddString("source", commandSource)
+                               .AddString("run", run.name)
+                               .AddString("message", "selected no matching compilation units"));
+        hasInvalidPlan = true;
+        runInvalidPlan = true;
+        runOutcomes.at(run.name) = "invalid";
+        return;
+      }
+      request.files.clear();
+      for (const auto &unit : request.translationUnits) request.files.push_back(unit.source);
+    }
+
+    events.Emit(CliEventType::ToolRunStarted,
+                EventData{}.AddString("run", run.name)
+                           .AddString("runId", request.runId)
+                           .AddString("action", run.action)
+                           .AddString("actionKind", binding.action->kind)
+                           .AddString("tool", binding.tool->name)
+                           .AddString("driver", binding.driver->name)
+                           .AddString("toolPath", request.tool.path.string())
+                           .AddString("toolSource", request.tool.source)
+                           .AddString("inputContract", request.inputContract)
+                           .AddString("inputScope", run.input.scope)
+                           .AddNumber("inputs", static_cast<std::int64_t>(request.files.size()))
+                           .AddNumber("translationUnits", static_cast<std::int64_t>(request.translationUnits.size())));
+
+    ToolDriverResult driverResult{};
+    const auto cacheKey = ToolRequestCacheKey(request);
+    const auto cachePath = request.workspaceRoot / ".ngin" / "cache" / "tooling" /
+                           run.name / (cacheKey + ".jsonl");
+    const auto secretsCacheable = std::none_of(
+        request.environment.begin(), request.environment.end(),
+        [](const auto &variable) { return variable.secret && !variable.cacheKey; });
+    const auto cacheReadable = secretsCacheable && !args.toolNoCache && (run.execution.cache == "ReadOnly" ||
+                               run.execution.cache == "ReadWrite");
+    const auto cacheWritable = secretsCacheable && !args.toolNoCache && (run.execution.cache == "WriteOnly" ||
+                               run.execution.cache == "ReadWrite");
+    if (cacheReadable && fs::exists(cachePath)) {
+      driverResult = ReadToolResultReplay(cachePath);
+    } else if (binding.driver->adapter.empty()) {
+      driverResult = ExecuteToolDriver(request.driver.path, request,
+                                       outputDirectory / "request.json",
+                                       [&](const ToolDriverStreamEvent &streamed) {
+        EventData data{};
+        data.AddString("run", run.name)
+            .AddString("runId", request.runId)
+            .AddString("stage", streamed.stage.empty() ? streamed.type : streamed.stage)
+            .AddString("message", streamed.message);
+        if (streamed.current.has_value()) data.AddNumber("current", *streamed.current);
+        if (streamed.total.has_value()) data.AddNumber("total", *streamed.total);
+        events.Emit(CliEventType::ToolProgress, std::move(data));
+      });
+    } else {
+      driverResult = ExecuteBuiltinToolAdapter(
+          binding.driver->adapter, request,
+          configuredPaths.has_value()
+              ? configuredPaths->buildDir.value_or(configuredPaths->outputDir)
+              : request.workingDirectory);
+    }
+    if (driverResult.cacheStatus != "hit") {
+      driverResult.cacheStatus = cacheReadable ? "miss" : "disabled";
+      if (cacheWritable && driverResult.executionStatus == "succeeded") {
+        WriteToolResultReplay(driverResult, request.runId, cachePath);
+        driverResult.cacheStatus = "written";
       }
     }
+    events.Emit(CliEventType::CacheStatus,
+                EventData{}.AddString("run", run.name)
+                           .AddString("runId", request.runId)
+                           .AddString("status", driverResult.cacheStatus)
+                           .AddString("key", cacheKey));
+    if (driverResult.cacheStatus == "hit" || driverResult.cacheStatus == "written")
+      events.Emit(CliEventType::ArtifactProduced,
+                  EventData{}.AddString("kind", "tool-cache")
+                             .AddString("run", run.name)
+                             .AddString("status", driverResult.cacheStatus)
+                             .AddString("path", cachePath.string()));
+    driverResult.diagnostics = DeduplicateToolDiagnostics(driverResult.diagnostics);
+    metricsCount += driverResult.metrics.size();
+    for (const auto &metric : driverResult.metrics)
+      events.Emit(CliEventType::Metric,
+                  EventData{}.AddString("run", run.name)
+                             .AddString("runId", request.runId)
+                             .AddString("name", metric.name)
+                             .AddString("unit", metric.unit)
+                             .AddDecimal("value", metric.value));
+    for (const auto &edit : driverResult.edits)
+      events.Emit(CliEventType::EditProposed,
+                  EventData{}.AddString("run", run.name)
+                             .AddString("runId", request.runId)
+                             .AddString("editSetId", edit.id)
+                             .AddString("label", edit.label)
+                             .AddString("applicability", edit.applicability)
+                             .AddNumber("files", static_cast<std::int64_t>(edit.files.size())));
+    std::optional<fs::path> baselinePath{};
+    if (args.toolBaselinePath.has_value()) baselinePath = fs::path(*args.toolBaselinePath);
+    else if (!run.policy.baseline.empty()) baselinePath = fs::path(run.policy.baseline);
+    if (baselinePath.has_value() && baselinePath->is_relative())
+      baselinePath = invocation.project.path.parent_path() / *baselinePath;
+    const auto baselineOperation = args.toolBaselineOperation.value_or("");
+    if (!baselineOperation.empty() && !baselinePath.has_value()) {
+      events.Emit(CliEventType::Diagnostic,
+                  EventData{}.AddString("severity", "error")
+                             .AddString("source", commandSource)
+                             .AddString("run", run.name)
+                             .AddString("message", "baseline operation requires --output or Policy Baseline"));
+      hasInvalidPlan = true;
+      runInvalidPlan = true;
+    }
+    std::unordered_set<std::string> baselineFingerprints{};
+    if (baselinePath.has_value() &&
+        (run.policy.newFindingsOnly || baselineOperation == "verify")) {
+      try {
+        const auto loaded = LoadToolBaseline(*baselinePath);
+        baselineFingerprints.insert(loaded.begin(), loaded.end());
+      } catch (const std::exception &error) {
+        events.Emit(CliEventType::Diagnostic,
+                    EventData{}.AddString("severity", "error")
+                               .AddString("source", commandSource)
+                               .AddString("run", run.name)
+                               .AddString("message", error.what()));
+        hasInvalidPlan = true;
+        runInvalidPlan = true;
+      }
+    }
+    if (baselinePath.has_value() &&
+        (baselineOperation == "create" || baselineOperation == "update")) {
+      WriteToolBaseline(run.name, driverResult.diagnostics, *baselinePath);
+      events.Emit(CliEventType::ArtifactProduced,
+                  EventData{}.AddString("kind", "tool-baseline")
+                             .AddString("run", run.name)
+                             .AddString("path", baselinePath->string()));
+    }
+    if (args.toolApplyEdits && !driverResult.edits.empty()) {
+      const auto unsafe = std::any_of(driverResult.edits.begin(), driverResult.edits.end(),
+                                      [](const ToolProtocolEditSet &edit) {
+                                        return edit.applicability == "unsafe";
+                                      });
+      if (unsafe && !args.toolAllowUnsafeEdits) {
+        events.Emit(CliEventType::Diagnostic,
+                    EventData{}.AddString("severity", "error")
+                               .AddString("source", commandSource)
+                               .AddString("run", run.name)
+                               .AddString("message", "unsafe edits require --allow-unsafe"));
+        hasInvalidPlan = true;
+        runInvalidPlan = true;
+      } else {
+        try {
+          ApplyToolEdits(driverResult.edits, request.workspaceRoot);
+          events.Emit(CliEventType::ArtifactProduced,
+                      EventData{}.AddString("kind", "tool-edits-applied")
+                                 .AddString("run", run.name)
+                                 .AddNumber("editSets", static_cast<std::int64_t>(driverResult.edits.size())));
+        } catch (const std::exception &error) {
+          events.Emit(CliEventType::Diagnostic,
+                      EventData{}.AddString("severity", "error")
+                                 .AddString("source", commandSource)
+                                 .AddString("run", run.name)
+                                 .AddString("message", error.what()));
+          hasInvalidPlan = true;
+          runInvalidPlan = true;
+        }
+      }
+    }
+
+    const auto today = CurrentUtcDate();
+    for (auto &finding : driverResult.diagnostics) {
+      if (finding.intrinsicSeverity.empty()) finding.intrinsicSeverity = finding.severity;
+      finding.effectiveSeverity = finding.intrinsicSeverity;
+      for (const auto &mapping : run.policy.severityMappings)
+        if (mapping.rule == "*" || mapping.rule == finding.code) {
+          finding.effectiveSeverity = mapping.severity;
+          break;
+        }
+      for (const auto &suppression : run.policy.suppressions) {
+        if (!suppression.expires.empty() && suppression.expires < today) continue;
+        if ((!suppression.rule.empty() && suppression.rule == finding.code) ||
+            (!suppression.fingerprint.empty() && suppression.fingerprint == finding.fingerprint)) {
+          finding.suppressed = true;
+          finding.suppressionSource = "ngin-policy";
+          finding.suppressionReason = suppression.reason;
+          break;
+        }
+      }
+      if (baselineFingerprints.contains(finding.fingerprint)) {
+        finding.baselined = true;
+        if (run.policy.newFindingsOnly || baselineOperation == "verify") {
+          finding.suppressed = true;
+          finding.suppressionSource = "baseline";
+          finding.suppressionReason = "accepted baseline finding";
+        }
+      }
+    }
+
+    bool runGateFailed = false;
+    std::size_t runWarnings = 0;
+    std::size_t runUnsuppressedFindings = 0;
+    std::map<std::string, std::size_t> ruleFindingCounts{};
+    for (const auto &finding : driverResult.diagnostics) {
+      ++findingsCount;
+      if (!finding.suppressed) {
+        ++runUnsuppressedFindings;
+        ++ruleFindingCounts[finding.code];
+        if (Lower(finding.effectiveSeverity) == "warning") ++runWarnings;
+      }
+      EventData data{};
+      data.AddString("severity", finding.effectiveSeverity)
+          .AddString("intrinsicSeverity", finding.intrinsicSeverity)
+          .AddString("effectiveSeverity", finding.effectiveSeverity)
+          .AddString("source", binding.tool->name)
+          .AddString("run", run.name)
+          .AddString("runId", request.runId)
+          .AddString("action", run.action)
+          .AddString("code", finding.code)
+          .AddString("message", finding.message)
+          .AddString("fingerprint", finding.fingerprint)
+          .AddBool("suppressed", finding.suppressed)
+          .AddBool("baselined", finding.baselined)
+          .AddString("suppressionSource", finding.suppressionSource)
+          .AddString("suppressionReason", finding.suppressionReason)
+          .AddStringArray("tags", finding.tags)
+          .AddStringArray("editSetIds", finding.editSetIds);
+      std::vector<std::string> relatedLocations{};
+      for (const auto &related : finding.relatedLocations)
+        relatedLocations.push_back(related.file.string() + ":" +
+                                   std::to_string(related.start.line) + ":" +
+                                   std::to_string(related.start.column) + ":" + related.message);
+      data.AddStringArray("relatedLocations", std::move(relatedLocations));
+      if (finding.primaryLocation.has_value()) {
+        data.AddString("file", finding.primaryLocation->file.string())
+            .AddNumber("line", finding.primaryLocation->start.line)
+            .AddNumber("column", finding.primaryLocation->start.column);
+        if (finding.primaryLocation->end.has_value())
+          data.AddNumber("endLine", finding.primaryLocation->end->line)
+              .AddNumber("endColumn", finding.primaryLocation->end->column);
+      }
+      events.Emit(CliEventType::Diagnostic, std::move(data));
+      const auto shouldEvaluateGate = baselineOperation != "create" && baselineOperation != "update" &&
+                                      !finding.suppressed;
+      if (shouldEvaluateGate &&
+          (baselineOperation == "verify" || ToolRunGateFails(run, finding.effectiveSeverity))) {
+        runGateFailed = true;
+        hasGateFailures = true;
+      }
+    }
+    const auto findingBudgetFailed = run.policy.maxFindings.has_value() &&
+                                     runUnsuppressedFindings > *run.policy.maxFindings;
+    const auto warningBudgetFailed = run.policy.maxWarnings.has_value() &&
+                                     runWarnings > *run.policy.maxWarnings;
+    const auto ruleBudgetFailed = std::find_if(
+        run.policy.ruleBudgets.begin(), run.policy.ruleBudgets.end(),
+        [&](const ToolPolicyDefinition::RuleBudget &budget) {
+          return ruleFindingCounts[budget.rule] > budget.maximum;
+        });
+    if (baselineOperation != "create" && baselineOperation != "update" &&
+        run.policy.gate && (findingBudgetFailed || warningBudgetFailed ||
+                            ruleBudgetFailed != run.policy.ruleBudgets.end())) {
+      runGateFailed = true;
+      hasGateFailures = true;
+      events.Emit(CliEventType::Diagnostic,
+                  EventData{}.AddString("severity", "error")
+                             .AddString("source", commandSource)
+                             .AddString("run", run.name)
+                             .AddString("message", findingBudgetFailed
+                                 ? "tool run exceeded MaxFindings policy"
+                                 : warningBudgetFailed
+                                     ? "tool run exceeded MaxWarnings policy"
+                                     : "tool run exceeded budget for rule '" + ruleBudgetFailed->rule + "'"));
+    }
+    events.Emit(CliEventType::GateEvaluated,
+                EventData{}.AddString("run", run.name)
+                           .AddString("runId", request.runId)
+                           .AddString("status", !(run.policy.gate || baselineOperation == "verify")
+                                                    ? "not-evaluated"
+                                                    : runGateFailed ? "failed" : "passed")
+                           .AddString("failOn", run.policy.failOn)
+                           .AddNumber("findings", static_cast<std::int64_t>(driverResult.diagnostics.size()))
+                           .AddNumber("warnings", static_cast<std::int64_t>(runWarnings)));
+    for (const auto &artifact : driverResult.artifacts)
+      events.Emit(CliEventType::ArtifactProduced,
+                  EventData{}.AddString("kind", "tool-report")
+                             .AddString("run", run.name)
+                             .AddString("path", artifact.string())
+                             .AddString("digest", fs::is_regular_file(artifact) ? ToolFileDigest(artifact) : "")
+                             .AddString("provenance", "driver:" + binding.driver->name));
+    if (driverResult.executionStatus != "succeeded") {
+      events.Emit(CliEventType::Diagnostic,
+                  EventData{}.AddString("severity", "error")
+                             .AddString("source", commandSource)
+                             .AddString("run", run.name)
+                             .AddString("message", "tool execution failed: " +
+                                 (driverResult.protocolError.empty() ? driverResult.executionStatus
+                                                                    : driverResult.protocolError)));
+      if (driverResult.executionStatus == "timed-out") hasTimeout.store(true);
+      if (driverResult.executionStatus == "cancelled") hasCancellation.store(true);
+      if (driverResult.executionStatus != "timed-out" &&
+          driverResult.executionStatus != "cancelled")
+        hasExecutionFailures.store(true);
+    }
+    const auto resultPath = outputDirectory / "result.json";
+      WriteNormalizedToolResult(request, run.name, binding.driver->name,
+                                driverResult,
+                                run.policy.gate || baselineOperation == "verify"
+                                    ? std::optional<bool>{runGateFailed} : std::nullopt,
+                                resultPath);
+    events.Emit(CliEventType::ArtifactProduced,
+                EventData{}.AddString("kind", "tool-result")
+                           .AddString("run", run.name)
+                           .AddString("path", resultPath.string())
+                           .AddString("digest", ToolFileDigest(resultPath))
+                           .AddString("provenance", "run:" + run.name));
+    completedToolResultPaths[runIndex] = resultPath;
+    for (const auto &report : run.reports) {
+      if (report.format != "json" && report.format != "jsonl" &&
+          report.format != "sarif" && report.format != "text")
+        continue;
+      auto reportPathText = report.path;
+      const auto outputVariable = reportPathText.find("$(OutputDir)");
+      if (outputVariable != std::string::npos)
+        reportPathText.replace(outputVariable, std::string{"$(OutputDir)"}.size(),
+                               outputDirectory.string());
+      auto reportPath = fs::path(reportPathText);
+      if (reportPath.is_relative()) reportPath = invocation.project.path.parent_path() / reportPath;
+      WriteToolReport(request, run.name, binding.driver->name, driverResult,
+                      run.policy.gate || baselineOperation == "verify"
+                          ? std::optional<bool>{runGateFailed} : std::nullopt,
+                      report.format, reportPath);
+      events.Emit(CliEventType::ArtifactProduced,
+                  EventData{}.AddString("kind", "tool-report")
+                             .AddString("name", report.name)
+                             .AddString("format", report.format)
+                             .AddString("run", run.name)
+                             .AddString("path", reportPath.string())
+                             .AddString("digest", ToolFileDigest(reportPath))
+                             .AddString("provenance", "report:" + run.name + ":" + report.name));
+    }
+    events.Emit(CliEventType::ToolRunCompleted,
+                EventData{}.AddString("run", run.name)
+                           .AddString("runId", request.runId)
+                           .AddString("action", run.action)
+                           .AddString("tool", binding.tool->name)
+                           .AddString("driver", binding.driver->name)
+                           .AddString("executionStatus", driverResult.executionStatus)
+                           .AddString("gateStatus", !(run.policy.gate || baselineOperation == "verify")
+                                                        ? "not-evaluated"
+                                                        : runGateFailed ? "failed" : "passed")
+                           .AddString("cacheStatus", driverResult.cacheStatus)
+                           .AddNumber("findings", static_cast<std::int64_t>(driverResult.diagnostics.size()))
+                           .AddNumber("edits", static_cast<std::int64_t>(driverResult.edits.size()))
+                           .AddNumber("artifacts", static_cast<std::int64_t>(driverResult.artifacts.size())));
+    const auto outcome = runInvalidPlan ? "invalid"
+                         : driverResult.executionStatus != "succeeded" ? driverResult.executionStatus
+                         : runGateFailed ? "gate-failed"
+                                         : "succeeded";
+    runOutcomes.at(run.name) = outcome;
+    if (run.execution.failureStrategy == "FailFast" && outcome != std::string_view{"succeeded"})
+      failFastTriggered.store(true);
+  };
+  for (const auto &batch : schedule.batches) {
+    std::vector<fs::path> priorResultPaths{};
+    for (const auto &path : completedToolResultPaths)
+      if (path.has_value()) priorResultPaths.push_back(*path);
+    std::vector<std::future<void>> workers{};
+    workers.reserve(batch.nodeIndices.size());
+    for (const auto runIndex : batch.nodeIndices)
+      workers.push_back(std::async(std::launch::async, executeRun, runIndex,
+                                   priorResultPaths));
+    for (auto &worker : workers) worker.get();
   }
   const auto analyzeDuration = static_cast<std::int64_t>(
       std::chrono::duration_cast<std::chrono::milliseconds>(
           std::chrono::steady_clock::now() - analyzeStarted)
           .count());
-  events.Emit(hasErrors ? CliEventType::PhaseFailed
+  const auto exitCode = hasCancellation.load() ? 4
+                        : hasTimeout.load() ? 5
+                        : hasExecutionFailures.load() ? 3
+                        : hasInvalidPlan.load() ? 2
+                        : hasGateFailures.load() ? 1
+                        : 0;
+  const auto completionStatus = exitCode == 0 ? "success"
+                                : exitCode == 1 ? "gate-failed"
+                                : exitCode == 2 ? "invalid"
+                                : exitCode == 3 ? "execution-failed"
+                                : exitCode == 4 ? "cancelled"
+                                              : "timed-out";
+  events.Emit(exitCode != 0 ? CliEventType::PhaseFailed
                         : CliEventType::PhaseCompleted,
               EventData{}
-                  .AddString("phase", "analyze")
-                  .AddString("label", "Analyzer execution")
+                  .AddString("phase", commandName)
+                  .AddString("label", "Tool execution")
                   .AddNumber("durationMs", analyzeDuration)
-                  .AddNumber("exitCode", hasErrors ? 1 : 0));
+                  .AddNumber("exitCode", exitCode));
   events.Emit(
       CliEventType::Summary,
       EventData{}
-          .AddNumber("sources", static_cast<std::int64_t>(sources.size()))
-          .AddNumber("findings", findingsCount));
-  return EmitCommandCompleted(events, hasErrors ? "failed" : "success",
-                              hasErrors ? 1 : 0, commandStarted);
+          .AddNumber("runs", static_cast<std::int64_t>(runs.size()))
+          .AddNumber("skippedRuns", static_cast<std::int64_t>(skippedRuns.load()))
+          .AddNumber("sources", static_cast<std::int64_t>(sourcesCount.load()))
+          .AddNumber("findings", findingsCount.load())
+          .AddNumber("metrics", static_cast<std::int64_t>(metricsCount.load())));
+  return EmitCommandCompleted(events, completionStatus, exitCode, commandStarted);
 }
 
 auto CmdPublish(const fs::path &root, const ParsedArgs &args) -> int {

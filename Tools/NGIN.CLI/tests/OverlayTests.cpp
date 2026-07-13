@@ -1,4 +1,5 @@
 #include "TestSupport.hpp"
+#include "Overlay.hpp"
 
 TEST_CASE("profile Uses overlays select package features")
 {
@@ -111,6 +112,61 @@ TEST_CASE("profile Uses overlays select package features")
     REQUIRE(shipping.value->selectedPackageFeatures.size() == 1);
     REQUIRE(shipping.value->selectedPackageFeatures[0].packageName == "Package.Core");
     REQUIRE(shipping.value->selectedPackageFeatures[0].featureName == "Diagnostics");
+}
+
+TEST_CASE("tool run overlays append input filters and merge named configs and reports")
+{
+    ProjectManifest project{};
+    project.name = "Overlay.App";
+    ToolRunDefinition base{};
+    base.name = "audit";
+    base.action = "Example.Tooling::analyze";
+    base.hasInput = true;
+    base.input.contract = "files/v1";
+    base.input.scope = "ProductClosure";
+    base.input.includes = {"src/**"};
+    base.input.excludes = {"src/vendor/**"};
+    base.configs = {
+        ToolConfigDefinition{.name = "primary", .path = "base.yml"},
+        ToolConfigDefinition{.name = "secondary", .path = "secondary.yml"},
+    };
+    base.reports = {
+        ToolReportDefinition{.name = "json", .format = "json", .path = "base.json"},
+    };
+    project.tooling.runs.push_back(base);
+
+    ProfileDefinition profile{};
+    profile.name = "ci";
+    ToolRunDefinition overlay{};
+    overlay.name = "audit";
+    overlay.hasInput = true;
+    overlay.input.merge = "Append";
+    overlay.input.includes = {"include/**"};
+    overlay.input.excludes = {"generated/**"};
+    overlay.configs = {
+        ToolConfigDefinition{.name = "primary", .path = "ci.yml"},
+    };
+    overlay.reports = {
+        ToolReportDefinition{.name = "json", .format = "json", .path = "ci.json"},
+        ToolReportDefinition{.name = "sarif", .format = "sarif", .path = "ci.sarif"},
+    };
+    profile.tooling.runs.push_back(overlay);
+
+    const auto effective = EffectiveToolRuns(project, profile, {});
+    REQUIRE(effective.size() == 1);
+    const auto &run = effective.at("audit");
+    REQUIRE(run.action == "Example.Tooling::analyze");
+    REQUIRE(run.input.contract == "files/v1");
+    REQUIRE(run.input.scope == "ProductClosure");
+    REQUIRE(run.input.includes == std::vector<std::string>{"src/**", "include/**"});
+    REQUIRE(run.input.excludes == std::vector<std::string>{"src/vendor/**", "generated/**"});
+    REQUIRE(run.configs.size() == 2);
+    REQUIRE(run.configs[0].name == "primary");
+    REQUIRE(run.configs[0].path == "ci.yml");
+    REQUIRE(run.configs[1].name == "secondary");
+    REQUIRE(run.reports.size() == 2);
+    REQUIRE(run.reports[0].path == "ci.json");
+    REQUIRE(run.reports[1].format == "sarif");
 }
 
 TEST_CASE("profile Uses overlays can remove project references")
@@ -315,7 +371,7 @@ TEST_CASE("profile overlays carry selectors and can override staged outputs "
         }));
 }
 
-TEST_CASE("profile build and analyzer overlays replace and remove by identity")
+TEST_CASE("profile build overlays replace and remove by identity")
 {
     TempDir temp{};
     const auto projectPath = temp.path() / "BuildOverlay.App.nginproj";
@@ -329,9 +385,6 @@ TEST_CASE("profile build and analyzer overlays replace and remove by identity")
       <Define Name="APP_DEBUG" Value="1" />
       <CompileOption Value="-Wextra" />
     </Build>
-    <Quality>
-      <Analyzer Name="clang-tidy" Severity="Warning" />
-    </Quality>
   </Application>
   <Profile Name="shipping">
     <Application>
@@ -340,9 +393,6 @@ TEST_CASE("profile build and analyzer overlays replace and remove by identity")
         <Define Remove="APP_DEBUG" />
         <CompileOption Remove="-Wextra" />
       </Build>
-      <Quality>
-        <Analyzer Name="clang-tidy" Severity="Error" />
-      </Quality>
     </Application>
   </Profile>
 </Project>
@@ -363,8 +413,6 @@ TEST_CASE("profile build and analyzer overlays replace and remove by identity")
     REQUIRE_THAT(graphCaptured.str(), ContainsSubstring("APP_MODE=shipping"));
     REQUIRE(graphCaptured.str().find("APP_MODE=dev") == std::string::npos);
     REQUIRE(graphCaptured.str().find("APP_DEBUG=1") == std::string::npos);
-    REQUIRE_THAT(graphCaptured.str(), ContainsSubstring(R"("name":"clang-tidy")"));
-    REQUIRE_THAT(graphCaptured.str(), ContainsSubstring(R"("severity":"Error")"));
 
     ParsedArgs explainArgs{};
     explainArgs.projectPath = projectPath.string();
@@ -772,18 +820,18 @@ TEST_CASE("same-scope duplicate overlay identities are rejected")
 )xml");
     REQUIRE_THAT(linkOptionError, ContainsSubstring("duplicate link option 'm' in the same overlay scope"));
 
-    const auto analyzerError = loadError("DuplicateAnalyzer.nginproj",
+    const auto toolRunError = loadError("DuplicateToolRun.nginproj",
                                          R"xml(<?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="4" Name="DuplicateAnalyzer.App">
+<Project SchemaVersion="4" Name="DuplicateToolRun.App">
   <Application>
-    <Quality>
-      <Analyzer Name="clang-tidy" Severity="Warning" />
-      <Analyzer Name="clang-tidy" Severity="Error" />
-    </Quality>
+    <Tooling>
+      <Run Name="static-analysis" Action="Example.Tooling::analyze" />
+      <Run Name="static-analysis" Action="Example.Tooling::scan" />
+    </Tooling>
   </Application>
 </Project>
 )xml");
-    REQUIRE_THAT(analyzerError, ContainsSubstring("duplicate analyzer 'clang-tidy' in the same overlay scope"));
+    REQUIRE_THAT(toolRunError, ContainsSubstring("duplicate tool run 'static-analysis' in the same overlay scope"));
 
     const auto generatorError = loadError("DuplicateGenerator.nginproj",
                                           R"xml(<?xml version="1.0" encoding="utf-8"?>

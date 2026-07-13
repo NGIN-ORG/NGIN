@@ -38,6 +38,8 @@ namespace NGIN::CLI
     {
         fs::path path{};
         std::string source{};
+        std::string version{};
+        std::string digest{};
     };
 
     [[nodiscard]] auto ResolveToolPath(
@@ -82,6 +84,9 @@ namespace NGIN::CLI
         const ProfileDefinition &profile,
         const std::optional<fs::path> &outputPath,
         const BuildExecutionOptions &options = BuildExecutionOptions{}) -> DiagnosticResult<ConfiguredBuildPaths>;
+
+    [[nodiscard]] auto CompilationPlanSignature(const ResolvedLaunch &resolved) -> std::string;
+    [[nodiscard]] auto CompilationPlanSignaturePath(const fs::path &compileCommandsPath) -> fs::path;
 
     [[nodiscard]] auto BuildLaunch(
         const ProjectManifest &project,

@@ -121,8 +121,8 @@ add_test(NAME ngin.validate.hello_analyzer
   COMMAND $<TARGET_FILE:ngin_cli> validate --project "${NGIN_HELLO_ANALYZER_PROJECT_PATH}" --profile Debug.Analyzer
 )
 
-add_test(NAME ngin.graph.hello_analyzer_quality
-  COMMAND $<TARGET_FILE:ngin_cli> graph --project "${NGIN_HELLO_ANALYZER_PROJECT_PATH}" --profile Debug.Analyzer --quality-plan
+add_test(NAME ngin.graph.hello_analyzer_tooling
+  COMMAND $<TARGET_FILE:ngin_cli> graph --project "${NGIN_HELLO_ANALYZER_PROJECT_PATH}" --profile Debug.Analyzer --tooling-plan
 )
 
 add_test(NAME ngin.graph.workspace

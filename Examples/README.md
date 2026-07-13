@@ -16,7 +16,8 @@ end-to-end behavior that can be validated, built, run, and inspected.
    Reflection code generation through the `NGIN.Reflection.MetaGen` package.
 
 4. [`Hello.Analyzer`](Hello.Analyzer/README.md)
-   clang-tidy analyzer wiring through the `NGIN.Tooling.ClangTidy` package.
+   A package-provided Analyze action and driver through the
+   `NGIN.Tooling.ClangTidy` package.
 
 ## Naming
 

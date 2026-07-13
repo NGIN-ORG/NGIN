@@ -104,14 +104,18 @@ export interface ProjectEditorResolvedEnvironmentVariable {
   resolved?: boolean;
 }
 
-export interface ProjectEditorResolvedAnalyzer {
+export interface ProjectEditorResolvedToolRun {
   name: string;
+  action?: string;
+  kind?: string;
   tool?: string;
+  driver?: string;
   packageName?: string;
-  scope?: string;
-  severity?: string;
-  configPath?: string;
-  configOptional?: boolean;
+  state?: string;
+  inputScope?: string;
+  gate?: boolean;
+  failOn?: string;
+  cache?: string;
 }
 
 export interface ProjectEditorResolvedSummary {
@@ -139,7 +143,7 @@ export interface ProjectEditorResolvedSummary {
   packages: ProjectEditorResolvedPackage[];
   inputs: ProjectEditorResolvedInput[];
   environmentVariables: ProjectEditorResolvedEnvironmentVariable[];
-  analyzers: ProjectEditorResolvedAnalyzer[];
+  toolRuns: ProjectEditorResolvedToolRun[];
   toolingPackages: ProjectEditorResolvedPackage[];
 }
 
@@ -365,14 +369,18 @@ function resolvedSummary(inspect: CompositionGraphPayload | undefined): ProjectE
   }));
   const features = inspect?.plans?.packageFeatures ?? [];
   const generators = inspect?.plans?.generators ?? [];
-  const analyzers = (inspect?.plans?.quality?.analyzers ?? []).map((entry) => ({
+  const toolRuns = (inspect?.plans?.tooling?.runs ?? []).map((entry) => ({
     name: entry.name,
+    action: entry.action,
+    kind: entry.kind,
     tool: entry.tool,
+    driver: entry.driver,
     packageName: entry.package,
-    scope: entry.scope,
-    severity: entry.severity,
-    configPath: entry.configPath,
-    configOptional: entry.configOptional
+    state: entry.state,
+    inputScope: entry.inputScope,
+    gate: entry.gate,
+    failOn: entry.failOn,
+    cache: entry.cache
   }));
   return {
     projectName: inspect?.identity?.project,
@@ -399,7 +407,7 @@ function resolvedSummary(inspect: CompositionGraphPayload | undefined): ProjectE
     packages,
     inputs,
     environmentVariables,
-    analyzers,
+    toolRuns,
     toolingPackages: packages.filter((pkg) => pkg.name.startsWith('NGIN.Tooling.'))
   };
 }

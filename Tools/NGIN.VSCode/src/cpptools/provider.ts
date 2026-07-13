@@ -20,7 +20,7 @@ import { NginWorkspaceSnapshot } from '../state/workspaceState';
 
 interface ActiveCompileDatabase {
   path: string;
-  source: 'staged' | 'fallback';
+  source: 'graph' | 'staged' | 'fallback';
   signature: string;
   entries: CompileCommandEntry[];
 }
@@ -148,6 +148,22 @@ export class NginCppToolsProviderService implements CustomConfigurationProvider 
   }
 
   private async loadActiveDatabase(snapshot: NginWorkspaceSnapshot): Promise<ActiveCompileDatabase | undefined> {
+    const graphInputSets = snapshot.inspectGraph?.plans?.tooling?.inputSets ?? [];
+    const graphUnits = graphInputSets.flatMap((inputSet) => inputSet.translationUnits ?? []);
+    if (graphUnits.length > 0) {
+      const entries = graphUnits.map((unit): CompileCommandEntry => ({
+        directory: unit.workingDirectory,
+        file: unit.source,
+        arguments: unit.arguments
+      }));
+      const source = graphInputSets.find((inputSet) => (inputSet.translationUnits?.length ?? 0) > 0)?.source ?? '';
+      return {
+        path: source,
+        source: 'graph',
+        signature: `graph:${graphInputSets.map((inputSet) => inputSet.signature ?? '').join(':')}:${graphUnits.map((unit) => unit.commandDigest).join(':')}`,
+        entries
+      };
+    }
     const candidates = [
       snapshot.stagedCompileCommandsAvailable && snapshot.stagedCompileCommandsPath
         ? { path: snapshot.stagedCompileCommandsPath, source: 'staged' as const }

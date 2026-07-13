@@ -18,15 +18,20 @@ If you are trying to understand NGIN as a user:
 1. Run `Examples/Hello.Native`.
 2. Compare it with `Examples/Hello.Hosted`.
 3. Run `Examples/Hello.Reflection` when you need generator-backed reflection.
-4. Run `Examples/Hello.Analyzer` when you need quality/analyzer wiring.
+4. Run `Examples/Hello.Analyzer` when you need package-provided tool execution.
 5. Read the specs below when you need exact contracts.
 
 ## Guides
 
 - [`guides/nginproj-authoring.md`](guides/nginproj-authoring.md)
   Concise developer guide for authoring `.nginproj` files.
+- [`guides/tool-driver-authoring.md`](guides/tool-driver-authoring.md)
+  Package author guide for general tools, drivers, actions, probes, and events.
 
 ## Active Specs
+
+- [`specs/014-tooling-and-quality-execution.md`](specs/014-tooling-and-quality-execution.md)
+  Active V4 tooling authoring, driver protocol, policy, CLI, and editor contract.
 
 - [`specs/001-core-concepts.md`](specs/001-core-concepts.md)  
   Shared vocabulary: project, configuration, composition, package, workspace,
@@ -60,6 +65,20 @@ If you are trying to understand NGIN as a user:
 
 - [`schemas/ngin-composition-graph-v4.schema.json`](schemas/ngin-composition-graph-v4.schema.json)
   JSON Schema for `NGIN.CompositionGraph` and `NGIN.CompositionGraphPlan`.
+- [`schemas/ngin-tool-driver-v1.schema.json`](schemas/ngin-tool-driver-v1.schema.json)
+  Request and JSONL event schema for `NGIN.ToolDriver/1`.
+- [`schemas/ngin-tool-result-v1.schema.json`](schemas/ngin-tool-result-v1.schema.json)
+  Normalized diagnostics, edits, artifacts, metrics, execution, and gate result
+  envelope for tool runs.
+- [`schemas/ngin-tool-baseline-v1.schema.json`](schemas/ngin-tool-baseline-v1.schema.json)
+  Fingerprint baseline schema for new-findings-only quality gates.
+
+## Active Implementation Plans
+
+- [`plans/NGIN-General-Tooling-And-Quality-Execution-Plan.md`](plans/NGIN-General-Tooling-And-Quality-Execution-Plan.md)
+  Breaking post-phase-one plan for the general tool driver, execution,
+  diagnostics, quality policy, report, and editor framework that replaces the
+  current clang-tidy-specific analyzer runner.
 
 ## Background Material
 

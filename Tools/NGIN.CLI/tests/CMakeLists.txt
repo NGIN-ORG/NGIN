@@ -78,6 +78,7 @@ add_executable(NGINCliTests
   OverlayTests.cpp
   PackageTests.cpp
   ProductTests.cpp
+  ToolingTests.cpp
   WorkspaceTests.cpp
 )
 target_compile_features(NGINCliTests PRIVATE cxx_std_20)

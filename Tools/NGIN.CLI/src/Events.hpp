@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cstdint>
 #include <iosfwd>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -25,7 +26,14 @@ namespace NGIN::CLI
         PhaseCompleted,
         PhaseFailed,
         BackendOutput,
+        ToolRunStarted,
+        ToolProgress,
         Diagnostic,
+        EditProposed,
+        Metric,
+        GateEvaluated,
+        CacheStatus,
+        ToolRunCompleted,
         ArtifactProduced,
         Summary,
         CommandCompleted,
@@ -36,11 +44,12 @@ namespace NGIN::CLI
     class EventData
     {
     public:
-        using Value = std::variant<std::nullptr_t, std::string, std::int64_t, bool, std::vector<std::string>>;
+        using Value = std::variant<std::nullptr_t, std::string, std::int64_t, double, bool, std::vector<std::string>>;
 
         auto AddNull(std::string name) -> EventData &;
         auto AddString(std::string name, std::string value) -> EventData &;
         auto AddNumber(std::string name, std::int64_t value) -> EventData &;
+        auto AddDecimal(std::string name, double value) -> EventData &;
         auto AddBool(std::string name, bool value) -> EventData &;
         auto AddStringArray(std::string name, std::vector<std::string> value) -> EventData &;
 
@@ -130,6 +139,7 @@ namespace NGIN::CLI
         auto Emit(CliEventType type, EventData data = {}) -> void;
 
     private:
+        mutable std::mutex mutex_{};
         ICliEventSink *sink_{};
         std::uint64_t nextSequence_{1};
         std::string command_{};

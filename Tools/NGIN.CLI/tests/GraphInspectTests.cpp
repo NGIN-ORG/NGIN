@@ -74,9 +74,6 @@ TEST_CASE("diff compares resolved profile graph slices")
       <Environment>
         <Env Name="GAME_ENV" Value="development" />
       </Environment>
-      <Quality>
-        <Analyzer Name="clang-tidy" Severity="Warning" />
-      </Quality>
       <Launch Name="app" Args="--dev" />
     </Application>
   </Profile>
@@ -95,9 +92,6 @@ TEST_CASE("diff compares resolved profile graph slices")
       <Environment>
         <Env Name="GAME_ENV" Value="production" />
       </Environment>
-      <Quality>
-        <Analyzer Name="clang-tidy" Severity="Error" />
-      </Quality>
       <Launch Name="app" Args="--shipping" />
     </Application>
   </Profile>
@@ -127,10 +121,6 @@ TEST_CASE("diff compares resolved profile graph slices")
     REQUIRE_THAT(diff, ContainsSubstring("config/app.json changed: config/dev.json -> config/prod.json"));
     REQUIRE_THAT(diff, ContainsSubstring("GAME_ENV changed: development -> production"));
     REQUIRE_THAT(diff, ContainsSubstring("Args changed: --dev -> --shipping"));
-    REQUIRE_THAT(diff, ContainsSubstring("Analyzers added:"));
-    REQUIRE_THAT(diff, ContainsSubstring("+ clang-tidy scope=Build severity=Error"));
-    REQUIRE_THAT(diff, ContainsSubstring("Analyzers removed:"));
-    REQUIRE_THAT(diff, ContainsSubstring("- clang-tidy scope=Build severity=Warning"));
 }
 
 TEST_CASE("diff compares package lock files")
@@ -253,9 +243,6 @@ TEST_CASE("explain object syntax answers resolved graph objects")
     <Environment>
       <Env Name="EXPLAIN_ENV" Value="dev" />
     </Environment>
-    <Quality>
-      <Analyzer Name="clang-tidy" Severity="Error" />
-    </Quality>
     <Publish Name="folder" Kind="Folder" Output="dist/Plan.App">
       <Include Stage="all" Symbols="false" />
     </Publish>
@@ -313,7 +300,6 @@ TEST_CASE("explain object syntax answers resolved graph objects")
     REQUIRE_THAT(explain("package-output:Explain.App"), ContainsSubstring("description: Explainable package output."));
     REQUIRE_THAT(explain("package-output:Explain.App"), ContainsSubstring("capabilities: 1"));
     REQUIRE_THAT(explain("env:EXPLAIN_ENV"), ContainsSubstring("value: dev"));
-    REQUIRE_THAT(explain("analyzer:clang-tidy"), ContainsSubstring("severity: Error"));
 }
 
 TEST_CASE("graph plan switches print focused resolved plans")
@@ -336,9 +322,6 @@ TEST_CASE("graph plan switches print focused resolved plans")
       <Env Name="PLAN_ENV" Value="dev" />
       <Secret Name="PLAN_TOKEN" From="local:plan.token" Required="false" />
     </Environment>
-    <Quality>
-      <Analyzer Name="clang-tidy" Severity="Error" />
-    </Quality>
     <Publish Name="folder" Kind="Folder" Output="dist/Plan.App">
       <Include Stage="all" Symbols="false" />
     </Publish>
@@ -387,7 +370,6 @@ TEST_CASE("graph plan switches print focused resolved plans")
     REQUIRE_THAT(graph("package-output"), ContainsSubstring("package-output Plan.App version=1.0.0"));
     REQUIRE_THAT(graph("package-output"), ContainsSubstring("capabilities=1"));
     REQUIRE_THAT(graph("publish"), ContainsSubstring("publish folder kind=Folder output=dist/Plan.App"));
-    REQUIRE_THAT(graph("quality"), ContainsSubstring("analyzer clang-tidy scope=Build severity=Error"));
 
     ParsedArgs jsonArgs{};
     jsonArgs.projectPath = projectPath.string();
@@ -512,9 +494,11 @@ TEST_CASE("graph json contract carries selected item provenance")
         <Environment>
           <Env Name="WORKSPACE_ENV" Value="workspace" />
         </Environment>
-        <Quality>
-          <Analyzer Name="workspace-analyzer" Severity="Error" />
-        </Quality>
+        <Tooling>
+          <Run Name="workspace-analysis" Action="Package.Contract::analyze">
+            <Policy Gate="true" FailOn="Error" />
+          </Run>
+        </Tooling>
       </Application>
     </Profile>
   </Profiles>
@@ -528,6 +512,22 @@ TEST_CASE("graph json contract carries selected item provenance")
       <LibraryTarget Name="Package::Contract" />
     </Exports>
   </Library>
+  <Tool Name="Package.Contract.Tooling">
+    <Exports>
+      <Tool Name="contract-tool" Kind="Development" Executable="contract-tool" />
+    </Exports>
+  </Tool>
+  <ToolDrivers>
+    <Driver Name="contract-driver" Protocol="NGIN.ToolDriver/1" Adapter="builtin.clang-tidy.v1">
+      <Capabilities><Capability Name="diagnostics" /></Capabilities>
+    </Driver>
+  </ToolDrivers>
+  <ToolActions>
+    <Action Name="analyze" Kind="Analyze" Tool="contract-tool" Driver="contract-driver">
+      <Accepts Contract="cpp.translation-units/v1" />
+      <Capabilities><Capability Name="diagnostics" /></Capabilities>
+    </Action>
+  </ToolActions>
   <Features>
     <Feature Name="Diagnostics">
       <Inputs>
@@ -549,9 +549,11 @@ TEST_CASE("graph json contract carries selected item provenance")
       <Variables>
         <Variable Name="FEATURE_ENV" Value="feature" />
       </Variables>
-      <Quality>
-        <Analyzer Name="feature-analyzer" Severity="Warning" />
-      </Quality>
+      <Tooling>
+        <Run Name="feature-analysis" Action="Package.Contract::analyze">
+          <Input Contract="cpp.translation-units/v1" Scope="ProductClosure" />
+        </Run>
+      </Tooling>
     </Feature>
   </Features>
 </Package>
@@ -589,9 +591,12 @@ TEST_CASE("graph json contract carries selected item provenance")
         <Capability Name="Contract.App" />
       </Exports>
     </PackageOutput>
-    <Quality>
-      <Analyzer Name="project-analyzer" Severity="Warning" />
-    </Quality>
+    <Tooling>
+      <Run Name="project-analysis" Action="Package.Contract::analyze">
+        <Input Contract="cpp.translation-units/v1" Scope="Product" />
+      </Run>
+      <Run Name="disabled-analysis" Action="Package.Contract::analyze" Enabled="false" />
+    </Tooling>
   </Application>
   <Profile Name="contract">
     <Defaults>
@@ -617,9 +622,11 @@ TEST_CASE("graph json contract carries selected item provenance")
           <Capability Name="Contract.Profile" />
         </Exports>
       </PackageOutput>
-      <Quality>
-        <Analyzer Name="profile-analyzer" Severity="Error" />
-      </Quality>
+      <Tooling>
+        <Run Name="profile-analysis" Action="Package.Contract::analyze">
+          <Policy Gate="true" FailOn="Warning" />
+        </Run>
+      </Tooling>
     </Application>
   </Profile>
 </Project>
@@ -665,7 +672,7 @@ TEST_CASE("graph json contract carries selected item provenance")
     REQUIRE_THAT(fullGraph, ContainsSubstring(R"("launches":)"));
     REQUIRE_THAT(fullGraph, ContainsSubstring(R"("packageOutputs":)"));
     REQUIRE_THAT(fullGraph, ContainsSubstring(R"("publish":)"));
-    REQUIRE_THAT(fullGraph, ContainsSubstring(R"("quality":)"));
+    REQUIRE_THAT(fullGraph, ContainsSubstring(R"("tooling":)"));
     REQUIRE_THAT(fullGraph, ContainsSubstring(R"("diagnostics":)"));
     REQUIRE_THAT(fullGraph, ContainsSubstring(R"("product":"Application","profile":"contract")"));
     REQUIRE_THAT(fullGraph, ContainsSubstring(R"("packageFeatures":[)"));
@@ -734,18 +741,53 @@ TEST_CASE("graph json contract carries selected item provenance")
     REQUIRE_THAT(publishPlan, ContainsSubstring(R"("name":"archive","kind":"Archive","format":"zip","output":"dist/profile.zip")"));
     REQUIRE_THAT(publishPlan, ContainsSubstring(R"("sourceKind":"project-profile","sourceName":"contract")"));
 
-    const auto qualityPlan = graphJson("quality");
-    REQUIRE_THAT(qualityPlan, ContainsSubstring(R"("schemaVersion": "4.0")"));
-    REQUIRE_THAT(qualityPlan, ContainsSubstring(R"("kind": "NGIN.CompositionGraphPlan")"));
-    REQUIRE_THAT(qualityPlan, ContainsSubstring(R"("plan": "quality")"));
-    REQUIRE_THAT(qualityPlan, ContainsSubstring(R"("identity": {"project":"Contract.App")"));
-    REQUIRE_THAT(qualityPlan, ContainsSubstring(R"("data": {"analyzers":[)"));
-    REQUIRE_THAT(qualityPlan, ContainsSubstring(R"("diagnostics": [])"));
-    REQUIRE_THAT(qualityPlan, ContainsSubstring(R"("name":"project-analyzer","tool":"project-analyzer","package":"","scope":"Build","severity":"Warning")"));
-    REQUIRE_THAT(qualityPlan, ContainsSubstring(R"("name":"profile-analyzer","tool":"profile-analyzer","package":"","scope":"Build","severity":"Error")"));
-    REQUIRE_THAT(qualityPlan, ContainsSubstring(R"("name":"workspace-analyzer","tool":"workspace-analyzer","package":"","scope":"Build","severity":"Error")"));
-    REQUIRE_THAT(qualityPlan, ContainsSubstring(R"("name":"feature-analyzer","tool":"feature-analyzer","package":"Package.Contract","scope":"Build","severity":"Warning")"));
-    REQUIRE_THAT(qualityPlan, ContainsSubstring(R"("sourceKind":"package-feature","sourceName":"Package.Contract::Diagnostics")"));
+    const auto toolingPlan = graphJson("tooling");
+    REQUIRE_THAT(toolingPlan, ContainsSubstring(R"("schemaVersion": "4.0")"));
+    REQUIRE_THAT(toolingPlan, ContainsSubstring(R"("kind": "NGIN.CompositionGraphPlan")"));
+    REQUIRE_THAT(toolingPlan, ContainsSubstring(R"("plan": "tooling")"));
+    REQUIRE_THAT(toolingPlan, ContainsSubstring(R"("identity": {"project":"Contract.App")"));
+    REQUIRE_THAT(toolingPlan, ContainsSubstring(R"("data": {"tools":[)"));
+    REQUIRE_THAT(toolingPlan, ContainsSubstring(R"("drivers":[)"));
+    REQUIRE_THAT(toolingPlan, ContainsSubstring(R"("actions":[)"));
+    REQUIRE_THAT(toolingPlan, ContainsSubstring(R"("runs":[)"));
+    REQUIRE_THAT(toolingPlan, ContainsSubstring(R"("inputSets":[)"));
+    REQUIRE_THAT(toolingPlan, ContainsSubstring(R"("dependencies":[)"));
+    REQUIRE_THAT(toolingPlan, ContainsSubstring(R"("policies":[)"));
+    REQUIRE_THAT(toolingPlan, ContainsSubstring(R"("reports":[)"));
+    REQUIRE_THAT(toolingPlan, ContainsSubstring(R"("identity":"Package.Contract::contract-tool")"));
+    REQUIRE_THAT(toolingPlan, ContainsSubstring(R"("identity":"Package.Contract::contract-driver")"));
+    REQUIRE_THAT(toolingPlan, ContainsSubstring(R"("identity":"input-set:project-analysis")"));
+    REQUIRE_THAT(toolingPlan, ContainsSubstring(R"("diagnostics": [])"));
+    REQUIRE_THAT(toolingPlan, ContainsSubstring(R"("name":"project-analysis","action":"Package.Contract::analyze","kind":"Analyze")"));
+    REQUIRE_THAT(toolingPlan, ContainsSubstring(R"("name":"profile-analysis","action":"Package.Contract::analyze","kind":"Analyze")"));
+    REQUIRE_THAT(toolingPlan, ContainsSubstring(R"("name":"workspace-analysis","action":"Package.Contract::analyze","kind":"Analyze")"));
+    REQUIRE_THAT(toolingPlan, ContainsSubstring(R"("name":"feature-analysis","action":"Package.Contract::analyze","kind":"Analyze")"));
+    REQUIRE_THAT(toolingPlan, ContainsSubstring(R"("name":"disabled-analysis","action":"Package.Contract::analyze","kind":"Analyze")"));
+    REQUIRE_THAT(toolingPlan, ContainsSubstring(R"("state":"disabled")"));
+    REQUIRE_THAT(toolingPlan, ContainsSubstring(R"("sourceKind":"package-feature","sourceName":"Package.Contract::Diagnostics")"));
+
+    auto explain = [&](std::string object) {
+        ParsedArgs args{};
+        args.projectPath = projectPath.string();
+        args.profileName = "contract";
+        args.packageName = std::move(object);
+        std::ostringstream captured{};
+        auto *previous = std::cout.rdbuf(captured.rdbuf());
+        const auto exitCode = CmdExplainObject(temp.path(), args);
+        std::cout.rdbuf(previous);
+        REQUIRE(exitCode == 0);
+        return captured.str();
+    };
+    REQUIRE_THAT(explain("tool:Package.Contract::contract-tool"),
+                 ContainsSubstring("identity: Package.Contract::contract-tool"));
+    REQUIRE_THAT(explain("driver:Package.Contract::contract-driver"),
+                 ContainsSubstring("protocol: NGIN.ToolDriver/1"));
+    REQUIRE_THAT(explain("action:Package.Contract::analyze"),
+                 ContainsSubstring("kind: Analyze"));
+    REQUIRE_THAT(explain("input-set:project-analysis"),
+                 ContainsSubstring("run: project-analysis"));
+    REQUIRE_THAT(explain("run:disabled-analysis"),
+                 ContainsSubstring("state: disabled"));
 }
 
 TEST_CASE("frozen graph schema artifact documents the emitted contract")
@@ -767,11 +809,11 @@ TEST_CASE("frozen graph schema artifact documents the emitted contract")
     REQUIRE_THAT(schema, ContainsSubstring(R"("launches")"));
     REQUIRE_THAT(schema, ContainsSubstring(R"("packageOutputs")"));
     REQUIRE_THAT(schema, ContainsSubstring(R"("publish")"));
-    REQUIRE_THAT(schema, ContainsSubstring(R"("quality")"));
+    REQUIRE_THAT(schema, ContainsSubstring(R"("tooling")"));
     REQUIRE_THAT(schema, ContainsSubstring("<redacted>"));
 
     const auto spec = ReadFile(RepoRoot() / "docs/specs/013-composition-graph-json-contract.md");
-    REQUIRE_THAT(spec, ContainsSubstring("Status: Frozen V4 Contract"));
+    REQUIRE_THAT(spec, ContainsSubstring("Status: V4 Contract Refreeze In Progress"));
     REQUIRE_THAT(spec, ContainsSubstring("docs/schemas/ngin-composition-graph-v4.schema.json"));
     REQUIRE_THAT(spec, ContainsSubstring("Consumers should prefer the plan slices"));
     REQUIRE_THAT(spec, ContainsSubstring("Secrets are always redacted"));

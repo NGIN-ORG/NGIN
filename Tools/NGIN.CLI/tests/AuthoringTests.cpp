@@ -185,6 +185,99 @@ TEST_CASE("package manifest parses tool exports") {
   REQUIRE(package.artifacts.executables[0].name == "NGIN.Reflection.MetaGen");
 }
 
+TEST_CASE("tool actions reject capabilities not provided by their driver") {
+  TempDir temp{};
+  const auto packagePath = temp.path() / "Invalid.Tooling.nginpkg";
+  WriteFile(packagePath,
+            R"xml(<Package SchemaVersion="4" Name="Invalid.Tooling" Version="1.0.0">
+  <Tool Name="Invalid.Tooling"><Exports><Tool Name="tool" Executable="tool" /></Exports></Tool>
+  <ToolDrivers>
+    <Driver Name="driver" Protocol="NGIN.ToolDriver/1" Executable="driver">
+      <Capabilities><Capability Name="diagnostics" /></Capabilities>
+    </Driver>
+  </ToolDrivers>
+  <ToolActions>
+    <Action Name="format" Kind="Format" Tool="tool" Driver="driver">
+      <Accepts Contract="files/v1" />
+      <Capabilities><Capability Name="edits" /></Capabilities>
+    </Action>
+  </ToolActions>
+</Package>)xml");
+
+  REQUIRE_THROWS_WITH(LoadPackageManifest(packagePath),
+                      ContainsSubstring("capability 'edits' not provided by driver 'driver'"));
+}
+
+TEST_CASE("tool actions declare explicit environment and secret requirements") {
+  TempDir temp{};
+  const auto packagePath = temp.path() / "Environment.Tooling.nginpkg";
+  WriteFile(packagePath,
+            R"xml(<Package SchemaVersion="4" Name="Environment.Tooling" Version="1.0.0">
+  <Tool Name="Environment.Tooling"><Exports><Tool Name="tool" Executable="tool" /></Exports></Tool>
+  <ToolDrivers><Driver Name="driver" Protocol="NGIN.ToolDriver/1" Executable="driver" /></ToolDrivers>
+  <ToolActions>
+    <Action Name="scan" Kind="Scan" Tool="tool" Driver="driver">
+      <Accepts Contract="artifacts/v1" />
+      <Environment>
+        <Variable Name="SCAN_MODE" Required="false" />
+        <Variable Name="SCAN_TOKEN" Secret="true" CacheKey="true" />
+      </Environment>
+    </Action>
+  </ToolActions>
+</Package>)xml");
+
+  const auto package = LoadPackageManifest(packagePath);
+  REQUIRE(package.toolActions.size() == 1);
+  REQUIRE(package.toolActions[0].environment.size() == 2);
+  REQUIRE_FALSE(package.toolActions[0].environment[0].required);
+  REQUIRE(package.toolActions[0].environment[1].secret);
+  REQUIRE(package.toolActions[0].environment[1].cacheKey);
+}
+
+TEST_CASE("tool runs parse dependency and scheduler resource declarations") {
+  TempDir temp{};
+  const auto projectPath = temp.path() / "Scheduler.App.nginproj";
+  WriteFile(projectPath,
+            R"xml(<Project SchemaVersion="4" Name="Scheduler.App">
+  <Application>
+    <Tooling>
+      <Run Name="analyze" Action="Example.Tooling::analyze">
+        <Input Contract="files/v1" Scope="Product" Merge="Append">
+          <Include Path="src/**" />
+        </Input>
+        <Execution Jobs="2" Timeout="30s" Cache="ReadWrite"
+                   FailureStrategy="DependencyAware" Weight="2"
+                   MaxParallelism="3" ExclusiveResource="compiler-db" />
+        <Policy Gate="true" FailOn="Warning">
+          <Severity Rule="style-rule" To="info" />
+          <Suppress Fingerprint="known-finding" Reason="accepted for now" Expires="2099-12-31" />
+          <Budget Rule="security-rule" Max="0" />
+        </Policy>
+      </Run>
+      <Run Name="report" Action="Example.Tooling::report">
+        <DependsOn Run="analyze" />
+      </Run>
+    </Tooling>
+  </Application>
+</Project>)xml");
+
+  const auto project = LoadProjectManifest(projectPath);
+  REQUIRE(project.tooling.runs.size() == 2);
+  const auto &analyze = project.tooling.runs[0];
+  REQUIRE(analyze.input.merge == "Append");
+  REQUIRE(analyze.input.scopeExplicit);
+  REQUIRE(analyze.execution.weight == 2);
+  REQUIRE(analyze.execution.maxParallelism == 3);
+  REQUIRE(analyze.execution.exclusiveResource == "compiler-db");
+  REQUIRE(analyze.policy.severityMappings.size() == 1);
+  REQUIRE(analyze.policy.severityMappings[0].severity == "info");
+  REQUIRE(analyze.policy.suppressions.size() == 1);
+  REQUIRE(analyze.policy.suppressions[0].reason == "accepted for now");
+  REQUIRE(analyze.policy.ruleBudgets.size() == 1);
+  REQUIRE(analyze.policy.ruleBudgets[0].maximum == 0);
+  REQUIRE(project.tooling.runs[1].dependencies == std::vector<std::string>{"analyze"});
+}
+
 TEST_CASE("package manifest parses external provider build metadata") {
   TempDir temp{};
   const auto packagePath = temp.path() / "fmt.nginpkg";

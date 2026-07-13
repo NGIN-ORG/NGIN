@@ -35,6 +35,7 @@ _ngin_cli_apply_defaults(ngin_cli_build)
 
 add_library(ngin_cli_commands STATIC
   src/Commands.cpp
+  src/Tooling.cpp
 )
 target_link_libraries(ngin_cli_commands PUBLIC ngin_cli_build ngin_cli_resolution ngin_cli_authoring ngin_cli_model PRIVATE NGIN::Base)
 _ngin_cli_apply_defaults(ngin_cli_commands)

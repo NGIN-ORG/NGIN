@@ -27,7 +27,6 @@ import { buildProjectTreeModels, buildStatusBarModel } from '../../ui/models';
 import { parseLaunchManifest, parseLocalSettingsManifest, parsePackageManifest, parseProjectManifest, parseWorkspaceManifest } from '../../core/xml';
 import {
   addProfile,
-  addClangTidyAnalyzerPackage,
   deleteProfile,
   setEnvironmentVariables,
   setInputEntries,
@@ -82,7 +81,7 @@ test('parseCliDiagnostics extracts structured file and generic errors', () => {
   assert.equal(diagnostics[3].line, 4);
   assert.equal(diagnostics[3].column, 7);
   assert.equal(diagnostics[3].severity, 'warning');
-  assert.equal(diagnostics[3].source, 'clang-tidy');
+  assert.equal(diagnostics[3].source, undefined);
   assert.equal(diagnostics[3].message, 'prefer auto [clang-tidy:modernize-use-auto]');
 });
 
@@ -121,7 +120,10 @@ test('diagnostic events map to extension diagnostic payloads', () => {
       message: 'prefer auto',
       file: '/workspace/src/main.cpp',
       line: 4,
-      column: 7
+      column: 7,
+      tags: ['deprecated'],
+      editSetIds: ['fix-1'],
+      relatedLocations: ['/workspace/include/main.hpp:2:3:declared here']
     }
   }) + '\n');
 
@@ -133,6 +135,11 @@ test('diagnostic events map to extension diagnostic payloads', () => {
   assert.equal(diagnostic.file, '/workspace/src/main.cpp');
   assert.equal(diagnostic.line, 4);
   assert.equal(diagnostic.column, 7);
+  assert.deepEqual(diagnostic.tags, ['deprecated']);
+  assert.deepEqual(diagnostic.editSetIds, ['fix-1']);
+  assert.deepEqual(diagnostic.relatedLocations, [{
+    file: '/workspace/include/main.hpp', line: 2, column: 3, message: 'declared here'
+  }]);
 });
 
 test('NginJsonlEventParser ignores non-event JSON and rejects malformed lines', () => {
@@ -256,10 +263,14 @@ test('parseCompositionGraphPayload maps V4 composition graph inspect output to e
           reason: 'selected launch'
         }
       },
-      quality: {
-        analyzers: [
+      tooling: {
+        runs: [
           {
-            name: 'clang-tidy',
+            name: 'cpp-static-analysis',
+            action: 'NGIN.Tooling.ClangTidy::analyze',
+            kind: 'Analyze',
+            tool: 'clang-tidy',
+            driver: 'clang-tidy-driver',
             package: 'NGIN.Tooling.ClangTidy',
             provenance: {
               sourceKind: 'package-feature',
@@ -290,8 +301,8 @@ test('parseCompositionGraphPayload maps V4 composition graph inspect output to e
   assert.equal(payload.plans?.launch?.provenance?.sourceKind, 'project-profile');
   assert.equal(payload.plans?.environment?.variables?.[0]?.value, '<redacted>');
   assert.equal(payload.plans?.environment?.variables?.[0]?.provenance?.reason, 'secret environment contribution');
-  assert.equal(payload.plans?.quality?.analyzers?.[0]?.name, 'clang-tidy');
-  assert.equal(payload.plans?.quality?.analyzers?.[0]?.provenance?.sourceKind, 'package-feature');
+  assert.equal(payload.plans?.tooling?.runs?.[0]?.name, 'cpp-static-analysis');
+  assert.equal(payload.plans?.tooling?.runs?.[0]?.provenance?.sourceKind, 'package-feature');
 });
 
 test('settings init output exposes the initialized settings path', () => {
@@ -446,8 +457,10 @@ test('extension manifest and snippets register local settings support', () => {
   assert.ok(commandIds.includes('ngin.settingsInit'));
   assert.ok(commandIds.includes('ngin.openProjectXmlSource'));
   assert.ok(commandIds.includes('ngin.analyze'));
-  assert.ok(commandIds.includes('ngin.addClangTidyAnalyzerPackage'));
-  assert.ok(commandIds.includes('ngin.openClangTidyConfig'));
+  assert.ok(commandIds.includes('ngin.addToolAction'));
+  assert.ok(commandIds.includes('ngin.runToolRun'));
+  assert.ok(commandIds.includes('ngin.applyToolEdits'));
+  assert.ok(commandIds.includes('ngin.toolingPlan'));
   assert.ok(commandIds.includes('ngin.explainSelection'));
   assert.ok(commandIds.includes('ngin.showResolvedInputs'));
   assert.ok(commandIds.includes('ngin.showInactiveTooling'));
@@ -462,15 +475,20 @@ test('extension manifest and snippets register local settings support', () => {
   assert.deepEqual(activityViews, ['nginWorkspace:Workspace']);
   assert.equal(packageJson.contributes.customEditors[0].viewType, 'ngin.projectEditor');
   assert.equal(packageJson.contributes.customEditors[0].priority, 'default');
+  const settings = packageJson.contributes.configuration.properties;
+  assert.equal(settings['ngin.validate.onSave'], undefined);
+  assert.equal(settings['ngin.analyze.onSave'], undefined);
+  assert.equal(settings['ngin.tooling.validateManifestOnSave'].default, false);
+  assert.equal(settings['ngin.tooling.runActiveFileOnSave'].default, false);
 
   const snippets = JSON.parse(readFileSync(path.join(process.cwd(), 'snippets/ngin.code-snippets'), 'utf8'));
   assert.ok(snippets['Local Settings File']);
   assert.ok(snippets['Application Project']);
   assert.ok(snippets['Runtime Dependency']);
-  assert.ok(snippets['Clang-Tidy Analyzer Package']);
+  assert.ok(snippets['Tooling Run']);
   assert.equal(snippets['Model'], undefined);
   assert.ok(snippets['Command Generator']);
-  assert.ok(snippets['Quality Analyzer']);
+  assert.ok(snippets['Tool Driver and Action']);
   assert.ok(snippets['Publish']);
   assert.ok(snippets['Package Output']);
 });
@@ -669,19 +687,6 @@ test('project editor authoring keeps root and profile dependency uses separate',
   xml = setDependencyUses(xml, [{ name: 'Root.Only' }]);
   assert.match(xml, /<Package Name="Root\.Only" \/>/);
   assert.match(xml, /<Package Name="Profile\.Only" \/>/);
-});
-
-test('clang-tidy analyzer authoring adds official tooling dependency without duplicates', () => {
-  const base = '<Project SchemaVersion="4" Name="App"><Application /></Project>';
-  const added = addClangTidyAnalyzerPackage(base);
-
-  assert.match(added, /<Uses>/);
-  assert.match(added, /<Package Name="NGIN\.Tooling\.ClangTidy"[\s\S]*Scope="Dev">/);
-  assert.match(added, /<Feature Name="Analyzer" \/>/);
-
-  const unchanged = addClangTidyAnalyzerPackage(added);
-  assert.equal((unchanged.match(/NGIN\.Tooling\.ClangTidy/g) ?? []).length, 1);
-  assert.equal((unchanged.match(/Feature Name="Analyzer"/g) ?? []).length, 1);
 });
 
 test('project editor model surfaces parse errors and resolved feature states', () => {

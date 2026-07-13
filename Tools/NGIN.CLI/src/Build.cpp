@@ -25,6 +25,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <map>
 #include <set>
@@ -2254,6 +2255,8 @@ struct CMakeProviderInputs {
       return std::nullopt;
     }
   }
+  (void)WriteTextFileIfChanged(CompilationPlanSignaturePath(compileCommandsPath),
+                               CompilationPlanSignature(resolved) + "\n");
   return generatedPaths;
 }
 
@@ -2333,6 +2336,39 @@ auto PruneEmptyDirectories(fs::path path, const fs::path &stopAt) -> void {
   }
 }
 } // namespace
+
+auto CompilationPlanSignature(const ResolvedLaunch &resolved) -> std::string {
+  std::ostringstream material{};
+  material << "project=" << resolved.project.path.generic_string() << '\n'
+           << "profile=" << resolved.profile.name << '\n'
+           << "buildType=" << resolved.profile.buildType << '\n'
+           << "host=" << resolved.profile.hostPlatform << '\n'
+           << "target=" << resolved.profile.platform << '\n'
+           << "toolchain=" << resolved.profile.toolchain << '\n'
+           << "abi=" << resolved.targetAbiTag << '\n';
+  const auto addManifest = [&](const fs::path &path) {
+    material << "manifest=" << path.lexically_normal().generic_string() << '\n';
+    if (fs::exists(path)) material << ReadText(path) << '\n';
+  };
+  if (resolved.workspace.has_value()) addManifest(resolved.workspace->path);
+  for (const auto &unit : resolved.projectUnits) addManifest(unit.project.path);
+  for (const auto &package : resolved.orderedPackages) addManifest(package.manifest.path);
+  for (const auto &input : resolved.inputs)
+    material << "input=" << input.kind << '|' << input.role << '|'
+             << input.absoluteSourcePath.lexically_normal().generic_string() << '\n';
+  std::uint64_t hash = 1469598103934665603ULL;
+  for (const auto byte : material.str()) {
+    hash ^= static_cast<unsigned char>(byte);
+    hash *= 1099511628211ULL;
+  }
+  std::ostringstream encoded{};
+  encoded << std::hex << std::setfill('0') << std::setw(16) << hash;
+  return encoded.str();
+}
+
+auto CompilationPlanSignaturePath(const fs::path &compileCommandsPath) -> fs::path {
+  return compileCommandsPath.parent_path() / "ngin-compilation-units.signature";
+}
 
 auto ResolveToolPath(const std::string &tool,
                      const std::optional<fs::path> &searchRoot)

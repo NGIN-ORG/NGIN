@@ -47,6 +47,10 @@ namespace NGIN::CLI
                     {
                         out << typed;
                     }
+                    else if constexpr (std::is_same_v<T, double>)
+                    {
+                        out << typed;
+                    }
                     else if constexpr (std::is_same_v<T, bool>)
                     {
                         out << (typed ? "true" : "false");
@@ -79,7 +83,14 @@ namespace NGIN::CLI
         case CliEventType::PhaseCompleted: return "phase.completed";
         case CliEventType::PhaseFailed: return "phase.failed";
         case CliEventType::BackendOutput: return "backend.output";
+        case CliEventType::ToolRunStarted: return "tool.run.started";
+        case CliEventType::ToolProgress: return "tool.progress";
         case CliEventType::Diagnostic: return "diagnostic";
+        case CliEventType::EditProposed: return "edit.proposed";
+        case CliEventType::Metric: return "metric";
+        case CliEventType::GateEvaluated: return "gate.evaluated";
+        case CliEventType::CacheStatus: return "tool.cache";
+        case CliEventType::ToolRunCompleted: return "tool.run.completed";
         case CliEventType::ArtifactProduced: return "artifact.produced";
         case CliEventType::Summary: return "summary";
         case CliEventType::CommandCompleted: return "command.completed";
@@ -100,6 +111,12 @@ namespace NGIN::CLI
     }
 
     auto EventData::AddNumber(std::string name, std::int64_t value) -> EventData &
+    {
+        fields_.push_back(Field{.name = std::move(name), .value = value});
+        return *this;
+    }
+
+    auto EventData::AddDecimal(std::string name, double value) -> EventData &
     {
         fields_.push_back(Field{.name = std::move(name), .value = value});
         return *this;
@@ -302,6 +319,7 @@ namespace NGIN::CLI
 
     auto CliEventEmitter::Emit(CliEventType type, EventData data) -> void
     {
+        const std::lock_guard lock{mutex_};
         if (sink_ == nullptr)
         {
             return;

@@ -118,9 +118,8 @@ Supported product lifecycle entries:
 - `PackageOutput`, stored as source-product package output metadata
 - named V4 `Launch` entries, with `Name`, `WorkingDirectory`, and `Args`
   preserved through inspect and generated `.nginlaunch`
-- `Quality/Analyzer`, stored as analyzer metadata with name, tool, package,
-  scope, enabled state, severity, config path, optional config state, and
-  selectors
+- `Tooling/Run`, normalized to package-qualified actions with typed inputs,
+  configs, policy, execution, reports, selectors, and provenance
 
 Supported `External` product behavior:
 
@@ -155,24 +154,23 @@ Implemented profile behavior:
   same destination without an explicit override
 - same-scope duplicate identity diagnostics for generators, publishes, package
   outputs, runtime modules, and environment variables
-- same-scope duplicate identity diagnostics for V4 build settings and quality
-  analyzers
+- same-scope duplicate identity diagnostics for V4 build settings and tool runs
 - environment variable replacement by name
 - build setting replacement and removal by identity in selected profile
   overlays, workspace profile policy, graph/explain output, and generated CMake
   emission
-- analyzer replacement by identity with workspace/project profile precedence
+- tool-run replacement by identity with workspace/project profile precedence
   and provenance in graph output
-- shared build-setting/analyzer overlay resolver used by duplicate diagnostics,
-  graph/explain output, analyzer execution, and generated CMake emission
+- shared build-setting/tool-run overlay resolution used by duplicate diagnostics,
+  graph/explain output, tool execution, and generated CMake emission
 - generator replacement and removal by `Name` in selected profile overlays
 - publish replacement and removal by `Name` in selected profile overlays
 - package output replacement and removal by `Name` in selected profile overlays
 
 This is still not the final V4 overlay engine. Build definitions, staged
 inputs, dependency features, project/package removals, environment variables,
-runtime modules, generators, publishes, package outputs, and analyzers have
-first-pass identity handling. Build settings and analyzers now share one
+runtime modules, generators, publishes, package outputs, and tool runs have
+first-pass identity handling. Build settings and tool runs now share one
 effective overlay path, but full provenance and duplicate diagnostics are not
 implemented for every item family.
 
@@ -199,8 +197,7 @@ Implemented workspace parsing:
   platform, toolchain, and environment
 - workspace `Profiles/Profile/Build` for first-pass profile-selected include
   paths, defines, compile options, and link options
-- workspace `Profiles/Profile/Quality/Analyzer` for first-pass
-  profile-selected analyzer policy
+- workspace `Profiles/Profile/Tooling/Run` for profile-selected tool policy
 - workspace `Profiles/Profile/Environment` for first-pass profile-selected
   environment variable policy
 - workspace `Profiles/Profile/Stage` for first-pass profile-selected config and
@@ -216,8 +213,7 @@ Implemented workspace parsing:
 - workspace `Profiles/Profile/PackageOutput` for profile-selected package
   output policy
 - workspace `Profiles/Profile/<ProductKind>/Build` and
-  `Profiles/Profile/<ProductKind>/Quality/Analyzer` for first-pass
-  product-kind-specific profile policy
+  `Profiles/Profile/<ProductKind>/Tooling/Run` for product-kind policy
 - workspace `Profiles/Profile/<ProductKind>/Environment` for first-pass
   product-kind-specific environment variable policy
 - workspace `Profiles/Profile/<ProductKind>/Stage` for first-pass
@@ -413,9 +409,10 @@ Current behavior:
 `ngin add project-reference` can edit V4 product-first projects by inserting a
 `Uses/Project` dependency with a logical name and path.
 
-### Format Command
+### Manifest Format Command
 
-`ngin format` is available as the first V4 manifest formatting command.
+`ngin manifest format` formats authored XML. `ngin format` is now reserved for
+package-provided `Format` tool actions.
 
 Current behavior:
 
@@ -561,21 +558,21 @@ ngin graph --launch-plan
 ngin graph --runtime-plan
 ngin graph --environment-plan
 ngin graph --publish-plan
-ngin graph --quality-plan
+ngin graph --tooling-plan
 ```
 
 Current behavior is text output over the existing resolved model. This is not
 the final graph API, but it exposes focused plan views for build inputs,
 staged files, package closure, launch metadata, runtime selection, environment
 variables with secret redaction, produced package outputs, publish
-declarations, and quality analyzer declarations.
+declarations, and tool-run declarations.
 
 `ngin graph --format json` now emits a graph-native top-level
 `NGIN.CompositionGraph` JSON envelope with `schemaVersion: "4.0"`, identity,
 selection, named convention/default contributions, first-pass property
 provenance, facet summary, and first-pass plan payloads for package, build,
 generate, stage, runtime, environment, package-output, launch, publish,
-quality, and diagnostics.
+tooling, and diagnostics.
 `inspect --format json` emits this graph envelope directly.
 
 Internally this output now starts from a first-pass `CompositionGraph` snapshot
@@ -584,9 +581,9 @@ currently owns identity, product, selection, conventions, high-value
 properties, summary counts, consumed packages, package features, build
 defines, build inputs, active generators, staged files, environment entries,
 package outputs, runtime modules/plugins, launch entries, publish entries,
-quality analyzers, and provenance records for those nodes. Focused graph plan
+tool runs, and provenance records for those nodes. Focused graph plan
 JSON and matching text output for package, build, stage, runtime, environment,
-package-output, launch, publish, and quality now consume those graph-owned
+package-output, launch, publish, and tooling now consume those graph-owned
 nodes.
 
 `ngin graph --format json --<plan>-plan` emits a focused
@@ -607,23 +604,25 @@ Current behavior:
 
 ### Analyze Command
 
-`ngin analyze` is available as the first V4 quality workflow command.
+`ngin analyze` is the semantic entry point for enabled `Analyze` actions.
 
 Current behavior:
 
 - resolves the selected project/profile
-- reads V4 `Quality/Analyzer` declarations
-- merges selected package feature `Quality/Analyzer` declarations
-- applies analyzer selectors and enabled flags
-- reports the analyzer plan with scope, severity, tool, and config path
-- executes `clang-tidy` analyzers against selected C++ sources using the
-  configured compile database
-- resolves `clang-tidy` from package tool metadata, `NGIN_CLANG_TIDY`, bundled
-  tool roots, or `PATH`
-- emits normalized `[warning] path:line:column: message` and `[error]
-  path:line:column: message` diagnostics for editor consumption
+- reads general V4 `Tooling/Run` declarations contributed by workspaces,
+  projects, profiles, and selected package features
+- binds package-qualified actions to declared tools and `NGIN.ToolDriver/1`
+  drivers, with unsupported enabled bindings rejected during validation
+- executes external package drivers through a versioned request/JSONL event
+  protocol; the clang-tidy package uses one explicitly declared bootstrap adapter
+- preserves intrinsic diagnostic severity and evaluates gating separately with
+  `Policy Gate` and `FailOn`
+- exposes `ngin tool list`, `ngin tool plan`, `ngin tool doctor`, and
+  `ngin tool run <RunName>` in addition to the semantic analyze command
+- emits structured run/action diagnostic events with ranges and fingerprints
+  for editor consumption
 
-The official `NGIN.Tooling.ClangTidy` package is a phase-one system wrapper. It
+The official `NGIN.Tooling.ClangTidy` package is a system wrapper. It
 does not redistribute LLVM binaries.
 
 ### Stage Command
@@ -882,7 +881,7 @@ Current test coverage includes:
 - V4 `ngin package remove`
 - V4 `ngin package pack`
 - V4 ZIP-backed `.nginpack` package output
-- V4 `ngin format`
+- V4 `ngin manifest format` and general tool-action `ngin format`
 - V4 `ngin schema --format json`
 - V4 `ngin restore`
 - V4 restore from `.nginpack` package archives
@@ -1015,7 +1014,7 @@ Current test coverage includes:
 - focused graph JSON contract coverage now pins selected-item provenance across
   package features, build definitions, staged files, runtime modules,
   environment variables including redacted secrets, launches, publishes,
-  package outputs, and quality analyzers
+  package outputs, and tool runs
 - frozen V4 Composition Graph JSON schema artifact and spec are parseable and
   covered by focused CLI contract tests
 - `ngin schema --format json` exposes the frozen graph schema/spec paths and
@@ -1024,33 +1023,47 @@ Current test coverage includes:
   package, product, overlay, graph, and facade files with shared test support
 - official `NGIN.Tooling.ClangTidy` system-wrapper package for enabling
   clang-tidy through package feature authoring
-- package feature `Quality/Analyzer` contributions
-- `ngin analyze` clang-tidy execution through package/system tool resolution
-- clang-tidy diagnostics normalized for VS Code file, line, and column display
+- package feature `Tooling/Run` contributions backed by declared tools,
+  drivers, and actions
+- package-neutral protocol execution, normalized results, caching, reports,
+  baselines, digest-validated edits, timeouts, output limits, and gates
+- bounded dependency-aware parallel tooling scheduler with weights, exclusive
+  resources, fail-fast/dependency-aware skipping, normalized skipped results,
+  incremental progress events, and native POSIX/Windows process-tree control
+- graph-owned compilation-unit records with compatibility signatures and
+  command digests, reused by build tooling, analyzers, and the VS Code C/C++
+  configuration provider; stale `--no-configure` requests are rejected
+- explicit action environment/secret requirements, protected request files,
+  minimal driver-process environments, and secret-safe cache behavior
+- graph registries and focused explain/diff coverage for tools, drivers,
+  actions, runs, input sets, disabled/excluded states, dependencies, policies,
+  reports, collisions, and diagnostics
+- `ngin tool` discovery/doctor/plan/run plus semantic analyze, format, scan,
+  report, and quality filters
 - VS Code inspect consumption is graph-native and accepts only the V4
   `NGIN.CompositionGraph` envelope from `ngin inspect --format json`
 - VS Code sidebar and project editor resolved sections now consume graph plan
   facets for packages, features, build inputs, generators, stage, runtime,
-  launch, publish, package outputs, analyzers, and diagnostics
+  launch, publish, package outputs, tool runs, and diagnostics
 - VS Code graph model types now carry optional selected-item provenance and
   accept both current full-graph runtime string arrays and provenance-capable
   runtime object arrays
-- VS Code validation, analyzer, and inspect diagnostics use separate diagnostic
+- VS Code validation, tool-run, and inspect diagnostics use separate diagnostic
   collections so one workflow does not clear the others
-- VS Code analyzer diagnostics preserve file, line, column, severity, and
-  clang-tidy source tagging
-- VS Code can add the official `NGIN.Tooling.ClangTidy` analyzer package to a
-  product `Uses` section without duplicating the dependency or feature
-- VS Code command/menu/snippet surface includes `Analyze`, `Enable Clang-Tidy`,
-  `.clang-tidy` open/create actions, and the `ngin-clang-tidy` snippet
+- VS Code tool diagnostics preserve ranges, related locations, tags, codes,
+  fingerprints, run ownership, and edit-set quick fixes
+- VS Code discovers and authors any package action through CLI-owned
+  `add tool-action`; it contains no official-package-specific authoring logic
+- VS Code command/menu/snippet surface includes `Analyze`, `Add Tool Action`,
+  `Run Tool Run`, `Show Tooling Plan`, and general tooling snippets
 - VS Code internal/user-facing package-reference naming has been migrated to
   dependency/uses terminology where it affects active models and labels
 - CLI lifecycle commands now use a shared modern output surface with command
   titles, aligned fields, item lists, success summaries, `--quiet`,
   `--verbose`, `--trace`, `--plain`, `--color`, and `--json` alias support
   where formatting is supported
-- CLI analyzer output keeps normalized diagnostic lines stable for editor
-  parsing while presenting analyzer plans through the modern output surface
+- CLI tool output renders normalized diagnostics from the structured result
+  model while JSONL events remain authoritative for editor integrations
 - VS Code invokes the CLI with `--plain` by default so terminal color/styling
   improvements do not affect extension parsing, logs, or diagnostics
 - CLI build-backed commands now support backend output policies through
@@ -1077,7 +1090,7 @@ Current test coverage includes:
 - VS Code long-running configure/build/rebuild/stage/publish/analyze
   invocations now request JSONL events, render extension-owned progress/output
   summaries, and prefer structured analyzer diagnostic events with the existing
-  text diagnostic parser retained as fallback.
+  analyzer diagnostics accepted only from structured events.
 
 ## Deferred Post-V4 Epics
 
@@ -1093,9 +1106,9 @@ named future work instead of keeping V4 open-ended:
   vcpkg, and Conan providers
 - signing, SBOM, trust policy
 - DEFLATE compression support inside ZIP-backed `.nginpack` archives
-- analyzer execution beyond the phase-one clang-tidy runner, formatter
-  execution, coverage collection, and quality policy enforcement
-- graph diff expansion beyond the frozen phase-one graph slices
+- coverage collection and specialized post-processing actions not yet provided
+  by an official package
+- graph diff expansion beyond the current resolved graph and tooling slices
 - generated editor schema/completion metadata beyond the current CLI schema
   metadata and VS Code graph typings
 
@@ -1110,6 +1123,8 @@ should use one of these names instead of reopening the V4 umbrella:
   adapters
 - `Platform ABI`: toolchain compatibility and binary package ABI matching
 - `Trust`: signing, SBOM, and trust policy
-- `Quality`: formatter execution, coverage collection, and policy enforcement
+- [`Quality`](NGIN-General-Tooling-And-Quality-Execution-Plan.md): general tool
+  drivers and execution, analyzer/formatter/scanner/report actions, structured
+  diagnostics and edits, coverage collection, and policy enforcement
 - `Docs`: migrate remaining legacy/background guides and examples to V4 syntax
   where they are still active user-facing material

@@ -156,79 +156,151 @@ namespace NGIN::CLI
         return result;
     }
 
-    [[nodiscard]] auto EffectiveAnalyzers(const ProjectManifest &project, const ProfileDefinition &profile,
-                                          const std::vector<SelectedPackageFeature> &selectedFeatures)
-        -> std::map<std::string, AnalyzerDefinition>
+    [[nodiscard]] auto EffectiveToolRuns(const ProjectManifest &project, const ProfileDefinition &profile,
+                                         const std::vector<SelectedPackageFeature> &selectedFeatures)
+        -> std::map<std::string, ToolRunDefinition>
     {
-        std::map<std::string, AnalyzerDefinition> analyzers{};
-        const auto mergeAnalyzer = [&](AnalyzerDefinition selected) {
-            if (selected.toolName.empty())
+        std::map<std::string, ToolRunDefinition> runs{};
+        const auto mergeConfigs = [](std::vector<ToolConfigDefinition> base,
+                                     const std::vector<ToolConfigDefinition> &overlay) {
+            for (const auto &config : overlay)
             {
-                selected.toolName = selected.name;
+                const auto it = std::find_if(base.begin(), base.end(), [&](const ToolConfigDefinition &candidate) {
+                    return candidate.name == config.name;
+                });
+                if (it == base.end()) base.push_back(config); else *it = config;
             }
-
-            const auto existing = analyzers.find(selected.name);
-            if (existing != analyzers.end())
-            {
-                if (selected.toolName == selected.name && !existing->second.toolName.empty())
-                {
-                    selected.toolName = existing->second.toolName;
-                }
-                if (selected.packageName.empty())
-                {
-                    selected.packageName = existing->second.packageName;
-                }
-                if (selected.configPath.empty())
-                {
-                    selected.configPath = existing->second.configPath;
-                    selected.configOptional = existing->second.configOptional;
-                }
-            }
-
-            analyzers[selected.name] = std::move(selected);
+            std::sort(base.begin(), base.end(), [](const auto &left, const auto &right) {
+                return left.name < right.name;
+            });
+            return base;
         };
-        const auto mergeSelected = [&](const std::vector<AnalyzerDefinition> &source) {
-            for (const auto &analyzer : source)
+        const auto mergeReports = [](std::vector<ToolReportDefinition> base,
+                                     const std::vector<ToolReportDefinition> &overlay) {
+            for (const auto &report : overlay)
             {
-                if (SelectionMatches(project, analyzer.selectors, profile))
+                const auto it = std::find_if(base.begin(), base.end(), [&](const ToolReportDefinition &candidate) {
+                    return candidate.name == report.name;
+                });
+                if (it == base.end()) base.push_back(report); else *it = report;
+            }
+            std::sort(base.begin(), base.end(), [](const auto &left, const auto &right) {
+                return left.name < right.name;
+            });
+            return base;
+        };
+        const auto mergeRun = [&](ToolRunDefinition selected) {
+            if (selected.disabled)
+            {
+                if (const auto existing = runs.find(selected.name); existing != runs.end())
                 {
-                    mergeAnalyzer(analyzer);
+                    existing->second.enabled = false;
+                    existing->second.excluded = true;
+                    existing->second.provenance = selected.provenance;
+                    existing->second.selectors = selected.selectors;
+                }
+                else
+                {
+                    selected.enabled = false;
+                    selected.excluded = true;
+                    runs[selected.name] = std::move(selected);
+                }
+                return;
+            }
+
+            selected.excluded = false;
+
+            const auto existing = runs.find(selected.name);
+            if (existing != runs.end())
+            {
+                auto merged = existing->second;
+                if (!selected.action.empty())
+                    merged.action = selected.action;
+                if (!selected.packageName.empty())
+                    merged.packageName = selected.packageName;
+                if (!selected.packageFeature.empty())
+                    merged.packageFeature = selected.packageFeature;
+                merged.enabled = selected.enabled;
+                merged.excluded = false;
+                if (selected.hasInput)
+                {
+                    if (selected.input.merge == "Append" && merged.hasInput)
+                    {
+                        if (selected.input.contractExplicit) merged.input.contract = selected.input.contract;
+                        if (selected.input.scopeExplicit) merged.input.scope = selected.input.scope;
+                        if (selected.input.includeGeneratedExplicit)
+                            merged.input.includeGenerated = selected.input.includeGenerated;
+                        for (const auto &include : selected.input.includes)
+                            if (std::find(merged.input.includes.begin(), merged.input.includes.end(), include) ==
+                                merged.input.includes.end()) merged.input.includes.push_back(include);
+                        for (const auto &exclude : selected.input.excludes)
+                            if (std::find(merged.input.excludes.begin(), merged.input.excludes.end(), exclude) ==
+                                merged.input.excludes.end()) merged.input.excludes.push_back(exclude);
+                        merged.input.merge = "Append";
+                    }
+                    else
+                    {
+                        merged.input = selected.input;
+                    }
+                    merged.hasInput = true;
+                }
+                if (!selected.configs.empty())
+                    merged.configs = mergeConfigs(std::move(merged.configs), selected.configs);
+                if (selected.hasPolicy)
+                {
+                    merged.policy = selected.policy;
+                    merged.hasPolicy = true;
+                }
+                if (selected.hasExecution)
+                {
+                    merged.execution = selected.execution;
+                    merged.hasExecution = true;
+                }
+                if (!selected.reports.empty())
+                    merged.reports = mergeReports(std::move(merged.reports), selected.reports);
+                if (!selected.dependencies.empty())
+                    merged.dependencies = selected.dependencies;
+                merged.selectors = selected.selectors;
+                merged.provenance = selected.provenance;
+                runs[selected.name] = std::move(merged);
+                return;
+            }
+            runs[selected.name] = std::move(selected);
+        };
+        const auto mergeSelected = [&](const std::vector<ToolRunDefinition> &source) {
+            for (const auto &run : source)
+            {
+                if (SelectionMatches(project, run.selectors, profile))
+                {
+                    mergeRun(run);
                 }
             }
         };
         for (const auto &feature : selectedFeatures)
         {
-            for (const auto &analyzer : feature.quality.analyzers)
+            for (const auto &run : feature.tooling.runs)
             {
-                if (SelectionMatches(project, analyzer.selectors, profile))
+                if (SelectionMatches(project, run.selectors, profile))
                 {
-                    auto selected = analyzer;
-                    if (selected.toolName.empty())
-                    {
-                        selected.toolName = selected.name;
-                    }
+                    auto selected = run;
                     if (selected.packageName.empty())
                     {
                         selected.packageName = feature.packageName;
                     }
+                    selected.packageFeature = feature.featureName;
                     selected.provenance = ContributionProvenance{
                         .sourceKind = "package-feature",
                         .sourceName = feature.packageName + "::" + feature.featureName,
                         .manifestPath = feature.manifestPath,
-                        .reason = "selected package feature analyzer",
+                        .reason = "selected package feature tool run",
                     };
-                    mergeAnalyzer(std::move(selected));
+                    mergeRun(std::move(selected));
                 }
             }
         }
-        mergeSelected(project.quality.analyzers);
-        mergeSelected(profile.quality.analyzers);
-        return analyzers;
-    }
-
-    [[nodiscard]] auto AnalyzerToolName(const AnalyzerDefinition &analyzer) -> std::string
-    {
-        return analyzer.toolName.empty() ? analyzer.name : analyzer.toolName;
+        mergeSelected(project.tooling.runs);
+        mergeSelected(profile.tooling.runs);
+        return runs;
     }
 
     [[nodiscard]] auto StageInputIdentity(const InputDeclaration &input, const std::string &declaredSource)
