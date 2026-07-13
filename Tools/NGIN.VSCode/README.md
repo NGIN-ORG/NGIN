@@ -100,6 +100,10 @@ available through `NGIN: Show Resolved Inputs` and
 diagnostics. `NGIN: Show Tooling Plan` displays every effective run using the
 same package-neutral graph contract as the CLI. Tool-specific configuration and
 installation remain owned by the package and driver rather than the extension.
+Each run in the Tooling tree presents its tool, file scope, policy, and
+configuration first. Use the inline play button (`NGIN: Run Tool`) to execute
+that run; driver, protocol, cache, dependency, and resolution details remain
+available under its collapsed Advanced entry.
 `NGIN: Add Tool Action` delegates package/action discovery and manifest
 authoring to the CLI and contains no package-specific TypeScript logic.
 `NGIN: Analyze Active File` and `NGIN: Analyze Changed Files…` use capability-

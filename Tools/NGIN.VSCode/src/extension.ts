@@ -1018,6 +1018,7 @@ class NginController implements vscode.Disposable {
     );
     if (result.exitCode !== 0) throw new Error(`Tool run ${runName} failed.`);
     await this.refreshUi(vscode.Uri.file(context.project.path), true);
+    void vscode.window.showInformationMessage(`Completed tool run ${runName}.`);
   }
 
   private provideToolCodeActions(document: vscode.TextDocument, context: vscode.CodeActionContext): vscode.CodeAction[] {

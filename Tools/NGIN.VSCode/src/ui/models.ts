@@ -262,11 +262,32 @@ function inspectStateLabel(state?: string): string | undefined {
       return 'Unavailable';
     case 'active':
       return 'Active';
+    case 'ready':
+      return 'Ready';
+    case 'invalid':
+      return 'Invalid';
     case 'excluded':
       return 'Excluded';
     default:
       return state;
   }
+}
+
+function readableToolValue(value?: string): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+  return value
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/[-_]+/g, ' ')
+    .replace(/^./, (first) => first.toUpperCase());
+}
+
+function toolRunPolicyLabel(gate?: boolean, failOn?: string): string {
+  if (!gate) {
+    return 'Non-blocking';
+  }
+  return failOn ? `Fails on ${failOn.toLowerCase()} or higher` : 'Blocking';
 }
 
 function detailEntry(
@@ -557,31 +578,21 @@ export function buildInspectTreeModel(snapshot: NginWorkspaceSnapshot, projectPa
   }
 
   if (plans?.tooling?.runs?.length) {
-    entriesByGroup.set('toolRuns', plans.tooling.runs.map((run) => ({
-      label: run.name,
-      description: [run.kind, run.state, run.package].filter(Boolean).join(' • ') || undefined,
-      icon: run.kind === 'Format' ? 'symbol-color' : run.kind === 'Report' ? 'file-text' : 'search',
-      children: [
+    entriesByGroup.set('toolRuns', plans.tooling.runs.map((run) => {
+      const state = inspectStateLabel(run.state ?? 'ready');
+      const files = [
+        readableToolValue(run.inputScope),
+        run.includeGenerated ? 'includes generated files' : undefined
+      ].filter(Boolean).join(' • ');
+      const advanced = [
         detailEntry('Action', run.action, 'symbol-method'),
-        detailEntry('Tool', run.tool, 'tools'),
         detailEntry('Tool Resolution', [run.toolSource, run.toolPath].filter(Boolean).join(' • '), 'tools'),
         detailEntry('Driver', run.driver, 'server-process'),
         detailEntry('Driver Resolution', [run.driverSource, run.driverPath].filter(Boolean).join(' • '), 'server-process'),
         detailEntry('Package', run.package, 'package'),
-        detailEntry('Plan Diagnostic', run.diagnostic, run.state === 'invalid' || run.state === 'unavailable' ? 'error' : 'warning'),
         detailEntry('Input Contract', run.inputContract, 'symbol-interface'),
-        detailEntry('Input Scope', run.inputScope, 'symbol-property'),
-        detailEntry('Gate', run.gate === undefined ? undefined : String(run.gate), run.gate ? 'error' : 'check'),
-        detailEntry('Fail On', run.failOn, 'warning'),
         detailEntry('Cache', run.cache, 'database'),
         detailEntry('Depends On', run.dependencies?.join(', '), 'references'),
-        ...(run.configPaths ?? []).map((config, index) => detailEntry(
-          `Config ${index + 1}`,
-          config,
-          'settings-gear',
-          undefined,
-          config.includes('$(') ? undefined : path.resolve(path.dirname(projectPath), config)
-        )),
         ...(run.reportPaths ?? []).map((report, index) => detailEntry(
           `Report ${index + 1}`,
           report,
@@ -589,8 +600,46 @@ export function buildInspectTreeModel(snapshot: NginWorkspaceSnapshot, projectPa
           undefined,
           report.includes('$(') ? undefined : path.resolve(path.dirname(projectPath), report)
         ))
-      ].filter((entry) => Boolean(entry.description))
-    })));
+      ].filter((entry) => Boolean(entry.description));
+      const configurations = (run.configPaths ?? []).map((config) => detailEntry(
+        'Configuration',
+        config,
+        'settings-gear',
+        undefined,
+        config.includes('$(') ? undefined : path.resolve(path.dirname(projectPath), config)
+      ));
+      const tooltip = [
+        [run.kind, run.tool ? `with ${run.tool}` : undefined].filter(Boolean).join(' '),
+        state,
+        files ? `Files: ${files}` : undefined,
+        `Policy: ${toolRunPolicyLabel(run.gate, run.failOn)}`,
+        run.diagnostic
+      ].filter(Boolean).join('\n');
+
+      return {
+        label: run.name,
+        description: [run.kind, state].filter(Boolean).join(' · ') || undefined,
+        tooltip,
+        icon: run.state === 'invalid' ? 'error'
+          : run.state === 'unavailable' ? 'warning'
+            : run.state === 'disabled' || run.state === 'excluded' ? 'circle-slash'
+              : run.kind === 'Format' ? 'symbol-color'
+                : run.kind === 'Report' ? 'file-text' : 'search',
+        children: [
+          detailEntry('Tool', run.tool, 'tools'),
+          detailEntry('Files', files || undefined, 'files'),
+          detailEntry('Policy', toolRunPolicyLabel(run.gate, run.failOn), run.gate ? 'warning' : 'pass'),
+          ...configurations,
+          ...(run.diagnostic ? [detailEntry('Problem', run.diagnostic, 'error')] : []),
+          ...(advanced.length ? [{
+            label: 'Advanced',
+            description: 'Execution and integration details',
+            icon: 'settings-gear',
+            children: advanced
+          }] : [])
+        ].filter((entry) => Boolean(entry.description))
+      };
+    }));
   }
 
   const diagnosticEntries = [

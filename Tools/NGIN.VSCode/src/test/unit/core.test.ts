@@ -465,6 +465,9 @@ test('extension manifest and snippets register local settings support', () => {
   assert.ok(commandIds.includes('ngin.showResolvedInputs'));
   assert.ok(commandIds.includes('ngin.showInactiveTooling'));
   assert.equal(commandIds.includes('ngin.metagen'), false);
+  const runToolCommand = packageJson.contributes.commands.find((entry: { command: string }) => entry.command === 'ngin.runToolRun');
+  assert.equal(runToolCommand.title, 'Run Tool');
+  assert.equal(runToolCommand.icon, '$(play)');
 
   const titleActions = packageJson.contributes.menus['view/title']
     .filter((entry: { group?: string }) => entry.group?.startsWith('navigation'))
@@ -1005,6 +1008,28 @@ test('project tree models expose inspect groups for the active project only', ()
           { name: 'ReflectionMetaGen', kind: 'Command', state: 'active', ownerName: 'NGIN.Reflection.MetaGen::ReflectionCodegen', tool: 'MetaGen', outputs: [{ role: 'Source', path: 'generated/reflection.cpp' }] },
           { name: 'WindowsOnly', kind: 'Command', state: 'excluded', reason: 'Platform expected windows-x64' }
         ],
+        tooling: {
+          runs: [{
+            name: 'cpp-static-analysis',
+            action: 'NGIN.Tooling.ClangTidy::analyze',
+            kind: 'Analyze',
+            tool: 'clang-tidy',
+            toolPath: '/usr/bin/clang-tidy',
+            toolSource: 'PATH',
+            package: 'NGIN.Tooling.ClangTidy',
+            driver: 'clang-tidy-driver',
+            driverSource: 'builtin-adapter',
+            state: 'ready',
+            inputContract: 'cpp.translation-units/v1',
+            inputScope: 'ProductClosure',
+            includeGenerated: true,
+            gate: false,
+            failOn: 'Warning',
+            cache: 'Off',
+            dependencies: ['phase:configure'],
+            configPaths: ['.clang-tidy']
+          }]
+        },
         build: {
           inputs: [
             { role: 'Source', source: 'src', mode: 'Directory', ownerName: 'App' },
@@ -1034,7 +1059,27 @@ test('project tree models expose inspect groups for the active project only', ()
   ]);
   assert.equal(models.childrenByProject.get(activeProject.path)?.find((entry) => entry.kind === 'group' && entry.group === 'problems')?.description, '1');
   assert.deepEqual(activeInspect?.entriesByGroup.get('tooling')?.map((entry) => `${entry.label}:${entry.description}`), [
-    'Reflection code generation:MetaGen · active'
+    'Reflection code generation:MetaGen · active',
+    'cpp-static-analysis:Analyze · Ready'
+  ]);
+  const toolRun = activeInspect?.entriesByGroup.get('tooling')?.[1];
+  assert.equal(toolRun?.tooltip, 'Analyze with clang-tidy\nReady\nFiles: Product Closure • includes generated files\nPolicy: Non-blocking');
+  assert.deepEqual(toolRun?.children?.map((entry) => `${entry.label}:${entry.description}`), [
+    'Tool:clang-tidy',
+    'Files:Product Closure • includes generated files',
+    'Policy:Non-blocking',
+    'Configuration:.clang-tidy',
+    'Advanced:Execution and integration details'
+  ]);
+  assert.deepEqual(toolRun?.children?.at(-1)?.children?.map((entry) => entry.label), [
+    'Action',
+    'Tool Resolution',
+    'Driver',
+    'Driver Resolution',
+    'Package',
+    'Input Contract',
+    'Cache',
+    'Depends On'
   ]);
   assert.deepEqual(activeInspect?.entriesByGroup.get('generators')?.map((entry) => `${entry.label}:${entry.description}`), [
     'ReflectionMetaGen:Active • NGIN.Reflection.MetaGen::ReflectionCodegen • MetaGen',

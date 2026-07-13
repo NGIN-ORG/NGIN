@@ -193,8 +193,9 @@
       },
       {
         "command": "ngin.runToolRun",
-        "title": "Run Tool Run",
-        "category": "NGIN"
+        "title": "Run Tool",
+        "category": "NGIN",
+        "icon": "$(play)"
       },
       {
         "command": "ngin.addToolAction",
