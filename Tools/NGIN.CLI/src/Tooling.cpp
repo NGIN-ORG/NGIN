@@ -9,6 +9,7 @@
 #include <future>
 #include <cctype>
 #include <iomanip>
+#include <iterator>
 #include <regex>
 #include <mutex>
 #include <sstream>
@@ -357,10 +358,19 @@ namespace NGIN::CLI
             std::string current{};
             char quote = '\0';
             bool escaped = false;
-            for (const char ch : command)
+            for (std::size_t index = 0; index < command.size(); ++index)
             {
+                const auto ch = command[index];
                 if (escaped) { current += ch; escaped = false; continue; }
-                if (ch == '\\' && quote != '\'') { escaped = true; continue; }
+                if (ch == '\\' && quote != '\'')
+                {
+                    const auto next = index + 1 < command.size() ? command[index + 1] : '\0';
+                    const auto escapesNext = next == '\\' || next == '"' ||
+                        (quote == '\0' && (std::isspace(static_cast<unsigned char>(next)) || next == '\''));
+                    if (escapesNext) { escaped = true; continue; }
+                    current += ch;
+                    continue;
+                }
                 if (quote != '\0')
                 {
                     if (ch == quote) quote = '\0'; else current += ch;
@@ -378,6 +388,51 @@ namespace NGIN::CLI
             if (quote != '\0') throw std::runtime_error("compile command contains an unterminated quote");
             if (!current.empty()) result.push_back(std::move(current));
             return result;
+        }
+
+        [[nodiscard]] auto IsCompilerExecutable(std::string_view candidate) -> bool
+        {
+            const auto separator = candidate.find_last_of("/\\");
+            auto name = std::string(separator == std::string_view::npos
+                                        ? candidate
+                                        : candidate.substr(separator + 1));
+            std::ranges::transform(name, name.begin(), [](const unsigned char ch) {
+                return static_cast<char>(std::tolower(ch));
+            });
+            static const std::unordered_set<std::string> Names{
+                "cl", "cl.exe", "clang", "clang.exe", "clang++", "clang++.exe",
+                "clang-cl", "clang-cl.exe", "gcc", "gcc.exe", "g++", "g++.exe",
+                "c++", "c++.exe", "icl", "icl.exe", "icx", "icx.exe", "icpx", "icpx.exe",
+            };
+            return Names.contains(name);
+        }
+
+        [[nodiscard]] auto RepairUnquotedWindowsCompilerPath(std::vector<std::string> arguments)
+            -> std::vector<std::string>
+        {
+            if (arguments.size() < 2 || arguments[0].size() < 3 || arguments[0][1] != ':' ||
+                (arguments[0][2] != '\\' && arguments[0][2] != '/') ||
+                IsCompilerExecutable(arguments[0]))
+                return arguments;
+
+            auto candidate = arguments[0];
+            for (std::size_t index = 1; index < arguments.size(); ++index)
+            {
+                if (!arguments[index].empty() && (arguments[index].front() == '-' || arguments[index].front() == '/'))
+                    break;
+                candidate += ' ';
+                candidate += arguments[index];
+                if (!IsCompilerExecutable(candidate)) continue;
+
+                std::vector<std::string> repaired{};
+                repaired.reserve(arguments.size() - index);
+                repaired.push_back(std::move(candidate));
+                repaired.insert(repaired.end(),
+                                std::make_move_iterator(arguments.begin() + static_cast<std::ptrdiff_t>(index + 1)),
+                                std::make_move_iterator(arguments.end()));
+                return repaired;
+            }
+            return arguments;
         }
 
         [[nodiscard]] auto StableCommandDigest(const std::vector<std::string> &arguments) -> std::string
@@ -991,6 +1046,7 @@ namespace NGIN::CLI
             {
                 arguments = SplitCommand(Required(object, "command", JsonValue::Type::String).AsString());
             }
+            arguments = RepairUnquotedWindowsCompilerPath(std::move(arguments));
             if (arguments.empty()) throw std::runtime_error("compilation unit has no compiler command");
             const auto extension = source.extension().string();
             result.push_back(ToolDriverRequest::TranslationUnit{

@@ -966,6 +966,33 @@ test('createSourceConfiguration maps compile commands to cpptools-friendly field
   assert.equal(configuration.intelliSenseMode, 'linux-clang-x64');
 });
 
+test('createSourceConfiguration preserves Windows compiler paths containing spaces', () => {
+  const compilerPath = 'C:\\Users\\Maximiliam Berggren\\LLVM\\bin\\clang++.exe';
+  const configuration = createSourceConfiguration(
+    {
+      directory: '/repo/build',
+      file: '/repo/src/main.cpp',
+      command: `"${compilerPath}" /std:c++23 /c /repo/src/main.cpp`
+    },
+    '/repo/src/main.cpp',
+    'win32'
+  );
+
+  assert.ok(configuration.compilerPath?.endsWith(compilerPath));
+
+  const unquoted = createSourceConfiguration(
+    {
+      directory: '/repo/build',
+      file: '/repo/src/main.cpp',
+      command: `${compilerPath} /std:c++23 /c /repo/src/main.cpp`
+    },
+    '/repo/src/main.cpp',
+    'win32'
+  );
+
+  assert.ok(unquoted.compilerPath?.endsWith(compilerPath));
+});
+
 test('createBrowseConfiguration aggregates include paths across compile commands', () => {
   const browse = createBrowseConfiguration([
     {

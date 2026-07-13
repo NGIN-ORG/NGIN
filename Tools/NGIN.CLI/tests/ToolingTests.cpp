@@ -182,6 +182,24 @@ TEST_CASE("tool driver requests materialize selected compilation units")
     REQUIRE_FALSE(units[0].commandDigest.empty());
 }
 
+TEST_CASE("tool driver compilation units preserve Windows compiler paths containing spaces")
+{
+    TempDir temp{};
+    const auto source = temp.path() / "src/main.cpp";
+    WriteFile(source, "int main() { return 0; }\n");
+    const auto database = temp.path() / "compile_commands.json";
+    WriteFile(database,
+              "[{\"directory\":\"" + temp.path().generic_string() +
+                  "\",\"file\":\"src/main.cpp\",\"command\":\"\\\"C:\\\\Users\\\\Maximiliam Berggren\\\\LLVM\\\\bin\\\\clang++.exe\\\" -std=c++23 -c src/main.cpp\"},"
+                  "{\"directory\":\"" + temp.path().generic_string() +
+                  "\",\"file\":\"src/main.cpp\",\"command\":\"C:\\\\Users\\\\Maximiliam Berggren\\\\LLVM\\\\bin\\\\clang++.exe -std=c++23 -c src/main.cpp\"}]");
+
+    const auto units = LoadToolTranslationUnits(database, {source}, "windows-x64", "App");
+    REQUIRE(units.size() == 2);
+    REQUIRE(units[0].compiler == R"(C:\Users\Maximiliam Berggren\LLVM\bin\clang++.exe)");
+    REQUIRE(units[1].compiler == units[0].compiler);
+}
+
 TEST_CASE("normalized tool diagnostics deduplicate fingerprints and retain related context")
 {
     ToolProtocolDiagnostic first{.severity = "warning", .code = "rule", .message = "finding", .fingerprint = "same"};

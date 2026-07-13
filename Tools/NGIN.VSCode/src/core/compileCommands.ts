@@ -53,7 +53,8 @@ function shellSplit(command: string): string[] {
   let quote: '"' | '\'' | undefined;
   let escaping = false;
 
-  for (const character of command) {
+  for (let index = 0; index < command.length; index += 1) {
+    const character = command[index];
     if (escaping) {
       current += character;
       escaping = false;
@@ -61,7 +62,17 @@ function shellSplit(command: string): string[] {
     }
 
     if (character === '\\' && quote !== '\'') {
-      escaping = true;
+      const next = command[index + 1];
+      const escapesNext = next !== undefined && (
+        next === '\\' ||
+        next === '"' ||
+        (!quote && (/\s/.test(next) || next === '\''))
+      );
+      if (escapesNext) {
+        escaping = true;
+        continue;
+      }
+      current += character;
       continue;
     }
 
@@ -97,12 +108,35 @@ function shellSplit(command: string): string[] {
   return tokens;
 }
 
-function getCommandTokens(entry: CompileCommandEntry): string[] {
-  if (entry.arguments?.length) {
-    return [...entry.arguments];
+function isCompilerExecutable(candidate: string): boolean {
+  const name = candidate.replaceAll('\\', '/').split('/').pop()?.toLowerCase() ?? '';
+  return /^(?:cl|clang(?:\+\+|-cl)?|gcc|g\+\+|c\+\+|icl|icx|icpx)(?:\.exe)?$/.test(name);
+}
+
+function repairUnquotedWindowsCompilerPath(tokens: string[]): string[] {
+  if (tokens.length < 2 || !/^[a-z]:[\\/]/i.test(tokens[0]) || isCompilerExecutable(tokens[0])) {
+    return tokens;
   }
 
-  return entry.command ? shellSplit(entry.command) : [];
+  for (let index = 1; index < tokens.length; index += 1) {
+    const candidate = tokens.slice(0, index + 1).join(' ');
+    if (isCompilerExecutable(candidate)) {
+      return [candidate, ...tokens.slice(index + 1)];
+    }
+    if (/^[-/]/.test(tokens[index])) {
+      break;
+    }
+  }
+
+  return tokens;
+}
+
+function getCommandTokens(entry: CompileCommandEntry): string[] {
+  if (entry.arguments?.length) {
+    return repairUnquotedWindowsCompilerPath([...entry.arguments]);
+  }
+
+  return entry.command ? repairUnquotedWindowsCompilerPath(shellSplit(entry.command)) : [];
 }
 
 function resolvePathFromEntry(entry: CompileCommandEntry, candidate: string): string {
