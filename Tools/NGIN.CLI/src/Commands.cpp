@@ -4,6 +4,7 @@
 #include "Build.hpp"
 #include "Diagnostics.hpp"
 #include "Overlay.hpp"
+#include "Publishing.hpp"
 #include "Resolution.hpp"
 #include "Support.hpp"
 #include "Tooling.hpp"
@@ -2987,6 +2988,92 @@ SelectPublish(const std::vector<PublishDefinition> &publishes,
       "publish requires a name when the project declares multiple publishes");
 }
 
+[[nodiscard]] auto IsSemanticVersion(const std::string &value) -> bool {
+  static const std::regex pattern{
+      R"(^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$)"};
+  return std::regex_match(value, pattern);
+}
+
+[[nodiscard]] auto ReplacePublishMacro(std::string value,
+                                       std::string_view macro,
+                                       const std::string &replacement)
+    -> std::string {
+  std::size_t offset = 0;
+  while ((offset = value.find(macro, offset)) != std::string::npos) {
+    value.replace(offset, macro.size(), replacement);
+    offset += replacement.size();
+  }
+  return value;
+}
+
+[[nodiscard]] auto ExpandPublishOutput(const PublishDefinition &publish,
+                                       const ProjectManifest &project,
+                                       const ProfileDefinition &profile)
+    -> fs::path {
+  auto value = publish.output;
+  value = ReplacePublishMacro(std::move(value), "$(ProjectName)", project.name);
+  value = ReplacePublishMacro(std::move(value), "$(ProjectVersion)", project.version);
+  value = ReplacePublishMacro(std::move(value), "$(ProfileName)", profile.name);
+  auto output = fs::path{value};
+  if (output.is_relative()) {
+    output = project.path.parent_path() / output;
+  }
+  return output.lexically_normal();
+}
+
+auto ValidatePublish(const PublishDefinition &publish,
+                     const ProjectManifest &project,
+                     const ProfileDefinition &profile) -> void {
+  if (publish.kind == "Folder") {
+    if (!publish.format.empty()) {
+      throw std::runtime_error("folder publish must not declare Format");
+    }
+  } else if (publish.kind == "Archive") {
+    if (publish.format != "zip" && publish.format != "tgz") {
+      throw std::runtime_error("archive publish format '" + publish.format +
+                               "' is not supported; expected zip or tgz");
+    }
+  } else if (publish.kind == "Installer") {
+    if (!IsSemanticVersion(project.version)) {
+      throw std::runtime_error(
+          "installer publish requires Project Version in semantic version form");
+    }
+    if (publish.installerIdentifier.empty() || publish.installerVendor.empty() ||
+        publish.installerContact.empty()) {
+      throw std::runtime_error(
+          "installer publish requires Identifier, Vendor, and Contact");
+    }
+    if (publish.installerScope != "Machine") {
+      throw std::runtime_error(
+          "installer Scope must be Machine in the initial installer contract");
+    }
+    if (publish.format == "msi") {
+      if (profile.operatingSystem != "windows") {
+        throw std::runtime_error("msi publish requires a Windows target profile");
+      }
+    } else if (publish.format == "deb") {
+      if (profile.operatingSystem != "linux") {
+        throw std::runtime_error("deb publish requires a Linux target profile");
+      }
+    } else {
+      throw std::runtime_error("installer publish format '" + publish.format +
+                               "' is not supported; expected msi or deb");
+    }
+  } else {
+    throw std::runtime_error("publish kind '" + publish.kind +
+                             "' is not implemented yet");
+  }
+
+  const auto hasInstallerMetadata = !publish.installerIdentifier.empty() ||
+                                    !publish.installerVendor.empty() ||
+                                    !publish.installerContact.empty() ||
+                                    publish.installerAddToPath;
+  if (publish.kind != "Installer" && hasInstallerMetadata) {
+    throw std::runtime_error(
+        "<Installer> metadata is only valid for Kind=\"Installer\"");
+  }
+}
+
 [[nodiscard]] auto IsPublishInternalPath(const fs::path &relativePath) -> bool {
   const auto begin = relativePath.begin();
   return begin != relativePath.end() && begin->generic_string() == ".ngin";
@@ -3308,7 +3395,9 @@ struct DiffSnapshot {
   for (const auto &publish :
        EffectivePublishes(resolved.project, resolved.profile)) {
     snapshot.publishes.insert(publish.name + " kind=" + publish.kind +
-                              " output=" + publish.output);
+                              " format=" + publish.format +
+                              " output=" + publish.output +
+                              " installer=" + publish.installerIdentifier);
   }
   for (const auto &[_, run] : EffectiveToolRuns(
            resolved.project, resolved.profile,
@@ -5642,6 +5731,14 @@ auto CmdExplainObject(const fs::path &root, const ParsedArgs &args) -> int {
               << "\n";
     std::cout << "  includeSymbols: "
               << (publishIt->includeSymbols ? "true" : "false") << "\n";
+    if (publishIt->kind == "Installer") {
+      std::cout << "  identifier: " << publishIt->installerIdentifier << "\n";
+      std::cout << "  vendor: " << publishIt->installerVendor << "\n";
+      std::cout << "  contact: " << publishIt->installerContact << "\n";
+      std::cout << "  scope: " << publishIt->installerScope << "\n";
+      std::cout << "  addToPath: "
+                << (publishIt->installerAddToPath ? "true" : "false") << "\n";
+    }
     return 0;
   }
 
@@ -6020,6 +6117,7 @@ BuildCompositionGraph(const LoadedInvocation &invocation,
       .projectPath = invocation.project.path,
       .product = productKind,
       .profile = invocation.profile.name,
+      .version = invocation.project.version,
   };
   graph.product = CompositionGraph::Product{
       .kind = productKind,
@@ -6353,6 +6451,11 @@ BuildCompositionGraph(const LoadedInvocation &invocation,
         .includeStage = publish.includeStage,
         .includeRuntimeDependencies = publish.includeRuntimeDependencies,
         .includeSymbols = publish.includeSymbols,
+        .installerIdentifier = publish.installerIdentifier,
+        .installerVendor = publish.installerVendor,
+        .installerContact = publish.installerContact,
+        .installerScope = publish.installerScope,
+        .installerAddToPath = publish.installerAddToPath,
         .provenance = namedContributionProvenance(
             publish.provenance, publish.name,
             publishIsProfileItem(publish.name), "resolved publish entry"),
@@ -7036,7 +7139,14 @@ auto WriteGraphPublishes(
         << (publishes[index].includeRuntimeDependencies ? "true" : "false")
         << ","
         << "\"includeSymbols\":"
-        << (publishes[index].includeSymbols ? "true" : "false");
+        << (publishes[index].includeSymbols ? "true" : "false") << ","
+        << "\"installer\":{"
+        << "\"identifier\":" << Json(publishes[index].installerIdentifier) << ","
+        << "\"vendor\":" << Json(publishes[index].installerVendor) << ","
+        << "\"contact\":" << Json(publishes[index].installerContact) << ","
+        << "\"scope\":" << Json(publishes[index].installerScope) << ","
+        << "\"addToPath\":"
+        << (publishes[index].installerAddToPath ? "true" : "false") << "}";
     if (includeProvenance) {
       out << ",\"provenance\":";
       WriteGraphProvenance(out, publishes[index].provenance);
@@ -7376,7 +7486,8 @@ auto WriteCompositionGraphJson(
             << "\"project\":" << Json(graph.identity.project) << ","
             << "\"projectPath\":" << JsonPath(graph.identity.projectPath) << ","
             << "\"product\":" << Json(graph.identity.product) << ","
-            << "\"profile\":" << Json(graph.identity.profile) << "},\n";
+            << "\"profile\":" << Json(graph.identity.profile) << ","
+            << "\"version\":" << Json(graph.identity.version) << "},\n";
   std::cout << "  \"conventions\": ";
   WriteGraphConventions(std::cout, graph.conventions);
   std::cout << ",\n";
@@ -7501,7 +7612,8 @@ auto WriteCompositionGraphPlanJson(
   std::cout << "  \"identity\": {"
             << "\"project\":" << Json(graph.identity.project) << ","
             << "\"product\":" << Json(graph.identity.product) << ","
-            << "\"profile\":" << Json(graph.identity.profile) << "},\n";
+            << "\"profile\":" << Json(graph.identity.profile) << ","
+            << "\"version\":" << Json(graph.identity.version) << "},\n";
   std::cout << "  \"data\": ";
 
   if (resolved == nullptr) {
@@ -7769,6 +7881,13 @@ auto CmdGraph(const fs::path &root, const ParsedArgs &args) -> int {
                 << (publish.includeRuntimeDependencies ? "true" : "false")
                 << " includeSymbols="
                 << (publish.includeSymbols ? "true" : "false") << "\n";
+      if (publish.kind == "Installer") {
+        std::cout << "    identifier=" << publish.installerIdentifier
+                  << " vendor=" << publish.installerVendor
+                  << " scope=" << publish.installerScope
+                  << " addToPath="
+                  << (publish.installerAddToPath ? "true" : "false") << "\n";
+      }
     }
     return 0;
   }
@@ -8249,8 +8368,9 @@ auto CmdSchema(const fs::path &root, const ParsedArgs &args) -> int {
   std::cout << "  \"runtimeItems\": [\"Module\", \"Plugin\", \"Setting\"],\n";
   std::cout
       << "  \"environmentItems\": [\"Env\", \"LaunchEnv\", \"Secret\"],\n";
-  std::cout << "  \"publishKinds\": [\"Folder\", \"Archive\"],\n";
-  std::cout << "  \"archiveFormats\": [\"zip\"],\n";
+  std::cout << "  \"publishKinds\": [\"Folder\", \"Archive\", \"Installer\"],\n";
+  std::cout << "  \"archiveFormats\": [\"zip\", \"tgz\"],\n";
+  std::cout << "  \"installerFormats\": [\"msi\", \"deb\"],\n";
   std::cout << "  \"graphJson\": {\n";
   std::cout << "    \"schemaVersion\": \"4.0\",\n";
   std::cout << "    \"fullKind\": \"NGIN.CompositionGraph\",\n";
@@ -10028,15 +10148,7 @@ auto CmdPublish(const fs::path &root, const ParsedArgs &args) -> int {
   const auto publishes =
       EffectivePublishes(invocation.project, invocation.profile);
   const auto &publish = SelectPublish(publishes, args.packageName);
-  if (publish.kind != "Folder" && publish.kind != "Archive") {
-    throw std::runtime_error("publish kind '" + publish.kind +
-                             "' is not implemented yet");
-  }
-  if (publish.kind == "Archive" && !publish.format.empty() &&
-      Lower(publish.format) != "zip") {
-    throw std::runtime_error("archive publish format '" + publish.format +
-                             "' is not implemented yet");
-  }
+  ValidatePublish(publish, invocation.project, invocation.profile);
 
   std::vector<BackendStepResult> backendSteps{};
   auto buildOptions = BuildOptionsForArgs(args, backendSteps, &events);
@@ -10050,29 +10162,39 @@ auto CmdPublish(const fs::path &root, const ParsedArgs &args) -> int {
     return EmitCommandCompleted(events, "failed", 1, commandStarted);
   }
 
-  auto publishOutput = fs::path(publish.output);
-  if (publishOutput.is_relative()) {
-    publishOutput = invocation.project.path.parent_path() / publishOutput;
-  }
+  auto publishOutput =
+      ExpandPublishOutput(publish, invocation.project, invocation.profile);
   if (publish.kind == "Folder") {
     if (fs::exists(publishOutput)) {
       fs::remove_all(publishOutput);
     }
     CopyDirectoryContents(built.value->outputDir, publishOutput);
-  } else {
+  } else if (publish.format == "zip") {
     WriteZipArchive(built.value->outputDir, publishOutput);
+  } else {
+    publishOutput = GenerateCpackPublish(
+        built.value->outputDir, built.value->outputDir, publishOutput, publish,
+        invocation.project, events);
   }
   events.Emit(CliEventType::ArtifactProduced,
               EventData{}
-                  .AddString("kind", publish.kind == "Folder"
-                                         ? "publish-directory"
-                                         : "publish-archive")
+                  .AddString("kind", publish.kind)
+                  .AddString("artifactKind", publish.kind == "Folder"
+                                                 ? "publish-directory"
+                                             : publish.kind == "Installer"
+                                                 ? "publish-installer"
+                                                 : "publish-archive")
+                  .AddString("publish", publish.name)
                   .AddString("name", publish.name)
+                  .AddString("format", publish.format)
+                  .AddString("version", invocation.project.version)
                   .AddString("path", publishOutput.string()));
   events.Emit(CliEventType::Summary,
               EventData{}
                   .AddString("publish", publish.name)
                   .AddString("kind", publish.kind)
+                  .AddString("format", publish.format)
+                  .AddString("version", invocation.project.version)
                   .AddString("output", publishOutput.string()));
 
   PrintVerboseResolvedDetails(args, invocation.project, invocation.profile,

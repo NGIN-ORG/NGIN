@@ -1,0 +1,153 @@
+name: Publish NGIN CLI
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: CLI packages (${{ matrix.os }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: linux
+            runner: ubuntu-22.04
+          - os: windows
+            runner: windows-2025
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Validate release version
+        shell: bash
+        run: |
+          version=$(sed -n 's/.*Version="\([^"]*\)".*/\1/p' Tools/NGIN.CLI/NGIN.CLI.nginproj | head -n 1)
+          cmake_version=$(sed -n 's/project(NGIN VERSION \([^ ]*\).*/\1/p' CMakeLists.txt | head -n 1)
+          test -n "$version"
+          test "$version" = "$cmake_version"
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then test "${GITHUB_REF_NAME}" = "v${version}"; fi
+          echo "VERSION=${version}" >> "$GITHUB_ENV"
+
+      - name: Install Linux prerequisites
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ninja-build dpkg-dev
+
+      - name: Set up MSVC
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install WiX 4
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          dotnet tool install --tool-path "$PWD/.tools" wix --version 4.0.6
+          & "$PWD/.tools/wix.exe" extension add --global WixToolset.UI.wixext/4.0.6
+          "$PWD/.tools" >> $env:GITHUB_PATH
+
+      - name: Fetch pinned CMake and Ninja
+        shell: bash
+        run: Tools/scripts/fetch-bundled-tools.sh
+
+      - name: Configure bootstrap CLI
+        run: cmake --preset release
+
+      - name: Build bootstrap CLI
+        run: cmake --build --preset release
+
+      - name: Publish Linux artifacts
+        if: runner.os == 'Linux'
+        run: |
+          cli=./build/release/Tools/NGIN.CLI/ngin
+          project=Tools/NGIN.CLI/NGIN.CLI.nginproj
+          "$cli" publish linux-tgz --project "$project" --profile Release.Linux --output build/release-self/linux
+          "$cli" publish linux-deb --project "$project" --profile Release.Linux --output build/release-self/linux
+          "$cli" publish linux-tgz-bundled --project "$project" --profile Release.Linux.Bundled --output build/release-self/linux-bundled
+          "$cli" publish linux-deb-bundled --project "$project" --profile Release.Linux.Bundled --output build/release-self/linux-bundled
+          tar -tzf "dist/ngin-${VERSION}-linux-x86_64.tgz" | grep 'bin/ngin'
+          if tar -tzf "dist/ngin-${VERSION}-linux-x86_64.tgz" | grep -q 'share/ngin/tools/cmake'; then exit 1; fi
+          tar -tzf "dist/ngin-${VERSION}-linux-x86_64-bundled.tgz" | grep 'share/ngin/tools/cmake'
+          dpkg-deb --contents "dist/ngin-${VERSION}-linux-x86_64.deb" | grep 'usr/bin/ngin'
+          bundle_root=$(mktemp -d)
+          tar -xzf "dist/ngin-${VERSION}-linux-x86_64-bundled.tgz" -C "$bundle_root"
+          bundled_cli="$bundle_root/ngin-${VERSION}-linux-x86_64-bundled/bin/ngin"
+          "$bundled_cli" --version
+          "$bundled_cli" build --project Examples/Hello.Native/Hello.Native.nginproj --profile Debug --output build/release-bundled-smoke --events jsonl > build/release-bundled-events.jsonl
+          grep "$bundle_root/ngin-${VERSION}-linux-x86_64-bundled/share/ngin/tools/cmake" build/release-bundled-events.jsonl
+
+      - name: Publish Windows artifacts
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $cli = "./build/release/Tools/NGIN.CLI/ngin.exe"
+          $project = "Tools/NGIN.CLI/NGIN.CLI.nginproj"
+          & $cli publish windows-zip --project $project --profile Release.Windows --output build/release-self/windows
+          & $cli publish windows-msi --project $project --profile Release.Windows --output build/release-self/windows
+          & $cli publish windows-zip-bundled --project $project --profile Release.Windows.Bundled --output build/release-self/windows-bundled
+          & $cli publish windows-msi-bundled --project $project --profile Release.Windows.Bundled --output build/release-self/windows-bundled
+          if ((tar -tf "dist/ngin-$env:VERSION-windows-x86_64.zip" | Select-String "share/ngin/tools/cmake").Count -ne 0) { throw "Thin archive contains bundled tools" }
+          if ((tar -tf "dist/ngin-$env:VERSION-windows-x86_64-bundled.zip" | Select-String "share/ngin/tools/cmake").Count -eq 0) { throw "Bundled tools missing" }
+
+      - name: Optionally sign MSI artifacts
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          SIGN_CERTIFICATE: ${{ secrets.NGIN_WINDOWS_SIGN_CERTIFICATE_BASE64 }}
+          SIGN_PASSWORD: ${{ secrets.NGIN_WINDOWS_SIGN_CERTIFICATE_PASSWORD }}
+        run: |
+          if ($env:SIGN_CERTIFICATE -and $env:SIGN_PASSWORD) {
+            [IO.File]::WriteAllBytes("signing.pfx", [Convert]::FromBase64String($env:SIGN_CERTIFICATE))
+            Get-ChildItem dist/*.msi | ForEach-Object {
+              signtool sign /fd SHA256 /f signing.pfx /p $env:SIGN_PASSWORD $_.FullName
+            }
+            Remove-Item signing.pfx
+          } else {
+            Write-Host "Signing credentials not configured; publishing unsigned MSI artifacts."
+          }
+
+      - name: Generate checksums
+        shell: bash
+        run: |
+          cd dist
+          sha256sum ngin-${VERSION}-${{ matrix.os }}-x86_64* > SHA256SUMS-${{ matrix.os }}
+
+      - name: Upload CLI packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: ngin-cli-${{ matrix.os }}-x86_64
+          path: |
+            dist/ngin-*
+            dist/SHA256SUMS-*
+          if-no-files-found: error
+
+  release:
+    if: github.ref_type == 'tag'
+    needs: package
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download CLI packages
+        uses: actions/download-artifact@v7
+        with:
+          pattern: ngin-cli-*
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${GITHUB_REF_NAME}" artifacts/* --generate-notes

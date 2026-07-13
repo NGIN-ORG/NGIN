@@ -106,6 +106,31 @@ Scopes are part of the native C++ model:
 - `Dev`: editor/analyzer/development dependencies
 - `Publish`: packaging/publishing dependencies
 
+## Publishing And Installers
+
+`Publish` consumes the resolved staged product. Folder and ZIP outputs remain
+portable; TGZ and native installers use CPack:
+
+```xml
+<Project SchemaVersion="4" Name="Game.Tool" Version="1.2.3">
+  <Tool>
+    <Publish Name="linux" Kind="Installer" Format="deb"
+             Output="dist/Game.Tool-$(ProjectVersion).deb">
+      <Include Stage="all" />
+      <Installer Identifier="org.example.game-tool"
+                 Vendor="Example"
+                 Contact="builds@example.org"
+                 Scope="Machine"
+                 AddToPath="true" />
+    </Publish>
+  </Tool>
+</Project>
+```
+
+Supported initial formats are `zip`, `tgz`, `msi`, and `deb`. MSI requires a
+Windows target profile; DEB requires Linux. Installer publishing is distinct
+from `.nginpack` package-store installation.
+
 Dependency identity is the dependency name. Scope is mergeable metadata, so
 profiles and workspace policy can refine the same dependency instead of adding a
 second identity:

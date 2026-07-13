@@ -230,7 +230,7 @@ TEST_CASE("explain object syntax answers resolved graph objects")
     const auto projectPath = temp.path() / "Explain.App.nginproj";
     WriteFile(projectPath,
               R"xml(<?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="4" Name="Explain.App" DefaultProfile="dev">
+<Project SchemaVersion="4" Name="Explain.App" Version="1.2.3" DefaultProfile="dev">
   <Application>
     <Build>
       <Sources Path="src/**.cpp" />
@@ -248,6 +248,10 @@ TEST_CASE("explain object syntax answers resolved graph objects")
     </Publish>
     <Publish Name="archive" Kind="Archive" Format="zip" Output="dist/Plan.App.zip">
       <Include Stage="all" RuntimeDependencies="true" />
+    </Publish>
+    <Publish Name="installer" Kind="Installer" Format="deb" Output="dist/Plan.App.deb">
+      <Installer Identifier="org.example.explain" Vendor="Example"
+                 Contact="dev@example.org" Scope="Machine" AddToPath="true" />
     </Publish>
     <PackageOutput Name="Explain.App" Version="1.0.0">
       <Metadata>
@@ -297,6 +301,9 @@ TEST_CASE("explain object syntax answers resolved graph objects")
     REQUIRE_THAT(explain("launch:app"), ContainsSubstring("args: --config config/app.json"));
     REQUIRE_THAT(explain("publish:archive"), ContainsSubstring("format: zip"));
     REQUIRE_THAT(explain("publish:archive"), ContainsSubstring("includeRuntimeDependencies: true"));
+    const auto installer = explain("publish:installer");
+    REQUIRE_THAT(installer, ContainsSubstring("identifier: org.example.explain"));
+    REQUIRE_THAT(installer, ContainsSubstring("addToPath: true"));
     REQUIRE_THAT(explain("package-output:Explain.App"), ContainsSubstring("description: Explainable package output."));
     REQUIRE_THAT(explain("package-output:Explain.App"), ContainsSubstring("capabilities: 1"));
     REQUIRE_THAT(explain("env:EXPLAIN_ENV"), ContainsSubstring("value: dev"));

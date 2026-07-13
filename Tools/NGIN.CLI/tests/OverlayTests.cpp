@@ -600,13 +600,17 @@ TEST_CASE("profile overlays can remove and replace publish identities")
     const auto projectPath = temp.path() / "PublishOverlay.App.nginproj";
     WriteFile(projectPath,
               R"xml(<?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="4" Name="PublishOverlay.App" DefaultProfile="shipping">
+<Project SchemaVersion="4" Name="PublishOverlay.App" Version="2.0.0" DefaultProfile="shipping">
   <Application>
     <Build>
       <Sources Path="src/**.cpp" />
     </Build>
     <Publish Name="folder" Kind="Folder" Output="dist/base-folder" />
     <Publish Name="archive" Kind="Archive" Format="zip" Output="dist/base.zip" />
+    <Publish Name="installer" Kind="Installer" Format="deb" Output="dist/base.deb">
+      <Installer Identifier="org.example.base" Vendor="Example"
+                 Contact="base@example.org" />
+    </Publish>
   </Application>
   <Profile Name="shipping">
     <Defaults>
@@ -616,6 +620,10 @@ TEST_CASE("profile overlays can remove and replace publish identities")
       <Publish Remove="folder" />
       <Publish Name="archive" Kind="Archive" Format="zip" Output="dist/shipping.zip">
         <Include Stage="all" RuntimeDependencies="true" Symbols="false" />
+      </Publish>
+      <Publish Name="installer" Kind="Installer" Format="deb" Output="dist/shipping.deb">
+        <Installer Identifier="org.example.shipping" Vendor="Example Shipping"
+                   Contact="shipping@example.org" AddToPath="true" />
       </Publish>
     </Application>
   </Profile>
@@ -636,6 +644,8 @@ TEST_CASE("profile overlays can remove and replace publish identities")
     const auto output = captured.str();
     REQUIRE(exitCode == 0);
     REQUIRE_THAT(output, ContainsSubstring("publish archive kind=Archive output=dist/shipping.zip"));
+    REQUIRE_THAT(output, ContainsSubstring("publish installer kind=Installer output=dist/shipping.deb format=deb"));
+    REQUIRE_THAT(output, ContainsSubstring("identifier=org.example.shipping"));
     REQUIRE(output.find("publish folder") == std::string::npos);
     REQUIRE(output.find("dist/base.zip") == std::string::npos);
 }

@@ -4,7 +4,7 @@
   "description": "CLI-first build, run, and debug workflows for NGIN projects in VS Code.",
   "version": "0.1.0",
   "publisher": "ngin",
-  "license": "UNLICENSED",
+  "license": "Apache-2.0",
   "private": true,
   "repository": {
     "type": "git",

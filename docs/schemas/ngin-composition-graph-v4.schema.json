@@ -46,22 +46,24 @@
     },
     "identity": {
       "type": "object",
-      "required": ["project", "projectPath", "product", "profile"],
+      "required": ["project", "projectPath", "product", "profile", "version"],
       "properties": {
         "project": { "type": "string" },
         "projectPath": { "type": "string" },
         "product": { "type": "string" },
-        "profile": { "type": "string" }
+        "profile": { "type": "string" },
+        "version": { "type": "string" }
       },
       "additionalProperties": true
     },
     "planIdentity": {
       "type": "object",
-      "required": ["project", "product", "profile"],
+      "required": ["project", "product", "profile", "version"],
       "properties": {
         "project": { "type": "string" },
         "product": { "type": "string" },
-        "profile": { "type": "string" }
+        "profile": { "type": "string" },
+        "version": { "type": "string" }
       },
       "additionalProperties": true
     },
@@ -380,7 +382,8 @@
         "output",
         "includeStage",
         "includeRuntimeDependencies",
-        "includeSymbols"
+        "includeSymbols",
+        "installer"
       ],
       "properties": {
         "name": { "type": "string" },
@@ -390,6 +393,18 @@
         "includeStage": { "type": "boolean" },
         "includeRuntimeDependencies": { "type": "boolean" },
         "includeSymbols": { "type": "boolean" },
+        "installer": {
+          "type": "object",
+          "required": ["identifier", "vendor", "contact", "scope", "addToPath"],
+          "properties": {
+            "identifier": { "type": "string" },
+            "vendor": { "type": "string" },
+            "contact": { "type": "string" },
+            "scope": { "type": "string" },
+            "addToPath": { "type": "boolean" }
+          },
+          "additionalProperties": true
+        },
         "provenance": { "$ref": "#/$defs/provenance" }
       },
       "additionalProperties": true

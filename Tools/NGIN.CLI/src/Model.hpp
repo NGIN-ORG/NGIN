@@ -245,6 +245,11 @@ namespace NGIN::CLI
                 bool includeStage{true};
                 bool includeRuntimeDependencies{false};
                 bool includeSymbols{true};
+                std::string installerIdentifier{};
+                std::string installerVendor{};
+                std::string installerContact{};
+                std::string installerScope{"Machine"};
+                bool installerAddToPath{false};
                 bool remove{false};
             };
 
@@ -918,6 +923,11 @@ namespace NGIN::CLI
         bool includeStage{true};
         bool includeRuntimeDependencies{false};
         bool includeSymbols{true};
+        std::string installerIdentifier{};
+        std::string installerVendor{};
+        std::string installerContact{};
+        std::string installerScope{"Machine"};
+        bool installerAddToPath{false};
         ContributionProvenance provenance{};
     };
 
@@ -973,6 +983,7 @@ namespace NGIN::CLI
     {
         fs::path path{};
         std::string name{};
+        std::string version{};
         std::string type{};
         std::string productKind{};
         std::string defaultProfile{};
@@ -1092,6 +1103,7 @@ namespace NGIN::CLI
             fs::path projectPath{};
             std::string product{};
             std::string profile{};
+            std::string version{};
         };
 
         struct Product
@@ -1266,6 +1278,11 @@ namespace NGIN::CLI
             bool includeStage{};
             bool includeRuntimeDependencies{};
             bool includeSymbols{};
+            std::string installerIdentifier{};
+            std::string installerVendor{};
+            std::string installerContact{};
+            std::string installerScope{};
+            bool installerAddToPath{};
             Provenance provenance{};
         };
 

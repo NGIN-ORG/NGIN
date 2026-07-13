@@ -4,6 +4,8 @@ project(NGIN VERSION 0.1.0 LANGUAGES CXX)
 
 option(NGIN_WORKSPACE_ENABLE_INTEGRATION "Enable integration helper targets in the workspace." ON)
 option(NGIN_WORKSPACE_EXPECT_COMPONENTS "Warn if declared workspace components are missing." OFF)
+option(NGIN_CLI_BUNDLE_BUILD_TOOLS "Include fetched CMake and Ninja payloads in CLI installs." OFF)
+option(NGIN_CLI_PORTABLE_RUNTIME "Link compiler runtimes statically for distributable CLI builds." OFF)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(NGINWorkspace)
@@ -23,9 +25,59 @@ add_custom_target(ngin.workspace
 )
 
 include(CTest)
+include(GNUInstallDirs)
 
 add_subdirectory(Tools)
 add_subdirectory(Packages/NGIN.Reflection.MetaGen EXCLUDE_FROM_ALL)
+
+install(FILES
+  "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE"
+  "${CMAKE_CURRENT_SOURCE_DIR}/Tools/ThirdParty/BuildTools/notices/THIRD_PARTY_TOOLS.md"
+  DESTINATION "${CMAKE_INSTALL_DATADIR}/ngin/licenses"
+  COMPONENT Runtime
+)
+
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/cmake/"
+  DESTINATION "${CMAKE_INSTALL_DATADIR}/ngin/cmake"
+  COMPONENT Runtime
+  FILES_MATCHING PATTERN "NGIN*.cmake"
+)
+
+if(NGIN_CLI_BUNDLE_BUILD_TOOLS)
+  install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/Tools/ThirdParty/BuildTools/"
+    DESTINATION "${CMAKE_INSTALL_DATADIR}/ngin/tools"
+    COMPONENT Runtime
+    USE_SOURCE_PERMISSIONS
+    PATTERN "downloads" EXCLUDE
+  )
+endif()
+
+set(CPACK_PACKAGE_NAME "ngin")
+set(CPACK_PACKAGE_VENDOR "NGIN")
+set(CPACK_PACKAGE_CONTACT "https://github.com/NGIN-ORG/NGIN")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "NGIN C++ build system and project toolchain")
+set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE")
+set(CPACK_PACKAGE_INSTALL_DIRECTORY "NGIN/ngin")
+set(CPACK_PACKAGE_FILE_NAME "ngin-${PROJECT_VERSION}-${CMAKE_SYSTEM_NAME}-${CMAKE_SYSTEM_PROCESSOR}")
+set(CPACK_COMPONENTS_ALL Runtime)
+if(WIN32)
+  set(CPACK_GENERATOR "ZIP;WIX")
+  set(CPACK_WIX_VERSION 4)
+  set(CPACK_WIX_INSTALL_SCOPE perMachine)
+  set(CPACK_WIX_UPGRADE_GUID "bc787581-23bf-5e17-87ae-864415448920")
+  set(CPACK_WIX_EXTRA_SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/packaging/NGINPathEnvironment.wxs")
+  set(CPACK_WIX_PATCH_FILE
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/packaging/NGINPathPatch.xml")
+else()
+  set(CPACK_GENERATOR "TGZ;DEB")
+  set(CPACK_PACKAGING_INSTALL_PREFIX "/usr")
+  set(CPACK_DEBIAN_PACKAGE_MAINTAINER "https://github.com/NGIN-ORG/NGIN")
+  set(CPACK_DEBIAN_PACKAGE_SECTION "devel")
+  set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+endif()
+include(CPack)
 
 set(NGIN_WORKSPACE_MANIFEST_PATH "${CMAKE_CURRENT_SOURCE_DIR}/NGIN.ngin")
 set(NGIN_WORKSPACE_STAGE_DIR "${CMAKE_BINARY_DIR}/stage")

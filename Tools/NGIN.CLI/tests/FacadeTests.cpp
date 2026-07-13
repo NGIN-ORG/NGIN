@@ -1,4 +1,14 @@
 #include "TestSupport.hpp"
+#include "Publishing.hpp"
+
+TEST_CASE("NGIN CLI installer identifier has the stable upgrade GUID") {
+  REQUIRE(DeterministicInstallerGuid("NGIN-ORG.NGIN.CLI") ==
+          "bc787581-23bf-5e17-87ae-864415448920");
+  REQUIRE(DeterministicInstallerGuid("example.product") ==
+          DeterministicInstallerGuid("example.product"));
+  REQUIRE(DeterministicInstallerGuid("example.product") !=
+          DeterministicInstallerGuid("example.other"));
+}
 
 namespace
 {
@@ -384,7 +394,7 @@ TEST_CASE("publish command writes folder publish output")
     const auto projectPath = temp.path() / "Publish.App.nginproj";
     WriteFile(projectPath,
               R"xml(<?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="4" Name="Publish.App">
+<Project SchemaVersion="4" Name="Publish.App" Version="1.2.3">
   <Application>
     <Build>
       <Sources Path="src/**.cpp" />
@@ -396,6 +406,9 @@ TEST_CASE("publish command writes folder publish output")
       <Include Stage="all" />
     </Publish>
     <Publish Name="archive" Kind="Archive" Format="zip" Output="dist/Publish.App.zip">
+      <Include Stage="all" />
+    </Publish>
+    <Publish Name="tgz" Kind="Archive" Format="tgz" Output="dist/Publish.App-$(ProjectVersion).tgz">
       <Include Stage="all" />
     </Publish>
   </Application>
@@ -437,6 +450,71 @@ TEST_CASE("publish command writes folder publish output")
     REQUIRE_FALSE(std::any_of(archiveEntries.begin(), archiveEntries.end(), [](const ZipCentralEntry &entry) {
         return entry.path.starts_with(".ngin/");
     }));
+
+#ifndef _WIN32
+    ParsedArgs tgzArgs{};
+    tgzArgs.projectPath = projectPath.string();
+    tgzArgs.packageName = "tgz";
+    tgzArgs.outputPath = (temp.path() / "build-archive").string();
+    tgzArgs.eventOutputMode = EventOutputMode::JsonLines;
+    std::ostringstream publishEvents{};
+    auto *previous = std::cout.rdbuf(publishEvents.rdbuf());
+    const auto tgzExitCode = CmdPublish(temp.path(), tgzArgs);
+    std::cout.rdbuf(previous);
+    REQUIRE(tgzExitCode == 0);
+    REQUIRE(fs::exists(temp.path() / "dist/Publish.App-1.2.3.tgz"));
+    REQUIRE_THAT(publishEvents.str(), ContainsSubstring(R"("type":"artifact.produced")"));
+    REQUIRE_THAT(publishEvents.str(), ContainsSubstring(R"("publish":"tgz")"));
+    REQUIRE_THAT(publishEvents.str(), ContainsSubstring(R"("kind":"Archive")"));
+    REQUIRE_THAT(publishEvents.str(), ContainsSubstring(R"("format":"tgz")"));
+    REQUIRE_THAT(publishEvents.str(), ContainsSubstring(R"("version":"1.2.3")"));
+#endif
+}
+
+TEST_CASE("installer publish validation fails before building")
+{
+    TempDir temp{};
+    const auto projectPath = temp.path() / "InvalidInstaller.App.nginproj";
+    WriteFile(projectPath,
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4" Name="InvalidInstaller.App">
+  <Application>
+    <Publish Name="installer" Kind="Installer" Format="deb" Output="dist/app.deb">
+      <Installer Identifier="org.example.invalid" Vendor="Example" Contact="dev@example.org" />
+    </Publish>
+  </Application>
+</Project>
+)xml");
+
+    ParsedArgs args{};
+    args.projectPath = projectPath.string();
+    args.packageName = "installer";
+    REQUIRE_THROWS_WITH(CmdPublish(temp.path(), args),
+                        Catch::Matchers::ContainsSubstring("requires Project Version"));
+
+    WriteFile(projectPath,
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4" Name="InvalidInstaller.App" Version="1.0.0">
+  <Application>
+    <Publish Name="installer" Kind="Installer" Format=")xml"
+#ifdef _WIN32
+              "deb"
+#else
+              "msi"
+#endif
+              R"xml(" Output="dist/app.native">
+      <Installer Identifier="org.example.invalid" Vendor="Example" Contact="dev@example.org" />
+    </Publish>
+  </Application>
+</Project>
+)xml");
+#ifdef _WIN32
+    REQUIRE_THROWS_WITH(CmdPublish(temp.path(), args),
+                        Catch::Matchers::ContainsSubstring("requires a Linux target profile"));
+#else
+    REQUIRE_THROWS_WITH(CmdPublish(temp.path(), args),
+                        Catch::Matchers::ContainsSubstring("requires a Windows target profile"));
+#endif
 }
 
 TEST_CASE("launch manifests redact resolved secret variables")

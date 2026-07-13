@@ -149,6 +149,15 @@ License and notice requirements live in
 Keep upstream license files inside each extracted payload when publishing
 bundled tool archives.
 
+Installed bundled distributions keep the same payload structure under
+`share/ngin/tools`. The CLI resolves that executable-relative location before
+workspace-local bundled tools and `PATH`; `NGIN_CMAKE`, `NGIN_CPACK`,
+`NGIN_NINJA`, and `NGIN_THIRD_PARTY_TOOLS_ROOT` remain explicit overrides.
+
+The CLI itself is also a V4 Tool product at `NGIN.CLI/NGIN.CLI.nginproj`.
+Release profiles can publish thin or bundled ZIP/MSI/TGZ/DEB artifacts through
+`ngin publish`.
+
 ## Staged Output
 
 `ngin configure` prepares the generated CMake build tree and compile database

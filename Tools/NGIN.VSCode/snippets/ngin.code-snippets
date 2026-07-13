@@ -193,6 +193,16 @@
       "</Publish>"
     ]
   },
+  "Installer Publish": {
+    "scope": "ngin",
+    "prefix": "ngin-installer",
+    "body": [
+      "<Publish Name=\"$1\" Kind=\"Installer\" Format=\"${2|msi,deb|}\" Output=\"$3\">",
+      "  <Include Stage=\"all\" />",
+      "  <Installer Identifier=\"$4\" Vendor=\"$5\" Contact=\"$6\" Scope=\"Machine\" AddToPath=\"${7|false,true|}\" />",
+      "</Publish>"
+    ]
+  },
   "Package Output": {
     "scope": "ngin",
     "prefix": "ngin-package-output",

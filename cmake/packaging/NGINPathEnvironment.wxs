@@ -1,0 +1,14 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Fragment>
+    <DirectoryRef Id="INSTALL_ROOT">
+      <Component Id="NGIN_PATH_COMPONENT" Guid="*">
+        <Environment Id="NGIN_PATH"
+                     Name="PATH"
+                     Value="[INSTALL_ROOT]bin"
+                     Action="set"
+                     Part="last"
+                     System="yes" />
+      </Component>
+    </DirectoryRef>
+  </Fragment>
+</Wix>

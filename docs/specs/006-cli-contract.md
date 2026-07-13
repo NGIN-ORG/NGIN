@@ -16,6 +16,7 @@ Stable active commands:
 - `ngin clean [--project <file>] [--profile <name>] [--configuration <name>] [--output <dir>]`
 - `ngin rebuild [--project <file>] [--profile <name>] [--configuration <name>] [--output <dir>]`
 - `ngin run [--project <file>] [--profile <name>] [--configuration <name>] [--output <dir>] [-- <args...>]`
+- `ngin publish [PublishName] [--project <file>] [--profile <name>] [--configuration <name>] [--output <dir>]`
 - `ngin validate [--project <file>] [--profile <name>] [--configuration <name>]`
 - `ngin graph [--project <file>] [--profile <name>] [--configuration <name>]`
 - `ngin inspect [--project <file>] [--profile <name>] [--configuration <name>] [--output <dir>] --format json`
@@ -62,6 +63,10 @@ Removed commands:
 - `ngin clean` removes NGIN-owned generated artifacts for the selected build scope
 - `ngin rebuild` is equivalent to `ngin clean` followed by `ngin build`
 - `ngin run` consumes the generated `.nginlaunch`
+- `ngin publish` builds and stages before producing the selected Folder,
+  Archive (`zip`/`tgz`), or platform-native Installer (`msi`/`deb`) output
+- installer publishes require a semantic project `Version` and explicit
+  installer identity/vendor/contact metadata
 - `ngin inspect --format json` resolves the selected project/profile and emits
   a schema-versioned JSON payload without configuring, building, running
   generators, writing lock files, or mutating repository state

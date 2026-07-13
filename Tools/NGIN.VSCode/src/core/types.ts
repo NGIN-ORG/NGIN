@@ -378,6 +378,13 @@ export interface GraphPublishPlan {
   includeStage?: boolean;
   includeRuntimeDependencies?: boolean;
   includeSymbols?: boolean;
+  installer?: {
+    identifier?: string;
+    vendor?: string;
+    contact?: string;
+    scope?: string;
+    addToPath?: boolean;
+  };
   provenance?: GraphProvenance;
 }
 
@@ -537,6 +544,7 @@ export interface CompositionGraphPayload {
     projectPath?: string;
     product?: string;
     profile?: string;
+    version?: string;
   };
   product?: {
     kind?: string;

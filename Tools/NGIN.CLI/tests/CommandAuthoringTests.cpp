@@ -188,8 +188,9 @@ TEST_CASE("schema command emits editor metadata")
     REQUIRE_THAT(captured.str(), ContainsSubstring(R"("dependencyScopes": ["Build", "Target", "Runtime", "Test", "Dev", "Publish"])"));
     REQUIRE_THAT(captured.str(), ContainsSubstring(R"("overlayOperations": ["Remove"])"));
     REQUIRE_THAT(captured.str(), ContainsSubstring(R"("Application": ["Runtime", "Launch", "Publish"])"));
-    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("publishKinds": ["Folder", "Archive"])"));
-    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("archiveFormats": ["zip"])"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("publishKinds": ["Folder", "Archive", "Installer"])"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("archiveFormats": ["zip", "tgz"])"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("installerFormats": ["msi", "deb"])"));
     REQUIRE_THAT(captured.str(), ContainsSubstring(R"("graphJson": {)"));
     REQUIRE_THAT(captured.str(), ContainsSubstring(R"("fullKind": "NGIN.CompositionGraph")"));
     REQUIRE_THAT(captured.str(), ContainsSubstring(R"("planKind": "NGIN.CompositionGraphPlan")"));

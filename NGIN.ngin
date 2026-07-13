@@ -4,6 +4,7 @@
            DefaultProfile="dev"
            PlatformVersion="0.1.0">
   <Projects>
+    <Project Path="Tools/NGIN.CLI/NGIN.CLI.nginproj" />
     <Project Path="Examples/Hello.Native/Hello.Native.nginproj" />
     <Project Path="Examples/Hello.Hosted/Hello.Hosted.nginproj" />
     <Project Path="Examples/Hello.Reflection/Hello.Reflection.nginproj" />
@@ -26,6 +27,8 @@
             Path="Packages" />
 
     <Version Name="NGIN.Core"
+             Range="[0.1.0,0.2.0)" />
+    <Version Name="NGIN.Base"
              Range="[0.1.0,0.2.0)" />
     <Version Name="NGIN.Reflection"
              Range="[0.1.0,0.2.0)" />

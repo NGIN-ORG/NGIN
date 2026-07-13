@@ -6,6 +6,12 @@ function(_ngin_cli_apply_defaults target_name)
   else()
     target_compile_options(${target_name} PRIVATE -Wall -Wextra -Wpedantic)
   endif()
+  if(NGIN_CLI_PORTABLE_RUNTIME)
+    if(MSVC)
+      set_property(TARGET ${target_name} PROPERTY MSVC_RUNTIME_LIBRARY
+        "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    endif()
+  endif()
 endfunction()
 
 add_library(ngin_cli_model STATIC
@@ -35,6 +41,7 @@ _ngin_cli_apply_defaults(ngin_cli_build)
 
 add_library(ngin_cli_commands STATIC
   src/Commands.cpp
+  src/Publishing.cpp
   src/Tooling.cpp
 )
 target_link_libraries(ngin_cli_commands PUBLIC ngin_cli_build ngin_cli_resolution ngin_cli_authoring ngin_cli_model PRIVATE NGIN::Base)
@@ -45,7 +52,16 @@ add_executable(ngin_cli
 )
 set_target_properties(ngin_cli PROPERTIES OUTPUT_NAME ngin)
 target_link_libraries(ngin_cli PRIVATE ngin_cli_commands ngin_cli_authoring)
+target_compile_definitions(ngin_cli PRIVATE NGIN_CLI_VERSION="${PROJECT_VERSION}")
+if(NGIN_CLI_PORTABLE_RUNTIME AND NOT MSVC)
+  target_link_options(ngin_cli PRIVATE -static-libstdc++ -static-libgcc)
+endif()
 _ngin_cli_apply_defaults(ngin_cli)
+
+install(TARGETS ngin_cli
+  RUNTIME DESTINATION bin
+  COMPONENT Runtime
+)
 
 if(BUILD_TESTING)
   add_subdirectory(tests)

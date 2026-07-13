@@ -115,6 +115,54 @@ jobs:
       - name: Run workspace workflow
         run: cmake --build build/dev --target ngin.workflow
 
+      - name: Install WiX packaging tool
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          dotnet tool install --tool-path "$PWD/.tools" wix --version 4.0.6
+          & "$PWD/.tools/wix.exe" extension add --global WixToolset.UI.wixext/4.0.6
+          "$PWD/.tools" >> $env:GITHUB_PATH
+
+      - name: Fetch host build tools for packaging
+        shell: bash
+        run: Tools/scripts/fetch-bundled-tools.sh
+
+      - name: Smoke-test Linux CLI packages
+        if: runner.os == 'Linux'
+        run: |
+          ./build/dev/Tools/NGIN.CLI/ngin publish linux-tgz --project Tools/NGIN.CLI/NGIN.CLI.nginproj --profile Release.Linux --output build/packaging-smoke/linux
+          ./build/dev/Tools/NGIN.CLI/ngin publish linux-deb --project Tools/NGIN.CLI/NGIN.CLI.nginproj --profile Release.Linux --output build/packaging-smoke/linux
+          tar -tzf dist/ngin-0.1.0-linux-x86_64.tgz | grep 'bin/ngin'
+          if tar -tzf dist/ngin-0.1.0-linux-x86_64.tgz | grep -q 'share/ngin/tools/cmake'; then exit 1; fi
+          dpkg-deb --contents dist/ngin-0.1.0-linux-x86_64.deb | grep 'usr/bin/ngin'
+          archive_root=$(mktemp -d)
+          deb_root=$(mktemp -d)
+          tar -xzf dist/ngin-0.1.0-linux-x86_64.tgz -C "$archive_root"
+          "$archive_root/ngin-0.1.0-linux-x86_64/bin/ngin" --version
+          dpkg-deb --extract dist/ngin-0.1.0-linux-x86_64.deb "$deb_root"
+          "$deb_root/usr/bin/ngin" --version
+
+      - name: Smoke-test Windows CLI packages
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          ./build/dev/Tools/NGIN.CLI/ngin.exe publish windows-zip --project Tools/NGIN.CLI/NGIN.CLI.nginproj --profile Release.Windows --output build/packaging-smoke/windows
+          ./build/dev/Tools/NGIN.CLI/ngin.exe publish windows-msi --project Tools/NGIN.CLI/NGIN.CLI.nginproj --profile Release.Windows --output build/packaging-smoke/windows
+          if (-not (Test-Path dist/ngin-0.1.0-windows-x86_64.zip)) { throw "Missing ZIP" }
+          if (-not (Test-Path dist/ngin-0.1.0-windows-x86_64.msi)) { throw "Missing MSI" }
+          $zipRoot = Join-Path $env:RUNNER_TEMP "ngin-cli-zip"
+          Expand-Archive dist/ngin-0.1.0-windows-x86_64.zip $zipRoot
+          & "$zipRoot/bin/ngin.exe" --version
+          $msi = (Resolve-Path dist/ngin-0.1.0-windows-x86_64.msi).Path
+          $install = Start-Process msiexec.exe -ArgumentList "/i", $msi, "/qn", "/norestart" -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "MSI installation failed: $($install.ExitCode)" }
+          $installedCli = "C:\Program Files\NGIN\NGIN.CLI\bin\ngin.exe"
+          & $installedCli --version
+          $machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
+          if (-not $machinePath.Contains("C:\Program Files\NGIN\NGIN.CLI\bin")) { throw "MSI did not register ngin on PATH" }
+          $uninstall = Start-Process msiexec.exe -ArgumentList "/x", $msi, "/qn", "/norestart" -Wait -PassThru
+          if ($uninstall.ExitCode -ne 0) { throw "MSI uninstall failed: $($uninstall.ExitCode)" }
+
       - name: Upload CTest logs
         if: failure()
         uses: actions/upload-artifact@v7

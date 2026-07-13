@@ -1,0 +1,5 @@
+<CPackWiXPatch>
+  <CPackWiXFragment Id="#PRODUCTFEATURE">
+    <ComponentRef Id="NGIN_PATH_COMPONENT" />
+  </CPackWiXFragment>
+</CPackWiXPatch>

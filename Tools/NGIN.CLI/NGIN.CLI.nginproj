@@ -1,0 +1,141 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4"
+         Name="NGIN.CLI"
+         Version="0.1.0"
+         DefaultProfile="Release.Linux">
+  <Tool Name="ngin">
+    <Uses>
+      <Package Name="NGIN.Base"
+               Version="[0.1.0,0.2.0)"
+               Scope="Target" />
+    </Uses>
+
+    <Build>
+      <Sources Path="src/**.cpp" />
+      <IncludePath Path="src" Visibility="Private" />
+      <Define Name="NGIN_CLI_VERSION"
+              Value="&quot;$(ProjectVersion)&quot;" />
+    </Build>
+
+    <Stage>
+      <Content Source="../../LICENSE"
+               Target="share/ngin/licenses/LICENSE" />
+      <Content Source="../ThirdParty/BuildTools/notices/THIRD_PARTY_TOOLS.md"
+               Target="share/ngin/licenses/THIRD_PARTY_TOOLS.md" />
+    </Stage>
+
+    <Publish Name="windows-zip"
+             Kind="Archive"
+             Format="zip"
+             Output="../../dist/ngin-$(ProjectVersion)-windows-x86_64.zip" />
+    <Publish Name="windows-msi"
+             Kind="Installer"
+             Format="msi"
+             Output="../../dist/ngin-$(ProjectVersion)-windows-x86_64.msi">
+      <Installer Identifier="NGIN-ORG.NGIN.CLI"
+                 Vendor="NGIN"
+                 Contact="https://github.com/NGIN-ORG/NGIN"
+                 Scope="Machine"
+                 AddToPath="true" />
+    </Publish>
+    <Publish Name="windows-zip-bundled"
+             Kind="Archive"
+             Format="zip"
+             Output="../../dist/ngin-$(ProjectVersion)-windows-x86_64-bundled.zip" />
+    <Publish Name="windows-msi-bundled"
+             Kind="Installer"
+             Format="msi"
+             Output="../../dist/ngin-$(ProjectVersion)-windows-x86_64-bundled.msi">
+      <Installer Identifier="NGIN-ORG.NGIN.CLI"
+                 Vendor="NGIN"
+                 Contact="https://github.com/NGIN-ORG/NGIN"
+                 Scope="Machine"
+                 AddToPath="true" />
+    </Publish>
+    <Publish Name="linux-tgz"
+             Kind="Archive"
+             Format="tgz"
+             Output="../../dist/ngin-$(ProjectVersion)-linux-x86_64.tgz" />
+    <Publish Name="linux-deb"
+             Kind="Installer"
+             Format="deb"
+             Output="../../dist/ngin-$(ProjectVersion)-linux-x86_64.deb">
+      <Installer Identifier="NGIN-ORG.NGIN.CLI"
+                 Vendor="NGIN"
+                 Contact="https://github.com/NGIN-ORG/NGIN"
+                 Scope="Machine"
+                 AddToPath="true" />
+    </Publish>
+    <Publish Name="linux-tgz-bundled"
+             Kind="Archive"
+             Format="tgz"
+             Output="../../dist/ngin-$(ProjectVersion)-linux-x86_64-bundled.tgz" />
+    <Publish Name="linux-deb-bundled"
+             Kind="Installer"
+             Format="deb"
+             Output="../../dist/ngin-$(ProjectVersion)-linux-x86_64-bundled.deb">
+      <Installer Identifier="NGIN-ORG.NGIN.CLI"
+                 Vendor="NGIN"
+                 Contact="https://github.com/NGIN-ORG/NGIN"
+                 Scope="Machine"
+                 AddToPath="true" />
+    </Publish>
+  </Tool>
+
+  <Profile Name="Release.Linux">
+    <Defaults>
+      <BuildType Name="Release" />
+      <TargetPlatform Name="linux-x64" />
+      <Environment Name="shipping" />
+    </Defaults>
+    <Tool>
+      <Build>
+        <LinkOption Value="-static-libstdc++" />
+        <LinkOption Value="-static-libgcc" />
+      </Build>
+    </Tool>
+  </Profile>
+
+  <Profile Name="Release.Linux.Bundled" Extends="Release.Linux">
+    <Tool>
+      <Stage>
+        <Content Source="../ThirdParty/BuildTools/toolchains.json"
+                 Target="share/ngin/tools/toolchains.json" />
+        <Content Source="../ThirdParty/BuildTools/notices/**"
+                 Target="share/ngin/tools/notices" />
+        <Content Source="../ThirdParty/BuildTools/cmake/**"
+                 Target="share/ngin/tools/cmake" />
+        <Content Source="../ThirdParty/BuildTools/ninja/**"
+                 Target="share/ngin/tools/ninja" />
+      </Stage>
+    </Tool>
+  </Profile>
+
+  <Profile Name="Release.Windows">
+    <Defaults>
+      <BuildType Name="Release" />
+      <TargetPlatform Name="windows-x64" />
+      <Environment Name="shipping" />
+    </Defaults>
+    <Tool>
+      <Build>
+        <CompileOption Value="/MT" />
+      </Build>
+    </Tool>
+  </Profile>
+
+  <Profile Name="Release.Windows.Bundled" Extends="Release.Windows">
+    <Tool>
+      <Stage>
+        <Content Source="../ThirdParty/BuildTools/toolchains.json"
+                 Target="share/ngin/tools/toolchains.json" />
+        <Content Source="../ThirdParty/BuildTools/notices/**"
+                 Target="share/ngin/tools/notices" />
+        <Content Source="../ThirdParty/BuildTools/cmake/**"
+                 Target="share/ngin/tools/cmake" />
+        <Content Source="../ThirdParty/BuildTools/ninja/**"
+                 Target="share/ngin/tools/ninja" />
+      </Stage>
+    </Tool>
+  </Profile>
+</Project>

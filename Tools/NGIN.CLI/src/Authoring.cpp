@@ -3403,6 +3403,14 @@ namespace NGIN::CLI
                     BoolAttribute(*include, "RuntimeDependencies", publish.includeRuntimeDependencies);
                 publish.includeSymbols = BoolAttribute(*include, "Symbols", publish.includeSymbols);
             }
+            if (const auto *installer = FindChild(*node, "Installer"))
+            {
+                publish.installerIdentifier = RequireAttribute(*installer, "Identifier", path);
+                publish.installerVendor = RequireAttribute(*installer, "Vendor", path);
+                publish.installerContact = RequireAttribute(*installer, "Contact", path);
+                publish.installerScope = Attribute(*installer, "Scope").value_or("Machine");
+                publish.installerAddToPath = BoolAttribute(*installer, "AddToPath", false);
+            }
             policy.publishes.push_back(std::move(publish));
         }
     }
@@ -4310,7 +4318,21 @@ namespace NGIN::CLI
             input.target = target;
             if (pathValue.find('*') != std::string::npos || pathValue.find('?') != std::string::npos)
             {
-                input.includePatterns.push_back(pathValue);
+                const auto wildcard = pathValue.find_first_of("*?");
+                const auto separator = pathValue.find_last_of("/\\", wildcard);
+                const auto needsExternalRoot =
+                    fs::path(pathValue).is_absolute() ||
+                    pathValue.rfind("../", 0) == 0 ||
+                    pathValue.rfind("..\\", 0) == 0;
+                if (needsExternalRoot && separator != std::string::npos)
+                {
+                    input.basePath = pathValue.substr(0, separator);
+                    input.includePatterns.push_back(pathValue.substr(separator + 1));
+                }
+                else
+                {
+                    input.includePatterns.push_back(pathValue);
+                }
                 input.target.clear();
                 input.targetRoot = target;
                 input.mode = "Glob";
@@ -5062,6 +5084,14 @@ namespace NGIN::CLI
                     BoolAttribute(*include, "RuntimeDependencies", publish.includeRuntimeDependencies);
                 publish.includeSymbols = BoolAttribute(*include, "Symbols", publish.includeSymbols);
             }
+            if (const auto *installer = FindChild(node, "Installer"))
+            {
+                publish.installerIdentifier = RequireAttribute(*installer, "Identifier", path);
+                publish.installerVendor = RequireAttribute(*installer, "Vendor", path);
+                publish.installerContact = RequireAttribute(*installer, "Contact", path);
+                publish.installerScope = Attribute(*installer, "Scope").value_or("Machine");
+                publish.installerAddToPath = BoolAttribute(*installer, "AddToPath", false);
+            }
             publishes.erase(
                 std::remove_if(publishes.begin(), publishes.end(),
                                [&](const PublishDefinition &existing) { return existing.name == publish.name; }),
@@ -5264,12 +5294,13 @@ namespace NGIN::CLI
             ProjectManifest project{};
             project.path = path;
             project.name = RequireAttribute(rootElement, "Name", path);
+            project.version = Attribute(rootElement, "Version").value_or("");
             project.type = ProjectType(productKind);
             project.productKind = productKind;
             project.defaultProfile = Attribute(rootElement, "DefaultProfile").value_or("dev");
             project.output.kind = DefaultOutputKind(productKind, product);
-            project.output.name = project.name;
-            project.output.target = project.name;
+            project.output.name = Attribute(product, "Name").value_or(project.name);
+            project.output.target = Attribute(product, "Target").value_or(project.output.name);
             project.hasExplicitProfiles = !ChildElements(rootElement, "Profile").empty();
             project.conditions = BuiltinConditions();
             {
@@ -5914,6 +5945,11 @@ namespace NGIN::CLI
                     publish.includeStage = publishPolicy.includeStage;
                     publish.includeRuntimeDependencies = publishPolicy.includeRuntimeDependencies;
                     publish.includeSymbols = publishPolicy.includeSymbols;
+                    publish.installerIdentifier = publishPolicy.installerIdentifier;
+                    publish.installerVendor = publishPolicy.installerVendor;
+                    publish.installerContact = publishPolicy.installerContact;
+                    publish.installerScope = publishPolicy.installerScope;
+                    publish.installerAddToPath = publishPolicy.installerAddToPath;
                 }
                 workspacePublishes.push_back(std::move(publish));
             }

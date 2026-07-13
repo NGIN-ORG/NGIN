@@ -199,6 +199,19 @@ cmake --preset dev
 cmake --build build/dev --target ngin_cli
 ```
 
+Release packages can also be generated directly through CMake/CPack:
+
+```bash
+cmake --preset release
+cmake --build --preset release
+cmake --build build/release --target package
+```
+
+Use `release-bundled` to include the pinned CMake and Ninja payloads. On
+Windows the package target produces ZIP and MSI outputs; on Linux it produces
+TGZ and DEB outputs. Native installer generators require their platform tools
+(WiX 4 on Windows and Debian packaging tools on Linux).
+
 ### 3. Build the example
 
 ```bash

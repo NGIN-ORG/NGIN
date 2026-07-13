@@ -665,7 +665,10 @@ Implemented publish behavior:
 - profile overlay `Publish`
 - publish identity by `Name`
 - `Kind="Folder"`
-- `Kind="Archive"` with `Format="zip"`
+- `Kind="Archive"` with `Format="zip"` or `Format="tgz"`
+- `Kind="Installer"` with `Format="msi"` or `Format="deb"`
+- optional project product `Version`, required by installer publishes
+- installer identity, vendor, contact, machine scope, and PATH policy
 - `Output`
 - first-pass `Include` metadata for stage, runtime dependencies, and symbols
 - `ngin publish [PublishName]`
@@ -675,9 +678,13 @@ Implemented publish behavior:
 
 The current publish command builds and stages the selected product. Folder
 publish copies the staged layout to the output directory and removes stale
-output before copying the new staged layout. Archive publish writes a
-deterministic uncompressed ZIP archive from the staged layout. Signing, SBOM,
-trust policy, and `.nginpack` integration are still future work.
+output before copying the new staged layout. ZIP publish uses the deterministic
+native writer. TGZ, MSI, and DEB publishes generate a temporary CPack project
+from the resolved staged layout. Installer outputs validate product version,
+platform, identity, vendor, contact, and machine-install policy before build.
+The NGIN CLI is authored as a V4 Tool product and can publish thin or bundled
+release artifacts. Mandatory signing, SBOM, trust policy, and `.nginpack`
+integration are still future work.
 
 ### Repository Example Migration
 

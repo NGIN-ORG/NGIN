@@ -6,12 +6,18 @@
 #include <stdexcept>
 #include <string>
 
+#ifndef NGIN_CLI_VERSION
+#define NGIN_CLI_VERSION "0.0.0-dev"
+#endif
+
 namespace
 {
     auto PrintHelp() -> void
     {
         std::cout
             << "usage: ngin <command> [options]\n\n"
+            << "Version:\n"
+            << "  ngin --version\n\n"
             << "Output options:\n"
             << "  --quiet | -q\n"
             << "  --verbose | -v\n"
@@ -97,6 +103,11 @@ auto main(int argc, char **argv) -> int
         }
 
         command = argv[1];
+        if (command == "--version" || command == "version")
+        {
+            std::cout << "ngin " << NGIN_CLI_VERSION << "\n";
+            return 0;
+        }
         if (command == "new")
         {
             if (argc < 4)

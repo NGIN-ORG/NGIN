@@ -144,6 +144,28 @@ namespace {
   return executable;
 }
 
+[[nodiscard]] auto RunningExecutablePath() -> std::optional<fs::path> {
+#if defined(_WIN32)
+  std::wstring buffer(32768, L'\0');
+  const auto length = GetModuleFileNameW(nullptr, buffer.data(),
+                                        static_cast<DWORD>(buffer.size()));
+  if (length == 0 || length >= buffer.size()) {
+    return std::nullopt;
+  }
+  buffer.resize(length);
+  return fs::path{buffer};
+#elif defined(__linux__)
+  std::array<char, 4096> buffer{};
+  const auto length = ::readlink("/proc/self/exe", buffer.data(), buffer.size());
+  if (length <= 0 || static_cast<std::size_t>(length) >= buffer.size()) {
+    return std::nullopt;
+  }
+  return fs::path{std::string{buffer.data(), static_cast<std::size_t>(length)}};
+#else
+  return std::nullopt;
+#endif
+}
+
 [[nodiscard]] auto
 BundledToolRootCandidates(const std::optional<fs::path> &searchRoot)
     -> std::vector<fs::path> {
@@ -155,6 +177,10 @@ BundledToolRootCandidates(const std::optional<fs::path> &searchRoot)
   if (const auto *overrideRoot = std::getenv("NGIN_BUNDLED_TOOLS_ROOT");
       overrideRoot != nullptr && std::string_view(overrideRoot).size() > 0) {
     roots.emplace_back(overrideRoot);
+  }
+  if (const auto executable = RunningExecutablePath(); executable.has_value()) {
+    const auto prefix = executable->parent_path().parent_path();
+    roots.push_back(prefix / "share" / "ngin" / "tools");
   }
   if (searchRoot.has_value()) {
     roots.push_back(*searchRoot / "Tools" / "ThirdParty" / "BuildTools");
@@ -215,7 +241,7 @@ FindBundledToolPath(const std::string &tool,
   const auto executable = NativeExecutableName(tool);
   for (const auto &root : BundledToolRootCandidates(searchRoot)) {
     std::vector<fs::path> candidates{};
-    if (tool == "cmake") {
+    if (tool == "cmake" || tool == "cpack") {
       for (const auto &versionDir : VersionDirectories(root / "cmake")) {
         candidates.push_back(versionDir / *host / "bin" / executable);
       }
@@ -507,6 +533,9 @@ ExpandProjectVariables(const std::string &input, const ProjectManifest &project,
   expanded = ReplaceAll(expanded, "${WorkspaceDir}", workspaceDir.string());
   expanded = ReplaceAll(expanded, "${ProjectName}", project.name);
   expanded = ReplaceAll(expanded, "${ProjectTarget}", project.output.target);
+  expanded = ReplaceAll(expanded, "${ProjectVersion}", project.version);
+  expanded = ReplaceAll(expanded, "$(ProjectName)", project.name);
+  expanded = ReplaceAll(expanded, "$(ProjectVersion)", project.version);
   return expanded;
 }
 
@@ -1585,6 +1614,24 @@ WriteGeneratedBuildProject(const ResolvedLaunch &resolved,
     out << " " << language;
   }
   out << ")\n";
+  const auto usesStaticMsvcRuntime =
+      resolved.profile.operatingSystem == "windows" &&
+      std::any_of(resolved.projectUnits.begin(), resolved.projectUnits.end(),
+                  [](const ResolvedProjectUnit &unit) {
+                    const auto options = EffectiveBuildSettings(
+                        unit.project, unit.profile,
+                        unit.project.build.compileOptions, "CompileOption");
+                    return std::any_of(
+                        options.begin(), options.end(),
+                        [](const BuildSetting &option) {
+                          return option.value == "/MT" ||
+                                 option.value == "/MTd";
+                        });
+                  });
+  if (usesStaticMsvcRuntime) {
+    out << "set(CMAKE_MSVC_RUNTIME_LIBRARY "
+           "\"MultiThreaded$<$<CONFIG:Debug>:Debug>\")\n";
+  }
 
   std::unordered_set<std::string> addedPackageKeys{};
   for (const auto &package : resolved.orderedPackages) {
@@ -2023,7 +2070,10 @@ RunBackendProcess(std::string name, const fs::path &executable,
   if (options.events != nullptr) {
     options.events->Emit(
         CliEventType::PhaseStarted,
-        EventData{}.AddString("phase", phase).AddString("label", name));
+        EventData{}
+            .AddString("phase", phase)
+            .AddString("label", name)
+            .AddString("tool", executable.string()));
   }
   ProcessResult result{};
   bool emittedStreamOutput = false;

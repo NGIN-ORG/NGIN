@@ -1,5 +1,18 @@
 #include "TestSupport.hpp"
 
+TEST_CASE("CMake and self-hosted CLI manifest versions stay synchronized") {
+  const auto project = LoadProjectManifest(
+      RepoRoot() / "Tools/NGIN.CLI/NGIN.CLI.nginproj");
+  const auto rootCMake = ReadFile(RepoRoot() / "CMakeLists.txt");
+
+  REQUIRE_FALSE(project.version.empty());
+  REQUIRE_THAT(rootCMake,
+               ContainsSubstring("project(NGIN VERSION " + project.version +
+                                 " LANGUAGES CXX)"));
+  REQUIRE(project.output.name == "ngin");
+  REQUIRE(project.output.target == "ngin");
+}
+
 TEST_CASE("workspace, project, and package manifests parse through authoring "
           "facades") {
   TempDir temp{};

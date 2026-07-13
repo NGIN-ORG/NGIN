@@ -25,6 +25,29 @@
       "cacheVariables": {
         "NGIN_WORKSPACE_EXPECT_COMPONENTS": "ON"
       }
+    },
+    {
+      "name": "release",
+      "displayName": "NGIN CLI Release",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "BUILD_TESTING": "OFF",
+        "CMAKE_MSVC_RUNTIME_LIBRARY": "MultiThreaded",
+        "NGIN_WORKSPACE_ENABLE_INTEGRATION": "OFF",
+        "NGIN_CLI_PORTABLE_RUNTIME": "ON",
+        "NGIN_CLI_BUNDLE_BUILD_TOOLS": "OFF"
+      }
+    },
+    {
+      "name": "release-bundled",
+      "displayName": "NGIN CLI Release With Bundled Build Tools",
+      "inherits": "release",
+      "binaryDir": "${sourceDir}/build/release-bundled",
+      "cacheVariables": {
+        "NGIN_CLI_BUNDLE_BUILD_TOOLS": "ON"
+      }
     }
   ],
   "buildPresets": [
@@ -34,6 +57,16 @@
       "targets": [
         "ngin.workflow"
       ]
+    },
+    {
+      "name": "release",
+      "configurePreset": "release",
+      "targets": ["ngin_cli"]
+    },
+    {
+      "name": "release-bundled",
+      "configurePreset": "release-bundled",
+      "targets": ["ngin_cli"]
     }
   ]
 }

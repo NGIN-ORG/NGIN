@@ -1,4 +1,4 @@
-UNLICENSED
+Apache-2.0
 
-This VS Code extension is distributed as part of the NGIN repository and is
-not published under an open-source license.
+This VS Code extension is distributed under the Apache License, Version 2.0.
+The complete license text is available in the repository root at ../../LICENSE.
