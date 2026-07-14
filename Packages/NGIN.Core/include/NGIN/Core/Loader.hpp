@@ -9,6 +9,7 @@
 #include <NGIN/Memory/SmartPointers.hpp>
 
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -29,6 +30,18 @@ struct StaticModuleRegistration {
   ModuleDescriptor descriptor{};
   ModuleFactory factory{};
 };
+
+/// @brief Registry exposed to dynamic plugin registrar functions.
+class NGIN_CORE_API IPluginModuleRegistry {
+public:
+  virtual ~IPluginModuleRegistry() = default;
+
+  virtual auto Register(std::string moduleName,
+                        ModuleFactory factory) noexcept -> CoreResult<void> = 0;
+};
+
+/// @brief Dynamic plugin registrar function exported by plugin binaries.
+using PluginRegistrarFn = CoreResult<void> (*)(IPluginModuleRegistry &);
 
 /// @brief Module catalog abstraction used by kernel resolution.
 class NGIN_CORE_API IModuleCatalog {
@@ -88,12 +101,34 @@ class NGIN_CORE_API IPluginBinaryLoader {
 public:
   virtual ~IPluginBinaryLoader() = default;
 
-  /// @brief Load module binary for the provided descriptor.
-  virtual auto LoadBinary(const ModuleDescriptor &descriptor) noexcept
-      -> CoreResult<void> = 0;
+  /// @brief Load the binary behind a dynamic descriptor and return its factory.
+  virtual auto LoadModuleFactory(const ModuleDescriptor &descriptor) noexcept
+      -> CoreResult<ModuleFactory> = 0;
+};
+
+/// @brief Default dynamic plugin loader backed by NGIN::IO::DynamicLibrary.
+class NGIN_CORE_API DynamicPluginBinaryLoader final : public IPluginBinaryLoader {
+public:
+  DynamicPluginBinaryLoader();
+  ~DynamicPluginBinaryLoader() override;
+
+  DynamicPluginBinaryLoader(DynamicPluginBinaryLoader &&) noexcept;
+  auto operator=(DynamicPluginBinaryLoader &&) noexcept
+      -> DynamicPluginBinaryLoader &;
+
+  auto LoadModuleFactory(const ModuleDescriptor &descriptor) noexcept
+      -> CoreResult<ModuleFactory> override;
+
+private:
+  struct Impl;
+  std::unique_ptr<Impl> m_impl;
 };
 
 /// @brief Create a default per-kernel static module catalog.
 NGIN_CORE_API auto CreateStaticModuleCatalog() noexcept
     -> NGIN::Memory::Shared<IModuleCatalog>;
+
+/// @brief Create a default dynamic plugin binary loader.
+NGIN_CORE_API auto CreateDynamicPluginBinaryLoader() noexcept
+    -> NGIN::Memory::Shared<IPluginBinaryLoader>;
 } // namespace NGIN::Core

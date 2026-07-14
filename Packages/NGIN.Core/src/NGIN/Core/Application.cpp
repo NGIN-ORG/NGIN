@@ -2633,6 +2633,93 @@ namespace NGIN::Core
         return *this;
       }
 
+      auto AddConfigSource(std::string path) -> ApplicationBuilder & override
+      {
+        MarkMutating();
+        if (!HasStickyError())
+        {
+          AppendUnique(m_configInputs, path);
+        }
+        return *this;
+      }
+
+      auto AddDefaultServices() -> ApplicationBuilder & override
+      {
+        MarkMutating();
+        if (!HasStickyError())
+        {
+          m_addDefaultServices = true;
+        }
+        return *this;
+      }
+
+      auto AddLogging() -> ApplicationBuilder & override
+      {
+        MarkMutating();
+        if (!HasStickyError())
+        {
+          m_addLogging = true;
+        }
+        return *this;
+      }
+
+      auto AddConfiguration() -> ApplicationBuilder & override
+      {
+        MarkMutating();
+        if (!HasStickyError())
+        {
+          m_addConfiguration = true;
+        }
+        return *this;
+      }
+
+      auto AddPluginSearchPath(std::string path) -> ApplicationBuilder & override
+      {
+        MarkMutating();
+        if (!HasStickyError())
+        {
+          AppendUnique(m_pluginSearchPaths, path);
+          m_enableDynamicPlugins = true;
+        }
+        return *this;
+      }
+
+      auto EnableDynamicPlugins(const bool enabled = true)
+          -> ApplicationBuilder & override
+      {
+        MarkMutating();
+        if (!HasStickyError())
+        {
+          m_enableDynamicPlugins = enabled;
+        }
+        return *this;
+      }
+
+      auto AddModule(std::string name, ModuleOptions options,
+                     ModuleFactory factory) -> ApplicationBuilder & override
+      {
+        MarkMutating();
+        if (HasStickyError())
+        {
+          return *this;
+        }
+        if (name.empty() || !factory)
+        {
+          m_stickyError = MakeBuilderError(
+              "module registration must include a name and factory",
+              name, KernelErrorCode::InvalidArgument);
+          return *this;
+        }
+
+        AppendOrReplaceModuleRegistration(
+            m_moduleRegistrations,
+            StaticModuleRegistration{
+                .descriptor = MakeModuleDescriptor(std::move(name), options),
+                .factory = std::move(factory),
+            });
+        return *this;
+      }
+
       [[nodiscard]] auto Services() noexcept -> ServiceCollection & override
       {
         return m_services;
@@ -3286,7 +3373,8 @@ namespace NGIN::Core
         hostConfig.workingDirectory = workingDirectory;
         hostConfig.configInputs = configInputs;
         hostConfig.pluginSearchPaths = pluginSearchPaths;
-        hostConfig.enableDynamicPlugins = false;
+        hostConfig.enableDynamicPlugins =
+            m_enableDynamicPlugins || !pluginSearchPaths.empty();
         hostConfig.enableReflection = selectedProfile != nullptr
                                           ? selectedProfile->enableReflection
                                           : false;
@@ -3446,6 +3534,7 @@ namespace NGIN::Core
       std::vector<std::string> m_enabledPlugins{};
       std::vector<std::string> m_disabledPlugins{};
       std::vector<std::string> m_pluginSearchPaths{};
+      bool m_enableDynamicPlugins{false};
       std::vector<std::string> m_configInputs{};
       std::vector<std::string> m_commandLineArgs{};
       std::optional<ProjectManifest> m_project{};
@@ -3767,6 +3856,7 @@ namespace NGIN::Core
       if (!m_owner.HasStickyError())
       {
         AppendUnique(m_owner.m_pluginSearchPaths, path);
+        m_owner.m_enableDynamicPlugins = true;
       }
       return *this;
     }
@@ -3779,6 +3869,7 @@ namespace NGIN::Core
         m_owner.m_enabledPlugins.clear();
         m_owner.m_disabledPlugins.clear();
         m_owner.m_pluginSearchPaths.clear();
+        m_owner.m_enableDynamicPlugins = false;
       }
       return *this;
     }

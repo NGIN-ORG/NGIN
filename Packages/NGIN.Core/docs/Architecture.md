@@ -1,116 +1,55 @@
 # NGIN.Core Architecture
 
-NGIN.Core is the active host implementation for the platform contracts described by [Spec 001: Core Concepts and Vocabulary](/home/berggrenmille/NGIN/docs/specs/001-core-concepts.md), [Spec 003: Package Manifest and Runtime Contributions](/home/berggrenmille/NGIN/docs/specs/003-package-manifest-and-runtime-contributions.md), and [Spec 007: Host Integration Contract](/home/berggrenmille/NGIN/docs/specs/007-host-integration-contract.md).
+`NGIN.Core` is a hosted runtime layered on top of the NGIN project/package
+model. It is optional: applications can use the NGIN CLI without linking the
+runtime.
 
-## Subsystems
+## Host Startup
 
-- Module loader/resolver
-- Service registry
-- Event bus
-- Task runtime
-- Configuration store
-- Kernel orchestrator
+`ApplicationBuilder` is the user-facing entry point. It gathers project
+metadata, config inputs, services, static module factories, plugin search paths,
+and command-line arguments, then builds a `KernelHostConfig`.
 
-## Loading model
+`IKernel` owns startup and shutdown:
 
-- Static-first module loading is production-ready in v1.
-- Dynamic plugin loading remains behind `IPluginCatalog` and `IPluginBinaryLoader` seams.
-- Module catalogs are per-kernel (`IModuleCatalog` / `StaticModuleCatalog`) and must be supplied explicitly by the builder, host config, or tests.
-- Filesystem dynamic descriptor discovery is XML-only and scans for `.module.xml` / `.plugin-module.xml` under `pluginSearchPaths`.
-- Resolver enforces:
-  - descriptor family layer constraints
-  - canonical startup-stage ordering
-  - explicit supported-host filtering
-  - module `compatiblePlatformRange` against host `platformVersion`
-  - dependency `requiredVersion` checks
+- apply host config and layered configuration
+- discover static and dynamic module descriptors
+- resolve compatibility, dependencies, and startup order
+- build services, events, tasks, config, and logging
+- construct modules and run lifecycle callbacks
 
-Dynamic descriptor shape:
+## Modules
 
-- root element: `<Module>`
-- required root attribute: `Name`
-- optional root attributes:
-  - `Family`
-  - `Type`
-  - `StartupStage`
-  - `Version`
-  - `CompatiblePlatformRange`
-  - `ReflectionRequired`
-- supported child sections:
-  - `Platforms`
-  - `Dependencies`
-  - `SupportedHosts`
-  - `ProvidesServices`
-  - `RequiresServices`
-  - `Capabilities`
+Static modules are registered with factories in C++. Dynamic modules are
+described by XML files under plugin search paths and loaded from shared
+libraries. The descriptor remains the source of metadata for dependency and
+compatibility checks; the library registrar only supplies factories.
 
-See [Spec 003: Package Manifest and Runtime Contributions](/home/berggrenmille/NGIN/docs/specs/003-package-manifest-and-runtime-contributions.md). Dynamic `.module.xml` descriptors remain an internal runtime seam, not the primary authored model.
+Dynamic plugin loading is intentionally simple:
 
-## Service Model (DI V2)
+- descriptor attributes: `Name`, `Library`, optional `Registrar`
+- default registrar: `NGIN_RegisterPlugin`
+- registrar API: `CoreResult<void>(IPluginModuleRegistry&)`
+- loaded libraries stay alive until the kernel is destroyed
 
-- Service lifetimes:
-  - `Singleton`
-  - `Scoped`
-  - `Transient`
-- Explicit scopes:
-  - `BeginScope(ServiceScopeKind, owner)`
-  - `EndScope(ServiceScopeId)`
-- Scoped providers cache per resolve-scope and are cleaned deterministically when scopes end.
-- Kernel creates per-module scopes and enforces descriptor `requiresServices` after `OnRegister` and before `OnInit`.
+There is no hot reload, sandboxing, signature verification, or stable
+cross-compiler ABI guarantee in this contract.
 
-## Events and Tasks
+## Services, Events, Tasks, Config
 
-- Typed events are the primary event-bus surface:
-  - `Subscribe<TEvent>(...)`
-  - `Publish(TEvent)`
-  - `Enqueue(TEvent)` / `EnqueueTo(queue, TEvent)`
-  - typed callbacks receive payload plus delivery metadata
-- Raw event records remain available for dynamic/plugin scenarios through:
-  - `SubscribeRaw(...)`
-  - `PublishRawImmediate(...)`
-  - `EnqueueRaw(...)` / `EnqueueRawTo(...)`
-  - `FlushRaw(...)` / `FlushRawFrom(...)`
-- Reserved kernel events are emitted on lifecycle transitions:
-  - `KernelStarting`
-  - `KernelRunning`
-  - `KernelStopping`
-  - `ModuleLoaded`
-  - `ModuleStarted`
-  - `ModuleFailed`
-  - `ConfigChanged`
-- Reserved lifecycle and config events are also exposed as typed payloads:
-  - `KernelStartingEvent`, `KernelRunningEvent`, `KernelStoppingEvent`
-  - `ModuleLoadedEvent`, `ModuleStartedEvent`, `ModuleFailedEvent`
-  - `ConfigChangeEvent`
-- Deferred events are queue-owned (`Main`, `IO`, `Worker`, `Background`, `Render`) with queue-specific raw and typed flush APIs.
-- Task runtime uses lane-specific schedulers:
-  - `Main`
-  - `IO`
-  - `Worker`
-  - `Background`
-  - optional `Render`
-- Barriers are lane-aware (`Barrier(lane)`) with `BarrierAll()`.
-
-## Host Config Enforcement
-
-`KernelHostConfig` fields are applied during startup:
-
-- `workingDirectory` for relative-path resolution
-- `configInputs` layered into config store
-- `commandLineArgs` (`--Key=Value`) command-line overrides
-- `environmentName` environment-layer kernel key
-- `pluginSearchPaths` for default filesystem plugin descriptor discovery
-- `schedulerPolicy.enableRenderLane` wired to task runtime lane construction
-- API threading policy:
-  - `SingleThreadOnly`
-  - `Serialized`
+- Services use typed keys with optional names and support singleton, scoped, and
+  transient lifetimes.
+- Events are typed-first, with raw records available for dynamic or tooling
+  scenarios.
+- Deferred events are queue-owned: `Main`, `IO`, `Worker`, `Background`, and
+  optional `Render`.
+- Tasks run on lane-specific schedulers and expose barriers per lane or across
+  all lanes.
+- Configuration is layered from defaults, host inputs, environment, local
+  override, command line, and runtime mutation.
 
 ## Observability
 
-- Uses `NGIN.Log` with categories:
-  - `Kernel`
-  - `ModuleLoader`
-  - `Services`
-  - `Events`
-  - `Tasks`
-  - `Config`
-  - `Plugin`
+The kernel reports startup warnings/failures through `StartupReport` and logs
+through `NGIN.Log` categories for kernel, module loading, services, events,
+tasks, config, and plugins.

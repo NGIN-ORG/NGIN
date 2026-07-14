@@ -1,35 +1,92 @@
 # NGIN.Core
 
-`NGIN.Core` is the optional hosted runtime package for NGIN applications. The
-tooling layer can build and stage plain native C++ applications without it; use
-`NGIN.Core` when an application wants a hosted startup model with services,
-configuration, modules, lifecycle, reflection hooks, and diagnostics.
+`NGIN.Core` is the optional hosted runtime package for NGIN applications. Plain
+native projects do not need it. Use it when an application wants a host with
+modules, services, configuration, lifecycle events, task lanes, logging, and
+dynamic plugin loading.
 
-The smallest runnable hosted example is
+## Hosted App Quickstart
+
+The common path is `ApplicationBuilder`:
+
+```cpp
+#include <NGIN/Core/Core.hpp>
+
+class StartupModule final : public NGIN::Core::IModule {
+public:
+  auto OnStart(NGIN::Core::ModuleContext& context) noexcept
+      -> NGIN::Core::CoreResult<void> override {
+    return context.RegisterSingletonValue<bool>("App.Ready", true);
+  }
+};
+
+int main(int argc, char** argv) {
+  auto builder = NGIN::Core::CreateApplicationBuilder(argc, argv);
+  builder->UseProjectFile("App.nginproj")
+      .SetApplicationName("App")
+      .AddDefaultServices()
+      .AddConfiguration()
+      .AddModule<StartupModule>("App.Startup");
+
+  auto app = builder->Build();
+  if (!app) {
+    return 1;
+  }
+  return app.Value()->Run().HasValue() ? 0 : 2;
+}
+```
+
+The smallest repository example is
 [`../../Examples/Hello.Hosted`](../../Examples/Hello.Hosted/README.md). It
-registers a real static module in C++ and selects it from the project manifest.
+loads staged config, registers a static module implementation, and lets the V4
+project manifest select that module.
 
-## Scope
+## Runtime Model
 
 `NGIN.Core` provides:
 
 - kernel lifecycle orchestration
-- module resolution and startup ordering
-- service registry
-- immediate and deferred event bus
+- static and dynamic module resolution
+- service registry with singleton, scoped, and transient lifetimes
+- immediate and deferred typed event bus
 - task runtime lanes
 - layered configuration store
-- static-first module loading with a path for later dynamic plugin integration
+- `NGIN.Log` integration
 
-## Main Include
+Static modules are registered directly from C++ with `AddModule<T>()` or
+`AddModule(name, options, factory)`. Dynamic modules are discovered from
+`.module.xml` / `.plugin-module.xml` descriptors and loaded from in-process
+plugin libraries that export a registrar function.
+
+## Dynamic Plugins
+
+Dynamic plugin descriptors name the runtime module plus the binary that can
+register its factory:
+
+```xml
+<Module Name="App.Plugin"
+        Library="App.Plugin.dll"
+        Registrar="NGIN_RegisterPlugin"
+        Version="0.1.0"
+        CompatiblePlatformRange=">=0.1.0 &lt;1.0.0" />
+```
+
+`Registrar` is optional and defaults to `NGIN_RegisterPlugin`. The exported
+function has this shape:
 
 ```cpp
-#include <NGIN/Core/Core.hpp>
+extern "C" NGIN::Core::CoreResult<void>
+NGIN_RegisterPlugin(NGIN::Core::IPluginModuleRegistry& registry);
 ```
+
+The registrar calls `registry.Register(moduleName, factory)`. The host keeps
+loaded plugin libraries alive for the kernel lifetime. Hot reload, sandboxing,
+signature verification, and cross-compiler ABI stability are outside the
+current contract.
 
 ## Build and Test
 
-From the repository root, the focused package verification flow is:
+From the repository root:
 
 ```bash
 cmake -S Packages/NGIN.Core -B build/ngin-core-ci \
@@ -39,24 +96,3 @@ cmake -S Packages/NGIN.Core -B build/ngin-core-ci \
 cmake --build build/ngin-core-ci --config Release --target NGINCoreTests
 ctest --test-dir build/ngin-core-ci --output-on-failure -C Release
 ```
-
-For local package development from inside `Packages/NGIN.Core`, a simple build
-tree also works:
-
-```bash
-cmake -S . -B build \
-  -DNGIN_CORE_BUILD_TESTS=ON \
-  -DNGIN_CORE_BUILD_EXAMPLES=ON
-cmake --build build
-ctest --test-dir build --output-on-failure
-```
-
-## Notes
-
-- `NGIN.Core` depends on `NGIN.Base` and `NGIN.Log`.
-- File access can be injected through `KernelHostConfig::fileSystem` or
-  `ApplicationBuilder::UseFileSystem(...)`; `LocalFileSystem` is the default.
-- `NGIN.Reflection` integration is optional.
-- Runtime/tooling boundaries are defined in
-  [`../../docs/specs/012-tooling-and-runtime-boundary.md`](../../docs/specs/012-tooling-and-runtime-boundary.md).
-- Migration notes live in [`docs/Migration.md`](docs/Migration.md).

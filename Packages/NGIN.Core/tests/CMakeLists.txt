@@ -95,6 +95,22 @@ if(TARGET NGIN.Core.BuildOptions)
   target_link_libraries(NGINCoreTests PRIVATE NGIN.Core.BuildOptions)
 endif()
 
+set(_ngin_core_dynamic_plugin_fixture_available OFF)
+if(WIN32 OR TARGET NGIN.Core.Shared)
+  add_library(NGINCoreDynamicPluginFixture SHARED DynamicPluginFixture.cpp)
+  target_compile_features(NGINCoreDynamicPluginFixture PRIVATE cxx_std_23)
+  target_link_libraries(NGINCoreDynamicPluginFixture PRIVATE NGIN::Core)
+  if(TARGET NGIN.Core.BuildOptions)
+    target_link_libraries(NGINCoreDynamicPluginFixture PRIVATE NGIN.Core.BuildOptions)
+  endif()
+  set_target_properties(NGINCoreDynamicPluginFixture PROPERTIES
+    OUTPUT_NAME "NGINCoreDynamicPluginFixture")
+  add_dependencies(NGINCoreTests NGINCoreDynamicPluginFixture)
+  target_compile_definitions(NGINCoreTests PRIVATE
+    NGIN_CORE_TEST_DYNAMIC_PLUGIN_PATH="$<TARGET_FILE:NGINCoreDynamicPluginFixture>")
+  set(_ngin_core_dynamic_plugin_fixture_available ON)
+endif()
+
 if(MSVC)
   target_compile_options(NGINCoreTests PRIVATE /W4 /permissive-)
 else()

@@ -345,6 +345,45 @@ struct ProjectManifest {
   std::vector<ProfileDefinition> profiles{};
 };
 
+struct ModuleOptions {
+  ModuleFamily family{ModuleFamily::App};
+  ModuleType type{ModuleType::Runtime};
+  StartupStage startupStage{StartupStage::Features};
+  SemanticVersion version{0, 1, 0, {}};
+  VersionRange compatiblePlatformRange{
+      SemanticVersion{0, 1, 0, {}}, SemanticVersion{1, 0, 0, {}}, true, false};
+  std::vector<std::string> operatingSystems{};
+  std::vector<std::string> architectures{};
+  std::vector<DependencyDescriptor> dependencies{};
+  std::vector<std::string> providesServices{};
+  std::vector<std::string> requiresServices{};
+  std::vector<std::string> capabilities{};
+  bool reflectionRequired{false};
+  NGIN::Int32 priority{0};
+};
+
+[[nodiscard]] inline auto MakeModuleDescriptor(std::string name,
+                                               const ModuleOptions &options = {})
+    -> ModuleDescriptor {
+  ModuleDescriptor descriptor{};
+  descriptor.name = std::move(name);
+  descriptor.family = options.family;
+  descriptor.type = options.type;
+  descriptor.version = options.version;
+  descriptor.compatiblePlatformRange = options.compatiblePlatformRange;
+  descriptor.operatingSystems = options.operatingSystems;
+  descriptor.architectures = options.architectures;
+  descriptor.dependencies = options.dependencies;
+  descriptor.startupStage = options.startupStage;
+  descriptor.entryKind = ModuleEntryKind::Static;
+  descriptor.providesServices = options.providesServices;
+  descriptor.requiresServices = options.requiresServices;
+  descriptor.reflectionRequired = options.reflectionRequired;
+  descriptor.capabilities = options.capabilities;
+  descriptor.priority = options.priority;
+  return descriptor;
+}
+
 class ServiceCollection {
 public:
   virtual ~ServiceCollection() = default;
@@ -590,9 +629,35 @@ public:
       -> ApplicationBuilder & = 0;
   virtual auto SetProfile(std::string profileName)
       -> ApplicationBuilder & = 0;
+  virtual auto AddConfigSource(std::string path) -> ApplicationBuilder & = 0;
+  virtual auto AddDefaultServices() -> ApplicationBuilder & = 0;
+  virtual auto AddLogging() -> ApplicationBuilder & = 0;
+  virtual auto AddConfiguration() -> ApplicationBuilder & = 0;
+  virtual auto AddPluginSearchPath(std::string path) -> ApplicationBuilder & = 0;
+  virtual auto EnableDynamicPlugins(bool enabled = true)
+      -> ApplicationBuilder & = 0;
+  virtual auto AddModule(std::string name, ModuleOptions options,
+                         ModuleFactory factory) -> ApplicationBuilder & = 0;
   virtual auto
   UseFileSystem(NGIN::Memory::Shared<NGIN::IO::IFileSystem> fileSystem)
       -> ApplicationBuilder & = 0;
+
+  auto AddModule(std::string name, ModuleFactory factory)
+      -> ApplicationBuilder & {
+    return AddModule(std::move(name), ModuleOptions{}, std::move(factory));
+  }
+
+  template <typename TModule>
+  auto AddModule(std::string name, ModuleOptions options = {})
+      -> ApplicationBuilder & {
+    static_assert(std::is_base_of_v<IModule, std::remove_cvref_t<TModule>>,
+                  "AddModule<TModule> requires TModule to derive from IModule");
+    return AddModule(
+        std::move(name), std::move(options),
+        []() -> CoreResult<NGIN::Memory::Shared<IModule>> {
+          return NGIN::Memory::MakeSharedAs<IModule, std::remove_cvref_t<TModule>>();
+        });
+  }
 
   [[nodiscard]] virtual auto Services() noexcept -> ServiceCollection & = 0;
   [[nodiscard]] virtual auto Packages() noexcept -> PackageCollection & = 0;

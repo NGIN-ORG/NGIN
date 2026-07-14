@@ -1,11 +1,15 @@
 #include <NGIN/Core/Loader.hpp>
 
+#include <NGIN/IO/DynamicLibrary.hpp>
 #include <NGIN/IO/FileSystemUtilities.hpp>
 #include <NGIN/IO/LocalFileSystem.hpp>
 #include <NGIN/Serialization/XML/XmlParser.hpp>
 
 #include <algorithm>
+#include <memory>
 #include <optional>
+#include <unordered_map>
+#include <utility>
 
 namespace NGIN::Core {
 namespace {
@@ -17,6 +21,17 @@ using XmlParser = NGIN::Serialization::XmlParser;
 
 [[nodiscard]] auto ToString(const NGIN::IO::Path &path) -> std::string {
   return std::string(path.View());
+}
+
+[[nodiscard]] auto ResolveDescriptorRelativePath(const std::string &filePath,
+                                                 const std::string &rawPath)
+    -> std::string {
+  NGIN::IO::Path path(rawPath);
+  if (!path.IsRelative()) {
+    return ToString(path.LexicallyNormal());
+  }
+
+  return ToString(NGIN::IO::Path(filePath).Parent().Join(path.View()).LexicallyNormal());
 }
 
 [[nodiscard]] auto ParseModuleType(const std::string_view text) -> ModuleType {
@@ -164,6 +179,15 @@ void ReadStringRefs(const XmlElement *element, const std::string_view childName,
 
   out.name = nameValue.value();
   out.entryKind = ModuleEntryKind::Dynamic;
+  out.pluginRegistrar = "NGIN_RegisterPlugin";
+
+  if (const auto library = Attribute(*root, "Library"); library.has_value()) {
+    out.pluginLibrary = ResolveDescriptorRelativePath(filePath, library.value());
+  }
+  if (const auto registrar = Attribute(*root, "Registrar");
+      registrar.has_value() && !registrar->empty()) {
+    out.pluginRegistrar = registrar.value();
+  }
 
   if (const auto family = Attribute(*root, "Family"); family.has_value()) {
     out.family = ParseModuleFamily(family.value());
@@ -299,6 +323,116 @@ auto StaticModuleCatalog::Snapshot() const
   return m_entries;
 }
 
+class PluginModuleRegistry final : public IPluginModuleRegistry {
+public:
+  auto Register(std::string moduleName,
+                ModuleFactory factory) noexcept -> CoreResult<void> override {
+    if (moduleName.empty()) {
+      return NGIN::Utilities::Unexpected<KernelError>(
+          MakeKernelError(KernelErrorCode::InvalidArgument, "Plugin", {},
+                          "plugin module registration name cannot be empty"));
+    }
+    if (!factory) {
+      return NGIN::Utilities::Unexpected<KernelError>(
+          MakeKernelError(KernelErrorCode::InvalidArgument, "Plugin",
+                          moduleName,
+                          "plugin module registration factory cannot be empty"));
+    }
+    if (factories.contains(moduleName)) {
+      return NGIN::Utilities::Unexpected<KernelError>(
+          MakeKernelError(KernelErrorCode::AlreadyExists, "Plugin",
+                          moduleName,
+                          "duplicate plugin module registration"));
+    }
+
+    factories.emplace(std::move(moduleName), std::move(factory));
+    return CoreResult<void>{};
+  }
+
+  std::unordered_map<std::string, ModuleFactory> factories{};
+};
+
+struct DynamicPluginBinaryLoader::Impl {
+  struct LoadedPlugin {
+    std::unique_ptr<NGIN::IO::DynamicLibrary> library{};
+    std::unordered_map<std::string, ModuleFactory> factories{};
+  };
+
+  std::unordered_map<std::string, LoadedPlugin> loadedByLibrary{};
+};
+
+DynamicPluginBinaryLoader::DynamicPluginBinaryLoader()
+    : m_impl(std::make_unique<Impl>()) {}
+
+DynamicPluginBinaryLoader::~DynamicPluginBinaryLoader() = default;
+
+DynamicPluginBinaryLoader::DynamicPluginBinaryLoader(
+    DynamicPluginBinaryLoader &&) noexcept = default;
+
+auto DynamicPluginBinaryLoader::operator=(
+    DynamicPluginBinaryLoader &&) noexcept -> DynamicPluginBinaryLoader & =
+    default;
+
+auto DynamicPluginBinaryLoader::LoadModuleFactory(
+    const ModuleDescriptor &descriptor) noexcept -> CoreResult<ModuleFactory> {
+  if (descriptor.pluginLibrary.empty()) {
+    return NGIN::Utilities::Unexpected<KernelError>(
+        MakeKernelError(KernelErrorCode::InvalidArgument, "Plugin",
+                        descriptor.name,
+                        "dynamic module descriptor missing Library"));
+  }
+  if (descriptor.pluginRegistrar.empty()) {
+    return NGIN::Utilities::Unexpected<KernelError>(
+        MakeKernelError(KernelErrorCode::InvalidArgument, "Plugin",
+                        descriptor.name,
+                        "dynamic module descriptor missing Registrar"));
+  }
+
+  try {
+    auto it = m_impl->loadedByLibrary.find(descriptor.pluginLibrary);
+    if (it == m_impl->loadedByLibrary.end()) {
+      auto library = std::make_unique<NGIN::IO::DynamicLibrary>(
+          descriptor.pluginLibrary, NGIN::IO::DynamicLibrary::LoadMode::Now);
+      const auto registrar =
+          library->Resolve<PluginRegistrarFn>(descriptor.pluginRegistrar);
+
+      PluginModuleRegistry registry{};
+      auto registered = registrar(registry);
+      if (!registered) {
+        return NGIN::Utilities::Unexpected<KernelError>(registered.Error());
+      }
+
+      Impl::LoadedPlugin loaded{};
+      loaded.library = std::move(library);
+      loaded.factories = std::move(registry.factories);
+      it = m_impl->loadedByLibrary.emplace(descriptor.pluginLibrary,
+                                           std::move(loaded))
+               .first;
+    }
+
+    const auto factoryIt = it->second.factories.find(descriptor.name);
+    if (factoryIt == it->second.factories.end()) {
+      return NGIN::Utilities::Unexpected<KernelError>(
+          MakeKernelError(KernelErrorCode::ModuleFactoryFailure, "Plugin",
+                          descriptor.name,
+                          "plugin registrar did not provide module factory"));
+    }
+    return factoryIt->second;
+  } catch (const NGIN::IO::DynamicLibraryError &error) {
+    return NGIN::Utilities::Unexpected<KernelError>(
+        MakeKernelError(KernelErrorCode::DynamicPluginUnsupported, "Plugin",
+                        descriptor.name, error.what()));
+  } catch (const std::exception &error) {
+    return NGIN::Utilities::Unexpected<KernelError>(
+        MakeKernelError(KernelErrorCode::InternalError, "Plugin",
+                        descriptor.name, error.what()));
+  } catch (...) {
+    return NGIN::Utilities::Unexpected<KernelError>(
+        MakeKernelError(KernelErrorCode::InternalError, "Plugin",
+                        descriptor.name, "dynamic plugin load failed"));
+  }
+}
+
 FilesystemPluginCatalog::FilesystemPluginCatalog(
     std::vector<std::string> searchPaths)
     : FilesystemPluginCatalog(
@@ -408,5 +542,11 @@ auto FilesystemPluginCatalog::CollectDescriptors(
 auto CreateStaticModuleCatalog() noexcept
     -> NGIN::Memory::Shared<IModuleCatalog> {
   return NGIN::Memory::MakeSharedAs<IModuleCatalog, StaticModuleCatalog>();
+}
+
+auto CreateDynamicPluginBinaryLoader() noexcept
+    -> NGIN::Memory::Shared<IPluginBinaryLoader> {
+  return NGIN::Memory::MakeSharedAs<IPluginBinaryLoader,
+                                    DynamicPluginBinaryLoader>();
 }
 } // namespace NGIN::Core

@@ -1,91 +1,16 @@
-# NGIN.Core Migration (Breaking Pass)
+# NGIN.Core Breaking API Notes
 
-This document summarizes the API-breaking hardening changes introduced in the Spec 001 + Spec 002 contract pass.
+This package is still pre-user and does not preserve legacy runtime APIs.
 
-## Service Registry
+The preferred hosted-app entry point is now `ApplicationBuilder` with direct
+methods such as `AddDefaultServices()`, `AddConfiguration()`,
+`AddModule<T>()`, `AddConfigSource()`, and `AddPluginSearchPath()`.
 
-- Replaced implicit service caching with explicit lifetimes:
-  - `ServiceLifetime::Singleton`
-  - `ServiceLifetime::Scoped`
-  - `ServiceLifetime::Transient`
-- Added explicit scope lifecycle:
-  - `BeginScope(ServiceScopeKind, owner)`
-  - `EndScope(ServiceScopeId)`
-- `RegisterFactory` now takes `ServiceRegistrationOptions` (lifetime + owner scope + metadata).
+Advanced collection APIs for services, packages, modules, plugins, and
+configuration remain available for package/bootstrap scenarios, but quickstart
+examples should use the direct builder methods.
 
-## Module Context
-
-- `ModuleContext` now exposes `ModuleScope()`.
-- Module helpers now register scoped providers through:
-  - `RegisterSingleton(...)`
-  - `RegisterFactory(..., ServiceLifetime, ...)`
-
-## Loader and Catalogs
-
-- Introduced per-kernel module catalog:
-  - `IModuleCatalog`
-  - `StaticModuleCatalog`
-- Removed process-global static module registration helpers; all hosts and tests now build explicit catalogs.
-
-## Host Config
-
-- Added and enforced:
-  - `platformVersion`
-  - `apiThreadPolicy`
-  - `configureServices(IServiceRegistry&)`
-  - `moduleCatalog`
-- Existing fields (`workingDirectory`, `configInputs`, `pluginSearchPaths`, `commandLineArgs`, `environmentName`, `schedulerPolicy.enableRenderLane`) are now applied during startup.
-
-## Events
-
-- Event bus API is now typed-first:
-  - `Subscribe<TEvent>(...)`
-  - `Publish(TEvent)`
-  - `Enqueue(TEvent)` / `EnqueueTo(...)`
-  - `Flush<TEvent>()` / `FlushFrom<TEvent>(...)`
-- Raw event operations remain available as an explicit escape hatch:
-  - `SubscribeRaw(...)`
-  - `PublishRawImmediate(...)`
-  - `EnqueueRaw(...)` / `EnqueueRawTo(...)`
-  - `FlushRaw(...)` / `FlushRawFrom(...)`
-- Added reserved event enum:
-  - `KernelStarting`, `KernelRunning`, `KernelStopping`
-  - `ModuleLoaded`, `ModuleStarted`, `ModuleFailed`
-  - `ConfigChanged`
-- Added typed reserved event payloads:
-  - `KernelStartingEvent`, `KernelRunningEvent`, `KernelStoppingEvent`
-  - `ModuleLoadedEvent`, `ModuleStartedEvent`, `ModuleFailedEvent`
-  - `ConfigChangeEvent`
-- Added deferred queue ownership:
-  - `EventQueue::{Main, IO, Worker, Background, Render}`
-  - `EnqueueRawTo(...)`
-  - `FlushRawFrom(...)`
-
-## Tasks
-
-- Task runtime now uses lane-specific schedulers.
-- `Barrier()` API changed to lane-aware form:
-  - `Barrier(TaskLane lane)`
-  - `BarrierAll()`
-- Added lane capability query:
-  - `IsLaneEnabled(TaskLane lane)`
-
-## Resolver Contract
-
-- Resolver now enforces descriptor `family` directly (no name-prefix inference).
-- Added enforcement for:
-  - `compatiblePlatformRange`
-  - dependency `requiredVersion`
-  - startup-stage ordering
-  - service contract preflight warnings + runtime required-service checks
-
-## Module Startup Metadata
-
-- `StartupStage` is now startup-order metadata only:
-  - `Foundation`
-  - `Platform`
-  - `Services`
-  - `Features`
-  - `Presentation`
-- Added explicit module host filtering through `SupportedHosts`.
-- Host applicability is no longer inferred from startup-order metadata.
+Dynamic plugin loading now requires descriptors to provide a `Library`
+attribute. Plugin libraries export a registrar, defaulting to
+`NGIN_RegisterPlugin`, that registers module factories through
+`IPluginModuleRegistry`.

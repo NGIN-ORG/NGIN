@@ -278,6 +278,14 @@ private:
   std::string m_key;
 };
 
+class BuilderFactoryModule final : public NGIN::Core::IModule {
+public:
+  auto OnStart(NGIN::Core::ModuleContext &context) noexcept
+      -> NGIN::Core::CoreResult<void> override {
+    return context.RegisterSingletonValue<bool>("Builder.Factory.Ready", true);
+  }
+};
+
 struct TestUserEvent {
   NGIN::UInt32 value{0};
 };
@@ -1033,6 +1041,7 @@ TEST_CASE("DynamicDescriptorDiscoveryUsesPluginSearchPaths",
   WriteTextFile(descriptorPath,
                 "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
                 "<Module Name=\"Core.DynamicDemo\"\n"
+                "        Library=\"missing-plugin-library\"\n"
                 "        Family=\"Core\"\n"
                 "        Type=\"Runtime\"\n"
                 "        StartupStage=\"Services\"\n"
@@ -1070,6 +1079,8 @@ TEST_CASE("DynamicDescriptorDiscoveryCanUseInjectedFilesystem",
   WriteTextFile(realRoot.Join("DemoPlugin").Join("demo.module.xml"),
                 "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
                 "<Module Name=\"Core.DynamicDemo.Virtual\"\n"
+                "        Library=\"virtual-plugin-library\"\n"
+                "        Registrar=\"NGIN_RegisterPluginCustom\"\n"
                 "        Family=\"Core\"\n"
                 "        Type=\"Runtime\"\n"
                 "        StartupStage=\"Services\"\n"
@@ -1102,8 +1113,186 @@ TEST_CASE("DynamicDescriptorDiscoveryCanUseInjectedFilesystem",
   REQUIRE(descriptors.size() == 1);
   REQUIRE(descriptors.front().name == "Core.DynamicDemo.Virtual");
   REQUIRE(descriptors.front().pluginName == "DemoPlugin");
+  REQUIRE(descriptors.front().pluginLibrary.find("virtual-plugin-library") !=
+          std::string::npos);
+  REQUIRE(descriptors.front().pluginRegistrar == "NGIN_RegisterPluginCustom");
   RemovePath(realRoot);
 }
+
+#if defined(NGIN_CORE_TEST_DYNAMIC_PLUGIN_PATH)
+TEST_CASE("DynamicPluginLoaderStartsRegisteredModule", "[runtime][plugin]") {
+  auto catalog = NGIN::Core::CreateStaticModuleCatalog();
+  REQUIRE(static_cast<bool>(catalog));
+
+  const auto root = MakeTempDir("ngin-runtime-tests-dynamic-plugin");
+  WriteTextFile(root.Join("DemoPlugin").Join("fixture.module.xml"),
+                "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+                "<Module Name=\"Core.DynamicFixture\"\n"
+                "        Library=\"" NGIN_CORE_TEST_DYNAMIC_PLUGIN_PATH "\"\n"
+                "        Family=\"Core\"\n"
+                "        Type=\"Runtime\"\n"
+                "        StartupStage=\"Services\"\n"
+                "        Version=\"0.1.0\"\n"
+                "        CompatiblePlatformRange=\">=0.1.0 &lt;1.0.0\">\n"
+                "  <Compatibility>\n"
+                "    <OperatingSystems>\n"
+                "      <OperatingSystem Name=\"linux\" />\n"
+                "      <OperatingSystem Name=\"windows\" />\n"
+                "      <OperatingSystem Name=\"macos\" />\n"
+                "    </OperatingSystems>\n"
+                "  </Compatibility>\n"
+                "  <ProvidesServices>\n"
+                "    <Service Name=\"Core.DynamicFixture.Ready\" />\n"
+                "  </ProvidesServices>\n"
+                "</Module>\n");
+
+  auto cfg = MakeHostConfig(catalog);
+  cfg.enableDynamicPlugins = true;
+  cfg.pluginSearchPaths = {ToString(root)};
+
+  auto kernel = NGIN::Core::CreateKernel(cfg).Value();
+  auto start = kernel->Start();
+  REQUIRE(start.HasValue());
+
+  auto ready =
+      kernel->GetServices()->ResolveRequired<bool>("Core.DynamicFixture.Ready");
+  REQUIRE(ready.HasValue());
+  REQUIRE(*ready.Value());
+  REQUIRE(kernel->Shutdown().HasValue());
+  RemovePath(root);
+}
+
+TEST_CASE("DynamicPluginLoaderReportsBinaryAndFactoryFailures",
+          "[runtime][plugin]") {
+  SECTION("Missing registrar symbol fails") {
+    auto catalog = NGIN::Core::CreateStaticModuleCatalog();
+    REQUIRE(static_cast<bool>(catalog));
+    const auto root = MakeTempDir("ngin-runtime-tests-plugin-missing-symbol");
+    WriteTextFile(root.Join("DemoPlugin").Join("fixture.module.xml"),
+                  "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+                  "<Module Name=\"Core.DynamicFixture\"\n"
+                  "        Library=\"" NGIN_CORE_TEST_DYNAMIC_PLUGIN_PATH "\"\n"
+                  "        Registrar=\"NGIN_MissingPluginRegistrar\"\n"
+                  "        Family=\"Core\"\n"
+                  "        Version=\"0.1.0\"\n"
+                  "        CompatiblePlatformRange=\">=0.1.0 &lt;1.0.0\" />\n");
+
+    auto cfg = MakeHostConfig(catalog);
+    cfg.enableDynamicPlugins = true;
+    cfg.pluginSearchPaths = {ToString(root)};
+    auto kernel = NGIN::Core::CreateKernel(cfg).Value();
+    auto start = kernel->Start();
+    REQUIRE_FALSE(start.HasValue());
+    REQUIRE(start.Error().code ==
+            NGIN::Core::KernelErrorCode::DynamicPluginUnsupported);
+    RemovePath(root);
+  }
+
+  SECTION("Registrar failure is surfaced") {
+    auto catalog = NGIN::Core::CreateStaticModuleCatalog();
+    REQUIRE(static_cast<bool>(catalog));
+    const auto root = MakeTempDir("ngin-runtime-tests-plugin-registrar-fails");
+    WriteTextFile(root.Join("DemoPlugin").Join("fixture.module.xml"),
+                  "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+                  "<Module Name=\"Core.DynamicFixture\"\n"
+                  "        Library=\"" NGIN_CORE_TEST_DYNAMIC_PLUGIN_PATH "\"\n"
+                  "        Registrar=\"NGIN_RegisterPluginFailing\"\n"
+                  "        Family=\"Core\"\n"
+                  "        Version=\"0.1.0\"\n"
+                  "        CompatiblePlatformRange=\">=0.1.0 &lt;1.0.0\" />\n");
+
+    auto cfg = MakeHostConfig(catalog);
+    cfg.enableDynamicPlugins = true;
+    cfg.pluginSearchPaths = {ToString(root)};
+    auto kernel = NGIN::Core::CreateKernel(cfg).Value();
+    auto start = kernel->Start();
+    REQUIRE_FALSE(start.HasValue());
+    REQUIRE(start.Error().code ==
+            NGIN::Core::KernelErrorCode::ModuleFactoryFailure);
+    RemovePath(root);
+  }
+
+  SECTION("Missing factory for descriptor fails") {
+    auto catalog = NGIN::Core::CreateStaticModuleCatalog();
+    REQUIRE(static_cast<bool>(catalog));
+    const auto root = MakeTempDir("ngin-runtime-tests-plugin-missing-factory");
+    WriteTextFile(root.Join("DemoPlugin").Join("fixture.module.xml"),
+                  "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+                  "<Module Name=\"Core.DynamicMissingFactory\"\n"
+                  "        Library=\"" NGIN_CORE_TEST_DYNAMIC_PLUGIN_PATH "\"\n"
+                  "        Family=\"Core\"\n"
+                  "        Version=\"0.1.0\"\n"
+                  "        CompatiblePlatformRange=\">=0.1.0 &lt;1.0.0\" />\n");
+
+    auto cfg = MakeHostConfig(catalog);
+    cfg.enableDynamicPlugins = true;
+    cfg.pluginSearchPaths = {ToString(root)};
+    auto kernel = NGIN::Core::CreateKernel(cfg).Value();
+    auto start = kernel->Start();
+    REQUIRE_FALSE(start.HasValue());
+    REQUIRE(start.Error().code ==
+            NGIN::Core::KernelErrorCode::ModuleFactoryFailure);
+    RemovePath(root);
+  }
+
+  SECTION("Duplicate static and dynamic module fails before loading") {
+    auto catalog = NGIN::Core::CreateStaticModuleCatalog();
+    REQUIRE(static_cast<bool>(catalog));
+    REQUIRE(RegisterModule(
+                catalog, MakeDescriptor("Core.DynamicFixture"),
+                []() -> NGIN::Core::CoreResult<
+                          NGIN::Memory::Shared<NGIN::Core::IModule>> {
+                  return NGIN::Memory::MakeSharedAs<NGIN::Core::IModule,
+                                                    HookModule>(
+                      "duplicate", nullptr, nullptr);
+                })
+                .HasValue());
+    const auto root = MakeTempDir("ngin-runtime-tests-plugin-duplicate");
+    WriteTextFile(root.Join("DemoPlugin").Join("fixture.module.xml"),
+                  "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+                  "<Module Name=\"Core.DynamicFixture\"\n"
+                  "        Library=\"" NGIN_CORE_TEST_DYNAMIC_PLUGIN_PATH "\"\n"
+                  "        Family=\"Core\"\n"
+                  "        Version=\"0.1.0\"\n"
+                  "        CompatiblePlatformRange=\">=0.1.0 &lt;1.0.0\" />\n");
+
+    auto cfg = MakeHostConfig(catalog);
+    cfg.enableDynamicPlugins = true;
+    cfg.pluginSearchPaths = {ToString(root)};
+    auto kernel = NGIN::Core::CreateKernel(cfg).Value();
+    auto start = kernel->Start();
+    REQUIRE_FALSE(start.HasValue());
+    REQUIRE(start.Error().code == NGIN::Core::KernelErrorCode::AlreadyExists);
+    RemovePath(root);
+  }
+
+  SECTION("Dynamic module dependency checks run before binary load") {
+    auto catalog = NGIN::Core::CreateStaticModuleCatalog();
+    REQUIRE(static_cast<bool>(catalog));
+    const auto root = MakeTempDir("ngin-runtime-tests-plugin-missing-dep");
+    WriteTextFile(root.Join("DemoPlugin").Join("fixture.module.xml"),
+                  "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+                  "<Module Name=\"Core.DynamicFixture\"\n"
+                  "        Library=\"" NGIN_CORE_TEST_DYNAMIC_PLUGIN_PATH "\"\n"
+                  "        Family=\"Core\"\n"
+                  "        Version=\"0.1.0\"\n"
+                  "        CompatiblePlatformRange=\">=0.1.0 &lt;1.0.0\">\n"
+                  "  <Dependencies>\n"
+                  "    <Dependency Name=\"Core.MissingDynamicDependency\" />\n"
+                  "  </Dependencies>\n"
+                  "</Module>\n");
+
+    auto cfg = MakeHostConfig(catalog);
+    cfg.enableDynamicPlugins = true;
+    cfg.pluginSearchPaths = {ToString(root)};
+    auto kernel = NGIN::Core::CreateKernel(cfg).Value();
+    auto start = kernel->Start();
+    REQUIRE_FALSE(start.HasValue());
+    REQUIRE(start.Error().code == NGIN::Core::KernelErrorCode::NotFound);
+    RemovePath(root);
+  }
+}
+#endif
 
 TEST_CASE("TaskLanesAndBarriersExecutePerLane", "[runtime][tasks]") {
   auto runtime = NGIN::Core::CreateTaskRuntime(2, true);
@@ -1449,6 +1638,68 @@ TEST_CASE("ThreadPoliciesAreEnforced", "[runtime][threading]") {
     REQUIRE(result.HasValue());
     REQUIRE(kernel->GetState() == NGIN::Core::KernelState::Shutdown);
   }
+}
+
+TEST_CASE("ApplicationBuilderRegistersStaticModuleWithSimpleApi",
+          "[builder][host]") {
+  class SimpleBuilderModule final : public NGIN::Core::IModule {
+  public:
+    auto OnStart(NGIN::Core::ModuleContext &context) noexcept
+        -> NGIN::Core::CoreResult<void> override {
+      return context.RegisterSingletonValue<bool>("Builder.Simple.Ready", true);
+    }
+  };
+
+  auto builder = NGIN::Core::CreateApplicationBuilder(0, nullptr);
+  builder->SetApplicationName("Builder.Simple")
+      .AddDefaultServices()
+      .AddConfiguration()
+      .AddModule<SimpleBuilderModule>("Builder.Simple.Module");
+
+  auto app = builder->Build();
+  REQUIRE(app.HasValue());
+  auto host = app.Value();
+  REQUIRE(host->Start().HasValue());
+
+  auto ready = host->GetServices()->ResolveRequired<bool>("Builder.Simple.Ready");
+  REQUIRE(ready.HasValue());
+  REQUIRE(*ready.Value());
+
+  auto report = host->GetStartupReport();
+  REQUIRE(ContainsString(report.resolvedModules, "Builder.Simple.Module"));
+  REQUIRE(host->Shutdown().HasValue());
+}
+
+TEST_CASE("ApplicationBuilderSimpleApiSupportsFactoryAndConfig",
+          "[builder][host]") {
+  const auto tempRoot = MakeTempDir("ngin-runtime-tests-builder-simple-api");
+  WriteTextFile(tempRoot.Join("app.cfg"), "Builder.Message=from_config\n");
+
+  auto builder = NGIN::Core::CreateApplicationBuilder(0, nullptr);
+  NGIN::Core::ModuleOptions options{};
+  options.providesServices = {"Builder.Factory.Ready"};
+  builder->SetApplicationName("Builder.Factory")
+      .AddConfiguration()
+      .AddConfigSource(ToString(tempRoot.Join("app.cfg")))
+      .AddModule(
+          "Builder.Factory.Module", options,
+          []() -> NGIN::Core::CoreResult<
+                    NGIN::Memory::Shared<NGIN::Core::IModule>> {
+            return NGIN::Memory::MakeSharedAs<NGIN::Core::IModule,
+                                              BuilderFactoryModule>();
+          });
+
+  auto app = builder->Build();
+  REQUIRE(app.HasValue());
+  auto host = app.Value();
+  REQUIRE(host->Start().HasValue());
+  REQUIRE(host->GetConfig()->GetRaw("Builder.Message").Value() ==
+          "from_config");
+  REQUIRE(host->GetServices()
+              ->ResolveRequired<bool>("Builder.Factory.Ready")
+              .HasValue());
+  REQUIRE(host->Shutdown().HasValue());
+  RemovePath(tempRoot);
 }
 
 TEST_CASE("ApplicationBuilderBuildsHostFromCode", "[builder][host]") {

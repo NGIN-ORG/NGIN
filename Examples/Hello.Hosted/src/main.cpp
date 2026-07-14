@@ -1,26 +1,9 @@
 #include <NGIN/Core/Core.hpp>
 
-#include <filesystem>
 #include <iostream>
 
 namespace
 {
-    [[nodiscard]] auto MakeDescriptor() -> NGIN::Core::ModuleDescriptor
-    {
-        using namespace NGIN::Core;
-
-        ModuleDescriptor descriptor {};
-        descriptor.name = "Hello.Hosted.Startup";
-        descriptor.family = ModuleFamily::App;
-        descriptor.type = ModuleType::Runtime;
-        descriptor.version = SemanticVersion {0, 1, 0, {}};
-        descriptor.compatiblePlatformRange = ParseVersionRange(">=0.1.0 <1.0.0").Value();
-        descriptor.operatingSystems = {"linux", "windows", "macos"};
-        descriptor.startupStage = StartupStage::Features;
-        descriptor.entryKind = ModuleEntryKind::Static;
-        return descriptor;
-    }
-
     class HostedCoreModule final : public NGIN::Core::IModule
     {
     public:
@@ -42,23 +25,12 @@ int main(int argc, char** argv)
 {
     using namespace NGIN::Core;
 
-    const auto exampleRoot = std::filesystem::path(HELLO_HOSTED_EXAMPLE_ROOT);
-    const auto projectPath = (exampleRoot / "Hello.Hosted.nginproj").lexically_normal();
-
     auto builder = CreateApplicationBuilder(argc, argv);
-    builder->UseProjectFile(projectPath.string());
-    builder->SetApplicationName("Hello.Hosted");
-    builder->Services()
-        .AddDefaults()
-        .AddConfiguration();
-    builder->Modules()
-        .Register(StaticModuleRegistration {
-            .descriptor = MakeDescriptor(),
-            .factory = []() -> CoreResult<NGIN::Memory::Shared<IModule>>
-            {
-                return NGIN::Memory::MakeSharedAs<IModule, HostedCoreModule>();
-            },
-        });
+    builder->SetApplicationName("Hello.Hosted")
+        .AddDefaultServices()
+        .AddConfiguration()
+        .AddConfigSource("config/app.cfg")
+        .AddModule<HostedCoreModule>("Hello.Hosted.Startup");
 
     auto app = builder->Build();
     if (!app)

@@ -7,15 +7,16 @@ application host.
 
 - The project builds through the same CLI workflow as `Hello.Native`.
 - `NGIN.Core` can load config selected from the project manifest.
-- C++ code registers a real static module implementation.
-- The manifest selects that registered module through `<Runtime>`.
+- C++ code registers a real static module implementation with
+  `ApplicationBuilder::AddModule<T>()`.
+- The manifest declares the hosted runtime module for tooling and graph output.
 - Starting the host runs the selected module and exposes a service.
 
 The important boundary is deliberate:
 
 ```text
 C++ registers module implementations.
-The manifest/profile selects which registered modules are active.
+The manifest/profile declares the runtime shape used by the CLI.
 ```
 
 ## Files To Read
@@ -55,6 +56,6 @@ Hello.Hosted completed successfully
 
 ## What This Does Not Show
 
-This example intentionally avoids dynamic plugins. It demonstrates static module
-registration plus manifest selection, which is the real hosted-runtime path
-currently used by the examples.
+This example intentionally avoids dynamic plugins. It demonstrates the
+recommended hosted-runtime starting point: static module registration, staged
+configuration, and CLI-owned project metadata.

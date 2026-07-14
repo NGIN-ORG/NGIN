@@ -580,6 +580,9 @@ private:
           NGIN::Memory::MakeSharedAs<IPluginCatalog, FilesystemPluginCatalog>(
               m_effectivePluginPaths, m_config.fileSystem);
     }
+    if (m_config.enableDynamicPlugins && !m_config.pluginBinaryLoader) {
+      m_config.pluginBinaryLoader = CreateDynamicPluginBinaryLoader();
+    }
 
     for (const auto &source : m_config.configInputs) {
       if (source.empty()) {
@@ -1086,10 +1089,12 @@ private:
               "dynamic module requires Spec 003 binary loader"));
         }
 
-        auto load = m_config.pluginBinaryLoader->LoadBinary(descriptor);
-        if (!load) {
-          return NGIN::Utilities::Unexpected<KernelError>(load.Error());
+        auto factory =
+            m_config.pluginBinaryLoader->LoadModuleFactory(descriptor);
+        if (!factory) {
+          return NGIN::Utilities::Unexpected<KernelError>(factory.Error());
         }
+        resolved.registration.factory = std::move(factory.Value());
       }
 
       if (!resolved.registration.factory) {

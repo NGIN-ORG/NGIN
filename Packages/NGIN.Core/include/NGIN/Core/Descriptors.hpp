@@ -55,6 +55,8 @@ namespace NGIN::Core
         StartupStage                      startupStage {StartupStage::Features};
         ModuleEntryKind                   entryKind {ModuleEntryKind::Static};
         std::string                       pluginName {};
+        std::string                       pluginLibrary {};
+        std::string                       pluginRegistrar {"NGIN_RegisterPlugin"};
         std::vector<std::string>          providesServices {};
         std::vector<std::string>          requiresServices {};
         bool                              reflectionRequired {false};

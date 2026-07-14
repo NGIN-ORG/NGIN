@@ -12,9 +12,6 @@
 
     <Build>
       <Sources Path="src/**.cpp" />
-
-      <Define Name="HELLO_HOSTED_EXAMPLE_ROOT"
-              Value="&quot;${ProjectDir}&quot;" />
     </Build>
 
     <Stage>
