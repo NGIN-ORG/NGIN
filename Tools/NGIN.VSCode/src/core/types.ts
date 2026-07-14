@@ -10,7 +10,6 @@ export interface WorkspaceManifest {
 }
 
 export interface SelectionDefaults {
-  buildType?: string;
   targetPlatform?: string;
   hostPlatform?: string;
   operatingSystem?: string;
@@ -40,7 +39,7 @@ export interface SelectorFields {
   platform?: string;
   operatingSystem?: string;
   architecture?: string;
-  buildType?: string;
+  toolchain?: string;
   environment?: string;
   condition?: string;
 }
@@ -112,7 +111,9 @@ export interface GeneratorDeclaration extends SelectorFields {
 export interface ProjectProfile {
   name: string;
   extends?: string;
-  buildType?: string;
+  optimization?: string;
+  debugSymbols?: boolean;
+  linkTimeOptimization?: boolean;
   platform?: string;
   targetPlatform?: string;
   hostPlatform?: string;
@@ -166,7 +167,7 @@ export interface InputDeclaration {
   platform?: string;
   operatingSystem?: string;
   architecture?: string;
-  buildType?: string;
+  toolchain?: string;
   environment?: string;
   condition?: string;
   include?: string[];
@@ -211,7 +212,10 @@ export interface LaunchManifest {
   project: string;
   profile: string;
   type?: string;
-  buildType?: string;
+  optimization?: string;
+  debugSymbols?: boolean;
+  linkTimeOptimization?: boolean;
+  backendConfiguration?: string;
   platform?: string;
   operatingSystem?: string;
   architecture?: string;
@@ -557,7 +561,6 @@ export interface CompositionGraphPayload {
   properties?: GraphProperty[];
   selection?: {
     profile?: string;
-    buildType?: string;
     platform?: string;
     targetPlatform?: string;
     hostPlatform?: string;

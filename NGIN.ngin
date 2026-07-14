@@ -49,7 +49,9 @@
   <Profiles>
     <Profile Name="dev">
       <Defaults>
-        <BuildType Name="Debug" />
+        <Optimization Mode="Off" />
+        <DebugSymbols Enabled="true" />
+        <LinkTimeOptimization Enabled="false" />
         <Environment Name="development" />
       </Defaults>
     </Profile>

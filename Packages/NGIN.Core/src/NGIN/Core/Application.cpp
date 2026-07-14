@@ -495,7 +495,7 @@ namespace NGIN::Core
       descriptor.platform = Attribute(element, "Platform").value_or("");
       descriptor.operatingSystem = Attribute(element, "OperatingSystem").value_or("");
       descriptor.architecture = Attribute(element, "Architecture").value_or("");
-      descriptor.buildType = Attribute(element, "BuildType").value_or("");
+      descriptor.toolchain = Attribute(element, "Toolchain").value_or("");
       descriptor.environment = Attribute(element, "Environment").value_or("");
       descriptor.condition = Attribute(element, "Condition").value_or("");
 
@@ -651,7 +651,7 @@ namespace NGIN::Core
           .platform = Attribute(element, "Platform").value_or(""),
           .operatingSystem = Attribute(element, "OperatingSystem").value_or(""),
           .architecture = Attribute(element, "Architecture").value_or(""),
-          .buildType = Attribute(element, "BuildType").value_or(""),
+          .toolchain = Attribute(element, "Toolchain").value_or(""),
           .environment = Attribute(element, "Environment").value_or(""),
           .condition = Attribute(element, "Condition").value_or(""),
       };
@@ -682,7 +682,7 @@ namespace NGIN::Core
       reference.platform = Attribute(element, "Platform").value_or("");
       reference.operatingSystem = Attribute(element, "OperatingSystem").value_or("");
       reference.architecture = Attribute(element, "Architecture").value_or("");
-      reference.buildType = Attribute(element, "BuildType").value_or("");
+      reference.toolchain = Attribute(element, "Toolchain").value_or("");
       reference.environment = Attribute(element, "Environment").value_or("");
       reference.condition = Attribute(element, "Condition").value_or("");
 
@@ -697,7 +697,7 @@ namespace NGIN::Core
       node.platform = Attribute(element, "Platform").value_or("");
       node.operatingSystem = Attribute(element, "OperatingSystem").value_or("");
       node.architecture = Attribute(element, "Architecture").value_or("");
-      node.buildType = Attribute(element, "BuildType").value_or("");
+      node.toolchain = Attribute(element, "Toolchain").value_or("");
       node.environment = Attribute(element, "Environment").value_or("");
       return node;
     }
@@ -743,7 +743,7 @@ namespace NGIN::Core
         condition.body = ReadConditionMatch(*conditionElement);
         if (condition.body.profile.empty() && condition.body.platform.empty() &&
             condition.body.operatingSystem.empty() && condition.body.architecture.empty() &&
-            condition.body.buildType.empty() && condition.body.environment.empty())
+            condition.body.toolchain.empty() && condition.body.environment.empty())
         {
           for (const auto *child : ChildElements(*conditionElement))
           {
@@ -774,7 +774,7 @@ namespace NGIN::Core
               condition.operatingSystem == profile.operatingSystem) &&
              (condition.architecture.empty() ||
               condition.architecture == profile.architecture) &&
-             (condition.buildType.empty() || condition.buildType == profile.buildType) &&
+             (condition.toolchain.empty() || condition.toolchain == profile.toolchain) &&
              (condition.environment.empty() ||
               condition.environment == profile.environmentName);
     }
@@ -790,10 +790,11 @@ namespace NGIN::Core
         const ProfileDefinition &profile) -> bool
     {
       if (name.empty()) { return true; }
-      if (name == "Debug") { return profile.buildType == "Debug"; }
-      if (name == "Release") { return profile.buildType == "Release"; }
-      if (name == "RelWithDebInfo") { return profile.buildType == "RelWithDebInfo"; }
-      if (name == "MinSizeRel") { return profile.buildType == "MinSizeRel"; }
+      if (name == "Debug" || name == "Release" ||
+          name == "RelWithDebInfo" || name == "MinSizeRel")
+      {
+        return profile.name == name;
+      }
       if (name == "Windows") { return profile.operatingSystem == "windows"; }
       if (name == "Linux") { return profile.operatingSystem == "linux"; }
       if (name == "MacOS") { return profile.operatingSystem == "macos"; }
@@ -862,7 +863,7 @@ namespace NGIN::Core
              (value.platform.empty() || value.platform == profile.platform) &&
              (value.operatingSystem.empty() || value.operatingSystem == profile.operatingSystem) &&
              (value.architecture.empty() || value.architecture == profile.architecture) &&
-             (value.buildType.empty() || value.buildType == profile.buildType) &&
+             (value.toolchain.empty() || value.toolchain == profile.toolchain) &&
              (value.environment.empty() || value.environment == profile.environmentName) &&
              NamedConditionMatches(value.condition, conditions, profile);
     }
@@ -877,7 +878,7 @@ namespace NGIN::Core
               reference.operatingSystem == profile.operatingSystem) &&
              (reference.architecture.empty() ||
               reference.architecture == profile.architecture) &&
-             (reference.buildType.empty() || reference.buildType == profile.buildType) &&
+             (reference.toolchain.empty() || reference.toolchain == profile.toolchain) &&
              (reference.environment.empty() ||
               reference.environment == profile.environmentName) &&
              NamedConditionMatches(reference.condition, conditions, profile);
@@ -908,7 +909,7 @@ namespace NGIN::Core
       tool.platform = Attribute(element, "Platform").value_or("");
       tool.operatingSystem = Attribute(element, "OperatingSystem").value_or("");
       tool.architecture = Attribute(element, "Architecture").value_or("");
-      tool.buildType = Attribute(element, "BuildType").value_or("");
+      tool.toolchain = Attribute(element, "Toolchain").value_or("");
       tool.environment = Attribute(element, "Environment").value_or("");
       tool.condition = Attribute(element, "Condition").value_or("");
       if (Attribute(element, "BuiltIn").has_value())
@@ -1421,6 +1422,65 @@ namespace NGIN::Core
       productEnvironment.name = "development";
       parseEnvironmentInto(*product, productEnvironment);
 
+      auto parseProfileTraits = [&](const XmlElement &owner,
+                                    ProfileDefinition &profile,
+                                    const std::string &context)
+          -> CoreResult<void>
+      {
+        for (const auto *node : ChildElements(owner))
+        {
+          if (node->name == "Optimization")
+          {
+            auto mode = RequireAttribute(*node, "Mode", context + ".Optimization");
+            if (!mode)
+            {
+              return NGIN::Utilities::Unexpected<KernelError>(mode.Error());
+            }
+            if (mode.Value() != "Off" && mode.Value() != "Speed" &&
+                mode.Value() != "Size")
+            {
+              return NGIN::Utilities::Unexpected<KernelError>(MakeBuilderError(
+                  context + " uses unsupported optimization mode", mode.Value(),
+                  KernelErrorCode::SchemaValidationFailure));
+            }
+            profile.optimization = mode.Value();
+          }
+          else if (node->name == "DebugSymbols" ||
+                   node->name == "LinkTimeOptimization")
+          {
+            const auto traitContext = context + "." + std::string{node->name};
+            auto enabled = RequireAttribute(*node, "Enabled", traitContext);
+            if (!enabled)
+            {
+              return NGIN::Utilities::Unexpected<KernelError>(enabled.Error());
+            }
+            auto parsed = ParseBoolValue(enabled.Value(), traitContext);
+            if (!parsed)
+            {
+              return NGIN::Utilities::Unexpected<KernelError>(parsed.Error());
+            }
+            if (node->name == "DebugSymbols")
+            {
+              profile.debugSymbols = parsed.Value();
+            }
+            else
+            {
+              profile.linkTimeOptimization = parsed.Value();
+            }
+          }
+          else if (node->name == "Toolchain")
+          {
+            auto name = RequireAttribute(*node, "Name", context + ".Toolchain");
+            if (!name)
+            {
+              return NGIN::Utilities::Unexpected<KernelError>(name.Error());
+            }
+            profile.toolchain = name.Value();
+          }
+        }
+        return CoreResult<void>{};
+      };
+
       std::unordered_map<std::string, std::size_t> profileIndexes{};
       for (const auto *profileElement : ChildElements(*root, "Profile"))
       {
@@ -1451,13 +1511,14 @@ namespace NGIN::Core
         }
         if (const auto *defaults = FindChild(*profileElement, "Defaults"))
         {
+          auto parsedTraits = parseProfileTraits(*defaults, profile, "project.Profile.Defaults");
+          if (!parsedTraits)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(parsedTraits.Error());
+          }
           for (const auto *node : ChildElements(*defaults))
           {
-            if (node->name == "BuildType")
-            {
-              profile.buildType = Attribute(*node, "Name").value_or(profile.buildType);
-            }
-            else if (node->name == "Environment")
+            if (node->name == "Environment")
             {
               profile.environmentName =
                   Attribute(*node, "Name").value_or(profile.environmentName);
@@ -1471,6 +1532,16 @@ namespace NGIN::Core
         }
         if (const auto *overlayProduct = FindChild(*profileElement, product->name))
         {
+          if (const auto *build = FindChild(*overlayProduct, "Build"))
+          {
+            auto parsedTraits = parseProfileTraits(
+                *build, profile,
+                "project.Profile." + std::string(product->name) + ".Build");
+            if (!parsedTraits)
+            {
+              return NGIN::Utilities::Unexpected<KernelError>(parsedTraits.Error());
+            }
+          }
           auto overlayBuild = parseBuild(*overlayProduct, profile.inputs,
                                          manifest.build,
                                          "project.Profile." + std::string(product->name));
@@ -1984,7 +2055,7 @@ namespace NGIN::Core
           feature.platform = Attribute(*featureElement, "Platform").value_or("");
           feature.operatingSystem = Attribute(*featureElement, "OperatingSystem").value_or("");
           feature.architecture = Attribute(*featureElement, "Architecture").value_or("");
-          feature.buildType = Attribute(*featureElement, "BuildType").value_or("");
+          feature.toolchain = Attribute(*featureElement, "Toolchain").value_or("");
           feature.environment = Attribute(*featureElement, "Environment").value_or("");
           feature.condition = Attribute(*featureElement, "Condition").value_or("");
           if (!featureNames.insert(feature.name).second)
@@ -3269,7 +3340,7 @@ namespace NGIN::Core
                   input.operatingSystem == profile.operatingSystem) &&
                  (input.architecture.empty() ||
                   input.architecture == profile.architecture) &&
-                 (input.buildType.empty() || input.buildType == profile.buildType) &&
+                 (input.toolchain.empty() || input.toolchain == profile.toolchain) &&
                  (input.environment.empty() ||
                   input.environment == profile.environmentName) &&
                  NamedConditionMatches(input.condition, conditions, profile);

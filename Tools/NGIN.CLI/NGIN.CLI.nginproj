@@ -28,7 +28,9 @@
 
   <Profile Name="Release.Linux">
     <Defaults>
-      <BuildType Name="Release" />
+      <Optimization Mode="Speed" />
+      <DebugSymbols Enabled="false" />
+      <LinkTimeOptimization Enabled="false" />
       <TargetPlatform Name="linux-x64" />
       <Environment Name="shipping" />
     </Defaults>
@@ -87,7 +89,9 @@
 
   <Profile Name="Release.Windows">
     <Defaults>
-      <BuildType Name="Release" />
+      <Optimization Mode="Speed" />
+      <DebugSymbols Enabled="false" />
+      <LinkTimeOptimization Enabled="false" />
       <TargetPlatform Name="windows-x64" />
       <Environment Name="shipping" />
     </Defaults>

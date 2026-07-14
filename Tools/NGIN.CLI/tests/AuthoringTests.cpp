@@ -121,7 +121,9 @@ TEST_CASE("workspace, project, and package manifests parse through authoring "
   </Application>
   <Profile Name="Runtime">
     <Defaults>
-      <BuildType Name="Debug" />
+      <Optimization Mode="Off" />
+      <DebugSymbols Enabled="true" />
+      <LinkTimeOptimization Enabled="false" />
       <TargetPlatform Name="linux-x64" />
       <Environment Name="dev" />
     </Defaults>
@@ -153,7 +155,7 @@ TEST_CASE("conditions support When nodes and item selectors") {
     <Condition Name="linux-debug">
       <All>
         <When OperatingSystem="linux" />
-        <When BuildType="Debug" />
+        <When Profile="dev" />
       </All>
     </Condition>
   </Conditions>
@@ -178,6 +180,69 @@ TEST_CASE("conditions support When nodes and item selectors") {
           1);
   REQUIRE(project.build.compileDefinitions[0].selectors.conditionRefs[0] ==
           "linux-debug");
+}
+
+TEST_CASE("profile build traits derive backend configuration and toolchain options") {
+  TempDir temp{};
+  const auto projectPath = temp.path() / "Traits.App.nginproj";
+  WriteFile(projectPath,
+            R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4" Name="Traits.App" DefaultProfile="clang-asan">
+  <Application>
+    <Build>
+      <Sources Path="src/**.cpp" />
+    </Build>
+  </Application>
+  <Profile Name="clang-asan">
+    <Defaults>
+      <Toolchain Name="clang" />
+    </Defaults>
+    <Application>
+      <Build>
+        <Optimization Mode="Off" />
+        <DebugSymbols Enabled="true" />
+        <LinkTimeOptimization Enabled="false" />
+        <CompileOption Value="-fsanitize=address" Toolchain="clang" />
+        <CompileOption Value="/fsanitize=address" Toolchain="msvc" />
+        <LinkOption Value="-fsanitize=address" Toolchain="clang" />
+      </Build>
+    </Application>
+  </Profile>
+</Project>
+)xml");
+
+  const auto project = LoadProjectManifest(projectPath);
+  const auto &profile = ProfileByName(project, "clang-asan");
+  REQUIRE(profile.optimization == "Off");
+  REQUIRE(profile.debugSymbols);
+  REQUIRE_FALSE(profile.linkTimeOptimization);
+  REQUIRE(BackendConfiguration(profile) == "Debug");
+
+  const auto compileOptions = EffectiveBuildSettings(
+      project, profile, project.build.compileOptions, "CompileOption");
+  REQUIRE(compileOptions.size() == 1);
+  REQUIRE(compileOptions[0].value == "-fsanitize=address");
+  const auto linkOptions = EffectiveBuildSettings(
+      project, profile, project.build.linkOptions, "LinkOption");
+  REQUIRE(linkOptions.size() == 1);
+  REQUIRE(linkOptions[0].value == "-fsanitize=address");
+}
+
+TEST_CASE("unknown optimization mode is rejected") {
+  TempDir temp{};
+  const auto projectPath = temp.path() / "InvalidOptimization.nginproj";
+  WriteFile(projectPath,
+            R"xml(<Project SchemaVersion="4" Name="InvalidOptimization">
+  <Application>
+    <Build>
+      <Optimization Mode="Maximum" />
+    </Build>
+  </Application>
+</Project>
+)xml");
+
+  REQUIRE_THROWS_WITH(LoadProjectManifest(projectPath),
+                      ContainsSubstring("unknown optimization mode 'Maximum'"));
 }
 
 TEST_CASE("package manifest parses product exports and feature contributions") {

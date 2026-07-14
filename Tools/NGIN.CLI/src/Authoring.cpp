@@ -73,7 +73,7 @@ namespace NGIN::CLI
         [[nodiscard]] auto IsSelectorAttribute(const std::string_view name) -> bool
         {
             return name == "Profile" || name == "Platform" || name == "OperatingSystem" || name == "Architecture" ||
-                   name == "BuildType" || name == "Environment";
+                   name == "Toolchain" || name == "Environment";
         }
 
         [[nodiscard]] auto IsValidManifestIdentifier(const std::string_view value) -> bool
@@ -158,14 +158,14 @@ namespace NGIN::CLI
                 }
                 selectors.architecture = *value;
             }
-            const auto buildTypeSelector = Attribute(node, "BuildType").value_or("");
-            if (!buildTypeSelector.empty())
+            const auto toolchainSelector = Attribute(node, "Toolchain").value_or("");
+            if (!toolchainSelector.empty())
             {
-                if (!IsSupportedBuildType(buildTypeSelector))
+                if (!IsValidManifestIdentifier(toolchainSelector))
                 {
-                    throw std::runtime_error(path.string() + ": unknown build type '" + buildTypeSelector + "'");
+                    throw std::runtime_error(path.string() + ": invalid toolchain selector '" + toolchainSelector + "'");
                 }
-                selectors.buildType = buildTypeSelector;
+                selectors.toolchain = toolchainSelector;
             }
             if (const auto value = Attribute(node, "Environment"); value.has_value() && !value->empty())
             {
@@ -216,7 +216,7 @@ namespace NGIN::CLI
             MergeStringSelector(left.platform, right.platform, left.impossible);
             MergeStringSelector(left.operatingSystem, right.operatingSystem, left.impossible);
             MergeStringSelector(left.architecture, right.architecture, left.impossible);
-            MergeStringSelector(left.buildType, right.buildType, left.impossible);
+            MergeStringSelector(left.toolchain, right.toolchain, left.impossible);
             MergeStringSelector(left.environment, right.environment, left.impossible);
             left.conditionRefs.insert(left.conditionRefs.end(), right.conditionRefs.begin(), right.conditionRefs.end());
             return left;
@@ -796,7 +796,7 @@ namespace NGIN::CLI
             ValidateAllowedAttributes(node, path,
                                       {"Path", "Include", "Exclude", "BasePath", "Name", "Visibility", "Target",
                                        "TargetRoot", "ContentKind", "Required", "Override", "Profile", "Platform",
-                                       "OperatingSystem", "Architecture", "BuildType", "Environment", "Condition"});
+                                       "OperatingSystem", "Architecture", "Toolchain", "Environment", "Condition"});
             InputDeclaration input = base;
             input.path.clear();
             input.pattern.clear();
@@ -831,7 +831,7 @@ namespace NGIN::CLI
             ValidateAllowedAttributes(node, path,
                                       {"Name", "Role", "Path", "Include", "Exclude", "BasePath", "Visibility",
                                        "TargetRoot", "ContentKind", "Required", "Profile", "Platform",
-                                       "OperatingSystem", "Architecture", "BuildType", "Environment", "Condition"});
+                                       "OperatingSystem", "Architecture", "Toolchain", "Environment", "Condition"});
             auto base = TypedBlockBase(node, path);
             if (const auto blockInput = InputFromBlockAttributes(base); blockInput.has_value())
             {
@@ -959,7 +959,7 @@ namespace NGIN::CLI
         {
             ValidateAllowedAttributes(node, path,
                                       {"Name", "Kind", "Executable", "Profile", "Platform", "OperatingSystem",
-                                       "Architecture", "BuildType", "Environment", "Condition"});
+                                       "Architecture", "Toolchain", "Environment", "Condition"});
             ToolDeclaration tool{};
             if (requireName)
             {
@@ -1000,7 +1000,7 @@ namespace NGIN::CLI
             ValidateAllowedAttributes(node, path,
                                       {"Name", "Role", "Path", "Visibility", "Target", "TargetRoot", "ContentKind",
                                        "Required", "Profile", "Platform", "OperatingSystem", "Architecture",
-                                       "BuildType", "Environment", "Condition"});
+                                       "Toolchain", "Environment", "Condition"});
             InputDeclaration output{};
             output.kind = "Generated";
             output.role = RequireAttribute(node, "Role", path);
@@ -1035,7 +1035,7 @@ namespace NGIN::CLI
             {
                 ValidateAllowedAttributes(*node, path,
                                           {"Name", "Kind", "Package", "Tool", "Profile", "Platform", "OperatingSystem",
-                                           "Architecture", "BuildType", "Environment", "Condition"});
+                                           "Architecture", "Toolchain", "Environment", "Condition"});
                 GeneratorDeclaration generator{};
                 generator.name = RequireAttribute(*node, "Name", path);
                 generator.kind = RequireAttribute(*node, "Kind", path);
@@ -1070,7 +1070,7 @@ namespace NGIN::CLI
                     {
                         ValidateAllowedAttributes(*arg, path,
                                                   {"Value", "Path", "Profile", "Platform", "OperatingSystem",
-                                                   "Architecture", "BuildType", "Environment", "Condition"});
+                                                   "Architecture", "Toolchain", "Environment", "Condition"});
                         GeneratorArgument argument{};
                         argument.value = Attribute(*arg, "Value").value_or("");
                         argument.path = Attribute(*arg, "Path").value_or("");
@@ -1112,7 +1112,7 @@ namespace NGIN::CLI
             const auto parseRuntimeRef = [&](const XmlElement &node) -> RuntimeReference {
                 ValidateAllowedAttributes(node, path,
                                           {"Name", "Profile", "Platform", "OperatingSystem", "Architecture",
-                                           "BuildType", "Environment", "Condition"});
+                                           "Toolchain", "Environment", "Condition"});
                 RuntimeReference ref{};
                 ref.name = RequireAttribute(node, "Name", path);
                 ref.selectors = ParseSelection(node, path);
@@ -1299,7 +1299,7 @@ namespace NGIN::CLI
             ValidateAllowedAttributes(node, path,
                                       {"Name", "Family", "Type", "StartupStage", "Version", "CompatiblePlatformRange",
                                        "ReflectionRequired", "Profile", "Platform", "OperatingSystem", "Architecture",
-                                       "BuildType", "Environment", "Condition"});
+                                       "Toolchain", "Environment", "Condition"});
             ModuleDescriptor module{};
             module.name = RequireAttribute(node, "Name", path);
             module.family = Attribute(node, "Family").value_or("App");
@@ -1388,7 +1388,7 @@ namespace NGIN::CLI
             if (node.name == "Match" || node.name == "When")
             {
                 ValidateAllowedAttributes(
-                    node, path, {"Profile", "Platform", "OperatingSystem", "Architecture", "BuildType", "Environment"});
+                    node, path, {"Profile", "Platform", "OperatingSystem", "Architecture", "Toolchain", "Environment"});
                 if (!HasSelectorAttributes(node))
                 {
                     throw std::runtime_error(path.string() + ": <" + std::string(node.name) +
@@ -1450,7 +1450,7 @@ namespace NGIN::CLI
             }
 
             std::vector<std::string_view> allowedAttributes{
-                "Name", "Profile", "Platform", "OperatingSystem", "Architecture", "BuildType", "Environment"};
+                "Name", "Profile", "Platform", "OperatingSystem", "Architecture", "Toolchain", "Environment"};
             ValidateAllowedAttributes(node, path, allowedAttributes);
 
             const auto hasSelectors = HasSelectorAttributes(node);
@@ -1535,7 +1535,7 @@ namespace NGIN::CLI
                                           const std::optional<std::string> &platform = {},
                                           const std::optional<std::string> &operatingSystem = {},
                                           const std::optional<std::string> &architecture = {},
-                                          const std::optional<std::string> &buildType = {},
+                                          const std::optional<std::string> &toolchain = {},
                                           const std::optional<std::string> &environment = {}) -> ConditionDefinition
         {
             ConditionDefinition condition{};
@@ -1548,7 +1548,7 @@ namespace NGIN::CLI
             condition.body.match.platform = platform;
             condition.body.match.operatingSystem = operatingSystem;
             condition.body.match.architecture = architecture;
-            condition.body.match.buildType = buildType;
+            condition.body.match.toolchain = toolchain;
             condition.body.match.environment = environment;
             return condition;
         }
@@ -1828,7 +1828,7 @@ namespace NGIN::CLI
 
                 ValidateAllowedAttributes(*node, path,
                                           {"Name", "DisplayName", "Description", "Action", "Enabled", "Profile",
-                                           "Platform", "OperatingSystem", "Architecture", "BuildType", "Environment",
+                                           "Platform", "OperatingSystem", "Architecture", "Toolchain", "Environment",
                                            "Condition"});
                 ToolRunDefinition run{};
                 run.name = RequireAttribute(*node, "Name", path);
@@ -2067,7 +2067,7 @@ namespace NGIN::CLI
             {
                 ValidateAllowedAttributes(*node, path,
                                           {"Name", "Description", "Profile", "Platform", "OperatingSystem",
-                                           "Architecture", "BuildType", "Environment", "Condition"});
+                                           "Architecture", "Toolchain", "Environment", "Condition"});
                 PackageManifest::Feature feature{};
                 feature.name = RequireAttribute(*node, "Name", path);
                 feature.description = Attribute(*node, "Description").value_or("");
@@ -2106,7 +2106,7 @@ namespace NGIN::CLI
                         }
                         ValidateAllowedAttributes(*dependency, path,
                                                   {"Name", "Version", "VersionRange", "Optional", "Scope", "Profile",
-                                                   "Platform", "OperatingSystem", "Architecture", "BuildType",
+                                                   "Platform", "OperatingSystem", "Architecture", "Toolchain",
                                                    "Environment", "Condition"});
                         PackageReference reference{};
                         reference.name = RequireAttribute(*dependency, "Name", path);
@@ -2428,7 +2428,7 @@ namespace NGIN::CLI
             {
                 return false;
             }
-            if (selectors.buildType.has_value() && *selectors.buildType != profile.buildType)
+            if (selectors.toolchain.has_value() && *selectors.toolchain != profile.toolchain)
             {
                 return false;
             }
@@ -2481,9 +2481,22 @@ namespace NGIN::CLI
         }
     } // namespace
 
-    [[nodiscard]] auto IsSupportedBuildType(std::string_view value) -> bool
+    [[nodiscard]] auto IsSupportedOptimizationMode(std::string_view value) -> bool
     {
-        return value == "Debug" || value == "Release" || value == "RelWithDebInfo" || value == "MinSizeRel";
+        return value == "Off" || value == "Speed" || value == "Size";
+    }
+
+    [[nodiscard]] auto BackendConfiguration(const ProfileDefinition &profile) -> std::string
+    {
+        if (profile.optimization == "Off" && profile.debugSymbols)
+        {
+            return "Debug";
+        }
+        if (profile.optimization == "Size" && !profile.debugSymbols)
+        {
+            return "MinSizeRel";
+        }
+        return profile.debugSymbols ? "RelWithDebInfo" : "Release";
     }
 
     [[nodiscard]] auto IsSupportedProjectBuildMode(std::string_view value) -> bool
@@ -2517,10 +2530,10 @@ namespace NGIN::CLI
     [[nodiscard]] auto BuiltinConditions() -> std::vector<ConditionDefinition>
     {
         return {
-            MatchCondition("Debug", {}, {}, {}, {}, "Debug"),
-            MatchCondition("Release", {}, {}, {}, {}, "Release"),
-            MatchCondition("RelWithDebInfo", {}, {}, {}, {}, "RelWithDebInfo"),
-            MatchCondition("MinSizeRel", {}, {}, {}, {}, "MinSizeRel"),
+            MatchCondition("Debug", "Debug"),
+            MatchCondition("Release", "Release"),
+            MatchCondition("RelWithDebInfo", "RelWithDebInfo"),
+            MatchCondition("MinSizeRel", "MinSizeRel"),
             MatchCondition("Windows", {}, {}, "windows"),
             MatchCondition("Linux", {}, {}, "linux"),
             MatchCondition("MacOS", {}, {}, "macos"),
@@ -2679,14 +2692,24 @@ namespace NGIN::CLI
     {
         for (const auto *node : ChildElements(defaultsNode))
         {
-            if (node->name == "BuildType")
+            if (node->name == "Optimization")
             {
-                const auto value = RequireAttribute(*node, "Name", path);
-                if (!IsSupportedBuildType(value))
+                const auto value = RequireAttribute(*node, "Mode", path);
+                if (!IsSupportedOptimizationMode(value))
                 {
-                    throw std::runtime_error(path.string() + ": unknown build type '" + value + "'");
+                    throw std::runtime_error(path.string() + ": unknown optimization mode '" + value + "'");
                 }
-                policy.buildType = value;
+                policy.optimization = value;
+            }
+            else if (node->name == "DebugSymbols")
+            {
+                (void)RequireAttribute(*node, "Enabled", path);
+                policy.debugSymbols = BoolAttribute(*node, "Enabled");
+            }
+            else if (node->name == "LinkTimeOptimization")
+            {
+                (void)RequireAttribute(*node, "Enabled", path);
+                policy.linkTimeOptimization = BoolAttribute(*node, "Enabled");
             }
             else if (node->name == "TargetPlatform")
             {
@@ -2750,11 +2773,13 @@ namespace NGIN::CLI
     }
 
     [[nodiscard]] auto BuildSettingPolicyIdentity(const std::string &kind, const std::string &value,
-                                                  const std::string &visibility = "Private") -> std::string
+                                                  const std::string &visibility = "Private",
+                                                  const std::optional<std::string> &toolchain = {}) -> std::string
     {
         BuildSetting setting{};
         setting.value = value;
         setting.visibility = visibility;
+        setting.selectors.toolchain = toolchain;
         return BuildSettingIdentity(kind, setting);
     }
 
@@ -2767,6 +2792,29 @@ namespace NGIN::CLI
         {
             WorkspaceManifest::ProfilePolicy::BuildSettingPolicy setting{};
             setting.productKind = productKind;
+            setting.toolchain = Attribute(*node, "Toolchain");
+            if (node->name == "Optimization")
+            {
+                const auto value = RequireAttribute(*node, "Mode", path);
+                if (!IsSupportedOptimizationMode(value))
+                {
+                    throw std::runtime_error(path.string() + ": unknown optimization mode '" + value + "'");
+                }
+                policy.optimization = value;
+                continue;
+            }
+            if (node->name == "DebugSymbols")
+            {
+                (void)RequireAttribute(*node, "Enabled", path);
+                policy.debugSymbols = BoolAttribute(*node, "Enabled");
+                continue;
+            }
+            if (node->name == "LinkTimeOptimization")
+            {
+                (void)RequireAttribute(*node, "Enabled", path);
+                policy.linkTimeOptimization = BoolAttribute(*node, "Enabled");
+                continue;
+            }
             if (node->name == "IncludePath")
             {
                 setting.kind = "IncludePath";
@@ -2844,7 +2892,7 @@ namespace NGIN::CLI
                     : setting.kind == "IncludePath"   ? "include path"
                     : setting.kind == "CompileOption" ? "compile option"
                                                       : "link option",
-                    BuildSettingPolicyIdentity(setting.kind, parsed.value, parsed.visibility), path);
+                    BuildSettingPolicyIdentity(setting.kind, parsed.value, parsed.visibility, setting.toolchain), path);
                 policy.buildSettings.push_back(std::move(setting));
             }
         }
@@ -3905,7 +3953,7 @@ namespace NGIN::CLI
                     ValidateAllowedAttributes(*tool, path,
                                               {"Name", "Kind", "Executable", "OverrideEnvironment",
                                                "VersionRange", "Profile", "Platform", "OperatingSystem",
-                                               "Architecture", "BuildType", "Environment", "Condition"});
+                                               "Architecture", "Toolchain", "Environment", "Condition"});
                     ToolDeclaration declaration{};
                     declaration.name = Attribute(*tool, "Name").value_or(toolProductName);
                     declaration.kind = Attribute(*tool, "Kind").value_or("Generator");
@@ -3951,7 +3999,7 @@ namespace NGIN::CLI
                 ValidateAllowedAttributes(*driver, path,
                                           {"Name", "Protocol", "Executable", "Adapter", "OverrideEnvironment",
                                            "Version", "Probe", "Profile", "Platform",
-                                           "OperatingSystem", "Architecture", "BuildType", "Environment",
+                                           "OperatingSystem", "Architecture", "Toolchain", "Environment",
                                            "Condition"});
                 ToolDriverDeclaration parsed{};
                 parsed.name = RequireAttribute(*driver, "Name", path);
@@ -4016,7 +4064,7 @@ namespace NGIN::CLI
                 ValidateAllowedAttributes(*action, path,
                                           {"Name", "Kind", "Tool", "Driver", "ToolVersionRange",
                                            "DriverVersionRange", "Profile", "Platform",
-                                           "OperatingSystem", "Architecture", "BuildType", "Environment",
+                                           "OperatingSystem", "Architecture", "Toolchain", "Environment",
                                            "Condition"});
                 ToolActionDeclaration parsed{};
                 parsed.name = RequireAttribute(*action, "Name", path);
@@ -4250,12 +4298,11 @@ namespace NGIN::CLI
             return "Application";
         }
 
-        [[nodiscard]] auto ProfileWithPlatform(std::string name, std::string buildType, std::string platform,
+        [[nodiscard]] auto ProfileWithPlatform(std::string name, std::string platform,
                                                std::string environment) -> ProfileDefinition
         {
             ProfileDefinition profile{};
             profile.name = std::move(name);
-            profile.buildType = buildType.empty() ? "Debug" : std::move(buildType);
             ApplyTargetPlatform(profile, platform);
             profile.environmentName = environment.empty() ? "development" : std::move(environment);
             return profile;
@@ -4541,7 +4588,7 @@ namespace NGIN::CLI
         }
 
         auto ParseBuildSection(const XmlElement &buildNode, const fs::path &path, ProjectManifest &project,
-                               const std::string &scope) -> void
+                               ProfileDefinition &profile, const std::string &scope) -> void
         {
             std::set<std::string> localNames{};
             for (const auto *node : ChildElements(buildNode))
@@ -4549,6 +4596,28 @@ namespace NGIN::CLI
                 if (node->name == "Language")
                 {
                     ParseLanguage(*node, path, project.build);
+                    continue;
+                }
+                if (node->name == "Optimization")
+                {
+                    profile.optimization = RequireAttribute(*node, "Mode", path);
+                    if (!IsSupportedOptimizationMode(profile.optimization))
+                    {
+                        throw std::runtime_error(path.string() + ": unknown optimization mode '" +
+                                                 profile.optimization + "'");
+                    }
+                    continue;
+                }
+                if (node->name == "DebugSymbols")
+                {
+                    (void)RequireAttribute(*node, "Enabled", path);
+                    profile.debugSymbols = BoolAttribute(*node, "Enabled");
+                    continue;
+                }
+                if (node->name == "LinkTimeOptimization")
+                {
+                    (void)RequireAttribute(*node, "Enabled", path);
+                    profile.linkTimeOptimization = BoolAttribute(*node, "Enabled");
                     continue;
                 }
                 if (node->name == "Sources")
@@ -4577,6 +4646,7 @@ namespace NGIN::CLI
                     setting.value = RequireAttribute(*node, "Path", path);
                     setting.visibility = Attribute(*node, "Visibility").value_or("Private");
                     ApplyScopeSelector(scope, setting.selectors);
+                    setting.selectors = MergeSelectors(setting.selectors, ParseSelectors(*node, path));
                     ApplyWhenSelector(*node, setting.selectors);
                     RequireUniqueBuildSetting(localNames, "IncludePath", BuildSettingIdentity("IncludePath", setting),
                                               path);
@@ -4603,6 +4673,8 @@ namespace NGIN::CLI
                         setting.value += "=" + *value;
                     }
                     setting.visibility = Attribute(*node, "Visibility").value_or("Private");
+                    ApplyScopeSelector(scope, setting.selectors);
+                    setting.selectors = MergeSelectors(setting.selectors, ParseSelectors(*node, path));
                     ApplyWhenSelector(*node, setting.selectors);
                     RequireUniqueBuildSetting(localNames, "Define", BuildSettingIdentity("Define", setting), path);
                     UpsertDefine(project.build.compileDefinitions, std::move(setting), scope);
@@ -4620,6 +4692,7 @@ namespace NGIN::CLI
                     setting.value = RequireAttribute(*node, "Value", path);
                     setting.visibility = Attribute(*node, "Visibility").value_or("Private");
                     ApplyScopeSelector(scope, setting.selectors);
+                    setting.selectors = MergeSelectors(setting.selectors, ParseSelectors(*node, path));
                     ApplyWhenSelector(*node, setting.selectors);
                     RequireUniqueBuildSetting(localNames, "CompileOption",
                                               BuildSettingIdentity("CompileOption", setting), path);
@@ -4638,9 +4711,10 @@ namespace NGIN::CLI
                     setting.value = Attribute(*node, "Value").value_or(Attribute(*node, "Name").value_or(""));
                     if (!setting.value.empty())
                     {
-                        setting.visibility = Attribute(*node, "Visibility").value_or("Private");
-                        ApplyScopeSelector(scope, setting.selectors);
-                        ApplyWhenSelector(*node, setting.selectors);
+                    setting.visibility = Attribute(*node, "Visibility").value_or("Private");
+                    ApplyScopeSelector(scope, setting.selectors);
+                    setting.selectors = MergeSelectors(setting.selectors, ParseSelectors(*node, path));
+                    ApplyWhenSelector(*node, setting.selectors);
                         RequireUniqueBuildSetting(localNames, "LinkOption", BuildSettingIdentity("LinkOption", setting),
                                                   path);
                         UpsertBuildSetting(project.build.linkOptions, "LinkOption", std::move(setting), scope);
@@ -5188,16 +5262,30 @@ namespace NGIN::CLI
                         build.backendExplicit = true;
                     }
                 }
-                else if (node->name == "BuildType")
+                else if (node->name == "Optimization")
                 {
-                    profile.buildType = RequireAttribute(*node, "Name", path);
+                    profile.optimization = RequireAttribute(*node, "Mode", path);
+                    if (!IsSupportedOptimizationMode(profile.optimization))
+                    {
+                        throw std::runtime_error(path.string() + ": unknown optimization mode '" +
+                                                 profile.optimization + "'");
+                    }
+                }
+                else if (node->name == "DebugSymbols")
+                {
+                    (void)RequireAttribute(*node, "Enabled", path);
+                    profile.debugSymbols = BoolAttribute(*node, "Enabled");
+                }
+                else if (node->name == "LinkTimeOptimization")
+                {
+                    (void)RequireAttribute(*node, "Enabled", path);
+                    profile.linkTimeOptimization = BoolAttribute(*node, "Enabled");
                 }
                 else if (node->name == "TargetPlatform")
                 {
                     const auto updated =
-                        ProfileWithPlatform(profile.name, profile.buildType, RequireAttribute(*node, "Name", path),
+                        ProfileWithPlatform(profile.name, RequireAttribute(*node, "Name", path),
                                             profile.environmentName);
-                    profile.buildType = updated.buildType;
                     profile.platform = updated.platform;
                     profile.operatingSystem = updated.operatingSystem;
                     profile.architecture = updated.architecture;
@@ -5276,7 +5364,7 @@ namespace NGIN::CLI
             }
 
             ProfileDefinition baseProfile =
-                ProfileWithPlatform(project.defaultProfile, "Debug", "host", "development");
+                ProfileWithPlatform(project.defaultProfile, "host", "development");
             baseProfile.launch.executable =
                 project.output.kind == "Executable" ? std::optional<std::string>{project.output.name} : std::nullopt;
             baseProfile.launch.name = "default";
@@ -5292,7 +5380,7 @@ namespace NGIN::CLI
             }
             if (const auto *build = FindChild(product, "Build"))
             {
-                ParseBuildSection(*build, path, project, "product:" + productKind);
+                ParseBuildSection(*build, path, project, baseProfile, "product:" + productKind);
             }
             else if (productKind != "External")
             {
@@ -5436,7 +5524,7 @@ namespace NGIN::CLI
                     ParseToolingResolutionPolicy(*productOverlay, path, profile.toolingResolutionPolicy);
                     if (const auto *build = FindChild(*productOverlay, "Build"))
                     {
-                        ParseBuildSection(*build, path, project, "profile:" + profile.name);
+                        ParseBuildSection(*build, path, project, profile, "profile:" + profile.name);
                     }
                     if (const auto *uses = FindChild(*productOverlay, "Uses"))
                     {
@@ -5701,9 +5789,17 @@ namespace NGIN::CLI
         }
 
         const auto applyPolicy = [&](ProfileDefinition &profile, const WorkspaceManifest::ProfilePolicy &policy) {
-            if (policy.buildType.has_value())
+            if (policy.optimization.has_value())
             {
-                profile.buildType = *policy.buildType;
+                profile.optimization = *policy.optimization;
+            }
+            if (policy.debugSymbols.has_value())
+            {
+                profile.debugSymbols = *policy.debugSymbols;
+            }
+            if (policy.linkTimeOptimization.has_value())
+            {
+                profile.linkTimeOptimization = *policy.linkTimeOptimization;
             }
             if (policy.hostPlatform.has_value())
             {
@@ -6072,6 +6168,7 @@ namespace NGIN::CLI
                 setting.value = buildSetting.value;
                 setting.visibility = buildSetting.visibility;
                 ApplyScopeSelector(scope, setting.selectors);
+                setting.selectors.toolchain = buildSetting.toolchain;
                 setting.provenance = ContributionProvenance{
                     .sourceKind = workspaceSourceKind(buildSetting.productKind),
                     .sourceName = policy.name.empty() ? workspace->name : policy.name,

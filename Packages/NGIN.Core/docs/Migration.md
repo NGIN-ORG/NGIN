@@ -2,6 +2,12 @@
 
 This package is still pre-user and does not preserve legacy runtime APIs.
 
+Project profiles no longer expose or parse `BuildType`. Profiles now carry
+`Optimization`, `DebugSymbols`, and `LinkTimeOptimization` traits, while
+selector-bearing runtime declarations use `Toolchain`. The built-in profile
+conditions `Debug`, `Release`, `RelWithDebInfo`, and `MinSizeRel` match profile
+names.
+
 The preferred hosted-app entry point is now `ApplicationBuilder` with direct
 methods such as `AddDefaultServices()`, `AddConfiguration()`,
 `AddModule<T>()`, `AddConfigSource()`, and `AddPluginSearchPath()`.

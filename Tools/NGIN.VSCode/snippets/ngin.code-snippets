@@ -50,7 +50,9 @@
       "",
       "  <Profile Name=\"dev\">",
       "    <Defaults>",
-      "      <BuildType Name=\"Debug\" />",
+      "      <Optimization Mode=\"Off\" />",
+      "      <DebugSymbols Enabled=\"true\" />",
+      "      <LinkTimeOptimization Enabled=\"false\" />",
       "      <TargetPlatform Name=\"host\" />",
       "      <Environment Name=\"development\" />",
       "    </Defaults>",
@@ -169,9 +171,11 @@
     "body": [
       "<Profile Name=\"$1\">",
       "  <Defaults>",
-      "    <BuildType Name=\"$2\" />",
-      "    <TargetPlatform Name=\"$3\" />",
-      "    <Environment Name=\"$4\" />",
+      "    <Optimization Mode=\"${2|Off,Speed,Size|}\" />",
+      "    <DebugSymbols Enabled=\"${3|true,false|}\" />",
+      "    <LinkTimeOptimization Enabled=\"${4|false,true|}\" />",
+      "    <TargetPlatform Name=\"$5\" />",
+      "    <Environment Name=\"$6\" />",
       "  </Defaults>",
       "</Profile>"
     ]

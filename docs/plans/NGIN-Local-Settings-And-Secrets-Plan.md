@@ -339,7 +339,7 @@ selection context.
 Conditions should initially match stable authored selection state such as:
 
 - `Profile`
-- `BuildType`
+- `Toolchain`
 - `OperatingSystem`
 - `Architecture`
 - `Environment`

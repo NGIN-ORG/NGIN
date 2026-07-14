@@ -11,19 +11,19 @@ This spec defines the active user-facing surface of the native `ngin` CLI.
 
 Stable active commands:
 
-- `ngin build [--project <file>] [--profile <name>] [--configuration <name>] [--output <dir>|--output-root <dir>]`
-- `ngin configure [--project <file>] [--profile <name>] [--configuration <name>] [--output <dir>|--output-root <dir>]`
-- `ngin clean [--project <file>] [--profile <name>] [--configuration <name>] [--output <dir>|--output-root <dir>]`
-- `ngin rebuild [--project <file>] [--profile <name>] [--configuration <name>] [--output <dir>|--output-root <dir>]`
-- `ngin run [--project <file>] [--profile <name>] [--configuration <name>] [--output <dir>|--output-root <dir>] [-- <args...>]`
-- `ngin publish [PublishName] [--project <file>] [--profile <name>] [--configuration <name>] [--output <dir>|--output-root <dir>]`
-- `ngin validate [--project <file>] [--profile <name>] [--configuration <name>]`
-- `ngin graph [--project <file>] [--profile <name>] [--configuration <name>]`
-- `ngin inspect [--project <file>] [--profile <name>] [--configuration <name>] [--output <dir>|--output-root <dir>] --format json`
+- `ngin build [--project <file>] [--profile <name>] [--output <dir>|--output-root <dir>]`
+- `ngin configure [--project <file>] [--profile <name>] [--output <dir>|--output-root <dir>]`
+- `ngin clean [--project <file>] [--profile <name>] [--output <dir>|--output-root <dir>]`
+- `ngin rebuild [--project <file>] [--profile <name>] [--output <dir>|--output-root <dir>]`
+- `ngin run [--project <file>] [--profile <name>] [--output <dir>|--output-root <dir>] [-- <args...>]`
+- `ngin publish [PublishName] [--project <file>] [--profile <name>] [--output <dir>|--output-root <dir>]`
+- `ngin validate [--project <file>] [--profile <name>]`
+- `ngin graph [--project <file>] [--profile <name>]`
+- `ngin inspect [--project <file>] [--profile <name>] [--output <dir>|--output-root <dir>] --format json`
 - `ngin package list`
 - `ngin package show <Package>`
-- `ngin package lock [--project <file>] [--profile <name>] [--configuration <name>] [--output <file>]`
-- `ngin package verify-lock [--project <file>] [--profile <name>] [--configuration <name>] [--lock <file>]`
+- `ngin package lock [--project <file>] [--profile <name>] [--output <file>]`
+- `ngin package verify-lock [--project <file>] [--profile <name>] [--lock <file>]`
 - `ngin explain condition <Name> [--project <file>] [--profile <name>]`
 - `ngin explain package-feature <Package> <Feature> [--project <file>] [--profile <name>]`
 - `ngin explain generator <Name> [--project <file>] [--profile <name>]`
@@ -41,17 +41,14 @@ Removed commands:
 
 ## Behavior
 
-- `--profile` selects the project profile and remains the way to choose custom
-  product scenarios such as `Runtime`, `Editor`, or `Shipping`
-- `--configuration` accepts `Debug`, `Release`, `RelWithDebInfo`, or
-  `MinSizeRel`; without `--profile`, it selects a matching common-named
-  profile when present, otherwise it overrides the default profile's backend
-  build type for the current invocation
-- when both `--profile` and `--configuration` are present, `--profile` selects
-  the profile behavior and `--configuration` overrides only the effective
-  backend build type
-- backend build type comes from the selected project profile’s `BuildType`
-  after any `--configuration` override
+- `--profile` selects the complete project behavior, including build traits,
+  platform, environment, product overlays, tooling, and launch behavior
+- profiles author `Optimization` (`Off`, `Speed`, or `Size`), `DebugSymbols`,
+  and `LinkTimeOptimization`; compiler and linker options may additionally use
+  a `Toolchain` selector
+- generated CMake configuration is derived from the selected profile traits
+  and is exposed as `BackendConfiguration` in graph and tooling output
+- `--configuration` and authored `BuildType` are not part of the V4 contract
 - the default workspace output root is `build/ngin`; workspace
   `<Defaults><OutputRoot Path="..." /></Defaults>` overrides it
 - `--output-root <dir>` overrides the root for one invocation and appends
@@ -97,7 +94,7 @@ Build-backed lifecycle commands support a stable JSON Lines event stream for
 editor and CI consumers:
 
 ```bash
-ngin build --project <file.nginproj> --configuration Release --events jsonl
+ngin build --project <file.nginproj> --profile Release --events jsonl
 ```
 
 `--events none` keeps normal human output. `--events jsonl` writes only

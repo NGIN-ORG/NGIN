@@ -25,7 +25,6 @@ namespace NGIN::CLI
         std::vector<std::string> argv{};
         std::optional<std::string> projectPath{};
         std::optional<std::string> profileName{};
-        std::optional<std::string> configurationName{};
         std::optional<std::string> fromProfileName{};
         std::optional<std::string> toProfileName{};
         std::optional<std::string> outputPath{};

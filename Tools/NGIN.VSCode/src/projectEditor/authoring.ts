@@ -9,7 +9,10 @@ export interface ProjectAttributeUpdate {
 export interface ProjectProfileUpdate {
   originalName: string;
   name: string;
-  buildType?: string;
+  optimization?: string;
+  debugSymbols?: boolean;
+  linkTimeOptimization?: boolean;
+  toolchain?: string;
   platform?: string;
   operatingSystem?: string;
   architecture?: string;
@@ -34,7 +37,7 @@ export interface ProjectInputEdit {
   platform?: string;
   operatingSystem?: string;
   architecture?: string;
-  buildType?: string;
+  toolchain?: string;
   environment?: string;
   condition?: string;
 }
@@ -524,7 +527,7 @@ function formatInput(block: ProjectInputBlock, entry: ProjectInputEdit, indent: 
     TargetPlatform: entry.platform,
     OperatingSystem: entry.operatingSystem,
     Architecture: entry.architecture,
-    BuildType: entry.buildType,
+    Toolchain: entry.toolchain,
     Environment: entry.environment
   };
   if (block === 'Configs') {
@@ -603,12 +606,33 @@ function setDefaults(xml: string, profileName: string, update: ProjectProfileUpd
   })();
   const indent = childIndent(ensured.section.indent);
   const lines = [
-    update.buildType ? `${indent}<BuildType Name="${escapeAttribute(update.buildType)}" />` : undefined,
     update.platform ? `${indent}<TargetPlatform Name="${escapeAttribute(update.platform)}" />` : undefined,
     update.operatingSystem ? `${indent}<OperatingSystem Name="${escapeAttribute(update.operatingSystem)}" />` : undefined,
     update.architecture ? `${indent}<Architecture Name="${escapeAttribute(update.architecture)}" />` : undefined,
-    update.environment ? `${indent}<Environment Name="${escapeAttribute(update.environment)}" />` : undefined
+    update.environment ? `${indent}<Environment Name="${escapeAttribute(update.environment)}" />` : undefined,
+    update.toolchain ? `${indent}<Toolchain Name="${escapeAttribute(update.toolchain)}" />` : undefined
   ].filter((line): line is string => Boolean(line));
+  const replacement = lines.length > 0 ? `\n${lines.join('\n')}\n${ensured.section.indent}` : '';
+  return replaceRange(ensured.xml, ensured.section.bodyStart, ensured.section.bodyEnd, replacement);
+}
+
+function setBuildTraits(xml: string, profileName: string, update: ProjectProfileUpdate): string {
+  const ensured = ensureProductSection(xml, 'Build', profileName);
+  const body = ensured.xml.slice(ensured.section.bodyStart, ensured.section.bodyEnd);
+  const withoutTraits = body.replace(
+    /^\s*<(?:Optimization|DebugSymbols|LinkTimeOptimization)\b[^>]*\/>\s*$/gm,
+    ''
+  ).replace(/^\s*\n/gm, '');
+  const indent = childIndent(ensured.section.indent);
+  const traits = [
+    update.optimization ? `${indent}<Optimization Mode="${escapeAttribute(update.optimization)}" />` : undefined,
+    update.debugSymbols !== undefined ? `${indent}<DebugSymbols Enabled="${update.debugSymbols}" />` : undefined,
+    update.linkTimeOptimization !== undefined
+      ? `${indent}<LinkTimeOptimization Enabled="${update.linkTimeOptimization}" />`
+      : undefined
+  ].filter((line): line is string => Boolean(line));
+  const existing = withoutTraits.trim();
+  const lines = [...traits, ...(existing ? existing.split('\n').map((line) => line.trimEnd()) : [])];
   const replacement = lines.length > 0 ? `\n${lines.join('\n')}\n${ensured.section.indent}` : '';
   return replaceRange(ensured.xml, ensured.section.bodyStart, ensured.section.bodyEnd, replacement);
 }
@@ -628,6 +652,7 @@ export function updateProfile(xml: string, update: ProjectProfileUpdate): string
     ? replaceRange(xml, profile.start, profile.end, `${openTag}\n${profile.indent}</Profile>`)
     : replaceRange(xml, profile.start, profile.openEnd, openTag);
   next = setDefaults(next, update.name, update);
+  next = setBuildTraits(next, update.name, update);
   next = setLaunch(next, update.name, update.launchExecutable, update.launchWorkingDirectory);
   const root = projectOpenMatch(next);
   if (readAttribute(root[0], 'DefaultProfile') === update.originalName) {

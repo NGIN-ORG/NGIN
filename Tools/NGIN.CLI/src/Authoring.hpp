@@ -4,7 +4,8 @@
 
 namespace NGIN::CLI
 {
-    [[nodiscard]] auto IsSupportedBuildType(std::string_view value) -> bool;
+    [[nodiscard]] auto IsSupportedOptimizationMode(std::string_view value) -> bool;
+    [[nodiscard]] auto BackendConfiguration(const ProfileDefinition &profile) -> std::string;
     [[nodiscard]] auto IsSupportedProjectBuildMode(std::string_view value) -> bool;
     [[nodiscard]] auto IsSupportedProjectType(std::string_view value) -> bool;
     [[nodiscard]] auto IsSupportedOutputKind(std::string_view value) -> bool;

@@ -1,7 +1,7 @@
 # Spec 005: Launch Manifest
 
 Status: Active
-Last updated: 2026-04-28
+Last updated: 2026-07-14
 
 ## Purpose
 
@@ -21,7 +21,10 @@ applications.
   - `Project`
   - `Profile`
   - `Type`
-  - `BuildType`
+  - `Optimization`
+  - `DebugSymbols`
+  - `LinkTimeOptimization`
+  - `BackendConfiguration`
   - `OperatingSystem`
   - `Architecture`
 
@@ -33,7 +36,10 @@ applications.
                 Project="Hello.Hosted"
                 Profile="Debug"
                 Type="Application"
-                BuildType="Debug"
+                Optimization="Off"
+                DebugSymbols="true"
+                LinkTimeOptimization="false"
+                BackendConfiguration="Debug"
                 OperatingSystem="linux"
                 Architecture="x64">
   <Launch Executable="Hello.Hosted" Target="Hello.Hosted" WorkingDirectory="." />

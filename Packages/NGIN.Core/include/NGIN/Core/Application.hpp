@@ -32,7 +32,7 @@ struct PackageReference {
   std::string platform{};
   std::string operatingSystem{};
   std::string architecture{};
-  std::string buildType{};
+  std::string toolchain{};
   std::string environment{};
   std::string condition{};
 };
@@ -80,7 +80,7 @@ struct InputDeclaration {
   std::string platform{};
   std::string operatingSystem{};
   std::string architecture{};
-  std::string buildType{};
+  std::string toolchain{};
   std::string environment{};
   std::string condition{};
   std::vector<std::string> includePatterns{};
@@ -107,7 +107,7 @@ struct FeatureFlag {
   std::string platform{};
   std::string operatingSystem{};
   std::string architecture{};
-  std::string buildType{};
+  std::string toolchain{};
   std::string environment{};
   std::string condition{};
 };
@@ -121,7 +121,7 @@ struct PackageFeatureUse {
   std::string platform{};
   std::string operatingSystem{};
   std::string architecture{};
-  std::string buildType{};
+  std::string toolchain{};
   std::string environment{};
   std::string condition{};
 };
@@ -143,7 +143,7 @@ struct ToolDeclaration {
   std::string platform{};
   std::string operatingSystem{};
   std::string architecture{};
-  std::string buildType{};
+  std::string toolchain{};
   std::string environment{};
   std::string condition{};
 };
@@ -155,7 +155,7 @@ struct GeneratorArgument {
   std::string platform{};
   std::string operatingSystem{};
   std::string architecture{};
-  std::string buildType{};
+  std::string toolchain{};
   std::string environment{};
   std::string condition{};
 };
@@ -170,7 +170,7 @@ struct GeneratorDeclaration {
   std::string platform{};
   std::string operatingSystem{};
   std::string architecture{};
-  std::string buildType{};
+  std::string toolchain{};
   std::string environment{};
   std::string condition{};
   std::vector<GeneratorArgument> arguments{};
@@ -189,7 +189,7 @@ struct PackagePluginManifest {
   std::string platform{};
   std::string operatingSystem{};
   std::string architecture{};
-  std::string buildType{};
+  std::string toolchain{};
   std::string environment{};
   std::string condition{};
 };
@@ -200,7 +200,7 @@ struct ConditionNode {
   std::string platform{};
   std::string operatingSystem{};
   std::string architecture{};
-  std::string buildType{};
+  std::string toolchain{};
   std::string environment{};
   std::string conditionName{};
   std::vector<ConditionNode> children{};
@@ -240,7 +240,7 @@ struct PackageManifest {
     std::string platform{};
     std::string operatingSystem{};
     std::string architecture{};
-    std::string buildType{};
+    std::string toolchain{};
     std::string environment{};
     std::string condition{};
     std::vector<CapabilityProvision> provides{};
@@ -270,7 +270,7 @@ struct ProjectReference {
   std::string platform{};
   std::string operatingSystem{};
   std::string architecture{};
-  std::string buildType{};
+  std::string toolchain{};
   std::string environment{};
   std::string condition{};
 };
@@ -312,7 +312,10 @@ struct EnvironmentDefinition {
 
 struct ProfileDefinition {
   std::string name{};
-  std::string buildType{"Debug"};
+  std::string optimization{"Off"};
+  bool debugSymbols{true};
+  bool linkTimeOptimization{false};
+  std::string toolchain{};
   std::string platform{"linux-x64"};
   std::string operatingSystem{"linux"};
   std::string architecture{"x64"};

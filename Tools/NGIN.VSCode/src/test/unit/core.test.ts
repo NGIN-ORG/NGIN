@@ -144,7 +144,8 @@ test('CLI event helpers render selection and completion progress', () => {
     profile: 'Debug',
     data: {
       productKind: 'Application',
-      buildType: 'Debug',
+      optimization: 'Off',
+      backendConfiguration: 'Debug',
       targetPlatform: 'windows-x64',
       toolchain: 'msvc'
     }
@@ -161,11 +162,12 @@ test('CLI event helpers render selection and completion progress', () => {
     profile: 'Debug',
     data: {
       productKind: 'Application',
-      buildType: 'Debug',
+      optimization: 'Off',
+      backendConfiguration: 'Debug',
       targetPlatform: 'windows-x64',
       toolchain: 'msvc'
     }
-  }), 'selected Hello.Reflection [Debug] Application build=Debug target=windows-x64 toolchain=msvc');
+  }), 'selected Hello.Reflection [Debug] Application optimization=Off backend=Debug target=windows-x64 toolchain=msvc');
 
   assert.equal(eventOutputLine({
     schemaVersion: '1.0',
@@ -350,7 +352,6 @@ test('parseCompositionGraphPayload maps V4 composition graph inspect output to e
     },
     selection: {
       profile: 'Debug.Analyzer',
-      buildType: 'Debug',
       targetPlatform: 'linux-x64',
       operatingSystem: 'linux',
       architecture: 'x64',
@@ -530,11 +531,12 @@ test('workspace manifests parse project paths relative to the workspace manifest
 
 test('project parsing applies product profile defaults', () => {
   const project = parseProjectManifest(
-    '<?xml version="1.0" encoding="utf-8"?><Project SchemaVersion="4" Name="Hello.Hosted" DefaultProfile="dev"><Application><Launch Executable="$(OutputName)" WorkingDirectory="." /></Application><Profile Name="dev"><Defaults><BuildType Name="Debug" /><TargetPlatform Name="linux-x64" /><Environment Name="development" /></Defaults><Application><Stage><Config Source="config/template.cfg" /></Stage></Application></Profile></Project>',
+    '<?xml version="1.0" encoding="utf-8"?><Project SchemaVersion="4" Name="Hello.Hosted" DefaultProfile="dev"><Application><Launch Executable="$(OutputName)" WorkingDirectory="." /></Application><Profile Name="dev"><Defaults><TargetPlatform Name="linux-x64" /><Environment Name="development" /></Defaults><Application><Build><Optimization Mode="Off" /><DebugSymbols Enabled="true" /><LinkTimeOptimization Enabled="false" /></Build><Stage><Config Source="config/template.cfg" /></Stage></Application></Profile></Project>',
     '/repo/Examples/Hello.Hosted/Hello.Hosted.nginproj'
   );
 
-  assert.equal(project.profiles[0].buildType, 'Debug');
+  assert.equal(project.profiles[0].optimization, 'Off');
+  assert.equal(project.profiles[0].debugSymbols, true);
   assert.equal(project.profiles[0].platform, 'linux-x64');
   assert.equal(project.profiles[0].environment, 'development');
   assert.equal(project.profiles[0].launchExecutable, '$(OutputName)');
@@ -544,7 +546,7 @@ test('project parsing applies product profile defaults', () => {
 test('project manifests parse profiles, launch metadata, and local settings imports', () => {
   const repositoryRoot = path.resolve('/repo');
   const project = parseProjectManifest(
-    '<?xml version="1.0" encoding="utf-8"?><Project SchemaVersion="4" Name="Hello.Hosted" DefaultProfile="Runtime"><Application><Uses><Project Name="Engine.Library" Path="../Engine.Library/Engine.Library.nginproj" /><Runtime Name="NGIN.Core" Scope="Target;Runtime" /></Uses><Build><Sources Path="src/**.cpp" /><Source Path="src/main.cpp" /></Build><Stage><Config Source="config/app.cfg" /></Stage><Launch Executable="Hello.Hosted" WorkingDirectory="." /></Application><Profile Name="Runtime"><Defaults><BuildType Name="Debug" /><OperatingSystem Name="linux" /><Architecture Name="x64" /><Environment Name="development" /></Defaults><Application><Uses><Package Name="NGIN.Reflection" Optional="true" /></Uses><Stage><Config Source="config/runtime.cfg" /></Stage></Application></Profile></Project>',
+    '<?xml version="1.0" encoding="utf-8"?><Project SchemaVersion="4" Name="Hello.Hosted" DefaultProfile="Runtime"><Application><Uses><Project Name="Engine.Library" Path="../Engine.Library/Engine.Library.nginproj" /><Runtime Name="NGIN.Core" Scope="Target;Runtime" /></Uses><Build><Sources Path="src/**.cpp" /><Source Path="src/main.cpp" /></Build><Stage><Config Source="config/app.cfg" /></Stage><Launch Executable="Hello.Hosted" WorkingDirectory="." /></Application><Profile Name="Runtime"><Defaults><OperatingSystem Name="linux" /><Architecture Name="x64" /><Environment Name="development" /></Defaults><Application><Build><Optimization Mode="Off" /><DebugSymbols Enabled="true" /><LinkTimeOptimization Enabled="false" /></Build><Uses><Package Name="NGIN.Reflection" Optional="true" /></Uses><Stage><Config Source="config/runtime.cfg" /></Stage></Application></Profile></Project>',
     path.join(repositoryRoot, 'Examples', 'Hello.Hosted', 'Hello.Hosted.nginproj')
   );
 
@@ -701,7 +703,7 @@ test('extension manifest and snippets register local settings support', () => {
 
 test('launch manifests surface selected executable and staged files', () => {
   const launch = parseLaunchManifest(
-    '<?xml version="1.0" encoding="utf-8"?><LaunchManifest Project="Hello.Hosted" Profile="Runtime" Type="Application" BuildType="Debug" OperatingSystem="linux" Architecture="x64"><Launch Executable="Hello.Hosted" WorkingDirectory="." /><Environment Name="development"><Variables /><Features /></Environment><StagedFiles><File Kind="executable" Destination="/repo/out/bin/Hello.Hosted" RelativeDestination="bin/Hello.Hosted" /></StagedFiles></LaunchManifest>',
+    '<?xml version="1.0" encoding="utf-8"?><LaunchManifest Project="Hello.Hosted" Profile="Runtime" Type="Application" Optimization="Off" DebugSymbols="true" LinkTimeOptimization="false" BackendConfiguration="Debug" OperatingSystem="linux" Architecture="x64"><Launch Executable="Hello.Hosted" WorkingDirectory="." /><Environment Name="development"><Variables /><Features /></Environment><StagedFiles><File Kind="executable" Destination="/repo/out/bin/Hello.Hosted" RelativeDestination="bin/Hello.Hosted" /></StagedFiles></LaunchManifest>',
     '/repo/out/Hello.Hosted.Runtime.nginlaunch'
   );
 
@@ -783,7 +785,9 @@ test('project editor authoring adds updates and deletes profiles', () => {
   xml = updateProfile(xml, {
     originalName: 'Tools',
     name: 'Diagnostics',
-    buildType: 'Debug',
+    optimization: 'Off',
+    debugSymbols: true,
+    linkTimeOptimization: false,
     operatingSystem: 'linux',
     architecture: 'x64',
     environment: 'dev',
@@ -791,7 +795,8 @@ test('project editor authoring adds updates and deletes profiles', () => {
     launchWorkingDirectory: '.'
   });
   assert.match(xml, /<Profile Name="Diagnostics">/);
-  assert.match(xml, /<BuildType Name="Debug" \/>/);
+  assert.match(xml, /<Optimization Mode="Off" \/>/);
+  assert.match(xml, /<DebugSymbols Enabled="true" \/>/);
   assert.match(xml, /<OperatingSystem Name="linux" \/>/);
   assert.match(xml, /<Architecture Name="x64" \/>/);
   assert.match(xml, /<Environment Name="dev" \/>/);
@@ -854,12 +859,12 @@ test('project editor authoring preserves selectors on file rules', () => {
       exclude: '**/*.generated.cpp',
       operatingSystem: 'linux',
       architecture: 'x64',
-      buildType: 'Debug',
+      toolchain: 'clang',
       condition: 'Desktop'
     }
   ]);
 
-  assert.match(xml, /<Sources Path="src" Include="\*\*\/\*\.cpp;\*\*\/\*\.hpp" Exclude="\*\*\/\*\.generated\.cpp" When="Desktop" OperatingSystem="linux" Architecture="x64" BuildType="Debug" \/>/);
+  assert.match(xml, /<Sources Path="src" Include="\*\*\/\*\.cpp;\*\*\/\*\.hpp" Exclude="\*\*\/\*\.generated\.cpp" When="Desktop" OperatingSystem="linux" Architecture="x64" Toolchain="clang" \/>/);
 
   const model = buildProjectEditorModel(xml, '/repo/App.nginproj', 'file:///repo/App.nginproj');
   assert.deepEqual(model.project.inputs.Sources[0], {
@@ -871,7 +876,7 @@ test('project editor authoring preserves selectors on file rules', () => {
     platform: undefined,
     operatingSystem: 'linux',
     architecture: 'x64',
-    buildType: 'Debug',
+    toolchain: 'clang',
     environment: undefined,
     condition: 'Desktop'
   });
@@ -900,7 +905,7 @@ test('project editor authoring creates and resets general tool run overrides', (
   const xml = [
     '<Project SchemaVersion="4" Name="App" DefaultProfile="Debug">',
     '  <Application><Build><Sources Path="src/**.cpp" /></Build></Application>',
-    '  <Profile Name="Debug"><Defaults><BuildType Name="Debug" /></Defaults></Profile>',
+    '  <Profile Name="Debug"><Application><Build><Optimization Mode="Off" /></Build></Application></Profile>',
     '</Project>'
   ].join('\n');
   const configured = setToolRunOverride(xml, {
@@ -927,11 +932,11 @@ test('project editor authoring creates and resets general tool run overrides', (
   assert.match(configured, /<Execution Jobs="2" Timeout="30s" Cache="ReadWrite" FailureStrategy="DependencyAware" \/>/);
   const reset = removeToolRunOverride(configured, 'project-analysis', 'Debug');
   assert.doesNotMatch(reset, /<Run Name="project-analysis">/);
-  assert.match(reset, /<BuildType Name="Debug" \/>/);
+  assert.match(reset, /<Optimization Mode="Off" \/>/);
 
   const existing = xml.replace(
-    '</Defaults></Profile>',
-    '</Defaults><Tooling><Run Name="project-analysis"><Policy Gate="true" FailOn="Fatal"><Budget Rule="security" Max="0" /></Policy></Run></Tooling></Profile>'
+    '</Application></Profile>',
+    '</Application><Tooling><Run Name="project-analysis"><Policy Gate="true" FailOn="Fatal"><Budget Rule="security" Max="0" /></Policy></Run></Tooling></Profile>'
   );
   const inputOnly = setToolRunOverride(existing, {
     name: 'project-analysis', inputContract: 'files/v1', inputScope: 'Product', includeGenerated: true,
@@ -1012,7 +1017,13 @@ test('project editor model summarizes resolved inspect data for the project over
       identity: { project: 'App' },
       product: { kind: 'Application' },
       workspace: { name: 'Workspace' },
-      selection: { profile: 'Runtime', buildType: 'Debug', targetPlatform: 'linux-x64', environment: 'dev' },
+      selection: { profile: 'Runtime', targetPlatform: 'linux-x64', environment: 'dev' },
+      properties: [
+        { name: 'Optimization', value: 'Off' },
+        { name: 'DebugSymbols', value: 'true' },
+        { name: 'LinkTimeOptimization', value: 'false' },
+        { name: 'BackendConfiguration', value: 'Debug' }
+      ],
       outputDir: '/repo/build/ngin/App/Runtime',
       plans: {
         packages: [{ name: 'NGIN.Core', version: '0.1.0', closures: ['project'] }],

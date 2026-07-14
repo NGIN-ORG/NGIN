@@ -566,7 +566,8 @@ TEST_CASE("launch manifests redact resolved secret variables")
     launch.project.name = "Secret.App";
     launch.project.type = "Application";
     launch.profile.name = "Runtime";
-    launch.profile.buildType = "Debug";
+    launch.profile.optimization = "Off";
+    launch.profile.debugSymbols = true;
     launch.profile.operatingSystem = "linux";
     launch.profile.architecture = "x64";
     launch.profile.environmentName = "dev";
@@ -598,7 +599,9 @@ TEST_CASE("project autodiscovery resolves nearest nginproj in the current tree")
   <Application />
   <Profile Name="Runtime">
     <Defaults>
-      <BuildType Name="Debug" />
+      <Optimization Mode="Off" />
+      <DebugSymbols Enabled="true" />
+      <LinkTimeOptimization Enabled="false" />
       <TargetPlatform Name="linux-x64" />
       <Environment Name="dev" />
     </Defaults>
@@ -776,12 +779,19 @@ TEST_CASE("build command JSONL emits clean event stream")
     const auto projectPath = temp.path() / "Jsonl.App.nginproj";
     WriteFile(projectPath,
               R"xml(<?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="4" Name="Jsonl.App">
+<Project SchemaVersion="4" Name="Jsonl.App" DefaultProfile="Release">
   <Application>
     <Build>
       <Sources Path="src/**.cpp" />
     </Build>
   </Application>
+  <Profile Name="Release">
+    <Defaults>
+      <Optimization Mode="Speed" />
+      <DebugSymbols Enabled="false" />
+      <LinkTimeOptimization Enabled="false" />
+    </Defaults>
+  </Profile>
 </Project>
 )xml");
     WriteFile(temp.path() / "src/main.cpp", "int main() { return 0; }\n");
@@ -790,7 +800,7 @@ TEST_CASE("build command JSONL emits clean event stream")
     args.argv = {"build", "--project", projectPath.string(), "--events", "jsonl"};
     args.projectPath = projectPath.string();
     args.outputPath = (temp.path() / "out").string();
-    args.configurationName = "Release";
+    args.profileName = "Release";
     args.eventOutputMode = EventOutputMode::JsonLines;
     args.backendOutputMode = BackendOutputMode::Compact;
 
@@ -804,9 +814,9 @@ TEST_CASE("build command JSONL emits clean event stream")
     REQUIRE_THAT(output, ContainsSubstring(R"("kind":"NGIN.CLI.Event")"));
     REQUIRE_THAT(output, ContainsSubstring(R"("type":"command.started")"));
     REQUIRE_THAT(output, ContainsSubstring(R"("type":"command.selection")"));
-    REQUIRE_THAT(output, ContainsSubstring(R"("configuration":"Release")"));
-    REQUIRE_THAT(output, ContainsSubstring(R"("configurationSource":"buildTypeOverride")"));
-    REQUIRE_THAT(output, ContainsSubstring(R"("buildType":"Release")"));
+    REQUIRE_THAT(output, ContainsSubstring(R"("optimization":"Speed")"));
+    REQUIRE_THAT(output, ContainsSubstring(R"("debugSymbols":false)"));
+    REQUIRE_THAT(output, ContainsSubstring(R"("backendConfiguration":"Release")"));
     REQUIRE_THAT(output, ContainsSubstring(R"("type":"phase.started")"));
     REQUIRE_THAT(output, ContainsSubstring(R"("type":"phase.completed")"));
     REQUIRE_THAT(output, ContainsSubstring(R"("type":"artifact.produced")"));

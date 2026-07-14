@@ -842,7 +842,9 @@ TEST_CASE(
   </Application>
   <Profile Name="dev">
     <Defaults>
-      <BuildType Name="Debug" />
+      <Optimization Mode="Off" />
+      <DebugSymbols Enabled="true" />
+      <LinkTimeOptimization Enabled="false" />
     </Defaults>
   </Profile>
 </Project>

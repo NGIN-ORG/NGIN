@@ -63,6 +63,7 @@ namespace NGIN::CLI
                 std::string kind{};
                 std::string value{};
                 std::string visibility{"Private"};
+                std::optional<std::string> toolchain{};
                 bool remove{false};
                 std::string removeIdentity{};
             };
@@ -271,7 +272,9 @@ namespace NGIN::CLI
             };
 
             std::string name{};
-            std::optional<std::string> buildType{};
+            std::optional<std::string> optimization{};
+            std::optional<bool> debugSymbols{};
+            std::optional<bool> linkTimeOptimization{};
             std::optional<std::string> hostPlatform{};
             std::optional<std::string> targetPlatform{};
             std::optional<std::string> operatingSystem{};
@@ -360,7 +363,7 @@ namespace NGIN::CLI
         std::optional<std::string> platform{};
         std::optional<std::string> operatingSystem{};
         std::optional<std::string> architecture{};
-        std::optional<std::string> buildType{};
+        std::optional<std::string> toolchain{};
         std::optional<std::string> environment{};
         std::vector<std::string> conditionRefs{};
         bool impossible{false};
@@ -958,7 +961,9 @@ namespace NGIN::CLI
     struct ProfileDefinition
     {
         std::string name{};
-        std::string buildType{"Debug"};
+        std::string optimization{"Off"};
+        bool debugSymbols{true};
+        bool linkTimeOptimization{false};
         std::string hostPlatform{"host"};
         std::string platform{"host"};
         std::string toolchain{};

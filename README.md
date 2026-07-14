@@ -161,7 +161,9 @@ MyApp/
 
   <Profile Name="Debug">
     <Defaults>
-      <BuildType Name="Debug" />
+      <Optimization Mode="Off" />
+      <DebugSymbols Enabled="true" />
+      <LinkTimeOptimization Enabled="false" />
       <TargetPlatform Name="host" />
     </Defaults>
   </Profile>
@@ -176,6 +178,11 @@ ngin build
 ```
 
 NGIN discovers the `.nginproj`, generates the backend build, compiles the project, and prepares a runnable staged folder.
+
+`ngin new` creates `Debug`, `Release`, `RelWithDebInfo`, and `MinSizeRel`
+profiles targeting the host platform. A profile describes behavior directly
+through optimization, debug-symbol, LTO, and product build settings; NGIN
+derives the backend configuration needed by CMake.
 
 ## Commands
 

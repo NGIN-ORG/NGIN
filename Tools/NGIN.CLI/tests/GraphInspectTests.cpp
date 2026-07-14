@@ -72,7 +72,9 @@ TEST_CASE("diff compares resolved profile graph slices")
   </Application>
   <Profile Name="dev">
     <Defaults>
-      <BuildType Name="Debug" />
+      <Optimization Mode="Off" />
+      <DebugSymbols Enabled="true" />
+      <LinkTimeOptimization Enabled="false" />
       <Toolchain Name="clang-lld" />
       <Environment Name="development" />
     </Defaults>
@@ -91,7 +93,9 @@ TEST_CASE("diff compares resolved profile graph slices")
   </Profile>
   <Profile Name="shipping">
     <Defaults>
-      <BuildType Name="Release" />
+      <Optimization Mode="Speed" />
+      <DebugSymbols Enabled="false" />
+      <LinkTimeOptimization Enabled="false" />
       <Environment Name="production" />
     </Defaults>
     <Application>
@@ -125,7 +129,8 @@ TEST_CASE("diff compares resolved profile graph slices")
 
     const auto diff = captured.str();
     REQUIRE(exitCode == 0);
-    REQUIRE_THAT(diff, ContainsSubstring("BuildType changed: Debug -> Release"));
+    REQUIRE_THAT(diff, ContainsSubstring("Optimization changed: Off -> Speed"));
+    REQUIRE_THAT(diff, ContainsSubstring("DebugSymbols changed: true -> false"));
     REQUIRE_THAT(diff, ContainsSubstring("Defines added:"));
     REQUIRE_THAT(diff, ContainsSubstring("+ GAME_SHIPPING=1"));
     REQUIRE_THAT(diff, ContainsSubstring("Defines removed:"));
@@ -194,7 +199,9 @@ TEST_CASE("graph and explain support named launch entries")
   </Application>
   <Profile Name="dev">
     <Defaults>
-      <BuildType Name="Debug" />
+      <Optimization Mode="Off" />
+      <DebugSymbols Enabled="true" />
+      <LinkTimeOptimization Enabled="false" />
     </Defaults>
   </Profile>
 </Project>
@@ -277,7 +284,9 @@ TEST_CASE("explain object syntax answers resolved graph objects")
   </Application>
   <Profile Name="dev">
     <Defaults>
-      <BuildType Name="Debug" />
+      <Optimization Mode="Off" />
+      <DebugSymbols Enabled="true" />
+      <LinkTimeOptimization Enabled="false" />
       <Toolchain Name="clang-lld" />
       <Environment Name="development" />
     </Defaults>
@@ -302,7 +311,8 @@ TEST_CASE("explain object syntax answers resolved graph objects")
         return captured.str();
     };
 
-    REQUIRE_THAT(explain("property:BuildType"), ContainsSubstring("value: Debug"));
+    REQUIRE_THAT(explain("property:Optimization"), ContainsSubstring("value: Off"));
+    REQUIRE_THAT(explain("property:BackendConfiguration"), ContainsSubstring("value: Debug"));
     REQUIRE_THAT(explain("property:Toolchain"), ContainsSubstring("value: clang-lld"));
     REQUIRE_THAT(explain("property:Language"), ContainsSubstring("convention: NGIN.Cpp.Defaults"));
     REQUIRE_THAT(explain("convention:NGIN.Cpp.Defaults"), ContainsSubstring("reason: project did not declare a language override"));
@@ -356,7 +366,9 @@ TEST_CASE("graph plan switches print focused resolved plans")
   </Application>
   <Profile Name="dev">
     <Defaults>
-      <BuildType Name="Debug" />
+      <Optimization Mode="Off" />
+      <DebugSymbols Enabled="true" />
+      <LinkTimeOptimization Enabled="false" />
       <Environment Name="development" />
     </Defaults>
   </Profile>
@@ -496,7 +508,9 @@ TEST_CASE("graph json contract carries selected item provenance")
   <Profiles>
     <Profile Name="contract">
       <Defaults>
-        <BuildType Name="Release" />
+        <Optimization Mode="Speed" />
+        <DebugSymbols Enabled="false" />
+        <LinkTimeOptimization Enabled="false" />
         <TargetPlatform Name="linux-x64" />
         <HostPlatform Name="host" />
         <Environment Name="contract" />
@@ -624,7 +638,9 @@ TEST_CASE("graph json contract carries selected item provenance")
   </Application>
   <Profile Name="contract">
     <Defaults>
-      <BuildType Name="Release" />
+      <Optimization Mode="Speed" />
+      <DebugSymbols Enabled="false" />
+      <LinkTimeOptimization Enabled="false" />
       <TargetPlatform Name="linux-x64" />
       <HostPlatform Name="host" />
       <Environment Name="contract" />

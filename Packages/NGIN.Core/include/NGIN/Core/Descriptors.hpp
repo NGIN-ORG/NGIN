@@ -75,7 +75,7 @@ namespace NGIN::Core
         std::string                       platform {};
         std::string                       operatingSystem {};
         std::string                       architecture {};
-        std::string                       buildType {};
+        std::string                       toolchain {};
         std::string                       environment {};
         std::string                       condition {};
     };

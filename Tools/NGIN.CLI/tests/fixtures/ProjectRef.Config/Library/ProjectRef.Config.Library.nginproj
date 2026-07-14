@@ -12,7 +12,9 @@
   </Library>
   <Profile Name="Runtime">
     <Defaults>
-      <BuildType Name="Debug" />
+      <Optimization Mode="Off" />
+      <DebugSymbols Enabled="true" />
+      <LinkTimeOptimization Enabled="false" />
       <TargetPlatform Name="linux-x64" />
       <Environment Name="development" />
     </Defaults>

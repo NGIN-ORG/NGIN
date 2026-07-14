@@ -22,7 +22,9 @@
 
   <Profile Name="Debug.Analyzer">
     <Defaults>
-      <BuildType Name="Debug" />
+      <Optimization Mode="Off" />
+      <DebugSymbols Enabled="true" />
+      <LinkTimeOptimization Enabled="false" />
       <TargetPlatform Name="host" />
       <Environment Name="local" />
     </Defaults>

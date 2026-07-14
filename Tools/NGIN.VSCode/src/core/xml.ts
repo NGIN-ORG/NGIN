@@ -61,16 +61,16 @@ function selectorFields(node: {
   TargetPlatform?: string;
   OperatingSystem?: string;
   Architecture?: string;
-  BuildType?: string;
+  Toolchain?: string;
   Environment?: string;
   Condition?: string;
-} | undefined): Pick<InputDeclaration, 'profile' | 'platform' | 'operatingSystem' | 'architecture' | 'buildType' | 'environment' | 'condition'> {
+} | undefined): Pick<InputDeclaration, 'profile' | 'platform' | 'operatingSystem' | 'architecture' | 'toolchain' | 'environment' | 'condition'> {
   return {
     profile: node?.Profile,
     platform: node?.Platform ?? node?.TargetPlatform,
     operatingSystem: node?.OperatingSystem,
     architecture: node?.Architecture,
-    buildType: node?.BuildType,
+    toolchain: node?.Toolchain,
     environment: node?.Environment,
     condition: node?.Condition ?? node?.When
   };
@@ -92,7 +92,6 @@ function nodeName(node: unknown): string | undefined {
 
 function parseDefaults(root: { Defaults?: unknown } | undefined): SelectionDefaults | undefined {
   const defaults = root?.Defaults as {
-    BuildType?: unknown;
     TargetPlatform?: unknown;
     HostPlatform?: unknown;
     Platform?: unknown;
@@ -105,7 +104,6 @@ function parseDefaults(root: { Defaults?: unknown } | undefined): SelectionDefau
     return undefined;
   }
   return {
-    buildType: nodeName(defaults.BuildType),
     targetPlatform: nodeName(defaults.TargetPlatform) ?? nodeName(defaults.Platform),
     hostPlatform: nodeName(defaults.HostPlatform),
     operatingSystem: nodeName(defaults.OperatingSystem),
@@ -446,6 +444,11 @@ export function parseProjectManifest(xml: string, manifestPath: string): Project
         return undefined;
       }
       const profileProduct = getProduct(profile) ?? { kind: product.kind, node: {} };
+      const profileBuild = (profileProduct.node as { Build?: {
+        Optimization?: { Mode?: string };
+        DebugSymbols?: { Enabled?: string | boolean };
+        LinkTimeOptimization?: { Enabled?: string | boolean };
+      } }).Build;
       const defaults = mergeDefaults(rootDefaults, parseDefaults(profile as { Defaults?: unknown }));
       const overlayLaunch = (profileProduct.node as { Launch?: { Executable?: string; WorkingDirectory?: string } }).Launch;
       const inputs = [
@@ -456,7 +459,10 @@ export function parseProjectManifest(xml: string, manifestPath: string): Project
       return {
         name: profile.Name,
         extends: profile.Extends,
-        buildType: defaults?.buildType,
+        optimization: profileBuild?.Optimization?.Mode,
+        debugSymbols: profileBuild?.DebugSymbols?.Enabled === true || profileBuild?.DebugSymbols?.Enabled === 'true',
+        linkTimeOptimization: profileBuild?.LinkTimeOptimization?.Enabled === true ||
+          profileBuild?.LinkTimeOptimization?.Enabled === 'true',
         platform: defaults?.targetPlatform,
         targetPlatform: defaults?.targetPlatform,
         hostPlatform: defaults?.hostPlatform,
@@ -608,7 +614,10 @@ export function parseLaunchManifest(xml: string, manifestPath: string): LaunchMa
     project: root.Project,
     profile: root.Profile,
     type: root.Type,
-    buildType: root.BuildType,
+    optimization: root.Optimization,
+    debugSymbols: root.DebugSymbols === 'true',
+    linkTimeOptimization: root.LinkTimeOptimization === 'true',
+    backendConfiguration: root.BackendConfiguration,
     platform: root.Platform,
     operatingSystem: root.OperatingSystem,
     architecture: root.Architecture,

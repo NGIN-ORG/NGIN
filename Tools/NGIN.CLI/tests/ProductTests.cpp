@@ -26,7 +26,10 @@ TEST_CASE("minimal application project normalizes to generated executable")
     REQUIRE(project.build.language == "CXX");
     REQUIRE(project.build.languageStandard == "23");
     REQUIRE(profile.name == "dev");
-    REQUIRE(profile.buildType == "Debug");
+    REQUIRE(profile.optimization == "Off");
+    REQUIRE(profile.debugSymbols);
+    REQUIRE_FALSE(profile.linkTimeOptimization);
+    REQUIRE(BackendConfiguration(profile) == "Debug");
     REQUIRE(profile.platform == DetectHostPlatform().name);
     REQUIRE(profile.operatingSystem == DetectHostPlatform().operatingSystem);
     REQUIRE(profile.architecture == DetectHostPlatform().architecture);
@@ -247,7 +250,9 @@ TEST_CASE("hosted application parses runtime dependency, features, stage, enviro
   </Application>
   <Profile Name="shipping">
     <Defaults>
-      <BuildType Name="Release" />
+      <Optimization Mode="Speed" />
+      <DebugSymbols Enabled="false" />
+      <LinkTimeOptimization Enabled="false" />
       <HostPlatform Name="host" />
       <TargetPlatform Name="linux-x64" />
       <Environment Name="production" />
@@ -267,7 +272,9 @@ TEST_CASE("hosted application parses runtime dependency, features, stage, enviro
 
     REQUIRE(project.defaultProfile == "shipping");
     REQUIRE(profile.name == "shipping");
-    REQUIRE(profile.buildType == "Release");
+    REQUIRE(profile.optimization == "Speed");
+    REQUIRE_FALSE(profile.debugSymbols);
+    REQUIRE(BackendConfiguration(profile) == "Release");
     REQUIRE(profile.hostPlatform == "host");
     REQUIRE(profile.environmentName == "production");
     REQUIRE(profile.launch.args == "--config config/server.json");

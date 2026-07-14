@@ -205,12 +205,14 @@ export function eventOutputLine(event: NginCliEvent): string | undefined {
     const project = event.project || stringData(event, 'project');
     const profile = event.profile || stringData(event, 'profile');
     const productKind = stringData(event, 'productKind');
-    const buildType = stringData(event, 'buildType');
+    const optimization = stringData(event, 'optimization');
+    const backendConfiguration = stringData(event, 'backendConfiguration');
     const targetPlatform = stringData(event, 'targetPlatform');
     const toolchain = stringData(event, 'toolchain');
     const context = [project && profile ? `${project} [${profile}]` : project, productKind].filter(Boolean).join(' ');
     const details = [
-      buildType ? `build=${buildType}` : undefined,
+      optimization ? `optimization=${optimization}` : undefined,
+      backendConfiguration ? `backend=${backendConfiguration}` : undefined,
       targetPlatform ? `target=${targetPlatform}` : undefined,
       toolchain ? `toolchain=${toolchain}` : undefined
     ].filter(Boolean);

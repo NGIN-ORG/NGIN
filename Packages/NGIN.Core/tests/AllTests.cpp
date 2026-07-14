@@ -2060,7 +2060,9 @@ TEST_CASE("ApplicationBuilderLoadsProjectManifestAndConfig",
 
   <Profile Name="Samples.Manifest">
     <Defaults>
-      <BuildType Name="Debug" />
+      <Optimization Mode="Off" />
+      <DebugSymbols Enabled="true" />
+      <LinkTimeOptimization Enabled="false" />
       <TargetPlatform Name="linux-x64" />
       <Environment Name="Dev" />
     </Defaults>
@@ -2068,7 +2070,9 @@ TEST_CASE("ApplicationBuilderLoadsProjectManifestAndConfig",
 
   <Profile Name="Samples.Derived" Extends="Samples.Manifest">
     <Defaults>
-      <BuildType Name="Release" />
+      <Optimization Mode="Speed" />
+      <DebugSymbols Enabled="false" />
+      <LinkTimeOptimization Enabled="false" />
     </Defaults>
     <Application>
       <Stage>
@@ -2149,7 +2153,9 @@ TEST_CASE("ApplicationBuilderLoadsPackageFeatureConfig",
 
   <Profile Name="Runtime">
     <Defaults>
-      <BuildType Name="Debug" />
+      <Optimization Mode="Off" />
+      <DebugSymbols Enabled="true" />
+      <LinkTimeOptimization Enabled="false" />
       <TargetPlatform Name="linux-x64" />
       <Environment Name="local" />
     </Defaults>
@@ -2220,7 +2226,9 @@ TEST_CASE("ApplicationBuilderLoadsProjectManifestFromInjectedFilesystem",
 
   <Profile Name="Samples.Virtual">
     <Defaults>
-      <BuildType Name="Debug" />
+      <Optimization Mode="Off" />
+      <DebugSymbols Enabled="true" />
+      <LinkTimeOptimization Enabled="false" />
       <TargetPlatform Name="linux-x64" />
       <Environment Name="Virtual" />
     </Defaults>
@@ -2277,7 +2285,9 @@ TEST_CASE("ApplicationBuilderTargetOverrideBeatsProjectDefault",
 
   <Profile Name="Default.Target">
     <Defaults>
-      <BuildType Name="Debug" />
+      <Optimization Mode="Off" />
+      <DebugSymbols Enabled="true" />
+      <LinkTimeOptimization Enabled="false" />
       <TargetPlatform Name="linux-x64" />
       <Environment Name="Default" />
     </Defaults>
@@ -2290,7 +2300,9 @@ TEST_CASE("ApplicationBuilderTargetOverrideBeatsProjectDefault",
 
   <Profile Name="Override.Target">
     <Defaults>
-      <BuildType Name="Release" />
+      <Optimization Mode="Speed" />
+      <DebugSymbols Enabled="false" />
+      <LinkTimeOptimization Enabled="false" />
       <TargetPlatform Name="linux-x64" />
       <Environment Name="Override" />
     </Defaults>
@@ -2363,7 +2375,9 @@ TEST_CASE("ApplicationBuilderRejectsUnknownTarget", "[builder][manifest]") {
 
   <Profile Name="Samples.Default">
     <Defaults>
-      <BuildType Name="Debug" />
+      <Optimization Mode="Off" />
+      <DebugSymbols Enabled="true" />
+      <LinkTimeOptimization Enabled="false" />
       <TargetPlatform Name="linux-x64" />
       <Environment Name="Default" />
     </Defaults>

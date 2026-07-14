@@ -28,7 +28,9 @@ overlays.
 
   <Profile Name="dev">
     <Defaults>
-      <BuildType Name="Debug" />
+      <Optimization Mode="Off" />
+      <DebugSymbols Enabled="true" />
+      <LinkTimeOptimization Enabled="false" />
       <TargetPlatform Name="host" />
       <Environment Name="development" />
     </Defaults>
@@ -176,7 +178,7 @@ Build inputs live under `Build`.
           Value="1" />
 
   <CompileOption Value="-Wall"
-                 Toolchain="gcc;clang" />
+                 Toolchain="clang" />
 
   <LinkLibrary Name="pthread"
                When="linux" />
@@ -198,7 +200,7 @@ Selectors can be written directly on build items:
 
   <Define Name="GAME_DEBUG"
           Value="1"
-          BuildType="Debug" />
+          Profile="dev" />
 </Build>
 ```
 
@@ -209,7 +211,7 @@ Named conditions are declared once and referenced by `When`:
   <Condition Name="linux-debug">
     <All>
       <When OperatingSystem="linux" />
-      <When BuildType="Debug" />
+      <When Profile="dev" />
     </All>
   </Condition>
 </Conditions>
@@ -333,7 +335,6 @@ the same product kind as the primary product.
 ```xml
 <Profile Name="shipping">
   <Defaults>
-    <BuildType Name="Release" />
     <TargetPlatform Name="linux-x64" />
     <Environment Name="production" />
   </Defaults>

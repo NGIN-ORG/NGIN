@@ -232,7 +232,7 @@
       attrs: `data-open-profile="${index}"`,
       cells: [
         cell(profile.name),
-        rawCell(`<div class="chips">${badge(profile.buildType || 'default')}${badge(profile.platform || [profile.operatingSystem, profile.architecture].filter(Boolean).join('-') || 'host')}</div>`),
+        rawCell(`<div class="chips">${badge(profile.optimization || 'default')}${badge(profile.debugSymbols ? 'symbols' : 'no symbols')}${badge(profile.platform || [profile.operatingSystem, profile.architecture].filter(Boolean).join('-') || 'host')}</div>`),
         cell(profile.environment || ''),
         rawCell(`<button class="ghost" data-open-profile="${index}">Edit</button>`)
       ]
@@ -258,7 +258,7 @@
         <div class="panel-header">
           <div class="panel-title">
             <h2>Profiles</h2>
-            <p>Profiles choose build type, platform, environment, and optional launch overrides.</p>
+            <p>Profiles choose build traits, platform, environment, and optional launch overrides.</p>
           </div>
           <button class="secondary" data-drawer="add-profile">Add Profile</button>
         </div>
@@ -268,7 +268,9 @@
         <div class="panel-title"><h2>Active Resolved Profile</h2></div>
         <div class="summary-strip">
           ${badge(resolved.profileName || model.activeProfile || 'no profile')}
-          ${badge(resolved.buildType || 'default build')}
+          ${badge(resolved.optimization || 'default optimization')}
+          ${badge(resolved.debugSymbols ? 'symbols' : 'no symbols')}
+          ${resolved.backendConfiguration ? badge(resolved.backendConfiguration) : ''}
           ${badge(resolved.platform || [resolved.operatingSystem, resolved.architecture].filter(Boolean).join('-') || 'host')}
           ${badge(resolved.environment || 'no environment')}
           ${resolved.outputDir ? badge(resolved.outputDir) : ''}
@@ -485,7 +487,7 @@
       entry.platform,
       entry.operatingSystem,
       entry.architecture,
-      entry.buildType,
+      entry.toolchain ? `toolchain ${entry.toolchain}` : undefined,
       entry.environment ? `env ${entry.environment}` : undefined,
       entry.condition
     ].filter(Boolean);
@@ -569,7 +571,10 @@
         title: 'Edit Profile',
         body: `<div class="settings-grid">
           ${field('profile-name', 'Name', profile.name)}
-          ${selectField('profile-build-type', 'Build Type', ['Debug', 'Release', 'RelWithDebInfo', 'MinSizeRel', profile.buildType], profile.buildType, '')}
+          ${selectField('profile-optimization', 'Optimization', ['Off', 'Speed', 'Size', profile.optimization], profile.optimization, '')}
+          ${selectField('profile-symbols', 'Debug Symbols', ['true', 'false'], String(profile.debugSymbols ?? true), '')}
+          ${selectField('profile-lto', 'Link-Time Optimization', ['true', 'false'], String(profile.linkTimeOptimization ?? false), '')}
+          ${field('profile-toolchain', 'Toolchain', profile.toolchain)}
           ${selectField('profile-platform', 'Platform', ['host', 'linux-x64', 'windows-x64', 'macos-x64', 'macos-arm64', profile.platform], profile.platform, '')}
           ${selectField('profile-os', 'Operating System', ['linux', 'windows', 'macos', profile.operatingSystem], profile.operatingSystem, '')}
           ${selectField('profile-arch', 'Architecture', ['x64', 'arm64', profile.architecture], profile.architecture, '')}
@@ -591,7 +596,7 @@
           ${field('input-exclude', 'Exclude pattern', entry.exclude, ' placeholder="**/*.generated.cpp"')}
           ${selectField('input-os', 'Operating System', ['linux', 'windows', 'macos', entry.operatingSystem], entry.operatingSystem, '')}
           ${selectField('input-arch', 'Architecture', ['x64', 'arm64', entry.architecture], entry.architecture, '')}
-          ${selectField('input-build', 'Build Type', ['Debug', 'Release', 'RelWithDebInfo', 'MinSizeRel', entry.buildType], entry.buildType, '')}
+          ${field('input-toolchain', 'Toolchain', entry.toolchain, ' placeholder="clang"')}
           ${selectField('input-env', 'Environment', model.environments.map((env) => env.name).concat(entry.environment || []), entry.environment, '')}
           ${field('input-condition', 'Condition', entry.condition)}
         </div>`,
@@ -655,7 +660,7 @@
       exclude: optional(byId('input-exclude').value),
       operatingSystem: optional(byId('input-os').value),
       architecture: optional(byId('input-arch').value),
-      buildType: optional(byId('input-build').value),
+      toolchain: optional(byId('input-toolchain').value),
       environment: optional(byId('input-env').value),
       condition: optional(byId('input-condition').value)
     };
@@ -825,7 +830,10 @@
         type: 'updateProfile',
         originalName: saveProfileTarget.dataset.saveProfile,
         name: optional(byId('profile-name').value),
-        buildType: optional(byId('profile-build-type').value),
+        optimization: optional(byId('profile-optimization').value),
+        debugSymbols: byId('profile-symbols').value === 'true',
+        linkTimeOptimization: byId('profile-lto').value === 'true',
+        toolchain: optional(byId('profile-toolchain').value),
         platform: optional(byId('profile-platform').value),
         operatingSystem: optional(byId('profile-os').value),
         architecture: optional(byId('profile-arch').value),

@@ -173,7 +173,10 @@ BuildMode           Generated
 SourceRoot          src
 HeaderRoot          include, if present
 DefaultProfile      dev
-BuildType           Debug
+Optimization        Off
+DebugSymbols        true
+LinkTimeOptimization false
+BackendConfiguration Debug, derived
 HostPlatform        host
 TargetPlatform      host
 StageRoot           build/<profile>/stage
@@ -449,13 +452,15 @@ Package selection must use these tags, not only OS and architecture.
 
 ## Profiles
 
-Profiles are product-aware overlays. They are not generic `Debug`/`Release`
-aliases.
+Profiles are product-aware overlays. The standard `Debug`, `Release`,
+`RelWithDebInfo`, and `MinSizeRel` profiles created by `ngin new` are starter
+profiles, not a separate configuration system.
 
 A profile may affect:
 
-- build type
 - optimization
+- debug symbols
+- link-time optimization
 - toolchain
 - host platform
 - target platform
@@ -479,7 +484,7 @@ Recommended profile names:
 - `ci`
 - `shipping`
 
-Build types remain backend concepts:
+Backend configurations remain generated implementation details:
 
 - `Debug`
 - `Release`
@@ -492,7 +497,6 @@ Example profile overlay:
 <Profile Name="shipping">
   <Application>
     <Build>
-      <Type>Release</Type>
       <Optimization Mode="Speed" />
       <DebugSymbols Enabled="false" />
       <LinkTimeOptimization Enabled="true" />
@@ -792,18 +796,26 @@ projects. It does not replace project identity.
   <Profiles>
     <Profile Name="dev">
       <Defaults>
-        <BuildType Name="Debug" />
         <Environment Name="development" />
         <Toolchain Name="clang-lld" />
       </Defaults>
+      <Build>
+        <Optimization Mode="Off" />
+        <DebugSymbols Enabled="true" />
+        <LinkTimeOptimization Enabled="false" />
+      </Build>
     </Profile>
 
     <Profile Name="ci">
       <Defaults>
-        <BuildType Name="Debug" />
         <Environment Name="ci" />
         <Toolchain Name="clang-lld" />
       </Defaults>
+      <Build>
+        <Optimization Mode="Off" />
+        <DebugSymbols Enabled="true" />
+        <LinkTimeOptimization Enabled="false" />
+      </Build>
 
       <Tooling>
         <Run Name="cpp-static-analysis">
@@ -814,7 +826,6 @@ projects. It does not replace project identity.
 
     <Profile Name="shipping">
       <Defaults>
-        <BuildType Name="Release" />
         <Environment Name="production" />
         <Toolchain Name="clang-lld" />
       </Defaults>

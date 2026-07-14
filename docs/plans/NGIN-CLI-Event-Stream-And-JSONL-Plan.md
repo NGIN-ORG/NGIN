@@ -181,7 +181,10 @@ Emitted after project/profile resolution.
     "productKind": "Application",
     "hostPlatform": "host",
     "targetPlatform": "linux-x64",
-    "buildType": "Debug",
+    "optimization": "Off",
+    "debugSymbols": true,
+    "linkTimeOptimization": false,
+    "backendConfiguration": "Debug",
     "toolchain": "clang-lld"
   }
 }
@@ -742,7 +745,7 @@ Example output:
 
 ```jsonl
 {"schemaVersion":"1.0","kind":"NGIN.CLI.Event","sequence":1,"timestamp":"2026-05-12T00:00:00.000Z","type":"command.started","command":"build","data":{"workingDirectory":"/repo"}}
-{"schemaVersion":"1.0","kind":"NGIN.CLI.Event","sequence":2,"timestamp":"2026-05-12T00:00:00.012Z","type":"command.selection","command":"build","project":"Hello.Hosted","profile":"Debug","data":{"projectPath":"Examples/Hello.Hosted/Hello.Hosted.nginproj","productKind":"Application","targetPlatform":"linux-x64","buildType":"Debug"}}
+{"schemaVersion":"1.0","kind":"NGIN.CLI.Event","sequence":2,"timestamp":"2026-05-12T00:00:00.012Z","type":"command.selection","command":"build","project":"Hello.Hosted","profile":"Debug","data":{"projectPath":"Examples/Hello.Hosted/Hello.Hosted.nginproj","productKind":"Application","targetPlatform":"linux-x64","optimization":"Off","debugSymbols":true,"linkTimeOptimization":false,"backendConfiguration":"Debug"}}
 {"schemaVersion":"1.0","kind":"NGIN.CLI.Event","sequence":3,"timestamp":"2026-05-12T00:00:00.020Z","type":"phase.started","command":"build","project":"Hello.Hosted","profile":"Debug","data":{"phase":"configure","label":"CMake configure"}}
 {"schemaVersion":"1.0","kind":"NGIN.CLI.Event","sequence":4,"timestamp":"2026-05-12T00:00:01.823Z","type":"phase.completed","command":"build","project":"Hello.Hosted","profile":"Debug","data":{"phase":"configure","label":"CMake configure","durationMs":1803}}
 {"schemaVersion":"1.0","kind":"NGIN.CLI.Event","sequence":5,"timestamp":"2026-05-12T00:00:01.824Z","type":"phase.started","command":"build","project":"Hello.Hosted","profile":"Debug","data":{"phase":"build","label":"CMake build"}}

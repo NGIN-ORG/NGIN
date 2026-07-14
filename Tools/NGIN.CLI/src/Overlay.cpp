@@ -94,9 +94,9 @@ namespace NGIN::CLI
         {
             identity << "|arch=" << *selectors.architecture;
         }
-        if (selectors.buildType.has_value())
+        if (selectors.toolchain.has_value())
         {
-            identity << "|buildType=" << *selectors.buildType;
+            identity << "|toolchain=" << *selectors.toolchain;
         }
         if (selectors.environment.has_value())
         {

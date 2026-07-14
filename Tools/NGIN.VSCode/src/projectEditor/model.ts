@@ -39,7 +39,10 @@ function boolValue(value: unknown): boolean | undefined {
 
 export interface ProjectEditorProfile {
   name: string;
-  buildType?: string;
+  optimization?: string;
+  debugSymbols?: boolean;
+  linkTimeOptimization?: boolean;
+  toolchain?: string;
   platform?: string;
   operatingSystem?: string;
   architecture?: string;
@@ -149,7 +152,10 @@ export interface ProjectEditorResolvedSummary {
   projectType?: string;
   workspaceName?: string;
   profileName?: string;
-  buildType?: string;
+  optimization?: string;
+  debugSymbols?: boolean;
+  linkTimeOptimization?: boolean;
+  backendConfiguration?: string;
   platform?: string;
   operatingSystem?: string;
   architecture?: string;
@@ -261,17 +267,17 @@ function selectors(value: {
   TargetPlatform?: string;
   OperatingSystem?: string;
   Architecture?: string;
-  BuildType?: string;
+  Toolchain?: string;
   Environment?: string;
   Condition?: string;
   When?: string;
-} | undefined): Pick<ProjectInputEdit, 'profile' | 'platform' | 'operatingSystem' | 'architecture' | 'buildType' | 'environment' | 'condition'> {
+} | undefined): Pick<ProjectInputEdit, 'profile' | 'platform' | 'operatingSystem' | 'architecture' | 'toolchain' | 'environment' | 'condition'> {
   return {
     profile: value?.Profile,
     platform: value?.Platform ?? value?.TargetPlatform,
     operatingSystem: value?.OperatingSystem,
     architecture: value?.Architecture,
-    buildType: value?.BuildType,
+    toolchain: value?.Toolchain,
     environment: value?.Environment,
     condition: value?.Condition ?? value?.When
   };
@@ -446,12 +452,16 @@ function resolvedSummary(inspect: CompositionGraphPayload | undefined): ProjectE
       ? { kind: 'plugin' as const, name: entry }
       : { kind: 'plugin' as const, name: entry.name, state: entry.load, source: entry.provenance?.sourceKind }))
   ];
+  const property = (name: string) => inspect?.properties?.find((entry) => entry.name === name)?.value;
   return {
     projectName: inspect?.identity?.project,
     projectType: inspect?.product?.kind,
     workspaceName: inspect?.workspace?.name,
     profileName: inspect?.selection?.profile,
-    buildType: inspect?.selection?.buildType,
+    optimization: property('Optimization'),
+    debugSymbols: property('DebugSymbols') === 'true',
+    linkTimeOptimization: property('LinkTimeOptimization') === 'true',
+    backendConfiguration: property('BackendConfiguration'),
     platform: inspect?.selection?.targetPlatform ?? inspect?.selection?.platform,
     operatingSystem: inspect?.selection?.operatingSystem,
     architecture: inspect?.selection?.architecture,
@@ -540,10 +550,18 @@ export function buildProjectEditorModel(
           return undefined;
         }
         const overlayProduct = productNode(profile);
+        const build = overlayProduct?.Build as {
+          Optimization?: { Mode?: string };
+          DebugSymbols?: { Enabled?: string | boolean };
+          LinkTimeOptimization?: { Enabled?: string | boolean };
+        } | undefined;
         const launch = (overlayProduct?.Launch ?? rootProduct?.Launch) as { Executable?: string; WorkingDirectory?: string } | undefined;
         return {
           name: profile.Name,
-          buildType: defaultsValue(profile, 'BuildType'),
+          optimization: build?.Optimization?.Mode,
+          debugSymbols: boolValue(build?.DebugSymbols?.Enabled),
+          linkTimeOptimization: boolValue(build?.LinkTimeOptimization?.Enabled),
+          toolchain: defaultsValue(profile, 'Toolchain'),
           platform: defaultsValue(profile, 'TargetPlatform'),
           operatingSystem: defaultsValue(profile, 'OperatingSystem'),
           architecture: defaultsValue(profile, 'Architecture'),

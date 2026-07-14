@@ -14,7 +14,10 @@ namespace NGIN::Reflection::MetaGen
         std::string projectName{};
         std::string profileName{};
         std::string platform{};
-        std::string buildType{};
+        std::string optimization{};
+        bool debugSymbols{true};
+        bool linkTimeOptimization{false};
+        std::string backendConfiguration{};
         std::string operatingSystem{};
         std::string architecture{};
         std::string environment{};

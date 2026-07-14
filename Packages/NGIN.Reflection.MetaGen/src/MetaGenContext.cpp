@@ -109,7 +109,10 @@ namespace NGIN::Reflection::MetaGen
         context.projectName = Attribute(*root, "Project");
         context.profileName = Attribute(*root, "Profile");
         context.platform = Attribute(*root, "Platform");
-        context.buildType = Attribute(*root, "BuildType");
+        context.optimization = Attribute(*root, "Optimization");
+        context.debugSymbols = Attribute(*root, "DebugSymbols") == "true";
+        context.linkTimeOptimization = Attribute(*root, "LinkTimeOptimization") == "true";
+        context.backendConfiguration = Attribute(*root, "BackendConfiguration");
         context.operatingSystem = Attribute(*root, "OperatingSystem");
         context.architecture = Attribute(*root, "Architecture");
         context.environment = Attribute(*root, "Environment");

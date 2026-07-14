@@ -36,8 +36,6 @@ namespace {
 struct LoadedInvocation {
   ProjectManifest project{};
   ProfileDefinition profile{};
-  std::optional<std::string> configurationName{};
-  std::optional<std::string> configurationSource{};
 };
 
 [[nodiscard]] auto IsQuiet(const ParsedArgs &args) -> bool {
@@ -1152,14 +1150,11 @@ auto EmitSelection(CliEventEmitter &events, const LoadedInvocation &invocation)
       .AddString("productKind", project.productKind)
       .AddString("hostPlatform", profile.hostPlatform)
       .AddString("targetPlatform", profile.platform)
-      .AddString("buildType", profile.buildType)
+      .AddString("optimization", profile.optimization)
+      .AddBool("debugSymbols", profile.debugSymbols)
+      .AddBool("linkTimeOptimization", profile.linkTimeOptimization)
+      .AddString("backendConfiguration", BackendConfiguration(profile))
       .AddString("toolchain", profile.toolchain);
-  if (invocation.configurationName.has_value()) {
-    data.AddString("configuration", *invocation.configurationName);
-  }
-  if (invocation.configurationSource.has_value()) {
-    data.AddString("configurationSource", *invocation.configurationSource);
-  }
   events.Emit(CliEventType::CommandSelection, std::move(data));
 }
 
@@ -1320,7 +1315,11 @@ auto PrintVerboseResolvedDetails(const ParsedArgs &args,
 
   PrintSection(args, "Selection");
   PrintField(args, "product kind", resolved.project.productKind);
-  PrintField(args, "build type", resolved.profile.buildType);
+  PrintField(args, "optimization", resolved.profile.optimization);
+  PrintField(args, "debug symbols", resolved.profile.debugSymbols ? "true" : "false");
+  PrintField(args, "link-time optimization",
+             resolved.profile.linkTimeOptimization ? "true" : "false");
+  PrintField(args, "backend configuration", BackendConfiguration(resolved.profile));
   PrintField(args, "host platform", resolved.profile.hostPlatform);
   PrintField(args, "target platform", resolved.profile.platform);
   if (!resolved.profile.toolchain.empty()) {
@@ -1437,10 +1436,6 @@ HasEffectiveProfile(const ProjectManifest &project,
                      });
 }
 
-[[nodiscard]] auto SupportedBuildTypesForMessage() -> std::string {
-  return "Debug, Release, RelWithDebInfo, or MinSizeRel";
-}
-
 [[nodiscard]] auto ResolveInvocation(const ParsedArgs &args)
     -> LoadedInvocation {
   auto project = LoadProjectManifest(ResolveProjectPath(args.projectPath));
@@ -1451,24 +1446,6 @@ HasEffectiveProfile(const ProjectManifest &project,
   }
   project = ProjectWithWorkspacePolicy(std::move(project), workspace);
   std::optional<std::string> selectedProfile = args.profileName;
-  std::optional<std::string> configurationSource{};
-  if (args.configurationName.has_value()) {
-    if (!IsSupportedBuildType(*args.configurationName)) {
-      throw std::runtime_error("unknown configuration '" +
-                               *args.configurationName + "'; expected " +
-                               SupportedBuildTypesForMessage() +
-                               ". Use --profile for custom product scenarios.");
-    }
-    if (selectedProfile.has_value()) {
-      configurationSource = "buildTypeOverride";
-    } else if (HasEffectiveProfile(project, workspace,
-                                   *args.configurationName)) {
-      selectedProfile = args.configurationName;
-      configurationSource = "profile";
-    } else {
-      configurationSource = "buildTypeOverride";
-    }
-  }
   if (!selectedProfile.has_value()) {
     if (workspace.has_value() && !workspace->defaultProfile.empty()) {
       if (HasEffectiveProfile(project, workspace, workspace->defaultProfile)) {
@@ -1478,16 +1455,10 @@ HasEffectiveProfile(const ProjectManifest &project,
   }
   auto profile =
       ProfileWithWorkspacePolicy(project, workspace, selectedProfile);
-  if (args.configurationName.has_value() && configurationSource.has_value() &&
-      *configurationSource == "buildTypeOverride") {
-    profile.buildType = *args.configurationName;
-  }
   profile.launch = SelectLaunch(project, profile, args.launchName);
   return LoadedInvocation{
       .project = project,
       .profile = std::move(profile),
-      .configurationName = args.configurationName,
-      .configurationSource = std::move(configurationSource),
   };
 }
 
@@ -1869,8 +1840,13 @@ auto RestoreExternalProviderPackages(const ResolvedLaunch &resolved,
   out << "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n";
   out << "<LockFile SchemaVersion=\"1\" Project=\""
       << EscapeXml(resolved.project.name) << "\" Profile=\""
-      << EscapeXml(resolved.profile.name) << "\" BuildType=\""
-      << EscapeXml(resolved.profile.buildType) << "\" Toolchain=\""
+      << EscapeXml(resolved.profile.name) << "\" Optimization=\""
+      << EscapeXml(resolved.profile.optimization) << "\" DebugSymbols=\""
+      << (resolved.profile.debugSymbols ? "true" : "false")
+      << "\" LinkTimeOptimization=\""
+      << (resolved.profile.linkTimeOptimization ? "true" : "false")
+      << "\" BackendConfiguration=\""
+      << EscapeXml(BackendConfiguration(resolved.profile)) << "\" Toolchain=\""
       << EscapeXml(resolved.profile.toolchain) << "\" Platform=\""
       << EscapeXml(resolved.profile.platform) << "\" Environment=\""
       << EscapeXml(resolved.profile.environmentName) << "\">\n";
@@ -1975,7 +1951,7 @@ auto RestoreExternalProviderPackages(const ResolvedLaunch &resolved,
   return selectors.impossible || selectors.profile.has_value() ||
          selectors.operatingSystem.has_value() ||
          selectors.platform.has_value() || selectors.architecture.has_value() ||
-         selectors.buildType.has_value() || selectors.environment.has_value() ||
+         selectors.toolchain.has_value() || selectors.environment.has_value() ||
          !selectors.conditionRefs.empty();
 }
 
@@ -2052,7 +2028,7 @@ auto PrintSelectorSummary(const SelectorSet &selectors) -> void {
   append("Platform", selectors.platform);
   append("OperatingSystem", selectors.operatingSystem);
   append("Architecture", selectors.architecture);
-  append("BuildType", selectors.buildType);
+  append("Toolchain", selectors.toolchain);
   append("Environment", selectors.environment);
   if (selectors.impossible) {
     if (!first) {
@@ -3308,7 +3284,11 @@ struct DiffSnapshot {
 [[nodiscard]] auto BuildDiffSnapshot(const ResolvedLaunch &resolved)
     -> DiffSnapshot {
   DiffSnapshot snapshot{};
-  snapshot.selection.emplace("BuildType", resolved.profile.buildType);
+  snapshot.selection.emplace("Optimization", resolved.profile.optimization);
+  snapshot.selection.emplace("DebugSymbols", resolved.profile.debugSymbols ? "true" : "false");
+  snapshot.selection.emplace("LinkTimeOptimization",
+                             resolved.profile.linkTimeOptimization ? "true" : "false");
+  snapshot.selection.emplace("BackendConfiguration", BackendConfiguration(resolved.profile));
   snapshot.selection.emplace("HostPlatform", resolved.profile.hostPlatform);
   snapshot.selection.emplace("TargetPlatform", resolved.profile.platform);
   snapshot.selection.emplace("Toolchain", resolved.profile.toolchain);
@@ -3799,8 +3779,8 @@ auto PrintConditionalFeatures(
       *selectors.architecture != profile.architecture) {
     return false;
   }
-  if (selectors.buildType.has_value() &&
-      *selectors.buildType != profile.buildType) {
+  if (selectors.toolchain.has_value() &&
+      *selectors.toolchain != profile.toolchain) {
     return false;
   }
   if (selectors.environment.has_value() &&
@@ -3948,11 +3928,6 @@ auto ParseCommonArgs(int argc, char **argv, int startIndex) -> ParsedArgs {
       args.projectPath = argv[++index];
     } else if (current == "--profile" && index + 1 < argc) {
       args.profileName = argv[++index];
-    } else if (current == "--configuration" && index + 1 < argc) {
-      args.configurationName = argv[++index];
-    } else if (current == "--configuration") {
-      throw std::runtime_error("--configuration expects Debug, Release, "
-                               "RelWithDebInfo, or MinSizeRel");
     } else if (current == "--from-profile" && index + 1 < argc) {
       args.fromProfileName = argv[++index];
     } else if (current == "--to-profile" && index + 1 < argc) {
@@ -5273,7 +5248,10 @@ auto CmdExplainCondition(const fs::path &root, const ParsedArgs &args) -> int {
   std::cout << "  result: " << (matched ? "matched" : "not matched") << "\n";
   std::cout << "  origin: " << ConditionOrigin(condition) << "\n";
   std::cout << "  profile: " << invocation.profile.name
-            << " BuildType=" << invocation.profile.buildType
+            << " Optimization=" << invocation.profile.optimization
+            << " DebugSymbols=" << (invocation.profile.debugSymbols ? "true" : "false")
+            << " LinkTimeOptimization="
+            << (invocation.profile.linkTimeOptimization ? "true" : "false")
             << " Platform=" << invocation.profile.platform
             << " OperatingSystem=" << invocation.profile.operatingSystem
             << " Architecture=" << invocation.profile.architecture
@@ -5464,8 +5442,28 @@ auto CmdExplainObject(const fs::path &root, const ParsedArgs &args) -> int {
       }
       return 0;
     }
-    if (identity == "BuildType") {
-      std::cout << "  value: " << resolved.value->profile.buildType << "\n";
+    if (identity == "Optimization") {
+      std::cout << "  value: " << resolved.value->profile.optimization << "\n";
+      std::cout << "  source: selected profile " << resolved.value->profile.name
+                << "\n";
+      return 0;
+    }
+    if (identity == "DebugSymbols") {
+      std::cout << "  value: "
+                << (resolved.value->profile.debugSymbols ? "true" : "false") << "\n";
+      std::cout << "  source: selected profile " << resolved.value->profile.name
+                << "\n";
+      return 0;
+    }
+    if (identity == "LinkTimeOptimization") {
+      std::cout << "  value: "
+                << (resolved.value->profile.linkTimeOptimization ? "true" : "false") << "\n";
+      std::cout << "  source: selected profile " << resolved.value->profile.name
+                << "\n";
+      return 0;
+    }
+    if (identity == "BackendConfiguration") {
+      std::cout << "  value: " << BackendConfiguration(resolved.value->profile) << "\n";
       std::cout << "  source: selected profile " << resolved.value->profile.name
                 << "\n";
       return 0;
@@ -6187,9 +6185,24 @@ BuildCompositionGraph(const LoadedInvocation &invocation,
               : projectProvenance("selected by named language convention"),
   });
   graph.properties.push_back(CompositionGraph::Property{
-      .name = "BuildType",
-      .value = invocation.profile.buildType,
-      .provenance = profileProvenance("selected profile build type"),
+      .name = "Optimization",
+      .value = invocation.profile.optimization,
+      .provenance = profileProvenance("selected profile optimization mode"),
+  });
+  graph.properties.push_back(CompositionGraph::Property{
+      .name = "DebugSymbols",
+      .value = invocation.profile.debugSymbols ? "true" : "false",
+      .provenance = profileProvenance("selected profile debug-symbol policy"),
+  });
+  graph.properties.push_back(CompositionGraph::Property{
+      .name = "LinkTimeOptimization",
+      .value = invocation.profile.linkTimeOptimization ? "true" : "false",
+      .provenance = profileProvenance("selected profile link-time optimization policy"),
+  });
+  graph.properties.push_back(CompositionGraph::Property{
+      .name = "BackendConfiguration",
+      .value = BackendConfiguration(invocation.profile),
+      .provenance = profileProvenance("derived from selected profile build traits"),
   });
   graph.properties.push_back(CompositionGraph::Property{
       .name = "HostPlatform",
@@ -7431,14 +7444,33 @@ auto CmdNew(const fs::path &root, const std::string &kind,
   }
 
   const auto projectPath = projectDir / (name + ".nginproj");
-  WriteNewFile(projectPath, "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n\n"
-                            "<Project SchemaVersion=\"4\" Name=\"" +
-                                name +
-                                "\">\n"
-                                "  <" +
-                                productKind +
-                                " />\n"
-                                "</Project>\n");
+  const auto profile = [&](const std::string &profileName,
+                           const std::string &optimization,
+                           const bool debugSymbols) {
+    return "\n  <Profile Name=\"" + profileName + "\">\n"
+           "    <Defaults>\n"
+           "      <TargetPlatform Name=\"host\" />\n"
+           "    </Defaults>\n"
+           "    <" + productKind + ">\n"
+           "      <Build>\n"
+           "        <Optimization Mode=\"" + optimization + "\" />\n"
+           "        <DebugSymbols Enabled=\"" +
+           (debugSymbols ? std::string{"true"} : std::string{"false"}) + "\" />\n"
+           "        <LinkTimeOptimization Enabled=\"false\" />\n"
+           "      </Build>\n"
+           "    </" + productKind + ">\n"
+           "  </Profile>\n";
+  };
+  WriteNewFile(projectPath,
+               "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n\n"
+               "<Project SchemaVersion=\"4\" Name=\"" + name +
+                   "\" DefaultProfile=\"Debug\">\n"
+                   "  <" + productKind + " />\n" +
+                   profile("Debug", "Off", true) +
+                   profile("Release", "Speed", false) +
+                   profile("RelWithDebInfo", "Speed", true) +
+                   profile("MinSizeRel", "Size", false) +
+                   "</Project>\n");
 
   if (productKind == "Library") {
     WriteNewFile(projectDir / "include" / (name + ".hpp"), "#pragma once\n");
@@ -8413,6 +8445,7 @@ auto CmdSchema(const fs::path &root, const ParsedArgs &args) -> int {
   std::cout << "  },\n";
   std::cout
       << "  \"buildItems\": [\"Language\", \"Sources\", \"Headers\", "
+         "\"Optimization\", \"DebugSymbols\", \"LinkTimeOptimization\", "
          "\"IncludePath\", \"Define\", \"CompileOption\", \"LinkOption\", "
          "\"LinkLibrary\", \"PrecompiledHeader\", \"UnityBuild\"],\n";
   std::cout << "  \"stageItems\": [\"Config\", \"Content\"],\n";

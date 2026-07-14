@@ -1276,8 +1276,14 @@ auto WriteGeneratorContext(
       << "\"\n";
   out << "                  Platform=\"" << EscapeXml(unit.profile.platform)
       << "\"\n";
-  out << "                  BuildType=\"" << EscapeXml(unit.profile.buildType)
+  out << "                  Optimization=\"" << EscapeXml(unit.profile.optimization)
       << "\"\n";
+  out << "                  DebugSymbols=\"" << (unit.profile.debugSymbols ? "true" : "false")
+      << "\"\n";
+  out << "                  LinkTimeOptimization=\""
+      << (unit.profile.linkTimeOptimization ? "true" : "false") << "\"\n";
+  out << "                  BackendConfiguration=\""
+      << EscapeXml(BackendConfiguration(unit.profile)) << "\"\n";
   out << "                  OperatingSystem=\""
       << EscapeXml(unit.profile.operatingSystem) << "\"\n";
   out << "                  Architecture=\""
@@ -1796,6 +1802,36 @@ auto EmitPackageBuildOptions(std::ostream &out,
   }
 }
 
+auto EmitProfileBuildTraits(std::ostream &out, const std::string &targetName,
+                            const ProfileDefinition &profile) -> void {
+  const auto msvcOptimization = profile.optimization == "Off" ? "/Od"
+                                : profile.optimization == "Size" ? "/O1"
+                                                                  : "/O2";
+  const auto otherOptimization = profile.optimization == "Off" ? "-O0"
+                                 : profile.optimization == "Size" ? "-Os"
+                                                                   : "-O2";
+  out << "if(MSVC)\n";
+  out << "  target_compile_options(\"" << EscapeCMake(targetName)
+      << "\" PRIVATE \"" << msvcOptimization << "\")\n";
+  if (profile.debugSymbols) {
+    out << "  target_compile_options(\"" << EscapeCMake(targetName)
+        << "\" PRIVATE \"/Zi\")\n";
+    out << "  target_link_options(\"" << EscapeCMake(targetName)
+        << "\" PRIVATE \"/DEBUG\")\n";
+  }
+  out << "else()\n";
+  out << "  target_compile_options(\"" << EscapeCMake(targetName)
+      << "\" PRIVATE \"" << otherOptimization << "\")\n";
+  if (profile.debugSymbols) {
+    out << "  target_compile_options(\"" << EscapeCMake(targetName)
+        << "\" PRIVATE \"-g\")\n";
+  }
+  out << "endif()\n";
+  out << "set_property(TARGET \"" << EscapeCMake(targetName)
+      << "\" PROPERTY INTERPROCEDURAL_OPTIMIZATION "
+      << (profile.linkTimeOptimization ? "TRUE" : "FALSE") << ")\n";
+}
+
 [[nodiscard]] auto
 WriteGeneratedBuildProject(const ResolvedLaunch &resolved,
                            const fs::path &outputDir,
@@ -2075,6 +2111,7 @@ WriteGeneratedBuildProject(const ResolvedLaunch &resolved,
           << "\" PROPERTIES CXX_STANDARD "
           << EscapeCMake(unit.project.build.languageStandard)
           << " CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)\n";
+      EmitProfileBuildTraits(out, targetName, unit.profile);
     }
 
     for (const auto &sourceRoot :
@@ -2498,8 +2535,7 @@ struct CMakeProviderInputs {
     return std::nullopt;
   }
 
-  const auto buildType =
-      resolved.profile.buildType.empty() ? "Debug" : resolved.profile.buildType;
+  const auto backendConfiguration = BackendConfiguration(resolved.profile);
   const auto cmakeCachePath = generatedPaths.buildDir / "CMakeCache.txt";
   const auto compileCommandsPath =
       generatedPaths.buildDir / "compile_commands.json";
@@ -2521,7 +2557,7 @@ struct CMakeProviderInputs {
         generatedPaths.sourceDir.string(),
         "-B",
         generatedPaths.buildDir.string(),
-        "-DCMAKE_BUILD_TYPE=" + buildType,
+        "-DCMAKE_BUILD_TYPE=" + backendConfiguration,
         "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON",
     };
     if (!providerInputs.vcpkgToolchainFile.empty()) {
@@ -2555,7 +2591,8 @@ struct CMakeProviderInputs {
       AddError(
           report,
           "failed to configure generated CMake build project for profile '" +
-              resolved.profile.name + "' with build type '" + buildType + "'");
+              resolved.profile.name + "' with backend configuration '" +
+              backendConfiguration + "'");
       return std::nullopt;
     }
   } else {
@@ -2576,8 +2613,7 @@ auto BuildArtifacts(const ResolvedLaunch &resolved, const fs::path &outputDir,
     return;
   }
 
-  const auto buildType =
-      resolved.profile.buildType.empty() ? "Debug" : resolved.profile.buildType;
+  const auto backendConfiguration = BackendConfiguration(resolved.profile);
   const auto toolSearchRoot = BuildToolSearchRoot(resolved);
   const auto cmakeTool = ResolveToolPath("cmake", toolSearchRoot);
   if (!cmakeTool.has_value()) {
@@ -2586,7 +2622,7 @@ auto BuildArtifacts(const ResolvedLaunch &resolved, const fs::path &outputDir,
     return;
   }
   std::vector<std::string> buildArguments{
-      "--build", generatedPaths->buildDir.string(), "--config", buildType,
+      "--build", generatedPaths->buildDir.string(), "--config", backendConfiguration,
       "--target", "ngin_stage_artifacts"};
   if (options.verboseBackend) {
     buildArguments.push_back("--verbose");
@@ -2594,8 +2630,8 @@ auto BuildArtifacts(const ResolvedLaunch &resolved, const fs::path &outputDir,
   if (RunBackendProcess("CMake build", cmakeTool->path, buildArguments,
                         std::nullopt, options) != 0) {
     AddError(report, "failed to build or stage artifacts for profile '" +
-                         resolved.profile.name + "' with build type '" +
-                         buildType + "'");
+                         resolved.profile.name + "' with backend configuration '" +
+                         backendConfiguration + "'");
   }
 }
 
@@ -2646,7 +2682,10 @@ auto CompilationPlanSignature(const ResolvedLaunch &resolved) -> std::string {
   std::ostringstream material{};
   material << "project=" << resolved.project.path.generic_string() << '\n'
            << "profile=" << resolved.profile.name << '\n'
-           << "buildType=" << resolved.profile.buildType << '\n'
+           << "optimization=" << resolved.profile.optimization << '\n'
+           << "debugSymbols=" << resolved.profile.debugSymbols << '\n'
+           << "linkTimeOptimization=" << resolved.profile.linkTimeOptimization << '\n'
+           << "backendConfiguration=" << BackendConfiguration(resolved.profile) << '\n'
            << "host=" << resolved.profile.hostPlatform << '\n'
            << "target=" << resolved.profile.platform << '\n'
            << "toolchain=" << resolved.profile.toolchain << '\n'
@@ -2737,8 +2776,12 @@ auto RunProcess(const fs::path &executable,
   if (!CreateProcessW(nullptr, commandBuffer.data(), nullptr, nullptr, FALSE, 0,
                       nullptr, workingDirectoryPtr, &startupInfo,
                       &processInfo)) {
+    const auto errorCode = GetLastError();
     throw std::runtime_error("failed to start process '" + executable.string() +
-                             "'");
+                             "' in '" +
+                             workingDirectory.value_or(fs::current_path()).string() +
+                             "' (Windows error " +
+                             std::to_string(errorCode) + ")");
   }
 
   WaitForSingleObject(processInfo.hProcess, INFINITE);
@@ -2844,10 +2887,14 @@ auto RunProcessCapture(
   if (!CreateProcessW(nullptr, commandBuffer.data(), nullptr, nullptr, TRUE, 0,
                       nullptr, workingDirectoryPtr, &startupInfo,
                       &processInfo)) {
+    const auto errorCode = GetLastError();
     CloseHandle(readPipe);
     CloseHandle(writePipe);
     throw std::runtime_error("failed to start process '" + executable.string() +
-                             "'");
+                             "' in '" +
+                             workingDirectory.value_or(fs::current_path()).string() +
+                             "' (Windows error " +
+                             std::to_string(errorCode) + ")");
   }
 
   CloseHandle(writePipe);
@@ -2969,8 +3016,13 @@ auto WriteLaunchManifest(
   out << "<LaunchManifest SchemaVersion=\"3\" Profile=\""
       << EscapeXml(resolved.profile.name) << "\" Project=\""
       << EscapeXml(resolved.project.name) << "\" Type=\""
-      << EscapeXml(resolved.project.type) << "\" BuildType=\""
-      << EscapeXml(resolved.profile.buildType) << "\" Platform=\""
+      << EscapeXml(resolved.project.type) << "\" Optimization=\""
+      << EscapeXml(resolved.profile.optimization) << "\" DebugSymbols=\""
+      << (resolved.profile.debugSymbols ? "true" : "false")
+      << "\" LinkTimeOptimization=\""
+      << (resolved.profile.linkTimeOptimization ? "true" : "false")
+      << "\" BackendConfiguration=\""
+      << EscapeXml(BackendConfiguration(resolved.profile)) << "\" Platform=\""
       << EscapeXml(resolved.profile.platform) << "\" OperatingSystem=\""
       << EscapeXml(resolved.profile.operatingSystem) << "\" Architecture=\""
       << EscapeXml(resolved.profile.architecture) << "\">\n";
@@ -3193,12 +3245,12 @@ auto CleanLaunch(const ProjectManifest &project,
     -> DiagnosticResult<fs::path> {
   DiagnosticResult<fs::path> result{};
 
-  if (!IsSupportedBuildType(profile.buildType)) {
+  if (!IsSupportedOptimizationMode(profile.optimization)) {
     AddError(
         result.diagnostics,
-        "unsupported build type '" + profile.buildType + "' in profile '" +
-            profile.name +
-            "'. Expected one of: Debug, Release, RelWithDebInfo, MinSizeRel");
+        "unsupported optimization mode '" + profile.optimization +
+            "' in profile '" + profile.name +
+            "'. Expected one of: Off, Speed, Size");
     return result;
   }
 
@@ -3237,12 +3289,12 @@ auto ConfigureLaunch(const ProjectManifest &project,
     -> DiagnosticResult<ConfiguredBuildPaths> {
   DiagnosticResult<ConfiguredBuildPaths> result{};
 
-  if (!IsSupportedBuildType(profile.buildType)) {
+  if (!IsSupportedOptimizationMode(profile.optimization)) {
     AddError(
         result.diagnostics,
-        "unsupported build type '" + profile.buildType + "' in profile '" +
-            profile.name +
-            "'. Expected one of: Debug, Release, RelWithDebInfo, MinSizeRel");
+        "unsupported optimization mode '" + profile.optimization +
+            "' in profile '" + profile.name +
+            "'. Expected one of: Off, Speed, Size");
     return result;
   }
   if (!ValidateNativeBuildTarget(profile, result.diagnostics)) {
@@ -3290,12 +3342,12 @@ auto BuildLaunch(const ProjectManifest &project,
     -> DiagnosticResult<GeneratedLaunchPaths> {
   DiagnosticResult<GeneratedLaunchPaths> result{};
 
-  if (!IsSupportedBuildType(profile.buildType)) {
+  if (!IsSupportedOptimizationMode(profile.optimization)) {
     AddError(
         result.diagnostics,
-        "unsupported build type '" + profile.buildType + "' in profile '" +
-            profile.name +
-            "'. Expected one of: Debug, Release, RelWithDebInfo, MinSizeRel");
+        "unsupported optimization mode '" + profile.optimization +
+            "' in profile '" + profile.name +
+            "'. Expected one of: Off, Speed, Size");
     return result;
   }
   if (!ValidateNativeBuildTarget(profile, result.diagnostics)) {

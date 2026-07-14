@@ -51,27 +51,50 @@ Minimal example:
 ```bash
 ./build/dev/Tools/NGIN.CLI/ngin validate \
   --project Examples/Hello.Native/Hello.Native.nginproj \
-  --configuration Debug
+  --profile Debug
 
 ./build/dev/Tools/NGIN.CLI/ngin configure \
   --project Examples/Hello.Native/Hello.Native.nginproj \
-  --configuration Debug \
+  --profile Debug \
   --output build/manual/Hello.Native
 
 ./build/dev/Tools/NGIN.CLI/ngin build \
   --project Examples/Hello.Native/Hello.Native.nginproj \
-  --configuration Debug \
+  --profile Debug \
   --output build/manual/Hello.Native
 
 ./build/dev/Tools/NGIN.CLI/ngin run \
   --project Examples/Hello.Native/Hello.Native.nginproj \
-  --configuration Debug \
+  --profile Debug \
   --output build/manual/Hello.Native
 ```
 
-Use `--configuration Debug`, `Release`, `RelWithDebInfo`, or `MinSizeRel` for
-classic build-type selection. Use `--profile <name>` for custom product
-scenarios such as runtime/editor/shipping profiles.
+Use `--profile Debug`, `Release`, `RelWithDebInfo`, or `MinSizeRel` with projects
+created by `ngin new`. Profiles own their complete build behavior, so custom
+scenarios such as `asan`, `editor`, or `shipping` use the same option.
+
+Profiles author portable build traits with `Optimization`, `DebugSymbols`, and
+`LinkTimeOptimization`. Low-level compiler and linker options remain available
+as an escape hatch and can be selected by toolchain:
+
+```xml
+<Profile Name="clang-asan">
+  <Defaults>
+    <Toolchain Name="clang" />
+    <TargetPlatform Name="host" />
+  </Defaults>
+  <Application>
+    <Build>
+      <Optimization Mode="Off" />
+      <DebugSymbols Enabled="true" />
+      <LinkTimeOptimization Enabled="false" />
+      <CompileOption Value="-fsanitize=address" Toolchain="clang" />
+      <CompileOption Value="-fno-omit-frame-pointer" Toolchain="clang" />
+      <LinkOption Value="-fsanitize=address" Toolchain="clang" />
+    </Build>
+  </Application>
+</Profile>
+```
 
 Use `clean` or `rebuild` when you need to reset generated artifacts for the
 selected project/profile/output scope.

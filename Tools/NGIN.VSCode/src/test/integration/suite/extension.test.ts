@@ -166,11 +166,17 @@ suite('NGIN Tools Extension', () => {
         '  </Application>',
         '  <Profile Name="Runtime">',
         '    <Defaults>',
-        '      <BuildType Name="Debug" />',
         '      <OperatingSystem Name="linux" />',
         '      <Architecture Name="x64" />',
         '      <Environment Name="dev" />',
         '    </Defaults>',
+        '    <Application>',
+        '      <Build>',
+        '        <Optimization Mode="Off" />',
+        '        <DebugSymbols Enabled="true" />',
+        '        <LinkTimeOptimization Enabled="false" />',
+        '      </Build>',
+        '    </Application>',
         '  </Profile>',
         '</Project>'
       ].join('\n'));

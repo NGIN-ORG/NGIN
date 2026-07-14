@@ -13,6 +13,18 @@ TEST_CASE("new command creates product-first project skeletons")
     const auto project = LoadProjectManifest(projectPath);
     REQUIRE(project.productKind == "Application");
     REQUIRE(project.output.kind == "Executable");
+    REQUIRE(project.defaultProfile == "Debug");
+    REQUIRE(project.profiles.size() == 4);
+    REQUIRE(ProfileByName(project, "Debug").optimization == "Off");
+    REQUIRE(ProfileByName(project, "Debug").debugSymbols);
+    REQUIRE(BackendConfiguration(ProfileByName(project, "Debug")) == "Debug");
+    REQUIRE(ProfileByName(project, "Release").optimization == "Speed");
+    REQUIRE_FALSE(ProfileByName(project, "Release").debugSymbols);
+    REQUIRE(BackendConfiguration(ProfileByName(project, "Release")) == "Release");
+    REQUIRE(BackendConfiguration(ProfileByName(project, "RelWithDebInfo")) == "RelWithDebInfo");
+    REQUIRE(ProfileByName(project, "MinSizeRel").optimization == "Size");
+    REQUIRE(BackendConfiguration(ProfileByName(project, "MinSizeRel")) == "MinSizeRel");
+    REQUIRE_THAT(ReadFile(projectPath), ContainsSubstring(R"(<TargetPlatform Name="host" />)"));
 
     REQUIRE(CmdNew(temp.path(), "lib", "Game.Engine") == 0);
     const auto libraryPath = temp.path() / "Game.Engine/Game.Engine.nginproj";
@@ -23,6 +35,8 @@ TEST_CASE("new command creates product-first project skeletons")
     const auto library = LoadProjectManifest(libraryPath);
     REQUIRE(library.productKind == "Library");
     REQUIRE(library.output.kind == "StaticLibrary");
+    REQUIRE(library.defaultProfile == "Debug");
+    REQUIRE(library.profiles.size() == 4);
 }
 
 TEST_CASE("package add update and remove edit Uses package dependencies")

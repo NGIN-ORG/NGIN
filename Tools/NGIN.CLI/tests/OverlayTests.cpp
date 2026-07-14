@@ -69,12 +69,16 @@ TEST_CASE("profile Uses overlays select package features")
   </Application>
   <Profile Name="dev">
     <Defaults>
-      <BuildType Name="Debug" />
+      <Optimization Mode="Off" />
+      <DebugSymbols Enabled="true" />
+      <LinkTimeOptimization Enabled="false" />
     </Defaults>
   </Profile>
   <Profile Name="shipping">
     <Defaults>
-      <BuildType Name="Release" />
+      <Optimization Mode="Speed" />
+      <DebugSymbols Enabled="false" />
+      <LinkTimeOptimization Enabled="false" />
     </Defaults>
     <Application>
       <Uses>
@@ -225,12 +229,16 @@ TEST_CASE("profile Uses overlays can remove project references")
   </Application>
   <Profile Name="dev">
     <Defaults>
-      <BuildType Name="Debug" />
+      <Optimization Mode="Off" />
+      <DebugSymbols Enabled="true" />
+      <LinkTimeOptimization Enabled="false" />
     </Defaults>
   </Profile>
   <Profile Name="shipping">
     <Defaults>
-      <BuildType Name="Release" />
+      <Optimization Mode="Speed" />
+      <DebugSymbols Enabled="false" />
+      <LinkTimeOptimization Enabled="false" />
     </Defaults>
     <Application>
       <Uses>
@@ -347,7 +355,9 @@ TEST_CASE("profile overlays carry selectors and can override staged outputs "
   </Application>
   <Profile Name="shipping">
     <Defaults>
-      <BuildType Name="Release" />
+      <Optimization Mode="Speed" />
+      <DebugSymbols Enabled="false" />
+      <LinkTimeOptimization Enabled="false" />
       <Environment Name="production" />
     </Defaults>
     <Application>
@@ -561,7 +571,9 @@ TEST_CASE("profile overlays can remove and replace generator identities")
   </Application>
   <Profile Name="shipping">
     <Defaults>
-      <BuildType Name="Release" />
+      <Optimization Mode="Speed" />
+      <DebugSymbols Enabled="false" />
+      <LinkTimeOptimization Enabled="false" />
     </Defaults>
     <Application>
       <Generate>
@@ -614,7 +626,9 @@ TEST_CASE("profile overlays can remove and replace publish identities")
   </Application>
   <Profile Name="shipping">
     <Defaults>
-      <BuildType Name="Release" />
+      <Optimization Mode="Speed" />
+      <DebugSymbols Enabled="false" />
+      <LinkTimeOptimization Enabled="false" />
     </Defaults>
     <Application>
       <Publish Remove="folder" />
@@ -679,7 +693,9 @@ TEST_CASE("profile overlays can remove and replace package output identities")
   </Library>
   <Profile Name="shipping">
     <Defaults>
-      <BuildType Name="Release" />
+      <Optimization Mode="Speed" />
+      <DebugSymbols Enabled="false" />
+      <LinkTimeOptimization Enabled="false" />
     </Defaults>
     <Library>
       <PackageOutput Remove="Overlay.DevOnly" />
@@ -751,7 +767,9 @@ TEST_CASE("profile overlays can remove and replace launch identities")
   </Application>
   <Profile Name="shipping">
     <Defaults>
-      <BuildType Name="Release" />
+      <Optimization Mode="Speed" />
+      <DebugSymbols Enabled="false" />
+      <LinkTimeOptimization Enabled="false" />
     </Defaults>
     <Application>
       <Launch Name="app" Args="--shipping" />

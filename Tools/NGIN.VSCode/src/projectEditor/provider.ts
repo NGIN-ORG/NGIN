@@ -42,7 +42,10 @@ type ProjectEditorMessage =
       type: 'updateProfile';
       originalName: string;
       name: string;
-      buildType?: string;
+      optimization?: string;
+      debugSymbols?: boolean;
+      linkTimeOptimization?: boolean;
+      toolchain?: string;
       platform?: string;
       operatingSystem?: string;
       architecture?: string;

@@ -208,9 +208,9 @@ Implemented workspace parsing:
 - `Packages/Source Url`
 - `Packages/Version Name Range`
 - package provider roots via `Packages/PackageProvider`
-- workspace `Defaults` for build type, host platform, target platform,
+- workspace `Defaults` for build traits, host platform, target platform,
   toolchain, environment, language, and backend
-- workspace `Profiles/Profile/Defaults` for build type, host platform, target
+- workspace `Profiles/Profile/Defaults` for build traits, host platform, target
   platform, toolchain, and environment
 - workspace `Profiles/Profile/Build` for first-pass profile-selected include
   paths, defines, compile options, and link options
@@ -390,12 +390,20 @@ ngin new plugin Game.AdminPlugin
 Generated projects use:
 
 ```xml
-<Project SchemaVersion="4" Name="...">
+<Project SchemaVersion="4" Name="..." DefaultProfile="Debug">
   <Application />
+  <Profile Name="Debug">...</Profile>
+  <Profile Name="Release">...</Profile>
+  <Profile Name="RelWithDebInfo">...</Profile>
+  <Profile Name="MinSizeRel">...</Profile>
 </Project>
 ```
 
-or the matching product element for the requested kind.
+or the matching product element for the requested kind. Each generated profile
+targets `host` and declares `Optimization`, `DebugSymbols`, and
+`LinkTimeOptimization`; the CMake backend configuration is derived from those
+traits. V4 lifecycle commands select profiles with `--profile`; the former
+`--configuration` override and authored `BuildType` are removed.
 
 ### Package Editing Commands
 
@@ -539,7 +547,10 @@ current resolver can answer.
 Supported object identities:
 
 - `property:Language`
-- `property:BuildType`
+- `property:Optimization`
+- `property:DebugSymbols`
+- `property:LinkTimeOptimization`
+- `property:BackendConfiguration`
 - `property:HostPlatform`
 - `property:TargetPlatform`
 - `property:Toolchain`
