@@ -506,7 +506,7 @@ namespace NGIN::Core
                 CanAutoConstructService<ServiceType>::value,
                 "service auto-registration requires T() or T(NGIN::Memory::Shared<IServiceProvider>)");
 
-            return [](ServiceResolutionContext& context) -> CoreResult<NGIN::Memory::Shared<ServiceType>>
+            return []([[maybe_unused]] ServiceResolutionContext& context) -> CoreResult<NGIN::Memory::Shared<ServiceType>>
             {
                 if constexpr (std::is_constructible_v<ServiceType, NGIN::Memory::Shared<IServiceProvider>>)
                 {

@@ -427,26 +427,22 @@ auto BootstrapSamplesPackageB(NGIN::Core::PackageBootstrapContext &)
 }
 } // namespace
 
-extern "C" auto
-NGIN_Bootstrap_Samples_Package(NGIN::Core::PackageBootstrapContext &context)
+auto NGIN_Bootstrap_Samples_Package(NGIN::Core::PackageBootstrapContext &context)
     -> NGIN::Core::CoreResult<void> {
   return BootstrapSamplesPackage(context);
 }
 
-extern "C" auto
-NGIN_Bootstrap_Samples_PackageAlt(NGIN::Core::PackageBootstrapContext &context)
+auto NGIN_Bootstrap_Samples_PackageAlt(NGIN::Core::PackageBootstrapContext &context)
     -> NGIN::Core::CoreResult<void> {
   return BootstrapSamplesPackageAlt(context);
 }
 
-extern "C" auto
-NGIN_Bootstrap_Samples_PackageA(NGIN::Core::PackageBootstrapContext &context)
+auto NGIN_Bootstrap_Samples_PackageA(NGIN::Core::PackageBootstrapContext &context)
     -> NGIN::Core::CoreResult<void> {
   return BootstrapSamplesPackageA(context);
 }
 
-extern "C" auto
-NGIN_Bootstrap_Samples_PackageB(NGIN::Core::PackageBootstrapContext &context)
+auto NGIN_Bootstrap_Samples_PackageB(NGIN::Core::PackageBootstrapContext &context)
     -> NGIN::Core::CoreResult<void> {
   return BootstrapSamplesPackageB(context);
 }
