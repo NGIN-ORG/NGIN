@@ -156,7 +156,9 @@ workspace-local bundled tools and `PATH`; `NGIN_CMAKE`, `NGIN_CPACK`,
 
 The CLI itself is also a V4 Tool product at `NGIN.CLI/NGIN.CLI.nginproj`.
 Release profiles can publish thin or bundled ZIP/MSI/TGZ/DEB artifacts through
-`ngin publish`.
+`ngin publish`. MSI architecture follows the selected target profile. WiX 7
+requires explicit OSMF EULA acceptance by the publishing user; the CLI reports
+the WiX diagnostic but does not accept license terms automatically.
 
 Each release profile exposes only its corresponding thin or bundled publish
 targets. Native Windows artifacts must be built on Windows and native Linux

@@ -827,8 +827,9 @@ test('project editor authoring creates missing profiles for feature overrides', 
 
 test('project editor authoring manages dependency uses inputs and environment variables', () => {
   let xml = '<Project SchemaVersion="4" Name="App"><Application /><Profile Name="Runtime" /></Project>';
-  xml = setDependencyUses(xml, [{ name: 'NGIN.Core', version: '>=0.1.0 <0.2.0', optional: false }]);
-  assert.match(xml, /<Package Name="NGIN\.Core" Version="&gt;=0\.1\.0 &lt;0\.2\.0" Optional="false" \/>/);
+  xml = setDependencyUses(xml, [{ name: 'NGIN.Core', version: '>=0.1.0 <0.2.0', scope: 'Target;Runtime', optional: false }]);
+  assert.match(xml, /<Package Name="NGIN\.Core" Version="&gt;=0\.1\.0 &lt;0\.2\.0" Scope="Target;Runtime" Optional="false" \/>/);
+  assert.equal(buildProjectEditorModel(xml, '/repo/App.nginproj', 'file:///repo/App.nginproj').project.dependencies[0].scope, 'Target;Runtime');
 
   xml = setInputEntries(xml, 'Sources', [{ mode: 'Directory', path: 'src' }]);
   xml = setInputEntries(xml, 'Headers', [{ mode: 'File', path: 'include/App.hpp' }]);

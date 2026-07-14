@@ -214,13 +214,14 @@ function parseDependencyUses(node: unknown): ProjectDependencyUseEdit[] {
     ...asArray(parent?.Uses?.Tool)
   ]
     .map((entry): ProjectDependencyUseEdit | undefined => {
-      const ref = entry as { Name?: string; Version?: string; VersionRange?: string; Optional?: string | boolean } | undefined;
+      const ref = entry as { Name?: string; Version?: string; VersionRange?: string; Scope?: string; Optional?: string | boolean } | undefined;
       if (!ref?.Name) {
         return undefined;
       }
       return {
         name: ref.Name,
         version: ref.Version ?? ref.VersionRange,
+        scope: ref.Scope,
         optional: boolValue(ref.Optional)
       };
     })

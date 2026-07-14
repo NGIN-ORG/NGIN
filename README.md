@@ -210,7 +210,9 @@ cmake --build build/release --target package
 Use `release-bundled` to include the pinned CMake and Ninja payloads. On
 Windows the package target produces ZIP and MSI outputs; on Linux it produces
 TGZ and DEB outputs. Native installer generators require their platform tools
-(WiX 4 on Windows and Debian packaging tools on Linux).
+(WiX .NET tools on Windows and Debian packaging tools on Linux). WiX 7 requires
+explicit acceptance of its OSMF EULA; NGIN does not accept license terms on a
+user's behalf.
 
 ### 3. Build the example
 

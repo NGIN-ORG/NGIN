@@ -1,7 +1,8 @@
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <Fragment>
     <DirectoryRef Id="INSTALL_ROOT">
-      <Component Id="NGIN_PATH_COMPONENT" Guid="*">
+      <Component Id="NGIN_PATH_COMPONENT"
+                 Guid="151dbcc5-1c3b-5f01-90a1-4195683415d1">
         <Environment Id="NGIN_PATH"
                      Name="PATH"
                      Value="[INSTALL_ROOT]bin"

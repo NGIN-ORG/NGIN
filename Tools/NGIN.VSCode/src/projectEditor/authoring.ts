@@ -21,6 +21,7 @@ export interface ProjectProfileUpdate {
 export interface ProjectDependencyUseEdit {
   name: string;
   version?: string;
+  scope?: string;
   optional?: boolean;
 }
 
@@ -511,6 +512,7 @@ function formatDependencyUse(reference: ProjectDependencyUseEdit, indent: string
   const tag = setAttributes('<Package />', {
     Name: reference.name,
     Version: reference.version,
+    Scope: reference.scope,
     Optional: reference.optional
   });
   return `${indent}${tag}`;

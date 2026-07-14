@@ -10255,7 +10255,7 @@ auto CmdPublish(const fs::path &root, const ParsedArgs &args) -> int {
   } else {
     publishOutput = GenerateCpackPublish(
         built.value->outputDir, built.value->outputDir, publishOutput, publish,
-        invocation.project, events);
+        invocation.project, invocation.profile, events);
   }
   events.Emit(CliEventType::ArtifactProduced,
               EventData{}

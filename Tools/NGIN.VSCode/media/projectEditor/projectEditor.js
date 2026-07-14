@@ -86,6 +86,51 @@
     return `<div class="cell">${value}</div>`;
   }
 
+  const usedForOptions = [
+    ['Build', 'Build', 'Used while building, usually tools or code generators'],
+    ['Target', 'Link', 'Used to compile or link the C++ product'],
+    ['Runtime', 'Run', 'Needed in the staged output when the app runs'],
+    ['Test', 'Test', 'Only used by test products'],
+    ['Dev', 'Dev', 'Editor, analyzer, or developer-only tooling'],
+    ['Publish', 'Pack', 'Used while publishing or packaging']
+  ];
+
+  function scopeValues(scope) {
+    return new Set(clean(scope).split(/[;,]/).map((entry) => entry.trim()).filter(Boolean));
+  }
+
+  function usedForBadges(scope) {
+    const values = scopeValues(scope);
+    if (!values.size) {
+      return badge('Default');
+    }
+    return usedForOptions
+      .filter(([value]) => values.has(value))
+      .map(([, label, title]) => `<span class="badge" title="${esc(title)}">${esc(label)}</span>`)
+      .join('');
+  }
+
+  function usedForCheckboxes(scope) {
+    const values = scopeValues(scope);
+    return `<div class="tag-grid">${usedForOptions.map(([value, label, title]) => `
+      <label class="tag-check" title="${esc(title)}">
+        <input type="checkbox" data-used-for="${esc(value)}"${values.has(value) ? ' checked' : ''}>
+        <span>${esc(label)}</span>
+      </label>
+    `).join('')}</div>`;
+  }
+
+  function collectUsedForScope() {
+    const values = Array.from(document.querySelectorAll('[data-used-for]'))
+      .filter((entry) => entry instanceof HTMLInputElement && entry.checked)
+      .map((entry) => entry.dataset.usedFor);
+    return values.length ? values.join(';') : undefined;
+  }
+
+  function applyToLabel(value) {
+    return value ? `${value} Only` : 'All Profiles';
+  }
+
   function table(columns, rows, emptyText, template) {
     if (!rows.length) {
       return `<div class="empty">${esc(emptyText)}</div>`;
@@ -242,7 +287,7 @@
     const ruleRows = selectedInputEntries().map((entry, index) => ({
       attrs: `data-open-input="${index}"`,
       cells: [
-        rawCell(`<div class="chips">${badge(inputRuleKind(entry))}${badge(activeInputScope || 'Project')}</div>`),
+        rawCell(`<div class="chips">${badge(inputRuleKind(entry))}${badge(applyToLabel(activeInputScope))}</div>`),
         cell(inputRulePath(entry)),
         cell(inputRuleWhen(entry)),
         rawCell(`<button class="ghost" data-open-input="${index}">Edit</button><button class="icon danger" title="Remove" data-remove-input="${index}">x</button>`)
@@ -263,8 +308,9 @@
           </div>
           <button class="secondary" data-drawer="input">Add Rule</button>
         </div>
-        <div class="inline">${renderScopeButtons(activeInputScope, true, 'input-scope')}${renderInputBlockButtons()}</div>
-        ${selectableTable(['Rule', 'Path', 'Applies When', ''], ruleRows, 'No rules for this scope.', '150px minmax(240px, 1.2fr) minmax(250px, 1.4fr) 112px')}
+        <div class="setting-row"><span>Apply To</span>${renderScopeButtons(activeInputScope, true, 'input-scope')}</div>
+        <div class="setting-row"><span>Inputs</span>${renderInputBlockButtons()}</div>
+        ${selectableTable(['Rule', 'Path', 'Applies When', ''], ruleRows, 'No rules authored here.', '150px minmax(240px, 1.2fr) minmax(250px, 1.4fr) 112px')}
       </div>
       <details class="details-block" open>
         <summary>Resolved files for the active profile</summary>
@@ -283,8 +329,9 @@
       cells: [
         cell(reference.name),
         cell(reference.version || ''),
-        rawCell(`<div class="chips">${badge(activeDependencyScope || 'Project')}${reference.optional === undefined ? '' : badge(reference.optional ? 'optional' : 'required')}</div>`),
-        rawCell(`<button class="icon danger" title="Remove" data-remove-dependency="${index}">x</button>`)
+        rawCell(`<div class="chips">${usedForBadges(reference.scope)}</div>`),
+        rawCell(`<div class="chips">${badge(applyToLabel(activeDependencyScope))}${reference.optional === undefined ? '' : badge(reference.optional ? 'optional' : 'required')}</div>`),
+        rawCell(`<button class="ghost" data-open-dependency="${index}">Edit</button><button class="icon danger" title="Remove" data-remove-dependency="${index}">x</button>`)
       ]
     }));
     const packageRows = model.resolved.packages.map((pkg) => [
@@ -297,12 +344,12 @@
         <div class="panel-header">
           <div class="panel-title">
             <h2>Dependencies</h2>
-            <p>Author package dependencies for the project or a profile overlay.</p>
+            <p>Add the packages this C++ target builds with, links to, runs with, or uses for tooling.</p>
           </div>
           <button class="secondary" data-drawer="dependency">Add Dependency</button>
         </div>
-        <div class="inline">${renderScopeButtons(activeDependencyScope, true, 'dependency-scope')}</div>
-        ${selectableTable(['Name', 'Version', 'Scope', ''], referenceRows, 'No dependencies authored for this scope.', 'minmax(220px, 1fr) minmax(170px, 1fr) minmax(160px, 1fr) 48px')}
+        <div class="setting-row"><span>Apply To</span>${renderScopeButtons(activeDependencyScope, true, 'dependency-scope')}</div>
+        ${selectableTable(['Name', 'Version', 'Used For', 'Apply To', ''], referenceRows, 'No dependencies authored here.', 'minmax(200px, 1fr) minmax(150px, 0.8fr) minmax(210px, 1fr) minmax(180px, 1fr) 112px')}
       </div>
       ${renderFeaturesPanel()}
       <details class="details-block">
@@ -413,7 +460,7 @@
   function renderScopeButtons(current, includeRoot, group) {
     const entries = includeRoot ? [['', 'Project']] : [];
     for (const name of profileNames()) entries.push([name, name]);
-    return `<div class="segmented">${entries.map(([value, label]) => `<button class="${value === current ? 'active' : ''}" data-${group}="${esc(value)}">${esc(label)}</button>`).join('')}</div>`;
+    return `<div class="segmented">${entries.map(([value]) => `<button class="${value === current ? 'active' : ''}" data-${group}="${esc(value)}">${esc(applyToLabel(value))}</button>`).join('')}</div>`;
   }
 
   function renderInputBlockButtons() {
@@ -552,15 +599,20 @@
       };
     }
     if (drawer.type === 'dependency') {
+      const editing = drawer.index !== undefined;
+      const reference = editing ? referencesForScope(activeDependencyScope)[drawer.index] || {} : {};
       return {
-        title: 'Add Dependency',
+        title: editing ? 'Edit Dependency' : 'Add Dependency',
         body: `<div class="settings-grid">
-          <label><span>Scope</span><select id="new-reference-scope">${optionList(profileNames(), activeDependencyScope, 'Project')}</select></label>
-          ${field('new-reference-name', 'Package', '', ' placeholder="NGIN.Core"')}
-          ${field('new-reference-version', 'Version', '', ' placeholder=">=0.1.0 <0.2.0"')}
-          <label><span>Optional</span><select id="new-reference-optional"><option value=""></option><option value="false">No</option><option value="true">Yes</option></select></label>
+          ${editing
+            ? `<label><span>Apply To</span><input value="${esc(applyToLabel(activeDependencyScope))}" readonly></label>`
+            : `<label><span>Apply To</span><select id="new-reference-scope">${optionList(profileNames(), activeDependencyScope, 'All Profiles')}</select></label>`}
+          ${field('new-reference-name', 'Package', reference.name || '', ' placeholder="NGIN.Core"')}
+          ${field('new-reference-version', 'Version', reference.version || '', ' placeholder=">=0.1.0 <0.2.0"')}
+          <label class="wide-field"><span>Used For</span>${usedForCheckboxes(reference.scope)}</label>
+          <label><span>Optional</span><select id="new-reference-optional"><option value=""></option><option value="false"${reference.optional === false ? ' selected' : ''}>No</option><option value="true"${reference.optional === true ? ' selected' : ''}>Yes</option></select></label>
         </div>`,
-        footer: `<button data-add-dependency>Add</button><button class="secondary" data-close-drawer>Cancel</button>`
+        footer: `<button data-save-dependency="${editing ? drawer.index : ''}">${editing ? 'Save' : 'Add'}</button><button class="secondary" data-close-drawer>Cancel</button>`
       };
     }
     if (drawer.type === 'environment') {
@@ -667,6 +719,13 @@
     const inputTarget = clicked(target, '[data-open-input]');
     if (inputTarget) {
       drawer = { type: 'input', index: Number(inputTarget.dataset.openInput) };
+      render();
+      return;
+    }
+
+    const dependencyTarget = clicked(target, '[data-open-dependency]');
+    if (dependencyTarget) {
+      drawer = { type: 'dependency', index: Number(dependencyTarget.dataset.openDependency) };
       render();
       return;
     }
@@ -798,16 +857,25 @@
       return;
     }
 
-    if (clicked(target, '[data-add-dependency]')) {
+    const saveDependencyTarget = clicked(target, '[data-save-dependency]');
+    if (saveDependencyTarget) {
       const packageName = optional(byId('new-reference-name').value);
       if (packageName) {
-        const referenceScope = optional(byId('new-reference-scope').value);
+        const index = saveDependencyTarget.dataset.saveDependency === '' ? undefined : Number(saveDependencyTarget.dataset.saveDependency);
+        const referenceScope = index === undefined ? optional(byId('new-reference-scope').value) : optional(activeDependencyScope);
         const optionalValue = optional(byId('new-reference-optional').value);
-        const references = referencesForScope(referenceScope).concat([{
+        const references = referencesForScope(referenceScope).slice();
+        const nextReference = {
           name: packageName,
           version: optional(byId('new-reference-version').value),
+          scope: collectUsedForScope(),
           optional: optionalValue === undefined ? undefined : optionalValue === 'true'
-        }]);
+        };
+        if (index === undefined) {
+          references.push(nextReference);
+        } else {
+          references[index] = nextReference;
+        }
         activeDependencyScope = referenceScope || '';
         drawer = undefined;
         post({ type: 'setDependencyUses', profileName: referenceScope, references });

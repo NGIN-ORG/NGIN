@@ -297,6 +297,50 @@ h3 {
   gap: 10px;
 }
 
+.wide-field {
+  grid-column: 1 / -1;
+}
+
+.setting-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.setting-row > span {
+  min-width: 72px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.tag-grid {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.tag-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 26px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel-2);
+}
+
+.tag-check input {
+  width: auto;
+  min-height: 0;
+}
+
+.tag-check span {
+  color: var(--fg);
+  font-size: 12px;
+}
+
 .short-field {
   max-width: 320px;
 }

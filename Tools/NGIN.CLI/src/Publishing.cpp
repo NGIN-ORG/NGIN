@@ -8,6 +8,7 @@
 #include <fstream>
 #include <iomanip>
 #include <optional>
+#include <regex>
 #include <sstream>
 #include <stdexcept>
 
@@ -50,6 +51,49 @@ auto WritePublishFile(const fs::path &path, std::string_view contents) -> void {
   return escaped;
 }
 
+[[nodiscard]] auto ReadWixLog(std::string_view cpackOutput)
+    -> std::optional<std::pair<fs::path, std::string>> {
+  static const std::regex wixLogPattern{R"('([^']*[\\/]wix\.log)')",
+                                        std::regex::icase};
+  std::match_results<std::string_view::const_iterator> match{};
+  if (!std::regex_search(cpackOutput.begin(), cpackOutput.end(), match,
+                         wixLogPattern)) {
+    return std::nullopt;
+  }
+
+  const auto path = fs::path{std::string{match[1].first, match[1].second}};
+  std::ifstream input(path, std::ios::binary);
+  if (!input) {
+    return std::nullopt;
+  }
+  std::ostringstream contents{};
+  contents << input.rdbuf();
+  return std::pair{path, contents.str()};
+}
+
+[[nodiscard]] auto CpackFailureMessage(std::string output,
+                                       std::string_view format)
+    -> std::string {
+  if (format != "msi") {
+    return "cpack failed: " + output;
+  }
+
+  const auto wixLog = ReadWixLog(output);
+  if (!wixLog.has_value()) {
+    return "cpack failed: " + output;
+  }
+
+  output += "\nWiX log (" + wixLog->first.string() + "):\n" + wixLog->second;
+  if (wixLog->second.find("WIX7015") != std::string::npos) {
+    output +=
+        "\nWiX 7 requires explicit OSMF EULA acceptance. Review "
+        "https://wixtoolset.org/osmf/ and, if the terms apply and are "
+        "accepted, run 'wix eula accept wix7' as the user that performs "
+        "the publish. NGIN does not accept license terms automatically.";
+  }
+  return "cpack failed: " + output;
+}
+
 } // namespace
 
 auto DeterministicInstallerGuid(const std::string &identifier) -> std::string {
@@ -78,11 +122,27 @@ auto DeterministicInstallerGuid(const std::string &identifier) -> std::string {
   return text.str();
 }
 
+auto PathEnvironmentComponentGuid(const std::string &installerIdentifier)
+    -> std::string {
+  return DeterministicInstallerGuid(installerIdentifier +
+                                    "::path-environment");
+}
+
+auto WixArchitectureForProfile(const ProfileDefinition &profile)
+    -> std::string {
+  if (profile.architecture == "x64" || profile.architecture == "arm64") {
+    return profile.architecture;
+  }
+  throw std::runtime_error("MSI publishing does not support target architecture '" +
+                           profile.architecture + "'");
+}
+
 auto GenerateCpackPublish(const fs::path &stageDirectory,
                           const fs::path &buildDirectory,
                           const fs::path &publishOutput,
                           const PublishDefinition &publish,
                           const ProjectManifest &project,
+                          const ProfileDefinition &profile,
                           CliEventEmitter &events) -> fs::path {
   const auto cmake = ResolveToolPath("cmake", project.path.parent_path());
   const auto cpack = ResolveToolPath("cpack", project.path.parent_path());
@@ -125,7 +185,9 @@ auto GenerateCpackPublish(const fs::path &stageDirectory,
         "<Wix xmlns=\"http://wixtoolset.org/schemas/v4/wxs\">\n"
         "  <Fragment>\n"
         "    <DirectoryRef Id=\"INSTALL_ROOT\">\n"
-        "      <Component Id=\"NGIN_PATH_COMPONENT\" Guid=\"*\">\n"
+        "      <Component Id=\"NGIN_PATH_COMPONENT\" Guid=\"" +
+            PathEnvironmentComponentGuid(publish.installerIdentifier) +
+            "\">\n"
         "        <Environment Id=\"NGIN_PATH\" Name=\"PATH\" "
         "Value=\"[INSTALL_ROOT]bin\" Action=\"set\" Part=\"last\" "
         "System=\"yes\" />\n"
@@ -179,6 +241,8 @@ auto GenerateCpackPublish(const fs::path &stageDirectory,
                << EscapeCMakeString(publish.installerVendor + "/" + project.name)
                << "\")\n"
                << "set(CPACK_WIX_VERSION 4)\n"
+               << "set(CPACK_WIX_ARCHITECTURE \""
+               << WixArchitectureForProfile(profile) << "\")\n"
                << "set(CPACK_WIX_INSTALL_SCOPE perMachine)\n"
                << "set(CPACK_WIX_UPGRADE_GUID \""
                << DeterministicInstallerGuid(publish.installerIdentifier)
@@ -227,7 +291,8 @@ auto GenerateCpackPublish(const fs::path &stageDirectory,
     events.Emit(CliEventType::PhaseFailed,
                 EventData{}.AddString("phase", "package").AddNumber(
                     "exitCode", packaged.exitCode));
-    throw std::runtime_error("cpack failed: " + packaged.output);
+    throw std::runtime_error(
+        CpackFailureMessage(packaged.output, publish.format));
   }
 
   auto generated = publishOutput;

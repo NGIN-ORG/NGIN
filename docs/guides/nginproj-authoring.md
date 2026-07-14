@@ -131,6 +131,11 @@ Supported initial formats are `zip`, `tgz`, `msi`, and `deb`. MSI requires a
 Windows target profile; DEB requires Linux. Installer publishing is distinct
 from `.nginpack` package-store installation.
 
+WiX 7 requires explicit acceptance of its OSMF EULA before it builds an MSI.
+NGIN never performs that legal acceptance automatically. Review the
+[WiX OSMF terms](https://wixtoolset.org/osmf/) and, when accepted for the user
+or automation account performing the publish, run `wix eula accept wix7`.
+
 Dependency identity is the dependency name. Scope is mergeable metadata, so
 profiles and workspace policy can refine the same dependency instead of adding a
 second identity:

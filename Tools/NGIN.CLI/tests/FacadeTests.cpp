@@ -32,6 +32,24 @@ TEST_CASE("NGIN CLI installer identifier has the stable upgrade GUID") {
           DeterministicInstallerGuid("example.product"));
   REQUIRE(DeterministicInstallerGuid("example.product") !=
           DeterministicInstallerGuid("example.other"));
+  REQUIRE(PathEnvironmentComponentGuid("NGIN-ORG.NGIN.CLI") ==
+          "151dbcc5-1c3b-5f01-90a1-4195683415d1");
+  REQUIRE(PathEnvironmentComponentGuid("example.product") !=
+          PathEnvironmentComponentGuid("example.other"));
+}
+
+TEST_CASE("MSI architecture follows the selected target profile") {
+  ProfileDefinition profile{};
+  profile.architecture = "x64";
+  REQUIRE(WixArchitectureForProfile(profile) == "x64");
+
+  profile.architecture = "arm64";
+  REQUIRE(WixArchitectureForProfile(profile) == "arm64");
+
+  profile.architecture = "unknown";
+  REQUIRE_THROWS_WITH(
+      WixArchitectureForProfile(profile),
+      Catch::Matchers::ContainsSubstring("does not support target architecture"));
 }
 
 namespace
