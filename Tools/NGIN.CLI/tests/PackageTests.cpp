@@ -394,6 +394,101 @@ TEST_CASE("resolved package scopes flow into graph metadata") {
                ContainsSubstring(R"("reason":"resolved package dependency")"));
 }
 
+TEST_CASE("source-built package targets inherit unusual profile traits") {
+  TempDir temp{};
+  WriteFile(temp.path() / "Workspace.ngin",
+            R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Workspace SchemaVersion="4" Name="PackageProfileWorkspace">
+  <Projects>
+    <Project Path="App/App.nginproj" />
+  </Projects>
+  <Packages>
+    <Source Name="local" Path="Packages" />
+  </Packages>
+</Workspace>
+)xml");
+  WriteFile(temp.path() / "Packages/Profile/Profile.nginpkg",
+            R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Package SchemaVersion="4" Name="Package.Profile" Version="1.0.0">
+  <Build Backend="CMake" Mode="AddSubdirectory" />
+  <Library Name="Package.Profile">
+    <Exports>
+      <LibraryTarget Name="Package::Profile" />
+    </Exports>
+  </Library>
+</Package>
+)xml");
+  WriteFile(temp.path() / "Packages/Profile/CMakeLists.txt",
+            "add_library(PackageProfile STATIC src/package.cpp)\n"
+            "add_library(Package::Profile ALIAS PackageProfile)\n");
+  WriteFile(temp.path() / "Packages/Profile/src/package.cpp",
+            "int package_profile_value() { return 42; }\n");
+  WriteFile(temp.path() / "App/App.nginproj",
+            R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4" Name="PackageProfile.App" DefaultProfile="Custom">
+  <Application>
+    <Uses>
+      <Package Name="Package.Profile" Version="[1.0.0,2.0.0)" Scope="Target" />
+    </Uses>
+    <Build>
+      <Sources Path="src/**.cpp" />
+    </Build>
+  </Application>
+  <Profile Name="Custom">
+    <Defaults>
+      <Optimization Mode="Size" />
+      <DebugSymbols Enabled="true" />
+      <LinkTimeOptimization Enabled="false" />
+    </Defaults>
+  </Profile>
+</Project>
+)xml");
+  WriteFile(temp.path() / "App/src/main.cpp", "int main() { return 0; }\n");
+
+  const auto project = LoadProjectManifest(temp.path() / "App/App.nginproj");
+  const auto &profile = ProfileByName(project, "Custom");
+  REQUIRE(profile.optimization == "Size");
+  REQUIRE(profile.debugSymbols);
+  REQUIRE(BackendConfiguration(profile) == "RelWithDebInfo");
+
+  const auto configured = ConfigureLaunch(project, profile, temp.path() / "out");
+  const auto diagnostics = DiagnosticMessages(configured.diagnostics);
+  const auto firstDiagnostic =
+      diagnostics.empty() ? std::string{"no diagnostics"} : diagnostics.front();
+  INFO(firstDiagnostic);
+  REQUIRE(configured.value.has_value());
+  REQUIRE_FALSE(configured.diagnostics.HasErrors());
+
+  const auto generatedCMake =
+      ReadFile(temp.path() / "out/.ngin/cmake-src/CMakeLists.txt");
+  const auto inheritedTraits =
+      generatedCMake.find("# Source-built packages inherit");
+  const auto packageSubdirectory = generatedCMake.find("add_subdirectory(");
+  REQUIRE(inheritedTraits != std::string::npos);
+  REQUIRE(packageSubdirectory != std::string::npos);
+  REQUIRE(inheritedTraits < packageSubdirectory);
+  REQUIRE_THAT(generatedCMake,
+               ContainsSubstring("set(CMAKE_INTERPROCEDURAL_OPTIMIZATION FALSE)"));
+
+  const auto compileCommands =
+      ReadFile(temp.path() / "out/.ngin/cmake-build/compile_commands.json");
+  const auto packageEntry = compileCommands.find("package.cpp");
+  REQUIRE(packageEntry != std::string::npos);
+  const auto entryStart = compileCommands.rfind('{', packageEntry);
+  const auto entryEnd = compileCommands.find('}', packageEntry);
+  REQUIRE(entryStart != std::string::npos);
+  REQUIRE(entryEnd != std::string::npos);
+  const auto packageCommand =
+      compileCommands.substr(entryStart, entryEnd - entryStart);
+#if defined(_WIN32)
+  REQUIRE_THAT(packageCommand, ContainsSubstring("/O1"));
+  REQUIRE_THAT(packageCommand, ContainsSubstring("/Zi"));
+#else
+  REQUIRE_THAT(packageCommand, ContainsSubstring("-Os"));
+  REQUIRE_THAT(packageCommand, ContainsSubstring("-g"));
+#endif
+}
+
 TEST_CASE("dependency overlays mutate scopes by dependency identity") {
   TempDir temp{};
   WriteFile(temp.path() / "Workspace.ngin",

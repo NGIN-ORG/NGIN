@@ -164,6 +164,13 @@ Implemented profile behavior:
 - `Uses/Project Remove="..."` for profile-selected project reference removal
 - `Uses/Package Remove="..."` for profile-selected package dependency removal
 - selected profile environment materialization
+- independent `Optimization`, `DebugSymbols`, and `LinkTimeOptimization`
+  semantics, including combinations outside the four conventional CMake
+  configurations
+- root profile trait inheritance for source-built CMake package targets in
+  `AddSubdirectory` and `Manual` integration modes
+- configure-time capability diagnostics when a profile requests unsupported
+  CMake IPO/LTO
 - profile selectors on V4 build settings and staged inputs
 - profile selectors on V4 dependency and package feature uses
 - staged output override with `Collision="Override"`

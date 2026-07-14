@@ -491,6 +491,18 @@ Backend configurations remain generated implementation details:
 - `RelWithDebInfo`
 - `MinSizeRel`
 
+Portable build traits are independent and may be combined freely. The backend
+configuration is the nearest compatibility bucket, not a validation rule. NGIN
+applies the authored optimization, debug-symbol, and LTO values after selecting
+that bucket so combinations such as size optimization with symbols remain exact.
+
+Packages do not need to duplicate the consuming project's profile names.
+Source-built CMake package targets integrated through `AddSubdirectory` or
+`Manual` inherit the root selected profile traits. Prebuilt `FindPackage`
+artifacts are resolved through package/provider compatibility metadata instead.
+An unsupported requested capability, currently LTO/IPO, is a configuration
+error; an unusual supported combination is not.
+
 Example profile overlay:
 
 ```xml

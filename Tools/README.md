@@ -96,6 +96,19 @@ as an escape hatch and can be selected by toolchain:
 </Profile>
 ```
 
+The three portable traits are independent. NGIN accepts unusual but meaningful
+combinations such as `Optimization Mode="Size"` with debug symbols enabled, or
+optimization disabled without symbols. CMake's conventional configuration name
+is only a generated compatibility bucket; the authored traits are applied after
+that bucket's defaults.
+
+CMake packages built through `AddSubdirectory` or `Manual` do not select an
+NGIN profile of their own. Their source targets inherit the root project's exact
+optimization, symbol, and LTO traits. `FindPackage` dependencies are already
+built artifacts, so compatibility for those remains a package/provider and ABI
+selection concern. Requesting LTO is an error when the active toolchain reports
+that IPO is unsupported; other trait combinations are allowed.
+
 Use `clean` or `rebuild` when you need to reset generated artifacts for the
 selected project/profile/output scope.
 

@@ -1832,6 +1832,41 @@ auto EmitProfileBuildTraits(std::ostream &out, const std::string &targetName,
       << (profile.linkTimeOptimization ? "TRUE" : "FALSE") << ")\n";
 }
 
+auto EmitInheritedProfileBuildTraits(std::ostream &out,
+                                     const ProfileDefinition &profile) -> void {
+  const auto msvcOptimization = profile.optimization == "Off" ? "/Od"
+                                : profile.optimization == "Size" ? "/O1"
+                                                                  : "/O2";
+  const auto otherOptimization = profile.optimization == "Off" ? "-O0"
+                                 : profile.optimization == "Size" ? "-Os"
+                                                                   : "-O2";
+  out << "# Source-built packages inherit the selected NGIN profile traits.\n";
+  out << "if(MSVC)\n";
+  out << "  add_compile_options(\"" << msvcOptimization << "\")\n";
+  if (profile.debugSymbols) {
+    out << "  add_compile_options(\"/Zi\")\n";
+    out << "  add_link_options(\"/DEBUG\")\n";
+  }
+  out << "else()\n";
+  out << "  add_compile_options(\"" << otherOptimization << "\")\n";
+  if (profile.debugSymbols) {
+    out << "  add_compile_options(\"-g\")\n";
+  }
+  out << "endif()\n";
+  if (profile.linkTimeOptimization) {
+    out << "include(CheckIPOSupported)\n";
+    out << "check_ipo_supported(RESULT NGIN_PROFILE_IPO_SUPPORTED "
+           "OUTPUT NGIN_PROFILE_IPO_ERROR)\n";
+    out << "if(NOT NGIN_PROFILE_IPO_SUPPORTED)\n";
+    out << "  message(FATAL_ERROR \"selected NGIN profile requires link-time "
+           "optimization, but the active toolchain does not support it: "
+           "${NGIN_PROFILE_IPO_ERROR}\")\n";
+    out << "endif()\n";
+  }
+  out << "set(CMAKE_INTERPROCEDURAL_OPTIMIZATION "
+      << (profile.linkTimeOptimization ? "TRUE" : "FALSE") << ")\n";
+}
+
 [[nodiscard]] auto
 WriteGeneratedBuildProject(const ResolvedLaunch &resolved,
                            const fs::path &outputDir,
@@ -1945,6 +1980,7 @@ WriteGeneratedBuildProject(const ResolvedLaunch &resolved,
     out << "set(CMAKE_MSVC_RUNTIME_LIBRARY "
            "\"MultiThreaded$<$<CONFIG:Debug>:Debug>\")\n";
   }
+  EmitInheritedProfileBuildTraits(out, resolved.profile);
 
   std::unordered_set<std::string> addedPackageKeys{};
   for (const auto &package : resolved.orderedPackages) {

@@ -182,7 +182,9 @@ NGIN discovers the `.nginproj`, generates the backend build, compiles the projec
 `ngin new` creates `Debug`, `Release`, `RelWithDebInfo`, and `MinSizeRel`
 profiles targeting the host platform. A profile describes behavior directly
 through optimization, debug-symbol, LTO, and product build settings; NGIN
-derives the backend configuration needed by CMake.
+derives the backend configuration needed by CMake. These traits are independent,
+so custom combinations such as size optimization with debug symbols are valid.
+Source-built CMake packages inherit the selected root profile traits.
 
 ## Commands
 

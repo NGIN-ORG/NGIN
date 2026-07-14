@@ -48,6 +48,14 @@ Removed commands:
   a `Toolchain` selector
 - generated CMake configuration is derived from the selected profile traits
   and is exposed as `BackendConfiguration` in graph and tooling output
+- optimization, debug symbols, and link-time optimization are independent;
+  validation does not reject unusual combinations merely because they do not
+  match a conventional CMake configuration
+- source-built CMake packages integrated with `AddSubdirectory` or `Manual`
+  inherit the root selected profile's exact build traits; `FindPackage`
+  dependencies remain prebuilt artifacts
+- requested link-time optimization fails during backend configuration when the
+  active toolchain reports that IPO is unsupported
 - `--configuration` and authored `BuildType` are not part of the V4 contract
 - the default workspace output root is `build/ngin`; workspace
   `<Defaults><OutputRoot Path="..." /></Defaults>` overrides it
