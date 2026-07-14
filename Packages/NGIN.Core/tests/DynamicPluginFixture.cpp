@@ -11,8 +11,39 @@ class DynamicFixtureModule final : public NGIN::Core::IModule {
 public:
   auto OnStart(NGIN::Core::ModuleContext &context) noexcept
       -> NGIN::Core::CoreResult<void> override {
-    return context.RegisterSingletonValue<bool>("Core.DynamicFixture.Ready",
-                                                true);
+    auto result = context.RegisterSingletonValue<bool>(
+        "Core.DynamicFixture.Ready", true);
+    if (!result) {
+      return result;
+    }
+
+    result = context.RegisterSingletonValue<std::string>(
+        "Core.DynamicFixture.ModuleRoot", std::string(context.ModuleRoot()));
+    if (!result) {
+      return result;
+    }
+
+    result = context.RegisterSingletonValue<std::string>(
+        "Core.DynamicFixture.DescriptorPath",
+        std::string(context.DescriptorPath()));
+    if (!result) {
+      return result;
+    }
+
+    result = context.RegisterSingletonValue<std::string>(
+        "Core.DynamicFixture.LibraryPath", std::string(context.LibraryPath()));
+    if (!result) {
+      return result;
+    }
+
+    result = context.RegisterSingletonValue<std::string>(
+        "Core.DynamicFixture.PluginName", std::string(context.PluginName()));
+    if (!result) {
+      return result;
+    }
+
+    return context.RegisterSingletonValue<bool>(
+        "Core.DynamicFixture.IsDynamic", context.IsDynamicModule());
   }
 };
 } // namespace

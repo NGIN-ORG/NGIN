@@ -14,3 +14,13 @@ Dynamic plugin loading now requires descriptors to provide a `Library`
 attribute. Plugin libraries export a registrar, defaulting to
 `NGIN_RegisterPlugin`, that registers module factories through
 `IPluginModuleRegistry`.
+
+`ModuleDescriptor::capabilities` and `ModuleOptions::capabilities` now contain
+`ModuleCapability` values instead of strings. Set `exclusive=true` for roles
+that permit only one active provider.
+
+`ModuleContext` now receives the resolved descriptor and exposes module origin
+metadata through `Descriptor()`, `ModuleRoot()`, `DescriptorPath()`,
+`LibraryPath()`, `PluginName()`, and `IsDynamicModule()`. Static modules can set
+`ModuleOptions::moduleRoot`; dynamic module roots come from descriptor
+discovery.

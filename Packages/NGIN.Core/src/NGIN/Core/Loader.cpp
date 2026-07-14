@@ -179,10 +179,14 @@ void ReadStringRefs(const XmlElement *element, const std::string_view childName,
 
   out.name = nameValue.value();
   out.entryKind = ModuleEntryKind::Dynamic;
+  out.descriptorPath = ToString(NGIN::IO::Path(filePath).LexicallyNormal());
+  out.moduleRoot =
+      ToString(NGIN::IO::Path(out.descriptorPath).Parent().LexicallyNormal());
   out.pluginRegistrar = "NGIN_RegisterPlugin";
 
   if (const auto library = Attribute(*root, "Library"); library.has_value()) {
-    out.pluginLibrary = ResolveDescriptorRelativePath(filePath, library.value());
+    out.pluginLibrary =
+        ResolveDescriptorRelativePath(out.descriptorPath, library.value());
   }
   if (const auto registrar = Attribute(*root, "Registrar");
       registrar.has_value() && !registrar->empty()) {
@@ -247,8 +251,18 @@ void ReadStringRefs(const XmlElement *element, const std::string_view childName,
                  out.providesServices);
   ReadStringRefs(FindChild(*root, "RequiresServices"), "Service",
                  out.requiresServices);
-  ReadStringRefs(FindChild(*root, "Capabilities"), "Capability",
-                 out.capabilities);
+  if (const auto *capabilities = FindChild(*root, "Capabilities")) {
+    for (const auto *capability : ChildElements(*capabilities, "Capability")) {
+      const auto name = Attribute(*capability, "Name");
+      if (!name.has_value()) {
+        continue;
+      }
+      out.capabilities.push_back(ModuleCapability{
+          .name = name.value(),
+          .exclusive = ParseBoolAttribute(*capability, "Exclusive", false),
+      });
+    }
+  }
 
   out.reflectionRequired =
       ParseBoolAttribute(*root, "ReflectionRequired", false);

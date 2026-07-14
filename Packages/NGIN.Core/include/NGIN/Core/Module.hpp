@@ -5,6 +5,7 @@
 
 #include <NGIN/Log/LoggerRegistry.hpp>
 #include <NGIN/Core/Config.hpp>
+#include <NGIN/Core/Descriptors.hpp>
 #include <NGIN/Core/Errors.hpp>
 #include <NGIN/Core/Events.hpp>
 #include <NGIN/Core/Services.hpp>
@@ -22,7 +23,7 @@ namespace NGIN::Core
     {
     public:
         ModuleContext(
-            std::string moduleName,
+            const ModuleDescriptor& descriptor,
             ServiceScopeId moduleScopeId,
             IServiceRegistry& services,
             IEventBus& events,
@@ -30,7 +31,7 @@ namespace NGIN::Core
             IConfigStore& config,
             NGIN::Log::LoggerRegistry& loggerRegistry,
             std::function<bool()> stopRequestedFn)
-            : m_moduleName(std::move(moduleName))
+            : m_descriptor(descriptor)
             , m_moduleScopeId(moduleScopeId)
             , m_services(services)
             , m_events(events)
@@ -41,7 +42,13 @@ namespace NGIN::Core
         {
         }
 
-        [[nodiscard]] auto ModuleName() const noexcept -> std::string_view { return m_moduleName; }
+        [[nodiscard]] auto Descriptor() const noexcept -> const ModuleDescriptor& { return m_descriptor; }
+        [[nodiscard]] auto ModuleName() const noexcept -> std::string_view { return m_descriptor.name; }
+        [[nodiscard]] auto ModuleRoot() const noexcept -> std::string_view { return m_descriptor.moduleRoot; }
+        [[nodiscard]] auto DescriptorPath() const noexcept -> std::string_view { return m_descriptor.descriptorPath; }
+        [[nodiscard]] auto LibraryPath() const noexcept -> std::string_view { return m_descriptor.pluginLibrary; }
+        [[nodiscard]] auto PluginName() const noexcept -> std::string_view { return m_descriptor.pluginName; }
+        [[nodiscard]] auto IsDynamicModule() const noexcept -> bool { return m_descriptor.entryKind == ModuleEntryKind::Dynamic; }
         [[nodiscard]] auto ModuleScope() const noexcept -> ServiceScopeId { return m_moduleScopeId; }
         [[nodiscard]] auto Services() noexcept -> IServiceRegistry& { return m_services; }
         [[nodiscard]] auto Events() noexcept -> IEventBus& { return m_events; }
@@ -52,7 +59,7 @@ namespace NGIN::Core
         [[nodiscard]] auto GetLogger(std::string_view category) -> NGIN::Log::LoggerRegistry::LoggerPtr
         {
             std::string loggerName = "Module.";
-            loggerName += m_moduleName;
+            loggerName += m_descriptor.name;
             loggerName += ".";
             loggerName += category;
             return m_loggerRegistry.GetOrCreate(std::move(loggerName), NGIN::Log::LogLevel::Info);
@@ -168,7 +175,7 @@ namespace NGIN::Core
         }
 
     private:
-        std::string                m_moduleName {};
+        const ModuleDescriptor&    m_descriptor;
         ServiceScopeId             m_moduleScopeId {ServiceScopeId::Global()};
         IServiceRegistry&          m_services;
         IEventBus&                 m_events;

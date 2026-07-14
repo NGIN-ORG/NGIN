@@ -25,6 +25,15 @@ described by XML files under plugin search paths and loaded from shared
 libraries. The descriptor remains the source of metadata for dependency and
 compatibility checks; the library registrar only supplies factories.
 
+Every lifecycle callback receives the resolved descriptor through
+`ModuleContext`. Dynamic discovery records the normalized descriptor path,
+descriptor directory as the module root, plugin name, and resolved library
+path. Static modules may declare a module root through `ModuleOptions`.
+
+The module root is provenance, not a content subsystem. Higher layers decide
+whether it contains assets, scripts, templates, localization, migrations,
+schemas, or other files and mount those files through their own services.
+
 Dynamic plugin loading is intentionally simple:
 
 - descriptor attributes: `Name`, `Library`, optional `Registrar`
@@ -34,6 +43,19 @@ Dynamic plugin loading is intentionally simple:
 
 There is no hot reload, sandboxing, signature verification, or stable
 cross-compiler ABI guarantee in this contract.
+
+## Capabilities And Provider Selection
+
+Capabilities describe roles provided by active modules independently from
+service contracts. A capability may be exclusive, meaning at most one active
+module can provide that role. The resolver checks exclusive capabilities after
+module selection and compatibility filtering but before dependency ordering or
+lifecycle callbacks.
+
+Provider selection remains explicit in project/profile/builder configuration.
+Priority controls deterministic startup ordering; it never silently selects a
+provider. Conflicts return `KernelErrorCode::CapabilityConflict` with the
+capability and sorted provider names.
 
 ## Services, Events, Tasks, Config
 

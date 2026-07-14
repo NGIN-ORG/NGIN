@@ -41,6 +41,13 @@ namespace NGIN::Core
         VersionRange requiredVersion {};
     };
 
+    /// @brief Capability provided by a runtime module.
+    struct ModuleCapability
+    {
+        std::string name {};
+        bool        exclusive {false};
+    };
+
     /// @brief Resolved module descriptor used by kernel orchestration.
     struct ModuleDescriptor
     {
@@ -54,13 +61,15 @@ namespace NGIN::Core
         std::vector<DependencyDescriptor> dependencies {};
         StartupStage                      startupStage {StartupStage::Features};
         ModuleEntryKind                   entryKind {ModuleEntryKind::Static};
+        std::string                       descriptorPath {};
+        std::string                       moduleRoot {};
         std::string                       pluginName {};
         std::string                       pluginLibrary {};
         std::string                       pluginRegistrar {"NGIN_RegisterPlugin"};
         std::vector<std::string>          providesServices {};
         std::vector<std::string>          requiresServices {};
         bool                              reflectionRequired {false};
-        std::vector<std::string>          capabilities {};
+        std::vector<ModuleCapability>     capabilities {};
         NGIN::Int32                       priority {0};
         std::string                       profile {};
         std::string                       platform {};

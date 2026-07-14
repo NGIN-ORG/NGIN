@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <atomic>
 #include <charconv>
+#include <map>
 #include <mutex>
 #include <set>
 #include <thread>
@@ -888,6 +889,50 @@ private:
       m_moduleDescriptorByName.emplace(name, catIt->second.descriptor);
     }
 
+    struct ActiveCapability {
+      bool exclusive{false};
+      std::vector<std::string> providers{};
+    };
+
+    std::map<std::string, ActiveCapability> activeCapabilities{};
+    for (const auto &[name, registration] : selected) {
+      for (const auto &capability : registration.descriptor.capabilities) {
+        if (capability.name.empty()) {
+          continue;
+        }
+
+        auto &activeCapability = activeCapabilities[capability.name];
+        activeCapability.exclusive =
+            activeCapability.exclusive || capability.exclusive;
+        if (std::find(activeCapability.providers.begin(),
+                      activeCapability.providers.end(),
+                      name) == activeCapability.providers.end()) {
+          activeCapability.providers.push_back(name);
+        }
+      }
+    }
+
+    for (auto &[capabilityName, capability] : activeCapabilities) {
+      if (!capability.exclusive || capability.providers.size() < 2) {
+        continue;
+      }
+
+      std::sort(capability.providers.begin(), capability.providers.end());
+      std::string providers{};
+      for (const auto &provider : capability.providers) {
+        if (!providers.empty()) {
+          providers += ", ";
+        }
+        providers += provider;
+      }
+
+      return NGIN::Utilities::Unexpected<KernelError>(MakeKernelError(
+          KernelErrorCode::CapabilityConflict, "ModuleLoader", {},
+          "exclusive capability '" + capabilityName +
+              "' has multiple active providers: " + providers,
+          capabilityName + " -> " + providers));
+    }
+
     std::unordered_map<std::string, std::vector<std::string>>
         serviceProviders{};
     for (const auto &[name, registration] : selected) {
@@ -1119,7 +1164,7 @@ private:
       m_moduleInfos[index].state = ModuleState::Constructed;
 
       ModuleContext context(
-          descriptor.name, m_moduleScopes[index], *m_services, *m_events,
+          descriptor, m_moduleScopes[index], *m_services, *m_events,
           *m_tasks, *m_configStore, m_loggerRegistry,
           [&]() { return m_stopRequested.load(std::memory_order_acquire); });
 
@@ -1151,7 +1196,7 @@ private:
     for (std::size_t index = 0; index < m_resolvedModules.size(); ++index) {
       const auto &descriptor = m_resolvedModules[index].registration.descriptor;
       ModuleContext context(
-          descriptor.name, m_moduleScopes[index], *m_services, *m_events,
+          descriptor, m_moduleScopes[index], *m_services, *m_events,
           *m_tasks, *m_configStore, m_loggerRegistry,
           [&]() { return m_stopRequested.load(std::memory_order_acquire); });
 
@@ -1169,7 +1214,7 @@ private:
     for (std::size_t index = 0; index < m_resolvedModules.size(); ++index) {
       const auto &descriptor = m_resolvedModules[index].registration.descriptor;
       ModuleContext context(
-          descriptor.name, m_moduleScopes[index], *m_services, *m_events,
+          descriptor, m_moduleScopes[index], *m_services, *m_events,
           *m_tasks, *m_configStore, m_loggerRegistry,
           [&]() { return m_stopRequested.load(std::memory_order_acquire); });
 
@@ -1204,7 +1249,7 @@ private:
       }
 
       ModuleContext context(
-          descriptor.name, m_moduleScopes[index], *m_services, *m_events,
+          descriptor, m_moduleScopes[index], *m_services, *m_events,
           *m_tasks, *m_configStore, m_loggerRegistry,
           [&]() { return m_stopRequested.load(std::memory_order_acquire); });
 

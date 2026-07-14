@@ -286,6 +286,73 @@ public:
   }
 };
 
+struct ModuleContextObservation {
+  std::string stage{};
+  std::string moduleName{};
+  std::string moduleRoot{};
+  std::string descriptorPath{};
+  std::string libraryPath{};
+  std::string pluginName{};
+  bool dynamic{false};
+};
+
+class ModuleContextProbeModule final : public NGIN::Core::IModule {
+public:
+  explicit ModuleContextProbeModule(
+      std::vector<ModuleContextObservation> *observations)
+      : m_observations(observations) {}
+
+  auto OnRegister(NGIN::Core::ModuleContext &context) noexcept
+      -> NGIN::Core::CoreResult<void> override {
+    Capture("register", context);
+    return {};
+  }
+
+  auto OnInit(NGIN::Core::ModuleContext &context) noexcept
+      -> NGIN::Core::CoreResult<void> override {
+    Capture("init", context);
+    return {};
+  }
+
+  auto OnStart(NGIN::Core::ModuleContext &context) noexcept
+      -> NGIN::Core::CoreResult<void> override {
+    Capture("start", context);
+    return {};
+  }
+
+  auto OnStop(NGIN::Core::ModuleContext &context) noexcept
+      -> NGIN::Core::CoreResult<void> override {
+    Capture("stop", context);
+    return {};
+  }
+
+  auto OnShutdown(NGIN::Core::ModuleContext &context) noexcept
+      -> NGIN::Core::CoreResult<void> override {
+    Capture("shutdown", context);
+    return {};
+  }
+
+private:
+  void Capture(const std::string_view stage,
+               const NGIN::Core::ModuleContext &context) {
+    if (m_observations == nullptr) {
+      return;
+    }
+
+    m_observations->push_back(ModuleContextObservation{
+        .stage = std::string(stage),
+        .moduleName = std::string(context.Descriptor().name),
+        .moduleRoot = std::string(context.ModuleRoot()),
+        .descriptorPath = std::string(context.DescriptorPath()),
+        .libraryPath = std::string(context.LibraryPath()),
+        .pluginName = std::string(context.PluginName()),
+        .dynamic = context.IsDynamicModule(),
+    });
+  }
+
+  std::vector<ModuleContextObservation> *m_observations{nullptr};
+};
+
 struct TestUserEvent {
   NGIN::UInt32 value{0};
 };
@@ -591,6 +658,123 @@ TEST_CASE("MissingRequiredDependencyFailsBeforeLifecycle",
   auto start = kernel->Start();
   REQUIRE_FALSE(start.HasValue());
   REQUIRE(start.Error().code == NGIN::Core::KernelErrorCode::NotFound);
+}
+
+TEST_CASE("ModuleCapabilityExclusivityIsValidatedBeforeLifecycle",
+          "[runtime][resolver][capability]") {
+  SECTION("Conflicting active providers fail deterministically") {
+    auto catalog = NGIN::Core::CreateStaticModuleCatalog();
+    REQUIRE(static_cast<bool>(catalog));
+
+    auto providerB = MakeDescriptor("Core.Provider.B");
+    providerB.capabilities.push_back(NGIN::Core::ModuleCapability{
+        .name = "Storage.DefaultProvider",
+        .exclusive = false,
+    });
+    auto providerA = MakeDescriptor("Core.Provider.A");
+    providerA.capabilities.push_back(NGIN::Core::ModuleCapability{
+        .name = "Storage.DefaultProvider",
+        .exclusive = true,
+    });
+
+    NGIN::UInt32 factoryCalls = 0;
+    const auto factory = [&]() -> NGIN::Core::CoreResult<
+                             NGIN::Memory::Shared<NGIN::Core::IModule>> {
+      ++factoryCalls;
+      return NGIN::Memory::MakeSharedAs<NGIN::Core::IModule, HookModule>(
+          "provider", nullptr, nullptr);
+    };
+
+    REQUIRE(RegisterModule(catalog, providerB, factory).HasValue());
+    REQUIRE(RegisterModule(catalog, providerA, factory).HasValue());
+
+    auto kernel = NGIN::Core::CreateKernel(MakeHostConfig(catalog)).Value();
+    auto start = kernel->Start();
+    REQUIRE_FALSE(start.HasValue());
+    REQUIRE(start.Error().code ==
+            NGIN::Core::KernelErrorCode::CapabilityConflict);
+    REQUIRE(start.Error().message ==
+            "exclusive capability 'Storage.DefaultProvider' has multiple "
+            "active providers: Core.Provider.A, Core.Provider.B");
+    REQUIRE(factoryCalls == 0);
+  }
+
+  SECTION("Non-exclusive providers can coexist") {
+    auto catalog = NGIN::Core::CreateStaticModuleCatalog();
+    REQUIRE(static_cast<bool>(catalog));
+
+    auto providerA = MakeDescriptor("Core.Diagnostics.A");
+    providerA.capabilities.push_back(NGIN::Core::ModuleCapability{
+        .name = "Diagnostics.Provider",
+        .exclusive = false,
+    });
+    auto providerB = MakeDescriptor("Core.Diagnostics.B");
+    providerB.capabilities = providerA.capabilities;
+
+    REQUIRE(RegisterModule(
+                catalog, providerA,
+                []() -> NGIN::Core::CoreResult<
+                          NGIN::Memory::Shared<NGIN::Core::IModule>> {
+                  return NGIN::Memory::MakeSharedAs<NGIN::Core::IModule,
+                                                    HookModule>(
+                      "diagnostics-a", nullptr, nullptr);
+                })
+                .HasValue());
+    REQUIRE(RegisterModule(
+                catalog, providerB,
+                []() -> NGIN::Core::CoreResult<
+                          NGIN::Memory::Shared<NGIN::Core::IModule>> {
+                  return NGIN::Memory::MakeSharedAs<NGIN::Core::IModule,
+                                                    HookModule>(
+                      "diagnostics-b", nullptr, nullptr);
+                })
+                .HasValue());
+
+    auto kernel = NGIN::Core::CreateKernel(MakeHostConfig(catalog)).Value();
+    REQUIRE(kernel->Start().HasValue());
+    REQUIRE(kernel->GetStartupReport().resolvedModules.size() == 2);
+    REQUIRE(kernel->Shutdown().HasValue());
+  }
+
+  SECTION("Explicit selection activates one exclusive provider") {
+    auto catalog = NGIN::Core::CreateStaticModuleCatalog();
+    REQUIRE(static_cast<bool>(catalog));
+
+    auto providerA = MakeDescriptor("Core.Storage.Memory");
+    providerA.capabilities.push_back(NGIN::Core::ModuleCapability{
+        .name = "Storage.DefaultProvider",
+        .exclusive = true,
+    });
+    auto providerB = MakeDescriptor("Core.Storage.File");
+    providerB.capabilities = providerA.capabilities;
+
+    REQUIRE(RegisterModule(
+                catalog, providerA,
+                []() -> NGIN::Core::CoreResult<
+                          NGIN::Memory::Shared<NGIN::Core::IModule>> {
+                  return NGIN::Memory::MakeSharedAs<NGIN::Core::IModule,
+                                                    HookModule>(
+                      "memory", nullptr, nullptr);
+                })
+                .HasValue());
+    REQUIRE(RegisterModule(
+                catalog, providerB,
+                []() -> NGIN::Core::CoreResult<
+                          NGIN::Memory::Shared<NGIN::Core::IModule>> {
+                  return NGIN::Memory::MakeSharedAs<NGIN::Core::IModule,
+                                                    HookModule>(
+                      "file", nullptr, nullptr);
+                })
+                .HasValue());
+
+    auto config = MakeHostConfig(catalog);
+    config.requestedModules = {"Core.Storage.File"};
+    auto kernel = NGIN::Core::CreateKernel(config).Value();
+    REQUIRE(kernel->Start().HasValue());
+    REQUIRE(kernel->GetStartupReport().resolvedModules ==
+            std::vector<std::string>{"Core.Storage.File"});
+    REQUIRE(kernel->Shutdown().HasValue());
+  }
 }
 
 TEST_CASE("PlatformRangeAndDependencyVersionAreEnforced", "[runtime][compat]") {
@@ -1076,7 +1260,10 @@ TEST_CASE("DynamicDescriptorDiscoveryUsesPluginSearchPaths",
 TEST_CASE("DynamicDescriptorDiscoveryCanUseInjectedFilesystem",
           "[runtime][plugin][filesystem]") {
   const auto realRoot = MakeTempDir("ngin-runtime-tests-plugin-vfs");
-  WriteTextFile(realRoot.Join("DemoPlugin").Join("demo.module.xml"),
+  const auto moduleRoot = realRoot.Join("DemoPlugin").LexicallyNormal();
+  const auto descriptorPath =
+      moduleRoot.Join("demo.module.xml").LexicallyNormal();
+  WriteTextFile(descriptorPath,
                 "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
                 "<Module Name=\"Core.DynamicDemo.Virtual\"\n"
                 "        Library=\"virtual-plugin-library\"\n"
@@ -1097,7 +1284,11 @@ TEST_CASE("DynamicDescriptorDiscoveryCanUseInjectedFilesystem",
                 "  <Dependencies />\n"
                 "  <RequiresServices />\n"
                 "  <ProvidesServices />\n"
-                "  <Capabilities />\n"
+                "  <Capabilities>\n"
+                "    <Capability Name=\"Storage.DefaultProvider\" "
+                "Exclusive=\"true\" />\n"
+                "    <Capability Name=\"Diagnostics.Provider\" />\n"
+                "  </Capabilities>\n"
                 "</Module>\n");
 
   auto fileSystem = NGIN::Memory::MakeSharedAs<NGIN::IO::IFileSystem,
@@ -1113,9 +1304,17 @@ TEST_CASE("DynamicDescriptorDiscoveryCanUseInjectedFilesystem",
   REQUIRE(descriptors.size() == 1);
   REQUIRE(descriptors.front().name == "Core.DynamicDemo.Virtual");
   REQUIRE(descriptors.front().pluginName == "DemoPlugin");
+  REQUIRE(descriptors.front().descriptorPath == ToString(descriptorPath));
+  REQUIRE(descriptors.front().moduleRoot == ToString(moduleRoot));
   REQUIRE(descriptors.front().pluginLibrary.find("virtual-plugin-library") !=
           std::string::npos);
   REQUIRE(descriptors.front().pluginRegistrar == "NGIN_RegisterPluginCustom");
+  REQUIRE(descriptors.front().capabilities.size() == 2);
+  REQUIRE(descriptors.front().capabilities[0].name ==
+          "Storage.DefaultProvider");
+  REQUIRE(descriptors.front().capabilities[0].exclusive);
+  REQUIRE(descriptors.front().capabilities[1].name == "Diagnostics.Provider");
+  REQUIRE_FALSE(descriptors.front().capabilities[1].exclusive);
   RemovePath(realRoot);
 }
 
@@ -1125,7 +1324,10 @@ TEST_CASE("DynamicPluginLoaderStartsRegisteredModule", "[runtime][plugin]") {
   REQUIRE(static_cast<bool>(catalog));
 
   const auto root = MakeTempDir("ngin-runtime-tests-dynamic-plugin");
-  WriteTextFile(root.Join("DemoPlugin").Join("fixture.module.xml"),
+  const auto moduleRoot = root.Join("DemoPlugin").LexicallyNormal();
+  const auto descriptorPath =
+      moduleRoot.Join("fixture.module.xml").LexicallyNormal();
+  WriteTextFile(descriptorPath,
                 "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
                 "<Module Name=\"Core.DynamicFixture\"\n"
                 "        Library=\"" NGIN_CORE_TEST_DYNAMIC_PLUGIN_PATH "\"\n"
@@ -1158,6 +1360,34 @@ TEST_CASE("DynamicPluginLoaderStartsRegisteredModule", "[runtime][plugin]") {
       kernel->GetServices()->ResolveRequired<bool>("Core.DynamicFixture.Ready");
   REQUIRE(ready.HasValue());
   REQUIRE(*ready.Value());
+
+  auto resolvedModuleRoot = kernel->GetServices()->ResolveRequired<std::string>(
+      "Core.DynamicFixture.ModuleRoot");
+  REQUIRE(resolvedModuleRoot.HasValue());
+  REQUIRE(*resolvedModuleRoot.Value() == ToString(moduleRoot));
+
+  auto resolvedDescriptorPath =
+      kernel->GetServices()->ResolveRequired<std::string>(
+          "Core.DynamicFixture.DescriptorPath");
+  REQUIRE(resolvedDescriptorPath.HasValue());
+  REQUIRE(*resolvedDescriptorPath.Value() == ToString(descriptorPath));
+
+  auto resolvedLibraryPath = kernel->GetServices()->ResolveRequired<std::string>(
+      "Core.DynamicFixture.LibraryPath");
+  REQUIRE(resolvedLibraryPath.HasValue());
+  REQUIRE(*resolvedLibraryPath.Value() ==
+          ToString(NGIN::IO::Path(NGIN_CORE_TEST_DYNAMIC_PLUGIN_PATH)
+                       .LexicallyNormal()));
+
+  auto pluginName = kernel->GetServices()->ResolveRequired<std::string>(
+      "Core.DynamicFixture.PluginName");
+  REQUIRE(pluginName.HasValue());
+  REQUIRE(*pluginName.Value() == "DemoPlugin");
+
+  auto isDynamic = kernel->GetServices()->ResolveRequired<bool>(
+      "Core.DynamicFixture.IsDynamic");
+  REQUIRE(isDynamic.HasValue());
+  REQUIRE(*isDynamic.Value());
   REQUIRE(kernel->Shutdown().HasValue());
   RemovePath(root);
 }
@@ -1668,6 +1898,55 @@ TEST_CASE("ApplicationBuilderRegistersStaticModuleWithSimpleApi",
   auto report = host->GetStartupReport();
   REQUIRE(ContainsString(report.resolvedModules, "Builder.Simple.Module"));
   REQUIRE(host->Shutdown().HasValue());
+}
+
+TEST_CASE("StaticModuleContextExposesConfiguredModuleOrigin",
+          "[builder][host][module]") {
+  const auto moduleRoot =
+      MakeTempDir("ngin-runtime-tests-static-module-root").LexicallyNormal();
+  std::vector<ModuleContextObservation> observations{};
+
+  NGIN::Core::ModuleOptions options{};
+  options.moduleRoot = ToString(moduleRoot);
+
+  auto builder = NGIN::Core::CreateApplicationBuilder(0, nullptr);
+  builder->SetApplicationName("Builder.ModuleOrigin")
+      .AddModule(
+          "Builder.ModuleOrigin.Probe", options,
+          [&observations]() -> NGIN::Core::CoreResult<
+                                NGIN::Memory::Shared<NGIN::Core::IModule>> {
+            return NGIN::Memory::MakeSharedAs<NGIN::Core::IModule,
+                                              ModuleContextProbeModule>(
+                &observations);
+          });
+
+  auto app = builder->Build();
+  REQUIRE(app.HasValue());
+  auto host = app.Value();
+  REQUIRE(host->Start().HasValue());
+  REQUIRE(observations.size() == 3);
+  REQUIRE(host->Shutdown().HasValue());
+  REQUIRE(observations.size() == 5);
+
+  REQUIRE(observations[0].stage == "register");
+  REQUIRE(observations[1].stage == "init");
+  REQUIRE(observations[2].stage == "start");
+  REQUIRE(observations[3].stage == "stop");
+  REQUIRE(observations[4].stage == "shutdown");
+
+  for (const auto &observation : observations) {
+    REQUIRE(observation.moduleName == "Builder.ModuleOrigin.Probe");
+    REQUIRE(observation.moduleRoot == ToString(moduleRoot));
+    REQUIRE(observation.descriptorPath.empty());
+    REQUIRE(observation.libraryPath.empty());
+    REQUIRE(observation.pluginName.empty());
+    REQUIRE_FALSE(observation.dynamic);
+  }
+
+  const auto defaultDescriptor =
+      NGIN::Core::MakeModuleDescriptor("Builder.ModuleOrigin.Default");
+  REQUIRE(defaultDescriptor.moduleRoot.empty());
+  RemovePath(moduleRoot);
 }
 
 TEST_CASE("ApplicationBuilderSimpleApiSupportsFactoryAndConfig",

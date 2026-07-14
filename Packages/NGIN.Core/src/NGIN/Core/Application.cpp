@@ -594,7 +594,17 @@ namespace NGIN::Core
           {
             return NGIN::Utilities::Unexpected<KernelError>(capability.Error());
           }
-          descriptor.capabilities.push_back(capability.Value());
+          auto exclusive = OptionalBoolAttribute(
+              *capabilityElement, "Exclusive",
+              std::string(context) + ".Capabilities.Exclusive", false);
+          if (!exclusive)
+          {
+            return NGIN::Utilities::Unexpected<KernelError>(exclusive.Error());
+          }
+          descriptor.capabilities.push_back(ModuleCapability{
+              .name = capability.Value(),
+              .exclusive = exclusive.Value(),
+          });
         }
       }
 

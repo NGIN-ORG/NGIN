@@ -357,7 +357,8 @@ struct ModuleOptions {
   std::vector<DependencyDescriptor> dependencies{};
   std::vector<std::string> providesServices{};
   std::vector<std::string> requiresServices{};
-  std::vector<std::string> capabilities{};
+  std::vector<ModuleCapability> capabilities{};
+  std::string moduleRoot{};
   bool reflectionRequired{false};
   NGIN::Int32 priority{0};
 };
@@ -376,6 +377,7 @@ struct ModuleOptions {
   descriptor.dependencies = options.dependencies;
   descriptor.startupStage = options.startupStage;
   descriptor.entryKind = ModuleEntryKind::Static;
+  descriptor.moduleRoot = options.moduleRoot;
   descriptor.providesServices = options.providesServices;
   descriptor.requiresServices = options.requiresServices;
   descriptor.reflectionRequired = options.reflectionRequired;
