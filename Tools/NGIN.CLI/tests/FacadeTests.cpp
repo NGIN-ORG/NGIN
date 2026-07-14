@@ -916,6 +916,42 @@ TEST_CASE("JSONL build stream mode emits backend output before phase completion"
     REQUIRE(backendOutput < buildCompleted);
 }
 
+TEST_CASE("verbose JSONL build streams backend command lines")
+{
+    TempDir temp{};
+    const auto projectPath = temp.path() / "Verbose.App.nginproj";
+    WriteFile(projectPath,
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4" Name="Verbose.App">
+  <Application>
+    <Build>
+      <Sources Path="src/**.cpp" />
+    </Build>
+  </Application>
+</Project>
+)xml");
+    WriteFile(temp.path() / "src/main.cpp", "int main() { return 0; }\n");
+
+    ParsedArgs args{};
+    args.argv = {"build", "--project", projectPath.string(), "--events", "jsonl", "--verbose"};
+    args.projectPath = projectPath.string();
+    args.outputPath = (temp.path() / "out").string();
+    args.verbosity = OutputVerbosity::Verbose;
+    args.eventOutputMode = EventOutputMode::JsonLines;
+    args.backendOutputMode = BackendOutputMode::Stream;
+
+    std::ostringstream captured{};
+    auto *previous = std::cout.rdbuf(captured.rdbuf());
+    const auto exitCode = CmdBuild(temp.path(), args);
+    std::cout.rdbuf(previous);
+
+    REQUIRE(exitCode == 0);
+    const auto output = captured.str();
+    REQUIRE_THAT(output, ContainsSubstring(R"("type":"backend.output")"));
+    REQUIRE((output.find(" /Fo") != std::string::npos ||
+             output.find(" -o ") != std::string::npos));
+}
+
 TEST_CASE("package pack and lock commands emit JSONL lifecycle events")
 {
     TempDir temp{};

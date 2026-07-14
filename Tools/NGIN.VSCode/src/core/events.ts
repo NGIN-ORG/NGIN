@@ -103,6 +103,40 @@ export class NginJsonlEventParser {
   }
 }
 
+export class NginBackendOutputBuffer {
+  private pending = '';
+
+  push(chunk: string): string[] {
+    this.pending += chunk;
+    const lines: string[] = [];
+
+    while (true) {
+      const lineFeed = this.pending.indexOf('\n');
+      const carriageReturn = this.pending.indexOf('\r');
+      const newline = lineFeed < 0
+        ? carriageReturn
+        : carriageReturn < 0
+          ? lineFeed
+          : Math.min(lineFeed, carriageReturn);
+      if (newline < 0 || (this.pending[newline] === '\r' && newline === this.pending.length - 1)) {
+        break;
+      }
+
+      lines.push(this.pending.slice(0, newline));
+      const newlineLength = this.pending[newline] === '\r' && this.pending[newline + 1] === '\n' ? 2 : 1;
+      this.pending = this.pending.slice(newline + newlineLength);
+    }
+
+    return lines;
+  }
+
+  finish(): string[] {
+    const trailing = this.pending.endsWith('\r') ? this.pending.slice(0, -1) : this.pending;
+    this.pending = '';
+    return trailing ? [trailing] : [];
+  }
+}
+
 export function isNginCliEvent(value: unknown): value is NginCliEvent {
   if (!value || typeof value !== 'object') {
     return false;
@@ -118,6 +152,11 @@ export function isNginCliEvent(value: unknown): value is NginCliEvent {
 }
 
 export function eventLabel(event: NginCliEvent): string | undefined {
+  if (event.type === 'command.selection') {
+    const project = event.project || stringData(event, 'project');
+    const profile = event.profile || stringData(event, 'profile');
+    return project && profile ? `${project} [${profile}]` : project ?? undefined;
+  }
   if (event.type === 'phase.started') {
     const label = typeof event.data.label === 'string' ? event.data.label : undefined;
     const phase = typeof event.data.phase === 'string' ? event.data.phase : undefined;
@@ -132,20 +171,157 @@ export function eventLabel(event: NginCliEvent): string | undefined {
     const label = typeof event.data.label === 'string' ? event.data.label : undefined;
     return `${label ?? 'phase'} failed`;
   }
+  if (event.type === 'tool.run.started') {
+    const run = stringData(event, 'run');
+    return run ? `${run} started` : 'tool run started';
+  }
+  if (event.type === 'tool.progress') {
+    const run = stringData(event, 'run');
+    const message = stringData(event, 'message') ?? stringData(event, 'state') ?? stringData(event, 'stage');
+    return [run, message].filter(Boolean).join(': ') || undefined;
+  }
+  if (event.type === 'tool.cache') {
+    const run = stringData(event, 'run');
+    const status = stringData(event, 'status');
+    return [run, status ? `cache ${status}` : undefined].filter(Boolean).join(': ') || undefined;
+  }
+  if (event.type === 'tool.run.completed') {
+    const run = stringData(event, 'run');
+    const status = stringData(event, 'executionStatus') ?? 'completed';
+    const durationMs = numberData(event, 'durationMs');
+    const label = run ? `${run} ${status}` : `tool run ${status}`;
+    return durationMs === undefined ? label : `${label} (${formatDuration(durationMs)})`;
+  }
+  if (event.type === 'command.completed') {
+    const status = stringData(event, 'status') ?? 'completed';
+    const durationMs = numberData(event, 'durationMs');
+    return durationMs === undefined ? status : `${status} (${formatDuration(durationMs)})`;
+  }
   return undefined;
 }
 
 export function eventOutputLine(event: NginCliEvent): string | undefined {
+  if (event.type === 'command.selection') {
+    const project = event.project || stringData(event, 'project');
+    const profile = event.profile || stringData(event, 'profile');
+    const productKind = stringData(event, 'productKind');
+    const buildType = stringData(event, 'buildType');
+    const targetPlatform = stringData(event, 'targetPlatform');
+    const toolchain = stringData(event, 'toolchain');
+    const context = [project && profile ? `${project} [${profile}]` : project, productKind].filter(Boolean).join(' ');
+    const details = [
+      buildType ? `build=${buildType}` : undefined,
+      targetPlatform ? `target=${targetPlatform}` : undefined,
+      toolchain ? `toolchain=${toolchain}` : undefined
+    ].filter(Boolean);
+    return context ? ['selected', context, ...details].join(' ') : undefined;
+  }
   if (event.type === 'summary') {
     const output = typeof event.data.output === 'string' ? event.data.output : undefined;
     const launch = typeof event.data.launch === 'string' ? event.data.launch : undefined;
     const executable = typeof event.data.executable === 'string' ? event.data.executable : undefined;
-    return [output ? `output ${output}` : undefined, launch ? `launch ${launch}` : undefined, executable ? `executable ${executable}` : undefined]
-      .filter(Boolean)
-      .join('\n');
+    const buildDir = stringData(event, 'buildDir');
+    const compileDatabase = stringData(event, 'compileDatabase');
+    const knownSummary = [
+      output ? `output ${output}` : undefined,
+      buildDir ? `build ${buildDir}` : undefined,
+      compileDatabase ? `compile database ${compileDatabase}` : undefined,
+      launch ? `launch ${launch}` : undefined,
+      executable ? `executable ${executable}` : undefined
+    ].filter(Boolean);
+    if (knownSummary.length) {
+      return knownSummary.join('\n');
+    }
+    const counts = ['runs', 'skippedRuns', 'sources', 'findings', 'changes', 'metrics', 'checks']
+      .map((name) => keyValue(event, name))
+      .filter(Boolean);
+    const healthy = booleanData(event, 'healthy');
+    if (healthy !== undefined) {
+      counts.push(`healthy=${healthy}`);
+    }
+    return counts.length ? `summary ${counts.join(' ')}` : undefined;
   }
   if (event.type === 'backend.output') {
     return typeof event.data.text === 'string' ? event.data.text : undefined;
+  }
+  if (event.type === 'tool.run.started') {
+    const run = stringData(event, 'run');
+    const action = stringData(event, 'action');
+    const inputContract = stringData(event, 'inputContract');
+    const inputScope = stringData(event, 'inputScope');
+    const inputs = keyValue(event, 'inputs');
+    return run ? [
+      `tool ${run} started`,
+      action ? `action=${action}` : undefined,
+      inputContract ? `input=${inputContract}` : undefined,
+      inputScope ? `scope=${inputScope}` : undefined,
+      inputs
+    ].filter(Boolean).join(' ') : undefined;
+  }
+  if (event.type === 'tool.progress') {
+    const run = stringData(event, 'run');
+    const message = stringData(event, 'message') ?? stringData(event, 'state') ?? stringData(event, 'stage');
+    const current = numberData(event, 'current');
+    const total = numberData(event, 'total');
+    const progress = current !== undefined && total !== undefined ? `${current}/${total}` : undefined;
+    return run && message ? [`tool ${run}: ${message}`, progress].filter(Boolean).join(' ') : undefined;
+  }
+  if (event.type === 'tool.cache') {
+    const run = stringData(event, 'run');
+    const status = stringData(event, 'status');
+    return run && status ? `tool ${run} cache ${status}` : undefined;
+  }
+  if (event.type === 'metric') {
+    const run = stringData(event, 'run');
+    const name = stringData(event, 'name');
+    const value = numberData(event, 'value');
+    const unit = stringData(event, 'unit');
+    if (!run || !name || value === undefined) return undefined;
+    return `tool ${run} metric ${name}=${value}${unit ? ` ${unit}` : ''}`;
+  }
+  if (event.type === 'gate.evaluated') {
+    const run = stringData(event, 'run');
+    const status = stringData(event, 'status');
+    if (!run || !status) return undefined;
+    return [
+      `tool ${run} gate ${status}`,
+      keyValue(event, 'findings'),
+      keyValue(event, 'warnings')
+    ].filter(Boolean).join(' ');
+  }
+  if (event.type === 'edit.proposed') {
+    const run = stringData(event, 'run');
+    const label = stringData(event, 'label') ?? stringData(event, 'editSetId');
+    if (!run || !label) return undefined;
+    return [
+      `tool ${run} proposed edit ${label}`,
+      stringData(event, 'applicability'),
+      keyValue(event, 'files')
+    ].filter(Boolean).join(' ');
+  }
+  if (event.type === 'tool.run.completed') {
+    const run = stringData(event, 'run');
+    const status = stringData(event, 'executionStatus') ?? 'completed';
+    const durationMs = numberData(event, 'durationMs');
+    return run ? [
+      `tool ${run} ${status}`,
+      keyValue(event, 'gateStatus'),
+      keyValue(event, 'cacheStatus'),
+      keyValue(event, 'changeStatus'),
+      keyValue(event, 'findings'),
+      keyValue(event, 'edits'),
+      durationMs === undefined ? undefined : `duration=${formatDuration(durationMs)}`
+    ].filter(Boolean).join(' ') : undefined;
+  }
+  if (event.type === 'command.completed') {
+    const status = stringData(event, 'status') ?? 'completed';
+    const exitCode = numberData(event, 'exitCode');
+    const durationMs = numberData(event, 'durationMs');
+    return [
+      `command ${status}`,
+      exitCode === undefined ? undefined : `exit=${exitCode}`,
+      durationMs === undefined ? undefined : `duration=${formatDuration(durationMs)}`
+    ].filter(Boolean).join(' ');
   }
   if (event.type === 'artifact.produced') {
     const kind = typeof event.data.kind === 'string' ? event.data.kind : 'artifact';
@@ -158,6 +334,36 @@ export function eventOutputLine(event: NginCliEvent): string | undefined {
     return message ? `${severity}: ${message}` : undefined;
   }
   return eventLabel(event);
+}
+
+function stringData(event: NginCliEvent, name: string): string | undefined {
+  const value = event.data[name];
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function numberData(event: NginCliEvent, name: string): number | undefined {
+  const value = event.data[name];
+  return typeof value === 'number' ? value : undefined;
+}
+
+function booleanData(event: NginCliEvent, name: string): boolean | undefined {
+  const value = event.data[name];
+  return typeof value === 'boolean' ? value : undefined;
+}
+
+function keyValue(event: NginCliEvent, name: string): string | undefined {
+  const value = event.data[name];
+  if (typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean') {
+    return undefined;
+  }
+  if (typeof value === 'string' && value.length === 0) {
+    return undefined;
+  }
+  return `${name}=${value}`;
+}
+
+function formatDuration(durationMs: number): string {
+  return `${(durationMs / 1000).toFixed(1)}s`;
 }
 
 export function artifactFromEvent(event: NginCliEvent): NginProducedArtifact | undefined {

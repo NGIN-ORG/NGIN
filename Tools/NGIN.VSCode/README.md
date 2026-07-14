@@ -134,11 +134,14 @@ use the CLI JSONL event stream in VS Code. The Output panel and progress
 notifications are rendered by the extension from `NGIN.CLI.Event` records rather
 than by parsing human terminal text. Tool diagnostics require structured
 `diagnostic` events; the legacy analyzer text fallback has been removed.
-Artifact events are shown in the Output panel, successful event completions can
+Selection, phase, artifact, tool progress, cache, gate, metric, edit, summary,
+and completion events are shown in the Output panel. The default `normal`
+verbosity also streams line-buffered backend progress, including CMake and Ninja
+configure, compile, and link output. Use `compact` for lifecycle events only or
+`verbose` for full CLI and backend detail. Successful event completions can
 refresh the workspace tree, malformed JSONL is surfaced as a CLI compatibility
-error, and non-event JSON lines are ignored. Configure `ngin.output.verbosity`
-to `verbose` to request backend output events, and configure
-`ngin.output.color` for commands that still use human output.
+error, and non-event JSON lines are ignored. Configure `ngin.output.color` for
+commands that still use human output.
 
 ## Build And Install
 

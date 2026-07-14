@@ -30,6 +30,20 @@ function comparablePath(value: string): string {
   return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
 }
 
+export function compileCommandsCoverPath(entries: CompileCommandEntry[], filePath: string): boolean {
+  const requestedPath = comparablePath(path.resolve(filePath));
+  return entries.some((entry) => {
+    const entryPath = comparablePath(path.resolve(entry.file));
+    if (entryPath === requestedPath) {
+      return true;
+    }
+
+    const entryDirectory = comparablePath(path.dirname(entryPath));
+    const directoryPrefix = entryDirectory.endsWith(path.sep) ? entryDirectory : `${entryDirectory}${path.sep}`;
+    return requestedPath.startsWith(directoryPrefix);
+  });
+}
+
 function uniqueValues(values: string[]): string[] {
   const seen = new Set<string>();
   const result: string[] = [];

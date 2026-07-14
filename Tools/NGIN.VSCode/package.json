@@ -697,8 +697,8 @@
             "normal",
             "verbose"
           ],
-          "default": "compact",
-          "description": "Controls how much CLI and backend build output the NGIN extension writes to the Output panel."
+          "default": "normal",
+          "description": "Controls Output panel detail: compact shows NGIN lifecycle events, normal also streams backend build progress, and verbose requests full CLI and backend detail."
         },
         "ngin.output.color": {
           "type": "string",

@@ -10,6 +10,7 @@ import {
 } from 'vscode-cpptools';
 import {
   CompileCommandEntry,
+  compileCommandsCoverPath,
   createBrowseConfiguration,
   createSourceConfiguration,
   parseCompileCommands,
@@ -36,7 +37,7 @@ export class NginCppToolsProviderService implements CustomConfigurationProvider 
 
   constructor(
     private readonly extensionIdentifier: string,
-    private readonly snapshotProvider: () => Promise<NginWorkspaceSnapshot>,
+    private readonly snapshotProvider: (preferredUri?: vscode.Uri) => Promise<NginWorkspaceSnapshot>,
     private readonly outputChannel: vscode.OutputChannel
   ) {}
 
@@ -69,30 +70,33 @@ export class NginCppToolsProviderService implements CustomConfigurationProvider 
       } else {
         this.outputChannel.appendLine('[cpptools] compile database unavailable for the current NGIN selection');
       }
+    }
+
+    const becameReady = this.notifyReady();
+    if (changed && !becameReady) {
       this.notifyChanged();
     }
   }
 
-  async canProvideConfiguration(uri: vscode.Uri): Promise<boolean> {
-    if (uri.scheme !== 'file') {
-      return false;
-    }
-
-    return Boolean(this.activeDatabase?.entries.length);
+  canProvideConfiguration(uri: vscode.Uri): Promise<boolean> {
+    return Promise.resolve(
+      uri.scheme === 'file' && Boolean(this.getCachedDatabaseForUri(uri)?.entries.length)
+    );
   }
 
-  async provideConfigurations(uris: vscode.Uri[]): Promise<SourceFileConfigurationItem[]> {
-    if (!this.activeDatabase) {
-      return [];
-    }
-
+  provideConfigurations(uris: vscode.Uri[]): Promise<SourceFileConfigurationItem[]> {
     const items: SourceFileConfigurationItem[] = [];
     for (const uri of uris) {
       if (uri.scheme !== 'file') {
         continue;
       }
 
-      const entry = selectCompileCommand(this.activeDatabase.entries, uri.fsPath);
+      const database = this.getCachedDatabaseForUri(uri);
+      if (!database) {
+        continue;
+      }
+
+      const entry = selectCompileCommand(database.entries, uri.fsPath);
       if (!entry) {
         continue;
       }
@@ -103,7 +107,7 @@ export class NginCppToolsProviderService implements CustomConfigurationProvider 
       });
     }
 
-    return items;
+    return Promise.resolve(items);
   }
 
   async canProvideBrowseConfiguration(): Promise<boolean> {
@@ -131,20 +135,25 @@ export class NginCppToolsProviderService implements CustomConfigurationProvider 
       return;
     }
 
-    this.api = await getCppToolsApi(Version.v2);
+    // v5 permits standard and IntelliSense mode to be omitted when a compile flag
+    // cannot be represented by cpptools' source-configuration enum.
+    this.api = await getCppToolsApi(Version.v5);
     if (!this.api) {
       return;
     }
 
     this.api.registerCustomConfigurationProvider(this);
     this.registered = true;
+  }
 
-    if (this.api.notifyReady && !this.readyNotified) {
-      this.api.notifyReady(this);
-      this.readyNotified = true;
-    } else {
-      this.notifyChanged();
+  private notifyReady(): boolean {
+    if (!this.api || !this.registered || this.readyNotified) {
+      return false;
     }
+
+    this.api.notifyReady(this);
+    this.readyNotified = true;
+    return true;
   }
 
   private async loadActiveDatabase(snapshot: NginWorkspaceSnapshot): Promise<ActiveCompileDatabase | undefined> {
@@ -193,6 +202,12 @@ export class NginCppToolsProviderService implements CustomConfigurationProvider 
     }
 
     return undefined;
+  }
+
+  private getCachedDatabaseForUri(uri: vscode.Uri): ActiveCompileDatabase | undefined {
+    return this.activeDatabase && compileCommandsCoverPath(this.activeDatabase.entries, uri.fsPath)
+      ? this.activeDatabase
+      : undefined;
   }
 
   private notifyChanged(): void {

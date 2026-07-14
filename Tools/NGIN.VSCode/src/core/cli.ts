@@ -1,6 +1,10 @@
 import * as path from 'node:path';
 import { promises as fs } from 'node:fs';
 
+export function backendOutputModeForVerbosity(verbosity: string): 'compact' | 'stream' {
+  return verbosity === 'compact' ? 'compact' : 'stream';
+}
+
 export function resolveConfiguredCliPath(workspaceRoot: string, configuredPath?: string): string | undefined {
   if (!configuredPath) {
     return undefined;

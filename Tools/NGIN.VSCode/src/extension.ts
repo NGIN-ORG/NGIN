@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs';
 import { spawn } from 'node:child_process';
 import * as vscode from 'vscode';
 import {
+  backendOutputModeForVerbosity,
   fileExists,
   findExecutableOnPath,
   getDevelopmentCliPath,
@@ -24,6 +25,8 @@ import {
   diagnosticFromEvent,
   eventLabel,
   eventOutputLine,
+  NginBackendOutputBuffer,
+  NginCliEvent,
   NginEventDiagnostic,
   NginProducedArtifact,
   NginJsonlParseError,
@@ -333,7 +336,7 @@ class NginController implements vscode.Disposable {
     this.statusBar = new NginStatusBarController();
     this.cppToolsProvider = new NginCppToolsProviderService(
       context.extension.id,
-      () => this.workspaceState.getSnapshot(),
+      (preferredUri) => this.workspaceState.getSnapshot(preferredUri),
       this.outputChannel
     );
   }
@@ -2586,7 +2589,7 @@ class NginController implements vscode.Disposable {
     const cliPath = await this.resolveCliPath(workspaceRoot, cliOverride);
     await this.warnIfCliStale(cliPath, workspaceRoot);
     const configuration = this.getConfigurationForRoot(workspaceRoot);
-    const verbosity = configuration.get<string>('output.verbosity') ?? 'compact';
+    const verbosity = configuration.get<string>('output.verbosity') ?? 'normal';
     const color = configuration.get<string>('output.color') ?? 'never';
     const actualArgs = [...args];
     const commandName = args[0] ?? 'command';
@@ -2602,8 +2605,11 @@ class NginController implements vscode.Disposable {
     if (useEvents && !actualArgs.includes('--events')) {
       actualArgs.push('--events', 'jsonl');
     }
+    if (useEvents && verbosity === 'verbose' && !actualArgs.includes('--verbose') && !actualArgs.includes('-v')) {
+      actualArgs.push('--verbose');
+    }
     if (useEvents && !actualArgs.includes('--backend-output')) {
-      actualArgs.push('--backend-output', verbosity === 'verbose' ? 'stream' : 'compact');
+      actualArgs.push('--backend-output', backendOutputModeForVerbosity(verbosity));
     }
     if (!actualArgs.includes('--ui') && !actualArgs.includes('--backend-output')) {
       if (verbosity === 'compact') {
@@ -2632,6 +2638,38 @@ class NginController implements vscode.Disposable {
       let eventParseError: Error | undefined;
       let eventCommandSucceeded = false;
       const parser = useEvents ? new NginJsonlEventParser() : undefined;
+      const backendOutput = new NginBackendOutputBuffer();
+      const appendBackendLines = (lines: string[]) => {
+        for (const line of lines) {
+          this.outputChannel.appendLine(line);
+        }
+      };
+      const handleEvent = (event: NginCliEvent) => {
+        const label = eventLabel(event);
+        if (label) {
+          onEventLabel?.(label);
+        }
+        if (event.type === 'backend.output' && typeof event.data.text === 'string') {
+          appendBackendLines(backendOutput.push(event.data.text));
+        } else {
+          appendBackendLines(backendOutput.finish());
+          const line = eventOutputLine(event);
+          if (line) {
+            this.outputChannel.appendLine(line);
+          }
+        }
+        const diagnostic = diagnosticFromEvent(event);
+        if (diagnostic) {
+          eventDiagnostics.push(diagnostic);
+        }
+        const artifact = artifactFromEvent(event);
+        if (artifact) {
+          artifacts.push(artifact);
+        }
+        if (event.type === 'command.completed' && event.data.status === 'success') {
+          eventCommandSucceeded = true;
+        }
+      };
       const previousProcess = this.activeCliProcesses.get(runKey);
       if (previousProcess && !previousProcess.killed) {
         if (process.platform !== 'win32' && previousProcess.pid) {
@@ -2656,25 +2694,7 @@ class NginController implements vscode.Disposable {
         if (parser) {
           try {
             for (const event of parser.push(text)) {
-              const label = eventLabel(event);
-              if (label) {
-                onEventLabel?.(label);
-              }
-              const line = eventOutputLine(event);
-              if (line) {
-                this.outputChannel.appendLine(line);
-              }
-              const diagnostic = diagnosticFromEvent(event);
-              if (diagnostic) {
-                eventDiagnostics.push(diagnostic);
-              }
-              const artifact = artifactFromEvent(event);
-              if (artifact) {
-                artifacts.push(artifact);
-              }
-              if (event.type === 'command.completed' && event.data.status === 'success') {
-                eventCommandSucceeded = true;
-              }
+              handleEvent(event);
             }
           } catch (error) {
             eventParseError = error instanceof Error ? error : new Error(String(error));
@@ -2698,30 +2718,13 @@ class NginController implements vscode.Disposable {
         if (parser) {
           try {
             for (const event of parser.finish()) {
-              const label = eventLabel(event);
-              if (label) {
-                onEventLabel?.(label);
-              }
-              const line = eventOutputLine(event);
-              if (line) {
-                this.outputChannel.appendLine(line);
-              }
-              const diagnostic = diagnosticFromEvent(event);
-              if (diagnostic) {
-                eventDiagnostics.push(diagnostic);
-              }
-              const artifact = artifactFromEvent(event);
-              if (artifact) {
-                artifacts.push(artifact);
-              }
-              if (event.type === 'command.completed' && event.data.status === 'success') {
-                eventCommandSucceeded = true;
-              }
+              handleEvent(event);
             }
           } catch (error) {
             eventParseError = error instanceof Error ? error : new Error(String(error));
             this.outputChannel.appendLine(eventParseError.message);
           }
+          appendBackendLines(backendOutput.finish());
         }
         const processExitCode = cancellation?.isCancellationRequested ? 130 : code ?? 0;
         const exitCode = eventParseError instanceof NginJsonlParseError && processExitCode === 0 ? 1 : processExitCode;
@@ -2741,13 +2744,17 @@ class NginController implements vscode.Disposable {
         },
         async (progress, cancellation) => {
           const started = Date.now();
+          let progressLabel = 'starting';
           const timer = setInterval(() => {
             const elapsedSeconds = Math.max(1, Math.floor((Date.now() - started) / 1000));
-            progress.report({ message: `${elapsedSeconds}s elapsed` });
+            progress.report({ message: `${progressLabel} (${elapsedSeconds}s elapsed)` });
           }, 1000);
           try {
             progress.report({ message: 'starting' });
-            return await runProcess((label) => progress.report({ message: label }), cancellation);
+            return await runProcess((label) => {
+              progressLabel = label;
+              progress.report({ message: label });
+            }, cancellation);
           } finally {
             clearInterval(timer);
           }

@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
+import { backendOutputModeForVerbosity } from '../../core/cli';
 import {
+  compileCommandsCoverPath,
   computeCompileCommandsPath,
   createBrowseConfiguration,
   createSourceConfiguration,
@@ -21,7 +23,7 @@ import {
   parseCompositionGraphPayload,
   parseCliDiagnostics
 } from '../../core/helpers';
-import { artifactFromEvent, diagnosticFromEvent, eventLabel, NginJsonlEventParser, NginJsonlParseError } from '../../core/events';
+import { artifactFromEvent, diagnosticFromEvent, eventLabel, eventOutputLine, NginBackendOutputBuffer, NginJsonlEventParser, NginJsonlParseError } from '../../core/events';
 import { addRootConfigInput, relativeManifestPath, removeConfigInputs, renameConfigInputs } from '../../core/projectAuthoring';
 import { buildProjectTreeModels, buildStatusBarModel } from '../../ui/models';
 import { parseLaunchManifest, parseLocalSettingsManifest, parsePackageManifest, parseProjectManifest, parseWorkspaceManifest } from '../../core/xml';
@@ -106,6 +108,156 @@ test('NginJsonlEventParser handles split chunks and event helpers', () => {
   assert.equal(events.length, 1);
   assert.equal(events[0].type, 'phase.started');
   assert.equal(eventLabel(events[0]), 'CMake build');
+});
+
+test('backend output modes keep compact quiet and stream normal progress', () => {
+  assert.equal(backendOutputModeForVerbosity('compact'), 'compact');
+  assert.equal(backendOutputModeForVerbosity('normal'), 'stream');
+  assert.equal(backendOutputModeForVerbosity('verbose'), 'stream');
+});
+
+test('backend output buffering preserves complete compiler progress lines across chunks', () => {
+  const output = new NginBackendOutputBuffer();
+  assert.deepEqual(output.push('[1/3] Building CXX Player'), []);
+  assert.deepEqual(output.push('.cpp.obj\r\n[2/3] Linking Hello.Reflection.exe\n'), [
+    '[1/3] Building CXX Player.cpp.obj',
+    '[2/3] Linking Hello.Reflection.exe'
+  ]);
+  assert.deepEqual(output.push('[3/3] Staging artifacts'), []);
+  assert.deepEqual(output.finish(), ['[3/3] Staging artifacts']);
+});
+
+test('CLI event helpers render selection and completion progress', () => {
+  assert.equal(eventLabel({
+    schemaVersion: '1.0',
+    kind: 'NGIN.CLI.Event',
+    sequence: 1,
+    timestamp: '2026-07-14T00:00:00.000Z',
+    type: 'command.selection',
+    command: 'configure',
+    project: 'Hello.Reflection',
+    profile: 'Debug',
+    data: {
+      productKind: 'Application',
+      buildType: 'Debug',
+      targetPlatform: 'windows-x64',
+      toolchain: 'msvc'
+    }
+  }), 'Hello.Reflection [Debug]');
+
+  assert.equal(eventOutputLine({
+    schemaVersion: '1.0',
+    kind: 'NGIN.CLI.Event',
+    sequence: 2,
+    timestamp: '2026-07-14T00:00:01.000Z',
+    type: 'command.selection',
+    command: 'configure',
+    project: 'Hello.Reflection',
+    profile: 'Debug',
+    data: {
+      productKind: 'Application',
+      buildType: 'Debug',
+      targetPlatform: 'windows-x64',
+      toolchain: 'msvc'
+    }
+  }), 'selected Hello.Reflection [Debug] Application build=Debug target=windows-x64 toolchain=msvc');
+
+  assert.equal(eventOutputLine({
+    schemaVersion: '1.0',
+    kind: 'NGIN.CLI.Event',
+    sequence: 3,
+    timestamp: '2026-07-14T00:00:02.000Z',
+    type: 'command.completed',
+    command: 'configure',
+    data: { status: 'success', exitCode: 0, durationMs: 1234 }
+  }), 'command success exit=0 duration=1.2s');
+});
+
+test('CLI event helpers render tool progress details', () => {
+  assert.equal(eventOutputLine({
+    schemaVersion: '1.0',
+    kind: 'NGIN.CLI.Event',
+    sequence: 1,
+    timestamp: '2026-07-14T00:00:00.000Z',
+    type: 'tool.run.started',
+    command: 'analyze',
+    data: {
+      run: 'example-analysis',
+      action: 'Example.Tooling::scan',
+      inputContract: 'cpp.translation-units/v1',
+      inputScope: 'Product',
+      inputs: 3
+    }
+  }), 'tool example-analysis started action=Example.Tooling::scan input=cpp.translation-units/v1 scope=Product inputs=3');
+
+  assert.equal(eventLabel({
+    schemaVersion: '1.0',
+    kind: 'NGIN.CLI.Event',
+    sequence: 2,
+    timestamp: '2026-07-14T00:00:01.000Z',
+    type: 'tool.progress',
+    command: 'analyze',
+    data: {
+      run: 'example-analysis',
+      message: 'scanning files',
+      current: 2,
+      total: 3
+    }
+  }), 'example-analysis: scanning files');
+
+  assert.equal(eventOutputLine({
+    schemaVersion: '1.0',
+    kind: 'NGIN.CLI.Event',
+    sequence: 3,
+    timestamp: '2026-07-14T00:00:02.000Z',
+    type: 'tool.progress',
+    command: 'analyze',
+    data: {
+      run: 'example-analysis',
+      message: 'scanning files',
+      current: 2,
+      total: 3
+    }
+  }), 'tool example-analysis: scanning files 2/3');
+
+  assert.equal(eventOutputLine({
+    schemaVersion: '1.0',
+    kind: 'NGIN.CLI.Event',
+    sequence: 4,
+    timestamp: '2026-07-14T00:00:03.000Z',
+    type: 'tool.cache',
+    command: 'analyze',
+    data: { run: 'example-analysis', status: 'hit' }
+  }), 'tool example-analysis cache hit');
+
+  assert.equal(eventOutputLine({
+    schemaVersion: '1.0',
+    kind: 'NGIN.CLI.Event',
+    sequence: 5,
+    timestamp: '2026-07-14T00:00:04.000Z',
+    type: 'gate.evaluated',
+    command: 'analyze',
+    data: { run: 'example-analysis', status: 'passed', findings: 1, warnings: 0 }
+  }), 'tool example-analysis gate passed findings=1 warnings=0');
+
+  assert.equal(eventOutputLine({
+    schemaVersion: '1.0',
+    kind: 'NGIN.CLI.Event',
+    sequence: 6,
+    timestamp: '2026-07-14T00:00:05.000Z',
+    type: 'tool.run.completed',
+    command: 'analyze',
+    data: {
+      run: 'example-analysis',
+      executionStatus: 'succeeded',
+      gateStatus: 'passed',
+      cacheStatus: 'hit',
+      changeStatus: 'clean',
+      findings: 1,
+      edits: 0,
+      durationMs: 2500
+    }
+  }), 'tool example-analysis succeeded gateStatus=passed cacheStatus=hit changeStatus=clean findings=1 edits=0 duration=2.5s');
 });
 
 test('diagnostic events map to extension diagnostic payloads', () => {
@@ -480,6 +632,7 @@ test('local settings manifests expose keys without values', () => {
 
 test('extension manifest and snippets register local settings support', () => {
   const packageJson = JSON.parse(readFileSync(path.join(process.cwd(), 'package.json'), 'utf8'));
+  assert.equal(packageJson.contributes.configuration.properties['ngin.output.verbosity'].default, 'normal');
   const language = packageJson.contributes.languages.find((entry: { id?: string }) => entry.id === 'ngin');
   assert.ok(language.extensions.includes('.nginsettings'));
   assert.equal(language.extensions.includes('.nginmodel'), false);
@@ -945,6 +1098,18 @@ test('selectCompileCommand falls back to the closest matching directory for head
   ], '/repo/src/engine/render/Renderer.hpp');
 
   assert.equal(entry?.file, '/repo/src/engine/render/Renderer.cpp');
+});
+
+test('compileCommandsCoverPath covers source files and headers beneath a translation unit directory', () => {
+  const entries = [{
+    directory: '/repo/build',
+    file: '/repo/src/main.cpp',
+    command: '/usr/bin/clang++ -c /repo/src/main.cpp'
+  }];
+
+  assert.equal(compileCommandsCoverPath(entries, '/repo/src/main.cpp'), true);
+  assert.equal(compileCommandsCoverPath(entries, '/repo/src/models/Player.hpp'), true);
+  assert.equal(compileCommandsCoverPath(entries, '/repo/other/Player.hpp'), false);
 });
 
 test('createSourceConfiguration maps compile commands to cpptools-friendly fields', () => {

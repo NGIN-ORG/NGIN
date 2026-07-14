@@ -2344,15 +2344,13 @@ auto BuildArtifacts(const ResolvedLaunch &resolved, const fs::path &outputDir,
                      "fetch bundled tools into Tools/ThirdParty/BuildTools.");
     return;
   }
-  if (RunBackendProcess("CMake build", cmakeTool->path,
-                        {
-                            "--build",
-                            generatedPaths->buildDir.string(),
-                            "--config",
-                            buildType,
-                            "--target",
-                            "ngin_stage_artifacts",
-                        },
+  std::vector<std::string> buildArguments{
+      "--build", generatedPaths->buildDir.string(), "--config", buildType,
+      "--target", "ngin_stage_artifacts"};
+  if (options.verboseBackend) {
+    buildArguments.push_back("--verbose");
+  }
+  if (RunBackendProcess("CMake build", cmakeTool->path, buildArguments,
                         std::nullopt, options) != 0) {
     AddError(report, "failed to build or stage artifacts for profile '" +
                          resolved.profile.name + "' with build type '" +

@@ -31,6 +31,7 @@ namespace NGIN::CLI
         BackendOutputMode backendOutput{BackendOutputMode::Stream};
         std::vector<BackendStepResult> *backendSteps{};
         bool interactiveProgress{};
+        bool verboseBackend{};
         CliEventEmitter *events{};
     };
 

@@ -603,6 +603,26 @@ TEST_CASE("analyze executes a package-provided external driver without tool-spec
     REQUIRE_THAT(captured.str(), ContainsSubstring(R"("kind":"NGIN.ToolDoctor")"));
     REQUIRE_THAT(captured.str(), ContainsSubstring(R"("healthy":true)"));
 
+    ParsedArgs doctorJsonlArgs{};
+    doctorJsonlArgs.projectPath = projectPath.string();
+    doctorJsonlArgs.eventOutputMode = EventOutputMode::JsonLines;
+    captured.str({});
+    captured.clear();
+    previous = std::cout.rdbuf(captured.rdbuf());
+    const auto doctorJsonlExitCode = CmdToolDoctor(temp.path(), doctorJsonlArgs);
+    std::cout.rdbuf(previous);
+    REQUIRE(doctorJsonlExitCode == 0);
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("type":"tool.progress")"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("type":"summary")"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("type":"command.completed")"));
+    REQUIRE_THAT(captured.str(), !ContainsSubstring("Tool doctor for"));
+    std::istringstream doctorJsonlLines{captured.str()};
+    std::string doctorJsonlLine{};
+    while (std::getline(doctorJsonlLines, doctorJsonlLine)) {
+      if (doctorJsonlLine.empty()) continue;
+      REQUIRE(doctorJsonlLine.rfind(R"({"schemaVersion":"1.0","kind":"NGIN.CLI.Event")", 0) == 0);
+    }
+
     listArgs.toolRunName = "example-analysis";
     captured.str({});
     captured.clear();
@@ -706,3 +726,88 @@ TEST_CASE("analyze executes a package-provided external driver without tool-spec
     }
 }
 #endif
+
+TEST_CASE("tool doctor JSONL emits only CLI events for unavailable tools")
+{
+    TempDir temp{};
+    const auto projectPath = temp.path() / "App/App.nginproj";
+    WriteFile(temp.path() / "Workspace.ngin",
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Workspace SchemaVersion="4" Name="DoctorJsonlWorkspace">
+  <Projects><Project Path="App/App.nginproj" /></Projects>
+  <Packages><Source Name="local" Path="Packages" /></Packages>
+</Workspace>
+)xml");
+    WriteFile(temp.path() / "Packages/Example.Tooling/Example.Tooling.nginpkg",
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Package SchemaVersion="4" Name="Example.Tooling" Version="1.0.0">
+  <Tool Name="Example.Tooling">
+    <Exports>
+      <Tool Name="missing-tool" Kind="Development">
+        <SystemExecutable Name="ngin-definitely-missing-tool" OverrideEnvironment="NGIN_TEST_MISSING_TOOL" />
+      </Tool>
+    </Exports>
+  </Tool>
+  <ToolDrivers>
+    <Driver Name="missing-driver" Protocol="NGIN.ToolDriver/1" Adapter="builtin.stdout-transform.v1">
+      <Capabilities><Capability Name="diagnostics" /></Capabilities>
+    </Driver>
+  </ToolDrivers>
+  <ToolActions>
+    <Action Name="analyze" Kind="Analyze" Tool="missing-tool" Driver="missing-driver">
+      <Accepts Contract="files/v1" />
+      <Capabilities><Capability Name="diagnostics" /></Capabilities>
+    </Action>
+  </ToolActions>
+  <Features>
+    <Feature Name="Analysis">
+      <Tooling>
+        <Run Name="cpp-static-analysis" Action="Example.Tooling::analyze">
+          <Input Contract="files/v1" Scope="Product" />
+        </Run>
+      </Tooling>
+    </Feature>
+  </Features>
+</Package>
+)xml");
+    WriteFile(projectPath,
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4" Name="DoctorJsonl.App">
+  <Application>
+    <Uses>
+      <Package Name="Example.Tooling" Version="[1.0.0]" Scope="Dev">
+        <Feature Name="Analysis" />
+      </Package>
+    </Uses>
+    <Build><Sources Path="src/**.cpp" /></Build>
+  </Application>
+</Project>
+)xml");
+    WriteFile(temp.path() / "App/src/main.cpp", "int main() { return 0; }\n");
+    ScopedEnvironmentVariable missingTool{"NGIN_TEST_MISSING_TOOL",
+                                          (temp.path() / "missing-tool.exe").string()};
+
+    ParsedArgs args{};
+    args.projectPath = projectPath.string();
+    args.eventOutputMode = EventOutputMode::JsonLines;
+    args.toolRunName = "cpp-static-analysis";
+
+    std::ostringstream captured{};
+    auto *previous = std::cout.rdbuf(captured.rdbuf());
+    const auto exitCode = CmdToolDoctor(temp.path(), args);
+    std::cout.rdbuf(previous);
+
+    REQUIRE(exitCode == 2);
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("type":"tool.progress")"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring(R"("type":"diagnostic")"));
+    REQUIRE_THAT(captured.str(), ContainsSubstring("tool executable could not be resolved"));
+    REQUIRE_THAT(captured.str(), !ContainsSubstring("Tool doctor for"));
+    REQUIRE_THAT(captured.str(), !ContainsSubstring("- cpp-static-analysis"));
+
+    std::istringstream lines{captured.str()};
+    std::string line{};
+    while (std::getline(lines, line)) {
+        if (line.empty()) continue;
+        REQUIRE(line.rfind(R"({"schemaVersion":"1.0","kind":"NGIN.CLI.Event")", 0) == 0);
+    }
+}

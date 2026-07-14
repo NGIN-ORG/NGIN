@@ -772,6 +772,7 @@ auto WriteCryptoExplainJson(
           args.backendOutputMode == BackendOutputMode::Compact &&
           !IsQuiet(args) && args.colorMode != OutputColorMode::Never &&
           IsInteractiveTerminal(),
+      .verboseBackend = args.verbosity == OutputVerbosity::Verbose,
       .events = events != nullptr && events->Enabled() ? events : nullptr,
   };
 }
@@ -8675,11 +8676,26 @@ auto CmdToolList(const fs::path &root, const ParsedArgs &args) -> int {
 
 auto CmdToolDoctor(const fs::path &root, const ParsedArgs &args) -> int {
   (void)root;
+  CommandEventSession session{args, "tool doctor"};
+  auto &events = session.Events();
+  const auto commandStarted = std::chrono::steady_clock::now();
+  const auto emitEvents = args.eventOutputMode == EventOutputMode::JsonLines;
+  if (emitEvents) {
+    EmitCommandStarted(events, args);
+  }
   const auto invocation = ResolveInvocation(args);
   const auto resolvedResult = ResolveLaunch(invocation.project, invocation.profile);
+  if (emitEvents) {
+    EmitSelection(events, invocation);
+  }
   if (!resolvedResult.value.has_value() || resolvedResult.diagnostics.HasErrors()) {
-    PrintDiagnostics(resolvedResult.diagnostics, "Tool doctor", std::cerr);
-    return 2;
+    if (emitEvents) {
+      EmitDiagnostics(events, resolvedResult.diagnostics, "tool doctor");
+      return EmitCommandCompleted(events, "invalid", 2, commandStarted);
+    } else {
+      PrintDiagnostics(resolvedResult.diagnostics, "Tool doctor", std::cerr);
+      return 2;
+    }
   }
   const auto &resolved = *resolvedResult.value;
   const auto effective = EffectiveToolRuns(
@@ -8813,10 +8829,37 @@ auto CmdToolDoctor(const fs::path &root, const ParsedArgs &args) -> int {
     }
   }
   if (args.toolRunName.has_value() && checks.empty()) {
-    std::cerr << "error: tool run not found: " << *args.toolRunName << "\n";
-    return 2;
+    if (emitEvents) {
+      events.Emit(CliEventType::Diagnostic,
+                  EventData{}.AddString("severity", "error")
+                      .AddString("source", "tool doctor")
+                      .AddString("message", "tool run not found: " + *args.toolRunName)
+                      .AddString("subject", *args.toolRunName));
+      return EmitCommandCompleted(events, "invalid", 2, commandStarted);
+    } else {
+      std::cerr << "error: tool run not found: " << *args.toolRunName << "\n";
+      return 2;
+    }
   }
-  if (args.format == "json") {
+  if (emitEvents) {
+    for (const auto &check : checks) {
+      events.Emit(CliEventType::ToolProgress,
+                  EventData{}.AddString("run", check.name)
+                      .AddString("state", check.state)
+                      .AddString("message", check.detail));
+      if (check.state != "ready" && check.state != "disabled" &&
+          check.state != "excluded") {
+        events.Emit(CliEventType::Diagnostic,
+                    EventData{}.AddString("severity", "error")
+                        .AddString("source", "tool doctor")
+                        .AddString("subject", check.name)
+                        .AddString("message", check.detail));
+      }
+    }
+    events.Emit(CliEventType::Summary,
+                EventData{}.AddBool("healthy", healthy)
+                    .AddNumber("checks", static_cast<std::int64_t>(checks.size())));
+  } else if (args.format == "json") {
     std::cout << "{\"schemaVersion\":\"1.0\",\"kind\":\"NGIN.ToolDoctor\",\"healthy\":"
               << (healthy ? "true" : "false") << ",\"checks\":[";
     for (std::size_t index = 0; index < checks.size(); ++index) {
@@ -8832,6 +8875,10 @@ auto CmdToolDoctor(const fs::path &root, const ParsedArgs &args) -> int {
     for (const auto &check : checks)
       std::cout << "  - " << check.name << " [" << check.state << "] " << check.detail << "\n";
     if (checks.empty()) std::cout << "  (no tool runs)\n";
+  }
+  if (emitEvents) {
+    return EmitCommandCompleted(events, healthy ? "success" : "failed", healthy ? 0 : 2,
+                                commandStarted);
   }
   return healthy ? 0 : 2;
 }
