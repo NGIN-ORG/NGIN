@@ -723,13 +723,23 @@ namespace NGIN::Reflection::MetaGen
         const auto outputFile = metaGenContext.outputs.front();
         fs::create_directories(outputFile.parent_path());
         const auto generated = EmitGeneratedCpp(metaGenContext, context);
-        std::ofstream out(outputFile);
-        if (!out)
+        std::ifstream existingInput(outputFile, std::ios::binary);
+        const auto outputExists = static_cast<bool>(existingInput);
+        std::ostringstream existing{};
+        if (outputExists)
         {
-            result.diagnostics.push_back("failed to write generated file '" + outputFile.string() + "'");
-            return result;
+            existing << existingInput.rdbuf();
         }
-        out << generated;
+        if (!outputExists || existing.str() != generated)
+        {
+            std::ofstream out(outputFile, std::ios::binary | std::ios::trunc);
+            if (!out)
+            {
+                result.diagnostics.push_back("failed to write generated file '" + outputFile.string() + "'");
+                return result;
+            }
+            out << generated;
+        }
 
         result.generatedFiles.push_back(outputFile);
         result.reflectedTypeCount = context.types.size();

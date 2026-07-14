@@ -420,6 +420,118 @@ FindBundledToolPath(const std::string &tool,
   return true;
 }
 
+[[nodiscard]] auto StableDigest(std::string_view material) -> std::string {
+  std::uint64_t hash = 14695981039346656037ULL;
+  for (const auto byte : material) {
+    hash ^= static_cast<unsigned char>(byte);
+    hash *= 1099511628211ULL;
+  }
+  std::ostringstream encoded{};
+  encoded << std::hex << std::setfill('0') << std::setw(16) << hash;
+  return encoded.str();
+}
+
+auto AppendPathState(std::ostringstream &material, const fs::path &path,
+                     bool recursive) -> void {
+  const auto normalized = path.lexically_normal();
+  std::error_code error{};
+  if (!fs::exists(normalized, error)) {
+    material << "missing=" << normalized.generic_string() << '\n';
+    return;
+  }
+
+  const auto appendFile = [&](const fs::path &file) {
+    std::error_code fileError{};
+    const auto size = fs::file_size(file, fileError);
+    if (fileError) {
+      material << "unreadable=" << file.lexically_normal().generic_string()
+               << '\n';
+      return;
+    }
+    const auto modified = fs::last_write_time(file, fileError);
+    material << "file=" << file.lexically_normal().generic_string() << '|'
+             << size << '|';
+    if (fileError) {
+      material << "unknown";
+    } else {
+      material << modified.time_since_epoch().count();
+    }
+    material << '\n';
+  };
+
+  if (fs::is_regular_file(normalized, error)) {
+    appendFile(normalized);
+    return;
+  }
+  if (!recursive || !fs::is_directory(normalized, error)) {
+    material << "path=" << normalized.generic_string() << '\n';
+    return;
+  }
+
+  std::vector<fs::path> files{};
+  for (fs::recursive_directory_iterator iterator{
+           normalized, fs::directory_options::skip_permission_denied, error},
+       end;
+       iterator != end; iterator.increment(error)) {
+    if (error) {
+      error.clear();
+      continue;
+    }
+    std::error_code entryError{};
+    if (iterator->is_regular_file(entryError) && !entryError) {
+      files.push_back(iterator->path());
+    }
+  }
+  std::sort(files.begin(), files.end());
+  material << "directory=" << normalized.generic_string() << '\n';
+  for (const auto &file : files) {
+    appendFile(file);
+  }
+}
+
+class InteractiveProcessProgress {
+public:
+  InteractiveProcessProgress(bool enabled, std::string name,
+                             std::chrono::steady_clock::time_point started)
+      : name_(std::move(name)), started_(started) {
+    if (!enabled) {
+      return;
+    }
+    thread_ = std::thread([this]() {
+      constexpr std::array<char, 4> spinner{'|', '/', '-', '\\'};
+      std::size_t index = 0;
+      while (!finished_.load(std::memory_order_relaxed)) {
+        const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(
+                                 std::chrono::steady_clock::now() - started_)
+                                 .count();
+        std::cout << "\r  " << spinner[index++ % spinner.size()] << " "
+                  << name_ << " running " << seconds << "s" << std::flush;
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+      }
+    });
+  }
+
+  InteractiveProcessProgress(const InteractiveProcessProgress &) = delete;
+  auto operator=(const InteractiveProcessProgress &)
+      -> InteractiveProcessProgress & = delete;
+
+  ~InteractiveProcessProgress() { Stop(); }
+
+  auto Stop() -> void {
+    finished_.store(true, std::memory_order_relaxed);
+    if (thread_.joinable()) {
+      thread_.join();
+      std::cout << "\r\033[2K" << std::flush;
+    }
+  }
+
+private:
+  std::string name_{};
+  std::chrono::steady_clock::time_point started_{};
+  std::atomic_bool finished_{false};
+  std::thread thread_{};
+};
+
 struct GeneratedBuildPaths {
   fs::path sourceDir;
   fs::path buildDir;
@@ -1120,28 +1232,23 @@ auto ValidateGeneratorInputs(const ResolvedLaunch &resolved,
   }
 }
 
-auto WriteGeneratorContext(const ResolvedLaunch &resolved,
-                           const ResolvedGenerator &generator,
-                           const ResolvedProjectUnit &unit,
-                           const std::vector<InputDeclaration> &outputs,
-                           const std::vector<fs::path> &absoluteOutputs,
-                           const fs::path &outputDir,
-                           const fs::path &contextPath,
-                           DiagnosticReport &report) -> void {
+auto WriteGeneratorContext(
+    const ResolvedLaunch &resolved, const ResolvedGenerator &generator,
+    const ResolvedProjectUnit &unit,
+    const std::vector<InputDeclaration> &outputs,
+    const std::vector<fs::path> &absoluteOutputs, const fs::path &outputDir,
+    const fs::path &contextPath, std::vector<fs::path> &sourceDependencies,
+    DiagnosticReport &report)
+    -> std::string {
   fs::create_directories(contextPath.parent_path());
-  std::ofstream out(contextPath);
-  if (!out) {
-    AddError(report, "generator '" + generator.declaration.name +
-                         "' failed to write context file '" +
-                         contextPath.string() + "'");
-    return;
-  }
+  std::ostringstream out{};
 
   auto sources = CollectGeneratedProjectSources(
       resolved.workspace, unit.project, unit.profile, report);
   if (report.HasErrors()) {
-    return;
+    return {};
   }
+  sourceDependencies = sources;
 
   out << "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n";
   out << "<GeneratorContext SchemaVersion=\"1\"\n";
@@ -1186,8 +1293,9 @@ auto WriteGeneratorContext(const ResolvedLaunch &resolved,
   out << "  </Sources>\n";
 
   out << "  <IncludeDirectories>\n";
+  const auto projectDirectory = unit.project.path.parent_path();
   out << "    <IncludeDirectory Path=\""
-      << EscapeXml(unit.project.path.parent_path().string()) << "\" />\n";
+      << EscapeXml(projectDirectory.string()) << "\" />\n";
   for (const auto &sourceRoot :
        SelectedBuildInputRoots(unit.project, unit.profile)) {
     const auto includeDir = ResolveProjectPathValue(
@@ -1313,6 +1421,95 @@ auto WriteGeneratorContext(const ResolvedLaunch &resolved,
   }
   out << "  </Outputs>\n";
   out << "</GeneratorContext>\n";
+  const auto content = out.str();
+  (void)WriteTextFileIfChanged(contextPath, content);
+  const auto writtenContent = ReadTextFile(contextPath);
+  if (!writtenContent.has_value() || *writtenContent != content) {
+    AddError(report, "generator '" + generator.declaration.name +
+                         "' failed to write context file '" +
+                         contextPath.string() + "'");
+    return {};
+  }
+  return content;
+}
+
+[[nodiscard]] auto GeneratorSignaturePath(const fs::path &contextPath)
+    -> fs::path {
+  auto signaturePath = contextPath;
+  signaturePath.replace_extension(".signature");
+  return signaturePath;
+}
+
+[[nodiscard]] auto GeneratorExecutionSignature(
+    const ResolvedLaunch &resolved, const ResolvedGenerator &generator,
+    const fs::path &outputDir, const fs::path &toolPath,
+    const std::vector<std::string> &arguments, std::string_view contextContent,
+    const std::vector<fs::path> &sourceDependencies) -> std::string {
+  std::ostringstream material{};
+  material << "schema=ngin-generator-cache-v1\n"
+           << "generator=" << generator.declaration.name << '\n'
+           << "context=" << contextContent << '\n';
+  AppendPathState(material, toolPath, false);
+  for (const auto &argument : arguments) {
+    material << "argument=" << argument << '\n';
+  }
+  for (const auto &input : generator.declaration.inputs) {
+    if (!SelectionMatches(generator.conditions, input.selectors,
+                          resolved.profile)) {
+      continue;
+    }
+    material << "input=" << input.name << '|' << input.kind << '|'
+             << input.role << '|' << input.path << '|' << input.pattern << '|'
+             << input.mode << '|' << input.required << '\n';
+    for (const auto &pattern : input.includePatterns) {
+      material << "include=" << pattern << '\n';
+    }
+    for (const auto &pattern : input.excludePatterns) {
+      material << "exclude=" << pattern << '\n';
+    }
+    if (!input.path.empty()) {
+      AppendPathState(material,
+                      ResolveGeneratorPath(input.path, resolved, generator,
+                                           outputDir,
+                                           generator.ownerDirectory),
+                      true);
+    }
+  }
+  for (const auto &source : sourceDependencies) {
+    AppendPathState(material, source, false);
+  }
+  return StableDigest(material.str());
+}
+
+[[nodiscard]] auto RequiredGeneratorOutputsExist(
+    const std::vector<InputDeclaration> &outputs,
+    const std::vector<fs::path> &absoluteOutputs) -> bool {
+  for (std::size_t index = 0; index < outputs.size(); ++index) {
+    if (outputs[index].required && !fs::exists(absoluteOutputs[index])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+auto RecordSkippedPhase(const BuildExecutionOptions &options,
+                        std::string phase, std::string label) -> void {
+  if (options.events != nullptr) {
+    options.events->Emit(CliEventType::PhaseCompleted,
+                         EventData{}
+                             .AddString("phase", phase)
+                             .AddString("label", label)
+                             .AddNumber("durationMs", 0)
+                             .AddBool("skipped", true));
+  }
+  if (options.backendSteps != nullptr) {
+    options.backendSteps->push_back(BackendStepResult{
+        .name = std::move(label),
+        .exitCode = 0,
+        .durationMilliseconds = 0,
+        .output = {},
+    });
+  }
 }
 
 [[nodiscard]] auto
@@ -1323,27 +1520,44 @@ RunGeneratorProcess(const std::string &generatorName,
                     const BuildExecutionOptions &options) -> int {
   const auto name = "Generator " + generatorName;
   const auto started = std::chrono::steady_clock::now();
+  if (options.events != nullptr) {
+    options.events->Emit(CliEventType::PhaseStarted,
+                         EventData{}
+                             .AddString("phase", "generate")
+                             .AddString("label", name)
+                             .AddString("tool", executable.string()));
+  }
   ProcessResult result{};
   bool emittedStreamOutput = false;
-  if (options.backendOutput == BackendOutputMode::Stream &&
-      options.events == nullptr) {
-    result.exitCode = RunProcess(executable, arguments, workingDirectory);
-  } else {
-    const auto callback =
-        options.events != nullptr &&
-                options.backendOutput == BackendOutputMode::Stream
-            ? std::function<void(std::string_view)>{[&](std::string_view text) {
-                emittedStreamOutput = true;
-                options.events->Emit(CliEventType::BackendOutput,
-                                     EventData{}
-                                         .AddString("phase", "generate")
-                                         .AddString("stream", "combined")
-                                         .AddString("text", std::string{text}));
-              }}
-            : std::function<void(std::string_view)>{};
-    result =
-        RunProcessCapture(executable, arguments, workingDirectory, callback);
+  InteractiveProcessProgress progress{options.interactiveProgress, name,
+                                      started};
+  try {
+    if (options.backendOutput == BackendOutputMode::Stream &&
+        options.events == nullptr) {
+      result.exitCode = RunProcess(executable, arguments, workingDirectory);
+    } else {
+      const auto callback =
+          options.events != nullptr &&
+                  options.backendOutput == BackendOutputMode::Stream
+              ? std::function<void(std::string_view)>{[&](
+                    std::string_view text) {
+                  emittedStreamOutput = true;
+                  options.events->Emit(
+                      CliEventType::BackendOutput,
+                      EventData{}
+                          .AddString("phase", "generate")
+                          .AddString("stream", "combined")
+                          .AddString("text", std::string{text}));
+                }}
+              : std::function<void(std::string_view)>{};
+      result =
+          RunProcessCapture(executable, arguments, workingDirectory, callback);
+    }
+  } catch (...) {
+    progress.Stop();
+    throw;
   }
+  progress.Stop();
   const auto finished = std::chrono::steady_clock::now();
   const auto duration = static_cast<int>(
       std::chrono::duration_cast<std::chrono::milliseconds>(finished - started)
@@ -1357,15 +1571,26 @@ RunGeneratorProcess(const std::string &generatorName,
                              .AddString("stream", "combined")
                              .AddString("text", result.output));
   }
-  if (options.events != nullptr && result.exitCode != 0 &&
-      options.backendOutput != BackendOutputMode::Silent &&
-      options.backendOutput != BackendOutputMode::Stream &&
-      !result.output.empty()) {
-    options.events->Emit(CliEventType::BackendOutput,
-                         EventData{}
-                             .AddString("phase", "generate")
-                             .AddString("stream", "combined")
-                             .AddString("text", result.output));
+  if (options.events != nullptr) {
+    EventData data{};
+    data.AddString("phase", "generate")
+        .AddString("label", name)
+        .AddNumber("durationMs", duration);
+    if (result.exitCode == 0) {
+      options.events->Emit(CliEventType::PhaseCompleted, std::move(data));
+    } else {
+      data.AddNumber("exitCode", result.exitCode);
+      options.events->Emit(CliEventType::PhaseFailed, std::move(data));
+      if (options.backendOutput != BackendOutputMode::Silent &&
+          options.backendOutput != BackendOutputMode::Stream &&
+          !result.output.empty()) {
+        options.events->Emit(CliEventType::BackendOutput,
+                             EventData{}
+                                 .AddString("phase", "generate")
+                                 .AddString("stream", "combined")
+                                 .AddString("text", result.output));
+      }
+    }
   }
   if (options.backendSteps != nullptr) {
     options.backendSteps->push_back(BackendStepResult{
@@ -1404,6 +1629,9 @@ auto ExecuteGenerators(ResolvedLaunch &resolved, const fs::path &outputDir,
           output.path, resolved, generator, outputDir, generatedDir));
     }
 
+    std::optional<fs::path> signaturePath{};
+    std::string executionSignature{};
+
     if (generator.declaration.kind == "Command") {
       const auto *unit = FindProjectUnitForGenerator(resolved, generator);
       if (unit == nullptr) {
@@ -1413,8 +1641,10 @@ auto ExecuteGenerators(ResolvedLaunch &resolved, const fs::path &outputDir,
       }
       const auto contextPath =
           GeneratorContextPath(resolved, generator, outputDir);
-      WriteGeneratorContext(resolved, generator, *unit, outputs,
-                            absoluteOutputs, outputDir, contextPath, report);
+      std::vector<fs::path> sourceDependencies{};
+      const auto contextContent = WriteGeneratorContext(
+          resolved, generator, *unit, outputs, absoluteOutputs, outputDir,
+          contextPath, sourceDependencies, report);
       if (report.HasErrors()) {
         continue;
       }
@@ -1441,8 +1671,20 @@ auto ExecuteGenerators(ResolvedLaunch &resolved, const fs::path &outputDir,
                                   .string());
         }
       }
-      if (RunGeneratorProcess(generator.declaration.name, tool->path, arguments,
-                              generator.ownerDirectory, options) != 0) {
+      signaturePath = GeneratorSignaturePath(contextPath);
+      executionSignature = GeneratorExecutionSignature(
+          resolved, generator, outputDir, tool->path, arguments,
+          contextContent, sourceDependencies);
+      const auto cachedSignature = ReadTextFile(*signaturePath);
+      if (cachedSignature.has_value() &&
+          *cachedSignature == executionSignature &&
+          RequiredGeneratorOutputsExist(outputs, absoluteOutputs)) {
+        RecordSkippedPhase(options, "generate",
+                           "Generator " + generator.declaration.name +
+                               " (up to date)");
+      } else if (RunGeneratorProcess(generator.declaration.name, tool->path,
+                                     arguments, generator.ownerDirectory,
+                                     options) != 0) {
         AddError(report, "generator '" + generator.declaration.name +
                              "' command failed");
       }
@@ -1465,6 +1707,9 @@ auto ExecuteGenerators(ResolvedLaunch &resolved, const fs::path &outputDir,
       }
       AddGeneratedOutputInput(resolved, generator, outputs[index],
                               absoluteOutput, generatedDir);
+    }
+    if (!report.HasErrors() && signaturePath.has_value()) {
+      (void)WriteTextFileIfChanged(*signaturePath, executionSignature);
     }
   }
 }
@@ -2097,23 +2342,8 @@ RunBackendProcess(std::string name, const fs::path &executable,
       options.events == nullptr) {
     result.exitCode = RunProcess(executable, arguments, workingDirectory);
   } else {
-    std::atomic_bool finished{false};
-    std::thread progressThread{};
-    if (options.interactiveProgress) {
-      progressThread = std::thread([&finished, &name, started]() {
-        constexpr std::array<char, 4> spinner{'|', '/', '-', '\\'};
-        std::size_t index = 0;
-        while (!finished.load(std::memory_order_relaxed)) {
-          const auto now = std::chrono::steady_clock::now();
-          const auto seconds =
-              std::chrono::duration_cast<std::chrono::seconds>(now - started)
-                  .count();
-          std::cout << "\r  " << spinner[index++ % spinner.size()] << " "
-                    << name << " running " << seconds << "s" << std::flush;
-          std::this_thread::sleep_for(std::chrono::milliseconds(200));
-        }
-      });
-    }
+    InteractiveProcessProgress progress{options.interactiveProgress, name,
+                                        started};
     try {
       const auto callback =
           options.events != nullptr &&
@@ -2132,18 +2362,10 @@ RunBackendProcess(std::string name, const fs::path &executable,
       result =
           RunProcessCapture(executable, arguments, workingDirectory, callback);
     } catch (...) {
-      finished.store(true, std::memory_order_relaxed);
-      if (progressThread.joinable()) {
-        progressThread.join();
-        std::cout << "\r\033[2K" << std::flush;
-      }
+      progress.Stop();
       throw;
     }
-    finished.store(true, std::memory_order_relaxed);
-    if (progressThread.joinable()) {
-      progressThread.join();
-      std::cout << "\r\033[2K" << std::flush;
-    }
+    progress.Stop();
   }
   const auto finished = std::chrono::steady_clock::now();
   const auto duration = static_cast<int>(
@@ -2320,6 +2542,9 @@ struct CMakeProviderInputs {
               resolved.profile.name + "' with build type '" + buildType + "'");
       return std::nullopt;
     }
+  } else {
+    RecordSkippedPhase(options, "configure",
+                       "CMake configure (up to date)");
   }
   (void)WriteTextFileIfChanged(CompilationPlanSignaturePath(compileCommandsPath),
                                CompilationPlanSignature(resolved) + "\n");

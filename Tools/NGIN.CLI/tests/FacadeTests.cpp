@@ -804,19 +804,24 @@ TEST_CASE("build command JSONL emits clean event stream")
     }
 }
 
-#ifndef _WIN32
-TEST_CASE("configure command JSONL captures generator stdout")
+TEST_CASE("configure command caches unchanged generators and invalidates source changes")
 {
     TempDir temp{};
-    const auto generatorTool = temp.path() / "noisy-generator";
-    WriteFile(generatorTool,
-              "#!/bin/sh\n"
-              "out=\"$1\"\n"
-              "mkdir -p \"$(dirname \"$out\")\"\n"
-              "echo \"generator-raw-output\"\n"
-              "printf 'int generated_symbol() { return 0; }\\n' > \"$out\"\n"
-              "exit 0\n");
-    fs::permissions(generatorTool, fs::perms::owner_exec | fs::perms::owner_read | fs::perms::owner_write);
+    const auto cmake = ResolveToolPath("cmake", RepoRoot());
+    REQUIRE(cmake.has_value());
+    const auto generatorScript = temp.path() / "generator.cmake";
+    const auto invocationCount = temp.path() / "generator-count.txt";
+    WriteFile(generatorScript,
+              "get_filename_component(output_dir \"${OUTPUT}\" DIRECTORY)\n"
+              "file(MAKE_DIRECTORY \"${output_dir}\")\n"
+              "set(count 0)\n"
+              "if(EXISTS \"${COUNT}\")\n"
+              "  file(READ \"${COUNT}\" count)\n"
+              "endif()\n"
+              "math(EXPR count \"${count} + 1\")\n"
+              "file(WRITE \"${COUNT}\" \"${count}\")\n"
+              "message(\"generator-raw-output\")\n"
+              "file(WRITE \"${OUTPUT}\" \"int generated_symbol() { return 0; }\\n\")\n");
 
     const auto projectPath = temp.path() / "Jsonl.Generated.App.nginproj";
     const auto manifest = std::string{"<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
@@ -828,11 +833,17 @@ TEST_CASE("configure command JSONL captures generator stdout")
                                       "    <Generate>\n"
                                       "      <Generator Name=\"NoisyGen\">\n"
                                       "        <Tool Executable=\""} +
-                          generatorTool.string() +
+                          cmake->path.string() +
                           "\" />\n"
                           "        <Args>\n"
-                          "          <Arg Path=\"$(GeneratedDir)/noisy.cpp\" />\n"
+                          "          <Arg Value=\"-DOUTPUT=$(GeneratedDir)/noisy.cpp\" />\n"
+                          "          <Arg Value=\"-DCOUNT=" + invocationCount.string() + "\" />\n"
+                          "          <Arg Value=\"-P\" />\n"
+                          "          <Arg Path=\"generator.cmake\" />\n"
                           "        </Args>\n"
+                          "        <Inputs>\n"
+                          "          <Configs><File Path=\"generator.cmake\" /></Configs>\n"
+                          "        </Inputs>\n"
                           "        <Outputs>\n"
                           "          <Sources Path=\"$(GeneratedDir)/noisy.cpp\" />\n"
                           "        </Outputs>\n"
@@ -850,23 +861,53 @@ TEST_CASE("configure command JSONL captures generator stdout")
     args.eventOutputMode = EventOutputMode::JsonLines;
     args.backendOutputMode = BackendOutputMode::Compact;
 
-    std::ostringstream captured{};
-    auto *previous = std::cout.rdbuf(captured.rdbuf());
-    const auto exitCode = CmdConfigure(temp.path(), args);
-    std::cout.rdbuf(previous);
+    const auto runConfigure = [&]() {
+        std::ostringstream captured{};
+        auto *previous = std::cout.rdbuf(captured.rdbuf());
+        const auto exitCode = CmdConfigure(temp.path(), args);
+        std::cout.rdbuf(previous);
+        REQUIRE(exitCode == 0);
+        return captured.str();
+    };
 
-    REQUIRE(exitCode == 0);
-    const auto output = captured.str();
-    REQUIRE_THAT(output, !ContainsSubstring("generator-raw-output"));
+    const auto firstOutput = runConfigure();
+    REQUIRE_THAT(firstOutput, !ContainsSubstring("generator-raw-output"));
+    REQUIRE_THAT(firstOutput, ContainsSubstring(R"("phase":"generate")"));
+    REQUIRE_THAT(firstOutput, ContainsSubstring("Generator NoisyGen"));
+    REQUIRE(ReadFile(invocationCount) == "1");
+    const auto generatedOutput =
+        temp.path() / "out/.ngin/generated/Jsonl.Generated.App/dev/noisy.cpp";
+    const auto contextPath = temp.path() /
+        "out/.ngin/generator-context/Jsonl.Generated.App/dev/NoisyGen.ngingen.xml";
+    REQUIRE(fs::exists(generatedOutput));
+    REQUIRE(fs::exists(contextPath));
+    const auto generatedTimestamp = fs::last_write_time(generatedOutput);
+    const auto contextTimestamp = fs::last_write_time(contextPath);
 
-    std::istringstream lines{output};
+    const auto secondOutput = runConfigure();
+    REQUIRE(ReadFile(invocationCount) == "1");
+    REQUIRE(fs::last_write_time(generatedOutput) == generatedTimestamp);
+    REQUIRE(fs::last_write_time(contextPath) == contextTimestamp);
+    REQUIRE_THAT(secondOutput, ContainsSubstring(R"("skipped":true)"));
+    REQUIRE_THAT(secondOutput,
+                 ContainsSubstring("Generator NoisyGen (up to date)"));
+    REQUIRE_THAT(secondOutput,
+                 ContainsSubstring("CMake configure (up to date)"));
+
+    WriteFile(temp.path() / "src/main.cpp",
+              "int main() { return generated_symbol(); }\n");
+    const auto thirdOutput = runConfigure();
+    REQUIRE(ReadFile(invocationCount) == "2");
+    REQUIRE_THAT(thirdOutput,
+                 !ContainsSubstring("Generator NoisyGen (up to date)"));
+
+    std::istringstream lines{secondOutput};
     std::string line{};
     while (std::getline(lines, line))
     {
         REQUIRE(line.rfind(R"({"schemaVersion":"1.0","kind":"NGIN.CLI.Event")", 0) == 0);
     }
 }
-#endif
 
 TEST_CASE("failed JSONL build includes compact backend output event")
 {

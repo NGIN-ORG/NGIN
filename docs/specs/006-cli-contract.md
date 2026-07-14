@@ -53,12 +53,18 @@ Removed commands:
 - backend build type comes from the selected project profile’s `BuildType`
   after any `--configuration` override
 - `ngin configure` resolves the selected composition, writes generator context
-  files, runs selected package/local command generators, generates backend CMake
-  input, runs CMake configure, and emits generated build metadata such as
-  `compile_commands.json` without staging runtime outputs
+  files when their content changes, runs stale selected package/local command
+  generators, generates backend CMake input, runs CMake configure when stale,
+  and emits generated build metadata such as `compile_commands.json` without
+  staging runtime outputs
 - `ngin build` emits `.nginlaunch`
 - `ngin build` configures the generated backend build when needed before building and staging artifacts
-- `ngin build` remains incremental and should not aggressively remove unrelated files outside NGIN-owned stale outputs
+- `ngin build` remains incremental: command generators are skipped when their
+  context, executable, arguments, declared inputs, and source state match the
+  stored signature and required outputs still exist; generated files preserve
+  timestamps when their content is unchanged
+- `ngin build` should not aggressively remove unrelated files outside
+  NGIN-owned stale outputs
 - generated CMake builds may resolve backend tools from explicit environment overrides, bundled tools under `Tools/ThirdParty/BuildTools`, or `PATH`
 - compact human output shows elapsed backend progress when stdout is an
   interactive terminal on Windows, Linux, or macOS; redirected output does not
@@ -109,7 +115,8 @@ Initial event types are `command.started`, `command.selection`,
 `sequence` is monotonically increasing per process. Consumers must ignore
 unknown event types and fields. Additive optional fields are allowed in
 `schemaVersion` `1.x`; removing or renaming fields requires a new major event
-schema.
+schema. Up-to-date generator and backend configure phases emit
+`phase.completed` with `data.skipped=true` and an up-to-date label.
 
 Backend output events follow `--backend-output`: compact JSONL includes backend
 output only when a backend phase fails, stream mode emits incremental backend

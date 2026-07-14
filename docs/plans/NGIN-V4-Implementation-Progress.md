@@ -92,6 +92,11 @@ Supported `Generate` entries:
 - `Args`
 - typed `Inputs`
 - typed `Outputs`
+- incremental command execution using deterministic context/tool/argument/input
+  signatures with required-output validation
+- content-stable generator context and Reflection MetaGen output writes
+- structured generator lifecycle progress and explicit up-to-date generator and
+  backend configure phases
 
 Generated outputs are normalized as current generated input declarations.
 
