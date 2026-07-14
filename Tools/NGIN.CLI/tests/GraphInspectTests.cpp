@@ -15,6 +15,8 @@ TEST_CASE("inspect emits product identity")
     ParsedArgs args{};
     args.projectPath = projectPath.string();
     args.format = "json";
+    const auto outputRoot = temp.path() / "artifacts";
+    args.outputRootPath = outputRoot.string();
 
     std::ostringstream captured{};
     auto *previous = std::cout.rdbuf(captured.rdbuf());
@@ -27,6 +29,14 @@ TEST_CASE("inspect emits product identity")
     REQUIRE_THAT(json, ContainsSubstring(R"("kind": "NGIN.CompositionGraph")"));
     REQUIRE_THAT(json, ContainsSubstring(R"("identity": {"project":"Hello.Native")"));
     REQUIRE_THAT(json, ContainsSubstring(R"("product":"Application","profile":"dev")"));
+    REQUIRE_THAT(json,
+                 ContainsSubstring(R"("outputRoot": ")" +
+                                   outputRoot.generic_string() + R"(")"));
+    REQUIRE_THAT(json,
+                 ContainsSubstring(R"("outputDir": ")" +
+                                   (outputRoot / "Hello.Native" / "dev")
+                                       .generic_string() +
+                                   R"(")"));
     REQUIRE_THAT(json, ContainsSubstring(R"("conventions": [)"));
     REQUIRE_THAT(json, ContainsSubstring(R"("name":"NGIN.Cpp.Defaults")"));
     REQUIRE_THAT(json, ContainsSubstring(R"("properties": [)"));
@@ -477,6 +487,9 @@ TEST_CASE("graph json contract carries selected item provenance")
   <Projects>
     <Project Path="App/App.nginproj" />
   </Projects>
+  <Defaults>
+    <OutputRoot Path="artifacts/ngin" />
+  </Defaults>
   <Packages>
     <Source Name="local" Path="Packages" />
   </Packages>
@@ -672,6 +685,9 @@ TEST_CASE("graph json contract carries selected item provenance")
     REQUIRE_THAT(fullGraph, ContainsSubstring(R"("originProvenance":{"sourceKind":"package-feature")"));
     REQUIRE_THAT(fullGraph, ContainsSubstring(R"("facets": [)"));
     REQUIRE_THAT(fullGraph, ContainsSubstring(R"("identity": {"project":"Contract.App")"));
+    REQUIRE_THAT(fullGraph, ContainsSubstring(R"("workspace": {"name":"GraphContractWorkspace")"));
+    REQUIRE_THAT(fullGraph, ContainsSubstring(R"("outputRoot": )"));
+    REQUIRE_THAT(fullGraph, ContainsSubstring(R"("outputDir": )"));
     REQUIRE_THAT(fullGraph, ContainsSubstring(R"("conventions": [)"));
     REQUIRE_THAT(fullGraph, ContainsSubstring(R"("properties": [)"));
     REQUIRE_THAT(fullGraph, ContainsSubstring(R"("product": {"kind":"Application")"));

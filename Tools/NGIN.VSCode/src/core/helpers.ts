@@ -13,7 +13,7 @@ export function computeOutputDir(
   configuredOutputRoot?: string
 ): string {
   if (!configuredOutputRoot) {
-    return path.join(workspaceRoot, '.ngin', 'build', projectName, profileName);
+    return path.join(workspaceRoot, 'build', 'ngin', projectName, profileName);
   }
 
   const outputRoot = path.isAbsolute(configuredOutputRoot)

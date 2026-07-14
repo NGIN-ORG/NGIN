@@ -10,6 +10,7 @@ import {
   isCliStale,
   resolveConfiguredCliPath
 } from './core/cli';
+import { computeCompileCommandsPath, getFallbackCompileCommandsPath } from './core/compileCommands';
 import { pathExists, readTextFile } from './core/discovery';
 import {
   computeLaunchManifestPath,
@@ -412,12 +413,15 @@ class NginController implements vscode.Disposable {
       vscode.commands.registerCommand('ngin.internal.revealPath', (filePath) => this.runHandled(() => this.revealPathCommand(filePath))),
       vscode.window.registerCustomEditorProvider(
         NginProjectEditorProvider.viewType,
-        new NginProjectEditorProvider({
-          inspect: (document) => this.getProjectEditorInspectState(document),
-          apply: (document, update) => this.applyProjectEditorUpdate(document, update),
-          openSource: (uri) => this.openProjectXmlSourceCommand(uri),
-          validate: (uri) => this.validateProjectEditor(uri)
-        }),
+        new NginProjectEditorProvider(
+          this.context.extensionUri,
+          {
+            inspect: (document) => this.getProjectEditorInspectState(document),
+            apply: (document, update) => this.applyProjectEditorUpdate(document, update),
+            openSource: (uri) => this.openProjectXmlSourceCommand(uri),
+            validate: (uri) => this.validateProjectEditor(uri)
+          }
+        ),
         {
           supportsMultipleEditorsPerDocument: false,
           webviewOptions: { retainContextWhenHidden: true }
@@ -670,6 +674,36 @@ class NginController implements vscode.Disposable {
     ].join('|');
   }
 
+  private async applyInspectPayload(snapshot: NginWorkspaceSnapshot, payload: CompositionGraphPayload): Promise<void> {
+    snapshot.inspectGraph = payload;
+    if (!payload.outputDir || !snapshot.workspace || !snapshot.context) {
+      return;
+    }
+
+    snapshot.outputDir = payload.outputDir;
+    snapshot.launchManifestPath = computeLaunchManifestPath(
+      payload.outputDir,
+      snapshot.context.project.name,
+      snapshot.context.profile.name
+    );
+    snapshot.launchManifestExists = await pathExists(snapshot.launchManifestPath);
+    snapshot.stagedCompileCommandsPath = computeCompileCommandsPath(payload.outputDir);
+    snapshot.stagedCompileCommandsAvailable = await pathExists(snapshot.stagedCompileCommandsPath);
+
+    const fallbackCompileCommandsPath = getFallbackCompileCommandsPath(snapshot.workspace.root);
+    const fallbackCompileCommandsAvailable = await pathExists(fallbackCompileCommandsPath);
+    snapshot.activeCompileCommandsPath = snapshot.stagedCompileCommandsAvailable
+      ? snapshot.stagedCompileCommandsPath
+      : fallbackCompileCommandsAvailable
+        ? fallbackCompileCommandsPath
+        : snapshot.stagedCompileCommandsPath;
+    snapshot.activeCompileCommandsSource = snapshot.stagedCompileCommandsAvailable
+      ? 'staged'
+      : fallbackCompileCommandsAvailable
+        ? 'fallback'
+        : undefined;
+  }
+
   private async attachInspectSnapshot(snapshot: NginWorkspaceSnapshot, forceRefresh: boolean): Promise<void> {
     const key = this.inspectCacheKey(snapshot);
     if (!key || !snapshot.workspace || !snapshot.context) {
@@ -679,7 +713,9 @@ class NginController implements vscode.Disposable {
     if (!forceRefresh) {
       const cached = this.inspectCache.get(key);
       if (cached) {
-        snapshot.inspectGraph = cached.payload;
+        if (cached.payload) {
+          await this.applyInspectPayload(snapshot, cached.payload);
+        }
         snapshot.inspectError = cached.error;
         return;
       }
@@ -687,7 +723,7 @@ class NginController implements vscode.Disposable {
 
     try {
       const payload = await this.runInspect(snapshot);
-      snapshot.inspectGraph = payload;
+      await this.applyInspectPayload(snapshot, payload);
       snapshot.inspectError = payload.plans?.diagnostics?.some((diagnostic) => diagnostic.severity === 'error')
         ? 'Inspect reported resolver diagnostics.'
         : undefined;
@@ -2791,8 +2827,8 @@ class NginController implements vscode.Disposable {
       '--format',
       'json'
     ];
-    if (snapshot.outputDir) {
-      args.push('--output', snapshot.outputDir);
+    if (snapshot.buildOutputRoot) {
+      args.push('--output-root', snapshot.buildOutputRoot);
     }
 
     const result = await new Promise<{ exitCode: number; stdout: string; stderr: string }>((resolve, reject) => {

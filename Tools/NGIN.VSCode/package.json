@@ -48,8 +48,8 @@
     "@types/node": "^25.6.2",
     "@types/vscode": "^1.86.0",
     "@vscode/test-electron": "^2.5.2",
-    "@vscode/vsce": "^3.9.1",
-    "esbuild": "^0.28.0",
+    "@vscode/vsce": "^3.9.2",
+    "esbuild": "^0.28.1",
     "mocha": "^11.1.0",
     "ovsx": "^0.10.12",
     "typescript": "^6.0.3"
@@ -658,7 +658,7 @@
         "ngin.build.outputRoot": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Optional staged output root. When set, build output is written to `<outputRoot>/<project>/<profile>`."
+          "markdownDescription": "Optional override for the workspace `OutputRoot`. Build output is written to `<outputRoot>/<project>/<profile>`; otherwise the workspace manifest or `build/ngin` default is used."
         },
         "ngin.tooling.validateManifestOnSave": {
           "type": "boolean",
@@ -670,7 +670,10 @@
           "default": {},
           "additionalProperties": {
             "type": "string",
-            "enum": ["activeFile", "all"]
+            "enum": [
+              "activeFile",
+              "all"
+            ]
           },
           "markdownDescription": "Per-run save behavior keyed by stable tool run identity. Use `activeFile` for source saves or `all` for manifest saves. Configure this from a Tooling tree item."
         },

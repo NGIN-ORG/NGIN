@@ -27,6 +27,7 @@ namespace
             << "  --ui auto|pretty|compact|plain|json\n"
             << "  --events none|jsonl\n"
             << "  --backend-output stream|compact|silent\n"
+            << "  --output-root <dir>  (appends <project>/<profile>)\n"
             << "  --json  (alias for --format json where supported)\n\n"
             << "Project selection options:\n"
             << "  --profile <name>\n"

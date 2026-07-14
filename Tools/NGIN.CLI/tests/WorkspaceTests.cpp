@@ -32,6 +32,9 @@ TEST_CASE("workspace parses projects, package sources, and central package "
   <Projects>
     <Project Path="Game.Client/Game.Client.nginproj" />
   </Projects>
+  <Defaults>
+    <OutputRoot Path="artifacts/ngin" />
+  </Defaults>
   <Packages>
     <Source Name="local" Path="packages" />
     <Source Name="remote" Url="https://packages.example.invalid/v1/index.json" />
@@ -44,6 +47,8 @@ TEST_CASE("workspace parses projects, package sources, and central package "
 
     REQUIRE(workspace.name == "Game");
     REQUIRE(workspace.defaultProfile == "dev");
+    REQUIRE(workspace.outputRoot ==
+            (temp.path() / "artifacts/ngin").lexically_normal());
     REQUIRE(workspace.imports.size() == 1);
     REQUIRE(workspace.platforms.size() == 1);
     REQUIRE(workspace.platforms[0].name == "linux-x64");
@@ -92,6 +97,39 @@ TEST_CASE("workspace host target default overrides a project platform default")
     REQUIRE(effective.platform == host.name);
     REQUIRE(effective.operatingSystem == host.operatingSystem);
     REQUIRE(effective.architecture == host.architecture);
+}
+
+TEST_CASE("workspace output root controls the default project profile output")
+{
+    TempDir temp{};
+    WriteFile(temp.path() / "Workspace.ngin",
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Workspace SchemaVersion="4" Name="OutputWorkspace">
+  <Projects>
+    <Project Path="App/App.nginproj" />
+  </Projects>
+  <Defaults>
+    <OutputRoot Path="artifacts/ngin" />
+  </Defaults>
+</Workspace>
+)xml");
+    WriteFile(temp.path() / "App/App.nginproj",
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4" Name="App">
+  <Application />
+</Project>
+)xml");
+
+    const auto project = LoadProjectManifest(temp.path() / "App/App.nginproj");
+    const auto &profile = ProfileByName(project, std::nullopt);
+    const auto resolved = ResolveLaunch(project, profile);
+
+    REQUIRE(resolved.value.has_value());
+    REQUIRE_FALSE(resolved.diagnostics.HasErrors());
+    REQUIRE(ResolveOutputRoot(*resolved.value) ==
+            (temp.path() / "artifacts/ngin").lexically_normal());
+    REQUIRE(ResolveOutputDir(*resolved.value) ==
+            (temp.path() / "artifacts/ngin/App/dev").lexically_normal());
 }
 
 TEST_CASE("workspace parses external package providers")

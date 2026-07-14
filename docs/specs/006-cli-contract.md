@@ -11,15 +11,15 @@ This spec defines the active user-facing surface of the native `ngin` CLI.
 
 Stable active commands:
 
-- `ngin build [--project <file>] [--profile <name>] [--configuration <name>] [--output <dir>]`
-- `ngin configure [--project <file>] [--profile <name>] [--configuration <name>] [--output <dir>]`
-- `ngin clean [--project <file>] [--profile <name>] [--configuration <name>] [--output <dir>]`
-- `ngin rebuild [--project <file>] [--profile <name>] [--configuration <name>] [--output <dir>]`
-- `ngin run [--project <file>] [--profile <name>] [--configuration <name>] [--output <dir>] [-- <args...>]`
-- `ngin publish [PublishName] [--project <file>] [--profile <name>] [--configuration <name>] [--output <dir>]`
+- `ngin build [--project <file>] [--profile <name>] [--configuration <name>] [--output <dir>|--output-root <dir>]`
+- `ngin configure [--project <file>] [--profile <name>] [--configuration <name>] [--output <dir>|--output-root <dir>]`
+- `ngin clean [--project <file>] [--profile <name>] [--configuration <name>] [--output <dir>|--output-root <dir>]`
+- `ngin rebuild [--project <file>] [--profile <name>] [--configuration <name>] [--output <dir>|--output-root <dir>]`
+- `ngin run [--project <file>] [--profile <name>] [--configuration <name>] [--output <dir>|--output-root <dir>] [-- <args...>]`
+- `ngin publish [PublishName] [--project <file>] [--profile <name>] [--configuration <name>] [--output <dir>|--output-root <dir>]`
 - `ngin validate [--project <file>] [--profile <name>] [--configuration <name>]`
 - `ngin graph [--project <file>] [--profile <name>] [--configuration <name>]`
-- `ngin inspect [--project <file>] [--profile <name>] [--configuration <name>] [--output <dir>] --format json`
+- `ngin inspect [--project <file>] [--profile <name>] [--configuration <name>] [--output <dir>|--output-root <dir>] --format json`
 - `ngin package list`
 - `ngin package show <Package>`
 - `ngin package lock [--project <file>] [--profile <name>] [--configuration <name>] [--output <file>]`
@@ -52,6 +52,14 @@ Removed commands:
   backend build type
 - backend build type comes from the selected project profile’s `BuildType`
   after any `--configuration` override
+- the default workspace output root is `build/ngin`; workspace
+  `<Defaults><OutputRoot Path="..." /></Defaults>` overrides it
+- `--output-root <dir>` overrides the root for one invocation and appends
+  `<Project>/<Profile>`; `--output <dir>` selects the complete staged output
+  directory, and the two options are mutually exclusive
+- generated backend state remains private to the staged output under `.ngin/`
+- Composition Graph JSON exposes the resolved `workspace`, `outputRoot`, and
+  `outputDir` fields
 - `ngin configure` resolves the selected composition, writes generator context
   files when their content changes, runs stale selected package/local command
   generators, generates backend CMake input, runs CMake configure when stale,

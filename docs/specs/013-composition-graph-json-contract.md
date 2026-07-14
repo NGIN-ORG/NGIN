@@ -59,6 +59,9 @@ The full graph envelope contains these stable top-level fields:
 - `kind`: literal `"NGIN.CompositionGraph"`
 - `state`: `"resolved"` or `"diagnostic"`
 - `facets`: supported facet names
+- `workspace`: selected workspace identity and manifest path, or `null`
+- `outputRoot`: resolved workspace artifact root
+- `outputDir`: resolved staged output directory for the selected project/profile
 - `identity`: selected project/product/profile identity
 - `conventions`: named defaults that participated in resolution
 - `properties`: high-value selected scalar properties with provenance

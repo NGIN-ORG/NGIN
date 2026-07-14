@@ -29,6 +29,7 @@ namespace NGIN::CLI
         std::optional<std::string> fromProfileName{};
         std::optional<std::string> toProfileName{};
         std::optional<std::string> outputPath{};
+        std::optional<std::string> outputRootPath{};
         std::optional<std::string> targetDir{};
         std::optional<std::string> lockPath{};
         std::optional<std::string> fromLockPath{};

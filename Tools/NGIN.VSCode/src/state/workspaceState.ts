@@ -316,6 +316,7 @@ export class WorkspaceStateService implements vscode.Disposable {
       context.project.name,
       context.profile.name,
       this.getConfiguredBuildOutputRoot(context.workspace.folder)
+        ?? context.workspace.workspace.outputRoot
     );
   }
 

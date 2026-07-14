@@ -42,6 +42,33 @@ auto ResolveToolPath(const std::string &tool,
                      const std::optional<fs::path> &searchRoot)
     -> std::optional<ToolResolution>;
 
+auto ResolveOutputRoot(const ResolvedLaunch &resolved,
+                       const std::optional<fs::path> &outputRootOverride)
+    -> fs::path {
+  const auto workspaceRoot = resolved.workspace.has_value()
+                                 ? resolved.workspace->path.parent_path()
+                                 : resolved.project.path.parent_path();
+  if (outputRootOverride.has_value()) {
+    return outputRootOverride->is_absolute()
+               ? outputRootOverride->lexically_normal()
+               : (workspaceRoot / *outputRootOverride).lexically_normal();
+  }
+  if (resolved.workspace.has_value() &&
+      !resolved.workspace->outputRoot.empty()) {
+    return resolved.workspace->outputRoot;
+  }
+  return workspaceRoot / "build" / "ngin";
+}
+
+auto ResolveOutputDir(const ResolvedLaunch &resolved,
+                      const std::optional<fs::path> &outputPath) -> fs::path {
+  if (outputPath.has_value()) {
+    return fs::absolute(*outputPath);
+  }
+  return ResolveOutputRoot(resolved) / resolved.project.name /
+         resolved.profile.name;
+}
+
 namespace {
 auto ValidateNativeBuildTarget(const ProfileDefinition &profile,
                                DiagnosticReport &report) -> bool {
@@ -552,17 +579,6 @@ struct GeneratedBuildPaths {
     -> fs::path {
   return resolved.workspace.has_value() ? resolved.workspace->path.parent_path()
                                         : resolved.project.path.parent_path();
-}
-
-[[nodiscard]] auto ResolveOutputDir(const ResolvedLaunch &resolved,
-                                    const std::optional<fs::path> &outputPath)
-    -> fs::path {
-  if (outputPath.has_value()) {
-    return fs::absolute(*outputPath);
-  }
-
-  return ResolveBuildRoot(resolved) / ".ngin" / "build" /
-         resolved.project.name / resolved.profile.name;
 }
 
 [[nodiscard]] auto ProviderStateRoot(const ResolvedLaunch &resolved,

@@ -719,11 +719,11 @@ Full shape:
 ```text
 ngin validate  [--project <file>] [--profile <name>] [--configuration <name>]
 ngin graph     [--project <file>] [--profile <name>] [--configuration <name>]
-ngin configure [--project <file>] [--profile <name>] [--configuration <name>] [--output <dir>]
-ngin build     [--project <file>] [--profile <name>] [--configuration <name>] [--output <dir>]
-ngin run       [--project <file>] [--profile <name>] [--configuration <name>] [--output <dir>] [-- <args...>]
-ngin clean     [--project <file>] [--profile <name>] [--configuration <name>] [--output <dir>]
-ngin rebuild   [--project <file>] [--profile <name>] [--configuration <name>] [--output <dir>]
+ngin configure [--project <file>] [--profile <name>] [--configuration <name>] [--output <dir>|--output-root <dir>]
+ngin build     [--project <file>] [--profile <name>] [--configuration <name>] [--output <dir>|--output-root <dir>]
+ngin run       [--project <file>] [--profile <name>] [--configuration <name>] [--output <dir>|--output-root <dir>] [-- <args...>]
+ngin clean     [--project <file>] [--profile <name>] [--configuration <name>] [--output <dir>|--output-root <dir>]
+ngin rebuild   [--project <file>] [--profile <name>] [--configuration <name>] [--output <dir>|--output-root <dir>]
 ```
 
 ### Workspace commands

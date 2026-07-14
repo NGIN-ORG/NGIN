@@ -756,6 +756,7 @@ projects. It does not replace project identity.
   </Projects>
 
   <Defaults>
+    <OutputRoot Path="build/ngin" />
     <Language Standard="C++23"
               Required="true"
               Extensions="false" />

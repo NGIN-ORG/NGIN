@@ -91,7 +91,7 @@ suite('NGIN Tools Extension', () => {
       );
       assert.ok(edits?.length);
       const resultPath = path.join(
-        repoRoot(), '.ngin/build/Hello.Formatter/Debug.Formatter/tooling/cpp-format/result.json'
+        repoRoot(), 'build/ngin/Hello.Formatter/Debug.Formatter/tooling/cpp-format/result.json'
       );
       const normalized = JSON.parse(await fs.readFile(resultPath, 'utf8')) as {
         changeStatus?: string;

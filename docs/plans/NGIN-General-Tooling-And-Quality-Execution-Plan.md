@@ -557,7 +557,7 @@ minor version may add streaming input without changing the semantic model.
   "host": { "platform": "linux-x64" },
   "target": { "platform": "linux-x64", "abi": "..." },
   "workingDirectory": "/repo/Game",
-  "outputDirectory": "/repo/.ngin/build/Game/ci/tooling/cpp-static-analysis",
+  "outputDirectory": "/repo/build/ngin/Game/ci/tooling/cpp-static-analysis",
   "configs": [],
   "inputSets": [],
   "options": {},

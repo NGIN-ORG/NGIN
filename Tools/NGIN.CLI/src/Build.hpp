@@ -51,6 +51,14 @@ namespace NGIN::CLI
         const std::string &tool,
         const std::optional<fs::path> &searchRoot = std::nullopt) -> bool;
 
+    [[nodiscard]] auto ResolveOutputRoot(
+        const ResolvedLaunch &resolved,
+        const std::optional<fs::path> &outputRootOverride = std::nullopt) -> fs::path;
+
+    [[nodiscard]] auto ResolveOutputDir(
+        const ResolvedLaunch &resolved,
+        const std::optional<fs::path> &outputPath = std::nullopt) -> fs::path;
+
     [[nodiscard]] auto RunProcess(
         const fs::path &executable,
         const std::vector<std::string> &arguments,

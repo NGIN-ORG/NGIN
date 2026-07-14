@@ -3,6 +3,7 @@ export interface WorkspaceManifest {
   directory: string;
   name: string;
   platformVersion?: string;
+  outputRoot?: string;
   imports?: string[];
   projectPaths: string[];
   packageSourcePaths?: string[];
@@ -570,6 +571,7 @@ export interface CompositionGraphPayload {
     name?: string;
     path?: string;
   } | null;
+  outputRoot?: string;
   outputDir?: string;
   facetsSummary?: Record<string, number>;
   plans?: {

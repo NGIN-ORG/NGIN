@@ -3495,6 +3495,13 @@ namespace NGIN::CLI
         }
         if (const auto *defaults = FindChild(*rootElement, "Defaults"))
         {
+            if (const auto *outputRoot = FindChild(*defaults, "OutputRoot"))
+            {
+                const auto authoredRoot = fs::path(RequireAttribute(*outputRoot, "Path", *path));
+                workspace.outputRoot = authoredRoot.is_absolute()
+                                           ? authoredRoot.lexically_normal()
+                                           : (workspace.path.parent_path() / authoredRoot).lexically_normal();
+            }
             ParseWorkspaceDefaults(*defaults, *path, workspace, workspace.defaults);
         }
         if (const auto *packagesNode = FindChild(*rootElement, "Packages"))

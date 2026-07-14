@@ -51,7 +51,7 @@ applications.
   </Inputs>
   <StagedFiles>
     <File Kind="executable"
-          Destination="/repo/.ngin/build/Hello.Hosted/Debug/bin/Hello.Hosted"
+          Destination="/repo/build/ngin/Hello.Hosted/Debug/bin/Hello.Hosted"
           RelativeDestination="bin/Hello.Hosted" />
   </StagedFiles>
 </LaunchManifest>

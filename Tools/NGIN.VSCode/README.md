@@ -62,6 +62,12 @@ The extension mirrors the CLI directly:
 - Explain Variables maps to `ngin variables explain`
 - Initialize Local Settings maps to `ngin settings init`
 
+Build output defaults to `build/ngin/<Project>/<Profile>`. A workspace may set
+`<Defaults><OutputRoot Path="..." /></Defaults>` in its `.ngin` manifest. The
+`ngin.build.outputRoot` VS Code setting is a local override and is passed to the
+CLI as `--output-root`; resolved paths come back through Composition Graph
+inspection.
+
 `NGIN: Explain Variables` opens the redacted explanation in a readonly editor
 document. `NGIN: Initialize Local Settings` opens the initialized
 `.ngin/local/user.nginsettings` file. The editor also completes

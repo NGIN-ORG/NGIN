@@ -121,6 +121,29 @@ export interface ProjectEditorResolvedToolRun {
   cache?: string;
 }
 
+export interface ProjectEditorResolvedStagedFile {
+  kind?: string;
+  source?: string;
+  target?: string;
+  owner?: string;
+}
+
+export interface ProjectEditorResolvedLaunch {
+  name?: string;
+  executable?: string;
+  workingDirectory?: string;
+  args?: string;
+  selected?: boolean;
+  source?: string;
+}
+
+export interface ProjectEditorResolvedRuntimeEntry {
+  kind: 'module' | 'plugin';
+  name?: string;
+  state?: string;
+  source?: string;
+}
+
 export interface ProjectEditorResolvedSummary {
   projectName?: string;
   projectType?: string;
@@ -145,7 +168,10 @@ export interface ProjectEditorResolvedSummary {
   diagnosticWarningCount: number;
   packages: ProjectEditorResolvedPackage[];
   inputs: ProjectEditorResolvedInput[];
+  stageFiles: ProjectEditorResolvedStagedFile[];
   environmentVariables: ProjectEditorResolvedEnvironmentVariable[];
+  launches: ProjectEditorResolvedLaunch[];
+  runtimeEntries: ProjectEditorResolvedRuntimeEntry[];
   toolRuns: ProjectEditorResolvedToolRun[];
   toolingPackages: ProjectEditorResolvedPackage[];
 }
@@ -388,6 +414,37 @@ function resolvedSummary(inspect: CompositionGraphPayload | undefined): ProjectE
     failOn: entry.failOn,
     cache: entry.cache
   }));
+  const launches = [
+    ...((inspect?.plans?.launches ?? []).map((entry) => ({
+      name: entry.name,
+      executable: entry.executable,
+      workingDirectory: entry.workingDirectory,
+      args: entry.args,
+      selected: entry.selected,
+      source: entry.provenance?.sourceKind
+    }))),
+    ...(inspect?.plans?.launch && !(inspect?.plans?.launches ?? []).length
+      ? [{
+          name: inspect.plans.launch.name,
+          executable: inspect.plans.launch.executable,
+          workingDirectory: inspect.plans.launch.workingDirectory,
+          args: inspect.plans.launch.args,
+          selected: true,
+          source: inspect.plans.launch.provenance?.sourceKind
+        }]
+      : [])
+  ];
+  const runtimeEntries: ProjectEditorResolvedRuntimeEntry[] = [
+    ...((inspect?.plans?.runtime?.requiredModules ?? []).map((entry) => typeof entry === 'string'
+      ? { kind: 'module' as const, name: entry, state: 'required' }
+      : { kind: 'module' as const, name: entry.name, state: 'required', source: entry.provenance?.sourceKind })),
+    ...((inspect?.plans?.runtime?.optionalModules ?? []).map((entry) => typeof entry === 'string'
+      ? { kind: 'module' as const, name: entry, state: 'optional' }
+      : { kind: 'module' as const, name: entry.name, state: 'optional', source: entry.provenance?.sourceKind })),
+    ...((inspect?.plans?.runtime?.plugins ?? []).map((entry) => typeof entry === 'string'
+      ? { kind: 'plugin' as const, name: entry }
+      : { kind: 'plugin' as const, name: entry.name, state: entry.load, source: entry.provenance?.sourceKind }))
+  ];
   return {
     projectName: inspect?.identity?.project,
     projectType: inspect?.product?.kind,
@@ -412,7 +469,15 @@ function resolvedSummary(inspect: CompositionGraphPayload | undefined): ProjectE
     diagnosticWarningCount: diagnostics.filter((diagnostic) => diagnostic.severity === 'warning').length,
     packages,
     inputs,
+    stageFiles: (inspect?.plans?.stage?.files ?? []).map((entry) => ({
+      kind: entry.kind,
+      source: entry.source,
+      target: entry.target ?? entry.relativeDestination,
+      owner: entry.owner
+    })),
     environmentVariables,
+    launches,
+    runtimeEntries,
     toolRuns,
     toolingPackages: packages.filter((pkg) => pkg.name.startsWith('NGIN.Tooling.'))
   };

@@ -2866,11 +2866,7 @@ struct ToolRunBinding {
 
 [[nodiscard]] auto ResolvedCompilationDatabasePath(const ResolvedLaunch &resolved)
     -> fs::path {
-  const auto buildRoot = resolved.workspace.has_value()
-                             ? resolved.workspace->path.parent_path()
-                             : resolved.project.path.parent_path();
-  return buildRoot / ".ngin" / "build" / resolved.project.name /
-         resolved.profile.name / ".ngin" / "cmake-build" /
+  return ResolveOutputDir(resolved) / ".ngin" / "cmake-build" /
          "compile_commands.json";
 }
 
@@ -3646,19 +3642,47 @@ auto PrintLockDiff(const std::map<std::string, LockPackageEntry> &from,
   return result;
 }
 
+[[nodiscard]] auto ResolveCommandOutputRoot(const ProjectManifest &project,
+                                            const ParsedArgs &args)
+    -> std::optional<fs::path> {
+  if (args.outputPath.has_value() && args.outputRootPath.has_value()) {
+    throw std::runtime_error("--output and --output-root cannot be used together");
+  }
+  if (!args.outputRootPath.has_value()) {
+    return std::nullopt;
+  }
+
+  auto outputRoot = fs::path{*args.outputRootPath};
+  if (outputRoot.is_relative()) {
+    outputRoot = RootDirFrom(project.path).value_or(project.path.parent_path()) /
+                 outputRoot;
+  }
+  return outputRoot.lexically_normal();
+}
+
+[[nodiscard]] auto ResolveCommandOutputPath(
+    const ProjectManifest &project, const ProfileDefinition &profile,
+    const ParsedArgs &args) -> std::optional<fs::path> {
+  const auto outputRoot = ResolveCommandOutputRoot(project, args);
+  if (args.outputPath.has_value()) {
+    return fs::path{*args.outputPath};
+  }
+  if (outputRoot.has_value()) {
+    return *outputRoot / project.name / profile.name;
+  }
+  return std::nullopt;
+}
+
 [[nodiscard]] auto
 RunBuiltProduct(const ProjectManifest &project,
                 const ProfileDefinition &profile, const ParsedArgs &args,
                 CliEventEmitter &events,
                 std::chrono::steady_clock::time_point commandStarted,
                 std::string_view diagnosticsTitle) -> int {
+  const auto outputPath = ResolveCommandOutputPath(project, profile, args);
   std::vector<BackendStepResult> backendSteps{};
   auto buildOptions = BuildOptionsForArgs(args, backendSteps, &events);
-  const auto built = BuildLaunch(project, profile,
-                                 args.outputPath.has_value()
-                                     ? std::optional<fs::path>{*args.outputPath}
-                                     : std::nullopt,
-                                 buildOptions);
+  const auto built = BuildLaunch(project, profile, outputPath, buildOptions);
   if (!built.value.has_value() || built.diagnostics.HasErrors()) {
     EmitDiagnostics(events, built.diagnostics,
                     "ngin " +
@@ -3941,6 +3965,8 @@ auto ParseCommonArgs(int argc, char **argv, int startIndex) -> ParsedArgs {
     } else if ((current == "--output" || current == "--output-dir") &&
                index + 1 < argc) {
       args.outputPath = argv[++index];
+    } else if (current == "--output-root" && index + 1 < argc) {
+      args.outputRootPath = argv[++index];
     } else if (current == "--lock" && index + 1 < argc) {
       args.lockPath = argv[++index];
     } else if (current == "--from-lock" && index + 1 < argc) {
@@ -5396,7 +5422,10 @@ auto CmdExplainGenerator(const fs::path &root, const ParsedArgs &args) -> int {
 
 [[nodiscard]] auto
 BuildCompositionGraph(const LoadedInvocation &invocation,
-                      const DiagnosticResult<ResolvedLaunch> &resolvedResult)
+                      const DiagnosticResult<ResolvedLaunch> &resolvedResult,
+                      const std::optional<fs::path> &outputPath = std::nullopt,
+                      const std::optional<fs::path> &outputRootOverride =
+                          std::nullopt)
     -> CompositionGraph;
 
 auto CmdExplainObject(const fs::path &root, const ParsedArgs &args) -> int {
@@ -5971,7 +6000,9 @@ auto CmdExplainObject(const fs::path &root, const ParsedArgs &args) -> int {
 
 [[nodiscard]] auto
 BuildCompositionGraph(const LoadedInvocation &invocation,
-                      const DiagnosticResult<ResolvedLaunch> &resolvedResult)
+                      const DiagnosticResult<ResolvedLaunch> &resolvedResult,
+                      const std::optional<fs::path> &outputPath,
+                      const std::optional<fs::path> &outputRootOverride)
     -> CompositionGraph {
   const auto *resolved =
       resolvedResult.value.has_value() ? &*resolvedResult.value : nullptr;
@@ -6104,6 +6135,16 @@ BuildCompositionGraph(const LoadedInvocation &invocation,
       .profile = invocation.profile.name,
       .version = invocation.project.version,
   };
+  if (resolved != nullptr) {
+    if (resolved->workspace.has_value()) {
+      graph.workspace = CompositionGraph::Workspace{
+          .name = resolved->workspace->name,
+          .path = resolved->workspace->path,
+      };
+    }
+    graph.outputRoot = ResolveOutputRoot(*resolved, outputRootOverride);
+    graph.outputDir = ResolveOutputDir(*resolved, outputPath);
+  }
   graph.product = CompositionGraph::Product{
       .kind = productKind,
       .outputType = invocation.project.output.kind,
@@ -7414,7 +7455,9 @@ auto CmdNew(const fs::path &root, const std::string &kind,
 
 auto WriteCompositionGraphJson(
     const LoadedInvocation &invocation,
-    const DiagnosticResult<ResolvedLaunch> &resolvedResult) -> void;
+    const DiagnosticResult<ResolvedLaunch> &resolvedResult,
+    const std::optional<fs::path> &outputPath = std::nullopt,
+    const std::optional<fs::path> &outputRootOverride = std::nullopt) -> void;
 
 auto CmdInspect(const fs::path &root, const ParsedArgs &args) -> int {
   (void)root;
@@ -7428,14 +7471,20 @@ auto CmdInspect(const fs::path &root, const ParsedArgs &args) -> int {
   const auto invocation = ResolveInvocation(args);
   const auto resolvedResult =
       ResolveLaunch(invocation.project, invocation.profile);
-  WriteCompositionGraphJson(invocation, resolvedResult);
+  WriteCompositionGraphJson(
+      invocation, resolvedResult,
+      ResolveCommandOutputPath(invocation.project, invocation.profile, args),
+      ResolveCommandOutputRoot(invocation.project, args));
   return resolvedResult.diagnostics.HasErrors() ? 1 : 0;
 }
 
 auto WriteCompositionGraphJson(
     const LoadedInvocation &invocation,
-    const DiagnosticResult<ResolvedLaunch> &resolvedResult) -> void {
-  const auto graph = BuildCompositionGraph(invocation, resolvedResult);
+    const DiagnosticResult<ResolvedLaunch> &resolvedResult,
+    const std::optional<fs::path> &outputPath,
+    const std::optional<fs::path> &outputRootOverride) -> void {
+  const auto graph = BuildCompositionGraph(invocation, resolvedResult, outputPath,
+                                           outputRootOverride);
 
   auto writeDiagnostics = [&](const DiagnosticReport &diagnostics) {
     std::cout << "[";
@@ -7473,6 +7522,16 @@ auto WriteCompositionGraphJson(
             << "\"product\":" << Json(graph.identity.product) << ","
             << "\"profile\":" << Json(graph.identity.profile) << ","
             << "\"version\":" << Json(graph.identity.version) << "},\n";
+  std::cout << "  \"workspace\": ";
+  if (graph.workspace.has_value()) {
+    std::cout << "{\"name\":" << Json(graph.workspace->name) << ","
+              << "\"path\":" << JsonPath(graph.workspace->path) << "}";
+  } else {
+    std::cout << "null";
+  }
+  std::cout << ",\n";
+  std::cout << "  \"outputRoot\": " << JsonPath(graph.outputRoot) << ",\n";
+  std::cout << "  \"outputDir\": " << JsonPath(graph.outputDir) << ",\n";
   std::cout << "  \"conventions\": ";
   WriteGraphConventions(std::cout, graph.conventions);
   std::cout << ",\n";
@@ -7709,7 +7768,11 @@ auto CmdGraph(const fs::path &root, const ParsedArgs &args) -> int {
     const auto invocation = ResolveInvocation(args);
     const auto resolved = ResolveLaunch(invocation.project, invocation.profile);
     if (!args.graphPlan.has_value()) {
-      WriteCompositionGraphJson(invocation, resolved);
+      WriteCompositionGraphJson(
+          invocation, resolved,
+          ResolveCommandOutputPath(invocation.project, invocation.profile,
+                                   args),
+          ResolveCommandOutputRoot(invocation.project, args));
     } else {
       WriteCompositionGraphPlanJson(invocation, resolved, *args.graphPlan);
     }
@@ -7721,7 +7784,10 @@ auto CmdGraph(const fs::path &root, const ParsedArgs &args) -> int {
     PrintDiagnostics(resolved.diagnostics, "Graph", std::cout);
     return 1;
   }
-  const auto graph = BuildCompositionGraph(invocation, resolved);
+  const auto graph = BuildCompositionGraph(
+      invocation, resolved,
+      ResolveCommandOutputPath(invocation.project, invocation.profile, args),
+      ResolveCommandOutputRoot(invocation.project, args));
   if (args.graphPlan == "stage") {
     std::cout << "Stage plan for profile: " << graph.identity.profile << "\n";
     for (const auto &file : graph.stageFiles) {
@@ -8366,7 +8432,8 @@ auto CmdSchema(const fs::path &root, const ParsedArgs &args) -> int {
                "\"docs/specs/013-composition-graph-json-contract.md\",\n";
   std::cout << "    \"stableTopLevelFields\": [\"schemaVersion\", \"kind\", "
                "\"state\", "
-               "\"facets\", \"identity\", \"conventions\", \"properties\", "
+               "\"facets\", \"workspace\", \"outputRoot\", \"outputDir\", "
+               "\"identity\", \"conventions\", \"properties\", "
                "\"product\", \"selection\", \"facetsSummary\", \"plans\"],\n";
   std::cout
       << "    \"planFields\": [\"packages\", \"packageFeatures\", \"build\", "
@@ -8389,10 +8456,10 @@ auto CmdSchema(const fs::path &root, const ParsedArgs &args) -> int {
 auto CmdClean(const fs::path &root, const ParsedArgs &args) -> int {
   (void)root;
   const auto invocation = ResolveInvocation(args);
+  const auto outputPath = ResolveCommandOutputPath(
+      invocation.project, invocation.profile, args);
   const auto cleaned = CleanLaunch(
-      invocation.project, invocation.profile,
-      args.outputPath.has_value() ? std::optional<fs::path>{*args.outputPath}
-                                  : std::nullopt);
+      invocation.project, invocation.profile, outputPath);
   if (!cleaned.value.has_value() || cleaned.diagnostics.HasErrors()) {
     PrintDiagnostics(cleaned.diagnostics, "Clean", std::cout);
     return 1;
@@ -8417,13 +8484,12 @@ auto CmdConfigure(const fs::path &root, const ParsedArgs &args) -> int {
   EmitCommandStarted(events, args);
   const auto invocation = ResolveInvocation(args);
   EmitSelection(events, invocation);
+  const auto outputPath = ResolveCommandOutputPath(
+      invocation.project, invocation.profile, args);
   std::vector<BackendStepResult> backendSteps{};
   auto buildOptions = BuildOptionsForArgs(args, backendSteps, &events);
   const auto configured = ConfigureLaunch(
-      invocation.project, invocation.profile,
-      args.outputPath.has_value() ? std::optional<fs::path>{*args.outputPath}
-                                  : std::nullopt,
-      buildOptions);
+      invocation.project, invocation.profile, outputPath, buildOptions);
   if (!configured.value.has_value() || configured.diagnostics.HasErrors()) {
     EmitDiagnostics(events, configured.diagnostics, "ngin configure");
     return EmitCommandCompleted(events, "failed", 1, commandStarted);
@@ -8444,12 +8510,11 @@ auto CmdBuild(const fs::path &root, const ParsedArgs &args) -> int {
   EmitCommandStarted(events, args);
   const auto invocation = ResolveInvocation(args);
   EmitSelection(events, invocation);
+  const auto outputPath = ResolveCommandOutputPath(
+      invocation.project, invocation.profile, args);
   std::vector<BackendStepResult> backendSteps{};
   auto buildOptions = BuildOptionsForArgs(args, backendSteps, &events);
-  auto built = BuildLaunch(invocation.project, invocation.profile,
-                           args.outputPath.has_value()
-                               ? std::optional<fs::path>{*args.outputPath}
-                               : std::nullopt,
+  auto built = BuildLaunch(invocation.project, invocation.profile, outputPath,
                            buildOptions);
   if (!built.value.has_value() || built.diagnostics.HasErrors()) {
     EmitDiagnostics(events, built.diagnostics, "ngin build");
@@ -8473,12 +8538,11 @@ auto CmdStage(const fs::path &root, const ParsedArgs &args) -> int {
   EmitCommandStarted(events, args);
   const auto invocation = ResolveInvocation(args);
   EmitSelection(events, invocation);
+  const auto outputPath = ResolveCommandOutputPath(
+      invocation.project, invocation.profile, args);
   std::vector<BackendStepResult> backendSteps{};
   auto buildOptions = BuildOptionsForArgs(args, backendSteps, &events);
-  auto built = BuildLaunch(invocation.project, invocation.profile,
-                           args.outputPath.has_value()
-                               ? std::optional<fs::path>{*args.outputPath}
-                               : std::nullopt,
+  auto built = BuildLaunch(invocation.project, invocation.profile, outputPath,
                            buildOptions);
   if (!built.value.has_value() || built.diagnostics.HasErrors()) {
     EmitDiagnostics(events, built.diagnostics, "ngin stage");
@@ -8502,10 +8566,10 @@ auto CmdRebuild(const fs::path &root, const ParsedArgs &args) -> int {
   EmitCommandStarted(events, args);
   const auto invocation = ResolveInvocation(args);
   EmitSelection(events, invocation);
+  const auto outputPath = ResolveCommandOutputPath(
+      invocation.project, invocation.profile, args);
   const auto cleanResult = CleanLaunch(
-      invocation.project, invocation.profile,
-      args.outputPath.has_value() ? std::optional<fs::path>{*args.outputPath}
-                                  : std::nullopt);
+      invocation.project, invocation.profile, outputPath);
   if (!cleanResult.value.has_value() || cleanResult.diagnostics.HasErrors()) {
     EmitDiagnostics(events, cleanResult.diagnostics, "ngin rebuild");
     return EmitCommandCompleted(events, "failed", 1, commandStarted);
@@ -8513,10 +8577,7 @@ auto CmdRebuild(const fs::path &root, const ParsedArgs &args) -> int {
 
   std::vector<BackendStepResult> backendSteps{};
   auto buildOptions = BuildOptionsForArgs(args, backendSteps, &events);
-  auto built = BuildLaunch(invocation.project, invocation.profile,
-                           args.outputPath.has_value()
-                               ? std::optional<fs::path>{*args.outputPath}
-                               : std::nullopt,
+  auto built = BuildLaunch(invocation.project, invocation.profile, outputPath,
                            buildOptions);
   AppendDiagnostics(built.diagnostics, cleanResult.diagnostics);
   if (!built.value.has_value() || built.diagnostics.HasErrors()) {
@@ -8876,12 +8937,11 @@ struct StoredToolResult {
 [[nodiscard]] auto ToolResultRoot(const LoadedInvocation &invocation,
                                   const ResolvedLaunch &resolved,
                                   const ParsedArgs &args) -> fs::path {
-  if (args.outputPath.has_value()) return fs::absolute(*args.outputPath) / "tooling";
-  const auto buildRoot = resolved.workspace.has_value()
-                             ? resolved.workspace->path.parent_path()
-                             : invocation.project.path.parent_path();
-  return buildRoot / ".ngin" / "build" / invocation.project.name /
-         invocation.profile.name / "tooling";
+  return ResolveOutputDir(
+             resolved,
+             ResolveCommandOutputPath(invocation.project, invocation.profile,
+                                      args)) /
+         "tooling";
 }
 
 [[nodiscard]] auto FindStoredToolResults(const LoadedInvocation &invocation,
@@ -9025,6 +9085,8 @@ auto CmdAnalyze(const fs::path &root, const ParsedArgs &args) -> int {
     return EmitCommandCompleted(events, "invalid", 2, commandStarted);
   }
   const auto &resolved = *resolvedResult.value;
+  const auto commandOutputPath = ResolveCommandOutputPath(
+      invocation.project, invocation.profile, args);
   const auto allRuns = EffectiveToolRuns(
       invocation.project, invocation.profile, resolved.selectedPackageFeatures);
 
@@ -9149,13 +9211,8 @@ auto CmdAnalyze(const fs::path &root, const ParsedArgs &args) -> int {
                ? binding.action->inputContracts.front() : std::string{};
   };
   std::map<std::string, std::string> reportOwners{};
-  const auto defaultBuildRoot = resolved.workspace.has_value()
-                                    ? resolved.workspace->path.parent_path()
-                                    : invocation.project.path.parent_path();
-  const auto toolingOutputRoot = args.outputPath.has_value()
-                                     ? fs::absolute(*args.outputPath) / "tooling"
-                                     : defaultBuildRoot / ".ngin" / "build" /
-                                           invocation.project.name / invocation.profile.name / "tooling";
+  const auto toolingOutputRoot =
+      ResolveOutputDir(resolved, commandOutputPath) / "tooling";
   for (const auto &binding : runs) {
     for (const auto &report : binding.run.reports) {
       auto value = report.path;
@@ -9231,7 +9288,7 @@ auto CmdAnalyze(const fs::path &root, const ParsedArgs &args) -> int {
     std::vector<BackendStepResult> backendSteps{};
     auto buildOptions = BuildOptionsForArgs(args, backendSteps, &events);
     const auto built = BuildLaunch(
-        invocation.project, invocation.profile, args.outputPath, buildOptions);
+        invocation.project, invocation.profile, commandOutputPath, buildOptions);
     if (!built.value.has_value() || built.diagnostics.HasErrors()) {
       EmitDiagnostics(events, built.diagnostics, commandSource);
       return EmitCommandCompleted(events, "execution-failed", 3, commandStarted);
@@ -9248,13 +9305,8 @@ auto CmdAnalyze(const fs::path &root, const ParsedArgs &args) -> int {
     if (configuredPaths.has_value()) {
       // The build phase already produced the compilation-unit source of truth.
     } else if (args.toolNoConfigure) {
-      const auto buildRoot = resolved.workspace.has_value()
-                                 ? resolved.workspace->path.parent_path()
-                                 : invocation.project.path.parent_path();
-      const auto outputDirectory = args.outputPath.has_value()
-                                       ? fs::absolute(*args.outputPath)
-                                       : buildRoot / ".ngin" / "build" /
-                                             invocation.project.name / invocation.profile.name;
+      const auto outputDirectory =
+          ResolveOutputDir(resolved, commandOutputPath);
       const auto buildDirectory = outputDirectory / ".ngin" / "cmake-build";
       const auto compileCommands = buildDirectory / "compile_commands.json";
       const auto signaturePath = CompilationPlanSignaturePath(compileCommands);
@@ -9282,7 +9334,8 @@ auto CmdAnalyze(const fs::path &root, const ParsedArgs &args) -> int {
       std::vector<BackendStepResult> backendSteps{};
       auto buildOptions = BuildOptionsForArgs(args, backendSteps, &events);
       const auto configured = ConfigureLaunch(
-          invocation.project, invocation.profile, args.outputPath, buildOptions);
+          invocation.project, invocation.profile, commandOutputPath,
+          buildOptions);
       if (configured.diagnostics.HasErrors()) {
         EmitDiagnostics(events, configured.diagnostics, commandSource);
         if (!IsQuiet(args)) {
@@ -9332,10 +9385,8 @@ auto CmdAnalyze(const fs::path &root, const ParsedArgs &args) -> int {
   const auto runOutputDirectory = [&](std::string_view runName) {
     if (configuredPaths.has_value())
       return configuredPaths->outputDir / "tooling" / runName;
-    if (!args.outputPath.has_value())
-      return invocation.project.path.parent_path() / ".ngin" / "build" /
-             invocation.project.name / invocation.profile.name / "tooling" / runName;
-    return fs::path(*args.outputPath) / "tooling" / runName;
+    return ResolveOutputDir(resolved, commandOutputPath) / "tooling" /
+           runName;
   };
   const auto executeRun = [&](std::size_t runIndex,
                               std::vector<fs::path> priorResultPaths) {
@@ -10183,11 +10234,10 @@ auto CmdPublish(const fs::path &root, const ParsedArgs &args) -> int {
 
   std::vector<BackendStepResult> backendSteps{};
   auto buildOptions = BuildOptionsForArgs(args, backendSteps, &events);
-  auto built = BuildLaunch(invocation.project, invocation.profile,
-                           args.outputPath.has_value()
-                               ? std::optional<fs::path>{*args.outputPath}
-                               : std::nullopt,
-                           buildOptions);
+  auto built = BuildLaunch(
+      invocation.project, invocation.profile,
+      ResolveCommandOutputPath(invocation.project, invocation.profile, args),
+      buildOptions);
   if (!built.value.has_value() || built.diagnostics.HasErrors()) {
     EmitDiagnostics(events, built.diagnostics, "ngin publish");
     return EmitCommandCompleted(events, "failed", 1, commandStarted);

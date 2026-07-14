@@ -298,6 +298,7 @@ namespace NGIN::CLI
         std::string name{};
         std::string defaultProfile{};
         std::string platformVersion{};
+        fs::path outputRoot{};
         ProfilePolicy defaults{};
         std::vector<ProfilePolicy> profiles{};
         std::vector<fs::path> imports{};
@@ -1097,6 +1098,12 @@ namespace NGIN::CLI
 
     struct CompositionGraph
     {
+        struct Workspace
+        {
+            std::string name{};
+            fs::path path{};
+        };
+
         struct Identity
         {
             std::string project{};
@@ -1452,6 +1459,9 @@ namespace NGIN::CLI
         std::string kind{"NGIN.CompositionGraph"};
         std::string state{"resolved"};
         std::vector<std::string> facets{};
+        std::optional<Workspace> workspace{};
+        fs::path outputRoot{};
+        fs::path outputDir{};
         Identity identity{};
         Product product{};
         Selection selection{};

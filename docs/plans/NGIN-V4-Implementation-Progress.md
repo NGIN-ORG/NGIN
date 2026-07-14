@@ -24,6 +24,15 @@ contract is V4-only:
 - `inspect --format json` and `graph --format json` emit the V4 Composition
   Graph envelope directly.
 
+### Workspace Output Roots
+
+Workspace `<Defaults>` accepts `<OutputRoot Path="..." />`. Relative paths are
+resolved from the workspace manifest directory. The built-in default is
+`build/ngin`, and the effective staged directory appends
+`<Project>/<Profile>`. `--output-root` overrides the root for one invocation;
+the existing `--output` remains a complete staged-directory override. Inspect
+and graph JSON expose the resolved workspace, output root, and output directory.
+
 ## Implemented
 
 ### Product-First Project Parsing
@@ -900,7 +909,7 @@ clang-tidy diagnostics:
 ./build/dev/Tools/NGIN.CLI/ngin analyze \
   --project Examples/Hello.Analyzer/Hello.Analyzer.nginproj \
   --profile Debug.Analyzer \
-  --output .ngin/build/Hello.Analyzer/Debug.Analyzer
+  --output build/ngin/Hello.Analyzer/Debug.Analyzer
 ```
 
 Current test coverage includes:

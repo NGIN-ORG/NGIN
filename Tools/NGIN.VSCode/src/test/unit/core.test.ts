@@ -44,28 +44,33 @@ import {
 import { buildProjectEditorModel } from '../../projectEditor/model';
 
 test('computeOutputDir uses the CLI default layout when no root override is configured', () => {
-  const outputDir = computeOutputDir('/workspace', 'Hello.Hosted', 'Runtime');
-  assert.equal(outputDir, '/workspace/.ngin/build/Hello.Hosted/Runtime');
+  const workspaceRoot = path.resolve('/workspace');
+  const outputDir = computeOutputDir(workspaceRoot, 'Hello.Hosted', 'Runtime');
+  assert.equal(outputDir, path.join(workspaceRoot, 'build', 'ngin', 'Hello.Hosted', 'Runtime'));
 });
 
 test('computeOutputDir appends project and profile beneath a configured output root', () => {
-  const outputDir = computeOutputDir('/workspace', 'Hello.Hosted', 'Runtime', 'build/out');
-  assert.equal(outputDir, '/workspace/build/out/Hello.Hosted/Runtime');
+  const workspaceRoot = path.resolve('/workspace');
+  const outputDir = computeOutputDir(workspaceRoot, 'Hello.Hosted', 'Runtime', 'build/out');
+  assert.equal(outputDir, path.join(workspaceRoot, 'build', 'out', 'Hello.Hosted', 'Runtime'));
 });
 
 test('computeLaunchManifestPath uses the staged naming convention', () => {
-  const manifestPath = computeLaunchManifestPath('/workspace/.ngin/build/Hello.Hosted/Runtime', 'Hello.Hosted', 'Runtime');
-  assert.equal(manifestPath, '/workspace/.ngin/build/Hello.Hosted/Runtime/Hello.Hosted.Runtime.nginlaunch');
+  const outputDir = path.resolve('/workspace/build/ngin/Hello.Hosted/Runtime');
+  const manifestPath = computeLaunchManifestPath(outputDir, 'Hello.Hosted', 'Runtime');
+  assert.equal(manifestPath, path.join(outputDir, 'Hello.Hosted.Runtime.nginlaunch'));
 });
 
 test('computeCompileCommandsPath uses the staged cmake-build location', () => {
-  const compileCommandsPath = computeCompileCommandsPath('/workspace/.ngin/build/Hello.Hosted/Runtime');
-  assert.equal(compileCommandsPath, '/workspace/.ngin/build/Hello.Hosted/Runtime/.ngin/cmake-build/compile_commands.json');
+  const outputDir = path.resolve('/workspace/build/ngin/Hello.Hosted/Runtime');
+  const compileCommandsPath = computeCompileCommandsPath(outputDir);
+  assert.equal(compileCommandsPath, path.join(outputDir, '.ngin', 'cmake-build', 'compile_commands.json'));
 });
 
 test('getFallbackCompileCommandsPath uses the dev compile database', () => {
-  const fallbackPath = getFallbackCompileCommandsPath('/workspace');
-  assert.equal(fallbackPath, '/workspace/build/dev/compile_commands.json');
+  const workspaceRoot = path.resolve('/workspace');
+  const fallbackPath = getFallbackCompileCommandsPath(workspaceRoot);
+  assert.equal(fallbackPath, path.join(workspaceRoot, 'build', 'dev', 'compile_commands.json'));
 });
 
 test('parseCliDiagnostics extracts structured file and generic errors', () => {
@@ -510,15 +515,17 @@ test('local settings warnings are extracted from CLI output', () => {
 });
 
 test('workspace manifests parse project paths relative to the workspace manifest', () => {
+  const repositoryRoot = path.resolve('/repo');
   const workspace = parseWorkspaceManifest(
-    '<?xml version="1.0" encoding="utf-8"?><Workspace SchemaVersion="4" Name="NGIN"><Imports><Import Path="build/platforms.ngin.xml" /></Imports><Packages><Source Name="local" Path="Packages" /></Packages><Projects><Project Path="Examples/Hello.Hosted/Hello.Hosted.nginproj" /></Projects></Workspace>',
-    '/repo/NGIN.ngin'
+    '<?xml version="1.0" encoding="utf-8"?><Workspace SchemaVersion="4" Name="NGIN"><Imports><Import Path="build/platforms.ngin.xml" /></Imports><Defaults><OutputRoot Path="artifacts/ngin" /></Defaults><Packages><Source Name="local" Path="Packages" /></Packages><Projects><Project Path="Examples/Hello.Hosted/Hello.Hosted.nginproj" /></Projects></Workspace>',
+    path.join(repositoryRoot, 'NGIN.ngin')
   );
 
   assert.equal(workspace.name, 'NGIN');
-  assert.deepEqual(workspace.imports, ['/repo/build/platforms.ngin.xml']);
-  assert.deepEqual(workspace.projectPaths, ['/repo/Examples/Hello.Hosted/Hello.Hosted.nginproj']);
-  assert.deepEqual(workspace.packageSourcePaths, ['/repo/Packages']);
+  assert.deepEqual(workspace.imports, [path.join(repositoryRoot, 'build', 'platforms.ngin.xml')]);
+  assert.deepEqual(workspace.projectPaths, [path.join(repositoryRoot, 'Examples', 'Hello.Hosted', 'Hello.Hosted.nginproj')]);
+  assert.deepEqual(workspace.packageSourcePaths, [path.join(repositoryRoot, 'Packages')]);
+  assert.equal(workspace.outputRoot, path.join(repositoryRoot, 'artifacts', 'ngin'));
 });
 
 test('project parsing applies product profile defaults', () => {
@@ -535,16 +542,17 @@ test('project parsing applies product profile defaults', () => {
 });
 
 test('project manifests parse profiles, launch metadata, and local settings imports', () => {
+  const repositoryRoot = path.resolve('/repo');
   const project = parseProjectManifest(
     '<?xml version="1.0" encoding="utf-8"?><Project SchemaVersion="4" Name="Hello.Hosted" DefaultProfile="Runtime"><Application><Uses><Project Name="Engine.Library" Path="../Engine.Library/Engine.Library.nginproj" /><Runtime Name="NGIN.Core" Scope="Target;Runtime" /></Uses><Build><Sources Path="src/**.cpp" /><Source Path="src/main.cpp" /></Build><Stage><Config Source="config/app.cfg" /></Stage><Launch Executable="Hello.Hosted" WorkingDirectory="." /></Application><Profile Name="Runtime"><Defaults><BuildType Name="Debug" /><OperatingSystem Name="linux" /><Architecture Name="x64" /><Environment Name="development" /></Defaults><Application><Uses><Package Name="NGIN.Reflection" Optional="true" /></Uses><Stage><Config Source="config/runtime.cfg" /></Stage></Application></Profile></Project>',
-    '/repo/Examples/Hello.Hosted/Hello.Hosted.nginproj'
+    path.join(repositoryRoot, 'Examples', 'Hello.Hosted', 'Hello.Hosted.nginproj')
   );
 
   assert.equal(project.defaultProfile, 'Runtime');
   assert.deepEqual(project.sourceRoots, ['src/**.cpp', 'src/main.cpp']);
   assert.deepEqual(project.buildSources, ['src/main.cpp']);
   assert.deepEqual(project.configInputs, ['config/app.cfg']);
-  assert.deepEqual(project.projectRefs, [{ name: 'Engine.Library', path: '/repo/Examples/Engine.Library/Engine.Library.nginproj', profile: undefined }]);
+  assert.deepEqual(project.projectRefs, [{ name: 'Engine.Library', path: path.join(repositoryRoot, 'Examples', 'Engine.Library', 'Engine.Library.nginproj'), profile: undefined }]);
   assert.deepEqual(project.dependencies, [{ name: 'NGIN.Core', version: undefined, scope: 'Target;Runtime', kind: 'Runtime', optional: false, features: [] }]);
   assert.deepEqual(project.profiles[0].configInputs, ['config/runtime.cfg']);
   assert.deepEqual(project.profiles[0].dependencies, [{ name: 'NGIN.Reflection', version: undefined, scope: undefined, kind: 'Package', optional: true, features: [] }]);
@@ -1004,7 +1012,7 @@ test('project editor model summarizes resolved inspect data for the project over
       product: { kind: 'Application' },
       workspace: { name: 'Workspace' },
       selection: { profile: 'Runtime', buildType: 'Debug', targetPlatform: 'linux-x64', environment: 'dev' },
-      outputDir: '/repo/.ngin/build/App/Runtime',
+      outputDir: '/repo/build/ngin/App/Runtime',
       plans: {
         packages: [{ name: 'NGIN.Core', version: '0.1.0', closures: ['project'] }],
         packageFeatures: [
@@ -1020,6 +1028,10 @@ test('project editor model summarizes resolved inspect data for the project over
         },
         launch: { executable: 'App', workingDirectory: '.' },
         stage: { files: [{ kind: 'executable', target: 'bin/App' }] },
+        runtime: {
+          requiredModules: [{ name: 'Core' }],
+          plugins: [{ name: 'EditorPlugin', load: 'startup' }]
+        },
         environment: { variables: [{ name: 'TOKEN', secret: true, resolved: true, source: 'local' }] },
         diagnostics: [{ severity: 'warning', message: 'example' }]
       }
@@ -1028,7 +1040,7 @@ test('project editor model summarizes resolved inspect data for the project over
   );
 
   assert.equal(model.resolved.workspaceName, 'Workspace');
-  assert.equal(model.resolved.outputDir, '/repo/.ngin/build/App/Runtime');
+  assert.equal(model.resolved.outputDir, '/repo/build/ngin/App/Runtime');
   assert.equal(model.resolved.packageCount, 1);
   assert.equal(model.resolved.activeFeatureCount, 2);
   assert.equal(model.resolved.activeGeneratorCount, 1);
@@ -1036,13 +1048,17 @@ test('project editor model summarizes resolved inspect data for the project over
   assert.equal(model.resolved.environmentVariableCount, 1);
   assert.equal(model.resolved.diagnosticWarningCount, 1);
   assert.deepEqual(model.resolved.inputs.map((entry) => `${entry.kind}:${entry.source}:${entry.mode}`), ['Source:src:Directory']);
+  assert.deepEqual(model.resolved.stageFiles.map((entry) => `${entry.kind}:${entry.target}`), ['executable:bin/App']);
+  assert.deepEqual(model.resolved.launches.map((entry) => `${entry.selected}:${entry.executable}`), ['true:App']);
+  assert.deepEqual(model.resolved.runtimeEntries.map((entry) => `${entry.kind}:${entry.name}:${entry.state || ''}`), ['module:Core:required', 'plugin:EditorPlugin:startup']);
 });
 
 test('executable resolution prefers staged manifest entries before bin fallback', () => {
+  const outputDir = path.resolve('/repo/out');
   const candidates = getExecutableCandidatePaths(
     {
-      path: '/repo/out/Hello.Hosted.Runtime.nginlaunch',
-      directory: '/repo/out',
+      path: path.join(outputDir, 'Hello.Hosted.Runtime.nginlaunch'),
+      directory: outputDir,
       project: 'Hello.Hosted',
       profile: 'Runtime',
       launch: { workingDirectory: '.' },
@@ -1050,36 +1066,38 @@ test('executable resolution prefers staged manifest entries before bin fallback'
       stagedFiles: [
         {
           kind: 'executable',
-          destination: '/repo/out/bin/Hello.Hosted',
+          destination: path.join(outputDir, 'bin', 'Hello.Hosted'),
           relativeDestination: 'bin/Hello.Hosted'
         }
       ]
     },
-    '/repo/out',
+    outputDir,
     'linux'
   );
 
-  assert.deepEqual(candidates, ['/repo/out/bin/Hello.Hosted']);
+  assert.deepEqual(candidates, [path.join(outputDir, 'bin', 'Hello.Hosted')]);
 });
 
 test('working directory resolution checks staged and project-relative candidates', () => {
+  const outputDir = path.resolve('/repo/out');
+  const projectDir = path.resolve('/repo/Examples/Hello.Hosted');
   const candidates = getWorkingDirectoryCandidates(
     {
-      path: '/repo/out/Hello.Hosted.Runtime.nginlaunch',
-      directory: '/repo/out',
+      path: path.join(outputDir, 'Hello.Hosted.Runtime.nginlaunch'),
+      directory: outputDir,
       project: 'Hello.Hosted',
       profile: 'Runtime',
       launch: { workingDirectory: 'config' },
       stagedFiles: []
     },
-    '/repo/out',
-    '/repo/Examples/Hello.Hosted'
+    outputDir,
+    projectDir
   );
 
   assert.deepEqual(candidates, [
-    '/repo/out/config',
-    '/repo/Examples/Hello.Hosted/config',
-    '/repo/out'
+    path.join(outputDir, 'config'),
+    path.join(projectDir, 'config'),
+    outputDir
   ]);
 });
 
@@ -1113,21 +1131,23 @@ test('compileCommandsCoverPath covers source files and headers beneath a transla
 });
 
 test('createSourceConfiguration maps compile commands to cpptools-friendly fields', () => {
+  const buildDir = path.resolve('/repo/build');
+  const sourcePath = path.resolve('/repo/src/main.cpp');
   const configuration = createSourceConfiguration(
     {
-      directory: '/repo/build',
-      file: '/repo/src/main.cpp',
+      directory: buildDir,
+      file: sourcePath,
       command: '/usr/bin/clang++ -I../include -DAPP=1 -std=c++23 -include prelude.hpp -c /repo/src/main.cpp'
     },
-    '/repo/src/main.cpp',
+    sourcePath,
     'linux'
   );
 
   assert.equal(configuration.compilerPath, '/usr/bin/clang++');
   assert.match(configuration.compilerArgs?.join(' ') ?? '', /-std=c\+\+23/);
-  assert.deepEqual(configuration.includePath, ['/repo/include']);
+  assert.deepEqual(configuration.includePath, [path.resolve('/repo/include')]);
   assert.deepEqual(configuration.defines, ['APP=1']);
-  assert.deepEqual(configuration.forcedInclude, ['/repo/build/prelude.hpp']);
+  assert.deepEqual(configuration.forcedInclude, [path.join(buildDir, 'prelude.hpp')]);
   assert.equal(configuration.intelliSenseMode, 'linux-clang-x64');
 });
 
@@ -1360,7 +1380,7 @@ test('project tree models expose inspect groups for the active project only', ()
     },
     toolResults: {
       'cpp-static-analysis': {
-        path: '/repo/.ngin/build/App/Runtime/tooling/cpp-static-analysis/result.json',
+        path: '/repo/build/ngin/App/Runtime/tooling/cpp-static-analysis/result.json',
         modifiedAt: '2026-07-13T12:00:00.000Z',
         run: 'cpp-static-analysis',
         executionStatus: 'succeeded',
@@ -1564,7 +1584,7 @@ test('status bar models expose the compact NGIN bottom-bar actions', () => {
       project: { path: '/repo/Examples/Hello.Hosted/Hello.Hosted.nginproj', directory: '/repo/Examples/Hello.Hosted', name: 'Hello.Hosted', sourceRoots: [], configInputs: [], buildSources: [], profiles: [] },
       profile: { name: 'Runtime', operatingSystem: 'linux', architecture: 'x64', environment: 'development', configInputs: [] }
     },
-    outputDir: '/repo/.ngin/build/Hello.Hosted/Runtime',
+    outputDir: '/repo/build/ngin/Hello.Hosted/Runtime',
     launchManifestExists: false,
     stagedCompileCommandsAvailable: false
   });

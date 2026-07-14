@@ -391,11 +391,13 @@ export function parseWorkspaceManifest(xml: string, manifestPath: string): Works
   requireCurrentSchema(root, manifestPath);
 
   const directory = path.dirname(manifestPath);
+  const authoredOutputRoot = (asArray(root.Defaults?.OutputRoot)[0] as { Path?: string } | undefined)?.Path;
   return {
     path: manifestPath,
     directory,
     name: root.Name ?? path.basename(manifestPath, path.extname(manifestPath)),
     platformVersion: root.PlatformVersion,
+    outputRoot: authoredOutputRoot ? resolveManifestPath(directory, authoredOutputRoot) : undefined,
     imports: asArray(root.Imports?.Import)
       .map((entry) => (entry as { Path?: string } | undefined)?.Path)
       .filter((entry): entry is string => Boolean(entry))

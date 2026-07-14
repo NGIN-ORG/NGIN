@@ -56,6 +56,15 @@
       },
       "additionalProperties": true
     },
+    "workspace": {
+      "type": "object",
+      "required": ["name", "path"],
+      "properties": {
+        "name": { "type": "string" },
+        "path": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
     "planIdentity": {
       "type": "object",
       "required": ["project", "product", "profile", "version"],
@@ -644,6 +653,9 @@
         "kind",
         "state",
         "facets",
+        "workspace",
+        "outputRoot",
+        "outputDir",
         "identity",
         "conventions",
         "properties",
@@ -657,6 +669,14 @@
         "kind": { "const": "NGIN.CompositionGraph" },
         "state": { "type": "string", "enum": ["resolved", "diagnostic"] },
         "facets": { "$ref": "#/$defs/stringArray" },
+        "workspace": {
+          "oneOf": [
+            { "$ref": "#/$defs/workspace" },
+            { "type": "null" }
+          ]
+        },
+        "outputRoot": { "type": "string" },
+        "outputDir": { "type": "string" },
         "identity": { "$ref": "#/$defs/identity" },
         "conventions": {
           "type": "array",
