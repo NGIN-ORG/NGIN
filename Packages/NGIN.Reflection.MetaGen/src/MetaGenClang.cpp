@@ -10,6 +10,7 @@
 #include <set>
 #include <sstream>
 #include <system_error>
+#include <unordered_map>
 
 namespace NGIN::Reflection::MetaGen
 {
@@ -75,6 +76,9 @@ namespace NGIN::Reflection::MetaGen
         {
             std::vector<fs::path> sourceFiles{};
             std::vector<fs::path> sourceRoots{};
+            std::vector<std::string> sourceFileKeys{};
+            std::vector<std::string> sourceRootKeys{};
+            std::unordered_map<CXFile, bool> sourceMembership{};
             std::vector<fs::path> includeFiles{};
             std::vector<MetaGenType> types{};
             std::vector<std::string> diagnostics{};
@@ -92,25 +96,25 @@ namespace NGIN::Reflection::MetaGen
             return value;
         }
 
-        [[nodiscard]] auto IsPathWithinDirectory(const fs::path &candidate, const fs::path &directory) -> bool
+        [[nodiscard]] auto NormalizedPathKey(const fs::path &path) -> std::string
         {
             std::error_code error;
-            const auto normalizedCandidate = fs::weakly_canonical(candidate, error);
-            const auto candidatePath = error ? candidate.lexically_normal() : normalizedCandidate;
-            error.clear();
-            const auto normalizedDirectory = fs::weakly_canonical(directory, error);
-            const auto directoryPath = error ? directory.lexically_normal() : normalizedDirectory;
+            const auto canonical = fs::weakly_canonical(path, error);
+            auto key = (error ? path.lexically_normal() : canonical).generic_string();
+#ifdef _WIN32
+            key = Lower(std::move(key));
+#endif
+            return key;
+        }
 
-            auto candidateIt = candidatePath.begin();
-            auto directoryIt = directoryPath.begin();
-            for (; directoryIt != directoryPath.end(); ++directoryIt, ++candidateIt)
+        [[nodiscard]] auto IsPathWithinDirectory(std::string_view candidate, std::string_view directory) -> bool
+        {
+            if (candidate == directory)
             {
-                if (candidateIt == candidatePath.end() || *candidateIt != *directoryIt)
-                {
-                    return false;
-                }
+                return true;
             }
-            return true;
+            return candidate.size() > directory.size() && candidate.starts_with(directory) &&
+                   (directory.ends_with('/') || candidate[directory.size()] == '/');
         }
 
         [[nodiscard]] auto CursorSpelling(CXCursor cursor) -> std::string
@@ -135,29 +139,35 @@ namespace NGIN::Reflection::MetaGen
             return fs::path(ClangString(clang_getFileName(file)).String()).lexically_normal();
         }
 
-        [[nodiscard]] auto IsInSourceRoots(CXCursor cursor, const ScanContext &context) -> bool
+        [[nodiscard]] auto CursorFileHandle(CXCursor cursor) -> CXFile
         {
-            const auto file = CursorFile(cursor);
-            if (file.empty())
+            CXSourceLocation location = clang_getCursorLocation(cursor);
+            CXFile file{};
+            clang_getSpellingLocation(location, &file, nullptr, nullptr, nullptr);
+            return file;
+        }
+
+        [[nodiscard]] auto IsInSourceRoots(CXFile file, ScanContext &context) -> bool
+        {
+            if (const auto cached = context.sourceMembership.find(file); cached != context.sourceMembership.end())
             {
-                return false;
+                return cached->second;
             }
-            for (const auto &sourceFile : context.sourceFiles)
+
+            const auto fileKey = NormalizedPathKey(ClangString(clang_getFileName(file)).String());
+            auto selected = std::find(context.sourceFileKeys.begin(), context.sourceFileKeys.end(), fileKey) !=
+                            context.sourceFileKeys.end();
+            if (!selected)
             {
-                std::error_code error;
-                if (fs::equivalent(file, sourceFile, error))
-                {
-                    return true;
-                }
+                selected = std::any_of(context.sourceRootKeys.begin(),
+                                       context.sourceRootKeys.end(),
+                                       [&](const std::string &root)
+                                       {
+                                           return IsPathWithinDirectory(fileKey, root);
+                                       });
             }
-            for (const auto &sourceRoot : context.sourceRoots)
-            {
-                if (IsPathWithinDirectory(file, sourceRoot))
-                {
-                    return true;
-                }
-            }
-            return false;
+            context.sourceMembership.emplace(file, selected);
+            return selected;
         }
 
         [[nodiscard]] auto QualifiedName(CXCursor cursor) -> std::string
@@ -438,9 +448,14 @@ namespace NGIN::Reflection::MetaGen
                 {
                     auto *context = static_cast<ScanContext *>(data);
                     const auto kind = clang_getCursorKind(child);
-                    if (!IsInSourceRoots(child, *context))
+                    const auto file = CursorFileHandle(child);
+                    if (file == nullptr)
                     {
                         return CXChildVisit_Recurse;
+                    }
+                    if (!IsInSourceRoots(file, *context))
+                    {
+                        return CXChildVisit_Continue;
                     }
 
                     if (kind == CXCursor_ClassDecl || kind == CXCursor_StructDecl || kind == CXCursor_EnumDecl)
@@ -585,6 +600,7 @@ namespace NGIN::Reflection::MetaGen
                     context.diagnostics.push_back("failed to parse source file '" + source.string() + "'");
                     continue;
                 }
+                context.sourceMembership.clear();
                 VisitTranslationUnit(clang_getTranslationUnitCursor(unit), context);
                 clang_disposeTranslationUnit(unit);
             }
@@ -702,6 +718,16 @@ namespace NGIN::Reflection::MetaGen
         ScanContext context{};
         context.sourceFiles = metaGenContext.sourceFiles;
         context.sourceRoots = metaGenContext.sourceRoots;
+        context.sourceFileKeys.reserve(context.sourceFiles.size());
+        for (const auto &sourceFile : context.sourceFiles)
+        {
+            context.sourceFileKeys.push_back(NormalizedPathKey(sourceFile));
+        }
+        context.sourceRootKeys.reserve(context.sourceRoots.size());
+        for (const auto &sourceRoot : context.sourceRoots)
+        {
+            context.sourceRootKeys.push_back(NormalizedPathKey(sourceRoot));
+        }
         if (context.sourceFiles.empty())
         {
             result.diagnostics.push_back("project '" + metaGenContext.projectName + "' has no C++ source files to scan");

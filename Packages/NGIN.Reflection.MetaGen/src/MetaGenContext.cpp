@@ -117,6 +117,10 @@ namespace NGIN::Reflection::MetaGen
         context.outputDir = Attribute(*root, "OutputDir");
         context.generatedDir = Attribute(*root, "GeneratedDir");
         context.languageStandard = Attribute(*root, "LanguageStandard").empty() ? "23" : Attribute(*root, "LanguageStandard");
+        if (!context.projectDir.empty())
+        {
+            context.sourceRoots.push_back(context.projectDir.lexically_normal());
+        }
 
         if (const auto *sources = FindChild(*root, "Sources"))
         {
@@ -142,7 +146,11 @@ namespace NGIN::Reflection::MetaGen
                 if (!includePath.empty())
                 {
                     context.includeDirectories.emplace_back(includePath);
-                    context.sourceRoots.emplace_back(includePath);
+                    // Package includes are compiler inputs, not reflection ownership roots.
+                    if (Attribute(*include, "Source") != "package" && Attribute(*include, "Package").empty())
+                    {
+                        context.sourceRoots.emplace_back(includePath);
+                    }
                 }
             }
         }
