@@ -1,7 +1,7 @@
 # Spec 006: CLI Contract
 
 Status: Active
-Last updated: 2026-04-30
+Last updated: 2026-07-14
 
 ## Purpose
 
@@ -60,6 +60,11 @@ Removed commands:
 - `ngin build` configures the generated backend build when needed before building and staging artifacts
 - `ngin build` remains incremental and should not aggressively remove unrelated files outside NGIN-owned stale outputs
 - generated CMake builds may resolve backend tools from explicit environment overrides, bundled tools under `Tools/ThirdParty/BuildTools`, or `PATH`
+- compact human output shows elapsed backend progress when stdout is an
+  interactive terminal on Windows, Linux, or macOS; redirected output does not
+  emit spinner control sequences
+- `--backend-output stream` emits ordinary backend progress, while `--verbose`
+  also requests complete backend command lines
 - `ngin clean` removes NGIN-owned generated artifacts for the selected build scope
 - `ngin rebuild` is equivalent to `ngin clean` followed by `ngin build`
 - `ngin run` consumes the generated `.nginlaunch`

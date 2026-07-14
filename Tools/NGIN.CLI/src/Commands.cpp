@@ -31,10 +31,6 @@
 #include <unordered_map>
 #include <unordered_set>
 
-#ifndef _WIN32
-#include <unistd.h>
-#endif
-
 namespace NGIN::CLI {
 namespace {
 struct LoadedInvocation {
@@ -67,19 +63,7 @@ struct LoadedInvocation {
   if (std::getenv("NO_COLOR") != nullptr) {
     return false;
   }
-#ifndef _WIN32
-  return isatty(fileno(stdout)) != 0;
-#else
-  return false;
-#endif
-}
-
-[[nodiscard]] auto IsInteractiveTerminal() -> bool {
-#ifndef _WIN32
-  return isatty(fileno(stdout)) != 0;
-#else
-  return false;
-#endif
+  return IsTerminal(stdout);
 }
 
 [[nodiscard]] auto Style(const ParsedArgs &args, std::string_view code,
@@ -771,7 +755,7 @@ auto WriteCryptoExplainJson(
       .interactiveProgress =
           args.backendOutputMode == BackendOutputMode::Compact &&
           !IsQuiet(args) && args.colorMode != OutputColorMode::Never &&
-          IsInteractiveTerminal(),
+          IsTerminal(stdout),
       .verboseBackend = args.verbosity == OutputVerbosity::Verbose,
       .events = events != nullptr && events->Enabled() ? events : nullptr,
   };

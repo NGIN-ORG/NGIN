@@ -2,6 +2,7 @@
 
 #include "Model.hpp"
 
+#include <cstdio>
 #include <span>
 #include <string>
 #include <string_view>
@@ -19,6 +20,8 @@ namespace NGIN::CLI
     [[nodiscard]] auto IsValidArchitecture(std::string_view value) -> bool;
 
     [[nodiscard]] auto DetectHostPlatform() -> PlatformIdentity;
+
+    [[nodiscard]] auto IsTerminal(std::FILE *stream) -> bool;
 
     [[nodiscard]] auto ResolvePlatformIdentity(
         std::string_view name,

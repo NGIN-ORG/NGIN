@@ -1,6 +1,30 @@
 #include "TestSupport.hpp"
 #include "Publishing.hpp"
 
+#if defined(_WIN32)
+#include <io.h>
+#else
+#include <unistd.h>
+#endif
+
+TEST_CASE("terminal detection follows the native stream descriptor") {
+#if defined(_WIN32)
+  REQUIRE(IsTerminal(stdout) == (::_isatty(::_fileno(stdout)) != 0));
+#else
+  REQUIRE(IsTerminal(stdout) == (::isatty(::fileno(stdout)) != 0));
+#endif
+
+  std::FILE *redirected = nullptr;
+#if defined(_WIN32)
+  REQUIRE(::tmpfile_s(&redirected) == 0);
+#else
+  redirected = std::tmpfile();
+#endif
+  REQUIRE(redirected != nullptr);
+  REQUIRE_FALSE(IsTerminal(redirected));
+  std::fclose(redirected);
+}
+
 TEST_CASE("NGIN CLI installer identifier has the stable upgrade GUID") {
   REQUIRE(DeterministicInstallerGuid("NGIN-ORG.NGIN.CLI") ==
           "bc787581-23bf-5e17-87ae-864415448920");

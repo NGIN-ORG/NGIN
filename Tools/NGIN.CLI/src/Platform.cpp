@@ -3,6 +3,12 @@
 #include <algorithm>
 #include <stdexcept>
 
+#if defined(_WIN32)
+#include <io.h>
+#else
+#include <unistd.h>
+#endif
+
 namespace NGIN::CLI
 {
     namespace
@@ -53,6 +59,19 @@ namespace NGIN::CLI
         host.name = host.operatingSystem + "-" + host.architecture;
         ValidateIdentity(host, "host");
         return host;
+    }
+
+    [[nodiscard]] auto IsTerminal(std::FILE *stream) -> bool
+    {
+        if (stream == nullptr)
+        {
+            return false;
+        }
+#if defined(_WIN32)
+        return ::_isatty(::_fileno(stream)) != 0;
+#else
+        return ::isatty(::fileno(stream)) != 0;
+#endif
     }
 
     [[nodiscard]] auto ResolvePlatformIdentity(
