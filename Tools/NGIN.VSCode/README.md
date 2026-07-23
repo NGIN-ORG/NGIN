@@ -21,6 +21,8 @@ behavior as the terminal commands.
   dependency, source/config, feature, launch, and environment edits while
   preserving XML source
 - status bar items for the selected workspace, project, and profile
+- standalone `.nginproj` folders without a `.ngin` workspace manifest
+- an explicit manifest picker for pinning a `.ngin` or `.nginproj`
 - commands for configure, build, publish, clean, rebuild, run, debug, validate, analyze,
   graph and tooling-plan inspection, variable explanation, and local settings
   initialization
@@ -41,6 +43,24 @@ behavior as the terminal commands.
 The CLI remains the source of truth. If a command works in the terminal, the
 extension should call the same command with the selected project and
 profile.
+
+## Standalone Projects And Manifest Selection
+
+A `.ngin` workspace is optional. Opening a folder whose NGIN authoring entry
+point is a single `.nginproj` loads that project directly, uses its directory
+as the context root, and exposes the normal validate, configure, build, run,
+debug, graph, and tooling actions. Minimal projects without an authored
+profile use the CLI's implicit `dev` profile.
+
+Use `NGIN: Select Manifest...` when the folder contains multiple `.ngin` or
+`.nginproj` files or automatic discovery selects the wrong one. The selection
+is pinned for that VS Code workspace folder and takes precedence over the
+active editor. Choose `Auto-detect` in the same picker to clear the pin.
+
+Selecting a `.ngin` loads its declared projects and passes the exact workspace
+manifest to project-scoped CLI commands. Selecting a `.nginproj` activates
+that project directly; normal CLI ancestor-workspace discovery can still apply
+when an ancestor workspace exists.
 
 ## Command Mapping
 

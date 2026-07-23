@@ -434,6 +434,7 @@ export function parseProjectManifest(xml: string, manifestPath: string): Project
   ];
   const productLaunch = (product.node as { Launch?: { Executable?: string; WorkingDirectory?: string } }).Launch;
 
+  const defaultProfile = rootRecord.DefaultProfile ?? 'dev';
   const profiles = asArray(root.Profile)
     .map((entry): ProjectProfile | undefined => {
       const profile = entry as Record<string, unknown> & {
@@ -482,12 +483,33 @@ export function parseProjectManifest(xml: string, manifestPath: string): Project
     })
     .filter((entry): entry is ProjectProfile => Boolean(entry));
 
+  if (!profiles.some((profile) => profile.name === defaultProfile)) {
+    profiles.push({
+      name: defaultProfile,
+      platform: rootDefaults?.targetPlatform,
+      targetPlatform: rootDefaults?.targetPlatform,
+      hostPlatform: rootDefaults?.hostPlatform,
+      operatingSystem: rootDefaults?.operatingSystem,
+      architecture: rootDefaults?.architecture,
+      environment: rootDefaults?.environment,
+      toolchain: rootDefaults?.toolchain,
+      launchExecutable: productLaunch?.Executable,
+      launchWorkingDirectory: productLaunch?.WorkingDirectory,
+      inputs: [],
+      configInputs: [],
+      projectRefs: [],
+      dependencies: [],
+      packageFeatureUses: [],
+      generators: []
+    });
+  }
+
   return {
     path: manifestPath,
     directory,
     name: root.Name ?? path.basename(manifestPath, path.extname(manifestPath)),
     productKind: product.kind,
-    defaultProfile: rootRecord.DefaultProfile,
+    defaultProfile,
     inputs: productInputs,
     sourceRoots: sourceRootsFrom(productInputs),
     configInputs: configInputsFrom(productInputs),

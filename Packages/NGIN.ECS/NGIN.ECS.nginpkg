@@ -2,7 +2,7 @@
 <Package SchemaVersion="4"
          Name="NGIN.ECS"
          Version="0.2.0"
-         CompatiblePlatformRange=">=0.2.0-alpha.1 &lt;0.3.0">
+         CompatiblePlatformRange=">=0.1.0-alpha.1 &lt;0.2.0">
   <Build Backend="CMake" Mode="AddSubdirectory">
     <Options>
       <Option Name="NGIN_ECS_BUILD_TESTS" Value="OFF" />
@@ -12,8 +12,6 @@
   </Build>
   <Uses>
     <Package Name="NGIN.Base" Version=">=0.1.0 &lt;0.2.0" Scope="Target" />
-    <Package Name="NGIN.Core" Version=">=0.1.0 &lt;0.2.0" Scope="Target" />
-    <Package Name="NGIN.Reflection" Version=">=0.1.0 &lt;0.2.0" Optional="true" Scope="Target" />
   </Uses>
   <Library Name="NGIN.ECS">
     <Exports>

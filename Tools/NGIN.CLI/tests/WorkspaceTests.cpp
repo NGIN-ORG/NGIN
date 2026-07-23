@@ -1036,3 +1036,96 @@ TEST_CASE("workspace build defaults apply unless project declares explicit "
     REQUIRE(explicitResolved.value->project.build.language == "CXX");
     REQUIRE(explicitResolved.value->project.build.languageStandard == "23");
 }
+
+TEST_CASE("explicit workspace selection overrides automatic manifest discovery")
+{
+    TempDir temp{};
+    const auto projectPath = temp.path() / "App/App.nginproj";
+    const auto automaticWorkspacePath = temp.path() / "A.Automatic.ngin";
+    const auto selectedWorkspacePath = temp.path() / "Z.Selected.ngin";
+
+    WriteFile(automaticWorkspacePath,
+              R"xml(<Workspace SchemaVersion="4" Name="Automatic">
+  <Projects>
+    <Project Path="App/App.nginproj" />
+  </Projects>
+</Workspace>)xml");
+    WriteFile(selectedWorkspacePath,
+              R"xml(<Workspace SchemaVersion="4" Name="Selected">
+  <Projects>
+    <Project Path="App/App.nginproj" />
+  </Projects>
+</Workspace>)xml");
+    WriteFile(projectPath,
+              R"xml(<Project SchemaVersion="4" Name="App">
+  <Application />
+</Project>)xml");
+    WriteFile(temp.path() / "App/src/main.cpp", "int main() { return 0; }\n");
+
+    ParsedArgs automaticArgs{};
+    automaticArgs.projectPath = projectPath.string();
+    automaticArgs.format = "json";
+    std::ostringstream automaticOutput{};
+    auto *previous = std::cout.rdbuf(automaticOutput.rdbuf());
+    const auto automaticExitCode = CmdInspect(temp.path(), automaticArgs);
+    std::cout.rdbuf(previous);
+
+    REQUIRE(automaticExitCode == 0);
+    REQUIRE_THAT(automaticOutput.str(),
+                 ContainsSubstring(R"("workspace": {"name":"Automatic")"));
+
+    ParsedArgs selectedArgs = automaticArgs;
+    selectedArgs.workspacePath = selectedWorkspacePath.string();
+    std::ostringstream selectedOutput{};
+    previous = std::cout.rdbuf(selectedOutput.rdbuf());
+    const auto selectedExitCode = CmdInspect(temp.path(), selectedArgs);
+    std::cout.rdbuf(previous);
+
+    REQUIRE(selectedExitCode == 0);
+    REQUIRE_THAT(selectedOutput.str(),
+                 ContainsSubstring(R"("workspace": {"name":"Selected")"));
+    REQUIRE(selectedOutput.str().find(R"("name":"Automatic")") ==
+            std::string::npos);
+
+    selectedArgs.workspacePath =
+        (temp.path() / "Missing.Workspace.ngin").string();
+    REQUIRE_THROWS_WITH(
+        CmdInspect(temp.path(), selectedArgs),
+        ContainsSubstring("Missing.Workspace.ngin: workspace manifest not found"));
+}
+
+TEST_CASE("project invocation remains valid without a workspace manifest")
+{
+    TempDir temp{};
+    const auto projectPath = temp.path() / "Standalone.nginproj";
+    WriteFile(projectPath,
+              R"xml(<Project SchemaVersion="4" Name="Standalone">
+  <Application />
+</Project>)xml");
+    WriteFile(temp.path() / "src/main.cpp", "int main() { return 0; }\n");
+
+    ParsedArgs args{};
+    args.projectPath = projectPath.string();
+    args.format = "json";
+    std::ostringstream output{};
+    auto *previous = std::cout.rdbuf(output.rdbuf());
+    const auto exitCode = CmdInspect(temp.path(), args);
+    std::cout.rdbuf(previous);
+
+    REQUIRE(exitCode == 0);
+    REQUIRE_THAT(output.str(), ContainsSubstring(R"("workspace": null)"));
+    REQUIRE_THAT(output.str(), ContainsSubstring(R"("project": {"name":"Standalone")"));
+}
+
+TEST_CASE("common arguments parse an explicit workspace manifest")
+{
+    const char *argv[] = {
+        "ngin", "inspect", "--project", "App.nginproj",
+        "--workspace", "Selected.ngin",
+    };
+    const auto args =
+        ParseCommonArgs(6, const_cast<char **>(argv), 2);
+
+    REQUIRE(args.projectPath == "App.nginproj");
+    REQUIRE(args.workspacePath == "Selected.ngin");
+}

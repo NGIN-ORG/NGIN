@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { promises as fs, readFileSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
-import { backendOutputModeForVerbosity } from '../../core/cli';
+import { backendOutputModeForVerbosity, withExplicitWorkspace } from '../../core/cli';
 import {
   compileCommandsCoverPath,
   computeCompileCommandsPath,
@@ -24,7 +25,9 @@ import {
   parseCliDiagnostics
 } from '../../core/helpers';
 import { artifactFromEvent, diagnosticFromEvent, eventLabel, eventOutputLine, NginBackendOutputBuffer, NginJsonlEventParser, NginJsonlParseError } from '../../core/events';
+import { findNearestProjectManifest, isAuthoredManifestCandidate, loadStandaloneProject } from '../../core/discovery';
 import { addRootConfigInput, relativeManifestPath, removeConfigInputs, renameConfigInputs } from '../../core/projectAuthoring';
+import { selectProjectByPrecedence } from '../../core/selection';
 import { buildProjectTreeModels, buildStatusBarModel } from '../../ui/models';
 import { parseLaunchManifest, parseLocalSettingsManifest, parsePackageManifest, parseProjectManifest, parseWorkspaceManifest } from '../../core/xml';
 import {
@@ -119,6 +122,23 @@ test('backend output modes keep compact quiet and stream normal progress', () =>
   assert.equal(backendOutputModeForVerbosity('compact'), 'compact');
   assert.equal(backendOutputModeForVerbosity('normal'), 'stream');
   assert.equal(backendOutputModeForVerbosity('verbose'), 'stream');
+});
+
+test('project CLI arguments carry an exact selected workspace', () => {
+  assert.deepEqual(
+    withExplicitWorkspace(
+      ['validate', '--project', '/repo/App/App.nginproj', '--profile', 'dev'],
+      '/repo/Z.Selected.ngin'
+    ),
+    [
+      'validate', '--project', '/repo/App/App.nginproj', '--profile', 'dev',
+      '--workspace', '/repo/Z.Selected.ngin'
+    ]
+  );
+  assert.deepEqual(
+    withExplicitWorkspace(['workspace', 'status'], '/repo/Z.Selected.ngin'),
+    ['workspace', 'status']
+  );
 });
 
 test('backend output buffering preserves complete compiler progress lines across chunks', () => {
@@ -541,6 +561,90 @@ test('project parsing applies product profile defaults', () => {
   assert.equal(project.profiles[0].environment, 'development');
   assert.equal(project.profiles[0].launchExecutable, '$(OutputName)');
   assert.deepEqual(project.profiles[0].configInputs, ['config/template.cfg']);
+});
+
+test('minimal standalone projects expose the implicit dev profile', () => {
+  const project = parseProjectManifest(
+    '<Project SchemaVersion="4" Name="Standalone"><Application /></Project>',
+    '/repo/Standalone.nginproj'
+  );
+
+  assert.equal(project.defaultProfile, 'dev');
+  assert.deepEqual(project.profiles.map((profile) => profile.name), ['dev']);
+});
+
+test('standalone project discovery loads a project-only context', async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ngin-vscode-project-'));
+  try {
+    const projectPath = path.join(tempRoot, 'Standalone.nginproj');
+    const sourcePath = path.join(tempRoot, 'src', 'main.cpp');
+    await fs.mkdir(path.dirname(sourcePath), { recursive: true });
+    await fs.writeFile(
+      projectPath,
+      '<Project SchemaVersion="4" Name="Standalone"><Application /></Project>'
+    );
+    await fs.writeFile(sourcePath, 'int main() { return 0; }\n');
+
+    assert.equal(await findNearestProjectManifest(sourcePath), projectPath);
+    const context = await loadStandaloneProject(projectPath);
+    assert.equal(context.workspace.path, projectPath);
+    assert.equal(context.workspace.name, 'Standalone');
+    assert.deepEqual(context.projects.map((project) => project.name), ['Standalone']);
+    assert.deepEqual(context.projects[0].profiles.map((profile) => profile.name), ['dev']);
+  } finally {
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('manifest candidate filtering rejects generated output directories', () => {
+  const root = path.resolve('/repo');
+
+  assert.equal(
+    isAuthoredManifestCandidate(root, path.join(root, 'Examples', 'App.nginproj')),
+    true
+  );
+  assert.equal(
+    isAuthoredManifestCandidate(root, path.join(root, 'build', 'generated.nginproj')),
+    false
+  );
+  assert.equal(
+    isAuthoredManifestCandidate(root, path.join(root, '.ngin', 'cache.ngin')),
+    false
+  );
+  assert.equal(
+    isAuthoredManifestCandidate(root, path.join(root, 'node_modules', 'package.ngin')),
+    false
+  );
+  assert.equal(
+    isAuthoredManifestCandidate(root, path.resolve(root, '..', 'Outside.nginproj')),
+    false
+  );
+});
+
+test('manual project selection takes precedence over the active editor', () => {
+  const projectA = parseProjectManifest(
+    '<Project SchemaVersion="4" Name="Project.A"><Application /></Project>',
+    path.resolve('/repo/A/A.nginproj')
+  );
+  const projectB = parseProjectManifest(
+    '<Project SchemaVersion="4" Name="Project.B"><Application /></Project>',
+    path.resolve('/repo/B/B.nginproj')
+  );
+
+  const pinned = selectProjectByPrecedence([projectA, projectB], {
+    contextRoot: path.resolve('/repo'),
+    pinnedProjectPath: projectB.path,
+    activeDocumentPath: path.resolve('/repo/A/src/main.cpp')
+  });
+  assert.equal(pinned?.name, 'Project.B');
+
+  const explicit = selectProjectByPrecedence([projectA, projectB], {
+    contextRoot: path.resolve('/repo'),
+    explicitProjectPath: projectA.path,
+    pinnedProjectPath: projectB.path,
+    activeDocumentPath: path.resolve('/repo/B/src/main.cpp')
+  });
+  assert.equal(explicit?.name, 'Project.A');
 });
 
 test('project manifests parse profiles, launch metadata, and local settings imports', () => {
@@ -1236,6 +1340,8 @@ test('basenameWithoutExtension strips a platform executable suffix', () => {
 test('project tree models mark the selected project and profile', () => {
   const models = buildProjectTreeModels({
     workspace: {
+      kind: 'workspace',
+      manifestPath: '/repo/NGIN.ngin',
       workspace: { path: '/repo/NGIN.ngin', directory: '/repo', name: 'NGIN', projectPaths: [] },
       projects: [
         {
@@ -1268,6 +1374,8 @@ test('project tree models mark the selected project and profile', () => {
     },
     context: {
       workspace: {
+        kind: 'workspace',
+        manifestPath: '/repo/NGIN.ngin',
         workspace: { path: '/repo/NGIN.ngin', directory: '/repo', name: 'NGIN', projectPaths: [] },
         projects: [],
         root: '/repo'
@@ -1326,12 +1434,16 @@ test('project tree models expose inspect groups for the active project only', ()
 
   const models = buildProjectTreeModels({
     workspace: {
+      kind: 'workspace',
+      manifestPath: '/repo/NGIN.ngin',
       workspace: { path: '/repo/NGIN.ngin', directory: '/repo', name: 'NGIN', projectPaths: [] },
       projects: [activeProject, inactiveProject],
       root: '/repo'
     },
     context: {
       workspace: {
+        kind: 'workspace',
+        manifestPath: '/repo/NGIN.ngin',
         workspace: { path: '/repo/NGIN.ngin', directory: '/repo', name: 'NGIN', projectPaths: [] },
         projects: [activeProject, inactiveProject],
         root: '/repo'
@@ -1482,6 +1594,8 @@ test('project tree models expose inspect groups for the active project only', ()
 test('project tree dependency models group authored base uses', () => {
   const models = buildProjectTreeModels({
     workspace: {
+      kind: 'workspace',
+      manifestPath: '/repo/NGIN.ngin',
       workspace: { path: '/repo/NGIN.ngin', directory: '/repo', name: 'NGIN', projectPaths: [] },
       projects: [
         {
@@ -1543,12 +1657,16 @@ test('project tree generator inspect entries tolerate numeric output counts', ()
 
   const models = buildProjectTreeModels({
     workspace: {
+      kind: 'workspace',
+      manifestPath: '/repo/NGIN.ngin',
       workspace: { path: '/repo/NGIN.ngin', directory: '/repo', name: 'NGIN', projectPaths: [] },
       projects: [project],
       root: '/repo'
     },
     context: {
       workspace: {
+        kind: 'workspace',
+        manifestPath: '/repo/NGIN.ngin',
         workspace: { path: '/repo/NGIN.ngin', directory: '/repo', name: 'NGIN', projectPaths: [] },
         projects: [project],
         root: '/repo'
@@ -1583,12 +1701,16 @@ test('project tree generator inspect entries tolerate numeric output counts', ()
 test('status bar models expose the compact NGIN bottom-bar actions', () => {
   const model = buildStatusBarModel({
     workspace: {
+      kind: 'workspace',
+      manifestPath: '/repo/NGIN.ngin',
       workspace: { path: '/repo/NGIN.ngin', directory: '/repo', name: 'NGIN', projectPaths: [] },
       projects: [],
       root: '/repo'
     },
     context: {
       workspace: {
+        kind: 'workspace',
+        manifestPath: '/repo/NGIN.ngin',
         workspace: { path: '/repo/NGIN.ngin', directory: '/repo', name: 'NGIN', projectPaths: [] },
         projects: [],
         root: '/repo'
@@ -1603,6 +1725,7 @@ test('status bar models expose the compact NGIN bottom-bar actions', () => {
 
   assert.equal(model.visible, true);
   assert.match(model.workspace?.text ?? '', /\$\(folder-library\)/);
+  assert.equal(model.workspace?.command, 'ngin.selectManifest');
   assert.equal(model.project?.command, 'ngin.internal.pickProject');
   assert.equal(model.profile?.command, 'ngin.internal.pickProfile');
   assert.match(model.profile?.text ?? '', /\$\(symbol-enum\) Runtime/);
@@ -1610,4 +1733,37 @@ test('status bar models expose the compact NGIN bottom-bar actions', () => {
   assert.equal(model.build?.command, 'ngin.build');
   assert.equal(model.run?.command, 'ngin.run');
   assert.equal(model.debug?.command, 'ngin.debug');
+});
+
+test('standalone project status uses project context presentation', () => {
+  const project = parseProjectManifest(
+    '<Project SchemaVersion="4" Name="Standalone"><Application /></Project>',
+    '/repo/Standalone.nginproj'
+  );
+  const workspace = {
+    kind: 'project' as const,
+    manifestPath: project.path,
+    workspace: {
+      path: project.path,
+      directory: project.directory,
+      name: project.name,
+      projectPaths: [project.path]
+    },
+    projects: [project],
+    root: project.directory
+  };
+  const model = buildStatusBarModel({
+    workspace,
+    context: {
+      workspace,
+      project,
+      profile: project.profiles[0]
+    },
+    launchManifestExists: false,
+    stagedCompileCommandsAvailable: false
+  });
+
+  assert.match(model.workspace?.text ?? '', /\$\(file-code\) Standalone/);
+  assert.match(model.workspace?.tooltip ?? '', /Standalone project/);
+  assert.equal(model.workspace?.command, 'ngin.selectManifest');
 });

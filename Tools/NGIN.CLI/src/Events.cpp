@@ -29,44 +29,43 @@ namespace NGIN::CLI
             return out.str();
         }
 
-        auto WriteJsonValue(std::ostream &out, const EventData::Value &value) -> void
+        auto WriteJsonValue(NGIN::Serialization::JSON::StreamWriter &writer,
+                            const EventData::Value &value) -> bool
         {
-            std::visit(
-                [&out](const auto &typed)
+            return std::visit(
+                [&writer](const auto &typed) -> bool
                 {
                     using T = std::decay_t<decltype(typed)>;
                     if constexpr (std::is_same_v<T, std::nullptr_t>)
                     {
-                        out << "null";
+                        return static_cast<bool>(writer.Null());
                     }
                     else if constexpr (std::is_same_v<T, std::string>)
                     {
-                        out << JsonString(typed);
+                        return static_cast<bool>(writer.String(typed));
                     }
                     else if constexpr (std::is_same_v<T, std::int64_t>)
                     {
-                        out << typed;
+                        return static_cast<bool>(writer.Int64(typed));
                     }
                     else if constexpr (std::is_same_v<T, double>)
                     {
-                        out << typed;
+                        return static_cast<bool>(writer.Double(typed));
                     }
                     else if constexpr (std::is_same_v<T, bool>)
                     {
-                        out << (typed ? "true" : "false");
+                        return static_cast<bool>(writer.Bool(typed));
                     }
                     else if constexpr (std::is_same_v<T, std::vector<std::string>>)
                     {
-                        out << "[";
-                        for (std::size_t index = 0; index < typed.size(); ++index)
+                        if (!writer.BeginArray())
+                            return false;
+                        for (const auto &value : typed)
                         {
-                            if (index != 0)
-                            {
-                                out << ",";
-                            }
-                            out << JsonString(typed[index]);
+                            if (!writer.String(value))
+                                return false;
                         }
-                        out << "]";
+                        return static_cast<bool>(writer.EndArray());
                     }
                 },
                 value);
@@ -203,19 +202,16 @@ namespace NGIN::CLI
         return std::nullopt;
     }
 
-    auto EventData::WriteJson(std::ostream &out) const -> void
+    auto EventData::WriteJson(NGIN::Serialization::JSON::StreamWriter &writer) const -> bool
     {
-        out << "{";
-        for (std::size_t index = 0; index < fields_.size(); ++index)
+        if (!writer.BeginObject())
+            return false;
+        for (const auto &field : fields_)
         {
-            if (index != 0)
-            {
-                out << ",";
-            }
-            out << JsonString(fields_[index].name) << ":";
-            WriteJsonValue(out, fields_[index].value);
+            if (!writer.Key(field.name) || !WriteJsonValue(writer, field.value))
+                return false;
         }
-        out << "}";
+        return static_cast<bool>(writer.EndObject());
     }
 
     auto NullCliEventSink::Emit(const CliEvent &event) -> void
@@ -225,6 +221,7 @@ namespace NGIN::CLI
 
     JsonLinesCliEventSink::JsonLinesCliEventSink(std::ostream &out) : out_(&out)
     {
+        writer_.emplace(NGIN::Serialization::MakeTextSink(buffer_));
     }
 
     auto JsonLinesCliEventSink::Emit(const CliEvent &event) -> void
@@ -234,26 +231,30 @@ namespace NGIN::CLI
             return;
         }
 
-        *out_ << "{\"schemaVersion\":\"1.0\","
-              << "\"kind\":\"NGIN.CLI.Event\","
-              << "\"sequence\":" << event.sequence << ","
-              << "\"timestamp\":" << JsonString(FormatTimestamp(event.timestamp)) << ","
-              << "\"type\":" << JsonString(std::string{CliEventTypeName(event.type)});
-        if (!event.command.empty())
+        buffer_.clear();
+        auto &writer = *writer_;
+        writer.Reset(NGIN::Serialization::MakeTextSink(buffer_));
+        bool valid = writer.BeginObject() &&
+                     writer.Key("schemaVersion") && writer.String("1.0") &&
+                     writer.Key("kind") && writer.String("NGIN.CLI.Event") &&
+                     writer.Key("sequence") && writer.UInt64(event.sequence) &&
+                     writer.Key("timestamp") && writer.String(FormatTimestamp(event.timestamp)) &&
+                     writer.Key("type") && writer.String(CliEventTypeName(event.type));
+        if (valid && !event.command.empty())
+            valid = writer.Key("command") && writer.String(event.command);
+        if (valid && !event.project.empty())
+            valid = writer.Key("project") && writer.String(event.project);
+        if (valid && !event.profile.empty())
+            valid = writer.Key("profile") && writer.String(event.profile);
+        valid = valid && writer.Key("data") && event.data.WriteJson(writer) &&
+                writer.EndObject() && writer.Finish();
+        if (!valid)
         {
-            *out_ << ",\"command\":" << JsonString(event.command);
+            out_->setstate(std::ios::badbit);
+            return;
         }
-        if (!event.project.empty())
-        {
-            *out_ << ",\"project\":" << JsonString(event.project);
-        }
-        if (!event.profile.empty())
-        {
-            *out_ << ",\"profile\":" << JsonString(event.profile);
-        }
-        *out_ << ",\"data\":";
-        event.data.WriteJson(*out_);
-        *out_ << "}\n" << std::flush;
+        out_->write(buffer_.data(), static_cast<std::streamsize>(buffer_.size()));
+        *out_ << '\n' << std::flush;
     }
 
     auto RecordingCliEventSink::Emit(const CliEvent &event) -> void
@@ -337,34 +338,9 @@ namespace NGIN::CLI
 
     auto JsonString(const std::string &value) -> std::string
     {
-        std::string escaped{"\""};
-        for (const unsigned char ch : value)
-        {
-            switch (ch)
-            {
-            case '\\': escaped += "\\\\"; break;
-            case '"': escaped += "\\\""; break;
-            case '\b': escaped += "\\b"; break;
-            case '\f': escaped += "\\f"; break;
-            case '\n': escaped += "\\n"; break;
-            case '\r': escaped += "\\r"; break;
-            case '\t': escaped += "\\t"; break;
-            default:
-                if (ch < 0x20)
-                {
-                    constexpr char hex[] = "0123456789abcdef";
-                    escaped += "\\u00";
-                    escaped += hex[(ch >> 4) & 0x0f];
-                    escaped += hex[ch & 0x0f];
-                }
-                else
-                {
-                    escaped += static_cast<char>(ch);
-                }
-                break;
-            }
-        }
-        escaped += "\"";
-        return escaped;
+        auto escaped = NGIN::Serialization::JSON::Writer::EscapeString(value);
+        if (!escaped)
+            throw std::runtime_error("failed to encode JSON string");
+        return std::move(escaped.Value());
     }
 }

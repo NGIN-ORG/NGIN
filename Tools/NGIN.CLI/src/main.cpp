@@ -30,6 +30,8 @@ namespace
             << "  --output-root <dir>  (appends <project>/<profile>)\n"
             << "  --json  (alias for --format json where supported)\n\n"
             << "Project selection options:\n"
+            << "  --project <file.nginproj>\n"
+            << "  --workspace <file.ngin>\n"
             << "  --profile <name>\n\n"
             << "Commands:\n"
             << "  workspace list\n"

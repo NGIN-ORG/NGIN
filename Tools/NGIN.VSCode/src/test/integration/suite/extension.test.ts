@@ -56,6 +56,7 @@ suite('NGIN Tools Extension', () => {
     const commands = await vscode.commands.getCommands(true);
     assert.ok(commands.includes('ngin.clean'));
     assert.ok(commands.includes('ngin.rebuild'));
+    assert.ok(commands.includes('ngin.selectManifest'));
     assert.ok(commands.includes('ngin.publish'));
     assert.ok(commands.includes('ngin.variablesExplain'));
     assert.ok(commands.includes('ngin.settingsInit'));
@@ -70,6 +71,31 @@ suite('NGIN Tools Extension', () => {
     await extension.activate();
 
     await vscode.commands.executeCommand('ngin.validate', sampleTarget());
+  });
+
+  test('validate resolves a standalone project without a workspace manifest', async () => {
+    const extension = vscode.extensions.getExtension('ngin.ngin-tools');
+    assert.ok(extension);
+    await extension.activate();
+
+    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ngin-vscode-standalone-'));
+    try {
+      const projectPath = path.join(tempRoot, 'Standalone.nginproj');
+      await fs.mkdir(path.join(tempRoot, 'src'), { recursive: true });
+      await fs.writeFile(
+        projectPath,
+        '<Project SchemaVersion="4" Name="Standalone"><Application /></Project>'
+      );
+      await fs.writeFile(path.join(tempRoot, 'src', 'main.cpp'), 'int main() { return 0; }\n');
+
+      await vscode.commands.executeCommand('ngin.validate', {
+        preferredUri: vscode.Uri.file(projectPath),
+        projectPath,
+        profileName: 'dev'
+      });
+    } finally {
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
   });
 
   test('document formatting uses a graph-selected NGIN format run for dirty editor content', async () => {

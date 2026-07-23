@@ -2,10 +2,19 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { computeCompileCommandsPath, getFallbackCompileCommandsPath } from '../core/compileCommands';
 import { computeLaunchManifestPath, computeOutputDir } from '../core/helpers';
-import { findNearestWorkspaceManifest, loadWorkspaceProjects, pathExists } from '../core/discovery';
+import {
+  findNearestProjectManifest,
+  findNearestWorkspaceManifest,
+  isAuthoredManifestCandidate,
+  loadStandaloneProject,
+  loadWorkspaceManifest,
+  loadWorkspaceProjects,
+  pathExists
+} from '../core/discovery';
+import { selectProjectByPrecedence } from '../core/selection';
 import { PackageCatalogEntry, CompositionGraphPayload, ProjectProfile, ProjectManifest, StoredToolResultSummary, WorkspaceManifest } from '../core/types';
 
-const LAST_PROJECT_KEY = 'ngin.lastProject';
+const MANUAL_SELECTION_PREFIX = 'ngin.manualSelection:';
 const LAST_LAUNCH_MANIFEST_KEY = 'ngin.lastLaunchManifest';
 const LAST_PROFILE_PREFIX = 'ngin.lastProfile:';
 
@@ -17,11 +26,26 @@ export interface NginCommandTarget {
 }
 
 export interface ResolvedWorkspaceInfo {
+  kind: 'workspace' | 'project';
+  manifestPath: string;
   workspace: WorkspaceManifest;
   projects: ProjectManifest[];
   packageCatalog?: Record<string, PackageCatalogEntry>;
   root: string;
   folder?: vscode.WorkspaceFolder;
+}
+
+export interface NginManifestCandidate {
+  kind: 'workspace' | 'project';
+  path: string;
+  name: string;
+  folder: vscode.WorkspaceFolder;
+}
+
+interface StoredManifestSelection {
+  kind: 'workspace' | 'project';
+  manifestPath: string;
+  projectPath: string;
 }
 
 export interface ResolvedCommandContext {
@@ -54,6 +78,10 @@ function comparablePath(value: string): string {
 
 function projectProfileKey(projectPath: string): string {
   return `${LAST_PROFILE_PREFIX}${comparablePath(projectPath)}`;
+}
+
+function manualSelectionKey(folderPath: string): string {
+  return `${MANUAL_SELECTION_PREFIX}${comparablePath(folderPath)}`;
 }
 
 export class WorkspaceStateService implements vscode.Disposable {
@@ -109,12 +137,120 @@ export class WorkspaceStateService implements vscode.Disposable {
   }
 
   async rememberSelection(context: ResolvedCommandContext): Promise<void> {
-    await this.context.workspaceState.update(LAST_PROJECT_KEY, context.project.path);
+    const folderPath = context.workspace.folder?.uri.fsPath ?? context.workspace.root;
+    const selection: StoredManifestSelection = {
+      kind: context.workspace.kind,
+      manifestPath: context.workspace.manifestPath,
+      projectPath: context.project.path
+    };
+    await this.context.workspaceState.update(manualSelectionKey(folderPath), selection);
     await this.context.workspaceState.update(projectProfileKey(context.project.path), context.profile.name);
     this.fireDidChange();
   }
 
+  async clearManualSelection(preferredUri?: vscode.Uri): Promise<void> {
+    const folder = this.resolveWorkspaceFolder(preferredUri);
+    if (!folder) {
+      return;
+    }
+    await this.context.workspaceState.update(manualSelectionKey(folder.uri.fsPath), undefined);
+    this.fireDidChange();
+  }
+
+  async getManifestCandidates(preferredUri?: vscode.Uri): Promise<NginManifestCandidate[]> {
+    const folder = this.resolveWorkspaceFolder(preferredUri);
+    if (!folder) {
+      return [];
+    }
+
+    const workspaceUris = await vscode.workspace.findFiles(
+      new vscode.RelativePattern(folder, '**/*.ngin')
+    );
+    const projectUris = await vscode.workspace.findFiles(
+      new vscode.RelativePattern(folder, '**/*.nginproj')
+    );
+    const candidates = await Promise.all([
+      ...workspaceUris
+        .filter((uri) => isAuthoredManifestCandidate(folder.uri.fsPath, uri.fsPath))
+        .map(async (uri): Promise<NginManifestCandidate> => {
+          let name = path.basename(uri.fsPath, '.ngin');
+          try {
+            name = (await loadWorkspaceManifest(uri.fsPath)).name;
+          } catch {
+            // Keep malformed manifests selectable so the normal loader can report
+            // the authoritative diagnostic after the user chooses one.
+          }
+          return { kind: 'workspace', path: uri.fsPath, name, folder };
+        }),
+      ...projectUris
+        .filter((uri) => isAuthoredManifestCandidate(folder.uri.fsPath, uri.fsPath))
+        .map(async (uri): Promise<NginManifestCandidate> => {
+          let name = path.basename(uri.fsPath, '.nginproj');
+          try {
+            name = (await loadStandaloneProject(uri.fsPath)).projects[0]?.name ?? name;
+          } catch {
+            // See the workspace candidate behavior above.
+          }
+          return { kind: 'project', path: uri.fsPath, name, folder };
+        })
+    ]);
+
+    return candidates.sort((left, right) =>
+      left.kind.localeCompare(right.kind) ||
+      left.name.localeCompare(right.name) ||
+      left.path.localeCompare(right.path)
+    );
+  }
+
+  async loadManifestContext(manifestPath: string): Promise<ResolvedWorkspaceInfo> {
+    const resolvedPath = path.resolve(manifestPath);
+    if (resolvedPath.endsWith('.nginproj')) {
+      const { workspace, projects, packageCatalog } = await loadStandaloneProject(resolvedPath);
+      return {
+        kind: 'project',
+        manifestPath: resolvedPath,
+        workspace,
+        projects,
+        packageCatalog,
+        root: path.dirname(resolvedPath),
+        folder: vscode.workspace.getWorkspaceFolder(vscode.Uri.file(resolvedPath))
+      };
+    }
+
+    const { workspace, projects, packageCatalog } = await loadWorkspaceProjects(resolvedPath);
+    return {
+      kind: 'workspace',
+      manifestPath: resolvedPath,
+      workspace,
+      projects,
+      packageCatalog,
+      root: path.dirname(resolvedPath),
+      folder: vscode.workspace.getWorkspaceFolder(vscode.Uri.file(resolvedPath))
+    };
+  }
+
   async getWorkspaceInfo(preferredUri?: vscode.Uri): Promise<ResolvedWorkspaceInfo | undefined> {
+    const selectedFolder = this.resolveWorkspaceFolder(preferredUri);
+    if (selectedFolder) {
+      const stored = this.context.workspaceState.get<StoredManifestSelection>(
+        manualSelectionKey(selectedFolder.uri.fsPath)
+      );
+      if (stored && await pathExists(stored.manifestPath)) {
+        try {
+          return await this.loadManifestContext(stored.manifestPath);
+        } catch {
+          // Normal discovery below will surface a usable context. An explicitly
+          // selected malformed manifest is reported when selected or invoked.
+        }
+      }
+      if (stored) {
+        await this.context.workspaceState.update(
+          manualSelectionKey(selectedFolder.uri.fsPath),
+          undefined
+        );
+      }
+    }
+
     const candidatePaths: string[] = [];
 
     if (preferredUri?.scheme === 'file') {
@@ -126,30 +262,70 @@ export class WorkspaceStateService implements vscode.Disposable {
       candidatePaths.push(activeUri.fsPath);
     }
 
-    for (const folder of vscode.workspace.workspaceFolders ?? []) {
-      if (!candidatePaths.includes(folder.uri.fsPath)) {
-        candidatePaths.push(folder.uri.fsPath);
+    for (const candidate of candidatePaths) {
+      const manifestPath = await findNearestWorkspaceManifest(candidate);
+      if (manifestPath) {
+        return this.loadManifestContext(manifestPath);
+      }
+
+      const projectPath = await findNearestProjectManifest(candidate);
+      if (projectPath) {
+        return this.loadManifestContext(projectPath);
       }
     }
 
-    for (const candidate of candidatePaths) {
-      const manifestPath = await findNearestWorkspaceManifest(candidate);
-      if (!manifestPath) {
-        continue;
+    for (const folder of [
+      ...(selectedFolder ? [selectedFolder] : []),
+      ...(vscode.workspace.workspaceFolders ?? []).filter(
+        (candidate) => candidate !== selectedFolder
+      )
+    ]) {
+      const workspaceManifest = await findNearestWorkspaceManifest(folder.uri.fsPath);
+      if (workspaceManifest) {
+        return this.loadManifestContext(workspaceManifest);
       }
-
-      const { workspace, projects, packageCatalog } = await loadWorkspaceProjects(manifestPath);
-      const root = path.dirname(manifestPath);
-      return {
-        workspace,
-        projects,
-        packageCatalog,
-        root,
-        folder: vscode.workspace.getWorkspaceFolder(vscode.Uri.file(root))
-      };
+      const candidates = await this.getManifestCandidates(folder.uri);
+      const workspaceCandidates = candidates.filter((candidate) => candidate.kind === 'workspace');
+      if (workspaceCandidates.length === 1) {
+        return this.loadManifestContext(workspaceCandidates[0].path);
+      }
+      const projectCandidates = candidates.filter((candidate) => candidate.kind === 'project');
+      if (workspaceCandidates.length === 0 && projectCandidates.length === 1) {
+        return this.loadManifestContext(projectCandidates[0].path);
+      }
     }
 
     return undefined;
+  }
+
+  async getWorkspaceInfoForProject(
+    projectPath: string,
+    preferredUri?: vscode.Uri
+  ): Promise<ResolvedWorkspaceInfo | undefined> {
+    const preferredFolder = preferredUri?.scheme === 'file'
+      ? vscode.workspace.getWorkspaceFolder(preferredUri)
+      : undefined;
+    const activeUri = vscode.window.activeTextEditor?.document.uri;
+    const activeFolder = activeUri?.scheme === 'file'
+      ? vscode.workspace.getWorkspaceFolder(activeUri)
+      : undefined;
+    const folders = [
+      preferredFolder,
+      activeFolder,
+      ...(vscode.workspace.workspaceFolders ?? [])
+    ].filter((folder, index, values): folder is vscode.WorkspaceFolder =>
+      Boolean(folder) &&
+      values.findIndex((candidate) => candidate?.uri.toString() === folder?.uri.toString()) === index
+    );
+
+    for (const folder of folders) {
+      const candidate = await this.getWorkspaceInfo(folder.uri);
+      if (candidate && this.findProject(candidate, projectPath)) {
+        return candidate;
+      }
+    }
+
+    return this.getWorkspaceInfo(preferredUri);
   }
 
   async resolveCommandContext(options?: {
@@ -159,7 +335,12 @@ export class WorkspaceStateService implements vscode.Disposable {
     promptIfNeeded?: boolean;
   }): Promise<ResolvedCommandContext | undefined> {
     const promptIfNeeded = options?.promptIfNeeded ?? true;
-    const workspaceInfo = await this.getWorkspaceInfo(options?.preferredUri);
+    const workspaceInfo = options?.explicitProjectPath
+      ? await this.getWorkspaceInfoForProject(
+          options.explicitProjectPath,
+          options.preferredUri
+        )
+      : await this.getWorkspaceInfo(options?.preferredUri);
     if (!workspaceInfo) {
       return undefined;
     }
@@ -180,7 +361,7 @@ export class WorkspaceStateService implements vscode.Disposable {
       profile
     };
 
-    await this.rememberSelection(context);
+    await this.context.workspaceState.update(projectProfileKey(project.path), profile.name);
     return context;
   }
 
@@ -209,7 +390,7 @@ export class WorkspaceStateService implements vscode.Disposable {
   }
 
   async pickProject(workspaceInfo: ResolvedWorkspaceInfo): Promise<ProjectManifest | undefined> {
-    return this.resolveProject(workspaceInfo, undefined, undefined, true);
+    return this.promptForProject(workspaceInfo);
   }
 
   async pickProfile(project: ProjectManifest): Promise<ProjectProfile | undefined> {
@@ -324,20 +505,29 @@ export class WorkspaceStateService implements vscode.Disposable {
     this.onDidChangeEmitter.fire();
   }
 
-  private resolveStoredProject(workspaceInfo: ResolvedWorkspaceInfo): ProjectManifest | undefined {
-    const lastProjectPath = this.context.workspaceState.get<string>(LAST_PROJECT_KEY);
-    if (lastProjectPath) {
-      const lastProject = workspaceInfo.projects.find((project) => comparablePath(project.path) === comparablePath(lastProjectPath));
-      if (lastProject) {
-        return lastProject;
+  private resolveWorkspaceFolder(preferredUri?: vscode.Uri): vscode.WorkspaceFolder | undefined {
+    if (preferredUri?.scheme === 'file') {
+      return vscode.workspace.getWorkspaceFolder(preferredUri);
+    }
+    const activeUri = vscode.window.activeTextEditor?.document.uri;
+    if (activeUri?.scheme === 'file') {
+      const activeFolder = vscode.workspace.getWorkspaceFolder(activeUri);
+      if (activeFolder) {
+        return activeFolder;
       }
     }
+    return vscode.workspace.workspaceFolders?.[0];
+  }
 
-    if (workspaceInfo.projects.length === 1) {
-      return workspaceInfo.projects[0];
+  private storedSelection(workspaceInfo: ResolvedWorkspaceInfo): StoredManifestSelection | undefined {
+    const folderPath = workspaceInfo.folder?.uri.fsPath ?? workspaceInfo.root;
+    const stored = this.context.workspaceState.get<StoredManifestSelection>(
+      manualSelectionKey(folderPath)
+    );
+    if (!stored || comparablePath(stored.manifestPath) !== comparablePath(workspaceInfo.manifestPath)) {
+      return undefined;
     }
-
-    return undefined;
+    return stored;
   }
 
   private async resolveProject(
@@ -346,40 +536,20 @@ export class WorkspaceStateService implements vscode.Disposable {
     preferredUri?: vscode.Uri,
     promptIfNeeded = true
   ): Promise<ProjectManifest | undefined> {
-    if (explicitProjectPath) {
-      const projectPath = path.isAbsolute(explicitProjectPath)
-        ? explicitProjectPath
-        : path.resolve(workspaceInfo.root, explicitProjectPath);
-      return workspaceInfo.projects.find((project) => comparablePath(project.path) === comparablePath(projectPath));
-    }
-
+    const storedProjectPath = this.storedSelection(workspaceInfo)?.projectPath;
     const activeDocument = preferredUri?.scheme === 'file'
       ? preferredUri.fsPath
       : vscode.window.activeTextEditor?.document.uri.scheme === 'file'
         ? vscode.window.activeTextEditor.document.uri.fsPath
         : undefined;
-
-    if (activeDocument) {
-      const matchedProject = workspaceInfo.projects.find((project) => {
-        const projectDir = comparablePath(project.directory) + path.sep;
-        const documentPath = comparablePath(activeDocument);
-        return documentPath === comparablePath(project.path) || documentPath.startsWith(projectDir);
-      });
-      if (matchedProject) {
-        return matchedProject;
-      }
-    }
-
-    if (workspaceInfo.projects.length === 1) {
-      return workspaceInfo.projects[0];
-    }
-
-    const lastProjectPath = this.context.workspaceState.get<string>(LAST_PROJECT_KEY);
-    if (lastProjectPath) {
-      const lastProject = workspaceInfo.projects.find((project) => comparablePath(project.path) === comparablePath(lastProjectPath));
-      if (lastProject) {
-        return lastProject;
-      }
+    const selected = selectProjectByPrecedence(workspaceInfo.projects, {
+      contextRoot: workspaceInfo.root,
+      explicitProjectPath,
+      pinnedProjectPath: storedProjectPath,
+      activeDocumentPath: activeDocument
+    });
+    if (selected) {
+      return selected;
     }
 
     if (!promptIfNeeded) {

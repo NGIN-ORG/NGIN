@@ -615,7 +615,7 @@ struct ProviderRestoreMetadata {
     return std::nullopt;
   }
   const auto loaded = LoadXml(metadataPath);
-  const auto *rootElement = loaded.document.Root();
+  const auto *rootElement = loaded.document.RootPtr();
   if (rootElement == nullptr || rootElement->name != "ProviderRestore") {
     AddError(report,
              metadataPath.string() + ": expected ProviderRestore root element");
@@ -3227,7 +3227,7 @@ auto CleanupPreviousStage(const fs::path &outputDir, DiagnosticReport &report)
   for (const auto &manifestPath : manifests) {
     try {
       const auto document = LoadXml(manifestPath);
-      const auto *rootElement = document.document.Root();
+      const auto *rootElement = document.document.RootPtr();
       if (rootElement == nullptr || rootElement->name != "LaunchManifest") {
         throw std::runtime_error("root element must be <LaunchManifest>");
       }
@@ -3277,7 +3277,8 @@ auto CleanupPreviousStage(const fs::path &outputDir, DiagnosticReport &report)
 
 auto CleanLaunch(const ProjectManifest &project,
                  const ProfileDefinition &profile,
-                 const std::optional<fs::path> &outputPath)
+                 const std::optional<fs::path> &outputPath,
+                 const std::optional<WorkspaceManifest> &workspace)
     -> DiagnosticResult<fs::path> {
   DiagnosticResult<fs::path> result{};
 
@@ -3290,7 +3291,7 @@ auto CleanLaunch(const ProjectManifest &project,
     return result;
   }
 
-  const auto resolved = ResolveLaunch(project, profile);
+  const auto resolved = ResolveLaunch(project, profile, workspace);
   AppendDiagnostics(result.diagnostics, resolved.diagnostics);
   if (!resolved.value.has_value() || result.diagnostics.HasErrors()) {
     return result;
@@ -3321,7 +3322,8 @@ auto CleanLaunch(const ProjectManifest &project,
 auto ConfigureLaunch(const ProjectManifest &project,
                      const ProfileDefinition &profile,
                      const std::optional<fs::path> &outputPath,
-                     const BuildExecutionOptions &options)
+                     const BuildExecutionOptions &options,
+                     const std::optional<WorkspaceManifest> &workspace)
     -> DiagnosticResult<ConfiguredBuildPaths> {
   DiagnosticResult<ConfiguredBuildPaths> result{};
 
@@ -3337,7 +3339,7 @@ auto ConfigureLaunch(const ProjectManifest &project,
     return result;
   }
 
-  auto resolvedResult = ResolveLaunch(project, profile);
+  auto resolvedResult = ResolveLaunch(project, profile, workspace);
   AppendDiagnostics(result.diagnostics, resolvedResult.diagnostics);
   if (!resolvedResult.value.has_value() || result.diagnostics.HasErrors()) {
     return result;
@@ -3374,7 +3376,8 @@ auto ConfigureLaunch(const ProjectManifest &project,
 auto BuildLaunch(const ProjectManifest &project,
                  const ProfileDefinition &profile,
                  const std::optional<fs::path> &outputPath,
-                 const BuildExecutionOptions &options)
+                 const BuildExecutionOptions &options,
+                 const std::optional<WorkspaceManifest> &workspace)
     -> DiagnosticResult<GeneratedLaunchPaths> {
   DiagnosticResult<GeneratedLaunchPaths> result{};
 
@@ -3390,7 +3393,7 @@ auto BuildLaunch(const ProjectManifest &project,
     return result;
   }
 
-  auto resolvedResult = ResolveLaunch(project, profile);
+  auto resolvedResult = ResolveLaunch(project, profile, workspace);
   AppendDiagnostics(result.diagnostics, resolvedResult.diagnostics);
   if (!resolvedResult.value.has_value() || result.diagnostics.HasErrors()) {
     return result;
@@ -3464,7 +3467,7 @@ auto BuildLaunch(const ProjectManifest &project,
 auto LoadLaunchManifestSummary(const fs::path &manifestPath)
     -> LaunchManifestSummary {
   const auto doc = LoadXml(manifestPath);
-  const auto *rootElement = doc.document.Root();
+  const auto *rootElement = doc.document.RootPtr();
   if (rootElement == nullptr || rootElement->name != "LaunchManifest") {
     throw std::runtime_error(manifestPath.string() +
                              ": root element must be <LaunchManifest>");

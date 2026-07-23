@@ -20,13 +20,13 @@ import {
 } from './models';
 
 class WorkspaceTreeItem extends vscode.TreeItem {
-  constructor(label: string, description: string) {
+  constructor(label: string, description: string, kind: 'workspace' | 'project') {
     super(label, vscode.TreeItemCollapsibleState.Expanded);
     this.description = description;
-    this.iconPath = new vscode.ThemeIcon('folder-library');
-    this.contextValue = 'nginWorkspace';
+    this.iconPath = new vscode.ThemeIcon(kind === 'workspace' ? 'folder-library' : 'file-code');
+    this.contextValue = kind === 'workspace' ? 'nginWorkspace' : 'nginProjectContext';
     this.command = {
-      command: 'ngin.workspaceStatus',
+      command: 'ngin.selectManifest',
       title: label
     };
   }
@@ -291,7 +291,11 @@ class ProjectsTreeDataProvider implements vscode.TreeDataProvider<ProjectsTreeEl
       if (!this.snapshot.workspace || !model.workspaceLabel || !model.workspaceDescription) {
         return [];
       }
-      return [new WorkspaceTreeItem(model.workspaceLabel, model.workspaceDescription)];
+      return [new WorkspaceTreeItem(
+        model.workspaceLabel,
+        model.workspaceDescription,
+        model.contextKind ?? 'workspace'
+      )];
     }
 
     if (element instanceof WorkspaceTreeItem) {
@@ -420,7 +424,7 @@ export class NginSidebarController implements vscode.Disposable {
   refresh(snapshot: NginWorkspaceSnapshot): void {
     this.projectsProvider.setSnapshot(snapshot);
 
-    const noWorkspaceMessage = 'Open a folder with a .ngin workspace manifest.';
+    const noWorkspaceMessage = 'Open a folder containing a .ngin or .nginproj manifest.';
     this.projectsTreeView.message = snapshot.workspace ? undefined : noWorkspaceMessage;
   }
 }

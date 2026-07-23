@@ -96,6 +96,7 @@ export interface ProjectTreeInspectModel {
 export type ProjectTreeChildModel = ProjectTreeManifestModel | ProjectTreeGroupModel;
 
 export interface ProjectTreeModels {
+  contextKind?: 'workspace' | 'project';
   workspaceLabel?: string;
   workspaceDescription?: string;
   projects: ProjectTreeProjectModel[];
@@ -880,8 +881,11 @@ export function buildProjectTreeModels(snapshot: NginWorkspaceSnapshot): Project
   }
 
   return {
+    contextKind: snapshot.workspace.kind,
     workspaceLabel: snapshot.workspace.workspace.name,
-    workspaceDescription: snapshot.workspace.root,
+    workspaceDescription: snapshot.workspace.kind === 'workspace'
+      ? snapshot.workspace.root
+      : snapshot.workspace.manifestPath,
     projects,
     childrenByProject,
     dependenciesByProject,
@@ -899,9 +903,13 @@ export function buildStatusBarModel(snapshot: NginWorkspaceSnapshot): StatusBarM
   return {
     visible: true,
     workspace: {
-      text: `$(folder-library) ${snapshot.workspace.workspace.name}`,
-      tooltip: `${snapshot.workspace.workspace.name}\n${snapshot.workspace.root}`,
-      command: 'ngin.workspaceStatus'
+      text: snapshot.workspace.kind === 'workspace'
+        ? `$(folder-library) ${snapshot.workspace.workspace.name}`
+        : `$(file-code) ${snapshot.workspace.workspace.name}`,
+      tooltip: snapshot.workspace.kind === 'workspace'
+        ? `${snapshot.workspace.workspace.name}\n${snapshot.workspace.manifestPath}`
+        : `Standalone project\n${snapshot.workspace.manifestPath}`,
+      command: 'ngin.selectManifest'
     },
     project: {
       text: `$(project) ${snapshot.context.project.name}`,

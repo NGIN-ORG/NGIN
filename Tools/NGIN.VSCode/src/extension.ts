@@ -8,7 +8,8 @@ import {
   findExecutableOnPath,
   getDevelopmentCliPath,
   isCliStale,
-  resolveConfiguredCliPath
+  resolveConfiguredCliPath,
+  withExplicitWorkspace
 } from './core/cli';
 import { computeCompileCommandsPath, getFallbackCompileCommandsPath } from './core/compileCommands';
 import { pathExists, readTextFile } from './core/discovery';
@@ -358,6 +359,7 @@ class NginController implements vscode.Disposable {
 
   register(): vscode.Disposable[] {
     return [
+      vscode.commands.registerCommand('ngin.selectManifest', (arg) => this.runHandled(() => this.selectManifestCommand(this.asCommandTarget(arg)))),
       vscode.commands.registerCommand('ngin.selectProject', (arg) => this.runHandled(() => this.selectProjectCommand(this.asCommandTarget(arg)))),
       vscode.commands.registerCommand('ngin.selectProfile', (arg) => this.runHandled(() => this.selectProfileCommand(this.asCommandTarget(arg)))),
       vscode.commands.registerCommand('ngin.configure', (arg) => this.runHandled(() => this.configureCommand(this.asCommandTarget(arg)))),
@@ -761,12 +763,79 @@ class NginController implements vscode.Disposable {
 
     const workspaceInfo = await this.workspaceState.getWorkspaceInfo(target?.preferredUri);
     if (!workspaceInfo) {
-      void vscode.window.showErrorMessage('NGIN workspace not found. Open a folder with a .ngin workspace manifest.');
+      void vscode.window.showErrorMessage('NGIN project context not found. Open a folder containing a .ngin or .nginproj manifest.');
     } else if (target?.projectPath || target?.profileName) {
       void vscode.window.showErrorMessage('Unable to resolve the selected NGIN project or profile.');
     }
 
     return undefined;
+  }
+
+  private async selectManifestCommand(target?: NginCommandTarget): Promise<void> {
+    const currentSnapshot = await this.workspaceState.getSnapshot(target?.preferredUri);
+    const candidates = await this.workspaceState.getManifestCandidates(target?.preferredUri);
+    if (candidates.length === 0) {
+      void vscode.window.showErrorMessage('No .ngin or .nginproj manifest was found in this VS Code folder.');
+      return;
+    }
+
+    const picked = await vscode.window.showQuickPick([
+      {
+        label: '$(search) Auto-detect',
+        description: 'Clear the pinned NGIN manifest and project',
+        autoDetect: true as const
+      },
+      ...candidates.map((candidate) => ({
+        label: candidate.name,
+        description: candidate.kind === 'workspace' ? 'Workspace' : 'Project',
+        detail: path.relative(candidate.folder.uri.fsPath, candidate.path),
+        candidate
+      }))
+    ], {
+      title: 'Select NGIN manifest',
+      placeHolder: 'Choose a workspace or project manifest'
+    });
+    if (!picked) {
+      return;
+    }
+    if ('autoDetect' in picked) {
+      await this.workspaceState.clearManualSelection(target?.preferredUri);
+      await this.refreshUi(target?.preferredUri);
+      void vscode.window.showInformationMessage('NGIN manifest selection set to auto-detect.');
+      return;
+    }
+
+    const workspaceInfo = await this.workspaceState.loadManifestContext(picked.candidate.path);
+    const currentProjectPath = currentSnapshot.context?.project.path;
+    const project = currentProjectPath
+      ? this.workspaceState.findProject(workspaceInfo, currentProjectPath)
+      : undefined;
+    const selectedProject = project
+      ?? (workspaceInfo.projects.length === 1
+        ? workspaceInfo.projects[0]
+        : await this.workspaceState.promptForProject(workspaceInfo));
+    if (!selectedProject) {
+      if (workspaceInfo.projects.length === 0) {
+        void vscode.window.showErrorMessage(`The selected workspace does not declare any projects: ${workspaceInfo.manifestPath}`);
+      }
+      return;
+    }
+
+    const profile = await this.workspaceState.resolveStoredProfile(selectedProject)
+      ?? await this.workspaceState.promptForProfile(selectedProject);
+    if (!profile) {
+      return;
+    }
+
+    await this.workspaceState.rememberSelection({
+      workspace: workspaceInfo,
+      project: selectedProject,
+      profile
+    });
+    await this.refreshUi(target?.preferredUri);
+    void vscode.window.showInformationMessage(
+      `Selected NGIN ${workspaceInfo.kind}: ${workspaceInfo.workspace.name}`
+    );
   }
 
   private async selectProjectCommand(target?: NginCommandTarget): Promise<void> {
@@ -782,7 +851,7 @@ class NginController implements vscode.Disposable {
 
     const workspaceInfo = await this.workspaceState.getWorkspaceInfo(target?.preferredUri);
     if (!workspaceInfo) {
-      void vscode.window.showErrorMessage('NGIN workspace not found.');
+      void vscode.window.showErrorMessage('NGIN project context not found.');
       return;
     }
 
@@ -814,7 +883,7 @@ class NginController implements vscode.Disposable {
 
     const workspaceInfo = await this.workspaceState.getWorkspaceInfo(target?.preferredUri);
     if (!workspaceInfo) {
-      void vscode.window.showErrorMessage('NGIN workspace not found.');
+      void vscode.window.showErrorMessage('NGIN project context not found.');
       return;
     }
 
@@ -843,7 +912,7 @@ class NginController implements vscode.Disposable {
   private async pickProjectFromStatusBar(target?: NginCommandTarget): Promise<void> {
     const workspaceInfo = await this.workspaceState.getWorkspaceInfo(target?.preferredUri);
     if (!workspaceInfo) {
-      void vscode.window.showErrorMessage('NGIN workspace not found.');
+      void vscode.window.showErrorMessage('NGIN project context not found.');
       return;
     }
 
@@ -867,7 +936,7 @@ class NginController implements vscode.Disposable {
   private async pickProfileFromStatusBar(target?: NginCommandTarget): Promise<void> {
     const snapshot = await this.workspaceState.getSnapshot(target?.preferredUri);
     if (!snapshot.workspace || !snapshot.context) {
-      void vscode.window.showErrorMessage('NGIN workspace not found.');
+      void vscode.window.showErrorMessage('NGIN project context not found.');
       return;
     }
 
@@ -1493,7 +1562,10 @@ class NginController implements vscode.Disposable {
     const resolved = await this.resolveToolRun(target);
     if (!resolved) return;
     const { context, run } = resolved;
-    const command = `ngin tool run ${quoteShellArgument(run.name)} --project ${quoteShellArgument(path.relative(context.workspace.root, context.project.path))} --profile ${quoteShellArgument(context.profile.name)}`;
+    const workspaceArgument = context.workspace.kind === 'workspace'
+      ? ` --workspace ${quoteShellArgument(path.relative(context.workspace.root, context.workspace.manifestPath))}`
+      : '';
+    const command = `ngin tool run ${quoteShellArgument(run.name)} --project ${quoteShellArgument(path.relative(context.workspace.root, context.project.path))}${workspaceArgument} --profile ${quoteShellArgument(context.profile.name)}`;
     await vscode.env.clipboard.writeText(command);
     void vscode.window.showInformationMessage(`Copied invocation for ${run.displayName || run.name}.`);
   }
@@ -1867,6 +1939,10 @@ class NginController implements vscode.Disposable {
     const workspaceInfo = await this.workspaceState.getWorkspaceInfo();
     if (!workspaceInfo) {
       void vscode.window.showErrorMessage('NGIN workspace not found.');
+      return;
+    }
+    if (workspaceInfo.kind !== 'workspace') {
+      void vscode.window.showErrorMessage('This command requires an active .ngin workspace manifest.');
       return;
     }
 
@@ -2324,7 +2400,7 @@ class NginController implements vscode.Disposable {
   private async resolveExplorerProject(target?: ProjectExplorerTarget): Promise<{ workspace: ResolvedWorkspaceInfo; project: ResolvedCommandContext['project'] } | undefined> {
     const workspaceInfo = await this.workspaceState.getWorkspaceInfo(target?.preferredUri);
     if (!workspaceInfo) {
-      void vscode.window.showErrorMessage('NGIN workspace not found.');
+      void vscode.window.showErrorMessage('NGIN project context not found.');
       return undefined;
     }
 
@@ -2627,7 +2703,21 @@ class NginController implements vscode.Disposable {
     const configuration = this.getConfigurationForRoot(workspaceRoot);
     const verbosity = configuration.get<string>('output.verbosity') ?? 'normal';
     const color = configuration.get<string>('output.color') ?? 'never';
-    const actualArgs = [...args];
+    let actualArgs = [...args];
+    if (actualArgs.includes('--project') && !actualArgs.includes('--workspace')) {
+      const projectIndex = actualArgs.indexOf('--project');
+      const projectPath = projectIndex >= 0 ? actualArgs[projectIndex + 1] : undefined;
+      const workspaceInfo = projectPath
+        ? await this.workspaceState.getWorkspaceInfoForProject(projectPath, diagnosticsResource)
+        : undefined;
+      if (
+        workspaceInfo?.kind === 'workspace' &&
+        projectPath &&
+        this.workspaceState.findProject(workspaceInfo, projectPath)
+      ) {
+        actualArgs = withExplicitWorkspace(actualArgs, workspaceInfo.manifestPath);
+      }
+    }
     const commandName = args[0] ?? 'command';
     const profileIndex = actualArgs.indexOf('--profile');
     const diagnosticsOwner = `${diagnosticsResource?.toString() ?? '<none>'}::${profileIndex >= 0 ? actualArgs[profileIndex + 1] ?? '<none>' : '<none>'}`;
@@ -3122,6 +3212,12 @@ class NginController implements vscode.Disposable {
     const args: string[] = [definition.command];
     if (definition.project) {
       args.push('--project', definition.project);
+      if (
+        workspaceInfo?.kind === 'workspace' &&
+        this.workspaceState.findProject(workspaceInfo, definition.project)
+      ) {
+        args.push('--workspace', workspaceInfo.manifestPath);
+      }
     }
 
     const resolvedProject = definition.project && workspaceInfo

@@ -3,6 +3,18 @@ import { promises as fs } from 'node:fs';
 import { PackageCatalogEntry, ProjectManifest, WorkspaceManifest } from './types';
 import { parsePackageManifest, parseProjectManifest, parseWorkspaceManifest } from './xml';
 
+const GENERATED_MANIFEST_DIRECTORIES = new Set(['build', '.ngin', 'node_modules']);
+
+export function isAuthoredManifestCandidate(folderPath: string, candidatePath: string): boolean {
+  const relativePath = path.relative(folderPath, candidatePath);
+  if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+    return false;
+  }
+  return !relativePath
+    .split(path.sep)
+    .some((segment) => GENERATED_MANIFEST_DIRECTORIES.has(segment.toLowerCase()));
+}
+
 export async function pathExists(candidate: string): Promise<boolean> {
   try {
     await fs.access(candidate);
@@ -34,6 +46,43 @@ export async function findNearestWorkspaceManifest(startPath: string): Promise<s
       .map((entry) => path.join(current, entry.name))
       .sort();
 
+    if (matches.length > 0) {
+      return matches[0];
+    }
+
+    const parent = path.dirname(current);
+    if (parent === current) {
+      return undefined;
+    }
+    current = parent;
+  }
+}
+
+export async function findNearestProjectManifest(startPath: string): Promise<string | undefined> {
+  let current = startPath;
+  try {
+    const stat = await fs.stat(current);
+    if (stat.isFile()) {
+      if (current.endsWith('.nginproj')) {
+        return current;
+      }
+      current = path.dirname(current);
+    }
+  } catch {
+    current = path.dirname(current);
+  }
+
+  while (true) {
+    let entries: import('node:fs').Dirent[] = [];
+    try {
+      entries = await fs.readdir(current, { withFileTypes: true });
+    } catch {
+      return undefined;
+    }
+    const matches = entries
+      .filter((entry) => entry.isFile() && entry.name.endsWith('.nginproj'))
+      .map((entry) => path.join(current, entry.name))
+      .sort();
     if (matches.length > 0) {
       return matches[0];
     }
@@ -118,4 +167,22 @@ export async function loadWorkspaceProjects(workspaceManifestPath: string): Prom
   }
 
   return { workspace, projects, packageCatalog };
+}
+
+export async function loadStandaloneProject(projectManifestPath: string): Promise<{
+  workspace: WorkspaceManifest;
+  projects: ProjectManifest[];
+  packageCatalog: Record<string, PackageCatalogEntry>;
+}> {
+  const project = await loadProjectManifest(projectManifestPath);
+  return {
+    workspace: {
+      path: project.path,
+      directory: project.directory,
+      name: project.name,
+      projectPaths: [project.path]
+    },
+    projects: [project],
+    packageCatalog: {}
+  };
 }

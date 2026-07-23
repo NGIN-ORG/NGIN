@@ -16,11 +16,10 @@ namespace NGIN::Core
 {
   namespace
   {
-    using XmlDocument = NGIN::Serialization::XmlDocument;
-    using XmlElement = NGIN::Serialization::XmlElement;
-    using XmlNode = NGIN::Serialization::XmlNode;
-    using XmlParseOptions = NGIN::Serialization::XmlParseOptions;
-    using XmlParser = NGIN::Serialization::XmlParser;
+    using XmlDocument = NGIN::Serialization::XML::Document;
+    using XmlElement = NGIN::Serialization::XML::ElementView;
+    using XmlNode = NGIN::Serialization::XML::NodeView;
+    using XmlParser = NGIN::Serialization::XML::Parser;
     using IoError = NGIN::IO::IOError;
     using IoErrorCode = NGIN::IO::IOErrorCode;
     using IoFileSystem = NGIN::IO::IFileSystem;
@@ -49,7 +48,7 @@ namespace NGIN::Core
     struct LoadedXmlDocument
     {
       std::string text{};
-      XmlDocument document{0};
+      XmlDocument document{};
     };
 
     [[nodiscard]] auto
@@ -138,12 +137,8 @@ namespace NGIN::Core
       LoadedXmlDocument loaded{};
       loaded.text = text;
 
-      XmlParseOptions options{};
-      options.decodeEntities = true;
-      options.arenaBytes = std::max<NGIN::UIntSize>(
-          16384, static_cast<NGIN::UIntSize>(loaded.text.size() * 8 + 4096));
-
-      auto parsed = XmlParser::Parse(loaded.text, options);
+      auto parsed = XmlParser::Parse(
+          NGIN::Serialization::OwnedTextBuffer{loaded.text});
       if (!parsed)
       {
         return NGIN::Utilities::Unexpected<KernelError>(
@@ -195,12 +190,12 @@ namespace NGIN::Core
     [[nodiscard]] auto Attribute(const XmlElement &node, const std::string_view key)
         -> std::optional<std::string>
     {
-      const auto *attribute = node.FindAttribute(key);
-      if (attribute == nullptr)
+      const auto attribute = node.Attribute(key);
+      if (!attribute.has_value())
       {
         return std::nullopt;
       }
-      return std::string(attribute->value);
+      return std::string(attribute->Value());
     }
 
     [[nodiscard]] auto RequireAttribute(const XmlElement &element,
@@ -1022,7 +1017,7 @@ namespace NGIN::Core
         return NGIN::Utilities::Unexpected<KernelError>(loaded.Error());
       }
 
-      const auto *root = loaded.Value().document.Root();
+      const auto *root = loaded.Value().document.RootPtr();
       if (root == nullptr || root->name != "Project")
       {
         return NGIN::Utilities::Unexpected<KernelError>(
@@ -1860,7 +1855,7 @@ namespace NGIN::Core
         return NGIN::Utilities::Unexpected<KernelError>(loaded.Error());
       }
 
-      const auto *root = loaded.Value().document.Root();
+      const auto *root = loaded.Value().document.RootPtr();
       if (root == nullptr || root->name != "Package")
       {
         return NGIN::Utilities::Unexpected<KernelError>(

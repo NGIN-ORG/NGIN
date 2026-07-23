@@ -1267,12 +1267,19 @@ namespace NGIN::CLI
 
     [[nodiscard]] auto ResolveLaunch(
         const ProjectManifest &project,
-        const ProfileDefinition &profile) -> DiagnosticResult<ResolvedLaunch>
+        const ProfileDefinition &profile,
+        const std::optional<WorkspaceManifest> &workspaceOverride) -> DiagnosticResult<ResolvedLaunch>
     {
         DiagnosticResult<ResolvedLaunch> result{};
 
-        const auto workspaceRoot = RootDirFrom(project.path.parent_path());
-        const auto workspace = workspaceRoot.has_value() ? TryLoadWorkspaceManifest(*workspaceRoot) : std::nullopt;
+        auto workspaceRoot = workspaceOverride.has_value()
+                                 ? std::optional<fs::path>{workspaceOverride->path.parent_path()}
+                                 : RootDirFrom(project.path.parent_path());
+        auto workspace = workspaceOverride;
+        if (!workspace.has_value() && workspaceRoot.has_value())
+        {
+            workspace = TryLoadWorkspaceManifest(*workspaceRoot);
+        }
         const auto effectiveProject = ProjectWithWorkspacePolicy(project, workspace);
         auto effectiveProfile = ProfileWithWorkspacePolicy(effectiveProject, workspace, profile.name);
         if (!profile.launch.name.empty())

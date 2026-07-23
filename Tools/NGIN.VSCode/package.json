@@ -27,6 +27,7 @@
   ],
   "activationEvents": [
     "onDebugResolve:ngin",
+    "workspaceContains:**/*.ngin",
     "workspaceContains:**/*.nginproj",
     "workspaceContains:**/*.nginsettings"
   ],
@@ -124,8 +125,13 @@
     ],
     "commands": [
       {
+        "command": "ngin.selectManifest",
+        "title": "Select Manifest…",
+        "category": "NGIN"
+      },
+      {
         "command": "ngin.selectProject",
-        "title": "Select Project",
+        "title": "Select Project…",
         "category": "NGIN"
       },
       {
@@ -401,6 +407,10 @@
         }
       ],
       "view/title": [
+        {
+          "command": "ngin.selectManifest",
+          "when": "view == nginWorkspace"
+        },
         {
           "command": "ngin.build",
           "when": "view == nginWorkspace",

@@ -2634,7 +2634,7 @@ namespace NGIN::CLI
     auto ParseDefinitionFragment(const fs::path &path, WorkspaceManifest &workspace) -> void
     {
         const auto doc = LoadXml(path);
-        const auto *rootElement = doc.document.Root();
+        const auto *rootElement = doc.document.RootPtr();
         if (rootElement == nullptr || rootElement->name != "Definitions")
         {
             throw std::runtime_error(path.string() + ": root element must be <Definitions>");
@@ -3504,39 +3504,39 @@ namespace NGIN::CLI
         }
     }
 
-    [[nodiscard]] auto LoadWorkspaceManifest(const fs::path &root) -> WorkspaceManifest
+    [[nodiscard]] auto LoadWorkspaceManifestFile(const fs::path &manifestPath) -> WorkspaceManifest
     {
-        const auto path = WorkspaceFilePath(root);
-        if (!path.has_value())
+        if (!fs::exists(manifestPath) || !fs::is_regular_file(manifestPath))
         {
-            throw std::runtime_error(root.string() + ": no .ngin workspace file found");
+            throw std::runtime_error(manifestPath.string() + ": workspace manifest not found");
         }
-        const auto doc = LoadXml(*path);
-        const auto *rootElement = doc.document.Root();
+        const auto path = fs::weakly_canonical(manifestPath);
+        const auto doc = LoadXml(path);
+        const auto *rootElement = doc.document.RootPtr();
         if (rootElement == nullptr || rootElement->name != "Workspace")
         {
-            throw std::runtime_error(path->string() + ": root element must be <Workspace>");
+            throw std::runtime_error(path.string() + ": root element must be <Workspace>");
         }
-        const auto schemaVersion = SchemaVersion(*rootElement, *path);
+        const auto schemaVersion = SchemaVersion(*rootElement, path);
         if (schemaVersion != "4")
         {
-            throw std::runtime_error(path->string() + ": unsupported workspace SchemaVersion '" + schemaVersion +
+            throw std::runtime_error(path.string() + ": unsupported workspace SchemaVersion '" + schemaVersion +
                                      "' (expected '4')");
         }
 
         WorkspaceManifest workspace{};
-        workspace.path = fs::weakly_canonical(*path);
-        workspace.name = RequireAttribute(*rootElement, "Name", *path);
+        workspace.path = path;
+        workspace.name = RequireAttribute(*rootElement, "Name", path);
         workspace.defaultProfile = Attribute(*rootElement, "DefaultProfile").value_or("");
         workspace.platformVersion = Attribute(*rootElement, "PlatformVersion").value_or("0.1.0");
-        ParseToolingResolutionPolicy(*rootElement, *path, workspace.toolingResolutionPolicy);
+        ParseToolingResolutionPolicy(*rootElement, path, workspace.toolingResolutionPolicy);
 
         if (const auto *imports = FindChild(*rootElement, "Imports"))
         {
             for (const auto *import : ChildElements(*imports, "Import"))
             {
                 const auto importPath =
-                    (workspace.path.parent_path() / RequireAttribute(*import, "Path", *path)).lexically_normal();
+                    (workspace.path.parent_path() / RequireAttribute(*import, "Path", path)).lexically_normal();
                 workspace.imports.push_back(importPath);
                 ParseDefinitionFragment(importPath, workspace);
             }
@@ -3545,12 +3545,12 @@ namespace NGIN::CLI
         {
             if (const auto *outputRoot = FindChild(*defaults, "OutputRoot"))
             {
-                const auto authoredRoot = fs::path(RequireAttribute(*outputRoot, "Path", *path));
+                const auto authoredRoot = fs::path(RequireAttribute(*outputRoot, "Path", path));
                 workspace.outputRoot = authoredRoot.is_absolute()
                                            ? authoredRoot.lexically_normal()
                                            : (workspace.path.parent_path() / authoredRoot).lexically_normal();
             }
-            ParseWorkspaceDefaults(*defaults, *path, workspace, workspace.defaults);
+            ParseWorkspaceDefaults(*defaults, path, workspace, workspace.defaults);
         }
         if (const auto *packagesNode = FindChild(*rootElement, "Packages"))
         {
@@ -3567,7 +3567,7 @@ namespace NGIN::CLI
             }
             for (const auto *provider : ChildElements(*packagesNode, "PackageProvider"))
             {
-                const auto name = RequireAttribute(*provider, "Name", *path);
+                const auto name = RequireAttribute(*provider, "Name", path);
                 const auto providerRoot =
                     Attribute(*provider, "Root").value_or(Attribute(*provider, "Path").value_or(""));
                 if (!providerRoot.empty())
@@ -3578,11 +3578,11 @@ namespace NGIN::CLI
             for (const auto *provider : ChildElements(*packagesNode, "Provider"))
             {
                 WorkspaceManifest::PackageProvider parsed{};
-                parsed.name = RequireAttribute(*provider, "Name", *path);
-                parsed.kind = RequireAttribute(*provider, "Kind", *path);
+                parsed.name = RequireAttribute(*provider, "Name", path);
+                parsed.kind = RequireAttribute(*provider, "Kind", path);
                 if (!IsSupportedExternalPackageProviderKind(parsed.kind))
                 {
-                    throw std::runtime_error(path->string() + ": unknown package provider kind '" + parsed.kind + "'");
+                    throw std::runtime_error(path.string() + ": unknown package provider kind '" + parsed.kind + "'");
                 }
                 const auto providerRoot =
                     Attribute(*provider, "Root").value_or(Attribute(*provider, "Path").value_or(""));
@@ -3596,7 +3596,7 @@ namespace NGIN::CLI
             }
             for (const auto *version : ChildElements(*packagesNode, "Version"))
             {
-                workspace.dependencyVersions[RequireAttribute(*version, "Name", *path)] =
+                workspace.dependencyVersions[RequireAttribute(*version, "Name", path)] =
                     Attribute(*version, "Range").value_or(Attribute(*version, "Version").value_or(""));
             }
         }
@@ -3606,7 +3606,7 @@ namespace NGIN::CLI
             for (const auto *node : ChildElements(*projectsNode, "Project"))
             {
                 workspace.projects.push_back(
-                    (workspace.path.parent_path() / RequireAttribute(*node, "Path", *path)).lexically_normal());
+                    (workspace.path.parent_path() / RequireAttribute(*node, "Path", path)).lexically_normal());
             }
         }
         if (const auto *profiles = FindChild(*rootElement, "Profiles"))
@@ -3614,47 +3614,47 @@ namespace NGIN::CLI
             for (const auto *node : ChildElements(*profiles, "Profile"))
             {
                 WorkspaceManifest::ProfilePolicy profile{};
-                profile.name = RequireAttribute(*node, "Name", *path);
+                profile.name = RequireAttribute(*node, "Name", path);
                 if (const auto *defaults = FindChild(*node, "Defaults"))
                 {
-                    ParseWorkspaceDefaults(*defaults, *path, workspace, profile);
+                    ParseWorkspaceDefaults(*defaults, path, workspace, profile);
                 }
                 if (const auto *build = FindChild(*node, "Build"))
                 {
-                    ParseWorkspaceBuildPolicy(*build, *path, profile);
+                    ParseWorkspaceBuildPolicy(*build, path, profile);
                 }
                 if (FindChild(*node, "Quality") != nullptr)
                 {
-                    throw std::runtime_error(path->string() +
+                    throw std::runtime_error(path.string() +
                                              ": legacy <Quality>/<Analyzer> is not supported; use <Tooling>/<Run>");
                 }
                 if (const auto *tooling = FindChild(*node, "Tooling"))
                 {
-                    ParseWorkspaceToolingPolicy(*tooling, *path, profile);
+                    ParseWorkspaceToolingPolicy(*tooling, path, profile);
                 }
                 if (const auto *environment = FindChild(*node, "Environment"))
                 {
-                    ParseWorkspaceEnvironmentPolicy(*environment, *path, profile);
+                    ParseWorkspaceEnvironmentPolicy(*environment, path, profile);
                 }
                 if (const auto *stage = FindChild(*node, "Stage"))
                 {
-                    ParseWorkspaceStagePolicy(*stage, *path, profile);
+                    ParseWorkspaceStagePolicy(*stage, path, profile);
                 }
                 if (const auto *uses = FindChild(*node, "Uses"))
                 {
-                    ParseWorkspaceUsesPolicy(*uses, *path, workspace, profile);
+                    ParseWorkspaceUsesPolicy(*uses, path, workspace, profile);
                 }
                 if (const auto *runtime = FindChild(*node, "Runtime"))
                 {
-                    ParseWorkspaceRuntimePolicy(*runtime, *path, profile);
+                    ParseWorkspaceRuntimePolicy(*runtime, path, profile);
                 }
                 if (const auto *generate = FindChild(*node, "Generate"))
                 {
-                    ParseWorkspaceGeneratePolicy(*generate, *path, profile);
+                    ParseWorkspaceGeneratePolicy(*generate, path, profile);
                 }
-                ParseWorkspaceLaunchPolicy(*node, *path, profile);
-                ParseWorkspacePublishPolicy(*node, *path, profile);
-                ParseWorkspacePackageOutputPolicy(*node, *path, profile);
+                ParseWorkspaceLaunchPolicy(*node, path, profile);
+                ParseWorkspacePublishPolicy(*node, path, profile);
+                ParseWorkspacePackageOutputPolicy(*node, path, profile);
                 for (const auto *productOverlay : ChildElements(*node))
                 {
                     if (!IsProductElementName(productOverlay->name))
@@ -3663,47 +3663,57 @@ namespace NGIN::CLI
                     }
                     if (const auto *build = FindChild(*productOverlay, "Build"))
                     {
-                        ParseWorkspaceBuildPolicy(*build, *path, profile, std::string{productOverlay->name});
+                        ParseWorkspaceBuildPolicy(*build, path, profile, std::string{productOverlay->name});
                     }
                     if (FindChild(*productOverlay, "Quality") != nullptr)
                     {
-                        throw std::runtime_error(path->string() +
+                        throw std::runtime_error(path.string() +
                                                  ": legacy <Quality>/<Analyzer> is not supported; use <Tooling>/<Run>");
                     }
                     if (const auto *tooling = FindChild(*productOverlay, "Tooling"))
                     {
-                        ParseWorkspaceToolingPolicy(*tooling, *path, profile, std::string{productOverlay->name});
+                        ParseWorkspaceToolingPolicy(*tooling, path, profile, std::string{productOverlay->name});
                     }
                     if (const auto *environment = FindChild(*productOverlay, "Environment"))
                     {
-                        ParseWorkspaceEnvironmentPolicy(*environment, *path, profile,
+                        ParseWorkspaceEnvironmentPolicy(*environment, path, profile,
                                                         std::string{productOverlay->name});
                     }
                     if (const auto *stage = FindChild(*productOverlay, "Stage"))
                     {
-                        ParseWorkspaceStagePolicy(*stage, *path, profile, std::string{productOverlay->name});
+                        ParseWorkspaceStagePolicy(*stage, path, profile, std::string{productOverlay->name});
                     }
                     if (const auto *uses = FindChild(*productOverlay, "Uses"))
                     {
-                        ParseWorkspaceUsesPolicy(*uses, *path, workspace, profile, std::string{productOverlay->name});
+                        ParseWorkspaceUsesPolicy(*uses, path, workspace, profile, std::string{productOverlay->name});
                     }
                     if (const auto *runtime = FindChild(*productOverlay, "Runtime"))
                     {
-                        ParseWorkspaceRuntimePolicy(*runtime, *path, profile, std::string{productOverlay->name});
+                        ParseWorkspaceRuntimePolicy(*runtime, path, profile, std::string{productOverlay->name});
                     }
                     if (const auto *generate = FindChild(*productOverlay, "Generate"))
                     {
-                        ParseWorkspaceGeneratePolicy(*generate, *path, profile, std::string{productOverlay->name});
+                        ParseWorkspaceGeneratePolicy(*generate, path, profile, std::string{productOverlay->name});
                     }
-                    ParseWorkspaceLaunchPolicy(*productOverlay, *path, profile, std::string{productOverlay->name});
-                    ParseWorkspacePublishPolicy(*productOverlay, *path, profile, std::string{productOverlay->name});
-                    ParseWorkspacePackageOutputPolicy(*productOverlay, *path, profile,
+                    ParseWorkspaceLaunchPolicy(*productOverlay, path, profile, std::string{productOverlay->name});
+                    ParseWorkspacePublishPolicy(*productOverlay, path, profile, std::string{productOverlay->name});
+                    ParseWorkspacePackageOutputPolicy(*productOverlay, path, profile,
                                                       std::string{productOverlay->name});
                 }
                 workspace.profiles.push_back(std::move(profile));
             }
         }
         return workspace;
+    }
+
+    [[nodiscard]] auto LoadWorkspaceManifest(const fs::path &root) -> WorkspaceManifest
+    {
+        const auto path = WorkspaceFilePath(root);
+        if (!path.has_value())
+        {
+            throw std::runtime_error(root.string() + ": no .ngin workspace file found");
+        }
+        return LoadWorkspaceManifestFile(*path);
     }
 
     [[nodiscard]] auto TryLoadWorkspaceManifest(const fs::path &root) -> std::optional<WorkspaceManifest>
@@ -3747,7 +3757,7 @@ namespace NGIN::CLI
         };
         auto addFeedIndex = [&](const fs::path &feedPath, const std::optional<std::string> &sourceUrl = std::nullopt) {
             const auto feed = LoadXml(feedPath);
-            const auto *rootElement = feed.document.Root();
+            const auto *rootElement = feed.document.RootPtr();
             if (rootElement == nullptr || rootElement->name != "PackageFeed")
             {
                 throw std::runtime_error(feedPath.string() + ": root element must be <PackageFeed>");
@@ -3847,7 +3857,7 @@ namespace NGIN::CLI
         const auto doc = path.extension() == ".nginpack"
                              ? LoadXmlText(ExtractNginPackManifest(path), path.string() + ":package.nginpkg")
                              : LoadXml(path);
-        const auto *rootElement = doc.document.Root();
+        const auto *rootElement = doc.document.RootPtr();
         if (rootElement == nullptr || rootElement->name != "Package")
         {
             throw std::runtime_error(path.string() + ": root element must be <Package>");
@@ -4214,7 +4224,7 @@ namespace NGIN::CLI
     [[nodiscard]] auto LoadLocalSettingsManifest(const fs::path &path) -> LocalSettingsManifest
     {
         const auto doc = LoadXml(path);
-        const auto *rootElement = doc.document.Root();
+        const auto *rootElement = doc.document.RootPtr();
         if (rootElement == nullptr || rootElement->name != "LocalSettings")
         {
             throw std::runtime_error(path.string() + ": root element must be <LocalSettings>");
@@ -5685,7 +5695,7 @@ namespace NGIN::CLI
     [[nodiscard]] auto LoadProjectManifest(const fs::path &path) -> ProjectManifest
     {
         const auto doc = LoadXml(path);
-        const auto *rootElement = doc.document.Root();
+        const auto *rootElement = doc.document.RootPtr();
         if (rootElement == nullptr || rootElement->name != "Project")
         {
             throw std::runtime_error(path.string() + ": root element must be <Project>");

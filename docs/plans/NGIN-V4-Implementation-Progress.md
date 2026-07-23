@@ -279,6 +279,28 @@ platform/toolchain resolution surface.
 Workspace remote package URLs and definition-driven project resolution beyond
 first-pass profile policy are still future work.
 
+### Standalone Projects And Exact Manifest Selection
+
+Project-scoped CLI commands accept `--workspace <file.ngin>` to load and apply
+one exact V4 workspace manifest. Without the option, existing ancestor
+workspace discovery is unchanged. A project remains directly invokable through
+`--project` without any `.ngin` manifest.
+
+The VS Code extension now:
+
+- loads a standalone `.nginproj` as a complete project context
+- exposes the CLI's implicit `dev` profile when no default profile is authored
+- provides `NGIN: Select Manifest...` for `.ngin` and `.nginproj` candidates
+- persists the selected manifest, project, and project profile per VS Code
+  workspace folder
+- gives a manual selection precedence over active-editor inference
+- provides `Auto-detect` to clear the manual manifest and project pin
+- passes the exact selected workspace to project-scoped CLI commands and tasks
+- labels standalone project contexts distinctly and hides workspace-only tree
+  actions
+- excludes manifest candidates under generated `build`, `.ngin`, and
+  `node_modules` directories
+
 ### V4 Package Manifest Parsing
 
 `Package SchemaVersion="4"` is accepted.
@@ -977,6 +999,9 @@ Current test coverage includes:
 - V4 profile `Uses` project reference removals
 - V4 profile `Uses` package dependency removals
 - V4 workspace project/source/version parsing
+- standalone project invocation without a workspace manifest
+- exact `--workspace` project invocation and graph workspace identity
+- missing exact-workspace diagnostics
 - V4 workspace default profile command selection
 - V4 workspace profile policy on projects without local profiles
 - V4 workspace language/backend build defaults
@@ -1040,6 +1065,9 @@ Current test coverage includes:
 - V4-only `NGIN.Core` runtime project/package manifest reader
 - V4 `NGIN.Core` runtime manifest tests
 - V4-only VS Code workspace/project/package parser surface
+- VS Code standalone `.nginproj` discovery and implicit `dev` profile metadata
+- VS Code exact workspace argument forwarding and project selection precedence
+- VS Code standalone context and manifest-candidate filtering presentation
 - VS Code `.nginmodel` language registration removed
 - VS Code V3 schema artifact replaced with first-pass V4 project schema
 - VS Code snippets rewritten to product-first V4 authoring

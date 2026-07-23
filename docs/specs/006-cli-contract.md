@@ -33,6 +33,10 @@ Stable active commands:
 - `ngin workspace status`
 - `ngin workspace doctor`
 
+Project-scoped commands accept `--workspace <file.ngin>` when an exact
+workspace manifest must be selected. Without it, the CLI preserves normal
+ancestor workspace discovery.
+
 Removed commands:
 
 - `ngin project ...`
@@ -95,6 +99,8 @@ Removed commands:
   a schema-versioned JSON payload without configuring, building, running
   generators, writing lock files, or mutating repository state
 - a workspace is optional
+- `--workspace <file.ngin>` loads that exact V4 workspace for the selected
+  project instead of rediscovering one from the project directory
 
 ## Event Stream Output
 

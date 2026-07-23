@@ -216,11 +216,15 @@ without building or staging artifacts.
 Default location:
 
 ```text
-.ngin/build/<Project>/<Profile>/
+build/ngin/<Project>/<Profile>/
 ```
 
 `ngin run` and the VS Code extension use `.nginlaunch` for local launch/debug
 resolution. It is generated tooling metadata, not an authored input file.
+
+Projects can be used without a workspace manifest. Pass `--project` to select
+a `.nginproj` directly. When more than one workspace could apply, pass
+`--workspace <file.ngin>` to select the exact workspace policy.
 
 ## Local Settings And Secrets
 

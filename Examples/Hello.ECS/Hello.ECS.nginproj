@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4"
+         Name="Hello.ECS"
+         DefaultProfile="Debug">
+
+  <Application>
+    <Uses>
+      <Package Name="NGIN.ECS"
+               Version=">=0.2.0 &lt;0.3.0"
+               Scope="Target" />
+    </Uses>
+
+    <Build>
+      <Sources Path="src/**.cpp" />
+    </Build>
+
+    <Launch Executable="Hello.ECS"
+            WorkingDirectory="." />
+  </Application>
+
+  <Profile Name="Debug">
+    <Defaults>
+      <Optimization Mode="Off" />
+      <DebugSymbols Enabled="true" />
+      <LinkTimeOptimization Enabled="false" />
+      <TargetPlatform Name="host" />
+      <Environment Name="local" />
+    </Defaults>
+  </Profile>
+</Project>

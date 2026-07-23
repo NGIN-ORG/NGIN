@@ -19,6 +19,7 @@ add_library(ngin_cli_model STATIC
   src/Events.cpp
 )
 _ngin_cli_apply_defaults(ngin_cli_model)
+target_link_libraries(ngin_cli_model PUBLIC NGIN::Base)
 
 add_library(ngin_cli_authoring STATIC
   src/Authoring.cpp

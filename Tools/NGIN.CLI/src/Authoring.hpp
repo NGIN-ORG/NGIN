@@ -19,6 +19,7 @@ namespace NGIN::CLI
     [[nodiscard]] auto RootDir(const char *argv0) -> fs::path;
 
     [[nodiscard]] auto LoadWorkspaceManifest(const fs::path &root) -> WorkspaceManifest;
+    [[nodiscard]] auto LoadWorkspaceManifestFile(const fs::path &path) -> WorkspaceManifest;
     [[nodiscard]] auto TryLoadWorkspaceManifest(const fs::path &root) -> std::optional<WorkspaceManifest>;
     [[nodiscard]] auto LoadPackageCatalog(
         const std::optional<WorkspaceManifest> &workspace,

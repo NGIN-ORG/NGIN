@@ -3,6 +3,7 @@
 #include <NGIN/Serialization/Core/ParseError.hpp>
 #include <NGIN/Serialization/XML/XmlParser.hpp>
 #include <NGIN/Serialization/XML/XmlTypes.hpp>
+#include <NGIN/Serialization/XML/XmlWriter.hpp>
 
 #include <algorithm>
 #include <array>
@@ -22,15 +23,14 @@ namespace NGIN::CLI {
 namespace fs = std::filesystem;
 
 using NGIN::Serialization::ParseError;
-using NGIN::Serialization::XmlDocument;
-using NGIN::Serialization::XmlElement;
-using NGIN::Serialization::XmlNode;
-using NGIN::Serialization::XmlParseOptions;
-using NGIN::Serialization::XmlParser;
+using XmlDocument = NGIN::Serialization::XML::Document;
+using XmlElement = NGIN::Serialization::XML::ElementView;
+using XmlNode = NGIN::Serialization::XML::NodeView;
+using XmlParser = NGIN::Serialization::XML::Parser;
 
 struct LoadedXml {
   std::string text{};
-  XmlDocument document{0};
+  XmlDocument document{};
 };
 
 [[nodiscard]] inline auto ReadText(const fs::path &path) -> std::string {
@@ -330,11 +330,8 @@ inline auto ExtractZipFile(const fs::path &archivePath,
 [[nodiscard]] inline auto LoadXml(const fs::path &path) -> LoadedXml {
   LoadedXml loaded{};
   loaded.text = ReadText(path);
-  XmlParseOptions options{};
-  options.decodeEntities = true;
-  options.arenaBytes = std::max<NGIN::UIntSize>(
-      16384, static_cast<NGIN::UIntSize>(loaded.text.size() * 8 + 4096));
-  auto parsed = XmlParser::Parse(loaded.text, options);
+  auto parsed = XmlParser::Parse(
+      NGIN::Serialization::OwnedTextBuffer{loaded.text});
   if (!parsed.HasValue()) {
     throw std::runtime_error(
         path.string() + ": failed to parse XML: " + ToString(parsed.Error()));
@@ -347,11 +344,8 @@ inline auto ExtractZipFile(const fs::path &archivePath,
                                       const std::string &origin) -> LoadedXml {
   LoadedXml loaded{};
   loaded.text = text;
-  XmlParseOptions options{};
-  options.decodeEntities = true;
-  options.arenaBytes = std::max<NGIN::UIntSize>(
-      16384, static_cast<NGIN::UIntSize>(loaded.text.size() * 8 + 4096));
-  auto parsed = XmlParser::Parse(loaded.text, options);
+  auto parsed = XmlParser::Parse(
+      NGIN::Serialization::OwnedTextBuffer{loaded.text});
   if (!parsed.HasValue()) {
     throw std::runtime_error(
         origin + ": failed to parse XML: " + ToString(parsed.Error()));
@@ -364,14 +358,14 @@ inline auto ExtractZipFile(const fs::path &archivePath,
                                         std::string_view name = {})
     -> std::vector<const XmlElement *> {
   std::vector<const XmlElement *> out;
-  out.reserve(static_cast<std::size_t>(node.children.Size()));
-  for (NGIN::UIntSize index = 0; index < node.children.Size(); ++index) {
-    const auto &child = node.children[index];
-    if (child.type != XmlNode::Type::Element || child.element == nullptr) {
+  out.reserve(static_cast<std::size_t>(node.Children().Size()));
+  for (const auto child : node.Children()) {
+    const auto *element = child.ElementPtr();
+    if (element == nullptr) {
       continue;
     }
-    if (name.empty() || child.element->name == name) {
-      out.push_back(child.element);
+    if (name.empty() || element->Name() == name) {
+      out.push_back(element);
     }
   }
   return out;
@@ -380,24 +374,17 @@ inline auto ExtractZipFile(const fs::path &archivePath,
 [[nodiscard]] inline auto FindChild(const XmlElement &node,
                                     std::string_view name)
     -> const XmlElement * {
-  for (NGIN::UIntSize index = 0; index < node.children.Size(); ++index) {
-    const auto &child = node.children[index];
-    if (child.type == XmlNode::Type::Element && child.element != nullptr &&
-        child.element->name == name) {
-      return child.element;
-    }
-  }
-  return nullptr;
+  return node.FirstChildPtr(name);
 }
 
 [[nodiscard]] inline auto Attribute(const XmlElement &node,
                                     std::string_view key)
     -> std::optional<std::string> {
-  const auto *attr = node.FindAttribute(key);
-  if (attr == nullptr) {
+  const auto attr = node.Attribute(key);
+  if (!attr.has_value()) {
     return std::nullopt;
   }
-  return std::string(attr->value);
+  return std::string(attr->Value());
 }
 
 [[nodiscard]] inline auto RequireAttribute(const XmlElement &node,
@@ -430,31 +417,10 @@ inline auto ExtractZipFile(const fs::path &archivePath,
 }
 
 [[nodiscard]] inline auto EscapeXml(std::string_view input) -> std::string {
-  std::string out;
-  out.reserve(input.size());
-  for (const char ch : input) {
-    switch (ch) {
-    case '&':
-      out += "&amp;";
-      break;
-    case '<':
-      out += "&lt;";
-      break;
-    case '>':
-      out += "&gt;";
-      break;
-    case '"':
-      out += "&quot;";
-      break;
-    case '\'':
-      out += "&apos;";
-      break;
-    default:
-      out.push_back(ch);
-      break;
-    }
-  }
-  return out;
+  auto encoded = NGIN::Serialization::XML::Writer::EscapeAttribute(input);
+  if (!encoded)
+    throw std::runtime_error("failed to encode XML attribute");
+  return std::move(encoded.Value());
 }
 
 [[nodiscard]] inline auto EscapeCMake(std::string_view input) -> std::string {

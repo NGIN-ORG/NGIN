@@ -36,6 +36,7 @@ namespace {
 struct LoadedInvocation {
   ProjectManifest project{};
   ProfileDefinition profile{};
+  std::optional<WorkspaceManifest> workspace{};
 };
 
 [[nodiscard]] auto IsQuiet(const ParsedArgs &args) -> bool {
@@ -1203,6 +1204,7 @@ auto EmitConfiguredArtifacts(CliEventEmitter &events,
 auto EmitBuildArtifactsAndSummary(CliEventEmitter &events,
                                   const ProjectManifest &project,
                                   const ProfileDefinition &profile,
+                                  const std::optional<WorkspaceManifest> &workspace,
                                   const GeneratedLaunchPaths &built,
                                   const LaunchManifestSummary &summary)
     -> void {
@@ -1234,7 +1236,7 @@ auto EmitBuildArtifactsAndSummary(CliEventEmitter &events,
       .AddNumber("headers", 0)
       .AddNumber("stagedFiles", 0);
 
-  const auto resolvedResult = ResolveLaunch(project, profile);
+  const auto resolvedResult = ResolveLaunch(project, profile, workspace);
   if (resolvedResult.value.has_value() &&
       !resolvedResult.diagnostics.HasErrors()) {
     std::size_t sources = 0;
@@ -1301,11 +1303,12 @@ struct InputSummary {
 auto PrintVerboseResolvedDetails(const ParsedArgs &args,
                                  const ProjectManifest &project,
                                  const ProfileDefinition &profile,
+                                 const std::optional<WorkspaceManifest> &workspace,
                                  const fs::path &outputDir) -> void {
   if (!IsVerbose(args)) {
     return;
   }
-  const auto resolvedResult = ResolveLaunch(project, profile);
+  const auto resolvedResult = ResolveLaunch(project, profile, workspace);
   if (!resolvedResult.value.has_value() ||
       resolvedResult.diagnostics.HasErrors()) {
     return;
@@ -1440,9 +1443,13 @@ HasEffectiveProfile(const ProjectManifest &project,
     -> LoadedInvocation {
   auto project = LoadProjectManifest(ResolveProjectPath(args.projectPath));
   std::optional<WorkspaceManifest> workspace{};
-  if (const auto workspaceRoot = RootDirFrom(project.path.parent_path());
-      workspaceRoot.has_value()) {
-    workspace = TryLoadWorkspaceManifest(*workspaceRoot);
+  if (args.workspacePath.has_value()) {
+    workspace = LoadWorkspaceManifestFile(fs::path{*args.workspacePath});
+  } else {
+    if (const auto workspaceRoot = RootDirFrom(project.path.parent_path());
+        workspaceRoot.has_value()) {
+      workspace = TryLoadWorkspaceManifest(*workspaceRoot);
+    }
   }
   project = ProjectWithWorkspacePolicy(std::move(project), workspace);
   std::optional<std::string> selectedProfile = args.profileName;
@@ -1459,6 +1466,7 @@ HasEffectiveProfile(const ProjectManifest &project,
   return LoadedInvocation{
       .project = project,
       .profile = std::move(profile),
+      .workspace = std::move(workspace),
   };
 }
 
@@ -1473,30 +1481,10 @@ HasEffectiveProfile(const ProjectManifest &project,
 }
 
 [[nodiscard]] auto EscapeXml(const std::string &value) -> std::string {
-  std::string escaped{};
-  for (const char ch : value) {
-    switch (ch) {
-    case '&':
-      escaped += "&amp;";
-      break;
-    case '<':
-      escaped += "&lt;";
-      break;
-    case '>':
-      escaped += "&gt;";
-      break;
-    case '"':
-      escaped += "&quot;";
-      break;
-    case '\'':
-      escaped += "&apos;";
-      break;
-    default:
-      escaped += ch;
-      break;
-    }
-  }
-  return escaped;
+  auto encoded = NGIN::Serialization::XML::Writer::EscapeAttribute(value);
+  if (!encoded)
+    throw std::runtime_error("failed to encode XML attribute");
+  return std::move(encoded.Value());
 }
 
 auto WriteTextFile(const fs::path &path, const std::string &contents) -> void;
@@ -1956,44 +1944,11 @@ auto RestoreExternalProviderPackages(const ResolvedLaunch &resolved,
 }
 
 [[nodiscard]] auto EscapeJson(const std::string &value) -> std::string {
-  std::string escaped{};
-  escaped.reserve(value.size() + 2);
-  for (const unsigned char ch : value) {
-    switch (ch) {
-    case '\\':
-      escaped += "\\\\";
-      break;
-    case '"':
-      escaped += "\\\"";
-      break;
-    case '\b':
-      escaped += "\\b";
-      break;
-    case '\f':
-      escaped += "\\f";
-      break;
-    case '\n':
-      escaped += "\\n";
-      break;
-    case '\r':
-      escaped += "\\r";
-      break;
-    case '\t':
-      escaped += "\\t";
-      break;
-    default:
-      if (ch < 0x20) {
-        constexpr char hex[] = "0123456789abcdef";
-        escaped += "\\u00";
-        escaped += hex[(ch >> 4) & 0x0f];
-        escaped += hex[ch & 0x0f];
-      } else {
-        escaped += static_cast<char>(ch);
-      }
-      break;
-    }
-  }
-  return escaped;
+  auto encoded = NGIN::Serialization::JSON::Writer::EscapeString(value);
+  if (!encoded)
+    throw std::runtime_error("failed to encode JSON string");
+  const auto &quoted = encoded.Value();
+  return quoted.substr(1, quoted.size() - 2);
 }
 
 [[nodiscard]] auto Json(const std::string &value) -> std::string {
@@ -2544,7 +2499,7 @@ auto WriteFormattedElement(std::ostream &out, const XmlElement &element,
                              "not drop authored comments");
   }
   const auto loaded = LoadXml(path);
-  const auto *rootElement = loaded.document.Root();
+  const auto *rootElement = loaded.document.RootPtr();
   if (rootElement == nullptr) {
     throw std::runtime_error(path.string() + ": missing XML root element");
   }
@@ -3488,7 +3443,7 @@ struct LockPackageEntry {
 [[nodiscard]] auto LoadLockPackages(const fs::path &path)
     -> std::map<std::string, LockPackageEntry> {
   const auto loaded = LoadXml(path);
-  const auto *rootElement = loaded.document.Root();
+  const auto *rootElement = loaded.document.RootPtr();
   if (rootElement == nullptr || rootElement->name != "LockFile") {
     throw std::runtime_error(path.string() +
                              ": expected LockFile root element");
@@ -3634,8 +3589,13 @@ auto PrintLockDiff(const std::map<std::string, LockPackageEntry> &from,
 
   auto outputRoot = fs::path{*args.outputRootPath};
   if (outputRoot.is_relative()) {
-    outputRoot = RootDirFrom(project.path).value_or(project.path.parent_path()) /
-                 outputRoot;
+    const auto selectionRoot = args.workspacePath.has_value()
+                                   ? LoadWorkspaceManifestFile(
+                                         fs::path{*args.workspacePath})
+                                         .path.parent_path()
+                                   : RootDirFrom(project.path)
+                                         .value_or(project.path.parent_path());
+    outputRoot = selectionRoot / outputRoot;
   }
   return outputRoot.lexically_normal();
 }
@@ -3655,14 +3615,17 @@ auto PrintLockDiff(const std::map<std::string, LockPackageEntry> &from,
 
 [[nodiscard]] auto
 RunBuiltProduct(const ProjectManifest &project,
-                const ProfileDefinition &profile, const ParsedArgs &args,
+                const ProfileDefinition &profile,
+                const std::optional<WorkspaceManifest> &workspace,
+                const ParsedArgs &args,
                 CliEventEmitter &events,
                 std::chrono::steady_clock::time_point commandStarted,
                 std::string_view diagnosticsTitle) -> int {
   const auto outputPath = ResolveCommandOutputPath(project, profile, args);
   std::vector<BackendStepResult> backendSteps{};
   auto buildOptions = BuildOptionsForArgs(args, backendSteps, &events);
-  const auto built = BuildLaunch(project, profile, outputPath, buildOptions);
+  const auto built =
+      BuildLaunch(project, profile, outputPath, buildOptions, workspace);
   if (!built.value.has_value() || built.diagnostics.HasErrors()) {
     EmitDiagnostics(events, built.diagnostics,
                     "ngin " +
@@ -3671,7 +3634,8 @@ RunBuiltProduct(const ProjectManifest &project,
   }
 
   const auto summary = LoadLaunchManifestSummary(built.value->manifestPath);
-  EmitBuildArtifactsAndSummary(events, project, profile, *built.value, summary);
+  EmitBuildArtifactsAndSummary(events, project, profile, workspace, *built.value,
+                               summary);
   if (!summary.selectedExecutable.has_value() ||
       summary.selectedExecutable->empty()) {
     throw std::runtime_error(
@@ -3926,6 +3890,8 @@ auto ParseCommonArgs(int argc, char **argv, int startIndex) -> ParsedArgs {
     const std::string current = argv[index];
     if (current == "--project" && index + 1 < argc) {
       args.projectPath = argv[++index];
+    } else if (current == "--workspace" && index + 1 < argc) {
+      args.workspacePath = argv[++index];
     } else if (current == "--profile" && index + 1 < argc) {
       args.profileName = argv[++index];
     } else if (current == "--from-profile" && index + 1 < argc) {
@@ -4578,6 +4544,7 @@ auto CmdProjectReferenceAdd(const fs::path &root, const ParsedArgs &args)
 }
 
 auto CmdToolActionAdd(const fs::path &root, const ParsedArgs &args) -> int {
+  (void)root;
   if (!args.packageName.has_value())
     throw std::runtime_error("add tool-action requires Package::Action");
   const auto separator = args.packageName->find("::");
@@ -4596,7 +4563,13 @@ auto CmdToolActionAdd(const fs::path &root, const ParsedArgs &args) -> int {
                   [&](const ToolRunDefinition &run) { return run.name == runName; }))
     throw std::runtime_error("project already declares tool run '" + runName + "'");
 
-  const auto workspace = LoadWorkspaceManifest(root);
+  std::optional<WorkspaceManifest> workspace{};
+  if (args.workspacePath.has_value()) {
+    workspace = LoadWorkspaceManifestFile(*args.workspacePath);
+  } else if (const auto workspaceRoot = RootDirFrom(projectPath.parent_path());
+             workspaceRoot.has_value()) {
+    workspace = TryLoadWorkspaceManifest(*workspaceRoot);
+  }
   const auto catalog = LoadPackageCatalog(workspace, projectPath);
   const auto packageEntry = catalog.find(packageName);
   if (packageEntry == catalog.end())
@@ -4829,7 +4802,8 @@ auto CmdPackageLock(const fs::path &root, const ParsedArgs &args) -> int {
   EmitCommandStarted(events, args);
   const auto invocation = ResolveInvocation(args);
   EmitSelection(events, invocation);
-  const auto resolved = ResolveLaunch(invocation.project, invocation.profile);
+  const auto resolved =
+      ResolveLaunch(invocation.project, invocation.profile, invocation.workspace);
   if (!resolved.value.has_value() || resolved.diagnostics.HasErrors()) {
     EmitDiagnostics(events, resolved.diagnostics, "ngin package lock");
     return EmitCommandCompleted(events, "failed", 1, commandStarted);
@@ -4875,7 +4849,8 @@ auto CmdPackageLock(const fs::path &root, const ParsedArgs &args) -> int {
 auto CmdPackageVerifyLock(const fs::path &root, const ParsedArgs &args) -> int {
   (void)root;
   const auto invocation = ResolveInvocation(args);
-  const auto resolved = ResolveLaunch(invocation.project, invocation.profile);
+  const auto resolved =
+      ResolveLaunch(invocation.project, invocation.profile, invocation.workspace);
   if (!resolved.value.has_value() || resolved.diagnostics.HasErrors()) {
     PrintDiagnostics(resolved.diagnostics, "Package lock", std::cout);
     return 1;
@@ -4955,7 +4930,8 @@ auto CmdCryptoExplain(const fs::path &root, const ParsedArgs &args) -> int {
   std::optional<CryptoGraphExplanation> graphExplanation{};
   if (args.projectPath.has_value()) {
     const auto invocation = ResolveInvocation(args);
-    const auto resolved = ResolveLaunch(invocation.project, invocation.profile);
+    const auto resolved =
+        ResolveLaunch(invocation.project, invocation.profile, invocation.workspace);
     if (!resolved.value.has_value() || resolved.diagnostics.HasErrors()) {
       if (args.format == "json") {
         std::cout << "{"
@@ -5030,7 +5006,8 @@ auto CmdRestore(const fs::path &root, const ParsedArgs &args) -> int {
   EmitCommandStarted(events, args);
   const auto invocation = ResolveInvocation(args);
   EmitSelection(events, invocation);
-  const auto resolved = ResolveLaunch(invocation.project, invocation.profile);
+  const auto resolved =
+      ResolveLaunch(invocation.project, invocation.profile, invocation.workspace);
   if (!resolved.value.has_value() || resolved.diagnostics.HasErrors()) {
     EmitDiagnostics(events, resolved.diagnostics, "ngin restore");
     return EmitCommandCompleted(events, "failed", 1, commandStarted);
@@ -5149,8 +5126,13 @@ auto CmdRestore(const fs::path &root, const ParsedArgs &args) -> int {
 auto CmdSettingsInit(const fs::path &root, const ParsedArgs &args) -> int {
   const auto projectPath = ResolveProjectPath(args.projectPath);
   (void)root;
-  const auto projectRoot = RootDirFrom(projectPath.parent_path())
-                               .value_or(projectPath.parent_path());
+  const auto projectRoot = [&]() {
+    if (args.workspacePath.has_value()) {
+      return LoadWorkspaceManifestFile(*args.workspacePath).path.parent_path();
+    }
+    return RootDirFrom(projectPath.parent_path())
+        .value_or(projectPath.parent_path());
+  }();
   const auto settingsPath = projectRoot / ".ngin/local/user.nginsettings";
   bool createdSettings = false;
   if (!fs::exists(settingsPath)) {
@@ -5190,7 +5172,8 @@ auto CmdSettingsInit(const fs::path &root, const ParsedArgs &args) -> int {
 auto CmdVariablesExplain(const fs::path &root, const ParsedArgs &args) -> int {
   (void)root;
   const auto invocation = ResolveInvocation(args);
-  const auto resolved = ResolveLaunch(invocation.project, invocation.profile);
+  const auto resolved =
+      ResolveLaunch(invocation.project, invocation.profile, invocation.workspace);
   if (!resolved.value.has_value() || resolved.diagnostics.HasErrors()) {
     PrintDiagnostics(resolved.diagnostics, "Variables", std::cout);
     return 1;
@@ -5269,7 +5252,8 @@ auto CmdExplainPackageFeature(const fs::path &root, const ParsedArgs &args)
         "explain package-feature requires a package name and feature name");
   }
   const auto invocation = ResolveInvocation(args);
-  const auto resolved = ResolveLaunch(invocation.project, invocation.profile);
+  const auto resolved =
+      ResolveLaunch(invocation.project, invocation.profile, invocation.workspace);
   if (!resolved.value.has_value() || resolved.diagnostics.HasErrors()) {
     PrintDiagnostics(resolved.diagnostics, "Package feature", std::cout);
     return 1;
@@ -5344,7 +5328,8 @@ auto CmdExplainGenerator(const fs::path &root, const ParsedArgs &args) -> int {
     throw std::runtime_error("explain generator requires a generator name");
   }
   const auto invocation = ResolveInvocation(args);
-  const auto resolved = ResolveLaunch(invocation.project, invocation.profile);
+  const auto resolved =
+      ResolveLaunch(invocation.project, invocation.profile, invocation.workspace);
   if (!resolved.value.has_value() || resolved.diagnostics.HasErrors()) {
     PrintDiagnostics(resolved.diagnostics, "Generator", std::cout);
     return 1;
@@ -5414,7 +5399,8 @@ auto CmdExplainObject(const fs::path &root, const ParsedArgs &args) -> int {
   }
   const auto [kind, identity] = SplitObjectIdentity(*args.packageName);
   const auto invocation = ResolveInvocation(args);
-  const auto resolved = ResolveLaunch(invocation.project, invocation.profile);
+  const auto resolved =
+      ResolveLaunch(invocation.project, invocation.profile, invocation.workspace);
   if (!resolved.value.has_value() || resolved.diagnostics.HasErrors()) {
     PrintDiagnostics(resolved.diagnostics, "Explain", std::cout);
     return 1;
@@ -7501,8 +7487,8 @@ auto CmdInspect(const fs::path &root, const ParsedArgs &args) -> int {
   }
 
   const auto invocation = ResolveInvocation(args);
-  const auto resolvedResult =
-      ResolveLaunch(invocation.project, invocation.profile);
+  const auto resolvedResult = ResolveLaunch(
+      invocation.project, invocation.profile, invocation.workspace);
   WriteCompositionGraphJson(
       invocation, resolvedResult,
       ResolveCommandOutputPath(invocation.project, invocation.profile, args),
@@ -7744,7 +7730,8 @@ auto WriteCompositionGraphPlanJson(
 auto CmdValidate(const fs::path &root, const ParsedArgs &args) -> int {
   (void)root;
   const auto invocation = ResolveInvocation(args);
-  const auto resolved = ResolveLaunch(invocation.project, invocation.profile);
+  const auto resolved =
+      ResolveLaunch(invocation.project, invocation.profile, invocation.workspace);
   if (!resolved.value.has_value() || resolved.diagnostics.HasErrors()) {
     PrintDiagnostics(resolved.diagnostics, "Validation", std::cout);
     return 1;
@@ -7798,7 +7785,8 @@ auto CmdGraph(const fs::path &root, const ParsedArgs &args) -> int {
       throw std::runtime_error("graph supports only --format json");
     }
     const auto invocation = ResolveInvocation(args);
-    const auto resolved = ResolveLaunch(invocation.project, invocation.profile);
+    const auto resolved =
+        ResolveLaunch(invocation.project, invocation.profile, invocation.workspace);
     if (!args.graphPlan.has_value()) {
       WriteCompositionGraphJson(
           invocation, resolved,
@@ -7811,7 +7799,8 @@ auto CmdGraph(const fs::path &root, const ParsedArgs &args) -> int {
     return resolved.diagnostics.HasErrors() ? 1 : 0;
   }
   const auto invocation = ResolveInvocation(args);
-  const auto resolved = ResolveLaunch(invocation.project, invocation.profile);
+  const auto resolved =
+      ResolveLaunch(invocation.project, invocation.profile, invocation.workspace);
   if (!resolved.value.has_value() || resolved.diagnostics.HasErrors()) {
     PrintDiagnostics(resolved.diagnostics, "Graph", std::cout);
     return 1;
@@ -8347,12 +8336,21 @@ auto CmdDiff(const fs::path &root, const ParsedArgs &args) -> int {
         "diff requires --from-profile <name> and --to-profile <name>");
   }
 
-  const auto project =
-      LoadProjectManifest(ResolveProjectPath(args.projectPath));
-  const auto &fromProfile = ProfileByName(project, args.fromProfileName);
-  const auto &toProfile = ProfileByName(project, args.toProfileName);
-  const auto fromResolved = ResolveLaunch(project, fromProfile);
-  const auto toResolved = ResolveLaunch(project, toProfile);
+  auto project = LoadProjectManifest(ResolveProjectPath(args.projectPath));
+  std::optional<WorkspaceManifest> workspace{};
+  if (args.workspacePath.has_value()) {
+    workspace = LoadWorkspaceManifestFile(*args.workspacePath);
+  } else if (const auto workspaceRoot = RootDirFrom(project.path.parent_path());
+             workspaceRoot.has_value()) {
+    workspace = TryLoadWorkspaceManifest(*workspaceRoot);
+  }
+  project = ProjectWithWorkspacePolicy(std::move(project), workspace);
+  const auto fromProfile =
+      ProfileWithWorkspacePolicy(project, workspace, args.fromProfileName);
+  const auto toProfile =
+      ProfileWithWorkspacePolicy(project, workspace, args.toProfileName);
+  const auto fromResolved = ResolveLaunch(project, fromProfile, workspace);
+  const auto toResolved = ResolveLaunch(project, toProfile, workspace);
 
   if (!fromResolved.value.has_value() || fromResolved.diagnostics.HasErrors()) {
     PrintDiagnostics(fromResolved.diagnostics, "Diff from-profile", std::cout);
@@ -8492,7 +8490,7 @@ auto CmdClean(const fs::path &root, const ParsedArgs &args) -> int {
   const auto outputPath = ResolveCommandOutputPath(
       invocation.project, invocation.profile, args);
   const auto cleaned = CleanLaunch(
-      invocation.project, invocation.profile, outputPath);
+      invocation.project, invocation.profile, outputPath, invocation.workspace);
   if (!cleaned.value.has_value() || cleaned.diagnostics.HasErrors()) {
     PrintDiagnostics(cleaned.diagnostics, "Clean", std::cout);
     return 1;
@@ -8522,7 +8520,8 @@ auto CmdConfigure(const fs::path &root, const ParsedArgs &args) -> int {
   std::vector<BackendStepResult> backendSteps{};
   auto buildOptions = BuildOptionsForArgs(args, backendSteps, &events);
   const auto configured = ConfigureLaunch(
-      invocation.project, invocation.profile, outputPath, buildOptions);
+      invocation.project, invocation.profile, outputPath, buildOptions,
+      invocation.workspace);
   if (!configured.value.has_value() || configured.diagnostics.HasErrors()) {
     EmitDiagnostics(events, configured.diagnostics, "ngin configure");
     return EmitCommandCompleted(events, "failed", 1, commandStarted);
@@ -8530,6 +8529,7 @@ auto CmdConfigure(const fs::path &root, const ParsedArgs &args) -> int {
 
   EmitConfiguredArtifacts(events, *configured.value);
   PrintVerboseResolvedDetails(args, invocation.project, invocation.profile,
+                              invocation.workspace,
                               configured.value->outputDir);
   EmitDiagnostics(events, configured.diagnostics, "ngin configure");
   return EmitCommandCompleted(events, "success", 0, commandStarted);
@@ -8548,7 +8548,7 @@ auto CmdBuild(const fs::path &root, const ParsedArgs &args) -> int {
   std::vector<BackendStepResult> backendSteps{};
   auto buildOptions = BuildOptionsForArgs(args, backendSteps, &events);
   auto built = BuildLaunch(invocation.project, invocation.profile, outputPath,
-                           buildOptions);
+                           buildOptions, invocation.workspace);
   if (!built.value.has_value() || built.diagnostics.HasErrors()) {
     EmitDiagnostics(events, built.diagnostics, "ngin build");
     return EmitCommandCompleted(events, "failed", 1, commandStarted);
@@ -8556,8 +8556,9 @@ auto CmdBuild(const fs::path &root, const ParsedArgs &args) -> int {
 
   const auto summary = LoadLaunchManifestSummary(built.value->manifestPath);
   EmitBuildArtifactsAndSummary(events, invocation.project, invocation.profile,
-                               *built.value, summary);
+                               invocation.workspace, *built.value, summary);
   PrintVerboseResolvedDetails(args, invocation.project, invocation.profile,
+                              invocation.workspace,
                               built.value->outputDir);
   EmitDiagnostics(events, built.diagnostics, "ngin build");
   return EmitCommandCompleted(events, "success", 0, commandStarted);
@@ -8576,7 +8577,7 @@ auto CmdStage(const fs::path &root, const ParsedArgs &args) -> int {
   std::vector<BackendStepResult> backendSteps{};
   auto buildOptions = BuildOptionsForArgs(args, backendSteps, &events);
   auto built = BuildLaunch(invocation.project, invocation.profile, outputPath,
-                           buildOptions);
+                           buildOptions, invocation.workspace);
   if (!built.value.has_value() || built.diagnostics.HasErrors()) {
     EmitDiagnostics(events, built.diagnostics, "ngin stage");
     return EmitCommandCompleted(events, "failed", 1, commandStarted);
@@ -8584,8 +8585,9 @@ auto CmdStage(const fs::path &root, const ParsedArgs &args) -> int {
 
   const auto summary = LoadLaunchManifestSummary(built.value->manifestPath);
   EmitBuildArtifactsAndSummary(events, invocation.project, invocation.profile,
-                               *built.value, summary);
+                               invocation.workspace, *built.value, summary);
   PrintVerboseResolvedDetails(args, invocation.project, invocation.profile,
+                              invocation.workspace,
                               built.value->outputDir);
   EmitDiagnostics(events, built.diagnostics, "ngin stage");
   return EmitCommandCompleted(events, "success", 0, commandStarted);
@@ -8602,7 +8604,7 @@ auto CmdRebuild(const fs::path &root, const ParsedArgs &args) -> int {
   const auto outputPath = ResolveCommandOutputPath(
       invocation.project, invocation.profile, args);
   const auto cleanResult = CleanLaunch(
-      invocation.project, invocation.profile, outputPath);
+      invocation.project, invocation.profile, outputPath, invocation.workspace);
   if (!cleanResult.value.has_value() || cleanResult.diagnostics.HasErrors()) {
     EmitDiagnostics(events, cleanResult.diagnostics, "ngin rebuild");
     return EmitCommandCompleted(events, "failed", 1, commandStarted);
@@ -8611,7 +8613,7 @@ auto CmdRebuild(const fs::path &root, const ParsedArgs &args) -> int {
   std::vector<BackendStepResult> backendSteps{};
   auto buildOptions = BuildOptionsForArgs(args, backendSteps, &events);
   auto built = BuildLaunch(invocation.project, invocation.profile, outputPath,
-                           buildOptions);
+                           buildOptions, invocation.workspace);
   AppendDiagnostics(built.diagnostics, cleanResult.diagnostics);
   if (!built.value.has_value() || built.diagnostics.HasErrors()) {
     EmitDiagnostics(events, built.diagnostics, "ngin rebuild");
@@ -8620,8 +8622,9 @@ auto CmdRebuild(const fs::path &root, const ParsedArgs &args) -> int {
 
   const auto summary = LoadLaunchManifestSummary(built.value->manifestPath);
   EmitBuildArtifactsAndSummary(events, invocation.project, invocation.profile,
-                               *built.value, summary);
+                               invocation.workspace, *built.value, summary);
   PrintVerboseResolvedDetails(args, invocation.project, invocation.profile,
+                              invocation.workspace,
                               built.value->outputDir);
   EmitDiagnostics(events, built.diagnostics, "ngin rebuild");
   return EmitCommandCompleted(events, "success", 0, commandStarted);
@@ -8635,8 +8638,9 @@ auto CmdRun(const fs::path &root, const ParsedArgs &args) -> int {
   EmitCommandStarted(events, args);
   const auto invocation = ResolveInvocation(args);
   EmitSelection(events, invocation);
-  return RunBuiltProduct(invocation.project, invocation.profile, args, events,
-                         commandStarted, "Run");
+  return RunBuiltProduct(invocation.project, invocation.profile,
+                         invocation.workspace, args, events, commandStarted,
+                         "Run");
 }
 
 auto CmdTest(const fs::path &root, const ParsedArgs &args) -> int {
@@ -8650,8 +8654,9 @@ auto CmdTest(const fs::path &root, const ParsedArgs &args) -> int {
   if (invocation.project.productKind != "Test") {
     throw std::runtime_error("ngin test requires a Test product project");
   }
-  return RunBuiltProduct(invocation.project, invocation.profile, args, events,
-                         commandStarted, "Test");
+  return RunBuiltProduct(invocation.project, invocation.profile,
+                         invocation.workspace, args, events, commandStarted,
+                         "Test");
 }
 
 auto CmdBenchmark(const fs::path &root, const ParsedArgs &args) -> int {
@@ -8666,13 +8671,15 @@ auto CmdBenchmark(const fs::path &root, const ParsedArgs &args) -> int {
     throw std::runtime_error(
         "ngin benchmark requires a Benchmark product project");
   }
-  return RunBuiltProduct(invocation.project, invocation.profile, args, events,
-                         commandStarted, "Benchmark");
+  return RunBuiltProduct(invocation.project, invocation.profile,
+                         invocation.workspace, args, events, commandStarted,
+                         "Benchmark");
 }
 
 auto CmdToolList(const fs::path &root, const ParsedArgs &args) -> int {
   const auto invocation = ResolveInvocation(args);
-  const auto resolvedResult = ResolveLaunch(invocation.project, invocation.profile);
+  const auto resolvedResult =
+      ResolveLaunch(invocation.project, invocation.profile, invocation.workspace);
   if (!resolvedResult.value.has_value() || resolvedResult.diagnostics.HasErrors()) {
     PrintDiagnostics(resolvedResult.diagnostics, "Tool list", std::cerr);
     return 2;
@@ -8762,7 +8769,8 @@ auto CmdToolDoctor(const fs::path &root, const ParsedArgs &args) -> int {
     EmitCommandStarted(events, args);
   }
   const auto invocation = ResolveInvocation(args);
-  const auto resolvedResult = ResolveLaunch(invocation.project, invocation.profile);
+  const auto resolvedResult =
+      ResolveLaunch(invocation.project, invocation.profile, invocation.workspace);
   if (emitEvents) {
     EmitSelection(events, invocation);
   }
@@ -9035,7 +9043,8 @@ struct StoredToolResult {
 auto CmdToolResults(const fs::path &root, const ParsedArgs &args) -> int {
   (void)root;
   const auto invocation = ResolveInvocation(args);
-  const auto resolved = ResolveLaunch(invocation.project, invocation.profile);
+  const auto resolved =
+      ResolveLaunch(invocation.project, invocation.profile, invocation.workspace);
   if (!resolved.value.has_value() || resolved.diagnostics.HasErrors()) {
     PrintDiagnostics(resolved.diagnostics, "Tool results", std::cerr);
     return 2;
@@ -9060,7 +9069,8 @@ auto CmdToolResults(const fs::path &root, const ParsedArgs &args) -> int {
 auto CmdToolEdits(const fs::path &root, const ParsedArgs &args) -> int {
   (void)root;
   const auto invocation = ResolveInvocation(args);
-  const auto resolved = ResolveLaunch(invocation.project, invocation.profile);
+  const auto resolved =
+      ResolveLaunch(invocation.project, invocation.profile, invocation.workspace);
   if (!resolved.value.has_value() || resolved.diagnostics.HasErrors()) {
     PrintDiagnostics(resolved.diagnostics, "Tool edits", std::cerr);
     return 2;
@@ -9095,8 +9105,8 @@ auto CmdAnalyze(const fs::path &root, const ParsedArgs &args) -> int {
   EmitCommandStarted(events, args);
   const auto invocation = ResolveInvocation(args);
   EmitSelection(events, invocation);
-  const auto resolvedResult =
-      ResolveLaunch(invocation.project, invocation.profile);
+  const auto resolvedResult = ResolveLaunch(
+      invocation.project, invocation.profile, invocation.workspace);
   if (resolvedResult.diagnostics.HasErrors()) {
     EmitDiagnostics(events, resolvedResult.diagnostics, "ngin analyze");
     if (!IsQuiet(args)) {
@@ -9321,7 +9331,8 @@ auto CmdAnalyze(const fs::path &root, const ParsedArgs &args) -> int {
     std::vector<BackendStepResult> backendSteps{};
     auto buildOptions = BuildOptionsForArgs(args, backendSteps, &events);
     const auto built = BuildLaunch(
-        invocation.project, invocation.profile, commandOutputPath, buildOptions);
+        invocation.project, invocation.profile, commandOutputPath, buildOptions,
+        invocation.workspace);
     if (!built.value.has_value() || built.diagnostics.HasErrors()) {
       EmitDiagnostics(events, built.diagnostics, commandSource);
       return EmitCommandCompleted(events, "execution-failed", 3, commandStarted);
@@ -9368,7 +9379,7 @@ auto CmdAnalyze(const fs::path &root, const ParsedArgs &args) -> int {
       auto buildOptions = BuildOptionsForArgs(args, backendSteps, &events);
       const auto configured = ConfigureLaunch(
           invocation.project, invocation.profile, commandOutputPath,
-          buildOptions);
+          buildOptions, invocation.workspace);
       if (configured.diagnostics.HasErrors()) {
         EmitDiagnostics(events, configured.diagnostics, commandSource);
         if (!IsQuiet(args)) {
@@ -10270,7 +10281,7 @@ auto CmdPublish(const fs::path &root, const ParsedArgs &args) -> int {
   auto built = BuildLaunch(
       invocation.project, invocation.profile,
       ResolveCommandOutputPath(invocation.project, invocation.profile, args),
-      buildOptions);
+      buildOptions, invocation.workspace);
   if (!built.value.has_value() || built.diagnostics.HasErrors()) {
     EmitDiagnostics(events, built.diagnostics, "ngin publish");
     return EmitCommandCompleted(events, "failed", 1, commandStarted);
@@ -10312,6 +10323,7 @@ auto CmdPublish(const fs::path &root, const ParsedArgs &args) -> int {
                   .AddString("output", publishOutput.string()));
 
   PrintVerboseResolvedDetails(args, invocation.project, invocation.profile,
+                              invocation.workspace,
                               built.value->outputDir);
   EmitDiagnostics(events, built.diagnostics, "ngin publish");
   return EmitCommandCompleted(events, "success", 0, commandStarted);

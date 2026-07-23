@@ -660,7 +660,9 @@ TEST_CASE("analyze executes a package-provided external driver without tool-spec
     const auto sarif = temp.path() / "out/tooling/example-format/format.sarif";
     REQUIRE(fs::exists(sarif));
     REQUIRE_THAT(ReadFile(sarif), ContainsSubstring(R"("version":"2.1.0")"));
-    REQUIRE(NGIN::Serialization::JsonParser::Parse(ReadFile(sarif)).HasValue());
+    REQUIRE(NGIN::Serialization::JSON::Parse(
+                NGIN::Serialization::OwnedTextBuffer{ReadFile(sarif)})
+                .HasValue());
     REQUIRE_THAT(ReadFile(sarif), ContainsSubstring(R"("fixes":[)"));
     REQUIRE_THAT(ReadFile(sarif), ContainsSubstring(R"("artifacts":[)"));
 

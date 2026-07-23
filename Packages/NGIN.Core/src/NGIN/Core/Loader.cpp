@@ -13,11 +13,10 @@
 
 namespace NGIN::Core {
 namespace {
-using XmlDocument = NGIN::Serialization::XmlDocument;
-using XmlElement = NGIN::Serialization::XmlElement;
-using XmlNode = NGIN::Serialization::XmlNode;
-using XmlParseOptions = NGIN::Serialization::XmlParseOptions;
-using XmlParser = NGIN::Serialization::XmlParser;
+using XmlDocument = NGIN::Serialization::XML::Document;
+using XmlElement = NGIN::Serialization::XML::ElementView;
+using XmlNode = NGIN::Serialization::XML::NodeView;
+using XmlParser = NGIN::Serialization::XML::Parser;
 
 [[nodiscard]] auto ToString(const NGIN::IO::Path &path) -> std::string {
   return std::string(path.View());
@@ -85,11 +84,11 @@ using XmlParser = NGIN::Serialization::XmlParser;
 [[nodiscard]] auto Attribute(const XmlElement &element,
                              const std::string_view key)
     -> std::optional<std::string> {
-  const auto *attribute = element.FindAttribute(key);
-  if (attribute == nullptr) {
+  const auto attribute = element.Attribute(key);
+  if (!attribute.has_value()) {
     return std::nullopt;
   }
-  return std::string(attribute->value);
+  return std::string(attribute->Value());
 }
 
 [[nodiscard]] auto FindChild(const XmlElement &element,
@@ -151,11 +150,8 @@ void ReadStringRefs(const XmlElement *element, const std::string_view childName,
                                           const std::string_view xmlText,
                                           ModuleDescriptor &out) noexcept
     -> CoreResult<void> {
-  XmlParseOptions options{};
-  options.decodeEntities = true;
-  options.arenaBytes = std::max<NGIN::UIntSize>(
-      8192, static_cast<NGIN::UIntSize>(xmlText.size() * 8 + 4096));
-  auto parsed = XmlParser::Parse(xmlText, options);
+  auto parsed = XmlParser::Parse(
+      NGIN::Serialization::OwnedTextBuffer{xmlText});
   if (!parsed) {
     return NGIN::Utilities::Unexpected<KernelError>(
         MakeKernelError(KernelErrorCode::ConfigFailure, "Loader", {},
@@ -163,7 +159,7 @@ void ReadStringRefs(const XmlElement *element, const std::string_view childName,
   }
 
   const XmlDocument &doc = parsed.Value();
-  const auto *root = doc.Root();
+  const auto *root = doc.RootPtr();
   if (root == nullptr || root->name != "Module") {
     return NGIN::Utilities::Unexpected<KernelError>(MakeKernelError(
         KernelErrorCode::InvalidArgument, "Loader", {},

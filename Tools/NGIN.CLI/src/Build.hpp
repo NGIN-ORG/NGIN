@@ -86,13 +86,17 @@ namespace NGIN::CLI
     [[nodiscard]] auto CleanLaunch(
         const ProjectManifest &project,
         const ProfileDefinition &profile,
-        const std::optional<fs::path> &outputPath) -> DiagnosticResult<fs::path>;
+        const std::optional<fs::path> &outputPath,
+        const std::optional<WorkspaceManifest> &workspace = std::nullopt)
+        -> DiagnosticResult<fs::path>;
 
     [[nodiscard]] auto ConfigureLaunch(
         const ProjectManifest &project,
         const ProfileDefinition &profile,
         const std::optional<fs::path> &outputPath,
-        const BuildExecutionOptions &options = BuildExecutionOptions{}) -> DiagnosticResult<ConfiguredBuildPaths>;
+        const BuildExecutionOptions &options = BuildExecutionOptions{},
+        const std::optional<WorkspaceManifest> &workspace = std::nullopt)
+        -> DiagnosticResult<ConfiguredBuildPaths>;
 
     [[nodiscard]] auto CompilationPlanSignature(const ResolvedLaunch &resolved) -> std::string;
     [[nodiscard]] auto CompilationPlanSignaturePath(const fs::path &compileCommandsPath) -> fs::path;
@@ -101,7 +105,9 @@ namespace NGIN::CLI
         const ProjectManifest &project,
         const ProfileDefinition &profile,
         const std::optional<fs::path> &outputPath,
-        const BuildExecutionOptions &options = BuildExecutionOptions{}) -> DiagnosticResult<GeneratedLaunchPaths>;
+        const BuildExecutionOptions &options = BuildExecutionOptions{},
+        const std::optional<WorkspaceManifest> &workspace = std::nullopt)
+        -> DiagnosticResult<GeneratedLaunchPaths>;
 
     [[nodiscard]] auto LoadLaunchManifestSummary(const fs::path &manifestPath) -> LaunchManifestSummary;
 }

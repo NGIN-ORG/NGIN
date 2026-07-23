@@ -1,6 +1,7 @@
 #include "Tooling.hpp"
 
 #include <NGIN/Serialization/JSON/JsonParser.hpp>
+#include <NGIN/Serialization/JSON/JsonStreamWriter.hpp>
 
 #include <algorithm>
 #include <atomic>
@@ -10,6 +11,7 @@
 #include <cctype>
 #include <iomanip>
 #include <iterator>
+#include <limits>
 #include <regex>
 #include <mutex>
 #include <sstream>
@@ -174,39 +176,16 @@ namespace NGIN::CLI
 
     namespace
     {
-        using NGIN::Serialization::JsonObject;
-        using NGIN::Serialization::JsonValue;
+        using JsonObject = NGIN::Serialization::JSON::ObjectView;
+        using JsonValue = NGIN::Serialization::JSON::ValueView;
 
         [[nodiscard]] auto EscapeJson(std::string_view value) -> std::string
         {
-            std::string escaped{};
-            escaped.reserve(value.size() + 8);
-            for (const char ch : value)
-            {
-                switch (ch)
-                {
-                case '"': escaped += "\\\""; break;
-                case '\\': escaped += "\\\\"; break;
-                case '\b': escaped += "\\b"; break;
-                case '\f': escaped += "\\f"; break;
-                case '\n': escaped += "\\n"; break;
-                case '\r': escaped += "\\r"; break;
-                case '\t': escaped += "\\t"; break;
-                default:
-                    if (static_cast<unsigned char>(ch) < 0x20U)
-                    {
-                        static constexpr char Hex[] = "0123456789abcdef";
-                        escaped += "\\u00";
-                        escaped += Hex[(static_cast<unsigned char>(ch) >> 4U) & 0xfU];
-                        escaped += Hex[static_cast<unsigned char>(ch) & 0xfU];
-                    }
-                    else
-                    {
-                        escaped += ch;
-                    }
-                }
-            }
-            return escaped;
+            auto encoded = NGIN::Serialization::JSON::Writer::EscapeString(value);
+            if (!encoded)
+                throw std::runtime_error("failed to encode JSON string");
+            const auto &quoted = encoded.Value();
+            return quoted.substr(1, quoted.size() - 2);
         }
 
         auto WriteString(std::ostream &out, std::string_view value) -> void
@@ -217,7 +196,7 @@ namespace NGIN::CLI
         [[nodiscard]] auto Required(const JsonObject &object, std::string_view key,
                                     JsonValue::Type type) -> const JsonValue &
         {
-            const auto *value = object.Find(key);
+            const auto *value = object.FindPtr(key);
             if (value == nullptr || value->GetType() != type)
             {
                 throw std::runtime_error("tool driver event requires '" + std::string(key) + "'");
@@ -227,21 +206,36 @@ namespace NGIN::CLI
 
         [[nodiscard]] auto OptionalString(const JsonObject &object, std::string_view key) -> std::string
         {
-            const auto *value = object.Find(key);
+            const auto *value = object.FindPtr(key);
             return value != nullptr && value->IsString() ? std::string(value->AsString()) : std::string{};
+        }
+
+        [[nodiscard]] auto RequiredInt64(const JsonObject &object, std::string_view key) -> std::int64_t
+        {
+            const auto *value = object.FindPtr(key);
+            if (value == nullptr)
+                throw std::runtime_error("tool driver event requires integer '" + std::string(key) + "'");
+            if (const auto signedValue = value->TryInt64())
+                return *signedValue;
+            if (const auto unsignedValue = value->TryUInt64();
+                unsignedValue && *unsignedValue <= static_cast<std::uint64_t>(
+                        (std::numeric_limits<std::int64_t>::max)()))
+                return static_cast<std::int64_t>(*unsignedValue);
+            throw std::runtime_error("tool driver event requires exact signed 64-bit integer '" +
+                                     std::string(key) + "'");
         }
 
         [[nodiscard]] auto ParsePosition(const JsonObject &object) -> ToolProtocolPosition
         {
-            const auto &line = Required(object, "line", JsonValue::Type::Number);
-            const auto &column = Required(object, "column", JsonValue::Type::Number);
-            if (line.AsNumber() < 1.0 || column.AsNumber() < 1.0)
+            const auto line = RequiredInt64(object, "line");
+            const auto column = RequiredInt64(object, "column");
+            if (line < 1 || column < 1)
             {
                 throw std::runtime_error("tool driver locations use one-based positive line and column values");
             }
             return ToolProtocolPosition{
-                .line = static_cast<std::int64_t>(line.AsNumber()),
-                .column = static_cast<std::int64_t>(column.AsNumber()),
+                .line = line,
+                .column = column,
             };
         }
 
@@ -255,7 +249,7 @@ namespace NGIN::CLI
                 .start = ParsePosition(Required(range, "start", JsonValue::Type::Object).AsObject()),
                 .message = OptionalString(object, "message"),
             };
-            if (const auto *end = range.Find("end"); end != nullptr && end->IsObject())
+            if (const auto *end = range.FindPtr("end"); end != nullptr && end->IsObject())
             {
                 location.end = ParsePosition(end->AsObject());
             }
@@ -282,19 +276,19 @@ namespace NGIN::CLI
             }
             diagnostic.intrinsicSeverity = diagnostic.severity;
             diagnostic.effectiveSeverity = diagnostic.severity;
-            if (const auto *suppressed = data.Find("suppressed"); suppressed != nullptr && suppressed->IsBool())
+            if (const auto *suppressed = data.FindPtr("suppressed"); suppressed != nullptr && suppressed->IsBool())
                 diagnostic.suppressed = suppressed->AsBool();
             diagnostic.suppressionSource = OptionalString(data, "suppressionSource");
             diagnostic.suppressionReason = OptionalString(data, "suppressionReason");
             if (diagnostic.suppressed && diagnostic.suppressionSource.empty())
                 diagnostic.suppressionSource = "tool";
-            if (const auto *location = data.Find("primaryLocation"); location != nullptr && location->IsObject())
+            if (const auto *location = data.FindPtr("primaryLocation"); location != nullptr && location->IsObject())
             {
                 diagnostic.primaryLocation = ParseLocation(location->AsObject());
             }
-            if (const auto *related = data.Find("relatedLocations"); related != nullptr && related->IsArray())
+            if (const auto *related = data.FindPtr("relatedLocations"); related != nullptr && related->IsArray())
             {
-                for (const auto &entry : related->AsArray().values)
+                for (const auto entry : related->AsArray())
                 {
                     if (!entry.IsObject())
                     {
@@ -304,9 +298,9 @@ namespace NGIN::CLI
                 }
             }
             const auto appendStrings = [&](std::string_view key, std::vector<std::string> &target) {
-                if (const auto *values = data.Find(key); values != nullptr && values->IsArray())
+                if (const auto *values = data.FindPtr(key); values != nullptr && values->IsArray())
                 {
-                    for (const auto &entry : values->AsArray().values)
+                    for (const auto entry : values->AsArray())
                     {
                         if (entry.IsString()) target.emplace_back(entry.AsString());
                     }
@@ -329,7 +323,7 @@ namespace NGIN::CLI
                 editSet.applicability != "unsafe")
                 throw std::runtime_error("tool edit applicability must be automatic, suggested, or unsafe");
             const auto &files = Required(data, "files", JsonValue::Type::Array).AsArray();
-            for (const auto &fileValue : files.values)
+            for (const auto fileValue : files)
             {
                 const auto &file = Required(fileValue.AsObject(), "path", JsonValue::Type::Object).AsObject();
                 ToolProtocolFileEdits parsed{
@@ -337,7 +331,7 @@ namespace NGIN::CLI
                     .expectedDigest = OptionalString(fileValue.AsObject(), "expectedDigest"),
                 };
                 const auto &edits = Required(fileValue.AsObject(), "edits", JsonValue::Type::Array).AsArray();
-                for (const auto &editValue : edits.values)
+                for (const auto editValue : edits)
                 {
                     const auto &edit = editValue.AsObject();
                     const auto &range = Required(edit, "range", JsonValue::Type::Object).AsObject();
@@ -1019,7 +1013,8 @@ namespace NGIN::CLI
         std::ostringstream contents{};
         contents << input.rdbuf();
         const auto text = contents.str();
-        auto parsed = NGIN::Serialization::JsonParser::Parse(text);
+        auto parsed = NGIN::Serialization::JSON::Parse(
+            NGIN::Serialization::OwnedTextBuffer{text});
         if (!parsed.HasValue() || !parsed.Value().Root().IsArray())
             throw std::runtime_error(compileCommandsPath.string() + ": compilation-unit plan must be a JSON array");
 
@@ -1027,7 +1022,7 @@ namespace NGIN::CLI
         for (const auto &source : selectedSources)
             selected.insert(fs::weakly_canonical(source).generic_string());
         std::vector<ToolDriverRequest::TranslationUnit> result{};
-        for (const auto &entry : parsed.Value().Root().AsArray().values)
+        for (const auto entry : parsed.Value().Root().AsArray())
         {
             if (!entry.IsObject()) continue;
             const auto &object = entry.AsObject();
@@ -1037,9 +1032,9 @@ namespace NGIN::CLI
             source = fs::weakly_canonical(source);
             if (!selected.empty() && !selected.contains(source.generic_string())) continue;
             std::vector<std::string> arguments{};
-            if (const auto *array = object.Find("arguments"); array != nullptr && array->IsArray())
+            if (const auto *array = object.FindPtr("arguments"); array != nullptr && array->IsArray())
             {
-                for (const auto &argument : array->AsArray().values)
+                for (const auto argument : array->AsArray())
                     if (argument.IsString()) arguments.emplace_back(argument.AsString());
             }
             else
@@ -1235,12 +1230,14 @@ namespace NGIN::CLI
         std::istringstream lines{std::string(output)};
         std::string line{};
         std::int64_t expectedSequence = 1;
+        NGIN::Serialization::ParseScratch parseScratch;
         try
         {
             while (std::getline(lines, line))
             {
                 if (line.empty()) continue;
-                auto parsed = NGIN::Serialization::JsonParser::Parse(std::string_view{line});
+                auto parsed = NGIN::Serialization::JSON::ParseBorrowed(
+                    NGIN::Serialization::BorrowedTextView{line}, parseScratch);
                 if (!parsed.HasValue() || !parsed.Value().Root().IsObject())
                     throw std::runtime_error("tool driver emitted malformed JSONL");
                 const auto &event = parsed.Value().Root().AsObject();
@@ -1249,7 +1246,7 @@ namespace NGIN::CLI
                     throw std::runtime_error("tool driver emitted an incompatible protocol event");
                 if (Required(event, "runId", JsonValue::Type::String).AsString() != expectedRunId)
                     throw std::runtime_error("tool driver event runId does not match the request");
-                const auto sequence = static_cast<std::int64_t>(Required(event, "sequence", JsonValue::Type::Number).AsNumber());
+                const auto sequence = RequiredInt64(event, "sequence");
                 if (sequence != expectedSequence++)
                     throw std::runtime_error("tool driver event sequence is not monotonic");
                 const auto type = Required(event, "type", JsonValue::Type::String).AsString();
@@ -1306,12 +1303,14 @@ namespace NGIN::CLI
         std::istringstream lines{std::string(output)};
         std::string line{};
         std::int64_t expectedSequence = 1;
+        NGIN::Serialization::ParseScratch parseScratch;
         try
         {
             while (std::getline(lines, line))
             {
                 if (line.empty()) continue;
-                auto parsed = NGIN::Serialization::JsonParser::Parse(std::string_view{line});
+                auto parsed = NGIN::Serialization::JSON::ParseBorrowed(
+                    NGIN::Serialization::BorrowedTextView{line}, parseScratch);
                 if (!parsed.HasValue() || !parsed.Value().Root().IsObject())
                     throw std::runtime_error("tool driver probe emitted malformed JSONL");
                 const auto &event = parsed.Value().Root().AsObject();
@@ -1320,8 +1319,7 @@ namespace NGIN::CLI
                     throw std::runtime_error("tool driver probe emitted an incompatible protocol event");
                 if (Required(event, "runId", JsonValue::Type::String).AsString() != expectedRunId)
                     throw std::runtime_error("tool driver probe event runId does not match the request");
-                const auto sequence = static_cast<std::int64_t>(
-                    Required(event, "sequence", JsonValue::Type::Number).AsNumber());
+                const auto sequence = RequiredInt64(event, "sequence");
                 if (sequence != expectedSequence++)
                     throw std::runtime_error("tool driver probe event sequence is not monotonic");
                 if (result.completed)
@@ -1332,15 +1330,15 @@ namespace NGIN::CLI
                 {
                     result.completed = true;
                     result.available = Required(data, "available", JsonValue::Type::Bool).AsBool();
-                    const auto *compatible = data.Find("hostCompatible");
+                    const auto *compatible = data.FindPtr("hostCompatible");
                     result.hostCompatible = compatible == nullptr || !compatible->IsBool()
                                                 ? result.available : compatible->AsBool();
                     result.driverVersion = OptionalString(data, "driverVersion");
                     result.toolVersion = OptionalString(data, "toolVersion");
                     result.reason = OptionalString(data, "reason");
                     const auto appendStrings = [&](std::string_view name, std::vector<std::string> &target) {
-                        if (const auto *values = data.Find(name); values != nullptr && values->IsArray())
-                            for (const auto &value : values->AsArray().values)
+                        if (const auto *values = data.FindPtr(name); values != nullptr && values->IsArray())
+                            for (const auto value : values->AsArray())
                                 if (value.IsString()) target.emplace_back(value.AsString());
                     };
                     appendStrings("protocols", result.protocols);
@@ -1676,15 +1674,17 @@ namespace NGIN::CLI
                            const std::function<void(const ToolDriverStreamEvent &)> &observer) -> ToolDriverResult
     {
         WriteToolDriverRequest(request, requestPath);
+        NGIN::Serialization::ParseScratch observeScratch;
         const auto observeLine = [&](std::string_view line)
         {
             if (!observer || line.empty()) return;
-            auto parsed = NGIN::Serialization::JsonParser::Parse(line);
+            auto parsed = NGIN::Serialization::JSON::ParseBorrowed(
+                NGIN::Serialization::BorrowedTextView{line}, observeScratch);
             if (!parsed.HasValue() || !parsed.Value().Root().IsObject()) return;
             const auto &event = parsed.Value().Root().AsObject();
-            const auto *type = event.Find("type");
-            const auto *runId = event.Find("runId");
-            const auto *data = event.Find("data");
+            const auto *type = event.FindPtr("type");
+            const auto *runId = event.FindPtr("runId");
+            const auto *data = event.FindPtr("data");
             if (type == nullptr || !type->IsString() || runId == nullptr || !runId->IsString() ||
                 runId->AsString() != request.runId || data == nullptr || !data->IsObject()) return;
             if (type->AsString() != "progress" && type->AsString() != "log") return;
@@ -1694,9 +1694,9 @@ namespace NGIN::CLI
                 .stage = OptionalString(payload, "stage"),
                 .message = OptionalString(payload, "message"),
             };
-            if (const auto *current = payload.Find("current"); current != nullptr && current->IsNumber())
+            if (const auto *current = payload.FindPtr("current"); current != nullptr && current->IsNumber())
                 streamed.current = static_cast<std::int64_t>(current->AsNumber());
-            if (const auto *total = payload.Find("total"); total != nullptr && total->IsNumber())
+            if (const auto *total = payload.FindPtr("total"); total != nullptr && total->IsNumber())
                 streamed.total = static_cast<std::int64_t>(total->AsNumber());
             observer(streamed);
         };

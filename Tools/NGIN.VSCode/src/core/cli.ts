@@ -5,6 +5,13 @@ export function backendOutputModeForVerbosity(verbosity: string): 'compact' | 's
   return verbosity === 'compact' ? 'compact' : 'stream';
 }
 
+export function withExplicitWorkspace(args: string[], workspaceManifestPath?: string): string[] {
+  if (!workspaceManifestPath || !args.includes('--project') || args.includes('--workspace')) {
+    return [...args];
+  }
+  return [...args, '--workspace', workspaceManifestPath];
+}
+
 export function resolveConfiguredCliPath(workspaceRoot: string, configuredPath?: string): string | undefined {
   if (!configuredPath) {
     return undefined;

@@ -11,22 +11,21 @@ namespace NGIN::Reflection::MetaGen
 {
     namespace
     {
-        using XmlDocument = NGIN::Serialization::XmlDocument;
-        using XmlElement = NGIN::Serialization::XmlElement;
-        using XmlNode = NGIN::Serialization::XmlNode;
-        using XmlParseOptions = NGIN::Serialization::XmlParseOptions;
-        using XmlParser = NGIN::Serialization::XmlParser;
+        using XmlDocument = NGIN::Serialization::XML::Document;
+        using XmlElement = NGIN::Serialization::XML::ElementView;
+        using XmlNode = NGIN::Serialization::XML::NodeView;
+        using XmlParser = NGIN::Serialization::XML::Parser;
 
         struct LoadedXmlDocument
         {
             std::string text{};
-            XmlDocument document{0};
+            XmlDocument document{};
         };
 
         [[nodiscard]] auto Attribute(const XmlElement &node, const std::string_view key) -> std::string
         {
-            const auto *attribute = node.FindAttribute(key);
-            return attribute == nullptr ? std::string{} : std::string(attribute->value);
+            const auto attribute = node.Attribute(key);
+            return !attribute.has_value() ? std::string{} : std::string(attribute->Value());
         }
 
         [[nodiscard]] auto ChildElements(const XmlElement &node, const std::string_view name = {}) -> std::vector<const XmlElement *>
@@ -69,11 +68,8 @@ namespace NGIN::Reflection::MetaGen
             text << input.rdbuf();
             loaded.text = text.str();
 
-            XmlParseOptions options{};
-            options.decodeEntities = true;
-            options.arenaBytes = std::max<NGIN::UIntSize>(
-                16384, static_cast<NGIN::UIntSize>(loaded.text.size() * 8 + 4096));
-            auto parsed = XmlParser::Parse(loaded.text, options);
+            auto parsed = XmlParser::Parse(
+                NGIN::Serialization::OwnedTextBuffer{loaded.text});
             if (!parsed)
             {
                 diagnostics.push_back("failed to parse generator context '" + path.string() + "'");
@@ -93,7 +89,7 @@ namespace NGIN::Reflection::MetaGen
             return context;
         }
 
-        const auto *root = loaded->document.Root();
+        const auto *root = loaded->document.RootPtr();
         if (root == nullptr || root->name != "GeneratorContext")
         {
             diagnostics.push_back("generator context root element must be <GeneratorContext>");

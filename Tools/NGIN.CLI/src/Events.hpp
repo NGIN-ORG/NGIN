@@ -1,5 +1,7 @@
 #pragma once
 
+#include <NGIN/Serialization/JSON/JsonStreamWriter.hpp>
+
 #include <chrono>
 #include <cstdint>
 #include <iosfwd>
@@ -58,7 +60,7 @@ namespace NGIN::CLI
         [[nodiscard]] auto Number(std::string_view name) const -> std::optional<std::int64_t>;
         [[nodiscard]] auto Bool(std::string_view name) const -> std::optional<bool>;
         [[nodiscard]] auto StringArray(std::string_view name) const -> std::optional<std::vector<std::string>>;
-        auto WriteJson(std::ostream &out) const -> void;
+        [[nodiscard]] auto WriteJson(NGIN::Serialization::JSON::StreamWriter &writer) const -> bool;
 
     private:
         struct Field
@@ -102,6 +104,8 @@ namespace NGIN::CLI
 
     private:
         std::ostream *out_{};
+        std::string buffer_{};
+        std::optional<NGIN::Serialization::JSON::StreamWriter> writer_{};
     };
 
     class RecordingCliEventSink final : public ICliEventSink

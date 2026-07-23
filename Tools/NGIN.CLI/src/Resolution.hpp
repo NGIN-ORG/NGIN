@@ -8,5 +8,7 @@ namespace NGIN::CLI
 
     [[nodiscard]] auto ResolveLaunch(
         const ProjectManifest &project,
-        const ProfileDefinition &profile) -> DiagnosticResult<ResolvedLaunch>;
+        const ProfileDefinition &profile,
+        const std::optional<WorkspaceManifest> &workspaceOverride = std::nullopt)
+        -> DiagnosticResult<ResolvedLaunch>;
 }
