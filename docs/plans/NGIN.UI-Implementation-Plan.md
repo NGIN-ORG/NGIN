@@ -1,8 +1,9 @@
 # NGIN.UI Implementation Plan
 
-Status: Active implementation plan
+Status: Implemented for the version 0.1 milestone scope
 Source proposal: [`../proposals/NGIN.UI-Proposal.md`](../proposals/NGIN.UI-Proposal.md)
 Target language: C++23
+Acceptance audit: [`NGIN.UI-V0.1-Acceptance-Audit.md`](NGIN.UI-V0.1-Acceptance-Audit.md)
 
 ## Implementation Status
 

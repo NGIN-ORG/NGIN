@@ -5,8 +5,7 @@ Its public contracts depend only on `NGIN.Base`; its native text implementation
 privately links pinned FreeType and HarfBuzz sources. Native windowing, graphics
 APIs, and optional `NGIN.Core` hosting belong to separate packages.
 
-The current implementation provides the headless contracts and composition
-foundation:
+The version 0.1 implementation provides:
 
 - device-independent and pixel geometry;
 - generational platform/render handles;
@@ -71,8 +70,11 @@ cmake --build build/ngin-ui --target NGINUITests
 ctest --test-dir build/ngin-ui --output-on-failure
 ```
 
-The package intentionally has no SDL dependency. The SDL3 + SDL_GPU
-implementation will live in `NGIN.UI.Backend.SDL3`.
+The package intentionally has no SDL dependency. Native windows and rendering
+are supplied by the separate
+[`NGIN.UI.Backend.SDL3`](../NGIN.UI.Backend.SDL3/) package. Applications can
+run the same view directly or through the optional
+[`NGIN.UI.Hosting`](../NGIN.UI.Hosting/) bridge to `NGIN.Core`.
 
 The default build fetches the pinned text dependencies recorded in
 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). Configure with
