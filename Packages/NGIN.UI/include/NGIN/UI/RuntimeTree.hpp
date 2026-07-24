@@ -15,8 +15,12 @@ struct RuntimeNode final {
   ElementHandle parent{};
   ElementType type{ElementType::Custom};
   NGIN::Text::String key{};
+  NodeProperties properties{};
   std::vector<ElementHandle> children{};
+  Size measuredSize{};
+  Rect arrangedBounds{};
   UInt64 compositionRevision{0};
+  UInt64 layoutRevision{0};
 
   [[nodiscard]] auto IsKeyed() const noexcept -> bool { return !key.Empty(); }
 };
@@ -57,6 +61,7 @@ private:
   };
 
   [[nodiscard]] auto CreateNode(ElementType type, const NGIN::Text::String &key,
+                                const NodeProperties &properties,
                                 ElementHandle parent) -> ElementHandle;
   auto DestroySubtree(ElementHandle handle) noexcept -> UIntSize;
 

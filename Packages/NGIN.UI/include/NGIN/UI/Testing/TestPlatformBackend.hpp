@@ -49,7 +49,7 @@ public:
       -> UIResult<void> override;
   auto StopTextInput(PlatformWindowHandle window) noexcept
       -> UIResult<void> override;
-  auto QueryDisplays() noexcept -> UIResult<DisplayList> override;
+  auto QueryDisplays() noexcept -> UIResult<DisplayInfoList> override;
 
   void InjectEvent(PlatformEvent event);
   void AdvanceTime(std::chrono::milliseconds duration) noexcept;

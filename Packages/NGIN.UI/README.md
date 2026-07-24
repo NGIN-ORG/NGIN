@@ -17,7 +17,12 @@ foundation:
 - explicit RAII-scoped composition;
 - packed generational runtime-node storage;
 - static and keyed reconciliation;
-- independent composition and paint invalidation.
+- independent composition, layout, and paint invalidation;
+- constraint-based measure/arrange for rows, columns, overlays, padding, and
+  alignment;
+- typed node layout and solid-background properties;
+- backend-neutral display-list construction;
+- DPI-aware solid-rectangle tessellation and adjacent-batch coalescing.
 
 Build and test directly:
 

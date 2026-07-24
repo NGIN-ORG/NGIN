@@ -44,7 +44,7 @@ struct DisplayInfo final {
   bool primary{false};
 };
 
-using DisplayList = std::vector<DisplayInfo>;
+using DisplayInfoList = std::vector<DisplayInfo>;
 
 class IPlatformBackend {
 public:
@@ -80,6 +80,6 @@ public:
       -> UIResult<void> = 0;
   virtual auto StopTextInput(PlatformWindowHandle window) noexcept
       -> UIResult<void> = 0;
-  virtual auto QueryDisplays() noexcept -> UIResult<DisplayList> = 0;
+  virtual auto QueryDisplays() noexcept -> UIResult<DisplayInfoList> = 0;
 };
 } // namespace NGIN::UI

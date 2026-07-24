@@ -4,6 +4,15 @@ Status: Active implementation plan
 Source proposal: [`../proposals/NGIN.UI-Proposal.md`](../proposals/NGIN.UI-Proposal.md)
 Target language: C++23
 
+## Implementation Status
+
+- Slice 0 is complete.
+- Slice 2 is complete.
+- Slice 3 is complete for the proposal's initial layout and solid-rectangle
+  rendering scope.
+- Slice 1 is dependency-gated; no SDL3 dependency has been introduced.
+- Slices 4–8 remain planned.
+
 ## Product Boundary
 
 `NGIN.UI` is a standalone, backend-neutral package above `NGIN.Base`.

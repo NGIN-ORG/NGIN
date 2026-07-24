@@ -5,7 +5,8 @@
 
 namespace NGIN::UI {
 RuntimeTree::RuntimeTree() {
-  m_root = CreateNode(ElementType::Root, NGIN::Text::String{}, {});
+  m_root =
+      CreateNode(ElementType::Root, NGIN::Text::String{}, NodeProperties{}, {});
 }
 
 auto RuntimeTree::Root() const noexcept -> ElementHandle { return m_root; }
@@ -29,6 +30,7 @@ auto RuntimeTree::LiveCount() const noexcept -> UIntSize { return m_liveCount; }
 
 auto RuntimeTree::CreateNode(const ElementType type,
                              const NGIN::Text::String &key,
+                             const NodeProperties &properties,
                              const ElementHandle parent) -> ElementHandle {
   UInt32 index = 0;
   if (m_freeSlots.empty()) {
@@ -48,6 +50,7 @@ auto RuntimeTree::CreateNode(const ElementType type,
       .parent = parent,
       .type = type,
       .key = key,
+      .properties = properties,
   };
   ++m_liveCount;
   return handle;
@@ -151,6 +154,7 @@ auto Reconciler::ReconcileChildren(
     }
 
     auto *node = m_tree.Get(matched);
+    node->properties = declaration.properties;
     node->compositionRevision = m_revision;
     nextChildren.push_back(matched);
     ++stats.preserved;
@@ -164,8 +168,8 @@ auto Reconciler::ReconcileChildren(
 auto Reconciler::MaterializeSubtree(const ElementHandle parent,
                                     const ElementDeclaration &declaration,
                                     ReconcileStats &stats) -> ElementHandle {
-  const auto handle =
-      m_tree.CreateNode(declaration.type, declaration.key, parent);
+  const auto handle = m_tree.CreateNode(declaration.type, declaration.key,
+                                        declaration.properties, parent);
   auto *node = m_tree.Get(handle);
   node->compositionRevision = m_revision;
   node->children.reserve(declaration.children.size());

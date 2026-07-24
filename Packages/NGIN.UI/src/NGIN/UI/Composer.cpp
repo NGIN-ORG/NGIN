@@ -32,15 +32,25 @@ void Composer::ElementScope::Close() noexcept {
 
 auto Composer::Begin(const ElementType type, const std::string_view key)
     -> ElementScope {
+  return Begin(type, NodeProperties{}, key);
+}
+
+auto Composer::Begin(const ElementType type, const NodeProperties &properties,
+                     const std::string_view key) -> ElementScope {
   auto &children = CurrentChildren();
-  children.emplace_back(type, key);
+  children.emplace_back(type, key, properties);
   auto *element = &children.back();
   m_stack.push_back(element);
   return ElementScope{*this, m_stack.size()};
 }
 
 void Composer::Leaf(const ElementType type, const std::string_view key) {
-  CurrentChildren().emplace_back(type, key);
+  Leaf(type, NodeProperties{}, key);
+}
+
+void Composer::Leaf(const ElementType type, const NodeProperties &properties,
+                    const std::string_view key) {
+  CurrentChildren().emplace_back(type, key, properties);
 }
 
 auto Composer::Declarations() const noexcept

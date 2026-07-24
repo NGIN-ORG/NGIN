@@ -6,7 +6,7 @@
 
 namespace NGIN::UI {
 struct Window::Implementation final {
-  Implementation() : reconciler(tree) {}
+  Implementation() : reconciler(tree), layoutEngine(tree) {}
 
   WindowCreateInfo info{};
   PlatformWindowHandle platformHandle{};
@@ -17,9 +17,16 @@ struct Window::Implementation final {
   Content content{};
   RuntimeTree tree{};
   Reconciler reconciler;
+  LayoutEngine layoutEngine;
+  UIRenderer uiRenderer{};
   ReconcileStats lastReconcileStats{};
+  LayoutPassStats lastLayoutStats{};
+  DisplayList displayList{};
+  PreparedRenderPacket preparedPacket{};
   bool dirty{true};
   bool compositionDirty{true};
+  bool layoutDirty{true};
+  bool paintDirty{true};
   bool closeRequested{false};
   bool closed{false};
 };
@@ -75,6 +82,14 @@ auto Window::LastReconcileStats() const noexcept -> const ReconcileStats & {
   return m_implementation->lastReconcileStats;
 }
 
+auto Window::LastLayoutStats() const noexcept -> const LayoutPassStats & {
+  return m_implementation->lastLayoutStats;
+}
+
+auto Window::DisplayCommandCount() const noexcept -> UIntSize {
+  return m_implementation->displayList.size();
+}
+
 void Window::SetEventHandler(EventHandler handler) {
   m_implementation->eventHandler = std::move(handler);
 }
@@ -89,6 +104,15 @@ void Window::Invalidate(const InvalidationKind kind) noexcept {
     m_implementation->dirty = true;
     if (HasInvalidation(kind, InvalidationKind::Compose)) {
       m_implementation->compositionDirty = true;
+    }
+    if (HasInvalidation(kind, InvalidationKind::Compose) ||
+        HasInvalidation(kind, InvalidationKind::Measure) ||
+        HasInvalidation(kind, InvalidationKind::Arrange)) {
+      m_implementation->layoutDirty = true;
+      m_implementation->paintDirty = true;
+    }
+    if (HasInvalidation(kind, InvalidationKind::Paint)) {
+      m_implementation->paintDirty = true;
     }
   }
 }
@@ -259,12 +283,14 @@ auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
         }
         window->m_implementation->pixelExtent = resized->size;
       }
-      window->Invalidate();
+      window->Invalidate(InvalidationKind::Measure | InvalidationKind::Arrange |
+                         InvalidationKind::Paint);
     } else if (const auto *scale = std::get_if<WindowScaleChanged>(&event)) {
       if (scale->scaleFactor > 0.0F) {
         window->m_implementation->scaleFactor = scale->scaleFactor;
       }
-      window->Invalidate();
+      window->Invalidate(InvalidationKind::Measure | InvalidationKind::Arrange |
+                         InvalidationKind::Paint);
     } else if (std::holds_alternative<WindowCloseRequested>(event)) {
       window->m_implementation->closeRequested = true;
     } else {
@@ -301,14 +327,36 @@ auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
           window->m_implementation->reconciler.Reconcile(
               composer.Declarations());
       window->m_implementation->compositionDirty = false;
+      window->m_implementation->layoutDirty = true;
+      window->m_implementation->paintDirty = true;
     }
 
-    const RenderPacket packet{
-        .targetSize = window->PixelExtent(),
-        .scaleFactor = window->ScaleFactor(),
+    const auto scaleFactor = window->ScaleFactor();
+    const Size logicalSize{
+        static_cast<F32>(window->PixelExtent().width) / scaleFactor,
+        static_cast<F32>(window->PixelExtent().height) / scaleFactor,
     };
-    auto rendered =
-        m_implementation->renderer->Render(window->SurfaceHandle(), packet);
+    if (window->m_implementation->layoutDirty) {
+      window->m_implementation->lastLayoutStats =
+          window->m_implementation->layoutEngine.Perform(
+              SizeConstraints{.minimum = logicalSize, .maximum = logicalSize},
+              Rect{0.0F, 0.0F, logicalSize.width, logicalSize.height});
+      window->m_implementation->layoutDirty = false;
+      window->m_implementation->paintDirty = true;
+    }
+    if (window->m_implementation->paintDirty) {
+      window->m_implementation->displayList =
+          BuildDisplayList(window->m_implementation->tree);
+      window->m_implementation->preparedPacket =
+          window->m_implementation->uiRenderer.Build(
+              window->m_implementation->displayList, window->PixelExtent(),
+              scaleFactor);
+      window->m_implementation->paintDirty = false;
+    }
+
+    auto rendered = m_implementation->renderer->Render(
+        window->SurfaceHandle(),
+        window->m_implementation->preparedPacket.View());
     if (!rendered) {
       return std::move(rendered).Error();
     }

@@ -159,8 +159,9 @@ auto TestPlatformBackend::StopTextInput(
   return {};
 }
 
-auto TestPlatformBackend::QueryDisplays() noexcept -> UIResult<DisplayList> {
-  DisplayList displays;
+auto TestPlatformBackend::QueryDisplays() noexcept
+    -> UIResult<DisplayInfoList> {
+  DisplayInfoList displays;
   displays.push_back(DisplayInfo{
       .id = NGIN::Text::String{"Test.Display.0"},
       .name = NGIN::Text::String{"Deterministic display"},

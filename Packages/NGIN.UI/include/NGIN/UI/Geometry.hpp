@@ -81,6 +81,9 @@ struct Rect final {
     return point.x >= x && point.y >= y && point.x < x + width &&
            point.y < y + height;
   }
+
+  [[nodiscard]] constexpr auto
+  operator<=>(const Rect &) const noexcept = default;
 };
 
 struct Thickness final {
@@ -93,6 +96,9 @@ struct Thickness final {
       -> Thickness {
     return Thickness{value.value, value.value, value.value, value.value};
   }
+
+  [[nodiscard]] constexpr auto
+  operator<=>(const Thickness &) const noexcept = default;
 };
 
 struct CornerRadius final {

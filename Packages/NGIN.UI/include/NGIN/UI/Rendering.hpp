@@ -4,20 +4,11 @@
 #include <NGIN/UI/Error.hpp>
 #include <NGIN/UI/Geometry.hpp>
 #include <NGIN/UI/Handles.hpp>
+#include <NGIN/UI/Style.hpp>
 
 #include <span>
 
 namespace NGIN::UI {
-struct Color final {
-  F32 red{0.0F};
-  F32 green{0.0F};
-  F32 blue{0.0F};
-  F32 alpha{1.0F};
-
-  [[nodiscard]] constexpr auto
-  operator<=>(const Color &) const noexcept = default;
-};
-
 enum class TextureFormat : UInt8 {
   R8,
   RGBA8,

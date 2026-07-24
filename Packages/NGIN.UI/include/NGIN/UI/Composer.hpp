@@ -37,12 +37,23 @@ public:
 
   [[nodiscard]] auto Begin(ElementType type, std::string_view key = {})
       -> ElementScope;
+  [[nodiscard]] auto Begin(ElementType type, const NodeProperties &properties,
+                           std::string_view key = {}) -> ElementScope;
   void Leaf(ElementType type, std::string_view key = {});
+  void Leaf(ElementType type, const NodeProperties &properties,
+            std::string_view key = {});
 
   template <typename ComposeChildren>
   void Element(ElementType type, ComposeChildren &&composeChildren,
                std::string_view key = {}) {
     auto scope = Begin(type, key);
+    std::forward<ComposeChildren>(composeChildren)();
+  }
+
+  template <typename ComposeChildren>
+  void Element(ElementType type, const NodeProperties &properties,
+               ComposeChildren &&composeChildren, std::string_view key = {}) {
+    auto scope = Begin(type, properties, key);
     std::forward<ComposeChildren>(composeChildren)();
   }
 

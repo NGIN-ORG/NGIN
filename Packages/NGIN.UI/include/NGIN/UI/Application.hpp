@@ -4,9 +4,11 @@
 #include <NGIN/UI/Error.hpp>
 #include <NGIN/UI/Events.hpp>
 #include <NGIN/UI/Invalidation.hpp>
+#include <NGIN/UI/Layout.hpp>
 #include <NGIN/UI/Platform.hpp>
 #include <NGIN/UI/Rendering.hpp>
 #include <NGIN/UI/RuntimeTree.hpp>
+#include <NGIN/UI/UIRenderer.hpp>
 #include <NGIN/Utilities/Callable.hpp>
 
 #include <chrono>
@@ -37,6 +39,9 @@ public:
   [[nodiscard]] auto Tree() const noexcept -> const RuntimeTree &;
   [[nodiscard]] auto LastReconcileStats() const noexcept
       -> const ReconcileStats &;
+  [[nodiscard]] auto LastLayoutStats() const noexcept
+      -> const LayoutPassStats &;
+  [[nodiscard]] auto DisplayCommandCount() const noexcept -> UIntSize;
 
   void SetEventHandler(EventHandler handler);
   void SetContent(Content content);

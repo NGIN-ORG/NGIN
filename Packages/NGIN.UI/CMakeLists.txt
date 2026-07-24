@@ -26,7 +26,10 @@ endif()
 set(NGIN_UI_SOURCES
     src/NGIN/UI/Application.cpp
     src/NGIN/UI/Composer.cpp
+    src/NGIN/UI/DisplayList.cpp
+    src/NGIN/UI/Layout.cpp
     src/NGIN/UI/RuntimeTree.cpp
+    src/NGIN/UI/UIRenderer.cpp
     src/NGIN/UI/Testing/RecordingRenderBackend.cpp
     src/NGIN/UI/Testing/TestPlatformBackend.cpp
 )

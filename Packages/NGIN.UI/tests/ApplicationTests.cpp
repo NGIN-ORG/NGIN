@@ -178,3 +178,48 @@ TEST_CASE("window content composes on demand and retains runtime identity") {
   REQUIRE(window->Tree().Get(window->Tree().Root())->children.front() ==
           columnHandle);
 }
+
+TEST_CASE("window frames lay out painted nodes into renderer packets") {
+  using namespace NGIN::UI;
+  using namespace NGIN::UI::Testing;
+
+  auto renderer = std::make_unique<RecordingRenderBackend>();
+  auto *rendererObserver = renderer.get();
+  auto createdApplication = CreateApplication(ApplicationCreateInfo{
+      .platform = std::make_unique<TestPlatformBackend>(),
+      .renderer = std::move(renderer),
+  });
+  REQUIRE(createdApplication.HasValue());
+  auto application = std::move(createdApplication).Value();
+
+  auto createdWindow = application->CreateWindow(WindowCreateInfo{
+      .id = NGIN::Text::String{"Paint"},
+      .title = NGIN::Text::String{"Paint"},
+      .initialSize = PixelSize{200, 100},
+  });
+  REQUIRE(createdWindow.HasValue());
+  auto *window = createdWindow.Value();
+
+  window->SetContent([](Composer &composer) {
+    NodeProperties properties{};
+    properties.layout.preferredSize = Size{50.0F, 20.0F};
+    properties.layout.horizontalAlignment = HorizontalAlignment::Center;
+    properties.layout.verticalAlignment = VerticalAlignment::Center;
+    properties.background = Color{0.2F, 0.4F, 0.8F, 1.0F};
+    properties.paintsBackground = true;
+    composer.Leaf(ElementType::Rectangle, properties, "rectangle");
+  });
+
+  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(window->DisplayCommandCount() == 1);
+  REQUIRE(window->LastLayoutStats().measured == 2);
+  REQUIRE(window->LastLayoutStats().arranged == 2);
+  REQUIRE(rendererObserver->RenderPackets().size() == 1);
+  REQUIRE(rendererObserver->RenderPackets().front().vertices.size() == 4);
+  REQUIRE(rendererObserver->RenderPackets().front().indices.size() == 6);
+
+  const auto *rectangle = window->Tree().Get(
+      window->Tree().Get(window->Tree().Root())->children.front());
+  REQUIRE(rectangle != nullptr);
+  REQUIRE(rectangle->arrangedBounds == Rect{75.0F, 40.0F, 50.0F, 20.0F});
+}
