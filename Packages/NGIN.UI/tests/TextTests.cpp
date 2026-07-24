@@ -158,6 +158,50 @@ TEST_CASE("text editing deletion is transactional when segmentation fails") {
   REQUIRE(buffer.State().caretCluster == 2);
 }
 
+TEST_CASE("text editing composition updates remain transient and cancellable") {
+  using namespace NGIN::UI;
+
+  TestGraphemeSegmenter segmenter;
+  TextEditingBuffer buffer{segmenter};
+  REQUIRE(buffer.Reset(NGIN::Text::String{"AB"}).HasValue());
+  REQUIRE(buffer.SetSelection(TextRange{1, 1}).HasValue());
+
+  const NGIN::Text::String composed{"e\xCC\x81"};
+  REQUIRE(buffer.UpdateComposition(composed, composed.Size(), 0).HasValue());
+  REQUIRE(buffer.HasComposition());
+  REQUIRE(buffer.Value() == NGIN::Text::String{"Ae\xCC\x81"});
+  REQUIRE(buffer.State().composition == TextRange{1, 1});
+  REQUIRE(buffer.State().selection == TextRange{2, 0});
+
+  REQUIRE(buffer.UpdateComposition(NGIN::Text::String{"Z"}, 1, 0).HasValue());
+  REQUIRE(buffer.Value() == NGIN::Text::String{"AZ"});
+  REQUIRE(buffer.CancelComposition().HasValue());
+  REQUIRE_FALSE(buffer.HasComposition());
+  REQUIRE(buffer.Value() == NGIN::Text::String{"AB"});
+  REQUIRE(buffer.State().selection == TextRange{1, 1});
+}
+
+TEST_CASE("text editing composition commits against its original selection") {
+  using namespace NGIN::UI;
+
+  TestGraphemeSegmenter segmenter;
+  TextEditingBuffer buffer{segmenter};
+  REQUIRE(buffer.Reset(NGIN::Text::String{"AB"}).HasValue());
+  REQUIRE(buffer.SetSelection(TextRange{1, 1}).HasValue());
+  REQUIRE(buffer.UpdateComposition(NGIN::Text::String{"candidate"}, 9, 0)
+              .HasValue());
+  REQUIRE(buffer.CommitComposition(NGIN::Text::String{"Q"}).HasValue());
+  REQUIRE_FALSE(buffer.HasComposition());
+  REQUIRE(buffer.Value() == NGIN::Text::String{"AQ"});
+  REQUIRE(buffer.State().selection == TextRange{2, 0});
+
+  const NGIN::Text::String multiByte{"\xC3\xA9"};
+  const auto invalid = buffer.UpdateComposition(multiByte, 1, 0);
+  REQUIRE_FALSE(invalid.HasValue());
+  REQUIRE(invalid.Error().code == UIErrorCode::InvalidArgument);
+  REQUIRE(buffer.Value() == NGIN::Text::String{"AQ"});
+}
+
 TEST_CASE("semantic text field edits bindings and retains its session") {
   using namespace NGIN::UI;
 
@@ -200,6 +244,138 @@ TEST_CASE("semantic text field edits bindings and retains its session") {
   node = tree.Get(field);
   REQUIRE(node->textField.editing == retainedSession);
   REQUIRE(node->textField.editing->State().caretCluster == 3);
+}
+
+TEST_CASE("text field composition changes binding only when committed") {
+  using namespace NGIN::UI;
+
+  TestGraphemeSegmenter segmenter;
+  State<NGIN::Text::String> value{NGIN::Text::String{"A"}};
+  Composer composer;
+  composer.TextField(Bind(value), segmenter);
+  RuntimeTree tree;
+  Reconciler reconciler{tree};
+  static_cast<void>(reconciler.Reconcile(composer.Declarations()));
+  const auto field = tree.Get(tree.Root())->children.front();
+  InputRouter input{tree};
+  REQUIRE(input.SetFocus(field));
+
+  const NGIN::Text::String candidate{"e\xCC\x81"};
+  const auto composing = input.Route(TextComposition{
+      .text = candidate,
+      .selectionStart = candidate.Size(),
+  });
+  REQUIRE(composing.handled);
+  REQUIRE(composing.layoutStateChanged);
+  REQUIRE(value.Get() == NGIN::Text::String{"A"});
+  REQUIRE(tree.Get(field)->textField.editing->HasComposition());
+  REQUIRE(tree.Get(field)->textField.editing->Value() ==
+          NGIN::Text::String{"Ae\xCC\x81"});
+
+  const auto session = tree.Get(field)->textField.editing;
+  Composer recomposed;
+  recomposed.TextField(Bind(value), segmenter);
+  static_cast<void>(reconciler.Reconcile(recomposed.Declarations()));
+  REQUIRE(tree.Get(field)->textField.editing == session);
+  REQUIRE(tree.Get(field)->textField.editing->HasComposition());
+  REQUIRE(tree.Get(field)->textField.editing->Value() ==
+          NGIN::Text::String{"Ae\xCC\x81"});
+
+  const auto committed = input.Route(TextInput{
+      .text = NGIN::Text::String{"E"},
+  });
+  REQUIRE(committed.handled);
+  REQUIRE(value.Get() == NGIN::Text::String{"AE"});
+  REQUIRE_FALSE(tree.Get(field)->textField.editing->HasComposition());
+}
+
+TEST_CASE("text field restores composition when commit validation fails") {
+  using namespace NGIN::UI;
+
+  TestGraphemeSegmenter segmenter;
+  State<NGIN::Text::String> value{NGIN::Text::String{"A"}};
+  auto validated = Bind(value).WithValidation(
+      [](const NGIN::Text::String &candidate) -> UIResult<void> {
+        if (candidate.Size() > 1) {
+          return MakeUIError(UIErrorCode::InvalidArgument, "Text is too long",
+                             "NGIN.UI.Tests", "Validate");
+        }
+        return {};
+      });
+  Composer composer;
+  composer.TextField(std::move(validated), segmenter);
+  RuntimeTree tree;
+  Reconciler reconciler{tree};
+  static_cast<void>(reconciler.Reconcile(composer.Declarations()));
+  const auto field = tree.Get(tree.Root())->children.front();
+  InputRouter input{tree};
+  REQUIRE(input.SetFocus(field));
+  REQUIRE(input
+              .Route(TextComposition{
+                  .text = NGIN::Text::String{"x"},
+                  .selectionStart = 1,
+              })
+              .handled);
+
+  const auto rejected = input.Route(TextInput{
+      .text = NGIN::Text::String{"long"},
+  });
+  REQUIRE(rejected.handled);
+  REQUIRE(value.Get() == NGIN::Text::String{"A"});
+  REQUIRE(tree.Get(field)->textField.editing->HasComposition());
+  REQUIRE(tree.Get(field)->textField.editing->Value() ==
+          NGIN::Text::String{"Ax"});
+}
+
+TEST_CASE("text field focus coordinates platform IME lifecycle") {
+  using namespace NGIN::UI;
+
+  TestGraphemeSegmenter segmenter;
+  State<NGIN::Text::String> value{NGIN::Text::String{"text"}};
+  Composer composer;
+  composer.TextField(Bind(value), segmenter);
+  composer.Button([] {});
+
+  RuntimeTree tree;
+  Reconciler reconciler{tree};
+  static_cast<void>(reconciler.Reconcile(composer.Declarations()));
+  const auto field = tree.Get(tree.Root())->children[0];
+  const auto button = tree.Get(tree.Root())->children[1];
+  tree.Get(field)->arrangedBounds = Rect{1.0F, 2.0F, 30.0F, 10.0F};
+
+  Testing::TestPlatformBackend platform;
+  REQUIRE(platform
+              .Initialize(PlatformInitInfo{
+                  .applicationName = NGIN::Text::String{"Text tests"},
+              })
+              .HasValue());
+  auto created = platform.CreateWindow(WindowCreateInfo{
+      .id = NGIN::Text::String{"IME"},
+      .title = NGIN::Text::String{"IME"},
+  });
+  REQUIRE(created.HasValue());
+
+  InputRouter input{tree, &platform, created.Value(), 2.0F};
+  REQUIRE(input.SetFocus(field));
+  REQUIRE(platform.Windows().front().textInputActive);
+  REQUIRE(platform.Windows().front().textInputRect == PixelRect{2, 4, 60, 20});
+
+  REQUIRE(
+      tree.Get(field)
+          ->textField.editing->UpdateComposition(NGIN::Text::String{"x"}, 1, 0)
+          .HasValue());
+  REQUIRE(input.SetFocus(button));
+  REQUIRE_FALSE(platform.Windows().front().textInputActive);
+  REQUIRE_FALSE(tree.Get(field)->textField.editing->HasComposition());
+  REQUIRE(tree.Get(field)->textField.editing->Value() ==
+          NGIN::Text::String{"text"});
+
+  REQUIRE(input.SetFocus(field));
+  REQUIRE(platform.Windows().front().textInputActive);
+  Composer empty;
+  static_cast<void>(reconciler.Reconcile(empty.Declarations()));
+  input.Synchronize();
+  REQUIRE_FALSE(platform.Windows().front().textInputActive);
 }
 
 TEST_CASE("text field clipboard and keyboard commands are cluster aware") {

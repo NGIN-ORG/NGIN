@@ -19,8 +19,11 @@ namespace {
 }
 } // namespace
 
-InputRouter::InputRouter(RuntimeTree &tree, IPlatformBackend *platform) noexcept
-    : m_tree(tree), m_platform(platform) {}
+InputRouter::InputRouter(RuntimeTree &tree, IPlatformBackend *platform,
+                         const PlatformWindowHandle window,
+                         const F32 scaleFactor) noexcept
+    : m_tree(tree), m_platform(platform), m_window(window),
+      m_scaleFactor(scaleFactor > 0.0F ? scaleFactor : 1.0F) {}
 
 auto InputRouter::HitTest(const Point position) const noexcept
     -> ElementHandle {
@@ -110,6 +113,7 @@ auto InputRouter::SetFocus(const ElementHandle handle) noexcept -> bool {
   }
 
   if (auto *previous = m_tree.Get(m_focused); previous != nullptr) {
+    StopTextInput(*previous);
     previous->interaction.focused = false;
     if (previous->interaction.keyboardPressed) {
       previous->interaction.keyboardPressed = false;
@@ -118,15 +122,18 @@ auto InputRouter::SetFocus(const ElementHandle handle) noexcept -> bool {
   }
   m_focused = handle;
   next->interaction.focused = true;
+  StartTextInput(*next);
   return true;
 }
 
 auto InputRouter::ClearFocus() noexcept -> bool {
   auto *focused = m_tree.Get(m_focused);
   if (focused == nullptr) {
+    StopOrphanedTextInput();
     m_focused = {};
     return false;
   }
+  StopTextInput(*focused);
   focused->interaction.focused = false;
   if (focused->interaction.keyboardPressed) {
     focused->interaction.keyboardPressed = false;
@@ -134,6 +141,17 @@ auto InputRouter::ClearFocus() noexcept -> bool {
   }
   m_focused = {};
   return true;
+}
+
+void InputRouter::SetScaleFactor(const F32 scaleFactor) noexcept {
+  if (scaleFactor <= 0.0F) {
+    return;
+  }
+  m_scaleFactor = scaleFactor;
+  if (const auto *focused = m_tree.Get(FocusedElement());
+      focused != nullptr && focused->type == ElementType::TextField) {
+    StartTextInput(*focused);
+  }
 }
 
 auto InputRouter::MoveFocus(const bool reverse) -> bool {
@@ -193,6 +211,7 @@ void InputRouter::Synchronize() noexcept {
 
   const auto *focused = m_tree.Get(m_focused);
   if (focused == nullptr) {
+    StopOrphanedTextInput();
     m_focused = {};
   } else if (!focused->properties.interaction.enabled ||
              !focused->properties.interaction.focusable) {
@@ -502,6 +521,47 @@ void InputRouter::ReportTextFieldError(const RuntimeNode &node,
   }
 }
 
+void InputRouter::StartTextInput(const RuntimeNode &node) noexcept {
+  if (node.type != ElementType::TextField || m_platform == nullptr ||
+      !m_window ||
+      !HasPlatformCapability(m_platform->Capabilities(),
+                             PlatformCapabilityFlags::IME)) {
+    return;
+  }
+  const auto started = m_platform->StartTextInput(
+      m_window, ToPixelRect(node.arrangedBounds, m_scaleFactor));
+  m_textInputActive = m_textInputActive || started.HasValue();
+}
+
+void InputRouter::StopTextInput(const RuntimeNode &node) noexcept {
+  if (node.type != ElementType::TextField) {
+    return;
+  }
+  if (node.textField.editing) {
+    static_cast<void>(node.textField.editing->CancelComposition());
+  }
+  if (m_platform == nullptr || !m_window ||
+      !HasPlatformCapability(m_platform->Capabilities(),
+                             PlatformCapabilityFlags::IME)) {
+    m_textInputActive = false;
+    return;
+  }
+  static_cast<void>(m_platform->StopTextInput(m_window));
+  m_textInputActive = false;
+}
+
+void InputRouter::StopOrphanedTextInput() noexcept {
+  if (!m_textInputActive) {
+    return;
+  }
+  if (m_platform != nullptr && m_window &&
+      HasPlatformCapability(m_platform->Capabilities(),
+                            PlatformCapabilityFlags::IME)) {
+    static_cast<void>(m_platform->StopTextInput(m_window));
+  }
+  m_textInputActive = false;
+}
+
 auto InputRouter::CommitTextFieldEdit(
     RuntimeNode &node,
     NGIN::Utilities::Callable<UIResult<void>(TextEditingBuffer &)> edit)
@@ -523,8 +583,7 @@ auto InputRouter::CommitTextFieldEdit(
   }
 
   auto &editing = *node.textField.editing;
-  const auto previousValue = editing.Value();
-  const auto previousSelection = editing.State().selection;
+  const auto previousEditing = editing;
   auto edited = edit(editing);
   if (!edited) {
     ReportTextFieldError(node, edited.Error());
@@ -535,8 +594,7 @@ auto InputRouter::CommitTextFieldEdit(
 
   auto committed = node.properties.textField.value.Set(editing.Value());
   if (!committed) {
-    static_cast<void>(editing.Reset(previousValue));
-    static_cast<void>(editing.SetSelection(previousSelection));
+    editing = previousEditing;
     ReportTextFieldError(node, committed.Error());
     result.callbackInvoked =
         static_cast<bool>(node.properties.textField.onError);
@@ -552,8 +610,29 @@ auto InputRouter::RouteTextFieldInput(RuntimeNode &node,
     -> InputDispatchResult {
   return CommitTextFieldEdit(
       node, [text](TextEditingBuffer &editing) -> UIResult<void> {
-        return editing.ReplaceSelection(text);
+        return editing.HasComposition() ? editing.CommitComposition(text)
+                                        : editing.ReplaceSelection(text);
       });
+}
+
+auto InputRouter::RouteTextFieldComposition(RuntimeNode &node,
+                                            const TextComposition &event)
+    -> InputDispatchResult {
+  InputDispatchResult result{.handled = true};
+  if (node.properties.textField.readOnly || !node.textField.editing) {
+    return result;
+  }
+
+  auto updated = node.textField.editing->UpdateComposition(
+      event.text, event.selectionStart, event.selectionLength);
+  if (!updated) {
+    ReportTextFieldError(node, updated.Error());
+    result.callbackInvoked =
+        static_cast<bool>(node.properties.textField.onError);
+    return result;
+  }
+  result.layoutStateChanged = true;
+  return result;
 }
 
 auto InputRouter::RouteTextFieldKey(RuntimeNode &node, const KeyChanged &event)
@@ -784,6 +863,17 @@ auto InputRouter::RouteText(const TextComposition &event)
       .selectionLength = event.selectionLength,
   };
   auto result = Dispatch(routed, FocusedElement());
+  auto *focused = m_tree.Get(FocusedElement());
+  if (!result.handled && focused != nullptr &&
+      focused->type == ElementType::TextField &&
+      focused->properties.interaction.enabled) {
+    const auto textFieldResult = RouteTextFieldComposition(*focused, event);
+    result.handled = textFieldResult.handled;
+    result.visualStateChanged = textFieldResult.visualStateChanged;
+    result.layoutStateChanged = textFieldResult.layoutStateChanged;
+    result.callbackInvoked =
+        result.callbackInvoked || textFieldResult.callbackInvoked;
+  }
   if (!result.handled && TopModalPopup()) {
     result.handled = true;
   }

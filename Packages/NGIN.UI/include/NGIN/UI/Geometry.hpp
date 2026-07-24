@@ -174,4 +174,19 @@ struct SizeConstraints final {
       static_cast<UInt32>(height),
   };
 }
+
+[[nodiscard]] inline auto ToPixelRect(const Rect value,
+                                      const F32 scaleFactor) noexcept
+    -> PixelRect {
+  const auto originX = std::round(value.x * scaleFactor);
+  const auto originY = std::round(value.y * scaleFactor);
+  const auto width = std::max(0.0F, std::round(value.width * scaleFactor));
+  const auto height = std::max(0.0F, std::round(value.height * scaleFactor));
+  return PixelRect{
+      static_cast<Int32>(originX),
+      static_cast<Int32>(originY),
+      static_cast<UInt32>(width),
+      static_cast<UInt32>(height),
+  };
+}
 } // namespace NGIN::UI

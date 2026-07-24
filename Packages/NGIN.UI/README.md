@@ -45,7 +45,9 @@ foundation:
 - transactional UTF-8 editing with grapheme-indexed caret, selection,
   replacement, and deletion operations;
 - retained semantic `TextField` sessions with binding validation, routed
-  keyboard/text input, clipboard shortcuts, and password-value privacy;
+  keyboard/text input, clipboard shortcuts, transient IME composition, and
+  password-value privacy;
+- platform IME start/stop coordination with DPI-aware candidate rectangles;
 - immutable/revisioned theme values and hierarchical typed resource scopes;
 - a render-tree-independent semantic tree with stable element ownership;
 - per-window structural diagnostics for composition, layout, rendering, focus,

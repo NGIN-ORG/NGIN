@@ -20,15 +20,16 @@ Target language: C++23
 - Slice 6 state/binding foundations, keyboard/text/IME event routing, and the
   transactional grapheme-indexed UTF-8 editing buffer are complete. The
   retained semantic `TextField` supports binding validation, keyboard/text
-  editing, clipboard commands, and password-value privacy. Text presentation
-  and the IME editing session remain pending concrete text services.
+  editing, clipboard commands, transient IME composition, platform text-input
+  lifecycle, and password-value privacy. Shaped text presentation remains
+  coupled to Slice 4.
 - Slice 7 is complete for the backend-neutral scope: theme/resource scopes,
   semantic trees, multiple windows, retained scrolling, platform-owned dialog
   foundations, in-window popups, frame timings, inspector snapshots, and
   debugging overlays. A text-rendered inspector panel remains coupled to
   Slice 4.
 - Slice 1 is dependency-gated; no SDL3 dependency has been introduced.
-- The remaining work in Slices 4 and 6, plus Slice 8, remains planned.
+- The remaining work in Slice 4, plus Slice 8, remains planned.
 
 ## Product Boundary
 
@@ -170,8 +171,11 @@ grapheme-indexed UTF-8 editing buffer are implemented. The editing buffer
 rejects malformed UTF-8 and invalid segmentation without mutating its prior
 state. The retained semantic `TextField` integrates binding validation,
 keyboard/text editing, clipboard shortcuts, selection retention, and
-password-value privacy. Its shaped visual presentation and IME session
-integration remain coupled to concrete text services.
+password-value privacy. Transient IME composition is isolated from application
+state until commit, validation failure restores the editing session, and focus
+coordinates platform text-input start/stop with a DPI-aware candidate
+rectangle. Shaped visual presentation remains coupled to concrete Slice 4 text
+services.
 
 Deliver:
 

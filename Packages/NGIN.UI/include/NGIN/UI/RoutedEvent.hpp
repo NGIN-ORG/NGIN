@@ -62,6 +62,7 @@ struct RoutedTextEvent final {
   ElementHandle target{};
   ElementHandle currentTarget{};
   NGIN::Text::String text{};
+  // Normalized UTF-8 byte offsets within text for composition events.
   UIntSize selectionStart{0};
   UIntSize selectionLength{0};
   bool handled{false};

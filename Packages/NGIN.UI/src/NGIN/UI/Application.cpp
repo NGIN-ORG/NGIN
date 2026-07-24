@@ -31,8 +31,10 @@ ElapsedMilliseconds(const DiagnosticsClock::time_point start,
 } // namespace
 
 struct Window::Implementation final {
-  explicit Implementation(IPlatformBackend &platform)
-      : reconciler(tree), layoutEngine(tree), inputRouter(tree, &platform) {}
+  Implementation(IPlatformBackend &platform,
+                 const PlatformWindowHandle platformHandle)
+      : reconciler(tree), layoutEngine(tree),
+        inputRouter(tree, &platform, platformHandle) {}
 
   WindowCreateInfo info{};
   PlatformWindowHandle platformHandle{};
@@ -68,7 +70,8 @@ struct Window::Implementation final {
 Window::Window(WindowCreateInfo info, const PlatformWindowHandle platformHandle,
                const RenderSurfaceHandle surfaceHandle,
                IPlatformBackend &platformBackend, Window *owner)
-    : m_implementation(std::make_unique<Implementation>(platformBackend)) {
+    : m_implementation(
+          std::make_unique<Implementation>(platformBackend, platformHandle)) {
   m_implementation->pixelExtent = info.initialSize;
   m_implementation->info = std::move(info);
   m_implementation->platformHandle = platformHandle;
@@ -496,6 +499,8 @@ auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
     } else if (const auto *scale = std::get_if<WindowScaleChanged>(&event)) {
       if (scale->scaleFactor > 0.0F) {
         window->m_implementation->scaleFactor = scale->scaleFactor;
+        window->m_implementation->inputRouter.SetScaleFactor(
+            scale->scaleFactor);
       }
       window->Invalidate(InvalidationKind::Measure | InvalidationKind::Arrange |
                          InvalidationKind::Paint);

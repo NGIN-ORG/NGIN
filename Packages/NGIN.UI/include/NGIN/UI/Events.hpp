@@ -149,6 +149,7 @@ struct TextInput final {
 struct TextComposition final {
   PlatformWindowHandle window{};
   NGIN::Text::String text{};
+  // Normalized UTF-8 byte offsets within text.
   UIntSize selectionStart{0};
   UIntSize selectionLength{0};
 };

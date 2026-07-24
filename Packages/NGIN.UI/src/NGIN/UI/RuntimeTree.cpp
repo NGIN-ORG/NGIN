@@ -105,7 +105,8 @@ void RuntimeTree::SynchronizeTextField(RuntimeNode &node) {
     return;
   }
 
-  if (node.textField.editing->Value() != properties.value.Get()) {
+  if (!node.textField.editing->HasComposition() &&
+      node.textField.editing->Value() != properties.value.Get()) {
     auto reset = node.textField.editing->Reset(properties.value.Get());
     if (!reset) {
       report(reset.Error());

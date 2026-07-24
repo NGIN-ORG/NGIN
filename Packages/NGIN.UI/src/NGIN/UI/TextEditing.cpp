@@ -67,6 +67,34 @@ namespace {
 
   return boundaries;
 }
+
+[[nodiscard]] auto ClusterAtByte(const std::vector<GraphemeCluster> &clusters,
+                                 const UIntSize byteOffset) noexcept
+    -> UIntSize {
+  for (UIntSize index = 0; index < clusters.size(); ++index) {
+    const auto &cluster = clusters[index];
+    if (byteOffset <= cluster.byteOffset ||
+        byteOffset < cluster.byteOffset + cluster.byteLength) {
+      return index;
+    }
+  }
+  return clusters.size();
+}
+
+[[nodiscard]] auto
+ClusterPositionAtOrAfterByte(const std::vector<GraphemeCluster> &clusters,
+                             const UIntSize byteOffset) noexcept -> UIntSize {
+  for (UIntSize index = 0; index < clusters.size(); ++index) {
+    const auto &cluster = clusters[index];
+    if (byteOffset <= cluster.byteOffset) {
+      return index;
+    }
+    if (byteOffset <= cluster.byteOffset + cluster.byteLength) {
+      return index + 1;
+    }
+  }
+  return clusters.size();
+}
 } // namespace
 
 TextEditingBuffer::TextEditingBuffer(IGraphemeSegmenter &segmenter) noexcept
@@ -90,6 +118,10 @@ auto TextEditingBuffer::SelectedText() const -> NGIN::Text::String {
   return m_value.Substr(start, ByteOffset(m_state.selection.End()) - start);
 }
 
+auto TextEditingBuffer::HasComposition() const noexcept -> bool {
+  return m_compositionActive;
+}
+
 auto TextEditingBuffer::Reset(NGIN::Text::String value) -> UIResult<void> {
   auto clusters = SegmentAndValidate(value);
   if (!clusters) {
@@ -103,6 +135,12 @@ auto TextEditingBuffer::Reset(NGIN::Text::String value) -> UIResult<void> {
   m_state.caretCluster = m_clusters.size();
   m_state.preferredCaretX = 0.0F;
   m_selectionAnchor = m_state.caretCluster;
+  m_compositionActive = false;
+  m_compositionBaseValue = {};
+  m_compositionBaseClusters.clear();
+  m_compositionBaseSelection = {};
+  m_compositionStartByte = 0;
+  m_compositionEndByte = 0;
   return {};
 }
 
@@ -180,6 +218,123 @@ auto TextEditingBuffer::DeleteForward() -> UIResult<void> {
   return ReplaceRange(TextRange{m_state.caretCluster, 1}, {});
 }
 
+auto TextEditingBuffer::UpdateComposition(const NGIN::Text::String &text,
+                                          const UIntSize selectionStartByte,
+                                          const UIntSize selectionLengthByte)
+    -> UIResult<void> {
+  if (text.Empty()) {
+    return CancelComposition();
+  }
+  if (selectionStartByte > text.Size() ||
+      selectionLengthByte > text.Size() - selectionStartByte) {
+    return MakeUIError(UIErrorCode::InvalidArgument,
+                       "IME selection is outside the composition text",
+                       "NGIN.UI", "TextEditingBuffer::UpdateComposition");
+  }
+  auto compositionBoundaries = Utf8Boundaries(text);
+  if (!compositionBoundaries) {
+    return std::move(compositionBoundaries).Error();
+  }
+  if (!compositionBoundaries.Value()[selectionStartByte] ||
+      !compositionBoundaries
+           .Value()[selectionStartByte + selectionLengthByte]) {
+    return MakeUIError(UIErrorCode::InvalidArgument,
+                       "IME selection does not use UTF-8 boundaries", "NGIN.UI",
+                       "TextEditingBuffer::UpdateComposition");
+  }
+
+  if (!m_compositionActive) {
+    m_compositionBaseValue = m_value;
+    m_compositionBaseClusters = m_clusters;
+    m_compositionBaseSelection = m_state.selection;
+    m_compositionStartByte = ByteOffset(m_state.selection.start);
+    m_compositionEndByte = ByteOffset(m_state.selection.End());
+  }
+
+  auto candidate = m_compositionBaseValue;
+  candidate.Replace(m_compositionStartByte,
+                    m_compositionEndByte - m_compositionStartByte, text.View());
+  auto clusters = SegmentAndValidate(candidate);
+  if (!clusters) {
+    return std::move(clusters).Error();
+  }
+
+  const auto compositionEndByte = m_compositionStartByte + text.Size();
+  const auto compositionStartCluster =
+      ClusterAtByte(clusters.Value(), m_compositionStartByte);
+  const auto compositionEndCluster =
+      ClusterPositionAtOrAfterByte(clusters.Value(), compositionEndByte);
+  const auto selectionStartCluster = ClusterPositionAtOrAfterByte(
+      clusters.Value(), m_compositionStartByte + selectionStartByte);
+  const auto selectionEndCluster = ClusterPositionAtOrAfterByte(
+      clusters.Value(),
+      m_compositionStartByte + selectionStartByte + selectionLengthByte);
+
+  m_value = std::move(candidate);
+  m_clusters = std::move(clusters).Value();
+  m_state.composition = TextRange{
+      compositionStartCluster, compositionEndCluster - compositionStartCluster};
+  m_state.selection = TextRange{selectionStartCluster,
+                                selectionEndCluster - selectionStartCluster};
+  m_state.caretCluster = selectionEndCluster;
+  m_state.preferredCaretX = 0.0F;
+  m_selectionAnchor = selectionStartCluster;
+  m_compositionActive = true;
+  return {};
+}
+
+auto TextEditingBuffer::CommitComposition(const NGIN::Text::String &text)
+    -> UIResult<void> {
+  if (!m_compositionActive) {
+    return ReplaceSelection(text);
+  }
+
+  auto candidate = m_compositionBaseValue;
+  candidate.Replace(m_compositionStartByte,
+                    m_compositionEndByte - m_compositionStartByte, text.View());
+  auto clusters = SegmentAndValidate(candidate);
+  if (!clusters) {
+    return std::move(clusters).Error();
+  }
+
+  m_value = std::move(candidate);
+  m_clusters = std::move(clusters).Value();
+  const auto caret = ClusterAtOrAfterByte(m_compositionStartByte + text.Size());
+  m_state.selection = TextRange{caret, 0};
+  m_state.composition = {};
+  m_state.caretCluster = caret;
+  m_state.preferredCaretX = 0.0F;
+  m_selectionAnchor = caret;
+  m_compositionActive = false;
+  m_compositionBaseValue = {};
+  m_compositionBaseClusters.clear();
+  m_compositionBaseSelection = {};
+  m_compositionStartByte = 0;
+  m_compositionEndByte = 0;
+  return {};
+}
+
+auto TextEditingBuffer::CancelComposition() noexcept -> UIResult<void> {
+  if (!m_compositionActive) {
+    return {};
+  }
+
+  m_value = std::move(m_compositionBaseValue);
+  m_clusters = std::move(m_compositionBaseClusters);
+  m_state.selection = m_compositionBaseSelection;
+  m_state.composition = {};
+  m_state.caretCluster = m_compositionBaseSelection.End();
+  m_state.preferredCaretX = 0.0F;
+  m_selectionAnchor = m_compositionBaseSelection.start;
+  m_compositionActive = false;
+  m_compositionBaseValue = {};
+  m_compositionBaseClusters.clear();
+  m_compositionBaseSelection = {};
+  m_compositionStartByte = 0;
+  m_compositionEndByte = 0;
+  return {};
+}
+
 auto TextEditingBuffer::ByteOffset(const UIntSize cluster) const noexcept
     -> UIntSize {
   return cluster < m_clusters.size() ? m_clusters[cluster].byteOffset
@@ -188,16 +343,7 @@ auto TextEditingBuffer::ByteOffset(const UIntSize cluster) const noexcept
 
 auto TextEditingBuffer::ClusterAtOrAfterByte(
     const UIntSize byteOffset) const noexcept -> UIntSize {
-  for (UIntSize index = 0; index < m_clusters.size(); ++index) {
-    const auto &cluster = m_clusters[index];
-    if (byteOffset <= cluster.byteOffset) {
-      return index;
-    }
-    if (byteOffset <= cluster.byteOffset + cluster.byteLength) {
-      return index + 1;
-    }
-  }
-  return m_clusters.size();
+  return ClusterPositionAtOrAfterByte(m_clusters, byteOffset);
 }
 
 auto TextEditingBuffer::ReplaceRange(const TextRange range,
@@ -226,6 +372,12 @@ auto TextEditingBuffer::CommitCandidate(NGIN::Text::String candidate,
   m_state.caretCluster = caret;
   m_state.preferredCaretX = 0.0F;
   m_selectionAnchor = caret;
+  m_compositionActive = false;
+  m_compositionBaseValue = {};
+  m_compositionBaseClusters.clear();
+  m_compositionBaseSelection = {};
+  m_compositionStartByte = 0;
+  m_compositionEndByte = 0;
   return {};
 }
 

@@ -41,6 +41,7 @@ public:
   [[nodiscard]] auto Clusters() const noexcept
       -> const std::vector<GraphemeCluster> &;
   [[nodiscard]] auto SelectedText() const -> NGIN::Text::String;
+  [[nodiscard]] auto HasComposition() const noexcept -> bool;
 
   auto Reset(NGIN::Text::String value) -> UIResult<void>;
   auto SetSelection(TextRange selection) -> UIResult<void>;
@@ -50,6 +51,11 @@ public:
   auto ReplaceSelection(const NGIN::Text::String &text) -> UIResult<void>;
   auto DeleteBackward() -> UIResult<void>;
   auto DeleteForward() -> UIResult<void>;
+  auto UpdateComposition(const NGIN::Text::String &text,
+                         UIntSize selectionStartByte,
+                         UIntSize selectionLengthByte) -> UIResult<void>;
+  auto CommitComposition(const NGIN::Text::String &text) -> UIResult<void>;
+  auto CancelComposition() noexcept -> UIResult<void>;
 
 private:
   [[nodiscard]] auto ByteOffset(UIntSize cluster) const noexcept -> UIntSize;
@@ -67,5 +73,11 @@ private:
   std::vector<GraphemeCluster> m_clusters{};
   TextEditingState m_state{};
   UIntSize m_selectionAnchor{0};
+  bool m_compositionActive{false};
+  NGIN::Text::String m_compositionBaseValue{};
+  std::vector<GraphemeCluster> m_compositionBaseClusters{};
+  TextRange m_compositionBaseSelection{};
+  UIntSize m_compositionStartByte{0};
+  UIntSize m_compositionEndByte{0};
 };
 } // namespace NGIN::UI
