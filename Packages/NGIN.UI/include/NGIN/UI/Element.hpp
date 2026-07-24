@@ -6,7 +6,9 @@
 #include <NGIN/UI/Resources.hpp>
 #include <NGIN/UI/RoutedEvent.hpp>
 #include <NGIN/UI/Semantics.hpp>
+#include <NGIN/UI/State.hpp>
 #include <NGIN/UI/Style.hpp>
+#include <NGIN/UI/TextEditing.hpp>
 #include <NGIN/Utilities/Callable.hpp>
 
 #include <limits>
@@ -92,11 +94,20 @@ struct PopupProperties final {
   NGIN::Utilities::Callable<void()> onDismiss{};
 };
 
+struct TextFieldProperties final {
+  Binding<NGIN::Text::String> value{};
+  IGraphemeSegmenter *graphemeSegmenter{nullptr};
+  NGIN::Utilities::Callable<void(const UIError &)> onError{};
+  bool readOnly{false};
+  bool password{false};
+};
+
 struct NodeProperties final {
   LayoutProperties layout{};
   InteractionProperties interaction{};
   ScrollProperties scroll{};
   PopupProperties popup{};
+  TextFieldProperties textField{};
   SemanticProperties semantics{};
   std::shared_ptr<const ResourceScope> resources{};
   Color background{};

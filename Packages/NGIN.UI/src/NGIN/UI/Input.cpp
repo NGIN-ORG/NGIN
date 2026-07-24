@@ -5,7 +5,22 @@
 #include <type_traits>
 
 namespace NGIN::UI {
-InputRouter::InputRouter(RuntimeTree &tree) noexcept : m_tree(tree) {}
+namespace {
+[[nodiscard]] auto HasCommandModifier(const UInt32 modifiers) noexcept -> bool {
+  return HasKeyModifier(modifiers, KeyModifierFlags::Control) ||
+         HasKeyModifier(modifiers, KeyModifierFlags::Super);
+}
+
+[[nodiscard]] auto IsLogicalCharacter(const LogicalKey key,
+                                      const char character) noexcept -> bool {
+  const auto value = static_cast<UInt32>(key);
+  return value == static_cast<UInt32>(character) ||
+         value == static_cast<UInt32>(character - 'A' + 'a');
+}
+} // namespace
+
+InputRouter::InputRouter(RuntimeTree &tree, IPlatformBackend *platform) noexcept
+    : m_tree(tree), m_platform(platform) {}
 
 auto InputRouter::HitTest(const Point position) const noexcept
     -> ElementHandle {
@@ -480,6 +495,191 @@ auto InputRouter::FocusCandidates(const ElementHandle scope) const
   return result;
 }
 
+void InputRouter::ReportTextFieldError(const RuntimeNode &node,
+                                       const UIError &error) const {
+  if (node.properties.textField.onError) {
+    node.properties.textField.onError(error);
+  }
+}
+
+auto InputRouter::CommitTextFieldEdit(
+    RuntimeNode &node,
+    NGIN::Utilities::Callable<UIResult<void>(TextEditingBuffer &)> edit)
+    -> InputDispatchResult {
+  InputDispatchResult result{.handled = true};
+  if (node.properties.textField.readOnly) {
+    return result;
+  }
+  if (!node.textField.editing ||
+      !node.properties.textField.value.IsWritable()) {
+    const auto error =
+        MakeUIError(UIErrorCode::InvalidState,
+                    "TextField does not have a writable editing session",
+                    "NGIN.UI", "InputRouter::CommitTextFieldEdit");
+    ReportTextFieldError(node, error);
+    result.callbackInvoked =
+        static_cast<bool>(node.properties.textField.onError);
+    return result;
+  }
+
+  auto &editing = *node.textField.editing;
+  const auto previousValue = editing.Value();
+  const auto previousSelection = editing.State().selection;
+  auto edited = edit(editing);
+  if (!edited) {
+    ReportTextFieldError(node, edited.Error());
+    result.callbackInvoked =
+        static_cast<bool>(node.properties.textField.onError);
+    return result;
+  }
+
+  auto committed = node.properties.textField.value.Set(editing.Value());
+  if (!committed) {
+    static_cast<void>(editing.Reset(previousValue));
+    static_cast<void>(editing.SetSelection(previousSelection));
+    ReportTextFieldError(node, committed.Error());
+    result.callbackInvoked =
+        static_cast<bool>(node.properties.textField.onError);
+    return result;
+  }
+
+  result.layoutStateChanged = true;
+  return result;
+}
+
+auto InputRouter::RouteTextFieldInput(RuntimeNode &node,
+                                      const NGIN::Text::String &text)
+    -> InputDispatchResult {
+  return CommitTextFieldEdit(
+      node, [text](TextEditingBuffer &editing) -> UIResult<void> {
+        return editing.ReplaceSelection(text);
+      });
+}
+
+auto InputRouter::RouteTextFieldKey(RuntimeNode &node, const KeyChanged &event)
+    -> InputDispatchResult {
+  if (!node.textField.editing ||
+      (event.state != KeyState::Pressed && event.state != KeyState::Repeated)) {
+    return {};
+  }
+
+  auto &editing = *node.textField.editing;
+  const auto command = HasCommandModifier(event.modifiers);
+  const auto extend = HasKeyModifier(event.modifiers, KeyModifierFlags::Shift);
+  const auto key = event.Logical();
+
+  if (command && IsLogicalCharacter(key, 'A')) {
+    editing.SelectAll();
+    return InputDispatchResult{
+        .handled = true,
+        .visualStateChanged = true,
+    };
+  }
+
+  if (command &&
+      (IsLogicalCharacter(key, 'C') || IsLogicalCharacter(key, 'X'))) {
+    InputDispatchResult result{.handled = true};
+    if (m_platform == nullptr ||
+        !HasPlatformCapability(m_platform->Capabilities(),
+                               PlatformCapabilityFlags::Clipboard)) {
+      const auto error =
+          MakeUIError(UIErrorCode::Unsupported,
+                      "Clipboard commands require a platform backend",
+                      "NGIN.UI", "InputRouter::RouteTextFieldKey");
+      ReportTextFieldError(node, error);
+      result.callbackInvoked =
+          static_cast<bool>(node.properties.textField.onError);
+      return result;
+    }
+    auto copied = m_platform->SetClipboardText(editing.SelectedText());
+    if (!copied) {
+      ReportTextFieldError(node, copied.Error());
+      result.callbackInvoked =
+          static_cast<bool>(node.properties.textField.onError);
+      return result;
+    }
+    if (IsLogicalCharacter(key, 'X') && !node.properties.textField.readOnly) {
+      return CommitTextFieldEdit(
+          node, [](TextEditingBuffer &buffer) -> UIResult<void> {
+            return buffer.ReplaceSelection({});
+          });
+    }
+    return result;
+  }
+
+  if (command && IsLogicalCharacter(key, 'V')) {
+    if (m_platform == nullptr ||
+        !HasPlatformCapability(m_platform->Capabilities(),
+                               PlatformCapabilityFlags::Clipboard)) {
+      InputDispatchResult result{.handled = true};
+      const auto error =
+          MakeUIError(UIErrorCode::Unsupported,
+                      "Clipboard commands require a platform backend",
+                      "NGIN.UI", "InputRouter::RouteTextFieldKey");
+      ReportTextFieldError(node, error);
+      result.callbackInvoked =
+          static_cast<bool>(node.properties.textField.onError);
+      return result;
+    }
+    auto pasted = m_platform->GetClipboardText();
+    if (!pasted) {
+      InputDispatchResult result{.handled = true};
+      ReportTextFieldError(node, pasted.Error());
+      result.callbackInvoked =
+          static_cast<bool>(node.properties.textField.onError);
+      return result;
+    }
+    return RouteTextFieldInput(node, pasted.Value());
+  }
+
+  if (key == LogicalKey::Backspace) {
+    return CommitTextFieldEdit(node,
+                               [](TextEditingBuffer &buffer) -> UIResult<void> {
+                                 return buffer.DeleteBackward();
+                               });
+  }
+  if (key == LogicalKey::Delete) {
+    return CommitTextFieldEdit(node,
+                               [](TextEditingBuffer &buffer) -> UIResult<void> {
+                                 return buffer.DeleteForward();
+                               });
+  }
+
+  UIntSize target = editing.State().caretCluster;
+  if (key == LogicalKey::Home) {
+    target = 0;
+  } else if (key == LogicalKey::End) {
+    target = editing.Clusters().size();
+  } else if (key == LogicalKey::Left) {
+    if (!extend && !editing.State().selection.Empty()) {
+      target = editing.State().selection.start;
+    } else if (target > 0) {
+      --target;
+    }
+  } else if (key == LogicalKey::Right) {
+    if (!extend && !editing.State().selection.Empty()) {
+      target = editing.State().selection.End();
+    } else if (target < editing.Clusters().size()) {
+      ++target;
+    }
+  } else {
+    return {};
+  }
+
+  auto moved = editing.MoveCaretTo(target, extend);
+  if (!moved) {
+    ReportTextFieldError(node, moved.Error());
+    return InputDispatchResult{
+        .handled = true,
+        .callbackInvoked = static_cast<bool>(node.properties.textField.onError),
+    };
+  }
+  return InputDispatchResult{
+      .handled = true,
+      .visualStateChanged = true,
+  };
+}
+
 auto InputRouter::RouteKey(const KeyChanged &event) -> InputDispatchResult {
   if (event.state == KeyState::Pressed &&
       event.Logical() == LogicalKey::Escape) {
@@ -503,6 +703,18 @@ auto InputRouter::RouteKey(const KeyChanged &event) -> InputDispatchResult {
   };
   auto result = Dispatch(routed, FocusedElement());
 
+  auto *focused = m_tree.Get(FocusedElement());
+  if (!result.handled && focused != nullptr &&
+      focused->type == ElementType::TextField &&
+      focused->properties.interaction.enabled) {
+    const auto textFieldResult = RouteTextFieldKey(*focused, event);
+    result.handled = textFieldResult.handled;
+    result.visualStateChanged = textFieldResult.visualStateChanged;
+    result.layoutStateChanged = textFieldResult.layoutStateChanged;
+    result.callbackInvoked =
+        result.callbackInvoked || textFieldResult.callbackInvoked;
+  }
+
   if (!result.handled && event.state == KeyState::Pressed &&
       event.Logical() == LogicalKey::Tab) {
     result.visualStateChanged =
@@ -511,7 +723,6 @@ auto InputRouter::RouteKey(const KeyChanged &event) -> InputDispatchResult {
     return result;
   }
 
-  auto *focused = m_tree.Get(FocusedElement());
   const auto activatesButton = event.Logical() == LogicalKey::Enter ||
                                event.Logical() == LogicalKey::Space;
   if (!result.handled && focused != nullptr &&
@@ -547,6 +758,17 @@ auto InputRouter::RouteText(const TextInput &event) -> InputDispatchResult {
       .text = event.text,
   };
   auto result = Dispatch(routed, FocusedElement());
+  auto *focused = m_tree.Get(FocusedElement());
+  if (!result.handled && focused != nullptr &&
+      focused->type == ElementType::TextField &&
+      focused->properties.interaction.enabled) {
+    const auto textFieldResult = RouteTextFieldInput(*focused, event.text);
+    result.handled = textFieldResult.handled;
+    result.visualStateChanged = textFieldResult.visualStateChanged;
+    result.layoutStateChanged = textFieldResult.layoutStateChanged;
+    result.callbackInvoked =
+        result.callbackInvoked || textFieldResult.callbackInvoked;
+  }
   if (!result.handled && TopModalPopup()) {
     result.handled = true;
   }

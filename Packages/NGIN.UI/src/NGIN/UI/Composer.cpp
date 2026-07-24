@@ -68,6 +68,26 @@ void Composer::Button(NGIN::Utilities::Callable<void()> onActivate,
   Leaf(ElementType::Button, buttonProperties, key);
 }
 
+void Composer::TextField(Binding<NGIN::Text::String> value,
+                         IGraphemeSegmenter &graphemeSegmenter,
+                         const NodeProperties &properties,
+                         const std::string_view key) {
+  auto textFieldProperties = properties;
+  textFieldProperties.interaction.focusable = true;
+  textFieldProperties.textField.value = std::move(value);
+  textFieldProperties.textField.graphemeSegmenter = &graphemeSegmenter;
+  if (textFieldProperties.semantics.role == SemanticRole::None) {
+    textFieldProperties.semantics.role = SemanticRole::TextBox;
+  }
+  textFieldProperties.semantics.actions =
+      textFieldProperties.semantics.actions | SemanticActionFlags::Focus |
+      SemanticActionFlags::SetValue;
+  if (textFieldProperties.textField.password) {
+    textFieldProperties.semantics.value = {};
+  }
+  Leaf(ElementType::TextField, textFieldProperties, key);
+}
+
 auto Composer::Declarations() const noexcept
     -> const std::vector<ElementDeclaration> & {
   return m_roots;

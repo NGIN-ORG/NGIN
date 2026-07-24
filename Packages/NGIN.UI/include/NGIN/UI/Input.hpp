@@ -1,7 +1,9 @@
 #pragma once
 
 #include <NGIN/UI/Events.hpp>
+#include <NGIN/UI/Platform.hpp>
 #include <NGIN/UI/RuntimeTree.hpp>
+#include <NGIN/Utilities/Callable.hpp>
 
 #include <unordered_map>
 #include <vector>
@@ -17,7 +19,8 @@ struct InputDispatchResult final {
 
 class InputRouter final {
 public:
-  explicit InputRouter(RuntimeTree &tree) noexcept;
+  explicit InputRouter(RuntimeTree &tree,
+                       IPlatformBackend *platform = nullptr) noexcept;
 
   [[nodiscard]] auto HitTest(Point position) const noexcept -> ElementHandle;
   [[nodiscard]] auto FocusedElement() const noexcept -> ElementHandle;
@@ -70,6 +73,16 @@ private:
   auto RouteKey(const KeyChanged &event) -> InputDispatchResult;
   auto RouteText(const TextInput &event) -> InputDispatchResult;
   auto RouteText(const TextComposition &event) -> InputDispatchResult;
+  auto RouteTextFieldKey(RuntimeNode &node, const KeyChanged &event)
+      -> InputDispatchResult;
+  auto RouteTextFieldInput(RuntimeNode &node, const NGIN::Text::String &text)
+      -> InputDispatchResult;
+  auto CommitTextFieldEdit(
+      RuntimeNode &node,
+      NGIN::Utilities::Callable<UIResult<void>(TextEditingBuffer &)> edit)
+      -> InputDispatchResult;
+  void ReportTextFieldError(const RuntimeNode &node,
+                            const UIError &error) const;
   auto UpdateHover(UInt64 pointerId, PointerKind pointerKind, Point position)
       -> InputDispatchResult;
   auto RouteMoved(const PointerMoved &event) -> InputDispatchResult;
@@ -79,6 +92,7 @@ private:
   auto ReleaseCaptured(UInt64 pointerId) noexcept -> bool;
 
   RuntimeTree &m_tree;
+  IPlatformBackend *m_platform{nullptr};
   ElementHandle m_focused{};
   std::unordered_map<UInt64, ElementHandle> m_captured{};
   std::unordered_map<UInt64, ElementHandle> m_hovered{};

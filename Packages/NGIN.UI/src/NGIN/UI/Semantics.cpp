@@ -3,6 +3,7 @@
 #include <NGIN/UI/RuntimeTree.hpp>
 
 #include <algorithm>
+#include <utility>
 
 namespace NGIN::UI {
 namespace {
@@ -61,13 +62,19 @@ void SemanticTree::AppendRuntimeNode(const RuntimeTree &runtimeTree,
     if (runtimeNode->interaction.pressed) {
       states |= SemanticStateFlags::Pressed;
     }
+    auto semanticValue = properties.value;
+    if (runtimeNode->type == ElementType::TextField &&
+        runtimeNode->textField.editing &&
+        !runtimeNode->properties.textField.password) {
+      semanticValue = runtimeNode->textField.editing->Value();
+    }
 
     const SemanticNodeId id{runtimeNode->id.value};
     m_nodes.push_back(SemanticNode{
         .id = id,
         .role = role,
         .label = properties.label,
-        .value = properties.value,
+        .value = std::move(semanticValue),
         .description = properties.description,
         .bounds = runtimeNode->type == ElementType::Popup
                       ? runtimeNode->popup.contentBounds

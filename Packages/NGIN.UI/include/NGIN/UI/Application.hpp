@@ -73,7 +73,8 @@ private:
   friend class DialogWindow;
 
   explicit Window(WindowCreateInfo info, PlatformWindowHandle platformHandle,
-                  RenderSurfaceHandle surfaceHandle, Window *owner);
+                  RenderSurfaceHandle surfaceHandle,
+                  IPlatformBackend &platformBackend, Window *owner);
 
   struct Implementation;
   std::unique_ptr<Implementation> m_implementation;
@@ -85,7 +86,8 @@ private:
 
   explicit DialogWindow(WindowCreateInfo info,
                         PlatformWindowHandle platformHandle,
-                        RenderSurfaceHandle surfaceHandle, Window &owner);
+                        RenderSurfaceHandle surfaceHandle,
+                        IPlatformBackend &platformBackend, Window &owner);
 };
 
 struct ApplicationCreateInfo final {

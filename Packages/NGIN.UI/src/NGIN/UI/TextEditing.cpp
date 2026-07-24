@@ -85,6 +85,11 @@ auto TextEditingBuffer::Clusters() const noexcept
   return m_clusters;
 }
 
+auto TextEditingBuffer::SelectedText() const -> NGIN::Text::String {
+  const auto start = ByteOffset(m_state.selection.start);
+  return m_value.Substr(start, ByteOffset(m_state.selection.End()) - start);
+}
+
 auto TextEditingBuffer::Reset(NGIN::Text::String value) -> UIResult<void> {
   auto clusters = SegmentAndValidate(value);
   if (!clusters) {

@@ -26,6 +26,11 @@ struct PopupState final {
   Rect contentBounds{};
 };
 
+struct TextFieldRuntimeState final {
+  std::shared_ptr<TextEditingBuffer> editing{};
+  IGraphemeSegmenter *graphemeSegmenter{nullptr};
+};
+
 struct RuntimeNode final {
   ElementHandle handle{};
   ElementId id{};
@@ -39,6 +44,7 @@ struct RuntimeNode final {
   InteractionState interaction{};
   ScrollState scroll{};
   PopupState popup{};
+  TextFieldRuntimeState textField{};
   UInt64 compositionRevision{0};
   UInt64 layoutRevision{0};
 
@@ -85,6 +91,7 @@ private:
   [[nodiscard]] auto CreateNode(ElementType type, const NGIN::Text::String &key,
                                 const NodeProperties &properties,
                                 ElementHandle parent) -> ElementHandle;
+  void SynchronizeTextField(RuntimeNode &node);
   auto DestroySubtree(ElementHandle handle) noexcept -> UIntSize;
 
   std::vector<Slot> m_slots{};

@@ -1,5 +1,10 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include <NGIN/UI/Composer.hpp>
+#include <NGIN/UI/Input.hpp>
+#include <NGIN/UI/Semantics.hpp>
+#include <NGIN/UI/State.hpp>
+#include <NGIN/UI/Testing/TestPlatformBackend.hpp>
 #include <NGIN/UI/TextEditing.hpp>
 
 namespace {
@@ -151,4 +156,175 @@ TEST_CASE("text editing deletion is transactional when segmentation fails") {
   REQUIRE(buffer.Value() == NGIN::Text::String{"safe"});
   REQUIRE(buffer.State().selection == TextRange{2, 0});
   REQUIRE(buffer.State().caretCluster == 2);
+}
+
+TEST_CASE("semantic text field edits bindings and retains its session") {
+  using namespace NGIN::UI;
+
+  TestGraphemeSegmenter segmenter;
+  State<NGIN::Text::String> value{NGIN::Text::String{"Hi"}};
+  Composer composer;
+  composer.TextField(Bind(value), segmenter, {}, "name");
+
+  RuntimeTree tree;
+  Reconciler reconciler{tree};
+  const auto firstStats = reconciler.Reconcile(composer.Declarations());
+  REQUIRE(firstStats.created == 1);
+  const auto field = tree.Get(tree.Root())->children.front();
+  auto *node = tree.Get(field);
+  REQUIRE(node != nullptr);
+  REQUIRE(node->textField.editing);
+  const auto retainedSession = node->textField.editing;
+
+  Testing::TestPlatformBackend platform;
+  REQUIRE(platform
+              .Initialize(PlatformInitInfo{
+                  .applicationName = NGIN::Text::String{"Text tests"},
+              })
+              .HasValue());
+  InputRouter input{tree, &platform};
+  REQUIRE(input.SetFocus(field));
+
+  const auto typed = input.Route(TextInput{
+      .text = NGIN::Text::String{"!"},
+  });
+  REQUIRE(typed.handled);
+  REQUIRE(typed.layoutStateChanged);
+  REQUIRE(value.Get() == NGIN::Text::String{"Hi!"});
+  REQUIRE(node->textField.editing->Value() == NGIN::Text::String{"Hi!"});
+
+  Composer recomposed;
+  recomposed.TextField(Bind(value), segmenter, {}, "name");
+  const auto secondStats = reconciler.Reconcile(recomposed.Declarations());
+  REQUIRE(secondStats.preserved == 1);
+  node = tree.Get(field);
+  REQUIRE(node->textField.editing == retainedSession);
+  REQUIRE(node->textField.editing->State().caretCluster == 3);
+}
+
+TEST_CASE("text field clipboard and keyboard commands are cluster aware") {
+  using namespace NGIN::UI;
+
+  TestGraphemeSegmenter segmenter;
+  State<NGIN::Text::String> value{NGIN::Text::String{"Ae\xCC\x81"
+                                                     "B"}};
+  Composer composer;
+  composer.TextField(Bind(value), segmenter);
+
+  RuntimeTree tree;
+  Reconciler reconciler{tree};
+  static_cast<void>(reconciler.Reconcile(composer.Declarations()));
+  const auto field = tree.Get(tree.Root())->children.front();
+
+  Testing::TestPlatformBackend platform;
+  REQUIRE(platform
+              .Initialize(PlatformInitInfo{
+                  .applicationName = NGIN::Text::String{"Text tests"},
+              })
+              .HasValue());
+  InputRouter input{tree, &platform};
+  REQUIRE(input.SetFocus(field));
+
+  const auto command = static_cast<NGIN::UInt32>(KeyModifierFlags::Control);
+  REQUIRE(input
+              .Route(KeyChanged{
+                  .logicalKey = static_cast<NGIN::UInt32>('A'),
+                  .state = KeyState::Pressed,
+                  .modifiers = command,
+              })
+              .handled);
+  REQUIRE(input
+              .Route(KeyChanged{
+                  .logicalKey = static_cast<NGIN::UInt32>('C'),
+                  .state = KeyState::Pressed,
+                  .modifiers = command,
+              })
+              .handled);
+  REQUIRE(platform.ClipboardText() == value.Get());
+
+  REQUIRE(platform.SetClipboardText(NGIN::Text::String{"Paste"}).HasValue());
+  REQUIRE(input
+              .Route(KeyChanged{
+                  .logicalKey = static_cast<NGIN::UInt32>('V'),
+                  .state = KeyState::Pressed,
+                  .modifiers = command,
+              })
+              .handled);
+  REQUIRE(value.Get() == NGIN::Text::String{"Paste"});
+
+  REQUIRE(
+      input
+          .Route(KeyChanged{
+              .logicalKey = static_cast<NGIN::UInt32>(LogicalKey::Backspace),
+              .state = KeyState::Pressed,
+          })
+          .handled);
+  REQUIRE(value.Get() == NGIN::Text::String{"Past"});
+}
+
+TEST_CASE("text field rolls back edits rejected by binding validation") {
+  using namespace NGIN::UI;
+
+  TestGraphemeSegmenter segmenter;
+  State<NGIN::Text::String> value{NGIN::Text::String{"safe"}};
+  UIError reported{};
+  bool errorReported = false;
+  auto validated = Bind(value).WithValidation(
+      [](const NGIN::Text::String &candidate) -> UIResult<void> {
+        if (candidate.Size() > 4) {
+          return MakeUIError(UIErrorCode::InvalidArgument, "Text is too long",
+                             "NGIN.UI.Tests", "Validate");
+        }
+        return {};
+      });
+  NodeProperties properties{};
+  properties.textField.onError = [&](const UIError &error) {
+    reported = error;
+    errorReported = true;
+  };
+
+  Composer composer;
+  composer.TextField(std::move(validated), segmenter, properties);
+  RuntimeTree tree;
+  Reconciler reconciler{tree};
+  static_cast<void>(reconciler.Reconcile(composer.Declarations()));
+  const auto field = tree.Get(tree.Root())->children.front();
+  InputRouter input{tree};
+  REQUIRE(input.SetFocus(field));
+
+  const auto result = input.Route(TextInput{
+      .text = NGIN::Text::String{"!"},
+  });
+  REQUIRE(result.handled);
+  REQUIRE(result.callbackInvoked);
+  REQUIRE(errorReported);
+  REQUIRE(reported.code == UIErrorCode::InvalidArgument);
+  REQUIRE(value.Get() == NGIN::Text::String{"safe"});
+  REQUIRE(tree.Get(field)->textField.editing->Value() ==
+          NGIN::Text::String{"safe"});
+  REQUIRE(tree.Get(field)->textField.editing->State().caretCluster == 4);
+}
+
+TEST_CASE("password text fields omit values from semantic output") {
+  using namespace NGIN::UI;
+
+  TestGraphemeSegmenter segmenter;
+  State<NGIN::Text::String> value{NGIN::Text::String{"secret"}};
+  NodeProperties properties{};
+  properties.textField.password = true;
+  properties.semantics.label = NGIN::Text::String{"Password"};
+
+  Composer composer;
+  composer.TextField(Bind(value), segmenter, properties);
+  RuntimeTree tree;
+  Reconciler reconciler{tree};
+  static_cast<void>(reconciler.Reconcile(composer.Declarations()));
+  const auto field = tree.Get(tree.Root())->children.front();
+
+  const auto semantics = BuildSemanticTree(tree);
+  const auto *semantic = semantics.FindByOwner(tree.Get(field)->id);
+  REQUIRE(semantic != nullptr);
+  REQUIRE(semantic->role == SemanticRole::TextBox);
+  REQUIRE(semantic->label == NGIN::Text::String{"Password"});
+  REQUIRE(semantic->value.Empty());
 }

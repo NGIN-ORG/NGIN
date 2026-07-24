@@ -44,6 +44,10 @@ public:
             std::string_view key = {});
   void Button(NGIN::Utilities::Callable<void()> onActivate,
               const NodeProperties &properties = {}, std::string_view key = {});
+  void TextField(Binding<NGIN::Text::String> value,
+                 IGraphemeSegmenter &graphemeSegmenter,
+                 const NodeProperties &properties = {},
+                 std::string_view key = {});
 
   template <typename ComposeChildren>
   void Scope(std::shared_ptr<const ResourceScope> resources,

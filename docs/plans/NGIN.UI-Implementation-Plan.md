@@ -19,8 +19,9 @@ Target language: C++23
   criterion remains gated on Slice 1.
 - Slice 6 state/binding foundations, keyboard/text/IME event routing, and the
   transactional grapheme-indexed UTF-8 editing buffer are complete. The
-  semantic `TextField`, clipboard commands, and IME editing session remain
-  pending concrete text services.
+  retained semantic `TextField` supports binding validation, keyboard/text
+  editing, clipboard commands, and password-value privacy. Text presentation
+  and the IME editing session remain pending concrete text services.
 - Slice 7 is complete for the backend-neutral scope: theme/resource scopes,
   semantic trees, multiple windows, retained scrolling, platform-owned dialog
   foundations, in-window popups, frame timings, inspector snapshots, and
@@ -167,7 +168,10 @@ Current status:
 State, bindings, routed keyboard/text/IME events, and the transactional
 grapheme-indexed UTF-8 editing buffer are implemented. The editing buffer
 rejects malformed UTF-8 and invalid segmentation without mutating its prior
-state. `TextField`, clipboard commands, and IME session integration remain.
+state. The retained semantic `TextField` integrates binding validation,
+keyboard/text editing, clipboard shortcuts, selection retention, and
+password-value privacy. Its shaped visual presentation and IME session
+integration remain coupled to concrete text services.
 
 Deliver:
 

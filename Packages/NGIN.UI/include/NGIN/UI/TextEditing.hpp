@@ -40,6 +40,7 @@ public:
   [[nodiscard]] auto State() const noexcept -> const TextEditingState &;
   [[nodiscard]] auto Clusters() const noexcept
       -> const std::vector<GraphemeCluster> &;
+  [[nodiscard]] auto SelectedText() const -> NGIN::Text::String;
 
   auto Reset(NGIN::Text::String value) -> UIResult<void>;
   auto SetSelection(TextRange selection) -> UIResult<void>;

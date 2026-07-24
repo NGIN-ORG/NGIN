@@ -31,7 +31,8 @@ ElapsedMilliseconds(const DiagnosticsClock::time_point start,
 } // namespace
 
 struct Window::Implementation final {
-  Implementation() : reconciler(tree), layoutEngine(tree), inputRouter(tree) {}
+  explicit Implementation(IPlatformBackend &platform)
+      : reconciler(tree), layoutEngine(tree), inputRouter(tree, &platform) {}
 
   WindowCreateInfo info{};
   PlatformWindowHandle platformHandle{};
@@ -65,8 +66,9 @@ struct Window::Implementation final {
 };
 
 Window::Window(WindowCreateInfo info, const PlatformWindowHandle platformHandle,
-               const RenderSurfaceHandle surfaceHandle, Window *owner)
-    : m_implementation(std::make_unique<Implementation>()) {
+               const RenderSurfaceHandle surfaceHandle,
+               IPlatformBackend &platformBackend, Window *owner)
+    : m_implementation(std::make_unique<Implementation>(platformBackend)) {
   m_implementation->pixelExtent = info.initialSize;
   m_implementation->info = std::move(info);
   m_implementation->platformHandle = platformHandle;
@@ -79,8 +81,9 @@ Window::~Window() = default;
 DialogWindow::DialogWindow(WindowCreateInfo info,
                            const PlatformWindowHandle platformHandle,
                            const RenderSurfaceHandle surfaceHandle,
-                           Window &owner)
-    : Window(std::move(info), platformHandle, surfaceHandle, &owner) {}
+                           IPlatformBackend &platformBackend, Window &owner)
+    : Window(std::move(info), platformHandle, surfaceHandle, platformBackend,
+             &owner) {}
 
 auto Window::Id() const noexcept -> const NGIN::Text::String & {
   return m_implementation->info.id;
@@ -370,11 +373,13 @@ auto Application::CreateWindowInternal(WindowCreateInfo info,
 
   std::unique_ptr<Window> window;
   if (info.kind == WindowKind::Dialog && owner != nullptr) {
-    window = std::unique_ptr<Window>(new DialogWindow{
-        info, platformWindow.Value(), surface.Value(), *owner});
+    window = std::unique_ptr<Window>(
+        new DialogWindow{info, platformWindow.Value(), surface.Value(),
+                         *m_implementation->platform, *owner});
   } else {
     window = std::unique_ptr<Window>(
-        new Window{info, platformWindow.Value(), surface.Value(), nullptr});
+        new Window{info, platformWindow.Value(), surface.Value(),
+                   *m_implementation->platform, nullptr});
   }
   auto *result = window.get();
   m_implementation->windows.push_back(std::move(window));

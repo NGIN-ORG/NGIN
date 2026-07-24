@@ -63,8 +63,54 @@ auto RuntimeTree::CreateNode(const ElementType type,
       .key = key,
       .properties = properties,
   };
+  SynchronizeTextField(slot.node);
   ++m_liveCount;
   return handle;
+}
+
+void RuntimeTree::SynchronizeTextField(RuntimeNode &node) {
+  if (node.type != ElementType::TextField) {
+    node.textField = {};
+    return;
+  }
+
+  const auto &properties = node.properties.textField;
+  const auto report = [&properties](const UIError &error) {
+    if (properties.onError) {
+      properties.onError(error);
+    }
+  };
+  if (properties.graphemeSegmenter == nullptr ||
+      !properties.value.IsReadable()) {
+    node.textField = {};
+    report(MakeUIError(UIErrorCode::InvalidArgument,
+                       "TextField requires a value binding and grapheme "
+                       "segmenter",
+                       "NGIN.UI", "RuntimeTree::SynchronizeTextField"));
+    return;
+  }
+
+  if (!node.textField.editing ||
+      node.textField.graphemeSegmenter != properties.graphemeSegmenter) {
+    auto editing =
+        std::make_shared<TextEditingBuffer>(*properties.graphemeSegmenter);
+    auto reset = editing->Reset(properties.value.Get());
+    if (!reset) {
+      node.textField = {};
+      report(reset.Error());
+      return;
+    }
+    node.textField.editing = std::move(editing);
+    node.textField.graphemeSegmenter = properties.graphemeSegmenter;
+    return;
+  }
+
+  if (node.textField.editing->Value() != properties.value.Get()) {
+    auto reset = node.textField.editing->Reset(properties.value.Get());
+    if (!reset) {
+      report(reset.Error());
+    }
+  }
 }
 
 auto RuntimeTree::DestroySubtree(const ElementHandle handle) noexcept
@@ -166,6 +212,7 @@ auto Reconciler::ReconcileChildren(
 
     auto *node = m_tree.Get(matched);
     node->properties = declaration.properties;
+    m_tree.SynchronizeTextField(*node);
     node->compositionRevision = m_revision;
     nextChildren.push_back(matched);
     ++stats.preserved;
