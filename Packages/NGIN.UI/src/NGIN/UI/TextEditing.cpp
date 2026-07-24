@@ -127,6 +127,11 @@ auto TextEditingBuffer::ByteOffsetForCluster(
   return ByteOffset(cluster);
 }
 
+auto TextEditingBuffer::ClusterForByteOffset(
+    const UIntSize byteOffset) const noexcept -> UIntSize {
+  return ClusterAtOrAfterByte(byteOffset);
+}
+
 auto TextEditingBuffer::Reset(NGIN::Text::String value) -> UIResult<void> {
   auto clusters = SegmentAndValidate(value);
   if (!clusters) {
@@ -193,6 +198,17 @@ auto TextEditingBuffer::MoveCaretTo(const UIntSize cluster,
   m_state.caretCluster = cluster;
   m_state.preferredCaretX = 0.0F;
   return {};
+}
+
+auto TextEditingBuffer::MoveCaretVertically(const UIntSize cluster,
+                                            const F32 preferredX,
+                                            const bool extendSelection)
+    -> UIResult<void> {
+  auto moved = MoveCaretTo(cluster, extendSelection);
+  if (moved) {
+    m_state.preferredCaretX = preferredX;
+  }
+  return moved;
 }
 
 auto TextEditingBuffer::ReplaceSelection(const NGIN::Text::String &text)

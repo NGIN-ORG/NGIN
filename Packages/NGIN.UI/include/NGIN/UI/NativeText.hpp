@@ -9,6 +9,7 @@
 namespace NGIN::UI {
 struct NativeTextCreateInfo final {
   NGIN::Text::String fontPath{};
+  std::vector<NGIN::Text::String> fallbackFontPaths{};
   PixelSize atlasSize{1024, 1024};
 };
 

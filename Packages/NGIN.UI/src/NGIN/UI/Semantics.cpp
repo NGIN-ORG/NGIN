@@ -15,7 +15,10 @@ namespace {
   case ElementType::Text:
     return SemanticRole::Text;
   case ElementType::TextField:
+  case ElementType::TextArea:
     return SemanticRole::TextBox;
+  case ElementType::Image:
+    return SemanticRole::Image;
   case ElementType::ListView:
     return SemanticRole::List;
   case ElementType::ListItem:
@@ -78,7 +81,8 @@ void SemanticTree::AppendRuntimeNode(const RuntimeTree &runtimeTree,
       states |= SemanticStateFlags::Pressed;
     }
     auto semanticValue = properties.value;
-    if (runtimeNode->type == ElementType::TextField &&
+    if ((runtimeNode->type == ElementType::TextField ||
+         runtimeNode->type == ElementType::TextArea) &&
         runtimeNode->textField.editing &&
         !runtimeNode->properties.textField.password) {
       semanticValue = runtimeNode->textField.editing->Value();

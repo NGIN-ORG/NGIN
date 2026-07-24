@@ -44,12 +44,16 @@ public:
   [[nodiscard]] auto HasComposition() const noexcept -> bool;
   [[nodiscard]] auto ByteOffsetForCluster(UIntSize cluster) const noexcept
       -> UIntSize;
+  [[nodiscard]] auto ClusterForByteOffset(UIntSize byteOffset) const noexcept
+      -> UIntSize;
 
   auto Reset(NGIN::Text::String value) -> UIResult<void>;
   auto SetSelection(TextRange selection) -> UIResult<void>;
   void SelectAll() noexcept;
   auto MoveCaretTo(UIntSize cluster, bool extendSelection = false)
       -> UIResult<void>;
+  auto MoveCaretVertically(UIntSize cluster, F32 preferredX,
+                           bool extendSelection = false) -> UIResult<void>;
   auto ReplaceSelection(const NGIN::Text::String &text) -> UIResult<void>;
   auto DeleteBackward() -> UIResult<void>;
   auto DeleteForward() -> UIResult<void>;

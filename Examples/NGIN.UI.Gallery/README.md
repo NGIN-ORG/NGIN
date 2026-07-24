@@ -5,13 +5,17 @@ public APIs from `NGIN.UI` and `NGIN.UI.Backend.SDL3`.
 
 ![NGIN.UI gallery Inputs page](docs/gallery-overview.png)
 
-The sidebar exposes nine focused pages:
+The sidebar exposes eleven focused pages:
 
 - **Overview** introduces the architecture, theme palette, retained state, and
   public custom badge, progress-ring, and chart examples;
 - **Layout** demonstrates rows, columns, overlays, flex sizing, and scrolling;
 - **Typography** shows native HarfBuzz shaping, FreeType rasterization, UTF-8,
-  Arabic text, and grapheme clusters;
+  Arabic text, grapheme clusters, multiline wrapping, and alignment;
+- **Text Area** presents multiline editing, vertical caret movement, selection,
+  IME-ready composition, wrapping, and internal scrolling;
+- **Images** demonstrates a generated logical image with contain/cover fit,
+  alignment, tint, clipping, lazy upload, and semantic descriptions;
 - **Inputs** presents buttons, check boxes, typed radio groups, switches,
   sliders, progress bars, labels, delayed tooltips, and editable, password,
   read-only, invalid, and disabled text fields;
@@ -31,6 +35,8 @@ Together, the pages exercise:
 - HarfBuzz shaping, FreeType glyph rasterization, and the bundled Noto Sans
   font;
 - grapheme-aware text editing, selection, clipboard commands, and IME;
+- multiline text layout, fallback-shaped runs, text-area scrolling, and
+  backend-neutral logical image resources;
 - themed borders, rounded control chrome, focus visuals, visual scrollbars,
   selectable lists, combo boxes, retained tabs, menus, popups, and multiple
   windows.

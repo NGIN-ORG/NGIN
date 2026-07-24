@@ -29,8 +29,9 @@ The version 0.1 implementation provides:
 - backend-neutral font-provider, shaping, paragraph-layout, and grapheme
   segmentation contracts;
 - a concrete `NativeTextSystem` combining Noto Sans, FreeType metrics and
-  rasterization, HarfBuzz shaping, extended grapheme segmentation,
-  paragraph/range geometry, and a renderer-backed R8 glyph atlas;
+  rasterization, fallback-aware HarfBuzz shaping, extended grapheme
+  segmentation, multiline Unicode-aware wrapping, paragraph/range geometry,
+  and a renderer-backed R8 glyph atlas;
 - an injectable glyph-atlas contract and semantic `Text` element with
   constraint-aware measurement, clipping, and DPI-aware shaped-glyph painting;
 - atlas-backed glyph-run display commands with DPI-aware renderer lowering;
@@ -62,6 +63,13 @@ The version 0.1 implementation provides:
 - shaped `TextField` presentation with injected bidi-safe selection,
   composition, and caret geometry plus grapheme-count password masking;
 - platform IME start/stop coordination with DPI-aware candidate rectangles;
+- multiline `TextArea` editing with explicit and wrapped lines, vertical caret
+  navigation, retained preferred x position, and automatic caret scrolling;
+- logical RGBA image resources with memory, file, and generated-pixel sources,
+  pluggable asynchronous decoding and cancellation, lazy texture upload, and
+  explicit device-loss/recreation hooks;
+- semantic `Image` composition with none/fill/contain/cover/scale-down fit,
+  alignment, tint, and clipping;
 - immutable/revisioned theme values and hierarchical typed resource scopes;
 - typed visual-state styles, theme-driven borders and rounded backgrounds,
   visible focus treatment, and border/separator composition helpers;
@@ -105,6 +113,10 @@ See the
 [collections and navigation guide](../../docs/guides/ngin-ui-collections-navigation.md)
 for selection models, keyed lists, combo boxes, retained tabs, menus, and the
 incremental data-source boundary.
+See the
+[richer-content guide](../../docs/guides/ngin-ui-richer-content.md) for
+multiline layout, font fallback, `TextArea`, logical images, asynchronous
+decoding, and device recreation.
 
 The default build fetches the pinned text dependencies recorded in
 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). Configure with

@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -15,8 +16,9 @@ using NGIN::Text::String;
 using namespace NGIN::UI;
 
 constexpr std::array<std::string_view, PageCount> PageNames{
-    "Overview", "Layout",  "Typography", "Inputs",      "Collections",
-    "Overlays", "Windows", "Resources",  "Diagnostics",
+    "Overview", "Layout",    "Typography",  "Text Area",
+    "Images",   "Inputs",    "Collections", "Overlays",
+    "Windows",  "Resources", "Diagnostics",
 };
 
 [[nodiscard]] auto Number(const std::uint64_t value) -> String {
@@ -284,7 +286,8 @@ void ComposeLayoutPage(Composer &composer, NativeTextSystem &text,
               NodeProperties row{};
               row.layout.gap = theme.spacing.regular;
               row.layout.preferredSize.width = 680.0F;
-              composer.Row(
+              composer.Element(
+                  ElementType::Row, row,
                   [&] {
                     ComposeSwatch(composer, theme, theme.colors.accent, "Fixed",
                                   "fixed");
@@ -364,14 +367,170 @@ void ComposeTypographyPage(Composer &composer, NativeTextSystem &text,
                           String{"Emoji/graphemes: e\xCC\x81  \xF0\x9F\x91\xA9"
                                  "\xE2\x80\x8D\xF0\x9F\x92\xBB"},
                           18.0F, theme.colors.foreground, "graphemes");
-              ComposeText(composer, text,
-                          String{"Single-line clipping is the current public "
-                                 "scope; multiline arrives in Milestone 14."},
-                          13.0F, theme.colors.mutedForeground, "text-scope");
+              NodeProperties paragraph =
+                  TextProperties(text, 16.0F, theme.colors.foreground);
+              paragraph.layout.preferredSize.width = 650.0F;
+              paragraph.layout.maximumSize.width = 650.0F;
+              paragraph.text.wrapping = TextWrapping::Wrap;
+              paragraph.text.lineHeight = 24.0F;
+              paragraph.text.alignment = TextAlignment::Start;
+              composer.Text(
+                  String{"Multiline text now wraps at Unicode opportunities, "
+                         "respects explicit line breaks, and retains "
+                         "HarfBuzz-shaped spans across every visual line."},
+                  text, text, paragraph, "wrapped-paragraph");
+
+              auto centered = paragraph;
+              centered.text.alignment = TextAlignment::Center;
+              centered.text.color = theme.colors.mutedForeground;
+              composer.Text(
+                  String{"Centered alignment\nworks independently per line."},
+                  text, text, centered, "centered-paragraph");
             },
             "typography-column");
       },
       "typography-card");
+}
+
+void ComposeTextAreaPage(Composer &composer, NativeTextSystem &text,
+                         Model &model, const Theme &theme) {
+  ComposePageHeading(
+      composer, text, theme, "Text Area",
+      "A multiline editor with grapheme-aware edits, vertical caret movement, "
+      "selection, IME composition, wrapping, and internal scrolling.");
+  ComposeCard(
+      composer, theme,
+      [&] {
+        NodeProperties column{};
+        column.layout.gap = theme.spacing.regular;
+        composer.Column(
+            [&] {
+              ComposeText(composer, text, String{"Editable project notes"},
+                          20.0F, theme.colors.foreground, "text-area-title",
+                          SemanticRole::Heading);
+              ComposeText(
+                  composer, text,
+                  String{"Try Enter, Shift+arrow selection, Home/End, and "
+                         "Up/Down across wrapped lines."},
+                  14.0F, theme.colors.mutedForeground, "text-area-help");
+
+              NodeProperties area{};
+              area.layout.preferredSize = Size{650.0F, 230.0F};
+              area.layout.maximumSize = Size{650.0F, 230.0F};
+              area.layout.padding = Thickness{14.0F, 12.0F, 14.0F, 12.0F};
+              area.layout.horizontalAlignment = HorizontalAlignment::Start;
+              area.layout.verticalAlignment = VerticalAlignment::Start;
+              area.visual = MakeTextFieldVisual(theme);
+              area.text.layout = &text;
+              area.text.geometry = &text;
+              area.text.glyphAtlas = &text;
+              area.text.fontSize = 16.0F;
+              area.text.lineHeight = 23.0F;
+              area.text.wrapping = TextWrapping::Wrap;
+              area.text.color = theme.colors.foreground;
+              area.textField.selectionColor = theme.colors.selection;
+              area.textField.caretColor = theme.colors.focus;
+              area.textField.compositionColor = theme.colors.focus;
+              area.textField.onError = [&model](const UIError &error) {
+                model.Report(error);
+              };
+              area.semantics.label = String{"Project notes"};
+              StyleScrollView(area, theme);
+              composer.TextArea(model.NotesBinding(), text, area,
+                                "project-notes");
+            },
+            "text-area-column");
+      },
+      "text-area-card");
+}
+
+void ComposeImagesPage(Composer &composer, NativeTextSystem &text, Model &model,
+                       const Theme &theme) {
+  ComposePageHeading(
+      composer, text, theme, "Images",
+      "Logical image resources decode independently from GPU handles and are "
+      "uploaded lazily through a device-recreatable cache.");
+  ComposeCard(
+      composer, theme,
+      [&] {
+        NodeProperties column{};
+        column.layout.gap = theme.spacing.spacious;
+        composer.Column(
+            [&] {
+              ComposeText(composer, text, String{"Generated pixel source"},
+                          20.0F, theme.colors.foreground, "image-title",
+                          SemanticRole::Heading);
+              ComposeText(
+                  composer, text,
+                  String{"The same 16:9 logical image is shown with contain, "
+                         "cover, alignment, clipping, and tint."},
+                  14.0F, theme.colors.mutedForeground, "image-help");
+
+              NodeProperties row{};
+              row.layout.gap = theme.spacing.regular;
+              row.layout.horizontalAlignment = HorizontalAlignment::Start;
+              row.layout.verticalAlignment = VerticalAlignment::Start;
+              composer.Element(
+                  ElementType::Row, row,
+                  [&] {
+                    const auto composeSample =
+                        [&](const char *label, const ImageFit fit,
+                            const ImageAlignment alignment, const Color tint,
+                            const std::string_view key) {
+                          NodeProperties tile{};
+                          tile.layout.preferredSize = Size{205.0F, 170.0F};
+                          tile.layout.maximumSize = Size{205.0F, 170.0F};
+                          tile.layout.padding =
+                              Thickness::Uniform(Dp{theme.spacing.compact});
+                          tile.layout.gap = theme.spacing.compact;
+                          tile.layout.horizontalAlignment =
+                              HorizontalAlignment::Start;
+                          tile.layout.verticalAlignment =
+                              VerticalAlignment::Start;
+                          tile.visual = MakePanelVisual(theme);
+                          composer.Element(
+                              ElementType::Column, tile,
+                              [&] {
+                                ComposeText(composer, text, String{label},
+                                            14.0F, theme.colors.foreground,
+                                            "label");
+                                NodeProperties image{};
+                                image.layout.preferredSize =
+                                    Size{185.0F, 125.0F};
+                                image.layout.maximumSize = Size{185.0F, 125.0F};
+                                image.layout.horizontalAlignment =
+                                    HorizontalAlignment::Start;
+                                image.layout.verticalAlignment =
+                                    VerticalAlignment::Start;
+                                image.image.fit = fit;
+                                image.image.alignment = alignment;
+                                image.image.tint = tint;
+                                if (model.ImageCache() != nullptr &&
+                                    model.GalleryImage()) {
+                                  composer.Image(
+                                      model.GalleryImage(), *model.ImageCache(),
+                                      String{"Blue and violet generated "
+                                             "gradient with concentric light"},
+                                      image, "image");
+                                }
+                              },
+                              key);
+                        };
+                    composeSample("Contain", ImageFit::Contain,
+                                  ImageAlignment{0.5F, 0.5F},
+                                  Color{1.0F, 1.0F, 1.0F, 1.0F}, "contain");
+                    composeSample("Cover · end aligned", ImageFit::Cover,
+                                  ImageAlignment{1.0F, 0.5F},
+                                  Color{1.0F, 1.0F, 1.0F, 1.0F}, "cover");
+                    composeSample("Cover · warm tint", ImageFit::Cover,
+                                  ImageAlignment{0.0F, 0.5F},
+                                  Color{1.0F, 0.78F, 0.68F, 0.9F}, "tinted");
+                  },
+                  "image-samples");
+            },
+            "image-column");
+      },
+      "image-card");
 }
 
 template <typename ComposeControl>
@@ -1366,6 +1525,12 @@ void ComposePage(Composer &composer, NativeTextSystem &text, Model &model,
   case Page::Typography:
     ComposeTypographyPage(composer, text, theme);
     break;
+  case Page::TextArea:
+    ComposeTextAreaPage(composer, text, model, theme);
+    break;
+  case Page::Images:
+    ComposeImagesPage(composer, text, model, theme);
+    break;
   case Page::Inputs:
     ComposeInputsPage(composer, text, model, theme);
     break;
@@ -1437,6 +1602,12 @@ Model::Model()
              [this](const InvalidationKind kind) { Invalidate(kind); }),
       m_password(String{"retained"},
                  [this](const InvalidationKind kind) { Invalidate(kind); }),
+      m_notes(
+          String{"NGIN.UI keeps editing state retained across composition.\n\n"
+                 "This TextArea wraps Unicode text, preserves grapheme "
+                 "clusters, and scrolls the active caret into view.\n"
+                 "Add a few lines here to exercise vertical navigation."},
+          [this](const InvalidationKind kind) { Invalidate(kind); }),
       m_check(CheckState::Checked,
               [this](const InvalidationKind kind) { Invalidate(kind); }),
       m_mixedCheck(CheckState::Indeterminate,
@@ -1483,6 +1654,29 @@ void Model::AttachRuntime(Application &application, NativeTextSystem &text,
   m_application = &application;
   m_text = &text;
   m_window = &window;
+  m_imageCache = std::make_unique<ImageTextureCache>(application.Renderer());
+  m_galleryImage = ImageResource::GenerateAsync(ImageGeneratedSource{
+      .size = PixelSize{320, 180},
+      .pixel =
+          [](const NGIN::UInt32 x, const NGIN::UInt32 y) {
+            const auto u = static_cast<F32>(x) / 319.0F;
+            const auto v = static_cast<F32>(y) / 179.0F;
+            const auto dx = u - 0.68F;
+            const auto dy = v - 0.38F;
+            const auto glow =
+                std::max(0.0F, 1.0F - std::sqrt(dx * dx + dy * dy) * 2.2F);
+            return Color{
+                0.08F + 0.34F * u + 0.38F * glow,
+                0.12F + 0.18F * (1.0F - v) + 0.28F * glow,
+                0.34F + 0.48F * (1.0F - u) + 0.18F * glow,
+                1.0F,
+            };
+          },
+  });
+  m_galleryImage->Wait();
+  if (m_galleryImage->State() == ImageLoadState::Failed) {
+    Report(m_galleryImage->Error());
+  }
   m_helpToolTip = std::make_unique<ToolTipController>(
       window, String{"Appears after 500 ms without moving keyboard focus."});
 }
@@ -1509,6 +1703,17 @@ auto Model::Name() const noexcept -> const String & { return m_name.Get(); }
 auto Model::NameBinding() -> Binding<String> { return Bind(m_name); }
 
 auto Model::PasswordBinding() -> Binding<String> { return Bind(m_password); }
+
+auto Model::NotesBinding() -> Binding<String> { return Bind(m_notes); }
+
+auto Model::GalleryImage() const noexcept
+    -> const std::shared_ptr<ImageResource> & {
+  return m_galleryImage;
+}
+
+auto Model::ImageCache() noexcept -> ImageTextureCache * {
+  return m_imageCache.get();
+}
 
 auto Model::CheckBinding() -> Binding<CheckState> { return Bind(m_check); }
 

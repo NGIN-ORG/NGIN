@@ -103,6 +103,16 @@ auto main() -> int {
                 "collections page exposes active tab-panel semantics"))) {
       return 1;
     }
+    if (page == NGIN::UIGallery::Page::TextArea &&
+        !Check(HasRole(window->Semantics(), SemanticRole::TextBox),
+               "text-area page exposes editable text semantics")) {
+      return 1;
+    }
+    if (page == NGIN::UIGallery::Page::Images &&
+        !Check(HasRole(window->Semantics(), SemanticRole::Image),
+               "images page exposes image semantics")) {
+      return 1;
+    }
   }
 
   if (!Check(rendererObserver->RenderPackets().size() >=

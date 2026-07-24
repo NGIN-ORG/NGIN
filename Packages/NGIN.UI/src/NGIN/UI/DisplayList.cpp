@@ -128,7 +128,8 @@ namespace {
   if (!node.properties.interaction.enabled) {
     state |= VisualStateFlags::Disabled;
   }
-  if (node.type == ElementType::TextField &&
+  if ((node.type == ElementType::TextField ||
+       node.type == ElementType::TextArea) &&
       node.properties.textField.readOnly) {
     state |= VisualStateFlags::ReadOnly;
   }
@@ -295,7 +296,8 @@ void PaintNode(const RuntimeTree &tree, const ElementHandle handle,
   }
   const auto visual = PaintVisual(*node, builder);
   const auto paintsText = (node->type == ElementType::Text ||
-                           node->type == ElementType::TextField) &&
+                           node->type == ElementType::TextField ||
+                           node->type == ElementType::TextArea) &&
                           node->text.valid;
   const auto clipsText = paintsText && node->properties.text.clip;
   if (clipsText) {
@@ -303,10 +305,13 @@ void PaintNode(const RuntimeTree &tree, const ElementHandle handle,
   }
   if (paintsText) {
     const auto originX =
-        node->arrangedBounds.x + node->properties.layout.padding.left;
+        node->arrangedBounds.x + node->properties.layout.padding.left -
+        (node->type == ElementType::TextArea ? node->scroll.offset.x : 0.0F);
     const auto originY =
-        node->arrangedBounds.y + node->properties.layout.padding.top;
-    if (node->type == ElementType::TextField) {
+        node->arrangedBounds.y + node->properties.layout.padding.top -
+        (node->type == ElementType::TextArea ? node->scroll.offset.y : 0.0F);
+    if (node->type == ElementType::TextField ||
+        node->type == ElementType::TextArea) {
       for (auto selection : node->text.selectionRects) {
         selection.x += originX;
         selection.y += originY;
@@ -322,7 +327,8 @@ void PaintNode(const RuntimeTree &tree, const ElementHandle handle,
       builder.Glyphs(run.texture, std::move(glyphs),
                      visual.foreground.value_or(node->properties.text.color));
     }
-    if (node->type == ElementType::TextField) {
+    if (node->type == ElementType::TextField ||
+        node->type == ElementType::TextArea) {
       for (auto composition : node->text.compositionRects) {
         composition.x += originX;
         composition.y += originY + composition.height -
@@ -343,6 +349,16 @@ void PaintNode(const RuntimeTree &tree, const ElementHandle handle,
   if (clipsText) {
     static_cast<void>(builder.PopClip());
   }
+  if (node->type == ElementType::Image && node->image.valid) {
+    if (node->properties.image.clip) {
+      builder.PushClip(node->arrangedBounds);
+    }
+    builder.Image(node->image.texture, node->image.destination,
+                  node->properties.image.tint);
+    if (node->properties.image.clip) {
+      static_cast<void>(builder.PopClip());
+    }
+  }
   PaintCustom(*node, builder);
   const auto clipsChildren = node->type == ElementType::ScrollView ||
                              node->type == ElementType::ListView;
@@ -356,7 +372,8 @@ void PaintNode(const RuntimeTree &tree, const ElementHandle handle,
     static_cast<void>(builder.PopClip());
   }
   if (node->type == ElementType::ScrollView ||
-      node->type == ElementType::ListView) {
+      node->type == ElementType::ListView ||
+      node->type == ElementType::TextArea) {
     const auto bars = Detail::ComputeScrollBars(
         node->arrangedBounds, node->properties.scroll, node->scroll);
     const auto thumbColor = node->interaction.hovered

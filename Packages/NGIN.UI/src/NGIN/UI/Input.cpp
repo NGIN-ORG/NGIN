@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <cmath>
 #include <limits>
 #include <string_view>
 #include <type_traits>
@@ -24,7 +25,12 @@ namespace {
 }
 
 [[nodiscard]] auto IsScrollable(const ElementType type) noexcept -> bool {
-  return type == ElementType::ScrollView || type == ElementType::ListView;
+  return type == ElementType::ScrollView || type == ElementType::ListView ||
+         type == ElementType::TextArea;
+}
+
+[[nodiscard]] auto IsTextEditor(const ElementType type) noexcept -> bool {
+  return type == ElementType::TextField || type == ElementType::TextArea;
 }
 
 [[nodiscard]] auto IsActivatable(const ElementType type) noexcept -> bool {
@@ -199,7 +205,7 @@ void InputRouter::SetScaleFactor(const F32 scaleFactor) noexcept {
   }
   m_scaleFactor = scaleFactor;
   if (const auto *focused = m_tree.Get(FocusedElement());
-      focused != nullptr && focused->type == ElementType::TextField) {
+      focused != nullptr && IsTextEditor(focused->type)) {
     StartTextInput(*focused);
   }
 }
@@ -726,8 +732,7 @@ void InputRouter::ReportTextFieldError(const RuntimeNode &node,
 }
 
 void InputRouter::StartTextInput(const RuntimeNode &node) noexcept {
-  if (node.type != ElementType::TextField || m_platform == nullptr ||
-      !m_window ||
+  if (!IsTextEditor(node.type) || m_platform == nullptr || !m_window ||
       !HasPlatformCapability(m_platform->Capabilities(),
                              PlatformCapabilityFlags::IME)) {
     return;
@@ -738,7 +743,7 @@ void InputRouter::StartTextInput(const RuntimeNode &node) noexcept {
 }
 
 void InputRouter::StopTextInput(const RuntimeNode &node) noexcept {
-  if (node.type != ElementType::TextField) {
+  if (!IsTextEditor(node.type)) {
     return;
   }
   if (node.textField.editing) {
@@ -915,6 +920,13 @@ auto InputRouter::RouteTextFieldKey(RuntimeNode &node, const KeyChanged &event)
     return RouteTextFieldInput(node, pasted.Value());
   }
 
+  if (node.type == ElementType::TextArea && key == LogicalKey::Enter) {
+    return CommitTextFieldEdit(
+        node, [](TextEditingBuffer &buffer) -> UIResult<void> {
+          return buffer.ReplaceSelection(NGIN::Text::String{"\n"});
+        });
+  }
+
   if (key == LogicalKey::Backspace) {
     return CommitTextFieldEdit(node,
                                [](TextEditingBuffer &buffer) -> UIResult<void> {
@@ -929,6 +941,76 @@ auto InputRouter::RouteTextFieldKey(RuntimeNode &node, const KeyChanged &event)
   }
 
   UIntSize target = editing.State().caretCluster;
+  if (node.type == ElementType::TextArea &&
+      (key == LogicalKey::Up || key == LogicalKey::Down ||
+       key == LogicalKey::Home || key == LogicalKey::End) &&
+      !node.text.paragraph.lines.empty() &&
+      node.properties.text.geometry != nullptr) {
+    const auto caretByte = editing.ByteOffsetForCluster(target);
+    UIntSize currentLine = 0;
+    for (UIntSize index = 0; index < node.text.paragraph.lines.size();
+         ++index) {
+      const auto &line = node.text.paragraph.lines[index];
+      if (caretByte < line.byteOffset) {
+        break;
+      }
+      currentLine = index;
+    }
+
+    const auto &line = node.text.paragraph.lines[currentLine];
+    F32 preferredX = editing.State().preferredCaretX;
+    if (auto caret = node.properties.text.geometry->CaretRect(
+            node.text.paragraph, caretByte);
+        caret && preferredX == 0.0F) {
+      preferredX = caret.Value().x;
+    }
+    if (key == LogicalKey::Home || key == LogicalKey::End) {
+      const auto byte = key == LogicalKey::Home
+                            ? line.byteOffset
+                            : line.byteOffset + line.byteLength;
+      target = editing.ClusterForByteOffset(byte);
+    } else {
+      const auto nextLine =
+          key == LogicalKey::Up
+              ? (currentLine == 0 ? 0 : currentLine - 1)
+              : std::min(node.text.paragraph.lines.size() - 1, currentLine + 1);
+      const auto &candidateLine = node.text.paragraph.lines[nextLine];
+      const auto first = editing.ClusterForByteOffset(candidateLine.byteOffset);
+      const auto last = editing.ClusterForByteOffset(candidateLine.byteOffset +
+                                                     candidateLine.byteLength);
+      target = first;
+      auto bestDistance = std::numeric_limits<F32>::infinity();
+      for (auto cluster = first; cluster <= last; ++cluster) {
+        const auto byte = editing.ByteOffsetForCluster(cluster);
+        auto caret =
+            node.properties.text.geometry->CaretRect(node.text.paragraph, byte);
+        if (!caret) {
+          continue;
+        }
+        const auto distance = std::abs(caret.Value().x - preferredX);
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          target = cluster;
+        }
+      }
+    }
+
+    auto moved = editing.MoveCaretVertically(target, preferredX, extend);
+    if (!moved) {
+      ReportTextFieldError(node, moved.Error());
+      return InputDispatchResult{
+          .handled = true,
+          .callbackInvoked =
+              static_cast<bool>(node.properties.textField.onError),
+      };
+    }
+    return InputDispatchResult{
+        .handled = true,
+        .visualStateChanged = true,
+        .layoutStateChanged = true,
+    };
+  }
+
   if (key == LogicalKey::Home) {
     target = 0;
   } else if (key == LogicalKey::End) {
@@ -1253,8 +1335,7 @@ auto InputRouter::RouteKey(const KeyChanged &event) -> InputDispatchResult {
   auto result = Dispatch(routed, FocusedElement());
 
   auto *focused = m_tree.Get(FocusedElement());
-  if (!result.handled && focused != nullptr &&
-      focused->type == ElementType::TextField &&
+  if (!result.handled && focused != nullptr && IsTextEditor(focused->type) &&
       focused->properties.interaction.enabled) {
     const auto textFieldResult = RouteTextFieldKey(*focused, event);
     result.handled = textFieldResult.handled;
@@ -1394,8 +1475,7 @@ auto InputRouter::RouteText(const TextInput &event) -> InputDispatchResult {
   };
   auto result = Dispatch(routed, FocusedElement());
   auto *focused = m_tree.Get(FocusedElement());
-  if (!result.handled && focused != nullptr &&
-      focused->type == ElementType::TextField &&
+  if (!result.handled && focused != nullptr && IsTextEditor(focused->type) &&
       focused->properties.interaction.enabled) {
     const auto textFieldResult = RouteTextFieldInput(*focused, event.text);
     result.handled = textFieldResult.handled;
@@ -1420,8 +1500,7 @@ auto InputRouter::RouteText(const TextComposition &event)
   };
   auto result = Dispatch(routed, FocusedElement());
   auto *focused = m_tree.Get(FocusedElement());
-  if (!result.handled && focused != nullptr &&
-      focused->type == ElementType::TextField &&
+  if (!result.handled && focused != nullptr && IsTextEditor(focused->type) &&
       focused->properties.interaction.enabled) {
     const auto textFieldResult = RouteTextFieldComposition(*focused, event);
     result.handled = textFieldResult.handled;

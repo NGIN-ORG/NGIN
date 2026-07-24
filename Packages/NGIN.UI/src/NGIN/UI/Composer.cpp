@@ -88,6 +88,26 @@ void Composer::TextField(Binding<NGIN::Text::String> value,
   Leaf(ElementType::TextField, textFieldProperties, key);
 }
 
+void Composer::TextArea(Binding<NGIN::Text::String> value,
+                        IGraphemeSegmenter &graphemeSegmenter,
+                        const NodeProperties &properties,
+                        const std::string_view key) {
+  auto textAreaProperties = properties;
+  textAreaProperties.interaction.focusable = true;
+  textAreaProperties.textField.value = std::move(value);
+  textAreaProperties.textField.graphemeSegmenter = &graphemeSegmenter;
+  textAreaProperties.scroll.horizontal =
+      textAreaProperties.text.wrapping == TextWrapping::NoWrap;
+  textAreaProperties.scroll.vertical = true;
+  if (textAreaProperties.semantics.role == SemanticRole::None) {
+    textAreaProperties.semantics.role = SemanticRole::TextBox;
+  }
+  textAreaProperties.semantics.actions = textAreaProperties.semantics.actions |
+                                         SemanticActionFlags::Focus |
+                                         SemanticActionFlags::SetValue;
+  Leaf(ElementType::TextArea, textAreaProperties, key);
+}
+
 void Composer::Text(NGIN::Text::String value, ITextLayout &layout,
                     IGlyphAtlas &glyphAtlas, const NodeProperties &properties,
                     const std::string_view key) {
@@ -102,6 +122,22 @@ void Composer::Text(NGIN::Text::String value, ITextLayout &layout,
     textProperties.semantics.value = textProperties.text.value;
   }
   Leaf(ElementType::Text, textProperties, key);
+}
+
+void Composer::Image(std::shared_ptr<ImageResource> resource,
+                     IImageResolver &resolver, NGIN::Text::String description,
+                     const NodeProperties &properties,
+                     const std::string_view key) {
+  auto imageProperties = properties;
+  imageProperties.image.resource = std::move(resource);
+  imageProperties.image.resolver = &resolver;
+  if (imageProperties.semantics.role == SemanticRole::None) {
+    imageProperties.semantics.role = SemanticRole::Image;
+  }
+  if (imageProperties.semantics.description.Empty()) {
+    imageProperties.semantics.description = std::move(description);
+  }
+  Leaf(ElementType::Image, imageProperties, key);
 }
 
 void Composer::Separator(const SeparatorOrientation orientation,

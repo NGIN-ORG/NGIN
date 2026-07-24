@@ -1,6 +1,6 @@
 # NGIN.UI Post-v0.1 Roadmap
 
-Status: Active — Milestone 13 complete
+Status: Active — Milestone 14 complete
 Baseline: [`NGIN.UI-V0.1-Acceptance-Audit.md`](NGIN.UI-V0.1-Acceptance-Audit.md)
 
 ## Goal
@@ -30,6 +30,8 @@ keyboard behavior, semantics, and the public code needed to compose it.
 | Border and rounded control chrome | Yes | Yes |
 | Checkbox, radio, toggle, slider, and progress controls | Yes | Yes |
 | Lists, selection, combo box, tabs, and menus | Yes | Yes |
+| Multiline text and `TextArea` | Yes | Yes |
+| Logical images and `Image` | Yes | Yes |
 | Public custom measurement and painting | Yes | Yes |
 | Application-developer guide | No | No |
 
@@ -130,15 +132,15 @@ keyboard, semantics, and stable reconciliation.
 
 ## Milestone 14 — Richer Content
 
-- [ ] Add multiline text layout, Unicode line breaking, wrapping, and alignment.
-- [ ] Add font fallback while preserving HarfBuzz run shaping.
-- [ ] Add multiline `TextArea` editing, vertical caret navigation, and scrolling.
-- [ ] Introduce logical image resources independent of backend texture handles.
-- [ ] Support memory, file, and generated-pixel image sources.
-- [ ] Define asynchronous decode, cancellation, upload, and device-recreation
+- [x] Add multiline text layout, Unicode line breaking, wrapping, and alignment.
+- [x] Add font fallback while preserving HarfBuzz run shaping.
+- [x] Add multiline `TextArea` editing, vertical caret navigation, and scrolling.
+- [x] Introduce logical image resources independent of backend texture handles.
+- [x] Support memory, file, and generated-pixel image sources.
+- [x] Define asynchronous decode, cancellation, upload, and device-recreation
       behavior.
-- [ ] Add `Image` with fit, alignment, tint, clipping, and semantic description.
-- [ ] Add typography, text-area, and image pages to the gallery.
+- [x] Add `Image` with fit, alignment, tint, clipping, and semantic description.
+- [x] Add typography, text-area, and image pages to the gallery.
 
 Exit criterion: the gallery can present realistic text-heavy and image-backed
 application content without private resource or renderer access.

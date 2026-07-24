@@ -2,8 +2,11 @@
 
 #include <NGIN/UI/Composer.hpp>
 #include <NGIN/UI/DisplayList.hpp>
+#include <NGIN/UI/Input.hpp>
 #include <NGIN/UI/Layout.hpp>
 #include <NGIN/UI/NativeText.hpp>
+#include <NGIN/UI/Semantics.hpp>
+#include <NGIN/UI/State.hpp>
 #include <NGIN/UI/Testing/RecordingRenderBackend.hpp>
 
 #include <algorithm>
@@ -203,4 +206,139 @@ TEST_CASE("native text drives retained Text layout and glyph display lists") {
                         return std::holds_alternative<DrawGlyphRun>(command);
                       }));
   REQUIRE_FALSE(renderer.TextureUpdates().empty());
+}
+
+TEST_CASE("native text lays out explicit and Unicode wrap opportunities") {
+  using namespace NGIN::UI;
+
+  Testing::RecordingRenderBackend renderer;
+  auto text = CreateTextSystem(renderer);
+  auto paragraph = text->LayoutParagraph(ParagraphRequest{
+      .runs =
+          {
+              TextRun{
+                  .text =
+                      NGIN::Text::String{
+                          "alpha beta\n"
+                          "\xE6\xBC\xA2\xE5\xAD\x97\xE4\xBB\xAE\xE5\x90\x8D"},
+                  .fontSize = 18.0F,
+              },
+          },
+      .maximumWidth = 58.0F,
+      .alignment = TextAlignment::Center,
+      .wrapping = TextWrapping::Wrap,
+  });
+  REQUIRE(paragraph.HasValue());
+  REQUIRE(paragraph.Value().lines.size() >= 3);
+  REQUIRE(paragraph.Value().lines.front().byteOffset == 0);
+  REQUIRE(paragraph.Value().lines[1].byteOffset > 0);
+  REQUIRE(paragraph.Value().size.height >
+          paragraph.Value().lines.front().bounds.height);
+  REQUIRE(std::all_of(paragraph.Value().runs.begin(),
+                      paragraph.Value().runs.end(),
+                      [](const PositionedShapedRun &run) {
+                        return run.run.fontFace.IsValid();
+                      }));
+
+  const auto first = text->CaretRect(
+      paragraph.Value(), paragraph.Value().lines.front().byteOffset);
+  const auto second =
+      text->CaretRect(paragraph.Value(), paragraph.Value().lines[1].byteOffset);
+  REQUIRE(first.HasValue());
+  REQUIRE(second.HasValue());
+  REQUIRE(second.Value().y > first.Value().y);
+
+  const auto selection =
+      text->RangeRects(paragraph.Value(), 0, paragraph.Value().byteLength);
+  REQUIRE(selection.HasValue());
+  REQUIRE(selection.Value().size() >= 2);
+}
+
+TEST_CASE("native text accepts configured fallback faces") {
+  using namespace NGIN::UI;
+
+  Testing::RecordingRenderBackend renderer;
+  REQUIRE(renderer.Initialize({}).HasValue());
+  auto created = NativeTextSystem::Create(
+      renderer,
+      NativeTextCreateInfo{
+          .fallbackFontPaths =
+              {
+                  NGIN::Text::String{NativeTextSystem::BundledFontPath()},
+              },
+          .atlasSize = PixelSize{256, 256},
+      });
+  REQUIRE(created.HasValue());
+  auto paragraph = created.Value()->LayoutParagraph(ParagraphRequest{
+      .runs =
+          {
+              TextRun{
+                  .text = NGIN::Text::String{"Fallback shaping"},
+                  .fontSize = 16.0F,
+              },
+          },
+      .maximumWidth = 80.0F,
+  });
+  REQUIRE(paragraph.HasValue());
+  REQUIRE_FALSE(paragraph.Value().runs.empty());
+}
+
+TEST_CASE("TextArea edits lines navigates vertically and scrolls its caret") {
+  using namespace NGIN::UI;
+
+  Testing::RecordingRenderBackend renderer;
+  auto text = CreateTextSystem(renderer);
+  State<NGIN::Text::String> value{
+      NGIN::Text::String{"first line\nsecond line\nthird line\nfourth line"}};
+  NodeProperties properties{};
+  properties.layout.preferredSize = Size{120.0F, 44.0F};
+  properties.layout.padding = Thickness::Uniform(Dp{4.0F});
+  properties.text.layout = text.get();
+  properties.text.geometry = text.get();
+  properties.text.glyphAtlas = text.get();
+  properties.text.fontSize = 16.0F;
+  properties.text.wrapping = TextWrapping::Wrap;
+
+  Composer composer;
+  composer.TextArea(Bind(value), *text, properties, "notes");
+  RuntimeTree tree;
+  Reconciler reconciler{tree};
+  static_cast<void>(reconciler.Reconcile(composer.Declarations()));
+  const auto area = tree.Get(tree.Root())->children.front();
+  LayoutEngine layout{tree};
+  static_cast<void>(
+      layout.Measure(area, SizeConstraints{.maximum = Size{120.0F, 44.0F}}));
+  layout.Arrange(area, Rect{0.0F, 0.0F, 120.0F, 44.0F});
+  auto *node = tree.Get(area);
+  REQUIRE(node->text.paragraph.lines.size() >= 4);
+  REQUIRE(node->scroll.contentSize.height > node->scroll.viewportSize.height);
+
+  InputRouter input{tree};
+  REQUIRE(input.SetFocus(area));
+  const auto initialCaret = node->textField.editing->State().caretCluster;
+  auto up = input.Route(KeyChanged{
+      .logicalKey = static_cast<NGIN::UInt32>(LogicalKey::Up),
+      .state = KeyState::Pressed,
+  });
+  REQUIRE(up.handled);
+  REQUIRE(node->textField.editing->State().caretCluster < initialCaret);
+
+  auto entered = input.Route(KeyChanged{
+      .logicalKey = static_cast<NGIN::UInt32>(LogicalKey::Enter),
+      .state = KeyState::Pressed,
+  });
+  REQUIRE(entered.handled);
+  REQUIRE(entered.layoutStateChanged);
+  REQUIRE(value.Get().View().find('\n') != std::string_view::npos);
+
+  static_cast<void>(
+      layout.Measure(area, SizeConstraints{.maximum = Size{120.0F, 44.0F}}));
+  layout.Arrange(area, Rect{0.0F, 0.0F, 120.0F, 44.0F});
+  REQUIRE(node->scroll.offset.y >= 0.0F);
+
+  const auto semantics = BuildSemanticTree(tree);
+  const auto *semantic = semantics.FindByOwner(node->id);
+  REQUIRE(semantic != nullptr);
+  REQUIRE(semantic->role == SemanticRole::TextBox);
+  REQUIRE(semantic->value == value.Get());
 }

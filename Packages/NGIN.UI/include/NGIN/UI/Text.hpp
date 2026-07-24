@@ -85,6 +85,7 @@ struct PositionedShapedRun final {
   Point origin{};
   F32 fontSize{14.0F};
   UIntSize lineIndex{0};
+  UIntSize byteOffset{0};
 };
 
 struct ParagraphLine final {
@@ -92,12 +93,15 @@ struct ParagraphLine final {
   UIntSize runCount{0};
   Rect bounds{};
   F32 baseline{0.0F};
+  UIntSize byteOffset{0};
+  UIntSize byteLength{0};
 };
 
 struct ParagraphLayout final {
   Size size{};
   std::vector<PositionedShapedRun> runs{};
   std::vector<ParagraphLine> lines{};
+  UIntSize byteLength{0};
 };
 
 struct GlyphAtlasRequest final {

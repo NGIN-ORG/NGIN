@@ -51,6 +51,14 @@ struct TextRuntimeState final {
   bool valid{false};
 };
 
+struct ImageRuntimeState final {
+  TextureHandle texture{};
+  PixelSize sourceSize{};
+  Rect destination{};
+  ImageLoadState loadState{ImageLoadState::Loading};
+  bool valid{false};
+};
+
 struct CustomElementRuntimeState final {
   std::shared_ptr<CustomStateStore> state{};
   SemanticProperties semantics{};
@@ -72,6 +80,7 @@ struct RuntimeNode final {
   PopupState popup{};
   TextFieldRuntimeState textField{};
   TextRuntimeState text{};
+  ImageRuntimeState image{};
   CustomElementRuntimeState custom{};
   UInt64 compositionRevision{0};
   UInt64 layoutRevision{0};

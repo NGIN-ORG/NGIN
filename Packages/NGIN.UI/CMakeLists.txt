@@ -39,6 +39,7 @@ set(NGIN_UI_SOURCES
     src/NGIN/UI/Controls.cpp
     src/NGIN/UI/CustomElement.cpp
     src/NGIN/UI/DisplayList.cpp
+    src/NGIN/UI/Image.cpp
     src/NGIN/UI/Input.cpp
     src/NGIN/UI/Inspector.cpp
     src/NGIN/UI/Layout.cpp

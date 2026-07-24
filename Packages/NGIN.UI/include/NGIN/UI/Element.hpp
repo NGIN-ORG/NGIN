@@ -4,6 +4,7 @@
 #include <NGIN/Text/String.hpp>
 #include <NGIN/UI/CustomElement.hpp>
 #include <NGIN/UI/Geometry.hpp>
+#include <NGIN/UI/Image.hpp>
 #include <NGIN/UI/Resources.hpp>
 #include <NGIN/UI/RoutedEvent.hpp>
 #include <NGIN/UI/Semantics.hpp>
@@ -30,6 +31,8 @@ enum class ElementType : UInt16 {
   Text,
   Button,
   TextField,
+  TextArea,
+  Image,
   ScrollView,
   ListView,
   ListItem,
@@ -156,6 +159,16 @@ struct TextElementProperties final {
   bool clip{true};
 };
 
+struct ImageProperties final {
+  std::shared_ptr<ImageResource> resource{};
+  IImageResolver *resolver{nullptr};
+  ImageFit fit{ImageFit::Contain};
+  ImageAlignment alignment{};
+  Color tint{1.0F, 1.0F, 1.0F, 1.0F};
+  bool clip{true};
+  NGIN::Utilities::Callable<void(const UIError &)> onError{};
+};
+
 struct CustomElementProperties final {
   std::shared_ptr<ICustomElement> element{};
   NGIN::Utilities::Callable<void(const UIError &)> onError{};
@@ -170,6 +183,7 @@ struct NodeProperties final {
   SeparatorProperties separator{};
   TextFieldProperties textField{};
   TextElementProperties text{};
+  ImageProperties image{};
   CustomElementProperties custom{};
   SemanticProperties semantics{};
   std::shared_ptr<const ResourceScope> resources{};

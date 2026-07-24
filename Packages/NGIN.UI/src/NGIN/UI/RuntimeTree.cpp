@@ -138,7 +138,8 @@ auto RuntimeTree::CreateNode(const ElementType type,
 }
 
 void RuntimeTree::SynchronizeTextField(RuntimeNode &node) {
-  if (node.type != ElementType::TextField) {
+  if (node.type != ElementType::TextField &&
+      node.type != ElementType::TextArea) {
     node.textField = {};
     return;
   }
@@ -152,10 +153,11 @@ void RuntimeTree::SynchronizeTextField(RuntimeNode &node) {
   if (properties.graphemeSegmenter == nullptr ||
       !properties.value.IsReadable()) {
     node.textField = {};
-    report(MakeUIError(UIErrorCode::InvalidArgument,
-                       "TextField requires a value binding and grapheme "
-                       "segmenter",
-                       "NGIN.UI", "RuntimeTree::SynchronizeTextField"));
+    report(MakeUIError(
+        UIErrorCode::InvalidArgument,
+        "Text editing controls require a value binding and grapheme "
+        "segmenter",
+        "NGIN.UI", "RuntimeTree::SynchronizeTextField"));
     return;
   }
 

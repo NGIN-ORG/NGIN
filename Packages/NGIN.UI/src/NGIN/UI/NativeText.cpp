@@ -6,6 +6,7 @@
 #include <limits>
 #include <memory>
 #include <span>
+#include <string_view>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -247,7 +248,13 @@ SegmentDecoded(const std::vector<DecodedCodePoint> &decoded) noexcept
 
 #if defined(NGIN_UI_HAS_NATIVE_TEXT)
 struct NativeTextSystem::Impl final {
+  struct Face final {
+    FT_Face value{nullptr};
+    hb_font_t *font{nullptr};
+  };
+
   struct GlyphKey final {
+    UInt32 face{0};
     UInt32 glyph{0};
     UInt32 pixelSize{0};
 
@@ -258,15 +265,15 @@ struct NativeTextSystem::Impl final {
   struct GlyphKeyHash final {
     [[nodiscard]] auto operator()(const GlyphKey &key) const noexcept
         -> std::size_t {
-      return (static_cast<std::size_t>(key.glyph) << 16U) ^
+      return (static_cast<std::size_t>(key.face) << 48U) ^
+             (static_cast<std::size_t>(key.glyph) << 16U) ^
              static_cast<std::size_t>(key.pixelSize);
     }
   };
 
   IRenderBackend *renderer{nullptr};
   FT_Library library{nullptr};
-  FT_Face face{nullptr};
-  hb_font_t *font{nullptr};
+  std::vector<Face> faces{};
   TextureHandle atlas{};
   PixelSize atlasSize{};
   UInt32 atlasX{1};
@@ -278,46 +285,57 @@ struct NativeTextSystem::Impl final {
     if (renderer != nullptr && atlas) {
       static_cast<void>(renderer->DestroyTexture(atlas));
     }
-    if (font != nullptr) {
-      hb_font_destroy(font);
-    }
-    if (face != nullptr) {
-      static_cast<void>(FT_Done_Face(face));
+    for (auto &face : faces) {
+      if (face.font != nullptr) {
+        hb_font_destroy(face.font);
+      }
+      if (face.value != nullptr) {
+        static_cast<void>(FT_Done_Face(face.value));
+      }
     }
     if (library != nullptr) {
       static_cast<void>(FT_Done_FreeType(library));
     }
   }
 
-  [[nodiscard]] auto SetPixelSize(const UInt32 size, const char *operation)
-      -> UIResult<void> {
-    const auto error = FT_Set_Pixel_Sizes(face, 0, std::max(1U, size));
+  [[nodiscard]] auto FaceFor(const FontFaceHandle handle) noexcept -> Face * {
+    return handle.generation == 1 && handle.index < faces.size()
+               ? &faces[handle.index]
+               : nullptr;
+  }
+
+  [[nodiscard]] auto SetPixelSize(Face &face, const UInt32 size,
+                                  const char *operation) -> UIResult<void> {
+    const auto error = FT_Set_Pixel_Sizes(face.value, 0, std::max(1U, size));
     if (error != 0) {
       return NativeTextError(UIErrorCode::TextShapingFailed,
                              "FreeType could not set the requested font size",
                              operation, error);
     }
-    hb_ft_font_changed(font);
+    hb_ft_font_changed(face.font);
     return {};
   }
 
-  [[nodiscard]] auto MetricsForSize(const F32 size) -> UIResult<FontMetrics> {
+  [[nodiscard]] auto MetricsForSize(Face &face, const F32 size)
+      -> UIResult<FontMetrics> {
     auto sized = SetPixelSize(
-        static_cast<UInt32>(std::max(1.0F, std::round(size))), "FontMetrics");
+        face, static_cast<UInt32>(std::max(1.0F, std::round(size))),
+        "FontMetrics");
     if (!sized) {
       return sized.Error();
     }
     const auto scale = 1.0F / 64.0F;
     const auto ascender =
-        static_cast<F32>(face->size->metrics.ascender) * scale;
+        static_cast<F32>(face.value->size->metrics.ascender) * scale;
     const auto descender =
-        -static_cast<F32>(face->size->metrics.descender) * scale;
-    const auto height = static_cast<F32>(face->size->metrics.height) * scale;
+        -static_cast<F32>(face.value->size->metrics.descender) * scale;
+    const auto height =
+        static_cast<F32>(face.value->size->metrics.height) * scale;
     return FontMetrics{
         .ascender = ascender,
         .descender = descender,
         .lineGap = std::max(0.0F, height - ascender - descender),
-        .unitsPerEm = static_cast<F32>(face->units_per_EM),
+        .unitsPerEm = static_cast<F32>(face.value->units_per_EM),
     };
   }
 };
@@ -354,20 +372,37 @@ auto NativeTextSystem::Create(IRenderBackend &renderer,
                              "FreeType initialization failed",
                              "CreateTextSystem", error);
     }
+    const auto loadFace =
+        [&implementation](const char *path) -> UIResult<void> {
+      Impl::Face face{};
+      const auto loadError =
+          FT_New_Face(implementation->library, path, 0, &face.value);
+      if (loadError != 0) {
+        return NativeTextError(UIErrorCode::ResourceFailed,
+                               "A configured font could not be loaded",
+                               "CreateTextSystem", loadError);
+      }
+      face.font = hb_ft_font_create_referenced(face.value);
+      if (face.font == nullptr) {
+        static_cast<void>(FT_Done_Face(face.value));
+        return NativeTextError(UIErrorCode::OutOfMemory,
+                               "HarfBuzz font creation failed",
+                               "CreateTextSystem");
+      }
+      implementation->faces.push_back(face);
+      return {};
+    };
     const auto *fontPath =
         info.fontPath.Empty() ? BundledFontPath() : info.fontPath.CStr();
-    error = FT_New_Face(implementation->library, fontPath, 0,
-                        &implementation->face);
-    if (error != 0) {
-      return NativeTextError(UIErrorCode::ResourceFailed,
-                             "The configured font could not be loaded",
-                             "CreateTextSystem", error);
+    auto loaded = loadFace(fontPath);
+    if (!loaded) {
+      return loaded.Error();
     }
-    implementation->font = hb_ft_font_create_referenced(implementation->face);
-    if (implementation->font == nullptr) {
-      return NativeTextError(UIErrorCode::OutOfMemory,
-                             "HarfBuzz font creation failed",
-                             "CreateTextSystem");
+    for (const auto &fallback : info.fallbackFontPaths) {
+      loaded = loadFace(fallback.CStr());
+      if (!loaded) {
+        return loaded.Error();
+      }
     }
     auto texture = renderer.CreateTexture(TextureCreateInfo{
         .size = info.atlasSize,
@@ -394,7 +429,14 @@ auto NativeTextSystem::Create(IRenderBackend &renderer,
 auto NativeTextSystem::ResolveFont(const FontRequest &request) noexcept
     -> UIResult<FontFaceHandle> {
 #if defined(NGIN_UI_HAS_NATIVE_TEXT)
-  static_cast<void>(request);
+  for (const auto &family : request.families) {
+    for (UInt32 index = 0; index < m_impl->faces.size(); ++index) {
+      const auto *name = m_impl->faces[index].value->family_name;
+      if (name != nullptr && family.View() == std::string_view{name}) {
+        return FontFaceHandle{index, 1};
+      }
+    }
+  }
   return FontFaceHandle{0, 1};
 #else
   static_cast<void>(request);
@@ -406,13 +448,13 @@ auto NativeTextSystem::Metrics(const FontFaceHandle face,
                                const F32 fontSize) noexcept
     -> UIResult<FontMetrics> {
 #if defined(NGIN_UI_HAS_NATIVE_TEXT)
-  if (face != FontFaceHandle{0, 1} || !std::isfinite(fontSize) ||
-      fontSize <= 0.0F) {
+  auto *resolved = m_impl->FaceFor(face);
+  if (resolved == nullptr || !std::isfinite(fontSize) || fontSize <= 0.0F) {
     return NativeTextError(UIErrorCode::InvalidArgument,
                            "A live font face and positive size are required",
                            "FontMetrics");
   }
-  return m_impl->MetricsForSize(fontSize);
+  return m_impl->MetricsForSize(*resolved, fontSize);
 #else
   static_cast<void>(face);
   static_cast<void>(fontSize);
@@ -434,7 +476,8 @@ auto NativeTextSystem::Shape(const TextRun &run,
     -> UIResult<ShapedRun> {
 #if defined(NGIN_UI_HAS_NATIVE_TEXT)
   try {
-    if (face != FontFaceHandle{0, 1} || !std::isfinite(run.fontSize) ||
+    auto *resolved = m_impl->FaceFor(face);
+    if (resolved == nullptr || !std::isfinite(run.fontSize) ||
         run.fontSize <= 0.0F) {
       return NativeTextError(UIErrorCode::InvalidArgument,
                              "A live font face and positive size are required",
@@ -444,7 +487,7 @@ auto NativeTextSystem::Shape(const TextRun &run,
     if (!graphemes) {
       return graphemes.Error();
     }
-    auto metrics = m_impl->MetricsForSize(run.fontSize);
+    auto metrics = m_impl->MetricsForSize(*resolved, run.fontSize);
     if (!metrics) {
       return metrics.Error();
     }
@@ -481,7 +524,7 @@ auto NativeTextSystem::Shape(const TextRun &run,
                                         static_cast<int>(run.script.Size())));
     }
     hb_buffer_guess_segment_properties(buffer);
-    hb_shape(m_impl->font, buffer, nullptr, 0);
+    hb_shape(resolved->font, buffer, nullptr, 0);
 
     unsigned int glyphCount = 0;
     const auto *infos = hb_buffer_get_glyph_infos(buffer, &glyphCount);
@@ -534,59 +577,329 @@ auto NativeTextSystem::LayoutParagraph(const ParagraphRequest &request) noexcept
     -> UIResult<ParagraphLayout> {
 #if defined(NGIN_UI_HAS_NATIVE_TEXT)
   try {
-    ParagraphLayout paragraph;
-    F32 width = 0.0F;
-    F32 ascender = 0.0F;
-    F32 descender = 0.0F;
-    for (const auto &run : request.runs) {
-      auto face = ResolveFont(run.font);
-      if (!face) {
-        return face.Error();
+    if ((!std::isfinite(request.maximumWidth) &&
+         request.maximumWidth != std::numeric_limits<F32>::infinity()) ||
+        request.maximumWidth < 0.0F || !std::isfinite(request.lineHeight) ||
+        request.lineHeight < 0.0F) {
+      return NativeTextError(
+          UIErrorCode::InvalidArgument,
+          "Paragraph dimensions must be finite and non-negative",
+          "LayoutParagraph");
+    }
+
+    struct Token final {
+      TextRun style{};
+      NGIN::Text::String text{};
+      UIntSize byteOffset{0};
+      UIntSize byteLength{0};
+      bool mandatoryBreak{false};
+    };
+    struct ShapedToken final {
+      std::vector<PositionedShapedRun> runs{};
+      F32 width{0.0F};
+      F32 ascender{0.0F};
+      F32 descender{0.0F};
+    };
+
+    const auto isWhitespace = [](const UInt32 value) noexcept {
+      return value == 0x0009U || value == 0x0020U || value == 0x00A0U ||
+             value == 0x1680U || (value >= 0x2000U && value <= 0x200AU) ||
+             value == 0x202FU || value == 0x205FU || value == 0x3000U;
+    };
+    const auto isCjk = [](const UInt32 value) noexcept {
+      return (value >= 0x2E80U && value <= 0x9FFFU) ||
+             (value >= 0xAC00U && value <= 0xD7A3U) ||
+             (value >= 0xF900U && value <= 0xFAFFU) ||
+             (value >= 0x20000U && value <= 0x323AFU);
+    };
+    const auto breaksAfter = [&isWhitespace,
+                              &isCjk](const UInt32 value) noexcept {
+      return isWhitespace(value) || isCjk(value) || value == 0x002DU ||
+             value == 0x058AU || value == 0x2010U || value == 0x2013U ||
+             value == 0x002FU || value == 0x005CU;
+    };
+
+    std::vector<Token> tokens;
+    UIntSize paragraphByteOffset = 0;
+    for (const auto &sourceRun : request.runs) {
+      auto decoded = DecodeUtf8(sourceRun.text);
+      if (!decoded) {
+        return decoded.Error();
       }
-      auto shaped = Shape(run, face.Value());
+      auto clusters = SegmentDecoded(decoded.Value());
+      if (!clusters) {
+        return clusters.Error();
+      }
+      UIntSize tokenStart = 0;
+      UIntSize tokenLength = 0;
+      const auto flushToken = [&]() {
+        if (tokenLength == 0) {
+          return;
+        }
+        tokens.push_back(Token{
+            .style = sourceRun,
+            .text = sourceRun.text.Substr(tokenStart, tokenLength),
+            .byteOffset = paragraphByteOffset + tokenStart,
+            .byteLength = tokenLength,
+        });
+        tokenLength = 0;
+      };
+      for (const auto &cluster : clusters.Value()) {
+        const auto decodedPoint =
+            std::find_if(decoded.Value().begin(), decoded.Value().end(),
+                         [&cluster](const DecodedCodePoint &point) {
+                           return point.byteOffset == cluster.byteOffset;
+                         });
+        const auto value =
+            decodedPoint == decoded.Value().end() ? 0U : decodedPoint->value;
+        if (value == 0x000AU || value == 0x000DU) {
+          flushToken();
+          auto newlineLength = cluster.byteLength;
+          if (value == 0x000DU &&
+              cluster.byteOffset + cluster.byteLength < sourceRun.text.Size() &&
+              sourceRun.text[cluster.byteOffset + cluster.byteLength] == '\n') {
+            newlineLength += 1;
+          }
+          tokens.push_back(Token{
+              .style = sourceRun,
+              .byteOffset = paragraphByteOffset + cluster.byteOffset,
+              .byteLength = newlineLength,
+              .mandatoryBreak = true,
+          });
+          continue;
+        }
+        if (tokenLength == 0) {
+          tokenStart = cluster.byteOffset;
+        }
+        tokenLength += cluster.byteLength;
+        if (breaksAfter(value)) {
+          flushToken();
+        }
+      }
+      flushToken();
+      paragraphByteOffset += sourceRun.text.Size();
+    }
+
+    const auto faceForCluster =
+        [this](const NGIN::Text::String &text, const GraphemeCluster &cluster,
+               const FontFaceHandle preferred) -> FontFaceHandle {
+      auto decoded =
+          DecodeUtf8(text.Substr(cluster.byteOffset, cluster.byteLength));
+      if (!decoded) {
+        return preferred;
+      }
+      const auto supports = [&decoded](const Impl::Face &face) {
+        for (const auto &point : decoded.Value()) {
+          if (IsControl(point.value) || point.value == 0x200DU ||
+              point.value == 0xFE0FU) {
+            continue;
+          }
+          if (FT_Get_Char_Index(face.value, point.value) == 0) {
+            return false;
+          }
+        }
+        return true;
+      };
+      if (preferred.index < m_impl->faces.size() &&
+          supports(m_impl->faces[preferred.index])) {
+        return preferred;
+      }
+      for (UInt32 index = 0; index < m_impl->faces.size(); ++index) {
+        if (supports(m_impl->faces[index])) {
+          return FontFaceHandle{index, 1};
+        }
+      }
+      return preferred;
+    };
+
+    const auto shapeToken =
+        [this, &faceForCluster](const Token &token) -> UIResult<ShapedToken> {
+      ShapedToken shapedToken;
+      auto preferred = ResolveFont(token.style.font);
+      if (!preferred) {
+        return preferred.Error();
+      }
+      auto clusters = Segment(token.text);
+      if (!clusters) {
+        return clusters.Error();
+      }
+      UIntSize spanStart = 0;
+      UIntSize spanLength = 0;
+      auto spanFace = preferred.Value();
+      const auto flushSpan = [&]() -> UIResult<void> {
+        if (spanLength == 0) {
+          return {};
+        }
+        auto span = token.style;
+        span.text = token.text.Substr(spanStart, spanLength);
+        auto shaped = Shape(span, spanFace);
+        if (!shaped) {
+          return shaped.Error();
+        }
+        shapedToken.width += shaped.Value().size.width;
+        shapedToken.ascender =
+            std::max(shapedToken.ascender, shaped.Value().metrics.ascender);
+        shapedToken.descender =
+            std::max(shapedToken.descender, shaped.Value().metrics.descender +
+                                                shaped.Value().metrics.lineGap);
+        shapedToken.runs.push_back(PositionedShapedRun{
+            .run = std::move(shaped).Value(),
+            .fontSize = span.fontSize,
+            .byteOffset = token.byteOffset + spanStart,
+        });
+        spanLength = 0;
+        return {};
+      };
+      for (const auto &cluster : clusters.Value()) {
+        const auto face =
+            faceForCluster(token.text, cluster, preferred.Value());
+        if (spanLength != 0 && face != spanFace) {
+          auto flushed = flushSpan();
+          if (!flushed) {
+            return flushed.Error();
+          }
+        }
+        if (spanLength == 0) {
+          spanStart = cluster.byteOffset;
+          spanFace = face;
+        }
+        spanLength += cluster.byteLength;
+      }
+      auto flushed = flushSpan();
+      if (!flushed) {
+        return flushed.Error();
+      }
+      return shapedToken;
+    };
+
+    ParagraphLayout paragraph;
+    std::vector<PositionedShapedRun> lineRuns;
+    F32 lineWidth = 0.0F;
+    F32 lineAscender = 0.0F;
+    F32 lineDescender = 0.0F;
+    F32 y = 0.0F;
+    F32 maximumLineWidth = 0.0F;
+    UIntSize lineStartByte = 0;
+    UIntSize lineEndByte = 0;
+    const auto finiteMaximum = std::isfinite(request.maximumWidth);
+
+    const auto defaultMetrics = [&]() -> FontMetrics {
+      if (!request.runs.empty()) {
+        auto face = ResolveFont(request.runs.front().font);
+        if (face) {
+          auto metrics = Metrics(face.Value(), request.runs.front().fontSize);
+          if (metrics) {
+            return metrics.Value();
+          }
+        }
+      }
+      return FontMetrics{
+          .ascender = 11.0F,
+          .descender = 3.0F,
+      };
+    }();
+    const auto finishLine = [&](const UIntSize nextStart) {
+      const auto ascender =
+          lineAscender > 0.0F ? lineAscender : defaultMetrics.ascender;
+      const auto descender = lineDescender > 0.0F ? lineDescender
+                                                  : defaultMetrics.descender +
+                                                        defaultMetrics.lineGap;
+      const auto naturalHeight = ascender + descender;
+      const auto height =
+          request.lineHeight > 0.0F ? request.lineHeight : naturalHeight;
+      const auto baseline =
+          y + ascender + std::max(0.0F, height - naturalHeight) * 0.5F;
+      F32 alignmentOffset = 0.0F;
+      if (finiteMaximum && lineWidth < request.maximumWidth) {
+        if (request.alignment == TextAlignment::Center) {
+          alignmentOffset = (request.maximumWidth - lineWidth) * 0.5F;
+        } else if (request.alignment == TextAlignment::End) {
+          alignmentOffset = request.maximumWidth - lineWidth;
+        }
+      }
+      const auto firstRun = paragraph.runs.size();
+      for (auto &run : lineRuns) {
+        run.origin.x += alignmentOffset;
+        run.origin.y = baseline;
+        run.lineIndex = paragraph.lines.size();
+        paragraph.runs.push_back(std::move(run));
+      }
+      paragraph.lines.push_back(ParagraphLine{
+          .firstRun = firstRun,
+          .runCount = paragraph.runs.size() - firstRun,
+          .bounds = Rect{alignmentOffset, y, lineWidth, height},
+          .baseline = baseline,
+          .byteOffset = lineStartByte,
+          .byteLength = lineEndByte - lineStartByte,
+      });
+      maximumLineWidth = std::max(maximumLineWidth, lineWidth);
+      y += height;
+      lineRuns.clear();
+      lineWidth = 0.0F;
+      lineAscender = 0.0F;
+      lineDescender = 0.0F;
+      lineStartByte = nextStart;
+      lineEndByte = nextStart;
+    };
+    const auto appendToken = [&](const Token &token, ShapedToken shaped) {
+      if (request.wrapping == TextWrapping::Wrap && finiteMaximum &&
+          !lineRuns.empty() &&
+          lineWidth + shaped.width > request.maximumWidth) {
+        finishLine(token.byteOffset);
+      }
+      for (auto &run : shaped.runs) {
+        run.origin.x = lineWidth;
+        lineWidth += run.run.size.width;
+        lineRuns.push_back(std::move(run));
+      }
+      lineAscender = std::max(lineAscender, shaped.ascender);
+      lineDescender = std::max(lineDescender, shaped.descender);
+      lineEndByte = token.byteOffset + token.byteLength;
+    };
+
+    for (const auto &token : tokens) {
+      if (token.mandatoryBreak) {
+        lineEndByte = token.byteOffset;
+        finishLine(token.byteOffset + token.byteLength);
+        continue;
+      }
+      auto shaped = shapeToken(token);
       if (!shaped) {
         return shaped.Error();
       }
-      ascender = std::max(ascender, shaped.Value().metrics.ascender);
-      descender = std::max(descender, shaped.Value().metrics.descender +
-                                          shaped.Value().metrics.lineGap);
-      width += shaped.Value().size.width;
-      paragraph.runs.push_back(PositionedShapedRun{
-          .run = std::move(shaped).Value(),
-          .fontSize = run.fontSize,
-      });
-    }
-
-    const auto naturalHeight = ascender + descender;
-    const auto height =
-        request.lineHeight > 0.0F ? request.lineHeight : naturalHeight;
-    const auto finiteMaximum = std::isfinite(request.maximumWidth);
-    const auto arrangedWidth =
-        finiteMaximum ? std::min(width, std::max(0.0F, request.maximumWidth))
-                      : width;
-    F32 alignmentOffset = 0.0F;
-    if (finiteMaximum && width < request.maximumWidth) {
-      if (request.alignment == TextAlignment::Center) {
-        alignmentOffset = (request.maximumWidth - width) * 0.5F;
-      } else if (request.alignment == TextAlignment::End) {
-        alignmentOffset = request.maximumWidth - width;
+      if (request.wrapping == TextWrapping::Wrap && finiteMaximum &&
+          shaped.Value().width > request.maximumWidth) {
+        auto clusters = Segment(token.text);
+        if (!clusters) {
+          return clusters.Error();
+        }
+        for (const auto &cluster : clusters.Value()) {
+          Token part{
+              .style = token.style,
+              .text = token.text.Substr(cluster.byteOffset, cluster.byteLength),
+              .byteOffset = token.byteOffset + cluster.byteOffset,
+              .byteLength = cluster.byteLength,
+          };
+          auto shapedPart = shapeToken(part);
+          if (!shapedPart) {
+            return shapedPart.Error();
+          }
+          appendToken(part, std::move(shapedPart).Value());
+        }
+      } else {
+        appendToken(token, std::move(shaped).Value());
       }
     }
-    F32 x = alignmentOffset;
-    for (auto &run : paragraph.runs) {
-      run.origin = Point{x, ascender};
-      run.lineIndex = 0;
-      x += run.run.size.width;
+    if (paragraph.lines.empty() || lineStartByte <= paragraphByteOffset) {
+      lineEndByte = std::max(lineEndByte, paragraphByteOffset);
+      finishLine(paragraphByteOffset);
     }
-    paragraph.size = Size{arrangedWidth, height};
-    if (!paragraph.runs.empty()) {
-      paragraph.lines.push_back(ParagraphLine{
-          .firstRun = 0,
-          .runCount = paragraph.runs.size(),
-          .bounds = Rect{0.0F, 0.0F, arrangedWidth, height},
-          .baseline = ascender,
-      });
-    }
+    paragraph.size = Size{
+        finiteMaximum ? std::min(maximumLineWidth, request.maximumWidth)
+                      : maximumLineWidth,
+        y,
+    };
+    paragraph.byteLength = paragraphByteOffset;
     return paragraph;
   } catch (...) {
     return NativeTextError(UIErrorCode::OutOfMemory,
@@ -603,20 +916,50 @@ auto NativeTextSystem::CaretRect(const ParagraphLayout &paragraph,
                                  UIntSize byteOffset) noexcept
     -> UIResult<Rect> {
 #if defined(NGIN_UI_HAS_NATIVE_TEXT)
-  UIntSize runBase = 0;
+  if (byteOffset > paragraph.byteLength) {
+    return NativeTextError(UIErrorCode::InvalidArgument,
+                           "Caret byte offset is outside the paragraph",
+                           "CaretRect");
+  }
+  for (const auto &run : paragraph.runs) {
+    if (byteOffset == run.byteOffset) {
+      return Rect{RunCaretX(run, 0), run.origin.y - run.run.metrics.ascender,
+                  1.0F,
+                  run.run.metrics.ascender + run.run.metrics.descender +
+                      run.run.metrics.lineGap};
+    }
+  }
   for (const auto &run : paragraph.runs) {
     const auto length = RunByteLength(run);
-    if (byteOffset <= runBase + length) {
-      const auto local = std::min(byteOffset - runBase, length);
+    if (byteOffset > run.byteOffset && byteOffset <= run.byteOffset + length) {
+      const auto local = std::min(byteOffset - run.byteOffset, length);
       return Rect{RunCaretX(run, local),
                   run.origin.y - run.run.metrics.ascender, 1.0F,
                   run.run.metrics.ascender + run.run.metrics.descender +
                       run.run.metrics.lineGap};
     }
-    runBase += length;
   }
-  if (paragraph.runs.empty() && byteOffset == 0) {
-    return Rect{0.0F, 0.0F, 1.0F, paragraph.size.height};
+  for (UIntSize index = 0; index < paragraph.lines.size(); ++index) {
+    const auto &line = paragraph.lines[index];
+    const auto lineEnd = line.byteOffset + line.byteLength;
+    const auto nextStart = index + 1 < paragraph.lines.size()
+                               ? paragraph.lines[index + 1].byteOffset
+                               : paragraph.byteLength;
+    if (byteOffset >= line.byteOffset &&
+        (byteOffset < nextStart || (index + 1 == paragraph.lines.size() &&
+                                    byteOffset <= paragraph.byteLength))) {
+      const auto atStart = byteOffset <= line.byteOffset;
+      return Rect{
+          atStart ? line.bounds.x : line.bounds.x + line.bounds.width,
+          line.bounds.y,
+          1.0F,
+          line.bounds.height,
+      };
+    }
+    if (byteOffset == lineEnd) {
+      return Rect{line.bounds.x + line.bounds.width, line.bounds.y, 1.0F,
+                  line.bounds.height};
+    }
   }
   return NativeTextError(UIErrorCode::InvalidArgument,
                          "Caret byte offset is outside the paragraph",
@@ -641,15 +984,14 @@ auto NativeTextSystem::RangeRects(const ParagraphLayout &paragraph,
     }
     const auto rangeEnd = byteOffset + byteLength;
     std::vector<Rect> rectangles;
-    UIntSize runBase = 0;
     for (const auto &run : paragraph.runs) {
       const auto length = RunByteLength(run);
-      const auto runEnd = runBase + length;
-      const auto intersectionStart = std::max(byteOffset, runBase);
+      const auto runEnd = run.byteOffset + length;
+      const auto intersectionStart = std::max(byteOffset, run.byteOffset);
       const auto intersectionEnd = std::min(rangeEnd, runEnd);
       if (intersectionStart < intersectionEnd) {
-        const auto startX = RunCaretX(run, intersectionStart - runBase);
-        const auto endX = RunCaretX(run, intersectionEnd - runBase);
+        const auto startX = RunCaretX(run, intersectionStart - run.byteOffset);
+        const auto endX = RunCaretX(run, intersectionEnd - run.byteOffset);
         rectangles.push_back(Rect{
             std::min(startX, endX),
             run.origin.y - run.run.metrics.ascender,
@@ -658,9 +1000,8 @@ auto NativeTextSystem::RangeRects(const ParagraphLayout &paragraph,
                 run.run.metrics.lineGap,
         });
       }
-      runBase = runEnd;
     }
-    if (rangeEnd > runBase) {
+    if (rangeEnd > paragraph.byteLength) {
       return NativeTextError(UIErrorCode::InvalidArgument,
                              "Text range is outside the paragraph",
                              "RangeRects");
@@ -683,35 +1024,37 @@ auto NativeTextSystem::ResolveGlyph(const GlyphAtlasRequest &request) noexcept
     -> UIResult<GlyphAtlasEntry> {
 #if defined(NGIN_UI_HAS_NATIVE_TEXT)
   try {
-    if (request.fontFace != FontFaceHandle{0, 1} ||
-        !std::isfinite(request.fontSize) || request.fontSize <= 0.0F ||
-        !std::isfinite(request.scaleFactor) || request.scaleFactor <= 0.0F) {
+    auto *face = m_impl->FaceFor(request.fontFace);
+    if (face == nullptr || !std::isfinite(request.fontSize) ||
+        request.fontSize <= 0.0F || !std::isfinite(request.scaleFactor) ||
+        request.scaleFactor <= 0.0F) {
       return NativeTextError(
           UIErrorCode::InvalidArgument,
           "A live face, positive size, and scale are required", "ResolveGlyph");
     }
     const auto pixelSize = static_cast<UInt32>(
         std::max(1.0F, std::round(request.fontSize * request.scaleFactor)));
-    const Impl::GlyphKey key{request.glyphIndex, pixelSize};
+    const Impl::GlyphKey key{request.fontFace.index, request.glyphIndex,
+                             pixelSize};
     if (const auto found = m_impl->glyphs.find(key);
         found != m_impl->glyphs.end()) {
       return found->second;
     }
-    auto sized = m_impl->SetPixelSize(pixelSize, "ResolveGlyph");
+    auto sized = m_impl->SetPixelSize(*face, pixelSize, "ResolveGlyph");
     if (!sized) {
       return sized.Error();
     }
     auto error =
-        FT_Load_Glyph(m_impl->face, request.glyphIndex, FT_LOAD_DEFAULT);
+        FT_Load_Glyph(face->value, request.glyphIndex, FT_LOAD_DEFAULT);
     if (error == 0) {
-      error = FT_Render_Glyph(m_impl->face->glyph, FT_RENDER_MODE_NORMAL);
+      error = FT_Render_Glyph(face->value->glyph, FT_RENDER_MODE_NORMAL);
     }
     if (error != 0) {
       return NativeTextError(UIErrorCode::ResourceFailed,
                              "FreeType could not rasterize a glyph",
                              "ResolveGlyph", error);
     }
-    const auto &bitmap = m_impl->face->glyph->bitmap;
+    const auto &bitmap = face->value->glyph->bitmap;
     if (bitmap.width == 0 || bitmap.rows == 0) {
       const GlyphAtlasEntry invisible{};
       m_impl->glyphs.emplace(key, invisible);
@@ -776,9 +1119,9 @@ auto NativeTextSystem::ResolveGlyph(const GlyphAtlasRequest &request) noexcept
             },
         .bearing =
             Point{
-                static_cast<F32>(m_impl->face->glyph->bitmap_left) *
+                static_cast<F32>(face->value->glyph->bitmap_left) *
                     inverseScale,
-                -static_cast<F32>(m_impl->face->glyph->bitmap_top) *
+                -static_cast<F32>(face->value->glyph->bitmap_top) *
                     inverseScale,
             },
     };

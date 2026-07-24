@@ -13,6 +13,7 @@
 #include <NGIN/UI/Events.hpp>
 #include <NGIN/UI/Geometry.hpp>
 #include <NGIN/UI/Handles.hpp>
+#include <NGIN/UI/Image.hpp>
 #include <NGIN/UI/Input.hpp>
 #include <NGIN/UI/Inspector.hpp>
 #include <NGIN/UI/Invalidation.hpp>

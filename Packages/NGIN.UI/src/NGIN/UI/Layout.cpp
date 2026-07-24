@@ -94,6 +94,43 @@ void ReportCustomError(const RuntimeNode &node, const UIError &error) noexcept {
   return masked;
 }
 
+[[nodiscard]] auto
+ResolveImageDestination(const Rect available, const PixelSize source,
+                        const ImageFit fit,
+                        const ImageAlignment alignment) noexcept -> Rect {
+  if (available.width <= 0.0F || available.height <= 0.0F || source.IsEmpty()) {
+    return {};
+  }
+  const auto sourceWidth = static_cast<F32>(source.width);
+  const auto sourceHeight = static_cast<F32>(source.height);
+  F32 width = sourceWidth;
+  F32 height = sourceHeight;
+  if (fit == ImageFit::Fill) {
+    width = available.width;
+    height = available.height;
+  } else if (fit == ImageFit::Contain || fit == ImageFit::Cover ||
+             fit == ImageFit::ScaleDown) {
+    auto scale = fit == ImageFit::Cover
+                     ? std::max(available.width / sourceWidth,
+                                available.height / sourceHeight)
+                     : std::min(available.width / sourceWidth,
+                                available.height / sourceHeight);
+    if (fit == ImageFit::ScaleDown) {
+      scale = std::min(1.0F, scale);
+    }
+    width = sourceWidth * scale;
+    height = sourceHeight * scale;
+  }
+  const auto horizontal = std::clamp(alignment.horizontal, 0.0F, 1.0F);
+  const auto vertical = std::clamp(alignment.vertical, 0.0F, 1.0F);
+  return Rect{
+      available.x + (available.width - width) * horizontal,
+      available.y + (available.height - height) * vertical,
+      width,
+      height,
+  };
+}
+
 [[nodiscard]] auto PresentedByteOffset(const RuntimeNode &node,
                                        const UIntSize cluster) noexcept
     -> UIntSize {
@@ -198,13 +235,30 @@ auto LayoutEngine::MeasureLeaf(RuntimeNode &node,
   if (node.type == ElementType::Text) {
     return MeasureText(node, constraints, node.properties.text.value);
   }
-  if (node.type == ElementType::TextField) {
+  if (node.type == ElementType::TextField ||
+      node.type == ElementType::TextArea) {
     if (node.textField.editing &&
         (node.properties.text.layout != nullptr ||
          node.properties.text.glyphAtlas != nullptr)) {
-      return MeasureText(node, constraints, TextFieldDisplayValue(node));
+      const auto measured =
+          MeasureText(node, constraints, TextFieldDisplayValue(node));
+      if (node.type == ElementType::TextArea) {
+        const auto padding = node.properties.layout.padding;
+        node.scroll.contentSize = Size{
+            node.text.paragraph.size.width + padding.left + padding.right,
+            node.text.paragraph.size.height + padding.top + padding.bottom};
+        const auto preferred = node.properties.layout.preferredSize;
+        return constraints.Constrain(Size{
+            preferred.width > 0.0F ? preferred.width : measured.width,
+            preferred.height > 0.0F ? preferred.height : measured.height,
+        });
+      }
+      return measured;
     }
     node.text = {};
+  }
+  if (node.type == ElementType::Image) {
+    return MeasureImage(node, constraints);
   }
   return constraints.Constrain(Size{
       std::max(node.properties.layout.preferredSize.width,
@@ -222,7 +276,8 @@ auto LayoutEngine::MeasureText(RuntimeNode &node,
     if (properties.onError) {
       properties.onError(error);
     }
-    if (node.type == ElementType::TextField &&
+    if ((node.type == ElementType::TextField ||
+         node.type == ElementType::TextArea) &&
         node.properties.textField.onError) {
       node.properties.textField.onError(error);
     }
@@ -240,9 +295,12 @@ auto LayoutEngine::MeasureText(RuntimeNode &node,
   const auto horizontalPadding = padding.left + padding.right;
   const auto verticalPadding = padding.top + padding.bottom;
   const auto maximumWidth =
-      std::isfinite(constraints.maximum.width)
-          ? std::max(0.0F, constraints.maximum.width - horizontalPadding)
-          : constraints.maximum.width;
+      node.type == ElementType::TextArea &&
+              node.properties.text.wrapping == TextWrapping::NoWrap
+          ? std::numeric_limits<F32>::infinity()
+          : (std::isfinite(constraints.maximum.width)
+                 ? std::max(0.0F, constraints.maximum.width - horizontalPadding)
+                 : constraints.maximum.width);
   ParagraphRequest request{
       .runs =
           {
@@ -325,8 +383,9 @@ auto LayoutEngine::MeasureText(RuntimeNode &node,
     node.text.glyphRuns.clear();
   }
   node.text.valid = glyphsValid;
-  if (node.type == ElementType::TextField && node.textField.editing &&
-      properties.geometry != nullptr) {
+  if ((node.type == ElementType::TextField ||
+       node.type == ElementType::TextArea) &&
+      node.textField.editing && properties.geometry != nullptr) {
     const auto &state = node.textField.editing->State();
     if (!state.selection.Empty()) {
       auto selectionRects = properties.geometry->RangeRects(
@@ -367,6 +426,44 @@ auto LayoutEngine::MeasureText(RuntimeNode &node,
                node.text.paragraph.size.width + horizontalPadding),
       std::max(node.properties.layout.preferredSize.height,
                node.text.paragraph.size.height + verticalPadding),
+  });
+}
+
+auto LayoutEngine::MeasureImage(RuntimeNode &node,
+                                const SizeConstraints constraints) -> Size {
+  node.image = {};
+  const auto &properties = node.properties.image;
+  const auto report = [&properties](const UIError &error) {
+    if (properties.onError) {
+      properties.onError(error);
+    }
+  };
+  if (!properties.resource || properties.resolver == nullptr) {
+    report(MakeUIError(UIErrorCode::InvalidArgument,
+                       "Image requires a logical resource and image resolver",
+                       "NGIN.UI", "LayoutEngine::MeasureImage"));
+    return constraints.Constrain(node.properties.layout.preferredSize);
+  }
+
+  auto resolved = properties.resolver->Resolve(properties.resource);
+  if (!resolved) {
+    report(resolved.Error());
+    node.image.loadState = properties.resource->State();
+  } else {
+    node.image.texture = resolved.Value().texture;
+    node.image.sourceSize = resolved.Value().size;
+    node.image.loadState = resolved.Value().state;
+    node.image.valid = resolved.Value().state == ImageLoadState::Ready &&
+                       static_cast<bool>(resolved.Value().texture);
+  }
+  const auto natural =
+      node.image.sourceSize.IsEmpty()
+          ? node.properties.layout.preferredSize
+          : Size{static_cast<F32>(node.image.sourceSize.width),
+                 static_cast<F32>(node.image.sourceSize.height)};
+  return constraints.Constrain(Size{
+      std::max(node.properties.layout.preferredSize.width, natural.width),
+      std::max(node.properties.layout.preferredSize.height, natural.height),
   });
 }
 
@@ -458,6 +555,54 @@ void LayoutEngine::Arrange(const ElementHandle handle, const Rect finalBounds) {
   node->arrangedBounds = finalBounds;
   node->layoutRevision = m_revision;
   ++m_stats.arranged;
+  if (node->type == ElementType::TextArea) {
+    const auto padding = node->properties.layout.padding;
+    node->scroll.viewportSize = Size{InnerWidth(finalBounds.width, padding),
+                                     InnerHeight(finalBounds.height, padding)};
+    node->scroll.offset.x =
+        std::clamp(node->scroll.offset.x, 0.0F,
+                   std::max(0.0F, node->scroll.contentSize.width -
+                                      node->scroll.viewportSize.width));
+    node->scroll.offset.y =
+        std::clamp(node->scroll.offset.y, 0.0F,
+                   std::max(0.0F, node->scroll.contentSize.height -
+                                      node->scroll.viewportSize.height));
+    if (node->interaction.focused && node->text.hasCaret) {
+      const auto caretLeft = padding.left + node->text.caretRect.x;
+      const auto caretRight =
+          caretLeft + std::max(1.0F, node->text.caretRect.width);
+      const auto caretTop = padding.top + node->text.caretRect.y;
+      const auto caretBottom = caretTop + node->text.caretRect.height;
+      if (caretLeft < node->scroll.offset.x) {
+        node->scroll.offset.x = caretLeft;
+      } else if (caretRight >
+                 node->scroll.offset.x + node->scroll.viewportSize.width) {
+        node->scroll.offset.x = caretRight - node->scroll.viewportSize.width;
+      }
+      if (caretTop < node->scroll.offset.y) {
+        node->scroll.offset.y = caretTop;
+      } else if (caretBottom >
+                 node->scroll.offset.y + node->scroll.viewportSize.height) {
+        node->scroll.offset.y = caretBottom - node->scroll.viewportSize.height;
+      }
+      node->scroll.offset.x =
+          std::clamp(node->scroll.offset.x, 0.0F,
+                     std::max(0.0F, node->scroll.contentSize.width -
+                                        node->scroll.viewportSize.width));
+      node->scroll.offset.y =
+          std::clamp(node->scroll.offset.y, 0.0F,
+                     std::max(0.0F, node->scroll.contentSize.height -
+                                        node->scroll.viewportSize.height));
+    }
+  } else if (node->type == ElementType::Image && node->image.valid) {
+    const auto padding = node->properties.layout.padding;
+    node->image.destination = ResolveImageDestination(
+        Rect{finalBounds.x + padding.left, finalBounds.y + padding.top,
+             InnerWidth(finalBounds.width, padding),
+             InnerHeight(finalBounds.height, padding)},
+        node->image.sourceSize, node->properties.image.fit,
+        node->properties.image.alignment);
+  }
   if (node->type == ElementType::CustomElement && node->custom.state &&
       node->properties.custom.element) {
     try {

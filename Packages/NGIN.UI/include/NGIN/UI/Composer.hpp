@@ -48,9 +48,16 @@ public:
                  IGraphemeSegmenter &graphemeSegmenter,
                  const NodeProperties &properties = {},
                  std::string_view key = {});
+  void TextArea(Binding<NGIN::Text::String> value,
+                IGraphemeSegmenter &graphemeSegmenter,
+                const NodeProperties &properties = {},
+                std::string_view key = {});
   void Text(NGIN::Text::String value, ITextLayout &layout,
             IGlyphAtlas &glyphAtlas, const NodeProperties &properties = {},
             std::string_view key = {});
+  void Image(std::shared_ptr<ImageResource> resource, IImageResolver &resolver,
+             NGIN::Text::String description,
+             const NodeProperties &properties = {}, std::string_view key = {});
   void Separator(SeparatorOrientation orientation,
                  const NodeProperties &properties = {},
                  std::string_view key = {});

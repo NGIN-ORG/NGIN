@@ -12,6 +12,8 @@ enum class Page : NGIN::UInt8 {
   Overview,
   Layout,
   Typography,
+  TextArea,
+  Images,
   Inputs,
   Collections,
   Overlays,
@@ -32,7 +34,7 @@ enum class CollectionTab : NGIN::UInt8 {
   DataSource,
 };
 
-inline constexpr NGIN::UIntSize PageCount = 9;
+inline constexpr NGIN::UIntSize PageCount = 11;
 
 [[nodiscard]] auto PageAt(NGIN::UIntSize index) noexcept -> Page;
 [[nodiscard]] auto PageName(Page page) noexcept -> std::string_view;
@@ -54,6 +56,10 @@ public:
   [[nodiscard]] auto Name() const noexcept -> const Text::String &;
   [[nodiscard]] auto NameBinding() -> UI::Binding<Text::String>;
   [[nodiscard]] auto PasswordBinding() -> UI::Binding<Text::String>;
+  [[nodiscard]] auto NotesBinding() -> UI::Binding<Text::String>;
+  [[nodiscard]] auto GalleryImage() const noexcept
+      -> const std::shared_ptr<UI::ImageResource> &;
+  [[nodiscard]] auto ImageCache() noexcept -> UI::ImageTextureCache *;
   [[nodiscard]] auto CheckBinding() -> UI::Binding<UI::CheckState>;
   [[nodiscard]] auto MixedCheckBinding() -> UI::Binding<UI::CheckState>;
   [[nodiscard]] auto UncheckedBinding() -> UI::Binding<UI::CheckState>;
@@ -105,6 +111,7 @@ private:
   UI::State<bool> m_lightTheme;
   UI::State<Text::String> m_name;
   UI::State<Text::String> m_password;
+  UI::State<Text::String> m_notes;
   UI::State<UI::CheckState> m_check;
   UI::State<UI::CheckState> m_mixedCheck;
   UI::State<UI::CheckState> m_unchecked;
@@ -125,6 +132,8 @@ private:
   UI::State<bool> m_inspectorEnabled;
   UI::State<Text::String> m_status;
   std::unique_ptr<UI::ToolTipController> m_helpToolTip;
+  std::shared_ptr<UI::ImageResource> m_galleryImage;
+  std::unique_ptr<UI::ImageTextureCache> m_imageCache;
   std::uint32_t m_nextCollectionItem{113};
   std::uint32_t m_auxiliaryWindowId{0};
 };
