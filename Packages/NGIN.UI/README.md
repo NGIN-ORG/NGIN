@@ -29,6 +29,9 @@ foundation:
   coalescing;
 - backend-neutral font-provider, shaping, paragraph-layout, and grapheme
   segmentation contracts;
+- a concrete `NativeTextSystem` combining Noto Sans, FreeType metrics and
+  rasterization, HarfBuzz shaping, extended grapheme segmentation,
+  paragraph/range geometry, and a renderer-backed R8 glyph atlas;
 - an injectable glyph-atlas contract and semantic `Text` element with
   constraint-aware measurement, clipping, and DPI-aware shaped-glyph painting;
 - atlas-backed glyph-run display commands with DPI-aware renderer lowering;
@@ -75,4 +78,7 @@ The default build fetches the pinned text dependencies recorded in
 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). Configure with
 `-DNGIN_UI_FETCH_THIRD_PARTY=OFF` to require installed FreeType 2.14 and
 HarfBuzz 14 packages instead, or `-DNGIN_UI_ENABLE_NATIVE_TEXT=OFF` for the
-contracts-only core.
+contracts-only core. The render backend passed to `NativeTextSystem::Create`
+must be initialized and must outlive the text system. Installed or staged
+applications may pass an explicit font path in `NativeTextCreateInfo`; the
+empty-path default is the authored font in the source package.

@@ -15,8 +15,9 @@ Target language: C++23
   grapheme-segmentation contracts plus atlas-backed glyph-run display commands
   and renderer lowering. An injectable glyph-atlas contract and semantic
   `Text` element now provide constraint-aware measurement, clipping, and
-  DPI-aware shaped-glyph painting. Concrete shaping, rasterization, font
-  assets, and atlas management are approved and remain to be implemented.
+  DPI-aware shaped-glyph painting. The concrete `NativeTextSystem` now owns
+  pinned Noto Sans/FreeType/HarfBuzz services, extended grapheme segmentation,
+  single-line paragraph/range geometry, and a DPI-keyed R8 glyph atlas.
 - Slice 5 is complete for the backend-neutral headless scope. Its SDL smoke
   criterion remains gated on Slice 1.
 - Slice 6 state/binding foundations, keyboard/text/IME event routing, and the
@@ -147,8 +148,11 @@ through an injected paragraph service and paints resolved atlas glyphs with
 clipping and DPI-aware requests. `TextField` reuses the same pipeline and
 injected bidi-safe geometry for selection, IME composition underlines, and the
 caret. Password presentation shapes only a grapheme-count mask. The concrete
-dependencies and services described below are approved and remain to be
-implemented.
+`NativeTextSystem` uses the bundled Noto Sans face, FreeType metrics and
+rasterization, HarfBuzz shaping, extended grapheme segmentation, single-line
+paragraph/range geometry, and a renderer-backed DPI-keyed R8 atlas. Font
+fallback, full UAX #29 segmentation, multiline wrapping, and atlas eviction are
+later general-purpose hardening.
 
 Deliver:
 

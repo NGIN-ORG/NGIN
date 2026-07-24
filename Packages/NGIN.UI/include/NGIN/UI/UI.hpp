@@ -14,6 +14,7 @@
 #include <NGIN/UI/Inspector.hpp>
 #include <NGIN/UI/Invalidation.hpp>
 #include <NGIN/UI/Layout.hpp>
+#include <NGIN/UI/NativeText.hpp>
 #include <NGIN/UI/Platform.hpp>
 #include <NGIN/UI/Rendering.hpp>
 #include <NGIN/UI/Resources.hpp>

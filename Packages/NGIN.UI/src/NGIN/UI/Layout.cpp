@@ -218,8 +218,12 @@ auto LayoutEngine::MeasureText(RuntimeNode &node,
         break;
       }
       const auto &entry = atlasEntry.Value();
-      if (!entry.texture || entry.size.width <= 0.0F ||
-          entry.size.height <= 0.0F) {
+      if (entry.size.width <= 0.0F || entry.size.height <= 0.0F) {
+        pen.x += glyph.advance.x;
+        pen.y += glyph.advance.y;
+        continue;
+      }
+      if (!entry.texture) {
         report(MakeUIError(UIErrorCode::InvalidState,
                            "Glyph atlas returned an invalid entry", "NGIN.UI",
                            "LayoutEngine::MeasureText"));

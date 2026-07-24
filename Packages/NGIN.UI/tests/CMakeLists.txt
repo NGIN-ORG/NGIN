@@ -48,6 +48,9 @@ add_executable(NGINUITests
     StateTests.cpp
     TextTests.cpp
 )
+if(NGIN_UI_ENABLE_NATIVE_TEXT)
+    target_sources(NGINUITests PRIVATE NativeTextTests.cpp)
+endif()
 target_compile_features(NGINUITests PRIVATE cxx_std_23)
 target_link_libraries(NGINUITests PRIVATE Catch2::Catch2WithMain NGIN::UI)
 
