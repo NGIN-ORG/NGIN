@@ -7,6 +7,16 @@
 #include <NGIN/UI/RuntimeTree.hpp>
 
 namespace NGIN::UI {
+struct FrameTimingDiagnostics final {
+  F64 compositionMilliseconds{0.0};
+  F64 layoutMilliseconds{0.0};
+  F64 paintMilliseconds{0.0};
+  F64 semanticsMilliseconds{0.0};
+  F64 renderMilliseconds{0.0};
+  F64 presentMilliseconds{0.0};
+  F64 totalMilliseconds{0.0};
+};
+
 struct WindowDiagnostics final {
   UInt64 frameCount{0};
   UInt64 compositionCount{0};
@@ -20,5 +30,6 @@ struct WindowDiagnostics final {
   InvalidationKind lastInvalidation{InvalidationKind::None};
   ElementHandle focusedElement{};
   ElementHandle pointerCaptureOwner{};
+  FrameTimingDiagnostics frameTimings{};
 };
 } // namespace NGIN::UI

@@ -28,6 +28,7 @@ set(NGIN_UI_SOURCES
     src/NGIN/UI/Composer.cpp
     src/NGIN/UI/DisplayList.cpp
     src/NGIN/UI/Input.cpp
+    src/NGIN/UI/Inspector.cpp
     src/NGIN/UI/Layout.cpp
     src/NGIN/UI/RuntimeTree.cpp
     src/NGIN/UI/Semantics.cpp

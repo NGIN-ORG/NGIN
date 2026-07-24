@@ -5,6 +5,7 @@
 #include <NGIN/UI/Error.hpp>
 #include <NGIN/UI/Events.hpp>
 #include <NGIN/UI/Input.hpp>
+#include <NGIN/UI/Inspector.hpp>
 #include <NGIN/UI/Invalidation.hpp>
 #include <NGIN/UI/Layout.hpp>
 #include <NGIN/UI/Platform.hpp>
@@ -56,9 +57,13 @@ public:
       -> ElementHandle;
   [[nodiscard]] auto Semantics() const noexcept -> const SemanticTree &;
   [[nodiscard]] auto Diagnostics() const noexcept -> const WindowDiagnostics &;
+  [[nodiscard]] auto Inspect() const -> InspectorSnapshot;
+  [[nodiscard]] auto InspectorOverlay() const noexcept
+      -> const InspectorOverlayOptions &;
 
   auto Focus(ElementHandle handle) noexcept -> bool;
   auto FocusNext(bool reverse = false) -> bool;
+  void SetInspectorOverlay(InspectorOverlayOptions options);
   void SetEventHandler(EventHandler handler);
   void SetContent(Content content);
   void Invalidate(InvalidationKind kind = InvalidationKind::All) noexcept;

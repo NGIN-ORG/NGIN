@@ -15,12 +15,13 @@ Target language: C++23
 - Slice 6 state/binding foundations and keyboard/text/IME event routing are
   complete. Grapheme-aware editing and `TextField` remain pending the text
   layout cluster service.
-- Slice 7 theme/resource scopes, semantic tree, multiple-window support, and
-  diagnostics snapshots are complete. Retained scroll views, clipped content,
-  wheel scroll chaining, platform-owned dialog foundations, and in-window
-  popup foundations are complete. An inspector UI remains pending.
+- Slice 7 is complete for the backend-neutral scope: theme/resource scopes,
+  semantic trees, multiple windows, retained scrolling, platform-owned dialog
+  foundations, in-window popups, frame timings, inspector snapshots, and
+  debugging overlays. A text-rendered inspector panel remains coupled to
+  Slice 4.
 - Slice 1 is dependency-gated; no SDL3 dependency has been introduced.
-- Slices 4, 6, 7, and 8 remain planned.
+- Slices 4, 6, and 8 remain planned.
 
 ## Product Boundary
 

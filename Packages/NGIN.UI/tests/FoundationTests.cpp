@@ -138,6 +138,7 @@ TEST_CASE("window exposes live semantic state and frame diagnostics") {
   REQUIRE(initial.drawBatchCount == 1);
   REQUIRE(initial.vertexCount == 4);
   REQUIRE(initial.indexCount == 6);
+  REQUIRE(initial.frameTimings.totalMilliseconds >= 0.0);
 
   platformObserver->InjectEvent(PointerButtonChanged{
       .window = window->PlatformHandle(),
@@ -157,4 +158,67 @@ TEST_CASE("window exposes live semantic state and frame diagnostics") {
   REQUIRE(window->Diagnostics().frameCount == 2);
   REQUIRE(window->Diagnostics().focusedElement == button);
   REQUIRE(window->Diagnostics().pointerCaptureOwner == button);
+}
+
+TEST_CASE("inspector snapshots runtime state and appends debugging overlays") {
+  using namespace NGIN::UI;
+  using namespace NGIN::UI::Testing;
+
+  auto createdApplication = CreateApplication(ApplicationCreateInfo{
+      .platform = std::make_unique<TestPlatformBackend>(),
+      .renderer = std::make_unique<RecordingRenderBackend>(),
+  });
+  REQUIRE(createdApplication.HasValue());
+  auto application = std::move(createdApplication).Value();
+
+  auto createdWindow = application->CreateWindow(WindowCreateInfo{
+      .id = NGIN::Text::String{"Inspector.Target"},
+      .title = NGIN::Text::String{"Inspector target"},
+      .initialSize = PixelSize{200, 100},
+  });
+  REQUIRE(createdWindow.HasValue());
+  auto *window = createdWindow.Value();
+  window->SetContent([](Composer &composer) {
+    NodeProperties properties{};
+    properties.layout.preferredSize = Size{100.0F, 40.0F};
+    properties.layout.horizontalAlignment = HorizontalAlignment::Start;
+    properties.layout.verticalAlignment = VerticalAlignment::Start;
+    properties.background = Color{0.2F, 0.4F, 0.8F, 1.0F};
+    properties.paintsBackground = true;
+    properties.semantics.label = NGIN::Text::String{"Inspect me"};
+    composer.Button([] {}, properties, "inspect-me");
+  });
+  REQUIRE(application->PumpOnce().HasValue());
+
+  const auto button = window->HitTest(Point{10.0F, 10.0F});
+  REQUIRE(window->Focus(button));
+  window->SetInspectorOverlay(InspectorOverlayOptions{
+      .enabled = true,
+      .showLayoutBounds = true,
+      .showHitTestBounds = true,
+      .showFocus = true,
+      .selected = button,
+  });
+  REQUIRE(application->PumpOnce().HasValue());
+
+  const auto snapshot = window->Inspect();
+  REQUIRE(snapshot.windowId == NGIN::Text::String{"Inspector.Target"});
+  REQUIRE(snapshot.pixelExtent == PixelSize{200, 100});
+  REQUIRE(snapshot.nodes.size() == 2);
+  REQUIRE(snapshot.semanticNodes.size() == 2);
+  REQUIRE(snapshot.diagnostics.focusedElement == button);
+  REQUIRE(snapshot.nodes[1].handle == button);
+  REQUIRE(snapshot.nodes[1].parent == window->Tree().Root());
+  REQUIRE(snapshot.nodes[1].key == NGIN::Text::String{"inspect-me"});
+  REQUIRE(snapshot.nodes[1].depth == 1);
+  REQUIRE(snapshot.nodes[1].interaction.focused);
+  REQUIRE(snapshot.nodes[1].arrangedBounds == Rect{0.0F, 0.0F, 100.0F, 40.0F});
+
+  const auto overlay =
+      BuildInspectorOverlay(window->Tree(), window->InspectorOverlay());
+  REQUIRE(overlay.size() == 6);
+  REQUIRE(window->DisplayCommandCount() == 7);
+  REQUIRE(std::holds_alternative<StrokeRect>(overlay.back()));
+  REQUIRE(std::get<StrokeRect>(overlay.back()).color ==
+          window->InspectorOverlay().selectedColor);
 }

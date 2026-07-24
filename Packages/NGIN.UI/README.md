@@ -41,7 +41,9 @@ foundation:
 - immutable/revisioned theme values and hierarchical typed resource scopes;
 - a render-tree-independent semantic tree with stable element ownership;
 - per-window structural diagnostics for composition, layout, rendering, focus,
-  and pointer capture.
+  pointer capture, and frame-phase timings;
+- immutable inspector snapshots of runtime and semantic trees plus optional
+  layout, hit-test, focus, and selection overlays.
 
 Build and test directly:
 

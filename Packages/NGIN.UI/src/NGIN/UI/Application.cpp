@@ -1,12 +1,21 @@
 #include <NGIN/UI/Application.hpp>
 
 #include <algorithm>
+#include <iterator>
 #include <type_traits>
 #include <utility>
 #include <vector>
 
 namespace NGIN::UI {
 namespace {
+using DiagnosticsClock = std::chrono::steady_clock;
+
+[[nodiscard]] auto
+ElapsedMilliseconds(const DiagnosticsClock::time_point start,
+                    const DiagnosticsClock::time_point end) noexcept -> F64 {
+  return std::chrono::duration<F64, std::milli>{end - start}.count();
+}
+
 [[nodiscard]] auto IsModalBlockedEvent(const PlatformEvent &event) noexcept
     -> bool {
   return std::visit(
@@ -42,6 +51,7 @@ struct Window::Implementation final {
   PreparedRenderPacket preparedPacket{};
   SemanticTree semanticTree{};
   WindowDiagnostics diagnostics{};
+  InspectorOverlayOptions inspectorOverlay{};
   bool dirty{true};
   bool compositionDirty{true};
   bool layoutDirty{true};
@@ -158,6 +168,15 @@ auto Window::Diagnostics() const noexcept -> const WindowDiagnostics & {
   return m_implementation->diagnostics;
 }
 
+auto Window::Inspect() const -> InspectorSnapshot {
+  return CaptureInspectorSnapshot(*this);
+}
+
+auto Window::InspectorOverlay() const noexcept
+    -> const InspectorOverlayOptions & {
+  return m_implementation->inspectorOverlay;
+}
+
 auto Window::Focus(const ElementHandle handle) noexcept -> bool {
   if (!m_implementation->inputRouter.SetFocus(handle)) {
     return false;
@@ -172,6 +191,11 @@ auto Window::FocusNext(const bool reverse) -> bool {
   }
   Invalidate(InvalidationKind::Paint | InvalidationKind::Semantics);
   return true;
+}
+
+void Window::SetInspectorOverlay(InspectorOverlayOptions options) {
+  m_implementation->inspectorOverlay = std::move(options);
+  Invalidate(InvalidationKind::Paint);
 }
 
 void Window::SetEventHandler(EventHandler handler) {
@@ -495,7 +519,10 @@ auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
       continue;
     }
 
+    const auto frameStarted = DiagnosticsClock::now();
+    FrameTimingDiagnostics frameTimings{};
     if (window->m_implementation->compositionDirty) {
+      const auto phaseStarted = DiagnosticsClock::now();
       Composer composer;
       if (window->m_implementation->content) {
         window->m_implementation->content(composer);
@@ -514,6 +541,8 @@ auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
       window->m_implementation->layoutDirty = true;
       window->m_implementation->paintDirty = true;
       window->m_implementation->semanticsDirty = true;
+      frameTimings.compositionMilliseconds =
+          ElapsedMilliseconds(phaseStarted, DiagnosticsClock::now());
     }
 
     const auto scaleFactor = window->ScaleFactor();
@@ -522,6 +551,7 @@ auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
         static_cast<F32>(window->PixelExtent().height) / scaleFactor,
     };
     if (window->m_implementation->layoutDirty) {
+      const auto phaseStarted = DiagnosticsClock::now();
       window->m_implementation->lastLayoutStats =
           window->m_implementation->layoutEngine.Perform(
               SizeConstraints{.minimum = logicalSize, .maximum = logicalSize},
@@ -529,33 +559,56 @@ auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
       window->m_implementation->layoutDirty = false;
       window->m_implementation->paintDirty = true;
       window->m_implementation->semanticsDirty = true;
+      frameTimings.layoutMilliseconds =
+          ElapsedMilliseconds(phaseStarted, DiagnosticsClock::now());
     }
     if (window->m_implementation->paintDirty) {
+      const auto phaseStarted = DiagnosticsClock::now();
       window->m_implementation->displayList =
           BuildDisplayList(window->m_implementation->tree);
+      auto inspectorCommands =
+          BuildInspectorOverlay(window->m_implementation->tree,
+                                window->m_implementation->inspectorOverlay);
+      window->m_implementation->displayList.insert(
+          window->m_implementation->displayList.end(),
+          std::make_move_iterator(inspectorCommands.begin()),
+          std::make_move_iterator(inspectorCommands.end()));
       window->m_implementation->preparedPacket =
           window->m_implementation->uiRenderer.Build(
               window->m_implementation->displayList, window->PixelExtent(),
               scaleFactor);
       window->m_implementation->paintDirty = false;
+      frameTimings.paintMilliseconds =
+          ElapsedMilliseconds(phaseStarted, DiagnosticsClock::now());
     }
     if (window->m_implementation->semanticsDirty) {
+      const auto phaseStarted = DiagnosticsClock::now();
       window->m_implementation->semanticTree = BuildSemanticTree(
           window->m_implementation->tree, window->m_implementation->info.title);
       window->m_implementation->semanticsDirty = false;
+      frameTimings.semanticsMilliseconds =
+          ElapsedMilliseconds(phaseStarted, DiagnosticsClock::now());
     }
 
+    const auto renderStarted = DiagnosticsClock::now();
     auto rendered = m_implementation->renderer->Render(
         window->SurfaceHandle(),
         window->m_implementation->preparedPacket.View());
     if (!rendered) {
       return std::move(rendered).Error();
     }
+    frameTimings.renderMilliseconds =
+        ElapsedMilliseconds(renderStarted, DiagnosticsClock::now());
+    const auto presentStarted = DiagnosticsClock::now();
     auto presented =
         m_implementation->renderer->Present(window->SurfaceHandle());
     if (!presented) {
       return std::move(presented).Error();
     }
+    frameTimings.presentMilliseconds =
+        ElapsedMilliseconds(presentStarted, DiagnosticsClock::now());
+    frameTimings.totalMilliseconds =
+        ElapsedMilliseconds(frameStarted, DiagnosticsClock::now());
     auto &diagnostics = window->m_implementation->diagnostics;
     ++diagnostics.frameCount;
     diagnostics.reconciliation = window->m_implementation->lastReconcileStats;
@@ -574,6 +627,7 @@ auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
         window->m_implementation->inputRouter.FocusedElement();
     diagnostics.pointerCaptureOwner =
         window->m_implementation->inputRouter.FirstCapturedElement();
+    diagnostics.frameTimings = frameTimings;
     window->m_implementation->dirty = false;
   }
 
