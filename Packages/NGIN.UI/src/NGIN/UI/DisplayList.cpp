@@ -1,5 +1,7 @@
 #include <NGIN/UI/DisplayList.hpp>
 
+#include "ScrollBarGeometry.hpp"
+
 #include <algorithm>
 #include <utility>
 #include <vector>
@@ -350,6 +352,33 @@ void PaintNode(const RuntimeTree &tree, const ElementHandle handle,
   }
   if (clipsChildren) {
     static_cast<void>(builder.PopClip());
+  }
+  if (node->type == ElementType::ScrollView) {
+    const auto bars = Detail::ComputeScrollBars(
+        node->arrangedBounds, node->properties.scroll, node->scroll);
+    const auto thumbColor = node->interaction.hovered
+                                ? node->properties.scroll.scrollbarThumbHovered
+                                : node->properties.scroll.scrollbarThumb;
+    if (bars.hasHorizontal) {
+      builder.FillRounded(
+          bars.horizontalTrack,
+          CornerRadius::Uniform(Dp{bars.horizontalTrack.height * 0.5F}),
+          node->properties.scroll.scrollbarTrack);
+      builder.FillRounded(
+          bars.horizontalThumb,
+          CornerRadius::Uniform(Dp{bars.horizontalThumb.height * 0.5F}),
+          thumbColor);
+    }
+    if (bars.hasVertical) {
+      builder.FillRounded(
+          bars.verticalTrack,
+          CornerRadius::Uniform(Dp{bars.verticalTrack.width * 0.5F}),
+          node->properties.scroll.scrollbarTrack);
+      builder.FillRounded(
+          bars.verticalThumb,
+          CornerRadius::Uniform(Dp{bars.verticalThumb.width * 0.5F}),
+          thumbColor);
+    }
   }
 }
 

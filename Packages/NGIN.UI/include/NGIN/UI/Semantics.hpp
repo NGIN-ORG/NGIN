@@ -5,6 +5,7 @@
 #include <NGIN/UI/Geometry.hpp>
 #include <NGIN/UI/Handles.hpp>
 
+#include <optional>
 #include <vector>
 
 namespace NGIN::UI {
@@ -16,12 +17,15 @@ enum class SemanticRole : UInt8 {
   Text,
   Button,
   CheckBox,
+  RadioButton,
+  Switch,
   TextBox,
   List,
   ListItem,
   Image,
   Link,
   Slider,
+  ProgressBar,
   Dialog,
 };
 
@@ -33,6 +37,7 @@ enum class SemanticStateFlags : UInt16 {
   Selected = 1U << 3U,
   Checked = 1U << 4U,
   Expanded = 1U << 5U,
+  Indeterminate = 1U << 6U,
 };
 
 enum class SemanticActionFlags : UInt8 {
@@ -77,11 +82,25 @@ HasSemanticAction(const SemanticActionFlags value,
   return (static_cast<UInt8>(value) & static_cast<UInt8>(flag)) != 0;
 }
 
+struct SemanticRange final {
+  F64 minimum{0.0};
+  F64 maximum{1.0};
+  F64 current{0.0};
+  F64 step{0.0};
+
+  [[nodiscard]] constexpr auto
+  operator<=>(const SemanticRange &) const noexcept = default;
+};
+
 struct SemanticProperties final {
   SemanticRole role{SemanticRole::None};
+  NGIN::Text::String identifier{};
+  NGIN::Text::String labelFor{};
+  NGIN::Text::String labelledBy{};
   NGIN::Text::String label{};
   NGIN::Text::String value{};
   NGIN::Text::String description{};
+  std::optional<SemanticRange> range{};
   SemanticStateFlags states{SemanticStateFlags::None};
   SemanticActionFlags actions{SemanticActionFlags::None};
   bool hidden{false};
@@ -103,9 +122,13 @@ struct SemanticNodeId final {
 struct SemanticNode final {
   SemanticNodeId id{};
   SemanticRole role{SemanticRole::None};
+  NGIN::Text::String identifier{};
+  NGIN::Text::String labelFor{};
+  NGIN::Text::String labelledBy{};
   NGIN::Text::String label{};
   NGIN::Text::String value{};
   NGIN::Text::String description{};
+  std::optional<SemanticRange> range{};
   Rect bounds{};
   SemanticStateFlags states{SemanticStateFlags::None};
   SemanticActionFlags actions{SemanticActionFlags::None};

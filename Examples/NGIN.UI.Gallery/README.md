@@ -3,7 +3,7 @@
 This is the standalone native control catalogue for `NGIN.UI`. It uses only
 public APIs from `NGIN.UI` and `NGIN.UI.Backend.SDL3`.
 
-![NGIN.UI gallery overview](docs/gallery-overview.png)
+![NGIN.UI gallery Inputs page](docs/gallery-overview.png)
 
 The sidebar exposes nine focused pages:
 
@@ -12,8 +12,9 @@ The sidebar exposes nine focused pages:
 - **Layout** demonstrates rows, columns, overlays, flex sizing, and scrolling;
 - **Typography** shows native HarfBuzz shaping, FreeType rasterization, UTF-8,
   Arabic text, and grapheme clusters;
-- **Inputs** presents buttons and editable, password, read-only, invalid, and
-  disabled text fields;
+- **Inputs** presents buttons, check boxes, typed radio groups, switches,
+  sliders, progress bars, labels, delayed tooltips, and editable, password,
+  read-only, invalid, and disabled text fields;
 - **Collections** records the current keyed scrolling foundation and the
   selection controls planned next;
 - **Overlays** demonstrates modal popups and dismissal;
@@ -29,8 +30,8 @@ Together, the pages exercise:
 - HarfBuzz shaping, FreeType glyph rasterization, and the bundled Noto Sans
   font;
 - grapheme-aware text editing, selection, clipboard commands, and IME;
-- themed borders, rounded control chrome, focus visuals, popups, and multiple
-  windows.
+- themed borders, rounded control chrome, focus visuals, visual scrollbars,
+  popups, and multiple windows.
 
 Its model and `ComposeMainView()` are shared unchanged with
 [`../NGIN.UI.Gallery.Hosted`](../NGIN.UI.Gallery.Hosted/), which runs the same

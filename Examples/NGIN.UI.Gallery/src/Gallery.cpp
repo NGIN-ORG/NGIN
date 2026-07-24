@@ -56,7 +56,8 @@ void ComposeButton(Composer &composer, NativeTextSystem &text,
                    const Theme &theme, const char *label,
                    NGIN::Utilities::Callable<void()> onActivate,
                    const std::string_view key, const F32 width = 210.0F,
-                   const bool enabled = true, const bool selected = false) {
+                   const bool enabled = true, const bool selected = false,
+                   ToolTipController *toolTip = nullptr) {
   NodeProperties button{};
   button.layout.preferredSize = Size{width, theme.controls.regularHeight};
   button.layout.padding = Thickness{14.0F, 8.0F, 14.0F, 8.0F};
@@ -75,6 +76,9 @@ void ComposeButton(Composer &composer, NativeTextSystem &text,
     button.visual.states.selected.background = theme.colors.raisedSurface;
     button.visual.states.selected.foreground = theme.colors.foreground;
     button.visual.states.selected.borderColor = theme.colors.focus;
+  }
+  if (toolTip != nullptr) {
+    toolTip->Attach(button);
   }
 
   const auto labelColor = enabled ? (selected ? theme.colors.foreground
@@ -170,6 +174,13 @@ void ComposeSwatch(Composer &composer, const Theme &theme, const Color color,
   swatch.semantics.role = SemanticRole::Group;
   swatch.semantics.label = String{label};
   composer.Border([] {}, swatch, key);
+}
+
+void StyleScrollView(NodeProperties &properties, const Theme &theme) {
+  properties.interaction.focusable = true;
+  properties.scroll.scrollbarTrack = theme.colors.sunkenSurface;
+  properties.scroll.scrollbarThumb = theme.colors.border;
+  properties.scroll.scrollbarThumbHovered = theme.colors.focus;
 }
 
 void ComposeOverviewPage(Composer &composer, NativeTextSystem &text,
@@ -301,6 +312,7 @@ void ComposeLayoutPage(Composer &composer, NativeTextSystem &text,
         scroll.layout.horizontalAlignment = HorizontalAlignment::Start;
         scroll.layout.verticalAlignment = VerticalAlignment::Start;
         scroll.scroll.vertical = true;
+        StyleScrollView(scroll, theme);
         composer.ScrollView(
             [&] {
               NodeProperties list{};
@@ -360,13 +372,44 @@ void ComposeTypographyPage(Composer &composer, NativeTextSystem &text,
       "typography-card");
 }
 
+template <typename ComposeControl>
+void ComposeControlRow(Composer &composer, NativeTextSystem &text,
+                       const Theme &theme, const char *label,
+                       const std::string_view identifier,
+                       ComposeControl &&composeControl,
+                       const std::string_view key) {
+  NodeProperties row{};
+  row.layout.gap = theme.spacing.spacious;
+  row.layout.horizontalAlignment = HorizontalAlignment::Start;
+  row.layout.verticalAlignment = VerticalAlignment::Center;
+  composer.Row(
+      [&] {
+        auto labelProperties = TextProperties(text, theme.typography.body,
+                                              theme.colors.foreground);
+        labelProperties.layout.preferredSize.width = 220.0F;
+        labelProperties.layout.maximumSize.width = 220.0F;
+        labelProperties.layout.verticalAlignment = VerticalAlignment::Center;
+        const auto labelIdentifier = std::string{identifier} + "-label";
+        Label(composer, String{label}, text, text, labelIdentifier, identifier,
+              labelProperties, "label");
+
+        NodeProperties control{};
+        control.layout.horizontalAlignment = HorizontalAlignment::Start;
+        control.layout.verticalAlignment = VerticalAlignment::Center;
+        control.semantics.identifier = String{identifier};
+        control.semantics.labelledBy = String{labelIdentifier.c_str()};
+        control.semantics.label = String{label};
+        std::forward<ComposeControl>(composeControl)(control);
+      },
+      key);
+}
+
 void ComposeInputsPage(Composer &composer, NativeTextSystem &text, Model &model,
                        const Theme &theme) {
   ComposePageHeading(
       composer, text, theme, "Inputs",
-      "Keyboard-accessible buttons and grapheme-aware text fields with "
-      "selection, validation presentation, password privacy, clipboard, and "
-      "IME.");
+      "Buttons, checks, radios, switches, sliders, progress, labels, tooltips, "
+      "and grapheme-aware text fields with keyboard, clipboard, and IME.");
 
   ComposeCard(
       composer, theme,
@@ -397,6 +440,253 @@ void ComposeInputsPage(Composer &composer, NativeTextSystem &text, Model &model,
             "buttons-column");
       },
       "buttons-card");
+
+  const ControlPresentation normalControl{.theme = theme};
+  const ControlPresentation invalidControl{
+      .theme = theme,
+      .invalid = true,
+      .onError = [&model](const UIError &error) { model.Report(error); },
+  };
+  ComposeCard(
+      composer, theme,
+      [&] {
+        NodeProperties column{};
+        column.layout.gap = theme.spacing.regular;
+        composer.Column(
+            [&] {
+              ComposeText(composer, text,
+                          String{"Selection and boolean controls"}, 18.0F,
+                          theme.colors.foreground, "selection-title",
+                          SemanticRole::Heading);
+              ComposeControlRow(
+                  composer, text, theme, "CheckBox — checked", "settings-check",
+                  [&](const NodeProperties &control) {
+                    CheckBox(composer, model.CheckBinding(), normalControl,
+                             control, "control");
+                  },
+                  "checked-row");
+              ComposeControlRow(
+                  composer, text, theme, "CheckBox — indeterminate",
+                  "settings-mixed",
+                  [&](const NodeProperties &control) {
+                    CheckBox(composer, model.MixedCheckBinding(), normalControl,
+                             control, "control");
+                  },
+                  "mixed-row");
+              ComposeControlRow(
+                  composer, text, theme, "CheckBox — disabled",
+                  "settings-disabled-check",
+                  [&](NodeProperties control) {
+                    control.interaction.enabled = false;
+                    CheckBox(composer, model.UncheckedBinding(), normalControl,
+                             control, "control");
+                  },
+                  "disabled-check-row");
+              ComposeControlRow(
+                  composer, text, theme, "CheckBox — validation error",
+                  "settings-invalid-check",
+                  [&](const NodeProperties &control) {
+                    CheckBox(composer, model.UncheckedBinding(), invalidControl,
+                             control, "control");
+                  },
+                  "invalid-check-row");
+              ComposeControlRow(
+                  composer, text, theme, "RadioButton — compact",
+                  "density-compact",
+                  [&](const NodeProperties &control) {
+                    RadioButton(
+                        composer,
+                        BindRadio(model.DensityBinding(), Density::Compact),
+                        normalControl, control, "control");
+                  },
+                  "radio-compact-row");
+              ComposeControlRow(
+                  composer, text, theme, "RadioButton — comfortable",
+                  "density-comfortable",
+                  [&](const NodeProperties &control) {
+                    RadioButton(
+                        composer,
+                        BindRadio(model.DensityBinding(), Density::Comfortable),
+                        normalControl, control, "control");
+                  },
+                  "radio-comfortable-row");
+              ComposeControlRow(
+                  composer, text, theme, "RadioButton — disabled",
+                  "density-disabled",
+                  [&](NodeProperties control) {
+                    control.interaction.enabled = false;
+                    RadioButton(
+                        composer,
+                        BindRadio(model.DensityBinding(), Density::Spacious),
+                        normalControl, control, "control");
+                  },
+                  "radio-disabled-row");
+              ComposeControlRow(
+                  composer, text, theme, "RadioButton — validation error",
+                  "density-invalid",
+                  [&](const NodeProperties &control) {
+                    RadioButton(
+                        composer,
+                        BindRadio(model.DensityBinding(), Density::Spacious),
+                        invalidControl, control, "control");
+                  },
+                  "radio-invalid-row");
+              ComposeControlRow(
+                  composer, text, theme, "ToggleSwitch — on", "updates-toggle",
+                  [&](const NodeProperties &control) {
+                    ToggleSwitch(composer, model.ToggleBinding(), normalControl,
+                                 control, "control");
+                  },
+                  "toggle-row");
+              ComposeControlRow(
+                  composer, text, theme, "ToggleSwitch — disabled",
+                  "updates-disabled-toggle",
+                  [&](NodeProperties control) {
+                    control.interaction.enabled = false;
+                    ToggleSwitch(composer, model.DisabledToggleBinding(),
+                                 normalControl, control, "control");
+                  },
+                  "toggle-disabled-row");
+              ComposeControlRow(
+                  composer, text, theme, "ToggleSwitch — validation error",
+                  "updates-invalid-toggle",
+                  [&](const NodeProperties &control) {
+                    ToggleSwitch(composer, model.DisabledToggleBinding(),
+                                 invalidControl, control, "control");
+                  },
+                  "toggle-invalid-row");
+            },
+            "selection-controls");
+      },
+      "selection-controls-card");
+
+  ComposeCard(
+      composer, theme,
+      [&] {
+        NodeProperties column{};
+        column.layout.gap = theme.spacing.regular;
+        composer.Column(
+            [&] {
+              ComposeText(composer, text, String{"Ranges and feedback"}, 18.0F,
+                          theme.colors.foreground, "range-title",
+                          SemanticRole::Heading);
+              ComposeControlRow(
+                  composer, text, theme, "Slider — interactive",
+                  "volume-slider",
+                  [&](NodeProperties control) {
+                    control.layout.preferredSize.width = 320.0F;
+                    Slider(composer, model.SliderBinding(),
+                           SliderRange{
+                               .minimum = 0.0F, .maximum = 1.0F, .step = 0.05F},
+                           normalControl, control, "control");
+                  },
+                  "slider-row");
+              ComposeControlRow(
+                  composer, text, theme, "Slider — validation error",
+                  "invalid-slider",
+                  [&](NodeProperties control) {
+                    control.layout.preferredSize.width = 320.0F;
+                    Slider(composer, model.SliderBinding(), {}, invalidControl,
+                           control, "control");
+                  },
+                  "invalid-slider-row");
+              ComposeControlRow(
+                  composer, text, theme, "Slider — disabled", "disabled-slider",
+                  [&](NodeProperties control) {
+                    control.layout.preferredSize.width = 320.0F;
+                    control.interaction.enabled = false;
+                    Slider(composer, model.SliderBinding(), {}, normalControl,
+                           control, "control");
+                  },
+                  "disabled-slider-row");
+              ComposeControlRow(
+                  composer, text, theme, "ProgressBar — 62%",
+                  "progress-determinate",
+                  [&](NodeProperties control) {
+                    control.layout.preferredSize.width = 320.0F;
+                    ProgressBar(composer,
+                                ProgressValue{.value = model.SliderValue(),
+                                              .minimum = 0.0F,
+                                              .maximum = 1.0F},
+                                normalControl, control, "control");
+                  },
+                  "progress-row");
+              ComposeControlRow(
+                  composer, text, theme, "ProgressBar — indeterminate",
+                  "progress-indeterminate",
+                  [&](NodeProperties control) {
+                    control.layout.preferredSize.width = 320.0F;
+                    ProgressBar(composer,
+                                ProgressValue{.value = 0.0F,
+                                              .minimum = 0.0F,
+                                              .maximum = 1.0F,
+                                              .indeterminate = true},
+                                normalControl, control, "control");
+                  },
+                  "progress-indeterminate-row");
+              ComposeControlRow(
+                  composer, text, theme, "ProgressBar — validation error",
+                  "progress-invalid",
+                  [&](NodeProperties control) {
+                    control.layout.preferredSize.width = 320.0F;
+                    ProgressBar(composer,
+                                ProgressValue{.value = 0.35F,
+                                              .minimum = 0.0F,
+                                              .maximum = 1.0F},
+                                invalidControl, control, "control");
+                  },
+                  "progress-invalid-row");
+              ComposeControlRow(
+                  composer, text, theme, "ProgressBar — disabled",
+                  "progress-disabled",
+                  [&](NodeProperties control) {
+                    control.layout.preferredSize.width = 320.0F;
+                    control.interaction.enabled = false;
+                    ProgressBar(composer,
+                                ProgressValue{.value = 0.48F,
+                                              .minimum = 0.0F,
+                                              .maximum = 1.0F},
+                                normalControl, control, "control");
+                  },
+                  "progress-disabled-row");
+              ComposeText(
+                  composer, text,
+                  String{"Use Tab to reveal focus, Space/Enter to activate, "
+                         "and arrow/Home/End keys on sliders."},
+                  theme.typography.caption, theme.colors.mutedForeground,
+                  "keyboard-help");
+            },
+            "range-controls");
+      },
+      "range-controls-card");
+
+  ComposeCard(
+      composer, theme,
+      [&] {
+        ComposeText(composer, text, String{"Delayed ToolTip"}, 18.0F,
+                    theme.colors.foreground, "tooltip-title",
+                    SemanticRole::Heading);
+        ComposeButton(
+            composer, text, theme, "Hover for contextual help", [] {},
+            "tooltip-target", 250.0F, true, false, model.HelpToolTip());
+        if (auto *toolTip = model.HelpToolTip(); toolTip != nullptr) {
+          toolTip->Compose(
+              composer,
+              [&] {
+                ComposeCard(
+                    composer, theme,
+                    [&] {
+                      ComposeText(composer, text,
+                                  String{"Delayed help without focus stealing"},
+                                  theme.typography.caption,
+                                  theme.colors.foreground, "tooltip-text");
+                    },
+                    "tooltip-card", 280.0F);
+              },
+              "delayed-tooltip");
+        }
+      },
+      "tooltip-demo-card");
 
   ComposeCard(
       composer, theme,
@@ -449,6 +739,7 @@ void ComposeCollectionsPage(Composer &composer, NativeTextSystem &text,
         scroll.layout.maximumSize = Size{680.0F, 320.0F};
         scroll.layout.horizontalAlignment = HorizontalAlignment::Start;
         scroll.layout.verticalAlignment = VerticalAlignment::Start;
+        StyleScrollView(scroll, theme);
         composer.ScrollView(
             [&] {
               NodeProperties list{};
@@ -749,6 +1040,19 @@ Model::Model()
              [this](const InvalidationKind kind) { Invalidate(kind); }),
       m_password(String{"retained"},
                  [this](const InvalidationKind kind) { Invalidate(kind); }),
+      m_check(CheckState::Checked,
+              [this](const InvalidationKind kind) { Invalidate(kind); }),
+      m_mixedCheck(CheckState::Indeterminate,
+                   [this](const InvalidationKind kind) { Invalidate(kind); }),
+      m_unchecked(CheckState::Unchecked,
+                  [this](const InvalidationKind kind) { Invalidate(kind); }),
+      m_density(Density::Comfortable,
+                [this](const InvalidationKind kind) { Invalidate(kind); }),
+      m_toggle(true, [this](const InvalidationKind kind) { Invalidate(kind); }),
+      m_disabledToggle(
+          false, [this](const InvalidationKind kind) { Invalidate(kind); }),
+      m_slider(0.62F,
+               [this](const InvalidationKind kind) { Invalidate(kind); }),
       m_activationCount(
           0, [this](const InvalidationKind kind) { Invalidate(kind); }),
       m_popupOpen(
@@ -765,6 +1069,8 @@ void Model::AttachRuntime(Application &application, NativeTextSystem &text,
   m_application = &application;
   m_text = &text;
   m_window = &window;
+  m_helpToolTip = std::make_unique<ToolTipController>(
+      window, String{"Appears after 500 ms without moving keyboard focus."});
 }
 
 auto Model::CurrentPage() const noexcept -> Page { return m_page.Get(); }
@@ -789,6 +1095,32 @@ auto Model::Name() const noexcept -> const String & { return m_name.Get(); }
 auto Model::NameBinding() -> Binding<String> { return Bind(m_name); }
 
 auto Model::PasswordBinding() -> Binding<String> { return Bind(m_password); }
+
+auto Model::CheckBinding() -> Binding<CheckState> { return Bind(m_check); }
+
+auto Model::MixedCheckBinding() -> Binding<CheckState> {
+  return Bind(m_mixedCheck);
+}
+
+auto Model::UncheckedBinding() -> Binding<CheckState> {
+  return Bind(m_unchecked);
+}
+
+auto Model::DensityBinding() -> Binding<Density> { return Bind(m_density); }
+
+auto Model::ToggleBinding() -> Binding<bool> { return Bind(m_toggle); }
+
+auto Model::DisabledToggleBinding() -> Binding<bool> {
+  return Bind(m_disabledToggle);
+}
+
+auto Model::SliderBinding() -> Binding<F32> { return Bind(m_slider); }
+
+auto Model::SliderValue() const noexcept -> F32 { return m_slider.Get(); }
+
+auto Model::HelpToolTip() noexcept -> ToolTipController * {
+  return m_helpToolTip.get();
+}
 
 auto Model::ActivationCount() const noexcept -> std::uint32_t {
   return m_activationCount.Get();
@@ -941,6 +1273,7 @@ void ComposeMainView(Composer &composer, NativeTextSystem &text, Model &model) {
         viewport.layout.verticalAlignment = VerticalAlignment::Stretch;
         viewport.scroll.vertical = true;
         viewport.scroll.horizontal = false;
+        StyleScrollView(viewport, theme);
         composer.ScrollView(
             [&] {
               NodeProperties page{};

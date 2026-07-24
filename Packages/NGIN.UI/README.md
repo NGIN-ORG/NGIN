@@ -40,7 +40,8 @@ The version 0.1 implementation provides:
 - keyboard-accessible button activation with focus-safe pressed state;
 - semantic composer buttons with deterministic activation;
 - retained scroll views with unbounded-axis measurement, clipped content,
-  wheel scrolling, and ancestor scroll chaining;
+  wheel scrolling, ancestor scroll chaining, and visual scrollbars with
+  pointer dragging and keyboard movement;
 - window-level `DialogWindow` ownership with modal input blocking, focus
   restoration, and cascading close;
 - in-window popup overlays with viewport-aware placement, top-layer painting,
@@ -61,6 +62,9 @@ The version 0.1 implementation provides:
 - a supported custom-element leaf contract with retained typed local state,
   constraint measurement, arrangement, bounded local-coordinate painting,
   routed input, semantics, invalidation, and unmount cleanup;
+- theme-driven checkbox, typed radio-button, toggle-switch, slider, and
+  progress-bar controls with disabled, focus, validation, and semantic states;
+- explicit label associations and delayed non-focus-stealing tooltips;
 - a render-tree-independent semantic tree with stable element ownership;
 - per-window structural diagnostics for composition, layout, rendering, focus,
   pointer capture, and frame-phase timings;
@@ -87,6 +91,10 @@ See the
 [custom-control guide](../../docs/guides/ngin-ui-custom-controls.md) for
 composite controls, custom measurement/painting, retained local state, input,
 semantics, lifecycle, and error rules.
+See the
+[foundational-controls guide](../../docs/guides/ngin-ui-foundational-controls.md)
+for bindings, typed radio groups, labels, tooltips, sliders, progress, and
+scrollbars.
 
 The default build fetches the pinned text dependencies recorded in
 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). Configure with

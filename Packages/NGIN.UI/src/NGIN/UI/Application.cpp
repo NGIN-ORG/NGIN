@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <iterator>
+#include <limits>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -33,9 +34,16 @@ ElapsedMilliseconds(const DiagnosticsClock::time_point start,
 struct Window::Implementation final {
   Implementation(IPlatformBackend &platform,
                  const PlatformWindowHandle platformHandle)
-      : reconciler(tree), layoutEngine(tree),
+      : platform(&platform), reconciler(tree), layoutEngine(tree),
         inputRouter(tree, &platform, platformHandle) {}
 
+  struct ScheduledEntry final {
+    ScheduledActionId id{0};
+    DiagnosticsClock::time_point due{};
+    ScheduledAction action{};
+  };
+
+  IPlatformBackend *platform{nullptr};
   WindowCreateInfo info{};
   PlatformWindowHandle platformHandle{};
   RenderSurfaceHandle surfaceHandle{};
@@ -65,6 +73,8 @@ struct Window::Implementation final {
   Window *owner{nullptr};
   DialogWindow *activeModalDialog{nullptr};
   ElementHandle ownerFocusToRestore{};
+  ScheduledActionId nextScheduledActionId{1};
+  std::vector<ScheduledEntry> scheduledActions{};
 };
 
 Window::Window(WindowCreateInfo info, const PlatformWindowHandle platformHandle,
@@ -234,6 +244,53 @@ void Window::Invalidate(const InvalidationKind kind) noexcept {
       m_implementation->semanticsDirty = true;
     }
   }
+}
+
+auto Window::Schedule(const std::chrono::milliseconds delay,
+                      ScheduledAction action) noexcept
+    -> UIResult<ScheduledActionId> {
+  if (m_implementation->closed) {
+    return MakeUIError(UIErrorCode::InvalidState,
+                       "Cannot schedule work on a closed window", "NGIN.UI",
+                       "Window::Schedule", Id().c_str());
+  }
+  if (!action) {
+    return MakeUIError(UIErrorCode::InvalidArgument,
+                       "Scheduled action must not be empty", "NGIN.UI",
+                       "Window::Schedule", Id().c_str());
+  }
+
+  try {
+    const auto id = m_implementation->nextScheduledActionId++;
+    m_implementation->scheduledActions.push_back(Implementation::ScheduledEntry{
+        .id = id,
+        .due = DiagnosticsClock::now() +
+               std::max(delay, std::chrono::milliseconds{0}),
+        .action = std::move(action),
+    });
+    m_implementation->platform->WakeEventLoop();
+    return id;
+  } catch (const std::bad_alloc &) {
+    return MakeUIError(UIErrorCode::OutOfMemory,
+                       "Scheduled action allocation failed", "NGIN.UI",
+                       "Window::Schedule", Id().c_str());
+  } catch (...) {
+    return MakeUIError(UIErrorCode::InvalidState,
+                       "Scheduled action construction failed", "NGIN.UI",
+                       "Window::Schedule", Id().c_str());
+  }
+}
+
+auto Window::CancelScheduled(const ScheduledActionId id) noexcept -> bool {
+  if (id == 0) {
+    return false;
+  }
+  const auto previous = m_implementation->scheduledActions.size();
+  std::erase_if(m_implementation->scheduledActions,
+                [id](const Implementation::ScheduledEntry &entry) {
+                  return entry.id == id;
+                });
+  return m_implementation->scheduledActions.size() != previous;
 }
 
 struct Application::Implementation final {
@@ -427,6 +484,7 @@ auto Application::CloseWindow(Window &window) noexcept -> UIResult<void> {
 
   window.m_implementation->closed = true;
   window.m_implementation->dirty = false;
+  window.m_implementation->scheduledActions.clear();
   if (auto *owner = window.m_implementation->owner;
       owner != nullptr && !owner->IsClosed() &&
       owner->m_implementation->activeModalDialog == &window) {
@@ -440,13 +498,60 @@ auto Application::CloseWindow(Window &window) noexcept -> UIResult<void> {
 
 auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
     -> UIResult<void> {
+  auto effectiveWait = std::max(maximumWait, std::chrono::milliseconds{0});
+  const auto beforeWait = DiagnosticsClock::now();
+  for (const auto &window : m_implementation->windows) {
+    if (window->IsClosed()) {
+      continue;
+    }
+    for (const auto &entry : window->m_implementation->scheduledActions) {
+      if (entry.due <= beforeWait) {
+        effectiveWait = std::chrono::milliseconds{0};
+        break;
+      }
+      const auto untilDue =
+          std::chrono::ceil<std::chrono::milliseconds>(entry.due - beforeWait);
+      effectiveWait = std::min(effectiveWait, untilDue);
+    }
+  }
+
   Implementation::EventCollector collector;
   auto eventResult =
-      maximumWait.count() > 0
-          ? m_implementation->platform->WaitEvents(collector, maximumWait)
+      effectiveWait.count() > 0
+          ? m_implementation->platform->WaitEvents(collector, effectiveWait)
           : m_implementation->platform->PollEvents(collector);
   if (!eventResult) {
     return std::move(eventResult).Error();
+  }
+
+  const auto afterWait = DiagnosticsClock::now();
+  for (auto &window : m_implementation->windows) {
+    if (window->IsClosed()) {
+      continue;
+    }
+    std::vector<Window::ScheduledAction> dueActions;
+    auto &entries = window->m_implementation->scheduledActions;
+    for (auto &entry : entries) {
+      if (entry.due <= afterWait) {
+        dueActions.push_back(std::move(entry.action));
+      }
+    }
+    std::erase_if(entries, [afterWait](const auto &entry) {
+      return entry.due <= afterWait;
+    });
+    for (auto &action : dueActions) {
+      try {
+        action();
+      } catch (const std::bad_alloc &) {
+        return MakeUIError(UIErrorCode::OutOfMemory,
+                           "Scheduled UI action allocation failed", "NGIN.UI",
+                           "Window::Schedule", window->Id().c_str());
+      } catch (...) {
+        return MakeUIError(UIErrorCode::InvalidState,
+                           "Scheduled UI action threw an exception", "NGIN.UI",
+                           "Window::Schedule", window->Id().c_str());
+      }
+    }
   }
 
   for (const auto &event : collector.events) {

@@ -80,6 +80,12 @@ struct ScrollProperties final {
   bool horizontal{false};
   bool vertical{true};
   F32 wheelStep{40.0F};
+  bool showScrollbars{true};
+  F32 scrollbarThickness{8.0F};
+  F32 minimumThumbLength{24.0F};
+  Color scrollbarTrack{0.08F, 0.09F, 0.11F, 0.72F};
+  Color scrollbarThumb{0.42F, 0.45F, 0.52F, 0.9F};
+  Color scrollbarThumbHovered{0.58F, 0.62F, 0.7F, 1.0F};
 };
 
 enum class PopupPlacement : UInt8 {

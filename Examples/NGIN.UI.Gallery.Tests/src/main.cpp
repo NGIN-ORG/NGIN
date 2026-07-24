@@ -2,6 +2,7 @@
 #include <NGIN/UI/Testing/TestPlatformBackend.hpp>
 #include <NGIN/UIGallery/Gallery.hpp>
 
+#include <algorithm>
 #include <iostream>
 #include <memory>
 #include <utility>
@@ -17,6 +18,13 @@ auto Check(const bool condition, const char *message) -> bool {
 auto Report(const char *context, const NGIN::UI::UIError &error) -> int {
   std::cerr << context << ": " << error.message.CStr() << '\n';
   return 1;
+}
+
+auto HasRole(const NGIN::UI::SemanticTree &tree,
+             const NGIN::UI::SemanticRole role) -> bool {
+  return std::any_of(
+      tree.Nodes().begin(), tree.Nodes().end(),
+      [role](const NGIN::UI::SemanticNode &node) { return node.role == role; });
 }
 } // namespace
 
@@ -67,6 +75,19 @@ auto main() -> int {
                "every page emits semantics")) {
       return 1;
     }
+    if (page == NGIN::UIGallery::Page::Inputs &&
+        (!Check(HasRole(window->Semantics(), SemanticRole::CheckBox),
+                "inputs page exposes checkbox semantics") ||
+         !Check(HasRole(window->Semantics(), SemanticRole::RadioButton),
+                "inputs page exposes radio semantics") ||
+         !Check(HasRole(window->Semantics(), SemanticRole::Switch),
+                "inputs page exposes switch semantics") ||
+         !Check(HasRole(window->Semantics(), SemanticRole::Slider),
+                "inputs page exposes slider semantics") ||
+         !Check(HasRole(window->Semantics(), SemanticRole::ProgressBar),
+                "inputs page exposes progress semantics"))) {
+      return 1;
+    }
   }
 
   if (!Check(rendererObserver->RenderPackets().size() >=
@@ -84,6 +105,20 @@ auto main() -> int {
   if (!Check(model.IsLightTheme() != wasLight, "theme switching is stateful") ||
       !Check(model.ActivationCount() == 1,
              "control activation state is retained")) {
+    return 1;
+  }
+
+  auto checkChanged = model.CheckBinding().Set(CheckState::Indeterminate);
+  auto toggleChanged = model.ToggleBinding().Set(false);
+  auto sliderChanged = model.SliderBinding().Set(0.8F);
+  auto radioChanged =
+      model.DensityBinding().Set(NGIN::UIGallery::Density::Spacious);
+  if (!Check(checkChanged.HasValue(), "checkbox binding is writable") ||
+      !Check(toggleChanged.HasValue(), "toggle binding is writable") ||
+      !Check(sliderChanged.HasValue(), "slider binding is writable") ||
+      !Check(radioChanged.HasValue(), "typed radio binding is writable") ||
+      !Check(model.SliderValue() == 0.8F,
+             "range state is retained by the gallery model")) {
     return 1;
   }
 

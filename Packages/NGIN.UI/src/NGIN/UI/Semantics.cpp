@@ -75,9 +75,13 @@ void SemanticTree::AppendRuntimeNode(const RuntimeTree &runtimeTree,
     m_nodes.push_back(SemanticNode{
         .id = id,
         .role = role,
+        .identifier = properties.identifier,
+        .labelFor = properties.labelFor,
+        .labelledBy = properties.labelledBy,
         .label = properties.label,
         .value = std::move(semanticValue),
         .description = properties.description,
+        .range = properties.range,
         .bounds = runtimeNode->type == ElementType::Popup
                       ? runtimeNode->popup.contentBounds
                       : runtimeNode->arrangedBounds,

@@ -36,6 +36,7 @@ endif()
 set(NGIN_UI_SOURCES
     src/NGIN/UI/Application.cpp
     src/NGIN/UI/Composer.cpp
+    src/NGIN/UI/Controls.cpp
     src/NGIN/UI/CustomElement.cpp
     src/NGIN/UI/DisplayList.cpp
     src/NGIN/UI/Input.cpp

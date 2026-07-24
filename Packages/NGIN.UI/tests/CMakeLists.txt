@@ -42,6 +42,7 @@ add_executable(NGINUITests
     ApplicationTests.cpp
     CompositionTests.cpp
     ContractTests.cpp
+    ControlsTests.cpp
     CustomElementTests.cpp
     FoundationTests.cpp
     InputTests.cpp

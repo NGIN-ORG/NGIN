@@ -26,6 +26,8 @@ class Window {
 public:
   using EventHandler = NGIN::Utilities::Callable<void(const PlatformEvent &)>;
   using Content = NGIN::Utilities::Callable<void(Composer &)>;
+  using ScheduledAction = NGIN::Utilities::Callable<void()>;
+  using ScheduledActionId = UInt64;
 
   Window(const Window &) = delete;
   Window(Window &&) = delete;
@@ -67,6 +69,10 @@ public:
   void SetEventHandler(EventHandler handler);
   void SetContent(Content content);
   void Invalidate(InvalidationKind kind = InvalidationKind::All) noexcept;
+  [[nodiscard]] auto Schedule(std::chrono::milliseconds delay,
+                              ScheduledAction action) noexcept
+      -> UIResult<ScheduledActionId>;
+  [[nodiscard]] auto CancelScheduled(ScheduledActionId id) noexcept -> bool;
 
 private:
   friend class Application;

@@ -1,5 +1,7 @@
 #include <NGIN/UI/Input.hpp>
 
+#include "ScrollBarGeometry.hpp"
+
 #include <algorithm>
 #include <limits>
 #include <type_traits>
@@ -931,6 +933,59 @@ auto InputRouter::RouteKey(const KeyChanged &event) -> InputDispatchResult {
         result.callbackInvoked || textFieldResult.callbackInvoked;
   }
 
+  if (!result.handled && focused != nullptr &&
+      focused->type == ElementType::ScrollView &&
+      focused->properties.interaction.enabled &&
+      event.state != KeyState::Released) {
+    const auto previous = focused->scroll.offset;
+    const auto horizontalMaximum =
+        std::max(0.0F, focused->scroll.contentSize.width -
+                           focused->scroll.viewportSize.width);
+    const auto verticalMaximum =
+        std::max(0.0F, focused->scroll.contentSize.height -
+                           focused->scroll.viewportSize.height);
+    const auto step = std::max(1.0F, focused->properties.scroll.wheelStep);
+    switch (event.Logical()) {
+    case LogicalKey::Left:
+      if (focused->properties.scroll.horizontal) {
+        focused->scroll.offset.x =
+            std::max(0.0F, focused->scroll.offset.x - step);
+      }
+      break;
+    case LogicalKey::Right:
+      if (focused->properties.scroll.horizontal) {
+        focused->scroll.offset.x =
+            std::min(horizontalMaximum, focused->scroll.offset.x + step);
+      }
+      break;
+    case LogicalKey::Up:
+      if (focused->properties.scroll.vertical) {
+        focused->scroll.offset.y =
+            std::max(0.0F, focused->scroll.offset.y - step);
+      }
+      break;
+    case LogicalKey::Down:
+      if (focused->properties.scroll.vertical) {
+        focused->scroll.offset.y =
+            std::min(verticalMaximum, focused->scroll.offset.y + step);
+      }
+      break;
+    case LogicalKey::Home:
+      focused->scroll.offset = {};
+      break;
+    case LogicalKey::End:
+      focused->scroll.offset = Point{horizontalMaximum, verticalMaximum};
+      break;
+    default:
+      break;
+    }
+    if (focused->scroll.offset != previous) {
+      result.handled = true;
+      result.layoutStateChanged = true;
+      result.visualStateChanged = true;
+    }
+  }
+
   if (!result.handled && event.state == KeyState::Pressed &&
       event.Logical() == LogicalKey::Tab) {
     result.visualStateChanged =
@@ -1063,6 +1118,46 @@ auto InputRouter::UpdateHover(const UInt64 pointerId,
 auto InputRouter::RouteMoved(const PointerMoved &event) -> InputDispatchResult {
   auto result = UpdateHover(event.pointerId, event.kind, event.position);
   const auto captured = CapturedElement(event.pointerId);
+  if (auto *scroll = m_tree.Get(captured);
+      scroll != nullptr && scroll->type == ElementType::ScrollView &&
+      scroll->scroll.dragPointerId == event.pointerId &&
+      (scroll->scroll.draggingHorizontal || scroll->scroll.draggingVertical)) {
+    result.handled = true;
+    const auto bars = Detail::ComputeScrollBars(
+        scroll->arrangedBounds, scroll->properties.scroll, scroll->scroll);
+    const auto previous = scroll->scroll.offset;
+    if (scroll->scroll.draggingHorizontal && bars.hasHorizontal) {
+      const auto travel =
+          bars.horizontalTrack.width - bars.horizontalThumb.width;
+      const auto maximum =
+          std::max(0.0F, scroll->scroll.contentSize.width -
+                             scroll->scroll.viewportSize.width);
+      if (travel > 0.0F) {
+        scroll->scroll.offset.x =
+            std::clamp(scroll->scroll.dragOffset.x +
+                           (event.position.x - scroll->scroll.dragOrigin.x) *
+                               maximum / travel,
+                       0.0F, maximum);
+      }
+    }
+    if (scroll->scroll.draggingVertical && bars.hasVertical) {
+      const auto travel = bars.verticalTrack.height - bars.verticalThumb.height;
+      const auto maximum =
+          std::max(0.0F, scroll->scroll.contentSize.height -
+                             scroll->scroll.viewportSize.height);
+      if (travel > 0.0F) {
+        scroll->scroll.offset.y =
+            std::clamp(scroll->scroll.dragOffset.y +
+                           (event.position.y - scroll->scroll.dragOrigin.y) *
+                               maximum / travel,
+                       0.0F, maximum);
+      }
+    }
+    if (scroll->scroll.offset != previous) {
+      result.layoutStateChanged = true;
+      result.visualStateChanged = true;
+    }
+  }
   const auto target = captured ? captured : HitTest(event.position);
   RoutedPointerEvent routed{
       .eventKind = RoutedPointerEventKind::Moved,
@@ -1108,6 +1203,80 @@ auto InputRouter::RouteButton(const PointerButtonChanged &event)
     }
   }
   const auto captured = CapturedElement(event.pointerId);
+  if (event.state == ButtonState::Released &&
+      event.button == PointerButton::Primary) {
+    if (auto *scroll = m_tree.Get(captured);
+        scroll != nullptr && scroll->type == ElementType::ScrollView &&
+        scroll->scroll.dragPointerId == event.pointerId) {
+      scroll->scroll.dragPointerId = 0;
+      scroll->scroll.draggingHorizontal = false;
+      scroll->scroll.draggingVertical = false;
+      result.handled = true;
+      result.visualStateChanged =
+          ReleaseCaptured(event.pointerId) || result.visualStateChanged;
+      return result;
+    }
+  }
+
+  if (event.state == ButtonState::Pressed &&
+      event.button == PointerButton::Primary) {
+    auto scrollHandle = hit;
+    while (auto *scroll = m_tree.Get(scrollHandle)) {
+      if (scroll->type == ElementType::ScrollView &&
+          scroll->properties.interaction.enabled) {
+        auto bars = Detail::ComputeScrollBars(
+            scroll->arrangedBounds, scroll->properties.scroll, scroll->scroll);
+        const auto horizontal =
+            bars.hasHorizontal && bars.horizontalTrack.Contains(event.position);
+        const auto vertical =
+            bars.hasVertical && bars.verticalTrack.Contains(event.position);
+        if (horizontal || vertical) {
+          if (horizontal && !bars.horizontalThumb.Contains(event.position)) {
+            const auto travel =
+                bars.horizontalTrack.width - bars.horizontalThumb.width;
+            const auto maximum =
+                std::max(0.0F, scroll->scroll.contentSize.width -
+                                   scroll->scroll.viewportSize.width);
+            if (travel > 0.0F) {
+              scroll->scroll.offset.x =
+                  std::clamp((event.position.x - bars.horizontalTrack.x -
+                              bars.horizontalThumb.width * 0.5F) *
+                                 maximum / travel,
+                             0.0F, maximum);
+            }
+          }
+          if (vertical && !bars.verticalThumb.Contains(event.position)) {
+            const auto travel =
+                bars.verticalTrack.height - bars.verticalThumb.height;
+            const auto maximum =
+                std::max(0.0F, scroll->scroll.contentSize.height -
+                                   scroll->scroll.viewportSize.height);
+            if (travel > 0.0F) {
+              scroll->scroll.offset.y =
+                  std::clamp((event.position.y - bars.verticalTrack.y -
+                              bars.verticalThumb.height * 0.5F) *
+                                 maximum / travel,
+                             0.0F, maximum);
+            }
+          }
+          scroll->scroll.dragPointerId = event.pointerId;
+          scroll->scroll.dragOrigin = event.position;
+          scroll->scroll.dragOffset = scroll->scroll.offset;
+          scroll->scroll.draggingHorizontal = horizontal;
+          scroll->scroll.draggingVertical = vertical;
+          static_cast<void>(SetCaptured(event.pointerId, scrollHandle));
+          if (scroll->properties.interaction.focusable) {
+            static_cast<void>(SetFocus(scrollHandle));
+          }
+          result.handled = true;
+          result.layoutStateChanged = true;
+          result.visualStateChanged = true;
+          return result;
+        }
+      }
+      scrollHandle = scroll->parent;
+    }
+  }
   const auto target = captured ? captured : hit;
   auto *node = m_tree.Get(target);
 

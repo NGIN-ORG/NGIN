@@ -1,6 +1,6 @@
 # NGIN.UI Post-v0.1 Roadmap
 
-Status: Active — Milestone 11 complete
+Status: Active — Milestone 12 complete
 Baseline: [`NGIN.UI-V0.1-Acceptance-Audit.md`](NGIN.UI-V0.1-Acceptance-Audit.md)
 
 ## Goal
@@ -28,7 +28,7 @@ keyboard behavior, semantics, and the public code needed to compose it.
 | Themes and resource scopes | Yes | Yes |
 | Semantics and inspector overlays | Yes | Yes |
 | Border and rounded control chrome | Yes | Yes |
-| Checkbox, radio, toggle, slider, and progress controls | No | No |
+| Checkbox, radio, toggle, slider, and progress controls | Yes | Yes |
 | Lists, selection, combo box, tabs, and menus | No | No |
 | Public custom measurement and painting | Yes | Yes |
 | Application-developer guide | No | No |
@@ -94,17 +94,17 @@ custom-painted control using only public `NGIN.UI` APIs.
 
 ## Milestone 12 — Foundational Controls
 
-- [ ] `CheckBox`, including indeterminate state.
-- [ ] `RadioButton` and typed radio-group selection.
-- [ ] `ToggleSwitch`.
-- [ ] `Slider` with pointer capture, keyboard increments, and range semantics.
-- [ ] `ProgressBar`, including indeterminate presentation.
-- [ ] `Label` association for input controls.
-- [ ] `ToolTip` with delayed, non-focus-stealing popup behavior.
-- [ ] Visual scrollbars for `ScrollView`, with drag and keyboard behavior.
-- [ ] Consistent disabled, focus, validation, and theme behavior for every
+- [x] `CheckBox`, including indeterminate state.
+- [x] `RadioButton` and typed radio-group selection.
+- [x] `ToggleSwitch`.
+- [x] `Slider` with pointer capture, keyboard increments, and range semantics.
+- [x] `ProgressBar`, including indeterminate presentation.
+- [x] `Label` association for input controls.
+- [x] `ToolTip` with delayed, non-focus-stealing popup behavior.
+- [x] Visual scrollbars for `ScrollView`, with drag and keyboard behavior.
+- [x] Consistent disabled, focus, validation, and theme behavior for every
       control.
-- [ ] Add each control and its state matrix to the gallery and headless tests in
+- [x] Add each control and its state matrix to the gallery and headless tests in
       the same change.
 
 Exit criterion: the toolkit covers the standard input controls needed by a

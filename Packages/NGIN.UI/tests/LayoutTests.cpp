@@ -316,10 +316,12 @@ TEST_CASE(
           Rect{0.0F, -80.0F, 100.0F, 240.0F});
 
   const auto displayList = BuildDisplayList(tree);
-  REQUIRE(displayList.size() == 3);
+  REQUIRE(displayList.size() == 5);
   REQUIRE(std::holds_alternative<PushClipRect>(displayList[0]));
   REQUIRE(std::holds_alternative<FillRect>(displayList[1]));
   REQUIRE(std::holds_alternative<PopClip>(displayList[2]));
+  REQUIRE(std::holds_alternative<FillRoundedRect>(displayList[3]));
+  REQUIRE(std::holds_alternative<FillRoundedRect>(displayList[4]));
   const auto packet =
       UIRenderer{}.Build(displayList, PixelSize{200, 100}, 1.0F);
   REQUIRE(packet.batches.front().scissor == PixelRect{0, 0, 100, 50});

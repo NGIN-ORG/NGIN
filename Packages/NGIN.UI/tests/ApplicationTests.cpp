@@ -336,7 +336,7 @@ TEST_CASE("window wheel input arranges and clips retained scroll content") {
   const auto *root = window->Tree().Get(window->Tree().Root());
   const auto scrollHandle = root->children.front();
   const auto contentHandle = window->Tree().Get(scrollHandle)->children.front();
-  REQUIRE(window->DisplayCommandCount() == 3);
+  REQUIRE(window->DisplayCommandCount() == 5);
 
   platformObserver->InjectEvent(PointerWheelChanged{
       .window = window->PlatformHandle(),

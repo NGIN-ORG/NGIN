@@ -177,15 +177,19 @@ TEST_CASE("styled chrome respects nested scroll clipping") {
       Rect{0.0F, 0.0F, 100.0F, 40.0F}));
 
   const auto displayList = BuildDisplayList(tree);
-  REQUIRE(displayList.size() == 4);
+  REQUIRE(displayList.size() == 8);
   REQUIRE(std::holds_alternative<PushClipRect>(displayList[0]));
   REQUIRE(std::holds_alternative<FillRoundedRect>(displayList[1]));
   REQUIRE(std::holds_alternative<StrokeRoundedRect>(displayList[2]));
   REQUIRE(std::holds_alternative<PopClip>(displayList[3]));
+  for (NGIN::UIntSize index = 4; index < 8; ++index) {
+    REQUIRE(std::holds_alternative<FillRoundedRect>(displayList[index]));
+  }
 
   const auto packet = UIRenderer{}.Build(displayList, PixelSize{200, 80}, 2.0F);
-  REQUIRE(packet.batches.size() == 1);
+  REQUIRE(packet.batches.size() == 2);
   REQUIRE(packet.batches.front().scissor == PixelRect{0, 0, 100, 40});
+  REQUIRE(packet.batches.back().scissor == PixelRect{0, 0, 200, 80});
 }
 
 TEST_CASE("hover press and disabled states change rendered control colors") {

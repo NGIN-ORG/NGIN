@@ -20,6 +20,11 @@ struct ScrollState final {
   Point offset{};
   Size contentSize{};
   Size viewportSize{};
+  UInt64 dragPointerId{0};
+  Point dragOrigin{};
+  Point dragOffset{};
+  bool draggingHorizontal{false};
+  bool draggingVertical{false};
 };
 
 struct PopupState final {

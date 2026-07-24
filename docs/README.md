@@ -34,6 +34,9 @@ If you are trying to understand NGIN as a user:
 - [`guides/ngin-ui-custom-controls.md`](guides/ngin-ui-custom-controls.md)
   Public custom measurement, bounded painting, retained state, input,
   semantics, lifecycle, and error rules.
+- [`guides/ngin-ui-foundational-controls.md`](guides/ngin-ui-foundational-controls.md)
+  Standard control bindings, typed radio groups, labels, tooltips, state
+  styling, semantics, and scrollbars.
 
 ## Active Specs
 
