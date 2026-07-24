@@ -323,6 +323,9 @@ auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
     const auto inputResult = window->m_implementation->inputRouter.Route(event);
     if (inputResult.callbackInvoked || inputResult.activated) {
       window->Invalidate(InvalidationKind::All);
+    } else if (inputResult.layoutStateChanged) {
+      window->Invalidate(InvalidationKind::Arrange | InvalidationKind::Paint |
+                         InvalidationKind::Semantics);
     } else if (inputResult.visualStateChanged) {
       window->Invalidate(InvalidationKind::Paint | InvalidationKind::Semantics);
     }
@@ -348,6 +351,7 @@ auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
       window->m_implementation->closeRequested = true;
     } else if (!std::holds_alternative<PointerMoved>(event) &&
                !std::holds_alternative<PointerButtonChanged>(event) &&
+               !std::holds_alternative<PointerWheelChanged>(event) &&
                !std::holds_alternative<WindowFocusChanged>(event)) {
       window->Invalidate();
     }

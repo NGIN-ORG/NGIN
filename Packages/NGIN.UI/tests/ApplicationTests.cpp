@@ -294,3 +294,62 @@ TEST_CASE("window routes injected pointer input to a semantic button") {
   REQUIRE(application->PumpOnce().HasValue());
   REQUIRE(activations == 2);
 }
+
+TEST_CASE("window wheel input arranges and clips retained scroll content") {
+  using namespace NGIN::UI;
+  using namespace NGIN::UI::Testing;
+
+  auto platform = std::make_unique<TestPlatformBackend>();
+  auto renderer = std::make_unique<RecordingRenderBackend>();
+  auto *platformObserver = platform.get();
+  auto *rendererObserver = renderer.get();
+  auto createdApplication = CreateApplication(ApplicationCreateInfo{
+      .platform = std::move(platform),
+      .renderer = std::move(renderer),
+  });
+  REQUIRE(createdApplication.HasValue());
+  auto application = std::move(createdApplication).Value();
+
+  auto createdWindow = application->CreateWindow(WindowCreateInfo{
+      .id = NGIN::Text::String{"Scroll"},
+      .title = NGIN::Text::String{"Scroll"},
+      .initialSize = PixelSize{100, 50},
+  });
+  REQUIRE(createdWindow.HasValue());
+  auto *window = createdWindow.Value();
+
+  window->SetContent([](Composer &composer) {
+    NodeProperties scrollProperties{};
+    scrollProperties.scroll.wheelStep = 40.0F;
+    NodeProperties contentProperties{};
+    contentProperties.layout.preferredSize = Size{100.0F, 200.0F};
+    contentProperties.paintsBackground = true;
+    contentProperties.background = Color{0.4F, 0.5F, 0.7F, 1.0F};
+    composer.ScrollView(
+        [&] {
+          composer.Leaf(ElementType::Rectangle, contentProperties, "content");
+        },
+        scrollProperties, "scroll");
+  });
+  REQUIRE(application->PumpOnce().HasValue());
+
+  const auto *root = window->Tree().Get(window->Tree().Root());
+  const auto scrollHandle = root->children.front();
+  const auto contentHandle = window->Tree().Get(scrollHandle)->children.front();
+  REQUIRE(window->DisplayCommandCount() == 3);
+
+  platformObserver->InjectEvent(PointerWheelChanged{
+      .window = window->PlatformHandle(),
+      .pointerId = 1,
+      .delta = Point{0.0F, -1.0F},
+      .position = Point{10.0F, 10.0F},
+  });
+  REQUIRE(application->PumpOnce().HasValue());
+
+  REQUIRE(window->Tree().Get(scrollHandle)->scroll.offset ==
+          Point{0.0F, 40.0F});
+  REQUIRE(window->Tree().Get(contentHandle)->arrangedBounds ==
+          Rect{0.0F, -40.0F, 100.0F, 200.0F});
+  REQUIRE(rendererObserver->RenderPackets().back().batches.front().scissor ==
+          PixelRect{0, 0, 100, 50});
+}

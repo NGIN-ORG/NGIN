@@ -30,6 +30,8 @@ foundation:
 - normalized routed keyboard/text events and explicit tab traversal;
 - keyboard-accessible button activation with focus-safe pressed state;
 - semantic composer buttons with deterministic activation;
+- retained scroll views with unbounded-axis measurement, clipped content,
+  wheel scrolling, and ancestor scroll chaining;
 - observable `State<T>` with scoped invalidation scheduling;
 - move-only RAII subscriptions and typed, validatable `Binding<T>` adapters;
 - immutable/revisioned theme values and hierarchical typed resource scopes;

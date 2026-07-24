@@ -25,6 +25,7 @@ enum class ElementType : UInt16 {
   Text,
   Button,
   TextField,
+  ScrollView,
   Custom,
 };
 
@@ -66,9 +67,16 @@ struct InteractionProperties final {
   NGIN::Utilities::Callable<void()> onActivate{};
 };
 
+struct ScrollProperties final {
+  bool horizontal{false};
+  bool vertical{true};
+  F32 wheelStep{40.0F};
+};
+
 struct NodeProperties final {
   LayoutProperties layout{};
   InteractionProperties interaction{};
+  ScrollProperties scroll{};
   SemanticProperties semantics{};
   std::shared_ptr<const ResourceScope> resources{};
   Color background{};

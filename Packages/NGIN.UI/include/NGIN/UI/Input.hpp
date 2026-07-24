@@ -10,6 +10,7 @@ namespace NGIN::UI {
 struct InputDispatchResult final {
   bool handled{false};
   bool visualStateChanged{false};
+  bool layoutStateChanged{false};
   bool callbackInvoked{false};
   bool activated{false};
 };
@@ -61,6 +62,7 @@ private:
       -> InputDispatchResult;
   auto RouteMoved(const PointerMoved &event) -> InputDispatchResult;
   auto RouteButton(const PointerButtonChanged &event) -> InputDispatchResult;
+  auto RouteWheel(const PointerWheelChanged &event) -> InputDispatchResult;
   auto SetCaptured(UInt64 pointerId, ElementHandle handle) noexcept -> bool;
   auto ReleaseCaptured(UInt64 pointerId) noexcept -> bool;
 

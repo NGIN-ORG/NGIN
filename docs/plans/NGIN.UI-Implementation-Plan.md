@@ -16,8 +16,9 @@ Target language: C++23
   complete. Grapheme-aware editing and `TextField` remain pending the text
   layout cluster service.
 - Slice 7 theme/resource scopes, semantic tree, multiple-window support, and
-  diagnostics snapshots are complete. Scroll, popup, dialog, and an inspector
-  UI remain pending.
+  diagnostics snapshots are complete. Retained scroll views, clipped content,
+  and wheel scroll chaining are complete. Popup, dialog, and an inspector UI
+  remain pending.
 - Slice 1 is dependency-gated; no SDL3 dependency has been introduced.
 - Slices 4, 6, 7, and 8 remain planned.
 

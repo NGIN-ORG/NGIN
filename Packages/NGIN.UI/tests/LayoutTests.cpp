@@ -129,6 +129,63 @@ TEST_CASE("row uses measured widths and vertical alignment") {
           Rect{14.0F, 20.0F, 20.0F, 20.0F});
 }
 
+TEST_CASE(
+    "scroll view measures content unbounded and arranges retained offset") {
+  using namespace NGIN::UI;
+
+  NodeProperties scrollProperties{};
+  scrollProperties.layout.preferredSize = Size{100.0F, 50.0F};
+  scrollProperties.layout.maximumSize = Size{100.0F, 50.0F};
+  scrollProperties.layout.horizontalAlignment = HorizontalAlignment::Start;
+  scrollProperties.layout.verticalAlignment = VerticalAlignment::Start;
+  ElementDeclaration scroll{ElementType::ScrollView, "scroll",
+                            scrollProperties};
+
+  auto contentProperties = LeafProperties(100.0F, 240.0F);
+  contentProperties.paintsBackground = true;
+  contentProperties.background = Color{0.2F, 0.4F, 0.8F, 1.0F};
+  scroll.children.emplace_back(ElementType::Rectangle, "content",
+                               contentProperties);
+
+  RuntimeTree tree;
+  Reconciler reconciler{tree};
+  const std::array declarations{scroll};
+  static_cast<void>(reconciler.Reconcile(declarations));
+  LayoutEngine layout{tree};
+  static_cast<void>(layout.Perform(
+      SizeConstraints{
+          .minimum = Size{200.0F, 100.0F},
+          .maximum = Size{200.0F, 100.0F},
+      },
+      Rect{0.0F, 0.0F, 200.0F, 100.0F}));
+
+  auto *scrollNode = tree.Get(tree.Get(tree.Root())->children.front());
+  REQUIRE(scrollNode->arrangedBounds == Rect{0.0F, 0.0F, 100.0F, 50.0F});
+  REQUIRE(scrollNode->scroll.viewportSize == Size{100.0F, 50.0F});
+  REQUIRE(scrollNode->scroll.contentSize == Size{100.0F, 240.0F});
+  REQUIRE(Child(tree, scrollNode->handle, 0)->arrangedBounds ==
+          Rect{0.0F, 0.0F, 100.0F, 240.0F});
+
+  scrollNode->scroll.offset.y = 80.0F;
+  static_cast<void>(layout.Perform(
+      SizeConstraints{
+          .minimum = Size{200.0F, 100.0F},
+          .maximum = Size{200.0F, 100.0F},
+      },
+      Rect{0.0F, 0.0F, 200.0F, 100.0F}));
+  REQUIRE(Child(tree, scrollNode->handle, 0)->arrangedBounds ==
+          Rect{0.0F, -80.0F, 100.0F, 240.0F});
+
+  const auto displayList = BuildDisplayList(tree);
+  REQUIRE(displayList.size() == 3);
+  REQUIRE(std::holds_alternative<PushClipRect>(displayList[0]));
+  REQUIRE(std::holds_alternative<FillRect>(displayList[1]));
+  REQUIRE(std::holds_alternative<PopClip>(displayList[2]));
+  const auto packet =
+      UIRenderer{}.Build(displayList, PixelSize{200, 100}, 1.0F);
+  REQUIRE(packet.batches.front().scissor == PixelRect{0, 0, 100, 50});
+}
+
 TEST_CASE("display-list builder diagnoses unbalanced scopes") {
   using namespace NGIN::UI;
 

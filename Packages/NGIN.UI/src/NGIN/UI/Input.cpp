@@ -50,6 +50,8 @@ auto InputRouter::Route(const PlatformEvent &event) -> InputDispatchResult {
           return RouteMoved(value);
         } else if constexpr (std::is_same_v<Event, PointerButtonChanged>) {
           return RouteButton(value);
+        } else if constexpr (std::is_same_v<Event, PointerWheelChanged>) {
+          return RouteWheel(value);
         } else if constexpr (std::is_same_v<Event, KeyChanged>) {
           return RouteKey(value);
         } else if constexpr (std::is_same_v<Event, TextInput>) {
@@ -544,6 +546,65 @@ auto InputRouter::RouteButton(const PointerButtonChanged &event)
         ReleaseCaptured(event.pointerId) || result.visualStateChanged;
   }
 
+  return result;
+}
+
+auto InputRouter::RouteWheel(const PointerWheelChanged &event)
+    -> InputDispatchResult {
+  auto result =
+      UpdateHover(event.pointerId, PointerKind::Mouse, event.position);
+  const auto captured = CapturedElement(event.pointerId);
+  const auto target = captured ? captured : HitTest(event.position);
+  RoutedPointerEvent routed{
+      .eventKind = RoutedPointerEventKind::Wheel,
+      .pointerId = event.pointerId,
+      .pointerKind = PointerKind::Mouse,
+      .position = event.position,
+      .wheelDelta = event.delta,
+  };
+  const auto outcome = Dispatch(routed, target);
+  result.handled = outcome.handled;
+  result.callbackInvoked = result.callbackInvoked || outcome.callbackInvoked;
+  if (outcome.captureRequest) {
+    result.visualStateChanged =
+        SetCaptured(event.pointerId, outcome.captureRequest) ||
+        result.visualStateChanged;
+  }
+  if (outcome.releaseCapture) {
+    result.visualStateChanged =
+        ReleaseCaptured(event.pointerId) || result.visualStateChanged;
+  }
+  if (result.handled) {
+    return result;
+  }
+
+  auto current = target;
+  while (auto *node = m_tree.Get(current)) {
+    if (node->type == ElementType::ScrollView &&
+        node->properties.interaction.enabled) {
+      const auto previous = node->scroll.offset;
+      const auto step = std::max(0.0F, node->properties.scroll.wheelStep);
+      if (node->properties.scroll.horizontal) {
+        node->scroll.offset.x =
+            std::clamp(node->scroll.offset.x - event.delta.x * step, 0.0F,
+                       std::max(0.0F, node->scroll.contentSize.width -
+                                          node->scroll.viewportSize.width));
+      }
+      if (node->properties.scroll.vertical) {
+        node->scroll.offset.y =
+            std::clamp(node->scroll.offset.y - event.delta.y * step, 0.0F,
+                       std::max(0.0F, node->scroll.contentSize.height -
+                                          node->scroll.viewportSize.height));
+      }
+      if (node->scroll.offset != previous) {
+        result.handled = true;
+        result.visualStateChanged = true;
+        result.layoutStateChanged = true;
+        break;
+      }
+    }
+    current = node->parent;
+  }
   return result;
 }
 

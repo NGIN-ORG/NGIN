@@ -16,6 +16,12 @@ struct InteractionState final {
   bool focused{false};
 };
 
+struct ScrollState final {
+  Point offset{};
+  Size contentSize{};
+  Size viewportSize{};
+};
+
 struct RuntimeNode final {
   ElementHandle handle{};
   ElementId id{};
@@ -27,6 +33,7 @@ struct RuntimeNode final {
   Size measuredSize{};
   Rect arrangedBounds{};
   InteractionState interaction{};
+  ScrollState scroll{};
   UInt64 compositionRevision{0};
   UInt64 layoutRevision{0};
 

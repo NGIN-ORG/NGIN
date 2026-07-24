@@ -80,6 +80,14 @@ public:
             key);
   }
 
+  template <typename ComposeChildren>
+  void ScrollView(ComposeChildren &&composeChildren,
+                  const NodeProperties &properties = {},
+                  std::string_view key = {}) {
+    Element(ElementType::ScrollView, properties,
+            std::forward<ComposeChildren>(composeChildren), key);
+  }
+
   [[nodiscard]] auto Declarations() const noexcept
       -> const std::vector<ElementDeclaration> &;
   [[nodiscard]] auto IsBalanced() const noexcept -> bool;

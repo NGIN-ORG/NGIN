@@ -388,3 +388,43 @@ TEST_CASE("text input and composition remain separate from key events") {
   REQUIRE(textEvents[1].selectionStart == 1);
   REQUIRE(textEvents[1].selectionLength == 2);
 }
+
+TEST_CASE("wheel input scrolls the nearest available ancestor") {
+  using namespace NGIN::UI;
+
+  InputFixture fixture;
+  NodeProperties scrollProperties{};
+  scrollProperties.layout.preferredSize = Size{100.0F, 50.0F};
+  scrollProperties.layout.horizontalAlignment = HorizontalAlignment::Start;
+  scrollProperties.layout.verticalAlignment = VerticalAlignment::Start;
+  scrollProperties.scroll.wheelStep = 30.0F;
+  auto contentProperties = ButtonProperties();
+  contentProperties.layout.preferredSize = Size{100.0F, 240.0F};
+
+  Composer composer;
+  composer.ScrollView(
+      [&] { composer.Leaf(ElementType::Rectangle, contentProperties); },
+      scrollProperties, "scroll");
+  fixture.Compose(composer);
+
+  auto *scroll =
+      fixture.tree.Get(fixture.tree.Get(fixture.tree.Root())->children.front());
+  const auto content = scroll->children.front();
+  const auto result = fixture.router.Route(PlatformEvent{PointerWheelChanged{
+      .pointerId = 1,
+      .delta = Point{0.0F, -1.0F},
+      .position = Point{10.0F, 10.0F},
+  }});
+  REQUIRE(result.handled);
+  REQUIRE(result.layoutStateChanged);
+  REQUIRE(scroll->scroll.offset == Point{0.0F, 30.0F});
+
+  static_cast<void>(fixture.layout.Perform(
+      SizeConstraints{
+          .minimum = Size{200.0F, 100.0F},
+          .maximum = Size{200.0F, 100.0F},
+      },
+      Rect{0.0F, 0.0F, 200.0F, 100.0F}));
+  REQUIRE(fixture.tree.Get(content)->arrangedBounds ==
+          Rect{0.0F, -30.0F, 100.0F, 240.0F});
+}

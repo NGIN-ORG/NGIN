@@ -98,8 +98,15 @@ void PaintNode(const RuntimeTree &tree, const ElementHandle handle,
       node->arrangedBounds.height > 0.0F) {
     builder.Fill(node->arrangedBounds, node->properties.background);
   }
+  const auto clipsChildren = node->type == ElementType::ScrollView;
+  if (clipsChildren) {
+    builder.PushClip(node->arrangedBounds);
+  }
   for (const auto child : node->children) {
     PaintNode(tree, child, builder);
+  }
+  if (clipsChildren) {
+    static_cast<void>(builder.PopClip());
   }
 }
 } // namespace

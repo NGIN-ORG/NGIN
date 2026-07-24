@@ -125,7 +125,14 @@ auto LayoutEngine::MeasureContainer(RuntimeNode &node,
   for (const auto childHandle : node.children) {
     SizeConstraints childConstraints{};
     childConstraints.maximum = Size{availableWidth, availableHeight};
-    if (node.type == ElementType::Column) {
+    if (node.type == ElementType::ScrollView) {
+      if (node.properties.scroll.horizontal) {
+        childConstraints.maximum.width = std::numeric_limits<F32>::infinity();
+      }
+      if (node.properties.scroll.vertical) {
+        childConstraints.maximum.height = std::numeric_limits<F32>::infinity();
+      }
+    } else if (node.type == ElementType::Column) {
       childConstraints.maximum.height = std::numeric_limits<F32>::infinity();
     } else if (node.type == ElementType::Row) {
       childConstraints.maximum.width = std::numeric_limits<F32>::infinity();
@@ -183,6 +190,49 @@ void LayoutEngine::ArrangeChildren(RuntimeNode &node) {
   };
   F32 cursorX = content.x;
   F32 cursorY = content.y;
+
+  if (node.type == ElementType::ScrollView) {
+    Size contentSize{};
+    for (const auto childHandle : node.children) {
+      if (const auto *child = m_tree.Get(childHandle); child != nullptr) {
+        contentSize.width =
+            std::max(contentSize.width, child->measuredSize.width);
+        contentSize.height =
+            std::max(contentSize.height, child->measuredSize.height);
+      }
+    }
+    if (!node.properties.scroll.horizontal) {
+      contentSize.width = content.width;
+    }
+    if (!node.properties.scroll.vertical) {
+      contentSize.height = content.height;
+    }
+    node.scroll.viewportSize = Size{content.width, content.height};
+    node.scroll.contentSize = contentSize;
+    node.scroll.offset.x =
+        std::clamp(node.scroll.offset.x, 0.0F,
+                   std::max(0.0F, contentSize.width - content.width));
+    node.scroll.offset.y =
+        std::clamp(node.scroll.offset.y, 0.0F,
+                   std::max(0.0F, contentSize.height - content.height));
+
+    for (const auto childHandle : node.children) {
+      const auto *child = m_tree.Get(childHandle);
+      if (child == nullptr) {
+        continue;
+      }
+      const auto width = node.properties.scroll.horizontal
+                             ? child->measuredSize.width
+                             : content.width;
+      const auto height = node.properties.scroll.vertical
+                              ? child->measuredSize.height
+                              : content.height;
+      Arrange(childHandle,
+              Rect{content.x - node.scroll.offset.x,
+                   content.y - node.scroll.offset.y, width, height});
+    }
+    return;
+  }
 
   for (const auto childHandle : node.children) {
     const auto *child = m_tree.Get(childHandle);

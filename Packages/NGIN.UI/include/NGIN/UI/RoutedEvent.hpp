@@ -14,6 +14,7 @@ enum class RoutedPointerEventKind : UInt8 {
   Entered,
   Exited,
   Moved,
+  Wheel,
   ButtonPressed,
   ButtonReleased,
 };
@@ -27,6 +28,7 @@ struct RoutedPointerEvent final {
   PointerKind pointerKind{PointerKind::Mouse};
   PointerButton button{PointerButton::None};
   Point position{};
+  Point wheelDelta{};
   bool handled{false};
   bool captureRequested{false};
   bool captureReleaseRequested{false};
