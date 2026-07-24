@@ -56,6 +56,8 @@ The version 0.1 implementation provides:
   composition, and caret geometry plus grapheme-count password masking;
 - platform IME start/stop coordination with DPI-aware candidate rectangles;
 - immutable/revisioned theme values and hierarchical typed resource scopes;
+- typed visual-state styles, theme-driven borders and rounded backgrounds,
+  visible focus treatment, and border/separator composition helpers;
 - a render-tree-independent semantic tree with stable element ownership;
 - per-window structural diagnostics for composition, layout, rendering, focus,
   pointer capture, and frame-phase timings;
@@ -75,6 +77,9 @@ are supplied by the separate
 [`NGIN.UI.Backend.SDL3`](../NGIN.UI.Backend.SDL3/) package. Applications can
 run the same view directly or through the optional
 [`NGIN.UI.Hosting`](../NGIN.UI.Hosting/) bridge to `NGIN.Core`.
+
+See the [styling guide](../../docs/guides/ngin-ui-styling.md) for theme tokens,
+state precedence, focus treatment, borders, and invalidation rules.
 
 The default build fetches the pinned text dependencies recorded in
 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). Configure with

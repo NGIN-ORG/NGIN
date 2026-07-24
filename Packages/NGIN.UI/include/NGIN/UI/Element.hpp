@@ -22,7 +22,9 @@ enum class ElementType : UInt16 {
   Row,
   Overlay,
   Padding,
+  Border,
   Spacer,
+  Separator,
   Rectangle,
   Text,
   Button,
@@ -84,6 +86,15 @@ enum class PopupPlacement : UInt8 {
   AboveEnd,
 };
 
+enum class SeparatorOrientation : UInt8 {
+  Horizontal,
+  Vertical,
+};
+
+struct SeparatorProperties final {
+  SeparatorOrientation orientation{SeparatorOrientation::Horizontal};
+};
+
 struct PopupProperties final {
   Rect anchor{};
   PopupPlacement placement{PopupPlacement::Center};
@@ -129,10 +140,12 @@ struct NodeProperties final {
   InteractionProperties interaction{};
   ScrollProperties scroll{};
   PopupProperties popup{};
+  SeparatorProperties separator{};
   TextFieldProperties textField{};
   TextElementProperties text{};
   SemanticProperties semantics{};
   std::shared_ptr<const ResourceScope> resources{};
+  VisualProperties visual{};
   Color background{};
   bool paintsBackground{false};
 };

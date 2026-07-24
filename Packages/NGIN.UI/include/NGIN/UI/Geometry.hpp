@@ -111,6 +111,9 @@ struct CornerRadius final {
       -> CornerRadius {
     return CornerRadius{value.value, value.value, value.value, value.value};
   }
+
+  [[nodiscard]] constexpr auto
+  operator<=>(const CornerRadius &) const noexcept = default;
 };
 
 struct PixelPoint final {

@@ -104,6 +104,21 @@ void Composer::Text(NGIN::Text::String value, ITextLayout &layout,
   Leaf(ElementType::Text, textProperties, key);
 }
 
+void Composer::Separator(const SeparatorOrientation orientation,
+                         const NodeProperties &properties,
+                         const std::string_view key) {
+  auto separatorProperties = properties;
+  separatorProperties.separator.orientation = orientation;
+  if (orientation == SeparatorOrientation::Horizontal) {
+    if (separatorProperties.layout.preferredSize.height <= 0.0F) {
+      separatorProperties.layout.preferredSize.height = 1.0F;
+    }
+  } else if (separatorProperties.layout.preferredSize.width <= 0.0F) {
+    separatorProperties.layout.preferredSize.width = 1.0F;
+  }
+  Leaf(ElementType::Separator, separatorProperties, key);
+}
+
 auto Composer::Declarations() const noexcept
     -> const std::vector<ElementDeclaration> & {
   return m_roots;

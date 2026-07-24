@@ -51,6 +51,9 @@ public:
   void Text(NGIN::Text::String value, ITextLayout &layout,
             IGlyphAtlas &glyphAtlas, const NodeProperties &properties = {},
             std::string_view key = {});
+  void Separator(SeparatorOrientation orientation,
+                 const NodeProperties &properties = {},
+                 std::string_view key = {});
 
   template <typename ComposeChildren>
   void Scope(std::shared_ptr<const ResourceScope> resources,
@@ -85,6 +88,14 @@ public:
   void Row(ComposeChildren &&composeChildren, std::string_view key = {}) {
     Element(ElementType::Row, std::forward<ComposeChildren>(composeChildren),
             key);
+  }
+
+  template <typename ComposeChildren>
+  void Border(ComposeChildren &&composeChildren,
+              const NodeProperties &properties = {},
+              std::string_view key = {}) {
+    Element(ElementType::Border, properties,
+            std::forward<ComposeChildren>(composeChildren), key);
   }
 
   template <typename ComposeChildren>

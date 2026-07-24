@@ -46,6 +46,7 @@ add_executable(NGINUITests
     InputTests.cpp
     LayoutTests.cpp
     StateTests.cpp
+    StyleTests.cpp
     TextTests.cpp
 )
 if(NGIN_UI_ENABLE_NATIVE_TEXT)

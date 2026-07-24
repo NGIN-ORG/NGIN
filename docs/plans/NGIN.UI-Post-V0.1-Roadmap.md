@@ -1,6 +1,6 @@
 # NGIN.UI Post-v0.1 Roadmap
 
-Status: Planned
+Status: Active — Milestone 9 complete
 Baseline: [`NGIN.UI-V0.1-Acceptance-Audit.md`](NGIN.UI-V0.1-Acceptance-Audit.md)
 
 ## Goal
@@ -27,7 +27,7 @@ keyboard behavior, semantics, and the public code needed to compose it.
 | Dialog and multiple windows | Yes | No |
 | Themes and resource scopes | Yes | No |
 | Semantics and inspector overlays | Yes | No |
-| Border and rounded control chrome | No | No |
+| Border and rounded control chrome | Yes | Yes |
 | Checkbox, radio, toggle, slider, and progress controls | No | No |
 | Lists, selection, combo box, tabs, and menus | No | No |
 | Public custom measurement and painting | No | No |
@@ -35,16 +35,16 @@ keyboard behavior, semantics, and the public code needed to compose it.
 
 ## Milestone 9 — Visual Styling Primitives
 
-- [ ] Add border color, per-edge thickness, and corner-radius properties.
-- [ ] Lower borders and rounded backgrounds through the existing display list.
-- [ ] Define visual states for normal, hovered, pressed, focused, disabled,
+- [x] Add border color, per-edge thickness, and corner-radius properties.
+- [x] Lower borders and rounded backgrounds through the existing display list.
+- [x] Define visual states for normal, hovered, pressed, focused, disabled,
       selected, invalid, and read-only controls.
-- [ ] Add theme tokens for surfaces, text, accent, borders, focus, selection,
+- [x] Add theme tokens for surfaces, text, accent, borders, focus, selection,
       spacing, radii, and standard control sizes.
-- [ ] Add a visible, keyboard-safe focus indicator.
-- [ ] Add a `Border`/panel composition helper and a `Separator` primitive.
-- [ ] Test DPI scaling, nested clipping, state transitions, and theme overrides.
-- [ ] Document the style-resolution and control-state rules.
+- [x] Add a visible, keyboard-safe focus indicator.
+- [x] Add a `Border`/panel composition helper and a `Separator` primitive.
+- [x] Test DPI scaling, nested clipping, state transitions, and theme overrides.
+- [x] Document the style-resolution and control-state rules.
 
 Exit criterion: buttons, fields, panels, and focus states no longer rely on
 hardcoded gallery colors, and all styling remains backend-neutral.

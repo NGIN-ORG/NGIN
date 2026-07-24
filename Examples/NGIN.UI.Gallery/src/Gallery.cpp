@@ -31,7 +31,7 @@ void ComposeText(Composer &composer, NativeTextSystem &text, String value,
 }
 
 void ComposeButton(Composer &composer, NativeTextSystem &text,
-                   const char *label,
+                   const Theme &theme, const char *label,
                    NGIN::Utilities::Callable<void()> onActivate,
                    const std::string_view key) {
   NodeProperties button{};
@@ -45,12 +45,11 @@ void ComposeButton(Composer &composer, NativeTextSystem &text,
   button.semantics.label = String{label};
   button.semantics.actions =
       SemanticActionFlags::Activate | SemanticActionFlags::Focus;
-  button.paintsBackground = true;
-  button.background = Color{0.12F, 0.42F, 0.78F, 1.0F};
+  button.visual = MakeButtonVisual(theme);
 
   auto scope = composer.Begin(ElementType::Button, button, key);
   auto labelProperties =
-      TextProperties(text, 16.0F, Color{1.0F, 1.0F, 1.0F, 1.0F});
+      TextProperties(text, 16.0F, theme.colors.accentForeground);
   labelProperties.layout.horizontalAlignment = HorizontalAlignment::Center;
   labelProperties.layout.verticalAlignment = VerticalAlignment::Center;
   composer.Text(String{label}, text, text, labelProperties, "label");
@@ -85,11 +84,11 @@ void ComposeMainView(UI::Composer &composer, UI::NativeTextSystem &text,
                      Model &model) {
   using namespace NGIN::UI;
 
+  const Theme theme{};
   NodeProperties root{};
   root.layout.padding = Thickness{36.0F, 30.0F, 36.0F, 30.0F};
   root.layout.gap = 16.0F;
-  root.paintsBackground = true;
-  root.background = Color{0.035F, 0.055F, 0.09F, 1.0F};
+  root.visual.base.background = theme.colors.background;
   root.semantics.role = SemanticRole::Group;
   root.semantics.label = String{"NGIN.UI native gallery"};
 
@@ -97,14 +96,14 @@ void ComposeMainView(UI::Composer &composer, UI::NativeTextSystem &text,
       ElementType::Column, root,
       [&] {
         ComposeText(composer, text, String{"NGIN.UI"}, 34.0F,
-                    Color{0.55F, 0.78F, 1.0F, 1.0F}, "title");
+                    theme.colors.focus, "title");
         ComposeText(composer, text,
                     String{"Retained UI \xC2\xB7 HarfBuzz + FreeType \xC2\xB7 "
                            "SDL3 + SDL_GPU"},
-                    17.0F, Color{0.72F, 0.78F, 0.88F, 1.0F}, "subtitle");
+                    17.0F, theme.colors.mutedForeground, "subtitle");
         ComposeText(composer, text,
                     String{"Type your name (UTF-8 and IME supported):"}, 15.0F,
-                    Color{0.88F, 0.91F, 0.96F, 1.0F}, "name-label");
+                    theme.colors.foreground, "name-label");
 
         NodeProperties field{};
         field.layout.preferredSize = Size{520.0F, 50.0F};
@@ -112,16 +111,15 @@ void ComposeMainView(UI::Composer &composer, UI::NativeTextSystem &text,
         field.layout.padding = Thickness{14.0F, 12.0F, 14.0F, 12.0F};
         field.layout.horizontalAlignment = HorizontalAlignment::Start;
         field.layout.verticalAlignment = VerticalAlignment::Start;
-        field.paintsBackground = true;
-        field.background = Color{0.09F, 0.13F, 0.2F, 1.0F};
+        field.visual = MakeTextFieldVisual(theme);
         field.text.fontSize = 18.0F;
-        field.text.color = Color{0.97F, 0.98F, 1.0F, 1.0F};
+        field.text.color = theme.colors.foreground;
         field.text.layout = &text;
         field.text.geometry = &text;
         field.text.glyphAtlas = &text;
         field.text.wrapping = TextWrapping::NoWrap;
-        field.textField.selectionColor = Color{0.16F, 0.5F, 0.95F, 0.5F};
-        field.textField.caretColor = Color{0.85F, 0.93F, 1.0F, 1.0F};
+        field.textField.selectionColor = theme.colors.selection;
+        field.textField.caretColor = theme.colors.focus;
         field.semantics.label = String{"Name"};
         composer.TextField(Bind(model.name), text, field, "name");
 
@@ -129,18 +127,18 @@ void ComposeMainView(UI::Composer &composer, UI::NativeTextSystem &text,
         greeting.Append(model.name.Get());
         greeting.Append(" \xE2\x80\x94 shaped as Unicode text.");
         ComposeText(composer, text, std::move(greeting), 22.0F,
-                    Color{0.95F, 0.8F, 0.45F, 1.0F}, "greeting");
+                    theme.colors.accentHovered, "greeting");
 
         ComposeButton(
-            composer, text, "Activate retained button",
+            composer, text, theme, "Activate retained button",
             [&model] { model.Activate(); }, "activate");
         ComposeText(composer, text, CounterText(model.activationCount), 15.0F,
-                    Color{0.7F, 0.77F, 0.86F, 1.0F}, "counter");
+                    theme.colors.mutedForeground, "counter");
         ComposeText(
             composer, text,
             String{"Resize the window to exercise layout and the native "
                    "surface lifecycle."},
-            14.0F, Color{0.55F, 0.63F, 0.74F, 1.0F}, "hint");
+            14.0F, theme.colors.mutedForeground, "hint");
       },
       "gallery-root");
 }

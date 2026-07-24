@@ -28,6 +28,9 @@ If you are trying to understand NGIN as a user:
   Concise developer guide for authoring `.nginproj` files.
 - [`guides/tool-driver-authoring.md`](guides/tool-driver-authoring.md)
   Package author guide for general tools, drivers, actions, probes, and events.
+- [`guides/ngin-ui-styling.md`](guides/ngin-ui-styling.md)
+  Typed NGIN.UI theme tokens, visual states, borders, focus treatment, and
+  invalidation rules.
 
 ## Active Specs
 

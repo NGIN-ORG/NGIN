@@ -54,6 +54,12 @@ void DisplayListBuilder::Stroke(const Rect rect, const F32 thickness,
   m_commands.emplace_back(StrokeRect{rect, thickness, color});
 }
 
+void DisplayListBuilder::StrokeRounded(const Rect rect,
+                                       const CornerRadius radius,
+                                       const F32 thickness, const Color color) {
+  m_commands.emplace_back(StrokeRoundedRect{rect, radius, thickness, color});
+}
+
 void DisplayListBuilder::Image(const TextureHandle texture,
                                const Rect destination, const Color tint) {
   m_commands.emplace_back(DrawImage{texture, destination, tint});
@@ -95,6 +101,127 @@ auto DisplayListBuilder::Commands() const noexcept -> const DisplayList & {
 }
 
 namespace {
+[[nodiscard]] auto HasRadius(const CornerRadius radius) noexcept -> bool {
+  return radius.topLeft > 0.0F || radius.topRight > 0.0F ||
+         radius.bottomRight > 0.0F || radius.bottomLeft > 0.0F;
+}
+
+[[nodiscard]] auto IsUniform(const Thickness thickness) noexcept -> bool {
+  return thickness.left == thickness.top && thickness.left == thickness.right &&
+         thickness.left == thickness.bottom;
+}
+
+[[nodiscard]] auto VisualStateFor(const RuntimeNode &node) noexcept
+    -> VisualStateFlags {
+  auto state = node.properties.visual.state;
+  if (node.interaction.hovered) {
+    state |= VisualStateFlags::Hovered;
+  }
+  if (node.interaction.pressed || node.interaction.keyboardPressed) {
+    state |= VisualStateFlags::Pressed;
+  }
+  if (node.interaction.focused) {
+    state |= VisualStateFlags::Focused;
+  }
+  if (!node.properties.interaction.enabled) {
+    state |= VisualStateFlags::Disabled;
+  }
+  if (node.type == ElementType::TextField &&
+      node.properties.textField.readOnly) {
+    state |= VisualStateFlags::ReadOnly;
+  }
+  return state;
+}
+
+void PaintBorder(DisplayListBuilder &builder, const Rect bounds,
+                 const VisualStyle &style) {
+  if (!style.borderColor) {
+    return;
+  }
+  const auto thickness = style.borderThickness;
+  const auto maximumThickness = std::min(bounds.width, bounds.height) * 0.5F;
+  const auto left = std::clamp(thickness.left, 0.0F, maximumThickness);
+  const auto top = std::clamp(thickness.top, 0.0F, maximumThickness);
+  const auto right = std::clamp(thickness.right, 0.0F, maximumThickness);
+  const auto bottom = std::clamp(thickness.bottom, 0.0F, maximumThickness);
+  if (left <= 0.0F && top <= 0.0F && right <= 0.0F && bottom <= 0.0F) {
+    return;
+  }
+
+  if (IsUniform(Thickness{left, top, right, bottom})) {
+    if (HasRadius(style.cornerRadius)) {
+      builder.StrokeRounded(bounds, style.cornerRadius, left,
+                            *style.borderColor);
+    } else {
+      builder.Stroke(bounds, left, *style.borderColor);
+    }
+    return;
+  }
+
+  if (top > 0.0F) {
+    builder.Fill(Rect{bounds.x, bounds.y, bounds.width, top},
+                 *style.borderColor);
+  }
+  if (bottom > 0.0F) {
+    builder.Fill(
+        Rect{bounds.x, bounds.y + bounds.height - bottom, bounds.width, bottom},
+        *style.borderColor);
+  }
+  const auto sideHeight = std::max(0.0F, bounds.height - top - bottom);
+  if (left > 0.0F && sideHeight > 0.0F) {
+    builder.Fill(Rect{bounds.x, bounds.y + top, left, sideHeight},
+                 *style.borderColor);
+  }
+  if (right > 0.0F && sideHeight > 0.0F) {
+    builder.Fill(Rect{bounds.x + bounds.width - right, bounds.y + top, right,
+                      sideHeight},
+                 *style.borderColor);
+  }
+}
+
+[[nodiscard]] auto PaintVisual(const RuntimeNode &node,
+                               DisplayListBuilder &builder) -> VisualStyle {
+  const auto state = VisualStateFor(node);
+  auto style = ResolveVisualStyle(node.properties.visual, state);
+  if (!style.background && node.properties.paintsBackground) {
+    style.background = node.properties.background;
+  }
+
+  const auto bounds = node.arrangedBounds;
+  const auto hasBounds = bounds.width > 0.0F && bounds.height > 0.0F;
+  if (!hasBounds) {
+    return style;
+  }
+
+  const auto &focus = node.properties.visual.focus;
+  if (HasVisualState(state, VisualStateFlags::Focused) && focus.enabled &&
+      focus.color && focus.thickness > 0.0F) {
+    const auto offset = std::max(0.0F, focus.offset);
+    const Rect focusBounds{
+        bounds.x - offset,
+        bounds.y - offset,
+        bounds.width + offset * 2.0F,
+        bounds.height + offset * 2.0F,
+    };
+    if (HasRadius(focus.cornerRadius)) {
+      builder.StrokeRounded(focusBounds, focus.cornerRadius, focus.thickness,
+                            *focus.color);
+    } else {
+      builder.Stroke(focusBounds, focus.thickness, *focus.color);
+    }
+  }
+
+  if (style.background) {
+    if (HasRadius(style.cornerRadius)) {
+      builder.FillRounded(bounds, style.cornerRadius, *style.background);
+    } else {
+      builder.Fill(bounds, *style.background);
+    }
+  }
+  PaintBorder(builder, bounds, style);
+  return style;
+}
+
 void PaintNode(const RuntimeTree &tree, const ElementHandle handle,
                DisplayListBuilder &builder,
                const ElementHandle popupRoot = {}) {
@@ -103,10 +230,7 @@ void PaintNode(const RuntimeTree &tree, const ElementHandle handle,
       (node->type == ElementType::Popup && handle != popupRoot)) {
     return;
   }
-  if (node->properties.paintsBackground && node->arrangedBounds.width > 0.0F &&
-      node->arrangedBounds.height > 0.0F) {
-    builder.Fill(node->arrangedBounds, node->properties.background);
-  }
+  const auto visual = PaintVisual(*node, builder);
   const auto paintsText = (node->type == ElementType::Text ||
                            node->type == ElementType::TextField) &&
                           node->text.valid;
@@ -133,7 +257,7 @@ void PaintNode(const RuntimeTree &tree, const ElementHandle handle,
         glyph.destination.y += originY;
       }
       builder.Glyphs(run.texture, std::move(glyphs),
-                     node->properties.text.color);
+                     visual.foreground.value_or(node->properties.text.color));
     }
     if (node->type == ElementType::TextField) {
       for (auto composition : node->text.compositionRects) {

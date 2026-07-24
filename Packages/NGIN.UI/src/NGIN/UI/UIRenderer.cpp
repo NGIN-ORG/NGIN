@@ -233,6 +233,109 @@ void AppendRoundedRect(PreparedRenderPacket &packet, const Rect rect,
   }
   AppendBatch(packet, {}, scissor, firstIndex, perimeterCount * 3);
 }
+
+void AppendRoundedStroke(PreparedRenderPacket &packet, const Rect rect,
+                         const CornerRadius radii, const F32 thickness,
+                         const Transform2D transform, const F32 scaleFactor,
+                         const UInt32 color, const PixelRect scissor) {
+  if (rect.width <= 0.0F || rect.height <= 0.0F || thickness <= 0.0F ||
+      scissor.width == 0 || scissor.height == 0) {
+    return;
+  }
+
+  const auto clampedThickness =
+      std::clamp(thickness, 0.0F, std::min(rect.width, rect.height) * 0.5F);
+  if (clampedThickness * 2.0F >= std::min(rect.width, rect.height)) {
+    AppendRoundedRect(packet, rect, radii, transform, scaleFactor, color,
+                      scissor);
+    return;
+  }
+
+  constexpr UIntSize segmentsPerCorner = 6;
+  constexpr F32 halfPi = std::numbers::pi_v<F32> * 0.5F;
+  const auto maximumRadius = std::min(rect.width, rect.height) * 0.5F;
+  const std::array outerRadii{
+      std::clamp(radii.topLeft, 0.0F, maximumRadius),
+      std::clamp(radii.topRight, 0.0F, maximumRadius),
+      std::clamp(radii.bottomRight, 0.0F, maximumRadius),
+      std::clamp(radii.bottomLeft, 0.0F, maximumRadius),
+  };
+  const std::array outerCenters{
+      Point{rect.x + outerRadii[0], rect.y + outerRadii[0]},
+      Point{rect.x + rect.width - outerRadii[1], rect.y + outerRadii[1]},
+      Point{rect.x + rect.width - outerRadii[2],
+            rect.y + rect.height - outerRadii[2]},
+      Point{rect.x + outerRadii[3], rect.y + rect.height - outerRadii[3]},
+  };
+  const Rect innerRect{
+      rect.x + clampedThickness,
+      rect.y + clampedThickness,
+      rect.width - clampedThickness * 2.0F,
+      rect.height - clampedThickness * 2.0F,
+  };
+  const std::array innerRadii{
+      std::max(0.0F, outerRadii[0] - clampedThickness),
+      std::max(0.0F, outerRadii[1] - clampedThickness),
+      std::max(0.0F, outerRadii[2] - clampedThickness),
+      std::max(0.0F, outerRadii[3] - clampedThickness),
+  };
+  const std::array innerCenters{
+      Point{innerRect.x + innerRadii[0], innerRect.y + innerRadii[0]},
+      Point{innerRect.x + innerRect.width - innerRadii[1],
+            innerRect.y + innerRadii[1]},
+      Point{innerRect.x + innerRect.width - innerRadii[2],
+            innerRect.y + innerRect.height - innerRadii[2]},
+      Point{innerRect.x + innerRadii[3],
+            innerRect.y + innerRect.height - innerRadii[3]},
+  };
+  const std::array startAngles{
+      std::numbers::pi_v<F32>,
+      -halfPi,
+      0.0F,
+      halfPi,
+  };
+
+  const auto firstVertex = static_cast<UInt32>(packet.vertices.size());
+  const auto firstIndex = static_cast<UInt32>(packet.indices.size());
+  for (UIntSize corner = 0; corner < outerCenters.size(); ++corner) {
+    for (UIntSize segment = 0; segment <= segmentsPerCorner; ++segment) {
+      const auto angle =
+          startAngles[corner] + halfPi * static_cast<F32>(segment) /
+                                    static_cast<F32>(segmentsPerCorner);
+      for (UIntSize edge = 0; edge < 2; ++edge) {
+        const auto center =
+            edge == 0 ? outerCenters[corner] : innerCenters[corner];
+        const auto radius = edge == 0 ? outerRadii[corner] : innerRadii[corner];
+        const auto point = TransformPoint(
+            Point{
+                center.x + std::cos(angle) * radius,
+                center.y + std::sin(angle) * radius,
+            },
+            transform);
+        packet.vertices.push_back(RenderVertex{
+            point.x * scaleFactor,
+            point.y * scaleFactor,
+            0.0F,
+            0.0F,
+            color,
+        });
+      }
+    }
+  }
+
+  constexpr UInt32 perimeterCount =
+      static_cast<UInt32>(4 * (segmentsPerCorner + 1));
+  for (UInt32 index = 0; index < perimeterCount; ++index) {
+    const auto next = (index + 1) % perimeterCount;
+    const auto outer = firstVertex + index * 2;
+    const auto inner = outer + 1;
+    const auto nextOuter = firstVertex + next * 2;
+    const auto nextInner = nextOuter + 1;
+    packet.indices.insert(packet.indices.end(), {outer, nextOuter, nextInner,
+                                                 outer, nextInner, inner});
+  }
+  AppendBatch(packet, {}, scissor, firstIndex, perimeterCount * 6);
+}
 } // namespace
 
 auto UIRenderer::Build(const DisplayList &displayList,
@@ -309,6 +412,12 @@ auto UIRenderer::Build(const DisplayList &displayList,
                             value.rect.y + thickness, thickness,
                             value.rect.height - thickness * 2.0F},
                        transforms.back(), effectiveScale, color, scissor);
+          } else if constexpr (std::is_same_v<Command, StrokeRoundedRect>) {
+            AppendRoundedStroke(
+                packet, value.rect, value.radius, value.thickness,
+                transforms.back(), effectiveScale,
+                PackColor(value.color, opacities.back()),
+                ToScissor(clips.back(), effectiveScale, targetSize));
           } else if constexpr (std::is_same_v<Command, DrawImage>) {
             if (value.texture) {
               AppendQuad(packet, value.destination, transforms.back(),

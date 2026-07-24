@@ -43,6 +43,13 @@ struct StrokeRect final {
   Color color{};
 };
 
+struct StrokeRoundedRect final {
+  Rect rect{};
+  CornerRadius radius{};
+  F32 thickness{1.0F};
+  Color color{};
+};
+
 struct DrawImage final {
   TextureHandle texture{};
   Rect destination{};
@@ -63,8 +70,8 @@ struct EndOpacityLayer final {};
 
 using DisplayCommand =
     std::variant<PushClipRect, PopClip, PushTransform, PopTransform, FillRect,
-                 FillRoundedRect, StrokeRect, DrawImage, DrawGlyphRun,
-                 BeginOpacityLayer, EndOpacityLayer>;
+                 FillRoundedRect, StrokeRect, StrokeRoundedRect, DrawImage,
+                 DrawGlyphRun, BeginOpacityLayer, EndOpacityLayer>;
 
 using DisplayList = std::vector<DisplayCommand>;
 
@@ -77,6 +84,8 @@ public:
   void Fill(Rect rect, Color color);
   void FillRounded(Rect rect, CornerRadius radius, Color color);
   void Stroke(Rect rect, F32 thickness, Color color);
+  void StrokeRounded(Rect rect, CornerRadius radius, F32 thickness,
+                     Color color);
   void Image(TextureHandle texture, Rect destination,
              Color tint = Color{1.0F, 1.0F, 1.0F, 1.0F});
   void Glyphs(TextureHandle atlas, std::vector<GlyphQuad> glyphs, Color color);
