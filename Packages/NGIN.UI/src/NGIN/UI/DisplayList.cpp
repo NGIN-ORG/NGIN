@@ -107,16 +107,25 @@ void PaintNode(const RuntimeTree &tree, const ElementHandle handle,
       node->arrangedBounds.height > 0.0F) {
     builder.Fill(node->arrangedBounds, node->properties.background);
   }
-  const auto clipsText =
-      node->type == ElementType::Text && node->properties.text.clip;
+  const auto paintsText = (node->type == ElementType::Text ||
+                           node->type == ElementType::TextField) &&
+                          node->text.valid;
+  const auto clipsText = paintsText && node->properties.text.clip;
   if (clipsText) {
     builder.PushClip(node->arrangedBounds);
   }
-  if (node->type == ElementType::Text && node->text.valid) {
+  if (paintsText) {
     const auto originX =
         node->arrangedBounds.x + node->properties.layout.padding.left;
     const auto originY =
         node->arrangedBounds.y + node->properties.layout.padding.top;
+    if (node->type == ElementType::TextField) {
+      for (auto selection : node->text.selectionRects) {
+        selection.x += originX;
+        selection.y += originY;
+        builder.Fill(selection, node->properties.textField.selectionColor);
+      }
+    }
     for (const auto &run : node->text.glyphRuns) {
       auto glyphs = run.glyphs;
       for (auto &glyph : glyphs) {
@@ -125,6 +134,23 @@ void PaintNode(const RuntimeTree &tree, const ElementHandle handle,
       }
       builder.Glyphs(run.texture, std::move(glyphs),
                      node->properties.text.color);
+    }
+    if (node->type == ElementType::TextField) {
+      for (auto composition : node->text.compositionRects) {
+        composition.x += originX;
+        composition.y += originY + composition.height -
+                         std::max(1.0F, node->properties.textField.caretWidth);
+        composition.height =
+            std::max(1.0F, node->properties.textField.caretWidth);
+        builder.Fill(composition, node->properties.textField.compositionColor);
+      }
+      if (node->interaction.focused && node->text.hasCaret) {
+        auto caret = node->text.caretRect;
+        caret.x += originX;
+        caret.y += originY;
+        caret.width = std::max(1.0F, node->properties.textField.caretWidth);
+        builder.Fill(caret, node->properties.textField.caretColor);
+      }
     }
   }
   if (clipsText) {

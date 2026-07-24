@@ -122,6 +122,11 @@ auto TextEditingBuffer::HasComposition() const noexcept -> bool {
   return m_compositionActive;
 }
 
+auto TextEditingBuffer::ByteOffsetForCluster(
+    const UIntSize cluster) const noexcept -> UIntSize {
+  return ByteOffset(cluster);
+}
+
 auto TextEditingBuffer::Reset(NGIN::Text::String value) -> UIResult<void> {
   auto clusters = SegmentAndValidate(value);
   if (!clusters) {

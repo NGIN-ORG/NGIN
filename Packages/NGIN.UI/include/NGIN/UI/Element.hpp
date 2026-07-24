@@ -98,6 +98,10 @@ struct TextFieldProperties final {
   Binding<NGIN::Text::String> value{};
   IGraphemeSegmenter *graphemeSegmenter{nullptr};
   NGIN::Utilities::Callable<void(const UIError &)> onError{};
+  Color selectionColor{0.2F, 0.45F, 0.85F, 0.45F};
+  Color caretColor{1.0F, 1.0F, 1.0F, 1.0F};
+  Color compositionColor{0.4F, 0.7F, 1.0F, 1.0F};
+  F32 caretWidth{1.0F};
   bool readOnly{false};
   bool password{false};
 };
@@ -114,6 +118,7 @@ struct TextElementProperties final {
   TextWrapping wrapping{TextWrapping::Wrap};
   Color color{1.0F, 1.0F, 1.0F, 1.0F};
   ITextLayout *layout{nullptr};
+  ITextGeometry *geometry{nullptr};
   IGlyphAtlas *glyphAtlas{nullptr};
   NGIN::Utilities::Callable<void(const UIError &)> onError{};
   bool clip{true};

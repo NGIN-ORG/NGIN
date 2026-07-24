@@ -147,6 +147,19 @@ public:
       -> UIResult<ParagraphLayout> = 0;
 };
 
+class ITextGeometry {
+public:
+  virtual ~ITextGeometry() = default;
+
+  [[nodiscard]] virtual auto CaretRect(const ParagraphLayout &paragraph,
+                                       UIntSize byteOffset) noexcept
+      -> UIResult<Rect> = 0;
+  [[nodiscard]] virtual auto RangeRects(const ParagraphLayout &paragraph,
+                                        UIntSize byteOffset,
+                                        UIntSize byteLength) noexcept
+      -> UIResult<std::vector<Rect>> = 0;
+};
+
 class IGraphemeSegmenter {
 public:
   virtual ~IGraphemeSegmenter() = default;

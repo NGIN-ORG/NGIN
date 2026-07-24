@@ -5,6 +5,7 @@
 #include <NGIN/UI/DisplayList.hpp>
 #include <NGIN/UI/Layout.hpp>
 #include <NGIN/UI/Semantics.hpp>
+#include <NGIN/UI/State.hpp>
 #include <NGIN/UI/UIRenderer.hpp>
 
 #include <array>
@@ -91,6 +92,48 @@ public:
   }
 
   std::vector<NGIN::UI::GlyphAtlasRequest> requests{};
+};
+
+class AsciiGraphemeSegmenter final : public NGIN::UI::IGraphemeSegmenter {
+public:
+  auto Segment(const NGIN::Text::String &text) noexcept
+      -> NGIN::UI::UIResult<std::vector<NGIN::UI::GraphemeCluster>> override {
+    std::vector<NGIN::UI::GraphemeCluster> clusters;
+    for (NGIN::UIntSize offset = 0; offset < text.Size(); ++offset) {
+      clusters.push_back({.byteOffset = offset, .byteLength = 1});
+    }
+    return clusters;
+  }
+};
+
+class FixedTextGeometry final : public NGIN::UI::ITextGeometry {
+public:
+  struct RangeRequest final {
+    NGIN::UIntSize byteOffset{0};
+    NGIN::UIntSize byteLength{0};
+  };
+
+  auto CaretRect(const NGIN::UI::ParagraphLayout &,
+                 const NGIN::UIntSize byteOffset) noexcept
+      -> NGIN::UI::UIResult<NGIN::UI::Rect> override {
+    caretByteOffset = byteOffset;
+    return NGIN::UI::Rect{static_cast<NGIN::F32>(byteOffset * 2), 1.0F, 1.0F,
+                          8.0F};
+  }
+
+  auto RangeRects(const NGIN::UI::ParagraphLayout &,
+                  const NGIN::UIntSize byteOffset,
+                  const NGIN::UIntSize byteLength) noexcept
+      -> NGIN::UI::UIResult<std::vector<NGIN::UI::Rect>> override {
+    ranges.push_back({byteOffset, byteLength});
+    return std::vector{
+        NGIN::UI::Rect{static_cast<NGIN::F32>(byteOffset * 2), 1.0F,
+                       static_cast<NGIN::F32>(byteLength * 3), 8.0F},
+    };
+  }
+
+  NGIN::UIntSize caretByteOffset{0};
+  std::vector<RangeRequest> ranges{};
 };
 } // namespace
 
@@ -341,6 +384,97 @@ TEST_CASE("text element measures and paints shaped atlas glyphs") {
   REQUIRE(semantic != nullptr);
   REQUIRE(semantic->role == SemanticRole::Text);
   REQUIRE(semantic->value == NGIN::Text::String{"Hi"});
+}
+
+TEST_CASE("text field paints shaped selection composition and caret geometry") {
+  using namespace NGIN::UI;
+
+  FixedTextLayout textLayout;
+  FixedGlyphAtlas glyphAtlas;
+  FixedTextGeometry geometry;
+  AsciiGraphemeSegmenter segmenter;
+  State<NGIN::Text::String> value{NGIN::Text::String{"Hi"}};
+  NodeProperties properties{};
+  properties.layout.padding = Thickness::Uniform(Dp{1.0F});
+  properties.layout.horizontalAlignment = HorizontalAlignment::Start;
+  properties.layout.verticalAlignment = VerticalAlignment::Start;
+  properties.text.layout = &textLayout;
+  properties.text.geometry = &geometry;
+  properties.text.glyphAtlas = &glyphAtlas;
+  properties.text.fontSize = 16.0F;
+  properties.textField.caretWidth = 2.0F;
+
+  Composer composer;
+  composer.TextField(Bind(value), segmenter, properties);
+  RuntimeTree tree;
+  Reconciler reconciler{tree};
+  static_cast<void>(reconciler.Reconcile(composer.Declarations()));
+  const auto textFieldHandle = tree.Get(tree.Root())->children.front();
+  auto *textField = tree.Get(textFieldHandle);
+  REQUIRE(textField->textField.editing != nullptr);
+  REQUIRE(textField->textField.editing
+              ->UpdateComposition(NGIN::Text::String{"XY"}, 0, 1)
+              .HasValue());
+  textField->interaction.focused = true;
+
+  LayoutEngine layout{tree};
+  const auto measured =
+      layout.Measure(textFieldHandle, SizeConstraints{
+                                          .maximum = Size{50.0F, 20.0F},
+                                      });
+  REQUIRE(measured == Size{20.0F, 10.0F});
+  REQUIRE(textLayout.text == NGIN::Text::String{"HiXY"});
+  REQUIRE(geometry.ranges.size() == 2);
+  REQUIRE(geometry.ranges[0].byteOffset == 2);
+  REQUIRE(geometry.ranges[0].byteLength == 1);
+  REQUIRE(geometry.ranges[1].byteOffset == 2);
+  REQUIRE(geometry.ranges[1].byteLength == 2);
+  REQUIRE(geometry.caretByteOffset == 3);
+
+  layout.Arrange(textFieldHandle, Rect{10.0F, 20.0F, 20.0F, 10.0F});
+  const auto displayList = BuildDisplayList(tree);
+  REQUIRE(displayList.size() == 6);
+  REQUIRE(std::holds_alternative<PushClipRect>(displayList[0]));
+  const auto &selection = std::get<FillRect>(displayList[1]);
+  REQUIRE(selection.rect == Rect{15.0F, 22.0F, 3.0F, 8.0F});
+  REQUIRE(selection.color == properties.textField.selectionColor);
+  REQUIRE(std::holds_alternative<DrawGlyphRun>(displayList[2]));
+  const auto &composition = std::get<FillRect>(displayList[3]);
+  REQUIRE(composition.rect == Rect{15.0F, 28.0F, 6.0F, 2.0F});
+  REQUIRE(composition.color == properties.textField.compositionColor);
+  const auto &caret = std::get<FillRect>(displayList[4]);
+  REQUIRE(caret.rect == Rect{17.0F, 22.0F, 2.0F, 8.0F});
+  REQUIRE(caret.color == properties.textField.caretColor);
+  REQUIRE(std::holds_alternative<PopClip>(displayList[5]));
+}
+
+TEST_CASE("password text field shapes a grapheme-count mask") {
+  using namespace NGIN::UI;
+
+  FixedTextLayout textLayout;
+  FixedGlyphAtlas glyphAtlas;
+  AsciiGraphemeSegmenter segmenter;
+  State<NGIN::Text::String> value{NGIN::Text::String{"secret"}};
+  NodeProperties properties{};
+  properties.text.layout = &textLayout;
+  properties.text.glyphAtlas = &glyphAtlas;
+  properties.textField.password = true;
+
+  Composer composer;
+  composer.TextField(Bind(value), segmenter, properties);
+  RuntimeTree tree;
+  Reconciler reconciler{tree};
+  static_cast<void>(reconciler.Reconcile(composer.Declarations()));
+  const auto textFieldHandle = tree.Get(tree.Root())->children.front();
+
+  LayoutEngine layout{tree};
+  static_cast<void>(
+      layout.Measure(textFieldHandle, SizeConstraints{
+                                          .maximum = Size{100.0F, 20.0F},
+                                      }));
+  REQUIRE(textLayout.text ==
+          NGIN::Text::String{"\xE2\x80\xA2\xE2\x80\xA2\xE2\x80\xA2"
+                             "\xE2\x80\xA2\xE2\x80\xA2\xE2\x80\xA2"});
 }
 
 TEST_CASE("display-list builder diagnoses unbalanced scopes") {

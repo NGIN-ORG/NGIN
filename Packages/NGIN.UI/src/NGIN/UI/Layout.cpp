@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <utility>
 
 namespace NGIN::UI {
 namespace {
@@ -46,6 +47,37 @@ namespace {
   default:
     return 0.0F;
   }
+}
+
+[[nodiscard]] auto TextFieldDisplayValue(const RuntimeNode &node)
+    -> NGIN::Text::String {
+  if (!node.textField.editing) {
+    return {};
+  }
+  const auto &editing = *node.textField.editing;
+  if (!node.properties.textField.password || editing.State().revealPassword) {
+    return editing.Value();
+  }
+
+  NGIN::Text::String masked;
+  constexpr auto bullet = "\xE2\x80\xA2";
+  for (UIntSize index = 0; index < editing.Clusters().size(); ++index) {
+    masked.Append(bullet);
+  }
+  return masked;
+}
+
+[[nodiscard]] auto PresentedByteOffset(const RuntimeNode &node,
+                                       const UIntSize cluster) noexcept
+    -> UIntSize {
+  if (!node.textField.editing) {
+    return 0;
+  }
+  if (node.properties.textField.password &&
+      !node.textField.editing->State().revealPassword) {
+    return cluster * 3;
+  }
+  return node.textField.editing->ByteOffsetForCluster(cluster);
 }
 } // namespace
 
@@ -99,7 +131,15 @@ auto LayoutEngine::Measure(const ElementHandle handle,
 auto LayoutEngine::MeasureLeaf(RuntimeNode &node,
                                const SizeConstraints constraints) -> Size {
   if (node.type == ElementType::Text) {
-    return MeasureText(node, constraints);
+    return MeasureText(node, constraints, node.properties.text.value);
+  }
+  if (node.type == ElementType::TextField) {
+    if (node.textField.editing &&
+        (node.properties.text.layout != nullptr ||
+         node.properties.text.glyphAtlas != nullptr)) {
+      return MeasureText(node, constraints, TextFieldDisplayValue(node));
+    }
+    node.text = {};
   }
   return constraints.Constrain(Size{
       std::max(node.properties.layout.preferredSize.width,
@@ -110,11 +150,16 @@ auto LayoutEngine::MeasureLeaf(RuntimeNode &node,
 }
 
 auto LayoutEngine::MeasureText(RuntimeNode &node,
-                               const SizeConstraints constraints) -> Size {
+                               const SizeConstraints constraints,
+                               const NGIN::Text::String &value) -> Size {
   const auto &properties = node.properties.text;
-  const auto report = [&properties](const UIError &error) {
+  const auto report = [&node, &properties](const UIError &error) {
     if (properties.onError) {
       properties.onError(error);
+    }
+    if (node.type == ElementType::TextField &&
+        node.properties.textField.onError) {
+      node.properties.textField.onError(error);
     }
   };
   node.text = {};
@@ -137,7 +182,7 @@ auto LayoutEngine::MeasureText(RuntimeNode &node,
       .runs =
           {
               TextRun{
-                  .text = properties.value,
+                  .text = value,
                   .font = properties.font,
                   .fontSize = properties.fontSize,
                   .direction = properties.direction,
@@ -211,6 +256,42 @@ auto LayoutEngine::MeasureText(RuntimeNode &node,
     node.text.glyphRuns.clear();
   }
   node.text.valid = glyphsValid;
+  if (node.type == ElementType::TextField && node.textField.editing &&
+      properties.geometry != nullptr) {
+    const auto &state = node.textField.editing->State();
+    if (!state.selection.Empty()) {
+      auto selectionRects = properties.geometry->RangeRects(
+          node.text.paragraph, PresentedByteOffset(node, state.selection.start),
+          PresentedByteOffset(node, state.selection.End()) -
+              PresentedByteOffset(node, state.selection.start));
+      if (selectionRects) {
+        node.text.selectionRects = std::move(selectionRects).Value();
+      } else {
+        report(selectionRects.Error());
+      }
+    }
+    if (node.textField.editing->HasComposition() &&
+        !state.composition.Empty()) {
+      auto compositionRects = properties.geometry->RangeRects(
+          node.text.paragraph,
+          PresentedByteOffset(node, state.composition.start),
+          PresentedByteOffset(node, state.composition.End()) -
+              PresentedByteOffset(node, state.composition.start));
+      if (compositionRects) {
+        node.text.compositionRects = std::move(compositionRects).Value();
+      } else {
+        report(compositionRects.Error());
+      }
+    }
+    auto caret = properties.geometry->CaretRect(
+        node.text.paragraph, PresentedByteOffset(node, state.caretCluster));
+    if (caret) {
+      node.text.caretRect = std::move(caret).Value();
+      node.text.hasCaret = true;
+    } else {
+      report(caret.Error());
+    }
+  }
 
   return constraints.Constrain(Size{
       std::max(node.properties.layout.preferredSize.width,

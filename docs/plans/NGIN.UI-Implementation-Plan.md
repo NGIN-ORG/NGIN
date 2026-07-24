@@ -16,21 +16,21 @@ Target language: C++23
   and renderer lowering. An injectable glyph-atlas contract and semantic
   `Text` element now provide constraint-aware measurement, clipping, and
   DPI-aware shaped-glyph painting. Concrete shaping, rasterization, font
-  assets, and atlas management remain dependency-gated.
+  assets, and atlas management are approved and remain to be implemented.
 - Slice 5 is complete for the backend-neutral headless scope. Its SDL smoke
   criterion remains gated on Slice 1.
 - Slice 6 state/binding foundations, keyboard/text/IME event routing, and the
   transactional grapheme-indexed UTF-8 editing buffer are complete. The
   retained semantic `TextField` supports binding validation, keyboard/text
   editing, clipboard commands, transient IME composition, platform text-input
-  lifecycle, and password-value privacy. Shaped text presentation remains
-  coupled to Slice 4.
+  lifecycle, and password-value privacy. It now shares the shaped-text pipeline
+  and paints injected bidi-safe selection, composition, and caret geometry.
 - Slice 7 is complete for the backend-neutral scope: theme/resource scopes,
   semantic trees, multiple windows, retained scrolling, platform-owned dialog
   foundations, in-window popups, frame timings, inspector snapshots, and
   debugging overlays. A text-rendered inspector panel remains coupled to
   Slice 4.
-- Slice 1 is dependency-gated; no SDL3 dependency has been introduced.
+- Slice 1 dependencies are approved; implementation is next.
 - The remaining work in Slice 4, plus Slice 8, remains planned.
 
 ## Product Boundary
@@ -104,8 +104,9 @@ Deliver:
 
 Dependency gate:
 
-The workspace needs explicit SDL3 package/provider and license decisions before
-this slice can be built portably. No SDL2 compatibility path will be added.
+SDL3 and SDL_GPU integration was approved on 2026-07-24. The implementation
+must record the selected provider and license metadata. No SDL2 compatibility
+path will be added.
 
 ### Slice 2 — Runtime tree and explicit composer
 
@@ -139,8 +140,11 @@ The backend-neutral font, shaping, paragraph-layout, grapheme-segmentation, and
 glyph-atlas contracts are implemented, as is the atlas-backed glyph-run
 display command and its renderer lowering. The semantic `Text` element measures
 through an injected paragraph service and paints resolved atlas glyphs with
-clipping and DPI-aware requests. The concrete dependencies and services
-described below remain gated.
+clipping and DPI-aware requests. `TextField` reuses the same pipeline and
+injected bidi-safe geometry for selection, IME composition underlines, and the
+caret. Password presentation shapes only a grapheme-count mask. The concrete
+dependencies and services described below are approved and remain to be
+implemented.
 
 Deliver:
 
@@ -153,8 +157,9 @@ Deliver:
 
 Dependency gate:
 
-HarfBuzz, FreeType, bundled-font licensing, and package-provider choices must be
-recorded before integration.
+HarfBuzz, FreeType, and a bundled OFL-licensed font were approved on
+2026-07-24. Their selected providers and exact license metadata must be recorded
+during integration.
 
 ### Slice 5 — Input and button
 
@@ -178,8 +183,9 @@ keyboard/text editing, clipboard shortcuts, selection retention, and
 password-value privacy. Transient IME composition is isolated from application
 state until commit, validation failure restores the editing session, and focus
 coordinates platform text-input start/stop with a DPI-aware candidate
-rectangle. Shaped visual presentation remains coupled to concrete Slice 4 text
-services.
+rectangle. Visual presentation reuses injected shaped-text services and
+bidi-safe geometry to paint selection, IME composition, and the caret; password
+fields shape only a grapheme-count mask.
 
 Deliver:
 

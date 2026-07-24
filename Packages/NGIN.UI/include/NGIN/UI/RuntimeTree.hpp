@@ -39,6 +39,10 @@ struct TextGlyphRun final {
 struct TextRuntimeState final {
   ParagraphLayout paragraph{};
   std::vector<TextGlyphRun> glyphRuns{};
+  std::vector<Rect> selectionRects{};
+  std::vector<Rect> compositionRects{};
+  Rect caretRect{};
+  bool hasCaret{false};
   bool valid{false};
 };
 

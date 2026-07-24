@@ -70,6 +70,7 @@ TEST_CASE("text contracts preserve shaping and grapheme cluster metadata") {
   STATIC_REQUIRE(std::is_abstract_v<IFontProvider>);
   STATIC_REQUIRE(std::is_abstract_v<ITextShaper>);
   STATIC_REQUIRE(std::is_abstract_v<ITextLayout>);
+  STATIC_REQUIRE(std::is_abstract_v<ITextGeometry>);
   STATIC_REQUIRE(std::is_abstract_v<IGraphemeSegmenter>);
   STATIC_REQUIRE(std::is_abstract_v<IGlyphAtlas>);
 

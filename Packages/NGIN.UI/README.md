@@ -49,6 +49,8 @@ foundation:
 - retained semantic `TextField` sessions with binding validation, routed
   keyboard/text input, clipboard shortcuts, transient IME composition, and
   password-value privacy;
+- shaped `TextField` presentation with injected bidi-safe selection,
+  composition, and caret geometry plus grapheme-count password masking;
 - platform IME start/stop coordination with DPI-aware candidate rectangles;
 - immutable/revisioned theme values and hierarchical typed resource scopes;
 - a render-tree-independent semantic tree with stable element ownership;

@@ -42,6 +42,8 @@ public:
       -> const std::vector<GraphemeCluster> &;
   [[nodiscard]] auto SelectedText() const -> NGIN::Text::String;
   [[nodiscard]] auto HasComposition() const noexcept -> bool;
+  [[nodiscard]] auto ByteOffsetForCluster(UIntSize cluster) const noexcept
+      -> UIntSize;
 
   auto Reset(NGIN::Text::String value) -> UIResult<void>;
   auto SetSelection(TextRange selection) -> UIResult<void>;
