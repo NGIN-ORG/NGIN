@@ -42,6 +42,8 @@ public:
   void Leaf(ElementType type, std::string_view key = {});
   void Leaf(ElementType type, const NodeProperties &properties,
             std::string_view key = {});
+  void Button(NGIN::Utilities::Callable<void()> onActivate,
+              const NodeProperties &properties = {}, std::string_view key = {});
 
   template <typename ComposeChildren>
   void Element(ElementType type, ComposeChildren &&composeChildren,

@@ -42,6 +42,7 @@ add_executable(NGINUITests
     ApplicationTests.cpp
     CompositionTests.cpp
     ContractTests.cpp
+    InputTests.cpp
     LayoutTests.cpp
 )
 target_compile_features(NGINUITests PRIVATE cxx_std_23)

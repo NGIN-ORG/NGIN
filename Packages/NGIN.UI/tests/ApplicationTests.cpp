@@ -223,3 +223,61 @@ TEST_CASE("window frames lay out painted nodes into renderer packets") {
   REQUIRE(rectangle != nullptr);
   REQUIRE(rectangle->arrangedBounds == Rect{75.0F, 40.0F, 50.0F, 20.0F});
 }
+
+TEST_CASE("window routes injected pointer input to a semantic button") {
+  using namespace NGIN::UI;
+  using namespace NGIN::UI::Testing;
+
+  auto platform = std::make_unique<TestPlatformBackend>();
+  auto *platformObserver = platform.get();
+  auto createdApplication = CreateApplication(ApplicationCreateInfo{
+      .platform = std::move(platform),
+      .renderer = std::make_unique<RecordingRenderBackend>(),
+  });
+  REQUIRE(createdApplication.HasValue());
+  auto application = std::move(createdApplication).Value();
+
+  auto createdWindow = application->CreateWindow(WindowCreateInfo{
+      .id = NGIN::Text::String{"Input"},
+      .title = NGIN::Text::String{"Input"},
+      .initialSize = PixelSize{200, 100},
+  });
+  REQUIRE(createdWindow.HasValue());
+  auto *window = createdWindow.Value();
+
+  NGIN::UIntSize activations = 0;
+  window->SetContent([&](Composer &composer) {
+    NodeProperties properties{};
+    properties.layout.preferredSize = Size{100.0F, 40.0F};
+    properties.layout.horizontalAlignment = HorizontalAlignment::Start;
+    properties.layout.verticalAlignment = VerticalAlignment::Start;
+    composer.Button([&] { ++activations; }, properties, "activate");
+  });
+  REQUIRE(application->PumpOnce().HasValue());
+
+  const auto button = window->HitTest(Point{20.0F, 20.0F});
+  REQUIRE(button);
+
+  platformObserver->InjectEvent(PointerButtonChanged{
+      .window = window->PlatformHandle(),
+      .pointerId = 1,
+      .kind = PointerKind::Mouse,
+      .button = PointerButton::Primary,
+      .state = ButtonState::Pressed,
+      .position = Point{20.0F, 20.0F},
+  });
+  platformObserver->InjectEvent(PointerButtonChanged{
+      .window = window->PlatformHandle(),
+      .pointerId = 1,
+      .kind = PointerKind::Mouse,
+      .button = PointerButton::Primary,
+      .state = ButtonState::Released,
+      .position = Point{20.0F, 20.0F},
+  });
+
+  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(activations == 1);
+  REQUIRE(window->FocusedElement() == button);
+  REQUIRE_FALSE(window->CapturedElement(1));
+  REQUIRE(window->Tree().Get(button)->interaction.focused);
+}

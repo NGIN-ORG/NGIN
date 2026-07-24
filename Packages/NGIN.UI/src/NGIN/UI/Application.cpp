@@ -6,7 +6,7 @@
 
 namespace NGIN::UI {
 struct Window::Implementation final {
-  Implementation() : reconciler(tree), layoutEngine(tree) {}
+  Implementation() : reconciler(tree), layoutEngine(tree), inputRouter(tree) {}
 
   WindowCreateInfo info{};
   PlatformWindowHandle platformHandle{};
@@ -18,6 +18,7 @@ struct Window::Implementation final {
   RuntimeTree tree{};
   Reconciler reconciler;
   LayoutEngine layoutEngine;
+  InputRouter inputRouter;
   UIRenderer uiRenderer{};
   ReconcileStats lastReconcileStats{};
   LayoutPassStats lastLayoutStats{};
@@ -88,6 +89,19 @@ auto Window::LastLayoutStats() const noexcept -> const LayoutPassStats & {
 
 auto Window::DisplayCommandCount() const noexcept -> UIntSize {
   return m_implementation->displayList.size();
+}
+
+auto Window::HitTest(const Point position) const noexcept -> ElementHandle {
+  return m_implementation->inputRouter.HitTest(position);
+}
+
+auto Window::FocusedElement() const noexcept -> ElementHandle {
+  return m_implementation->inputRouter.FocusedElement();
+}
+
+auto Window::CapturedElement(const UInt64 pointerId) const noexcept
+    -> ElementHandle {
+  return m_implementation->inputRouter.CapturedElement(pointerId);
 }
 
 void Window::SetEventHandler(EventHandler handler) {
@@ -274,6 +288,13 @@ auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
       window->m_implementation->eventHandler(event);
     }
 
+    const auto inputResult = window->m_implementation->inputRouter.Route(event);
+    if (inputResult.callbackInvoked || inputResult.activated) {
+      window->Invalidate(InvalidationKind::All);
+    } else if (inputResult.visualStateChanged) {
+      window->Invalidate(InvalidationKind::Paint);
+    }
+
     if (const auto *resized = std::get_if<WindowResized>(&event)) {
       if (!resized->size.IsEmpty()) {
         auto resizedSurface = m_implementation->renderer->ResizeSurface(
@@ -293,7 +314,9 @@ auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
                          InvalidationKind::Paint);
     } else if (std::holds_alternative<WindowCloseRequested>(event)) {
       window->m_implementation->closeRequested = true;
-    } else {
+    } else if (!std::holds_alternative<PointerMoved>(event) &&
+               !std::holds_alternative<PointerButtonChanged>(event) &&
+               !std::holds_alternative<WindowFocusChanged>(event)) {
       window->Invalidate();
     }
   }
@@ -326,6 +349,7 @@ auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
       window->m_implementation->lastReconcileStats =
           window->m_implementation->reconciler.Reconcile(
               composer.Declarations());
+      window->m_implementation->inputRouter.Synchronize();
       window->m_implementation->compositionDirty = false;
       window->m_implementation->layoutDirty = true;
       window->m_implementation->paintDirty = true;

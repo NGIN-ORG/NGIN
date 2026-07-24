@@ -8,10 +8,12 @@
 #include <NGIN/UI/Events.hpp>
 #include <NGIN/UI/Geometry.hpp>
 #include <NGIN/UI/Handles.hpp>
+#include <NGIN/UI/Input.hpp>
 #include <NGIN/UI/Invalidation.hpp>
 #include <NGIN/UI/Layout.hpp>
 #include <NGIN/UI/Platform.hpp>
 #include <NGIN/UI/Rendering.hpp>
+#include <NGIN/UI/RoutedEvent.hpp>
 #include <NGIN/UI/RuntimeTree.hpp>
 #include <NGIN/UI/Style.hpp>
 #include <NGIN/UI/UIRenderer.hpp>

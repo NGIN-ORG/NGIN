@@ -9,6 +9,12 @@
 #include <vector>
 
 namespace NGIN::UI {
+struct InteractionState final {
+  bool hovered{false};
+  bool pressed{false};
+  bool focused{false};
+};
+
 struct RuntimeNode final {
   ElementHandle handle{};
   ElementId id{};
@@ -19,6 +25,7 @@ struct RuntimeNode final {
   std::vector<ElementHandle> children{};
   Size measuredSize{};
   Rect arrangedBounds{};
+  InteractionState interaction{};
   UInt64 compositionRevision{0};
   UInt64 layoutRevision{0};
 

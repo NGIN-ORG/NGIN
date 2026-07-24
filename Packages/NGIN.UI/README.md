@@ -22,7 +22,10 @@ foundation:
   alignment;
 - typed node layout and solid-background properties;
 - backend-neutral display-list construction;
-- DPI-aware solid-rectangle tessellation and adjacent-batch coalescing.
+- DPI-aware solid-rectangle tessellation and adjacent-batch coalescing;
+- reverse-paint-order hit testing and capture/target/bubble pointer routing;
+- retained hover, pressed, pointer-capture, and keyboard-focus state;
+- semantic composer buttons with deterministic activation.
 
 Build and test directly:
 

@@ -3,6 +3,7 @@
 #include <NGIN/UI/Composer.hpp>
 #include <NGIN/UI/Error.hpp>
 #include <NGIN/UI/Events.hpp>
+#include <NGIN/UI/Input.hpp>
 #include <NGIN/UI/Invalidation.hpp>
 #include <NGIN/UI/Layout.hpp>
 #include <NGIN/UI/Platform.hpp>
@@ -42,6 +43,10 @@ public:
   [[nodiscard]] auto LastLayoutStats() const noexcept
       -> const LayoutPassStats &;
   [[nodiscard]] auto DisplayCommandCount() const noexcept -> UIntSize;
+  [[nodiscard]] auto HitTest(Point position) const noexcept -> ElementHandle;
+  [[nodiscard]] auto FocusedElement() const noexcept -> ElementHandle;
+  [[nodiscard]] auto CapturedElement(UInt64 pointerId) const noexcept
+      -> ElementHandle;
 
   void SetEventHandler(EventHandler handler);
   void SetContent(Content content);

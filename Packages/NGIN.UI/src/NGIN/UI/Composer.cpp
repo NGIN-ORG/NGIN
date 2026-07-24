@@ -53,6 +53,15 @@ void Composer::Leaf(const ElementType type, const NodeProperties &properties,
   CurrentChildren().emplace_back(type, key, properties);
 }
 
+void Composer::Button(NGIN::Utilities::Callable<void()> onActivate,
+                      const NodeProperties &properties,
+                      const std::string_view key) {
+  auto buttonProperties = properties;
+  buttonProperties.interaction.focusable = true;
+  buttonProperties.interaction.onActivate = std::move(onActivate);
+  Leaf(ElementType::Button, buttonProperties, key);
+}
+
 auto Composer::Declarations() const noexcept
     -> const std::vector<ElementDeclaration> & {
   return m_roots;

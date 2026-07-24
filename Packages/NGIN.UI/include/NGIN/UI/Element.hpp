@@ -3,7 +3,9 @@
 #include <NGIN/Primitives.hpp>
 #include <NGIN/Text/String.hpp>
 #include <NGIN/UI/Geometry.hpp>
+#include <NGIN/UI/RoutedEvent.hpp>
 #include <NGIN/UI/Style.hpp>
+#include <NGIN/Utilities/Callable.hpp>
 
 #include <limits>
 #include <string_view>
@@ -51,8 +53,17 @@ struct LayoutProperties final {
   VerticalAlignment verticalAlignment{VerticalAlignment::Stretch};
 };
 
+struct InteractionProperties final {
+  bool hitTestVisible{true};
+  bool enabled{true};
+  bool focusable{false};
+  NGIN::Utilities::Callable<void(RoutedPointerEvent &)> onPointer{};
+  NGIN::Utilities::Callable<void()> onActivate{};
+};
+
 struct NodeProperties final {
   LayoutProperties layout{};
+  InteractionProperties interaction{};
   Color background{};
   bool paintsBackground{false};
 };
