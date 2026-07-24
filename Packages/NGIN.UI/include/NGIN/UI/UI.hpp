@@ -24,5 +24,6 @@
 #include <NGIN/UI/Style.hpp>
 #include <NGIN/UI/Text.hpp>
 #include <NGIN/UI/TextDirection.hpp>
+#include <NGIN/UI/TextEditing.hpp>
 #include <NGIN/UI/Theme.hpp>
 #include <NGIN/UI/UIRenderer.hpp>

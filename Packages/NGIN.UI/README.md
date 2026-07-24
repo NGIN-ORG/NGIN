@@ -42,6 +42,8 @@ foundation:
   modal focus scopes, and outside-pointer or Escape dismissal;
 - observable `State<T>` with scoped invalidation scheduling;
 - move-only RAII subscriptions and typed, validatable `Binding<T>` adapters;
+- transactional UTF-8 editing with grapheme-indexed caret, selection,
+  replacement, and deletion operations;
 - immutable/revisioned theme values and hierarchical typed resource scopes;
 - a render-tree-independent semantic tree with stable element ownership;
 - per-window structural diagnostics for composition, layout, rendering, focus,
