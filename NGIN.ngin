@@ -13,6 +13,7 @@
     <Project Path="Examples/Hello.Formatter/Hello.Formatter.nginproj" />
     <Project Path="Examples/NGIN.UI.Gallery/NGIN.UI.Gallery.nginproj" />
     <Project Path="Examples/NGIN.UI.Gallery.Hosted/NGIN.UI.Gallery.Hosted.nginproj" />
+    <Project Path="Examples/NGIN.UI.Gallery.Tests/NGIN.UI.Gallery.Tests.nginproj" />
   </Projects>
 
   <Defaults>

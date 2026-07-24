@@ -233,6 +233,41 @@ TEST_CASE("row uses measured widths and vertical alignment") {
           Rect{14.0F, 20.0F, 20.0F, 20.0F});
 }
 
+TEST_CASE("row distributes free space and overflow through flex properties") {
+  using namespace NGIN::UI;
+
+  NodeProperties rowProperties{};
+  rowProperties.layout.gap = 10.0F;
+  ElementDeclaration row{ElementType::Row, "row", rowProperties};
+
+  auto fixed = LeafProperties(40.0F, 20.0F);
+  auto flexible = LeafProperties(100.0F, 20.0F);
+  flexible.layout.flexGrow = 1.0F;
+  flexible.layout.flexShrink = 1.0F;
+  row.children.emplace_back(ElementType::Rectangle, "fixed", fixed);
+  row.children.emplace_back(ElementType::Rectangle, "flexible", flexible);
+
+  RuntimeTree tree;
+  Reconciler reconciler{tree};
+  const std::array declarations{row};
+  static_cast<void>(reconciler.Reconcile(declarations));
+  LayoutEngine layout{tree};
+  static_cast<void>(layout.Perform(
+      SizeConstraints{
+          .minimum = Size{200.0F, 30.0F},
+          .maximum = Size{200.0F, 30.0F},
+      },
+      Rect{0.0F, 0.0F, 200.0F, 30.0F}));
+  const auto *rowNode = Child(tree, tree.Root(), 0);
+
+  REQUIRE(Child(tree, rowNode->handle, 0)->arrangedBounds.width == 40.0F);
+  REQUIRE(Child(tree, rowNode->handle, 1)->arrangedBounds.width == 150.0F);
+
+  layout.Arrange(rowNode->handle, Rect{0.0F, 0.0F, 120.0F, 30.0F});
+  REQUIRE(Child(tree, rowNode->handle, 0)->arrangedBounds.width == 40.0F);
+  REQUIRE(Child(tree, rowNode->handle, 1)->arrangedBounds.width == 70.0F);
+}
+
 TEST_CASE(
     "scroll view measures content unbounded and arranges retained offset") {
   using namespace NGIN::UI;

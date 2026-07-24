@@ -57,6 +57,8 @@ struct LayoutProperties final {
   };
   Thickness padding{};
   F32 gap{0.0F};
+  F32 flexGrow{0.0F};
+  F32 flexShrink{0.0F};
   HorizontalAlignment horizontalAlignment{HorizontalAlignment::Stretch};
   VerticalAlignment verticalAlignment{VerticalAlignment::Stretch};
 };

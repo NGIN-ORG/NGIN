@@ -520,6 +520,34 @@ void LayoutEngine::ArrangeChildren(RuntimeNode &node) {
     return;
   }
 
+  F32 measuredMainAxis = 0.0F;
+  F32 totalGrow = 0.0F;
+  F32 totalShrinkWeight = 0.0F;
+  UIntSize flowChildCount = 0;
+  if (node.type == ElementType::Row || node.type == ElementType::Column) {
+    for (const auto childHandle : node.children) {
+      const auto *child = m_tree.Get(childHandle);
+      if (child == nullptr || child->type == ElementType::Popup) {
+        continue;
+      }
+      ++flowChildCount;
+      const auto basis = node.type == ElementType::Row
+                             ? child->measuredSize.width
+                             : child->measuredSize.height;
+      measuredMainAxis += basis;
+      totalGrow += std::max(0.0F, child->properties.layout.flexGrow);
+      totalShrinkWeight +=
+          basis * std::max(0.0F, child->properties.layout.flexShrink);
+    }
+    if (flowChildCount > 1) {
+      measuredMainAxis +=
+          node.properties.layout.gap * static_cast<F32>(flowChildCount - 1);
+    }
+  }
+  const auto availableMainAxis =
+      node.type == ElementType::Row ? content.width : content.height;
+  const auto remainingMainAxis = availableMainAxis - measuredMainAxis;
+
   for (const auto childHandle : node.children) {
     const auto *child = m_tree.Get(childHandle);
     if (child == nullptr) {
@@ -538,13 +566,39 @@ void LayoutEngine::ArrangeChildren(RuntimeNode &node) {
     F32 y = content.y;
 
     if (node.type == ElementType::Column) {
-      childHeight = child->measuredSize.height;
+      const auto basis = child->measuredSize.height;
+      childHeight = basis;
+      if (remainingMainAxis > 0.0F && totalGrow > 0.0F) {
+        childHeight += remainingMainAxis *
+                       std::max(0.0F, child->properties.layout.flexGrow) /
+                       totalGrow;
+      } else if (remainingMainAxis < 0.0F && totalShrinkWeight > 0.0F) {
+        childHeight += remainingMainAxis * basis *
+                       std::max(0.0F, child->properties.layout.flexShrink) /
+                       totalShrinkWeight;
+      }
+      childHeight = ClampDimension(childHeight,
+                                   child->properties.layout.minimumSize.height,
+                                   child->properties.layout.maximumSize.height);
       y = cursorY;
       x += AlignmentOffset(content.width, childWidth,
                            child->properties.layout.horizontalAlignment);
       cursorY += childHeight + node.properties.layout.gap;
     } else if (node.type == ElementType::Row) {
-      childWidth = child->measuredSize.width;
+      const auto basis = child->measuredSize.width;
+      childWidth = basis;
+      if (remainingMainAxis > 0.0F && totalGrow > 0.0F) {
+        childWidth += remainingMainAxis *
+                      std::max(0.0F, child->properties.layout.flexGrow) /
+                      totalGrow;
+      } else if (remainingMainAxis < 0.0F && totalShrinkWeight > 0.0F) {
+        childWidth += remainingMainAxis * basis *
+                      std::max(0.0F, child->properties.layout.flexShrink) /
+                      totalShrinkWeight;
+      }
+      childWidth =
+          ClampDimension(childWidth, child->properties.layout.minimumSize.width,
+                         child->properties.layout.maximumSize.width);
       x = cursorX;
       y += AlignmentOffset(content.height, childHeight,
                            child->properties.layout.verticalAlignment);

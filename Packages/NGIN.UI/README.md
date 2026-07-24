@@ -19,8 +19,8 @@ The version 0.1 implementation provides:
 - packed generational runtime-node storage;
 - static and keyed reconciliation;
 - independent composition, layout, and paint invalidation;
-- constraint-based measure/arrange for rows, columns, overlays, padding, and
-  alignment;
+- constraint-based measure/arrange for rows, columns, overlays, padding,
+  alignment, and opt-in main-axis flex growth/shrinkage;
 - typed node layout and solid-background properties;
 - backend-neutral display-list construction;
 - DPI-aware rectangle, rounded-rectangle, stroke, and image tessellation;

@@ -1,6 +1,6 @@
 # NGIN.UI Post-v0.1 Roadmap
 
-Status: Active — Milestone 9 complete
+Status: Active — Milestone 10 complete
 Baseline: [`NGIN.UI-V0.1-Acceptance-Audit.md`](NGIN.UI-V0.1-Acceptance-Audit.md)
 
 ## Goal
@@ -21,12 +21,12 @@ keyboard behavior, semantics, and the public code needed to compose it.
 | Text and Unicode shaping | Yes | Yes |
 | Button | Yes | Yes |
 | Single-line `TextField` | Yes | Yes |
-| Row, column, overlay, padding, and alignment | Yes | Partially |
-| Scroll view | Yes | No |
-| Popup | Yes | No |
-| Dialog and multiple windows | Yes | No |
-| Themes and resource scopes | Yes | No |
-| Semantics and inspector overlays | Yes | No |
+| Row, column, overlay, padding, and alignment | Yes | Yes |
+| Scroll view | Yes | Yes |
+| Popup | Yes | Yes |
+| Dialog and multiple windows | Yes | Yes |
+| Themes and resource scopes | Yes | Yes |
+| Semantics and inspector overlays | Yes | Yes |
 | Border and rounded control chrome | Yes | Yes |
 | Checkbox, radio, toggle, slider, and progress controls | No | No |
 | Lists, selection, combo box, tabs, and menus | No | No |
@@ -51,22 +51,22 @@ hardcoded gallery colors, and all styling remains backend-neutral.
 
 ## Milestone 10 — Gallery Catalogue
 
-- [ ] Replace the single column with a responsive catalogue shell containing
+- [x] Replace the single column with a responsive catalogue shell containing
       navigation and a scrollable content region.
-- [ ] Add pages for Overview, Layout, Typography, Inputs, Collections,
+- [x] Add pages for Overview, Layout, Typography, Inputs, Collections,
       Overlays, Windows, Resources, and Diagnostics.
-- [ ] Show every currently implemented feature before adding new controls:
+- [x] Show every currently implemented feature before adding new controls:
       row/column/overlay alignment, scrolling, popup dismissal, modal dialogs,
       multiple windows, theme switching, resource scopes, semantics, and
       inspector overlays.
-- [ ] Add light and dark theme switching.
-- [ ] Add normal, hover, focus, pressed, disabled, validation-error, and
+- [x] Add light and dark theme switching.
+- [x] Add normal, hover, focus, pressed, disabled, validation-error, and
       read-only examples where applicable.
-- [ ] Keep `ComposeMainView()` shared by the standalone and hosted products.
-- [ ] Add a deterministic gallery model so examples can be exercised in
+- [x] Keep `ComposeMainView()` shared by the standalone and hosted products.
+- [x] Add a deterministic gallery model so examples can be exercised in
       headless tests.
-- [ ] Preserve `--smoke`, but make it visit or instantiate every gallery page.
-- [ ] Add screenshots to the README only after the catalogue layout stabilizes.
+- [x] Preserve `--smoke`, but make it visit or instantiate every gallery page.
+- [x] Add screenshots to the README only after the catalogue layout stabilizes.
 
 Exit criterion: a developer can discover every implemented version 0.1 feature
 from the running gallery without reading private implementation code.

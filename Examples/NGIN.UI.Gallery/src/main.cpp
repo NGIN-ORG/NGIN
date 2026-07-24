@@ -50,7 +50,8 @@ auto main(const int argc, char **argv) -> int {
   }
 
   if (smoke) {
-    for (int frame = 0; frame < 3; ++frame) {
+    for (NGIN::UIntSize page = 0; page < NGIN::UIGallery::PageCount; ++page) {
+      model.SelectPage(NGIN::UIGallery::PageAt(page));
       auto pumped = application->PumpOnce();
       if (!pumped) {
         return ReportError("Native smoke frame failed", pumped.Error());

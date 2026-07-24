@@ -59,11 +59,12 @@ public:
 
 private:
   void AdvanceSmoke() noexcept {
-    ++m_smokeFrames;
-    if (m_smokeFrames >= 3) {
+    if (m_smokePage >= NGIN::UIGallery::PageCount) {
       m_runtime->UI().RequestExit();
       return;
     }
+    m_model.SelectPage(NGIN::UIGallery::PageAt(m_smokePage));
+    ++m_smokePage;
     auto posted = m_dispatcher->Post([this] { AdvanceSmoke(); });
     if (!posted) {
       m_runtime->UI().RequestExit();
@@ -71,7 +72,7 @@ private:
   }
 
   bool m_smoke{false};
-  int m_smokeFrames{0};
+  NGIN::UIntSize m_smokePage{0};
   NGIN::UIGallery::Model m_model{};
   NGIN::Memory::Shared<NGIN::UI::Hosting::HostedUIRuntime> m_runtime{};
   NGIN::Memory::Shared<NGIN::UI::Hosting::IUIDispatcher> m_dispatcher{};
