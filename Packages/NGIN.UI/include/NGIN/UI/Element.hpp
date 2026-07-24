@@ -102,12 +102,30 @@ struct TextFieldProperties final {
   bool password{false};
 };
 
+struct TextElementProperties final {
+  NGIN::Text::String value{};
+  FontRequest font{};
+  F32 fontSize{14.0F};
+  TextDirection direction{TextDirection::Automatic};
+  NGIN::Text::String language{};
+  NGIN::Text::String script{};
+  F32 lineHeight{0.0F};
+  TextAlignment alignment{TextAlignment::Start};
+  TextWrapping wrapping{TextWrapping::Wrap};
+  Color color{1.0F, 1.0F, 1.0F, 1.0F};
+  ITextLayout *layout{nullptr};
+  IGlyphAtlas *glyphAtlas{nullptr};
+  NGIN::Utilities::Callable<void(const UIError &)> onError{};
+  bool clip{true};
+};
+
 struct NodeProperties final {
   LayoutProperties layout{};
   InteractionProperties interaction{};
   ScrollProperties scroll{};
   PopupProperties popup{};
   TextFieldProperties textField{};
+  TextElementProperties text{};
   SemanticProperties semantics{};
   std::shared_ptr<const ResourceScope> resources{};
   Color background{};

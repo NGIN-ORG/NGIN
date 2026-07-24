@@ -31,6 +31,17 @@ struct TextFieldRuntimeState final {
   IGraphemeSegmenter *graphemeSegmenter{nullptr};
 };
 
+struct TextGlyphRun final {
+  TextureHandle texture{};
+  std::vector<GlyphQuad> glyphs{};
+};
+
+struct TextRuntimeState final {
+  ParagraphLayout paragraph{};
+  std::vector<TextGlyphRun> glyphRuns{};
+  bool valid{false};
+};
+
 struct RuntimeNode final {
   ElementHandle handle{};
   ElementId id{};
@@ -45,6 +56,7 @@ struct RuntimeNode final {
   ScrollState scroll{};
   PopupState popup{};
   TextFieldRuntimeState textField{};
+  TextRuntimeState text{};
   UInt64 compositionRevision{0};
   UInt64 layoutRevision{0};
 

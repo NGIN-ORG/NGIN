@@ -48,6 +48,9 @@ public:
                  IGraphemeSegmenter &graphemeSegmenter,
                  const NodeProperties &properties = {},
                  std::string_view key = {});
+  void Text(NGIN::Text::String value, ITextLayout &layout,
+            IGlyphAtlas &glyphAtlas, const NodeProperties &properties = {},
+            std::string_view key = {});
 
   template <typename ComposeChildren>
   void Scope(std::shared_ptr<const ResourceScope> resources,

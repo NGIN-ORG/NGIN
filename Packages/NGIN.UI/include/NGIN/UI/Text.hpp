@@ -83,6 +83,7 @@ struct ParagraphRequest final {
 struct PositionedShapedRun final {
   ShapedRun run{};
   Point origin{};
+  F32 fontSize{14.0F};
   UIntSize lineIndex{0};
 };
 
@@ -97,6 +98,25 @@ struct ParagraphLayout final {
   Size size{};
   std::vector<PositionedShapedRun> runs{};
   std::vector<ParagraphLine> lines{};
+};
+
+struct GlyphAtlasRequest final {
+  FontFaceHandle fontFace{};
+  UInt32 glyphIndex{0};
+  F32 fontSize{14.0F};
+  F32 scaleFactor{1.0F};
+};
+
+struct GlyphAtlasEntry final {
+  TextureHandle texture{};
+  Rect textureCoordinates{};
+  Size size{};
+  Point bearing{};
+};
+
+struct GlyphQuad final {
+  Rect destination{};
+  Rect textureCoordinates{};
 };
 
 class IFontProvider {
@@ -133,5 +153,14 @@ public:
 
   [[nodiscard]] virtual auto Segment(const NGIN::Text::String &text) noexcept
       -> UIResult<std::vector<GraphemeCluster>> = 0;
+};
+
+class IGlyphAtlas {
+public:
+  virtual ~IGlyphAtlas() = default;
+
+  [[nodiscard]] virtual auto
+  ResolveGlyph(const GlyphAtlasRequest &request) noexcept
+      -> UIResult<GlyphAtlasEntry> = 0;
 };
 } // namespace NGIN::UI

@@ -13,8 +13,10 @@ Target language: C++23
   rendering scope, including every currently declared display-list command.
 - Slice 4 has dependency-free font-provider, shaping, paragraph-layout, and
   grapheme-segmentation contracts plus atlas-backed glyph-run display commands
-  and renderer lowering. Concrete shaping, rasterization, font assets, atlas
-  management, and the `Text` element remain dependency-gated.
+  and renderer lowering. An injectable glyph-atlas contract and semantic
+  `Text` element now provide constraint-aware measurement, clipping, and
+  DPI-aware shaped-glyph painting. Concrete shaping, rasterization, font
+  assets, and atlas management remain dependency-gated.
 - Slice 5 is complete for the backend-neutral headless scope. Its SDL smoke
   criterion remains gated on Slice 1.
 - Slice 6 state/binding foundations, keyboard/text/IME event routing, and the
@@ -133,10 +135,12 @@ Deliver:
 
 Current status:
 
-The backend-neutral font, shaping, paragraph-layout, and grapheme-segmentation
-contracts are implemented, as is the atlas-backed glyph-run display command and
-its renderer lowering. The concrete dependencies and services described below
-remain gated.
+The backend-neutral font, shaping, paragraph-layout, grapheme-segmentation, and
+glyph-atlas contracts are implemented, as is the atlas-backed glyph-run
+display command and its renderer lowering. The semantic `Text` element measures
+through an injected paragraph service and paints resolved atlas glyphs with
+clipping and DPI-aware requests. The concrete dependencies and services
+described below remain gated.
 
 Deliver:
 

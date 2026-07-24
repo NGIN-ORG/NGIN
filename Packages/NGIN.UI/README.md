@@ -28,6 +28,8 @@ foundation:
   coalescing;
 - backend-neutral font-provider, shaping, paragraph-layout, and grapheme
   segmentation contracts;
+- an injectable glyph-atlas contract and semantic `Text` element with
+  constraint-aware measurement, clipping, and DPI-aware shaped-glyph painting;
 - atlas-backed glyph-run display commands with DPI-aware renderer lowering;
 - reverse-paint-order hit testing and capture/target/bubble pointer routing;
 - retained hover, pressed, pointer-capture, and keyboard-focus state;

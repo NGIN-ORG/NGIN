@@ -1,8 +1,10 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <NGIN/UI/Composer.hpp>
 #include <NGIN/UI/DisplayList.hpp>
 #include <NGIN/UI/Layout.hpp>
+#include <NGIN/UI/Semantics.hpp>
 #include <NGIN/UI/UIRenderer.hpp>
 
 #include <array>
@@ -32,6 +34,64 @@ LeafProperties(const NGIN::F32 width, const NGIN::F32 height,
   properties.layout.verticalAlignment = vertical;
   return properties;
 }
+
+class FixedTextLayout final : public NGIN::UI::ITextLayout {
+public:
+  auto LayoutParagraph(const NGIN::UI::ParagraphRequest &request) noexcept
+      -> NGIN::UI::UIResult<NGIN::UI::ParagraphLayout> override {
+    maximumWidth = request.maximumWidth;
+    text = request.runs.front().text;
+    return NGIN::UI::ParagraphLayout{
+        .size = NGIN::UI::Size{18.0F, 8.0F},
+        .runs =
+            {
+                NGIN::UI::PositionedShapedRun{
+                    .run =
+                        NGIN::UI::ShapedRun{
+                            .fontFace = NGIN::UI::FontFaceHandle{1, 1},
+                            .direction = NGIN::UI::TextDirection::LeftToRight,
+                            .glyphs =
+                                {
+                                    NGIN::UI::ShapedGlyph{
+                                        .glyphIndex = 10,
+                                        .clusterByteOffset = 0,
+                                        .advance = NGIN::UI::Point{5.0F, 0.0F},
+                                    },
+                                    NGIN::UI::ShapedGlyph{
+                                        .glyphIndex = 11,
+                                        .clusterByteOffset = 1,
+                                        .advance = NGIN::UI::Point{6.0F, 0.0F},
+                                    },
+                                },
+                            .size = NGIN::UI::Size{11.0F, 8.0F},
+                        },
+                    .origin = NGIN::UI::Point{2.0F, 3.0F},
+                    .fontSize = 16.0F,
+                },
+            },
+    };
+  }
+
+  NGIN::F32 maximumWidth{0.0F};
+  NGIN::Text::String text{};
+};
+
+class FixedGlyphAtlas final : public NGIN::UI::IGlyphAtlas {
+public:
+  auto ResolveGlyph(const NGIN::UI::GlyphAtlasRequest &request) noexcept
+      -> NGIN::UI::UIResult<NGIN::UI::GlyphAtlasEntry> override {
+    requests.push_back(request);
+    const auto textureX = request.glyphIndex == 10 ? 0.1F : 0.3F;
+    return NGIN::UI::GlyphAtlasEntry{
+        .texture = NGIN::UI::TextureHandle{7, 1},
+        .textureCoordinates = NGIN::UI::Rect{textureX, 0.2F, 0.1F, 0.2F},
+        .size = NGIN::UI::Size{4.0F, 6.0F},
+        .bearing = NGIN::UI::Point{1.0F, 2.0F},
+    };
+  }
+
+  std::vector<NGIN::UI::GlyphAtlasRequest> requests{};
+};
 } // namespace
 
 TEST_CASE("column measures natural size with padding and gaps") {
@@ -231,6 +291,56 @@ TEST_CASE(
   REQUIRE(displayList.size() == 2);
   REQUIRE(std::get<FillRect>(displayList[0]).color == page.background);
   REQUIRE(std::get<FillRect>(displayList[1]).color == popupContent.background);
+}
+
+TEST_CASE("text element measures and paints shaped atlas glyphs") {
+  using namespace NGIN::UI;
+
+  FixedTextLayout textLayout;
+  FixedGlyphAtlas glyphAtlas;
+  NodeProperties properties{};
+  properties.layout.padding = Thickness::Uniform(Dp{1.0F});
+  properties.layout.horizontalAlignment = HorizontalAlignment::Start;
+  properties.layout.verticalAlignment = VerticalAlignment::Start;
+  properties.text.fontSize = 16.0F;
+  properties.text.color = Color{0.25F, 0.5F, 0.75F, 1.0F};
+
+  Composer composer;
+  composer.Text(NGIN::Text::String{"Hi"}, textLayout, glyphAtlas, properties);
+  RuntimeTree tree;
+  Reconciler reconciler{tree};
+  static_cast<void>(reconciler.Reconcile(composer.Declarations()));
+  const auto textHandle = tree.Get(tree.Root())->children.front();
+
+  LayoutEngine layout{tree};
+  const auto measured =
+      layout.Measure(textHandle, SizeConstraints{
+                                     .maximum = Size{50.0F, 20.0F},
+                                 });
+  REQUIRE(measured == Size{20.0F, 10.0F});
+  REQUIRE(textLayout.maximumWidth == 48.0F);
+  REQUIRE(textLayout.text == NGIN::Text::String{"Hi"});
+  REQUIRE(glyphAtlas.requests.size() == 2);
+  REQUIRE(glyphAtlas.requests[0].fontSize == 16.0F);
+  REQUIRE(glyphAtlas.requests[0].scaleFactor == 1.0F);
+
+  layout.Arrange(textHandle, Rect{10.0F, 20.0F, 20.0F, 10.0F});
+  const auto displayList = BuildDisplayList(tree);
+  REQUIRE(displayList.size() == 3);
+  REQUIRE(std::holds_alternative<PushClipRect>(displayList[0]));
+  const auto &glyphs = std::get<DrawGlyphRun>(displayList[1]);
+  REQUIRE(glyphs.atlas == TextureHandle{7, 1});
+  REQUIRE(glyphs.color == properties.text.color);
+  REQUIRE(glyphs.glyphs.size() == 2);
+  REQUIRE(glyphs.glyphs[0].destination == Rect{14.0F, 26.0F, 4.0F, 6.0F});
+  REQUIRE(glyphs.glyphs[1].destination == Rect{19.0F, 26.0F, 4.0F, 6.0F});
+  REQUIRE(std::holds_alternative<PopClip>(displayList[2]));
+
+  const auto semantics = BuildSemanticTree(tree);
+  const auto *semantic = semantics.FindByOwner(tree.Get(textHandle)->id);
+  REQUIRE(semantic != nullptr);
+  REQUIRE(semantic->role == SemanticRole::Text);
+  REQUIRE(semantic->value == NGIN::Text::String{"Hi"});
 }
 
 TEST_CASE("display-list builder diagnoses unbalanced scopes") {

@@ -49,11 +49,6 @@ struct DrawImage final {
   Color tint{1.0F, 1.0F, 1.0F, 1.0F};
 };
 
-struct GlyphQuad final {
-  Rect destination{};
-  Rect textureCoordinates{};
-};
-
 struct DrawGlyphRun final {
   TextureHandle atlas{};
   std::vector<GlyphQuad> glyphs{};

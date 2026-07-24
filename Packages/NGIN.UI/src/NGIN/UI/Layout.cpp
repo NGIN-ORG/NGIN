@@ -52,8 +52,10 @@ namespace {
 LayoutEngine::LayoutEngine(RuntimeTree &tree) noexcept : m_tree(tree) {}
 
 auto LayoutEngine::Perform(const SizeConstraints constraints,
-                           const Rect finalBounds) -> LayoutPassStats {
+                           const Rect finalBounds, const F32 scaleFactor)
+    -> LayoutPassStats {
   m_stats = {};
+  m_scaleFactor = scaleFactor > 0.0F ? scaleFactor : 1.0F;
   ++m_revision;
   static_cast<void>(Measure(m_tree.Root(), constraints));
   Arrange(m_tree.Root(), finalBounds);
@@ -94,14 +96,127 @@ auto LayoutEngine::Measure(const ElementHandle handle,
   return measured;
 }
 
-auto LayoutEngine::MeasureLeaf(const RuntimeNode &node,
-                               const SizeConstraints constraints) const
-    -> Size {
+auto LayoutEngine::MeasureLeaf(RuntimeNode &node,
+                               const SizeConstraints constraints) -> Size {
+  if (node.type == ElementType::Text) {
+    return MeasureText(node, constraints);
+  }
   return constraints.Constrain(Size{
       std::max(node.properties.layout.preferredSize.width,
                node.properties.layout.minimumSize.width),
       std::max(node.properties.layout.preferredSize.height,
                node.properties.layout.minimumSize.height),
+  });
+}
+
+auto LayoutEngine::MeasureText(RuntimeNode &node,
+                               const SizeConstraints constraints) -> Size {
+  const auto &properties = node.properties.text;
+  const auto report = [&properties](const UIError &error) {
+    if (properties.onError) {
+      properties.onError(error);
+    }
+  };
+  node.text = {};
+  if (properties.layout == nullptr || properties.glyphAtlas == nullptr) {
+    report(
+        MakeUIError(UIErrorCode::InvalidArgument,
+                    "Text requires paragraph layout and glyph atlas services",
+                    "NGIN.UI", "LayoutEngine::MeasureText"));
+    return constraints.Constrain(node.properties.layout.preferredSize);
+  }
+
+  const auto padding = node.properties.layout.padding;
+  const auto horizontalPadding = padding.left + padding.right;
+  const auto verticalPadding = padding.top + padding.bottom;
+  const auto maximumWidth =
+      std::isfinite(constraints.maximum.width)
+          ? std::max(0.0F, constraints.maximum.width - horizontalPadding)
+          : constraints.maximum.width;
+  ParagraphRequest request{
+      .runs =
+          {
+              TextRun{
+                  .text = properties.value,
+                  .font = properties.font,
+                  .fontSize = properties.fontSize,
+                  .direction = properties.direction,
+                  .language = properties.language,
+                  .script = properties.script,
+              },
+          },
+      .maximumWidth = maximumWidth,
+      .lineHeight = properties.lineHeight,
+      .alignment = properties.alignment,
+      .wrapping = properties.wrapping,
+  };
+  auto paragraph = properties.layout->LayoutParagraph(request);
+  if (!paragraph) {
+    report(paragraph.Error());
+    return constraints.Constrain(node.properties.layout.preferredSize);
+  }
+
+  node.text.paragraph = std::move(paragraph).Value();
+  bool glyphsValid = true;
+  for (const auto &positioned : node.text.paragraph.runs) {
+    Point pen{};
+    for (const auto &glyph : positioned.run.glyphs) {
+      auto atlasEntry = properties.glyphAtlas->ResolveGlyph(GlyphAtlasRequest{
+          .fontFace = positioned.run.fontFace,
+          .glyphIndex = glyph.glyphIndex,
+          .fontSize = positioned.fontSize,
+          .scaleFactor = m_scaleFactor,
+      });
+      if (!atlasEntry) {
+        report(atlasEntry.Error());
+        glyphsValid = false;
+        break;
+      }
+      const auto &entry = atlasEntry.Value();
+      if (!entry.texture || entry.size.width <= 0.0F ||
+          entry.size.height <= 0.0F) {
+        report(MakeUIError(UIErrorCode::InvalidState,
+                           "Glyph atlas returned an invalid entry", "NGIN.UI",
+                           "LayoutEngine::MeasureText"));
+        glyphsValid = false;
+        break;
+      }
+
+      if (node.text.glyphRuns.empty() ||
+          node.text.glyphRuns.back().texture != entry.texture) {
+        node.text.glyphRuns.push_back(TextGlyphRun{
+            .texture = entry.texture,
+        });
+      }
+      node.text.glyphRuns.back().glyphs.push_back(GlyphQuad{
+          .destination =
+              Rect{
+                  positioned.origin.x + pen.x + glyph.offset.x +
+                      entry.bearing.x,
+                  positioned.origin.y + pen.y + glyph.offset.y +
+                      entry.bearing.y,
+                  entry.size.width,
+                  entry.size.height,
+              },
+          .textureCoordinates = entry.textureCoordinates,
+      });
+      pen.x += glyph.advance.x;
+      pen.y += glyph.advance.y;
+    }
+    if (!glyphsValid) {
+      break;
+    }
+  }
+  if (!glyphsValid) {
+    node.text.glyphRuns.clear();
+  }
+  node.text.valid = glyphsValid;
+
+  return constraints.Constrain(Size{
+      std::max(node.properties.layout.preferredSize.width,
+               node.text.paragraph.size.width + horizontalPadding),
+      std::max(node.properties.layout.preferredSize.height,
+               node.text.paragraph.size.height + verticalPadding),
   });
 }
 

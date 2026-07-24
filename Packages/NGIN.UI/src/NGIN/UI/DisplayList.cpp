@@ -107,6 +107,29 @@ void PaintNode(const RuntimeTree &tree, const ElementHandle handle,
       node->arrangedBounds.height > 0.0F) {
     builder.Fill(node->arrangedBounds, node->properties.background);
   }
+  const auto clipsText =
+      node->type == ElementType::Text && node->properties.text.clip;
+  if (clipsText) {
+    builder.PushClip(node->arrangedBounds);
+  }
+  if (node->type == ElementType::Text && node->text.valid) {
+    const auto originX =
+        node->arrangedBounds.x + node->properties.layout.padding.left;
+    const auto originY =
+        node->arrangedBounds.y + node->properties.layout.padding.top;
+    for (const auto &run : node->text.glyphRuns) {
+      auto glyphs = run.glyphs;
+      for (auto &glyph : glyphs) {
+        glyph.destination.x += originX;
+        glyph.destination.y += originY;
+      }
+      builder.Glyphs(run.texture, std::move(glyphs),
+                     node->properties.text.color);
+    }
+  }
+  if (clipsText) {
+    static_cast<void>(builder.PopClip());
+  }
   const auto clipsChildren = node->type == ElementType::ScrollView;
   if (clipsChildren) {
     builder.PushClip(node->arrangedBounds);

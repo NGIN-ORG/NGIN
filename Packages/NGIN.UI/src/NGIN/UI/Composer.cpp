@@ -88,6 +88,22 @@ void Composer::TextField(Binding<NGIN::Text::String> value,
   Leaf(ElementType::TextField, textFieldProperties, key);
 }
 
+void Composer::Text(NGIN::Text::String value, ITextLayout &layout,
+                    IGlyphAtlas &glyphAtlas, const NodeProperties &properties,
+                    const std::string_view key) {
+  auto textProperties = properties;
+  textProperties.text.value = std::move(value);
+  textProperties.text.layout = &layout;
+  textProperties.text.glyphAtlas = &glyphAtlas;
+  if (textProperties.semantics.role == SemanticRole::None) {
+    textProperties.semantics.role = SemanticRole::Text;
+  }
+  if (textProperties.semantics.value.Empty()) {
+    textProperties.semantics.value = textProperties.text.value;
+  }
+  Leaf(ElementType::Text, textProperties, key);
+}
+
 auto Composer::Declarations() const noexcept
     -> const std::vector<ElementDeclaration> & {
   return m_roots;

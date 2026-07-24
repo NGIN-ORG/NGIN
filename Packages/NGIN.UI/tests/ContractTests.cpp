@@ -40,6 +40,8 @@ TEST_CASE(
 
   REQUIRE(ToPixels(12.5_dp, 2.0F) == Px{25});
   REQUIRE(ToPixelSize(Size{100.25F, 50.5F}, 2.0F) == PixelSize{201, 101});
+  REQUIRE(ToPixelRect(Rect{1.0F, 2.0F, 3.0F, 4.0F}, 2.0F) ==
+          PixelRect{2, 4, 6, 8});
 
   const SizeConstraints constraints{
       .minimum = Size{20.0F, 10.0F},
@@ -69,6 +71,7 @@ TEST_CASE("text contracts preserve shaping and grapheme cluster metadata") {
   STATIC_REQUIRE(std::is_abstract_v<ITextShaper>);
   STATIC_REQUIRE(std::is_abstract_v<ITextLayout>);
   STATIC_REQUIRE(std::is_abstract_v<IGraphemeSegmenter>);
+  STATIC_REQUIRE(std::is_abstract_v<IGlyphAtlas>);
 
   const FontFaceHandle face{3, 1};
   const ShapedRun shaped{

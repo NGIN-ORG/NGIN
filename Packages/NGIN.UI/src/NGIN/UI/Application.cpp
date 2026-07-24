@@ -565,7 +565,8 @@ auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
       window->m_implementation->lastLayoutStats =
           window->m_implementation->layoutEngine.Perform(
               SizeConstraints{.minimum = logicalSize, .maximum = logicalSize},
-              Rect{0.0F, 0.0F, logicalSize.width, logicalSize.height});
+              Rect{0.0F, 0.0F, logicalSize.width, logicalSize.height},
+              scaleFactor);
       window->m_implementation->layoutDirty = false;
       window->m_implementation->paintDirty = true;
       window->m_implementation->semanticsDirty = true;
