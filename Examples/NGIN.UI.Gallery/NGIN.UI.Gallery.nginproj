@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4"
+         Name="NGIN.UI.Gallery"
+         DefaultProfile="Debug">
+
+  <Application>
+    <Uses>
+      <Package Name="NGIN.UI.Backend.SDL3"
+               Version=">=0.1.0 &lt;0.2.0"
+               Scope="Target" />
+    </Uses>
+
+    <Build>
+      <Sources Path="src/**.cpp" />
+    </Build>
+
+    <Launch Executable="NGIN.UI.Gallery"
+            WorkingDirectory="." />
+  </Application>
+
+  <Profile Name="Debug">
+    <Defaults>
+      <Optimization Mode="Off" />
+      <DebugSymbols Enabled="true" />
+      <LinkTimeOptimization Enabled="false" />
+      <TargetPlatform Name="host" />
+      <Environment Name="local" />
+    </Defaults>
+  </Profile>
+</Project>

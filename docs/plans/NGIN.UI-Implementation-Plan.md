@@ -34,7 +34,9 @@ Target language: C++23
 - Slice 1 now has pinned SDL 3.4.12 source-provider and
   `NGIN.UI.Backend.SDL3` packages. The backend implements SDL3 initialization,
   windows, normalized events, wait/wake, system services, and SDL_GPU-backed
-  multi-window rendering. Its native smoke example remains.
+  multi-window rendering. `Examples/NGIN.UI.Gallery` is the standalone native
+  smoke product and exercises retained controls and shaped text through that
+  backend.
 - The remaining work in Slice 4, plus Slice 8, remains planned.
 
 ## Product Boundary

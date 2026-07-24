@@ -11,6 +11,7 @@
     <Project Path="Examples/Hello.ECS/Hello.ECS.nginproj" />
     <Project Path="Examples/Hello.Analyzer/Hello.Analyzer.nginproj" />
     <Project Path="Examples/Hello.Formatter/Hello.Formatter.nginproj" />
+    <Project Path="Examples/NGIN.UI.Gallery/NGIN.UI.Gallery.nginproj" />
   </Projects>
 
   <Defaults>
