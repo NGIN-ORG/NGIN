@@ -15,5 +15,6 @@
 #include <NGIN/UI/Rendering.hpp>
 #include <NGIN/UI/RoutedEvent.hpp>
 #include <NGIN/UI/RuntimeTree.hpp>
+#include <NGIN/UI/State.hpp>
 #include <NGIN/UI/Style.hpp>
 #include <NGIN/UI/UIRenderer.hpp>

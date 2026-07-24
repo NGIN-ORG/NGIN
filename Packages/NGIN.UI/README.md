@@ -25,7 +25,9 @@ foundation:
 - DPI-aware solid-rectangle tessellation and adjacent-batch coalescing;
 - reverse-paint-order hit testing and capture/target/bubble pointer routing;
 - retained hover, pressed, pointer-capture, and keyboard-focus state;
-- semantic composer buttons with deterministic activation.
+- semantic composer buttons with deterministic activation;
+- observable `State<T>` with scoped invalidation scheduling;
+- move-only RAII subscriptions and typed, validatable `Binding<T>` adapters.
 
 Build and test directly:
 

@@ -44,6 +44,7 @@ add_executable(NGINUITests
     ContractTests.cpp
     InputTests.cpp
     LayoutTests.cpp
+    StateTests.cpp
 )
 target_compile_features(NGINUITests PRIVATE cxx_std_23)
 target_link_libraries(NGINUITests PRIVATE Catch2::Catch2WithMain NGIN::UI)
