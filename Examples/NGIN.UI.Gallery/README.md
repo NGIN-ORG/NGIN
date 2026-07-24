@@ -7,7 +7,8 @@ public APIs from `NGIN.UI` and `NGIN.UI.Backend.SDL3`.
 
 The sidebar exposes nine focused pages:
 
-- **Overview** introduces the architecture, theme palette, and retained state;
+- **Overview** introduces the architecture, theme palette, retained state, and
+  public custom badge, progress-ring, and chart examples;
 - **Layout** demonstrates rows, columns, overlays, flex sizing, and scrolling;
 - **Typography** shows native HarfBuzz shaping, FreeType rasterization, UTF-8,
   Arabic text, and grapheme clusters;

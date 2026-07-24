@@ -2,6 +2,7 @@
 
 #include <NGIN/Primitives.hpp>
 #include <NGIN/Text/String.hpp>
+#include <NGIN/UI/CustomElement.hpp>
 #include <NGIN/UI/Geometry.hpp>
 #include <NGIN/UI/Resources.hpp>
 #include <NGIN/UI/RoutedEvent.hpp>
@@ -32,6 +33,7 @@ enum class ElementType : UInt16 {
   ScrollView,
   Popup,
   Custom,
+  CustomElement,
 };
 
 enum class HorizontalAlignment : UInt8 {
@@ -137,6 +139,11 @@ struct TextElementProperties final {
   bool clip{true};
 };
 
+struct CustomElementProperties final {
+  std::shared_ptr<ICustomElement> element{};
+  NGIN::Utilities::Callable<void(const UIError &)> onError{};
+};
+
 struct NodeProperties final {
   LayoutProperties layout{};
   InteractionProperties interaction{};
@@ -145,6 +152,7 @@ struct NodeProperties final {
   SeparatorProperties separator{};
   TextFieldProperties textField{};
   TextElementProperties text{};
+  CustomElementProperties custom{};
   SemanticProperties semantics{};
   std::shared_ptr<const ResourceScope> resources{};
   VisualProperties visual{};

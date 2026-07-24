@@ -46,6 +46,12 @@ struct TextRuntimeState final {
   bool valid{false};
 };
 
+struct CustomElementRuntimeState final {
+  std::shared_ptr<CustomStateStore> state{};
+  SemanticProperties semantics{};
+  F32 scaleFactor{1.0F};
+};
+
 struct RuntimeNode final {
   ElementHandle handle{};
   ElementId id{};
@@ -61,6 +67,7 @@ struct RuntimeNode final {
   PopupState popup{};
   TextFieldRuntimeState textField{};
   TextRuntimeState text{};
+  CustomElementRuntimeState custom{};
   UInt64 compositionRevision{0};
   UInt64 layoutRevision{0};
 
@@ -97,6 +104,8 @@ public:
 
 private:
   friend class Reconciler;
+  friend class InputRouter;
+  friend class LayoutEngine;
 
   struct Slot final {
     RuntimeNode node{};
@@ -108,6 +117,8 @@ private:
                                 const NodeProperties &properties,
                                 ElementHandle parent) -> ElementHandle;
   void SynchronizeTextField(RuntimeNode &node);
+  void SynchronizeCustom(RuntimeNode &node, F32 scaleFactor = 1.0F);
+  void UnmountCustom(RuntimeNode &node) noexcept;
   auto DestroySubtree(ElementHandle handle) noexcept -> UIntSize;
 
   std::vector<Slot> m_slots{};

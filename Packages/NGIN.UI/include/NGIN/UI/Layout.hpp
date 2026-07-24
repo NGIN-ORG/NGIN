@@ -23,6 +23,8 @@ public:
 private:
   [[nodiscard]] auto MeasureLeaf(RuntimeNode &node, SizeConstraints constraints)
       -> Size;
+  [[nodiscard]] auto MeasureCustom(RuntimeNode &node,
+                                   SizeConstraints constraints) -> Size;
   [[nodiscard]] auto MeasureText(RuntimeNode &node, SizeConstraints constraints,
                                  const NGIN::Text::String &value) -> Size;
   [[nodiscard]] auto MeasureContainer(RuntimeNode &node,

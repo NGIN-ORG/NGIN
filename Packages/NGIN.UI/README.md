@@ -58,6 +58,9 @@ The version 0.1 implementation provides:
 - immutable/revisioned theme values and hierarchical typed resource scopes;
 - typed visual-state styles, theme-driven borders and rounded backgrounds,
   visible focus treatment, and border/separator composition helpers;
+- a supported custom-element leaf contract with retained typed local state,
+  constraint measurement, arrangement, bounded local-coordinate painting,
+  routed input, semantics, invalidation, and unmount cleanup;
 - a render-tree-independent semantic tree with stable element ownership;
 - per-window structural diagnostics for composition, layout, rendering, focus,
   pointer capture, and frame-phase timings;
@@ -80,6 +83,10 @@ run the same view directly or through the optional
 
 See the [styling guide](../../docs/guides/ngin-ui-styling.md) for theme tokens,
 state precedence, focus treatment, borders, and invalidation rules.
+See the
+[custom-control guide](../../docs/guides/ngin-ui-custom-controls.md) for
+composite controls, custom measurement/painting, retained local state, input,
+semantics, lifecycle, and error rules.
 
 The default build fetches the pinned text dependencies recorded in
 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). Configure with

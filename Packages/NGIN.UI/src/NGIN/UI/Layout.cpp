@@ -7,6 +7,33 @@
 
 namespace NGIN::UI {
 namespace {
+[[nodiscard]] auto CustomContextFor(RuntimeNode &node, const F32 scaleFactor)
+    -> CustomElementContext {
+  return CustomElementContext{
+      *node.custom.state,
+      node.id,
+      node.arrangedBounds,
+      CustomInteractionState{
+          .hovered = node.interaction.hovered,
+          .pressed =
+              node.interaction.pressed || node.interaction.keyboardPressed,
+          .focused = node.interaction.focused,
+          .enabled = node.properties.interaction.enabled,
+      },
+      scaleFactor,
+  };
+}
+
+void ReportCustomError(const RuntimeNode &node, const UIError &error) noexcept {
+  if (!node.properties.custom.onError) {
+    return;
+  }
+  try {
+    node.properties.custom.onError(error);
+  } catch (...) {
+  }
+}
+
 [[nodiscard]] auto ClampDimension(const F32 value, const F32 minimum,
                                   const F32 maximum) noexcept -> F32 {
   return std::clamp(std::max(0.0F, value), std::max(0.0F, minimum),
@@ -114,9 +141,12 @@ auto LayoutEngine::Measure(const ElementHandle handle,
   constraints.maximum.height =
       std::max(constraints.maximum.height, constraints.minimum.height);
 
-  auto measured = node->children.empty() || node->type == ElementType::Spacer
-                      ? MeasureLeaf(*node, constraints)
-                      : MeasureContainer(*node, constraints);
+  auto measured =
+      node->type == ElementType::CustomElement
+          ? MeasureCustom(*node, constraints)
+          : (node->children.empty() || node->type == ElementType::Spacer
+                 ? MeasureLeaf(*node, constraints)
+                 : MeasureContainer(*node, constraints));
   measured = constraints.Constrain(measured);
   if (node->type == ElementType::Popup) {
     measured = {};
@@ -126,6 +156,35 @@ auto LayoutEngine::Measure(const ElementHandle handle,
   node->layoutRevision = m_revision;
   ++m_stats.measured;
   return measured;
+}
+
+auto LayoutEngine::MeasureCustom(RuntimeNode &node,
+                                 const SizeConstraints constraints) -> Size {
+  m_tree.SynchronizeCustom(node, m_scaleFactor);
+  if (!node.properties.custom.element || !node.custom.state) {
+    return constraints.Constrain(node.properties.layout.preferredSize);
+  }
+
+  try {
+    auto context = CustomContextFor(node, m_scaleFactor);
+    auto measured =
+        node.properties.custom.element->Measure(context, constraints);
+    if (!measured) {
+      ReportCustomError(node, measured.Error());
+      return constraints.Constrain(node.properties.layout.preferredSize);
+    }
+    return constraints.Constrain(measured.Value());
+  } catch (const std::bad_alloc &) {
+    ReportCustomError(node, MakeUIError(UIErrorCode::OutOfMemory,
+                                        "Custom measurement allocation failed",
+                                        "NGIN.UI", "ICustomElement::Measure"));
+  } catch (...) {
+    ReportCustomError(
+        node, MakeUIError(UIErrorCode::InvalidState,
+                          "Custom measurement callback threw an exception",
+                          "NGIN.UI", "ICustomElement::Measure"));
+  }
+  return constraints.Constrain(node.properties.layout.preferredSize);
 }
 
 auto LayoutEngine::MeasureLeaf(RuntimeNode &node,
@@ -384,6 +443,28 @@ void LayoutEngine::Arrange(const ElementHandle handle, const Rect finalBounds) {
   node->arrangedBounds = finalBounds;
   node->layoutRevision = m_revision;
   ++m_stats.arranged;
+  if (node->type == ElementType::CustomElement && node->custom.state &&
+      node->properties.custom.element) {
+    try {
+      auto context = CustomContextFor(*node, m_scaleFactor);
+      auto arranged = node->properties.custom.element->Arrange(
+          context, Size{finalBounds.width, finalBounds.height});
+      if (!arranged) {
+        ReportCustomError(*node, arranged.Error());
+      }
+    } catch (const std::bad_alloc &) {
+      ReportCustomError(*node,
+                        MakeUIError(UIErrorCode::OutOfMemory,
+                                    "Custom arrangement allocation failed",
+                                    "NGIN.UI", "ICustomElement::Arrange"));
+    } catch (...) {
+      ReportCustomError(
+          *node, MakeUIError(UIErrorCode::InvalidState,
+                             "Custom arrangement callback threw an exception",
+                             "NGIN.UI", "ICustomElement::Arrange"));
+    }
+    m_tree.SynchronizeCustom(*node, m_scaleFactor);
+  }
   ArrangeChildren(*node);
 }
 

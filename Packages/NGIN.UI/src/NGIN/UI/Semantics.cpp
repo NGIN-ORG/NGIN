@@ -46,7 +46,9 @@ void SemanticTree::AppendRuntimeNode(const RuntimeTree &runtimeTree,
     return;
   }
 
-  const auto &properties = runtimeNode->properties.semantics;
+  const auto &properties = runtimeNode->type == ElementType::CustomElement
+                               ? runtimeNode->custom.semantics
+                               : runtimeNode->properties.semantics;
   const auto role = properties.role == SemanticRole::None
                         ? DefaultRole(runtimeNode->type)
                         : properties.role;

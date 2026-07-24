@@ -54,6 +54,8 @@ public:
   void Separator(SeparatorOrientation orientation,
                  const NodeProperties &properties = {},
                  std::string_view key = {});
+  void Custom(std::shared_ptr<ICustomElement> element,
+              const NodeProperties &properties = {}, std::string_view key = {});
 
   template <typename ComposeChildren>
   void Scope(std::shared_ptr<const ResourceScope> resources,

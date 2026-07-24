@@ -1,9 +1,63 @@
 #include <NGIN/UI/RuntimeTree.hpp>
 
 #include <algorithm>
+#include <exception>
 #include <utility>
 
 namespace NGIN::UI {
+namespace {
+[[nodiscard]] auto ContextFor(RuntimeNode &node, const F32 scaleFactor)
+    -> CustomElementContext {
+  return CustomElementContext{
+      *node.custom.state,
+      node.id,
+      node.arrangedBounds,
+      CustomInteractionState{
+          .hovered = node.interaction.hovered,
+          .pressed =
+              node.interaction.pressed || node.interaction.keyboardPressed,
+          .focused = node.interaction.focused,
+          .enabled = node.properties.interaction.enabled,
+      },
+      scaleFactor,
+  };
+}
+
+void ReportCustomError(const RuntimeNode &node, const UIError &error) noexcept {
+  if (!node.properties.custom.onError) {
+    return;
+  }
+  try {
+    node.properties.custom.onError(error);
+  } catch (...) {
+  }
+}
+
+[[nodiscard]] auto MergeSemantics(const SemanticProperties &provided,
+                                  const SemanticProperties &authored)
+    -> SemanticProperties {
+  auto result = provided;
+  if (authored.role != SemanticRole::None) {
+    result.role = authored.role;
+  }
+  if (!authored.label.Empty()) {
+    result.label = authored.label;
+  }
+  if (!authored.value.Empty()) {
+    result.value = authored.value;
+  }
+  if (!authored.description.Empty()) {
+    result.description = authored.description;
+  }
+  result.states |= authored.states;
+  if (authored.actions != SemanticActionFlags::None) {
+    result.actions = authored.actions;
+  }
+  result.hidden = result.hidden || authored.hidden;
+  return result;
+}
+} // namespace
+
 RuntimeTree::RuntimeTree() {
   m_root =
       CreateNode(ElementType::Root, NGIN::Text::String{}, NodeProperties{}, {});
@@ -64,6 +118,7 @@ auto RuntimeTree::CreateNode(const ElementType type,
       .properties = properties,
   };
   SynchronizeTextField(slot.node);
+  SynchronizeCustom(slot.node);
   ++m_liveCount;
   return handle;
 }
@@ -114,6 +169,56 @@ void RuntimeTree::SynchronizeTextField(RuntimeNode &node) {
   }
 }
 
+void RuntimeTree::SynchronizeCustom(RuntimeNode &node, const F32 scaleFactor) {
+  if (node.type != ElementType::CustomElement) {
+    node.custom = {};
+    return;
+  }
+
+  if (!node.custom.state) {
+    node.custom.state = std::make_shared<CustomStateStore>();
+  }
+  node.custom.scaleFactor = scaleFactor > 0.0F ? scaleFactor : 1.0F;
+  node.custom.semantics = node.properties.semantics;
+  if (!node.properties.custom.element) {
+    ReportCustomError(node,
+                      MakeUIError(UIErrorCode::InvalidArgument,
+                                  "Custom element requires an implementation",
+                                  "NGIN.UI", "RuntimeTree::SynchronizeCustom"));
+    return;
+  }
+
+  try {
+    auto context = ContextFor(node, node.custom.scaleFactor);
+    auto described = node.properties.custom.element->Semantics(context);
+    if (!described) {
+      ReportCustomError(node, described.Error());
+      return;
+    }
+    node.custom.semantics =
+        MergeSemantics(described.Value(), node.properties.semantics);
+  } catch (const std::bad_alloc &) {
+    ReportCustomError(node,
+                      MakeUIError(UIErrorCode::OutOfMemory,
+                                  "Custom semantics allocation failed",
+                                  "NGIN.UI", "ICustomElement::Semantics"));
+  } catch (...) {
+    ReportCustomError(
+        node, MakeUIError(UIErrorCode::InvalidState,
+                          "Custom semantics callback threw an exception",
+                          "NGIN.UI", "ICustomElement::Semantics"));
+  }
+}
+
+void RuntimeTree::UnmountCustom(RuntimeNode &node) noexcept {
+  if (node.type != ElementType::CustomElement || !node.custom.state ||
+      !node.properties.custom.element) {
+    return;
+  }
+  auto context = ContextFor(node, node.custom.scaleFactor);
+  node.properties.custom.element->Unmounted(context);
+}
+
 auto RuntimeTree::DestroySubtree(const ElementHandle handle) noexcept
     -> UIntSize {
   if (!IsAlive(handle) || handle == m_root) {
@@ -131,6 +236,7 @@ auto RuntimeTree::DestroySubtree(const ElementHandle handle) noexcept
     std::erase(parent->children, handle);
   }
 
+  UnmountCustom(slot.node);
   slot.node = RuntimeNode{};
   slot.occupied = false;
   ++slot.generation;
@@ -214,6 +320,7 @@ auto Reconciler::ReconcileChildren(
     auto *node = m_tree.Get(matched);
     node->properties = declaration.properties;
     m_tree.SynchronizeTextField(*node);
+    m_tree.SynchronizeCustom(*node);
     node->compositionRevision = m_revision;
     nextChildren.push_back(matched);
     ++stats.preserved;

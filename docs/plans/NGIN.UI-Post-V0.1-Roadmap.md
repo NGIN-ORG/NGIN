@@ -1,6 +1,6 @@
 # NGIN.UI Post-v0.1 Roadmap
 
-Status: Active — Milestone 10 complete
+Status: Active — Milestone 11 complete
 Baseline: [`NGIN.UI-V0.1-Acceptance-Audit.md`](NGIN.UI-V0.1-Acceptance-Audit.md)
 
 ## Goal
@@ -30,7 +30,7 @@ keyboard behavior, semantics, and the public code needed to compose it.
 | Border and rounded control chrome | Yes | Yes |
 | Checkbox, radio, toggle, slider, and progress controls | No | No |
 | Lists, selection, combo box, tabs, and menus | No | No |
-| Public custom measurement and painting | No | No |
+| Public custom measurement and painting | Yes | Yes |
 | Application-developer guide | No | No |
 
 ## Milestone 9 — Visual Styling Primitives
@@ -73,21 +73,21 @@ from the running gallery without reading private implementation code.
 
 ## Milestone 11 — Supported Custom-Control API
 
-- [ ] Define a public custom-element contract with constraint-based measurement,
+- [x] Define a public custom-element contract with constraint-based measurement,
       arrangement, painting, input, and semantics.
-- [ ] Add a bounded `PaintContext` that emits display-list commands in local
+- [x] Add a bounded `PaintContext` that emits display-list commands in local
       coordinates while respecting inherited clips, transforms, and opacity.
-- [ ] Specify callback ownership, exceptions/errors, invalidation, and UI-thread
+- [x] Specify callback ownership, exceptions/errors, invalidation, and UI-thread
       requirements.
-- [ ] Provide generic retained local state keyed to element identity, without
+- [x] Provide generic retained local state keyed to element identity, without
       exposing runtime-node storage.
-- [ ] Allow composite controls to remain simple C++ composition functions.
-- [ ] Ensure a new custom control never requires changes to a platform or
+- [x] Allow composite controls to remain simple C++ composition functions.
+- [x] Ensure a new custom control never requires changes to a platform or
       renderer backend.
-- [ ] Add a custom badge, progress ring, and small chart as public examples.
-- [ ] Test custom measurement, clipping, input routing, semantics, identity,
+- [x] Add a custom badge, progress ring, and small chart as public examples.
+- [x] Test custom measurement, clipping, input routing, semantics, identity,
       unmount cleanup, and renderer-independent output.
-- [ ] Write the custom-control authoring guide before declaring this API stable.
+- [x] Write the custom-control authoring guide before declaring this API stable.
 
 Exit criterion: an application can implement a semantic, interactive,
 custom-painted control using only public `NGIN.UI` APIs.

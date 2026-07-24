@@ -119,6 +119,14 @@ void Composer::Separator(const SeparatorOrientation orientation,
   Leaf(ElementType::Separator, separatorProperties, key);
 }
 
+void Composer::Custom(std::shared_ptr<ICustomElement> element,
+                      const NodeProperties &properties,
+                      const std::string_view key) {
+  auto customProperties = properties;
+  customProperties.custom.element = std::move(element);
+  Leaf(ElementType::CustomElement, customProperties, key);
+}
+
 auto Composer::Declarations() const noexcept
     -> const std::vector<ElementDeclaration> & {
   return m_roots;

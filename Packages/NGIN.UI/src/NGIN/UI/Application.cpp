@@ -476,7 +476,9 @@ auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
     }
 
     const auto inputResult = window->m_implementation->inputRouter.Route(event);
-    if (inputResult.callbackInvoked || inputResult.activated) {
+    if (inputResult.invalidation != InvalidationKind::None) {
+      window->Invalidate(inputResult.invalidation);
+    } else if (inputResult.callbackInvoked || inputResult.activated) {
       window->Invalidate(InvalidationKind::All);
     } else if (inputResult.layoutStateChanged) {
       window->Invalidate(InvalidationKind::Arrange | InvalidationKind::Paint |

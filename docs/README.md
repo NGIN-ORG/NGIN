@@ -31,6 +31,9 @@ If you are trying to understand NGIN as a user:
 - [`guides/ngin-ui-styling.md`](guides/ngin-ui-styling.md)
   Typed NGIN.UI theme tokens, visual states, borders, focus treatment, and
   invalidation rules.
+- [`guides/ngin-ui-custom-controls.md`](guides/ngin-ui-custom-controls.md)
+  Public custom measurement, bounded painting, retained state, input,
+  semantics, lifecycle, and error rules.
 
 ## Active Specs
 

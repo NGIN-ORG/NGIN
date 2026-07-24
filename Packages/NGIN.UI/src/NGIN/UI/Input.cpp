@@ -17,6 +17,33 @@ namespace {
   return value == static_cast<UInt32>(character) ||
          value == static_cast<UInt32>(character - 'A' + 'a');
 }
+
+[[nodiscard]] auto CustomContextFor(RuntimeNode &node, const F32 scaleFactor)
+    -> CustomElementContext {
+  return CustomElementContext{
+      *node.custom.state,
+      node.id,
+      node.arrangedBounds,
+      CustomInteractionState{
+          .hovered = node.interaction.hovered,
+          .pressed =
+              node.interaction.pressed || node.interaction.keyboardPressed,
+          .focused = node.interaction.focused,
+          .enabled = node.properties.interaction.enabled,
+      },
+      scaleFactor,
+  };
+}
+
+void ReportCustomError(const RuntimeNode &node, const UIError &error) noexcept {
+  if (!node.properties.custom.onError) {
+    return;
+  }
+  try {
+    node.properties.custom.onError(error);
+  } catch (...) {
+  }
+}
 } // namespace
 
 InputRouter::InputRouter(RuntimeTree &tree, IPlatformBackend *platform,
@@ -70,7 +97,8 @@ auto InputRouter::FirstCapturedElement() const noexcept -> ElementHandle {
 }
 
 auto InputRouter::Route(const PlatformEvent &event) -> InputDispatchResult {
-  return std::visit(
+  m_customInvalidation = InvalidationKind::None;
+  auto result = std::visit(
       [this](const auto &value) -> InputDispatchResult {
         using Event = std::remove_cvref_t<decltype(value)>;
         if constexpr (std::is_same_v<Event, PointerMoved>) {
@@ -95,6 +123,8 @@ auto InputRouter::Route(const PlatformEvent &event) -> InputDispatchResult {
         return {};
       },
       event);
+  result.invalidation |= m_customInvalidation;
+  return result;
 }
 
 auto InputRouter::SetFocus(const ElementHandle handle) noexcept -> bool {
@@ -380,7 +410,10 @@ void InputRouter::InvokeHandler(const ElementHandle handle,
                                 RoutedPointerEvent &event,
                                 DispatchOutcome &outcome) const {
   auto *node = m_tree.Get(handle);
-  if (node == nullptr || !node->properties.interaction.onPointer) {
+  if (node == nullptr ||
+      (!node->properties.interaction.onPointer &&
+       (node->type != ElementType::CustomElement || !node->custom.state ||
+        !node->properties.custom.element))) {
     return;
   }
 
@@ -388,8 +421,46 @@ void InputRouter::InvokeHandler(const ElementHandle handle,
   event.currentTarget = handle;
   event.captureRequested = false;
   event.captureReleaseRequested = false;
-  node->properties.interaction.onPointer(event);
-  outcome.callbackInvoked = true;
+  if (node->properties.interaction.onPointer) {
+    node->properties.interaction.onPointer(event);
+    outcome.callbackInvoked = true;
+  }
+  if (node->type == ElementType::CustomElement && node->custom.state &&
+      node->properties.custom.element) {
+    try {
+      auto context = CustomContextFor(*node, m_scaleFactor);
+      auto handled =
+          node->properties.custom.element->PointerEvent(context, event);
+      if (handled) {
+        m_customInvalidation |= handled.Value();
+        outcome.callbackInvoked = outcome.callbackInvoked ||
+                                  handled.Value() != InvalidationKind::None ||
+                                  event.handled;
+      } else {
+        ReportCustomError(*node, handled.Error());
+        m_customInvalidation |=
+            InvalidationKind::Paint | InvalidationKind::Semantics;
+        outcome.callbackInvoked = true;
+      }
+    } catch (const std::bad_alloc &) {
+      ReportCustomError(*node,
+                        MakeUIError(UIErrorCode::OutOfMemory,
+                                    "Custom pointer callback allocation failed",
+                                    "NGIN.UI", "ICustomElement::PointerEvent"));
+      m_customInvalidation |=
+          InvalidationKind::Paint | InvalidationKind::Semantics;
+      outcome.callbackInvoked = true;
+    } catch (...) {
+      ReportCustomError(
+          *node, MakeUIError(UIErrorCode::InvalidState,
+                             "Custom pointer callback threw an exception",
+                             "NGIN.UI", "ICustomElement::PointerEvent"));
+      m_customInvalidation |=
+          InvalidationKind::Paint | InvalidationKind::Semantics;
+      outcome.callbackInvoked = true;
+    }
+    m_tree.SynchronizeCustom(*node, m_scaleFactor);
+  }
   if (event.captureRequested) {
     outcome.captureRequest = handle;
   }
@@ -409,13 +480,46 @@ auto InputRouter::Dispatch(RoutedKeyEvent &event, const ElementHandle target)
   const auto invoke = [this, &event, &result](const ElementHandle handle,
                                               const EventPhase phase) {
     auto *node = m_tree.Get(handle);
-    if (node == nullptr || !node->properties.interaction.onKey) {
+    if (node == nullptr ||
+        (!node->properties.interaction.onKey &&
+         (node->type != ElementType::CustomElement || !node->custom.state ||
+          !node->properties.custom.element))) {
       return;
     }
     event.phase = phase;
     event.currentTarget = handle;
-    node->properties.interaction.onKey(event);
-    result.callbackInvoked = true;
+    if (node->properties.interaction.onKey) {
+      node->properties.interaction.onKey(event);
+      result.callbackInvoked = true;
+    }
+    if (node->type == ElementType::CustomElement && node->custom.state &&
+        node->properties.custom.element) {
+      try {
+        auto context = CustomContextFor(*node, m_scaleFactor);
+        auto handled =
+            node->properties.custom.element->KeyEvent(context, event);
+        if (handled) {
+          m_customInvalidation |= handled.Value();
+          result.callbackInvoked = result.callbackInvoked ||
+                                   handled.Value() != InvalidationKind::None ||
+                                   event.handled;
+        } else {
+          ReportCustomError(*node, handled.Error());
+          m_customInvalidation |=
+              InvalidationKind::Paint | InvalidationKind::Semantics;
+          result.callbackInvoked = true;
+        }
+      } catch (...) {
+        ReportCustomError(*node,
+                          MakeUIError(UIErrorCode::InvalidState,
+                                      "Custom key callback threw an exception",
+                                      "NGIN.UI", "ICustomElement::KeyEvent"));
+        m_customInvalidation |=
+            InvalidationKind::Paint | InvalidationKind::Semantics;
+        result.callbackInvoked = true;
+      }
+      m_tree.SynchronizeCustom(*node, m_scaleFactor);
+    }
   };
 
   for (auto index = path.size(); index > 1 && !event.handled; --index) {
@@ -443,13 +547,46 @@ auto InputRouter::Dispatch(RoutedTextEvent &event, const ElementHandle target)
   const auto invoke = [this, &event, &result](const ElementHandle handle,
                                               const EventPhase phase) {
     auto *node = m_tree.Get(handle);
-    if (node == nullptr || !node->properties.interaction.onText) {
+    if (node == nullptr ||
+        (!node->properties.interaction.onText &&
+         (node->type != ElementType::CustomElement || !node->custom.state ||
+          !node->properties.custom.element))) {
       return;
     }
     event.phase = phase;
     event.currentTarget = handle;
-    node->properties.interaction.onText(event);
-    result.callbackInvoked = true;
+    if (node->properties.interaction.onText) {
+      node->properties.interaction.onText(event);
+      result.callbackInvoked = true;
+    }
+    if (node->type == ElementType::CustomElement && node->custom.state &&
+        node->properties.custom.element) {
+      try {
+        auto context = CustomContextFor(*node, m_scaleFactor);
+        auto handled =
+            node->properties.custom.element->TextEvent(context, event);
+        if (handled) {
+          m_customInvalidation |= handled.Value();
+          result.callbackInvoked = result.callbackInvoked ||
+                                   handled.Value() != InvalidationKind::None ||
+                                   event.handled;
+        } else {
+          ReportCustomError(*node, handled.Error());
+          m_customInvalidation |=
+              InvalidationKind::Paint | InvalidationKind::Semantics;
+          result.callbackInvoked = true;
+        }
+      } catch (...) {
+        ReportCustomError(*node,
+                          MakeUIError(UIErrorCode::InvalidState,
+                                      "Custom text callback threw an exception",
+                                      "NGIN.UI", "ICustomElement::TextEvent"));
+        m_customInvalidation |=
+            InvalidationKind::Paint | InvalidationKind::Semantics;
+        result.callbackInvoked = true;
+      }
+      m_tree.SynchronizeCustom(*node, m_scaleFactor);
+    }
   };
 
   for (auto index = path.size(); index > 1 && !event.handled; --index) {

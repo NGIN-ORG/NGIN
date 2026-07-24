@@ -1,3 +1,4 @@
+#include <NGIN/UIGallery/CustomControls.hpp>
 #include <NGIN/UIGallery/Gallery.hpp>
 
 #include <array>
@@ -226,6 +227,28 @@ void ComposeOverviewPage(Composer &composer, NativeTextSystem &text,
               LabeledNumber("Activation count: ", model.ActivationCount()),
               theme.typography.body, theme.colors.mutedForeground,
               "activation-count");
+
+  ComposeCard(
+      composer, theme,
+      [&] {
+        NodeProperties column{};
+        column.layout.gap = theme.spacing.regular;
+        composer.Column(
+            [&] {
+              ComposeText(composer, text, String{"Public custom controls"},
+                          19.0F, theme.colors.foreground, "custom-title",
+                          SemanticRole::Heading);
+              ComposeText(
+                  composer, text,
+                  String{"Badge, progress ring, and interactive bar chart "
+                         "implemented without backend changes."},
+                  theme.typography.body, theme.colors.mutedForeground,
+                  "custom-description");
+              ComposeCustomControlExamples(composer, text, theme);
+            },
+            "custom-column");
+      },
+      "custom-controls-card");
 }
 
 void ComposeLayoutPage(Composer &composer, NativeTextSystem &text,

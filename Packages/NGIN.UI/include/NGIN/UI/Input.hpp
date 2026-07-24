@@ -15,6 +15,7 @@ struct InputDispatchResult final {
   bool layoutStateChanged{false};
   bool callbackInvoked{false};
   bool activated{false};
+  InvalidationKind invalidation{InvalidationKind::None};
 };
 
 class InputRouter final {
@@ -108,5 +109,6 @@ private:
   std::unordered_map<UInt64, ElementHandle> m_captured{};
   std::unordered_map<UInt64, ElementHandle> m_hovered{};
   std::vector<PopupSession> m_popups{};
+  mutable InvalidationKind m_customInvalidation{InvalidationKind::None};
 };
 } // namespace NGIN::UI

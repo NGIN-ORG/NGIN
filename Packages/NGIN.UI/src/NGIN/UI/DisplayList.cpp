@@ -133,6 +133,66 @@ namespace {
   return state;
 }
 
+[[nodiscard]] auto CustomContextFor(const RuntimeNode &node)
+    -> CustomElementContext {
+  return CustomElementContext{
+      *node.custom.state,
+      node.id,
+      node.arrangedBounds,
+      CustomInteractionState{
+          .hovered = node.interaction.hovered,
+          .pressed =
+              node.interaction.pressed || node.interaction.keyboardPressed,
+          .focused = node.interaction.focused,
+          .enabled = node.properties.interaction.enabled,
+      },
+      node.custom.scaleFactor,
+  };
+}
+
+void ReportCustomError(const RuntimeNode &node, const UIError &error) noexcept {
+  if (!node.properties.custom.onError) {
+    return;
+  }
+  try {
+    node.properties.custom.onError(error);
+  } catch (...) {
+  }
+}
+
+void PaintCustom(const RuntimeNode &node, DisplayListBuilder &builder) {
+  if (node.type != ElementType::CustomElement || !node.custom.state ||
+      !node.properties.custom.element || node.arrangedBounds.width <= 0.0F ||
+      node.arrangedBounds.height <= 0.0F) {
+    return;
+  }
+
+  builder.PushClip(node.arrangedBounds);
+  builder.PushTranslation(node.arrangedBounds.x, node.arrangedBounds.y);
+  try {
+    auto context = CustomContextFor(node);
+    PaintContext paint{
+        builder,
+        Size{node.arrangedBounds.width, node.arrangedBounds.height},
+    };
+    auto painted = node.properties.custom.element->Paint(context, paint);
+    if (!painted) {
+      ReportCustomError(node, painted.Error());
+    }
+  } catch (const std::bad_alloc &) {
+    ReportCustomError(node, MakeUIError(UIErrorCode::OutOfMemory,
+                                        "Custom painting allocation failed",
+                                        "NGIN.UI", "ICustomElement::Paint"));
+  } catch (...) {
+    ReportCustomError(node,
+                      MakeUIError(UIErrorCode::InvalidState,
+                                  "Custom painting callback threw an exception",
+                                  "NGIN.UI", "ICustomElement::Paint"));
+  }
+  static_cast<void>(builder.PopTransform());
+  static_cast<void>(builder.PopClip());
+}
+
 void PaintBorder(DisplayListBuilder &builder, const Rect bounds,
                  const VisualStyle &style) {
   if (!style.borderColor) {
@@ -280,6 +340,7 @@ void PaintNode(const RuntimeTree &tree, const ElementHandle handle,
   if (clipsText) {
     static_cast<void>(builder.PopClip());
   }
+  PaintCustom(*node, builder);
   const auto clipsChildren = node->type == ElementType::ScrollView;
   if (clipsChildren) {
     builder.PushClip(node->arrangedBounds);
