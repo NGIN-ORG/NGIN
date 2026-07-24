@@ -12,8 +12,8 @@
 #include <NGIN/Crypto/Backend/CryptoContext.hpp>
 
 #include <algorithm>
-#include <atomic>
 #include <array>
+#include <atomic>
 #include <cctype>
 #include <cstdint>
 #include <cstdlib>
@@ -2416,34 +2416,36 @@ GeneratePackageOutputManifest(const PackageOutputDefinition &output)
 }
 
 [[nodiscard]] auto HasElementChildren(const XmlElement &element) -> bool {
-  for (NGIN::UIntSize index = 0; index < element.children.Size(); ++index) {
-    if (element.children[index].type == XmlNode::Type::Element) {
-      return true;
+    for (const auto child : element.Children())
+    {
+        if (child.Kind() == NGIN::Serialization::XML::NodeKind::Element)
+        {
+            return true;
+        }
     }
-  }
   return false;
 }
 
 [[nodiscard]] auto HasNonWhitespaceText(const XmlElement &element) -> bool {
-  for (NGIN::UIntSize index = 0; index < element.children.Size(); ++index) {
-    const auto &child = element.children[index];
-    if ((child.type == XmlNode::Type::Text ||
-         child.type == XmlNode::Type::CData) &&
-        !TrimView(child.text).empty()) {
-      return true;
+    for (const auto child : element.Children())
+    {
+        const auto kind = child.Kind();
+        if ((kind == NGIN::Serialization::XML::NodeKind::Text || kind == NGIN::Serialization::XML::NodeKind::CData) &&
+            !TrimView(child.TryText().value_or(std::string_view{})).empty())
+        {
+            return true;
+        }
     }
-  }
   return false;
 }
 
 auto WriteFormattedElement(std::ostream &out, const XmlElement &element,
                            const int indent) -> void {
   const std::string pad(static_cast<std::size_t>(indent), ' ');
-  out << pad << "<" << element.name;
-  for (NGIN::UIntSize index = 0; index < element.attributes.Size(); ++index) {
-    const auto &attribute = element.attributes[index];
-    out << " " << attribute.name << "=\""
-        << EscapeXml(std::string(attribute.value)) << "\"";
+  out << pad << "<" << element.Name();
+  for (const auto attribute : element.Attributes())
+  {
+      out << " " << attribute.Name() << "=\"" << EscapeXml(std::string(attribute.Value())) << "\"";
   }
 
   const auto hasElements = HasElementChildren(element);
@@ -2455,41 +2457,52 @@ auto WriteFormattedElement(std::ostream &out, const XmlElement &element,
 
   if (!hasElements) {
     out << ">";
-    for (NGIN::UIntSize index = 0; index < element.children.Size(); ++index) {
-      const auto &child = element.children[index];
-      const auto text = TrimView(child.text);
-      if (text.empty()) {
-        continue;
-      }
-      if (child.type == XmlNode::Type::CData) {
-        out << "<![CDATA[" << text << "]]>";
-      } else {
-        out << EscapeXml(std::string(text));
-      }
+    for (const auto child : element.Children())
+    {
+        const auto text = TrimView(child.TryText().value_or(std::string_view{}));
+        if (text.empty())
+        {
+            continue;
+        }
+        if (child.Kind() == NGIN::Serialization::XML::NodeKind::CData)
+        {
+            out << "<![CDATA[" << text << "]]>";
+        }
+        else
+        {
+            out << EscapeXml(std::string(text));
+        }
     }
-    out << "</" << element.name << ">\n";
+    out << "</" << element.Name() << ">\n";
     return;
   }
 
   out << ">\n";
-  for (NGIN::UIntSize index = 0; index < element.children.Size(); ++index) {
-    const auto &child = element.children[index];
-    if (child.type == XmlNode::Type::Element && child.element != nullptr) {
-      WriteFormattedElement(out, *child.element, indent + 2);
-    } else {
-      const auto text = TrimView(child.text);
-      if (text.empty()) {
-        continue;
+  for (const auto child : element.Children())
+  {
+      if (const auto childElement = child.TryElement())
+      {
+          WriteFormattedElement(out, *childElement, indent + 2);
       }
-      out << std::string(static_cast<std::size_t>(indent + 2), ' ');
-      if (child.type == XmlNode::Type::CData) {
-        out << "<![CDATA[" << text << "]]>\n";
-      } else {
-        out << EscapeXml(std::string(text)) << "\n";
+      else
+      {
+          const auto text = TrimView(child.TryText().value_or(std::string_view{}));
+          if (text.empty())
+          {
+              continue;
+          }
+          out << std::string(static_cast<std::size_t>(indent + 2), ' ');
+          if (child.Kind() == NGIN::Serialization::XML::NodeKind::CData)
+          {
+              out << "<![CDATA[" << text << "]]>\n";
+          }
+          else
+          {
+              out << EscapeXml(std::string(text)) << "\n";
+          }
       }
-    }
   }
-  out << pad << "</" << element.name << ">\n";
+  out << pad << "</" << element.Name() << ">\n";
 }
 
 [[nodiscard]] auto FormatXmlManifest(const fs::path &path) -> std::string {
@@ -2499,13 +2512,14 @@ auto WriteFormattedElement(std::ostream &out, const XmlElement &element,
                              "not drop authored comments");
   }
   const auto loaded = LoadXml(path);
-  const auto *rootElement = loaded.document.RootPtr();
-  if (rootElement == nullptr) {
-    throw std::runtime_error(path.string() + ": missing XML root element");
+  const auto rootElement = loaded.document.Root();
+  if (!rootElement.IsValid())
+  {
+      throw std::runtime_error(path.string() + ": missing XML root element");
   }
   std::ostringstream formatted{};
   formatted << "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n\n";
-  WriteFormattedElement(formatted, *rootElement, 0);
+  WriteFormattedElement(formatted, rootElement, 0);
   return formatted.str();
 }
 
@@ -2731,7 +2745,8 @@ struct ToolRunBinding {
   if (policy.requireTrustedPackage &&
       (!IsTrustedToolResolutionSource(tool.source) ||
        !IsTrustedToolResolutionSource(driver.source)))
-    return "effective ToolingPolicy requires package or bundled tool and driver executables";
+      return "effective ToolingPolicy requires package or bundled tool and "
+             "driver executables";
   return {};
 }
 
@@ -2947,8 +2962,8 @@ auto ValidatePublish(const PublishDefinition &publish,
     }
   } else if (publish.kind == "Installer") {
     if (!IsSemanticVersion(project.version)) {
-      throw std::runtime_error(
-          "installer publish requires Project Version in semantic version form");
+        throw std::runtime_error("installer publish requires Project Version in "
+                                 "semantic version form");
     }
     if (publish.installerIdentifier.empty() || publish.installerVendor.empty() ||
         publish.installerContact.empty()) {
@@ -3443,25 +3458,27 @@ struct LockPackageEntry {
 [[nodiscard]] auto LoadLockPackages(const fs::path &path)
     -> std::map<std::string, LockPackageEntry> {
   const auto loaded = LoadXml(path);
-  const auto *rootElement = loaded.document.RootPtr();
-  if (rootElement == nullptr || rootElement->name != "LockFile") {
-    throw std::runtime_error(path.string() +
-                             ": expected LockFile root element");
+  const auto rootElement = loaded.document.Root();
+  if (!rootElement.IsValid() || rootElement.Name() != "LockFile")
+  {
+      throw std::runtime_error(path.string() + ": expected LockFile root element");
   }
 
   std::map<std::string, LockPackageEntry> packages{};
-  const auto *packagesNode = FindChild(*rootElement, "Packages");
-  if (packagesNode == nullptr) {
-    return packages;
+  const auto packagesNode = FindChild(rootElement, "Packages");
+  if (!packagesNode)
+  {
+      return packages;
   }
 
-  for (const auto *packageNode : ChildElements(*packagesNode, "Package")) {
-    const auto name = RequireAttribute(*packageNode, "Name", path);
-    LockPackageEntry entry{};
-    entry.version = Attribute(*packageNode, "Version").value_or("");
-    entry.scope = Attribute(*packageNode, "Scope").value_or("");
-    entry.source = Attribute(*packageNode, "Source").value_or("");
-    packages[name] = std::move(entry);
+  for (const auto packageNode : ChildElements(*packagesNode, "Package"))
+  {
+      const auto name = RequireAttribute(packageNode, "Name", path);
+      LockPackageEntry entry{};
+      entry.version = Attribute(packageNode, "Version").value_or("");
+      entry.scope = Attribute(packageNode, "Scope").value_or("");
+      entry.source = Attribute(packageNode, "Source").value_or("");
+      packages[name] = std::move(entry);
   }
   return packages;
 }
@@ -6596,7 +6613,8 @@ BuildCompositionGraph(const LoadedInvocation &invocation,
           if (units.empty() && !selected.empty()) {
             inputSetState = "invalid";
             executionState = "invalid";
-            executionDiagnostic = "configured compilation-unit plan contains no matching translation units";
+            executionDiagnostic = "configured compilation-unit plan contains "
+                                  "no matching translation units";
           }
           }
         } catch (const std::exception &error) {
@@ -8946,14 +8964,16 @@ auto CmdToolDoctor(const fs::path &root, const ParsedArgs &args) -> int {
                 EventData{}.AddBool("healthy", healthy)
                     .AddNumber("checks", static_cast<std::int64_t>(checks.size())));
   } else if (args.format == "json") {
-    std::cout << "{\"schemaVersion\":\"1.0\",\"kind\":\"NGIN.ToolDoctor\",\"healthy\":"
-              << (healthy ? "true" : "false") << ",\"checks\":[";
-    for (std::size_t index = 0; index < checks.size(); ++index) {
-      if (index > 0) std::cout << ',';
-      std::cout << "{\"run\":" << JsonString(checks[index].name)
-                << ",\"state\":" << JsonString(checks[index].state)
-                << ",\"detail\":" << JsonString(checks[index].detail) << '}';
-    }
+      std::cout << "{\"schemaVersion\":\"1.0\",\"kind\":\"NGIN.ToolDoctor\","
+                   "\"healthy\":"
+                << (healthy ? "true" : "false") << ",\"checks\":[";
+      for (std::size_t index = 0; index < checks.size(); ++index)
+      {
+          if (index > 0)
+              std::cout << ',';
+          std::cout << "{\"run\":" << JsonString(checks[index].name) << ",\"state\":" << JsonString(checks[index].state)
+                    << ",\"detail\":" << JsonString(checks[index].detail) << '}';
+      }
     std::cout << "]}\n";
   } else {
     std::cout << "Tool doctor for " << invocation.project.name << " ["
@@ -9051,11 +9071,14 @@ auto CmdToolResults(const fs::path &root, const ParsedArgs &args) -> int {
   }
   const auto results = FindStoredToolResults(invocation, *resolved.value, args);
   if (args.format == "json") {
-    std::cout << "{\"schemaVersion\":\"1.0\",\"kind\":\"NGIN.ToolResults\",\"results\":[";
-    for (std::size_t index = 0; index < results.size(); ++index) {
-      if (index != 0) std::cout << ',';
-      std::cout << results[index].document;
-    }
+      std::cout << "{\"schemaVersion\":\"1.0\",\"kind\":\"NGIN.ToolResults\","
+                   "\"results\":[";
+      for (std::size_t index = 0; index < results.size(); ++index)
+      {
+          if (index != 0)
+              std::cout << ',';
+          std::cout << results[index].document;
+      }
     std::cout << "]}\n";
   } else {
     std::cout << "Stored tool results for " << invocation.project.name << " ["
@@ -9360,13 +9383,15 @@ auto CmdAnalyze(const fs::path &root, const ParsedArgs &args) -> int {
                  static_cast<unsigned char>(storedSignature.back())))
         storedSignature.pop_back();
       if (!fs::exists(compileCommands) || storedSignature != expectedSignature) {
-        events.Emit(CliEventType::Diagnostic,
-                    EventData{}.AddString("severity", "error")
-                               .AddString("source", commandSource)
-                               .AddString("message", "--no-configure requires a fresh compatible compilation-unit plan at " +
-                                                         compileCommands.string() +
-                                                         "; run without --no-configure to regenerate it"));
-        return EmitCommandCompleted(events, "invalid", 2, commandStarted);
+          events.Emit(CliEventType::Diagnostic,
+                      EventData{}
+                          .AddString("severity", "error")
+                          .AddString("source", commandSource)
+                          .AddString("message", "--no-configure requires a fresh compatible "
+                                                "compilation-unit plan at " +
+                                                    compileCommands.string() +
+                                                    "; run without --no-configure to regenerate it"));
+          return EmitCommandCompleted(events, "invalid", 2, commandStarted);
       }
       configuredPaths = ConfiguredBuildPaths{
           .outputDir = outputDirectory,
@@ -9388,18 +9413,16 @@ auto CmdAnalyze(const fs::path &root, const ParsedArgs &args) -> int {
         return EmitCommandCompleted(events, "invalid", 2, commandStarted);
       }
       if (!configured.value.has_value() || !configured.value->compileCommandsPath.has_value()) {
-        events.Emit(
-            CliEventType::Diagnostic,
-            EventData{}
-                .AddString("severity", "error")
-                .AddString("source", commandSource)
-                .AddString(
-                    "message",
-                    "selected tool runs require a configured compilation-unit plan"));
-        if (!IsQuiet(args)) {
-          std::cout << "\nTooling errors:\n  - selected tool runs require a "
-                       "configured compilation-unit plan\n";
-        }
+          events.Emit(CliEventType::Diagnostic, EventData{}
+                                                    .AddString("severity", "error")
+                                                    .AddString("source", commandSource)
+                                                    .AddString("message", "selected tool runs require a configured "
+                                                                          "compilation-unit plan"));
+          if (!IsQuiet(args))
+          {
+              std::cout << "\nTooling errors:\n  - selected tool runs require a "
+                           "configured compilation-unit plan\n";
+          }
         return EmitCommandCompleted(events, "invalid", 2, commandStarted);
       }
       configuredPaths = *configured.value;
@@ -9464,16 +9487,17 @@ auto CmdAnalyze(const fs::path &root, const ParsedArgs &args) -> int {
       runOutcomes.at(run.name) = "skipped";
       ++skippedRuns;
       const auto resultPath = runOutputDirectory(run.name) / "result.json";
-      WriteTextFile(resultPath,
-                    "{\"schemaVersion\":\"1.0\",\"kind\":\"NGIN.ToolResult\","
-                    "\"runId\":" + JsonString(run.name + "-skipped") +
-                    ",\"run\":" + JsonString(run.name) +
-                    ",\"action\":" + JsonString(run.action) +
-                    ",\"tool\":\"\",\"driver\":\"\",\"executionStatus\":\"skipped\","
-                    "\"gateStatus\":\"not-evaluated\",\"cacheStatus\":\"disabled\","
-                    "\"changeStatus\":\"clean\","
-                    "\"skipReason\":" + JsonString(reason) +
-                    ",\"diagnostics\":[],\"edits\":[],\"artifacts\":[],\"metrics\":[]}\n");
+      WriteTextFile(resultPath, "{\"schemaVersion\":\"1.0\",\"kind\":\"NGIN.ToolResult\","
+                                "\"runId\":" +
+                                    JsonString(run.name + "-skipped") + ",\"run\":" + JsonString(run.name) +
+                                    ",\"action\":" + JsonString(run.action) +
+                                    ",\"tool\":\"\",\"driver\":\"\",\"executionStatus\":\"skipped\","
+                                    "\"gateStatus\":\"not-evaluated\",\"cacheStatus\":\"disabled\","
+                                    "\"changeStatus\":\"clean\","
+                                    "\"skipReason\":" +
+                                    JsonString(reason) +
+                                    ",\"diagnostics\":[],\"edits\":[],\"artifacts\":[],\"metrics\":[]"
+                                    "}\n");
       completedToolResultPaths[runIndex] = resultPath;
       events.Emit(CliEventType::ArtifactProduced,
                   EventData{}.AddString("kind", "tool-result")
@@ -9558,14 +9582,15 @@ auto CmdAnalyze(const fs::path &root, const ParsedArgs &args) -> int {
     auto sources = ResolveToolSources(resolved, run, selectedInputContract, selectedFiles);
     if (selectedInputContract == "tool.results/v1") sources.clear();
     if (run.input.scope == "ActiveFile" && sources.empty()) {
-      events.Emit(CliEventType::Diagnostic,
-                  EventData{}.AddString("severity", "error")
-                             .AddString("source", commandSource)
-                             .AddString("run", run.name)
-                             .AddString("message", "the selected active file is not an input accepted by this run"));
-      hasInvalidPlan = true;
-      runOutcomes.at(run.name) = "invalid";
-      return;
+        events.Emit(CliEventType::Diagnostic, EventData{}
+                                                  .AddString("severity", "error")
+                                                  .AddString("source", commandSource)
+                                                  .AddString("run", run.name)
+                                                  .AddString("message", "the selected active file is not "
+                                                                        "an input accepted by this run"));
+        hasInvalidPlan = true;
+        runOutcomes.at(run.name) = "invalid";
+        return;
     }
     const auto outputDirectory = runOutputDirectory(run.name);
     if (selectedInputContract == "artifacts/v1" ||
@@ -9575,14 +9600,15 @@ auto CmdAnalyze(const fs::path &root, const ParsedArgs &args) -> int {
     std::optional<fs::path> inputContentPath{};
     if (args.toolInputContentPath.has_value()) {
       if (sources.size() != 1) {
-        events.Emit(CliEventType::Diagnostic,
-                    EventData{}.AddString("severity", "error")
-                               .AddString("source", commandSource)
-                               .AddString("run", run.name)
-                               .AddString("message", "--input-content requires exactly one selected input file"));
-        hasInvalidPlan = true;
-        runOutcomes.at(run.name) = "invalid";
-        return;
+          events.Emit(CliEventType::Diagnostic, EventData{}
+                                                    .AddString("severity", "error")
+                                                    .AddString("source", commandSource)
+                                                    .AddString("run", run.name)
+                                                    .AddString("message", "--input-content requires exactly one "
+                                                                          "selected input file"));
+          hasInvalidPlan = true;
+          runOutcomes.at(run.name) = "invalid";
+          return;
       }
       inputContentPath = fs::absolute(*args.toolInputContentPath);
       if (!fs::is_regular_file(*inputContentPath)) {
@@ -9648,14 +9674,15 @@ auto CmdAnalyze(const fs::path &root, const ParsedArgs &args) -> int {
             !VersionRangeContains(requiredToolVersion, resolvedTool.version))) ||
           (!binding.action->driverVersionRange.empty() &&
            !VersionRangeContains(binding.action->driverVersionRange, resolvedDriver.version))) {
-        events.Emit(CliEventType::Diagnostic,
-                    EventData{}.AddString("severity", "error")
-                               .AddString("source", commandSource)
-                               .AddString("run", run.name)
-                               .AddString("message", "registered adapter resolved an incompatible tool or driver version"));
-        hasInvalidPlan = true;
-        runOutcomes.at(run.name) = "invalid";
-        return;
+          events.Emit(CliEventType::Diagnostic, EventData{}
+                                                    .AddString("severity", "error")
+                                                    .AddString("source", commandSource)
+                                                    .AddString("run", run.name)
+                                                    .AddString("message", "registered adapter resolved an "
+                                                                          "incompatible tool or driver version"));
+          hasInvalidPlan = true;
+          runOutcomes.at(run.name) = "invalid";
+          return;
       }
       events.Emit(CliEventType::ToolProgress,
                   EventData{}.AddString("run", run.name)
@@ -9806,14 +9833,15 @@ auto CmdAnalyze(const fs::path &root, const ParsedArgs &args) -> int {
       }
       if (resolved.toolingResolutionPolicy.requireVersion &&
           (request.driver.version.empty() || request.tool.version.empty())) {
-        events.Emit(CliEventType::Diagnostic,
-                    EventData{}.AddString("severity", "error")
-                               .AddString("source", commandSource)
-                               .AddString("run", run.name)
-                               .AddString("message", "effective ToolingPolicy requires resolved tool and driver versions"));
-        hasInvalidPlan = true;
-        runOutcomes.at(run.name) = "invalid";
-        return;
+          events.Emit(CliEventType::Diagnostic, EventData{}
+                                                    .AddString("severity", "error")
+                                                    .AddString("source", commandSource)
+                                                    .AddString("run", run.name)
+                                                    .AddString("message", "effective ToolingPolicy requires "
+                                                                          "resolved tool and driver versions"));
+          hasInvalidPlan = true;
+          runOutcomes.at(run.name) = "invalid";
+          return;
       }
       events.Emit(CliEventType::ToolProgress,
                   EventData{}.AddString("run", run.name)

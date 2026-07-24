@@ -25,7 +25,6 @@ namespace fs = std::filesystem;
 using NGIN::Serialization::ParseError;
 using XmlDocument = NGIN::Serialization::XML::Document;
 using XmlElement = NGIN::Serialization::XML::ElementView;
-using XmlNode = NGIN::Serialization::XML::NodeView;
 using XmlParser = NGIN::Serialization::XML::Parser;
 
 struct LoadedXml {
@@ -354,27 +353,14 @@ inline auto ExtractZipFile(const fs::path &archivePath,
   return loaded;
 }
 
-[[nodiscard]] inline auto ChildElements(const XmlElement &node,
-                                        std::string_view name = {})
-    -> std::vector<const XmlElement *> {
-  std::vector<const XmlElement *> out;
-  out.reserve(static_cast<std::size_t>(node.Children().Size()));
-  for (const auto child : node.Children()) {
-    const auto *element = child.ElementPtr();
-    if (element == nullptr) {
-      continue;
-    }
-    if (name.empty() || element->Name() == name) {
-      out.push_back(element);
-    }
-  }
-  return out;
+[[nodiscard]] inline auto ChildElements(const XmlElement &node, std::string_view name = {})
+{
+    return node.Children(name);
 }
 
-[[nodiscard]] inline auto FindChild(const XmlElement &node,
-                                    std::string_view name)
-    -> const XmlElement * {
-  return node.FirstChildPtr(name);
+[[nodiscard]] inline auto FindChild(const XmlElement &node, std::string_view name)
+{
+    return node.FirstChild(name);
 }
 
 [[nodiscard]] inline auto Attribute(const XmlElement &node,

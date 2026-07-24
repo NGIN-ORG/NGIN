@@ -13,7 +13,6 @@ namespace NGIN::Reflection::MetaGen
     {
         using XmlDocument = NGIN::Serialization::XML::Document;
         using XmlElement = NGIN::Serialization::XML::ElementView;
-        using XmlNode = NGIN::Serialization::XML::NodeView;
         using XmlParser = NGIN::Serialization::XML::Parser;
 
         struct LoadedXmlDocument
@@ -28,31 +27,14 @@ namespace NGIN::Reflection::MetaGen
             return !attribute.has_value() ? std::string{} : std::string(attribute->Value());
         }
 
-        [[nodiscard]] auto ChildElements(const XmlElement &node, const std::string_view name = {}) -> std::vector<const XmlElement *>
+        [[nodiscard]] auto ChildElements(const XmlElement &node, const std::string_view name = {})
         {
-            std::vector<const XmlElement *> out{};
-            for (NGIN::UIntSize index = 0; index < node.children.Size(); ++index)
-            {
-                const auto &child = node.children[index];
-                if (child.type == XmlNode::Type::Element && child.element != nullptr &&
-                    (name.empty() || child.element->name == name))
-                {
-                    out.push_back(child.element);
-                }
-            }
-            return out;
+            return node.Children(name);
         }
 
-        [[nodiscard]] auto FindChild(const XmlElement &node, const std::string_view name) -> const XmlElement *
+        [[nodiscard]] auto FindChild(const XmlElement &node, const std::string_view name)
         {
-            for (const auto *child : ChildElements(node))
-            {
-                if (child->name == name)
-                {
-                    return child;
-                }
-            }
-            return nullptr;
+            return node.FirstChild(name);
         }
 
         [[nodiscard]] auto LoadXml(const fs::path &path, std::vector<std::string> &diagnostics) -> std::optional<LoadedXmlDocument>
@@ -80,6 +62,8 @@ namespace NGIN::Reflection::MetaGen
         }
     }
 
+    // namespace
+
     auto ReadContext(const fs::path &path, std::vector<std::string> &diagnostics) -> MetaGenContext
     {
         MetaGenContext context{};
@@ -89,101 +73,104 @@ namespace NGIN::Reflection::MetaGen
             return context;
         }
 
-        const auto *root = loaded->document.RootPtr();
-        if (root == nullptr || root->name != "GeneratorContext")
+        const auto root = loaded->document.Root();
+        if (!root.IsValid() || root.Name() != "GeneratorContext")
         {
             diagnostics.push_back("generator context root element must be <GeneratorContext>");
             return context;
         }
-        if (Attribute(*root, "SchemaVersion") != "1")
+        if (Attribute(root, "SchemaVersion") != "1")
         {
-            diagnostics.push_back("unsupported generator context schema version '" + Attribute(*root, "SchemaVersion") + "'");
+            diagnostics.push_back("unsupported generator context schema version '" + Attribute(root, "SchemaVersion") +
+                                  "'");
             return context;
         }
 
-        context.generator = Attribute(*root, "Generator");
-        context.projectName = Attribute(*root, "Project");
-        context.profileName = Attribute(*root, "Profile");
-        context.platform = Attribute(*root, "Platform");
-        context.optimization = Attribute(*root, "Optimization");
-        context.debugSymbols = Attribute(*root, "DebugSymbols") == "true";
-        context.linkTimeOptimization = Attribute(*root, "LinkTimeOptimization") == "true";
-        context.backendConfiguration = Attribute(*root, "BackendConfiguration");
-        context.operatingSystem = Attribute(*root, "OperatingSystem");
-        context.architecture = Attribute(*root, "Architecture");
-        context.environment = Attribute(*root, "Environment");
-        context.projectDir = Attribute(*root, "ProjectDir");
-        context.outputDir = Attribute(*root, "OutputDir");
-        context.generatedDir = Attribute(*root, "GeneratedDir");
-        context.languageStandard = Attribute(*root, "LanguageStandard").empty() ? "23" : Attribute(*root, "LanguageStandard");
+        context.generator = Attribute(root, "Generator");
+        context.projectName = Attribute(root, "Project");
+        context.profileName = Attribute(root, "Profile");
+        context.platform = Attribute(root, "Platform");
+        context.optimization = Attribute(root, "Optimization");
+        context.debugSymbols = Attribute(root, "DebugSymbols") == "true";
+        context.linkTimeOptimization = Attribute(root, "LinkTimeOptimization") == "true";
+        context.backendConfiguration = Attribute(root, "BackendConfiguration");
+        context.operatingSystem = Attribute(root, "OperatingSystem");
+        context.architecture = Attribute(root, "Architecture");
+        context.environment = Attribute(root, "Environment");
+        context.projectDir = Attribute(root, "ProjectDir");
+        context.outputDir = Attribute(root, "OutputDir");
+        context.generatedDir = Attribute(root, "GeneratedDir");
+        context.languageStandard =
+            Attribute(root, "LanguageStandard").empty() ? "23" : Attribute(root, "LanguageStandard");
         if (!context.projectDir.empty())
         {
             context.sourceRoots.push_back(context.projectDir.lexically_normal());
         }
 
-        if (const auto *sources = FindChild(*root, "Sources"))
+        if (const auto sources = FindChild(root, "Sources"))
         {
-            for (const auto *file : ChildElements(*sources, "File"))
+            for (const auto file : ChildElements(*sources, "File"))
             {
-                const auto filePath = Attribute(*file, "Path");
+                const auto filePath = Attribute(file, "Path");
                 if (filePath.empty())
                 {
                     continue;
                 }
                 context.sourceFiles.emplace_back(filePath);
-                if (Attribute(*file, "Role") == "Header")
+                if (Attribute(file, "Role") == "Header")
                 {
                     context.sourceRoots.push_back(fs::path(filePath).parent_path().lexically_normal());
                 }
             }
         }
-        if (const auto *includes = FindChild(*root, "IncludeDirectories"))
+        if (const auto includes = FindChild(root, "IncludeDirectories"))
         {
-            for (const auto *include : ChildElements(*includes, "IncludeDirectory"))
+            for (const auto include : ChildElements(*includes, "IncludeDirectory"))
             {
-                const auto includePath = Attribute(*include, "Path");
+                const auto includePath = Attribute(include, "Path");
                 if (!includePath.empty())
                 {
                     context.includeDirectories.emplace_back(includePath);
-                    // Package includes are compiler inputs, not reflection ownership roots.
-                    if (Attribute(*include, "Source") != "package" && Attribute(*include, "Package").empty())
+                    // Package includes are compiler inputs, not reflection ownership
+                    // roots.
+                    if (Attribute(include, "Source") != "package" && Attribute(include, "Package").empty())
                     {
                         context.sourceRoots.emplace_back(includePath);
                     }
                 }
             }
         }
-        if (const auto *definitions = FindChild(*root, "CompileDefinitions"))
+        if (const auto definitions = FindChild(root, "CompileDefinitions"))
         {
-            for (const auto *definition : ChildElements(*definitions, "Definition"))
+            for (const auto definition : ChildElements(*definitions, "Definition"))
             {
-                const auto value = Attribute(*definition, "Value");
+                const auto value = Attribute(definition, "Value");
                 if (!value.empty())
                 {
                     context.compileDefinitions.push_back(value);
                 }
             }
         }
-        if (const auto *options = FindChild(*root, "CompileOptions"))
+        if (const auto options = FindChild(root, "CompileOptions"))
         {
-            for (const auto *option : ChildElements(*options, "Option"))
+            for (const auto option : ChildElements(*options, "Option"))
             {
-                const auto value = Attribute(*option, "Value");
+                const auto value = Attribute(option, "Value");
                 if (!value.empty())
                 {
                     context.compileOptions.push_back(value);
                 }
             }
         }
-        if (const auto *outputs = FindChild(*root, "Outputs"))
+        if (const auto outputs = FindChild(root, "Outputs"))
         {
-            for (const auto *output : ChildElements(*outputs, "Generated"))
+            for (const auto output : ChildElements(*outputs, "Generated"))
             {
-                if (Attribute(*output, "Role") != "Source")
+                if (Attribute(output, "Role") != "Source")
                 {
                     continue;
                 }
-                const auto outputPath = Attribute(*output, "Path");
+                const auto outputPath = Attribute(output, "Path");
                 if (!outputPath.empty())
                 {
                     context.outputs.emplace_back(outputPath);
@@ -192,8 +179,10 @@ namespace NGIN::Reflection::MetaGen
         }
         if (context.outputs.empty())
         {
+
             diagnostics.push_back("generator context declares no generated source outputs");
         }
         return context;
     }
 }
+// namespace NGIN::Reflection::MetaGen

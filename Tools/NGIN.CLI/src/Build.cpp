@@ -615,19 +615,18 @@ struct ProviderRestoreMetadata {
     return std::nullopt;
   }
   const auto loaded = LoadXml(metadataPath);
-  const auto *rootElement = loaded.document.RootPtr();
-  if (rootElement == nullptr || rootElement->name != "ProviderRestore") {
-    AddError(report,
-             metadataPath.string() + ": expected ProviderRestore root element");
-    return std::nullopt;
+  const auto rootElement = loaded.document.Root();
+  if (!rootElement.IsValid() || rootElement.Name() != "ProviderRestore")
+  {
+      AddError(report, metadataPath.string() + ": expected ProviderRestore root element");
+      return std::nullopt;
   }
   return ProviderRestoreMetadata{
-      .provider = Attribute(*rootElement, "Provider")
-                      .value_or(std::string{providerName}),
-      .kind = Attribute(*rootElement, "Kind").value_or(""),
-      .toolchainFile = Attribute(*rootElement, "ToolchainFile").value_or(""),
-      .installRoot = Attribute(*rootElement, "InstallRoot").value_or(""),
-      .prefixPath = Attribute(*rootElement, "PrefixPath").value_or(""),
+      .provider = Attribute(rootElement, "Provider").value_or(std::string{providerName}),
+      .kind = Attribute(rootElement, "Kind").value_or(""),
+      .toolchainFile = Attribute(rootElement, "ToolchainFile").value_or(""),
+      .installRoot = Attribute(rootElement, "InstallRoot").value_or(""),
+      .prefixPath = Attribute(rootElement, "PrefixPath").value_or(""),
   };
 }
 
@@ -3227,43 +3226,49 @@ auto CleanupPreviousStage(const fs::path &outputDir, DiagnosticReport &report)
   for (const auto &manifestPath : manifests) {
     try {
       const auto document = LoadXml(manifestPath);
-      const auto *rootElement = document.document.RootPtr();
-      if (rootElement == nullptr || rootElement->name != "LaunchManifest") {
-        throw std::runtime_error("root element must be <LaunchManifest>");
+      const auto rootElement = document.document.Root();
+      if (!rootElement.IsValid() || rootElement.Name() != "LaunchManifest")
+      {
+          throw std::runtime_error("root element must be <LaunchManifest>");
       }
 
-      if (const auto *stagedFiles = FindChild(*rootElement, "StagedFiles")) {
-        for (const auto *file : ChildElements(*stagedFiles, "File")) {
-          fs::path stagedPath{};
-          if (const auto relativeDestination =
-                  Attribute(*file, "RelativeDestination");
-              relativeDestination.has_value() &&
-              !relativeDestination->empty()) {
-            stagedPath = outputDir / fs::path(*relativeDestination);
-          } else if (const auto destination = Attribute(*file, "Destination");
-                     destination.has_value() && !destination->empty()) {
-            stagedPath = fs::path(*destination);
-          } else {
-            continue;
-          }
+      if (const auto stagedFiles = FindChild(rootElement, "StagedFiles"))
+      {
+          for (const auto file : ChildElements(*stagedFiles, "File"))
+          {
+              fs::path stagedPath{};
+              if (const auto relativeDestination = Attribute(file, "RelativeDestination");
+                  relativeDestination.has_value() && !relativeDestination->empty())
+              {
+                  stagedPath = outputDir / fs::path(*relativeDestination);
+              }
+              else if (const auto destination = Attribute(file, "Destination");
+                       destination.has_value() && !destination->empty())
+              {
+                  stagedPath = fs::path(*destination);
+              }
+              else
+              {
+                  continue;
+              }
 
-          if (!IsPathWithinDirectory(stagedPath, outputDir)) {
-            AddWarning(
-                report,
-                "skipped cleanup for staged file outside output directory: '" +
-                    stagedPath.string() + "'");
-            continue;
-          }
+              if (!IsPathWithinDirectory(stagedPath, outputDir))
+              {
+                  AddWarning(report,
+                             "skipped cleanup for staged file outside output directory: '" + stagedPath.string() + "'");
+                  continue;
+              }
 
-          std::error_code error;
-          if (fs::is_regular_file(stagedPath, error) ||
-              fs::is_symlink(stagedPath, error)) {
-            fs::remove(stagedPath, error);
-            if (!error) {
-              PruneEmptyDirectories(stagedPath.parent_path(), outputDir);
-            }
+              std::error_code error;
+              if (fs::is_regular_file(stagedPath, error) || fs::is_symlink(stagedPath, error))
+              {
+                  fs::remove(stagedPath, error);
+                  if (!error)
+                  {
+                      PruneEmptyDirectories(stagedPath.parent_path(), outputDir);
+                  }
+              }
           }
-        }
       }
 
       std::error_code removeError;
@@ -3467,25 +3472,26 @@ auto BuildLaunch(const ProjectManifest &project,
 auto LoadLaunchManifestSummary(const fs::path &manifestPath)
     -> LaunchManifestSummary {
   const auto doc = LoadXml(manifestPath);
-  const auto *rootElement = doc.document.RootPtr();
-  if (rootElement == nullptr || rootElement->name != "LaunchManifest") {
-    throw std::runtime_error(manifestPath.string() +
-                             ": root element must be <LaunchManifest>");
+  const auto rootElement = doc.document.Root();
+  if (!rootElement.IsValid() || rootElement.Name() != "LaunchManifest")
+  {
+      throw std::runtime_error(manifestPath.string() + ": root element must be <LaunchManifest>");
   }
 
   LaunchManifestSummary summary{};
   summary.manifestPath = manifestPath;
-  summary.profileName = Attribute(*rootElement, "Profile").value_or("");
+  summary.profileName = Attribute(rootElement, "Profile").value_or("");
   if (summary.profileName.empty()) {
     throw std::runtime_error(manifestPath.string() +
                              ": launch manifest missing Profile");
   }
-  if (const auto *launch = FindChild(*rootElement, "Launch")) {
-    summary.workingDirectory =
-        Attribute(*launch, "WorkingDirectory").value_or(".");
+  if (const auto launch = FindChild(rootElement, "Launch"))
+  {
+      summary.workingDirectory = Attribute(*launch, "WorkingDirectory").value_or(".");
   }
-  if (const auto *launch = FindChild(*rootElement, "Launch")) {
-    summary.selectedExecutable = Attribute(*launch, "Executable").value_or("");
+  if (const auto launch = FindChild(rootElement, "Launch"))
+  {
+      summary.selectedExecutable = Attribute(*launch, "Executable").value_or("");
   }
   return summary;
 }

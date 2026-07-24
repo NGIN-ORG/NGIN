@@ -24,6 +24,29 @@ Verification at implementation:
   `XmlBenchmarks` built successfully
 - `Hello.Native`, `Hello.Hosted`, and `Hello.Reflection` validated successfully
 
+XML intermediate optimization checkpoint on 2026-07-23:
+
+- The subsequent intentionally breaking XML API/storage work and its completed
+  results are recorded in
+  [`NGIN-Base-XML-Breaking-Performance-Refactor-Plan.md`](NGIN-Base-XML-Breaking-Performance-Refactor-Plan.md).
+- XML events are now parsed directly instead of building and walking a semantic
+  document. The common case tracks up to four attributes inline, without a
+  heap allocation. Decoded event values have callback-scoped lifetime, so
+  scratch capacity scales with the largest decoded token rather than the full
+  input.
+- At this checkpoint XML tables and cached element views used 32-bit indices.
+  The subsequent breaking refactor removed the cached views entirely.
+- ASCII XML-character validation now takes a direct fast path while non-ASCII
+  input retains full UTF-8 and XML 1.0 validation.
+- The Release benchmark's direct event path completed the project manifest in
+  `0.000609 ms` and the 100 KiB element workload in `0.470 ms`. In the same
+  run TinyXML2's DOM parser measured `0.000830 ms` and `0.439 ms`; pugixml
+  measured `0.000199 ms` and `0.090 ms`. Event-versus-DOM comparisons describe
+  end-to-end alternatives, not identical result construction.
+- The 1 MiB semantic document's reported used memory fell from `15,049,552`
+  bytes to `14,021,936` bytes, a reduction of `1,027,616` bytes or `6.8%`.
+- Focused XML verification passes 131 assertions across 17 test cases.
+
 Scope:
 
 - `NGIN.Base` JSON parsing, DOM, event parsing, and archive APIs

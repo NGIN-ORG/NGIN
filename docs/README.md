@@ -76,6 +76,10 @@ If you are trying to understand NGIN as a user:
 
 ## Active Implementation Plans
 
+- [`plans/NGIN-Base-XML-Breaking-Performance-Refactor-Plan.md`](plans/NGIN-Base-XML-Breaking-Performance-Refactor-Plan.md)
+  Implemented breaking value-view, compact-storage, one-pass construction,
+  scanner, and explicit in-situ refactor for the strict `NGIN.Base` XML
+  frontend, including benchmark results and rejected prototypes.
 - [`plans/NGIN-General-Tooling-And-Quality-Execution-Plan.md`](plans/NGIN-General-Tooling-And-Quality-Execution-Plan.md)
   Breaking post-phase-one plan for the general tool driver, execution,
   diagnostics, quality policy, report, and editor framework that replaces the

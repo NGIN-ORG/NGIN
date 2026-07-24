@@ -15,7 +15,6 @@ namespace NGIN::Core {
 namespace {
 using XmlDocument = NGIN::Serialization::XML::Document;
 using XmlElement = NGIN::Serialization::XML::ElementView;
-using XmlNode = NGIN::Serialization::XML::NodeView;
 using XmlParser = NGIN::Serialization::XML::Parser;
 
 [[nodiscard]] auto ToString(const NGIN::IO::Path &path) -> std::string {
@@ -92,33 +91,13 @@ using XmlParser = NGIN::Serialization::XML::Parser;
 }
 
 [[nodiscard]] auto FindChild(const XmlElement &element,
-                             const std::string_view name)
-    -> const XmlElement * {
-  for (NGIN::UIntSize index = 0; index < element.children.Size(); ++index) {
-    const auto &child = element.children[index];
-    if (child.type == XmlNode::Type::Element && child.element != nullptr &&
-        child.element->name == name) {
-      return child.element;
-    }
-  }
-  return nullptr;
+                             const std::string_view name) {
+  return element.FirstChild(name);
 }
 
 [[nodiscard]] auto ChildElements(const XmlElement &element,
-                                 const std::string_view name = {})
-    -> std::vector<const XmlElement *> {
-  std::vector<const XmlElement *> out{};
-  out.reserve(static_cast<std::size_t>(element.children.Size()));
-  for (NGIN::UIntSize index = 0; index < element.children.Size(); ++index) {
-    const auto &child = element.children[index];
-    if (child.type != XmlNode::Type::Element || child.element == nullptr) {
-      continue;
-    }
-    if (name.empty() || child.element->name == name) {
-      out.push_back(child.element);
-    }
-  }
-  return out;
+                                 const std::string_view name = {}) {
+  return element.Children(name);
 }
 
 [[nodiscard]] auto ParseBoolAttribute(const XmlElement &element,
@@ -133,13 +112,13 @@ using XmlParser = NGIN::Serialization::XML::Parser;
 }
 
 template <typename T>
-void ReadStringRefs(const XmlElement *element, const std::string_view childName,
-                    T &out) {
-  if (element == nullptr) {
+void ReadStringRefs(const std::optional<XmlElement> &element,
+                    const std::string_view childName, T &out) {
+  if (!element) {
     return;
   }
-  for (const auto *child : ChildElements(*element, childName)) {
-    const auto value = Attribute(*child, "Name");
+  for (const auto child : ChildElements(*element, childName)) {
+    const auto value = Attribute(child, "Name");
     if (value.has_value()) {
       out.emplace_back(value.value());
     }
@@ -159,14 +138,14 @@ void ReadStringRefs(const XmlElement *element, const std::string_view childName,
   }
 
   const XmlDocument &doc = parsed.Value();
-  const auto *root = doc.RootPtr();
-  if (root == nullptr || root->name != "Module") {
+  const auto root = doc.Root();
+  if (!root.IsValid() || root.Name() != "Module") {
     return NGIN::Utilities::Unexpected<KernelError>(MakeKernelError(
         KernelErrorCode::InvalidArgument, "Loader", {},
         "plugin descriptor root must be <Module>: " + filePath));
   }
 
-  const auto nameValue = Attribute(*root, "Name");
+  const auto nameValue = Attribute(root, "Name");
   if (!nameValue.has_value()) {
     return NGIN::Utilities::Unexpected<KernelError>(MakeKernelError(
         KernelErrorCode::InvalidArgument, "Loader", {},
@@ -180,24 +159,24 @@ void ReadStringRefs(const XmlElement *element, const std::string_view childName,
       ToString(NGIN::IO::Path(out.descriptorPath).Parent().LexicallyNormal());
   out.pluginRegistrar = "NGIN_RegisterPlugin";
 
-  if (const auto library = Attribute(*root, "Library"); library.has_value()) {
+  if (const auto library = Attribute(root, "Library"); library.has_value()) {
     out.pluginLibrary =
         ResolveDescriptorRelativePath(out.descriptorPath, library.value());
   }
-  if (const auto registrar = Attribute(*root, "Registrar");
+  if (const auto registrar = Attribute(root, "Registrar");
       registrar.has_value() && !registrar->empty()) {
     out.pluginRegistrar = registrar.value();
   }
 
-  if (const auto family = Attribute(*root, "Family"); family.has_value()) {
+  if (const auto family = Attribute(root, "Family"); family.has_value()) {
     out.family = ParseModuleFamily(family.value());
   }
 
-  if (const auto type = Attribute(*root, "Type"); type.has_value()) {
+  if (const auto type = Attribute(root, "Type"); type.has_value()) {
     out.type = ParseModuleType(type.value());
   }
 
-  if (const auto stage = Attribute(*root, "StartupStage"); stage.has_value()) {
+  if (const auto stage = Attribute(root, "StartupStage"); stage.has_value()) {
     const auto parsedStage = ParseStartupStage(stage.value());
     if (!parsedStage.has_value()) {
       return NGIN::Utilities::Unexpected<KernelError>(
@@ -208,7 +187,7 @@ void ReadStringRefs(const XmlElement *element, const std::string_view childName,
     out.startupStage = parsedStage.value();
   }
 
-  if (const auto version = Attribute(*root, "Version"); version.has_value()) {
+  if (const auto version = Attribute(root, "Version"); version.has_value()) {
     auto parsedVersion = ParseSemanticVersion(version.value());
     if (!parsedVersion) {
       return NGIN::Utilities::Unexpected<KernelError>(parsedVersion.Error());
@@ -216,7 +195,7 @@ void ReadStringRefs(const XmlElement *element, const std::string_view childName,
     out.version = parsedVersion.Value();
   }
 
-  if (const auto range = Attribute(*root, "CompatiblePlatformRange");
+  if (const auto range = Attribute(root, "CompatiblePlatformRange");
       range.has_value()) {
     auto parsedRange = ParseVersionRange(range.value());
     if (!parsedRange) {
@@ -225,48 +204,47 @@ void ReadStringRefs(const XmlElement *element, const std::string_view childName,
     out.compatiblePlatformRange = parsedRange.Value();
   }
 
-  if (FindChild(*root, "Platforms") != nullptr) {
+  if (FindChild(root, "Platforms")) {
     return NGIN::Utilities::Unexpected<KernelError>(MakeKernelError(
         KernelErrorCode::InvalidArgument, "Loader", {},
-        "plugin descriptor <Platforms> is no longer supported: " +
-            filePath));
+        "plugin descriptor <Platforms> is no longer supported: " + filePath));
   }
-  if (FindChild(*root, "SupportedHosts") != nullptr) {
+  if (FindChild(root, "SupportedHosts")) {
     return NGIN::Utilities::Unexpected<KernelError>(MakeKernelError(
         KernelErrorCode::InvalidArgument, "Loader", {},
         "plugin descriptor <SupportedHosts> is no longer supported: " +
             filePath));
   }
-  if (const auto *compatibility = FindChild(*root, "Compatibility")) {
+  if (const auto compatibility = FindChild(root, "Compatibility")) {
     ReadStringRefs(FindChild(*compatibility, "OperatingSystems"),
                    "OperatingSystem", out.operatingSystems);
     ReadStringRefs(FindChild(*compatibility, "Architectures"), "Architecture",
                    out.architectures);
   }
-  ReadStringRefs(FindChild(*root, "ProvidesServices"), "Service",
+  ReadStringRefs(FindChild(root, "ProvidesServices"), "Service",
                  out.providesServices);
-  ReadStringRefs(FindChild(*root, "RequiresServices"), "Service",
+  ReadStringRefs(FindChild(root, "RequiresServices"), "Service",
                  out.requiresServices);
-  if (const auto *capabilities = FindChild(*root, "Capabilities")) {
-    for (const auto *capability : ChildElements(*capabilities, "Capability")) {
-      const auto name = Attribute(*capability, "Name");
+  if (const auto capabilities = FindChild(root, "Capabilities")) {
+    for (const auto capability : ChildElements(*capabilities, "Capability")) {
+      const auto name = Attribute(capability, "Name");
       if (!name.has_value()) {
         continue;
       }
       out.capabilities.push_back(ModuleCapability{
           .name = name.value(),
-          .exclusive = ParseBoolAttribute(*capability, "Exclusive", false),
+          .exclusive = ParseBoolAttribute(capability, "Exclusive", false),
       });
     }
   }
 
   out.reflectionRequired =
-      ParseBoolAttribute(*root, "ReflectionRequired", false);
+      ParseBoolAttribute(root, "ReflectionRequired", false);
 
-  if (const auto *dependencies = FindChild(*root, "Dependencies")) {
-    for (const auto *dependencyElement :
+  if (const auto dependencies = FindChild(root, "Dependencies")) {
+    for (const auto dependencyElement :
          ChildElements(*dependencies, "Dependency")) {
-      const auto dependencyName = Attribute(*dependencyElement, "Name");
+      const auto dependencyName = Attribute(dependencyElement, "Name");
       if (!dependencyName.has_value()) {
         continue;
       }
@@ -274,10 +252,9 @@ void ReadStringRefs(const XmlElement *element, const std::string_view childName,
       DependencyDescriptor dep{};
       dep.name = dependencyName.value();
 
-      dep.optional = ParseBoolAttribute(*dependencyElement, "Optional", false);
+      dep.optional = ParseBoolAttribute(dependencyElement, "Optional", false);
 
-      if (const auto depRange =
-              Attribute(*dependencyElement, "RequiredVersion");
+      if (const auto depRange = Attribute(dependencyElement, "RequiredVersion");
           depRange.has_value()) {
         auto parsedDepRange = ParseVersionRange(depRange.value());
         if (!parsedDepRange) {
