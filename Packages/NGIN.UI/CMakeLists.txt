@@ -4,6 +4,16 @@ project(NGIN.UI VERSION 0.1.0 LANGUAGES CXX)
 option(NGIN_UI_BUILD_TESTS "Build NGIN.UI tests" OFF)
 option(NGIN_UI_BUILD_EXAMPLES "Build NGIN.UI examples" OFF)
 option(NGIN_UI_STRICT_WARNINGS "Enable extra compiler warnings" ON)
+option(NGIN_UI_ENABLE_NATIVE_TEXT
+       "Build the FreeType and HarfBuzz native text services" ON)
+option(NGIN_UI_FETCH_THIRD_PARTY
+       "Fetch pinned native dependencies instead of using installed packages" ON)
+set(
+    NGIN_UI_BUNDLED_FONT_PATH
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/NotoSans/NotoSans-Variable.ttf"
+    CACHE FILEPATH
+    "Path to the default OFL-licensed font"
+)
 
 if(NOT TARGET NGIN::Base)
     find_package(NGINBase CONFIG QUIET)
@@ -55,6 +65,11 @@ target_include_directories(NGIN.UI
 )
 target_link_libraries(NGIN.UI PUBLIC NGIN::Base)
 
+if(NGIN_UI_ENABLE_NATIVE_TEXT)
+    include(cmake/NGINUIThirdParty.cmake)
+    ngin_ui_configure_native_text(NGIN.UI)
+endif()
+
 if(NGIN_UI_STRICT_WARNINGS)
     if(MSVC)
         target_compile_options(NGIN.UI PRIVATE /W4 /permissive-)
@@ -65,6 +80,11 @@ endif()
 
 include(GNUInstallDirs)
 install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+install(
+    DIRECTORY assets/fonts/NotoSans/
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/NGIN.UI/fonts/NotoSans
+)
+install(FILES THIRD_PARTY_NOTICES.md DESTINATION ${CMAKE_INSTALL_DATADIR}/NGIN.UI)
 install(
     TARGETS NGIN.UI
     EXPORT NGINUITargets

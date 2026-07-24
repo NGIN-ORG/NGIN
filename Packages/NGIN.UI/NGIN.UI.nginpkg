@@ -7,6 +7,8 @@
     <Options>
       <Option Name="NGIN_UI_BUILD_TESTS" Value="OFF" />
       <Option Name="NGIN_UI_BUILD_EXAMPLES" Value="OFF" />
+      <Option Name="NGIN_UI_ENABLE_NATIVE_TEXT" Value="ON" />
+      <Option Name="NGIN_UI_FETCH_THIRD_PARTY" Value="ON" />
     </Options>
   </Build>
   <Uses>

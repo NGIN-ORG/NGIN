@@ -64,6 +64,10 @@ The core package must not include SDL, native-windowing, graphics-API, or
   package implements both.
 - Tests are structural and headless first. Native smoke tests supplement them
   after an SDL3 provider is available.
+- Approved third-party sources use pinned upstream archives with SHA-256
+  verification. FreeType 2.14.3 and HarfBuzz 14.2.1 link privately into the
+  native text implementation; Noto Sans is pinned from `google/fonts` under
+  OFL-1.1. SDL 3.4.12 is reserved for the backend package.
 - The ergonomic value-returning view syntax is not frozen until reconciliation,
   layout, and input have exercised the explicit composer.
 

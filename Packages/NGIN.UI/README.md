@@ -1,8 +1,9 @@
 # NGIN.UI
 
 `NGIN.UI` is the backend-neutral core of NGIN's C++23 application UI toolkit.
-It depends only on `NGIN.Base`; native windowing, graphics APIs, and optional
-`NGIN.Core` hosting belong to separate packages.
+Its public contracts depend only on `NGIN.Base`; its native text implementation
+privately links pinned FreeType and HarfBuzz sources. Native windowing, graphics
+APIs, and optional `NGIN.Core` hosting belong to separate packages.
 
 The current implementation provides the headless contracts and composition
 foundation:
@@ -69,3 +70,9 @@ ctest --test-dir build/ngin-ui --output-on-failure
 
 The package intentionally has no SDL dependency. The SDL3 + SDL_GPU
 implementation will live in `NGIN.UI.Backend.SDL3`.
+
+The default build fetches the pinned text dependencies recorded in
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). Configure with
+`-DNGIN_UI_FETCH_THIRD_PARTY=OFF` to require installed FreeType 2.14 and
+HarfBuzz 14 packages instead, or `-DNGIN_UI_ENABLE_NATIVE_TEXT=OFF` for the
+contracts-only core.
