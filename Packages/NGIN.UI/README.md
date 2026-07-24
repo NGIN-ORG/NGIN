@@ -27,7 +27,11 @@ foundation:
 - retained hover, pressed, pointer-capture, and keyboard-focus state;
 - semantic composer buttons with deterministic activation;
 - observable `State<T>` with scoped invalidation scheduling;
-- move-only RAII subscriptions and typed, validatable `Binding<T>` adapters.
+- move-only RAII subscriptions and typed, validatable `Binding<T>` adapters;
+- immutable/revisioned theme values and hierarchical typed resource scopes;
+- a render-tree-independent semantic tree with stable element ownership;
+- per-window structural diagnostics for composition, layout, rendering, focus,
+  and pointer capture.
 
 Build and test directly:
 

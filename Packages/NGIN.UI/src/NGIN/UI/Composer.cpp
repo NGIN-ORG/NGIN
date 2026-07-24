@@ -59,6 +59,12 @@ void Composer::Button(NGIN::Utilities::Callable<void()> onActivate,
   auto buttonProperties = properties;
   buttonProperties.interaction.focusable = true;
   buttonProperties.interaction.onActivate = std::move(onActivate);
+  if (buttonProperties.semantics.role == SemanticRole::None) {
+    buttonProperties.semantics.role = SemanticRole::Button;
+  }
+  buttonProperties.semantics.actions = buttonProperties.semantics.actions |
+                                       SemanticActionFlags::Activate |
+                                       SemanticActionFlags::Focus;
   Leaf(ElementType::Button, buttonProperties, key);
 }
 

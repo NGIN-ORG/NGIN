@@ -3,7 +3,9 @@
 #include <NGIN/Primitives.hpp>
 #include <NGIN/Text/String.hpp>
 #include <NGIN/UI/Geometry.hpp>
+#include <NGIN/UI/Resources.hpp>
 #include <NGIN/UI/RoutedEvent.hpp>
+#include <NGIN/UI/Semantics.hpp>
 #include <NGIN/UI/Style.hpp>
 #include <NGIN/Utilities/Callable.hpp>
 
@@ -64,6 +66,8 @@ struct InteractionProperties final {
 struct NodeProperties final {
   LayoutProperties layout{};
   InteractionProperties interaction{};
+  SemanticProperties semantics{};
+  std::shared_ptr<const ResourceScope> resources{};
   Color background{};
   bool paintsBackground{false};
 };

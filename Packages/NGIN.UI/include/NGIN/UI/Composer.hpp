@@ -46,6 +46,15 @@ public:
               const NodeProperties &properties = {}, std::string_view key = {});
 
   template <typename ComposeChildren>
+  void Scope(std::shared_ptr<const ResourceScope> resources,
+             ComposeChildren &&composeChildren, std::string_view key = {}) {
+    NodeProperties properties{};
+    properties.resources = std::move(resources);
+    Element(ElementType::Custom, properties,
+            std::forward<ComposeChildren>(composeChildren), key);
+  }
+
+  template <typename ComposeChildren>
   void Element(ElementType type, ComposeChildren &&composeChildren,
                std::string_view key = {}) {
     auto scope = Begin(type, key);

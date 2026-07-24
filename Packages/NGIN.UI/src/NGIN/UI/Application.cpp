@@ -24,10 +24,13 @@ struct Window::Implementation final {
   LayoutPassStats lastLayoutStats{};
   DisplayList displayList{};
   PreparedRenderPacket preparedPacket{};
+  SemanticTree semanticTree{};
+  WindowDiagnostics diagnostics{};
   bool dirty{true};
   bool compositionDirty{true};
   bool layoutDirty{true};
   bool paintDirty{true};
+  bool semanticsDirty{true};
   bool closeRequested{false};
   bool closed{false};
 };
@@ -104,6 +107,14 @@ auto Window::CapturedElement(const UInt64 pointerId) const noexcept
   return m_implementation->inputRouter.CapturedElement(pointerId);
 }
 
+auto Window::Semantics() const noexcept -> const SemanticTree & {
+  return m_implementation->semanticTree;
+}
+
+auto Window::Diagnostics() const noexcept -> const WindowDiagnostics & {
+  return m_implementation->diagnostics;
+}
+
 void Window::SetEventHandler(EventHandler handler) {
   m_implementation->eventHandler = std::move(handler);
 }
@@ -116,6 +127,7 @@ void Window::SetContent(Content content) {
 void Window::Invalidate(const InvalidationKind kind) noexcept {
   if (!m_implementation->closed && kind != InvalidationKind::None) {
     m_implementation->dirty = true;
+    m_implementation->diagnostics.lastInvalidation = kind;
     if (HasInvalidation(kind, InvalidationKind::Compose)) {
       m_implementation->compositionDirty = true;
     }
@@ -124,9 +136,13 @@ void Window::Invalidate(const InvalidationKind kind) noexcept {
         HasInvalidation(kind, InvalidationKind::Arrange)) {
       m_implementation->layoutDirty = true;
       m_implementation->paintDirty = true;
+      m_implementation->semanticsDirty = true;
     }
     if (HasInvalidation(kind, InvalidationKind::Paint)) {
       m_implementation->paintDirty = true;
+    }
+    if (HasInvalidation(kind, InvalidationKind::Semantics)) {
+      m_implementation->semanticsDirty = true;
     }
   }
 }
@@ -292,7 +308,7 @@ auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
     if (inputResult.callbackInvoked || inputResult.activated) {
       window->Invalidate(InvalidationKind::All);
     } else if (inputResult.visualStateChanged) {
-      window->Invalidate(InvalidationKind::Paint);
+      window->Invalidate(InvalidationKind::Paint | InvalidationKind::Semantics);
     }
 
     if (const auto *resized = std::get_if<WindowResized>(&event)) {
@@ -350,9 +366,11 @@ auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
           window->m_implementation->reconciler.Reconcile(
               composer.Declarations());
       window->m_implementation->inputRouter.Synchronize();
+      ++window->m_implementation->diagnostics.compositionCount;
       window->m_implementation->compositionDirty = false;
       window->m_implementation->layoutDirty = true;
       window->m_implementation->paintDirty = true;
+      window->m_implementation->semanticsDirty = true;
     }
 
     const auto scaleFactor = window->ScaleFactor();
@@ -367,6 +385,7 @@ auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
               Rect{0.0F, 0.0F, logicalSize.width, logicalSize.height});
       window->m_implementation->layoutDirty = false;
       window->m_implementation->paintDirty = true;
+      window->m_implementation->semanticsDirty = true;
     }
     if (window->m_implementation->paintDirty) {
       window->m_implementation->displayList =
@@ -376,6 +395,11 @@ auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
               window->m_implementation->displayList, window->PixelExtent(),
               scaleFactor);
       window->m_implementation->paintDirty = false;
+    }
+    if (window->m_implementation->semanticsDirty) {
+      window->m_implementation->semanticTree = BuildSemanticTree(
+          window->m_implementation->tree, window->m_implementation->info.title);
+      window->m_implementation->semanticsDirty = false;
     }
 
     auto rendered = m_implementation->renderer->Render(
@@ -389,6 +413,24 @@ auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
     if (!presented) {
       return std::move(presented).Error();
     }
+    auto &diagnostics = window->m_implementation->diagnostics;
+    ++diagnostics.frameCount;
+    diagnostics.reconciliation = window->m_implementation->lastReconcileStats;
+    diagnostics.layout = window->m_implementation->lastLayoutStats;
+    diagnostics.semanticNodeCount =
+        window->m_implementation->semanticTree.Nodes().size();
+    diagnostics.displayCommandCount =
+        window->m_implementation->displayList.size();
+    diagnostics.drawBatchCount =
+        window->m_implementation->preparedPacket.batches.size();
+    diagnostics.vertexCount =
+        window->m_implementation->preparedPacket.vertices.size();
+    diagnostics.indexCount =
+        window->m_implementation->preparedPacket.indices.size();
+    diagnostics.focusedElement =
+        window->m_implementation->inputRouter.FocusedElement();
+    diagnostics.pointerCaptureOwner =
+        window->m_implementation->inputRouter.FirstCapturedElement();
     window->m_implementation->dirty = false;
   }
 

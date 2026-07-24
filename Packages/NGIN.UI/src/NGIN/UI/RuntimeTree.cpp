@@ -26,6 +26,17 @@ auto RuntimeTree::Get(const ElementHandle handle) const noexcept
   return IsAlive(handle) ? &m_slots[handle.index].node : nullptr;
 }
 
+auto RuntimeTree::ResourcesFor(ElementHandle handle) const noexcept
+    -> std::shared_ptr<const ResourceScope> {
+  while (const auto *node = Get(handle)) {
+    if (node->properties.resources) {
+      return node->properties.resources;
+    }
+    handle = node->parent;
+  }
+  return {};
+}
+
 auto RuntimeTree::LiveCount() const noexcept -> UIntSize { return m_liveCount; }
 
 auto RuntimeTree::CreateNode(const ElementType type,

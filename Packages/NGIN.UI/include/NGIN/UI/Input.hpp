@@ -24,6 +24,7 @@ public:
       -> ElementHandle;
   [[nodiscard]] auto HoveredElement(UInt64 pointerId) const noexcept
       -> ElementHandle;
+  [[nodiscard]] auto FirstCapturedElement() const noexcept -> ElementHandle;
 
   auto Route(const PlatformEvent &event) -> InputDispatchResult;
   auto SetFocus(ElementHandle handle) noexcept -> bool;

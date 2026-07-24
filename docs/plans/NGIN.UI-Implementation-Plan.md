@@ -14,6 +14,9 @@ Target language: C++23
   criterion remains gated on Slice 1.
 - Slice 6 state and binding foundations are complete. Keyboard/text routing,
   editing, and `TextField` remain pending the text stack.
+- Slice 7 theme/resource scopes, semantic tree, multiple-window support, and
+  diagnostics snapshots are complete. Scroll, popup, dialog, and an inspector
+  UI remain pending.
 - Slice 1 is dependency-gated; no SDL3 dependency has been introduced.
 - Slices 4, 6, 7, and 8 remain planned.
 

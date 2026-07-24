@@ -31,6 +31,16 @@ auto InputRouter::HoveredElement(const UInt64 pointerId) const noexcept
              : ElementHandle{};
 }
 
+auto InputRouter::FirstCapturedElement() const noexcept -> ElementHandle {
+  for (const auto &[pointerId, handle] : m_captured) {
+    static_cast<void>(pointerId);
+    if (m_tree.IsAlive(handle)) {
+      return handle;
+    }
+  }
+  return {};
+}
+
 auto InputRouter::Route(const PlatformEvent &event) -> InputDispatchResult {
   return std::visit(
       [this](const auto &value) -> InputDispatchResult {

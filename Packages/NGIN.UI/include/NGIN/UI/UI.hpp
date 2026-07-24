@@ -2,6 +2,7 @@
 
 #include <NGIN/UI/Application.hpp>
 #include <NGIN/UI/Composer.hpp>
+#include <NGIN/UI/Diagnostics.hpp>
 #include <NGIN/UI/DisplayList.hpp>
 #include <NGIN/UI/Element.hpp>
 #include <NGIN/UI/Error.hpp>
@@ -13,8 +14,11 @@
 #include <NGIN/UI/Layout.hpp>
 #include <NGIN/UI/Platform.hpp>
 #include <NGIN/UI/Rendering.hpp>
+#include <NGIN/UI/Resources.hpp>
 #include <NGIN/UI/RoutedEvent.hpp>
 #include <NGIN/UI/RuntimeTree.hpp>
+#include <NGIN/UI/Semantics.hpp>
 #include <NGIN/UI/State.hpp>
 #include <NGIN/UI/Style.hpp>
+#include <NGIN/UI/Theme.hpp>
 #include <NGIN/UI/UIRenderer.hpp>
