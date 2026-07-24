@@ -80,6 +80,10 @@ If you are trying to understand NGIN as a user:
   Milestone implementation plan for the backend-neutral NGIN.UI toolkit,
   deterministic headless harness, SDL3 backend, composition, layout, text,
   controls, and optional hosted integration.
+- [`plans/NGIN.UI-Post-V0.1-Roadmap.md`](plans/NGIN.UI-Post-V0.1-Roadmap.md)
+  Prioritized backlog for visual styling, the full control gallery, supported
+  custom controls, broader desktop controls, developer documentation, and
+  release quality.
 - [`plans/NGIN-Base-XML-Breaking-Performance-Refactor-Plan.md`](plans/NGIN-Base-XML-Breaking-Performance-Refactor-Plan.md)
   Implemented breaking value-view, compact-storage, one-pass construction,
   scanner, and explicit in-situ refactor for the strict `NGIN.Base` XML
