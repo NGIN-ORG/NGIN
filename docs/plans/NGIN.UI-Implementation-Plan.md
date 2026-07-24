@@ -31,7 +31,10 @@ Target language: C++23
   foundations, in-window popups, frame timings, inspector snapshots, and
   debugging overlays. A text-rendered inspector panel remains coupled to
   Slice 4.
-- Slice 1 dependencies are approved; implementation is next.
+- Slice 1 now has pinned SDL 3.4.12 source-provider and
+  `NGIN.UI.Backend.SDL3` packages. The backend implements SDL3 initialization,
+  windows, normalized events, wait/wake, system services, and SDL_GPU-backed
+  multi-window rendering. Its native smoke example remains.
 - The remaining work in Slice 4, plus Slice 8, remains planned.
 
 ## Product Boundary
@@ -110,8 +113,10 @@ Deliver:
 Dependency gate:
 
 SDL3 and SDL_GPU integration was approved on 2026-07-24. The implementation
-must record the selected provider and license metadata. No SDL2 compatibility
-path will be added.
+pins SDL 3.4.12 at commit
+`f87239e71e42da91ca317a12eefb82cfbf3393eb`, verifies its source archive with
+SHA-256, and retains the zlib license in the source-provider package. No SDL2
+compatibility path is included.
 
 ### Slice 2 — Runtime tree and explicit composer
 

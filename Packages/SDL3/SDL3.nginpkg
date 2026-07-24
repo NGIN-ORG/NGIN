@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Package SchemaVersion="4"
+         Name="SDL3"
+         Version="3.4.12"
+         CompatiblePlatformRange=">=0.1.0-alpha.1 &lt;0.2.0">
+  <Build Backend="CMake" Mode="AddSubdirectory" />
+  <Library Name="SDL3">
+    <Exports>
+      <LibraryTarget Name="SDL3::SDL3-static" Linkage="Static" />
+    </Exports>
+  </Library>
+  <Compatibility>
+    <OperatingSystems>
+      <OperatingSystem Name="windows" />
+      <OperatingSystem Name="linux" />
+      <OperatingSystem Name="macos" />
+    </OperatingSystems>
+  </Compatibility>
+</Package>

@@ -13,6 +13,10 @@ The important distinction is ownership:
 - [`NGIN.UI`](NGIN.UI/) is the locally owned, backend-neutral application UI
   core. Native platform/rendering backends and optional `NGIN.Core` hosting are
   separate package boundaries.
+- [`NGIN.UI.Backend.SDL3`](NGIN.UI.Backend.SDL3/) provides SDL3 native windows,
+  normalized platform events, and an SDL_GPU-backed renderer for `NGIN.UI`.
+- [`SDL3`](SDL3/) is the pinned SDL 3.4.12 source wrapper used by the UI
+  backend. Its zlib license and exact source hash are retained with the package.
 - [`OpenSSL`](OpenSSL/) is a CMake `FindPackage` wrapper for the `OpenSSL::Crypto`
   target used by optional crypto provider integration; it declares a
   `CryptoProvider` feature for graph capability discovery and provider-package

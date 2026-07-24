@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Package SchemaVersion="4"
+         Name="NGIN.UI.Backend.SDL3"
+         Version="0.1.0"
+         CompatiblePlatformRange=">=0.1.0 &lt;0.2.0">
+  <Build Backend="CMake" Mode="AddSubdirectory">
+    <Options>
+      <Option Name="NGIN_UI_SDL3_BUILD_TESTS" Value="OFF" />
+    </Options>
+  </Build>
+  <Uses>
+    <Package Name="NGIN.UI"
+             Version=">=0.1.0 &lt;0.2.0"
+             Scope="Target" />
+    <Package Name="SDL3"
+             Version=">=3.4.12 &lt;4.0.0"
+             Scope="Target" />
+  </Uses>
+  <Library Name="NGIN.UI.Backend.SDL3">
+    <Exports>
+      <LibraryTarget Name="NGIN::UI::Backend::SDL3" Linkage="Static" />
+    </Exports>
+  </Library>
+  <Compatibility>
+    <OperatingSystems>
+      <OperatingSystem Name="windows" />
+      <OperatingSystem Name="linux" />
+      <OperatingSystem Name="macos" />
+    </OperatingSystems>
+  </Compatibility>
+</Package>

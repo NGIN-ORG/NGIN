@@ -32,6 +32,10 @@
              Range="[0.1.0,0.2.0)" />
     <Version Name="NGIN.UI"
              Range="[0.1.0,0.2.0)" />
+    <Version Name="NGIN.UI.Backend.SDL3"
+             Range="[0.1.0,0.2.0)" />
+    <Version Name="SDL3"
+             Range="[3.4.12,4.0.0)" />
     <Version Name="NGIN.Base"
              Range="[0.1.0,0.2.0)" />
     <Version Name="NGIN.Reflection"
