@@ -22,6 +22,7 @@ enum class SemanticRole : UInt8 {
   Image,
   Link,
   Slider,
+  Dialog,
 };
 
 enum class SemanticStateFlags : UInt16 {

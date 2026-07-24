@@ -26,6 +26,11 @@ struct PlatformInitInfo final {
   NGIN::Text::String applicationName{};
 };
 
+enum class WindowKind : UInt8 {
+  TopLevel,
+  Dialog,
+};
+
 struct WindowCreateInfo final {
   NGIN::Text::String id{};
   NGIN::Text::String title{};
@@ -33,6 +38,9 @@ struct WindowCreateInfo final {
   PixelSize minimumSize{};
   bool resizable{true};
   bool initiallyVisible{true};
+  WindowKind kind{WindowKind::TopLevel};
+  PlatformWindowHandle owner{};
+  bool modal{false};
 };
 
 struct DisplayInfo final {

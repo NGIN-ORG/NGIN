@@ -428,3 +428,71 @@ TEST_CASE("wheel input scrolls the nearest available ancestor") {
   REQUIRE(fixture.tree.Get(content)->arrangedBounds ==
           Rect{0.0F, -30.0F, 100.0F, 240.0F});
 }
+
+TEST_CASE("modal popup traps focus dismisses and restores its owner focus") {
+  using namespace NGIN::UI;
+
+  InputFixture fixture;
+  NGIN::UIntSize dismissals = 0;
+
+  Composer base;
+  base.Button([] {}, ButtonProperties(), "owner");
+  fixture.Compose(base);
+  const auto owner = fixture.tree.Get(fixture.tree.Root())->children.front();
+  REQUIRE(fixture.router.SetFocus(owner));
+
+  NodeProperties popupProperties{};
+  popupProperties.popup.onDismiss = [&] { ++dismissals; };
+  Composer opened;
+  opened.Button([] {}, ButtonProperties(), "owner");
+  opened.Popup(
+      [&] {
+        opened.Column([&] {
+          opened.Button([] {}, ButtonProperties(), "first");
+          opened.Button([] {}, ButtonProperties(), "second");
+        });
+      },
+      popupProperties, "popup");
+  fixture.Compose(opened);
+
+  const auto *root = fixture.tree.Get(fixture.tree.Root());
+  const auto popup = root->children[1];
+  const auto *column = fixture.tree.Get(fixture.tree.Get(popup)->children[0]);
+  const auto first = column->children[0];
+  const auto second = column->children[1];
+  REQUIRE(fixture.router.FocusedElement() == first);
+  REQUIRE_FALSE(fixture.router.SetFocus(owner));
+
+  const auto tab = fixture.router.Route(PlatformEvent{KeyChanged{
+      .logicalKey = static_cast<NGIN::UInt32>(LogicalKey::Tab),
+      .state = KeyState::Pressed,
+  }});
+  REQUIRE(tab.handled);
+  REQUIRE(fixture.router.FocusedElement() == second);
+
+  const auto outside = fixture.router.Route(PlatformEvent{
+      PointerButtonChanged{
+          .pointerId = 1,
+          .kind = PointerKind::Mouse,
+          .button = PointerButton::Primary,
+          .state = ButtonState::Pressed,
+          .position = Point{190.0F, 90.0F},
+      },
+  });
+  REQUIRE(outside.handled);
+  REQUIRE(outside.callbackInvoked);
+  REQUIRE(dismissals == 1);
+
+  const auto escape = fixture.router.Route(PlatformEvent{KeyChanged{
+      .logicalKey = static_cast<NGIN::UInt32>(LogicalKey::Escape),
+      .state = KeyState::Pressed,
+  }});
+  REQUIRE(escape.handled);
+  REQUIRE(escape.callbackInvoked);
+  REQUIRE(dismissals == 2);
+
+  Composer closed;
+  closed.Button([] {}, ButtonProperties(), "owner");
+  fixture.Compose(closed);
+  REQUIRE(fixture.router.FocusedElement() == owner);
+}

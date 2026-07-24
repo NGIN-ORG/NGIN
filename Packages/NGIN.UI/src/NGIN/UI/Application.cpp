@@ -1,10 +1,26 @@
 #include <NGIN/UI/Application.hpp>
 
 #include <algorithm>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
 namespace NGIN::UI {
+namespace {
+[[nodiscard]] auto IsModalBlockedEvent(const PlatformEvent &event) noexcept
+    -> bool {
+  return std::visit(
+      [](const auto &value) {
+        using Event = std::remove_cvref_t<decltype(value)>;
+        return !std::is_same_v<Event, WindowResized> &&
+               !std::is_same_v<Event, WindowMoved> &&
+               !std::is_same_v<Event, WindowScaleChanged> &&
+               !std::is_same_v<Event, ThemeChanged>;
+      },
+      event);
+}
+} // namespace
+
 struct Window::Implementation final {
   Implementation() : reconciler(tree), layoutEngine(tree), inputRouter(tree) {}
 
@@ -33,18 +49,28 @@ struct Window::Implementation final {
   bool semanticsDirty{true};
   bool closeRequested{false};
   bool closed{false};
+  Window *owner{nullptr};
+  DialogWindow *activeModalDialog{nullptr};
+  ElementHandle ownerFocusToRestore{};
 };
 
 Window::Window(WindowCreateInfo info, const PlatformWindowHandle platformHandle,
-               const RenderSurfaceHandle surfaceHandle)
+               const RenderSurfaceHandle surfaceHandle, Window *owner)
     : m_implementation(std::make_unique<Implementation>()) {
   m_implementation->pixelExtent = info.initialSize;
   m_implementation->info = std::move(info);
   m_implementation->platformHandle = platformHandle;
   m_implementation->surfaceHandle = surfaceHandle;
+  m_implementation->owner = owner;
 }
 
 Window::~Window() = default;
+
+DialogWindow::DialogWindow(WindowCreateInfo info,
+                           const PlatformWindowHandle platformHandle,
+                           const RenderSurfaceHandle surfaceHandle,
+                           Window &owner)
+    : Window(std::move(info), platformHandle, surfaceHandle, &owner) {}
 
 auto Window::Id() const noexcept -> const NGIN::Text::String & {
   return m_implementation->info.id;
@@ -76,6 +102,23 @@ auto Window::IsClosed() const noexcept -> bool {
 
 auto Window::IsCloseRequested() const noexcept -> bool {
   return m_implementation->closeRequested;
+}
+
+auto Window::Kind() const noexcept -> WindowKind {
+  return m_implementation->info.kind;
+}
+
+auto Window::IsModal() const noexcept -> bool {
+  return m_implementation->info.modal;
+}
+
+auto Window::Owner() const noexcept -> const Window * {
+  return m_implementation->owner;
+}
+
+auto Window::ActiveModalDialog() const noexcept -> const DialogWindow * {
+  const auto *dialog = m_implementation->activeModalDialog;
+  return dialog != nullptr && !dialog->IsClosed() ? dialog : nullptr;
 }
 
 auto Window::Tree() const noexcept -> const RuntimeTree & {
@@ -198,18 +241,62 @@ Application::Application(std::unique_ptr<IPlatformBackend> platform,
 
 Application::~Application() {
   static_cast<void>(m_implementation->renderer->WaitIdle());
-  for (auto &window : m_implementation->windows) {
-    if (!window->m_implementation->closed) {
+  for (auto window = m_implementation->windows.rbegin();
+       window != m_implementation->windows.rend(); ++window) {
+    if (!(*window)->m_implementation->closed) {
       static_cast<void>(m_implementation->renderer->DestroySurface(
-          window->m_implementation->surfaceHandle));
+          (*window)->m_implementation->surfaceHandle));
       static_cast<void>(m_implementation->platform->DestroyWindow(
-          window->m_implementation->platformHandle));
-      window->m_implementation->closed = true;
+          (*window)->m_implementation->platformHandle));
+      (*window)->m_implementation->closed = true;
     }
   }
 }
 
 auto Application::CreateWindow(const WindowCreateInfo &info) noexcept
+    -> UIResult<Window *> {
+  auto topLevelInfo = info;
+  topLevelInfo.kind = WindowKind::TopLevel;
+  topLevelInfo.owner = {};
+  topLevelInfo.modal = false;
+  return CreateWindowInternal(std::move(topLevelInfo), nullptr);
+}
+
+auto Application::CreateDialogWindow(Window &owner,
+                                     const WindowCreateInfo &info,
+                                     const bool modal) noexcept
+    -> UIResult<DialogWindow *> {
+  const auto ownedByApplication = std::any_of(
+      m_implementation->windows.begin(), m_implementation->windows.end(),
+      [&owner](const std::unique_ptr<Window> &candidate) {
+        return candidate.get() == &owner;
+      });
+  if (!ownedByApplication || owner.IsClosed()) {
+    return MakeUIError(UIErrorCode::InvalidArgument,
+                       "Dialog owner must be a live window in this application",
+                       m_implementation->platform->Name(), "CreateDialogWindow",
+                       info.id.c_str());
+  }
+  if (modal && owner.ActiveModalDialog() != nullptr) {
+    return MakeUIError(UIErrorCode::InvalidState,
+                       "Window already owns an active modal dialog",
+                       m_implementation->platform->Name(), "CreateDialogWindow",
+                       owner.Id().c_str());
+  }
+
+  auto dialogInfo = info;
+  dialogInfo.kind = WindowKind::Dialog;
+  dialogInfo.owner = owner.PlatformHandle();
+  dialogInfo.modal = modal;
+  auto created = CreateWindowInternal(std::move(dialogInfo), &owner);
+  if (!created) {
+    return std::move(created).Error();
+  }
+  return static_cast<DialogWindow *>(created.Value());
+}
+
+auto Application::CreateWindowInternal(WindowCreateInfo info,
+                                       Window *owner) noexcept
     -> UIResult<Window *> {
   if (info.id.Empty()) {
     return MakeUIError(UIErrorCode::InvalidArgument,
@@ -257,16 +344,41 @@ auto Application::CreateWindow(const WindowCreateInfo &info) noexcept
     }
   }
 
-  auto window = std::unique_ptr<Window>(
-      new Window{info, platformWindow.Value(), surface.Value()});
+  std::unique_ptr<Window> window;
+  if (info.kind == WindowKind::Dialog && owner != nullptr) {
+    window = std::unique_ptr<Window>(new DialogWindow{
+        info, platformWindow.Value(), surface.Value(), *owner});
+  } else {
+    window = std::unique_ptr<Window>(
+        new Window{info, platformWindow.Value(), surface.Value(), nullptr});
+  }
   auto *result = window.get();
   m_implementation->windows.push_back(std::move(window));
+  if (owner != nullptr && info.modal) {
+    result->m_implementation->ownerFocusToRestore = owner->FocusedElement();
+    owner->m_implementation->activeModalDialog =
+        static_cast<DialogWindow *>(result);
+  }
   return result;
 }
 
 auto Application::CloseWindow(Window &window) noexcept -> UIResult<void> {
   if (window.m_implementation->closed) {
     return {};
+  }
+
+  std::vector<Window *> ownedWindows;
+  for (const auto &candidate : m_implementation->windows) {
+    if (!candidate->IsClosed() &&
+        candidate->m_implementation->owner == &window) {
+      ownedWindows.push_back(candidate.get());
+    }
+  }
+  for (auto *owned : ownedWindows) {
+    auto closed = CloseWindow(*owned);
+    if (!closed) {
+      return std::move(closed).Error();
+    }
   }
 
   auto destroyedSurface = m_implementation->renderer->DestroySurface(
@@ -283,6 +395,14 @@ auto Application::CloseWindow(Window &window) noexcept -> UIResult<void> {
 
   window.m_implementation->closed = true;
   window.m_implementation->dirty = false;
+  if (auto *owner = window.m_implementation->owner;
+      owner != nullptr && !owner->IsClosed() &&
+      owner->m_implementation->activeModalDialog == &window) {
+    owner->m_implementation->activeModalDialog = nullptr;
+    static_cast<void>(
+        owner->Focus(window.m_implementation->ownerFocusToRestore));
+    owner->Invalidate(InvalidationKind::Paint | InvalidationKind::Semantics);
+  }
   return {};
 }
 
@@ -313,6 +433,9 @@ auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
 
     auto *window = m_implementation->FindWindow(handle);
     if (window == nullptr || window->IsClosed()) {
+      continue;
+    }
+    if (window->ActiveModalDialog() != nullptr && IsModalBlockedEvent(event)) {
       continue;
     }
 

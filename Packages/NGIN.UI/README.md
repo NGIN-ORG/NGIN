@@ -32,6 +32,10 @@ foundation:
 - semantic composer buttons with deterministic activation;
 - retained scroll views with unbounded-axis measurement, clipped content,
   wheel scrolling, and ancestor scroll chaining;
+- window-level `DialogWindow` ownership with modal input blocking, focus
+  restoration, and cascading close;
+- in-window popup overlays with viewport-aware placement, top-layer painting,
+  modal focus scopes, and outside-pointer or Escape dismissal;
 - observable `State<T>` with scoped invalidation scheduling;
 - move-only RAII subscriptions and typed, validatable `Binding<T>` adapters;
 - immutable/revisioned theme values and hierarchical typed resource scopes;

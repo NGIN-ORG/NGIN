@@ -19,8 +19,9 @@
 
 namespace NGIN::UI {
 class Application;
+class DialogWindow;
 
-class Window final {
+class Window {
 public:
   using EventHandler = NGIN::Utilities::Callable<void(const PlatformEvent &)>;
   using Content = NGIN::Utilities::Callable<void(Composer &)>;
@@ -29,7 +30,7 @@ public:
   Window(Window &&) = delete;
   auto operator=(const Window &) -> Window & = delete;
   auto operator=(Window &&) -> Window & = delete;
-  ~Window();
+  virtual ~Window();
 
   [[nodiscard]] auto Id() const noexcept -> const NGIN::Text::String &;
   [[nodiscard]] auto PlatformHandle() const noexcept -> PlatformWindowHandle;
@@ -39,6 +40,10 @@ public:
   [[nodiscard]] auto IsDirty() const noexcept -> bool;
   [[nodiscard]] auto IsClosed() const noexcept -> bool;
   [[nodiscard]] auto IsCloseRequested() const noexcept -> bool;
+  [[nodiscard]] auto Kind() const noexcept -> WindowKind;
+  [[nodiscard]] auto IsModal() const noexcept -> bool;
+  [[nodiscard]] auto Owner() const noexcept -> const Window *;
+  [[nodiscard]] auto ActiveModalDialog() const noexcept -> const DialogWindow *;
   [[nodiscard]] auto Tree() const noexcept -> const RuntimeTree &;
   [[nodiscard]] auto LastReconcileStats() const noexcept
       -> const ReconcileStats &;
@@ -60,12 +65,22 @@ public:
 
 private:
   friend class Application;
+  friend class DialogWindow;
 
   explicit Window(WindowCreateInfo info, PlatformWindowHandle platformHandle,
-                  RenderSurfaceHandle surfaceHandle);
+                  RenderSurfaceHandle surfaceHandle, Window *owner);
 
   struct Implementation;
   std::unique_ptr<Implementation> m_implementation;
+};
+
+class DialogWindow final : public Window {
+private:
+  friend class Application;
+
+  explicit DialogWindow(WindowCreateInfo info,
+                        PlatformWindowHandle platformHandle,
+                        RenderSurfaceHandle surfaceHandle, Window &owner);
 };
 
 struct ApplicationCreateInfo final {
@@ -85,6 +100,10 @@ public:
 
   [[nodiscard]] auto CreateWindow(const WindowCreateInfo &info) noexcept
       -> UIResult<Window *>;
+  [[nodiscard]] auto CreateDialogWindow(Window &owner,
+                                        const WindowCreateInfo &info,
+                                        bool modal = true) noexcept
+      -> UIResult<DialogWindow *>;
   auto CloseWindow(Window &window) noexcept -> UIResult<void>;
   auto PumpOnce(std::chrono::milliseconds maximumWait =
                     std::chrono::milliseconds{0}) noexcept -> UIResult<void>;
@@ -102,6 +121,9 @@ private:
 
   Application(std::unique_ptr<IPlatformBackend> platform,
               std::unique_ptr<IRenderBackend> renderer);
+  [[nodiscard]] auto CreateWindowInternal(WindowCreateInfo info,
+                                          Window *owner) noexcept
+      -> UIResult<Window *>;
 
   struct Implementation;
   std::unique_ptr<Implementation> m_implementation;

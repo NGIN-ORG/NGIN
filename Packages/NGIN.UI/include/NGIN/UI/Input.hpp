@@ -34,6 +34,11 @@ public:
   void Synchronize() noexcept;
 
 private:
+  struct PopupSession final {
+    ElementHandle handle{};
+    ElementHandle restoreFocus{};
+  };
+
   struct DispatchOutcome final {
     bool handled{false};
     bool callbackInvoked{false};
@@ -41,9 +46,15 @@ private:
     bool releaseCapture{false};
   };
 
-  [[nodiscard]] auto HitTestSubtree(ElementHandle handle,
-                                    Point position) const noexcept
+  [[nodiscard]] auto HitTestSubtree(ElementHandle handle, Point position,
+                                    ElementHandle popupRoot = {}) const noexcept
       -> ElementHandle;
+  void CollectPopups(ElementHandle handle,
+                     std::vector<ElementHandle> &popups) const;
+  [[nodiscard]] auto IsWithin(ElementHandle handle,
+                              ElementHandle ancestor) const noexcept -> bool;
+  [[nodiscard]] auto TopPopup() const noexcept -> ElementHandle;
+  [[nodiscard]] auto TopModalPopup() const noexcept -> ElementHandle;
   [[nodiscard]] auto BuildPath(ElementHandle target) const
       -> std::vector<ElementHandle>;
   auto Dispatch(RoutedPointerEvent &event, ElementHandle target)
@@ -54,7 +65,8 @@ private:
       -> InputDispatchResult;
   auto Dispatch(RoutedTextEvent &event, ElementHandle target)
       -> InputDispatchResult;
-  [[nodiscard]] auto FocusCandidates() const -> std::vector<ElementHandle>;
+  [[nodiscard]] auto FocusCandidates(ElementHandle scope = {}) const
+      -> std::vector<ElementHandle>;
   auto RouteKey(const KeyChanged &event) -> InputDispatchResult;
   auto RouteText(const TextInput &event) -> InputDispatchResult;
   auto RouteText(const TextComposition &event) -> InputDispatchResult;
@@ -70,5 +82,6 @@ private:
   ElementHandle m_focused{};
   std::unordered_map<UInt64, ElementHandle> m_captured{};
   std::unordered_map<UInt64, ElementHandle> m_hovered{};
+  std::vector<PopupSession> m_popups{};
 };
 } // namespace NGIN::UI

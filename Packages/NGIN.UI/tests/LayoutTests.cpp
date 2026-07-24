@@ -186,6 +186,52 @@ TEST_CASE(
   REQUIRE(packet.batches.front().scissor == PixelRect{0, 0, 100, 50});
 }
 
+TEST_CASE(
+    "popup placement flips within the viewport and paints above content") {
+  using namespace NGIN::UI;
+
+  NodeProperties popupProperties{};
+  popupProperties.popup.anchor = Rect{150.0F, 80.0F, 20.0F, 10.0F};
+  popupProperties.popup.placement = PopupPlacement::BelowEnd;
+  popupProperties.popup.gap = 4.0F;
+  ElementDeclaration popup{ElementType::Popup, "popup", popupProperties};
+
+  auto popupContent = LeafProperties(60.0F, 20.0F);
+  popupContent.paintsBackground = true;
+  popupContent.background = Color{1.0F, 0.0F, 0.0F, 1.0F};
+  popup.children.emplace_back(ElementType::Rectangle, "popup-content",
+                              popupContent);
+
+  auto page = LeafProperties(200.0F, 100.0F);
+  page.paintsBackground = true;
+  page.background = Color{0.0F, 0.0F, 1.0F, 1.0F};
+  const std::array declarations{
+      popup,
+      ElementDeclaration{ElementType::Rectangle, "page", page},
+  };
+
+  RuntimeTree tree;
+  Reconciler reconciler{tree};
+  static_cast<void>(reconciler.Reconcile(declarations));
+  LayoutEngine layout{tree};
+  static_cast<void>(layout.Perform(
+      SizeConstraints{
+          .minimum = Size{200.0F, 100.0F},
+          .maximum = Size{200.0F, 100.0F},
+      },
+      Rect{0.0F, 0.0F, 200.0F, 100.0F}));
+
+  const auto *popupNode = Child(tree, tree.Root(), 0);
+  REQUIRE(popupNode->arrangedBounds == Rect{0.0F, 0.0F, 200.0F, 100.0F});
+  REQUIRE(Child(tree, popupNode->handle, 0)->arrangedBounds ==
+          Rect{110.0F, 56.0F, 60.0F, 20.0F});
+
+  const auto displayList = BuildDisplayList(tree);
+  REQUIRE(displayList.size() == 2);
+  REQUIRE(std::get<FillRect>(displayList[0]).color == page.background);
+  REQUIRE(std::get<FillRect>(displayList[1]).color == popupContent.background);
+}
+
 TEST_CASE("display-list builder diagnoses unbalanced scopes") {
   using namespace NGIN::UI;
 

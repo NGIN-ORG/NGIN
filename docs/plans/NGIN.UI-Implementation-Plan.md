@@ -17,8 +17,8 @@ Target language: C++23
   layout cluster service.
 - Slice 7 theme/resource scopes, semantic tree, multiple-window support, and
   diagnostics snapshots are complete. Retained scroll views, clipped content,
-  and wheel scroll chaining are complete. Popup, dialog, and an inspector UI
-  remain pending.
+  wheel scroll chaining, platform-owned dialog foundations, and in-window
+  popup foundations are complete. An inspector UI remains pending.
 - Slice 1 is dependency-gated; no SDL3 dependency has been introduced.
 - Slices 4, 6, 7, and 8 remain planned.
 

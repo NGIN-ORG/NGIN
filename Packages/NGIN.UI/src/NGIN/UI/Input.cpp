@@ -9,6 +9,15 @@ InputRouter::InputRouter(RuntimeTree &tree) noexcept : m_tree(tree) {}
 
 auto InputRouter::HitTest(const Point position) const noexcept
     -> ElementHandle {
+  for (auto popup = m_popups.rbegin(); popup != m_popups.rend(); ++popup) {
+    if (const auto hit =
+            HitTestSubtree(popup->handle, position, popup->handle)) {
+      return hit;
+    }
+  }
+  if (TopModalPopup()) {
+    return {};
+  }
   return HitTestSubtree(m_tree.Root(), position);
 }
 
@@ -75,6 +84,10 @@ auto InputRouter::SetFocus(const ElementHandle handle) noexcept -> bool {
     return false;
   }
 
+  const auto modalPopup = TopModalPopup();
+  if (modalPopup && !IsWithin(handle, modalPopup)) {
+    return false;
+  }
   auto *next = m_tree.Get(handle);
   if (next == nullptr || !next->properties.interaction.enabled ||
       !next->properties.interaction.focusable) {
@@ -109,7 +122,7 @@ auto InputRouter::ClearFocus() noexcept -> bool {
 }
 
 auto InputRouter::MoveFocus(const bool reverse) -> bool {
-  const auto candidates = FocusCandidates();
+  const auto candidates = FocusCandidates(TopModalPopup());
   if (candidates.empty()) {
     return ClearFocus();
   }
@@ -129,6 +142,40 @@ auto InputRouter::MoveFocus(const bool reverse) -> bool {
 }
 
 void InputRouter::Synchronize() noexcept {
+  std::vector<ElementHandle> discoveredPopups;
+  CollectPopups(m_tree.Root(), discoveredPopups);
+
+  ElementHandle restoreFocus{};
+  const auto focusNeedsRestoration = !m_tree.IsAlive(m_focused);
+  for (auto session = m_popups.rbegin(); session != m_popups.rend();
+       ++session) {
+    if (std::find(discoveredPopups.begin(), discoveredPopups.end(),
+                  session->handle) == discoveredPopups.end() &&
+        !restoreFocus && m_tree.IsAlive(session->restoreFocus)) {
+      restoreFocus = session->restoreFocus;
+    }
+  }
+
+  std::vector<PopupSession> nextPopups;
+  nextPopups.reserve(discoveredPopups.size());
+  bool addedPopup = false;
+  for (const auto popup : discoveredPopups) {
+    const auto retained = std::find_if(m_popups.begin(), m_popups.end(),
+                                       [popup](const PopupSession &session) {
+                                         return session.handle == popup;
+                                       });
+    if (retained != m_popups.end()) {
+      nextPopups.push_back(*retained);
+    } else {
+      addedPopup = true;
+      nextPopups.push_back(PopupSession{
+          .handle = popup,
+          .restoreFocus = FocusedElement(),
+      });
+    }
+  }
+  m_popups = std::move(nextPopups);
+
   const auto *focused = m_tree.Get(m_focused);
   if (focused == nullptr) {
     m_focused = {};
@@ -146,6 +193,11 @@ void InputRouter::Synchronize() noexcept {
       node->interaction.pressed = false;
       return true;
     }
+    if (const auto modalPopup = TopModalPopup();
+        modalPopup && !IsWithin(entry.second, modalPopup)) {
+      node->interaction.pressed = false;
+      return true;
+    }
     return false;
   });
   std::erase_if(m_hovered, [this](const auto &entry) {
@@ -157,26 +209,103 @@ void InputRouter::Synchronize() noexcept {
       node->interaction.hovered = false;
       return true;
     }
+    if (const auto modalPopup = TopModalPopup();
+        modalPopup && !IsWithin(entry.second, modalPopup)) {
+      node->interaction.hovered = false;
+      return true;
+    }
     return false;
   });
+
+  if (focusNeedsRestoration && restoreFocus) {
+    static_cast<void>(SetFocus(restoreFocus));
+  }
+  if (addedPopup && !m_popups.empty()) {
+    const auto popup = m_popups.back().handle;
+    const auto candidates = FocusCandidates(popup);
+    if (!candidates.empty()) {
+      static_cast<void>(SetFocus(candidates.front()));
+    } else if (const auto *node = m_tree.Get(popup);
+               node != nullptr && node->properties.popup.modal) {
+      static_cast<void>(ClearFocus());
+    }
+  } else if (const auto modalPopup = TopModalPopup();
+             modalPopup && !IsWithin(FocusedElement(), modalPopup)) {
+    const auto candidates = FocusCandidates(modalPopup);
+    if (!candidates.empty()) {
+      static_cast<void>(SetFocus(candidates.front()));
+    } else {
+      static_cast<void>(ClearFocus());
+    }
+  }
 }
 
 auto InputRouter::HitTestSubtree(const ElementHandle handle,
-                                 const Point position) const noexcept
+                                 const Point position,
+                                 const ElementHandle popupRoot) const noexcept
     -> ElementHandle {
   const auto *node = m_tree.Get(handle);
   if (node == nullptr || !node->properties.interaction.hitTestVisible ||
+      (node->type == ElementType::Popup && handle != popupRoot) ||
       !node->arrangedBounds.Contains(position)) {
     return {};
   }
 
   for (auto child = node->children.rbegin(); child != node->children.rend();
        ++child) {
-    if (const auto hit = HitTestSubtree(*child, position); hit) {
+    if (const auto hit = HitTestSubtree(*child, position, popupRoot); hit) {
       return hit;
     }
   }
-  return handle == m_tree.Root() ? ElementHandle{} : handle;
+  return handle == m_tree.Root() || node->type == ElementType::Popup
+             ? ElementHandle{}
+             : handle;
+}
+
+void InputRouter::CollectPopups(const ElementHandle handle,
+                                std::vector<ElementHandle> &popups) const {
+  const auto *node = m_tree.Get(handle);
+  if (node == nullptr) {
+    return;
+  }
+  if (node->type == ElementType::Popup) {
+    popups.push_back(handle);
+  }
+  for (const auto child : node->children) {
+    CollectPopups(child, popups);
+  }
+}
+
+auto InputRouter::IsWithin(const ElementHandle handle,
+                           const ElementHandle ancestor) const noexcept
+    -> bool {
+  auto current = handle;
+  while (const auto *node = m_tree.Get(current)) {
+    if (current == ancestor) {
+      return true;
+    }
+    current = node->parent;
+  }
+  return false;
+}
+
+auto InputRouter::TopPopup() const noexcept -> ElementHandle {
+  for (auto popup = m_popups.rbegin(); popup != m_popups.rend(); ++popup) {
+    if (m_tree.IsAlive(popup->handle)) {
+      return popup->handle;
+    }
+  }
+  return {};
+}
+
+auto InputRouter::TopModalPopup() const noexcept -> ElementHandle {
+  for (auto popup = m_popups.rbegin(); popup != m_popups.rend(); ++popup) {
+    const auto *node = m_tree.Get(popup->handle);
+    if (node != nullptr && node->properties.popup.modal) {
+      return popup->handle;
+    }
+  }
+  return {};
 }
 
 auto InputRouter::BuildPath(const ElementHandle target) const
@@ -302,14 +431,15 @@ auto InputRouter::Dispatch(RoutedTextEvent &event, const ElementHandle target)
   return result;
 }
 
-auto InputRouter::FocusCandidates() const -> std::vector<ElementHandle> {
+auto InputRouter::FocusCandidates(const ElementHandle scope) const
+    -> std::vector<ElementHandle> {
   struct Candidate final {
     ElementHandle handle{};
     Int32 tabIndex{0};
   };
 
   std::vector<Candidate> candidates;
-  std::vector<ElementHandle> pending{m_tree.Root()};
+  std::vector<ElementHandle> pending{scope ? scope : m_tree.Root()};
   while (!pending.empty()) {
     const auto handle = pending.back();
     pending.pop_back();
@@ -351,6 +481,20 @@ auto InputRouter::FocusCandidates() const -> std::vector<ElementHandle> {
 }
 
 auto InputRouter::RouteKey(const KeyChanged &event) -> InputDispatchResult {
+  if (event.state == KeyState::Pressed &&
+      event.Logical() == LogicalKey::Escape) {
+    const auto popup = TopPopup();
+    const auto *popupNode = m_tree.Get(popup);
+    if (popupNode != nullptr && popupNode->properties.popup.dismissOnEscape) {
+      InputDispatchResult result{.handled = true};
+      if (popupNode->properties.popup.onDismiss) {
+        popupNode->properties.popup.onDismiss();
+        result.callbackInvoked = true;
+      }
+      return result;
+    }
+  }
+
   RoutedKeyEvent routed{
       .physicalKey = event.physicalKey,
       .logicalKey = event.Logical(),
@@ -391,6 +535,9 @@ auto InputRouter::RouteKey(const KeyChanged &event) -> InputDispatchResult {
       }
     }
   }
+  if (!result.handled && TopModalPopup()) {
+    result.handled = true;
+  }
   return result;
 }
 
@@ -399,7 +546,11 @@ auto InputRouter::RouteText(const TextInput &event) -> InputDispatchResult {
       .eventKind = RoutedTextEventKind::Input,
       .text = event.text,
   };
-  return Dispatch(routed, FocusedElement());
+  auto result = Dispatch(routed, FocusedElement());
+  if (!result.handled && TopModalPopup()) {
+    result.handled = true;
+  }
+  return result;
 }
 
 auto InputRouter::RouteText(const TextComposition &event)
@@ -410,7 +561,11 @@ auto InputRouter::RouteText(const TextComposition &event)
       .selectionStart = event.selectionStart,
       .selectionLength = event.selectionLength,
   };
-  return Dispatch(routed, FocusedElement());
+  auto result = Dispatch(routed, FocusedElement());
+  if (!result.handled && TopModalPopup()) {
+    result.handled = true;
+  }
+  return result;
 }
 
 auto InputRouter::UpdateHover(const UInt64 pointerId,
@@ -485,6 +640,24 @@ auto InputRouter::RouteButton(const PointerButtonChanged &event)
     -> InputDispatchResult {
   auto result = UpdateHover(event.pointerId, event.kind, event.position);
   const auto hit = HitTest(event.position);
+  const auto popup = TopPopup();
+  const auto *popupNode = m_tree.Get(popup);
+  if (event.state == ButtonState::Pressed &&
+      event.button == PointerButton::Primary && popupNode != nullptr &&
+      !IsWithin(hit, popup)) {
+    if (popupNode->properties.popup.dismissOnOutsidePointer) {
+      result.handled = true;
+      if (popupNode->properties.popup.onDismiss) {
+        popupNode->properties.popup.onDismiss();
+        result.callbackInvoked = true;
+      }
+      return result;
+    }
+    if (popupNode->properties.popup.modal) {
+      result.handled = true;
+      return result;
+    }
+  }
   const auto captured = CapturedElement(event.pointerId);
   const auto target = captured ? captured : hit;
   auto *node = m_tree.Get(target);
@@ -575,6 +748,10 @@ auto InputRouter::RouteWheel(const PointerWheelChanged &event)
         ReleaseCaptured(event.pointerId) || result.visualStateChanged;
   }
   if (result.handled) {
+    return result;
+  }
+  if (!target && TopModalPopup()) {
+    result.handled = true;
     return result;
   }
 

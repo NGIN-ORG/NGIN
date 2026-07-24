@@ -88,6 +88,13 @@ public:
             std::forward<ComposeChildren>(composeChildren), key);
   }
 
+  template <typename ComposeChildren>
+  void Popup(ComposeChildren &&composeChildren,
+             const NodeProperties &properties = {}, std::string_view key = {}) {
+    Element(ElementType::Popup, properties,
+            std::forward<ComposeChildren>(composeChildren), key);
+  }
+
   [[nodiscard]] auto Declarations() const noexcept
       -> const std::vector<ElementDeclaration> &;
   [[nodiscard]] auto IsBalanced() const noexcept -> bool;

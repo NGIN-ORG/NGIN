@@ -26,6 +26,7 @@ enum class ElementType : UInt16 {
   Button,
   TextField,
   ScrollView,
+  Popup,
   Custom,
 };
 
@@ -73,10 +74,29 @@ struct ScrollProperties final {
   F32 wheelStep{40.0F};
 };
 
+enum class PopupPlacement : UInt8 {
+  Center,
+  BelowStart,
+  BelowEnd,
+  AboveStart,
+  AboveEnd,
+};
+
+struct PopupProperties final {
+  Rect anchor{};
+  PopupPlacement placement{PopupPlacement::Center};
+  F32 gap{4.0F};
+  bool modal{true};
+  bool dismissOnOutsidePointer{true};
+  bool dismissOnEscape{true};
+  NGIN::Utilities::Callable<void()> onDismiss{};
+};
+
 struct NodeProperties final {
   LayoutProperties layout{};
   InteractionProperties interaction{};
   ScrollProperties scroll{};
+  PopupProperties popup{};
   SemanticProperties semantics{};
   std::shared_ptr<const ResourceScope> resources{};
   Color background{};

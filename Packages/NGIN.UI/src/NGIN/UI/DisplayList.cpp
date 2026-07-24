@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <utility>
+#include <vector>
 
 namespace NGIN::UI {
 void DisplayListBuilder::PushClip(const Rect rect) {
@@ -89,9 +90,11 @@ auto DisplayListBuilder::Commands() const noexcept -> const DisplayList & {
 
 namespace {
 void PaintNode(const RuntimeTree &tree, const ElementHandle handle,
-               DisplayListBuilder &builder) {
+               DisplayListBuilder &builder,
+               const ElementHandle popupRoot = {}) {
   const auto *node = tree.Get(handle);
-  if (node == nullptr) {
+  if (node == nullptr ||
+      (node->type == ElementType::Popup && handle != popupRoot)) {
     return;
   }
   if (node->properties.paintsBackground && node->arrangedBounds.width > 0.0F &&
@@ -103,10 +106,24 @@ void PaintNode(const RuntimeTree &tree, const ElementHandle handle,
     builder.PushClip(node->arrangedBounds);
   }
   for (const auto child : node->children) {
-    PaintNode(tree, child, builder);
+    PaintNode(tree, child, builder, popupRoot);
   }
   if (clipsChildren) {
     static_cast<void>(builder.PopClip());
+  }
+}
+
+void CollectPopups(const RuntimeTree &tree, const ElementHandle handle,
+                   std::vector<ElementHandle> &popups) {
+  const auto *node = tree.Get(handle);
+  if (node == nullptr) {
+    return;
+  }
+  if (node->type == ElementType::Popup) {
+    popups.push_back(handle);
+  }
+  for (const auto child : node->children) {
+    CollectPopups(tree, child, popups);
   }
 }
 } // namespace
@@ -114,6 +131,11 @@ void PaintNode(const RuntimeTree &tree, const ElementHandle handle,
 auto BuildDisplayList(const RuntimeTree &tree) -> DisplayList {
   DisplayListBuilder builder;
   PaintNode(tree, tree.Root(), builder);
+  std::vector<ElementHandle> popups;
+  CollectPopups(tree, tree.Root(), popups);
+  for (const auto popup : popups) {
+    PaintNode(tree, popup, builder, popup);
+  }
   auto finished = std::move(builder).Finish();
   return finished ? std::move(finished).Value() : DisplayList{};
 }

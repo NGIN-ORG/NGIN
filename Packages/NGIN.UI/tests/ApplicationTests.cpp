@@ -353,3 +353,92 @@ TEST_CASE("window wheel input arranges and clips retained scroll content") {
   REQUIRE(rendererObserver->RenderPackets().back().batches.front().scissor ==
           PixelRect{0, 0, 100, 50});
 }
+
+TEST_CASE("dialog windows preserve ownership modality and owner lifecycle") {
+  using namespace NGIN::UI;
+  using namespace NGIN::UI::Testing;
+
+  auto platform = std::make_unique<TestPlatformBackend>();
+  auto *platformObserver = platform.get();
+  auto createdApplication = CreateApplication(ApplicationCreateInfo{
+      .platform = std::move(platform),
+      .renderer = std::make_unique<RecordingRenderBackend>(),
+  });
+  REQUIRE(createdApplication.HasValue());
+  auto application = std::move(createdApplication).Value();
+
+  auto createdOwner = application->CreateWindow(WindowCreateInfo{
+      .id = NGIN::Text::String{"Owner"},
+      .title = NGIN::Text::String{"Owner"},
+      .initialSize = PixelSize{200, 100},
+  });
+  REQUIRE(createdOwner.HasValue());
+  auto *owner = createdOwner.Value();
+  owner->SetContent([](Composer &composer) {
+    NodeProperties properties{};
+    properties.layout.preferredSize = Size{100.0F, 40.0F};
+    properties.layout.horizontalAlignment = HorizontalAlignment::Start;
+    properties.layout.verticalAlignment = VerticalAlignment::Start;
+    composer.Button([] {}, properties, "owner-action");
+  });
+  REQUIRE(application->PumpOnce().HasValue());
+  const auto ownerButton = owner->HitTest(Point{10.0F, 10.0F});
+  REQUIRE(owner->Focus(ownerButton));
+
+  auto createdDialog = application->CreateDialogWindow(
+      *owner, WindowCreateInfo{
+                  .id = NGIN::Text::String{"Dialog"},
+                  .title = NGIN::Text::String{"Dialog"},
+                  .initialSize = PixelSize{120, 80},
+              });
+  REQUIRE(createdDialog.HasValue());
+  auto *dialog = createdDialog.Value();
+  REQUIRE(dialog->Kind() == WindowKind::Dialog);
+  REQUIRE(dialog->IsModal());
+  REQUIRE(dialog->Owner() == owner);
+  REQUIRE(owner->ActiveModalDialog() == dialog);
+  REQUIRE(platformObserver->Windows()[1].info.kind == WindowKind::Dialog);
+  REQUIRE(platformObserver->Windows()[1].info.owner == owner->PlatformHandle());
+  REQUIRE(platformObserver->Windows()[1].info.modal);
+
+  auto duplicateModal = application->CreateDialogWindow(
+      *owner, WindowCreateInfo{
+                  .id = NGIN::Text::String{"SecondDialog"},
+                  .title = NGIN::Text::String{"Second dialog"},
+              });
+  REQUIRE_FALSE(duplicateModal.HasValue());
+  REQUIRE(duplicateModal.Error().code == UIErrorCode::InvalidState);
+
+  NGIN::UIntSize blockedEvents = 0;
+  owner->SetEventHandler([&](const PlatformEvent &) { ++blockedEvents; });
+  platformObserver->InjectEvent(PointerMoved{
+      .window = owner->PlatformHandle(),
+      .pointerId = 1,
+      .position = Point{10.0F, 10.0F},
+  });
+  platformObserver->InjectEvent(WindowCloseRequested{owner->PlatformHandle()});
+  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(blockedEvents == 0);
+  REQUIRE_FALSE(owner->IsCloseRequested());
+  REQUIRE_FALSE(owner->IsClosed());
+
+  platformObserver->InjectEvent(WindowCloseRequested{dialog->PlatformHandle()});
+  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(dialog->IsClosed());
+  REQUIRE(owner->ActiveModalDialog() == nullptr);
+  REQUIRE(owner->FocusedElement() == ownerButton);
+
+  auto createdOwned =
+      application->CreateDialogWindow(*owner,
+                                      WindowCreateInfo{
+                                          .id = NGIN::Text::String{"Owned"},
+                                          .title = NGIN::Text::String{"Owned"},
+                                      },
+                                      false);
+  REQUIRE(createdOwned.HasValue());
+  auto *owned = createdOwned.Value();
+  REQUIRE_FALSE(owned->IsModal());
+  REQUIRE(application->CloseWindow(*owner).HasValue());
+  REQUIRE(owner->IsClosed());
+  REQUIRE(owned->IsClosed());
+}

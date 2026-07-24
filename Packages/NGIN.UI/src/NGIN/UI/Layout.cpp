@@ -84,6 +84,9 @@ auto LayoutEngine::Measure(const ElementHandle handle,
                       ? MeasureLeaf(*node, constraints)
                       : MeasureContainer(*node, constraints);
   measured = constraints.Constrain(measured);
+  if (node->type == ElementType::Popup) {
+    measured = {};
+  }
   node = m_tree.Get(handle);
   node->measuredSize = measured;
   node->layoutRevision = m_revision;
@@ -118,9 +121,7 @@ auto LayoutEngine::MeasureContainer(RuntimeNode &node,
 
   F32 contentWidth = 0.0F;
   F32 contentHeight = 0.0F;
-  const auto gapCount = node.children.empty()
-                            ? 0U
-                            : static_cast<UIntSize>(node.children.size() - 1);
+  UIntSize flowChildCount = 0;
 
   for (const auto childHandle : node.children) {
     SizeConstraints childConstraints{};
@@ -139,6 +140,11 @@ auto LayoutEngine::MeasureContainer(RuntimeNode &node,
     }
 
     const auto childSize = Measure(childHandle, childConstraints);
+    const auto *child = m_tree.Get(childHandle);
+    if (child != nullptr && child->type == ElementType::Popup) {
+      continue;
+    }
+    ++flowChildCount;
     switch (node.type) {
     case ElementType::Column:
       contentWidth = std::max(contentWidth, childSize.width);
@@ -155,6 +161,7 @@ auto LayoutEngine::MeasureContainer(RuntimeNode &node,
     }
   }
 
+  const auto gapCount = flowChildCount == 0 ? 0 : flowChildCount - 1;
   if (node.type == ElementType::Column) {
     contentHeight += node.properties.layout.gap * static_cast<F32>(gapCount);
   } else if (node.type == ElementType::Row) {
@@ -191,10 +198,83 @@ void LayoutEngine::ArrangeChildren(RuntimeNode &node) {
   F32 cursorX = content.x;
   F32 cursorY = content.y;
 
+  if (node.type == ElementType::Popup) {
+    const auto viewportRight = content.x + content.width;
+    const auto viewportBottom = content.y + content.height;
+    const auto &popup = node.properties.popup;
+    const auto gap = std::max(0.0F, popup.gap);
+    node.popup.contentBounds = {};
+    bool hasContent = false;
+    for (const auto childHandle : node.children) {
+      const auto *child = m_tree.Get(childHandle);
+      if (child == nullptr) {
+        continue;
+      }
+
+      const auto width = std::min(content.width, child->measuredSize.width);
+      const auto height = std::min(content.height, child->measuredSize.height);
+      F32 x = content.x + (content.width - width) * 0.5F;
+      F32 y = content.y + (content.height - height) * 0.5F;
+
+      switch (popup.placement) {
+      case PopupPlacement::BelowStart:
+      case PopupPlacement::BelowEnd: {
+        x = popup.placement == PopupPlacement::BelowStart
+                ? popup.anchor.x
+                : popup.anchor.x + popup.anchor.width - width;
+        y = popup.anchor.y + popup.anchor.height + gap;
+        const auto above = popup.anchor.y - gap - height;
+        if (y + height > viewportBottom && above >= content.y) {
+          y = above;
+        }
+        break;
+      }
+      case PopupPlacement::AboveStart:
+      case PopupPlacement::AboveEnd: {
+        x = popup.placement == PopupPlacement::AboveStart
+                ? popup.anchor.x
+                : popup.anchor.x + popup.anchor.width - width;
+        y = popup.anchor.y - gap - height;
+        const auto below = popup.anchor.y + popup.anchor.height + gap;
+        if (y < content.y && below + height <= viewportBottom) {
+          y = below;
+        }
+        break;
+      }
+      case PopupPlacement::Center:
+        break;
+      }
+
+      x = std::clamp(x, content.x, std::max(content.x, viewportRight - width));
+      y = std::clamp(y, content.y,
+                     std::max(content.y, viewportBottom - height));
+      const Rect childBounds{x, y, width, height};
+      Arrange(childHandle, childBounds);
+      if (!hasContent) {
+        node.popup.contentBounds = childBounds;
+        hasContent = true;
+      } else {
+        const auto left = std::min(node.popup.contentBounds.x, childBounds.x);
+        const auto top = std::min(node.popup.contentBounds.y, childBounds.y);
+        const auto right = std::max(node.popup.contentBounds.x +
+                                        node.popup.contentBounds.width,
+                                    childBounds.x + childBounds.width);
+        const auto bottom = std::max(node.popup.contentBounds.y +
+                                         node.popup.contentBounds.height,
+                                     childBounds.y + childBounds.height);
+        node.popup.contentBounds = Rect{left, top, right - left, bottom - top};
+      }
+    }
+    return;
+  }
+
   if (node.type == ElementType::ScrollView) {
     Size contentSize{};
     for (const auto childHandle : node.children) {
       if (const auto *child = m_tree.Get(childHandle); child != nullptr) {
+        if (child->type == ElementType::Popup) {
+          continue;
+        }
         contentSize.width =
             std::max(contentSize.width, child->measuredSize.width);
         contentSize.height =
@@ -221,6 +301,12 @@ void LayoutEngine::ArrangeChildren(RuntimeNode &node) {
       if (child == nullptr) {
         continue;
       }
+      if (child->type == ElementType::Popup) {
+        const auto *root = m_tree.Get(m_tree.Root());
+        Arrange(childHandle,
+                root != nullptr ? root->arrangedBounds : node.arrangedBounds);
+        continue;
+      }
       const auto width = node.properties.scroll.horizontal
                              ? child->measuredSize.width
                              : content.width;
@@ -237,6 +323,12 @@ void LayoutEngine::ArrangeChildren(RuntimeNode &node) {
   for (const auto childHandle : node.children) {
     const auto *child = m_tree.Get(childHandle);
     if (child == nullptr) {
+      continue;
+    }
+    if (child->type == ElementType::Popup) {
+      const auto *root = m_tree.Get(m_tree.Root());
+      Arrange(childHandle,
+              root != nullptr ? root->arrangedBounds : node.arrangedBounds);
       continue;
     }
 

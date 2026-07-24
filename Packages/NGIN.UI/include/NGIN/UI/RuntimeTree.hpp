@@ -22,6 +22,10 @@ struct ScrollState final {
   Size viewportSize{};
 };
 
+struct PopupState final {
+  Rect contentBounds{};
+};
+
 struct RuntimeNode final {
   ElementHandle handle{};
   ElementId id{};
@@ -34,6 +38,7 @@ struct RuntimeNode final {
   Rect arrangedBounds{};
   InteractionState interaction{};
   ScrollState scroll{};
+  PopupState popup{};
   UInt64 compositionRevision{0};
   UInt64 layoutRevision{0};
 

@@ -15,6 +15,8 @@ namespace {
     return SemanticRole::Text;
   case ElementType::TextField:
     return SemanticRole::TextBox;
+  case ElementType::Popup:
+    return SemanticRole::Dialog;
   default:
     return SemanticRole::None;
   }
@@ -67,7 +69,9 @@ void SemanticTree::AppendRuntimeNode(const RuntimeTree &runtimeTree,
         .label = properties.label,
         .value = properties.value,
         .description = properties.description,
-        .bounds = runtimeNode->arrangedBounds,
+        .bounds = runtimeNode->type == ElementType::Popup
+                      ? runtimeNode->popup.contentBounds
+                      : runtimeNode->arrangedBounds,
         .states = states,
         .actions = properties.actions == SemanticActionFlags::None
                        ? DefaultActions(role)
