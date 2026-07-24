@@ -9,6 +9,10 @@ APIs from `NGIN.UI` and `NGIN.UI.Backend.SDL3` and exercises:
   font;
 - grapheme-aware text editing, selection, clipboard commands, and IME.
 
+Its model and `ComposeMainView()` are shared unchanged with
+[`../NGIN.UI.Gallery.Hosted`](../NGIN.UI.Gallery.Hosted/), which runs the same
+view through `NGIN.Core`.
+
 Build and launch it through the V4 product manifest:
 
 ```sh

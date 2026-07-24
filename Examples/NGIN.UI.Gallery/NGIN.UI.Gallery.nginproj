@@ -12,6 +12,7 @@
 
     <Build>
       <Sources Path="src/**.cpp" />
+      <IncludePath Path="include" />
     </Build>
 
     <Launch Executable="NGIN.UI.Gallery"

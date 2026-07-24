@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Package SchemaVersion="4"
+         Name="NGIN.UI.Hosting"
+         Version="0.1.0"
+         CompatiblePlatformRange=">=0.1.0 &lt;0.2.0">
+  <Build Backend="CMake" Mode="AddSubdirectory">
+    <Options>
+      <Option Name="NGIN_UI_HOSTING_BUILD_TESTS" Value="OFF" />
+    </Options>
+  </Build>
+  <Uses>
+    <Runtime Name="NGIN.Core"
+             Version=">=0.1.0 &lt;0.2.0"
+             Scope="Target;Runtime" />
+    <Package Name="NGIN.UI"
+             Version=">=0.1.0 &lt;0.2.0"
+             Scope="Target" />
+  </Uses>
+  <Library Name="NGIN.UI.Hosting">
+    <Exports>
+      <LibraryTarget Name="NGIN::UI::Hosting" Linkage="Static" />
+    </Exports>
+  </Library>
+  <Runtime>
+    <Module Name="NGIN.UI.Runtime"
+            Stage="Platform">
+      <Provides Service="NGIN.UI.IApplication" />
+      <Provides Service="NGIN.UI.IWindowManager" />
+      <Provides Service="NGIN.UI.IUIDispatcher" />
+      <Provides Service="NGIN.UI.IPlatformBackend" />
+      <Provides Service="NGIN.UI.IRenderBackend" />
+      <Capability Name="UI.PlatformBackend" Exclusive="true" />
+      <Capability Name="UI.RenderBackend" Exclusive="true" />
+    </Module>
+  </Runtime>
+  <Compatibility>
+    <OperatingSystems>
+      <OperatingSystem Name="windows" />
+      <OperatingSystem Name="linux" />
+      <OperatingSystem Name="macos" />
+    </OperatingSystems>
+  </Compatibility>
+</Package>

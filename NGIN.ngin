@@ -12,6 +12,7 @@
     <Project Path="Examples/Hello.Analyzer/Hello.Analyzer.nginproj" />
     <Project Path="Examples/Hello.Formatter/Hello.Formatter.nginproj" />
     <Project Path="Examples/NGIN.UI.Gallery/NGIN.UI.Gallery.nginproj" />
+    <Project Path="Examples/NGIN.UI.Gallery.Hosted/NGIN.UI.Gallery.Hosted.nginproj" />
   </Projects>
 
   <Defaults>
@@ -34,6 +35,8 @@
     <Version Name="NGIN.UI"
              Range="[0.1.0,0.2.0)" />
     <Version Name="NGIN.UI.Backend.SDL3"
+             Range="[0.1.0,0.2.0)" />
+    <Version Name="NGIN.UI.Hosting"
              Range="[0.1.0,0.2.0)" />
     <Version Name="SDL3"
              Range="[3.4.12,4.0.0)" />

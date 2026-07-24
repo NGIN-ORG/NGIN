@@ -37,11 +37,13 @@ Target language: C++23
   multi-window rendering. `Examples/NGIN.UI.Gallery` is the standalone native
   smoke product and exercises retained controls and shaped text through that
   backend.
-- Slice 8 now has the generic `NGIN.Core::IHostRunLoop` extension, including
-  builder injection, stop-state observation, and wake-on-stop behavior. The
-  separate UI hosting package and hosted gallery remain.
-- The remaining Slice 4 hardening and Slice 8 UI-hosting package remain
-  planned.
+- Slice 8 is complete. The generic `NGIN.Core::IHostRunLoop` extension provides
+  builder injection, stop-state observation, and wake-on-stop behavior.
+  `NGIN.UI.Hosting` owns the UI application, native text services, UI-thread
+  dispatcher, and event-driven host run loop. The standalone and hosted gallery
+  products share one retained view; both pass native SDL smoke runs.
+- The remaining Slice 4 text hardening is planned beyond the initial
+  single-line text scope.
 
 ## Product Boundary
 
