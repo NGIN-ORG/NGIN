@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Package SchemaVersion="4"
+         Name="NGIN.UI"
+         Version="0.1.0"
+         CompatiblePlatformRange=">=0.1.0-alpha.1 &lt;0.2.0">
+  <Build Backend="CMake" Mode="AddSubdirectory">
+    <Options>
+      <Option Name="NGIN_UI_BUILD_TESTS" Value="OFF" />
+      <Option Name="NGIN_UI_BUILD_EXAMPLES" Value="OFF" />
+    </Options>
+  </Build>
+  <Uses>
+    <Package Name="NGIN.Base"
+             Version=">=0.1.0 &lt;0.2.0"
+             Scope="Target" />
+  </Uses>
+  <Library Name="NGIN.UI">
+    <Exports>
+      <LibraryTarget Name="NGIN::UI" Linkage="Static" />
+    </Exports>
+  </Library>
+  <Compatibility>
+    <OperatingSystems>
+      <OperatingSystem Name="windows" />
+      <OperatingSystem Name="linux" />
+      <OperatingSystem Name="macos" />
+    </OperatingSystems>
+  </Compatibility>
+</Package>

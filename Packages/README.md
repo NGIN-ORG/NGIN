@@ -10,6 +10,9 @@ The important distinction is ownership:
 - Source code usually lives elsewhere.
 - [`NGIN.Core`](NGIN.Core/) is the locally owned hosted runtime package and does
   contain source code.
+- [`NGIN.UI`](NGIN.UI/) is the locally owned, backend-neutral application UI
+  core. Native platform/rendering backends and optional `NGIN.Core` hosting are
+  separate package boundaries.
 - [`OpenSSL`](OpenSSL/) is a CMake `FindPackage` wrapper for the `OpenSSL::Crypto`
   target used by optional crypto provider integration; it declares a
   `CryptoProvider` feature for graph capability discovery and provider-package

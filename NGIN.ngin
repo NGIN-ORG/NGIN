@@ -30,6 +30,8 @@
 
     <Version Name="NGIN.Core"
              Range="[0.1.0,0.2.0)" />
+    <Version Name="NGIN.UI"
+             Range="[0.1.0,0.2.0)" />
     <Version Name="NGIN.Base"
              Range="[0.1.0,0.2.0)" />
     <Version Name="NGIN.Reflection"

@@ -76,6 +76,10 @@ If you are trying to understand NGIN as a user:
 
 ## Active Implementation Plans
 
+- [`plans/NGIN.UI-Implementation-Plan.md`](plans/NGIN.UI-Implementation-Plan.md)
+  Milestone implementation plan for the backend-neutral NGIN.UI toolkit,
+  deterministic headless harness, SDL3 backend, composition, layout, text,
+  controls, and optional hosted integration.
 - [`plans/NGIN-Base-XML-Breaking-Performance-Refactor-Plan.md`](plans/NGIN-Base-XML-Breaking-Performance-Refactor-Plan.md)
   Implemented breaking value-view, compact-storage, one-pass construction,
   scanner, and explicit in-situ refactor for the strict `NGIN.Base` XML
@@ -87,6 +91,8 @@ If you are trying to understand NGIN as a user:
 
 ## Background Material
 
+- [`proposals/NGIN.UI-Proposal.md`](proposals/NGIN.UI-Proposal.md) contains the
+  complete NGIN.UI architecture and implementation proposal.
 - [`architecture/`](architecture/) contains design notes and historical
   direction documents.
 - [`api-drafts/`](api-drafts/) contains draft API sketches.

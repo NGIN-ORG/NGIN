@@ -1,0 +1,96 @@
+#pragma once
+
+#include <NGIN/UI/Composer.hpp>
+#include <NGIN/UI/Error.hpp>
+#include <NGIN/UI/Events.hpp>
+#include <NGIN/UI/Invalidation.hpp>
+#include <NGIN/UI/Platform.hpp>
+#include <NGIN/UI/Rendering.hpp>
+#include <NGIN/UI/RuntimeTree.hpp>
+#include <NGIN/Utilities/Callable.hpp>
+
+#include <chrono>
+#include <memory>
+
+namespace NGIN::UI {
+class Application;
+
+class Window final {
+public:
+  using EventHandler = NGIN::Utilities::Callable<void(const PlatformEvent &)>;
+  using Content = NGIN::Utilities::Callable<void(Composer &)>;
+
+  Window(const Window &) = delete;
+  Window(Window &&) = delete;
+  auto operator=(const Window &) -> Window & = delete;
+  auto operator=(Window &&) -> Window & = delete;
+  ~Window();
+
+  [[nodiscard]] auto Id() const noexcept -> const NGIN::Text::String &;
+  [[nodiscard]] auto PlatformHandle() const noexcept -> PlatformWindowHandle;
+  [[nodiscard]] auto SurfaceHandle() const noexcept -> RenderSurfaceHandle;
+  [[nodiscard]] auto PixelExtent() const noexcept -> PixelSize;
+  [[nodiscard]] auto ScaleFactor() const noexcept -> F32;
+  [[nodiscard]] auto IsDirty() const noexcept -> bool;
+  [[nodiscard]] auto IsClosed() const noexcept -> bool;
+  [[nodiscard]] auto IsCloseRequested() const noexcept -> bool;
+  [[nodiscard]] auto Tree() const noexcept -> const RuntimeTree &;
+  [[nodiscard]] auto LastReconcileStats() const noexcept
+      -> const ReconcileStats &;
+
+  void SetEventHandler(EventHandler handler);
+  void SetContent(Content content);
+  void Invalidate(InvalidationKind kind = InvalidationKind::All) noexcept;
+
+private:
+  friend class Application;
+
+  explicit Window(WindowCreateInfo info, PlatformWindowHandle platformHandle,
+                  RenderSurfaceHandle surfaceHandle);
+
+  struct Implementation;
+  std::unique_ptr<Implementation> m_implementation;
+};
+
+struct ApplicationCreateInfo final {
+  std::unique_ptr<IPlatformBackend> platform{};
+  std::unique_ptr<IRenderBackend> renderer{};
+  NGIN::Text::String applicationName{"NGIN.UI"};
+  bool enableRendererValidation{false};
+};
+
+class Application final {
+public:
+  Application(const Application &) = delete;
+  Application(Application &&) = delete;
+  auto operator=(const Application &) -> Application & = delete;
+  auto operator=(Application &&) -> Application & = delete;
+  ~Application();
+
+  [[nodiscard]] auto CreateWindow(const WindowCreateInfo &info) noexcept
+      -> UIResult<Window *>;
+  auto CloseWindow(Window &window) noexcept -> UIResult<void>;
+  auto PumpOnce(std::chrono::milliseconds maximumWait =
+                    std::chrono::milliseconds{0}) noexcept -> UIResult<void>;
+  auto Run() noexcept -> UIResult<void>;
+  void RequestExit() noexcept;
+
+  [[nodiscard]] auto ShouldExit() const noexcept -> bool;
+  [[nodiscard]] auto ActiveWindowCount() const noexcept -> UIntSize;
+  [[nodiscard]] auto Platform() noexcept -> IPlatformBackend &;
+  [[nodiscard]] auto Renderer() noexcept -> IRenderBackend &;
+
+private:
+  friend auto CreateApplication(ApplicationCreateInfo info) noexcept
+      -> UIResult<std::unique_ptr<Application>>;
+
+  Application(std::unique_ptr<IPlatformBackend> platform,
+              std::unique_ptr<IRenderBackend> renderer);
+
+  struct Implementation;
+  std::unique_ptr<Implementation> m_implementation;
+};
+
+[[nodiscard]] auto CreateApplication(ApplicationCreateInfo info) noexcept
+    -> UIResult<std::unique_ptr<Application>>;
+} // namespace NGIN::UI
