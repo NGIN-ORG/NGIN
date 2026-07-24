@@ -1,5 +1,6 @@
 #pragma once
 
+#include <NGIN/UI/TextDirection.hpp>
 #include <NGIN/UI/Theme.hpp>
 
 #include <memory>
@@ -9,11 +10,6 @@
 #include <unordered_map>
 
 namespace NGIN::UI {
-enum class TextDirection : UInt8 {
-  LeftToRight,
-  RightToLeft,
-};
-
 template <typename T> class ResourceKey final {
 public:
   explicit ResourceKey(std::string_view name) : m_name(name) {}

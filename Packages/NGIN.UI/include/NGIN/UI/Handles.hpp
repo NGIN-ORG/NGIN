@@ -25,11 +25,13 @@ template <typename Tag> struct Handle final {
 struct PlatformWindowHandleTag;
 struct RenderSurfaceHandleTag;
 struct TextureHandleTag;
+struct FontFaceHandleTag;
 struct ElementHandleTag;
 
 using PlatformWindowHandle = Handle<PlatformWindowHandleTag>;
 using RenderSurfaceHandle = Handle<RenderSurfaceHandleTag>;
 using TextureHandle = Handle<TextureHandleTag>;
+using FontFaceHandle = Handle<FontFaceHandleTag>;
 using ElementHandle = Handle<ElementHandleTag>;
 
 struct ElementId final {

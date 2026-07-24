@@ -59,6 +59,12 @@ void DisplayListBuilder::Image(const TextureHandle texture,
   m_commands.emplace_back(DrawImage{texture, destination, tint});
 }
 
+void DisplayListBuilder::Glyphs(const TextureHandle atlas,
+                                std::vector<GlyphQuad> glyphs,
+                                const Color color) {
+  m_commands.emplace_back(DrawGlyphRun{atlas, std::move(glyphs), color});
+}
+
 void DisplayListBuilder::BeginOpacity(const F32 opacity) {
   m_commands.emplace_back(BeginOpacityLayer{std::clamp(opacity, 0.0F, 1.0F)});
   ++m_opacityDepth;

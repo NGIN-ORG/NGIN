@@ -49,6 +49,17 @@ struct DrawImage final {
   Color tint{1.0F, 1.0F, 1.0F, 1.0F};
 };
 
+struct GlyphQuad final {
+  Rect destination{};
+  Rect textureCoordinates{};
+};
+
+struct DrawGlyphRun final {
+  TextureHandle atlas{};
+  std::vector<GlyphQuad> glyphs{};
+  Color color{};
+};
+
 struct BeginOpacityLayer final {
   F32 opacity{1.0F};
 };
@@ -57,8 +68,8 @@ struct EndOpacityLayer final {};
 
 using DisplayCommand =
     std::variant<PushClipRect, PopClip, PushTransform, PopTransform, FillRect,
-                 FillRoundedRect, StrokeRect, DrawImage, BeginOpacityLayer,
-                 EndOpacityLayer>;
+                 FillRoundedRect, StrokeRect, DrawImage, DrawGlyphRun,
+                 BeginOpacityLayer, EndOpacityLayer>;
 
 using DisplayList = std::vector<DisplayCommand>;
 
@@ -73,6 +84,7 @@ public:
   void Stroke(Rect rect, F32 thickness, Color color);
   void Image(TextureHandle texture, Rect destination,
              Color tint = Color{1.0F, 1.0F, 1.0F, 1.0F});
+  void Glyphs(TextureHandle atlas, std::vector<GlyphQuad> glyphs, Color color);
   void BeginOpacity(F32 opacity);
   auto EndOpacity() noexcept -> UIResult<void>;
 

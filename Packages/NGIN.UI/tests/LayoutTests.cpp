@@ -1,3 +1,4 @@
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include <NGIN/UI/DisplayList.hpp>
@@ -336,4 +337,42 @@ TEST_CASE("UI renderer emits rounded stroke and textured image geometry") {
   REQUIRE(packet.batches[1].indexCount == 6);
   REQUIRE(packet.vertices.back().u == 0.0F);
   REQUIRE(packet.vertices.back().v == 1.0F);
+}
+
+TEST_CASE("UI renderer lowers glyph runs with atlas coordinates") {
+  using namespace NGIN::UI;
+
+  const TextureHandle atlas{9, 1};
+  DisplayList list{
+      DrawGlyphRun{
+          .atlas = atlas,
+          .glyphs =
+              {
+                  GlyphQuad{
+                      .destination = Rect{2.0F, 3.0F, 4.0F, 5.0F},
+                      .textureCoordinates = Rect{0.1F, 0.2F, 0.25F, 0.3F},
+                  },
+                  GlyphQuad{
+                      .destination = Rect{7.0F, 3.0F, 6.0F, 5.0F},
+                      .textureCoordinates = Rect{0.4F, 0.2F, 0.3F, 0.3F},
+                  },
+              },
+          .color = Color{1.0F, 0.5F, 0.25F, 0.75F},
+      },
+  };
+
+  const auto packet = UIRenderer{}.Build(list, PixelSize{100, 100}, 2.0F);
+  REQUIRE(packet.vertices.size() == 8);
+  REQUIRE(packet.indices.size() == 12);
+  REQUIRE(packet.batches.size() == 1);
+  REQUIRE(packet.batches.front().texture == atlas);
+  REQUIRE(packet.batches.front().indexCount == 12);
+  REQUIRE(packet.vertices[0].x == 4.0F);
+  REQUIRE(packet.vertices[0].y == 6.0F);
+  REQUIRE(packet.vertices[0].u == 0.1F);
+  REQUIRE(packet.vertices[0].v == 0.2F);
+  REQUIRE(packet.vertices[2].u == 0.35F);
+  REQUIRE(packet.vertices[2].v == 0.5F);
+  REQUIRE(packet.vertices[4].u == 0.4F);
+  REQUIRE(packet.vertices[6].u == Catch::Approx(0.7F));
 }

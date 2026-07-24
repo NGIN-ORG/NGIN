@@ -119,7 +119,8 @@ void AppendBatch(PreparedRenderPacket &packet, const TextureHandle texture,
 void AppendQuad(PreparedRenderPacket &packet, const Rect rect,
                 const Transform2D transform, const F32 scaleFactor,
                 const UInt32 color, const PixelRect scissor,
-                const TextureHandle texture = {}) {
+                const TextureHandle texture = {},
+                const Rect textureRect = Rect{0.0F, 0.0F, 1.0F, 1.0F}) {
   if (rect.width <= 0.0F || rect.height <= 0.0F || scissor.width == 0 ||
       scissor.height == 0) {
     return;
@@ -131,11 +132,12 @@ void AppendQuad(PreparedRenderPacket &packet, const Rect rect,
       Point{rect.x + rect.width, rect.y + rect.height},
       Point{rect.x, rect.y + rect.height},
   };
-  constexpr std::array textureCoordinates{
-      Point{0.0F, 0.0F},
-      Point{1.0F, 0.0F},
-      Point{1.0F, 1.0F},
-      Point{0.0F, 1.0F},
+  const std::array textureCoordinates{
+      Point{textureRect.x, textureRect.y},
+      Point{textureRect.x + textureRect.width, textureRect.y},
+      Point{textureRect.x + textureRect.width,
+            textureRect.y + textureRect.height},
+      Point{textureRect.x, textureRect.y + textureRect.height},
   };
 
   const auto firstVertex = static_cast<UInt32>(packet.vertices.size());
@@ -314,6 +316,17 @@ auto UIRenderer::Build(const DisplayList &displayList,
                          PackColor(value.tint, opacities.back()),
                          ToScissor(clips.back(), effectiveScale, targetSize),
                          value.texture);
+            }
+          } else if constexpr (std::is_same_v<Command, DrawGlyphRun>) {
+            if (value.atlas) {
+              const auto color = PackColor(value.color, opacities.back());
+              const auto scissor =
+                  ToScissor(clips.back(), effectiveScale, targetSize);
+              for (const auto &glyph : value.glyphs) {
+                AppendQuad(packet, glyph.destination, transforms.back(),
+                           effectiveScale, color, scissor, value.atlas,
+                           glyph.textureCoordinates);
+              }
             }
           }
         },

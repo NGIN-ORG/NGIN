@@ -26,6 +26,9 @@ foundation:
 - DPI-aware rectangle, rounded-rectangle, stroke, and image tessellation;
 - nested transform, clip, and opacity stacks with texture-aware batch
   coalescing;
+- backend-neutral font-provider, shaping, paragraph-layout, and grapheme
+  segmentation contracts;
+- atlas-backed glyph-run display commands with DPI-aware renderer lowering;
 - reverse-paint-order hit testing and capture/target/bubble pointer routing;
 - retained hover, pressed, pointer-capture, and keyboard-focus state;
 - normalized routed keyboard/text events and explicit tab traversal;

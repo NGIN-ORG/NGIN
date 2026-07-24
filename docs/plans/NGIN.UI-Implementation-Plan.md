@@ -11,6 +11,10 @@ Target language: C++23
 - Slice 2 is complete.
 - Slice 3 is complete for the proposal's initial layout and solid-rectangle
   rendering scope, including every currently declared display-list command.
+- Slice 4 has dependency-free font-provider, shaping, paragraph-layout, and
+  grapheme-segmentation contracts plus atlas-backed glyph-run display commands
+  and renderer lowering. Concrete shaping, rasterization, font assets, atlas
+  management, and the `Text` element remain dependency-gated.
 - Slice 5 is complete for the backend-neutral headless scope. Its SDL smoke
   criterion remains gated on Slice 1.
 - Slice 6 state/binding foundations and keyboard/text/IME event routing are
@@ -22,7 +26,7 @@ Target language: C++23
   debugging overlays. A text-rendered inspector panel remains coupled to
   Slice 4.
 - Slice 1 is dependency-gated; no SDL3 dependency has been introduced.
-- Slices 4, 6, and 8 remain planned.
+- The remaining work in Slices 4 and 6, plus Slice 8, remains planned.
 
 ## Product Boundary
 
@@ -123,6 +127,13 @@ Deliver:
 - layout and display-list tests.
 
 ### Slice 4 — Text
+
+Current status:
+
+The backend-neutral font, shaping, paragraph-layout, and grapheme-segmentation
+contracts are implemented, as is the atlas-backed glyph-run display command and
+its renderer lowering. The concrete dependencies and services described below
+remain gated.
 
 Deliver:
 

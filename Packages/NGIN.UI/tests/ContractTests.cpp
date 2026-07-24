@@ -4,10 +4,12 @@
 #include <NGIN/UI/Geometry.hpp>
 #include <NGIN/UI/Testing/RecordingRenderBackend.hpp>
 #include <NGIN/UI/Testing/TestPlatformBackend.hpp>
+#include <NGIN/UI/Text.hpp>
 
 #include <array>
 #include <chrono>
 #include <memory>
+#include <type_traits>
 
 using namespace std::chrono_literals;
 
@@ -58,6 +60,46 @@ TEST_CASE("generational handles distinguish invalid and stale identities") {
   REQUIRE_FALSE(invalid.IsValid());
   REQUIRE(first.IsValid());
   REQUIRE(first != reused);
+}
+
+TEST_CASE("text contracts preserve shaping and grapheme cluster metadata") {
+  using namespace NGIN::UI;
+
+  STATIC_REQUIRE(std::is_abstract_v<IFontProvider>);
+  STATIC_REQUIRE(std::is_abstract_v<ITextShaper>);
+  STATIC_REQUIRE(std::is_abstract_v<ITextLayout>);
+  STATIC_REQUIRE(std::is_abstract_v<IGraphemeSegmenter>);
+
+  const FontFaceHandle face{3, 1};
+  const ShapedRun shaped{
+      .fontFace = face,
+      .direction = TextDirection::LeftToRight,
+      .metrics =
+          FontMetrics{
+              .ascender = 12.0F,
+              .descender = 4.0F,
+              .lineGap = 2.0F,
+              .unitsPerEm = 1000.0F,
+          },
+      .glyphs =
+          {
+              ShapedGlyph{
+                  .glyphIndex = 42,
+                  .clusterByteOffset = 0,
+                  .advance = Point{9.0F, 0.0F},
+              },
+          },
+      .graphemeClusters =
+          {
+              GraphemeCluster{.byteOffset = 0, .byteLength = 2},
+          },
+      .size = Size{9.0F, 18.0F},
+  };
+
+  REQUIRE(shaped.fontFace == face);
+  REQUIRE(shaped.glyphs.front().clusterByteOffset == 0);
+  REQUIRE(shaped.graphemeClusters.front().byteLength == 2);
+  REQUIRE(shaped.size == Size{9.0F, 18.0F});
 }
 
 TEST_CASE("headless platform records logical window services and deterministic "

@@ -22,5 +22,7 @@
 #include <NGIN/UI/Semantics.hpp>
 #include <NGIN/UI/State.hpp>
 #include <NGIN/UI/Style.hpp>
+#include <NGIN/UI/Text.hpp>
+#include <NGIN/UI/TextDirection.hpp>
 #include <NGIN/UI/Theme.hpp>
 #include <NGIN/UI/UIRenderer.hpp>
