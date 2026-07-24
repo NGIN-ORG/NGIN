@@ -1,13 +1,35 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include <NGIN/UI/Application.hpp>
 #include <NGIN/UI/Geometry.hpp>
 #include <NGIN/UI/Testing/RecordingRenderBackend.hpp>
 #include <NGIN/UI/Testing/TestPlatformBackend.hpp>
 
 #include <array>
 #include <chrono>
+#include <memory>
 
 using namespace std::chrono_literals;
+
+namespace {
+class LegacyPlatformBackend final
+    : public NGIN::UI::Testing::TestPlatformBackend {
+public:
+  [[nodiscard]] auto ContractVersion() const noexcept
+      -> NGIN::UI::BackendContractVersion override {
+    return NGIN::UI::BackendContractVersion{0, 9};
+  }
+};
+
+class LimitedRenderBackend final
+    : public NGIN::UI::Testing::RecordingRenderBackend {
+public:
+  [[nodiscard]] auto Capabilities() const noexcept
+      -> NGIN::UI::RenderCapabilityFlags override {
+    return NGIN::UI::RenderCapabilityFlags::TextureUpdates;
+  }
+};
+} // namespace
 
 TEST_CASE(
     "device-independent geometry converts and constrains deterministically") {
@@ -52,6 +74,11 @@ TEST_CASE("headless platform records logical window services and deterministic "
   REQUIRE(beforeInit.Error().code == UIErrorCode::BackendUnavailable);
 
   REQUIRE(backend.Initialize(PlatformInitInfo{}).HasValue());
+  REQUIRE(backend.ContractVersion() == CurrentBackendContractVersion);
+  REQUIRE(HasPlatformCapability(backend.Capabilities(),
+                                PlatformCapabilityFlags::Clipboard));
+  REQUIRE(HasPlatformCapability(backend.Capabilities(),
+                                PlatformCapabilityFlags::MultipleWindows));
   auto created = backend.CreateWindow(WindowCreateInfo{
       .id = NGIN::Text::String{"Main"},
       .title = NGIN::Text::String{"Main window"},
@@ -92,6 +119,9 @@ TEST_CASE("recording renderer deep-copies packets and texture updates") {
   using namespace NGIN::UI::Testing;
 
   RecordingRenderBackend backend;
+  REQUIRE(backend.ContractVersion() == CurrentBackendContractVersion);
+  REQUIRE(
+      HasRenderCapability(backend.Capabilities(), RequiredRenderCapabilities));
   REQUIRE(
       backend.Initialize(RenderInitInfo{.enableValidation = true}).HasValue());
   auto surface =
@@ -140,4 +170,32 @@ TEST_CASE("recording renderer deep-copies packets and texture updates") {
                                    .textureUpdates.front()
                                    .bytes.front()) == 1);
   REQUIRE(backend.ValidationEnabled());
+}
+
+TEST_CASE("application rejects incompatible or incomplete backend contracts") {
+  using namespace NGIN::UI;
+  using namespace NGIN::UI::Testing;
+
+  const BackendContractVersion newerMinor{1, 1};
+  const BackendContractVersion legacyVersion{0, 9};
+  REQUIRE(newerMinor.Supports(CurrentBackendContractVersion));
+  REQUIRE_FALSE(legacyVersion.Supports(CurrentBackendContractVersion));
+
+  auto legacyPlatform = CreateApplication(ApplicationCreateInfo{
+      .platform = std::make_unique<LegacyPlatformBackend>(),
+      .renderer = std::make_unique<RecordingRenderBackend>(),
+  });
+  REQUIRE_FALSE(legacyPlatform.HasValue());
+  REQUIRE(legacyPlatform.Error().code == UIErrorCode::Unsupported);
+  REQUIRE(legacyPlatform.Error().operation ==
+          NGIN::Text::String{"ValidateBackendContract"});
+
+  auto limitedRenderer = CreateApplication(ApplicationCreateInfo{
+      .platform = std::make_unique<TestPlatformBackend>(),
+      .renderer = std::make_unique<LimitedRenderBackend>(),
+  });
+  REQUIRE_FALSE(limitedRenderer.HasValue());
+  REQUIRE(limitedRenderer.Error().code == UIErrorCode::Unsupported);
+  REQUIRE(limitedRenderer.Error().operation ==
+          NGIN::Text::String{"ValidateBackendCapabilities"});
 }

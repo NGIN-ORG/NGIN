@@ -20,6 +20,17 @@ auto RecordingRenderBackend::Name() const noexcept -> const char * {
   return "RecordingRenderer";
 }
 
+auto RecordingRenderBackend::ContractVersion() const noexcept
+    -> BackendContractVersion {
+  return CurrentBackendContractVersion;
+}
+
+auto RecordingRenderBackend::Capabilities() const noexcept
+    -> RenderCapabilityFlags {
+  return RenderCapabilityFlags::TextureUpdates |
+         RenderCapabilityFlags::ScissorRects | RenderCapabilityFlags::Index32;
+}
+
 auto RecordingRenderBackend::Initialize(const RenderInitInfo &info) noexcept
     -> UIResult<void> {
   m_initialized = true;

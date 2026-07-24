@@ -8,6 +8,19 @@ auto TestPlatformBackend::Name() const noexcept -> const char * {
   return "TestPlatform";
 }
 
+auto TestPlatformBackend::ContractVersion() const noexcept
+    -> BackendContractVersion {
+  return CurrentBackendContractVersion;
+}
+
+auto TestPlatformBackend::Capabilities() const noexcept
+    -> PlatformCapabilityFlags {
+  return PlatformCapabilityFlags::Clipboard | PlatformCapabilityFlags::IME |
+         PlatformCapabilityFlags::MultipleWindows |
+         PlatformCapabilityFlags::FileDrop | PlatformCapabilityFlags::PenInput |
+         PlatformCapabilityFlags::TouchInput;
+}
+
 auto TestPlatformBackend::Initialize(const PlatformInitInfo &) noexcept
     -> UIResult<void> {
   m_initialized = true;

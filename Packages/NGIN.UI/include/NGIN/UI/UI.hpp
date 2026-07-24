@@ -1,6 +1,7 @@
 #pragma once
 
 #include <NGIN/UI/Application.hpp>
+#include <NGIN/UI/Backend.hpp>
 #include <NGIN/UI/Composer.hpp>
 #include <NGIN/UI/Diagnostics.hpp>
 #include <NGIN/UI/DisplayList.hpp>

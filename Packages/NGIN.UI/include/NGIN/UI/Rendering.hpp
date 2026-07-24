@@ -1,6 +1,7 @@
 #pragma once
 
 #include <NGIN/Primitives.hpp>
+#include <NGIN/UI/Backend.hpp>
 #include <NGIN/UI/Error.hpp>
 #include <NGIN/UI/Geometry.hpp>
 #include <NGIN/UI/Handles.hpp>
@@ -71,6 +72,10 @@ public:
   virtual ~IRenderBackend() = default;
 
   [[nodiscard]] virtual auto Name() const noexcept -> const char * = 0;
+  [[nodiscard]] virtual auto ContractVersion() const noexcept
+      -> BackendContractVersion = 0;
+  [[nodiscard]] virtual auto Capabilities() const noexcept
+      -> RenderCapabilityFlags = 0;
   virtual auto Initialize(const RenderInitInfo &info) noexcept
       -> UIResult<void> = 0;
   virtual auto CreateSurface(PlatformWindowHandle window,

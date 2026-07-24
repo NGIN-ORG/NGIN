@@ -6,7 +6,8 @@ Target language: C++23
 
 ## Implementation Status
 
-- Slice 0 is complete.
+- Slice 0 is complete, including backend contract versioning, capability
+  negotiation, and startup validation.
 - Slice 2 is complete.
 - Slice 3 is complete for the proposal's initial layout and solid-rectangle
   rendering scope, including every currently declared display-list command.

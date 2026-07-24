@@ -32,9 +32,13 @@ struct RecordedSurface final {
   bool destroyed{false};
 };
 
-class RecordingRenderBackend final : public IRenderBackend {
+class RecordingRenderBackend : public IRenderBackend {
 public:
   [[nodiscard]] auto Name() const noexcept -> const char * override;
+  [[nodiscard]] auto ContractVersion() const noexcept
+      -> BackendContractVersion override;
+  [[nodiscard]] auto Capabilities() const noexcept
+      -> RenderCapabilityFlags override;
   auto Initialize(const RenderInitInfo &info) noexcept
       -> UIResult<void> override;
   auto CreateSurface(PlatformWindowHandle window,

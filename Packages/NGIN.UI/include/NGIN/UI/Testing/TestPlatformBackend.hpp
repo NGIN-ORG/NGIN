@@ -18,9 +18,13 @@ struct TestWindowRecord final {
   bool destroyed{false};
 };
 
-class TestPlatformBackend final : public IPlatformBackend {
+class TestPlatformBackend : public IPlatformBackend {
 public:
   [[nodiscard]] auto Name() const noexcept -> const char * override;
+  [[nodiscard]] auto ContractVersion() const noexcept
+      -> BackendContractVersion override;
+  [[nodiscard]] auto Capabilities() const noexcept
+      -> PlatformCapabilityFlags override;
   auto Initialize(const PlatformInitInfo &info) noexcept
       -> UIResult<void> override;
   auto CreateWindow(const WindowCreateInfo &info) noexcept

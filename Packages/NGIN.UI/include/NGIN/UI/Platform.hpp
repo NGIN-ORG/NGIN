@@ -1,6 +1,7 @@
 #pragma once
 
 #include <NGIN/Text/String.hpp>
+#include <NGIN/UI/Backend.hpp>
 #include <NGIN/UI/Error.hpp>
 #include <NGIN/UI/Events.hpp>
 #include <NGIN/UI/Geometry.hpp>
@@ -59,6 +60,10 @@ public:
   virtual ~IPlatformBackend() = default;
 
   [[nodiscard]] virtual auto Name() const noexcept -> const char * = 0;
+  [[nodiscard]] virtual auto ContractVersion() const noexcept
+      -> BackendContractVersion = 0;
+  [[nodiscard]] virtual auto Capabilities() const noexcept
+      -> PlatformCapabilityFlags = 0;
   virtual auto Initialize(const PlatformInitInfo &info) noexcept
       -> UIResult<void> = 0;
   virtual auto CreateWindow(const WindowCreateInfo &info) noexcept

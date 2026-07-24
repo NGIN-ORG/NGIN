@@ -11,7 +11,8 @@ foundation:
 - generational platform/render handles;
 - structured UI errors and results;
 - normalized window, pointer, keyboard, text, drop, and theme events;
-- platform and renderer backend contracts;
+- versioned platform and renderer backend contracts with explicit capability
+  negotiation and startup validation;
 - application and logical-window lifecycle;
 - deterministic headless platform and recording renderer implementations;
 - explicit RAII-scoped composition;

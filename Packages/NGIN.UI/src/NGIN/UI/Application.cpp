@@ -679,6 +679,32 @@ auto CreateApplication(ApplicationCreateInfo info) noexcept
     return MakeUIError(UIErrorCode::InvalidArgument,
                        "Renderer backend is required", "", "CreateApplication");
   }
+  if (!info.platform->ContractVersion().Supports(
+          CurrentBackendContractVersion)) {
+    return MakeUIError(UIErrorCode::Unsupported,
+                       "Platform backend contract version is incompatible",
+                       info.platform->Name(), "ValidateBackendContract");
+  }
+  if (!info.renderer->ContractVersion().Supports(
+          CurrentBackendContractVersion)) {
+    return MakeUIError(UIErrorCode::Unsupported,
+                       "Renderer backend contract version is incompatible",
+                       info.renderer->Name(), "ValidateBackendContract");
+  }
+  if (!HasPlatformCapability(info.platform->Capabilities(),
+                             RequiredPlatformCapabilities)) {
+    return MakeUIError(
+        UIErrorCode::Unsupported,
+        "Platform backend lacks required multiple-window capability",
+        info.platform->Name(), "ValidateBackendCapabilities");
+  }
+  if (!HasRenderCapability(info.renderer->Capabilities(),
+                           RequiredRenderCapabilities)) {
+    return MakeUIError(
+        UIErrorCode::Unsupported,
+        "Renderer backend lacks required scissor or 32-bit index capability",
+        info.renderer->Name(), "ValidateBackendCapabilities");
+  }
 
   auto platformInitialized = info.platform->Initialize(
       PlatformInitInfo{.applicationName = info.applicationName});
