@@ -31,9 +31,19 @@ enum class ElementType : UInt16 {
   Button,
   TextField,
   ScrollView,
+  ListView,
+  ListItem,
+  Tab,
+  MenuItem,
   Popup,
   Custom,
   CustomElement,
+};
+
+enum class ElementVisibility : UInt8 {
+  Visible,
+  Hidden,
+  Collapsed,
 };
 
 enum class HorizontalAlignment : UInt8 {
@@ -107,6 +117,7 @@ struct SeparatorProperties final {
 
 struct PopupProperties final {
   Rect anchor{};
+  NGIN::Text::String anchorIdentifier{};
   PopupPlacement placement{PopupPlacement::Center};
   F32 gap{4.0F};
   bool modal{true};
@@ -151,6 +162,7 @@ struct CustomElementProperties final {
 };
 
 struct NodeProperties final {
+  ElementVisibility visibility{ElementVisibility::Visible};
   LayoutProperties layout{};
   InteractionProperties interaction{};
   ScrollProperties scroll{};

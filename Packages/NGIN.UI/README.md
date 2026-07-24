@@ -42,6 +42,12 @@ The version 0.1 implementation provides:
 - retained scroll views with unbounded-axis measurement, clipped content,
   wheel scrolling, ancestor scroll chaining, and visual scrollbars with
   pointer dragging and keyboard movement;
+- typed zero/single/multiple selection models, semantic list views and stable
+  keyed list items with pointer, arrow, Home/End, type-ahead, and
+  ensure-visible behavior;
+- anchored combo boxes, retained-state tabs, menu buttons, and context menus;
+- an explicit incremental data-source boundary and large-list performance
+  guardrail ahead of virtualization;
 - window-level `DialogWindow` ownership with modal input blocking, focus
   restoration, and cascading close;
 - in-window popup overlays with viewport-aware placement, top-layer painting,
@@ -95,6 +101,10 @@ See the
 [foundational-controls guide](../../docs/guides/ngin-ui-foundational-controls.md)
 for bindings, typed radio groups, labels, tooltips, sliders, progress, and
 scrollbars.
+See the
+[collections and navigation guide](../../docs/guides/ngin-ui-collections-navigation.md)
+for selection models, keyed lists, combo boxes, retained tabs, menus, and the
+incremental data-source boundary.
 
 The default build fetches the pinned text dependencies recorded in
 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). Configure with

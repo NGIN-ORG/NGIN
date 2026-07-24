@@ -2,6 +2,7 @@
 #include <NGIN/UIGallery/Gallery.hpp>
 
 #include <iostream>
+#include <optional>
 #include <string_view>
 #include <utility>
 
@@ -22,8 +23,32 @@ auto ReportError(const char *context, const NGIN::UI::UIError &error) -> int {
 auto main(const int argc, char **argv) -> int {
   using namespace NGIN::UI;
 
-  const bool smoke =
-      argc > 1 && std::string_view{argv[1]} == std::string_view{"--smoke"};
+  bool smoke = false;
+  std::optional<NGIN::UIGallery::Page> initialPage;
+  for (int index = 1; index < argc; ++index) {
+    const auto argument = std::string_view{argv[index]};
+    if (argument == "--smoke") {
+      smoke = true;
+      continue;
+    }
+    if (argument == "--page" && index + 1 < argc) {
+      const auto requested = std::string_view{argv[++index]};
+      for (NGIN::UIntSize page = 0; page < NGIN::UIGallery::PageCount; ++page) {
+        const auto candidate = NGIN::UIGallery::PageAt(page);
+        if (NGIN::UIGallery::PageName(candidate) == requested) {
+          initialPage = candidate;
+          break;
+        }
+      }
+      if (!initialPage) {
+        std::cerr << "Unknown gallery page: " << requested << '\n';
+        return 2;
+      }
+      continue;
+    }
+    std::cerr << "Usage: NGIN.UI.Gallery [--smoke] [--page <name>]\n";
+    return 2;
+  }
 
   auto createdApplication = CreateApplication(ApplicationCreateInfo{
       .platform = SDL3::CreatePlatformBackend(),
@@ -44,6 +69,9 @@ auto main(const int argc, char **argv) -> int {
   auto text = std::move(createdText).Value();
 
   NGIN::UIGallery::Model model;
+  if (initialPage) {
+    model.SelectPage(*initialPage);
+  }
   auto window = NGIN::UIGallery::CreateMainWindow(*application, *text, model);
   if (!window) {
     return ReportError("Window creation failed", window.Error());

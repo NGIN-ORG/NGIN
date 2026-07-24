@@ -289,6 +289,7 @@ void PaintNode(const RuntimeTree &tree, const ElementHandle handle,
                const ElementHandle popupRoot = {}) {
   const auto *node = tree.Get(handle);
   if (node == nullptr ||
+      node->properties.visibility != ElementVisibility::Visible ||
       (node->type == ElementType::Popup && handle != popupRoot)) {
     return;
   }
@@ -343,7 +344,8 @@ void PaintNode(const RuntimeTree &tree, const ElementHandle handle,
     static_cast<void>(builder.PopClip());
   }
   PaintCustom(*node, builder);
-  const auto clipsChildren = node->type == ElementType::ScrollView;
+  const auto clipsChildren = node->type == ElementType::ScrollView ||
+                             node->type == ElementType::ListView;
   if (clipsChildren) {
     builder.PushClip(node->arrangedBounds);
   }
@@ -353,7 +355,8 @@ void PaintNode(const RuntimeTree &tree, const ElementHandle handle,
   if (clipsChildren) {
     static_cast<void>(builder.PopClip());
   }
-  if (node->type == ElementType::ScrollView) {
+  if (node->type == ElementType::ScrollView ||
+      node->type == ElementType::ListView) {
     const auto bars = Detail::ComputeScrollBars(
         node->arrangedBounds, node->properties.scroll, node->scroll);
     const auto thumbColor = node->interaction.hovered
@@ -385,7 +388,8 @@ void PaintNode(const RuntimeTree &tree, const ElementHandle handle,
 void CollectPopups(const RuntimeTree &tree, const ElementHandle handle,
                    std::vector<ElementHandle> &popups) {
   const auto *node = tree.Get(handle);
-  if (node == nullptr) {
+  if (node == nullptr ||
+      node->properties.visibility != ElementVisibility::Visible) {
     return;
   }
   if (node->type == ElementType::Popup) {

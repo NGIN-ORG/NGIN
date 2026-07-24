@@ -127,6 +127,12 @@ auto LayoutEngine::Measure(const ElementHandle handle,
   if (node == nullptr) {
     return {};
   }
+  if (node->properties.visibility == ElementVisibility::Collapsed) {
+    node->measuredSize = {};
+    node->layoutRevision = m_revision;
+    ++m_stats.measured;
+    return {};
+  }
 
   constraints.minimum.width = std::max(
       constraints.minimum.width, node->properties.layout.minimumSize.width);
@@ -385,7 +391,8 @@ auto LayoutEngine::MeasureContainer(RuntimeNode &node,
   for (const auto childHandle : node.children) {
     SizeConstraints childConstraints{};
     childConstraints.maximum = Size{availableWidth, availableHeight};
-    if (node.type == ElementType::ScrollView) {
+    if (node.type == ElementType::ScrollView ||
+        node.type == ElementType::ListView) {
       if (node.properties.scroll.horizontal) {
         childConstraints.maximum.width = std::numeric_limits<F32>::infinity();
       }
@@ -400,7 +407,9 @@ auto LayoutEngine::MeasureContainer(RuntimeNode &node,
 
     const auto childSize = Measure(childHandle, childConstraints);
     const auto *child = m_tree.Get(childHandle);
-    if (child != nullptr && child->type == ElementType::Popup) {
+    if (child != nullptr &&
+        (child->type == ElementType::Popup ||
+         child->properties.visibility == ElementVisibility::Collapsed)) {
       continue;
     }
     ++flowChildCount;
@@ -438,6 +447,12 @@ auto LayoutEngine::MeasureContainer(RuntimeNode &node,
 void LayoutEngine::Arrange(const ElementHandle handle, const Rect finalBounds) {
   auto *node = m_tree.Get(handle);
   if (node == nullptr) {
+    return;
+  }
+  if (node->properties.visibility == ElementVisibility::Collapsed) {
+    node->arrangedBounds = {};
+    node->layoutRevision = m_revision;
+    ++m_stats.arranged;
     return;
   }
   node->arrangedBounds = finalBounds;
@@ -483,12 +498,23 @@ void LayoutEngine::ArrangeChildren(RuntimeNode &node) {
     const auto viewportRight = content.x + content.width;
     const auto viewportBottom = content.y + content.height;
     const auto &popup = node.properties.popup;
+    auto anchor = popup.anchor;
+    if (!popup.anchorIdentifier.Empty()) {
+      const auto anchorHandle =
+          m_tree.FindBySemanticIdentifier(popup.anchorIdentifier);
+      if (const auto *anchorNode = m_tree.Get(anchorHandle);
+          anchorNode != nullptr &&
+          anchorNode->properties.visibility == ElementVisibility::Visible) {
+        anchor = anchorNode->arrangedBounds;
+      }
+    }
     const auto gap = std::max(0.0F, popup.gap);
     node.popup.contentBounds = {};
     bool hasContent = false;
     for (const auto childHandle : node.children) {
       const auto *child = m_tree.Get(childHandle);
-      if (child == nullptr) {
+      if (child == nullptr ||
+          child->properties.visibility == ElementVisibility::Collapsed) {
         continue;
       }
 
@@ -501,10 +527,10 @@ void LayoutEngine::ArrangeChildren(RuntimeNode &node) {
       case PopupPlacement::BelowStart:
       case PopupPlacement::BelowEnd: {
         x = popup.placement == PopupPlacement::BelowStart
-                ? popup.anchor.x
-                : popup.anchor.x + popup.anchor.width - width;
-        y = popup.anchor.y + popup.anchor.height + gap;
-        const auto above = popup.anchor.y - gap - height;
+                ? anchor.x
+                : anchor.x + anchor.width - width;
+        y = anchor.y + anchor.height + gap;
+        const auto above = anchor.y - gap - height;
         if (y + height > viewportBottom && above >= content.y) {
           y = above;
         }
@@ -513,10 +539,10 @@ void LayoutEngine::ArrangeChildren(RuntimeNode &node) {
       case PopupPlacement::AboveStart:
       case PopupPlacement::AboveEnd: {
         x = popup.placement == PopupPlacement::AboveStart
-                ? popup.anchor.x
-                : popup.anchor.x + popup.anchor.width - width;
-        y = popup.anchor.y - gap - height;
-        const auto below = popup.anchor.y + popup.anchor.height + gap;
+                ? anchor.x
+                : anchor.x + anchor.width - width;
+        y = anchor.y - gap - height;
+        const auto below = anchor.y + anchor.height + gap;
         if (y < content.y && below + height <= viewportBottom) {
           y = below;
         }
@@ -549,11 +575,13 @@ void LayoutEngine::ArrangeChildren(RuntimeNode &node) {
     return;
   }
 
-  if (node.type == ElementType::ScrollView) {
+  if (node.type == ElementType::ScrollView ||
+      node.type == ElementType::ListView) {
     Size contentSize{};
     for (const auto childHandle : node.children) {
       if (const auto *child = m_tree.Get(childHandle); child != nullptr) {
-        if (child->type == ElementType::Popup) {
+        if (child->type == ElementType::Popup ||
+            child->properties.visibility == ElementVisibility::Collapsed) {
           continue;
         }
         contentSize.width =
@@ -582,6 +610,10 @@ void LayoutEngine::ArrangeChildren(RuntimeNode &node) {
       if (child == nullptr) {
         continue;
       }
+      if (child->properties.visibility == ElementVisibility::Collapsed) {
+        Arrange(childHandle, {});
+        continue;
+      }
       if (child->type == ElementType::Popup) {
         const auto *root = m_tree.Get(m_tree.Root());
         Arrange(childHandle,
@@ -608,7 +640,8 @@ void LayoutEngine::ArrangeChildren(RuntimeNode &node) {
   if (node.type == ElementType::Row || node.type == ElementType::Column) {
     for (const auto childHandle : node.children) {
       const auto *child = m_tree.Get(childHandle);
-      if (child == nullptr || child->type == ElementType::Popup) {
+      if (child == nullptr || child->type == ElementType::Popup ||
+          child->properties.visibility == ElementVisibility::Collapsed) {
         continue;
       }
       ++flowChildCount;
@@ -632,6 +665,10 @@ void LayoutEngine::ArrangeChildren(RuntimeNode &node) {
   for (const auto childHandle : node.children) {
     const auto *child = m_tree.Get(childHandle);
     if (child == nullptr) {
+      continue;
+    }
+    if (child->properties.visibility == ElementVisibility::Collapsed) {
+      Arrange(childHandle, {});
       continue;
     }
     if (child->type == ElementType::Popup) {

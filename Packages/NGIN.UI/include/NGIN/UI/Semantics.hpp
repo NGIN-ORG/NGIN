@@ -26,6 +26,12 @@ enum class SemanticRole : UInt8 {
   Link,
   Slider,
   ProgressBar,
+  ComboBox,
+  TabList,
+  Tab,
+  TabPanel,
+  Menu,
+  MenuItem,
   Dialog,
 };
 

@@ -88,6 +88,21 @@ auto main() -> int {
                 "inputs page exposes progress semantics"))) {
       return 1;
     }
+    if (page == NGIN::UIGallery::Page::Collections &&
+        (!Check(HasRole(window->Semantics(), SemanticRole::List),
+                "collections page exposes list semantics") ||
+         !Check(HasRole(window->Semantics(), SemanticRole::ListItem),
+                "collections page exposes list-item semantics") ||
+         !Check(HasRole(window->Semantics(), SemanticRole::ComboBox),
+                "collections page exposes combo-box semantics") ||
+         !Check(HasRole(window->Semantics(), SemanticRole::TabList),
+                "collections page exposes tab-list semantics") ||
+         !Check(HasRole(window->Semantics(), SemanticRole::Tab),
+                "collections page exposes tab semantics") ||
+         !Check(HasRole(window->Semantics(), SemanticRole::TabPanel),
+                "collections page exposes active tab-panel semantics"))) {
+      return 1;
+    }
   }
 
   if (!Check(rendererObserver->RenderPackets().size() >=

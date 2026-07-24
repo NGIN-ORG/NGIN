@@ -15,8 +15,9 @@ The sidebar exposes nine focused pages:
 - **Inputs** presents buttons, check boxes, typed radio groups, switches,
   sliders, progress bars, labels, delayed tooltips, and editable, password,
   read-only, invalid, and disabled text fields;
-- **Collections** records the current keyed scrolling foundation and the
-  selection controls planned next;
+- **Collections** demonstrates a selectable keyed `ListView`, insert/remove,
+  sorting and filtering, a combo box, retained tabs, a menu button, and a
+  pointer-anchored context menu;
 - **Overlays** demonstrates modal popups and dismissal;
 - **Windows** opens independent windows and owner-modal dialogs;
 - **Resources** switches the light/dark theme and shows typed resource scopes;
@@ -31,7 +32,8 @@ Together, the pages exercise:
   font;
 - grapheme-aware text editing, selection, clipboard commands, and IME;
 - themed borders, rounded control chrome, focus visuals, visual scrollbars,
-  popups, and multiple windows.
+  selectable lists, combo boxes, retained tabs, menus, popups, and multiple
+  windows.
 
 Its model and `ComposeMainView()` are shared unchanged with
 [`../NGIN.UI.Gallery.Hosted`](../NGIN.UI.Gallery.Hosted/), which runs the same
@@ -48,6 +50,12 @@ Run the staged executable without arguments to use the gallery interactively:
 
 ```powershell
 build/manual/NGIN.UI.Gallery/bin/NGIN.UI.Gallery.exe
+```
+
+Open a specific catalogue page directly:
+
+```powershell
+build/manual/NGIN.UI.Gallery/bin/NGIN.UI.Gallery.exe --page Collections
 ```
 
 Pass `--smoke` to visit and render every catalogue page, then exit

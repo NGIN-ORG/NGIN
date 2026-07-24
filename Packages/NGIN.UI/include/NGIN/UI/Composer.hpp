@@ -109,6 +109,37 @@ public:
   }
 
   template <typename ComposeChildren>
+  void ListView(ComposeChildren &&composeChildren,
+                const NodeProperties &properties = {},
+                std::string_view key = {}) {
+    Element(ElementType::ListView, properties,
+            std::forward<ComposeChildren>(composeChildren), key);
+  }
+
+  template <typename ComposeChildren>
+  void ListItem(ComposeChildren &&composeChildren,
+                const NodeProperties &properties = {},
+                std::string_view key = {}) {
+    Element(ElementType::ListItem, properties,
+            std::forward<ComposeChildren>(composeChildren), key);
+  }
+
+  template <typename ComposeChildren>
+  void Tab(ComposeChildren &&composeChildren,
+           const NodeProperties &properties = {}, std::string_view key = {}) {
+    Element(ElementType::Tab, properties,
+            std::forward<ComposeChildren>(composeChildren), key);
+  }
+
+  template <typename ComposeChildren>
+  void MenuItem(ComposeChildren &&composeChildren,
+                const NodeProperties &properties = {},
+                std::string_view key = {}) {
+    Element(ElementType::MenuItem, properties,
+            std::forward<ComposeChildren>(composeChildren), key);
+  }
+
+  template <typename ComposeChildren>
   void Popup(ComposeChildren &&composeChildren,
              const NodeProperties &properties = {}, std::string_view key = {}) {
     Element(ElementType::Popup, properties,

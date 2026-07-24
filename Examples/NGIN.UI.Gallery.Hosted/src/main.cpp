@@ -3,6 +3,7 @@
 #include <NGIN/UIGallery/Gallery.hpp>
 
 #include <iostream>
+#include <optional>
 #include <string_view>
 #include <utility>
 
@@ -20,8 +21,10 @@ auto ReportCoreError(const char *context, const NGIN::Core::KernelError &error)
 
 class GalleryPresentationModule final : public NGIN::Core::IModule {
 public:
-  explicit GalleryPresentationModule(const bool smoke) noexcept
-      : m_smoke(smoke) {}
+  GalleryPresentationModule(
+      const bool smoke,
+      const std::optional<NGIN::UIGallery::Page> initialPage) noexcept
+      : m_smoke(smoke), m_initialPage(initialPage) {}
 
   auto OnStart(NGIN::Core::ModuleContext &context) noexcept
       -> NGIN::Core::CoreResult<void> override {
@@ -42,6 +45,9 @@ public:
     m_runtime = runtime.Value();
     m_dispatcher = dispatcher.Value();
 
+    if (m_initialPage) {
+      m_model.SelectPage(*m_initialPage);
+    }
     auto window = NGIN::UIGallery::CreateMainWindow(m_runtime->UI(),
                                                     m_runtime->Text(), m_model);
     if (!window) {
@@ -72,6 +78,7 @@ private:
   }
 
   bool m_smoke{false};
+  std::optional<NGIN::UIGallery::Page> m_initialPage{};
   NGIN::UIntSize m_smokePage{0};
   NGIN::UIGallery::Model m_model{};
   NGIN::Memory::Shared<NGIN::UI::Hosting::HostedUIRuntime> m_runtime{};
@@ -84,8 +91,32 @@ auto main(const int argc, char **argv) -> int {
   using namespace NGIN::UI;
   using namespace NGIN::UI::Hosting;
 
-  const bool smoke =
-      argc > 1 && std::string_view{argv[1]} == std::string_view{"--smoke"};
+  bool smoke = false;
+  std::optional<NGIN::UIGallery::Page> initialPage;
+  for (int index = 1; index < argc; ++index) {
+    const auto argument = std::string_view{argv[index]};
+    if (argument == "--smoke") {
+      smoke = true;
+      continue;
+    }
+    if (argument == "--page" && index + 1 < argc) {
+      const auto requested = std::string_view{argv[++index]};
+      for (NGIN::UIntSize page = 0; page < NGIN::UIGallery::PageCount; ++page) {
+        const auto candidate = NGIN::UIGallery::PageAt(page);
+        if (NGIN::UIGallery::PageName(candidate) == requested) {
+          initialPage = candidate;
+          break;
+        }
+      }
+      if (!initialPage) {
+        std::cerr << "Unknown gallery page: " << requested << '\n';
+        return 2;
+      }
+      continue;
+    }
+    std::cerr << "Usage: NGIN.UI.Gallery.Hosted [--smoke] [--page <name>]\n";
+    return 2;
+  }
 
   auto builder = CreateApplicationBuilder(argc, argv);
   auto hosting = ConfigureUIHosting(
@@ -115,11 +146,11 @@ auto main(const int argc, char **argv) -> int {
       .AddConfiguration()
       .AddModule(
           "NGIN.UI.Gallery.Presentation", std::move(presentation),
-          [smoke]() -> CoreResult<NGIN::Memory::Shared<IModule>> {
+          [smoke, initialPage]() -> CoreResult<NGIN::Memory::Shared<IModule>> {
             try {
               return NGIN::Memory::MakeSharedAs<IModule,
                                                 GalleryPresentationModule>(
-                  smoke);
+                  smoke, initialPage);
             } catch (...) {
               return NGIN::Utilities::Unexpected<KernelError>(MakeKernelError(
                   KernelErrorCode::ModuleFactoryFailure,

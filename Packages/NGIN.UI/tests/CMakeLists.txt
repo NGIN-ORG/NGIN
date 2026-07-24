@@ -40,6 +40,7 @@ include(Catch)
 
 add_executable(NGINUITests
     ApplicationTests.cpp
+    CollectionTests.cpp
     CompositionTests.cpp
     ContractTests.cpp
     ControlsTests.cpp

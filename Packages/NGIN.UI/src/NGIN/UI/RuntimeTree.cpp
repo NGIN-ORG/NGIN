@@ -91,6 +91,20 @@ auto RuntimeTree::ResourcesFor(ElementHandle handle) const noexcept
   return {};
 }
 
+auto RuntimeTree::FindBySemanticIdentifier(
+    const NGIN::Text::String &identifier) const noexcept -> ElementHandle {
+  if (identifier.Empty()) {
+    return {};
+  }
+  for (const auto &slot : m_slots) {
+    if (slot.occupied &&
+        slot.node.properties.semantics.identifier == identifier) {
+      return slot.node.handle;
+    }
+  }
+  return {};
+}
+
 auto RuntimeTree::LiveCount() const noexcept -> UIntSize { return m_liveCount; }
 
 auto RuntimeTree::CreateNode(const ElementType type,

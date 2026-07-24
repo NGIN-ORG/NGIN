@@ -5,6 +5,8 @@
 #include <NGIN/UI/RuntimeTree.hpp>
 #include <NGIN/Utilities/Callable.hpp>
 
+#include <chrono>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -59,6 +61,12 @@ private:
                      std::vector<ElementHandle> &popups) const;
   [[nodiscard]] auto IsWithin(ElementHandle handle,
                               ElementHandle ancestor) const noexcept -> bool;
+  [[nodiscard]] auto IsEffectivelyVisible(ElementHandle handle) const noexcept
+      -> bool;
+  [[nodiscard]] auto ActivatableAncestor(ElementHandle handle) const noexcept
+      -> ElementHandle;
+  [[nodiscard]] auto FocusableAncestor(ElementHandle handle) const noexcept
+      -> ElementHandle;
   [[nodiscard]] auto TopPopup() const noexcept -> ElementHandle;
   [[nodiscard]] auto TopModalPopup() const noexcept -> ElementHandle;
   [[nodiscard]] auto BuildPath(ElementHandle target) const
@@ -74,6 +82,16 @@ private:
   [[nodiscard]] auto FocusCandidates(ElementHandle scope = {}) const
       -> std::vector<ElementHandle>;
   auto RouteKey(const KeyChanged &event) -> InputDispatchResult;
+  auto RouteListKey(ElementHandle listHandle, const KeyChanged &event)
+      -> InputDispatchResult;
+  auto RouteTabKey(ElementHandle tabHandle, const KeyChanged &event)
+      -> InputDispatchResult;
+  auto RouteMenuKey(ElementHandle itemHandle, const KeyChanged &event)
+      -> InputDispatchResult;
+  void CollectListItems(ElementHandle handle, ElementHandle listRoot,
+                        std::vector<ElementHandle> &items) const;
+  auto ActivateListItem(ElementHandle listHandle, ElementHandle itemHandle)
+      -> InputDispatchResult;
   auto RouteText(const TextInput &event) -> InputDispatchResult;
   auto RouteText(const TextComposition &event) -> InputDispatchResult;
   auto RouteTextFieldKey(RuntimeNode &node, const KeyChanged &event)
@@ -109,6 +127,9 @@ private:
   std::unordered_map<UInt64, ElementHandle> m_captured{};
   std::unordered_map<UInt64, ElementHandle> m_hovered{};
   std::vector<PopupSession> m_popups{};
+  ElementHandle m_typeAheadList{};
+  std::string m_typeAheadPrefix{};
+  std::chrono::steady_clock::time_point m_typeAheadTime{};
   mutable InvalidationKind m_customInvalidation{InvalidationKind::None};
 };
 } // namespace NGIN::UI

@@ -3,7 +3,9 @@
 #include <NGIN/UI/UI.hpp>
 
 #include <cstdint>
+#include <optional>
 #include <string_view>
+#include <vector>
 
 namespace NGIN::UIGallery {
 enum class Page : NGIN::UInt8 {
@@ -22,6 +24,12 @@ enum class Density : NGIN::UInt8 {
   Compact,
   Comfortable,
   Spacious,
+};
+
+enum class CollectionTab : NGIN::UInt8 {
+  Selection,
+  Identity,
+  DataSource,
 };
 
 inline constexpr NGIN::UIntSize PageCount = 9;
@@ -58,6 +66,23 @@ public:
   [[nodiscard]] auto ActivationCount() const noexcept -> std::uint32_t;
   void Activate();
 
+  [[nodiscard]] auto CollectionItems() const -> std::vector<std::uint32_t>;
+  [[nodiscard]] auto CollectionSelection(std::uint32_t item)
+      -> UI::ItemSelection;
+  [[nodiscard]] auto SelectedCollectionItem() const noexcept
+      -> std::optional<std::uint32_t>;
+  void AddCollectionItem();
+  void RemoveSelectedCollectionItem();
+  void ToggleCollectionSort();
+  void ToggleCollectionFilter();
+  [[nodiscard]] auto IsCollectionDescending() const noexcept -> bool;
+  [[nodiscard]] auto IsCollectionFiltered() const noexcept -> bool;
+  [[nodiscard]] auto CollectionTabBinding() -> UI::Binding<CollectionTab>;
+  [[nodiscard]] auto ComboPopup() noexcept -> UI::PopupController &;
+  [[nodiscard]] auto MenuPopup() noexcept -> UI::PopupController &;
+  [[nodiscard]] auto ContextPopup() noexcept -> UI::PopupController &;
+  void Notify(const char *message);
+
   [[nodiscard]] auto IsPopupOpen() const noexcept -> bool;
   void SetPopupOpen(bool open);
   [[nodiscard]] auto IsInspectorEnabled() const noexcept -> bool;
@@ -88,10 +113,19 @@ private:
   UI::State<bool> m_disabledToggle;
   UI::State<F32> m_slider;
   UI::State<std::uint32_t> m_activationCount;
+  UI::State<std::vector<std::uint32_t>> m_collectionItems;
+  UI::SingleSelectionModel<std::uint32_t> m_collectionSelection;
+  UI::State<bool> m_collectionDescending;
+  UI::State<bool> m_collectionFiltered;
+  UI::State<CollectionTab> m_collectionTab;
+  UI::PopupController m_comboPopup;
+  UI::PopupController m_menuPopup;
+  UI::PopupController m_contextPopup;
   UI::State<bool> m_popupOpen;
   UI::State<bool> m_inspectorEnabled;
   UI::State<Text::String> m_status;
   std::unique_ptr<UI::ToolTipController> m_helpToolTip;
+  std::uint32_t m_nextCollectionItem{113};
   std::uint32_t m_auxiliaryWindowId{0};
 };
 

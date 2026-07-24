@@ -105,6 +105,9 @@ public:
       -> const RuntimeNode *;
   [[nodiscard]] auto ResourcesFor(ElementHandle handle) const noexcept
       -> std::shared_ptr<const ResourceScope>;
+  [[nodiscard]] auto
+  FindBySemanticIdentifier(const NGIN::Text::String &identifier) const noexcept
+      -> ElementHandle;
   [[nodiscard]] auto LiveCount() const noexcept -> UIntSize;
 
 private:

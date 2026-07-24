@@ -1,6 +1,6 @@
 # NGIN.UI Post-v0.1 Roadmap
 
-Status: Active — Milestone 12 complete
+Status: Active — Milestone 13 complete
 Baseline: [`NGIN.UI-V0.1-Acceptance-Audit.md`](NGIN.UI-V0.1-Acceptance-Audit.md)
 
 ## Goal
@@ -29,7 +29,7 @@ keyboard behavior, semantics, and the public code needed to compose it.
 | Semantics and inspector overlays | Yes | Yes |
 | Border and rounded control chrome | Yes | Yes |
 | Checkbox, radio, toggle, slider, and progress controls | Yes | Yes |
-| Lists, selection, combo box, tabs, and menus | No | No |
+| Lists, selection, combo box, tabs, and menus | Yes | Yes |
 | Public custom measurement and painting | Yes | Yes |
 | Application-developer guide | No | No |
 
@@ -112,18 +112,18 @@ small settings-style desktop application.
 
 ## Milestone 13 — Collections and Navigation
 
-- [ ] Define typed selection models for zero, one, and multiple selection.
-- [ ] Add `ListView` and semantic `ListItem`.
-- [ ] Preserve keyed item identity across insert, remove, sort, and filtering.
-- [ ] Add keyboard navigation, type-ahead selection, and ensure-visible
+- [x] Define typed selection models for zero, one, and multiple selection.
+- [x] Add `ListView` and semantic `ListItem`.
+- [x] Preserve keyed item identity across insert, remove, sort, and filtering.
+- [x] Add keyboard navigation, type-ahead selection, and ensure-visible
       scrolling.
-- [ ] Add `ComboBox` using the popup and selection foundations.
-- [ ] Add `Tabs` with keyboard traversal and retained page state.
-- [ ] Add menu-button and context-menu foundations.
-- [ ] Define an incremental data-source boundary before implementing
+- [x] Add `ComboBox` using the popup and selection foundations.
+- [x] Add `Tabs` with keyboard traversal and retained page state.
+- [x] Add menu-button and context-menu foundations.
+- [x] Define an incremental data-source boundary before implementing
       virtualization.
-- [ ] Add large-list performance tests before enabling virtualization.
-- [ ] Add interactive collection and navigation pages to the gallery.
+- [x] Add large-list performance tests before enabling virtualization.
+- [x] Add interactive collection and navigation pages to the gallery.
 
 Exit criterion: ordinary selectable collections and navigation work with mouse,
 keyboard, semantics, and stable reconciliation.

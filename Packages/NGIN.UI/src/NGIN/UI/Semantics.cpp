@@ -16,6 +16,14 @@ namespace {
     return SemanticRole::Text;
   case ElementType::TextField:
     return SemanticRole::TextBox;
+  case ElementType::ListView:
+    return SemanticRole::List;
+  case ElementType::ListItem:
+    return SemanticRole::ListItem;
+  case ElementType::Tab:
+    return SemanticRole::Tab;
+  case ElementType::MenuItem:
+    return SemanticRole::MenuItem;
   case ElementType::Popup:
     return SemanticRole::Dialog;
   default:
@@ -28,6 +36,10 @@ namespace {
   switch (role) {
   case SemanticRole::Button:
   case SemanticRole::Link:
+  case SemanticRole::ListItem:
+  case SemanticRole::Tab:
+  case SemanticRole::MenuItem:
+  case SemanticRole::ComboBox:
     return SemanticActionFlags::Activate | SemanticActionFlags::Focus;
   case SemanticRole::TextBox:
     return SemanticActionFlags::Focus | SemanticActionFlags::SetValue;
@@ -42,7 +54,8 @@ void SemanticTree::AppendRuntimeNode(const RuntimeTree &runtimeTree,
                                      const ElementHandle runtimeHandle,
                                      const SemanticNodeId semanticParent) {
   const auto *runtimeNode = runtimeTree.Get(runtimeHandle);
-  if (runtimeNode == nullptr || runtimeNode->properties.semantics.hidden) {
+  if (runtimeNode == nullptr || runtimeNode->properties.semantics.hidden ||
+      runtimeNode->properties.visibility != ElementVisibility::Visible) {
     return;
   }
 

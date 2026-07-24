@@ -1,6 +1,7 @@
 #include <NGIN/UIGallery/CustomControls.hpp>
 #include <NGIN/UIGallery/Gallery.hpp>
 
+#include <algorithm>
 #include <array>
 #include <memory>
 #include <string>
@@ -220,7 +221,8 @@ void ComposeOverviewPage(Composer &composer, NativeTextSystem &text,
   metricsRow.layout.gap = theme.spacing.regular;
   metricsRow.layout.horizontalAlignment = HorizontalAlignment::Start;
   metricsRow.layout.verticalAlignment = VerticalAlignment::Start;
-  composer.Row(
+  composer.Element(
+      ElementType::Row, metricsRow,
       [&] {
         ComposeSwatch(composer, theme, theme.colors.accent, "Accent",
                       "accent-swatch");
@@ -382,7 +384,8 @@ void ComposeControlRow(Composer &composer, NativeTextSystem &text,
   row.layout.gap = theme.spacing.spacious;
   row.layout.horizontalAlignment = HorizontalAlignment::Start;
   row.layout.verticalAlignment = VerticalAlignment::Center;
-  composer.Row(
+  composer.Element(
+      ElementType::Row, row,
       [&] {
         auto labelProperties = TextProperties(text, theme.typography.body,
                                               theme.colors.foreground);
@@ -726,43 +729,437 @@ void ComposeInputsPage(Composer &composer, NativeTextSystem &text, Model &model,
 }
 
 void ComposeCollectionsPage(Composer &composer, NativeTextSystem &text,
-                            const Theme &theme) {
+                            Model &model, const Theme &theme) {
   ComposePageHeading(
       composer, text, theme, "Collections",
-      "The current retained scrolling and keyed identity foundation. Semantic "
-      "ListView and selection controls arrive in Milestone 13.");
+      "Selectable lists, stable keyed identity, combo boxes, retained tabs, "
+      "and mouse or keyboard menus share one navigation foundation.");
+
+  NodeProperties actions{};
+  actions.layout.gap = theme.spacing.regular;
+  actions.layout.horizontalAlignment = HorizontalAlignment::Start;
+  composer.Element(
+      ElementType::Row, actions,
+      [&] {
+        ComposeButton(
+            composer, text, theme, "Add item",
+            [&model] { model.AddCollectionItem(); }, "add-item", 150.0F);
+        ComposeButton(
+            composer, text, theme, "Remove selected",
+            [&model] { model.RemoveSelectedCollectionItem(); }, "remove-item",
+            170.0F);
+        ComposeButton(
+            composer, text, theme,
+            model.IsCollectionDescending() ? "Sort ascending"
+                                           : "Sort descending",
+            [&model] { model.ToggleCollectionSort(); }, "sort-items", 170.0F);
+        ComposeButton(
+            composer, text, theme,
+            model.IsCollectionFiltered() ? "Show all" : "Filter even IDs",
+            [&model] { model.ToggleCollectionFilter(); }, "filter-items",
+            160.0F);
+      },
+      "collection-actions");
+
   ComposeCard(
       composer, theme,
       [&] {
-        NodeProperties scroll{};
-        scroll.layout.preferredSize = Size{680.0F, 320.0F};
-        scroll.layout.maximumSize = Size{680.0F, 320.0F};
-        scroll.layout.horizontalAlignment = HorizontalAlignment::Start;
-        scroll.layout.verticalAlignment = VerticalAlignment::Start;
-        StyleScrollView(scroll, theme);
-        composer.ScrollView(
+        NodeProperties collectionColumn{};
+        collectionColumn.layout.gap = theme.spacing.regular;
+        composer.Element(
+            ElementType::Column, collectionColumn,
             [&] {
+              ComposeText(composer, text, String{"ListView"}, 20.0F,
+                          theme.colors.foreground, "list-title",
+                          SemanticRole::Heading);
+              ComposeText(
+                  composer, text,
+                  String{"Arrow keys, Home/End, and type-ahead move selection "
+                         "and keep it visible. Try typing 'i' repeatedly."},
+                  theme.typography.body, theme.colors.mutedForeground,
+                  "list-help");
               NodeProperties list{};
-              list.layout.gap = theme.spacing.regular;
-              composer.Column(
+              list.layout.preferredSize = Size{680.0F, 250.0F};
+              list.layout.maximumSize = Size{680.0F, 250.0F};
+              list.layout.horizontalAlignment = HorizontalAlignment::Start;
+              list.layout.verticalAlignment = VerticalAlignment::Start;
+              list.layout.padding = Thickness::Uniform(Dp{6.0F});
+              list.visual = MakePanelVisual(theme);
+              list.visual.base.background = theme.colors.sunkenSurface;
+              list.semantics.label = String{"Keyed gallery items"};
+              StyleScrollView(list, theme);
+              const auto items = model.CollectionItems();
+              const auto selected = model.SelectedCollectionItem();
+              composer.ListView(
                   [&] {
-                    for (std::uint32_t index = 1; index <= 20; ++index) {
-                      ComposeCard(
-                          composer, theme,
-                          [&] {
-                            ComposeText(composer, text,
-                                        LabeledNumber("Keyed item ", index),
-                                        15.0F, theme.colors.foreground,
-                                        "item-label");
-                          },
-                          std::to_string(index), 640.0F);
-                    }
+                    NodeProperties itemColumn{};
+                    itemColumn.layout.gap = theme.spacing.compact;
+                    composer.Element(
+                        ElementType::Column, itemColumn,
+                        [&] {
+                          for (const auto item : items) {
+                            auto itemProperties = NodeProperties{};
+                            itemProperties.layout.preferredSize =
+                                Size{650.0F, 42.0F};
+                            itemProperties.layout.padding =
+                                Thickness{12.0F, 8.0F, 12.0F, 8.0F};
+                            itemProperties.layout.horizontalAlignment =
+                                HorizontalAlignment::Start;
+                            itemProperties.layout.verticalAlignment =
+                                VerticalAlignment::Start;
+                            itemProperties.visual = MakePanelVisual(theme);
+                            itemProperties.visual.base.background =
+                                theme.colors.raisedSurface;
+                            itemProperties.visual.states.hovered.borderColor =
+                                theme.colors.focus;
+                            itemProperties.visual.states.pressed.background =
+                                theme.colors.accentPressed;
+                            itemProperties.visual.states.selected.background =
+                                theme.colors.accent;
+                            itemProperties.visual.states.selected.borderColor =
+                                theme.colors.focus;
+                            itemProperties.semantics.label =
+                                LabeledNumber("Item ", item);
+                            const auto key = std::to_string(item);
+                            SelectableListItem(
+                                composer, model.CollectionSelection(item),
+                                [&] {
+                                  ComposeText(
+                                      composer, text,
+                                      LabeledNumber(selected &&
+                                                            *selected == item
+                                                        ? "> Item "
+                                                        : "  Item ",
+                                                    item),
+                                      15.0F,
+                                      selected && *selected == item
+                                          ? theme.colors.accentForeground
+                                          : theme.colors.foreground,
+                                      "item-label");
+                                },
+                                itemProperties,
+                                CollectionPresentation{
+                                    .onError =
+                                        [&model](const UIError &error) {
+                                          model.Report(error);
+                                        },
+                                },
+                                key);
+                          }
+                        },
+                        "keyed-items");
                   },
-                  "keyed-items");
+                  list, "collection-list");
             },
-            scroll, "collection-scroll");
+            "collection-content");
       },
       "collection-card");
+
+  ComposeCard(
+      composer, theme,
+      [&] {
+        NodeProperties navigationColumn{};
+        navigationColumn.layout.gap = theme.spacing.regular;
+        composer.Element(
+            ElementType::Column, navigationColumn,
+            [&] {
+              ComposeText(composer, text, String{"Navigation controls"}, 20.0F,
+                          theme.colors.foreground, "navigation-title",
+                          SemanticRole::Heading);
+              ComposeText(
+                  composer, text,
+                  String{"Each popup is anchored to its control. Tabs keep "
+                         "every page mounted while collapsing inactive "
+                         "content."},
+                  theme.typography.body, theme.colors.mutedForeground,
+                  "navigation-help");
+
+              NodeProperties navigationRow{};
+              navigationRow.layout.gap = theme.spacing.spacious;
+              navigationRow.layout.horizontalAlignment =
+                  HorizontalAlignment::Start;
+              composer.Element(
+                  ElementType::Row, navigationRow,
+                  [&] {
+                    NodeProperties comboButton{};
+                    comboButton.layout.preferredSize =
+                        Size{230.0F, theme.controls.regularHeight};
+                    comboButton.layout.padding =
+                        Thickness{14.0F, 8.0F, 14.0F, 8.0F};
+                    comboButton.layout.horizontalAlignment =
+                        HorizontalAlignment::Start;
+                    comboButton.layout.verticalAlignment =
+                        VerticalAlignment::Start;
+                    comboButton.visual = MakeButtonVisual(theme);
+                    comboButton.semantics.label = String{"Density"};
+
+                    NodeProperties comboPopup{};
+                    ComboBox(
+                        composer, model.ComboPopup(), "gallery-density-combo",
+                        [&] {
+                          const auto label =
+                              model.DensityBinding().Get() == Density::Compact
+                                  ? "Density: Compact"
+                              : model.DensityBinding().Get() ==
+                                      Density::Spacious
+                                  ? "Density: Spacious"
+                                  : "Density: Comfortable";
+                          ComposeText(composer, text, String{label}, 14.0F,
+                                      theme.colors.accentForeground,
+                                      "combo-summary");
+                        },
+                        [&] {
+                          NodeProperties popupCard{};
+                          popupCard.layout.preferredSize.width = 230.0F;
+                          popupCard.layout.padding =
+                              Thickness::Uniform(Dp{theme.spacing.compact});
+                          popupCard.visual = MakePanelVisual(theme);
+                          composer.Border(
+                              [&] {
+                                NodeProperties optionColumn{};
+                                optionColumn.layout.gap = theme.spacing.compact;
+                                composer.Element(
+                                    ElementType::Column, optionColumn,
+                                    [&] {
+                                      constexpr std::array options{
+                                          Density::Compact,
+                                          Density::Comfortable,
+                                          Density::Spacious};
+                                      constexpr std::array labels{
+                                          "Compact", "Comfortable", "Spacious"};
+                                      for (NGIN::UIntSize index = 0;
+                                           index < options.size(); ++index) {
+                                        auto option = NodeProperties{};
+                                        option.layout.preferredSize =
+                                            Size{210.0F, 36.0F};
+                                        option.layout.padding =
+                                            Thickness{10.0F, 7.0F, 10.0F, 7.0F};
+                                        option.visual = MakePanelVisual(theme);
+                                        option.visual.states.selected
+                                            .background = theme.colors.accent;
+                                        option.semantics.label =
+                                            String{labels[index]};
+                                        auto selection =
+                                            BindListItem(model.DensityBinding(),
+                                                         options[index]);
+                                        auto select = selection.select;
+                                        selection.select =
+                                            [select = std::move(select),
+                                             &model]() mutable
+                                            -> UIResult<void> {
+                                          auto result = select();
+                                          if (result) {
+                                            model.ComboPopup().Close();
+                                          }
+                                          return result;
+                                        };
+                                        SelectableListItem(
+                                            composer, std::move(selection),
+                                            [&] {
+                                              ComposeText(
+                                                  composer, text,
+                                                  String{labels[index]}, 14.0F,
+                                                  theme.colors.foreground,
+                                                  "option-label");
+                                            },
+                                            option, {}, labels[index]);
+                                      }
+                                    },
+                                    "density-options");
+                              },
+                              popupCard, "density-popup-card");
+                        },
+                        comboButton, comboPopup, "density-combo");
+
+                    NodeProperties menuButton{};
+                    menuButton.layout.preferredSize =
+                        Size{190.0F, theme.controls.regularHeight};
+                    menuButton.layout.padding =
+                        Thickness{14.0F, 8.0F, 14.0F, 8.0F};
+                    menuButton.layout.horizontalAlignment =
+                        HorizontalAlignment::Start;
+                    menuButton.layout.verticalAlignment =
+                        VerticalAlignment::Start;
+                    menuButton.visual = MakeButtonVisual(theme);
+                    menuButton.semantics.label = String{"Collection actions"};
+                    MenuButton(
+                        composer, model.MenuPopup(), "gallery-menu-button",
+                        [&] {
+                          ComposeText(composer, text, String{"Actions menu"},
+                                      14.0F, theme.colors.accentForeground,
+                                      "menu-summary");
+                        },
+                        [&] {
+                          NodeProperties menuCard{};
+                          menuCard.layout.preferredSize.width = 220.0F;
+                          menuCard.layout.padding =
+                              Thickness::Uniform(Dp{theme.spacing.compact});
+                          menuCard.layout.gap = theme.spacing.compact;
+                          menuCard.visual = MakePanelVisual(theme);
+                          composer.Element(
+                              ElementType::Column, menuCard,
+                              [&] {
+                                const auto composeMenuItem =
+                                    [&](const char *label, const char *message,
+                                        const std::string_view key) {
+                                      NodeProperties item{};
+                                      item.layout.preferredSize =
+                                          Size{200.0F, 36.0F};
+                                      item.layout.padding =
+                                          Thickness{10.0F, 7.0F, 10.0F, 7.0F};
+                                      item.visual = MakePanelVisual(theme);
+                                      item.visual.states.hovered.background =
+                                          theme.colors.raisedSurface;
+                                      item.semantics.label = String{label};
+                                      MenuItem(
+                                          composer,
+                                          [&] {
+                                            ComposeText(composer, text,
+                                                        String{label}, 14.0F,
+                                                        theme.colors.foreground,
+                                                        "menu-item-label");
+                                          },
+                                          [&model, message] {
+                                            model.Notify(message);
+                                            model.MenuPopup().Close();
+                                          },
+                                          item, key);
+                                    };
+                                composeMenuItem("Duplicate selection",
+                                                "Menu: duplicate requested",
+                                                "duplicate");
+                                composeMenuItem("Export selection",
+                                                "Menu: export requested",
+                                                "export");
+                              },
+                              "actions-menu");
+                        },
+                        menuButton, {}, "actions-menu-button");
+                  },
+                  "navigation-controls");
+
+              const std::array<TabDefinition<CollectionTab>, 3> tabs{
+                  TabDefinition<CollectionTab>{
+                      .value = CollectionTab::Selection,
+                      .key = String{"selection"},
+                      .label = String{"Selection"},
+                  },
+                  TabDefinition<CollectionTab>{
+                      .value = CollectionTab::Identity,
+                      .key = String{"identity"},
+                      .label = String{"Identity"},
+                  },
+                  TabDefinition<CollectionTab>{
+                      .value = CollectionTab::DataSource,
+                      .key = String{"data-source"},
+                      .label = String{"Data source"},
+                  },
+              };
+              TabsPresentation tabsPresentation{};
+              tabsPresentation.root.layout.gap = theme.spacing.regular;
+              tabsPresentation.root.layout.horizontalAlignment =
+                  HorizontalAlignment::Start;
+              tabsPresentation.tabList.layout.gap = theme.spacing.compact;
+              tabsPresentation.tab.layout.preferredSize =
+                  Size{170.0F, theme.controls.regularHeight};
+              tabsPresentation.tab.layout.padding =
+                  Thickness{12.0F, 8.0F, 12.0F, 8.0F};
+              tabsPresentation.tab.visual = MakePanelVisual(theme);
+              tabsPresentation.tab.visual.states.hovered.background =
+                  theme.colors.raisedSurface;
+              tabsPresentation.tab.visual.states.selected.background =
+                  theme.colors.accent;
+              tabsPresentation.tab.visual.states.selected.foreground =
+                  theme.colors.accentForeground;
+              tabsPresentation.tab.visual.focus = MakeButtonVisual(theme).focus;
+              tabsPresentation.panel.layout.preferredSize = Size{650.0F, 92.0F};
+              tabsPresentation.panel.layout.padding =
+                  Thickness::Uniform(Dp{theme.spacing.spacious});
+              tabsPresentation.panel.visual = MakePanelVisual(theme);
+              tabsPresentation.panel.visual.base.background =
+                  theme.colors.sunkenSurface;
+              tabsPresentation.onError = [&model](const UIError &error) {
+                model.Report(error);
+              };
+              Tabs<CollectionTab>(
+                  composer, model.CollectionTabBinding(), tabs,
+                  [&](Composer &, const auto &definition,
+                      const bool selectedTab) {
+                    ComposeText(composer, text, definition.label, 14.0F,
+                                selectedTab ? theme.colors.accentForeground
+                                            : theme.colors.foreground,
+                                "tab-label");
+                  },
+                  [&](Composer &, const auto &definition, const bool) {
+                    const auto description =
+                        definition.value == CollectionTab::Selection
+                            ? "Single and multiple models are typed; ListItem "
+                              "publishes selected state to semantics."
+                        : definition.value == CollectionTab::Identity
+                            ? "Stable keys preserve item identity through "
+                              "insert, "
+                              "remove, sort, and filtering."
+                            : "IIncrementalDataSource defines count, revision, "
+                              "range request, and checked item access before "
+                              "virtualization.";
+                    ComposeText(composer, text, String{description}, 14.0F,
+                                theme.colors.foreground, "tab-description");
+                  },
+                  tabsPresentation, "collection-tabs");
+
+              NodeProperties contextTarget{};
+              contextTarget.layout.preferredSize = Size{650.0F, 58.0F};
+              contextTarget.layout.padding =
+                  Thickness::Uniform(Dp{theme.spacing.spacious});
+              contextTarget.layout.horizontalAlignment =
+                  HorizontalAlignment::Start;
+              contextTarget.visual = MakePanelVisual(theme);
+              contextTarget.visual.base.background = theme.colors.raisedSurface;
+              contextTarget.semantics.role = SemanticRole::Group;
+              contextTarget.semantics.label = String{"Context-menu target"};
+              AttachContextMenu(contextTarget, model.ContextPopup());
+              composer.Border(
+                  [&] {
+                    ComposeText(composer, text,
+                                String{"Right-click here for a context menu"},
+                                14.0F, theme.colors.foreground,
+                                "context-target-label");
+                  },
+                  contextTarget, "context-target");
+              ContextMenu(composer, model.ContextPopup(), [&] {
+                NodeProperties menuCard{};
+                menuCard.layout.preferredSize.width = 220.0F;
+                menuCard.layout.padding =
+                    Thickness::Uniform(Dp{theme.spacing.compact});
+                menuCard.visual = MakePanelVisual(theme);
+                composer.Element(
+                    ElementType::Column, menuCard,
+                    [&] {
+                      NodeProperties item{};
+                      item.layout.preferredSize = Size{200.0F, 36.0F};
+                      item.layout.padding = Thickness{10.0F, 7.0F, 10.0F, 7.0F};
+                      item.visual = MakePanelVisual(theme);
+                      item.semantics.label = String{"Inspect keyed item"};
+                      MenuItem(
+                          composer,
+                          [&] {
+                            ComposeText(composer, text,
+                                        String{"Inspect keyed item"}, 14.0F,
+                                        theme.colors.foreground,
+                                        "context-item-label");
+                          },
+                          [&model] {
+                            model.Notify("Context menu: inspect requested");
+                            model.ContextPopup().Close();
+                          },
+                          item, "inspect");
+                    },
+                    "context-menu-items");
+              });
+            },
+            "navigation-content");
+      },
+      "navigation-card");
 }
 
 void ComposeOverlaysPage(Composer &composer, NativeTextSystem &text,
@@ -973,7 +1370,7 @@ void ComposePage(Composer &composer, NativeTextSystem &text, Model &model,
     ComposeInputsPage(composer, text, model, theme);
     break;
   case Page::Collections:
-    ComposeCollectionsPage(composer, text, theme);
+    ComposeCollectionsPage(composer, text, model, theme);
     break;
   case Page::Overlays:
     ComposeOverlaysPage(composer, text, model, theme);
@@ -1055,6 +1452,23 @@ Model::Model()
                [this](const InvalidationKind kind) { Invalidate(kind); }),
       m_activationCount(
           0, [this](const InvalidationKind kind) { Invalidate(kind); }),
+      m_collectionItems(
+          std::vector<std::uint32_t>{101, 102, 103, 104, 105, 106, 107, 108,
+                                     109, 110, 111, 112},
+          [this](const InvalidationKind kind) { Invalidate(kind); }),
+      m_collectionSelection(
+          std::optional<std::uint32_t>{103},
+          [this](const InvalidationKind kind) { Invalidate(kind); }),
+      m_collectionDescending(
+          false, [this](const InvalidationKind kind) { Invalidate(kind); }),
+      m_collectionFiltered(
+          false, [this](const InvalidationKind kind) { Invalidate(kind); }),
+      m_collectionTab(
+          CollectionTab::Selection,
+          [this](const InvalidationKind kind) { Invalidate(kind); }),
+      m_comboPopup([this](const InvalidationKind kind) { Invalidate(kind); }),
+      m_menuPopup([this](const InvalidationKind kind) { Invalidate(kind); }),
+      m_contextPopup([this](const InvalidationKind kind) { Invalidate(kind); }),
       m_popupOpen(
           false, [this](const InvalidationKind kind) { Invalidate(kind); },
           InvalidationKind::All),
@@ -1128,6 +1542,79 @@ auto Model::ActivationCount() const noexcept -> std::uint32_t {
 
 void Model::Activate() {
   static_cast<void>(m_activationCount.Set(m_activationCount.Get() + 1));
+}
+
+auto Model::CollectionItems() const -> std::vector<std::uint32_t> {
+  auto items = m_collectionItems.Get();
+  if (m_collectionFiltered.Get()) {
+    std::erase_if(items, [](const auto item) { return item % 2 == 0; });
+  }
+  std::sort(items.begin(), items.end());
+  if (m_collectionDescending.Get()) {
+    std::reverse(items.begin(), items.end());
+  }
+  return items;
+}
+
+auto Model::CollectionSelection(const std::uint32_t item) -> ItemSelection {
+  return BindListItem(m_collectionSelection, item);
+}
+
+auto Model::SelectedCollectionItem() const noexcept
+    -> std::optional<std::uint32_t> {
+  return m_collectionSelection.Value();
+}
+
+void Model::AddCollectionItem() {
+  const auto item = m_nextCollectionItem++;
+  static_cast<void>(
+      m_collectionItems.Update([item](auto &items) { items.push_back(item); }));
+  static_cast<void>(m_collectionSelection.Select(item));
+  Notify("Added and selected a keyed item");
+}
+
+void Model::RemoveSelectedCollectionItem() {
+  const auto selected = m_collectionSelection.Value();
+  if (!selected) {
+    Notify("Select an item before removing it");
+    return;
+  }
+  static_cast<void>(m_collectionItems.Update(
+      [selected](auto &items) { std::erase(items, *selected); }));
+  static_cast<void>(m_collectionSelection.Clear());
+  Notify("Removed the selected keyed item");
+}
+
+void Model::ToggleCollectionSort() {
+  static_cast<void>(m_collectionDescending.Set(!m_collectionDescending.Get()));
+}
+
+void Model::ToggleCollectionFilter() {
+  static_cast<void>(m_collectionFiltered.Set(!m_collectionFiltered.Get()));
+}
+
+auto Model::IsCollectionDescending() const noexcept -> bool {
+  return m_collectionDescending.Get();
+}
+
+auto Model::IsCollectionFiltered() const noexcept -> bool {
+  return m_collectionFiltered.Get();
+}
+
+auto Model::CollectionTabBinding() -> Binding<CollectionTab> {
+  return Bind(m_collectionTab);
+}
+
+auto Model::ComboPopup() noexcept -> PopupController & { return m_comboPopup; }
+
+auto Model::MenuPopup() noexcept -> PopupController & { return m_menuPopup; }
+
+auto Model::ContextPopup() noexcept -> PopupController & {
+  return m_contextPopup;
+}
+
+void Model::Notify(const char *message) {
+  static_cast<void>(m_status.Set(String{message}));
 }
 
 auto Model::IsPopupOpen() const noexcept -> bool { return m_popupOpen.Get(); }
