@@ -2432,8 +2432,11 @@ namespace NGIN::Core
     {
     public:
       ApplicationHostImpl(NGIN::Memory::Shared<IKernel> kernel,
-                          StartupReport metadataReport)
-          : m_kernel(std::move(kernel)), m_metadataReport(std::move(metadataReport))
+                          StartupReport metadataReport,
+                          std::shared_ptr<IHostRunLoop> runLoop)
+          : m_kernel(std::move(kernel)),
+            m_metadataReport(std::move(metadataReport)),
+            m_runLoop(std::move(runLoop))
       {
       }
 
@@ -2442,13 +2445,25 @@ namespace NGIN::Core
         return m_kernel->Start();
       }
 
-      auto Run() noexcept -> CoreResult<void> override { return m_kernel->Run(); }
+      auto Run() noexcept -> CoreResult<void> override
+      {
+        return m_runLoop ? m_runLoop->Run(*this) : m_kernel->Run();
+      }
 
       auto Tick() noexcept -> CoreResult<void> override { return m_kernel->Tick(); }
 
       void RequestStop(std::string reason) noexcept override
       {
         m_kernel->RequestStop(std::move(reason));
+        if (m_runLoop)
+        {
+          m_runLoop->Wake();
+        }
+      }
+
+      [[nodiscard]] auto IsStopRequested() const noexcept -> bool override
+      {
+        return m_kernel->IsStopRequested();
       }
 
       auto Shutdown() noexcept -> CoreResult<void> override
@@ -2506,6 +2521,7 @@ namespace NGIN::Core
     private:
       NGIN::Memory::Shared<IKernel> m_kernel{};
       StartupReport m_metadataReport{};
+      std::shared_ptr<IHostRunLoop> m_runLoop{};
     };
 
     class ApplicationBuilderImpl;
@@ -2819,6 +2835,17 @@ namespace NGIN::Core
         if (!HasStickyError())
         {
           m_enableDynamicPlugins = enabled;
+        }
+        return *this;
+      }
+
+      auto UseRunLoop(std::shared_ptr<IHostRunLoop> runLoop)
+          -> ApplicationBuilder & override
+      {
+        MarkMutating();
+        if (!HasStickyError())
+        {
+          m_runLoop = std::move(runLoop);
         }
         return *this;
       }
@@ -3632,7 +3659,8 @@ namespace NGIN::Core
         m_built = true;
         std::shared_ptr<IApplicationHost> host =
             std::make_shared<ApplicationHostImpl>(kernel.Value(),
-                                                  std::move(metadataReport));
+                                                  std::move(metadataReport),
+                                                  std::move(m_runLoop));
         return host;
       }
 
@@ -3674,6 +3702,7 @@ namespace NGIN::Core
       std::string m_profileOverride{};
       std::string m_environmentName{};
       std::string m_workingDirectory{};
+      std::shared_ptr<IHostRunLoop> m_runLoop{};
       bool m_addDefaultServices{false};
       bool m_addLogging{false};
       bool m_addConfiguration{false};

@@ -65,6 +65,7 @@ namespace NGIN::Core
         virtual auto Run() noexcept -> CoreResult<void> = 0;
         virtual auto Tick() noexcept -> CoreResult<void> = 0;
         virtual void RequestStop(std::string reason) noexcept = 0;
+        [[nodiscard]] virtual auto IsStopRequested() const noexcept -> bool = 0;
         virtual auto Shutdown() noexcept -> CoreResult<void> = 0;
 
         [[nodiscard]] virtual auto GetState() const noexcept -> KernelState = 0;

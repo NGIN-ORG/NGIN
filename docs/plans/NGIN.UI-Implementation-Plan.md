@@ -37,7 +37,11 @@ Target language: C++23
   multi-window rendering. `Examples/NGIN.UI.Gallery` is the standalone native
   smoke product and exercises retained controls and shaped text through that
   backend.
-- The remaining work in Slice 4, plus Slice 8, remains planned.
+- Slice 8 now has the generic `NGIN.Core::IHostRunLoop` extension, including
+  builder injection, stop-state observation, and wake-on-stop behavior. The
+  separate UI hosting package and hosted gallery remain.
+- The remaining Slice 4 hardening and Slice 8 UI-hosting package remain
+  planned.
 
 ## Product Boundary
 

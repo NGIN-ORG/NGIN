@@ -62,6 +62,20 @@ Modules and plugins are related but distinct. A module is a lifecycle and
 service participant. A plugin is a dynamically loaded artifact that can
 register one or more modules and carry files used by those modules.
 
+## Host Run Loops
+
+`ApplicationBuilder::UseRunLoop()` accepts an optional generic
+`IHostRunLoop`. When none is supplied, `IApplicationHost::Run()` preserves the
+kernel's existing tick-and-sleep loop. A custom loop can start the host, wait on
+an application-specific event source, call `Tick()` to flush host work, and
+shut the host down.
+
+Every `RequestStop()` wakes the injected loop, and
+`IApplicationHost::IsStopRequested()` lets it observe stop requests without
+polling private kernel state. This extension is framework-neutral; GUI,
+terminal, server, and test packages can provide loops without adding those
+dependencies to `NGIN.Core`.
+
 ## Module Origin And Resources
 
 `ModuleContext` exposes the active module descriptor and its origin:

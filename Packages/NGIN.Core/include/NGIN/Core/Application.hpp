@@ -605,6 +605,16 @@ public:
       -> const PackageBootstrapEntry * = 0;
 };
 
+class IApplicationHost;
+
+class IHostRunLoop {
+public:
+  virtual ~IHostRunLoop() = default;
+
+  virtual auto Run(IApplicationHost &host) noexcept -> CoreResult<void> = 0;
+  virtual void Wake() noexcept = 0;
+};
+
 class IApplicationHost {
 public:
   virtual ~IApplicationHost() = default;
@@ -613,6 +623,7 @@ public:
   virtual auto Run() noexcept -> CoreResult<void> = 0;
   virtual auto Tick() noexcept -> CoreResult<void> = 0;
   virtual void RequestStop(std::string reason) noexcept = 0;
+  [[nodiscard]] virtual auto IsStopRequested() const noexcept -> bool = 0;
   virtual auto Shutdown() noexcept -> CoreResult<void> = 0;
 
   [[nodiscard]] virtual auto GetProfileName() const -> std::string = 0;
@@ -640,6 +651,8 @@ public:
   virtual auto AddConfiguration() -> ApplicationBuilder & = 0;
   virtual auto AddPluginSearchPath(std::string path) -> ApplicationBuilder & = 0;
   virtual auto EnableDynamicPlugins(bool enabled = true)
+      -> ApplicationBuilder & = 0;
+  virtual auto UseRunLoop(std::shared_ptr<IHostRunLoop> runLoop)
       -> ApplicationBuilder & = 0;
   virtual auto AddModule(std::string name, ModuleOptions options,
                          ModuleFactory factory) -> ApplicationBuilder & = 0;

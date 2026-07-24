@@ -329,6 +329,10 @@ public:
     LogCategory("Kernel", "stop requested: " + m_stopReason);
   }
 
+  [[nodiscard]] auto IsStopRequested() const noexcept -> bool override {
+    return m_stopRequested.load(std::memory_order_acquire);
+  }
+
   auto Shutdown() noexcept -> CoreResult<void> override {
     std::unique_lock<std::mutex> apiLock;
     if (auto guard = AcquireApiAccess(true, apiLock); !guard) {

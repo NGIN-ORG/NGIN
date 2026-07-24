@@ -1900,6 +1900,53 @@ TEST_CASE("ApplicationBuilderRegistersStaticModuleWithSimpleApi",
   REQUIRE(host->Shutdown().HasValue());
 }
 
+TEST_CASE("ApplicationBuilderUsesInjectedHostRunLoop",
+          "[builder][host][run-loop]") {
+  class RecordingRunLoop final : public NGIN::Core::IHostRunLoop {
+  public:
+    auto Run(NGIN::Core::IApplicationHost &host) noexcept
+        -> NGIN::Core::CoreResult<void> override {
+      ++runCount;
+      auto started = host.Start();
+      if (!started) {
+        return started;
+      }
+      startedHost = true;
+
+      auto ticked = host.Tick();
+      if (!ticked) {
+        return ticked;
+      }
+      tickedHost = true;
+
+      host.RequestStop("recording run loop complete");
+      observedStop = host.IsStopRequested();
+      return host.Shutdown();
+    }
+
+    void Wake() noexcept override { ++wakeCount; }
+
+    int runCount{0};
+    int wakeCount{0};
+    bool startedHost{false};
+    bool tickedHost{false};
+    bool observedStop{false};
+  };
+
+  auto runLoop = std::make_shared<RecordingRunLoop>();
+  auto builder = NGIN::Core::CreateApplicationBuilder(0, nullptr);
+  builder->SetApplicationName("Builder.RunLoop").UseRunLoop(runLoop);
+
+  auto app = builder->Build();
+  REQUIRE(app.HasValue());
+  REQUIRE(app.Value()->Run().HasValue());
+  REQUIRE(runLoop->runCount == 1);
+  REQUIRE(runLoop->wakeCount == 1);
+  REQUIRE(runLoop->startedHost);
+  REQUIRE(runLoop->tickedHost);
+  REQUIRE(runLoop->observedStop);
+}
+
 TEST_CASE("StaticModuleContextExposesConfiguredModuleOrigin",
           "[builder][host][module]") {
   const auto moduleRoot =
