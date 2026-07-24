@@ -22,7 +22,9 @@ foundation:
   alignment;
 - typed node layout and solid-background properties;
 - backend-neutral display-list construction;
-- DPI-aware solid-rectangle tessellation and adjacent-batch coalescing;
+- DPI-aware rectangle, rounded-rectangle, stroke, and image tessellation;
+- nested transform, clip, and opacity stacks with texture-aware batch
+  coalescing;
 - reverse-paint-order hit testing and capture/target/bubble pointer routing;
 - retained hover, pressed, pointer-capture, and keyboard-focus state;
 - normalized routed keyboard/text events and explicit tab traversal;

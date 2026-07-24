@@ -53,12 +53,12 @@ TEST_CASE("column measures natural size with padding and gaps") {
 
   LayoutEngine layout{tree};
   const auto *columnNode = Child(tree, tree.Root(), 0);
-  const auto measured =
-      layout.Measure(columnNode->handle,
-                     SizeConstraints{
-            .maximum = Size{std::numeric_limits<NGIN::F32>::infinity(),
-                            std::numeric_limits<NGIN::F32>::infinity()},
-                     });
+  const auto measured = layout.Measure(
+      columnNode->handle,
+      SizeConstraints{
+          .maximum = Size{std::numeric_limits<NGIN::F32>::infinity(),
+                          std::numeric_limits<NGIN::F32>::infinity()},
+      });
 
   REQUIRE(measured == Size{60.0F, 55.0F});
 }
@@ -168,4 +168,69 @@ TEST_CASE("UI renderer tessellates and batches solid rectangles") {
   REQUIRE(packet.vertices[1].x == 20.0F);
   REQUIRE(packet.vertices[2].y == 40.0F);
   REQUIRE(packet.batches.front().scissor == PixelRect{0, 0, 200, 100});
+}
+
+TEST_CASE("UI renderer applies nested transform clip and opacity state") {
+  using namespace NGIN::UI;
+
+  DisplayList list{
+      PushTransform{
+          .translateX = 10.0F,
+          .translateY = 20.0F,
+          .scaleX = 2.0F,
+          .scaleY = 2.0F,
+      },
+      PushClipRect{Rect{0.0F, 0.0F, 5.0F, 5.0F}},
+      BeginOpacityLayer{0.5F},
+      FillRect{Rect{1.0F, 2.0F, 3.0F, 4.0F}, Color{1.0F, 0.0F, 0.0F, 0.5F}},
+      EndOpacityLayer{},
+      PopClip{},
+      PopTransform{},
+  };
+  UIRenderer renderer;
+  const auto packet = renderer.Build(list, PixelSize{200, 200}, 2.0F);
+
+  REQUIRE(packet.vertices.size() == 4);
+  REQUIRE(packet.indices.size() == 6);
+  REQUIRE(packet.vertices[0].x == 24.0F);
+  REQUIRE(packet.vertices[0].y == 48.0F);
+  REQUIRE(packet.vertices[2].x == 36.0F);
+  REQUIRE(packet.vertices[2].y == 64.0F);
+  REQUIRE(packet.vertices[0].color == 0x40000040U);
+  REQUIRE(packet.batches.front().scissor == PixelRect{20, 40, 20, 20});
+}
+
+TEST_CASE("UI renderer emits rounded stroke and textured image geometry") {
+  using namespace NGIN::UI;
+
+  const TextureHandle texture{5, 2};
+  DisplayList list{
+      FillRoundedRect{
+          Rect{0.0F, 0.0F, 20.0F, 10.0F},
+          CornerRadius::Uniform(Dp{3.0F}),
+          Color{0.2F, 0.3F, 0.4F, 1.0F},
+      },
+      StrokeRect{
+          Rect{2.0F, 2.0F, 16.0F, 8.0F},
+          2.0F,
+          Color{1.0F, 1.0F, 1.0F, 1.0F},
+      },
+      DrawImage{
+          texture,
+          Rect{20.0F, 0.0F, 10.0F, 10.0F},
+          Color{1.0F, 1.0F, 1.0F, 1.0F},
+      },
+  };
+  UIRenderer renderer;
+  const auto packet = renderer.Build(list, PixelSize{100, 100}, 1.0F);
+
+  REQUIRE(packet.vertices.size() == 49);
+  REQUIRE(packet.indices.size() == 114);
+  REQUIRE(packet.batches.size() == 2);
+  REQUIRE_FALSE(packet.batches[0].texture);
+  REQUIRE(packet.batches[0].indexCount == 108);
+  REQUIRE(packet.batches[1].texture == texture);
+  REQUIRE(packet.batches[1].indexCount == 6);
+  REQUIRE(packet.vertices.back().u == 0.0F);
+  REQUIRE(packet.vertices.back().v == 1.0F);
 }

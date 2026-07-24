@@ -9,7 +9,7 @@ Target language: C++23
 - Slice 0 is complete.
 - Slice 2 is complete.
 - Slice 3 is complete for the proposal's initial layout and solid-rectangle
-  rendering scope.
+  rendering scope, including every currently declared display-list command.
 - Slice 5 is complete for the backend-neutral headless scope. Its SDL smoke
   criterion remains gated on Slice 1.
 - Slice 6 state/binding foundations and keyboard/text/IME event routing are
