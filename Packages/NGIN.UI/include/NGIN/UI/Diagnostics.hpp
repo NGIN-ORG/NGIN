@@ -7,6 +7,7 @@
 #include <NGIN/UI/RuntimeTree.hpp>
 
 namespace NGIN::UI {
+/// @brief Per-frame CPU timing measurements for a window.
 struct FrameTimingDiagnostics final {
   F64 compositionMilliseconds{0.0};
   F64 layoutMilliseconds{0.0};
@@ -17,6 +18,7 @@ struct FrameTimingDiagnostics final {
   F64 totalMilliseconds{0.0};
 };
 
+/// @brief Current and peak diagnostics accumulated for a window.
 struct WindowDiagnostics final {
   UInt64 frameCount{0};
   UInt64 compositionCount{0};

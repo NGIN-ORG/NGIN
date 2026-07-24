@@ -7,6 +7,7 @@
 #include <vector>
 
 namespace NGIN::UI::Testing {
+/// @brief Native-window state retained by the deterministic test platform.
 struct TestWindowRecord final {
   PlatformWindowHandle handle{};
   WindowCreateInfo info{};
@@ -18,6 +19,7 @@ struct TestWindowRecord final {
   bool destroyed{false};
 };
 
+/// @brief In-memory platform backend with explicit event injection for tests.
 class TestPlatformBackend : public IPlatformBackend {
 public:
   [[nodiscard]] auto Name() const noexcept -> const char * override;

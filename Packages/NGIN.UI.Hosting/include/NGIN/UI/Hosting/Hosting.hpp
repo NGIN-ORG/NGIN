@@ -17,12 +17,14 @@ inline constexpr auto UIPlatformBackendServiceName = "NGIN.UI.IPlatformBackend";
 inline constexpr auto UIRenderBackendServiceName = "NGIN.UI.IRenderBackend";
 inline constexpr auto UIRuntimeModuleName = "NGIN.UI.Runtime";
 
+/// @brief UI application, text, and pump configuration for Core hosting.
 struct UIHostingCreateInfo final {
   ApplicationCreateInfo application{};
   NativeTextCreateInfo text{};
   std::chrono::milliseconds maximumWait{250};
 };
 
+/// @brief Owns the NGIN.UI application and native text services exposed to Core.
 class HostedUIRuntime final {
 public:
   [[nodiscard]] static auto Create(UIHostingCreateInfo info) noexcept
@@ -39,6 +41,7 @@ private:
   std::unique_ptr<NativeTextSystem> m_text{};
 };
 
+/// @brief Non-owning Core service wrapper for the active platform backend.
 class PlatformBackendReference final {
 public:
   explicit PlatformBackendReference(IPlatformBackend &backend) noexcept;
@@ -48,6 +51,7 @@ private:
   IPlatformBackend *m_backend{nullptr};
 };
 
+/// @brief Non-owning Core service wrapper for the active render backend.
 class RenderBackendReference final {
 public:
   explicit RenderBackendReference(IRenderBackend &backend) noexcept;
@@ -57,6 +61,7 @@ private:
   IRenderBackend *m_backend{nullptr};
 };
 
+/// @brief Thread-safe posting boundary that schedules work on the UI thread.
 class IUIDispatcher {
 public:
   virtual ~IUIDispatcher() = default;
@@ -69,6 +74,7 @@ public:
   [[nodiscard]] virtual auto IsCurrentThread() const noexcept -> bool = 0;
 };
 
+/// @brief Queue-backed dispatcher integrated with the hosted UI event loop.
 class UIDispatcher final : public IUIDispatcher {
 public:
   explicit UIDispatcher(NGIN::Memory::Shared<HostedUIRuntime> runtime);
@@ -86,6 +92,7 @@ private:
   std::unique_ptr<Impl> m_impl;
 };
 
+/// @brief Core host run loop that pumps UI events and dispatched callbacks.
 class UIHostRunLoop final : public Core::IHostRunLoop {
 public:
   UIHostRunLoop(NGIN::Memory::Shared<HostedUIRuntime> runtime,
@@ -102,6 +109,7 @@ private:
   std::chrono::milliseconds m_maximumWait{250};
 };
 
+/// @brief Core module that publishes and manages hosted UI services.
 class UIModule final : public Core::IModule {
 public:
   UIModule(NGIN::Memory::Shared<HostedUIRuntime> runtime,
@@ -121,6 +129,7 @@ private:
   NGIN::Memory::Shared<IUIDispatcher> m_dispatcher{};
 };
 
+/// @brief Ownership bundle returned after UI services are registered with Core.
 struct UIHostingRegistration final {
   NGIN::Memory::Shared<HostedUIRuntime> runtime{};
   NGIN::Memory::Shared<IUIDispatcher> dispatcher{};

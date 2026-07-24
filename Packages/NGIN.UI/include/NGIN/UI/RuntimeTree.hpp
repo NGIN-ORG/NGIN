@@ -9,6 +9,7 @@
 #include <vector>
 
 namespace NGIN::UI {
+/// @brief Mutable hover, press, focus, and pointer-capture state for a node.
 struct InteractionState final {
   bool hovered{false};
   bool pressed{false};
@@ -16,6 +17,7 @@ struct InteractionState final {
   bool focused{false};
 };
 
+/// @brief Runtime offsets, extents, and viewport measurements for scrolling.
 struct ScrollState final {
   Point offset{};
   Size contentSize{};
@@ -27,20 +29,24 @@ struct ScrollState final {
   bool draggingVertical{false};
 };
 
+/// @brief Runtime placement and open state associated with a popup node.
 struct PopupState final {
   Rect contentBounds{};
 };
 
+/// @brief Editing buffer and caret state retained for a text field.
 struct TextFieldRuntimeState final {
   std::shared_ptr<TextEditingBuffer> editing{};
   IGraphemeSegmenter *graphemeSegmenter{nullptr};
 };
 
+/// @brief Glyph atlas and positioned quads retained for one text run.
 struct TextGlyphRun final {
   TextureHandle texture{};
   std::vector<GlyphQuad> glyphs{};
 };
 
+/// @brief Paragraph layout and glyph geometry retained for a text node.
 struct TextRuntimeState final {
   ParagraphLayout paragraph{};
   std::vector<TextGlyphRun> glyphRuns{};
@@ -51,6 +57,7 @@ struct TextRuntimeState final {
   bool valid{false};
 };
 
+/// @brief Resolved texture and draw rectangle retained for an image node.
 struct ImageRuntimeState final {
   TextureHandle texture{};
   PixelSize sourceSize{};
@@ -59,12 +66,14 @@ struct ImageRuntimeState final {
   bool valid{false};
 };
 
+/// @brief State store and implementation instance retained for a custom node.
 struct CustomElementRuntimeState final {
   std::shared_ptr<CustomStateStore> state{};
   SemanticProperties semantics{};
   F32 scaleFactor{1.0F};
 };
 
+/// @brief Reconciled element with identity, hierarchy, layout, and runtime state.
 struct RuntimeNode final {
   ElementHandle handle{};
   ElementId id{};
@@ -88,6 +97,7 @@ struct RuntimeNode final {
   [[nodiscard]] auto IsKeyed() const noexcept -> bool { return !key.Empty(); }
 };
 
+/// @brief Reuse, creation, removal, and move counts for a reconciliation pass.
 struct ReconcileStats final {
   UIntSize created{0};
   UIntSize preserved{0};
@@ -97,6 +107,7 @@ struct ReconcileStats final {
   operator<=>(const ReconcileStats &) const noexcept = default;
 };
 
+/// @brief Owns stable slots and generations for a window's reconciled elements.
 class RuntimeTree final {
 public:
   RuntimeTree();
@@ -145,6 +156,7 @@ private:
   UIntSize m_liveCount{0};
 };
 
+/// @brief Matches keyed declarations to runtime nodes while preserving state.
 class Reconciler final {
 public:
   explicit Reconciler(RuntimeTree &tree) noexcept;

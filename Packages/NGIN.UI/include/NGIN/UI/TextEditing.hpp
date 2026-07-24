@@ -8,6 +8,7 @@
 #include <vector>
 
 namespace NGIN::UI {
+/// @brief Byte-offset range within UTF-8 editing text.
 struct TextRange final {
   UIntSize start{0};
   UIntSize length{0};
@@ -24,6 +25,7 @@ struct TextRange final {
   operator<=>(const TextRange &) const noexcept = default;
 };
 
+/// @brief Text, selection, and IME composition exposed by an editing buffer.
 struct TextEditingState final {
   TextRange selection{};
   TextRange composition{};
@@ -32,6 +34,7 @@ struct TextEditingState final {
   bool revealPassword{false};
 };
 
+/// @brief Grapheme-safe UTF-8 editing model with selection and composition.
 class TextEditingBuffer final {
 public:
   explicit TextEditingBuffer(IGraphemeSegmenter &segmenter) noexcept;

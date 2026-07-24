@@ -19,9 +19,12 @@
 #include <memory>
 
 namespace NGIN::UI {
+/// @brief Owns the UI event loop, platform backend, renderer, and windows.
 class Application;
+/// @brief A child window that can optionally block interaction with its owner.
 class DialogWindow;
 
+/// @brief Hosts, composes, lays out, renders, and dispatches input to one UI tree.
 class Window {
 public:
   using EventHandler = NGIN::Utilities::Callable<void(const PlatformEvent &)>;
@@ -86,6 +89,7 @@ private:
   std::unique_ptr<Implementation> m_implementation;
 };
 
+/// @brief A window associated with an owner and optionally shown modally.
 class DialogWindow final : public Window {
 private:
   friend class Application;
@@ -96,6 +100,7 @@ private:
                         IPlatformBackend &platformBackend, Window &owner);
 };
 
+/// @brief Backends and identity used to create an Application.
 struct ApplicationCreateInfo final {
   std::unique_ptr<IPlatformBackend> platform{};
   std::unique_ptr<IRenderBackend> renderer{};
@@ -103,6 +108,7 @@ struct ApplicationCreateInfo final {
   bool enableRendererValidation{false};
 };
 
+/// @brief Coordinates backend lifetime, window creation, and the application loop.
 class Application final {
 public:
   Application(const Application &) = delete;

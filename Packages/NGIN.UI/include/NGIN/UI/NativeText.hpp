@@ -7,12 +7,14 @@
 #include <memory>
 
 namespace NGIN::UI {
+/// @brief Font search paths, face size, and atlas dimensions for native text.
 struct NativeTextCreateInfo final {
   NGIN::Text::String fontPath{};
   std::vector<NGIN::Text::String> fallbackFontPaths{};
   PixelSize atlasSize{1024, 1024};
 };
 
+/// @brief FreeType and HarfBuzz implementation of font, shaping, and glyph services.
 class NativeTextSystem final : public IFontProvider,
                                public ITextShaper,
                                public ITextLayout,

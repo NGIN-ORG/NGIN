@@ -12,12 +12,14 @@
 #include <vector>
 
 namespace NGIN::UI {
+/// @brief Selection behavior supported by a collection control.
 enum class SelectionMode : UInt8 {
   None,
   Single,
   Multiple,
 };
 
+/// @brief Selection model that intentionally never selects an item.
 template <typename T> class NoSelectionModel final {
 public:
   [[nodiscard]] static constexpr auto Mode() noexcept -> SelectionMode {
@@ -32,6 +34,7 @@ public:
   [[nodiscard]] constexpr auto Clear() const noexcept -> bool { return false; }
 };
 
+/// @brief Observable selection model that stores at most one value.
 template <typename T>
   requires std::equality_comparable<T>
 class SingleSelectionModel final {
@@ -63,6 +66,7 @@ private:
   State<std::optional<T>> m_value;
 };
 
+/// @brief Observable selection model that stores a set of selected values.
 template <typename T>
   requires std::equality_comparable<T>
 class MultipleSelectionModel final {
@@ -109,6 +113,7 @@ private:
   State<std::vector<T>> m_value;
 };
 
+/// @brief Type-erased selection behavior attached to one collection item.
 struct ItemSelection final {
   SelectionMode mode{SelectionMode::None};
   NGIN::Utilities::Callable<bool()> isSelected{};
@@ -164,6 +169,7 @@ template <typename T>
   };
 }
 
+/// @brief Shared error presentation used by collection helpers.
 struct CollectionPresentation final {
   NGIN::Utilities::Callable<void(const UIError &)> onError{};
 };
@@ -196,6 +202,7 @@ void SelectableListItem(Composer &composer, ItemSelection selection,
                     key);
 }
 
+/// @brief Half-open item range requested from an incremental data source.
 struct IncrementalRange final {
   UIntSize first{0};
   UIntSize count{0};
@@ -205,6 +212,7 @@ struct IncrementalRange final {
   }
 };
 
+/// @brief Pull-based collection source with revision and range-loading support.
 template <typename T> class IIncrementalDataSource {
 public:
   virtual ~IIncrementalDataSource() = default;
@@ -215,6 +223,7 @@ public:
   virtual auto RequestRange(IncrementalRange range) -> UIResult<void> = 0;
 };
 
+/// @brief Non-owning incremental data source backed by a contiguous span.
 template <typename T>
 class VectorDataSource final : public IIncrementalDataSource<T> {
 public:
@@ -252,6 +261,7 @@ private:
   UInt64 m_revision{0};
 };
 
+/// @brief Observable open state and anchor shared by popup-based controls.
 class PopupController final {
 public:
   explicit PopupController(
@@ -337,12 +347,14 @@ void ComboBox(Composer &composer, PopupController &controller,
       key);
 }
 
+/// @brief Stable value, key, and label describing one tab.
 template <typename T> struct TabDefinition final {
   T value{};
   NGIN::Text::String key{};
   NGIN::Text::String label{};
 };
 
+/// @brief Element properties and error handling used by the Tabs helper.
 struct TabsPresentation final {
   NodeProperties root{};
   NodeProperties tabList{};

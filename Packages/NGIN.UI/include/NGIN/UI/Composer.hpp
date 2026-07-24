@@ -7,8 +7,10 @@
 #include <vector>
 
 namespace NGIN::UI {
+/// @brief Builds a keyed declarative element tree for a composition pass.
 class Composer final {
 public:
+  /// @brief RAII guard that closes an element when its composition scope ends.
   class ElementScope final {
   public:
     ElementScope(const ElementScope &) = delete;

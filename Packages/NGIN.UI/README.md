@@ -5,6 +5,10 @@ Its public contracts depend only on `NGIN.Base`; its native text implementation
 privately links pinned FreeType and HarfBuzz sources. Native windowing, graphics
 APIs, and optional `NGIN.Core` hosting belong to separate packages.
 
+Start with the
+[NGIN.UI developer documentation](../../docs/guides/ngin-ui.md) or the
+[five-minute standalone window](../../docs/guides/ngin-ui-first-window.md).
+
 The version 0.1 implementation provides:
 
 - device-independent and pixel geometry;
@@ -92,6 +96,15 @@ cmake -S Packages/NGIN.UI -B build/ngin-ui -DNGIN_UI_BUILD_TESTS=ON
 cmake --build build/ngin-ui --target NGINUITests
 ctest --test-dir build/ngin-ui --output-on-failure
 ```
+
+Generate the browsable API reference with Doxygen:
+
+```bash
+cmake -S Packages/NGIN.UI -B build/ngin-ui-docs -DNGIN_UI_BUILD_DOCS=ON
+cmake --build build/ngin-ui-docs --target NGINUIDocs
+```
+
+Open `build/ngin-ui-docs/docs/html/index.html`.
 
 The package intentionally has no SDL dependency. Native windows and rendering
 are supplied by the separate

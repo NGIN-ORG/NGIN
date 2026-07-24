@@ -11,8 +11,10 @@
 #include <vector>
 
 namespace NGIN::UI {
+/// @brief Hosts and presents a runtime UI tree.
 class Window;
 
+/// @brief Immutable diagnostic view of one runtime element.
 struct InspectorNodeSnapshot final {
   ElementHandle handle{};
   ElementHandle parent{};
@@ -32,6 +34,7 @@ struct InspectorNodeSnapshot final {
   UInt64 layoutRevision{0};
 };
 
+/// @brief Immutable diagnostic capture of an entire window tree.
 struct InspectorSnapshot final {
   NGIN::Text::String windowId{};
   PixelSize pixelExtent{};
@@ -41,6 +44,7 @@ struct InspectorSnapshot final {
   std::vector<SemanticNode> semanticNodes{};
 };
 
+/// @brief Controls bounds, labels, and highlights drawn by the inspector overlay.
 struct InspectorOverlayOptions final {
   bool enabled{false};
   bool showLayoutBounds{true};

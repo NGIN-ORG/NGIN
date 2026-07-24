@@ -10,6 +10,7 @@
 #include <unordered_map>
 
 namespace NGIN::UI {
+/// @brief Typed identity used to store and resolve a scoped resource.
 template <typename T> class ResourceKey final {
 public:
   explicit ResourceKey(std::string_view name) : m_name(name) {}
@@ -22,6 +23,7 @@ private:
   std::string m_name;
 };
 
+/// @brief Immutable hierarchical map of theme or application resources.
 class ResourceScope final {
 public:
   explicit ResourceScope(std::shared_ptr<const ResourceScope> parent = {})

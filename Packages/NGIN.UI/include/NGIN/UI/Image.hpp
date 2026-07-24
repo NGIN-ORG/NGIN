@@ -13,6 +13,7 @@
 #include <vector>
 
 namespace NGIN::UI {
+/// @brief Decoded tightly packed RGBA8 pixels and their dimensions.
 struct ImagePixels final {
   PixelSize size{};
   std::vector<Byte> rgba{};
@@ -20,19 +21,23 @@ struct ImagePixels final {
   [[nodiscard]] auto IsValid() const noexcept -> bool;
 };
 
+/// @brief Encoded image bytes supplied directly by the application.
 struct ImageMemorySource final {
   std::vector<Byte> encoded{};
 };
 
+/// @brief File-system path from which encoded image data is loaded.
 struct ImageFileSource final {
   NGIN::Text::String path{};
 };
 
+/// @brief Callback that generates decoded image pixels on demand.
 struct ImageGeneratedSource final {
   PixelSize size{};
   NGIN::Utilities::Callable<Color(UInt32, UInt32)> pixel{};
 };
 
+/// @brief Lifecycle state of a logical image resource.
 enum class ImageLoadState : UInt8 {
   Loading,
   Ready,
@@ -40,6 +45,7 @@ enum class ImageLoadState : UInt8 {
   Cancelled,
 };
 
+/// @brief Extension interface that decodes encoded bytes into RGBA8 pixels.
 class IImageDecoder {
 public:
   virtual ~IImageDecoder() = default;
@@ -50,6 +56,7 @@ public:
       -> UIResult<ImagePixels> = 0;
 };
 
+/// @brief Built-in decoder for binary and ASCII portable pixmap images.
 class PortablePixmapImageDecoder final : public IImageDecoder {
 public:
   [[nodiscard]] auto
@@ -58,6 +65,7 @@ public:
       -> UIResult<ImagePixels> override;
 };
 
+/// @brief Logical, shareable image source with lazy loading and stable identity.
 class ImageResource final {
 public:
   [[nodiscard]] static auto FromPixels(ImagePixels pixels) noexcept
@@ -99,12 +107,14 @@ private:
   std::shared_ptr<Impl> m_impl;
 };
 
+/// @brief Renderer texture and pixel dimensions resolved for an image resource.
 struct ResolvedImage final {
   TextureHandle texture{};
   PixelSize size{};
   ImageLoadState state{ImageLoadState::Loading};
 };
 
+/// @brief Resolves logical image resources to renderer-owned textures.
 class IImageResolver {
 public:
   virtual ~IImageResolver() = default;
@@ -114,6 +124,7 @@ public:
       -> UIResult<ResolvedImage> = 0;
 };
 
+/// @brief Lazily decodes, uploads, caches, and releases image textures.
 class ImageTextureCache final : public IImageResolver {
 public:
   explicit ImageTextureCache(IRenderBackend &renderer);
@@ -135,6 +146,7 @@ private:
   std::unique_ptr<Impl> m_impl;
 };
 
+/// @brief Policy for fitting an image into its arranged content rectangle.
 enum class ImageFit : UInt8 {
   None,
   Fill,
@@ -143,6 +155,7 @@ enum class ImageFit : UInt8 {
   ScaleDown,
 };
 
+/// @brief Normalized horizontal and vertical placement of a fitted image.
 struct ImageAlignment final {
   F32 horizontal{0.5F};
   F32 vertical{0.5F};

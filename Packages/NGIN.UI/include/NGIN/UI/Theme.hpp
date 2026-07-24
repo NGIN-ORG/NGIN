@@ -4,6 +4,7 @@
 #include <NGIN/UI/Style.hpp>
 
 namespace NGIN::UI {
+/// @brief Semantic colors used to derive default control styles.
 struct ColorPalette final {
   Color background{0.08F, 0.09F, 0.11F, 1.0F};
   Color surface{0.14F, 0.15F, 0.18F, 1.0F};
@@ -23,24 +24,28 @@ struct ColorPalette final {
   Color error{0.88F, 0.24F, 0.27F, 1.0F};
 };
 
+/// @brief Named font sizes for body, label, title, and display text.
 struct TypographyScale final {
   F32 body{14.0F};
   F32 caption{12.0F};
   F32 title{20.0F};
 };
 
+/// @brief Named spacing increments used by standard layouts.
 struct SpacingScale final {
   F32 compact{4.0F};
   F32 regular{8.0F};
   F32 spacious{16.0F};
 };
 
+/// @brief Named corner radii used by standard controls.
 struct RadiusScale final {
   F32 small{4.0F};
   F32 regular{8.0F};
   F32 large{14.0F};
 };
 
+/// @brief Standard control heights and pointer-target size.
 struct ControlSizeScale final {
   F32 compactHeight{32.0F};
   F32 regularHeight{40.0F};
@@ -50,11 +55,13 @@ struct ControlSizeScale final {
   F32 focusOffset{2.0F};
 };
 
+/// @brief Durations used by theme-aware transitions.
 struct MotionTheme final {
   F32 fastMilliseconds{100.0F};
   F32 regularMilliseconds{180.0F};
 };
 
+/// @brief Complete palette, typography, spacing, radius, size, and motion theme.
 struct Theme final {
   UInt64 revision{1};
   ColorPalette colors{};

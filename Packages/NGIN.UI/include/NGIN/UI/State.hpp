@@ -12,6 +12,7 @@
 #include <vector>
 
 namespace NGIN::UI {
+/// @brief Move-only lifetime token for an observable-state subscription.
 class Subscription final {
 public:
   Subscription() noexcept = default;
@@ -49,11 +50,14 @@ private:
   NGIN::Utilities::Callable<void()> m_cancel{};
 };
 
+/// @brief Callback invoked after an observable state value changes.
 template <typename T>
 using StateObserver = NGIN::Utilities::Callable<void(const T &)>;
 
+/// @brief Callback used by state to schedule one or more pipeline stages.
 using InvalidationScheduler = NGIN::Utilities::Callable<void(InvalidationKind)>;
 
+/// @brief UI-thread-owned observable value with validation and invalidation.
 template <typename T> class State final {
 public:
   explicit State(T initialValue = {}, InvalidationScheduler scheduler = {},
@@ -146,6 +150,7 @@ private:
   std::shared_ptr<Storage> m_storage;
 };
 
+/// @brief Copyable read/write view over observable state or custom accessors.
 template <typename T> class Binding final {
 public:
   using Getter = NGIN::Utilities::Callable<const T &()>;

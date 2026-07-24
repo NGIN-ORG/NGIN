@@ -10,12 +10,14 @@
 #include <vector>
 
 namespace NGIN::UI {
+/// @brief Hardware or synthesized source of a pointer event.
 enum class PointerKind : UInt8 {
   Mouse,
   Touch,
   Pen,
 };
 
+/// @brief Logical pointer button independent of platform numbering.
 enum class PointerButton : UInt8 {
   None,
   Primary,
@@ -25,17 +27,20 @@ enum class PointerButton : UInt8 {
   Auxiliary2,
 };
 
+/// @brief Press or release transition of a pointer button.
 enum class ButtonState : UInt8 {
   Released,
   Pressed,
 };
 
+/// @brief Press, release, or repeat transition of a keyboard key.
 enum class KeyState : UInt8 {
   Released,
   Pressed,
   Repeated,
 };
 
+/// @brief Modifier keys active for a keyboard or pointer event.
 enum class KeyModifierFlags : UInt32 {
   None = 0,
   Shift = 1U << 0U,
@@ -46,6 +51,7 @@ enum class KeyModifierFlags : UInt32 {
   NumLock = 1U << 5U,
 };
 
+/// @brief Platform-independent meaning assigned to a keyboard key.
 enum class LogicalKey : UInt32 {
   Backspace = 8,
   Tab = 9,
@@ -74,6 +80,7 @@ HasKeyModifier(const UInt32 modifiers, const KeyModifierFlags flag) noexcept
   return (modifiers & static_cast<UInt32>(flag)) != 0;
 }
 
+/// @brief Platform preference for light, dark, or unspecified appearance.
 enum class ThemePreference : UInt8 {
   System,
   Light,
@@ -81,30 +88,36 @@ enum class ThemePreference : UInt8 {
   HighContrast,
 };
 
+/// @brief Platform request to close a window.
 struct WindowCloseRequested final {
   PlatformWindowHandle window{};
 };
 
+/// @brief Notification that a window's pixel extent changed.
 struct WindowResized final {
   PlatformWindowHandle window{};
   PixelSize size{};
 };
 
+/// @brief Notification that a window moved in screen pixels.
 struct WindowMoved final {
   PlatformWindowHandle window{};
   PixelPoint position{};
 };
 
+/// @brief Notification that a window's device scale factor changed.
 struct WindowScaleChanged final {
   PlatformWindowHandle window{};
   F32 scaleFactor{1.0F};
 };
 
+/// @brief Notification that a native window gained or lost focus.
 struct WindowFocusChanged final {
   PlatformWindowHandle window{};
   bool focused{false};
 };
 
+/// @brief Pointer motion expressed in window logical coordinates.
 struct PointerMoved final {
   PlatformWindowHandle window{};
   UInt64 pointerId{0};
@@ -113,6 +126,7 @@ struct PointerMoved final {
   Point delta{};
 };
 
+/// @brief Pointer-button transition at a window position.
 struct PointerButtonChanged final {
   PlatformWindowHandle window{};
   UInt64 pointerId{0};
@@ -122,6 +136,7 @@ struct PointerButtonChanged final {
   Point position{};
 };
 
+/// @brief Pointer wheel or trackpad scroll delta.
 struct PointerWheelChanged final {
   PlatformWindowHandle window{};
   UInt64 pointerId{0};
@@ -129,6 +144,7 @@ struct PointerWheelChanged final {
   Point position{};
 };
 
+/// @brief Physical and logical keyboard-key transition.
 struct KeyChanged final {
   PlatformWindowHandle window{};
   UInt32 physicalKey{0};
@@ -141,11 +157,13 @@ struct KeyChanged final {
   }
 };
 
+/// @brief Committed text delivered by the platform input method.
 struct TextInput final {
   PlatformWindowHandle window{};
   NGIN::Text::String text{};
 };
 
+/// @brief Active IME pre-edit text and its selection.
 struct TextComposition final {
   PlatformWindowHandle window{};
   NGIN::Text::String text{};
@@ -154,16 +172,19 @@ struct TextComposition final {
   UIntSize selectionLength{0};
 };
 
+/// @brief Files dropped onto a native window.
 struct FileDrop final {
   PlatformWindowHandle window{};
   std::vector<NGIN::Text::String> paths{};
   Point position{};
 };
 
+/// @brief Notification that the platform theme preference changed.
 struct ThemeChanged final {
   ThemePreference preference{ThemePreference::System};
 };
 
+/// @brief Variant containing every normalized event emitted by a platform.
 using PlatformEvent =
     std::variant<WindowCloseRequested, WindowResized, WindowMoved,
                  WindowScaleChanged, WindowFocusChanged, PointerMoved,
@@ -184,6 +205,7 @@ using PlatformEvent =
       event);
 }
 
+/// @brief Consumer to which a platform backend publishes normalized events.
 class IPlatformEventSink {
 public:
   virtual ~IPlatformEventSink() = default;

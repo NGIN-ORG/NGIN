@@ -18,8 +18,10 @@
 #include <utility>
 
 namespace NGIN::UI {
+/// @brief Records backend-neutral drawing commands for a custom element.
 class DisplayListBuilder;
 
+/// @brief Persistent, type-safe state storage keyed by a custom element instance.
 class CustomStateStore final {
 public:
   CustomStateStore() = default;
@@ -112,6 +114,7 @@ private:
   std::unordered_map<std::string, std::unique_ptr<EntryBase>> m_entries{};
 };
 
+/// @brief Hover, press, focus, enablement, and pointer position for custom paint.
 struct CustomInteractionState final {
   bool hovered{false};
   bool pressed{false};
@@ -119,6 +122,7 @@ struct CustomInteractionState final {
   bool enabled{true};
 };
 
+/// @brief Runtime services and retained state supplied to a custom element.
 class CustomElementContext final {
 public:
   CustomElementContext(CustomStateStore &state, ElementId identity,
@@ -150,6 +154,7 @@ private:
   F32 m_scaleFactor{1.0F};
 };
 
+/// @brief Drawing surface, bounds, scale, and interaction data for custom paint.
 class PaintContext final {
 public:
   PaintContext(DisplayListBuilder &builder, Size extent) noexcept;
@@ -169,6 +174,7 @@ private:
   Size m_extent{};
 };
 
+/// @brief Extension interface for custom measurement, painting, and semantics.
 class ICustomElement {
 public:
   virtual ~ICustomElement() = default;

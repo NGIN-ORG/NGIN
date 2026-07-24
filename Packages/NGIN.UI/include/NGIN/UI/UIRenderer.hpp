@@ -6,6 +6,7 @@
 #include <vector>
 
 namespace NGIN::UI {
+/// @brief Render packet plus texture uploads prepared from a display list.
 struct PreparedRenderPacket final {
   std::vector<RenderVertex> vertices{};
   std::vector<UInt32> indices{};
@@ -18,6 +19,7 @@ struct PreparedRenderPacket final {
   [[nodiscard]] auto View() const noexcept -> RenderPacket;
 };
 
+/// @brief Lowers display commands into validated, batched render packets.
 class UIRenderer final {
 public:
   [[nodiscard]] auto

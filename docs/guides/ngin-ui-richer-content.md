@@ -3,6 +3,10 @@
 This guide covers multiline text, `TextArea`, font fallback, logical images,
 asynchronous decoding, and renderer-device recreation.
 
+The buildable
+[`NGIN.UI.Gallery`](../../Examples/NGIN.UI.Gallery/) provides Typography,
+Text Area, and Images pages for every API described here.
+
 ## Multiline text
 
 `NativeTextSystem::LayoutParagraph()` treats CR, LF, and CRLF as mandatory line

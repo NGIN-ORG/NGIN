@@ -3,6 +3,7 @@ project(NGIN.UI VERSION 0.1.0 LANGUAGES CXX)
 
 option(NGIN_UI_BUILD_TESTS "Build NGIN.UI tests" OFF)
 option(NGIN_UI_BUILD_EXAMPLES "Build NGIN.UI examples" OFF)
+option(NGIN_UI_BUILD_DOCS "Generate browsable NGIN.UI API documentation" OFF)
 option(NGIN_UI_STRICT_WARNINGS "Enable extra compiler warnings" ON)
 option(NGIN_UI_ENABLE_NATIVE_TEXT
        "Build the FreeType and HarfBuzz native text services" ON)
@@ -112,4 +113,45 @@ endif()
 
 if(NGIN_UI_BUILD_EXAMPLES)
     message(STATUS "NGIN.UI examples are reserved for the native backend slice")
+endif()
+
+if(NGIN_UI_BUILD_DOCS)
+    find_package(Doxygen REQUIRED)
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    add_custom_target(
+        NGINUIApiDocsCheck
+        COMMAND
+            "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_public_api_docs.py"
+            "${CMAKE_CURRENT_SOURCE_DIR}/include/NGIN/UI"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../NGIN.UI.Hosting/include/NGIN/UI"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../NGIN.UI.Backend.SDL3/include/NGIN/UI"
+        COMMENT "Checking NGIN.UI public API documentation coverage"
+        VERBATIM
+    )
+    set(DOXYGEN_PROJECT_NAME "NGIN.UI")
+    set(DOXYGEN_PROJECT_NUMBER "${PROJECT_VERSION}")
+    set(DOXYGEN_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/docs")
+    set(DOXYGEN_GENERATE_HTML YES)
+    set(DOXYGEN_GENERATE_LATEX NO)
+    set(DOXYGEN_EXTRACT_ALL YES)
+    set(DOXYGEN_EXTRACT_PRIVATE NO)
+    set(DOXYGEN_EXTRACT_STATIC YES)
+    set(DOXYGEN_RECURSIVE YES)
+    set(DOXYGEN_WARN_IF_UNDOCUMENTED NO)
+    set(DOXYGEN_WARN_IF_DOC_ERROR YES)
+    set(DOXYGEN_WARN_AS_ERROR FAIL_ON_WARNINGS)
+    set(
+        DOXYGEN_USE_MDFILE_AS_MAINPAGE
+        "${CMAKE_CURRENT_SOURCE_DIR}/../../docs/api/ngin-ui-mainpage.md"
+    )
+    doxygen_add_docs(
+        NGINUIDocs
+        "${CMAKE_CURRENT_SOURCE_DIR}/include/NGIN/UI"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../NGIN.UI.Hosting/include/NGIN/UI"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../NGIN.UI.Backend.SDL3/include/NGIN/UI"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../../docs/api/ngin-ui-mainpage.md"
+        COMMENT "Generating NGIN.UI browsable API reference"
+    )
+    add_dependencies(NGINUIDocs NGINUIApiDocsCheck)
 endif()

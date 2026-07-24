@@ -11,6 +11,7 @@
 #include <vector>
 
 namespace NGIN::UI {
+/// @brief Standard pointer cursor requested by the current hit target.
 enum class CursorShape : UInt8 {
   Arrow,
   Text,
@@ -23,15 +24,18 @@ enum class CursorShape : UInt8 {
   Hidden,
 };
 
+/// @brief Application identity passed when initializing a platform backend.
 struct PlatformInitInfo final {
   NGIN::Text::String applicationName{};
 };
 
+/// @brief Native role of a top-level or dialog window.
 enum class WindowKind : UInt8 {
   TopLevel,
   Dialog,
 };
 
+/// @brief Identity, title, initial extent, and role of a new window.
 struct WindowCreateInfo final {
   NGIN::Text::String id{};
   NGIN::Text::String title{};
@@ -44,6 +48,7 @@ struct WindowCreateInfo final {
   bool modal{false};
 };
 
+/// @brief Logical and pixel geometry plus scale for a physical display.
 struct DisplayInfo final {
   NGIN::Text::String id{};
   NGIN::Text::String name{};
@@ -53,8 +58,10 @@ struct DisplayInfo final {
   bool primary{false};
 };
 
+/// @brief Owned list returned when enumerating physical displays.
 using DisplayInfoList = std::vector<DisplayInfo>;
 
+/// @brief Native windowing, input, clipboard, IME, and dispatcher contract.
 class IPlatformBackend {
 public:
   virtual ~IPlatformBackend() = default;

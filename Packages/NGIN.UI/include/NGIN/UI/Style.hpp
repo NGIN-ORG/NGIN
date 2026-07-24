@@ -6,6 +6,7 @@
 #include <optional>
 
 namespace NGIN::UI {
+/// @brief Linear RGBA color with normalized floating-point channels.
 struct Color final {
   F32 red{0.0F};
   F32 green{0.0F};
@@ -16,6 +17,7 @@ struct Color final {
   operator<=>(const Color &) const noexcept = default;
 };
 
+/// @brief Interaction and validation states used to select style patches.
 enum class VisualStateFlags : UInt16 {
   None = 0,
   Hovered = 1U << 0U,
@@ -47,6 +49,7 @@ HasVisualState(const VisualStateFlags value,
   return (static_cast<UInt16>(value) & static_cast<UInt16>(state)) != 0;
 }
 
+/// @brief Resolved background, border, radius, opacity, and foreground style.
 struct VisualStyle final {
   std::optional<Color> background{};
   std::optional<Color> foreground{};
@@ -55,6 +58,7 @@ struct VisualStyle final {
   CornerRadius cornerRadius{};
 };
 
+/// @brief Optional per-property overrides applied to a visual style.
 struct VisualStylePatch final {
   std::optional<Color> background{};
   std::optional<Color> foreground{};
@@ -63,6 +67,7 @@ struct VisualStylePatch final {
   std::optional<CornerRadius> cornerRadius{};
 };
 
+/// @brief Style patches selected for common control states.
 struct VisualStateStyles final {
   VisualStylePatch hovered{};
   VisualStylePatch pressed{};
@@ -73,6 +78,7 @@ struct VisualStateStyles final {
   VisualStylePatch readOnly{};
 };
 
+/// @brief Outline color, thickness, and inset used to indicate focus.
 struct FocusVisual final {
   std::optional<Color> color{};
   F32 thickness{2.0F};
@@ -81,6 +87,7 @@ struct FocusVisual final {
   bool enabled{false};
 };
 
+/// @brief Base style, state-specific styles, focus visual, and current state.
 struct VisualProperties final {
   VisualStyle base{};
   VisualStateStyles states{};

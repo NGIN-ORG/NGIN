@@ -11,6 +11,9 @@ For the shortest path into the repo, start outside this directory:
 - [`../Examples/README.md`](../Examples/README.md) for runnable examples
 - [`../Tools/README.md`](../Tools/README.md) for CLI and editor tooling
 
+Application UI developers should start with the
+[NGIN.UI developer documentation](guides/ngin-ui.md).
+
 ## Learning Path
 
 If you are trying to understand NGIN as a user:

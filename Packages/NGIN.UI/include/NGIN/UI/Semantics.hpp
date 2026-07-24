@@ -9,6 +9,7 @@
 #include <vector>
 
 namespace NGIN::UI {
+/// @brief Accessibility role exposed for a semantic node.
 enum class SemanticRole : UInt8 {
   None,
   Window,
@@ -35,6 +36,7 @@ enum class SemanticRole : UInt8 {
   Dialog,
 };
 
+/// @brief Accessibility states currently held by a semantic node.
 enum class SemanticStateFlags : UInt16 {
   None = 0,
   Disabled = 1U << 0U,
@@ -46,6 +48,7 @@ enum class SemanticStateFlags : UInt16 {
   Indeterminate = 1U << 6U,
 };
 
+/// @brief Accessibility actions supported by a semantic node.
 enum class SemanticActionFlags : UInt8 {
   None = 0,
   Activate = 1U << 0U,
@@ -88,6 +91,7 @@ HasSemanticAction(const SemanticActionFlags value,
   return (static_cast<UInt8>(value) & static_cast<UInt8>(flag)) != 0;
 }
 
+/// @brief Numeric value, bounds, and step exposed to accessibility clients.
 struct SemanticRange final {
   F64 minimum{0.0};
   F64 maximum{1.0};
@@ -98,6 +102,7 @@ struct SemanticRange final {
   operator<=>(const SemanticRange &) const noexcept = default;
 };
 
+/// @brief Authored accessibility identity, text, role, state, and actions.
 struct SemanticProperties final {
   SemanticRole role{SemanticRole::None};
   NGIN::Text::String identifier{};
@@ -112,6 +117,7 @@ struct SemanticProperties final {
   bool hidden{false};
 };
 
+/// @brief Stable semantic identity derived from a runtime element generation.
 struct SemanticNodeId final {
   UInt64 value{0};
 
@@ -125,6 +131,7 @@ struct SemanticNodeId final {
   operator<=>(const SemanticNodeId &) const noexcept = default;
 };
 
+/// @brief Resolved accessibility node with hierarchy and logical bounds.
 struct SemanticNode final {
   SemanticNodeId id{};
   SemanticRole role{SemanticRole::None};
@@ -142,8 +149,10 @@ struct SemanticNode final {
   std::vector<SemanticNodeId> children{};
 };
 
+/// @brief Owns stable runtime elements from which semantics are derived.
 class RuntimeTree;
 
+/// @brief Builds and queries the accessibility projection of a runtime tree.
 class SemanticTree final {
 public:
   [[nodiscard]] auto Root() const noexcept -> SemanticNodeId;

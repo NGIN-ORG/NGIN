@@ -8,6 +8,7 @@
 #include <limits>
 
 namespace NGIN::UI {
+/// @brief Device-independent scalar used by layout and authored geometry.
 struct Dp final {
   F32 value{0.0F};
 
@@ -17,6 +18,7 @@ struct Dp final {
   [[nodiscard]] constexpr auto operator<=>(const Dp &) const noexcept = default;
 };
 
+/// @brief Physical-pixel scalar used at platform and render boundaries.
 struct Px final {
   Int32 value{0};
 
@@ -26,6 +28,7 @@ struct Px final {
   [[nodiscard]] constexpr auto operator<=>(const Px &) const noexcept = default;
 };
 
+/// @brief Fractional percentage scalar used for relative dimensions.
 struct Percent final {
   F32 value{0.0F};
 
@@ -54,6 +57,7 @@ operator""_percent(unsigned long long value) noexcept -> Percent {
 }
 } // namespace Units
 
+/// @brief Two-dimensional point in device-independent coordinates.
 struct Point final {
   F32 x{0.0F};
   F32 y{0.0F};
@@ -62,6 +66,7 @@ struct Point final {
   operator<=>(const Point &) const noexcept = default;
 };
 
+/// @brief Width and height in device-independent coordinates.
 struct Size final {
   F32 width{0.0F};
   F32 height{0.0F};
@@ -70,6 +75,7 @@ struct Size final {
   operator<=>(const Size &) const noexcept = default;
 };
 
+/// @brief Axis-aligned rectangle in device-independent coordinates.
 struct Rect final {
   F32 x{0.0F};
   F32 y{0.0F};
@@ -86,6 +92,7 @@ struct Rect final {
   operator<=>(const Rect &) const noexcept = default;
 };
 
+/// @brief Per-edge device-independent thickness or inset.
 struct Thickness final {
   F32 left{0.0F};
   F32 top{0.0F};
@@ -101,6 +108,7 @@ struct Thickness final {
   operator<=>(const Thickness &) const noexcept = default;
 };
 
+/// @brief Per-corner radius for rounded rectangles.
 struct CornerRadius final {
   F32 topLeft{0.0F};
   F32 topRight{0.0F};
@@ -116,6 +124,7 @@ struct CornerRadius final {
   operator<=>(const CornerRadius &) const noexcept = default;
 };
 
+/// @brief Two-dimensional point in physical pixels.
 struct PixelPoint final {
   Int32 x{0};
   Int32 y{0};
@@ -124,6 +133,7 @@ struct PixelPoint final {
   operator<=>(const PixelPoint &) const noexcept = default;
 };
 
+/// @brief Width and height in physical pixels.
 struct PixelSize final {
   UInt32 width{0};
   UInt32 height{0};
@@ -136,6 +146,7 @@ struct PixelSize final {
   operator<=>(const PixelSize &) const noexcept = default;
 };
 
+/// @brief Axis-aligned rectangle in physical pixels.
 struct PixelRect final {
   Int32 x{0};
   Int32 y{0};
@@ -146,6 +157,7 @@ struct PixelRect final {
   operator<=>(const PixelRect &) const noexcept = default;
 };
 
+/// @brief Minimum and maximum size bounds supplied during measurement.
 struct SizeConstraints final {
   Size minimum{};
   Size maximum{

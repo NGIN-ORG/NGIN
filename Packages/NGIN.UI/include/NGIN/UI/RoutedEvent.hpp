@@ -4,12 +4,14 @@
 #include <NGIN/UI/Events.hpp>
 
 namespace NGIN::UI {
+/// @brief Tunnel, target, or bubble phase of a routed event.
 enum class EventPhase : UInt8 {
   Capture,
   Target,
   Bubble,
 };
 
+/// @brief Pointer transition represented by a routed pointer event.
 enum class RoutedPointerEventKind : UInt8 {
   Entered,
   Exited,
@@ -19,6 +21,7 @@ enum class RoutedPointerEventKind : UInt8 {
   ButtonReleased,
 };
 
+/// @brief Mutable pointer event routed through the runtime ancestor chain.
 struct RoutedPointerEvent final {
   EventPhase phase{EventPhase::Target};
   RoutedPointerEventKind eventKind{RoutedPointerEventKind::Moved};
@@ -38,6 +41,7 @@ struct RoutedPointerEvent final {
   void ReleasePointerCapture() noexcept { captureReleaseRequested = true; }
 };
 
+/// @brief Mutable keyboard event routed through the focus ancestor chain.
 struct RoutedKeyEvent final {
   EventPhase phase{EventPhase::Target};
   ElementHandle target{};
@@ -51,11 +55,13 @@ struct RoutedKeyEvent final {
   void Handle() noexcept { handled = true; }
 };
 
+/// @brief Committed input or active composition represented by a text event.
 enum class RoutedTextEventKind : UInt8 {
   Input,
   Composition,
 };
 
+/// @brief Mutable text event routed to the focused editing element.
 struct RoutedTextEvent final {
   EventPhase phase{EventPhase::Target};
   RoutedTextEventKind eventKind{RoutedTextEventKind::Input};

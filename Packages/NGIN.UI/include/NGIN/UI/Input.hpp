@@ -11,6 +11,7 @@
 #include <vector>
 
 namespace NGIN::UI {
+/// @brief Observable result of dispatching one normalized platform event.
 struct InputDispatchResult final {
   bool handled{false};
   bool visualStateChanged{false};
@@ -20,6 +21,7 @@ struct InputDispatchResult final {
   InvalidationKind invalidation{InvalidationKind::None};
 };
 
+/// @brief Routes pointer, keyboard, text, focus, popup, and command input.
 class InputRouter final {
 public:
   explicit InputRouter(RuntimeTree &tree, IPlatformBackend *platform = nullptr,

@@ -5,6 +5,7 @@
 #include <NGIN/Utilities/Expected.hpp>
 
 namespace NGIN::UI {
+/// @brief Stable category describing a recoverable UI failure.
 enum class UIErrorCode : UInt16 {
   InvalidArgument,
   InvalidState,
@@ -19,6 +20,7 @@ enum class UIErrorCode : UInt16 {
   OutOfMemory,
 };
 
+/// @brief Structured error with category, message, subsystem, and operation.
 struct UIError final {
   UIErrorCode code{UIErrorCode::InvalidState};
   NGIN::Text::String backend{};
@@ -28,6 +30,7 @@ struct UIError final {
   NGIN::Text::String message{};
 };
 
+/// @brief Expected-style result returned by fallible NGIN.UI operations.
 template <typename T> using UIResult = NGIN::Utilities::Expected<T, UIError>;
 
 [[nodiscard]] inline auto

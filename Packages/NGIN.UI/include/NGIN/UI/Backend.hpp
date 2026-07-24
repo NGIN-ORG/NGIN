@@ -5,6 +5,7 @@
 #include <compare>
 
 namespace NGIN::UI {
+/// @brief Version negotiated between NGIN.UI and a platform or render backend.
 struct BackendContractVersion final {
   UInt16 major{1};
   UInt16 minor{0};
@@ -20,6 +21,7 @@ struct BackendContractVersion final {
 
 inline constexpr BackendContractVersion CurrentBackendContractVersion{1, 0};
 
+/// @brief Optional facilities advertised by a platform backend.
 enum class PlatformCapabilityFlags : UInt32 {
   None = 0,
   Clipboard = 1U << 0U,
@@ -31,6 +33,7 @@ enum class PlatformCapabilityFlags : UInt32 {
   NativeDialogs = 1U << 6U,
 };
 
+/// @brief Optional facilities advertised by a render backend.
 enum class RenderCapabilityFlags : UInt32 {
   None = 0,
   TextureUpdates = 1U << 0U,

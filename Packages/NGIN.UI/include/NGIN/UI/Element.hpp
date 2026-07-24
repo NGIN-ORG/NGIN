@@ -18,6 +18,7 @@
 #include <vector>
 
 namespace NGIN::UI {
+/// @brief Built-in node kind used by declarations and runtime nodes.
 enum class ElementType : UInt16 {
   Root,
   Column,
@@ -43,12 +44,14 @@ enum class ElementType : UInt16 {
   CustomElement,
 };
 
+/// @brief Determines whether an element participates in layout and painting.
 enum class ElementVisibility : UInt8 {
   Visible,
   Hidden,
   Collapsed,
 };
 
+/// @brief Horizontal placement within the space offered by a parent.
 enum class HorizontalAlignment : UInt8 {
   Start,
   Center,
@@ -56,6 +59,7 @@ enum class HorizontalAlignment : UInt8 {
   Stretch,
 };
 
+/// @brief Vertical placement within the space offered by a parent.
 enum class VerticalAlignment : UInt8 {
   Start,
   Center,
@@ -63,6 +67,7 @@ enum class VerticalAlignment : UInt8 {
   Stretch,
 };
 
+/// @brief Authored sizing, spacing, alignment, and flex layout properties.
 struct LayoutProperties final {
   Size preferredSize{};
   Size minimumSize{};
@@ -78,6 +83,7 @@ struct LayoutProperties final {
   VerticalAlignment verticalAlignment{VerticalAlignment::Stretch};
 };
 
+/// @brief Authored focus, hit-testing, command, and routed-input behavior.
 struct InteractionProperties final {
   bool hitTestVisible{true};
   bool enabled{true};
@@ -89,6 +95,7 @@ struct InteractionProperties final {
   NGIN::Utilities::Callable<void()> onActivate{};
 };
 
+/// @brief Scrolling axes, offsets, extents, and scrollbar policy.
 struct ScrollProperties final {
   bool horizontal{false};
   bool vertical{true};
@@ -101,6 +108,7 @@ struct ScrollProperties final {
   Color scrollbarThumbHovered{0.58F, 0.62F, 0.7F, 1.0F};
 };
 
+/// @brief Preferred placement of a popup relative to its anchor.
 enum class PopupPlacement : UInt8 {
   Center,
   BelowStart,
@@ -109,15 +117,18 @@ enum class PopupPlacement : UInt8 {
   AboveEnd,
 };
 
+/// @brief Direction in which a separator extends.
 enum class SeparatorOrientation : UInt8 {
   Horizontal,
   Vertical,
 };
 
+/// @brief Authored separator orientation.
 struct SeparatorProperties final {
   SeparatorOrientation orientation{SeparatorOrientation::Horizontal};
 };
 
+/// @brief Anchor, placement, modality, and dismissal behavior for a popup.
 struct PopupProperties final {
   Rect anchor{};
   NGIN::Text::String anchorIdentifier{};
@@ -129,6 +140,7 @@ struct PopupProperties final {
   NGIN::Utilities::Callable<void()> onDismiss{};
 };
 
+/// @brief Editing behavior and optional text binding for a text input.
 struct TextFieldProperties final {
   Binding<NGIN::Text::String> value{};
   IGraphemeSegmenter *graphemeSegmenter{nullptr};
@@ -141,6 +153,7 @@ struct TextFieldProperties final {
   bool password{false};
 };
 
+/// @brief Text layout, wrapping, alignment, and typography properties.
 struct TextElementProperties final {
   NGIN::Text::String value{};
   FontRequest font{};
@@ -159,6 +172,7 @@ struct TextElementProperties final {
   bool clip{true};
 };
 
+/// @brief Resource, fit, alignment, tint, and accessibility data for an image.
 struct ImageProperties final {
   std::shared_ptr<ImageResource> resource{};
   IImageResolver *resolver{nullptr};
@@ -169,11 +183,13 @@ struct ImageProperties final {
   NGIN::Utilities::Callable<void(const UIError &)> onError{};
 };
 
+/// @brief Custom-element implementation and its authored interaction data.
 struct CustomElementProperties final {
   std::shared_ptr<ICustomElement> element{};
   NGIN::Utilities::Callable<void(const UIError &)> onError{};
 };
 
+/// @brief Complete authored property set shared by declarative elements.
 struct NodeProperties final {
   ElementVisibility visibility{ElementVisibility::Visible};
   LayoutProperties layout{};
@@ -192,6 +208,7 @@ struct NodeProperties final {
   bool paintsBackground{false};
 };
 
+/// @brief One keyed node in the ephemeral declarative composition tree.
 struct ElementDeclaration final {
   ElementType type{ElementType::Custom};
   NGIN::Text::String key{};

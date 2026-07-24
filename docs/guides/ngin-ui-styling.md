@@ -5,6 +5,11 @@ tokens and visual states; the display-list renderer lowers the result to
 device-independent drawing commands, and the active renderer applies DPI
 scaling.
 
+The buildable
+[`NGIN.UI.Gallery`](../../Examples/NGIN.UI.Gallery/) shows both themes, border
+variants, focus indicators, disabled states, validation, and resource-scoped
+theme overrides.
+
 ## Theme Tokens
 
 `Theme` groups the standard design tokens:

@@ -5,6 +5,7 @@
 #include <vector>
 
 namespace NGIN::UI::Testing {
+/// @brief Texture upload captured by the recording render backend.
 struct RecordedTextureUpdate final {
   TextureHandle texture{};
   PixelRect region{};
@@ -12,6 +13,7 @@ struct RecordedTextureUpdate final {
   std::vector<Byte> bytes{};
 };
 
+/// @brief Deep copy of a frame packet captured for assertions.
 struct RecordedRenderPacket final {
   RenderSurfaceHandle surface{};
   std::vector<RenderVertex> vertices{};
@@ -23,6 +25,7 @@ struct RecordedRenderPacket final {
   Color clearColor{};
 };
 
+/// @brief Size, scale, and submitted frames recorded for one test surface.
 struct RecordedSurface final {
   RenderSurfaceHandle handle{};
   PlatformWindowHandle window{};
@@ -32,6 +35,7 @@ struct RecordedSurface final {
   bool destroyed{false};
 };
 
+/// @brief Deterministic in-memory render backend for unit and integration tests.
 class RecordingRenderBackend : public IRenderBackend {
 public:
   [[nodiscard]] auto Name() const noexcept -> const char * override;

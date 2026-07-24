@@ -10,18 +10,21 @@
 #include <utility>
 
 namespace NGIN::UI {
+/// @brief Three-state value used by check-box controls.
 enum class CheckState : UInt8 {
   Unchecked,
   Checked,
   Indeterminate,
 };
 
+/// @brief Shared theme, validation, and error presentation for controls.
 struct ControlPresentation final {
   Theme theme{};
   bool invalid{false};
   NGIN::Utilities::Callable<void(const UIError &)> onError{};
 };
 
+/// @brief Type-erased selection behavior consumed by a radio button.
 struct RadioSelection final {
   NGIN::Utilities::Callable<bool()> isSelected{};
   NGIN::Utilities::Callable<UIResult<void>()> select{};
@@ -39,12 +42,14 @@ template <typename T>
   };
 }
 
+/// @brief Minimum, maximum, and step constraints for a slider.
 struct SliderRange final {
   F32 minimum{0.0F};
   F32 maximum{1.0F};
   F32 step{0.1F};
 };
 
+/// @brief Determinate or indeterminate value presented by a progress bar.
 struct ProgressValue final {
   F32 value{0.0F};
   F32 minimum{0.0F};
@@ -76,6 +81,7 @@ void Label(Composer &composer, NGIN::Text::String value, ITextLayout &layout,
            std::string_view targetIdentifier,
            const NodeProperties &properties = {}, std::string_view key = {});
 
+/// @brief Schedules, exposes, and dismisses a tooltip for an attached element.
 class ToolTipController final {
 public:
   explicit ToolTipController(

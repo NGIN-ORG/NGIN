@@ -5,11 +5,13 @@
 #include <NGIN/UI/RuntimeTree.hpp>
 
 namespace NGIN::UI {
+/// @brief Node counts and pass flags produced by the latest layout operation.
 struct LayoutPassStats final {
   UIntSize measured{0};
   UIntSize arranged{0};
 };
 
+/// @brief Measures and arranges a reconciled runtime tree in logical units.
 class LayoutEngine final {
 public:
   explicit LayoutEngine(RuntimeTree &tree) noexcept;

@@ -3,6 +3,7 @@
 #include <NGIN/Primitives.hpp>
 
 namespace NGIN::UI {
+/// @brief Bitmask of pipeline stages that must be recomputed.
 enum class InvalidationKind : UInt8 {
   None = 0,
   Compose = 1U << 0U,

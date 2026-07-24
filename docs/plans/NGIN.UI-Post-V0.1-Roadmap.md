@@ -1,6 +1,6 @@
 # NGIN.UI Post-v0.1 Roadmap
 
-Status: Active — Milestone 14 complete
+Status: Active — Milestone 15 complete
 Baseline: [`NGIN.UI-V0.1-Acceptance-Audit.md`](NGIN.UI-V0.1-Acceptance-Audit.md)
 
 ## Goal
@@ -33,7 +33,7 @@ keyboard behavior, semantics, and the public code needed to compose it.
 | Multiline text and `TextArea` | Yes | Yes |
 | Logical images and `Image` | Yes | Yes |
 | Public custom measurement and painting | Yes | Yes |
-| Application-developer guide | No | No |
+| Application-developer guide | Yes | Yes |
 
 ## Milestone 9 — Visual Styling Primitives
 
@@ -147,22 +147,22 @@ application content without private resource or renderer access.
 
 ## Milestone 15 — Developer Documentation
 
-- [ ] Write a five-minute standalone “first window” guide.
-- [ ] Write the equivalent `NGIN.Core` hosted guide.
-- [ ] Document package and `.nginproj` setup.
-- [ ] Document composition, keys, reconciliation, and retained state.
-- [ ] Document layout constraints, alignment, DPI units, and scrolling.
-- [ ] Document state, bindings, validation, invalidation, and model ownership.
-- [ ] Document routed input, focus, commands, clipboard, and IME.
-- [ ] Document themes, resource scopes, semantics, and inspector tooling.
-- [ ] Document custom composite and custom-painted controls.
-- [ ] Document UI-thread and dispatcher rules.
-- [ ] Write platform- and renderer-backend authoring guides.
-- [ ] Add API reference comments to every public type and generate browsable API
+- [x] Write a five-minute standalone “first window” guide.
+- [x] Write the equivalent `NGIN.Core` hosted guide.
+- [x] Document package and `.nginproj` setup.
+- [x] Document composition, keys, reconciliation, and retained state.
+- [x] Document layout constraints, alignment, DPI units, and scrolling.
+- [x] Document state, bindings, validation, invalidation, and model ownership.
+- [x] Document routed input, focus, commands, clipboard, and IME.
+- [x] Document themes, resource scopes, semantics, and inspector tooling.
+- [x] Document custom composite and custom-painted controls.
+- [x] Document UI-thread and dispatcher rules.
+- [x] Write platform- and renderer-backend authoring guides.
+- [x] Add API reference comments to every public type and generate browsable API
       documentation.
-- [ ] Add troubleshooting pages for dependency restore, shaders, fonts, SDL,
+- [x] Add troubleshooting pages for dependency restore, shaders, fonts, SDL,
       DPI, and backend startup errors.
-- [ ] Cross-link every guide to a buildable example.
+- [x] Cross-link every guide to a buildable example.
 
 Exit criterion: a developer unfamiliar with the implementation can build,
 style, test, and debug an application without reading `NGIN.UI` source files.
