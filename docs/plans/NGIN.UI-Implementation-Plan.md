@@ -12,8 +12,9 @@ Target language: C++23
   rendering scope.
 - Slice 5 is complete for the backend-neutral headless scope. Its SDL smoke
   criterion remains gated on Slice 1.
-- Slice 6 state and binding foundations are complete. Keyboard/text routing,
-  editing, and `TextField` remain pending the text stack.
+- Slice 6 state/binding foundations and keyboard/text/IME event routing are
+  complete. Grapheme-aware editing and `TextField` remain pending the text
+  layout cluster service.
 - Slice 7 theme/resource scopes, semantic tree, multiple-window support, and
   diagnostics snapshots are complete. Scroll, popup, dialog, and an inspector
   UI remain pending.

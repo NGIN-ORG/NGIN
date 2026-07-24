@@ -280,4 +280,17 @@ TEST_CASE("window routes injected pointer input to a semantic button") {
   REQUIRE(window->FocusedElement() == button);
   REQUIRE_FALSE(window->CapturedElement(1));
   REQUIRE(window->Tree().Get(button)->interaction.focused);
+
+  platformObserver->InjectEvent(KeyChanged{
+      .window = window->PlatformHandle(),
+      .logicalKey = static_cast<NGIN::UInt32>(LogicalKey::Enter),
+      .state = KeyState::Pressed,
+  });
+  platformObserver->InjectEvent(KeyChanged{
+      .window = window->PlatformHandle(),
+      .logicalKey = static_cast<NGIN::UInt32>(LogicalKey::Enter),
+      .state = KeyState::Released,
+  });
+  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE(activations == 2);
 }

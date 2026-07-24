@@ -228,3 +228,163 @@ TEST_CASE("disabled buttons neither retain capture nor activate") {
   }}));
   REQUIRE(activations == 0);
 }
+
+TEST_CASE("keyboard events route through capture target and bubble") {
+  using namespace NGIN::UI;
+
+  InputFixture fixture;
+  std::vector<std::pair<EventPhase, ElementHandle>> route;
+  NodeProperties parentProperties{};
+  parentProperties.interaction.onKey = [&](RoutedKeyEvent &event) {
+    route.emplace_back(event.phase, event.currentTarget);
+  };
+  auto buttonProperties = ButtonProperties();
+  buttonProperties.interaction.onKey = [&](RoutedKeyEvent &event) {
+    route.emplace_back(event.phase, event.currentTarget);
+  };
+
+  Composer composer;
+  composer.Element(
+      ElementType::Overlay, parentProperties,
+      [&] { composer.Button([] {}, buttonProperties, "button"); }, "overlay");
+  fixture.Compose(composer);
+
+  const auto overlay = fixture.tree.Get(fixture.tree.Root())->children.front();
+  const auto button = fixture.tree.Get(overlay)->children.front();
+  REQUIRE(fixture.router.SetFocus(button));
+
+  const auto result = fixture.router.Route(PlatformEvent{KeyChanged{
+      .logicalKey = static_cast<NGIN::UInt32>(LogicalKey::Left),
+      .state = KeyState::Pressed,
+  }});
+  REQUIRE(result.callbackInvoked);
+  REQUIRE(route == std::vector<std::pair<EventPhase, ElementHandle>>{
+                       {EventPhase::Capture, overlay},
+                       {EventPhase::Target, button},
+                       {EventPhase::Bubble, overlay},
+                   });
+}
+
+TEST_CASE("tab traversal honors explicit order and skips unavailable nodes") {
+  using namespace NGIN::UI;
+
+  InputFixture fixture;
+  auto firstProperties = ButtonProperties();
+  firstProperties.interaction.tabIndex = 0;
+  auto priorityProperties = ButtonProperties();
+  priorityProperties.interaction.tabIndex = 2;
+  auto skippedProperties = ButtonProperties();
+  skippedProperties.interaction.tabIndex = -1;
+  auto disabledProperties = ButtonProperties();
+  disabledProperties.interaction.enabled = false;
+
+  Composer composer;
+  composer.Column([&] {
+    composer.Button([] {}, firstProperties, "normal");
+    composer.Button([] {}, priorityProperties, "priority");
+    composer.Button([] {}, skippedProperties, "skipped");
+    composer.Button([] {}, disabledProperties, "disabled");
+  });
+  fixture.Compose(composer);
+
+  const auto *column =
+      fixture.tree.Get(fixture.tree.Get(fixture.tree.Root())->children.front());
+  const auto normal = column->children[0];
+  const auto priority = column->children[1];
+
+  REQUIRE(fixture.router.MoveFocus());
+  REQUIRE(fixture.router.FocusedElement() == priority);
+
+  const auto tabResult = fixture.router.Route(PlatformEvent{KeyChanged{
+      .logicalKey = static_cast<NGIN::UInt32>(LogicalKey::Tab),
+      .state = KeyState::Pressed,
+  }});
+  REQUIRE(tabResult.handled);
+  REQUIRE(tabResult.visualStateChanged);
+  REQUIRE(fixture.router.FocusedElement() == normal);
+
+  fixture.tree.Get(normal)->interaction.pressed = true;
+  fixture.tree.Get(normal)->interaction.keyboardPressed = true;
+  const auto reverseTab = fixture.router.Route(PlatformEvent{KeyChanged{
+      .logicalKey = static_cast<NGIN::UInt32>(LogicalKey::Tab),
+      .state = KeyState::Pressed,
+      .modifiers = static_cast<NGIN::UInt32>(KeyModifierFlags::Shift),
+  }});
+  REQUIRE(reverseTab.handled);
+  REQUIRE(fixture.router.FocusedElement() == priority);
+  REQUIRE_FALSE(fixture.tree.Get(normal)->interaction.pressed);
+  REQUIRE_FALSE(fixture.tree.Get(normal)->interaction.keyboardPressed);
+}
+
+TEST_CASE("keyboard activation drives retained button state") {
+  using namespace NGIN::UI;
+
+  InputFixture fixture;
+  NGIN::UIntSize activations = 0;
+  Composer composer;
+  composer.Button([&] { ++activations; }, ButtonProperties(), "button");
+  fixture.Compose(composer);
+
+  const auto button = fixture.tree.Get(fixture.tree.Root())->children.front();
+  REQUIRE(fixture.router.SetFocus(button));
+
+  const auto pressed = fixture.router.Route(PlatformEvent{KeyChanged{
+      .logicalKey = static_cast<NGIN::UInt32>(LogicalKey::Space),
+      .state = KeyState::Pressed,
+  }});
+  REQUIRE(pressed.handled);
+  REQUIRE(pressed.visualStateChanged);
+  REQUIRE(fixture.tree.Get(button)->interaction.pressed);
+  REQUIRE(activations == 0);
+
+  const auto released = fixture.router.Route(PlatformEvent{KeyChanged{
+      .logicalKey = static_cast<NGIN::UInt32>(LogicalKey::Space),
+      .state = KeyState::Released,
+  }});
+  REQUIRE(released.handled);
+  REQUIRE(released.activated);
+  REQUIRE_FALSE(fixture.tree.Get(button)->interaction.pressed);
+  REQUIRE(activations == 1);
+}
+
+TEST_CASE("text input and composition remain separate from key events") {
+  using namespace NGIN::UI;
+
+  InputFixture fixture;
+  NGIN::UIntSize keyEvents = 0;
+  std::vector<RoutedTextEvent> textEvents;
+  auto properties = ButtonProperties();
+  properties.interaction.focusable = true;
+  properties.interaction.onKey = [&](RoutedKeyEvent &) { ++keyEvents; };
+  properties.interaction.onText = [&](RoutedTextEvent &event) {
+    textEvents.push_back(event);
+  };
+
+  Composer composer;
+  composer.Leaf(ElementType::TextField, properties, "editor");
+  fixture.Compose(composer);
+  const auto editor = fixture.tree.Get(fixture.tree.Root())->children.front();
+  REQUIRE(fixture.router.SetFocus(editor));
+
+  static_cast<void>(fixture.router.Route(PlatformEvent{KeyChanged{
+      .logicalKey = static_cast<NGIN::UInt32>(LogicalKey::Space),
+      .state = KeyState::Pressed,
+  }}));
+  static_cast<void>(fixture.router.Route(PlatformEvent{TextInput{
+      .text = NGIN::Text::String{"å"},
+  }}));
+  static_cast<void>(fixture.router.Route(PlatformEvent{TextComposition{
+      .text = NGIN::Text::String{"ö"},
+      .selectionStart = 1,
+      .selectionLength = 2,
+  }}));
+
+  REQUIRE(keyEvents == 1);
+  REQUIRE(textEvents.size() == 2);
+  REQUIRE(textEvents[0].eventKind == RoutedTextEventKind::Input);
+  REQUIRE(textEvents[0].text == NGIN::Text::String{"å"});
+  REQUIRE(textEvents[1].eventKind == RoutedTextEventKind::Composition);
+  REQUIRE(textEvents[1].text == NGIN::Text::String{"ö"});
+  REQUIRE(textEvents[1].selectionStart == 1);
+  REQUIRE(textEvents[1].selectionLength == 2);
+}

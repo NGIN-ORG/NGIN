@@ -1,6 +1,7 @@
 #include <NGIN/UI/Input.hpp>
 
 #include <algorithm>
+#include <limits>
 #include <type_traits>
 
 namespace NGIN::UI {
@@ -49,6 +50,12 @@ auto InputRouter::Route(const PlatformEvent &event) -> InputDispatchResult {
           return RouteMoved(value);
         } else if constexpr (std::is_same_v<Event, PointerButtonChanged>) {
           return RouteButton(value);
+        } else if constexpr (std::is_same_v<Event, KeyChanged>) {
+          return RouteKey(value);
+        } else if constexpr (std::is_same_v<Event, TextInput>) {
+          return RouteText(value);
+        } else if constexpr (std::is_same_v<Event, TextComposition>) {
+          return RouteText(value);
         } else if constexpr (std::is_same_v<Event, WindowFocusChanged>) {
           if (!value.focused) {
             return InputDispatchResult{
@@ -74,6 +81,10 @@ auto InputRouter::SetFocus(const ElementHandle handle) noexcept -> bool {
 
   if (auto *previous = m_tree.Get(m_focused); previous != nullptr) {
     previous->interaction.focused = false;
+    if (previous->interaction.keyboardPressed) {
+      previous->interaction.keyboardPressed = false;
+      previous->interaction.pressed = false;
+    }
   }
   m_focused = handle;
   next->interaction.focused = true;
@@ -87,8 +98,32 @@ auto InputRouter::ClearFocus() noexcept -> bool {
     return false;
   }
   focused->interaction.focused = false;
+  if (focused->interaction.keyboardPressed) {
+    focused->interaction.keyboardPressed = false;
+    focused->interaction.pressed = false;
+  }
   m_focused = {};
   return true;
+}
+
+auto InputRouter::MoveFocus(const bool reverse) -> bool {
+  const auto candidates = FocusCandidates();
+  if (candidates.empty()) {
+    return ClearFocus();
+  }
+
+  const auto current =
+      std::find(candidates.begin(), candidates.end(), FocusedElement());
+  if (current == candidates.end()) {
+    return SetFocus(reverse ? candidates.back() : candidates.front());
+  }
+
+  const auto index =
+      static_cast<UIntSize>(std::distance(candidates.begin(), current));
+  const auto nextIndex = reverse
+                             ? (index == 0 ? candidates.size() - 1 : index - 1)
+                             : (index + 1) % candidates.size();
+  return SetFocus(candidates[nextIndex]);
 }
 
 void InputRouter::Synchronize() noexcept {
@@ -195,6 +230,185 @@ void InputRouter::InvokeHandler(const ElementHandle handle,
   }
   outcome.releaseCapture =
       outcome.releaseCapture || event.captureReleaseRequested;
+}
+
+auto InputRouter::Dispatch(RoutedKeyEvent &event, const ElementHandle target)
+    -> InputDispatchResult {
+  InputDispatchResult result{};
+  if (!m_tree.IsAlive(target)) {
+    return result;
+  }
+
+  event.target = target;
+  const auto path = BuildPath(target);
+  const auto invoke = [this, &event, &result](const ElementHandle handle,
+                                              const EventPhase phase) {
+    auto *node = m_tree.Get(handle);
+    if (node == nullptr || !node->properties.interaction.onKey) {
+      return;
+    }
+    event.phase = phase;
+    event.currentTarget = handle;
+    node->properties.interaction.onKey(event);
+    result.callbackInvoked = true;
+  };
+
+  for (auto index = path.size(); index > 1 && !event.handled; --index) {
+    invoke(path[index - 1], EventPhase::Capture);
+  }
+  if (!event.handled) {
+    invoke(target, EventPhase::Target);
+  }
+  for (UIntSize index = 1; index < path.size() && !event.handled; ++index) {
+    invoke(path[index], EventPhase::Bubble);
+  }
+  result.handled = event.handled;
+  return result;
+}
+
+auto InputRouter::Dispatch(RoutedTextEvent &event, const ElementHandle target)
+    -> InputDispatchResult {
+  InputDispatchResult result{};
+  if (!m_tree.IsAlive(target)) {
+    return result;
+  }
+
+  event.target = target;
+  const auto path = BuildPath(target);
+  const auto invoke = [this, &event, &result](const ElementHandle handle,
+                                              const EventPhase phase) {
+    auto *node = m_tree.Get(handle);
+    if (node == nullptr || !node->properties.interaction.onText) {
+      return;
+    }
+    event.phase = phase;
+    event.currentTarget = handle;
+    node->properties.interaction.onText(event);
+    result.callbackInvoked = true;
+  };
+
+  for (auto index = path.size(); index > 1 && !event.handled; --index) {
+    invoke(path[index - 1], EventPhase::Capture);
+  }
+  if (!event.handled) {
+    invoke(target, EventPhase::Target);
+  }
+  for (UIntSize index = 1; index < path.size() && !event.handled; ++index) {
+    invoke(path[index], EventPhase::Bubble);
+  }
+  result.handled = event.handled;
+  return result;
+}
+
+auto InputRouter::FocusCandidates() const -> std::vector<ElementHandle> {
+  struct Candidate final {
+    ElementHandle handle{};
+    Int32 tabIndex{0};
+  };
+
+  std::vector<Candidate> candidates;
+  std::vector<ElementHandle> pending{m_tree.Root()};
+  while (!pending.empty()) {
+    const auto handle = pending.back();
+    pending.pop_back();
+    const auto *node = m_tree.Get(handle);
+    if (node == nullptr) {
+      continue;
+    }
+    const auto &interaction = node->properties.interaction;
+    if (handle != m_tree.Root() && interaction.enabled &&
+        interaction.focusable && interaction.tabIndex >= 0) {
+      candidates.push_back(Candidate{
+          .handle = handle,
+          .tabIndex = interaction.tabIndex,
+      });
+    }
+    for (auto child = node->children.rbegin(); child != node->children.rend();
+         ++child) {
+      pending.push_back(*child);
+    }
+  }
+
+  std::stable_sort(candidates.begin(), candidates.end(),
+                   [](const Candidate &left, const Candidate &right) {
+                     const auto leftOrder =
+                         left.tabIndex == 0 ? std::numeric_limits<Int32>::max()
+                                            : left.tabIndex;
+                     const auto rightOrder =
+                         right.tabIndex == 0 ? std::numeric_limits<Int32>::max()
+                                             : right.tabIndex;
+                     return leftOrder < rightOrder;
+                   });
+
+  std::vector<ElementHandle> result;
+  result.reserve(candidates.size());
+  for (const auto &candidate : candidates) {
+    result.push_back(candidate.handle);
+  }
+  return result;
+}
+
+auto InputRouter::RouteKey(const KeyChanged &event) -> InputDispatchResult {
+  RoutedKeyEvent routed{
+      .physicalKey = event.physicalKey,
+      .logicalKey = event.Logical(),
+      .state = event.state,
+      .modifiers = event.modifiers,
+  };
+  auto result = Dispatch(routed, FocusedElement());
+
+  if (!result.handled && event.state == KeyState::Pressed &&
+      event.Logical() == LogicalKey::Tab) {
+    result.visualStateChanged =
+        MoveFocus(HasKeyModifier(event.modifiers, KeyModifierFlags::Shift));
+    result.handled = true;
+    return result;
+  }
+
+  auto *focused = m_tree.Get(FocusedElement());
+  const auto activatesButton = event.Logical() == LogicalKey::Enter ||
+                               event.Logical() == LogicalKey::Space;
+  if (!result.handled && focused != nullptr &&
+      focused->type == ElementType::Button &&
+      focused->properties.interaction.enabled && activatesButton) {
+    if (event.state == KeyState::Pressed && !focused->interaction.pressed) {
+      focused->interaction.pressed = true;
+      focused->interaction.keyboardPressed = true;
+      result.visualStateChanged = true;
+      result.handled = true;
+    } else if (event.state == KeyState::Released &&
+               focused->interaction.keyboardPressed) {
+      focused->interaction.pressed = false;
+      focused->interaction.keyboardPressed = false;
+      result.visualStateChanged = true;
+      result.handled = true;
+      if (focused->properties.interaction.onActivate) {
+        focused->properties.interaction.onActivate();
+        result.callbackInvoked = true;
+        result.activated = true;
+      }
+    }
+  }
+  return result;
+}
+
+auto InputRouter::RouteText(const TextInput &event) -> InputDispatchResult {
+  RoutedTextEvent routed{
+      .eventKind = RoutedTextEventKind::Input,
+      .text = event.text,
+  };
+  return Dispatch(routed, FocusedElement());
+}
+
+auto InputRouter::RouteText(const TextComposition &event)
+    -> InputDispatchResult {
+  RoutedTextEvent routed{
+      .eventKind = RoutedTextEventKind::Composition,
+      .text = event.text,
+      .selectionStart = event.selectionStart,
+      .selectionLength = event.selectionLength,
+  };
+  return Dispatch(routed, FocusedElement());
 }
 
 auto InputRouter::UpdateHover(const UInt64 pointerId,

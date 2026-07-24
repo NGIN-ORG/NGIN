@@ -35,4 +35,35 @@ struct RoutedPointerEvent final {
   void CapturePointer() noexcept { captureRequested = true; }
   void ReleasePointerCapture() noexcept { captureReleaseRequested = true; }
 };
+
+struct RoutedKeyEvent final {
+  EventPhase phase{EventPhase::Target};
+  ElementHandle target{};
+  ElementHandle currentTarget{};
+  UInt32 physicalKey{0};
+  LogicalKey logicalKey{};
+  KeyState state{KeyState::Released};
+  UInt32 modifiers{0};
+  bool handled{false};
+
+  void Handle() noexcept { handled = true; }
+};
+
+enum class RoutedTextEventKind : UInt8 {
+  Input,
+  Composition,
+};
+
+struct RoutedTextEvent final {
+  EventPhase phase{EventPhase::Target};
+  RoutedTextEventKind eventKind{RoutedTextEventKind::Input};
+  ElementHandle target{};
+  ElementHandle currentTarget{};
+  NGIN::Text::String text{};
+  UIntSize selectionStart{0};
+  UIntSize selectionLength{0};
+  bool handled{false};
+
+  void Handle() noexcept { handled = true; }
+};
 } // namespace NGIN::UI

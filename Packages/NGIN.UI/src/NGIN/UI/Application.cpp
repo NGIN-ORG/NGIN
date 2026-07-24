@@ -115,6 +115,22 @@ auto Window::Diagnostics() const noexcept -> const WindowDiagnostics & {
   return m_implementation->diagnostics;
 }
 
+auto Window::Focus(const ElementHandle handle) noexcept -> bool {
+  if (!m_implementation->inputRouter.SetFocus(handle)) {
+    return false;
+  }
+  Invalidate(InvalidationKind::Paint | InvalidationKind::Semantics);
+  return true;
+}
+
+auto Window::FocusNext(const bool reverse) -> bool {
+  if (!m_implementation->inputRouter.MoveFocus(reverse)) {
+    return false;
+  }
+  Invalidate(InvalidationKind::Paint | InvalidationKind::Semantics);
+  return true;
+}
+
 void Window::SetEventHandler(EventHandler handler) {
   m_implementation->eventHandler = std::move(handler);
 }

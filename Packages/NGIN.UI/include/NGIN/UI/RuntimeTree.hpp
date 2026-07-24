@@ -12,6 +12,7 @@ namespace NGIN::UI {
 struct InteractionState final {
   bool hovered{false};
   bool pressed{false};
+  bool keyboardPressed{false};
   bool focused{false};
 };
 

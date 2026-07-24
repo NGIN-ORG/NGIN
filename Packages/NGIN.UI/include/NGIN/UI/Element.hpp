@@ -59,7 +59,10 @@ struct InteractionProperties final {
   bool hitTestVisible{true};
   bool enabled{true};
   bool focusable{false};
+  Int32 tabIndex{0};
   NGIN::Utilities::Callable<void(RoutedPointerEvent &)> onPointer{};
+  NGIN::Utilities::Callable<void(RoutedKeyEvent &)> onKey{};
+  NGIN::Utilities::Callable<void(RoutedTextEvent &)> onText{};
   NGIN::Utilities::Callable<void()> onActivate{};
 };
 

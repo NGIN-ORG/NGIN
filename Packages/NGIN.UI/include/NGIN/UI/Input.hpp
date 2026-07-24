@@ -29,6 +29,7 @@ public:
   auto Route(const PlatformEvent &event) -> InputDispatchResult;
   auto SetFocus(ElementHandle handle) noexcept -> bool;
   auto ClearFocus() noexcept -> bool;
+  auto MoveFocus(bool reverse = false) -> bool;
   void Synchronize() noexcept;
 
 private:
@@ -48,6 +49,14 @@ private:
       -> DispatchOutcome;
   void InvokeHandler(ElementHandle handle, EventPhase phase,
                      RoutedPointerEvent &event, DispatchOutcome &outcome) const;
+  auto Dispatch(RoutedKeyEvent &event, ElementHandle target)
+      -> InputDispatchResult;
+  auto Dispatch(RoutedTextEvent &event, ElementHandle target)
+      -> InputDispatchResult;
+  [[nodiscard]] auto FocusCandidates() const -> std::vector<ElementHandle>;
+  auto RouteKey(const KeyChanged &event) -> InputDispatchResult;
+  auto RouteText(const TextInput &event) -> InputDispatchResult;
+  auto RouteText(const TextComposition &event) -> InputDispatchResult;
   auto UpdateHover(UInt64 pointerId, PointerKind pointerKind, Point position)
       -> InputDispatchResult;
   auto RouteMoved(const PointerMoved &event) -> InputDispatchResult;

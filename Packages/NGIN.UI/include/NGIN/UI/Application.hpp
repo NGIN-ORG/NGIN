@@ -52,6 +52,8 @@ public:
   [[nodiscard]] auto Semantics() const noexcept -> const SemanticTree &;
   [[nodiscard]] auto Diagnostics() const noexcept -> const WindowDiagnostics &;
 
+  auto Focus(ElementHandle handle) noexcept -> bool;
+  auto FocusNext(bool reverse = false) -> bool;
   void SetEventHandler(EventHandler handler);
   void SetContent(Content content);
   void Invalidate(InvalidationKind kind = InvalidationKind::All) noexcept;
