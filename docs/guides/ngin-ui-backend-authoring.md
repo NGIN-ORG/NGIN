@@ -151,8 +151,10 @@ requires it.
 
 ### Shaders
 
-The SDL_GPU backend packages authored shader sources and backend-specific
-compiled forms. Another provider must supply equivalent semantics:
+The current SDL3 provider uses `SDL_CreateGPURenderer`; SDL owns its internal
+GPU pipelines and no application-visible shader files are staged. A provider
+implemented directly on raw `SDL_GPU` or another graphics API must supply
+equivalent semantics:
 
 - position transform to clip space;
 - packed vertex tint;
@@ -160,8 +162,8 @@ compiled forms. Another provider must supply equivalent semantics:
 - R8 glyph alpha handling;
 - premultiplied output.
 
-Keep shader artifacts in the provider package and stage them through its
-manifest. The backend-neutral core must not know shader paths.
+Keep any provider-owned shader artifacts in that provider package and stage
+them through its manifest. The backend-neutral core must not know shader paths.
 
 ## Package integration
 

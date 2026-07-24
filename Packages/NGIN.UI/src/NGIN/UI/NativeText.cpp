@@ -280,6 +280,7 @@ struct NativeTextSystem::Impl final {
   UInt32 atlasY{1};
   UInt32 atlasRowHeight{0};
   std::unordered_map<GlyphKey, GlyphAtlasEntry, GlyphKeyHash> glyphs{};
+  GlyphAtlasDiagnostics diagnostics{};
 
   ~Impl() {
     if (renderer != nullptr && atlas) {
@@ -366,6 +367,7 @@ auto NativeTextSystem::Create(IRenderBackend &renderer,
     auto implementation = std::make_unique<Impl>();
     implementation->renderer = &renderer;
     implementation->atlasSize = info.atlasSize;
+    implementation->diagnostics.atlasSize = info.atlasSize;
     auto error = FT_Init_FreeType(&implementation->library);
     if (error != 0) {
       return NativeTextError(UIErrorCode::ResourceFailed,
@@ -1038,8 +1040,10 @@ auto NativeTextSystem::ResolveGlyph(const GlyphAtlasRequest &request) noexcept
                              pixelSize};
     if (const auto found = m_impl->glyphs.find(key);
         found != m_impl->glyphs.end()) {
+      ++m_impl->diagnostics.hitCount;
       return found->second;
     }
+    ++m_impl->diagnostics.missCount;
     auto sized = m_impl->SetPixelSize(*face, pixelSize, "ResolveGlyph");
     if (!sized) {
       return sized.Error();
@@ -1058,6 +1062,7 @@ auto NativeTextSystem::ResolveGlyph(const GlyphAtlasRequest &request) noexcept
     if (bitmap.width == 0 || bitmap.rows == 0) {
       const GlyphAtlasEntry invisible{};
       m_impl->glyphs.emplace(key, invisible);
+      m_impl->diagnostics.entryCount = m_impl->glyphs.size();
       return invisible;
     }
     const auto width = static_cast<UInt32>(bitmap.width);
@@ -1128,6 +1133,10 @@ auto NativeTextSystem::ResolveGlyph(const GlyphAtlasRequest &request) noexcept
     m_impl->atlasX += width + 1;
     m_impl->atlasRowHeight = std::max(m_impl->atlasRowHeight, height);
     m_impl->glyphs.emplace(key, entry);
+    ++m_impl->diagnostics.uploadCount;
+    m_impl->diagnostics.entryCount = m_impl->glyphs.size();
+    m_impl->diagnostics.usedPixelArea +=
+        static_cast<UInt64>(width) * static_cast<UInt64>(height);
     return entry;
   } catch (...) {
     return NativeTextError(UIErrorCode::OutOfMemory,
@@ -1137,6 +1146,17 @@ auto NativeTextSystem::ResolveGlyph(const GlyphAtlasRequest &request) noexcept
 #else
   static_cast<void>(request);
   return Unavailable("ResolveGlyph");
+#endif
+}
+
+auto NativeTextSystem::AtlasDiagnostics() const noexcept
+    -> GlyphAtlasDiagnostics {
+#if defined(NGIN_UI_HAS_NATIVE_TEXT)
+  auto diagnostics = m_impl->diagnostics;
+  diagnostics.entryCount = m_impl->glyphs.size();
+  return diagnostics;
+#else
+  return {};
 #endif
 }
 } // namespace NGIN::UI

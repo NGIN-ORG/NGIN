@@ -408,6 +408,7 @@ struct ImageTextureCache::Impl final {
 
   IRenderBackend *renderer{nullptr};
   std::unordered_map<const ImageResource *, Entry> entries{};
+  ImageCacheDiagnostics diagnostics{};
 
   void DestroyAll() noexcept {
     if (renderer != nullptr) {
@@ -417,7 +418,9 @@ struct ImageTextureCache::Impl final {
         }
       }
     }
+    diagnostics.evictionCount += static_cast<UInt64>(entries.size());
     entries.clear();
+    diagnostics.entryCount = 0;
   }
 };
 
@@ -457,11 +460,13 @@ auto ImageTextureCache::Resolve(
       static_cast<void>(
           m_impl->renderer->DestroyTexture(found->second.texture));
     }
+    ++m_impl->diagnostics.evictionCount;
     m_impl->entries.erase(found);
     found = m_impl->entries.end();
   }
   if (found != m_impl->entries.end() && found->second.revision == revision &&
       found->second.texture) {
+    ++m_impl->diagnostics.hitCount;
     return ResolvedImage{
         .texture = found->second.texture,
         .size = found->second.size,
@@ -470,9 +475,11 @@ auto ImageTextureCache::Resolve(
   }
   if (found != m_impl->entries.end() && found->second.texture) {
     static_cast<void>(m_impl->renderer->DestroyTexture(found->second.texture));
+    ++m_impl->diagnostics.evictionCount;
     m_impl->entries.erase(found);
   }
 
+  ++m_impl->diagnostics.missCount;
   auto pixels = resource->CopyPixels();
   if (!pixels) {
     return std::move(pixels).Error();
@@ -503,6 +510,8 @@ auto ImageTextureCache::Resolve(
       .size = size,
       .revision = revision,
   };
+  ++m_impl->diagnostics.uploadCount;
+  m_impl->diagnostics.entryCount = m_impl->entries.size();
   return ResolvedImage{
       .texture = texture.Value(),
       .size = size,
@@ -522,7 +531,9 @@ void ImageTextureCache::Invalidate(
   if (m_impl->renderer != nullptr && found->second.texture) {
     static_cast<void>(m_impl->renderer->DestroyTexture(found->second.texture));
   }
+  ++m_impl->diagnostics.evictionCount;
   m_impl->entries.erase(found);
+  m_impl->diagnostics.entryCount = m_impl->entries.size();
 }
 
 void ImageTextureCache::OnDeviceLost() noexcept {
@@ -533,5 +544,11 @@ void ImageTextureCache::OnDeviceLost() noexcept {
 void ImageTextureCache::OnDeviceRestored(IRenderBackend &renderer) noexcept {
   m_impl->DestroyAll();
   m_impl->renderer = &renderer;
+}
+
+auto ImageTextureCache::Diagnostics() const noexcept -> ImageCacheDiagnostics {
+  auto diagnostics = m_impl->diagnostics;
+  diagnostics.entryCount = m_impl->entries.size();
+  return diagnostics;
 }
 } // namespace NGIN::UI

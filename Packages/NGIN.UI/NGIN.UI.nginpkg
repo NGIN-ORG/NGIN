@@ -3,6 +3,10 @@
          Name="NGIN.UI"
          Version="0.1.0"
          CompatiblePlatformRange=">=0.1.0-alpha.1 &lt;0.2.0">
+  <Metadata>
+    <Description>Backend-neutral retained desktop UI toolkit.</Description>
+    <License>Apache-2.0</License>
+  </Metadata>
   <Build Backend="CMake" Mode="AddSubdirectory">
     <Options>
       <Option Name="NGIN_UI_BUILD_TESTS" Value="OFF" />
@@ -21,6 +25,21 @@
       <LibraryTarget Name="NGIN::UI" Linkage="Static" />
     </Exports>
   </Library>
+  <Features>
+    <Feature Name="RuntimeAssets"
+             Description="Stage the bundled OFL font and complete dependency notices.">
+      <Inputs>
+        <Assets>
+          <File Path="assets/fonts/NotoSans/NotoSans-Variable.ttf"
+                Target="fonts/NGIN.UI/NotoSans-Variable.ttf" />
+          <File Path="assets/fonts/NotoSans/OFL.txt"
+                Target="licenses/NGIN.UI/NotoSans-OFL.txt" />
+          <File Path="THIRD_PARTY_NOTICES.md"
+                Target="licenses/NGIN.UI/THIRD_PARTY_NOTICES.md" />
+        </Assets>
+      </Inputs>
+    </Feature>
+  </Features>
   <Compatibility>
     <OperatingSystems>
       <OperatingSystem Name="windows" />

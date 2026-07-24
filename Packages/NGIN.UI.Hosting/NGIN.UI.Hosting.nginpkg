@@ -3,6 +3,10 @@
          Name="NGIN.UI.Hosting"
          Version="0.1.0"
          CompatiblePlatformRange=">=0.1.0 &lt;0.2.0">
+  <Metadata>
+    <Description>NGIN.Core hosting bridge and UI-thread dispatcher.</Description>
+    <License>Apache-2.0</License>
+  </Metadata>
   <Build Backend="CMake" Mode="AddSubdirectory">
     <Options>
       <Option Name="NGIN_UI_HOSTING_BUILD_TESTS" Value="OFF" />

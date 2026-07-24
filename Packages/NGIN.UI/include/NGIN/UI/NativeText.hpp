@@ -14,6 +14,16 @@ struct NativeTextCreateInfo final {
   PixelSize atlasSize{1024, 1024};
 };
 
+/// @brief Hit, miss, upload, occupancy, and area counters for the glyph atlas.
+struct GlyphAtlasDiagnostics final {
+  UInt64 hitCount{0};
+  UInt64 missCount{0};
+  UInt64 uploadCount{0};
+  UIntSize entryCount{0};
+  UInt64 usedPixelArea{0};
+  PixelSize atlasSize{};
+};
+
 /// @brief FreeType and HarfBuzz implementation of font, shaping, and glyph services.
 class NativeTextSystem final : public IFontProvider,
                                public ITextShaper,
@@ -54,6 +64,8 @@ public:
       -> UIResult<std::vector<GraphemeCluster>> override;
   [[nodiscard]] auto ResolveGlyph(const GlyphAtlasRequest &request) noexcept
       -> UIResult<GlyphAtlasEntry> override;
+  [[nodiscard]] auto AtlasDiagnostics() const noexcept
+      -> GlyphAtlasDiagnostics;
 
 private:
   struct Impl;

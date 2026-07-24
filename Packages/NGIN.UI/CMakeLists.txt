@@ -3,6 +3,7 @@ project(NGIN.UI VERSION 0.1.0 LANGUAGES CXX)
 
 option(NGIN_UI_BUILD_TESTS "Build NGIN.UI tests" OFF)
 option(NGIN_UI_BUILD_EXAMPLES "Build NGIN.UI examples" OFF)
+option(NGIN_UI_BUILD_BENCHMARKS "Build NGIN.UI release-budget benchmarks" OFF)
 option(NGIN_UI_BUILD_DOCS "Generate browsable NGIN.UI API documentation" OFF)
 option(NGIN_UI_STRICT_WARNINGS "Enable extra compiler warnings" ON)
 option(NGIN_UI_ENABLE_NATIVE_TEXT
@@ -50,6 +51,7 @@ set(NGIN_UI_SOURCES
     src/NGIN/UI/TextEditing.cpp
     src/NGIN/UI/UIRenderer.cpp
     src/NGIN/UI/Testing/RecordingRenderBackend.cpp
+    src/NGIN/UI/Testing/SoftwareRenderBackend.cpp
     src/NGIN/UI/Testing/TestPlatformBackend.cpp
 )
 
@@ -84,6 +86,7 @@ if(NGIN_UI_STRICT_WARNINGS)
 endif()
 
 include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
 install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 install(
     DIRECTORY assets/fonts/NotoSans/
@@ -104,6 +107,22 @@ install(
     NAMESPACE NGIN::
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/NGINUI
 )
+write_basic_package_version_file(
+    "${CMAKE_CURRENT_BINARY_DIR}/NGINUIConfigVersion.cmake"
+    VERSION "${PROJECT_VERSION}"
+    COMPATIBILITY SameMajorVersion
+)
+configure_package_config_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/NGINUIConfig.cmake.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/NGINUIConfig.cmake"
+    INSTALL_DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/NGINUI"
+)
+install(
+    FILES
+        "${CMAKE_CURRENT_BINARY_DIR}/NGINUIConfig.cmake"
+        "${CMAKE_CURRENT_BINARY_DIR}/NGINUIConfigVersion.cmake"
+    DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/NGINUI"
+)
 
 if(NGIN_UI_BUILD_TESTS)
     include(CTest)
@@ -113,6 +132,10 @@ endif()
 
 if(NGIN_UI_BUILD_EXAMPLES)
     message(STATUS "NGIN.UI examples are reserved for the native backend slice")
+endif()
+
+if(NGIN_UI_BUILD_BENCHMARKS)
+    add_subdirectory(benchmarks)
 endif()
 
 if(NGIN_UI_BUILD_DOCS)

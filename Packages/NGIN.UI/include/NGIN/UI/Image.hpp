@@ -114,6 +114,15 @@ struct ResolvedImage final {
   ImageLoadState state{ImageLoadState::Loading};
 };
 
+/// @brief Hit, miss, upload, eviction, and occupancy counters for image textures.
+struct ImageCacheDiagnostics final {
+  UInt64 hitCount{0};
+  UInt64 missCount{0};
+  UInt64 uploadCount{0};
+  UInt64 evictionCount{0};
+  UIntSize entryCount{0};
+};
+
 /// @brief Resolves logical image resources to renderer-owned textures.
 class IImageResolver {
 public:
@@ -140,6 +149,7 @@ public:
   void Invalidate(const std::shared_ptr<ImageResource> &resource) noexcept;
   void OnDeviceLost() noexcept;
   void OnDeviceRestored(IRenderBackend &renderer) noexcept;
+  [[nodiscard]] auto Diagnostics() const noexcept -> ImageCacheDiagnostics;
 
 private:
   struct Impl;

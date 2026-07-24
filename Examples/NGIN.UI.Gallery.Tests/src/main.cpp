@@ -5,7 +5,9 @@
 #include <algorithm>
 #include <iostream>
 #include <memory>
+#include <string_view>
 #include <utility>
+#include <vector>
 
 namespace {
 auto Check(const bool condition, const char *message) -> bool {
@@ -26,6 +28,29 @@ auto HasRole(const NGIN::UI::SemanticTree &tree,
       tree.Nodes().begin(), tree.Nodes().end(),
       [role](const NGIN::UI::SemanticNode &node) { return node.role == role; });
 }
+
+auto FindByTypeAndKey(const NGIN::UI::RuntimeTree &tree,
+                      const NGIN::UI::ElementType type,
+                      const std::string_view key) -> NGIN::UI::ElementHandle {
+  std::vector<NGIN::UI::ElementHandle> pending{tree.Root()};
+  while (!pending.empty()) {
+    const auto handle = pending.back();
+    pending.pop_back();
+    const auto *node = tree.Get(handle);
+    if (node == nullptr) {
+      continue;
+    }
+    if (node->type == type && node->key.View() == key) {
+      return handle;
+    }
+    pending.insert(pending.end(), node->children.begin(), node->children.end());
+  }
+  return {};
+}
+
+auto Center(const NGIN::UI::Rect bounds) noexcept -> NGIN::UI::Point {
+  return {bounds.x + bounds.width * 0.5F, bounds.y + bounds.height * 0.5F};
+}
 } // namespace
 
 auto main() -> int {
@@ -34,6 +59,7 @@ auto main() -> int {
 
   auto platform = std::make_unique<TestPlatformBackend>();
   auto renderer = std::make_unique<RecordingRenderBackend>();
+  auto *platformObserver = platform.get();
   auto *rendererObserver = renderer.get();
   auto createdApplication = CreateApplication(ApplicationCreateInfo{
       .platform = std::move(platform),
@@ -59,6 +85,20 @@ auto main() -> int {
     return Report("Gallery window creation failed", createdWindow.Error());
   }
   auto *window = createdWindow.Value();
+
+  platformObserver->InjectEvent(
+      WindowResized{window->PlatformHandle(), PixelSize{1180, 760}});
+  if (!application->PumpOnce()) {
+    return 1;
+  }
+  if (!Check(window->PixelExtent() == PixelSize{1180, 760},
+             "resize updates the logical window") ||
+      !Check(!rendererObserver->Surfaces().empty() &&
+                 rendererObserver->Surfaces().front().size ==
+                     PixelSize{1180, 760},
+             "resize updates the render surface")) {
+    return 1;
+  }
 
   for (NGIN::UIntSize index = 0; index < NGIN::UIGallery::PageCount; ++index) {
     const auto page = NGIN::UIGallery::PageAt(index);
@@ -133,6 +173,123 @@ auto main() -> int {
     return 1;
   }
 
+  model.SelectPage(NGIN::UIGallery::Page::Inputs);
+  if (!application->PumpOnce()) {
+    return 1;
+  }
+  const auto checkHandle =
+      window->Tree().FindBySemanticIdentifier(NGIN::Text::String{
+          "settings-check"});
+  const auto *checkNode = window->Tree().Get(checkHandle);
+  if (!Check(checkNode != nullptr, "checkbox has a stable semantic identity")) {
+    return 1;
+  }
+  const auto checkCenter = Center(checkNode->arrangedBounds);
+  const auto beforePointer = model.CheckBinding().Get();
+  platformObserver->InjectEvent(PointerMoved{
+      .window = window->PlatformHandle(),
+      .pointerId = 1,
+      .position = checkCenter,
+  });
+  platformObserver->InjectEvent(PointerButtonChanged{
+      .window = window->PlatformHandle(),
+      .pointerId = 1,
+      .button = PointerButton::Primary,
+      .state = ButtonState::Pressed,
+      .position = checkCenter,
+  });
+  platformObserver->InjectEvent(PointerButtonChanged{
+      .window = window->PlatformHandle(),
+      .pointerId = 1,
+      .button = PointerButton::Primary,
+      .state = ButtonState::Released,
+      .position = checkCenter,
+  });
+  if (!application->PumpOnce()) {
+    return 1;
+  }
+  if (!Check(model.CheckBinding().Get() != beforePointer,
+             "pointer activation changes a gallery control")) {
+    return 1;
+  }
+
+  const auto beforeKeyboard = model.CheckBinding().Get();
+  const auto keyboardCheckHandle =
+      window->Tree().FindBySemanticIdentifier(NGIN::Text::String{
+          "settings-check"});
+  if (!Check(window->FocusedElement() == keyboardCheckHandle ||
+                 window->Focus(keyboardCheckHandle),
+             "keyboard target accepts focus")) {
+    return 1;
+  }
+  platformObserver->InjectEvent(KeyChanged{
+      .window = window->PlatformHandle(),
+      .logicalKey = static_cast<NGIN::UInt32>(LogicalKey::Space),
+      .state = KeyState::Pressed,
+  });
+  platformObserver->InjectEvent(KeyChanged{
+      .window = window->PlatformHandle(),
+      .logicalKey = static_cast<NGIN::UInt32>(LogicalKey::Space),
+      .state = KeyState::Released,
+  });
+  if (!application->PumpOnce()) {
+    return 1;
+  }
+  if (!Check(model.CheckBinding().Get() != beforeKeyboard,
+             "keyboard activation changes a gallery control")) {
+    return 1;
+  }
+
+  const auto editor =
+      FindByTypeAndKey(window->Tree(), ElementType::TextField, "editable");
+  if (!Check(editor.IsValid() && window->Focus(editor),
+             "editable field accepts focus")) {
+    return 1;
+  }
+  if (!platformObserver
+           ->SetClipboardText(NGIN::Text::String{" clipboard"})
+           .HasValue()) {
+    return 1;
+  }
+  platformObserver->InjectEvent(KeyChanged{
+      .window = window->PlatformHandle(),
+      .logicalKey = static_cast<NGIN::UInt32>('V'),
+      .state = KeyState::Pressed,
+      .modifiers = static_cast<NGIN::UInt32>(KeyModifierFlags::Control),
+  });
+  if (!application->PumpOnce()) {
+    return 1;
+  }
+  if (!Check(model.Name().View().find("clipboard") != std::string_view::npos,
+             "clipboard paste commits through the focused binding")) {
+    return 1;
+  }
+  const auto beforeComposition = model.Name();
+  platformObserver->InjectEvent(TextComposition{
+      .window = window->PlatformHandle(),
+      .text = NGIN::Text::String{"\xC3\xA5"},
+      .selectionStart = 0,
+      .selectionLength = 2,
+  });
+  if (!application->PumpOnce()) {
+    return 1;
+  }
+  if (!Check(model.Name() == beforeComposition,
+             "IME pre-edit remains transient")) {
+    return 1;
+  }
+  platformObserver->InjectEvent(TextInput{
+      .window = window->PlatformHandle(),
+      .text = NGIN::Text::String{"\xC3\xA5"},
+  });
+  if (!application->PumpOnce()) {
+    return 1;
+  }
+  if (!Check(model.Name() != beforeComposition,
+             "IME commit updates the focused binding")) {
+    return 1;
+  }
+
   auto checkChanged = model.CheckBinding().Set(CheckState::Indeterminate);
   auto toggleChanged = model.ToggleBinding().Set(false);
   auto sliderChanged = model.SliderBinding().Set(0.8F);
@@ -155,6 +312,15 @@ auto main() -> int {
   if (!Check(model.IsPopupOpen(), "popup state is controllable") ||
       !Check(window->Diagnostics().semanticNodeCount > 0,
              "popup frame updates diagnostics")) {
+    return 1;
+  }
+  platformObserver->InjectEvent(KeyChanged{
+      .window = window->PlatformHandle(),
+      .logicalKey = static_cast<NGIN::UInt32>(LogicalKey::Escape),
+      .state = KeyState::Pressed,
+  });
+  if (!application->PumpOnce() ||
+      !Check(!model.IsPopupOpen(), "Escape dismisses the popup")) {
     return 1;
   }
 
@@ -181,6 +347,26 @@ auto main() -> int {
              "gallery creates independent and modal windows") ||
       !Check(window->ActiveModalDialog() != nullptr,
              "modal ownership is established")) {
+    return 1;
+  }
+
+  const auto dialogRecord = std::find_if(
+      platformObserver->Windows().begin(), platformObserver->Windows().end(),
+      [](const TestWindowRecord &record) {
+        return !record.destroyed && record.info.kind == WindowKind::Dialog;
+      });
+  if (!Check(dialogRecord != platformObserver->Windows().end(),
+             "test platform records the modal dialog")) {
+    return 1;
+  }
+  platformObserver->InjectEvent(WindowCloseRequested{dialogRecord->handle});
+  if (!application->PumpOnce()) {
+    return 1;
+  }
+  if (!Check(application->ActiveWindowCount() == 2,
+             "dialog close updates multiple-window ownership") ||
+      !Check(window->ActiveModalDialog() == nullptr,
+             "dialog close restores the owner modal state")) {
     return 1;
   }
 

@@ -16,6 +16,8 @@ and use this reference for exact signatures, ownership, and result types.
 - `NGIN::UI::State<T>` and `NGIN::UI::Binding<T>`
 - `NGIN::UI::NativeTextSystem`
 - `NGIN::UI::ImageResource` and `NGIN::UI::ImageTextureCache`
+- `NGIN::UI::Testing::SoftwareRenderBackend` and
+  `NGIN::UI::Testing::CompareVisuals()`
 - `NGIN::UI::Hosting::ConfigureUIHosting()` and
   `NGIN::UI::Hosting::IUIDispatcher`
 - `NGIN::UI::SDL3::CreatePlatformBackend()` and
@@ -40,3 +42,7 @@ and use this reference for exact signatures, ownership, and result types.
 The buildable
 [`NGIN.UI.Gallery`](../../Examples/NGIN.UI.Gallery/) is the canonical public-API
 usage reference.
+
+The [testing and release guide](../guides/ngin-ui-testing-and-release.md)
+documents deterministic visual tests, performance budgets, cache diagnostics,
+device recreation, and installed CMake consumption.

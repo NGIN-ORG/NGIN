@@ -95,8 +95,14 @@ smoke tests on a GPU-capable runner.
 
 ## Shader loading or pipeline creation
 
-Shader assets belong to `NGIN.UI.Backend.SDL3`. Confirm the provider's staged
-paths and build configuration match the active graphics driver.
+The current `NGIN.UI.Backend.SDL3` implementation uses
+`SDL_CreateGPURenderer`; SDL owns its internal pipelines and NGIN.UI does not
+stage shader files. If startup reports an SDL renderer or pipeline failure,
+record the selected SDL GPU driver and adapter.
+
+A custom backend built directly on raw `SDL_GPU` or another graphics API owns
+its shader assets. Confirm that provider's staged paths and compiled formats
+match the active graphics driver.
 
 A shader/pipeline error should name:
 
@@ -105,8 +111,8 @@ A shader/pipeline error should name:
 - selected driver/format;
 - native compilation or pipeline code.
 
-Do not copy shaders into an application project to hide a staging problem;
-repair the provider package contribution.
+Do not copy provider shaders into an application project to hide a staging
+problem; repair the provider package contribution.
 
 ## DPI and blurry or misaligned content
 

@@ -32,8 +32,10 @@ of the runnable paths, then use the topic guides as needed.
 ## Integration and support
 
 - [Platform and renderer backend authoring](ngin-ui-backend-authoring.md)
+- [Testing, visual baselines, performance budgets, packaging, and release gates](ngin-ui-testing-and-release.md)
 - [Troubleshooting](ngin-ui-troubleshooting.md)
 - [Generated API reference](../api/ngin-ui-mainpage.md)
+- [Source compatibility and deprecation policy](../policies/ngin-ui-source-compatibility.md)
 - [V4 product manifest authoring](nginproj-authoring.md)
 
 ## Fast verification

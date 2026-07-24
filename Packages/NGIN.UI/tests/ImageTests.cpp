@@ -144,20 +144,33 @@ TEST_CASE("image texture cache uploads lazily and recreates device resources") {
   REQUIRE(first.Value().state == ImageLoadState::Ready);
   REQUIRE(first.Value().texture);
   REQUIRE(renderer.TextureUpdates().size() == 1);
+  CHECK(cache.Diagnostics().missCount == 1);
+  CHECK(cache.Diagnostics().uploadCount == 1);
+  CHECK(cache.Diagnostics().entryCount == 1);
 
   auto cached = cache.Resolve(resource);
   REQUIRE(cached.HasValue());
   REQUIRE(cached.Value().texture == first.Value().texture);
   REQUIRE(renderer.TextureUpdates().size() == 1);
+  CHECK(cache.Diagnostics().hitCount == 1);
 
   cache.OnDeviceLost();
   auto unavailable = cache.Resolve(resource);
   REQUIRE_FALSE(unavailable.HasValue());
-  cache.OnDeviceRestored(renderer);
+  CHECK(cache.Diagnostics().evictionCount == 1);
+  CHECK(cache.Diagnostics().entryCount == 0);
+
+  Testing::RecordingRenderBackend replacementRenderer;
+  REQUIRE(replacementRenderer.Initialize({}).HasValue());
+  cache.OnDeviceRestored(replacementRenderer);
   auto recreated = cache.Resolve(resource);
   REQUIRE(recreated.HasValue());
-  REQUIRE(recreated.Value().texture != first.Value().texture);
-  REQUIRE(renderer.TextureUpdates().size() == 2);
+  REQUIRE(recreated.Value().texture);
+  REQUIRE(renderer.TextureUpdates().size() == 1);
+  REQUIRE(replacementRenderer.TextureUpdates().size() == 1);
+  CHECK(cache.Diagnostics().missCount == 2);
+  CHECK(cache.Diagnostics().uploadCount == 2);
+  CHECK(cache.Diagnostics().entryCount == 1);
 }
 
 TEST_CASE("Image composes fit tint clipping and semantic description") {

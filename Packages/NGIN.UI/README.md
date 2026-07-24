@@ -8,6 +8,8 @@ APIs, and optional `NGIN.Core` hosting belong to separate packages.
 Start with the
 [NGIN.UI developer documentation](../../docs/guides/ngin-ui.md) or the
 [five-minute standalone window](../../docs/guides/ngin-ui-first-window.md).
+Public source compatibility and deprecation rules are defined in the
+[NGIN.UI compatibility policy](../../docs/policies/ngin-ui-source-compatibility.md).
 
 The version 0.1 implementation provides:
 
@@ -97,6 +99,15 @@ cmake --build build/ngin-ui --target NGINUITests
 ctest --test-dir build/ngin-ui --output-on-failure
 ```
 
+Run the release-budget benchmarks, including ordinary heap-allocation counts:
+
+```bash
+cmake -S Packages/NGIN.UI -B build/ngin-ui-benchmarks \
+  -DNGIN_UI_BUILD_BENCHMARKS=ON
+cmake --build build/ngin-ui-benchmarks --target NGINUIBenchmarks
+./build/ngin-ui-benchmarks/benchmarks/NGINUIBenchmarks
+```
+
 Generate the browsable API reference with Doxygen:
 
 ```bash
@@ -130,6 +141,10 @@ See the
 [richer-content guide](../../docs/guides/ngin-ui-richer-content.md) for
 multiline layout, font fallback, `TextArea`, logical images, asynchronous
 decoding, and device recreation.
+See the
+[testing and release guide](../../docs/guides/ngin-ui-testing-and-release.md)
+for deterministic pixel tests, gallery smoke coverage, allocation budgets,
+cache diagnostics, install/export consumption, and staged licenses.
 
 The default build fetches the pinned text dependencies recorded in
 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). Configure with

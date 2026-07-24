@@ -150,12 +150,18 @@ TEST_CASE("native text rasterizes and caches renderer-backed atlas glyphs") {
   REQUIRE(renderer.TextureUpdates().size() == 1);
   REQUIRE(renderer.TextureUpdates().front().region.width > 0);
   REQUIRE_FALSE(renderer.TextureUpdates().front().bytes.empty());
+  CHECK(text->AtlasDiagnostics().missCount == 1);
+  CHECK(text->AtlasDiagnostics().uploadCount == 1);
+  CHECK(text->AtlasDiagnostics().entryCount == 1);
+  CHECK(text->AtlasDiagnostics().usedPixelArea > 0);
+  CHECK(text->AtlasDiagnostics().atlasSize == PixelSize{256, 256});
 
   auto cached = text->ResolveGlyph(request);
   REQUIRE(cached.HasValue());
   REQUIRE(cached.Value().textureCoordinates ==
           first.Value().textureCoordinates);
   REQUIRE(renderer.TextureUpdates().size() == 1);
+  CHECK(text->AtlasDiagnostics().hitCount == 1);
 
   const auto whitespace =
       text->Shape(TextRun{.text = NGIN::Text::String{" "}, .fontSize = 20.0F},
@@ -169,6 +175,8 @@ TEST_CASE("native text rasterizes and caches renderer-backed atlas glyphs") {
   REQUIRE(invisible.HasValue());
   REQUIRE_FALSE(invisible.Value().texture);
   REQUIRE(invisible.Value().size == Size{});
+  CHECK(text->AtlasDiagnostics().missCount == 2);
+  CHECK(text->AtlasDiagnostics().entryCount == 2);
 }
 
 TEST_CASE("native text drives retained Text layout and glyph display lists") {

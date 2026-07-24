@@ -1,6 +1,6 @@
 # NGIN.UI Post-v0.1 Roadmap
 
-Status: Active — Milestone 15 complete
+Status: Complete — Milestones 9–16 implemented and verified
 Baseline: [`NGIN.UI-V0.1-Acceptance-Audit.md`](NGIN.UI-V0.1-Acceptance-Audit.md)
 
 ## Goal
@@ -169,18 +169,18 @@ style, test, and debug an application without reading `NGIN.UI` source files.
 
 ## Milestone 16 — Release Quality
 
-- [ ] Add a deterministic software/reference renderer for pixel tests.
-- [ ] Add tolerant visual regression tests as a supplement to structural tests.
-- [ ] Add gallery smoke coverage for resize, keyboard, pointer, clipboard, IME,
+- [x] Add a deterministic software/reference renderer for pixel tests.
+- [x] Add tolerant visual regression tests as a supplement to structural tests.
+- [x] Add gallery smoke coverage for resize, keyboard, pointer, clipboard, IME,
       popup, dialog, and multiple-window behavior.
-- [ ] Add composition, layout, text, and large-list benchmarks with budgets.
-- [ ] Track frame allocation counts and glyph/image cache behavior.
-- [ ] Test renderer-device recreation and logical resource restoration.
-- [ ] Exercise supported Windows, Linux, and macOS build paths in CI.
-- [ ] Verify install/export consumption outside the source tree.
-- [ ] Produce license notices and staged runtime assets from authored package
+- [x] Add composition, layout, text, and large-list benchmarks with budgets.
+- [x] Track frame allocation counts and glyph/image cache behavior.
+- [x] Test renderer-device recreation and logical resource restoration.
+- [x] Exercise supported Windows, Linux, and macOS build paths in CI.
+- [x] Verify install/export consumption outside the source tree.
+- [x] Produce license notices and staged runtime assets from authored package
       metadata.
-- [ ] Define source-compatibility and deprecation policy for the public API.
+- [x] Define source-compatibility and deprecation policy for the public API.
 
 Exit criterion: the toolkit has repeatable cross-platform packaging,
 performance baselines, and behavioral and visual regression coverage.
@@ -189,14 +189,14 @@ performance baselines, and behavioral and visual regression coverage.
 
 A public control is not gallery-complete until:
 
-- [ ] its normal and meaningful alternate states are visible;
-- [ ] mouse and keyboard operation are demonstrated;
-- [ ] focus and disabled behavior are visible;
-- [ ] semantic role, value, state, and actions are correct;
-- [ ] theme tokens, rather than gallery-only colors, drive its appearance;
-- [ ] the example uses only public APIs;
-- [ ] focused headless behavior tests exist;
-- [ ] standalone and hosted builds use the same example implementation.
+- [x] its normal and meaningful alternate states are visible;
+- [x] mouse and keyboard operation are demonstrated;
+- [x] focus and disabled behavior are visible;
+- [x] semantic role, value, state, and actions are correct;
+- [x] theme tokens, rather than gallery-only colors, drive its appearance;
+- [x] the example uses only public APIs;
+- [x] focused headless behavior tests exist;
+- [x] standalone and hosted builds use the same example implementation.
 
 ## Deliberately Later
 

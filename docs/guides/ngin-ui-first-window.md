@@ -21,7 +21,14 @@ Create `Hello.UI.nginproj`:
     <Uses>
       <Package Name="NGIN.UI.Backend.SDL3"
                Version=">=0.1.0 &lt;0.2.0"
-               Scope="Target" />
+               Scope="Target">
+        <Feature Name="RuntimeNotices" />
+      </Package>
+      <Package Name="NGIN.UI"
+               Version=">=0.1.0 &lt;0.2.0"
+               Scope="Target">
+        <Feature Name="RuntimeAssets" />
+      </Package>
     </Uses>
     <Build>
       <Sources Path="src/**.cpp" />

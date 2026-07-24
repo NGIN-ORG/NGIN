@@ -49,6 +49,7 @@ add_executable(NGINUITests
     ImageTests.cpp
     InputTests.cpp
     LayoutTests.cpp
+    SoftwareRendererTests.cpp
     StateTests.cpp
     StyleTests.cpp
     TextTests.cpp
@@ -58,6 +59,10 @@ if(NGIN_UI_ENABLE_NATIVE_TEXT)
 endif()
 target_compile_features(NGINUITests PRIVATE cxx_std_23)
 target_link_libraries(NGINUITests PRIVATE Catch2::Catch2WithMain NGIN::UI)
+target_compile_definitions(
+    NGINUITests
+    PRIVATE NGIN_UI_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+)
 
 if(MSVC)
     target_compile_options(NGINUITests PRIVATE /W4 /permissive-)

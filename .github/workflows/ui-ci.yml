@@ -1,0 +1,117 @@
+name: NGIN.UI CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/ui-ci.yml"
+      - "Dependencies/NGIN/NGIN.Base/**"
+      - "Examples/NGIN.UI.*/**"
+      - "Packages/NGIN.UI*/**"
+      - "Packages/SDL3/**"
+      - "docs/guides/ngin-ui*.md"
+      - "docs/policies/ngin-ui*.md"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/ui-ci.yml"
+      - "Dependencies/NGIN/NGIN.Base/**"
+      - "Examples/NGIN.UI.*/**"
+      - "Packages/NGIN.UI*/**"
+      - "Packages/SDL3/**"
+      - "docs/guides/ngin-ui*.md"
+      - "docs/policies/ngin-ui*.md"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ui-ci-${{ github.ref }}-${{ matrix.os }}
+  cancel-in-progress: true
+
+jobs:
+  core:
+    name: UI core (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - windows-latest
+          - ubuntu-latest
+          - macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Configure tests and benchmarks
+        shell: bash
+        run: >
+          cmake -S Packages/NGIN.UI -B build/ui-ci
+          -DCMAKE_BUILD_TYPE=Release
+          -DNGIN_UI_BUILD_TESTS=ON
+          -DNGIN_UI_BUILD_BENCHMARKS=ON
+
+      - name: Build tests and benchmarks
+        shell: bash
+        run: >
+          cmake --build build/ui-ci --config Release
+          --target NGINUITests NGINUIBenchmarks
+
+      - name: Run structural, visual, and budget tests
+        shell: bash
+        run: ctest --test-dir build/ui-ci -C Release --output-on-failure
+
+      - name: Check public API documentation
+        shell: bash
+        run: >
+          python Packages/NGIN.UI/tools/check_public_api_docs.py
+          Packages/NGIN.UI/include/NGIN/UI
+          Packages/NGIN.UI.Hosting/include/NGIN/UI
+          Packages/NGIN.UI.Backend.SDL3/include/NGIN/UI
+
+      - name: Install NGIN.Base
+        shell: bash
+        run: |
+          cmake -S Dependencies/NGIN/NGIN.Base -B build/ui-install/base \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$PWD/build/ui-prefix" \
+            -DNGIN_BASE_BUILD_TESTS=OFF \
+            -DNGIN_BASE_BUILD_EXAMPLES=OFF \
+            -DNGIN_BASE_BUILD_BENCHMARKS=OFF
+          cmake --build build/ui-install/base --config Release --target install
+
+      - name: Install NGIN.UI contracts
+        shell: bash
+        run: |
+          cmake -S Packages/NGIN.UI -B build/ui-install/ui \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$PWD/build/ui-prefix" \
+            -DCMAKE_PREFIX_PATH="$PWD/build/ui-prefix" \
+            -DNGIN_UI_ENABLE_NATIVE_TEXT=OFF
+          cmake --build build/ui-install/ui --config Release --target install
+
+      - name: Build external install consumer
+        shell: bash
+        run: |
+          cmake -S Packages/NGIN.UI/tests/install-consumer \
+            -B build/ui-install/consumer \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$PWD/build/ui-prefix"
+          cmake --build build/ui-install/consumer --config Release
+          ctest --test-dir build/ui-install/consumer -C Release --output-on-failure
+
+      - name: Upload CTest logs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ui-ctest-${{ matrix.os }}
+          path: build/ui-ci/Testing/Temporary/
+          if-no-files-found: ignore
+          retention-days: 14

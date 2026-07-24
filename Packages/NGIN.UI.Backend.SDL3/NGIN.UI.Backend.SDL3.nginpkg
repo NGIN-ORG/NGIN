@@ -3,6 +3,10 @@
          Name="NGIN.UI.Backend.SDL3"
          Version="0.1.0"
          CompatiblePlatformRange=">=0.1.0 &lt;0.2.0">
+  <Metadata>
+    <Description>SDL3 native windowing and SDL_GPU renderer for NGIN.UI.</Description>
+    <License>Apache-2.0</License>
+  </Metadata>
   <Build Backend="CMake" Mode="AddSubdirectory">
     <Options>
       <Option Name="NGIN_UI_SDL3_BUILD_TESTS" Value="OFF" />
@@ -21,6 +25,19 @@
       <LibraryTarget Name="NGIN::UI::Backend::SDL3" Linkage="Static" />
     </Exports>
   </Library>
+  <Features>
+    <Feature Name="RuntimeNotices"
+             Description="Stage SDL and backend dependency notices.">
+      <Inputs>
+        <Assets>
+          <File Path="THIRD_PARTY_NOTICES.md"
+                Target="licenses/NGIN.UI.Backend.SDL3/THIRD_PARTY_NOTICES.md" />
+          <File Path="SDL3-LICENSE.txt"
+                Target="licenses/NGIN.UI.Backend.SDL3/SDL3-LICENSE.txt" />
+        </Assets>
+      </Inputs>
+    </Feature>
+  </Features>
   <Compatibility>
     <OperatingSystems>
       <OperatingSystem Name="windows" />
