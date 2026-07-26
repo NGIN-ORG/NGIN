@@ -136,8 +136,8 @@ TEST_CASE("window exposes live semantic state and frame diagnostics") {
   REQUIRE(initial.semanticNodeCount == 2);
   REQUIRE(initial.displayCommandCount == 1);
   REQUIRE(initial.drawBatchCount == 1);
-  REQUIRE(initial.vertexCount == 4);
-  REQUIRE(initial.indexCount == 6);
+  REQUIRE(initial.vertexCount == 9);
+  REQUIRE(initial.indexCount == 36);
   REQUIRE(initial.frameTimings.totalMilliseconds >= 0.0);
 
   platformObserver->InjectEvent(PointerButtonChanged{

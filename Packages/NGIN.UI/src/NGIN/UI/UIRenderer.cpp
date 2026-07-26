@@ -28,6 +28,23 @@ struct Transform2D final {
   F32 scaleY{1.0F};
 };
 
+struct PixelRadius final {
+  F32 x{0.0F};
+  F32 y{0.0F};
+};
+
+struct PixelRoundedRect final {
+  Rect rect{};
+  std::array<PixelRadius, 4> radii{};
+};
+
+constexpr UIntSize MaximumRoundedSegments = 16;
+
+struct PixelContour final {
+  std::array<Point, 4 * (MaximumRoundedSegments + 1)> points{};
+  UIntSize count{0};
+};
+
 [[nodiscard]] auto Compose(const Transform2D parent,
                            const PushTransform local) noexcept -> Transform2D {
   return Transform2D{
@@ -158,31 +175,116 @@ void AppendQuad(PreparedRenderPacket &packet, const Rect rect,
   AppendBatch(packet, texture, scissor, firstIndex, 6);
 }
 
-void AppendRoundedRect(PreparedRenderPacket &packet, const Rect rect,
-                       const CornerRadius radii, const Transform2D transform,
-                       const F32 scaleFactor, const UInt32 color,
-                       const PixelRect scissor) {
-  if (rect.width <= 0.0F || rect.height <= 0.0F || scissor.width == 0 ||
-      scissor.height == 0) {
-    return;
-  }
-
-  constexpr UIntSize segmentsPerCorner = 6;
-  constexpr F32 halfPi = std::numbers::pi_v<F32> * 0.5F;
+[[nodiscard]] auto ToPixelRoundedRect(const Rect rect, const CornerRadius radii,
+                                      const Transform2D transform,
+                                      const F32 scaleFactor) noexcept
+    -> PixelRoundedRect {
+  const auto transformed = TransformRect(rect, transform);
   const auto maximumRadius = std::min(rect.width, rect.height) * 0.5F;
-  const std::array radiiClamped{
+  std::array logicalRadii{
       std::clamp(radii.topLeft, 0.0F, maximumRadius),
       std::clamp(radii.topRight, 0.0F, maximumRadius),
       std::clamp(radii.bottomRight, 0.0F, maximumRadius),
       std::clamp(radii.bottomLeft, 0.0F, maximumRadius),
   };
-  const std::array centers{
-      Point{rect.x + radiiClamped[0], rect.y + radiiClamped[0]},
-      Point{rect.x + rect.width - radiiClamped[1], rect.y + radiiClamped[1]},
-      Point{rect.x + rect.width - radiiClamped[2],
-            rect.y + rect.height - radiiClamped[2]},
-      Point{rect.x + radiiClamped[3], rect.y + rect.height - radiiClamped[3]},
+  if (transform.scaleX < 0.0F) {
+    std::swap(logicalRadii[0], logicalRadii[1]);
+    std::swap(logicalRadii[2], logicalRadii[3]);
+  }
+  if (transform.scaleY < 0.0F) {
+    std::swap(logicalRadii[0], logicalRadii[3]);
+    std::swap(logicalRadii[1], logicalRadii[2]);
+  }
+
+  const auto radiusScaleX = std::abs(transform.scaleX) * scaleFactor;
+  const auto radiusScaleY = std::abs(transform.scaleY) * scaleFactor;
+  PixelRoundedRect result{
+      .rect =
+          Rect{
+              transformed.x * scaleFactor,
+              transformed.y * scaleFactor,
+              transformed.width * scaleFactor,
+              transformed.height * scaleFactor,
+          },
   };
+  for (UIntSize index = 0; index < logicalRadii.size(); ++index) {
+    result.radii[index] = PixelRadius{
+        logicalRadii[index] * radiusScaleX,
+        logicalRadii[index] * radiusScaleY,
+    };
+  }
+  return result;
+}
+
+[[nodiscard]] auto
+HasRoundedCorners(const std::array<PixelRadius, 4> &radii) noexcept -> bool {
+  return std::any_of(radii.begin(), radii.end(), [](const PixelRadius radius) {
+    return radius.x > 0.0001F && radius.y > 0.0001F;
+  });
+}
+
+[[nodiscard]] auto
+RoundedSegments(const std::array<PixelRadius, 4> &radii) noexcept -> UIntSize {
+  constexpr F32 curveTolerance = 0.2F;
+  constexpr UIntSize minimumSegments = 4;
+  F32 maximumRadius = 0.0F;
+  for (const auto radius : radii) {
+    maximumRadius = std::max({maximumRadius, radius.x, radius.y});
+  }
+  if (maximumRadius <= curveTolerance) {
+    return minimumSegments;
+  }
+  const auto angle =
+      2.0F *
+      std::acos(std::clamp(1.0F - curveTolerance / maximumRadius, -1.0F, 1.0F));
+  if (angle <= 0.0001F) {
+    return MaximumRoundedSegments;
+  }
+  return std::clamp(static_cast<UIntSize>(
+                        std::ceil((std::numbers::pi_v<F32> * 0.5F) / angle)),
+                    minimumSegments, MaximumRoundedSegments);
+}
+
+[[nodiscard]] auto RoundedContour(const PixelRoundedRect &shape,
+                                  const F32 offset,
+                                  const UIntSize segmentsPerCorner,
+                                  const bool preserveCornerSamples)
+    -> PixelContour {
+  const Rect rect{
+      shape.rect.x - offset,
+      shape.rect.y - offset,
+      shape.rect.width + offset * 2.0F,
+      shape.rect.height + offset * 2.0F,
+  };
+  PixelContour result{};
+  if (!preserveCornerSamples) {
+    result.points[0] = Point{rect.x, rect.y};
+    result.points[1] = Point{rect.x + rect.width, rect.y};
+    result.points[2] = Point{rect.x + rect.width, rect.y + rect.height};
+    result.points[3] = Point{rect.x, rect.y + rect.height};
+    result.count = 4;
+    return result;
+  }
+
+  std::array<PixelRadius, 4> radii{};
+  for (UIntSize index = 0; index < radii.size(); ++index) {
+    radii[index] = PixelRadius{
+        shape.radii[index].x > 0.0F
+            ? std::clamp(shape.radii[index].x + offset, 0.0F, rect.width * 0.5F)
+            : 0.0F,
+        shape.radii[index].y > 0.0F ? std::clamp(shape.radii[index].y + offset,
+                                                 0.0F, rect.height * 0.5F)
+                                    : 0.0F,
+    };
+  }
+  const std::array centers{
+      Point{rect.x + radii[0].x, rect.y + radii[0].y},
+      Point{rect.x + rect.width - radii[1].x, rect.y + radii[1].y},
+      Point{rect.x + rect.width - radii[2].x,
+            rect.y + rect.height - radii[2].y},
+      Point{rect.x + radii[3].x, rect.y + rect.height - radii[3].y},
+  };
+  constexpr F32 halfPi = std::numbers::pi_v<F32> * 0.5F;
   const std::array startAngles{
       std::numbers::pi_v<F32>,
       -halfPi,
@@ -190,54 +292,94 @@ void AppendRoundedRect(PreparedRenderPacket &packet, const Rect rect,
       halfPi,
   };
 
-  const auto firstVertex = static_cast<UInt32>(packet.vertices.size());
-  const auto firstIndex = static_cast<UInt32>(packet.indices.size());
-  const auto center = TransformPoint(
-      Point{rect.x + rect.width * 0.5F, rect.y + rect.height * 0.5F},
-      transform);
-  packet.vertices.push_back(RenderVertex{
-      center.x * scaleFactor,
-      center.y * scaleFactor,
-      0.5F,
-      0.5F,
-      color,
-  });
-
   for (UIntSize corner = 0; corner < centers.size(); ++corner) {
     for (UIntSize segment = 0; segment <= segmentsPerCorner; ++segment) {
       const auto angle =
           startAngles[corner] + halfPi * static_cast<F32>(segment) /
                                     static_cast<F32>(segmentsPerCorner);
-      const auto point = TransformPoint(
-          Point{
-              centers[corner].x + std::cos(angle) * radiiClamped[corner],
-              centers[corner].y + std::sin(angle) * radiiClamped[corner],
-          },
-          transform);
-      packet.vertices.push_back(RenderVertex{
-          point.x * scaleFactor,
-          point.y * scaleFactor,
-          0.0F,
-          0.0F,
-          color,
-      });
+      result.points[result.count++] = Point{
+          centers[corner].x + std::cos(angle) * radii[corner].x,
+          centers[corner].y + std::sin(angle) * radii[corner].y,
+      };
     }
   }
-
-  const auto perimeterCount =
-      static_cast<UInt32>(centers.size() * (segmentsPerCorner + 1));
-  for (UInt32 index = 0; index < perimeterCount; ++index) {
-    packet.indices.insert(packet.indices.end(),
-                          {firstVertex, firstVertex + 1 + index,
-                           firstVertex + 1 + ((index + 1) % perimeterCount)});
-  }
-  AppendBatch(packet, {}, scissor, firstIndex, perimeterCount * 3);
+  return result;
 }
 
-void AppendRoundedStroke(PreparedRenderPacket &packet, const Rect rect,
-                         const CornerRadius radii, const F32 thickness,
-                         const Transform2D transform, const F32 scaleFactor,
-                         const UInt32 color, const PixelRect scissor) {
+[[nodiscard]] auto AppendContour(PreparedRenderPacket &packet,
+                                 const PixelContour &contour,
+                                 const UInt32 color) -> UInt32 {
+  const auto firstVertex = static_cast<UInt32>(packet.vertices.size());
+  for (UIntSize index = 0; index < contour.count; ++index) {
+    const auto point = contour.points[index];
+    packet.vertices.push_back(RenderVertex{
+        point.x,
+        point.y,
+        0.0F,
+        0.0F,
+        color,
+    });
+  }
+  return firstVertex;
+}
+
+void AppendRingIndices(PreparedRenderPacket &packet, const UInt32 outer,
+                       const UInt32 inner, const UInt32 count) {
+  for (UInt32 index = 0; index < count; ++index) {
+    const auto next = (index + 1) % count;
+    packet.indices.insert(packet.indices.end(),
+                          {outer + index, outer + next, inner + next,
+                           outer + index, inner + next, inner + index});
+  }
+}
+
+void AppendAntialiasedFill(PreparedRenderPacket &packet, const Rect rect,
+                           const CornerRadius radii,
+                           const Transform2D transform, const F32 scaleFactor,
+                           const UInt32 color, const PixelRect scissor) {
+  if (rect.width <= 0.0F || rect.height <= 0.0F || scissor.width == 0 ||
+      scissor.height == 0) {
+    return;
+  }
+
+  const auto shape = ToPixelRoundedRect(rect, radii, transform, scaleFactor);
+  if (shape.rect.width <= 0.0F || shape.rect.height <= 0.0F) {
+    return;
+  }
+  const auto coverageHalfWidth =
+      std::min(0.5F, std::min(shape.rect.width, shape.rect.height) * 0.25F);
+  const auto rounded = HasRoundedCorners(shape.radii);
+  const auto segments = RoundedSegments(shape.radii);
+  const auto inner =
+      RoundedContour(shape, -coverageHalfWidth, segments, rounded);
+  const auto outer =
+      RoundedContour(shape, coverageHalfWidth, segments, rounded);
+  const auto firstIndex = static_cast<UInt32>(packet.indices.size());
+  const auto center = static_cast<UInt32>(packet.vertices.size());
+  packet.vertices.push_back(RenderVertex{
+      shape.rect.x + shape.rect.width * 0.5F,
+      shape.rect.y + shape.rect.height * 0.5F,
+      0.0F,
+      0.0F,
+      color,
+  });
+  const auto innerStart = AppendContour(packet, inner, color);
+  const auto outerStart = AppendContour(packet, outer, 0U);
+  const auto count = static_cast<UInt32>(inner.count);
+  for (UInt32 index = 0; index < count; ++index) {
+    packet.indices.insert(
+        packet.indices.end(),
+        {center, innerStart + index, innerStart + ((index + 1) % count)});
+  }
+  AppendRingIndices(packet, innerStart, outerStart, count);
+  AppendBatch(packet, {}, scissor, firstIndex,
+              static_cast<UInt32>(packet.indices.size()) - firstIndex);
+}
+
+void AppendAntialiasedStroke(PreparedRenderPacket &packet, const Rect rect,
+                             const CornerRadius radii, const F32 thickness,
+                             const Transform2D transform, const F32 scaleFactor,
+                             const UInt32 color, const PixelRect scissor) {
   if (rect.width <= 0.0F || rect.height <= 0.0F || thickness <= 0.0F ||
       scissor.width == 0 || scissor.height == 0) {
     return;
@@ -246,95 +388,62 @@ void AppendRoundedStroke(PreparedRenderPacket &packet, const Rect rect,
   const auto clampedThickness =
       std::clamp(thickness, 0.0F, std::min(rect.width, rect.height) * 0.5F);
   if (clampedThickness * 2.0F >= std::min(rect.width, rect.height)) {
-    AppendRoundedRect(packet, rect, radii, transform, scaleFactor, color,
-                      scissor);
+    AppendAntialiasedFill(packet, rect, radii, transform, scaleFactor, color,
+                          scissor);
     return;
   }
 
-  constexpr UIntSize segmentsPerCorner = 6;
-  constexpr F32 halfPi = std::numbers::pi_v<F32> * 0.5F;
-  const auto maximumRadius = std::min(rect.width, rect.height) * 0.5F;
-  const std::array outerRadii{
-      std::clamp(radii.topLeft, 0.0F, maximumRadius),
-      std::clamp(radii.topRight, 0.0F, maximumRadius),
-      std::clamp(radii.bottomRight, 0.0F, maximumRadius),
-      std::clamp(radii.bottomLeft, 0.0F, maximumRadius),
+  const auto outerShape =
+      ToPixelRoundedRect(rect, radii, transform, scaleFactor);
+  const auto insetX =
+      clampedThickness * std::abs(transform.scaleX) * scaleFactor;
+  const auto insetY =
+      clampedThickness * std::abs(transform.scaleY) * scaleFactor;
+  if (outerShape.rect.width <= 0.0F || outerShape.rect.height <= 0.0F ||
+      insetX <= 0.0F || insetY <= 0.0F) {
+    return;
+  }
+  PixelRoundedRect innerShape{
+      .rect =
+          Rect{
+              outerShape.rect.x + insetX,
+              outerShape.rect.y + insetY,
+              outerShape.rect.width - insetX * 2.0F,
+              outerShape.rect.height - insetY * 2.0F,
+          },
   };
-  const std::array outerCenters{
-      Point{rect.x + outerRadii[0], rect.y + outerRadii[0]},
-      Point{rect.x + rect.width - outerRadii[1], rect.y + outerRadii[1]},
-      Point{rect.x + rect.width - outerRadii[2],
-            rect.y + rect.height - outerRadii[2]},
-      Point{rect.x + outerRadii[3], rect.y + rect.height - outerRadii[3]},
-  };
-  const Rect innerRect{
-      rect.x + clampedThickness,
-      rect.y + clampedThickness,
-      rect.width - clampedThickness * 2.0F,
-      rect.height - clampedThickness * 2.0F,
-  };
-  const std::array innerRadii{
-      std::max(0.0F, outerRadii[0] - clampedThickness),
-      std::max(0.0F, outerRadii[1] - clampedThickness),
-      std::max(0.0F, outerRadii[2] - clampedThickness),
-      std::max(0.0F, outerRadii[3] - clampedThickness),
-  };
-  const std::array innerCenters{
-      Point{innerRect.x + innerRadii[0], innerRect.y + innerRadii[0]},
-      Point{innerRect.x + innerRect.width - innerRadii[1],
-            innerRect.y + innerRadii[1]},
-      Point{innerRect.x + innerRect.width - innerRadii[2],
-            innerRect.y + innerRect.height - innerRadii[2]},
-      Point{innerRect.x + innerRadii[3],
-            innerRect.y + innerRect.height - innerRadii[3]},
-  };
-  const std::array startAngles{
-      std::numbers::pi_v<F32>,
-      -halfPi,
-      0.0F,
-      halfPi,
-  };
-
-  const auto firstVertex = static_cast<UInt32>(packet.vertices.size());
+  for (UIntSize index = 0; index < innerShape.radii.size(); ++index) {
+    innerShape.radii[index] = PixelRadius{
+        std::max(0.0F, outerShape.radii[index].x - insetX),
+        std::max(0.0F, outerShape.radii[index].y - insetY),
+    };
+  }
+  const auto coverageHalfWidth = std::min(
+      {0.5F, std::min(insetX, insetY) * 0.5F,
+       std::min(outerShape.rect.width, outerShape.rect.height) * 0.25F});
+  const auto rounded = HasRoundedCorners(outerShape.radii);
+  const auto segments = RoundedSegments(outerShape.radii);
+  const auto outerTransparent =
+      RoundedContour(outerShape, coverageHalfWidth, segments, rounded);
+  const auto outerFull =
+      RoundedContour(outerShape, -coverageHalfWidth, segments, rounded);
+  const auto innerFull =
+      RoundedContour(innerShape, coverageHalfWidth, segments, rounded);
+  const auto innerTransparent =
+      RoundedContour(innerShape, -coverageHalfWidth, segments, rounded);
   const auto firstIndex = static_cast<UInt32>(packet.indices.size());
-  for (UIntSize corner = 0; corner < outerCenters.size(); ++corner) {
-    for (UIntSize segment = 0; segment <= segmentsPerCorner; ++segment) {
-      const auto angle =
-          startAngles[corner] + halfPi * static_cast<F32>(segment) /
-                                    static_cast<F32>(segmentsPerCorner);
-      for (UIntSize edge = 0; edge < 2; ++edge) {
-        const auto center =
-            edge == 0 ? outerCenters[corner] : innerCenters[corner];
-        const auto radius = edge == 0 ? outerRadii[corner] : innerRadii[corner];
-        const auto point = TransformPoint(
-            Point{
-                center.x + std::cos(angle) * radius,
-                center.y + std::sin(angle) * radius,
-            },
-            transform);
-        packet.vertices.push_back(RenderVertex{
-            point.x * scaleFactor,
-            point.y * scaleFactor,
-            0.0F,
-            0.0F,
-            color,
-        });
-      }
-    }
-  }
-
-  constexpr UInt32 perimeterCount =
-      static_cast<UInt32>(4 * (segmentsPerCorner + 1));
-  for (UInt32 index = 0; index < perimeterCount; ++index) {
-    const auto next = (index + 1) % perimeterCount;
-    const auto outer = firstVertex + index * 2;
-    const auto inner = outer + 1;
-    const auto nextOuter = firstVertex + next * 2;
-    const auto nextInner = nextOuter + 1;
-    packet.indices.insert(packet.indices.end(), {outer, nextOuter, nextInner,
-                                                 outer, nextInner, inner});
-  }
-  AppendBatch(packet, {}, scissor, firstIndex, perimeterCount * 6);
+  const auto outerTransparentStart =
+      AppendContour(packet, outerTransparent, 0U);
+  const auto outerFullStart = AppendContour(packet, outerFull, color);
+  const auto innerFullStart = AppendContour(packet, innerFull, color);
+  const auto innerTransparentStart =
+      AppendContour(packet, innerTransparent, 0U);
+  const auto count = static_cast<UInt32>(outerFull.count);
+  AppendRingIndices(packet, outerTransparentStart, outerFullStart, count);
+  AppendRingIndices(packet, outerFullStart, innerFullStart, count);
+  AppendRingIndices(packet, innerFullStart, innerTransparentStart, count);
+  AppendBatch(packet, {}, scissor, firstIndex,
+              static_cast<UInt32>(packet.indices.size()) - firstIndex);
 }
 } // namespace
 
@@ -379,41 +488,23 @@ auto UIRenderer::Build(const DisplayList &displayList,
               opacities.pop_back();
             }
           } else if constexpr (std::is_same_v<Command, FillRect>) {
-            AppendQuad(packet, value.rect, transforms.back(), effectiveScale,
-                       PackColor(value.color, opacities.back()),
-                       ToScissor(clips.back(), effectiveScale, targetSize));
+            AppendAntialiasedFill(
+                packet, value.rect, CornerRadius{}, transforms.back(),
+                effectiveScale, PackColor(value.color, opacities.back()),
+                ToScissor(clips.back(), effectiveScale, targetSize));
           } else if constexpr (std::is_same_v<Command, FillRoundedRect>) {
-            AppendRoundedRect(
+            AppendAntialiasedFill(
                 packet, value.rect, value.radius, transforms.back(),
                 effectiveScale, PackColor(value.color, opacities.back()),
                 ToScissor(clips.back(), effectiveScale, targetSize));
           } else if constexpr (std::is_same_v<Command, StrokeRect>) {
-            const auto thickness = std::clamp(
-                value.thickness, 0.0F,
-                std::min(value.rect.width, value.rect.height) * 0.5F);
-            const auto color = PackColor(value.color, opacities.back());
-            const auto scissor =
-                ToScissor(clips.back(), effectiveScale, targetSize);
-            AppendQuad(
-                packet,
-                Rect{value.rect.x, value.rect.y, value.rect.width, thickness},
-                transforms.back(), effectiveScale, color, scissor);
-            AppendQuad(packet,
-                       Rect{value.rect.x,
-                            value.rect.y + value.rect.height - thickness,
-                            value.rect.width, thickness},
-                       transforms.back(), effectiveScale, color, scissor);
-            AppendQuad(packet,
-                       Rect{value.rect.x, value.rect.y + thickness, thickness,
-                            value.rect.height - thickness * 2.0F},
-                       transforms.back(), effectiveScale, color, scissor);
-            AppendQuad(packet,
-                       Rect{value.rect.x + value.rect.width - thickness,
-                            value.rect.y + thickness, thickness,
-                            value.rect.height - thickness * 2.0F},
-                       transforms.back(), effectiveScale, color, scissor);
+            AppendAntialiasedStroke(
+                packet, value.rect, CornerRadius{}, value.thickness,
+                transforms.back(), effectiveScale,
+                PackColor(value.color, opacities.back()),
+                ToScissor(clips.back(), effectiveScale, targetSize));
           } else if constexpr (std::is_same_v<Command, StrokeRoundedRect>) {
-            AppendRoundedStroke(
+            AppendAntialiasedStroke(
                 packet, value.rect, value.radius, value.thickness,
                 transforms.back(), effectiveScale,
                 PackColor(value.color, opacities.back()),

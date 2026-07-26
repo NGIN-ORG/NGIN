@@ -30,6 +30,8 @@ The version 0.1 implementation provides:
 - typed node layout and solid-background properties;
 - backend-neutral display-list construction;
 - DPI-aware rectangle, rounded-rectangle, stroke, and image tessellation;
+- automatic one-physical-pixel coverage anti-aliasing for solid fills and
+  strokes across every renderer backend;
 - nested transform, clip, and opacity stacks with texture-aware batch
   coalescing;
 - backend-neutral font-provider, shaping, paragraph-layout, and grapheme

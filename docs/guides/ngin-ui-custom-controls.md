@@ -139,6 +139,10 @@ local origin around every `Paint()` call. Drawing outside `paint.Bounds()` is
 therefore clipped. Parent scroll clips, transforms, opacity, and popup ordering
 remain in effect, and the framework balances the display-list scopes even when
 painting returns an error. DPI conversion happens later in `UIRenderer`.
+Solid fills and strokes receive the same one-physical-pixel edge
+anti-aliasing as built-in controls; custom controls do not need backend-specific
+anti-aliasing code. Text uses FreeType glyph coverage, while images keep their
+texture sampling and tint behavior.
 
 Painting must be deterministic and side-effect free. Mutate state from input,
 timers, or application state transitions, then invalidate; do not use `Paint()`

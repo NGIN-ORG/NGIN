@@ -215,8 +215,8 @@ TEST_CASE("window frames lay out painted nodes into renderer packets") {
   REQUIRE(window->LastLayoutStats().measured == 2);
   REQUIRE(window->LastLayoutStats().arranged == 2);
   REQUIRE(rendererObserver->RenderPackets().size() == 1);
-  REQUIRE(rendererObserver->RenderPackets().front().vertices.size() == 4);
-  REQUIRE(rendererObserver->RenderPackets().front().indices.size() == 6);
+  REQUIRE(rendererObserver->RenderPackets().front().vertices.size() == 9);
+  REQUIRE(rendererObserver->RenderPackets().front().indices.size() == 36);
 
   const auto *rectangle = window->Tree().Get(
       window->Tree().Get(window->Tree().Root())->children.front());

@@ -1,4 +1,5 @@
 #include <NGIN/UI/Testing/SoftwareRenderBackend.hpp>
+#include <NGIN/UI/UIRenderer.hpp>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -84,11 +85,11 @@ TEST_CASE("software renderer matches a tolerant visual baseline") {
   REQUIRE(actual.HasValue());
   const auto expected =
       LoadP3(NGIN_UI_TEST_SOURCE_DIR "/baselines/software-reference.ppm");
-  const auto comparison = CompareVisuals(
-      expected, actual.Value(),
-      VisualTolerance{.channelDelta = 1,
-                      .maximumDifferentPixelRatio = 0.0,
-                      .maximumMeanAbsoluteError = 0.1});
+  const auto comparison =
+      CompareVisuals(expected, actual.Value(),
+                     VisualTolerance{.channelDelta = 1,
+                                     .maximumDifferentPixelRatio = 0.0,
+                                     .maximumMeanAbsoluteError = 0.1});
   CHECK(comparison.dimensionsMatch);
   CHECK(comparison.differentPixelCount == 0);
   CHECK(comparison.maximumChannelDelta == 0);
@@ -103,11 +104,11 @@ TEST_CASE("software renderer matches a tolerant visual baseline") {
             .passed);
 
   tolerated.rgba[0] = static_cast<Byte>(64);
-  const auto regression = CompareVisuals(
-      expected, tolerated,
-      VisualTolerance{.channelDelta = 1,
-                      .maximumDifferentPixelRatio = 0.0,
-                      .maximumMeanAbsoluteError = 0.1});
+  const auto regression =
+      CompareVisuals(expected, tolerated,
+                     VisualTolerance{.channelDelta = 1,
+                                     .maximumDifferentPixelRatio = 0.0,
+                                     .maximumMeanAbsoluteError = 0.1});
   CHECK_FALSE(regression.passed);
   CHECK(regression.differentPixelCount == 1);
 }
@@ -124,9 +125,9 @@ TEST_CASE("software renderer samples textures and clips batches") {
   const auto texture = renderer.CreateTexture(
       TextureCreateInfo{.size = {1, 1}, .format = TextureFormat::RGBA8});
   REQUIRE(texture.HasValue());
-  const std::array<Byte, 4> blue{
-      static_cast<Byte>(0), static_cast<Byte>(0), static_cast<Byte>(255),
-      static_cast<Byte>(255)};
+  const std::array<Byte, 4> blue{static_cast<Byte>(0), static_cast<Byte>(0),
+                                 static_cast<Byte>(255),
+                                 static_cast<Byte>(255)};
   REQUIRE(renderer
               .UpdateTexture(texture.Value(),
                              TextureUpdateInfo{.region = {0, 0, 1, 1},
@@ -165,4 +166,61 @@ TEST_CASE("software renderer samples textures and clips batches") {
   CHECK(snapshot.Value().Pixel(3, 3).blue == 0);
   CHECK(renderer.RenderCount() == 1);
   CHECK(renderer.LiveTextureCount() == 1);
+}
+
+TEST_CASE("shared shape geometry renders smooth edges at every scale") {
+  using namespace NGIN::UI;
+  using namespace NGIN::UI::Testing;
+
+  struct ScaleCase final {
+    NGIN::F32 scaleFactor;
+    PixelSize targetSize;
+    UInt32 fillCenter;
+    UInt32 strokeCenter;
+    UInt32 strokeStart;
+  };
+  constexpr std::array cases{
+      ScaleCase{1.0F, {16, 8}, 4, 12, 8},
+      ScaleCase{2.0F, {32, 16}, 8, 24, 16},
+  };
+
+  SoftwareRenderBackend renderer;
+  REQUIRE(renderer.Initialize({}).HasValue());
+  UInt32 windowIndex = 10;
+  for (const auto &test : cases) {
+    const auto surface = renderer.CreateSurface(
+        PlatformWindowHandle{windowIndex++, 1}, test.targetSize);
+    REQUIRE(surface.HasValue());
+    const DisplayList displayList{
+        FillRoundedRect{
+            Rect{1.0F, 1.0F, 6.0F, 6.0F},
+            CornerRadius::Uniform(Dp{3.0F}),
+            Color{1.0F, 1.0F, 1.0F, 1.0F},
+        },
+        StrokeRoundedRect{
+            Rect{9.0F, 1.0F, 6.0F, 6.0F},
+            CornerRadius::Uniform(Dp{3.0F}),
+            1.0F,
+            Color{1.0F, 1.0F, 1.0F, 1.0F},
+        },
+    };
+    const auto packet =
+        UIRenderer{}.Build(displayList, test.targetSize, test.scaleFactor,
+                           Color{0.0F, 0.0F, 0.0F, 1.0F});
+    REQUIRE(renderer.Render(surface.Value(), packet.View()).HasValue());
+    const auto snapshot = renderer.Snapshot(surface.Value());
+    REQUIRE(snapshot.HasValue());
+    CHECK(snapshot.Value().Pixel(test.fillCenter, test.fillCenter).red == 255);
+    CHECK(snapshot.Value().Pixel(test.strokeCenter, test.fillCenter).red == 0);
+
+    bool strokeHasPartialCoverage = false;
+    for (UInt32 y = 0; y < test.targetSize.height; ++y) {
+      for (UInt32 x = test.strokeStart; x < test.targetSize.width; ++x) {
+        const auto coverage = snapshot.Value().Pixel(x, y).red;
+        strokeHasPartialCoverage =
+            strokeHasPartialCoverage || (coverage > 0 && coverage < 255);
+      }
+    }
+    CHECK(strokeHasPartialCoverage);
+  }
 }

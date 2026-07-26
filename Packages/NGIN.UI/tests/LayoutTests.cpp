@@ -536,7 +536,7 @@ TEST_CASE("display-list builder diagnoses unbalanced scopes") {
   REQUIRE(finished.Value().size() == 3);
 }
 
-TEST_CASE("UI renderer tessellates and batches solid rectangles") {
+TEST_CASE("UI renderer tessellates antialiased and batched solid rectangles") {
   using namespace NGIN::UI;
 
   DisplayList list{
@@ -546,12 +546,15 @@ TEST_CASE("UI renderer tessellates and batches solid rectangles") {
   UIRenderer renderer;
   const auto packet = renderer.Build(list, PixelSize{200, 100}, 2.0F);
 
-  REQUIRE(packet.vertices.size() == 8);
-  REQUIRE(packet.indices.size() == 12);
+  REQUIRE(packet.vertices.size() == 18);
+  REQUIRE(packet.indices.size() == 72);
   REQUIRE(packet.batches.size() == 1);
-  REQUIRE(packet.batches.front().indexCount == 12);
-  REQUIRE(packet.vertices[1].x == 20.0F);
-  REQUIRE(packet.vertices[2].y == 40.0F);
+  REQUIRE(packet.batches.front().indexCount == 72);
+  REQUIRE(packet.vertices[0].x == 10.0F);
+  REQUIRE(packet.vertices[0].y == 20.0F);
+  REQUIRE(packet.vertices[1].x == 0.5F);
+  REQUIRE(packet.vertices[1].y == 0.5F);
+  REQUIRE(packet.vertices[5].color == 0U);
   REQUIRE(packet.batches.front().scissor == PixelRect{0, 0, 200, 100});
 }
 
@@ -575,13 +578,16 @@ TEST_CASE("UI renderer applies nested transform clip and opacity state") {
   UIRenderer renderer;
   const auto packet = renderer.Build(list, PixelSize{200, 200}, 2.0F);
 
-  REQUIRE(packet.vertices.size() == 4);
-  REQUIRE(packet.indices.size() == 6);
-  REQUIRE(packet.vertices[0].x == 24.0F);
-  REQUIRE(packet.vertices[0].y == 48.0F);
-  REQUIRE(packet.vertices[2].x == 36.0F);
-  REQUIRE(packet.vertices[2].y == 64.0F);
+  REQUIRE(packet.vertices.size() == 9);
+  REQUIRE(packet.indices.size() == 36);
+  REQUIRE(packet.vertices[0].x == 30.0F);
+  REQUIRE(packet.vertices[0].y == 56.0F);
+  REQUIRE(packet.vertices[1].x == 24.5F);
+  REQUIRE(packet.vertices[1].y == 48.5F);
+  REQUIRE(packet.vertices[5].x == 23.5F);
+  REQUIRE(packet.vertices[5].y == 47.5F);
   REQUIRE(packet.vertices[0].color == 0x40000040U);
+  REQUIRE(packet.vertices[5].color == 0U);
   REQUIRE(packet.batches.front().scissor == PixelRect{20, 40, 20, 20});
 }
 
@@ -609,11 +615,11 @@ TEST_CASE("UI renderer emits rounded stroke and textured image geometry") {
   UIRenderer renderer;
   const auto packet = renderer.Build(list, PixelSize{100, 100}, 1.0F);
 
-  REQUIRE(packet.vertices.size() == 49);
-  REQUIRE(packet.indices.size() == 114);
+  REQUIRE(packet.vertices.size() == 61);
+  REQUIRE(packet.indices.size() == 258);
   REQUIRE(packet.batches.size() == 2);
   REQUIRE_FALSE(packet.batches[0].texture);
-  REQUIRE(packet.batches[0].indexCount == 108);
+  REQUIRE(packet.batches[0].indexCount == 252);
   REQUIRE(packet.batches[1].texture == texture);
   REQUIRE(packet.batches[1].indexCount == 6);
   REQUIRE(packet.vertices.back().u == 0.0F);
