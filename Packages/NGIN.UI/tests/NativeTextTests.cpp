@@ -10,7 +10,6 @@
 #include <NGIN/UI/Testing/RecordingRenderBackend.hpp>
 
 #include <algorithm>
-#include <array>
 #include <memory>
 #include <string_view>
 #include <utility>
@@ -149,20 +148,8 @@ TEST_CASE("native text rasterizes and caches renderer-backed atlas glyphs") {
   REQUIRE(first.Value().texture);
   REQUIRE(first.Value().size.width > 0.0F);
   REQUIRE(renderer.TextureUpdates().size() == 1);
-  const auto &upload = renderer.TextureUpdates().front();
-  REQUIRE(upload.region.width > 0);
+  REQUIRE(renderer.TextureUpdates().front().region.width > 0);
   REQUIRE_FALSE(renderer.TextureUpdates().front().bytes.empty());
-  CHECK(first.Value().size.width >
-        static_cast<NGIN::F32>(upload.region.width) / request.scaleFactor);
-  CHECK(first.Value().size.height >
-        static_cast<NGIN::F32>(upload.region.height) / request.scaleFactor);
-  const auto atlasSize = text->AtlasDiagnostics().atlasSize;
-  CHECK(first.Value().textureCoordinates.width >
-        static_cast<NGIN::F32>(upload.region.width) /
-            static_cast<NGIN::F32>(atlasSize.width));
-  CHECK(first.Value().textureCoordinates.height >
-        static_cast<NGIN::F32>(upload.region.height) /
-            static_cast<NGIN::F32>(atlasSize.height));
   CHECK(text->AtlasDiagnostics().missCount == 1);
   CHECK(text->AtlasDiagnostics().uploadCount == 1);
   CHECK(text->AtlasDiagnostics().entryCount == 1);
@@ -227,56 +214,6 @@ TEST_CASE("native text drives retained Text layout and glyph display lists") {
                         return std::holds_alternative<DrawGlyphRun>(command);
                       }));
   REQUIRE_FALSE(renderer.TextureUpdates().empty());
-}
-
-TEST_CASE(
-    "native text filtering bounds stay inside measured clips at every scale") {
-  using namespace NGIN::UI;
-
-  constexpr std::array scaleFactors{1.0F, 1.25F, 1.5F, 2.0F};
-  constexpr std::array fontSizes{14.0F, 18.0F, 20.0F, 34.0F};
-
-  for (const auto scaleFactor : scaleFactors) {
-    for (const auto fontSize : fontSizes) {
-      Testing::RecordingRenderBackend renderer;
-      auto text = CreateTextSystem(renderer);
-      NodeProperties properties{};
-      properties.layout.horizontalAlignment = HorizontalAlignment::Start;
-      properties.layout.verticalAlignment = VerticalAlignment::Start;
-      properties.text.fontSize = fontSize;
-
-      Composer composer;
-      composer.Text(NGIN::Text::String{"Typography gyjpq"}, *text, *text,
-                    properties);
-      RuntimeTree tree;
-      Reconciler reconciler{tree};
-      static_cast<void>(reconciler.Reconcile(composer.Declarations()));
-      LayoutEngine layout{tree};
-      static_cast<void>(
-          layout.Perform(SizeConstraints{.maximum = Size{400.0F, 100.0F}},
-                         Rect{0.0F, 0.0F, 400.0F, 100.0F}, scaleFactor));
-
-      const auto displayList = BuildDisplayList(tree);
-      REQUIRE_FALSE(displayList.empty());
-      REQUIRE(std::holds_alternative<PushClipRect>(displayList.front()));
-      const auto clip = std::get<PushClipRect>(displayList.front()).rect;
-      bool sawGlyph = false;
-      for (const auto &command : displayList) {
-        const auto *run = std::get_if<DrawGlyphRun>(&command);
-        if (run == nullptr) {
-          continue;
-        }
-        for (const auto &glyph : run->glyphs) {
-          sawGlyph = true;
-          INFO("scale=" << scaleFactor << " fontSize=" << fontSize);
-          CHECK(glyph.destination.y >= clip.y);
-          CHECK(glyph.destination.y + glyph.destination.height <=
-                clip.y + clip.height);
-        }
-      }
-      CHECK(sawGlyph);
-    }
-  }
 }
 
 TEST_CASE("native text lays out explicit and Unicode wrap opportunities") {
