@@ -1,6 +1,7 @@
 #include <NGIN/UI/Image.hpp>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <charconv>
 #include <cmath>
@@ -12,8 +13,26 @@
 #include <unordered_map>
 #include <utility>
 
+#if defined(NGIN_UI_HAS_STANDARD_IMAGE_FORMATS)
+#define STBI_ONLY_JPEG
+#define STBI_ONLY_PNG
+#define STBI_NO_STDIO
+#define STBI_MAX_DIMENSIONS 16384
+#define STB_IMAGE_IMPLEMENTATION
+#if defined(_MSC_VER)
+#pragma warning(push, 0)
+#endif
+#include <stb_image.h>
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
+#endif
+
 namespace NGIN::UI {
 namespace {
+constexpr UIntSize MaximumStandardEncodedBytes = 64U * 1024U * 1024U;
+constexpr UInt64 MaximumStandardDecodedBytes = 256ULL * 1024ULL * 1024ULL;
+
 [[nodiscard]] auto ImageError(const UIErrorCode code, const char *message,
                               const char *operation) -> UIError {
   return MakeUIError(code, message, "NGIN.UI", operation, "Image");
@@ -150,6 +169,30 @@ namespace {
   return static_cast<Byte>(
       static_cast<UInt8>(std::round(std::clamp(value, 0.0F, 1.0F) * 255.0F)));
 }
+
+[[nodiscard]] auto HasPngSignature(const std::span<const Byte> bytes) noexcept
+    -> bool {
+  constexpr std::array<UInt8, 8> signature{
+      0x89U, 0x50U, 0x4EU, 0x47U, 0x0DU, 0x0AU, 0x1AU, 0x0AU,
+  };
+  return bytes.size() >= signature.size() &&
+         std::equal(signature.begin(), signature.end(), bytes.begin(),
+                    [](const UInt8 expected, const Byte actual) {
+                      return expected == ByteValue(actual);
+                    });
+}
+
+[[nodiscard]] auto HasJpegSignature(const std::span<const Byte> bytes) noexcept
+    -> bool {
+  return bytes.size() >= 3 && ByteValue(bytes[0]) == 0xFFU &&
+         ByteValue(bytes[1]) == 0xD8U && ByteValue(bytes[2]) == 0xFFU;
+}
+
+[[nodiscard]] auto HasPortablePixmapSignature(
+    const std::span<const Byte> bytes) noexcept -> bool {
+  return bytes.size() >= 2 && ByteValue(bytes[0]) == 0x50U &&
+         (ByteValue(bytes[1]) == 0x33U || ByteValue(bytes[1]) == 0x36U);
+}
 } // namespace
 
 auto PortablePixmapImageDecoder::Decode(
@@ -166,6 +209,101 @@ auto PortablePixmapImageDecoder::Decode(
     return ImageError(UIErrorCode::OutOfMemory,
                       "Unable to allocate decoded image pixels", "DecodeImage");
   }
+}
+
+auto StandardImageDecoder::Decode(
+    const std::span<const Byte> encoded,
+    const std::atomic_bool &cancellationRequested) noexcept
+    -> UIResult<ImagePixels> {
+  if (cancellationRequested.load()) {
+    return ImageError(UIErrorCode::InvalidState, "Image decoding was cancelled",
+                      "DecodeImage");
+  }
+  if (encoded.size() > MaximumStandardEncodedBytes) {
+    return ImageError(UIErrorCode::ResourceFailed,
+                      "The encoded image exceeds the 64 MiB limit",
+                      "DecodeImage");
+  }
+  if (HasPortablePixmapSignature(encoded)) {
+    PortablePixmapImageDecoder portablePixmap;
+    return portablePixmap.Decode(encoded, cancellationRequested);
+  }
+  if (!HasPngSignature(encoded) && !HasJpegSignature(encoded)) {
+    return ImageError(
+        UIErrorCode::Unsupported,
+        "The built-in decoder supports PNG, JPEG, P3 PPM, and P6 PPM",
+        "DecodeImage");
+  }
+
+#if defined(NGIN_UI_HAS_STANDARD_IMAGE_FORMATS)
+  try {
+    if (encoded.size() >
+        static_cast<UIntSize>(std::numeric_limits<int>::max())) {
+      return ImageError(UIErrorCode::ResourceFailed,
+                        "The encoded image is too large for the decoder",
+                        "DecodeImage");
+    }
+    const auto encodedSize = static_cast<int>(encoded.size());
+    const auto *encodedBytes =
+        reinterpret_cast<const stbi_uc *>(encoded.data());
+    int width = 0;
+    int height = 0;
+    int sourceChannels = 0;
+    if (stbi_info_from_memory(encodedBytes, encodedSize, &width, &height,
+                              &sourceChannels) == 0 ||
+        width <= 0 || height <= 0) {
+      return ImageError(UIErrorCode::ResourceFailed,
+                        "The PNG or JPEG header is invalid", "DecodeImage");
+    }
+    const auto pixelCount = static_cast<UInt64>(width) *
+                            static_cast<UInt64>(height);
+    if (pixelCount > MaximumStandardDecodedBytes / 4ULL) {
+      return ImageError(UIErrorCode::OutOfMemory,
+                        "The decoded image exceeds the 256 MiB limit",
+                        "DecodeImage");
+    }
+    if (cancellationRequested.load()) {
+      return ImageError(UIErrorCode::InvalidState,
+                        "Image decoding was cancelled", "DecodeImage");
+    }
+
+    auto *decoded =
+        stbi_load_from_memory(encodedBytes, encodedSize, &width, &height,
+                              &sourceChannels, STBI_rgb_alpha);
+    if (decoded == nullptr) {
+      return ImageError(UIErrorCode::ResourceFailed,
+                        "The PNG or JPEG payload could not be decoded",
+                        "DecodeImage");
+    }
+    const auto release = [](stbi_uc *pixels) { stbi_image_free(pixels); };
+    std::unique_ptr<stbi_uc, decltype(release)> pixels{decoded, release};
+    if (cancellationRequested.load()) {
+      return ImageError(UIErrorCode::InvalidState,
+                        "Image decoding was cancelled", "DecodeImage");
+    }
+
+    const auto byteCount = static_cast<UIntSize>(pixelCount * 4ULL);
+    ImagePixels result{
+        .size =
+            PixelSize{
+                static_cast<UInt32>(width),
+                static_cast<UInt32>(height),
+            },
+        .rgba = std::vector<Byte>(byteCount),
+    };
+    std::copy_n(reinterpret_cast<const Byte *>(pixels.get()), byteCount,
+                result.rgba.begin());
+    return result;
+  } catch (...) {
+    return ImageError(UIErrorCode::OutOfMemory,
+                      "Unable to allocate decoded image pixels", "DecodeImage");
+  }
+#else
+  return ImageError(
+      UIErrorCode::Unsupported,
+      "PNG and JPEG support was disabled when NGIN.UI was built",
+      "DecodeImage");
+#endif
 }
 
 struct ImageResource::Impl final {
@@ -269,7 +407,7 @@ auto ImageResource::DecodeMemoryAsync(
     if (decoder) {
       return decoder->Decode(source.encoded, cancelled);
     }
-    PortablePixmapImageDecoder fallback;
+    StandardImageDecoder fallback;
     return fallback.Decode(source.encoded, cancelled);
   });
 }
@@ -294,6 +432,12 @@ auto ImageResource::DecodeFileAsync(
       return ImageError(UIErrorCode::ResourceFailed,
                         "The image file length could not be read", "ReadImage");
     }
+    if (!decoder &&
+        static_cast<UInt64>(length) > MaximumStandardEncodedBytes) {
+      return ImageError(UIErrorCode::ResourceFailed,
+                        "The encoded image exceeds the 64 MiB limit",
+                        "ReadImage");
+    }
     stream.seekg(0, std::ios::beg);
     std::vector<Byte> bytes(static_cast<UIntSize>(length));
     stream.read(reinterpret_cast<char *>(bytes.data()),
@@ -309,7 +453,7 @@ auto ImageResource::DecodeFileAsync(
     if (decoder) {
       return decoder->Decode(bytes, cancelled);
     }
-    PortablePixmapImageDecoder fallback;
+    StandardImageDecoder fallback;
     return fallback.Decode(bytes, cancelled);
   });
 }

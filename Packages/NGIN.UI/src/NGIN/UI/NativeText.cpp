@@ -1,13 +1,16 @@
 #include <NGIN/UI/NativeText.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
+#include <filesystem>
 #include <limits>
 #include <memory>
 #include <span>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -20,6 +23,14 @@
 
 #if !defined(NGIN_UI_BUNDLED_FONT_PATH)
 #define NGIN_UI_BUNDLED_FONT_PATH ""
+#endif
+
+#if !defined(NGIN_UI_BUNDLED_ARABIC_FONT_PATH)
+#define NGIN_UI_BUNDLED_ARABIC_FONT_PATH ""
+#endif
+
+#if !defined(NGIN_UI_BUNDLED_SYMBOLS_FONT_PATH)
+#define NGIN_UI_BUNDLED_SYMBOLS_FONT_PATH ""
 #endif
 
 namespace NGIN::UI {
@@ -38,6 +49,18 @@ namespace {
       "NGIN.UI was built without the native text implementation", operation);
 }
 #endif
+
+[[nodiscard]] auto ResolveBundledFontPath(const char *fileName,
+                                          const char *sourcePath)
+    -> NGIN::Text::String {
+  std::error_code error;
+  const auto staged =
+      std::filesystem::current_path(error) / "fonts" / "NGIN.UI" / fileName;
+  if (!error && std::filesystem::is_regular_file(staged, error) && !error) {
+    return NGIN::Text::String{staged.string()};
+  }
+  return NGIN::Text::String{sourcePath};
+}
 
 struct DecodedCodePoint final {
   UInt32 value{0};
@@ -251,6 +274,9 @@ struct NativeTextSystem::Impl final {
   struct Face final {
     FT_Face value{nullptr};
     hb_font_t *font{nullptr};
+    NGIN::Text::String path{};
+    bool fallback{false};
+    std::unordered_set<UInt32> resolvedCodePoints{};
   };
 
   struct GlyphKey final {
@@ -296,6 +322,8 @@ struct NativeTextSystem::Impl final {
   UInt64 useClock{0};
   std::vector<AtlasPage> pages{};
   std::unordered_map<GlyphKey, GlyphRecord, GlyphKeyHash> glyphs{};
+  std::unordered_set<UInt32> fallbackCodePoints{};
+  std::unordered_set<UInt32> missingCodePoints{};
   GlyphAtlasDiagnostics diagnostics{};
   NativeTextSystem::ResourcesInvalidatedCallback invalidated{};
 
@@ -546,10 +574,11 @@ auto NativeTextSystem::Create(IRenderBackend &renderer,
                              "CreateTextSystem", error);
     }
     const auto loadFace =
-        [&implementation](const char *path) -> UIResult<void> {
+        [&implementation](const NGIN::Text::String &path,
+                          const bool fallback) -> UIResult<void> {
       Impl::Face face{};
       const auto loadError =
-          FT_New_Face(implementation->library, path, 0, &face.value);
+          FT_New_Face(implementation->library, path.CStr(), 0, &face.value);
       if (loadError != 0) {
         return NativeTextError(UIErrorCode::ResourceFailed,
                                "A configured font could not be loaded",
@@ -562,19 +591,56 @@ auto NativeTextSystem::Create(IRenderBackend &renderer,
                                "HarfBuzz font creation failed",
                                "CreateTextSystem");
       }
-      implementation->faces.push_back(face);
+      face.path = path;
+      face.fallback = fallback;
+      implementation->faces.push_back(std::move(face));
       return {};
     };
-    const auto *fontPath =
-        info.fontPath.Empty() ? BundledFontPath() : info.fontPath.CStr();
-    auto loaded = loadFace(fontPath);
+
+    std::vector<NGIN::Text::String> loadedPaths;
+    const auto loadUnique =
+        [&loadFace, &loadedPaths](const NGIN::Text::String &path,
+                                  const bool fallback) -> UIResult<void> {
+      if (path.Empty() ||
+          std::find(loadedPaths.begin(), loadedPaths.end(), path) !=
+              loadedPaths.end()) {
+        return {};
+      }
+      auto loaded = loadFace(path, fallback);
+      if (loaded) {
+        loadedPaths.push_back(path);
+      }
+      return loaded;
+    };
+
+    const auto primary =
+        info.fontPath.Empty()
+            ? ResolveBundledFontPath("NotoSans-Variable.ttf",
+                                     NGIN_UI_BUNDLED_FONT_PATH)
+            : info.fontPath;
+    auto loaded = loadUnique(primary, false);
     if (!loaded) {
       return loaded.Error();
     }
     for (const auto &fallback : info.fallbackFontPaths) {
-      loaded = loadFace(fallback.CStr());
+      loaded = loadUnique(fallback, true);
       if (!loaded) {
         return loaded.Error();
+      }
+    }
+    if (info.includeBundledFallbacks) {
+      constexpr std::array bundledFallbacks{
+          std::pair{"NotoSansArabic-Variable.ttf",
+                    NGIN_UI_BUNDLED_ARABIC_FONT_PATH},
+          std::pair{"NotoSansSymbols2-Regular.ttf",
+                    NGIN_UI_BUNDLED_SYMBOLS_FONT_PATH},
+      };
+      for (const auto &[fileName, sourcePath] : bundledFallbacks) {
+        loaded =
+            loadUnique(ResolveBundledFontPath(fileName, sourcePath), true);
+        if (!loaded) {
+          return loaded.Error();
+        }
       }
     }
     auto page = implementation->AddPage();
@@ -869,13 +935,34 @@ auto NativeTextSystem::LayoutParagraph(const ParagraphRequest &request) noexcept
         }
         return true;
       };
+      const auto recordResolved =
+          [this, &decoded, preferred](const UInt32 faceIndex) {
+        for (const auto &point : decoded.Value()) {
+          if (IsControl(point.value) || point.value == 0x200DU ||
+              point.value == 0xFE0FU) {
+            continue;
+          }
+          m_impl->faces[faceIndex].resolvedCodePoints.insert(point.value);
+          if (faceIndex != preferred.index) {
+            m_impl->fallbackCodePoints.insert(point.value);
+          }
+        }
+      };
       if (preferred.index < m_impl->faces.size() &&
           supports(m_impl->faces[preferred.index])) {
+        recordResolved(preferred.index);
         return preferred;
       }
       for (UInt32 index = 0; index < m_impl->faces.size(); ++index) {
         if (supports(m_impl->faces[index])) {
+          recordResolved(index);
           return FontFaceHandle{index, 1};
+        }
+      }
+      for (const auto &point : decoded.Value()) {
+        if (!IsControl(point.value) && point.value != 0x200DU &&
+            point.value != 0xFE0FU) {
+          m_impl->missingCodePoints.insert(point.value);
         }
       }
       return preferred;
@@ -1381,6 +1468,46 @@ auto NativeTextSystem::AtlasDiagnostics() const noexcept
     diagnostics.pixelSizeCount = 0;
   }
   return diagnostics;
+#else
+  return {};
+#endif
+}
+
+auto NativeTextSystem::CoverageDiagnostics() const noexcept
+    -> FontCoverageDiagnostics {
+#if defined(NGIN_UI_HAS_NATIVE_TEXT)
+  try {
+    FontCoverageDiagnostics diagnostics{
+        .fallbackCodePointCount = m_impl->fallbackCodePoints.size(),
+        .missingCodePointCount = m_impl->missingCodePoints.size(),
+        .missingCodePoints =
+            std::vector<UInt32>{m_impl->missingCodePoints.begin(),
+                                m_impl->missingCodePoints.end()},
+    };
+    std::sort(diagnostics.missingCodePoints.begin(),
+              diagnostics.missingCodePoints.end());
+    diagnostics.faces.reserve(m_impl->faces.size());
+    for (UInt32 index = 0; index < m_impl->faces.size(); ++index) {
+      const auto &face = m_impl->faces[index];
+      diagnostics.faces.push_back(FontFaceDiagnostics{
+          .face = FontFaceHandle{index, 1},
+          .family =
+              NGIN::Text::String{face.value->family_name == nullptr
+                                     ? ""
+                                     : face.value->family_name},
+          .style =
+              NGIN::Text::String{face.value->style_name == nullptr
+                                     ? ""
+                                     : face.value->style_name},
+          .sourcePath = face.path,
+          .fallback = face.fallback,
+          .resolvedCodePointCount = face.resolvedCodePoints.size(),
+      });
+    }
+    return diagnostics;
+  } catch (...) {
+    return {};
+  }
 #else
   return {};
 #endif

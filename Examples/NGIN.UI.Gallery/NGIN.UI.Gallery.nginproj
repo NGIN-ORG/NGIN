@@ -22,6 +22,11 @@
       <IncludePath Path="include" />
     </Build>
 
+    <Stage>
+      <Content Source="assets/images/gallery-sample.png"
+               Target="images/gallery-sample.png" />
+    </Stage>
+
     <Launch Executable="NGIN.UI.Gallery"
             WorkingDirectory="." />
   </Application>

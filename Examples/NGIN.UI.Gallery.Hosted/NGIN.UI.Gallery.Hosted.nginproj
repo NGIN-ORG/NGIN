@@ -29,6 +29,11 @@
       <IncludePath Path="../NGIN.UI.Gallery/include" />
     </Build>
 
+    <Stage>
+      <Content Source="../NGIN.UI.Gallery/assets/images/gallery-sample.png"
+               Target="images/gallery-sample.png" />
+    </Stage>
+
     <Runtime>
       <Module Name="NGIN.UI.Gallery.Presentation"
               Stage="Presentation">

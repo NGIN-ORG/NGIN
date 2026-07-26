@@ -100,6 +100,8 @@ public:
   [[nodiscard]] auto Diagnostics() const noexcept -> UI::WindowDiagnostics;
   [[nodiscard]] auto TextDiagnostics() const noexcept
       -> UI::GlyphAtlasDiagnostics;
+  [[nodiscard]] auto FontDiagnostics() const noexcept
+      -> UI::FontCoverageDiagnostics;
   void Report(UI::UIError error);
 
 private:

@@ -8,6 +8,8 @@ option(NGIN_UI_BUILD_DOCS "Generate browsable NGIN.UI API documentation" OFF)
 option(NGIN_UI_STRICT_WARNINGS "Enable extra compiler warnings" ON)
 option(NGIN_UI_ENABLE_NATIVE_TEXT
        "Build the FreeType and HarfBuzz native text services" ON)
+option(NGIN_UI_ENABLE_STANDARD_IMAGE_FORMATS
+       "Build the bundled PNG and JPEG decoder" ON)
 option(NGIN_UI_FETCH_THIRD_PARTY
        "Fetch pinned native dependencies instead of using installed packages" ON)
 set(
@@ -15,6 +17,18 @@ set(
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/NotoSans/NotoSans-Variable.ttf"
     CACHE FILEPATH
     "Path to the default OFL-licensed font"
+)
+set(
+    NGIN_UI_BUNDLED_ARABIC_FONT_PATH
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/NotoSansArabic/NotoSansArabic-Variable.ttf"
+    CACHE FILEPATH
+    "Path to the bundled OFL-licensed Arabic fallback font"
+)
+set(
+    NGIN_UI_BUNDLED_SYMBOLS_FONT_PATH
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/NotoSansSymbols2/NotoSansSymbols2-Regular.ttf"
+    CACHE FILEPATH
+    "Path to the bundled OFL-licensed symbols fallback font"
 )
 
 if(NOT TARGET NGIN::Base)
@@ -72,9 +86,16 @@ target_include_directories(NGIN.UI
 )
 target_link_libraries(NGIN.UI PUBLIC NGIN::Base)
 
-if(NGIN_UI_ENABLE_NATIVE_TEXT)
+if(NGIN_UI_ENABLE_NATIVE_TEXT OR NGIN_UI_ENABLE_STANDARD_IMAGE_FORMATS)
     include(cmake/NGINUIThirdParty.cmake)
+endif()
+
+if(NGIN_UI_ENABLE_NATIVE_TEXT)
     ngin_ui_configure_native_text(NGIN.UI)
+endif()
+
+if(NGIN_UI_ENABLE_STANDARD_IMAGE_FORMATS)
+    ngin_ui_configure_standard_images(NGIN.UI)
 endif()
 
 if(NGIN_UI_STRICT_WARNINGS)
@@ -91,6 +112,18 @@ install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 install(
     DIRECTORY assets/fonts/NotoSans/
     DESTINATION ${CMAKE_INSTALL_DATADIR}/NGIN.UI/fonts/NotoSans
+)
+install(
+    DIRECTORY assets/fonts/NotoSansArabic/
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/NGIN.UI/fonts/NotoSansArabic
+)
+install(
+    DIRECTORY assets/fonts/NotoSansSymbols2/
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/NGIN.UI/fonts/NotoSansSymbols2
+)
+install(
+    FILES assets/licenses/stb-LICENSE.txt
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/NGIN.UI/licenses
 )
 install(FILES THIRD_PARTY_NOTICES.md DESTINATION ${CMAKE_INSTALL_DATADIR}/NGIN.UI)
 install(

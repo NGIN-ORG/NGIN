@@ -148,9 +148,34 @@ auto main() -> int {
                "text-area page exposes editable text semantics")) {
       return 1;
     }
+    if (page == NGIN::UIGallery::Page::Typography) {
+      const auto fontDiagnostics = model.FontDiagnostics();
+      const auto usedFallback = std::any_of(
+          fontDiagnostics.faces.begin(), fontDiagnostics.faces.end(),
+          [](const auto &face) {
+            return face.fallback && face.resolvedCodePointCount > 0;
+          });
+      if (!Check(fontDiagnostics.missingCodePointCount == 0,
+                 "typography samples have complete packaged coverage") ||
+          !Check(fontDiagnostics.fallbackCodePointCount > 0,
+                 "typography samples exercise fallback fonts") ||
+          !Check(usedFallback,
+                 "typography diagnostics identify a used fallback face") ||
+          !Check(FindByTypeAndKey(window->Tree(), ElementType::Text,
+                                  "emoji-policy")
+                     .IsValid(),
+                 "typography states the color-emoji policy")) {
+        return 1;
+      }
+    }
     if (page == NGIN::UIGallery::Page::Images &&
-        !Check(HasRole(window->Semantics(), SemanticRole::Image),
-               "images page exposes image semantics")) {
+        (!Check(HasRole(window->Semantics(), SemanticRole::Image),
+                "images page exposes image semantics") ||
+         !Check(model.GalleryImage() &&
+                    model.GalleryImage()->State() == ImageLoadState::Ready,
+                "images page decodes its staged PNG asset") ||
+         !Check(model.GalleryImage()->Size() == PixelSize{1536, 1024},
+                "images page retains decoded PNG dimensions"))) {
       return 1;
     }
   }

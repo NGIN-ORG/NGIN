@@ -14,6 +14,25 @@ struct NativeTextCreateInfo final {
   std::vector<NGIN::Text::String> fallbackFontPaths{};
   PixelSize atlasSize{1024, 1024};
   UInt32 maximumAtlasPages{4};
+  bool includeBundledFallbacks{true};
+};
+
+/// @brief Identity, source, and observed coverage for one loaded font face.
+struct FontFaceDiagnostics final {
+  FontFaceHandle face{};
+  NGIN::Text::String family{};
+  NGIN::Text::String style{};
+  NGIN::Text::String sourcePath{};
+  bool fallback{false};
+  UIntSize resolvedCodePointCount{0};
+};
+
+/// @brief Loaded faces plus unique fallback and unresolved code-point counts.
+struct FontCoverageDiagnostics final {
+  UIntSize fallbackCodePointCount{0};
+  UIntSize missingCodePointCount{0};
+  std::vector<UInt32> missingCodePoints{};
+  std::vector<FontFaceDiagnostics> faces{};
 };
 
 /// @brief Stored glyph count and occupied pixels for one raster size.
@@ -95,6 +114,9 @@ public:
   void SetResourcesInvalidatedCallback(ResourcesInvalidatedCallback callback);
   [[nodiscard]] auto AtlasDiagnostics() const noexcept
       -> GlyphAtlasDiagnostics;
+  /// @brief Returns loaded font identities and observed fallback coverage.
+  [[nodiscard]] auto CoverageDiagnostics() const noexcept
+      -> FontCoverageDiagnostics;
 
 private:
   struct Impl;

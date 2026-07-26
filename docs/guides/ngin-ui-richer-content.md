@@ -42,7 +42,8 @@ wrapping and is useful with a horizontally scrollable `TextArea`.
 ## Font fallback
 
 The first font passed to `NativeTextSystem::Create()` is the primary face.
-Additional paths form an ordered fallback chain:
+Application paths are checked next, followed by the packaged NGIN.UI
+fallbacks:
 
 ```cpp
 auto created = NGIN::UI::NativeTextSystem::Create(
@@ -53,6 +54,7 @@ auto created = NGIN::UI::NativeTextSystem::Create(
             NGIN::Text::String{"fonts/NotoSansArabic.ttf"},
             NGIN::Text::String{"fonts/NotoSansCJK.ttf"},
         },
+        .includeBundledFallbacks = true,
     });
 ```
 
@@ -61,9 +63,34 @@ face are regrouped into a HarfBuzz span, preserving word shaping instead of
 rasterizing code points independently. If no configured face covers the whole
 cluster, the primary face supplies its missing-glyph presentation.
 
-The empty primary path selects NGIN.UI's bundled OFL-licensed Noto Sans
-variable font. Applications own and license any additional fallback files they
-configure.
+The empty primary path selects the packaged OFL-licensed Noto Sans variable
+font. The default packaged order is:
+
+1. Noto Sans variable for Latin, Greek, Cyrillic, combining marks, and common
+   punctuation;
+2. Noto Sans Arabic variable;
+3. Noto Sans Symbols 2.
+
+Set `includeBundledFallbacks` to `false` when an application needs to own the
+complete fallback policy. Applications own and license any additional files
+they configure. NGIN.UI does not search operating-system fonts silently.
+
+`CoverageDiagnostics()` reports every loaded face, its source path, whether it
+is a fallback, and how many unique Unicode code points it has resolved. It
+also reports unique fallback and missing-glyph counts:
+
+```cpp
+const auto coverage = text.CoverageDiagnostics();
+for (const auto &face : coverage.faces) {
+    std::cout << face.family.CStr() << ": "
+              << face.resolvedCodePointCount << '\n';
+}
+std::cout << "Missing: " << coverage.missingCodePointCount << '\n';
+```
+
+Version 0.2 does not bundle a color-emoji font and does not render color glyph
+formats. Applications should present an explicit unsupported placeholder
+instead of claiming emoji coverage.
 
 ## Glyph storage
 
@@ -134,16 +161,25 @@ texture handle. A resource can be created from:
 - a file with `DecodeFileAsync()`;
 - a pixel callback with `GenerateAsync()`.
 
-The built-in `PortablePixmapImageDecoder` accepts P6 and P3 PPM data. For PNG,
-JPEG, WebP, or application-specific containers, implement `IImageDecoder` and
-pass a shared decoder to the memory or file factory. This keeps format policy
-out of the backend-neutral UI core.
+With no decoder argument, `DecodeMemoryAsync()` and `DecodeFileAsync()` use
+`StandardImageDecoder`. It accepts PNG, baseline or progressive JPEG, and P3 or
+P6 PPM. PNG becomes straight RGBA8, while JPEG and PPM become opaque RGBA8.
+Animated images and embedded color-profile conversion are not supported.
+
+The standard decoder rejects encoded input over 64 MiB or decoded RGBA output
+over 256 MiB. `PortablePixmapImageDecoder` remains available when an
+application wants an explicitly PPM-only path. For WebP or
+application-specific containers, implement `IImageDecoder` and pass a shared
+decoder to the memory or file factory. Codec policy remains outside renderer
+backends.
 
 Decode and generation work has four observable states: `Loading`, `Ready`,
 `Failed`, and `Cancelled`. `Cancel()` is cooperative, `Wait()` joins outstanding
-work, and `CopyPixels()` succeeds only in `Ready`. Completion does not call UI
-objects from a worker thread; an application that does not wait should poll the
-state and invalidate its window on the UI thread.
+work, and `CopyPixels()` succeeds only in `Ready`. Standard PNG/JPEG decoding
+checks cancellation before and after its bounded decode; it does not interrupt
+the codec in the middle of one image. Completion does not call UI objects from
+a worker thread; an application that does not wait should poll the state and
+invalidate its window on the UI thread.
 
 ## Upload and device recreation
 

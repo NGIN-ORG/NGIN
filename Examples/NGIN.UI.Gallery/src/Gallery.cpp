@@ -3,7 +3,7 @@
 
 #include <algorithm>
 #include <array>
-#include <cmath>
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -30,6 +30,15 @@ constexpr std::array<std::string_view, PageCount> PageNames{
     -> String {
   String result{label};
   result.Append(Number(value));
+  return result;
+}
+
+[[nodiscard]] auto FontFaceLine(const FontFaceDiagnostics &face) -> String {
+  String result{face.fallback ? "Fallback font: " : "Main font: "};
+  result.Append(face.family);
+  result.Append(String{" · used for "});
+  result.Append(Number(face.resolvedCodePointCount));
+  result.Append(String{" characters"});
   return result;
 }
 
@@ -352,7 +361,7 @@ void ComposeTypographyPage(Composer &composer, NativeTextSystem &text,
                            const Theme &theme) {
   ComposePageHeading(
       composer, text, theme, "Typography",
-      "Font sizes, Unicode text, wrapping, and alignment.");
+      "Text sizes, languages, symbols, wrapping, and alignment.");
   ComposeCard(
       composer, theme,
       [&] {
@@ -364,18 +373,31 @@ void ComposeTypographyPage(Composer &composer, NativeTextSystem &text,
                           theme.colors.foreground, "display");
               ComposeText(composer, text, String{"Title 20"}, 20.0F,
                           theme.colors.foreground, "title");
+              ComposeText(composer, text, String{"Latin: naïve café"}, 14.0F,
+                          theme.colors.foreground, "unicode");
+              ComposeText(composer, text, String{"Greek: Ελληνικά"}, 16.0F,
+                          theme.colors.foreground, "greek");
+              ComposeText(composer, text, String{"Cyrillic: Кириллица"}, 16.0F,
+                          theme.colors.foreground, "cyrillic");
               ComposeText(composer, text,
-                          String{"Body 14 — naïve café, Ελληνικά, Кириллица"},
-                          14.0F, theme.colors.foreground, "unicode");
-              ComposeText(composer, text,
-                          String{"Arabic shaping: \xD8\xA7\xD9\x84\xD8\xB3"
-                                 "\xD9\x84\xD8\xA7\xD9\x85"},
+                          String{"Arabic: \xD8\xA7\xD9\x84\xD8\xB9\xD8\xB1"
+                                 "\xD8\xA8\xD9\x8A\xD8\xA9"},
                           18.0F, theme.colors.foreground, "arabic");
               ComposeText(composer, text,
-                          String{"Emoji and combined letters: e\xCC\x81  "
-                                 "\xF0\x9F\x91\xA9"
-                                 "\xE2\x80\x8D\xF0\x9F\x92\xBB"},
-                          18.0F, theme.colors.foreground, "graphemes");
+                          String{"Mixed direction: English · \xD9\x85\xD8\xB1"
+                                 "\xD8\xAD\xD8\xA8\xD8\xA7"},
+                          16.0F, theme.colors.foreground, "bidi");
+              ComposeText(composer, text,
+                          String{"Combined letters: e\xCC\x81  A\xCC\x88"},
+                          16.0F, theme.colors.foreground, "graphemes");
+              ComposeText(
+                  composer, text,
+                  String{"Symbols: \xE2\x9C\x93  \xE2\x98\x85"},
+                  18.0F, theme.colors.foreground, "symbols");
+              ComposeText(composer, text,
+                          String{"Color emoji: not included in version 0.2"},
+                          14.0F, theme.colors.mutedForeground,
+                          "emoji-policy");
               NodeProperties paragraph =
                   TextProperties(text, 16.0F, theme.colors.foreground);
               paragraph.layout.preferredSize.width = 650.0F;
@@ -453,7 +475,8 @@ void ComposeTextAreaPage(Composer &composer, NativeTextSystem &text,
 void ComposeImagesPage(Composer &composer, NativeTextSystem &text, Model &model,
                        const Theme &theme) {
   ComposePageHeading(
-      composer, text, theme, "Images", "Fit, crop, align, clip, and tint images.");
+      composer, text, theme, "Images",
+      "Load PNG and JPEG files, then choose how they fit.");
   ComposeCard(
       composer, theme,
       [&] {
@@ -461,12 +484,12 @@ void ComposeImagesPage(Composer &composer, NativeTextSystem &text, Model &model,
         column.layout.gap = theme.spacing.spacious;
         composer.Column(
             [&] {
-              ComposeText(composer, text, String{"Generated image"},
+              ComposeText(composer, text, String{"PNG file"},
                           20.0F, theme.colors.foreground, "image-title",
                           SemanticRole::Heading);
               ComposeText(
                   composer, text,
-                  String{"The same image is shown in three different ways."},
+                  String{"This app image is shown in three different ways."},
                   14.0F, theme.colors.mutedForeground, "image-help");
 
               NodeProperties row{};
@@ -512,8 +535,8 @@ void ComposeImagesPage(Composer &composer, NativeTextSystem &text, Model &model,
                                     model.GalleryImage()) {
                                   composer.Image(
                                       model.GalleryImage(), *model.ImageCache(),
-                                      String{"Blue and violet generated "
-                                             "gradient with concentric light"},
+                                      String{"Blue and violet abstract scene "
+                                             "with a glowing coral cube"},
                                       image, "image");
                                 }
                               },
@@ -1464,6 +1487,7 @@ void ComposeDiagnosticsPage(Composer &composer, NativeTextSystem &text,
       "See drawing work, text storage, and visual layout guides.");
   const auto diagnostics = model.Diagnostics();
   const auto textDiagnostics = model.TextDiagnostics();
+  const auto fontDiagnostics = model.FontDiagnostics();
   ComposeCard(
       composer, theme,
       [&] {
@@ -1568,6 +1592,26 @@ void ComposeDiagnosticsPage(Composer &composer, NativeTextSystem &text,
                                         textDiagnostics.restorationCount),
                           theme.typography.body, theme.colors.foreground,
                           "text-restores");
+              ComposeText(composer, text,
+                          LabeledNumber("Fallback characters: ",
+                                        fontDiagnostics
+                                            .fallbackCodePointCount),
+                          theme.typography.body, theme.colors.foreground,
+                          "fallback-glyphs");
+              ComposeText(composer, text,
+                          LabeledNumber("Missing characters: ",
+                                        fontDiagnostics
+                                            .missingCodePointCount),
+                          theme.typography.body, theme.colors.foreground,
+                          "missing-glyphs");
+              for (const auto &face : fontDiagnostics.faces) {
+                const auto key =
+                    std::string{"font-face-"} +
+                    std::to_string(face.face.index);
+                ComposeText(composer, text, FontFaceLine(face),
+                            theme.typography.body,
+                            theme.colors.mutedForeground, key);
+              }
               for (const auto &size : textDiagnostics.pixelSizes) {
                 const auto key =
                     std::string{"text-pixel-size-"} +
@@ -1729,24 +1773,14 @@ void Model::AttachRuntime(Application &application, NativeTextSystem &text,
   m_text = &text;
   m_window = &window;
   m_imageCache = std::make_unique<ImageTextureCache>(application.Renderer());
-  m_galleryImage = ImageResource::GenerateAsync(ImageGeneratedSource{
-      .size = PixelSize{320, 180},
-      .pixel =
-          [](const NGIN::UInt32 x, const NGIN::UInt32 y) {
-            const auto u = static_cast<F32>(x) / 319.0F;
-            const auto v = static_cast<F32>(y) / 179.0F;
-            const auto dx = u - 0.68F;
-            const auto dy = v - 0.38F;
-            const auto glow =
-                std::max(0.0F, 1.0F - std::sqrt(dx * dx + dy * dy) * 2.2F);
-            return Color{
-                0.08F + 0.34F * u + 0.38F * glow,
-                0.12F + 0.18F * (1.0F - v) + 0.28F * glow,
-                0.34F + 0.48F * (1.0F - u) + 0.18F * glow,
-                1.0F,
-            };
-          },
-  });
+  std::error_code pathError;
+  auto imagePath = std::filesystem::path{"images"} / "gallery-sample.png";
+  if (!std::filesystem::is_regular_file(imagePath, pathError) || pathError) {
+    imagePath = std::filesystem::path{__FILE__}.parent_path().parent_path() /
+                "assets" / "images" / "gallery-sample.png";
+  }
+  m_galleryImage = ImageResource::DecodeFileAsync(
+      ImageFileSource{.path = String{imagePath.string()}});
   m_galleryImage->Wait();
   if (m_galleryImage->State() == ImageLoadState::Failed) {
     Report(m_galleryImage->Error());
@@ -1973,6 +2007,11 @@ auto Model::Diagnostics() const noexcept -> WindowDiagnostics {
 auto Model::TextDiagnostics() const noexcept -> GlyphAtlasDiagnostics {
   return m_text != nullptr ? m_text->AtlasDiagnostics()
                            : GlyphAtlasDiagnostics{};
+}
+
+auto Model::FontDiagnostics() const noexcept -> FontCoverageDiagnostics {
+  return m_text != nullptr ? m_text->CoverageDiagnostics()
+                           : FontCoverageDiagnostics{};
 }
 
 void Model::Report(UIError error) {

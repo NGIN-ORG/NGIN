@@ -1,9 +1,10 @@
 # NGIN.UI
 
 `NGIN.UI` is the backend-neutral core of NGIN's C++23 application UI toolkit.
-Its public contracts depend only on `NGIN.Base`; its native text implementation
-privately links pinned FreeType and HarfBuzz sources. Native windowing, graphics
-APIs, and optional `NGIN.Core` hosting belong to separate packages.
+Its public contracts depend only on `NGIN.Base`; its native text and standard
+image implementations privately compile pinned FreeType, HarfBuzz, and
+stb_image sources. Native windowing, graphics APIs, and optional `NGIN.Core`
+hosting belong to separate packages.
 
 Start with the
 [NGIN.UI developer documentation](../../docs/guides/ngin-ui.md) or the
@@ -43,6 +44,8 @@ The version 0.1 implementation provides:
   rasterization, fallback-aware HarfBuzz shaping, extended grapheme
   segmentation, multiline Unicode-aware wrapping, paragraph/range geometry,
   and a renderer-backed R8 glyph atlas;
+- packaged Noto Sans Arabic and Noto Sans Symbols 2 fallbacks plus loaded-face,
+  fallback-use, and missing-glyph diagnostics;
 - bounded, lazily allocated glyph-atlas pages with live-reference-safe
   recycling, renderer-device restoration, and capacity diagnostics;
 - an injectable glyph-atlas contract and semantic `Text` element with
@@ -81,6 +84,7 @@ The version 0.1 implementation provides:
 - logical RGBA image resources with memory, file, and generated-pixel sources,
   pluggable asynchronous decoding and cancellation, lazy texture upload, and
   explicit device-loss/recreation hooks;
+- built-in bounded PNG, JPEG, and PPM decoding to RGBA8;
 - semantic `Image` composition with none/fill/contain/cover/scale-down fit,
   alignment, tint, and clipping;
 - immutable/revisioned theme values and hierarchical typed resource scopes;
@@ -153,11 +157,13 @@ See the
 for deterministic pixel tests, gallery smoke coverage, allocation budgets,
 cache diagnostics, install/export consumption, and staged licenses.
 
-The default build fetches the pinned text dependencies recorded in
+The default build fetches the pinned text and image dependencies recorded in
 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). Configure with
 `-DNGIN_UI_FETCH_THIRD_PARTY=OFF` to require installed FreeType 2.14 and
-HarfBuzz 14 packages instead, or `-DNGIN_UI_ENABLE_NATIVE_TEXT=OFF` for the
-contracts-only core. The render backend passed to `NativeTextSystem::Create`
-must be initialized and must outlive the text system. Installed or staged
-applications may pass an explicit font path in `NativeTextCreateInfo`; the
-empty-path default is the authored font in the source package.
+HarfBuzz 14 packages plus an installed `stb_image.h`. Use
+`-DNGIN_UI_ENABLE_NATIVE_TEXT=OFF` or
+`-DNGIN_UI_ENABLE_STANDARD_IMAGE_FORMATS=OFF` to remove either private
+implementation. The render backend passed to `NativeTextSystem::Create` must
+be initialized and must outlive the text system. Staged applications find the
+packaged font set under `fonts/NGIN.UI`; installed applications may pass
+explicit paths in `NativeTextCreateInfo`.

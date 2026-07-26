@@ -8,7 +8,10 @@
 #include <NGIN/UI/Testing/RecordingRenderBackend.hpp>
 
 #include <algorithm>
+#include <array>
+#include <atomic>
 #include <chrono>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <stdexcept>
@@ -29,6 +32,32 @@ namespace {
   constexpr std::string_view value{"P3\n2 1\n255\n255 0 0 0 255 0\n"};
   return {reinterpret_cast<const NGIN::Byte *>(value.data()),
           reinterpret_cast<const NGIN::Byte *>(value.data() + value.size())};
+}
+
+[[nodiscard]] auto DecodeBase64(const std::string_view encoded)
+    -> std::vector<NGIN::Byte> {
+  constexpr std::string_view alphabet{
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"};
+  std::vector<NGIN::Byte> result;
+  NGIN::UInt32 accumulator = 0;
+  NGIN::UInt32 bitCount = 0;
+  for (const auto character : encoded) {
+    if (character == '=') {
+      break;
+    }
+    const auto value = alphabet.find(character);
+    if (value == std::string_view::npos) {
+      continue;
+    }
+    accumulator = (accumulator << 6U) | static_cast<NGIN::UInt32>(value);
+    bitCount += 6U;
+    if (bitCount >= 8U) {
+      bitCount -= 8U;
+      result.push_back(
+          static_cast<NGIN::Byte>((accumulator >> bitCount) & 0xFFU));
+    }
+  }
+  return result;
 }
 } // namespace
 
@@ -94,6 +123,86 @@ TEST_CASE("memory and file image sources decode asynchronously") {
   REQUIRE(std::to_integer<NGIN::UInt8>(binaryPixels.rgba[0]) == 10);
   REQUIRE(std::to_integer<NGIN::UInt8>(binaryPixels.rgba[1]) == 20);
   REQUIRE(std::to_integer<NGIN::UInt8>(binaryPixels.rgba[2]) == 30);
+}
+
+TEST_CASE("standard image decoder loads PNG and JPEG as RGBA8") {
+  using namespace NGIN::UI;
+
+  constexpr std::string_view png{
+      "iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAYAAAD0In+KAAAAEUlEQVR4nGP4z8DQwP"
+      "Cf4T8ADn0Dfur2k8AAAAAASUVORK5CYII="};
+  auto pngResource = ImageResource::DecodeMemoryAsync(
+      ImageMemorySource{.encoded = DecodeBase64(png)});
+  pngResource->Wait();
+  REQUIRE(pngResource->State() == ImageLoadState::Ready);
+  REQUIRE(pngResource->Size() == PixelSize{2, 1});
+  const auto pngPixels = pngResource->CopyPixels().Value();
+  CHECK(std::to_integer<NGIN::UInt8>(pngPixels.rgba[0]) == 255);
+  CHECK(std::to_integer<NGIN::UInt8>(pngPixels.rgba[1]) == 0);
+  CHECK(std::to_integer<NGIN::UInt8>(pngPixels.rgba[2]) == 0);
+  CHECK(std::to_integer<NGIN::UInt8>(pngPixels.rgba[3]) == 128);
+  CHECK(std::to_integer<NGIN::UInt8>(pngPixels.rgba[4]) == 0);
+  CHECK(std::to_integer<NGIN::UInt8>(pngPixels.rgba[5]) == 255);
+  CHECK(std::to_integer<NGIN::UInt8>(pngPixels.rgba[7]) == 255);
+
+  constexpr std::string_view jpeg{
+      "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEB"
+      "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/2wBDAQ"
+      "EBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEB"
+      "AQEBAQEBAQEBAQEBAQEBAQH/wAARCAABAAEDAREAAhEBAxEB/8QAHwAAAQUBAQ"
+      "EBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQID"
+      "AAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0"
+      "NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJip"
+      "KTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi"
+      "4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBg"
+      "cICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFE"
+      "KRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RV"
+      "VldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqK"
+      "mqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6"
+      "/9oADAMBAAIRAxEAPwD43r/oQP8AD8//2Q=="};
+  auto jpegResource = ImageResource::DecodeMemoryAsync(
+      ImageMemorySource{.encoded = DecodeBase64(jpeg)});
+  jpegResource->Wait();
+  REQUIRE(jpegResource->State() == ImageLoadState::Ready);
+  REQUIRE(jpegResource->Size() == PixelSize{1, 1});
+  const auto jpegPixels = jpegResource->CopyPixels().Value();
+  CHECK(std::abs(static_cast<int>(
+                     std::to_integer<NGIN::UInt8>(jpegPixels.rgba[0])) -
+                 24) <= 3);
+  CHECK(std::abs(static_cast<int>(
+                     std::to_integer<NGIN::UInt8>(jpegPixels.rgba[1])) -
+                 120) <= 3);
+  CHECK(std::abs(static_cast<int>(
+                     std::to_integer<NGIN::UInt8>(jpegPixels.rgba[2])) -
+                 220) <= 3);
+  CHECK(std::to_integer<NGIN::UInt8>(jpegPixels.rgba[3]) == 255);
+}
+
+TEST_CASE("standard image decoder rejects malformed and cancelled work") {
+  using namespace NGIN::UI;
+
+  StandardImageDecoder decoder;
+  std::atomic_bool active{false};
+  const std::array malformed{
+      NGIN::Byte{0x89}, NGIN::Byte{0x50}, NGIN::Byte{0x4E}, NGIN::Byte{0x47},
+      NGIN::Byte{0x0D}, NGIN::Byte{0x0A}, NGIN::Byte{0x1A}, NGIN::Byte{0x0A},
+  };
+  auto failed = decoder.Decode(malformed, active);
+  REQUIRE_FALSE(failed.HasValue());
+  CHECK(failed.Error().code == UIErrorCode::ResourceFailed);
+
+  constexpr std::string_view unknown{"not an image"};
+  const auto unknownBytes =
+      std::span{reinterpret_cast<const NGIN::Byte *>(unknown.data()),
+                unknown.size()};
+  auto unsupported = decoder.Decode(unknownBytes, active);
+  REQUIRE_FALSE(unsupported.HasValue());
+  CHECK(unsupported.Error().code == UIErrorCode::Unsupported);
+
+  std::atomic_bool cancelled{true};
+  auto cancelledResult = decoder.Decode(malformed, cancelled);
+  REQUIRE_FALSE(cancelledResult.HasValue());
+  CHECK(cancelledResult.Error().code == UIErrorCode::InvalidState);
 }
 
 TEST_CASE("generated image work observes cancellation") {

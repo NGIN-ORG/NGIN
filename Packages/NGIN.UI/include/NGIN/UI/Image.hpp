@@ -65,6 +65,19 @@ public:
       -> UIResult<ImagePixels> override;
 };
 
+/// @brief Built-in decoder for PNG, JPEG, and portable pixmap images.
+///
+/// PNG is decoded to straight RGBA8, JPEG to opaque RGBA8, and P3/P6 PPM to
+/// opaque RGBA8. Animated images and embedded color-profile conversion are not
+/// part of this decoder.
+class StandardImageDecoder final : public IImageDecoder {
+public:
+  [[nodiscard]] auto
+  Decode(std::span<const Byte> encoded,
+         const std::atomic_bool &cancellationRequested) noexcept
+      -> UIResult<ImagePixels> override;
+};
+
 /// @brief Logical, shareable image source with lazy loading and stable identity.
 class ImageResource final {
 public:

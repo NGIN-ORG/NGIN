@@ -1,6 +1,6 @@
 # NGIN.UI Version 0.2 Implementation Workstreams
 
-Status: Proposed execution map
+Status: Active execution map
 Roadmap: [`NGIN.UI-V0.2-Roadmap.md`](NGIN.UI-V0.2-Roadmap.md)
 
 ## Purpose
@@ -89,6 +89,8 @@ frames without allocation failure or stale glyph output.
 
 ## Workstream B — Font Coverage And Missing-Glyph Policy
 
+Status: Completed in Milestone 18 on 2026-07-27.
+
 ### Goal
 
 Make international-text claims explicit, licensed, staged, and observable.
@@ -129,6 +131,8 @@ The Typography page renders its declared Latin, Greek, Cyrillic, Arabic,
 combining, bidi, and symbol samples without unexpected `.notdef` glyphs.
 
 ## Workstream C — Practical Image Codecs
+
+Status: Completed in Milestone 18 on 2026-07-27.
 
 ### Goal
 

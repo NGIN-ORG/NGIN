@@ -75,5 +75,38 @@ function(ngin_ui_configure_native_text target)
         PRIVATE
             NGIN_UI_HAS_NATIVE_TEXT=1
             NGIN_UI_BUNDLED_FONT_PATH="${NGIN_UI_BUNDLED_FONT_PATH}"
+            NGIN_UI_BUNDLED_ARABIC_FONT_PATH="${NGIN_UI_BUNDLED_ARABIC_FONT_PATH}"
+            NGIN_UI_BUNDLED_SYMBOLS_FONT_PATH="${NGIN_UI_BUNDLED_SYMBOLS_FONT_PATH}"
+    )
+endfunction()
+
+function(ngin_ui_configure_standard_images target)
+    if(NGIN_UI_FETCH_THIRD_PARTY)
+        FetchContent_Declare(
+            ngin_ui_stb
+            URL
+                "https://github.com/nothings/stb/archive/013ac3beddff3dbffafd5177e7972067cd2b5083.tar.gz"
+            URL_HASH
+                "SHA256=B01AA93E1A968AED55F43E072C98EE401D2F20E897AABDB1A166C7166886ED11"
+            DOWNLOAD_EXTRACT_TIMESTAMP OFF
+        )
+        FetchContent_GetProperties(ngin_ui_stb)
+        if(NOT ngin_ui_stb_POPULATED)
+            cmake_policy(PUSH)
+            if(POLICY CMP0169)
+                cmake_policy(SET CMP0169 OLD)
+            endif()
+            FetchContent_Populate(ngin_ui_stb)
+            cmake_policy(POP)
+        endif()
+        set(_ngin_ui_stb_include "${ngin_ui_stb_SOURCE_DIR}")
+    else()
+        find_path(_ngin_ui_stb_include stb_image.h REQUIRED)
+    endif()
+
+    target_include_directories(${target} PRIVATE "${_ngin_ui_stb_include}")
+    target_compile_definitions(
+        ${target}
+        PRIVATE NGIN_UI_HAS_STANDARD_IMAGE_FORMATS=1
     )
 endfunction()

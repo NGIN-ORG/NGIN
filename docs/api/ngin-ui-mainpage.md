@@ -15,7 +15,8 @@ and use this reference for exact signatures, ownership, and result types.
 - `NGIN::UI::NodeProperties`
 - `NGIN::UI::State<T>` and `NGIN::UI::Binding<T>`
 - `NGIN::UI::NativeTextSystem`
-- `NGIN::UI::ImageResource` and `NGIN::UI::ImageTextureCache`
+- `NGIN::UI::ImageResource`, `NGIN::UI::StandardImageDecoder`, and
+  `NGIN::UI::ImageTextureCache`
 - `NGIN::UI::Testing::SoftwareRenderBackend` and
   `NGIN::UI::Testing::CompareVisuals()`
 - `NGIN::UI::Hosting::ConfigureUIHosting()` and
@@ -38,6 +39,11 @@ and use this reference for exact signatures, ownership, and result types.
   `IGlyphAtlas` separate text policy from retained elements.
 - `IImageDecoder` and `IImageResolver` separate encoded/logical images from
   renderer uploads.
+
+`NativeTextSystem::CoverageDiagnostics()` reports loaded font faces, fallback
+use, and missing characters. The packaged font order covers the Gallery's
+Latin, Greek, Cyrillic, Arabic, combining-mark, bidi, and symbol examples.
+Color emoji is explicitly unsupported in version 0.2.
 
 The buildable
 [`NGIN.UI.Gallery`](../../Examples/NGIN.UI.Gallery/) is the canonical public-API

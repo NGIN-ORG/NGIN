@@ -129,6 +129,77 @@ TEST_CASE("native text shapes and measures through FreeType and HarfBuzz") {
   REQUIRE(selection.Value().front().width > 0.0F);
 }
 
+TEST_CASE("bundled fallback fonts cover the gallery language contract") {
+  using namespace NGIN::UI;
+
+  Testing::RecordingRenderBackend renderer;
+  auto text = CreateTextSystem(renderer);
+  auto paragraph = text->LayoutParagraph(ParagraphRequest{
+      .runs =
+          {
+              TextRun{
+                  .text =
+                      NGIN::Text::String{
+                          "naïve café · Ελληνικά · Кириллица · "
+                          "\xD8\xA7\xD9\x84\xD8\xB9\xD8\xB1\xD8\xA8\xD9\x8A"
+                          "\xD8\xA9 · e\xCC\x81 · "
+                          "\xE2\x9C\x93 \xE2\x98\x85"},
+                  .fontSize = 18.0F,
+              },
+          },
+      .maximumWidth = 800.0F,
+  });
+  REQUIRE(paragraph.HasValue());
+  REQUIRE_FALSE(paragraph.Value().runs.empty());
+  for (const auto &run : paragraph.Value().runs) {
+    CHECK(std::all_of(run.run.glyphs.begin(), run.run.glyphs.end(),
+                      [](const ShapedGlyph &glyph) {
+                        return glyph.glyphIndex != 0;
+                      }));
+  }
+
+  const auto diagnostics = text->CoverageDiagnostics();
+  CHECK(diagnostics.missingCodePointCount == 0);
+  CHECK(diagnostics.missingCodePoints.empty());
+  CHECK(diagnostics.fallbackCodePointCount > 0);
+  REQUIRE(diagnostics.faces.size() == 3);
+  const auto arabic = std::find_if(
+      diagnostics.faces.begin(), diagnostics.faces.end(), [](const auto &face) {
+        return face.family.View().find("Arabic") != std::string_view::npos;
+      });
+  REQUIRE(arabic != diagnostics.faces.end());
+  CHECK(arabic->fallback);
+  CHECK(arabic->resolvedCodePointCount > 0);
+  const auto symbols = std::find_if(
+      diagnostics.faces.begin(), diagnostics.faces.end(), [](const auto &face) {
+        return face.family.View().find("Symbols") != std::string_view::npos;
+      });
+  REQUIRE(symbols != diagnostics.faces.end());
+  CHECK(symbols->fallback);
+  CHECK(symbols->resolvedCodePointCount >= 2);
+}
+
+TEST_CASE("font coverage diagnostics report unsupported color emoji") {
+  using namespace NGIN::UI;
+
+  Testing::RecordingRenderBackend renderer;
+  auto text = CreateTextSystem(renderer);
+  auto paragraph = text->LayoutParagraph(ParagraphRequest{
+      .runs =
+          {
+              TextRun{
+                  .text = NGIN::Text::String{"\xF0\x9F\x98\x80"},
+                  .fontSize = 18.0F,
+              },
+          },
+  });
+  REQUIRE(paragraph.HasValue());
+  const auto diagnostics = text->CoverageDiagnostics();
+  REQUIRE(diagnostics.missingCodePointCount == 1);
+  REQUIRE(diagnostics.missingCodePoints.size() == 1);
+  CHECK(diagnostics.missingCodePoints.front() == 0x1F600U);
+}
+
 TEST_CASE("native text rasterizes and caches renderer-backed atlas glyphs") {
   using namespace NGIN::UI;
 

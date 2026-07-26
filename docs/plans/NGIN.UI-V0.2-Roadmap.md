@@ -1,6 +1,6 @@
 # NGIN.UI Version 0.2 Roadmap
 
-Status: In progress — Milestone 17 complete
+Status: In progress — Milestones 17–18 complete
 Theme: Production desktop foundation
 Baseline: [`NGIN.UI-Post-V0.1-Roadmap.md`](NGIN.UI-Post-V0.1-Roadmap.md)
 Execution map:
@@ -90,6 +90,9 @@ without `The glyph atlas is full`, stale handles, clipped edges, or
 backend-dependent filtering.
 
 ## Milestone 18 — International Text And Practical Images
+
+Completed 2026-07-27. Implementation and verification evidence is recorded in
+[`NGIN.UI-V0.2-Progress.md`](NGIN.UI-V0.2-Progress.md).
 
 Deliver:
 

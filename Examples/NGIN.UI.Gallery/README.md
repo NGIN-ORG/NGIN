@@ -8,16 +8,19 @@ The sidebar has eleven pages:
 
 - **Overview** shows colors, buttons, and custom controls.
 - **Layout** shows rows, columns, layers, flexible sizing, and scrolling.
-- **Typography** shows font sizes, Unicode text, wrapping, and alignment.
+- **Typography** shows Latin, Greek, Cyrillic, Arabic, combined letters,
+  symbols, wrapping, alignment, and the color-emoji policy.
 - **Text Area** lets you write, select, copy, paste, and scroll through text.
-- **Images** shows fitting, cropping, alignment, clipping, and tint.
+- **Images** loads a staged PNG through the public decoder and shows fitting,
+  cropping, alignment, clipping, and tint.
 - **Inputs** shows buttons, checkboxes, radio buttons, switches, sliders,
   progress bars, tooltips, and text fields.
 - **Collections** shows lists, sorting, filtering, combo boxes, tabs, and menus.
 - **Overlays** shows a popup that closes with Escape or an outside click.
 - **Windows** opens another window and a dialog.
 - **Themes** switches between light and dark colors.
-- **Diagnostics** shows drawing numbers and optional layout guides.
+- **Diagnostics** shows drawing numbers, loaded fallback fonts, missing
+  characters, and optional layout guides.
 
 The [hosted gallery](../NGIN.UI.Gallery.Hosted/) shows the same screens inside
 an `NGIN.Core` application.
