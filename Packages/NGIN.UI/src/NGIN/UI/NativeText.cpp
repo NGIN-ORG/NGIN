@@ -1108,25 +1108,30 @@ auto NativeTextSystem::ResolveGlyph(const GlyphAtlasRequest &request) noexcept
     const auto inverseHeight =
         1.0F / static_cast<F32>(m_impl->atlasSize.height);
     const auto inverseScale = 1.0F / request.scaleFactor;
+    // Keep transparent texels inside the quad so linear filtering can fade the
+    // FreeType bitmap edge instead of ending on its last covered texel.
+    constexpr UInt32 atlasGutter = 1;
     const GlyphAtlasEntry entry{
         .texture = m_impl->atlas,
         .textureCoordinates =
             Rect{
-                static_cast<F32>(m_impl->atlasX) * inverseWidth,
-                static_cast<F32>(m_impl->atlasY) * inverseHeight,
-                static_cast<F32>(width) * inverseWidth,
-                static_cast<F32>(height) * inverseHeight,
+                static_cast<F32>(m_impl->atlasX - atlasGutter) * inverseWidth,
+                static_cast<F32>(m_impl->atlasY - atlasGutter) * inverseHeight,
+                static_cast<F32>(width + atlasGutter * 2U) * inverseWidth,
+                static_cast<F32>(height + atlasGutter * 2U) * inverseHeight,
             },
         .size =
             Size{
-                static_cast<F32>(width) * inverseScale,
-                static_cast<F32>(height) * inverseScale,
+                static_cast<F32>(width + atlasGutter * 2U) * inverseScale,
+                static_cast<F32>(height + atlasGutter * 2U) * inverseScale,
             },
         .bearing =
             Point{
-                static_cast<F32>(face->value->glyph->bitmap_left) *
+                static_cast<F32>(face->value->glyph->bitmap_left -
+                                 static_cast<Int32>(atlasGutter)) *
                     inverseScale,
-                -static_cast<F32>(face->value->glyph->bitmap_top) *
+                -static_cast<F32>(face->value->glyph->bitmap_top +
+                                  static_cast<Int32>(atlasGutter)) *
                     inverseScale,
             },
     };
