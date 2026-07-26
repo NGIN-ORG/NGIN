@@ -1,49 +1,26 @@
 # NGIN.UI Gallery
 
-This is the standalone native control catalogue for `NGIN.UI`. It uses only
-public APIs from `NGIN.UI` and `NGIN.UI.Backend.SDL3`.
+This app lets you try the controls and features in `NGIN.UI`.
 
 ![NGIN.UI gallery Inputs page](docs/gallery-overview.png)
 
-The sidebar exposes eleven focused pages:
+The sidebar has eleven pages:
 
-- **Overview** introduces the architecture, theme palette, retained state, and
-  public custom badge, progress-ring, and chart examples;
-- **Layout** demonstrates rows, columns, overlays, flex sizing, and scrolling;
-- **Typography** shows native HarfBuzz shaping, FreeType rasterization, UTF-8,
-  Arabic text, grapheme clusters, multiline wrapping, and alignment;
-- **Text Area** presents multiline editing, vertical caret movement, selection,
-  IME-ready composition, wrapping, and internal scrolling;
-- **Images** demonstrates a generated logical image with contain/cover fit,
-  alignment, tint, clipping, lazy upload, and semantic descriptions;
-- **Inputs** presents buttons, check boxes, typed radio groups, switches,
-  sliders, progress bars, labels, delayed tooltips, and editable, password,
-  read-only, invalid, and disabled text fields;
-- **Collections** demonstrates a selectable keyed `ListView`, insert/remove,
-  sorting and filtering, a combo box, retained tabs, a menu button, and a
-  pointer-anchored context menu;
-- **Overlays** demonstrates modal popups and dismissal;
-- **Windows** opens independent windows and owner-modal dialogs;
-- **Resources** switches the light/dark theme and shows typed resource scopes;
-- **Diagnostics** exposes live frame statistics, semantics, and the inspector
-  overlay.
+- **Overview** shows colors, buttons, and custom controls.
+- **Layout** shows rows, columns, layers, flexible sizing, and scrolling.
+- **Typography** shows font sizes, Unicode text, wrapping, and alignment.
+- **Text Area** lets you write, select, copy, paste, and scroll through text.
+- **Images** shows fitting, cropping, alignment, clipping, and tint.
+- **Inputs** shows buttons, checkboxes, radio buttons, switches, sliders,
+  progress bars, tooltips, and text fields.
+- **Collections** shows lists, sorting, filtering, combo boxes, tabs, and menus.
+- **Overlays** shows a popup that closes with Escape or an outside click.
+- **Windows** opens another window and a dialog.
+- **Themes** switches between light and dark colors.
+- **Diagnostics** shows drawing numbers and optional layout guides.
 
-Together, the pages exercise:
-
-- SDL3 window, event-loop, resize, and SDL_GPU-backed rendering;
-- retained composition, responsive layout, semantics, and input;
-- HarfBuzz shaping, FreeType glyph rasterization, and the bundled Noto Sans
-  font;
-- grapheme-aware text editing, selection, clipboard commands, and IME;
-- multiline text layout, fallback-shaped runs, text-area scrolling, and
-  backend-neutral logical image resources;
-- themed borders, rounded control chrome, focus visuals, visual scrollbars,
-  selectable lists, combo boxes, retained tabs, menus, popups, and multiple
-  windows.
-
-Its model and `ComposeMainView()` are shared unchanged with
-[`../NGIN.UI.Gallery.Hosted`](../NGIN.UI.Gallery.Hosted/), which runs the same
-view through `NGIN.Core`.
+The [hosted gallery](../NGIN.UI.Gallery.Hosted/) shows the same screens inside
+an `NGIN.Core` application.
 
 Build and launch it through the V4 product manifest:
 

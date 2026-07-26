@@ -18,7 +18,7 @@ using namespace NGIN::UI;
 constexpr std::array<std::string_view, PageCount> PageNames{
     "Overview", "Layout",    "Typography",  "Text Area",
     "Images",   "Inputs",    "Collections", "Overlays",
-    "Windows",  "Resources", "Diagnostics",
+    "Windows",  "Themes",    "Diagnostics",
 };
 
 [[nodiscard]] auto Number(const std::uint64_t value) -> String {
@@ -189,9 +189,8 @@ void StyleScrollView(NodeProperties &properties, const Theme &theme) {
 void ComposeOverviewPage(Composer &composer, NativeTextSystem &text,
                          Model &model, const Theme &theme) {
   ComposePageHeading(
-      composer, text, theme, "NGIN.UI control gallery",
-      "A public-API catalogue for retained controls, layout, native windows, "
-      "resources, and diagnostics.");
+      composer, text, theme, "Explore NGIN.UI",
+      "Try controls, layouts, text, images, themes, popups, and windows.");
 
   ComposeCard(
       composer, theme,
@@ -200,24 +199,24 @@ void ComposeOverviewPage(Composer &composer, NativeTextSystem &text,
         column.layout.gap = theme.spacing.regular;
         composer.Column(
             [&] {
-              ComposeText(composer, text, String{"Architecture"}, 19.0F,
-                          theme.colors.foreground, "architecture-title",
+              ComposeText(composer, text, String{"Included features"}, 19.0F,
+                          theme.colors.foreground, "features-title",
                           SemanticRole::Heading);
               ComposeText(composer, text,
-                          String{"C++23 retained composition \xC2\xB7 "
-                                 "HarfBuzz + FreeType \xC2\xB7 SDL3 + SDL_GPU"},
+                          String{"Desktop windows \xC2\xB7 Controls and layouts "
+                                 "\xC2\xB7 Unicode text"},
                           theme.typography.body, theme.colors.mutedForeground,
-                          "architecture-value");
+                          "features-value");
               ComposeText(
                   composer, text,
-                  String{"The same ComposeMainView() runs standalone and "
-                         "through NGIN.Core hosting."},
+                  String{"Keyboard, mouse, clipboard, themes, and custom "
+                         "controls."},
                   theme.typography.body, theme.colors.mutedForeground,
                   "hosting-value");
             },
-            "architecture-column");
+            "features-column");
       },
-      "architecture-card");
+      "features-card");
 
   NodeProperties metricsRow{};
   metricsRow.layout.gap = theme.spacing.regular;
@@ -236,10 +235,10 @@ void ComposeOverviewPage(Composer &composer, NativeTextSystem &text,
       "token-swatches");
 
   ComposeButton(
-      composer, text, theme, "Activate retained state",
+      composer, text, theme, "Click me",
       [&model] { model.Activate(); }, "overview-activate", 250.0F);
   ComposeText(composer, text,
-              LabeledNumber("Activation count: ", model.ActivationCount()),
+              LabeledNumber("Clicks: ", model.ActivationCount()),
               theme.typography.body, theme.colors.mutedForeground,
               "activation-count");
 
@@ -250,13 +249,12 @@ void ComposeOverviewPage(Composer &composer, NativeTextSystem &text,
         column.layout.gap = theme.spacing.regular;
         composer.Column(
             [&] {
-              ComposeText(composer, text, String{"Public custom controls"},
-                          19.0F, theme.colors.foreground, "custom-title",
+              ComposeText(composer, text, String{"Custom controls"}, 19.0F,
+                          theme.colors.foreground, "custom-title",
                           SemanticRole::Heading);
               ComposeText(
                   composer, text,
-                  String{"Badge, progress ring, and interactive bar chart "
-                         "implemented without backend changes."},
+                  String{"A badge, progress ring, and interactive chart."},
                   theme.typography.body, theme.colors.mutedForeground,
                   "custom-description");
               ComposeCustomControlExamples(composer, text, theme);
@@ -270,8 +268,8 @@ void ComposeLayoutPage(Composer &composer, NativeTextSystem &text,
                        const Theme &theme) {
   ComposePageHeading(
       composer, text, theme, "Layout",
-      "Rows, columns, overlays, padding, borders, alignment, flex sizing, and "
-      "nested scrolling.");
+      "Rows, columns, layers, spacing, borders, alignment, flexible sizing, "
+      "and scrolling.");
 
   ComposeCard(
       composer, theme,
@@ -280,7 +278,7 @@ void ComposeLayoutPage(Composer &composer, NativeTextSystem &text,
         column.layout.gap = theme.spacing.regular;
         composer.Column(
             [&] {
-              ComposeText(composer, text, String{"Row + flex growth"}, 18.0F,
+              ComposeText(composer, text, String{"Flexible row"}, 18.0F,
                           theme.colors.foreground, "row-title",
                           SemanticRole::Heading);
               NodeProperties row{};
@@ -328,7 +326,7 @@ void ComposeLayoutPage(Composer &composer, NativeTextSystem &text,
                     for (std::uint32_t index = 1; index <= 12; ++index) {
                       ComposeText(
                           composer, text,
-                          LabeledNumber("Scrollable retained row ", index),
+                          LabeledNumber("Scrollable item ", index),
                           theme.typography.body, theme.colors.foreground,
                           std::to_string(index));
                     }
@@ -344,7 +342,7 @@ void ComposeTypographyPage(Composer &composer, NativeTextSystem &text,
                            const Theme &theme) {
   ComposePageHeading(
       composer, text, theme, "Typography",
-      "HarfBuzz-shaped UTF-8 rendered from the bundled OFL Noto Sans face.");
+      "Font sizes, Unicode text, wrapping, and alignment.");
   ComposeCard(
       composer, theme,
       [&] {
@@ -364,7 +362,8 @@ void ComposeTypographyPage(Composer &composer, NativeTextSystem &text,
                                  "\xD9\x84\xD8\xA7\xD9\x85"},
                           18.0F, theme.colors.foreground, "arabic");
               ComposeText(composer, text,
-                          String{"Emoji/graphemes: e\xCC\x81  \xF0\x9F\x91\xA9"
+                          String{"Emoji and combined letters: e\xCC\x81  "
+                                 "\xF0\x9F\x91\xA9"
                                  "\xE2\x80\x8D\xF0\x9F\x92\xBB"},
                           18.0F, theme.colors.foreground, "graphemes");
               NodeProperties paragraph =
@@ -375,16 +374,15 @@ void ComposeTypographyPage(Composer &composer, NativeTextSystem &text,
               paragraph.text.lineHeight = 24.0F;
               paragraph.text.alignment = TextAlignment::Start;
               composer.Text(
-                  String{"Multiline text now wraps at Unicode opportunities, "
-                         "respects explicit line breaks, and retains "
-                         "HarfBuzz-shaped spans across every visual line."},
+                  String{"Long text wraps automatically. It also keeps manual "
+                         "line breaks and works with text from many languages."},
                   text, text, paragraph, "wrapped-paragraph");
 
               auto centered = paragraph;
               centered.text.alignment = TextAlignment::Center;
               centered.text.color = theme.colors.mutedForeground;
               composer.Text(
-                  String{"Centered alignment\nworks independently per line."},
+                  String{"Centered text\nworks on every line."},
                   text, text, centered, "centered-paragraph");
             },
             "typography-column");
@@ -396,8 +394,7 @@ void ComposeTextAreaPage(Composer &composer, NativeTextSystem &text,
                          Model &model, const Theme &theme) {
   ComposePageHeading(
       composer, text, theme, "Text Area",
-      "A multiline editor with grapheme-aware edits, vertical caret movement, "
-      "selection, IME composition, wrapping, and internal scrolling.");
+      "Write, select, copy, paste, and move through multiple lines.");
   ComposeCard(
       composer, theme,
       [&] {
@@ -410,8 +407,7 @@ void ComposeTextAreaPage(Composer &composer, NativeTextSystem &text,
                           SemanticRole::Heading);
               ComposeText(
                   composer, text,
-                  String{"Try Enter, Shift+arrow selection, Home/End, and "
-                         "Up/Down across wrapped lines."},
+                  String{"Try Enter, Shift+Arrow, Home, End, Up, and Down."},
                   14.0F, theme.colors.mutedForeground, "text-area-help");
 
               NodeProperties area{};
@@ -447,9 +443,7 @@ void ComposeTextAreaPage(Composer &composer, NativeTextSystem &text,
 void ComposeImagesPage(Composer &composer, NativeTextSystem &text, Model &model,
                        const Theme &theme) {
   ComposePageHeading(
-      composer, text, theme, "Images",
-      "Logical image resources decode independently from GPU handles and are "
-      "uploaded lazily through a device-recreatable cache.");
+      composer, text, theme, "Images", "Fit, crop, align, clip, and tint images.");
   ComposeCard(
       composer, theme,
       [&] {
@@ -457,13 +451,12 @@ void ComposeImagesPage(Composer &composer, NativeTextSystem &text, Model &model,
         column.layout.gap = theme.spacing.spacious;
         composer.Column(
             [&] {
-              ComposeText(composer, text, String{"Generated pixel source"},
+              ComposeText(composer, text, String{"Generated image"},
                           20.0F, theme.colors.foreground, "image-title",
                           SemanticRole::Heading);
               ComposeText(
                   composer, text,
-                  String{"The same 16:9 logical image is shown with contain, "
-                         "cover, alignment, clipping, and tint."},
+                  String{"The same image is shown in three different ways."},
                   14.0F, theme.colors.mutedForeground, "image-help");
 
               NodeProperties row{};
@@ -516,13 +509,13 @@ void ComposeImagesPage(Composer &composer, NativeTextSystem &text, Model &model,
                               },
                               key);
                         };
-                    composeSample("Contain", ImageFit::Contain,
+                    composeSample("Fit inside", ImageFit::Contain,
                                   ImageAlignment{0.5F, 0.5F},
                                   Color{1.0F, 1.0F, 1.0F, 1.0F}, "contain");
-                    composeSample("Cover · end aligned", ImageFit::Cover,
+                    composeSample("Fill · align right", ImageFit::Cover,
                                   ImageAlignment{1.0F, 0.5F},
                                   Color{1.0F, 1.0F, 1.0F, 1.0F}, "cover");
-                    composeSample("Cover · warm tint", ImageFit::Cover,
+                    composeSample("Fill · warm tint", ImageFit::Cover,
                                   ImageAlignment{0.0F, 0.5F},
                                   Color{1.0F, 0.78F, 0.68F, 0.9F}, "tinted");
                   },
@@ -570,8 +563,8 @@ void ComposeInputsPage(Composer &composer, NativeTextSystem &text, Model &model,
                        const Theme &theme) {
   ComposePageHeading(
       composer, text, theme, "Inputs",
-      "Buttons, checks, radios, switches, sliders, progress, labels, tooltips, "
-      "and grapheme-aware text fields with keyboard, clipboard, and IME.");
+      "Buttons, checkboxes, radio buttons, switches, sliders, progress bars, "
+      "tooltips, and text fields.");
 
   ComposeCard(
       composer, theme,
@@ -617,18 +610,18 @@ void ComposeInputsPage(Composer &composer, NativeTextSystem &text, Model &model,
         composer.Column(
             [&] {
               ComposeText(composer, text,
-                          String{"Selection and boolean controls"}, 18.0F,
+                          String{"Choices and switches"}, 18.0F,
                           theme.colors.foreground, "selection-title",
                           SemanticRole::Heading);
               ComposeControlRow(
-                  composer, text, theme, "CheckBox — checked", "settings-check",
+                  composer, text, theme, "Checkbox — checked", "settings-check",
                   [&](const NodeProperties &control) {
                     CheckBox(composer, model.CheckBinding(), normalControl,
                              control, "control");
                   },
                   "checked-row");
               ComposeControlRow(
-                  composer, text, theme, "CheckBox — indeterminate",
+                  composer, text, theme, "Checkbox — mixed",
                   "settings-mixed",
                   [&](const NodeProperties &control) {
                     CheckBox(composer, model.MixedCheckBinding(), normalControl,
@@ -636,7 +629,7 @@ void ComposeInputsPage(Composer &composer, NativeTextSystem &text, Model &model,
                   },
                   "mixed-row");
               ComposeControlRow(
-                  composer, text, theme, "CheckBox — disabled",
+                  composer, text, theme, "Checkbox — disabled",
                   "settings-disabled-check",
                   [&](NodeProperties control) {
                     control.interaction.enabled = false;
@@ -645,7 +638,7 @@ void ComposeInputsPage(Composer &composer, NativeTextSystem &text, Model &model,
                   },
                   "disabled-check-row");
               ComposeControlRow(
-                  composer, text, theme, "CheckBox — validation error",
+                  composer, text, theme, "Checkbox — error",
                   "settings-invalid-check",
                   [&](const NodeProperties &control) {
                     CheckBox(composer, model.UncheckedBinding(), invalidControl,
@@ -653,7 +646,7 @@ void ComposeInputsPage(Composer &composer, NativeTextSystem &text, Model &model,
                   },
                   "invalid-check-row");
               ComposeControlRow(
-                  composer, text, theme, "RadioButton — compact",
+                  composer, text, theme, "Radio button — compact",
                   "density-compact",
                   [&](const NodeProperties &control) {
                     RadioButton(
@@ -663,7 +656,7 @@ void ComposeInputsPage(Composer &composer, NativeTextSystem &text, Model &model,
                   },
                   "radio-compact-row");
               ComposeControlRow(
-                  composer, text, theme, "RadioButton — comfortable",
+                  composer, text, theme, "Radio button — comfortable",
                   "density-comfortable",
                   [&](const NodeProperties &control) {
                     RadioButton(
@@ -673,7 +666,7 @@ void ComposeInputsPage(Composer &composer, NativeTextSystem &text, Model &model,
                   },
                   "radio-comfortable-row");
               ComposeControlRow(
-                  composer, text, theme, "RadioButton — disabled",
+                  composer, text, theme, "Radio button — disabled",
                   "density-disabled",
                   [&](NodeProperties control) {
                     control.interaction.enabled = false;
@@ -684,7 +677,7 @@ void ComposeInputsPage(Composer &composer, NativeTextSystem &text, Model &model,
                   },
                   "radio-disabled-row");
               ComposeControlRow(
-                  composer, text, theme, "RadioButton — validation error",
+                  composer, text, theme, "Radio button — error",
                   "density-invalid",
                   [&](const NodeProperties &control) {
                     RadioButton(
@@ -694,14 +687,14 @@ void ComposeInputsPage(Composer &composer, NativeTextSystem &text, Model &model,
                   },
                   "radio-invalid-row");
               ComposeControlRow(
-                  composer, text, theme, "ToggleSwitch — on", "updates-toggle",
+                  composer, text, theme, "Switch — on", "updates-toggle",
                   [&](const NodeProperties &control) {
                     ToggleSwitch(composer, model.ToggleBinding(), normalControl,
                                  control, "control");
                   },
                   "toggle-row");
               ComposeControlRow(
-                  composer, text, theme, "ToggleSwitch — disabled",
+                  composer, text, theme, "Switch — disabled",
                   "updates-disabled-toggle",
                   [&](NodeProperties control) {
                     control.interaction.enabled = false;
@@ -710,7 +703,7 @@ void ComposeInputsPage(Composer &composer, NativeTextSystem &text, Model &model,
                   },
                   "toggle-disabled-row");
               ComposeControlRow(
-                  composer, text, theme, "ToggleSwitch — validation error",
+                  composer, text, theme, "Switch — error",
                   "updates-invalid-toggle",
                   [&](const NodeProperties &control) {
                     ToggleSwitch(composer, model.DisabledToggleBinding(),
@@ -729,11 +722,11 @@ void ComposeInputsPage(Composer &composer, NativeTextSystem &text, Model &model,
         column.layout.gap = theme.spacing.regular;
         composer.Column(
             [&] {
-              ComposeText(composer, text, String{"Ranges and feedback"}, 18.0F,
+              ComposeText(composer, text, String{"Sliders and progress"}, 18.0F,
                           theme.colors.foreground, "range-title",
                           SemanticRole::Heading);
               ComposeControlRow(
-                  composer, text, theme, "Slider — interactive",
+                  composer, text, theme, "Slider",
                   "volume-slider",
                   [&](NodeProperties control) {
                     control.layout.preferredSize.width = 320.0F;
@@ -744,7 +737,7 @@ void ComposeInputsPage(Composer &composer, NativeTextSystem &text, Model &model,
                   },
                   "slider-row");
               ComposeControlRow(
-                  composer, text, theme, "Slider — validation error",
+                  composer, text, theme, "Slider — error",
                   "invalid-slider",
                   [&](NodeProperties control) {
                     control.layout.preferredSize.width = 320.0F;
@@ -762,7 +755,7 @@ void ComposeInputsPage(Composer &composer, NativeTextSystem &text, Model &model,
                   },
                   "disabled-slider-row");
               ComposeControlRow(
-                  composer, text, theme, "ProgressBar — 62%",
+                  composer, text, theme, "Progress bar",
                   "progress-determinate",
                   [&](NodeProperties control) {
                     control.layout.preferredSize.width = 320.0F;
@@ -774,7 +767,7 @@ void ComposeInputsPage(Composer &composer, NativeTextSystem &text, Model &model,
                   },
                   "progress-row");
               ComposeControlRow(
-                  composer, text, theme, "ProgressBar — indeterminate",
+                  composer, text, theme, "Progress bar — busy",
                   "progress-indeterminate",
                   [&](NodeProperties control) {
                     control.layout.preferredSize.width = 320.0F;
@@ -787,7 +780,7 @@ void ComposeInputsPage(Composer &composer, NativeTextSystem &text, Model &model,
                   },
                   "progress-indeterminate-row");
               ComposeControlRow(
-                  composer, text, theme, "ProgressBar — validation error",
+                  composer, text, theme, "Progress bar — error",
                   "progress-invalid",
                   [&](NodeProperties control) {
                     control.layout.preferredSize.width = 320.0F;
@@ -799,7 +792,7 @@ void ComposeInputsPage(Composer &composer, NativeTextSystem &text, Model &model,
                   },
                   "progress-invalid-row");
               ComposeControlRow(
-                  composer, text, theme, "ProgressBar — disabled",
+                  composer, text, theme, "Progress bar — disabled",
                   "progress-disabled",
                   [&](NodeProperties control) {
                     control.layout.preferredSize.width = 320.0F;
@@ -813,8 +806,7 @@ void ComposeInputsPage(Composer &composer, NativeTextSystem &text, Model &model,
                   "progress-disabled-row");
               ComposeText(
                   composer, text,
-                  String{"Use Tab to reveal focus, Space/Enter to activate, "
-                         "and arrow/Home/End keys on sliders."},
+                  String{"Try Tab, Space, Enter, and the arrow keys."},
                   theme.typography.caption, theme.colors.mutedForeground,
                   "keyboard-help");
             },
@@ -825,11 +817,11 @@ void ComposeInputsPage(Composer &composer, NativeTextSystem &text, Model &model,
   ComposeCard(
       composer, theme,
       [&] {
-        ComposeText(composer, text, String{"Delayed ToolTip"}, 18.0F,
+        ComposeText(composer, text, String{"Tooltip"}, 18.0F,
                     theme.colors.foreground, "tooltip-title",
                     SemanticRole::Heading);
         ComposeButton(
-            composer, text, theme, "Hover for contextual help", [] {},
+            composer, text, theme, "Hover for help", [] {},
             "tooltip-target", 250.0F, true, false, model.HelpToolTip());
         if (auto *toolTip = model.HelpToolTip(); toolTip != nullptr) {
           toolTip->Compose(
@@ -839,7 +831,7 @@ void ComposeInputsPage(Composer &composer, NativeTextSystem &text, Model &model,
                     composer, theme,
                     [&] {
                       ComposeText(composer, text,
-                                  String{"Delayed help without focus stealing"},
+                                  String{"Helpful text after a short delay"},
                                   theme.typography.caption,
                                   theme.colors.foreground, "tooltip-text");
                     },
@@ -866,7 +858,7 @@ void ComposeInputsPage(Composer &composer, NativeTextSystem &text, Model &model,
               ComposeTextField(composer, text, model, theme,
                                model.NameBinding(), "Read-only name",
                                "readonly", true);
-              ComposeText(composer, text, String{"Validation error"}, 14.0F,
+              ComposeText(composer, text, String{"Error"}, 14.0F,
                           theme.colors.mutedForeground, "invalid-label");
               ComposeTextField(composer, text, model, theme,
                                model.NameBinding(), "Invalid example",
@@ -891,8 +883,7 @@ void ComposeCollectionsPage(Composer &composer, NativeTextSystem &text,
                             Model &model, const Theme &theme) {
   ComposePageHeading(
       composer, text, theme, "Collections",
-      "Selectable lists, stable keyed identity, combo boxes, retained tabs, "
-      "and mouse or keyboard menus share one navigation foundation.");
+      "Lists, combo boxes, tabs, menus, and right-click menus.");
 
   NodeProperties actions{};
   actions.layout.gap = theme.spacing.regular;
@@ -914,7 +905,7 @@ void ComposeCollectionsPage(Composer &composer, NativeTextSystem &text,
             [&model] { model.ToggleCollectionSort(); }, "sort-items", 170.0F);
         ComposeButton(
             composer, text, theme,
-            model.IsCollectionFiltered() ? "Show all" : "Filter even IDs",
+            model.IsCollectionFiltered() ? "Show all" : "Filter even items",
             [&model] { model.ToggleCollectionFilter(); }, "filter-items",
             160.0F);
       },
@@ -928,13 +919,12 @@ void ComposeCollectionsPage(Composer &composer, NativeTextSystem &text,
         composer.Element(
             ElementType::Column, collectionColumn,
             [&] {
-              ComposeText(composer, text, String{"ListView"}, 20.0F,
+              ComposeText(composer, text, String{"Selectable list"}, 20.0F,
                           theme.colors.foreground, "list-title",
                           SemanticRole::Heading);
               ComposeText(
                   composer, text,
-                  String{"Arrow keys, Home/End, and type-ahead move selection "
-                         "and keep it visible. Try typing 'i' repeatedly."},
+                  String{"Use the arrow keys, Home, End, or type a letter."},
                   theme.typography.body, theme.colors.mutedForeground,
                   "list-help");
               NodeProperties list{};
@@ -945,7 +935,7 @@ void ComposeCollectionsPage(Composer &composer, NativeTextSystem &text,
               list.layout.padding = Thickness::Uniform(Dp{6.0F});
               list.visual = MakePanelVisual(theme);
               list.visual.base.background = theme.colors.sunkenSurface;
-              list.semantics.label = String{"Keyed gallery items"};
+              list.semantics.label = String{"Gallery items"};
               StyleScrollView(list, theme);
               const auto items = model.CollectionItems();
               const auto selected = model.SelectedCollectionItem();
@@ -1022,14 +1012,13 @@ void ComposeCollectionsPage(Composer &composer, NativeTextSystem &text,
         composer.Element(
             ElementType::Column, navigationColumn,
             [&] {
-              ComposeText(composer, text, String{"Navigation controls"}, 20.0F,
+              ComposeText(composer, text,
+                          String{"Combo box, tabs, and menus"}, 20.0F,
                           theme.colors.foreground, "navigation-title",
                           SemanticRole::Heading);
               ComposeText(
                   composer, text,
-                  String{"Each popup is anchored to its control. Tabs keep "
-                         "every page mounted while collapsing inactive "
-                         "content."},
+                  String{"Open each control and try its options."},
                   theme.typography.body, theme.colors.mutedForeground,
                   "navigation-help");
 
@@ -1206,12 +1195,12 @@ void ComposeCollectionsPage(Composer &composer, NativeTextSystem &text,
                   TabDefinition<CollectionTab>{
                       .value = CollectionTab::Identity,
                       .key = String{"identity"},
-                      .label = String{"Identity"},
+                      .label = String{"Changing items"},
                   },
                   TabDefinition<CollectionTab>{
                       .value = CollectionTab::DataSource,
                       .key = String{"data-source"},
-                      .label = String{"Data source"},
+                      .label = String{"Loading more"},
                   },
               };
               TabsPresentation tabsPresentation{};
@@ -1252,15 +1241,11 @@ void ComposeCollectionsPage(Composer &composer, NativeTextSystem &text,
                   [&](Composer &, const auto &definition, const bool) {
                     const auto description =
                         definition.value == CollectionTab::Selection
-                            ? "Single and multiple models are typed; ListItem "
-                              "publishes selected state to semantics."
+                            ? "Choose one item or several items."
                         : definition.value == CollectionTab::Identity
-                            ? "Stable keys preserve item identity through "
-                              "insert, "
-                              "remove, sort, and filtering."
-                            : "IIncrementalDataSource defines count, revision, "
-                              "range request, and checked item access before "
-                              "virtualization.";
+                            ? "Items keep their state when you add, remove, "
+                              "sort, or filter."
+                            : "Large lists can load more items when needed.";
                     ComposeText(composer, text, String{description}, 14.0F,
                                 theme.colors.foreground, "tab-description");
                   },
@@ -1298,12 +1283,12 @@ void ComposeCollectionsPage(Composer &composer, NativeTextSystem &text,
                       item.layout.preferredSize = Size{200.0F, 36.0F};
                       item.layout.padding = Thickness{10.0F, 7.0F, 10.0F, 7.0F};
                       item.visual = MakePanelVisual(theme);
-                      item.semantics.label = String{"Inspect keyed item"};
+                      item.semantics.label = String{"Inspect item"};
                       MenuItem(
                           composer,
                           [&] {
                             ComposeText(composer, text,
-                                        String{"Inspect keyed item"}, 14.0F,
+                                        String{"Inspect item"}, 14.0F,
                                         theme.colors.foreground,
                                         "context-item-label");
                           },
@@ -1325,11 +1310,10 @@ void ComposeOverlaysPage(Composer &composer, NativeTextSystem &text,
                          Model &model, const Theme &theme) {
   ComposePageHeading(
       composer, text, theme, "Overlays",
-      "In-window popups use viewport-aware placement, modal focus scopes, and "
-      "outside-pointer or Escape dismissal.");
+      "Open a popup, then close it with Escape or by clicking outside.");
   ComposeButton(
       composer, text, theme,
-      model.IsPopupOpen() ? "Popup is open" : "Open modal popup",
+      model.IsPopupOpen() ? "Popup is open" : "Open popup",
       [&model] { model.SetPopupOpen(true); }, "open-popup", 230.0F);
 
   if (!model.IsPopupOpen()) {
@@ -1353,7 +1337,7 @@ void ComposeOverlaysPage(Composer &composer, NativeTextSystem &text,
               column.layout.gap = theme.spacing.regular;
               composer.Column(
                   [&] {
-                    ComposeText(composer, text, String{"Modal popup"}, 22.0F,
+                    ComposeText(composer, text, String{"Popup"}, 22.0F,
                                 theme.colors.foreground, "popup-title",
                                 SemanticRole::Heading);
                     ComposeText(
@@ -1376,9 +1360,7 @@ void ComposeOverlaysPage(Composer &composer, NativeTextSystem &text,
 void ComposeWindowsPage(Composer &composer, NativeTextSystem &text,
                         Model &model, const Theme &theme) {
   ComposePageHeading(
-      composer, text, theme, "Windows",
-      "Top-level windows and owner-modal dialog windows are platform surfaces, "
-      "not children of the retained control tree.");
+      composer, text, theme, "Windows", "Open another window or a dialog.");
   ComposeCard(
       composer, theme,
       [&] {
@@ -1387,7 +1369,7 @@ void ComposeWindowsPage(Composer &composer, NativeTextSystem &text,
         composer.Column(
             [&] {
               ComposeButton(
-                  composer, text, theme, "Open auxiliary window",
+                  composer, text, theme, "Open another window",
                   [&model] {
                     auto opened = model.OpenAuxiliaryWindow(false);
                     if (!opened) {
@@ -1396,7 +1378,7 @@ void ComposeWindowsPage(Composer &composer, NativeTextSystem &text,
                   },
                   "open-window", 240.0F);
               ComposeButton(
-                  composer, text, theme, "Open modal dialog",
+                  composer, text, theme, "Open dialog",
                   [&model] {
                     auto opened = model.OpenAuxiliaryWindow(true);
                     if (!opened) {
@@ -1405,8 +1387,8 @@ void ComposeWindowsPage(Composer &composer, NativeTextSystem &text,
                   },
                   "open-dialog", 240.0F);
               ComposeText(composer, text,
-                          String{"A modal dialog blocks input to its owner and "
-                                 "restores focus when it closes."},
+                          String{"A dialog pauses the main window until it "
+                                 "closes."},
                           theme.typography.body, theme.colors.mutedForeground,
                           "window-help");
             },
@@ -1418,9 +1400,7 @@ void ComposeWindowsPage(Composer &composer, NativeTextSystem &text,
 void ComposeResourcesPage(Composer &composer, NativeTextSystem &text,
                           Model &model, const Theme &theme) {
   ComposePageHeading(
-      composer, text, theme, "Themes and resources",
-      "Typed, hierarchical resource scopes keep theme and locale values out of "
-      "stringly typed property paths.");
+      composer, text, theme, "Themes", "Switch between light and dark colors.");
   ComposeButton(
       composer, text, theme,
       model.IsLightTheme() ? "Switch to dark theme" : "Switch to light theme",
@@ -1441,18 +1421,21 @@ void ComposeResourcesPage(Composer &composer, NativeTextSystem &text,
               composer.Column(
                   [&] {
                     ComposeText(composer, text,
-                                String{"Scoped resource values"}, 19.0F,
+                                String{"Current settings"}, 19.0F,
                                 theme.colors.foreground, "resources-title",
                                 SemanticRole::Heading);
                     ComposeText(composer, text,
-                                String{"Theme: typed NGIN.UI.Theme"},
+                                String{model.IsLightTheme()
+                                           ? "Theme: Light"
+                                           : "Theme: Dark"},
                                 theme.typography.body,
                                 theme.colors.mutedForeground, "theme-resource");
-                    ComposeText(composer, text, String{"Locale: en-US"},
+                    ComposeText(composer, text,
+                                String{"Language: English (US)"},
                                 theme.typography.body,
                                 theme.colors.mutedForeground,
                                 "locale-resource");
-                    ComposeText(composer, text, String{"Reduced motion: false"},
+                    ComposeText(composer, text, String{"Reduced motion: Off"},
                                 theme.typography.body,
                                 theme.colors.mutedForeground,
                                 "motion-resource");
@@ -1468,8 +1451,7 @@ void ComposeDiagnosticsPage(Composer &composer, NativeTextSystem &text,
                             Model &model, const Theme &theme) {
   ComposePageHeading(
       composer, text, theme, "Diagnostics",
-      "Live structural counters, semantic output, immutable inspector "
-      "snapshots, and optional layout/focus overlays.");
+      "See what the current screen draws and turn on visual guides.");
   const auto diagnostics = model.Diagnostics();
   ComposeCard(
       composer, theme,
@@ -1484,22 +1466,23 @@ void ComposeDiagnosticsPage(Composer &composer, NativeTextSystem &text,
                           "frames");
               ComposeText(
                   composer, text,
-                  LabeledNumber("Compositions: ", diagnostics.compositionCount),
+                  LabeledNumber("Screen updates: ",
+                                diagnostics.compositionCount),
                   theme.typography.body, theme.colors.foreground,
                   "compositions");
               ComposeText(composer, text,
-                          LabeledNumber("Semantic nodes: ",
+                          LabeledNumber("Accessible items: ",
                                         diagnostics.semanticNodeCount),
                           theme.typography.body, theme.colors.foreground,
                           "semantic-count");
               ComposeText(composer, text,
-                          LabeledNumber("Display commands: ",
+                          LabeledNumber("Drawing steps: ",
                                         diagnostics.displayCommandCount),
                           theme.typography.body, theme.colors.foreground,
                           "display-count");
               ComposeText(
                   composer, text,
-                  LabeledNumber("Draw batches: ", diagnostics.drawBatchCount),
+                  LabeledNumber("Draw groups: ", diagnostics.drawBatchCount),
                   theme.typography.body, theme.colors.foreground,
                   "batch-count");
             },
@@ -1508,8 +1491,8 @@ void ComposeDiagnosticsPage(Composer &composer, NativeTextSystem &text,
       "diagnostics-card");
   ComposeButton(
       composer, text, theme,
-      model.IsInspectorEnabled() ? "Disable inspector overlay"
-                                 : "Enable inspector overlay",
+      model.IsInspectorEnabled() ? "Hide layout guides"
+                                 : "Show layout guides",
       [&model] { model.ToggleInspector(); }, "toggle-inspector", 260.0F);
 }
 
@@ -1561,20 +1544,20 @@ void ComposeAuxiliaryWindow(Composer &composer, NativeTextSystem &text,
   root.visual.base.background = theme.colors.background;
   root.semantics.role = modal ? SemanticRole::Dialog : SemanticRole::Group;
   root.semantics.label =
-      String{modal ? "Gallery modal dialog" : "Gallery auxiliary window"};
+      String{modal ? "Gallery dialog" : "Gallery second window"};
   composer.Element(
       ElementType::Column, root,
       [&] {
         ComposeText(composer, text,
-                    String{modal ? "Modal dialog" : "Auxiliary window"}, 26.0F,
+                    String{modal ? "Dialog" : "Second window"}, 26.0F,
                     theme.colors.foreground, "title", SemanticRole::Heading);
         ComposeText(
             composer, text,
-            String{modal ? "Input to the owner is blocked until this closes."
-                         : "NGIN.UI supports multiple independent surfaces."},
+            String{modal ? "The main window is paused until this closes."
+                         : "This is another NGIN.UI window."},
             theme.typography.body, theme.colors.mutedForeground, "body");
         ComposeText(composer, text,
-                    "Close this surface with its native window controls.",
+                    "Use the window close button when you are done.",
                     theme.typography.caption, theme.colors.mutedForeground,
                     "close-hint");
       },
@@ -1603,10 +1586,10 @@ Model::Model()
       m_password(String{"retained"},
                  [this](const InvalidationKind kind) { Invalidate(kind); }),
       m_notes(
-          String{"NGIN.UI keeps editing state retained across composition.\n\n"
-                 "This TextArea wraps Unicode text, preserves grapheme "
-                 "clusters, and scrolls the active caret into view.\n"
-                 "Add a few lines here to exercise vertical navigation."},
+          String{"Write your project notes here.\n\n"
+                 "Long lines wrap automatically, and the editor scrolls as "
+                 "you add more text.\n"
+                 "Add a few lines and try moving with the arrow keys."},
           [this](const InvalidationKind kind) { Invalidate(kind); }),
       m_check(CheckState::Checked,
               [this](const InvalidationKind kind) { Invalidate(kind); }),
@@ -1775,7 +1758,7 @@ void Model::AddCollectionItem() {
   static_cast<void>(
       m_collectionItems.Update([item](auto &items) { items.push_back(item); }));
   static_cast<void>(m_collectionSelection.Select(item));
-  Notify("Added and selected a keyed item");
+  Notify("Added and selected an item");
 }
 
 void Model::RemoveSelectedCollectionItem() {
@@ -1787,7 +1770,7 @@ void Model::RemoveSelectedCollectionItem() {
   static_cast<void>(m_collectionItems.Update(
       [selected](auto &items) { std::erase(items, *selected); }));
   static_cast<void>(m_collectionSelection.Clear());
-  Notify("Removed the selected keyed item");
+  Notify("Removed the selected item");
 }
 
 void Model::ToggleCollectionSort() {
