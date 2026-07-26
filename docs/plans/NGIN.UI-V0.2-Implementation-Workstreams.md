@@ -344,6 +344,57 @@ V4 graph and staging contracts rather than adding a UI-specific build path.
 Rebuilding a running gallery fails with a specific locked-artifact diagnostic,
 and rebuilding after closing it succeeds without deleting the build tree.
 
+## Workstream I — Motion Foundations
+
+### Goal
+
+Make common motion easy to author without adding application frame loops or a
+general timeline framework.
+
+### Contract Slice
+
+- target-value animation that fits repeatable composition;
+- stable retained identity, retargeting, interruption, and cancellation;
+- scalar, color, opacity, translation, and scale interpolation;
+- standard easing curves and theme-driven durations;
+- paint-transform behavior for clipping, hit testing, and semantics;
+- a move-safe handle for explicit cancellation and bounded repetition;
+- reduced-motion behavior and platform preference reporting.
+
+### Scheduler Slice
+
+- monotonic animation time supplied by the UI platform boundary;
+- one next-frame deadline across active animations in each window;
+- invalidation only while progress changes;
+- no busy loop after the final value is reached;
+- safe removal when an element or window is destroyed;
+- deterministic time advancement in the headless backend.
+
+### Control And Gallery Slice
+
+- automatic hover, press, focus, and disabled transitions;
+- popup entrance and exit motion without changing focus ownership;
+- a genuinely animated indeterminate progress indicator;
+- a Gallery Motion page for fades, translation, color, easing, interruption,
+  repetition, and reduced-motion behavior;
+- concise examples that do not require developers to manage timers.
+
+### Focused Tests
+
+- exact interpolation at start, intermediate, and final timestamps;
+- retargeting begins from the currently presented value;
+- cancellation and unmounting leave no stale element access;
+- completed animations stop requesting frames;
+- multiple windows keep independent lifetimes and a common time contract;
+- reduced motion presents the final state immediately;
+- transformed visuals preserve the documented clipping and hit-test behavior.
+
+### First Acceptance Gate
+
+A public Gallery example can animate opacity, translation, and control-state
+colors with no application-owned frame callback, then becomes immediate when
+reduced motion is enabled.
+
 ## Sequence
 
 ### Wave 0 — Decisions And Baselines
@@ -377,12 +428,19 @@ Close and commit Milestones 19 and 20 independently.
 2. Add `TreeView` only if it does not destabilize virtualization.
 3. Close and commit Milestone 21.
 
-### Wave 5 — Product Completion
+### Wave 5 — Motion
+
+1. Approve the target-value API and transform behavior.
+2. Implement Workstream I.
+3. Add the public Gallery Motion page and deterministic coverage.
+4. Close and commit Milestone 22.
+
+### Wave 6 — Product Completion
 
 1. Complete Workstream G.
 2. Complete remaining packaging and release work in Workstream H.
 3. Run the release gates.
-4. Close and commit Milestone 22.
+4. Close and commit Milestone 23.
 
 ## Verification Matrix
 
@@ -395,6 +453,7 @@ Close and commit Milestones 19 and 20 independently.
 | Windows UI Automation | provider automation test and manual Narrator checklist |
 | Layout | focused layout tests and narrow-window gallery smoke |
 | Virtualization | focused identity/scroll tests and 100,000-item benchmark |
+| Motion | deterministic scheduler/interpolation tests, reduced-motion coverage, Gallery Motion smoke |
 | CLI staging diagnostic | `NGINCliTests` and hosted/standalone locked-artifact smoke |
 | Public API | docs/API comments, install/export consumer, compatibility review |
 

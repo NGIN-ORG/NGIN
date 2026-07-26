@@ -19,7 +19,9 @@ The release is ordered around user-visible risk:
 3. semantic controls must reach native accessibility clients;
 4. common desktop layouts must not require custom measurement code;
 5. large collections must scale without mounting every item;
-6. the gallery, documentation, packaging, and diagnostics must explain the
+6. ordinary control motion must be simple, bounded, and respectful of reduced
+   motion without application-owned frame loops;
+7. the gallery, documentation, packaging, and diagnostics must explain the
    supported product honestly.
 
 This is a roadmap, not a compatibility specification. Public contract changes
@@ -52,6 +54,7 @@ remain governed by
 | Accessibility | Backend-neutral semantic tree | Windows UI Automation bridge with events and actions |
 | Layout | Row, column, overlay, padding, border, scroll | Grid and wrap layout using public composition |
 | Collections | Functional non-virtualized `ListView` | Reusable virtualization and incremental loading |
+| Motion | Theme durations but no animation runtime or public transition API | Target-value animation, common control transitions, reduced motion, and deterministic scheduling |
 | Desktop services | Clipboard, IME, windows, dialogs, file-drop events | Clear capability behavior and better native workflow diagnostics |
 | Gallery | Broad catalogue | Honest international, accessibility, scale, and performance demonstrations |
 
@@ -197,12 +200,48 @@ identity.
 list. `DataGrid` is planned after the virtualization and grid-layout contracts
 have proven stable.
 
-## Milestone 22 — Version 0.2 Product Completion
+## Milestone 22 — Motion Foundations
+
+Deliver:
+
+- define a small target-value animation API that fits repeatable composition
+  and is as simple to use as ordinary state changes;
+- retain animation progress by stable element identity and safely retarget or
+  cancel animation when composition changes;
+- interpolate scalar values, colors, opacity, translation, and scale with a
+  small set of standard easing curves;
+- schedule frames from monotonic deadlines only while animation is active,
+  without requiring application timers or permanent redraw loops;
+- define whether animated transforms affect only painting or also clipping,
+  hit testing, semantics, and layout, and keep that behavior consistent;
+- add automatic theme-driven transitions for common hover, press, focus,
+  disabled, popup, and progress-indicator states;
+- expose a move-safe animation handle for explicit cancellation and bounded
+  repeating animations;
+- obtain reduced-motion preference through the platform capability boundary
+  and settle animations immediately when motion is disabled;
+- provide a deterministic test clock and tests for retargeting, cancellation,
+  unmounting, multiple windows, frame deadlines, and reduced motion;
+- add a Gallery Motion page that demonstrates transitions, interruption,
+  repetition, easing, and reduced-motion behavior using public APIs.
+
+This milestone is deliberately not a general timeline or keyframe framework.
+Rotation, arbitrary layout animation, shared-element transitions, and advanced
+sequence authoring remain follow-up work.
+
+Exit criterion:
+
+A developer can add a fade, translation, color change, or control-state
+transition without writing a frame loop; animations stop requesting frames
+when idle, remain safe when elements disappear, and become immediate when
+reduced motion is enabled.
+
+## Milestone 23 — Version 0.2 Product Completion
 
 Deliver:
 
 - update the gallery with text coverage, accessibility, responsive layout,
-  virtualization, and resource diagnostics pages;
+  virtualization, motion, and resource diagnostics pages;
 - add searchable gallery navigation and concise, copyable public examples;
 - keep standalone, hosted, and headless products on the same view model;
 - update guides and generated API comments for every new public contract;
@@ -231,6 +270,8 @@ Version 0.2 is complete only when:
 - Windows UI Automation exposes and operates the semantic control tree;
 - Grid and WrapPanel are public, tested, documented, and demonstrated;
 - virtualized lists scale to the published logical-item budget;
+- target-value animations and control transitions are public, deterministic,
+  cancellation-safe, and reduced-motion aware;
 - standalone, hosted, and headless gallery paths pass;
 - dependency licenses and runtime notices are complete;
 - developer documentation and examples match the shipped behavior.
@@ -245,7 +286,8 @@ Version 0.2 is complete only when:
 - mobile backends;
 - remote rendering;
 - a stable binary plugin-widget ABI;
-- a general animation authoring framework;
+- a general animation authoring framework, including arbitrary keyframes,
+  shared-element transitions, and automatic layout transitions;
 - native-view embedding.
 
 These may receive separate plans after the version 0.2 foundations are proven.
