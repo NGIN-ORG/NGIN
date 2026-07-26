@@ -50,6 +50,19 @@ struct Sample final {
   F32 alpha{1.0F};
 };
 
+[[nodiscard]] auto Lerp(const Sample first, const Sample second,
+                        const F32 amount) noexcept -> Sample {
+  const auto channel = [amount](const F32 left, const F32 right) {
+    return left + (right - left) * amount;
+  };
+  return Sample{
+      channel(first.red, second.red),
+      channel(first.green, second.green),
+      channel(first.blue, second.blue),
+      channel(first.alpha, second.alpha),
+  };
+}
+
 [[nodiscard]] auto Edge(const RenderVertex &first, const RenderVertex &second,
                         const F32 x, const F32 y) noexcept -> F32 {
   return (x - first.x) * (second.y - first.y) -
@@ -145,39 +158,60 @@ struct SoftwareRenderBackend::Impl final {
     if (texture == nullptr) {
       return {};
     }
-    const auto x = std::min(
-        static_cast<UInt32>(std::floor(std::clamp(u, 0.0F, 1.0F) *
-                                      static_cast<F32>(
-                                          texture->info.size.width))),
-        texture->info.size.width - 1);
-    const auto y = std::min(
-        static_cast<UInt32>(std::floor(std::clamp(v, 0.0F, 1.0F) *
-                                      static_cast<F32>(
-                                          texture->info.size.height))),
-        texture->info.size.height - 1);
-    const auto offset =
-        static_cast<UIntSize>(y * texture->info.size.width + x) *
-        BytesPerPixel(texture->info.format);
-    if (texture->info.format == TextureFormat::R8) {
-      const auto alpha = static_cast<F32>(
-                             static_cast<UInt8>(texture->bytes[offset])) /
-                         255.0F;
-      return Sample{alpha, alpha, alpha, alpha};
+    const auto sampleAt = [texture](const Int32 sourceX,
+                                    const Int32 sourceY) noexcept {
+      const auto x = static_cast<UInt32>(std::clamp(
+          sourceX, 0, static_cast<Int32>(texture->info.size.width) - 1));
+      const auto y = static_cast<UInt32>(std::clamp(
+          sourceY, 0, static_cast<Int32>(texture->info.size.height) - 1));
+      const auto offset =
+          static_cast<UIntSize>(y * texture->info.size.width + x) *
+          BytesPerPixel(texture->info.format);
+      if (texture->info.format == TextureFormat::R8) {
+        const auto alpha = static_cast<F32>(
+                               static_cast<UInt8>(texture->bytes[offset])) /
+                           255.0F;
+        return Sample{alpha, alpha, alpha, alpha};
+      }
+      const auto first =
+          static_cast<F32>(static_cast<UInt8>(texture->bytes[offset])) /
+          255.0F;
+      const auto second =
+          static_cast<F32>(static_cast<UInt8>(texture->bytes[offset + 1])) /
+          255.0F;
+      const auto third =
+          static_cast<F32>(static_cast<UInt8>(texture->bytes[offset + 2])) /
+          255.0F;
+      const auto alpha =
+          static_cast<F32>(static_cast<UInt8>(texture->bytes[offset + 3])) /
+          255.0F;
+      return texture->info.format == TextureFormat::BGRA8
+                 ? Sample{third, second, first, alpha}
+                 : Sample{first, second, third, alpha};
+    };
+
+    const auto clampedU = std::clamp(u, 0.0F, 1.0F);
+    const auto clampedV = std::clamp(v, 0.0F, 1.0F);
+    if (texture->info.filter == TextureFilter::Nearest) {
+      return sampleAt(
+          static_cast<Int32>(std::floor(
+              clampedU * static_cast<F32>(texture->info.size.width))),
+          static_cast<Int32>(std::floor(
+              clampedV * static_cast<F32>(texture->info.size.height))));
     }
-    const auto first =
-        static_cast<F32>(static_cast<UInt8>(texture->bytes[offset])) / 255.0F;
-    const auto second =
-        static_cast<F32>(static_cast<UInt8>(texture->bytes[offset + 1])) /
-        255.0F;
-    const auto third =
-        static_cast<F32>(static_cast<UInt8>(texture->bytes[offset + 2])) /
-        255.0F;
-    const auto alpha =
-        static_cast<F32>(static_cast<UInt8>(texture->bytes[offset + 3])) /
-        255.0F;
-    return texture->info.format == TextureFormat::BGRA8
-               ? Sample{third, second, first, alpha}
-               : Sample{first, second, third, alpha};
+
+    const auto sourceX =
+        clampedU * static_cast<F32>(texture->info.size.width) - 0.5F;
+    const auto sourceY =
+        clampedV * static_cast<F32>(texture->info.size.height) - 0.5F;
+    const auto left = static_cast<Int32>(std::floor(sourceX));
+    const auto top = static_cast<Int32>(std::floor(sourceY));
+    const auto horizontal = sourceX - static_cast<F32>(left);
+    const auto vertical = sourceY - static_cast<F32>(top);
+    return Lerp(Lerp(sampleAt(left, top), sampleAt(left + 1, top), horizontal),
+                Lerp(sampleAt(left, top + 1), sampleAt(left + 1, top + 1),
+                     horizontal),
+                vertical);
   }
 
   void BlendPixel(Surface &surface, const UInt32 x, const UInt32 y,

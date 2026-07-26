@@ -9,6 +9,7 @@
 #include <NGIN/UI/UIRenderer.hpp>
 
 #include <array>
+#include <cmath>
 #include <limits>
 
 namespace {
@@ -662,4 +663,46 @@ TEST_CASE("UI renderer lowers glyph runs with atlas coordinates") {
   REQUIRE(packet.vertices[2].v == 0.5F);
   REQUIRE(packet.vertices[4].u == 0.4F);
   REQUIRE(packet.vertices[6].u == Catch::Approx(0.7F));
+}
+
+TEST_CASE("UI renderer snaps glyph quads but preserves image placement") {
+  using namespace NGIN::UI;
+
+  const TextureHandle texture{10, 1};
+  const Rect destination{2.2F, 3.3F, 4.0F, 5.0F};
+  const auto glyphPacket = UIRenderer{}.Build(
+      DisplayList{
+          DrawGlyphRun{
+              .atlas = texture,
+              .glyphs =
+                  {
+                      GlyphQuad{
+                          .destination = destination,
+                          .textureCoordinates = Rect{0.1F, 0.2F, 0.3F, 0.4F},
+                      },
+                  },
+          },
+      },
+      PixelSize{100, 100}, 1.25F);
+  REQUIRE(glyphPacket.vertices.size() == 4);
+  for (const auto &vertex : glyphPacket.vertices) {
+    CHECK(vertex.x == std::round(vertex.x));
+    CHECK(vertex.y == std::round(vertex.y));
+  }
+  CHECK(glyphPacket.vertices[0].x == 3.0F);
+  CHECK(glyphPacket.vertices[0].y == 4.0F);
+  CHECK(glyphPacket.vertices[2].x == 8.0F);
+  CHECK(glyphPacket.vertices[2].y == 10.0F);
+
+  const auto imagePacket = UIRenderer{}.Build(
+      DisplayList{
+          DrawImage{
+              .texture = texture,
+              .destination = destination,
+          },
+      },
+      PixelSize{100, 100}, 1.25F);
+  REQUIRE(imagePacket.vertices.size() == 4);
+  CHECK(imagePacket.vertices[0].x == Catch::Approx(2.75F));
+  CHECK(imagePacket.vertices[0].y == Catch::Approx(4.125F));
 }

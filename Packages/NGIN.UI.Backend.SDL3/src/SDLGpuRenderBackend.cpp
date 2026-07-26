@@ -399,6 +399,15 @@ private:
         return SDLError(UIErrorCode::ResourceFailed, "CreateTexture",
                         "SDL texture creation failed");
       }
+      const auto scaleMode = record->info.filter == TextureFilter::Nearest
+                                 ? SDL_SCALEMODE_NEAREST
+                                 : SDL_SCALEMODE_LINEAR;
+      if (!SDL_SetTextureScaleMode(surfaceTexture.texture, scaleMode)) {
+        SDL_DestroyTexture(surfaceTexture.texture);
+        surfaceTexture.texture = nullptr;
+        return SDLError(UIErrorCode::ResourceFailed, "SetTextureScaleMode",
+                        "SDL texture filtering setup failed");
+      }
     }
     if (surfaceTexture.revision != record->revision) {
       if (record->info.format == TextureFormat::R8) {

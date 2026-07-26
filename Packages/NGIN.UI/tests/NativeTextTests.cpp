@@ -8,8 +8,11 @@
 #include <NGIN/UI/Semantics.hpp>
 #include <NGIN/UI/State.hpp>
 #include <NGIN/UI/Testing/RecordingRenderBackend.hpp>
+#include <NGIN/UI/UIRenderer.hpp>
 
 #include <algorithm>
+#include <array>
+#include <cmath>
 #include <memory>
 #include <string_view>
 #include <utility>
@@ -147,6 +150,9 @@ TEST_CASE("native text rasterizes and caches renderer-backed atlas glyphs") {
   REQUIRE(first.HasValue());
   REQUIRE(first.Value().texture);
   REQUIRE(first.Value().size.width > 0.0F);
+  REQUIRE(renderer.Textures().size() == 1);
+  CHECK(renderer.Textures().front().info.format == TextureFormat::R8);
+  CHECK(renderer.Textures().front().info.filter == TextureFilter::Nearest);
   REQUIRE(renderer.TextureUpdates().size() == 1);
   REQUIRE(renderer.TextureUpdates().front().region.width > 0);
   REQUIRE_FALSE(renderer.TextureUpdates().front().bytes.empty());
@@ -214,6 +220,52 @@ TEST_CASE("native text drives retained Text layout and glyph display lists") {
                         return std::holds_alternative<DrawGlyphRun>(command);
                       }));
   REQUIRE_FALSE(renderer.TextureUpdates().empty());
+}
+
+TEST_CASE("native centered text stays pixel aligned at common DPI scales") {
+  using namespace NGIN::UI;
+
+  constexpr std::array scales{1.0F, 1.25F, 1.5F, 2.0F};
+  for (const auto scale : scales) {
+    Testing::RecordingRenderBackend backend;
+    auto text = CreateTextSystem(backend);
+    NodeProperties properties{};
+    properties.layout.preferredSize.width = 200.0F;
+    properties.layout.maximumSize.width = 200.0F;
+    properties.layout.horizontalAlignment = HorizontalAlignment::Start;
+    properties.layout.verticalAlignment = VerticalAlignment::Start;
+    properties.text.fontSize = 16.0F;
+    properties.text.lineHeight = 24.0F;
+    properties.text.alignment = TextAlignment::Center;
+
+    Composer composer;
+    composer.Text(NGIN::Text::String{"Centered gyjpq\nworks on every line."},
+                  *text, *text, properties);
+    RuntimeTree tree;
+    Reconciler reconciler{tree};
+    static_cast<void>(reconciler.Reconcile(composer.Declarations()));
+    LayoutEngine layout{tree};
+    static_cast<void>(layout.Perform(
+        SizeConstraints{.maximum = Size{200.0F, 48.0F}},
+        Rect{0.0F, 0.0F, 200.0F, 48.0F}, scale));
+
+    const auto target = PixelSize{
+        static_cast<NGIN::UInt32>(std::lround(200.0F * scale)),
+        static_cast<NGIN::UInt32>(std::lround(48.0F * scale)),
+    };
+    const auto packet =
+        UIRenderer{}.Build(BuildDisplayList(tree), target, scale);
+    REQUIRE_FALSE(packet.vertices.empty());
+    REQUIRE_FALSE(packet.batches.empty());
+    for (const auto &vertex : packet.vertices) {
+      CHECK(vertex.x == std::round(vertex.x));
+      CHECK(vertex.y == std::round(vertex.y));
+      CHECK(vertex.x >= 0.0F);
+      CHECK(vertex.y >= 0.0F);
+      CHECK(vertex.x <= static_cast<NGIN::F32>(target.width));
+      CHECK(vertex.y <= static_cast<NGIN::F32>(target.height));
+    }
+  }
 }
 
 TEST_CASE("native text lays out explicit and Unicode wrap opportunities") {

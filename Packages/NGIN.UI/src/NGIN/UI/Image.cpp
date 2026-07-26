@@ -487,6 +487,7 @@ auto ImageTextureCache::Resolve(
   auto texture = m_impl->renderer->CreateTexture(TextureCreateInfo{
       .size = pixels.Value().size,
       .format = TextureFormat::RGBA8,
+      .filter = TextureFilter::Linear,
   });
   if (!texture) {
     return std::move(texture).Error();

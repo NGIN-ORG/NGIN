@@ -17,6 +17,12 @@ enum class TextureFormat : UInt8 {
   BGRA8,
 };
 
+/// @brief Sampling applied when texture pixels are mapped to render geometry.
+enum class TextureFilter : UInt8 {
+  Nearest,
+  Linear,
+};
+
 /// @brief Blend operation applied to a render batch.
 enum class BlendMode : UInt8 {
   Opaque,
@@ -32,6 +38,7 @@ struct RenderInitInfo final {
 struct TextureCreateInfo final {
   PixelSize size{};
   TextureFormat format{TextureFormat::RGBA8};
+  TextureFilter filter{TextureFilter::Linear};
 };
 
 /// @brief Destination rectangle and row pitch for a texture upload.

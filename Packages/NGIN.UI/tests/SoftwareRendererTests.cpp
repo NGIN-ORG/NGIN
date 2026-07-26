@@ -168,6 +168,78 @@ TEST_CASE("software renderer samples textures and clips batches") {
   CHECK(renderer.LiveTextureCount() == 1);
 }
 
+TEST_CASE("software renderer honors nearest and linear texture filters") {
+  using namespace NGIN::UI;
+  using namespace NGIN::UI::Testing;
+
+  SoftwareRenderBackend renderer;
+  REQUIRE(renderer.Initialize({}).HasValue());
+  constexpr std::array pixels{
+      Byte{0},   Byte{0},   Byte{0},   Byte{255},
+      Byte{255}, Byte{255}, Byte{255}, Byte{255},
+  };
+  constexpr std::array vertices{
+      RenderVertex{0.0F, 0.0F, 0.0F, 0.0F, 0xFFFFFFFFU},
+      RenderVertex{4.0F, 0.0F, 1.0F, 0.0F, 0xFFFFFFFFU},
+      RenderVertex{4.0F, 1.0F, 1.0F, 1.0F, 0xFFFFFFFFU},
+      RenderVertex{0.0F, 1.0F, 0.0F, 1.0F, 0xFFFFFFFFU},
+  };
+  constexpr std::array<UInt32, 6> indices{0, 1, 2, 0, 2, 3};
+
+  UInt32 windowIndex = 20;
+  for (const auto filter :
+       {TextureFilter::Nearest, TextureFilter::Linear}) {
+    const auto surface = renderer.CreateSurface(
+        PlatformWindowHandle{windowIndex++, 1}, PixelSize{4, 1});
+    REQUIRE(surface.HasValue());
+    const auto texture = renderer.CreateTexture(TextureCreateInfo{
+        .size = {2, 1},
+        .format = TextureFormat::RGBA8,
+        .filter = filter,
+    });
+    REQUIRE(texture.HasValue());
+    REQUIRE(renderer
+                .UpdateTexture(texture.Value(),
+                               TextureUpdateInfo{
+                                   .region = {0, 0, 2, 1},
+                                   .bytesPerRow = 8,
+                                   .bytes = pixels,
+                               })
+                .HasValue());
+    const std::array batches{
+        RenderBatch{
+            .texture = texture.Value(),
+            .scissor = {0, 0, 4, 1},
+            .indexCount = 6,
+            .blendMode = BlendMode::Opaque,
+        },
+    };
+    REQUIRE(renderer
+                .Render(surface.Value(),
+                        RenderPacket{
+                            .vertices = vertices,
+                            .indices = indices,
+                            .batches = batches,
+                            .targetSize = {4, 1},
+                            .clearColor = {0.0F, 0.0F, 0.0F, 1.0F},
+                        })
+                .HasValue());
+    const auto snapshot = renderer.Snapshot(surface.Value());
+    REQUIRE(snapshot.HasValue());
+    CHECK(snapshot.Value().Pixel(0, 0).red == 0);
+    CHECK(snapshot.Value().Pixel(3, 0).red == 255);
+    if (filter == TextureFilter::Nearest) {
+      CHECK(snapshot.Value().Pixel(1, 0).red == 0);
+      CHECK(snapshot.Value().Pixel(2, 0).red == 255);
+    } else {
+      CHECK(snapshot.Value().Pixel(1, 0).red >= 63);
+      CHECK(snapshot.Value().Pixel(1, 0).red <= 65);
+      CHECK(snapshot.Value().Pixel(2, 0).red >= 190);
+      CHECK(snapshot.Value().Pixel(2, 0).red <= 192);
+    }
+  }
+}
+
 TEST_CASE("shared shape geometry renders smooth edges at every scale") {
   using namespace NGIN::UI;
   using namespace NGIN::UI::Testing;

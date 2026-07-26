@@ -137,7 +137,8 @@ void AppendQuad(PreparedRenderPacket &packet, const Rect rect,
                 const Transform2D transform, const F32 scaleFactor,
                 const UInt32 color, const PixelRect scissor,
                 const TextureHandle texture = {},
-                const Rect textureRect = Rect{0.0F, 0.0F, 1.0F, 1.0F}) {
+                const Rect textureRect = Rect{0.0F, 0.0F, 1.0F, 1.0F},
+                const bool snapToPixels = false) {
   if (rect.width <= 0.0F || rect.height <= 0.0F || scissor.width == 0 ||
       scissor.height == 0) {
     return;
@@ -161,9 +162,11 @@ void AppendQuad(PreparedRenderPacket &packet, const Rect rect,
   const auto firstIndex = static_cast<UInt32>(packet.indices.size());
   for (UIntSize index = 0; index < logicalPoints.size(); ++index) {
     const auto transformed = TransformPoint(logicalPoints[index], transform);
+    const auto pixelX = transformed.x * scaleFactor;
+    const auto pixelY = transformed.y * scaleFactor;
     packet.vertices.push_back(RenderVertex{
-        transformed.x * scaleFactor,
-        transformed.y * scaleFactor,
+        snapToPixels ? std::round(pixelX) : pixelX,
+        snapToPixels ? std::round(pixelY) : pixelY,
         textureCoordinates[index].x,
         textureCoordinates[index].y,
         color,
@@ -525,7 +528,7 @@ auto UIRenderer::Build(const DisplayList &displayList,
               for (const auto &glyph : value.glyphs) {
                 AppendQuad(packet, glyph.destination, transforms.back(),
                            effectiveScale, color, scissor, value.atlas,
-                           glyph.textureCoordinates);
+                           glyph.textureCoordinates, true);
               }
             }
           }

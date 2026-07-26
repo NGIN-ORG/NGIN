@@ -118,6 +118,12 @@ Support `R8`, `RGBA8`, and `BGRA8` according to advertised capabilities.
 `UpdateTexture()` receives a byte span valid only for the call and an explicit
 row stride.
 
+Honor the `TextureFilter` selected in `TextureCreateInfo`. `Nearest` must select
+one source texel without blending adjacent texels; `Linear` must interpolate
+adjacent texels. Native glyph atlases use nearest filtering because FreeType
+already rasterizes their coverage at the target device scale. Images use linear
+filtering.
+
 R8 glyph atlases are sampled as alpha. RGBA/BGRA images use premultiplied-alpha
 blending at draw time. Backend texture handles remain opaque to logical
 `ImageResource`; `ImageTextureCache` is the upload owner.

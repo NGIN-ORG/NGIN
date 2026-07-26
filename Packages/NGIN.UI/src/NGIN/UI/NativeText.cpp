@@ -409,6 +409,7 @@ auto NativeTextSystem::Create(IRenderBackend &renderer,
     auto texture = renderer.CreateTexture(TextureCreateInfo{
         .size = info.atlasSize,
         .format = TextureFormat::R8,
+        .filter = TextureFilter::Nearest,
     });
     if (!texture) {
       return texture.Error();

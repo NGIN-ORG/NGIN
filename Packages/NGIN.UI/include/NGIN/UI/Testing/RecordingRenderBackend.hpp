@@ -13,6 +13,13 @@ struct RecordedTextureUpdate final {
   std::vector<Byte> bytes{};
 };
 
+/// @brief Texture allocation captured by the recording render backend.
+struct RecordedTexture final {
+  TextureHandle handle{};
+  TextureCreateInfo info{};
+  bool destroyed{false};
+};
+
 /// @brief Deep copy of a frame packet captured for assertions.
 struct RecordedRenderPacket final {
   RenderSurfaceHandle surface{};
@@ -71,20 +78,16 @@ public:
       -> const std::vector<RecordedSurface> &;
   [[nodiscard]] auto RenderPackets() const noexcept
       -> const std::vector<RecordedRenderPacket> &;
+  [[nodiscard]] auto Textures() const noexcept
+      -> const std::vector<RecordedTexture> &;
   [[nodiscard]] auto TextureUpdates() const noexcept
       -> const std::vector<RecordedTextureUpdate> &;
 
 private:
-  struct TextureRecord final {
-    TextureHandle handle{};
-    TextureCreateInfo info{};
-    bool destroyed{false};
-  };
-
   [[nodiscard]] auto FindSurface(RenderSurfaceHandle handle) noexcept
       -> RecordedSurface *;
   [[nodiscard]] auto FindTexture(TextureHandle handle) noexcept
-      -> TextureRecord *;
+      -> RecordedTexture *;
 
   bool m_initialized{false};
   bool m_validationEnabled{false};
@@ -92,7 +95,7 @@ private:
   UInt32 m_nextTextureIndex{0};
   UIntSize m_waitIdleCount{0};
   std::vector<RecordedSurface> m_surfaces{};
-  std::vector<TextureRecord> m_textures{};
+  std::vector<RecordedTexture> m_textures{};
   std::vector<RecordedRenderPacket> m_renderPackets{};
   std::vector<RecordedTextureUpdate> m_textureUpdates{};
 };

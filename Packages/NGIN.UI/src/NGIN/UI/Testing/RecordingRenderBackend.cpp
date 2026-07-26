@@ -93,7 +93,7 @@ auto RecordingRenderBackend::CreateTexture(
                        "CreateTexture");
   }
   const TextureHandle handle{m_nextTextureIndex++, 1};
-  m_textures.push_back(TextureRecord{
+  m_textures.push_back(RecordedTexture{
       .handle = handle,
       .info = info,
   });
@@ -193,6 +193,11 @@ auto RecordingRenderBackend::RenderPackets() const noexcept
   return m_renderPackets;
 }
 
+auto RecordingRenderBackend::Textures() const noexcept
+    -> const std::vector<RecordedTexture> & {
+  return m_textures;
+}
+
 auto RecordingRenderBackend::TextureUpdates() const noexcept
     -> const std::vector<RecordedTextureUpdate> & {
   return m_textureUpdates;
@@ -208,9 +213,9 @@ auto RecordingRenderBackend::FindSurface(
 }
 
 auto RecordingRenderBackend::FindTexture(const TextureHandle handle) noexcept
-    -> TextureRecord * {
+    -> RecordedTexture * {
   const auto found = std::find_if(m_textures.begin(), m_textures.end(),
-                                  [handle](const TextureRecord &texture) {
+                                  [handle](const RecordedTexture &texture) {
                                     return texture.handle == handle;
                                   });
   return found == m_textures.end() ? nullptr : &*found;
