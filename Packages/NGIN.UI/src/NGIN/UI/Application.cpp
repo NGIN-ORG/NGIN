@@ -669,6 +669,8 @@ auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
     };
     if (window->m_implementation->layoutDirty) {
       const auto phaseStarted = DiagnosticsClock::now();
+      window->m_implementation->displayList.clear();
+      window->m_implementation->preparedPacket = {};
       window->m_implementation->lastLayoutStats =
           window->m_implementation->layoutEngine.Perform(
               SizeConstraints{.minimum = logicalSize, .maximum = logicalSize},
@@ -765,6 +767,14 @@ auto Application::Run() noexcept -> UIResult<void> {
 void Application::RequestExit() noexcept {
   m_implementation->exitRequested = true;
   m_implementation->platform->WakeEventLoop();
+}
+
+void Application::InvalidateAll(const InvalidationKind kind) noexcept {
+  for (auto &window : m_implementation->windows) {
+    if (!window->IsClosed()) {
+      window->Invalidate(kind);
+    }
+  }
 }
 
 auto Application::ShouldExit() const noexcept -> bool {

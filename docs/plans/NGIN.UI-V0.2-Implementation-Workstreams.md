@@ -28,6 +28,8 @@ implementation surface.
 
 ## Workstream A — Glyph Storage And Text Rendering
 
+Status: Completed in Milestone 17 on 2026-07-26.
+
 ### Goal
 
 Make text rendering bounded, stable across DPI, and recoverable across renderer
@@ -44,6 +46,22 @@ resource lifetimes.
 - how device loss invalidates cached glyph entries;
 - whether transformed text beyond translation and DPI scale is supported in
   version 0.2.
+
+### Accepted Milestone 17 Design
+
+- up to four lazily allocated 1024 by 1024 R8 pages by default;
+- configurable page dimensions and page count with an explicit fixed budget;
+- least-recently-used page rebuilding only after runtime and display-list
+  leases have expired;
+- cached UV snapshots remain valid for the lifetime of their page lease;
+- scale remains part of the glyph cache key;
+- device loss clears renderer handles and device restoration starts with a new
+  empty page;
+- a resource-invalidated callback marks every open window for full relayout;
+- nearest-filtered glyph coverage is snapped in renderer lowering, while image
+  textures remain linearly filtered;
+- translation and DPI scale are supported; arbitrary transformed text remains
+  outside this milestone.
 
 ### Implementation Shape
 
@@ -396,4 +414,3 @@ boundary requires it.
 - known limitations are recorded;
 - roadmap/progress evidence is updated;
 - the completed milestone is committed before the next milestone begins.
-

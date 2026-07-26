@@ -117,7 +117,17 @@ TEST_CASE("external project exports imported interface target")
     REQUIRE_THAT(generated, ContainsSubstring("target_include_directories(\"OpenSSL::SSL\" INTERFACE \"" + (temp.path() / "External/include").generic_string() + "\")"));
     REQUIRE_THAT(generated, ContainsSubstring(R"(target_compile_definitions("OpenSSL::SSL" INTERFACE "HAS_OPENSSL=1"))"));
     REQUIRE_THAT(generated, ContainsSubstring(R"(target_link_libraries("External.App" PRIVATE "OpenSSL::SSL"))"));
+    REQUIRE_THAT(generated, ContainsSubstring("StageArtifact.cmake"));
     REQUIRE_THAT(generated, !ContainsSubstring("CMAKE_SUPPRESS_REGENERATION"));
+    const auto stagingScript =
+        ReadFile(temp.path() / "out/.ngin/cmake-src/StageArtifact.cmake");
+    REQUIRE_THAT(stagingScript,
+                 ContainsSubstring("Compiled artifact (kept)"));
+    REQUIRE_THAT(stagingScript, ContainsSubstring("Stage destination"));
+    REQUIRE_THAT(stagingScript,
+                 ContainsSubstring("probably in use by a running process"));
+    REQUIRE_THAT(stagingScript,
+                 ContainsSubstring("run the same NGIN command again"));
 }
 
 TEST_CASE("tool run and package output metadata parse")

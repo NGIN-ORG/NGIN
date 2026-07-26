@@ -128,6 +128,8 @@ public:
                     std::chrono::milliseconds{0}) noexcept -> UIResult<void>;
   auto Run() noexcept -> UIResult<void>;
   void RequestExit() noexcept;
+  /// @brief Marks every open window dirty for the requested phases.
+  void InvalidateAll(InvalidationKind kind = InvalidationKind::All) noexcept;
 
   [[nodiscard]] auto ShouldExit() const noexcept -> bool;
   [[nodiscard]] auto ActiveWindowCount() const noexcept -> UIntSize;

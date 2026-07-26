@@ -54,6 +54,10 @@ auto HostedUIRuntime::Create(UIHostingCreateInfo info) noexcept
   if (!text) {
     return std::move(text).Error();
   }
+  auto *applicationObserver = application.Value().get();
+  text.Value()->SetResourcesInvalidatedCallback([applicationObserver] {
+    applicationObserver->InvalidateAll(InvalidationKind::All);
+  });
   try {
     return NGIN::Memory::MakeShared<HostedUIRuntime>(
         std::move(application).Value(), std::move(text).Value());

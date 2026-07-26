@@ -67,6 +67,10 @@ auto main(const int argc, char **argv) -> int {
     return ReportError("Native text creation failed", createdText.Error());
   }
   auto text = std::move(createdText).Value();
+  text->SetResourcesInvalidatedCallback(
+      [applicationObserver = application.get()] {
+        applicationObserver->InvalidateAll(InvalidationKind::All);
+      });
 
   NGIN::UIGallery::Model model;
   if (initialPage) {

@@ -1953,6 +1953,45 @@ WriteGeneratedBuildProject(const ResolvedLaunch &resolved,
     return false;
   }
 
+  constexpr std::string_view stageCopyScript =
+      R"cmake(if(NOT DEFINED NGIN_STAGE_SOURCE OR NOT DEFINED NGIN_STAGE_DESTINATION)
+  message(FATAL_ERROR "NGIN staging requires a source and destination.")
+endif()
+
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+          "${NGIN_STAGE_SOURCE}" "${NGIN_STAGE_DESTINATION}"
+  RESULT_VARIABLE NGIN_STAGE_RESULT
+  OUTPUT_VARIABLE NGIN_STAGE_OUTPUT
+  ERROR_VARIABLE NGIN_STAGE_ERROR)
+
+if(NOT NGIN_STAGE_RESULT EQUAL 0)
+  string(STRIP "${NGIN_STAGE_OUTPUT}" NGIN_STAGE_OUTPUT)
+  string(STRIP "${NGIN_STAGE_ERROR}" NGIN_STAGE_ERROR)
+  set(NGIN_STAGE_DETAILS "${NGIN_STAGE_ERROR}")
+  if(NOT NGIN_STAGE_OUTPUT STREQUAL "")
+    string(APPEND NGIN_STAGE_DETAILS " ${NGIN_STAGE_OUTPUT}")
+  endif()
+  if(WIN32 AND EXISTS "${NGIN_STAGE_DESTINATION}")
+    set(NGIN_STAGE_HINT
+        "The staged file is probably in use by a running process. Close the app or tool that uses it, then run the same NGIN command again.")
+  else()
+    set(NGIN_STAGE_HINT
+        "Check that the destination is writable, then run the same NGIN command again.")
+  endif()
+  message(FATAL_ERROR
+    "NGIN could not replace the staged artifact '${NGIN_STAGE_LABEL}'.\n"
+    "Compiled artifact (kept): ${NGIN_STAGE_SOURCE}\n"
+    "Stage destination: ${NGIN_STAGE_DESTINATION}\n"
+    "${NGIN_STAGE_HINT}\n"
+    "Copy error: ${NGIN_STAGE_DETAILS}")
+endif()
+)cmake";
+  const auto stageCopyScriptPath =
+      generatedSourceDir / "StageArtifact.cmake";
+  const auto stageCopyScriptChanged =
+      WriteTextFileIfChanged(stageCopyScriptPath, stageCopyScript);
+
   std::ostringstream content{};
   auto &out = content;
   out << "cmake_minimum_required(VERSION 3.20)\n";
@@ -2378,9 +2417,15 @@ WriteGeneratedBuildProject(const ResolvedLaunch &resolved,
       out << "\n"
           << "  COMMAND ${CMAKE_COMMAND} -E make_directory \""
           << ToCMakePath(outputDir / subdir) << "\"\n"
-          << "  COMMAND ${CMAKE_COMMAND} -E copy_if_different \"$<TARGET_FILE:"
-          << targetName << ">\" \"" << ToCMakePath(outputDir / subdir)
-          << "/$<TARGET_FILE_NAME:" << targetName << ">\"\n";
+          << "  COMMAND ${CMAKE_COMMAND}\n"
+          << "    \"-DNGIN_STAGE_SOURCE=$<TARGET_FILE:" << targetName
+          << ">\"\n"
+          << "    \"-DNGIN_STAGE_DESTINATION="
+          << ToCMakePath(outputDir / subdir) << "/$<TARGET_FILE_NAME:"
+          << targetName << ">\"\n"
+          << "    \"-DNGIN_STAGE_LABEL=" << EscapeCMake(artifactName)
+          << "\"\n"
+          << "    -P \"" << ToCMakePath(stageCopyScriptPath) << "\"\n";
     }
     out << "  DEPENDS \"" << EscapeCMake(targetName) << "\"\n";
     out << "  VERBATIM)\n";
@@ -2403,8 +2448,9 @@ WriteGeneratedBuildProject(const ResolvedLaunch &resolved,
                     resolved.selectedExecutable->target, "bin", true);
   }
 
-  return WriteTextFileIfChanged(generatedSourceDir / "CMakeLists.txt",
-                                content.str());
+  const auto cmakeListsChanged = WriteTextFileIfChanged(
+      generatedSourceDir / "CMakeLists.txt", content.str());
+  return stageCopyScriptChanged || cmakeListsChanged;
 }
 
 [[nodiscard]] auto

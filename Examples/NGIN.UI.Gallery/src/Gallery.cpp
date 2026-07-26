@@ -33,6 +33,16 @@ constexpr std::array<std::string_view, PageCount> PageNames{
   return result;
 }
 
+[[nodiscard]] auto GlyphSizeLine(
+    const GlyphAtlasSizeDiagnostics &diagnostics) -> String {
+  String result{"At "};
+  result.Append(Number(diagnostics.pixelSize));
+  result.Append(String{" px: "});
+  result.Append(Number(diagnostics.entryCount));
+  result.Append(String{" glyphs"});
+  return result;
+}
+
 [[nodiscard]] auto TextProperties(NativeTextSystem &text, const F32 fontSize,
                                   const Color color) -> NodeProperties {
   NodeProperties properties{};
@@ -1451,8 +1461,9 @@ void ComposeDiagnosticsPage(Composer &composer, NativeTextSystem &text,
                             Model &model, const Theme &theme) {
   ComposePageHeading(
       composer, text, theme, "Diagnostics",
-      "See what the current screen draws and turn on visual guides.");
+      "See drawing work, text storage, and visual layout guides.");
   const auto diagnostics = model.Diagnostics();
+  const auto textDiagnostics = model.TextDiagnostics();
   ComposeCard(
       composer, theme,
       [&] {
@@ -1489,6 +1500,86 @@ void ComposeDiagnosticsPage(Composer &composer, NativeTextSystem &text,
             "diagnostic-values");
       },
       "diagnostics-card");
+  ComposeCard(
+      composer, theme,
+      [&] {
+        NodeProperties column{};
+        column.layout.gap = theme.spacing.compact;
+        composer.Column(
+            [&] {
+              ComposeText(
+                  composer, text,
+                  LabeledNumber("Text pages in use: ",
+                                textDiagnostics.pageCount),
+                  theme.typography.body, theme.colors.foreground,
+                  "text-page-count");
+              ComposeText(
+                  composer, text,
+                  LabeledNumber("Text page limit: ",
+                                textDiagnostics.maximumPageCount),
+                  theme.typography.body, theme.colors.foreground,
+                  "text-page-limit");
+              const auto occupancy =
+                  textDiagnostics.capacityPixelArea == 0
+                      ? 0
+                      : (textDiagnostics.usedPixelArea * 100U) /
+                            textDiagnostics.capacityPixelArea;
+              ComposeText(composer, text,
+                          LabeledNumber("Text storage used (%): ", occupancy),
+                          theme.typography.body, theme.colors.foreground,
+                          "text-occupancy");
+              ComposeText(composer, text,
+                          LabeledNumber("Stored glyphs: ",
+                                        textDiagnostics.entryCount),
+                          theme.typography.body, theme.colors.foreground,
+                          "text-entry-count");
+              ComposeText(composer, text,
+                          LabeledNumber("Text sizes stored: ",
+                                        textDiagnostics.pixelSizeCount),
+                          theme.typography.body, theme.colors.foreground,
+                          "text-size-count");
+              ComposeText(composer, text,
+                          LabeledNumber("Page rebuilds: ",
+                                        textDiagnostics.pageRecycleCount),
+                          theme.typography.body, theme.colors.foreground,
+                          "text-page-rebuilds");
+              ComposeText(composer, text,
+                          LabeledNumber("Storage waits: ",
+                                        textDiagnostics.allocationFailureCount),
+                          theme.typography.body, theme.colors.foreground,
+                          "text-storage-waits");
+              ComposeText(composer, text,
+                          LabeledNumber("Glyphs reused: ",
+                                        textDiagnostics.hitCount),
+                          theme.typography.body, theme.colors.foreground,
+                          "text-cache-hits");
+              ComposeText(composer, text,
+                          LabeledNumber("Glyphs uploaded: ",
+                                        textDiagnostics.uploadCount),
+                          theme.typography.body, theme.colors.foreground,
+                          "text-uploads");
+              ComposeText(composer, text,
+                          LabeledNumber("Glyphs removed: ",
+                                        textDiagnostics.evictionCount),
+                          theme.typography.body, theme.colors.foreground,
+                          "text-evictions");
+              ComposeText(composer, text,
+                          LabeledNumber("Device restores: ",
+                                        textDiagnostics.restorationCount),
+                          theme.typography.body, theme.colors.foreground,
+                          "text-restores");
+              for (const auto &size : textDiagnostics.pixelSizes) {
+                const auto key =
+                    std::string{"text-pixel-size-"} +
+                    std::to_string(size.pixelSize);
+                ComposeText(composer, text, GlyphSizeLine(size),
+                            theme.typography.body,
+                            theme.colors.mutedForeground, key);
+              }
+            },
+            "text-diagnostic-values");
+      },
+      "text-diagnostics-card");
   ComposeButton(
       composer, text, theme,
       model.IsInspectorEnabled() ? "Hide layout guides"
@@ -1877,6 +1968,11 @@ auto Model::Status() const noexcept -> const String & { return m_status.Get(); }
 
 auto Model::Diagnostics() const noexcept -> WindowDiagnostics {
   return m_window != nullptr ? m_window->Diagnostics() : WindowDiagnostics{};
+}
+
+auto Model::TextDiagnostics() const noexcept -> GlyphAtlasDiagnostics {
+  return m_text != nullptr ? m_text->AtlasDiagnostics()
+                           : GlyphAtlasDiagnostics{};
 }
 
 void Model::Report(UIError error) {

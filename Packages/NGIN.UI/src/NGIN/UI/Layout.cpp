@@ -153,6 +153,11 @@ auto LayoutEngine::Perform(const SizeConstraints constraints,
   m_stats = {};
   m_scaleFactor = scaleFactor > 0.0F ? scaleFactor : 1.0F;
   ++m_revision;
+  for (auto &slot : m_tree.m_slots) {
+    if (slot.occupied) {
+      slot.node.text.glyphRuns.clear();
+    }
+  }
   static_cast<void>(Measure(m_tree.Root(), constraints));
   Arrange(m_tree.Root(), finalBounds);
   return m_stats;
@@ -371,6 +376,7 @@ auto LayoutEngine::MeasureText(RuntimeNode &node,
                   entry.size.height,
               },
           .textureCoordinates = entry.textureCoordinates,
+          .lease = entry.lease,
       });
       pen.x += glyph.advance.x;
       pen.y += glyph.advance.y;

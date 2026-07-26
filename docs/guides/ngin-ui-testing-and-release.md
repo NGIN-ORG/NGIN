@@ -66,26 +66,35 @@ non-virtualized 10,000-item list. Budgets are in
 `Packages/NGIN.UI/benchmarks/Budgets.hpp`. Change a budget only with a measured
 architectural reason and record both the old and new baseline in the review.
 
-`NativeTextSystem::AtlasDiagnostics()` reports glyph hit, miss, upload,
-occupancy, and used-area counts. `ImageTextureCache::Diagnostics()` reports
-image hit, miss, upload, eviction, and occupancy counts. These counters are
-monotonic for the object's lifetime and are intended for tests and diagnostics,
-not application behavior.
+`NativeTextSystem::AtlasDiagnostics()` reports glyph hits, misses, uploads,
+page count and limit, peak pages, pixel-size buckets, used and available pixel
+area, evictions, page rebuilds, capacity failures, and device restorations.
+`ImageTextureCache::Diagnostics()` reports image hit, miss, upload, eviction,
+and occupancy counts. Activity counters are monotonic for the object's
+lifetime and are intended for tests and diagnostics, not application behavior.
+
+The native-text suite forces a small page budget through repeated sizes, holds
+live page leases to prove they cannot be recycled, alternates common DPI
+scales, and renders real FreeType coverage through the software backend. The
+pixel checks cover grayscale antialiasing, centered lines, wrapping,
+descenders, and clip edges at 100%, 125%, 150%, and 200%.
 
 ## Device recreation
 
 Renderer handles are not logical resources. On device loss:
 
 1. stop submitting frames and wait for in-flight work as the backend permits;
-2. call `ImageTextureCache::OnDeviceLost()` and discard renderer-owned glyph
-   atlas state;
+2. call `ImageTextureCache::OnDeviceLost()` and
+   `NativeTextSystem::OnDeviceLost()`;
 3. recreate the renderer/device and surfaces;
 4. call `ImageTextureCache::OnDeviceRestored()` with the new renderer and
-   recreate `NativeTextSystem`;
-5. invalidate paint so logical images and glyphs upload lazily.
+   `NativeTextSystem::OnDeviceRestored()`;
+5. invalidate every window so logical images and glyphs upload lazily.
 
-The image and native-text tests assert that restored logical resources create
-new backend handles and repopulate cache diagnostics.
+Use `SetResourcesInvalidatedCallback()` with `Application::InvalidateAll()` for
+step 5. The hosting package wires this callback automatically. The image and
+native-text tests assert that restored logical resources create new backend
+handles and repopulate cache diagnostics.
 
 ## Install/export consumption
 

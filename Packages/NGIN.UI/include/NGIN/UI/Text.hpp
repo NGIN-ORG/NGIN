@@ -8,6 +8,7 @@
 #include <NGIN/UI/TextDirection.hpp>
 
 #include <limits>
+#include <memory>
 #include <vector>
 
 namespace NGIN::UI {
@@ -125,18 +126,23 @@ struct GlyphAtlasRequest final {
   F32 scaleFactor{1.0F};
 };
 
-/// @brief Texture placement and glyph metrics resolved from an atlas.
+/// @brief Keeps one glyph-atlas page alive while its texture is referenced.
+struct GlyphAtlasLease final {};
+
+/// @brief Texture placement, lifetime, and glyph metrics resolved from an atlas.
 struct GlyphAtlasEntry final {
   TextureHandle texture{};
   Rect textureCoordinates{};
   Size size{};
   Point bearing{};
+  std::shared_ptr<const GlyphAtlasLease> lease{};
 };
 
-/// @brief Positioned textured quad used to render one glyph.
+/// @brief Positioned textured quad and atlas-page lifetime used for one glyph.
 struct GlyphQuad final {
   Rect destination{};
   Rect textureCoordinates{};
+  std::shared_ptr<const GlyphAtlasLease> lease{};
 };
 
 /// @brief Resolves requested fonts and reports their metrics.

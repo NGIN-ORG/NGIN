@@ -1,6 +1,6 @@
 # NGIN.UI Version 0.2 Roadmap
 
-Status: Proposed
+Status: In progress — Milestone 17 complete
 Theme: Production desktop foundation
 Baseline: [`NGIN.UI-Post-V0.1-Roadmap.md`](NGIN.UI-Post-V0.1-Roadmap.md)
 Execution map:
@@ -56,6 +56,9 @@ remain governed by
 | Gallery | Broad catalogue | Honest international, accessibility, scale, and performance demonstrations |
 
 ## Milestone 17 — Text And Renderer Reliability
+
+Completed 2026-07-26. Implementation and verification evidence is recorded in
+[`NGIN.UI-V0.2-Progress.md`](NGIN.UI-V0.2-Progress.md).
 
 Deliver:
 
@@ -256,4 +259,3 @@ Each milestone closes with:
 3. one targeted verification pass;
 4. an update to the roadmap/progress evidence;
 5. a committed milestone boundary before work begins on the next milestone.
-

@@ -65,6 +65,32 @@ The empty primary path selects NGIN.UI's bundled OFL-licensed Noto Sans
 variable font. Applications own and license any additional fallback files they
 configure.
 
+## Glyph storage
+
+Native text uses fixed-size R8 atlas pages. Pages are created only when needed
+and never exceed `maximumAtlasPages`. The default is four 1024 by 1024 pages,
+so glyph pixels use at most 4 MiB of renderer texture storage.
+
+```cpp
+auto created = NGIN::UI::NativeTextSystem::Create(
+    application.Renderer(),
+    NGIN::UI::NativeTextCreateInfo{
+        .atlasSize = {1024, 1024},
+        .maximumAtlasPages = 4,
+    });
+```
+
+Old pages are rebuilt from least-recently-used storage only after no runtime
+tree or display list still refers to their glyphs. If every page is still
+visible, `ResolveGlyph()` reports capacity pressure instead of reusing a live
+texture handle. `AtlasDiagnostics()` reports the page limit, active and peak
+page counts, occupancy, stored pixel sizes, evictions, rebuilds, allocation
+failures, and device restorations.
+
+FreeType rasterizes at the active window scale. Glyph textures use nearest
+sampling and their rendered quads are aligned to physical pixels. Image
+textures keep their independent linear-sampling policy.
+
 ## TextArea
 
 `Composer::TextArea()` uses the same typed `Binding<String>`, transactional
@@ -130,12 +156,25 @@ transitions explicitly:
 
 ```cpp
 imageCache.OnDeviceLost();                 // drops stale texture handles
+text.OnDeviceLost();                       // drops stale glyph pages
 // recreate or replace the render device
 imageCache.OnDeviceRestored(renderer);     // future Resolve() reuploads pixels
+auto restored = text.OnDeviceRestored(renderer);
 ```
 
-Destroy the cache before its renderer. `OnDeviceLost()` is also safe during
-shutdown and makes `Resolve()` report that no device is available.
+Register `NativeTextSystem::SetResourcesInvalidatedCallback()` to invalidate
+every window after either text-device hook. `NGIN.UI.Hosting` does this
+automatically. A standalone application can connect it directly:
+
+```cpp
+text.SetResourcesInvalidatedCallback([&application] {
+    application.InvalidateAll(NGIN::UI::InvalidationKind::All);
+});
+```
+
+Destroy the caches and text system before their renderer. `OnDeviceLost()` is
+also safe during shutdown and makes resource resolution report that no device
+is available.
 
 ## Image element
 

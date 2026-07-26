@@ -43,6 +43,8 @@ The version 0.1 implementation provides:
   rasterization, fallback-aware HarfBuzz shaping, extended grapheme
   segmentation, multiline Unicode-aware wrapping, paragraph/range geometry,
   and a renderer-backed R8 glyph atlas;
+- bounded, lazily allocated glyph-atlas pages with live-reference-safe
+  recycling, renderer-device restoration, and capacity diagnostics;
 - an injectable glyph-atlas contract and semantic `Text` element with
   constraint-aware measurement, clipping, and DPI-aware shaped-glyph painting;
 - atlas-backed glyph-run display commands with DPI-aware renderer lowering;

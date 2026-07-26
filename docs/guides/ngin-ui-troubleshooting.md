@@ -60,9 +60,31 @@ If text measures but does not paint, check:
 
 - `text.layout` and `text.glyphAtlas` are non-null;
 - the render backend can create/update R8 textures;
-- the glyph atlas is not full;
+- `AtlasDiagnostics().allocationFailureCount` is not increasing because every
+  bounded page is still visible;
 - font size and scale factor are positive;
 - text and clip bounds overlap.
+
+The atlas does not grow without a limit. If visible text needs more storage
+than `maximumAtlasPages`, increase that explicit budget or reduce the number of
+simultaneously visible font sizes. Page rebuilds are normal during churn;
+capacity failures mean all pages still have live display references.
+
+## Gallery build cannot replace its executable
+
+On Windows, a running staged `.exe` cannot be replaced. The generated staging
+step now reports:
+
+- the compiled artifact that was kept;
+- the exact stage destination it could not replace;
+- the operating-system copy error;
+- the action to take.
+
+Close the staged Gallery or other process named in the destination, then run
+the same `ngin build` command again. The successful compilation remains in the
+generated build directory, so the next command only needs to finish the normal
+incremental build and staging work. Do not delete authored project files or
+add a separate output name to work around this.
 
 ## SDL platform startup
 

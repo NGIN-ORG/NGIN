@@ -271,21 +271,36 @@ struct NativeTextSystem::Impl final {
     }
   };
 
+  struct GlyphRecord final {
+    GlyphAtlasEntry entry{};
+    UInt32 pageIndex{0};
+    UInt64 pixelArea{0};
+    std::weak_ptr<const GlyphAtlasLease> lease{};
+  };
+
+  struct AtlasPage final {
+    TextureHandle texture{};
+    UInt32 x{1};
+    UInt32 y{1};
+    UInt32 rowHeight{0};
+    UInt64 usedPixelArea{0};
+    UInt64 lastUse{0};
+    std::vector<GlyphKey> keys{};
+  };
+
   IRenderBackend *renderer{nullptr};
   FT_Library library{nullptr};
   std::vector<Face> faces{};
-  TextureHandle atlas{};
   PixelSize atlasSize{};
-  UInt32 atlasX{1};
-  UInt32 atlasY{1};
-  UInt32 atlasRowHeight{0};
-  std::unordered_map<GlyphKey, GlyphAtlasEntry, GlyphKeyHash> glyphs{};
+  UInt32 maximumAtlasPages{4};
+  UInt64 useClock{0};
+  std::vector<AtlasPage> pages{};
+  std::unordered_map<GlyphKey, GlyphRecord, GlyphKeyHash> glyphs{};
   GlyphAtlasDiagnostics diagnostics{};
+  NativeTextSystem::ResourcesInvalidatedCallback invalidated{};
 
   ~Impl() {
-    if (renderer != nullptr && atlas) {
-      static_cast<void>(renderer->DestroyTexture(atlas));
-    }
+    DestroyPages(false);
     for (auto &face : faces) {
       if (face.font != nullptr) {
         hb_font_destroy(face.font);
@@ -296,6 +311,160 @@ struct NativeTextSystem::Impl final {
     }
     if (library != nullptr) {
       static_cast<void>(FT_Done_FreeType(library));
+    }
+  }
+
+  [[nodiscard]] auto CreateAtlasTexture() noexcept -> UIResult<TextureHandle> {
+    if (renderer == nullptr) {
+      return NativeTextError(
+          UIErrorCode::InvalidState,
+          "Glyph textures are unavailable while the render device is lost",
+          "CreateGlyphAtlasPage");
+    }
+    return renderer->CreateTexture(TextureCreateInfo{
+        .size = atlasSize,
+        .format = TextureFormat::R8,
+        .filter = TextureFilter::Nearest,
+    });
+  }
+
+  [[nodiscard]] auto AddPage() -> UIResult<UInt32> {
+    auto texture = CreateAtlasTexture();
+    if (!texture) {
+      return std::move(texture).Error();
+    }
+    try {
+      const auto index = static_cast<UInt32>(pages.size());
+      pages.push_back(AtlasPage{
+          .texture = texture.Value(),
+          .lastUse = ++useClock,
+      });
+      ++diagnostics.pageAllocationCount;
+      diagnostics.peakPageCount =
+          std::max(diagnostics.peakPageCount, pages.size());
+      return index;
+    } catch (...) {
+      static_cast<void>(renderer->DestroyTexture(texture.Value()));
+      throw;
+    }
+  }
+
+  [[nodiscard]] auto CanPlace(const AtlasPage &page, const UInt32 width,
+                              const UInt32 height) const noexcept -> bool {
+    auto x = page.x;
+    auto y = page.y;
+    if (x + width + 1U > atlasSize.width) {
+      x = 1;
+      y += page.rowHeight + 1U;
+    }
+    return x + width + 1U <= atlasSize.width &&
+           y + height + 1U <= atlasSize.height;
+  }
+
+  [[nodiscard]] auto PageIsUnused(const AtlasPage &page) const noexcept
+      -> bool {
+    return std::all_of(page.keys.begin(), page.keys.end(),
+                       [this](const GlyphKey &key) {
+                         const auto found = glyphs.find(key);
+                         return found == glyphs.end() ||
+                                found->second.lease.expired();
+                       });
+  }
+
+  [[nodiscard]] auto RecyclePage(const UInt32 pageIndex) -> UIResult<void> {
+    auto &page = pages[pageIndex];
+    const auto texture = page.texture;
+    for (const auto &key : page.keys) {
+      const auto found = glyphs.find(key);
+      if (found != glyphs.end() && found->second.pageIndex == pageIndex) {
+        glyphs.erase(found);
+        ++diagnostics.evictionCount;
+      }
+    }
+    diagnostics.usedPixelArea -=
+        std::min(diagnostics.usedPixelArea, page.usedPixelArea);
+    page = AtlasPage{
+        .texture = texture,
+        .lastUse = ++useClock,
+    };
+    ++diagnostics.pageRecycleCount;
+    return {};
+  }
+
+  [[nodiscard]] auto AcquirePage(const UInt32 width, const UInt32 height)
+      -> UIResult<UInt32> {
+    if (width + 2U > atlasSize.width || height + 2U > atlasSize.height) {
+      ++diagnostics.allocationFailureCount;
+      return NativeTextError(
+          UIErrorCode::InvalidArgument,
+          "A rasterized glyph is larger than one glyph atlas page",
+          "ResolveGlyph");
+    }
+    for (UInt32 index = 0; index < pages.size(); ++index) {
+      if (CanPlace(pages[index], width, height)) {
+        return index;
+      }
+    }
+    if (pages.size() < maximumAtlasPages) {
+      return AddPage();
+    }
+
+    UInt32 candidate = std::numeric_limits<UInt32>::max();
+    UInt64 oldestUse = std::numeric_limits<UInt64>::max();
+    for (UInt32 index = 0; index < pages.size(); ++index) {
+      if (PageIsUnused(pages[index]) && pages[index].lastUse < oldestUse) {
+        candidate = index;
+        oldestUse = pages[index].lastUse;
+      }
+    }
+    if (candidate != std::numeric_limits<UInt32>::max()) {
+      auto recycled = RecyclePage(candidate);
+      if (!recycled) {
+        ++diagnostics.allocationFailureCount;
+        return std::move(recycled).Error();
+      }
+      return candidate;
+    }
+
+    ++diagnostics.allocationFailureCount;
+    return NativeTextError(
+        UIErrorCode::OutOfMemory,
+        "All glyph atlas pages are still used by visible text",
+        "ResolveGlyph");
+  }
+
+  void Place(AtlasPage &page, const UInt32 width) noexcept {
+    if (page.x + width + 1U > atlasSize.width) {
+      page.x = 1;
+      page.y += page.rowHeight + 1U;
+      page.rowHeight = 0;
+    }
+  }
+
+  void DestroyPages(const bool countEvictions) noexcept {
+    if (countEvictions) {
+      diagnostics.evictionCount += glyphs.size();
+    }
+    if (renderer != nullptr) {
+      for (const auto &page : pages) {
+        if (page.texture) {
+          static_cast<void>(renderer->DestroyTexture(page.texture));
+        }
+      }
+    }
+    glyphs.clear();
+    pages.clear();
+    diagnostics.entryCount = 0;
+    diagnostics.usedPixelArea = 0;
+  }
+
+  void NotifyResourcesInvalidated() noexcept {
+    if (!invalidated) {
+      return;
+    }
+    try {
+      invalidated();
+    } catch (...) {
     }
   }
 
@@ -359,15 +528,17 @@ auto NativeTextSystem::Create(IRenderBackend &renderer,
     -> UIResult<std::unique_ptr<NativeTextSystem>> {
 #if defined(NGIN_UI_HAS_NATIVE_TEXT)
   try {
-    if (info.atlasSize.IsEmpty()) {
+    if (info.atlasSize.IsEmpty() || info.maximumAtlasPages == 0) {
       return NativeTextError(UIErrorCode::InvalidArgument,
-                             "Glyph atlas dimensions must be non-zero",
+                             "Glyph atlas dimensions and page count must be non-zero",
                              "CreateTextSystem");
     }
     auto implementation = std::make_unique<Impl>();
     implementation->renderer = &renderer;
     implementation->atlasSize = info.atlasSize;
+    implementation->maximumAtlasPages = info.maximumAtlasPages;
     implementation->diagnostics.atlasSize = info.atlasSize;
+    implementation->diagnostics.maximumPageCount = info.maximumAtlasPages;
     auto error = FT_Init_FreeType(&implementation->library);
     if (error != 0) {
       return NativeTextError(UIErrorCode::ResourceFailed,
@@ -406,15 +577,10 @@ auto NativeTextSystem::Create(IRenderBackend &renderer,
         return loaded.Error();
       }
     }
-    auto texture = renderer.CreateTexture(TextureCreateInfo{
-        .size = info.atlasSize,
-        .format = TextureFormat::R8,
-        .filter = TextureFilter::Nearest,
-    });
-    if (!texture) {
-      return texture.Error();
+    auto page = implementation->AddPage();
+    if (!page) {
+      return page.Error();
     }
-    implementation->atlas = texture.Value();
     return std::unique_ptr<NativeTextSystem>{
         new NativeTextSystem{std::move(implementation)}};
   } catch (...) {
@@ -1027,6 +1193,12 @@ auto NativeTextSystem::ResolveGlyph(const GlyphAtlasRequest &request) noexcept
     -> UIResult<GlyphAtlasEntry> {
 #if defined(NGIN_UI_HAS_NATIVE_TEXT)
   try {
+    if (m_impl->renderer == nullptr) {
+      return NativeTextError(
+          UIErrorCode::InvalidState,
+          "Glyph textures are unavailable while the render device is lost",
+          "ResolveGlyph");
+    }
     auto *face = m_impl->FaceFor(request.fontFace);
     if (face == nullptr || !std::isfinite(request.fontSize) ||
         request.fontSize <= 0.0F || !std::isfinite(request.scaleFactor) ||
@@ -1042,7 +1214,16 @@ auto NativeTextSystem::ResolveGlyph(const GlyphAtlasRequest &request) noexcept
     if (const auto found = m_impl->glyphs.find(key);
         found != m_impl->glyphs.end()) {
       ++m_impl->diagnostics.hitCount;
-      return found->second;
+      auto lease = found->second.lease.lock();
+      if (!lease) {
+        lease = std::make_shared<GlyphAtlasLease>();
+        found->second.lease = lease;
+      }
+      auto entry = found->second.entry;
+      entry.lease = std::move(lease);
+      auto &page = m_impl->pages[found->second.pageIndex];
+      page.lastUse = ++m_impl->useClock;
+      return entry;
     }
     ++m_impl->diagnostics.missCount;
     auto sized = m_impl->SetPixelSize(*face, pixelSize, "ResolveGlyph");
@@ -1061,22 +1242,16 @@ auto NativeTextSystem::ResolveGlyph(const GlyphAtlasRequest &request) noexcept
     }
     const auto &bitmap = face->value->glyph->bitmap;
     if (bitmap.width == 0 || bitmap.rows == 0) {
-      const GlyphAtlasEntry invisible{};
-      m_impl->glyphs.emplace(key, invisible);
-      m_impl->diagnostics.entryCount = m_impl->glyphs.size();
-      return invisible;
+      return GlyphAtlasEntry{};
     }
     const auto width = static_cast<UInt32>(bitmap.width);
     const auto height = static_cast<UInt32>(bitmap.rows);
-    if (m_impl->atlasX + width + 1 > m_impl->atlasSize.width) {
-      m_impl->atlasX = 1;
-      m_impl->atlasY += m_impl->atlasRowHeight + 1;
-      m_impl->atlasRowHeight = 0;
+    auto pageIndex = m_impl->AcquirePage(width, height);
+    if (!pageIndex) {
+      return std::move(pageIndex).Error();
     }
-    if (m_impl->atlasY + height + 1 > m_impl->atlasSize.height) {
-      return NativeTextError(UIErrorCode::OutOfMemory,
-                             "The glyph atlas is full", "ResolveGlyph");
-    }
+    auto &page = m_impl->pages[pageIndex.Value()];
+    m_impl->Place(page, width);
 
     std::vector<Byte> pixels(static_cast<UIntSize>(width) *
                              static_cast<UIntSize>(height));
@@ -1091,17 +1266,18 @@ auto NativeTextSystem::ResolveGlyph(const GlyphAtlasRequest &request) noexcept
       }
     }
     auto updated = m_impl->renderer->UpdateTexture(
-        m_impl->atlas, TextureUpdateInfo{
-                           .region =
-                               PixelRect{
-                                   static_cast<Int32>(m_impl->atlasX),
-                                   static_cast<Int32>(m_impl->atlasY),
-                                   width,
-                                   height,
-                               },
-                           .bytesPerRow = static_cast<UIntSize>(width),
-                           .bytes = pixels,
-                       });
+        page.texture,
+        TextureUpdateInfo{
+            .region =
+                PixelRect{
+                    static_cast<Int32>(page.x),
+                    static_cast<Int32>(page.y),
+                    width,
+                    height,
+                },
+            .bytesPerRow = static_cast<UIntSize>(width),
+            .bytes = pixels,
+        });
     if (!updated) {
       return updated.Error();
     }
@@ -1109,12 +1285,13 @@ auto NativeTextSystem::ResolveGlyph(const GlyphAtlasRequest &request) noexcept
     const auto inverseHeight =
         1.0F / static_cast<F32>(m_impl->atlasSize.height);
     const auto inverseScale = 1.0F / request.scaleFactor;
-    const GlyphAtlasEntry entry{
-        .texture = m_impl->atlas,
+    auto lease = std::make_shared<GlyphAtlasLease>();
+    GlyphAtlasEntry entry{
+        .texture = page.texture,
         .textureCoordinates =
             Rect{
-                static_cast<F32>(m_impl->atlasX) * inverseWidth,
-                static_cast<F32>(m_impl->atlasY) * inverseHeight,
+                static_cast<F32>(page.x) * inverseWidth,
+                static_cast<F32>(page.y) * inverseHeight,
                 static_cast<F32>(width) * inverseWidth,
                 static_cast<F32>(height) * inverseHeight,
             },
@@ -1130,10 +1307,25 @@ auto NativeTextSystem::ResolveGlyph(const GlyphAtlasRequest &request) noexcept
                 -static_cast<F32>(face->value->glyph->bitmap_top) *
                     inverseScale,
             },
+        .lease = lease,
     };
-    m_impl->atlasX += width + 1;
-    m_impl->atlasRowHeight = std::max(m_impl->atlasRowHeight, height);
-    m_impl->glyphs.emplace(key, entry);
+    page.x += width + 1U;
+    page.rowHeight = std::max(page.rowHeight, height);
+    page.usedPixelArea +=
+        static_cast<UInt64>(width) * static_cast<UInt64>(height);
+    page.lastUse = ++m_impl->useClock;
+    page.keys.push_back(key);
+    auto cachedEntry = entry;
+    cachedEntry.lease.reset();
+    m_impl->glyphs.emplace(
+        key, Impl::GlyphRecord{
+                 .entry = std::move(cachedEntry),
+                 .pageIndex = pageIndex.Value(),
+                 .pixelArea =
+                     static_cast<UInt64>(width) *
+                     static_cast<UInt64>(height),
+                 .lease = lease,
+             });
     ++m_impl->diagnostics.uploadCount;
     m_impl->diagnostics.entryCount = m_impl->glyphs.size();
     m_impl->diagnostics.usedPixelArea +=
@@ -1155,9 +1347,83 @@ auto NativeTextSystem::AtlasDiagnostics() const noexcept
 #if defined(NGIN_UI_HAS_NATIVE_TEXT)
   auto diagnostics = m_impl->diagnostics;
   diagnostics.entryCount = m_impl->glyphs.size();
+  diagnostics.pageCount = m_impl->pages.size();
+  diagnostics.maximumPageCount = m_impl->maximumAtlasPages;
+  diagnostics.capacityPixelArea =
+      static_cast<UInt64>(m_impl->atlasSize.width) *
+      static_cast<UInt64>(m_impl->atlasSize.height) *
+      static_cast<UInt64>(m_impl->pages.size());
+  try {
+    for (const auto &[key, record] : m_impl->glyphs) {
+      const auto found =
+          std::find_if(diagnostics.pixelSizes.begin(),
+                       diagnostics.pixelSizes.end(), [&key](const auto &size) {
+                         return size.pixelSize == key.pixelSize;
+                       });
+      if (found != diagnostics.pixelSizes.end()) {
+        ++found->entryCount;
+        found->usedPixelArea += record.pixelArea;
+      } else {
+        diagnostics.pixelSizes.push_back(GlyphAtlasSizeDiagnostics{
+            .pixelSize = key.pixelSize,
+            .entryCount = 1,
+            .usedPixelArea = record.pixelArea,
+        });
+      }
+    }
+    std::sort(diagnostics.pixelSizes.begin(), diagnostics.pixelSizes.end(),
+              [](const auto &left, const auto &right) {
+                return left.pixelSize < right.pixelSize;
+              });
+    diagnostics.pixelSizeCount = diagnostics.pixelSizes.size();
+  } catch (...) {
+    diagnostics.pixelSizes.clear();
+    diagnostics.pixelSizeCount = 0;
+  }
   return diagnostics;
 #else
   return {};
+#endif
+}
+
+void NativeTextSystem::OnDeviceLost() noexcept {
+#if defined(NGIN_UI_HAS_NATIVE_TEXT)
+  m_impl->DestroyPages(true);
+  m_impl->renderer = nullptr;
+  m_impl->NotifyResourcesInvalidated();
+#endif
+}
+
+auto NativeTextSystem::OnDeviceRestored(IRenderBackend &renderer) noexcept
+    -> UIResult<void> {
+#if defined(NGIN_UI_HAS_NATIVE_TEXT)
+  try {
+    m_impl->DestroyPages(true);
+    m_impl->renderer = &renderer;
+    auto page = m_impl->AddPage();
+    if (!page) {
+      return std::move(page).Error();
+    }
+    ++m_impl->diagnostics.restorationCount;
+    m_impl->NotifyResourcesInvalidated();
+    return {};
+  } catch (...) {
+    return NativeTextError(UIErrorCode::OutOfMemory,
+                           "Unable to restore glyph atlas storage",
+                           "RestoreTextDevice");
+  }
+#else
+  static_cast<void>(renderer);
+  return Unavailable("RestoreTextDevice");
+#endif
+}
+
+void NativeTextSystem::SetResourcesInvalidatedCallback(
+    ResourcesInvalidatedCallback callback) {
+#if defined(NGIN_UI_HAS_NATIVE_TEXT)
+  m_impl->invalidated = std::move(callback);
+#else
+  static_cast<void>(callback);
 #endif
 }
 } // namespace NGIN::UI

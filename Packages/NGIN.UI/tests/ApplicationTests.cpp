@@ -127,6 +127,42 @@ TEST_CASE(
   REQUIRE(duplicate.Error().code == UIErrorCode::InvalidArgument);
 }
 
+TEST_CASE("application invalidates every open window after shared resources reset") {
+  using namespace NGIN::UI;
+  using namespace NGIN::UI::Testing;
+
+  auto createdApplication = CreateApplication(ApplicationCreateInfo{
+      .platform = std::make_unique<TestPlatformBackend>(),
+      .renderer = std::make_unique<RecordingRenderBackend>(),
+  });
+  REQUIRE(createdApplication.HasValue());
+  auto application = std::move(createdApplication).Value();
+  auto first = application->CreateWindow(WindowCreateInfo{
+      .id = NGIN::Text::String{"First"},
+      .title = NGIN::Text::String{"First"},
+  });
+  auto second = application->CreateWindow(WindowCreateInfo{
+      .id = NGIN::Text::String{"Second"},
+      .title = NGIN::Text::String{"Second"},
+  });
+  REQUIRE(first.HasValue());
+  REQUIRE(second.HasValue());
+  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE_FALSE(first.Value()->IsDirty());
+  REQUIRE_FALSE(second.Value()->IsDirty());
+
+  application->InvalidateAll(InvalidationKind::All);
+  CHECK(first.Value()->IsDirty());
+  CHECK(second.Value()->IsDirty());
+  REQUIRE(application->CloseWindow(*first.Value()).HasValue());
+  REQUIRE(application->PumpOnce().HasValue());
+  REQUIRE_FALSE(second.Value()->IsDirty());
+
+  application->InvalidateAll(InvalidationKind::Paint);
+  CHECK(first.Value()->IsClosed());
+  CHECK(second.Value()->IsDirty());
+}
+
 TEST_CASE("window content composes on demand and retains runtime identity") {
   using namespace NGIN::UI;
   using namespace NGIN::UI::Testing;
