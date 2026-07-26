@@ -10,6 +10,9 @@ Start with the
 [five-minute standalone window](../../docs/guides/ngin-ui-first-window.md).
 Public source compatibility and deprecation rules are defined in the
 [NGIN.UI compatibility policy](../../docs/policies/ngin-ui-source-compatibility.md).
+Future production-readiness work is defined by the
+[version 0.2 roadmap](../../docs/plans/NGIN.UI-V0.2-Roadmap.md) and its
+[implementation workstreams](../../docs/plans/NGIN.UI-V0.2-Implementation-Workstreams.md).
 
 The version 0.1 implementation provides:
 

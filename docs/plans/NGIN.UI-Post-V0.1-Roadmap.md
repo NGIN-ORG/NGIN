@@ -2,6 +2,7 @@
 
 Status: Complete — Milestones 9–16 implemented and verified
 Baseline: [`NGIN.UI-V0.1-Acceptance-Audit.md`](NGIN.UI-V0.1-Acceptance-Audit.md)
+Successor: [`NGIN.UI-V0.2-Roadmap.md`](NGIN.UI-V0.2-Roadmap.md)
 
 ## Goal
 
