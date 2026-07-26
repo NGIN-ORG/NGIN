@@ -8,6 +8,7 @@ import {
   findExecutableOnPath,
   getDevelopmentCliPath,
   isCliStale,
+  normalizeProcessTermination,
   resolveConfiguredCliPath,
   withExplicitWorkspace
 } from './core/cli';
@@ -2838,7 +2839,7 @@ class NginController implements vscode.Disposable {
       });
 
       child.on('error', (error) => reject(error));
-      child.on('close', (code) => {
+      child.on('close', (code, signal) => {
         if (this.activeCliProcesses.get(runKey) === child) this.activeCliProcesses.delete(runKey);
         cancellationSubscription?.dispose();
         if (parser) {
@@ -2852,10 +2853,14 @@ class NginController implements vscode.Disposable {
           }
           appendBackendLines(backendOutput.finish());
         }
-        const processExitCode = cancellation?.isCancellationRequested ? 130 : code ?? 0;
+        const termination = normalizeProcessTermination(code, signal);
+        const processExitCode = cancellation?.isCancellationRequested ? 130 : termination.exitCode;
         const exitCode = eventParseError instanceof NginJsonlParseError && processExitCode === 0 ? 1 : processExitCode;
         if (exitCode !== 0) {
-          combined += `\nerror: command exited with code ${exitCode}\n`;
+          const description = cancellation?.isCancellationRequested
+            ? 'cancelled'
+            : termination.description;
+          combined += `\nerror: command ${description}\n`;
         }
         resolve({ exitCode, output: combined, eventDiagnostics, eventCommandSucceeded, artifacts });
       });
@@ -2921,7 +2926,12 @@ class NginController implements vscode.Disposable {
       args.push('--output-root', snapshot.buildOutputRoot);
     }
 
-    const result = await new Promise<{ exitCode: number; stdout: string; stderr: string }>((resolve, reject) => {
+    const result = await new Promise<{
+      exitCode: number;
+      termination: string;
+      stdout: string;
+      stderr: string;
+    }>((resolve, reject) => {
       let stdout = '';
       let stderr = '';
       const child = spawn(cliPath, args, { cwd: workspaceRoot });
@@ -2935,11 +2945,19 @@ class NginController implements vscode.Disposable {
       });
 
       child.on('error', (error) => reject(error));
-      child.on('close', (code) => resolve({ exitCode: code ?? 0, stdout, stderr }));
+      child.on('close', (code, signal) => {
+        const termination = normalizeProcessTermination(code, signal);
+        resolve({
+          exitCode: termination.exitCode,
+          termination: termination.description,
+          stdout,
+          stderr
+        });
+      });
     });
 
     if (!result.stdout.trim()) {
-      throw new Error(result.stderr.trim() || `inspect exited with code ${result.exitCode}`);
+      throw new Error(result.stderr.trim() || `inspect ${result.termination}`);
     }
 
     let rawPayload: unknown;
@@ -2955,7 +2973,7 @@ class NginController implements vscode.Disposable {
     this.applyInspectDiagnostics(payload, snapshot.context.project.path);
 
     if (result.exitCode !== 0 && (!payload.plans?.diagnostics || payload.plans.diagnostics.length === 0)) {
-      throw new Error(result.stderr.trim() || `inspect exited with code ${result.exitCode}`);
+      throw new Error(result.stderr.trim() || `inspect ${result.termination}`);
     }
 
     return payload;

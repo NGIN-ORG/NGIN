@@ -3,7 +3,11 @@ import assert from 'node:assert/strict';
 import { promises as fs, readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { backendOutputModeForVerbosity, withExplicitWorkspace } from '../../core/cli';
+import {
+  backendOutputModeForVerbosity,
+  normalizeProcessTermination,
+  withExplicitWorkspace
+} from '../../core/cli';
 import {
   compileCommandsCoverPath,
   computeCompileCommandsPath,
@@ -139,6 +143,21 @@ test('project CLI arguments carry an exact selected workspace', () => {
     withExplicitWorkspace(['workspace', 'status'], '/repo/Z.Selected.ngin'),
     ['workspace', 'status']
   );
+});
+
+test('process termination preserves exit codes and reports signals as failures', () => {
+  assert.deepEqual(normalizeProcessTermination(0, null), {
+    exitCode: 0,
+    description: 'exited with code 0'
+  });
+  assert.deepEqual(normalizeProcessTermination(null, 'SIGSEGV'), {
+    exitCode: 1,
+    description: 'terminated by signal SIGSEGV'
+  });
+  assert.deepEqual(normalizeProcessTermination(null, null), {
+    exitCode: 1,
+    description: 'terminated without an exit code'
+  });
 });
 
 test('backend output buffering preserves complete compiler progress lines across chunks', () => {

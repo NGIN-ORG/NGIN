@@ -1,6 +1,33 @@
 import * as path from 'node:path';
 import { promises as fs } from 'node:fs';
 
+export interface ProcessTermination {
+  exitCode: number;
+  description: string;
+}
+
+export function normalizeProcessTermination(
+  code: number | null,
+  signal: NodeJS.Signals | null
+): ProcessTermination {
+  if (code !== null) {
+    return {
+      exitCode: code,
+      description: `exited with code ${code}`
+    };
+  }
+  if (signal) {
+    return {
+      exitCode: 1,
+      description: `terminated by signal ${signal}`
+    };
+  }
+  return {
+    exitCode: 1,
+    description: 'terminated without an exit code'
+  };
+}
+
 export function backendOutputModeForVerbosity(verbosity: string): 'compact' | 'stream' {
   return verbosity === 'compact' ? 'compact' : 'stream';
 }
