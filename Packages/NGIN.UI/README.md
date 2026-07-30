@@ -97,6 +97,8 @@ The version 0.1 implementation provides:
   progress-bar controls with disabled, focus, validation, and semantic states;
 - explicit label associations and delayed non-focus-stealing tooltips;
 - a render-tree-independent semantic tree with stable element ownership;
+- immutable accessibility snapshots, semantic diffs, UI-thread action routing,
+  provider capability diagnostics, and password-safe values;
 - per-window structural diagnostics for composition, layout, rendering, focus,
   pointer capture, and frame-phase timings;
 - immutable inspector snapshots of runtime and semantic trees plus optional
@@ -133,6 +135,8 @@ are supplied by the separate
 [`NGIN.UI.Backend.SDL3`](../NGIN.UI.Backend.SDL3/) package. Applications can
 run the same view directly or through the optional
 [`NGIN.UI.Hosting`](../NGIN.UI.Hosting/) bridge to `NGIN.Core`.
+Windows UI Automation is supplied by the optional
+[`NGIN.UI.Accessibility.Windows`](../NGIN.UI.Accessibility.Windows/) package.
 
 See the [styling guide](../../docs/guides/ngin-ui-styling.md) for theme tokens,
 state precedence, focus treatment, borders, and invalidation rules.

@@ -18,7 +18,7 @@ using namespace NGIN::UI;
 constexpr std::array<std::string_view, PageCount> PageNames{
     "Overview", "Layout",    "Typography",  "Text Area",
     "Images",   "Inputs",    "Collections", "Overlays",
-    "Windows",  "Themes",    "Diagnostics",
+    "Windows",  "Themes",    "Accessibility", "Diagnostics",
 };
 
 [[nodiscard]] auto Number(const std::uint64_t value) -> String {
@@ -1480,6 +1480,102 @@ void ComposeResourcesPage(Composer &composer, NativeTextSystem &text,
       "resource-scope");
 }
 
+void ComposeAccessibilityPage(Composer &composer, NativeTextSystem &text,
+                              Model &model, const Theme &theme) {
+  ComposePageHeading(
+      composer, text, theme, "Accessibility",
+      "Try common controls with Narrator, the keyboard, or the mouse.");
+
+  const auto diagnostics = model.AccessibilityDiagnostics();
+  String provider{diagnostics.available ? "Ready: " : "Not available: "};
+  provider.Append(diagnostics.providerName);
+  ComposeCard(
+      composer, theme,
+      [&] {
+        NodeProperties column{};
+        column.layout.gap = theme.spacing.compact;
+        composer.Column(
+            [&] {
+              ComposeText(composer, text, String{"Screen reader connection"},
+                          18.0F, theme.colors.foreground, "provider-title",
+                          SemanticRole::Heading);
+              ComposeText(composer, text, std::move(provider),
+                          theme.typography.body,
+                          diagnostics.available ? theme.colors.foreground
+                                                : theme.colors.mutedForeground,
+                          "provider-status");
+              ComposeText(
+                  composer, text,
+                  String{diagnostics.available
+                             ? "Narrator can read and operate this window."
+                             : "A native provider is not enabled on this system."},
+                  theme.typography.caption, theme.colors.mutedForeground,
+                  "provider-help");
+            },
+            "provider-values");
+      },
+      "provider-card");
+
+  const ControlPresentation controls{.theme = theme};
+  ComposeCard(
+      composer, theme,
+      [&] {
+        NodeProperties column{};
+        column.layout.gap = theme.spacing.regular;
+        composer.Column(
+            [&] {
+              ComposeText(composer, text, String{"Controls to try"}, 18.0F,
+                          theme.colors.foreground, "controls-title",
+                          SemanticRole::Heading);
+              ComposeButton(composer, text, theme, "Announce a message",
+                            [&model] {
+                              model.AnnounceAccessibilityDemo();
+                            },
+                            "announce-button", 250.0F);
+              ComposeControlRow(
+                  composer, text, theme, "Enable notifications",
+                  "accessibility-check",
+                  [&](const NodeProperties &control) {
+                    CheckBox(composer, model.CheckBinding(), controls, control,
+                             "control");
+                  },
+                  "accessibility-check-row");
+              ComposeControlRow(
+                  composer, text, theme, "Automatic updates",
+                  "accessibility-switch",
+                  [&](const NodeProperties &control) {
+                    ToggleSwitch(composer, model.ToggleBinding(), controls,
+                                 control, "control");
+                  },
+                  "accessibility-switch-row");
+              ComposeControlRow(
+                  composer, text, theme, "Volume", "accessibility-slider",
+                  [&](NodeProperties control) {
+                    control.layout.preferredSize.width = 300.0F;
+                    Slider(composer, model.SliderBinding(),
+                           SliderRange{.minimum = 0.0F,
+                                       .maximum = 1.0F,
+                                       .step = 0.05F},
+                           controls, control, "control");
+                  },
+                  "accessibility-slider-row");
+              ComposeTextField(composer, text, model, theme,
+                               model.NameBinding(), "Display name",
+                               "accessibility-name");
+
+              auto live = TextProperties(text, theme.typography.body,
+                                         theme.colors.foreground);
+              live.semantics.role = SemanticRole::Text;
+              live.semantics.label = model.AccessibilityAnnouncement();
+              live.semantics.live = SemanticLiveSetting::Polite;
+              composer.Text(model.AccessibilityAnnouncement(), text, text,
+                            live, "accessibility-live-region");
+            },
+            "accessibility-controls");
+      },
+      "accessibility-controls-card");
+}
+
 void ComposeDiagnosticsPage(Composer &composer, NativeTextSystem &text,
                             Model &model, const Theme &theme) {
   ComposePageHeading(
@@ -1664,6 +1760,9 @@ void ComposePage(Composer &composer, NativeTextSystem &text, Model &model,
   case Page::Resources:
     ComposeResourcesPage(composer, text, model, theme);
     break;
+  case Page::Accessibility:
+    ComposeAccessibilityPage(composer, text, model, theme);
+    break;
   case Page::Diagnostics:
     ComposeDiagnosticsPage(composer, text, model, theme);
     break;
@@ -1765,7 +1864,10 @@ Model::Model()
           false, [this](const InvalidationKind kind) { Invalidate(kind); },
           InvalidationKind::All),
       m_status(String{},
-               [this](const InvalidationKind kind) { Invalidate(kind); }) {}
+               [this](const InvalidationKind kind) { Invalidate(kind); }),
+      m_accessibilityAnnouncement(
+          String{"No announcement yet."},
+          [this](const InvalidationKind kind) { Invalidate(kind); }) {}
 
 void Model::AttachRuntime(Application &application, NativeTextSystem &text,
                           Window &window) noexcept {
@@ -2012,6 +2114,26 @@ auto Model::TextDiagnostics() const noexcept -> GlyphAtlasDiagnostics {
 auto Model::FontDiagnostics() const noexcept -> FontCoverageDiagnostics {
   return m_text != nullptr ? m_text->CoverageDiagnostics()
                            : FontCoverageDiagnostics{};
+}
+
+auto Model::AccessibilityDiagnostics() const noexcept
+    -> NGIN::UI::AccessibilityDiagnostics {
+  return m_application != nullptr
+             ? m_application->AccessibilityDiagnostics()
+             : NGIN::UI::AccessibilityDiagnostics{};
+}
+
+auto Model::AccessibilityAnnouncement() const noexcept -> const String & {
+  return m_accessibilityAnnouncement.Get();
+}
+
+void Model::AnnounceAccessibilityDemo() {
+  const auto next = m_activationCount.Get() + 1;
+  static_cast<void>(m_activationCount.Set(next));
+  String message{"Accessibility message "};
+  message.Append(Number(next));
+  message.Append(String{" is ready."});
+  static_cast<void>(m_accessibilityAnnouncement.Set(std::move(message)));
 }
 
 void Model::Report(UIError error) {

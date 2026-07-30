@@ -40,6 +40,9 @@ public:
   auto SetFocus(ElementHandle handle) noexcept -> bool;
   auto ClearFocus() noexcept -> bool;
   auto MoveFocus(bool reverse = false) -> bool;
+  auto PerformSemanticAction(ElementHandle target,
+                             const SemanticActionRequest &request)
+      -> UIResult<InputDispatchResult>;
   void SetScaleFactor(F32 scaleFactor) noexcept;
   void Synchronize() noexcept;
 

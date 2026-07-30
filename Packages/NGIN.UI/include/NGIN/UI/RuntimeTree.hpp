@@ -123,6 +123,7 @@ public:
   [[nodiscard]] auto Get(ElementHandle handle) noexcept -> RuntimeNode *;
   [[nodiscard]] auto Get(ElementHandle handle) const noexcept
       -> const RuntimeNode *;
+  [[nodiscard]] auto FindById(ElementId id) const noexcept -> ElementHandle;
   [[nodiscard]] auto ResourcesFor(ElementHandle handle) const noexcept
       -> std::shared_ptr<const ResourceScope>;
   [[nodiscard]] auto

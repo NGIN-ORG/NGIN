@@ -39,11 +39,16 @@ namespace {
   switch (role) {
   case SemanticRole::Button:
   case SemanticRole::Link:
+  case SemanticRole::MenuItem:
+    return SemanticActionFlags::Activate | SemanticActionFlags::Focus;
   case SemanticRole::ListItem:
   case SemanticRole::Tab:
-  case SemanticRole::MenuItem:
+    return SemanticActionFlags::Activate | SemanticActionFlags::Focus |
+           SemanticActionFlags::Select |
+           SemanticActionFlags::ScrollIntoView;
   case SemanticRole::ComboBox:
-    return SemanticActionFlags::Activate | SemanticActionFlags::Focus;
+    return SemanticActionFlags::Activate | SemanticActionFlags::Focus |
+           SemanticActionFlags::Expand | SemanticActionFlags::Collapse;
   case SemanticRole::TextBox:
     return SemanticActionFlags::Focus | SemanticActionFlags::SetValue;
   default:
@@ -80,17 +85,22 @@ void SemanticTree::AppendRuntimeNode(const RuntimeTree &runtimeTree,
     if (runtimeNode->interaction.pressed) {
       states |= SemanticStateFlags::Pressed;
     }
+    const auto isTextEditor = runtimeNode->type == ElementType::TextField ||
+                              runtimeNode->type == ElementType::TextArea;
+    if (isTextEditor && runtimeNode->properties.textField.readOnly) {
+      states |= SemanticStateFlags::ReadOnly;
+    }
     auto semanticValue = properties.value;
-    if ((runtimeNode->type == ElementType::TextField ||
-         runtimeNode->type == ElementType::TextArea) &&
-        runtimeNode->textField.editing &&
-        !runtimeNode->properties.textField.password) {
+    if (isTextEditor && runtimeNode->properties.textField.password) {
+      semanticValue = {};
+    } else if (isTextEditor && runtimeNode->textField.editing) {
       semanticValue = runtimeNode->textField.editing->Value();
     }
 
     const SemanticNodeId id{runtimeNode->id.value};
     m_nodes.push_back(SemanticNode{
         .id = id,
+        .parent = semanticParent,
         .role = role,
         .identifier = properties.identifier,
         .labelFor = properties.labelFor,
@@ -99,6 +109,7 @@ void SemanticTree::AppendRuntimeNode(const RuntimeTree &runtimeTree,
         .value = std::move(semanticValue),
         .description = properties.description,
         .range = properties.range,
+        .collectionItem = properties.collectionItem,
         .bounds = runtimeNode->type == ElementType::Popup
                       ? runtimeNode->popup.contentBounds
                       : runtimeNode->arrangedBounds,
@@ -106,6 +117,8 @@ void SemanticTree::AppendRuntimeNode(const RuntimeTree &runtimeTree,
         .actions = properties.actions == SemanticActionFlags::None
                        ? DefaultActions(role)
                        : properties.actions,
+        .live = properties.live,
+        .password = isTextEditor && runtimeNode->properties.textField.password,
         .owner = runtimeNode->id,
     });
     const auto parent =

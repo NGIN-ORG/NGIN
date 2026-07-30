@@ -18,7 +18,8 @@ auto TestPlatformBackend::Capabilities() const noexcept
   return PlatformCapabilityFlags::Clipboard | PlatformCapabilityFlags::IME |
          PlatformCapabilityFlags::MultipleWindows |
          PlatformCapabilityFlags::FileDrop | PlatformCapabilityFlags::PenInput |
-         PlatformCapabilityFlags::TouchInput;
+         PlatformCapabilityFlags::TouchInput |
+         PlatformCapabilityFlags::NativeWindow;
 }
 
 auto TestPlatformBackend::Initialize(const PlatformInitInfo &) noexcept
@@ -184,6 +185,19 @@ auto TestPlatformBackend::QueryDisplays() noexcept
       .primary = true,
   });
   return displays;
+}
+
+auto TestPlatformBackend::QueryNativeWindow(
+    const PlatformWindowHandle window) noexcept -> UIResult<NativeWindowInfo> {
+  auto *record = FindWindow(window);
+  if (record == nullptr || record->destroyed) {
+    return MakeUIError(UIErrorCode::InvalidArgument, "Unknown platform window",
+                       Name(), "QueryNativeWindow");
+  }
+  return NativeWindowInfo{
+      .kind = NativeWindowKind::Win32,
+      .value = static_cast<UIntPtr>(window.index) + 1U,
+  };
 }
 
 void TestPlatformBackend::InjectEvent(PlatformEvent event) {

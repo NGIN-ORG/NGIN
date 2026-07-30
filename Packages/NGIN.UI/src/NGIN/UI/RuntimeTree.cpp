@@ -53,6 +53,12 @@ void ReportCustomError(const RuntimeNode &node, const UIError &error) noexcept {
   if (authored.actions != SemanticActionFlags::None) {
     result.actions = authored.actions;
   }
+  if (authored.collectionItem) {
+    result.collectionItem = authored.collectionItem;
+  }
+  if (authored.live != SemanticLiveSetting::Off) {
+    result.live = authored.live;
+  }
   result.hidden = result.hidden || authored.hidden;
   return result;
 }
@@ -78,6 +84,18 @@ auto RuntimeTree::Get(const ElementHandle handle) noexcept -> RuntimeNode * {
 auto RuntimeTree::Get(const ElementHandle handle) const noexcept
     -> const RuntimeNode * {
   return IsAlive(handle) ? &m_slots[handle.index].node : nullptr;
+}
+
+auto RuntimeTree::FindById(const ElementId id) const noexcept -> ElementHandle {
+  if (!id.IsValid()) {
+    return {};
+  }
+  for (const auto &slot : m_slots) {
+    if (slot.occupied && slot.node.id == id) {
+      return slot.node.handle;
+    }
+  }
+  return {};
 }
 
 auto RuntimeTree::ResourcesFor(ElementHandle handle) const noexcept

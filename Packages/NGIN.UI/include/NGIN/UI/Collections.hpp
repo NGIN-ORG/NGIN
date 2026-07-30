@@ -193,7 +193,9 @@ void SelectableListItem(Composer &composer, ItemSelection selection,
     }
   };
   properties.semantics.role = SemanticRole::ListItem;
-  properties.semantics.actions = SemanticActionFlags::Activate;
+  properties.semantics.actions =
+      SemanticActionFlags::Activate | SemanticActionFlags::Select |
+      SemanticActionFlags::ScrollIntoView;
   if (selected) {
     properties.semantics.states |= SemanticStateFlags::Selected;
     properties.visual.state |= VisualStateFlags::Selected;
@@ -308,7 +310,8 @@ void ComboBox(Composer &composer, PopupController &controller,
   buttonProperties.semantics.role = SemanticRole::ComboBox;
   buttonProperties.semantics.identifier = NGIN::Text::String{anchorIdentifier};
   buttonProperties.semantics.actions =
-      SemanticActionFlags::Activate | SemanticActionFlags::Focus;
+      SemanticActionFlags::Activate | SemanticActionFlags::Focus |
+      SemanticActionFlags::Expand | SemanticActionFlags::Collapse;
   if (controller.IsOpen()) {
     buttonProperties.semantics.states |= SemanticStateFlags::Expanded;
   }
@@ -392,7 +395,10 @@ void Tabs(Composer &composer, Binding<T> selection,
                 properties.semantics.role = SemanticRole::Tab;
                 properties.semantics.label = definition.label;
                 properties.semantics.actions =
-                    SemanticActionFlags::Activate | SemanticActionFlags::Focus;
+                    SemanticActionFlags::Activate |
+                    SemanticActionFlags::Focus |
+                    SemanticActionFlags::Select |
+                    SemanticActionFlags::ScrollIntoView;
                 if (selected) {
                   properties.semantics.states |= SemanticStateFlags::Selected;
                   properties.visual.state |= VisualStateFlags::Selected;

@@ -195,6 +195,9 @@ public:
       -> UIResult<InvalidationKind>;
   virtual auto TextEvent(CustomElementContext &context, RoutedTextEvent &event)
       -> UIResult<InvalidationKind>;
+  virtual auto SemanticAction(CustomElementContext &context,
+                              const SemanticActionRequest &request)
+      -> UIResult<InvalidationKind>;
   virtual void Unmounted(CustomElementContext &context) noexcept;
 };
 } // namespace NGIN::UI

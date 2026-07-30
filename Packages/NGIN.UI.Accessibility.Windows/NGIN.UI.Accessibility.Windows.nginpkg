@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Package SchemaVersion="4"
+         Name="NGIN.UI.Accessibility.Windows"
+         Version="0.1.0"
+         CompatiblePlatformRange=">=0.1.0 &lt;0.2.0">
+  <Metadata>
+    <Description>Windows UI Automation provider for NGIN.UI.</Description>
+    <License>Apache-2.0</License>
+  </Metadata>
+  <Build Backend="CMake" Mode="AddSubdirectory">
+    <Options>
+      <Option Name="NGIN_UI_ACCESSIBILITY_WINDOWS_BUILD_TESTS" Value="OFF" />
+    </Options>
+  </Build>
+  <Uses>
+    <Package Name="NGIN.UI"
+             Version=">=0.1.0 &lt;0.2.0"
+             Scope="Target" />
+  </Uses>
+  <Library Name="NGIN.UI.Accessibility.Windows">
+    <Exports>
+      <LibraryTarget Name="NGIN::UI::Accessibility::Windows"
+                     Linkage="Static" />
+    </Exports>
+  </Library>
+  <Compatibility>
+    <OperatingSystems>
+      <OperatingSystem Name="windows" />
+      <OperatingSystem Name="linux" />
+      <OperatingSystem Name="macos" />
+    </OperatingSystems>
+  </Compatibility>
+</Package>

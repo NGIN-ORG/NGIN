@@ -20,6 +20,7 @@ of the runnable paths, then use the topic guides as needed.
   validation, invalidation, ownership, and testing](ngin-ui-application-model.md)
 - [Input, focus, commands, clipboard, IME, themes, resources, semantics,
   inspector tooling, and UI-thread rules](ngin-ui-input-accessibility-tooling.md)
+- [Windows UI Automation and the Narrator checklist](ngin-ui-windows-accessibility.md)
 - [Styling and visual states](ngin-ui-styling.md)
 
 ## Controls and content

@@ -61,6 +61,25 @@ struct DisplayInfo final {
 /// @brief Owned list returned when enumerating physical displays.
 using DisplayInfoList = std::vector<DisplayInfo>;
 
+/// @brief Operating-system family of an optional native window handle.
+enum class NativeWindowKind : UInt8 {
+  None,
+  Win32,
+  Cocoa,
+  X11,
+  Wayland,
+};
+
+/// @brief Opaque native window identity exposed only to platform providers.
+struct NativeWindowInfo final {
+  NativeWindowKind kind{NativeWindowKind::None};
+  UIntPtr value{0};
+
+  [[nodiscard]] constexpr auto IsValid() const noexcept -> bool {
+    return kind != NativeWindowKind::None && value != 0;
+  }
+};
+
 /// @brief Native windowing, input, clipboard, IME, and dispatcher contract.
 class IPlatformBackend {
 public:
@@ -101,5 +120,12 @@ public:
   virtual auto StopTextInput(PlatformWindowHandle window) noexcept
       -> UIResult<void> = 0;
   virtual auto QueryDisplays() noexcept -> UIResult<DisplayInfoList> = 0;
+  [[nodiscard]] virtual auto
+  QueryNativeWindow(PlatformWindowHandle) noexcept
+      -> UIResult<NativeWindowInfo> {
+    return MakeUIError(UIErrorCode::Unsupported,
+                       "The platform backend does not expose native windows",
+                       Name(), "QueryNativeWindow");
+  }
 };
 } // namespace NGIN::UI

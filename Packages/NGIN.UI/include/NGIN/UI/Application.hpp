@@ -1,5 +1,6 @@
 #pragma once
 
+#include <NGIN/UI/Accessibility.hpp>
 #include <NGIN/UI/Composer.hpp>
 #include <NGIN/UI/Diagnostics.hpp>
 #include <NGIN/UI/Error.hpp>
@@ -68,6 +69,8 @@ public:
 
   auto Focus(ElementHandle handle) noexcept -> bool;
   auto FocusNext(bool reverse = false) -> bool;
+  auto PerformSemanticAction(const SemanticActionRequest &request) noexcept
+      -> UIResult<void>;
   void SetInspectorOverlay(InspectorOverlayOptions options);
   void SetEventHandler(EventHandler handler);
   void SetContent(Content content);
@@ -106,6 +109,7 @@ struct ApplicationCreateInfo final {
   std::unique_ptr<IRenderBackend> renderer{};
   NGIN::Text::String applicationName{"NGIN.UI"};
   bool enableRendererValidation{false};
+  std::unique_ptr<IAccessibilityBackend> accessibility{};
 };
 
 /// @brief Coordinates backend lifetime, window creation, and the application loop.
@@ -135,13 +139,16 @@ public:
   [[nodiscard]] auto ActiveWindowCount() const noexcept -> UIntSize;
   [[nodiscard]] auto Platform() noexcept -> IPlatformBackend &;
   [[nodiscard]] auto Renderer() noexcept -> IRenderBackend &;
+  [[nodiscard]] auto AccessibilityDiagnostics() const noexcept
+      -> NGIN::UI::AccessibilityDiagnostics;
 
 private:
   friend auto CreateApplication(ApplicationCreateInfo info) noexcept
       -> UIResult<std::unique_ptr<Application>>;
 
   Application(std::unique_ptr<IPlatformBackend> platform,
-              std::unique_ptr<IRenderBackend> renderer);
+              std::unique_ptr<IRenderBackend> renderer,
+              std::unique_ptr<IAccessibilityBackend> accessibility);
   [[nodiscard]] auto CreateWindowInternal(WindowCreateInfo info,
                                           Window *owner) noexcept
       -> UIResult<Window *>;

@@ -178,6 +178,22 @@ public:
     return InvalidationKind::None;
   }
 
+  auto SemanticAction(CustomElementContext &context,
+                      const SemanticActionRequest &request)
+      -> UIResult<InvalidationKind> override {
+    if (request.action != SemanticActionKind::Activate ||
+        !context.Interaction().enabled) {
+      return MakeUIError(UIErrorCode::Unsupported,
+                         "The checkbox cannot perform this semantic action",
+                         "NGIN.UI", "CheckBox::SemanticAction");
+    }
+    auto toggled = Toggle();
+    if (!toggled) {
+      return std::move(toggled).Error();
+    }
+    return InvalidationKind::Paint | InvalidationKind::Semantics;
+  }
+
 private:
   auto Toggle() -> UIResult<void> {
     const auto next = m_value.Get() == CheckState::Checked
@@ -244,7 +260,9 @@ public:
       -> UIResult<SemanticProperties> override {
     auto result = m_semantics;
     result.role = SemanticRole::RadioButton;
-    result.actions = SemanticActionFlags::Activate | SemanticActionFlags::Focus;
+    result.actions = SemanticActionFlags::Activate |
+                     SemanticActionFlags::Focus |
+                     SemanticActionFlags::Select;
     if (m_selection.isSelected && m_selection.isSelected()) {
       result.states |=
           SemanticStateFlags::Selected | SemanticStateFlags::Checked;
@@ -273,6 +291,23 @@ public:
       return InvalidationKind::Paint | InvalidationKind::Semantics;
     }
     return InvalidationKind::None;
+  }
+
+  auto SemanticAction(CustomElementContext &context,
+                      const SemanticActionRequest &request)
+      -> UIResult<InvalidationKind> override {
+    if ((request.action != SemanticActionKind::Activate &&
+         request.action != SemanticActionKind::Select) ||
+        !context.Interaction().enabled) {
+      return MakeUIError(UIErrorCode::Unsupported,
+                         "The radio button cannot perform this semantic action",
+                         "NGIN.UI", "RadioButton::SemanticAction");
+    }
+    auto selected = Select();
+    if (!selected) {
+      return std::move(selected).Error();
+    }
+    return InvalidationKind::Paint | InvalidationKind::Semantics;
   }
 
 private:
@@ -371,6 +406,22 @@ public:
       return InvalidationKind::Paint | InvalidationKind::Semantics;
     }
     return InvalidationKind::None;
+  }
+
+  auto SemanticAction(CustomElementContext &context,
+                      const SemanticActionRequest &request)
+      -> UIResult<InvalidationKind> override {
+    if (request.action != SemanticActionKind::Activate ||
+        !context.Interaction().enabled) {
+      return MakeUIError(UIErrorCode::Unsupported,
+                         "The switch cannot perform this semantic action",
+                         "NGIN.UI", "ToggleSwitch::SemanticAction");
+    }
+    auto toggled = Toggle();
+    if (!toggled) {
+      return std::move(toggled).Error();
+    }
+    return InvalidationKind::Paint | InvalidationKind::Semantics;
   }
 
 private:
@@ -524,6 +575,37 @@ public:
       return InvalidationKind::None;
     }
     event.Handle();
+    auto changed = SetValue(next);
+    if (!changed) {
+      return std::move(changed).Error();
+    }
+    return InvalidationKind::Paint | InvalidationKind::Semantics;
+  }
+
+  auto SemanticAction(CustomElementContext &context,
+                      const SemanticActionRequest &request)
+      -> UIResult<InvalidationKind> override {
+    if (!context.Interaction().enabled) {
+      return MakeUIError(UIErrorCode::InvalidState,
+                         "The slider is disabled", "NGIN.UI",
+                         "Slider::SemanticAction");
+    }
+    auto next = m_value.Get();
+    switch (request.action) {
+    case SemanticActionKind::SetValue:
+      next = static_cast<F32>(request.numericValue);
+      break;
+    case SemanticActionKind::Increment:
+      next += m_range.step;
+      break;
+    case SemanticActionKind::Decrement:
+      next -= m_range.step;
+      break;
+    default:
+      return MakeUIError(UIErrorCode::Unsupported,
+                         "The slider cannot perform this semantic action",
+                         "NGIN.UI", "Slider::SemanticAction");
+    }
     auto changed = SetValue(next);
     if (!changed) {
       return std::move(changed).Error();

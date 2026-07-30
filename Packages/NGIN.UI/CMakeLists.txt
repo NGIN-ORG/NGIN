@@ -50,6 +50,7 @@ if(NOT TARGET NGIN::Base)
 endif()
 
 set(NGIN_UI_SOURCES
+    src/NGIN/UI/Accessibility.cpp
     src/NGIN/UI/Application.cpp
     src/NGIN/UI/Composer.cpp
     src/NGIN/UI/Controls.cpp
@@ -182,6 +183,7 @@ if(NGIN_UI_BUILD_DOCS)
             "${CMAKE_CURRENT_SOURCE_DIR}/include/NGIN/UI"
             "${CMAKE_CURRENT_SOURCE_DIR}/../NGIN.UI.Hosting/include/NGIN/UI"
             "${CMAKE_CURRENT_SOURCE_DIR}/../NGIN.UI.Backend.SDL3/include/NGIN/UI"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../NGIN.UI.Accessibility.Windows/include/NGIN/UI"
         COMMENT "Checking NGIN.UI public API documentation coverage"
         VERBATIM
     )
@@ -206,6 +208,7 @@ if(NGIN_UI_BUILD_DOCS)
         "${CMAKE_CURRENT_SOURCE_DIR}/include/NGIN/UI"
         "${CMAKE_CURRENT_SOURCE_DIR}/../NGIN.UI.Hosting/include/NGIN/UI"
         "${CMAKE_CURRENT_SOURCE_DIR}/../NGIN.UI.Backend.SDL3/include/NGIN/UI"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../NGIN.UI.Accessibility.Windows/include/NGIN/UI"
         "${CMAKE_CURRENT_SOURCE_DIR}/../../docs/api/ngin-ui-mainpage.md"
         COMMENT "Generating NGIN.UI browsable API reference"
     )

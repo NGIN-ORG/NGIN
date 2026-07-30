@@ -147,9 +147,15 @@ public:
   }
   [[nodiscard]] auto Capabilities() const noexcept
       -> PlatformCapabilityFlags override {
-    return PlatformCapabilityFlags::Clipboard | PlatformCapabilityFlags::IME |
-           PlatformCapabilityFlags::MultipleWindows |
-           PlatformCapabilityFlags::FileDrop;
+    auto capabilities =
+        PlatformCapabilityFlags::Clipboard | PlatformCapabilityFlags::IME |
+        PlatformCapabilityFlags::MultipleWindows |
+        PlatformCapabilityFlags::FileDrop;
+#if defined(_WIN32)
+    capabilities =
+        capabilities | PlatformCapabilityFlags::NativeWindow;
+#endif
+    return capabilities;
   }
 
   auto Initialize(const PlatformInitInfo &info) noexcept
@@ -466,6 +472,33 @@ public:
                          "SDL display enumeration allocation failed", Name(),
                          "QueryDisplays");
     }
+  }
+
+  auto QueryNativeWindow(const PlatformWindowHandle handle) noexcept
+      -> UIResult<NativeWindowInfo> override {
+    auto *window = FindWindow(handle);
+    if (window == nullptr) {
+      return MakeUIError(UIErrorCode::InvalidArgument, "Unknown SDL window",
+                         Name(), "QueryNativeWindow");
+    }
+#if defined(_WIN32)
+    const auto properties = SDL_GetWindowProperties(window);
+    auto *native = SDL_GetPointerProperty(
+        properties, SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr);
+    if (native == nullptr) {
+      return SDLError(UIErrorCode::BackendUnavailable, "QueryNativeWindow",
+                      "SDL did not expose the Win32 window handle");
+    }
+    return NativeWindowInfo{
+        .kind = NativeWindowKind::Win32,
+        .value = reinterpret_cast<UIntPtr>(native),
+    };
+#else
+    return MakeUIError(
+        UIErrorCode::Unsupported,
+        "This SDL3 build has no native accessibility window provider", Name(),
+        "QueryNativeWindow");
+#endif
   }
 
 private:

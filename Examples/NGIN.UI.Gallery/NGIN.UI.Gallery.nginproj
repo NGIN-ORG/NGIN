@@ -15,6 +15,9 @@
                Scope="Target">
         <Feature Name="RuntimeAssets" />
       </Package>
+      <Package Name="NGIN.UI.Accessibility.Windows"
+               Version=">=0.1.0 &lt;0.2.0"
+               Scope="Target" />
     </Uses>
 
     <Build>

@@ -39,6 +39,7 @@ endif()
 include(Catch)
 
 add_executable(NGINUITests
+    AccessibilityTests.cpp
     ApplicationTests.cpp
     CollectionTests.cpp
     CompositionTests.cpp

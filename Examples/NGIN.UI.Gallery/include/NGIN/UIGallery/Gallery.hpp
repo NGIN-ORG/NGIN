@@ -19,6 +19,7 @@ enum class Page : NGIN::UInt8 {
   Overlays,
   Windows,
   Resources,
+  Accessibility,
   Diagnostics,
 };
 
@@ -34,7 +35,7 @@ enum class CollectionTab : NGIN::UInt8 {
   DataSource,
 };
 
-inline constexpr NGIN::UIntSize PageCount = 11;
+inline constexpr NGIN::UIntSize PageCount = 12;
 
 [[nodiscard]] auto PageAt(NGIN::UIntSize index) noexcept -> Page;
 [[nodiscard]] auto PageName(Page page) noexcept -> std::string_view;
@@ -102,6 +103,11 @@ public:
       -> UI::GlyphAtlasDiagnostics;
   [[nodiscard]] auto FontDiagnostics() const noexcept
       -> UI::FontCoverageDiagnostics;
+  [[nodiscard]] auto AccessibilityDiagnostics() const noexcept
+      -> UI::AccessibilityDiagnostics;
+  [[nodiscard]] auto AccessibilityAnnouncement() const noexcept
+      -> const Text::String &;
+  void AnnounceAccessibilityDemo();
   void Report(UI::UIError error);
 
 private:
@@ -135,6 +141,7 @@ private:
   UI::State<bool> m_popupOpen;
   UI::State<bool> m_inspectorEnabled;
   UI::State<Text::String> m_status;
+  UI::State<Text::String> m_accessibilityAnnouncement;
   std::unique_ptr<UI::ToolTipController> m_helpToolTip;
   std::shared_ptr<UI::ImageResource> m_galleryImage;
   std::unique_ptr<UI::ImageTextureCache> m_imageCache;

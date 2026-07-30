@@ -101,3 +101,54 @@ Verification:
   third-party notice;
 - contracts-only installed-package consumer: 1/1 passed;
 - public API documentation coverage: 247 types documented.
+
+## Milestone 19 — Windows Accessibility Bridge
+
+Status: Complete
+Completed: 2026-07-30
+
+Delivered:
+
+- added a provider-neutral accessibility boundary built around immutable,
+  revisioned semantic snapshots rather than runtime-tree access;
+- added snapshot diffs for property, focus, structure, selection, and
+  live-region changes;
+- routed provider actions through a thread-safe application queue and the
+  normal control action path on the UI thread;
+- added native-window discovery to the platform contract and Win32 `HWND`
+  discovery to the SDL3 backend;
+- added the `NGIN.UI.Accessibility.Windows` package with a Windows UI
+  Automation fragment provider;
+- mapped semantic roles, names, descriptions, values, ranges, enabled/focus
+  state, checked/selected/expanded state, collection position, live settings,
+  DPI-aware bounds, and supported actions;
+- exposed Invoke, Toggle, SelectionItem, RangeValue, Value, ExpandCollapse,
+  ScrollItem, and VirtualizedItem patterns when the semantic node supports
+  them;
+- raised native focus, property, structure, selection, and live-region events
+  from semantic snapshot changes;
+- kept password values out of semantic snapshots and made detached windows and
+  removed elements return `UIA_E_ELEMENTNOTAVAILABLE`;
+- added capability, window, snapshot, event, action, and failure diagnostics;
+- added an Accessibility Gallery page with native provider status, a button,
+  checkbox, switch, slider, editable text, and a polite live region;
+- enabled the provider in both standalone and hosted Gallery applications;
+- documented provider setup, custom-control actions, unsupported-platform
+  behavior, and a ten-step Windows Narrator checklist.
+
+Verification:
+
+- `NGINUITests`: 122/122 passed with 4,509 assertions, including snapshot
+  diffs, UI-thread action dispatch, password privacy, and stale-window actions;
+- native Windows UI Automation provider test passed: the client read the root,
+  found a named button, invoked it through `InvokePattern`, and observed the
+  detached element become unavailable;
+- standalone Gallery manifest validated, built, and passed the Accessibility
+  page smoke run;
+- hosted Gallery manifest validated, built, and passed the Accessibility page
+  smoke run;
+- headless Gallery built and passed all twelve pages;
+- public API documentation coverage: 272 types documented.
+
+The manual Narrator checklist is ready for an interactive release pass. It was
+not executed by the automated, non-interactive verification environment.

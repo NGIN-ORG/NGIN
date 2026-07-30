@@ -95,5 +95,13 @@ auto ICustomElement::TextEvent(CustomElementContext &, RoutedTextEvent &)
   return InvalidationKind::None;
 }
 
+auto ICustomElement::SemanticAction(CustomElementContext &,
+                                    const SemanticActionRequest &)
+    -> UIResult<InvalidationKind> {
+  return MakeUIError(UIErrorCode::Unsupported,
+                     "The custom element does not implement this semantic action",
+                     "NGIN.UI", "ICustomElement::SemanticAction");
+}
+
 void ICustomElement::Unmounted(CustomElementContext &) noexcept {}
 } // namespace NGIN::UI

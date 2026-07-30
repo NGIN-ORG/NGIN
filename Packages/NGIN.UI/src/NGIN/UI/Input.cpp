@@ -230,6 +230,136 @@ auto InputRouter::MoveFocus(const bool reverse) -> bool {
   return SetFocus(candidates[nextIndex]);
 }
 
+auto InputRouter::PerformSemanticAction(
+    const ElementHandle target, const SemanticActionRequest &request)
+    -> UIResult<InputDispatchResult> {
+  auto *node = m_tree.Get(target);
+  if (node == nullptr) {
+    return MakeUIError(UIErrorCode::InvalidArgument,
+                       "The semantic target is no longer available", "NGIN.UI",
+                       "InputRouter::PerformSemanticAction");
+  }
+  if (!node->properties.interaction.enabled) {
+    return MakeUIError(UIErrorCode::InvalidState,
+                       "The semantic target is disabled", "NGIN.UI",
+                       "InputRouter::PerformSemanticAction");
+  }
+
+  InputDispatchResult result{};
+  if (request.action == SemanticActionKind::Focus) {
+    result.handled = SetFocus(target);
+    result.visualStateChanged = result.handled;
+    return result;
+  }
+  if (request.action == SemanticActionKind::ScrollIntoView) {
+    auto ancestor = node->parent;
+    while (auto *parent = m_tree.Get(ancestor)) {
+      if (IsScrollable(parent->type)) {
+        const auto previous = parent->scroll.offset;
+        const auto left = node->arrangedBounds.x - parent->arrangedBounds.x +
+                          parent->scroll.offset.x;
+        const auto top = node->arrangedBounds.y - parent->arrangedBounds.y +
+                         parent->scroll.offset.y;
+        if (parent->properties.scroll.horizontal) {
+          if (left < parent->scroll.offset.x) {
+            parent->scroll.offset.x = std::max(0.0F, left);
+          } else if (left + node->arrangedBounds.width >
+                     parent->scroll.offset.x +
+                         parent->scroll.viewportSize.width) {
+            parent->scroll.offset.x =
+                left + node->arrangedBounds.width -
+                parent->scroll.viewportSize.width;
+          }
+        }
+        if (parent->properties.scroll.vertical) {
+          if (top < parent->scroll.offset.y) {
+            parent->scroll.offset.y = std::max(0.0F, top);
+          } else if (top + node->arrangedBounds.height >
+                     parent->scroll.offset.y +
+                         parent->scroll.viewportSize.height) {
+            parent->scroll.offset.y =
+                top + node->arrangedBounds.height -
+                parent->scroll.viewportSize.height;
+          }
+        }
+        result.handled = true;
+        result.layoutStateChanged = parent->scroll.offset != previous;
+        result.visualStateChanged = result.layoutStateChanged;
+        return result;
+      }
+      ancestor = parent->parent;
+    }
+    result.handled = true;
+    return result;
+  }
+  if (request.action == SemanticActionKind::Realize) {
+    result.handled = true;
+    return result;
+  }
+
+  if (node->type == ElementType::CustomElement && node->custom.state &&
+      node->properties.custom.element) {
+    try {
+      auto context = CustomContextFor(*node, m_scaleFactor);
+      auto action =
+          node->properties.custom.element->SemanticAction(context, request);
+      if (!action) {
+        return std::move(action).Error();
+      }
+      m_tree.SynchronizeCustom(*node, m_scaleFactor);
+      result.handled = true;
+      result.callbackInvoked = true;
+      result.invalidation = action.Value();
+      result.visualStateChanged =
+          HasInvalidation(action.Value(), InvalidationKind::Paint);
+      result.layoutStateChanged =
+          HasInvalidation(action.Value(), InvalidationKind::Measure) ||
+          HasInvalidation(action.Value(), InvalidationKind::Arrange);
+      return result;
+    } catch (...) {
+      return MakeUIError(UIErrorCode::InvalidState,
+                         "The custom semantic action threw an exception",
+                         "NGIN.UI", "InputRouter::PerformSemanticAction");
+    }
+  }
+
+  if (request.action == SemanticActionKind::SetValue &&
+      IsTextEditor(node->type) && node->textField.editing &&
+      !node->properties.textField.readOnly) {
+    auto edited = CommitTextFieldEdit(
+        *node, [&request](TextEditingBuffer &buffer) {
+          return buffer.Reset(request.value);
+        });
+    if (!edited.handled) {
+      return MakeUIError(UIErrorCode::InvalidState,
+                         "The text value was rejected", "NGIN.UI",
+                         "InputRouter::PerformSemanticAction");
+    }
+    return edited;
+  }
+
+  if (request.action == SemanticActionKind::Activate ||
+      request.action == SemanticActionKind::Select ||
+      request.action == SemanticActionKind::Expand ||
+      request.action == SemanticActionKind::Collapse) {
+    if (node->properties.interaction.focusable) {
+      result.visualStateChanged = SetFocus(target);
+    }
+    if (node->properties.interaction.onActivate) {
+      node->properties.interaction.onActivate();
+      result.handled = true;
+      result.callbackInvoked = true;
+      result.activated = true;
+      result.invalidation = InvalidationKind::All;
+      return result;
+    }
+  }
+
+  return MakeUIError(UIErrorCode::Unsupported,
+                     "The semantic action has no runtime handler", "NGIN.UI",
+                     "InputRouter::PerformSemanticAction");
+}
+
 void InputRouter::Synchronize() noexcept {
   std::vector<ElementHandle> discoveredPopups;
   CollectPopups(m_tree.Root(), discoveredPopups);

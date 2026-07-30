@@ -23,6 +23,7 @@ and use this reference for exact signatures, ownership, and result types.
   `NGIN::UI::Hosting::IUIDispatcher`
 - `NGIN::UI::SDL3::CreatePlatformBackend()` and
   `NGIN::UI::SDL3::CreateRendererBackend()`
+- `NGIN::UI::Accessibility::Windows::CreateAccessibilityBackend()`
 
 ## Control families
 
@@ -39,6 +40,8 @@ and use this reference for exact signatures, ownership, and result types.
   `IGlyphAtlas` separate text policy from retained elements.
 - `IImageDecoder` and `IImageResolver` separate encoded/logical images from
   renderer uploads.
+- `IAccessibilityBackend` consumes immutable semantic snapshots and posts
+  actions without accessing retained runtime nodes.
 
 `NativeTextSystem::CoverageDiagnostics()` reports loaded font faces, fallback
 use, and missing characters. The packaged font order covers the Gallery's

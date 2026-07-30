@@ -31,6 +31,7 @@ enum class PlatformCapabilityFlags : UInt32 {
   PenInput = 1U << 4U,
   TouchInput = 1U << 5U,
   NativeDialogs = 1U << 6U,
+  NativeWindow = 1U << 7U,
 };
 
 /// @brief Optional facilities advertised by a render backend.
