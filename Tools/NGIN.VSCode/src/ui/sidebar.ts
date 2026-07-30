@@ -3,7 +3,7 @@ import * as vscode from 'vscode';
 import { computeCompileCommandsPath } from '../core/compileCommands';
 import { pathExists, readTextFile } from '../core/discovery';
 import { computeLaunchManifestPath } from '../core/helpers';
-import { ProjectManifest } from '../core/types';
+import { GraphEditorFile, ProjectManifest } from '../core/types';
 import { parseLaunchManifest } from '../core/xml';
 import { NginWorkspaceSnapshot } from '../state/workspaceState';
 import {
@@ -20,15 +20,17 @@ import {
 } from './models';
 import {
   comparableFilePath,
-  enumerateProjectDirectory,
   isSameOrChildPath,
-  ProjectFileEnumerationContext
+  ProjectFileEnumerationContext,
+  ProjectFileTreeService
 } from './projectFiles';
+import { FileMembership, ProjectMembershipIndex } from './membership';
 
 class WorkspaceTreeItem extends vscode.TreeItem {
   constructor(label: string, description: string, readonly manifestPath: string) {
     super(label, vscode.TreeItemCollapsibleState.Expanded);
     this.description = description;
+    this.tooltip = manifestPath;
     this.id = `ngin:workspace:${comparablePath(manifestPath)}`;
     this.iconPath = new vscode.ThemeIcon('folder-library');
     this.contextValue = 'nginWorkspace';
@@ -44,19 +46,21 @@ interface ProjectExplorerTarget {
   profileName?: string;
   publishName?: string;
   fsPath?: string;
-  role?: 'manifest' | 'source' | 'config' | 'generated';
+  role?: 'manifest' | 'source' | 'config' | 'generated' | 'external';
   isDirectory?: boolean;
 }
 
 class ProjectTreeItem extends vscode.TreeItem {
   readonly projectPath: string;
   readonly fsPath: string;
+  readonly role = 'manifest' as const;
+  readonly isDirectory = true;
 
   constructor(model: ProjectTreeProjectModel) {
     super(model.label, model.selected ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed);
     this.id = `ngin:project:${comparablePath(model.projectPath)}`;
     this.projectPath = model.projectPath;
-    this.fsPath = model.projectPath;
+    this.fsPath = model.projectDirectory;
     this.description = model.description;
     this.tooltip = model.tooltip;
     this.iconPath = new vscode.ThemeIcon(model.selected ? 'target' : 'project');
@@ -198,31 +202,81 @@ class ProjectInspectEntryTreeItem extends vscode.TreeItem {
 class ProjectFileTreeItem extends vscode.TreeItem {
   readonly projectPath: string;
   readonly fsPath: string;
-  readonly role: 'source' | 'config' | 'generated';
+  readonly role: 'source' | 'config' | 'generated' | 'external';
+  readonly explainIdentity?: string;
+  readonly declaringManifestPath?: string;
+  readonly membershipKind?: string;
+  readonly membershipRole?: string;
 
-  constructor(projectPath: string, filePath: string, role: 'source' | 'config' | 'generated', label?: string, description?: string) {
+  constructor(
+    projectPath: string,
+    filePath: string,
+    role: 'source' | 'config' | 'generated' | 'external',
+    label?: string,
+    description?: string,
+    membership?: FileMembership
+  ) {
     super(label ?? path.basename(filePath), vscode.TreeItemCollapsibleState.None);
     this.id = `ngin:file:${comparablePath(projectPath)}:${comparablePath(filePath)}:${role}`;
     this.projectPath = projectPath;
     this.fsPath = filePath;
     this.role = role;
-    this.description = description;
-    this.tooltip = filePath;
-    this.resourceUri = vscode.Uri.file(filePath);
+    this.explainIdentity = membership?.file?.explainIdentity;
+    this.declaringManifestPath = membership?.file?.manifestPath;
+    this.membershipKind = membership?.file?.kind;
+    this.membershipRole = membership?.file?.role;
+    const state = membership?.state;
+    this.description = description ?? (
+      state === 'unselected' ? 'not selected' :
+        state === 'unknown' ? 'membership unknown' :
+          state === 'external' ? membership.file?.ownerName :
+            state === 'generated' && membership.file && !membership.file.exists ? 'not generated yet' :
+              undefined
+    );
+    this.tooltip = membershipTooltip(filePath, membership);
+    const decorationState =
+      state === 'generated' && membership?.file && !membership.file.exists
+        ? 'generated-missing'
+        : state;
+    this.resourceUri = vscode.Uri.from({
+      scheme: 'ngin-solution',
+      path: filePath.replace(/\\/g, '/'),
+      query: decorationState ?? ''
+    });
     if (role === 'generated') {
       this.iconPath = new vscode.ThemeIcon('file-binary');
     }
     this.contextValue = role === 'source'
-      ? 'nginProjectSourceFile'
+      ? `nginProjectSourceFile.${state ?? 'unknown'}`
       : role === 'config'
-        ? 'nginProjectConfigFile'
-        : 'nginProjectGeneratedFile';
-    this.command = {
-      command: 'ngin.internal.openPath',
-      title: String(label ?? path.basename(filePath)),
-      arguments: [filePath]
-    };
+        ? `nginProjectConfigFile.${state ?? 'selected'}`
+        : role === 'external'
+          ? 'nginProjectExternalFile'
+          : 'nginProjectGeneratedFile';
+    if (membership?.file?.exists !== false) {
+      this.command = {
+        command: 'ngin.internal.openPath',
+        title: String(label ?? path.basename(filePath)),
+        arguments: [filePath]
+      };
+    }
   }
+}
+
+function membershipTooltip(filePath: string, membership?: FileMembership): vscode.MarkdownString | string {
+  if (!membership) {
+    return filePath;
+  }
+  const lines = [
+    filePath,
+    membership.profileName ? `Profile: ${membership.profileName}` : undefined,
+    `Membership: ${membership.state === 'unknown' ? 'unknown (graph unavailable)' : membership.state}`,
+    membership.file?.kind ? `Kind: ${membership.file.kind}${membership.file.role ? ` / ${membership.file.role}` : ''}` : undefined,
+    membership.file?.ownerName ? `Owner: ${membership.file.ownerKind} ${membership.file.ownerName}` : undefined,
+    membership.file?.manifestPath ? `Declared by: ${membership.file.manifestPath}` : undefined,
+    membership.file?.provenance.reason ? `Reason: ${membership.file.provenance.reason}` : undefined
+  ].filter((line): line is string => Boolean(line));
+  return lines.join('\n');
 }
 
 class ProjectFolderTreeItem extends vscode.TreeItem {
@@ -293,6 +347,47 @@ class ProjectLinkTreeItem extends vscode.TreeItem {
   }
 }
 
+class ProjectMessageTreeItem extends vscode.TreeItem {
+  constructor(label: string, icon = 'info', command?: vscode.Command) {
+    super(label, vscode.TreeItemCollapsibleState.None);
+    this.id = `ngin:message:${label}`;
+    this.iconPath = new vscode.ThemeIcon(icon);
+    this.contextValue = 'nginProjectMessage';
+    this.command = command;
+  }
+}
+
+class ProjectDirectoryErrorTreeItem extends vscode.TreeItem {
+  constructor(readonly fsPath: string) {
+    super('Unable to read folder — select to retry', vscode.TreeItemCollapsibleState.None);
+    this.id = `ngin:directory-error:${comparablePath(fsPath)}`;
+    this.iconPath = new vscode.ThemeIcon('warning');
+    this.tooltip = fsPath;
+    this.contextValue = 'nginProjectDirectoryError';
+    this.command = { command: 'ngin.refresh', title: 'Retry' };
+  }
+}
+
+class NginSolutionDecorationProvider implements vscode.FileDecorationProvider {
+  provideFileDecoration(uri: vscode.Uri): vscode.FileDecoration | undefined {
+    if (uri.scheme !== 'ngin-solution') {
+      return undefined;
+    }
+    switch (uri.query) {
+      case 'unselected':
+        return new vscode.FileDecoration(undefined, 'Not selected by the active NGIN profile', new vscode.ThemeColor('disabledForeground'));
+      case 'generated-missing':
+        return new vscode.FileDecoration('!', 'Declared output has not been generated yet', new vscode.ThemeColor('list.warningForeground'));
+      case 'external':
+        return new vscode.FileDecoration('↗', 'Selected external input', new vscode.ThemeColor('textLink.foreground'));
+      case 'unknown':
+        return new vscode.FileDecoration(undefined, 'NGIN membership is unavailable');
+      default:
+        return undefined;
+    }
+  }
+}
+
 function comparablePath(value: string): string {
   return comparableFilePath(value);
 }
@@ -301,30 +396,57 @@ async function readDirectoryItems(
   snapshot: NginWorkspaceSnapshot,
   project: ProjectManifest,
   folderPath: string,
-  role: 'source' | 'generated'
-): Promise<Array<ProjectFolderTreeItem | ProjectFileTreeItem | ProjectBoundaryTreeItem | ProjectLinkTreeItem>> {
+  role: 'source' | 'generated',
+  fileTree: ProjectFileTreeService,
+  membership: ProjectMembershipIndex,
+  inputsOnly: boolean
+): Promise<Array<ProjectFolderTreeItem | ProjectFileTreeItem | ProjectBoundaryTreeItem | ProjectLinkTreeItem | ProjectDirectoryErrorTreeItem>> {
   try {
+    const configuredExcludes = vscode.workspace.getConfiguration('ngin').get<Record<string, boolean>>('solutionExplorer.exclude') ?? {};
+    const filesExcludes = vscode.workspace.getConfiguration('files', vscode.Uri.file(project.directory)).get<Record<string, boolean>>('exclude') ?? {};
     const context: ProjectFileEnumerationContext = {
       project,
       projects: snapshot.workspace?.projects ?? [project],
       workspaceRoot: snapshot.workspace?.root ?? project.directory,
       outputDir: snapshot.outputDir,
-      configuredOutputRoot: snapshot.workspace?.workspace.outputRoot
+      configuredOutputRoot: snapshot.workspace?.workspace.outputRoot,
+      excludePatterns: [
+        ...Object.entries(configuredExcludes).filter(([, enabled]) => enabled).map(([pattern]) => pattern),
+        ...Object.entries(filesExcludes).filter(([, enabled]) => enabled).map(([pattern]) => pattern)
+      ]
     };
-    return (await enumerateProjectDirectory(context, folderPath, role)).map((entry) => {
+    const items: Array<ProjectFolderTreeItem | ProjectFileTreeItem | ProjectBoundaryTreeItem | ProjectLinkTreeItem> = [];
+    for (const entry of await fileTree.enumerate(context, folderPath, role)) {
       if (entry.boundaryProject) {
-        return new ProjectBoundaryTreeItem(entry.boundaryProject);
+        items.push(new ProjectBoundaryTreeItem(entry.boundaryProject));
+        continue;
       }
       if (entry.kind === 'directory') {
-        return new ProjectFolderTreeItem(project.path, entry.path, role);
+        if (!inputsOnly || role === 'generated' || membership.containsSelectedDescendant(project, entry.path)) {
+          items.push(new ProjectFolderTreeItem(project.path, entry.path, role));
+        }
+        continue;
       }
       if (entry.kind === 'link') {
-        return new ProjectLinkTreeItem(project.path, entry.path, role);
+        if (!inputsOnly) {
+          items.push(new ProjectLinkTreeItem(project.path, entry.path, role));
+        }
+        continue;
       }
-      return new ProjectFileTreeItem(project.path, entry.path, role);
-    });
+      const fileMembership = role === 'source'
+        ? membership.membership(project, entry.path)
+        : { state: 'generated' as const };
+      if (!inputsOnly || role === 'generated' || fileMembership.state === 'selected') {
+        const itemRole = role === 'source' &&
+          (fileMembership.file?.kind === 'Config' || fileMembership.file?.kind === 'Content')
+          ? 'config'
+          : role;
+        items.push(new ProjectFileTreeItem(project.path, entry.path, itemRole, undefined, undefined, fileMembership));
+      }
+    }
+    return items;
   } catch {
-    return [];
+    return [new ProjectDirectoryErrorTreeItem(folderPath)];
   }
 }
 
@@ -377,23 +499,113 @@ type ProjectsTreeElement =
   | ProjectFolderTreeItem
   | ProjectFileTreeItem
   | ProjectBoundaryTreeItem
-  | ProjectLinkTreeItem;
+  | ProjectLinkTreeItem
+  | ProjectMessageTreeItem
+  | ProjectDirectoryErrorTreeItem;
+
+const NGIN_TREE_MIME = 'application/vnd.code.tree.nginWorkspace';
+const URI_LIST_MIME = 'text/uri-list';
+
+class NginSolutionDragAndDropController implements vscode.TreeDragAndDropController<ProjectsTreeElement> {
+  readonly dragMimeTypes = [NGIN_TREE_MIME];
+  readonly dropMimeTypes = [NGIN_TREE_MIME, URI_LIST_MIME];
+
+  constructor(private readonly projectDirectory: (projectPath: string) => string | undefined) {}
+
+  handleDrag(source: readonly ProjectsTreeElement[], dataTransfer: vscode.DataTransfer): void {
+    const paths = source.flatMap((element) => {
+      if ((element instanceof ProjectFileTreeItem || element instanceof ProjectFolderTreeItem) &&
+          (element.role === 'source' || element.role === 'config')) {
+        return [{
+          projectPath: element.projectPath,
+          fsPath: element.fsPath,
+          role: element.role,
+          isDirectory: element instanceof ProjectFolderTreeItem
+        }];
+      }
+      return [];
+    });
+    if (paths.length > 0) {
+      dataTransfer.set(NGIN_TREE_MIME, new vscode.DataTransferItem(JSON.stringify(paths)));
+    }
+  }
+
+  async handleDrop(target: ProjectsTreeElement | undefined, dataTransfer: vscode.DataTransfer): Promise<void> {
+    if (!target) return;
+    const dropTarget =
+      target instanceof ProjectFolderTreeItem && (target.role === 'source' || target.role === 'config')
+        ? { destination: target.fsPath, projectPath: target.projectPath }
+        : target instanceof ProjectGroupTreeItem && target.group === 'files'
+          ? { destination: this.projectDirectory(target.projectPath), projectPath: target.projectPath }
+          : undefined;
+    if (!dropTarget?.destination) return;
+
+    const internal = dataTransfer.get(NGIN_TREE_MIME);
+    if (internal) {
+      const sources = JSON.parse(await internal.asString()) as ProjectExplorerTarget[];
+      await vscode.commands.executeCommand('ngin.moveProjectItems', {
+        sources,
+        destination: dropTarget.destination
+      });
+      return;
+    }
+
+    const uriList = dataTransfer.get(URI_LIST_MIME);
+    if (!uriList) return;
+    const sources = (await uriList.asString())
+      .split(/\r?\n/)
+      .map((value) => value.trim())
+      .filter((value) => value && !value.startsWith('#'))
+      .map((value) => vscode.Uri.parse(value))
+      .filter((uri) => uri.scheme === 'file')
+      .map((uri) => uri.fsPath);
+    if (sources.length > 0) {
+      await vscode.commands.executeCommand('ngin.copyExternalItems', {
+        sources,
+        destination: dropTarget.destination,
+        projectPath: dropTarget.projectPath
+      });
+    }
+  }
+}
 
 class ProjectsTreeDataProvider implements vscode.TreeDataProvider<ProjectsTreeElement> {
-  private readonly onDidChangeTreeDataEmitter = new vscode.EventEmitter<void>();
+  private readonly onDidChangeTreeDataEmitter = new vscode.EventEmitter<ProjectsTreeElement | undefined>();
+  private readonly fileTree = new ProjectFileTreeService();
   private snapshot: NginWorkspaceSnapshot = { launchManifestExists: false, stagedCompileCommandsAvailable: false };
+  private generation = 0;
 
   readonly onDidChangeTreeData = this.onDidChangeTreeDataEmitter.event;
 
+  constructor(private readonly inputsOnly: () => boolean) {}
+
   setSnapshot(snapshot: NginWorkspaceSnapshot): void {
+    this.generation += 1;
     this.snapshot = snapshot;
-    this.onDidChangeTreeDataEmitter.fire();
+    this.fileTree.clear();
+    this.onDidChangeTreeDataEmitter.fire(undefined);
   }
 
   refreshFilePath(filePath: string): void {
-    if (this.snapshot.workspace?.projects.some((project) => isSameOrChildPath(filePath, project.directory))) {
-      this.onDidChangeTreeDataEmitter.fire();
-    }
+    const project = [...(this.snapshot.workspace?.projects ?? [])]
+      .filter((candidate) => isSameOrChildPath(filePath, candidate.directory))
+      .sort((left, right) => right.directory.length - left.directory.length)[0];
+    if (!project) return;
+    this.generation += 1;
+    this.fileTree.invalidatePath(filePath);
+    const parentPath = path.dirname(filePath);
+    this.onDidChangeTreeDataEmitter.fire(
+      comparablePath(parentPath) === comparablePath(project.directory)
+        ? new ProjectGroupTreeItem({
+            kind: 'group',
+            id: `${project.path}:files`,
+            label: 'Project Files',
+            icon: 'files',
+            projectPath: project.path,
+            group: 'files'
+          })
+        : new ProjectFolderTreeItem(project.path, parentPath, 'source')
+    );
   }
 
   getTreeItem(element: ProjectsTreeElement): vscode.TreeItem {
@@ -401,6 +613,7 @@ class ProjectsTreeDataProvider implements vscode.TreeDataProvider<ProjectsTreeEl
   }
 
   async getChildren(element?: ProjectsTreeElement): Promise<ProjectsTreeElement[]> {
+    const generation = this.generation;
     const model = buildProjectTreeModels(this.snapshot);
 
     if (!element) {
@@ -431,7 +644,36 @@ class ProjectsTreeDataProvider implements vscode.TreeDataProvider<ProjectsTreeEl
         return [];
       }
       if (element.group === 'files') {
-        return readDirectoryItems(this.snapshot, project, project.directory, 'source');
+        if (this.inputsOnly() &&
+            comparablePath(project.path) !== comparablePath(this.snapshot.context?.project.path ?? '')) {
+          return [new ProjectMessageTreeItem('Activate project to resolve inputs')];
+        }
+        const children = await readDirectoryItems(
+          this.snapshot,
+          project,
+          project.directory,
+          'source',
+          this.fileTree,
+          this.membershipIndex(),
+          this.inputsOnly()
+        );
+        if (generation !== this.generation) return [];
+        return children.length > 0
+          ? children
+          : [new ProjectMessageTreeItem(
+              'Project Files is empty — create a file',
+              'new-file',
+              {
+                command: 'ngin.projectNewFile',
+                title: 'New File',
+                arguments: [{ projectPath: project.path, fsPath: project.directory, role: 'source', isDirectory: true } satisfies ProjectExplorerTarget]
+              }
+            )];
+      }
+      if (element.group === 'externalInputs') {
+        return this.membershipIndex().externalFiles(project).map((file) =>
+          this.graphFileItem(project, file, 'external')
+        );
       }
       if (element.group === 'dependencies') {
         const dependencies = model.dependenciesByProject.get(element.projectPath);
@@ -478,7 +720,16 @@ class ProjectsTreeDataProvider implements vscode.TreeDataProvider<ProjectsTreeEl
       if (!project) {
         return [];
       }
-      return readDirectoryItems(this.snapshot, project, element.fsPath, element.role === 'generated' ? 'generated' : 'source');
+      const children = await readDirectoryItems(
+        this.snapshot,
+        project,
+        element.fsPath,
+        element.role === 'generated' ? 'generated' : 'source',
+        this.fileTree,
+        this.membershipIndex(),
+        this.inputsOnly()
+      );
+      return generation === this.generation ? children : [];
     }
 
     return [];
@@ -499,16 +750,95 @@ class ProjectsTreeDataProvider implements vscode.TreeDataProvider<ProjectsTreeEl
     return buildActiveArtifactTreeItems(this.snapshot, project);
   }
 
+  getParent(element: ProjectsTreeElement): ProjectsTreeElement | undefined {
+    const model = buildProjectTreeModels(this.snapshot);
+    if (element instanceof ProjectTreeItem) {
+      return model.contextKind === 'workspace' && model.workspaceLabel && model.workspaceDescription && this.snapshot.workspace
+        ? new WorkspaceTreeItem(model.workspaceLabel, model.workspaceDescription, this.snapshot.workspace.manifestPath)
+        : undefined;
+    }
+    if (element instanceof ProjectManifestTreeItem || element instanceof ProjectGroupTreeItem) {
+      const projectModel = model.projects.find((project) => comparablePath(project.projectPath) === comparablePath(element.projectPath));
+      return projectModel ? new ProjectTreeItem(projectModel) : undefined;
+    }
+    if (element instanceof ProjectFileTreeItem || element instanceof ProjectFolderTreeItem || element instanceof ProjectLinkTreeItem) {
+      const project = this.findProject(element.projectPath);
+      if (!project) return undefined;
+      if (element instanceof ProjectFileTreeItem && element.role === 'external') {
+        return new ProjectGroupTreeItem({
+          kind: 'group',
+          id: `${project.path}:external-inputs`,
+          label: 'External Inputs',
+          icon: 'link-external',
+          projectPath: project.path,
+          group: 'externalInputs'
+        });
+      }
+      const parentPath = path.dirname(element.fsPath);
+      if (comparablePath(parentPath) === comparablePath(project.directory)) {
+        return new ProjectGroupTreeItem({
+          kind: 'group',
+          id: `${project.path}:files`,
+          label: 'Project Files',
+          icon: 'files',
+          projectPath: project.path,
+          group: 'files'
+        });
+      }
+      return new ProjectFolderTreeItem(project.path, parentPath, 'source');
+    }
+    return undefined;
+  }
+
+  fileItemForReveal(project: ProjectManifest, filePath: string): ProjectFileTreeItem {
+    return new ProjectFileTreeItem(
+      project.path,
+      filePath,
+      'source',
+      undefined,
+      undefined,
+      this.membershipIndex().membership(project, filePath)
+    );
+  }
+
+  projectDirectory(projectPath: string): string | undefined {
+    return this.findProject(projectPath)?.directory;
+  }
+
+  private membershipIndex(): ProjectMembershipIndex {
+    return new ProjectMembershipIndex(this.snapshot.inspectGraph, this.snapshot.context?.project);
+  }
+
+  private graphFileItem(
+    project: ProjectManifest,
+    file: GraphEditorFile,
+    role: 'external' | 'generated'
+  ): ProjectFileTreeItem {
+    const membership = this.membershipIndex();
+    return new ProjectFileTreeItem(
+      project.path,
+      file.absolutePath,
+      role,
+      path.basename(file.absolutePath),
+      undefined,
+      { state: role, file, profileName: membership.profileName }
+    );
+  }
+
 }
 
 class ActiveProjectTreeDataProvider implements vscode.TreeDataProvider<ProjectsTreeElement> {
   private readonly onDidChangeTreeDataEmitter = new vscode.EventEmitter<void>();
+  private readonly fileTree = new ProjectFileTreeService(64);
   private snapshot: NginWorkspaceSnapshot = { launchManifestExists: false, stagedCompileCommandsAvailable: false };
+  private generation = 0;
 
   readonly onDidChangeTreeData = this.onDidChangeTreeDataEmitter.event;
 
   setSnapshot(snapshot: NginWorkspaceSnapshot): void {
+    this.generation += 1;
     this.snapshot = snapshot;
+    this.fileTree.clear();
     this.onDidChangeTreeDataEmitter.fire();
   }
 
@@ -517,6 +847,7 @@ class ActiveProjectTreeDataProvider implements vscode.TreeDataProvider<ProjectsT
   }
 
   async getChildren(element?: ProjectsTreeElement): Promise<ProjectsTreeElement[]> {
+    const generation = this.generation;
     const model = buildActiveProjectTreeModel(this.snapshot);
     if (!element) {
       return model.groups.map((group) => new ProjectGroupTreeItem(group));
@@ -529,6 +860,19 @@ class ActiveProjectTreeDataProvider implements vscode.TreeDataProvider<ProjectsT
       }
       if (element.group === 'artifacts') {
         return buildActiveArtifactTreeItems(this.snapshot, project);
+      }
+      if (element.group === 'generatedInputs') {
+        const membership = new ProjectMembershipIndex(this.snapshot.inspectGraph, project);
+        return membership.generatedFiles().map((file) =>
+          new ProjectFileTreeItem(
+            project.path,
+            file.absolutePath,
+            'generated',
+            path.basename(file.absolutePath),
+            undefined,
+            { state: 'generated', file, profileName: membership.profileName }
+          )
+        );
       }
       if (element.group === 'tooling' || element.group === 'launch' || element.group === 'publish' || element.group === 'problems') {
         return (model.inspect?.entriesByGroup.get(element.group) ?? [])
@@ -546,7 +890,16 @@ class ActiveProjectTreeDataProvider implements vscode.TreeDataProvider<ProjectsT
       if (!project) {
         return [];
       }
-      return readDirectoryItems(this.snapshot, project, element.fsPath, 'generated');
+      const children = await readDirectoryItems(
+        this.snapshot,
+        project,
+        element.fsPath,
+        'generated',
+        this.fileTree,
+        new ProjectMembershipIndex(this.snapshot.inspectGraph, project),
+        false
+      );
+      return generation === this.generation ? children : [];
     }
 
     return [];
@@ -554,17 +907,32 @@ class ActiveProjectTreeDataProvider implements vscode.TreeDataProvider<ProjectsT
 }
 
 export class NginSidebarController implements vscode.Disposable {
-  private readonly projectsProvider = new ProjectsTreeDataProvider();
+  private readonly projectsProvider: ProjectsTreeDataProvider;
   private readonly activeProjectProvider = new ActiveProjectTreeDataProvider();
   private readonly projectsTreeView: vscode.TreeView<ProjectsTreeElement>;
   private readonly activeProjectTreeView: vscode.TreeView<ProjectsTreeElement>;
   private readonly fileWatcher: vscode.FileSystemWatcher;
   private readonly fileWatcherSubscriptions: vscode.Disposable[];
+  private readonly subscriptions: vscode.Disposable[];
+  private readonly fileRefreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private snapshot: NginWorkspaceSnapshot = { launchManifestExists: false, stagedCompileCommandsAvailable: false };
+  private inputsOnly: boolean;
+  private followActiveEditor: boolean;
 
-  constructor() {
+  constructor(
+    private readonly context: vscode.ExtensionContext,
+    private readonly activateProjectForFollow?: (project: ProjectManifest, uri: vscode.Uri) => Promise<void>
+  ) {
+    this.inputsOnly = context.workspaceState.get<boolean>('ngin.solutionExplorer.inputsOnly', false);
+    this.followActiveEditor = context.workspaceState.get<boolean>('ngin.solutionExplorer.followActiveEditor', false);
+    this.projectsProvider = new ProjectsTreeDataProvider(() => this.inputsOnly);
     this.projectsTreeView = vscode.window.createTreeView('nginWorkspace', {
       treeDataProvider: this.projectsProvider,
-      showCollapseAll: true
+      showCollapseAll: true,
+      canSelectMany: true,
+      dragAndDropController: new NginSolutionDragAndDropController(
+        (projectPath) => this.projectsProvider.projectDirectory(projectPath)
+      )
     });
     this.activeProjectTreeView = vscode.window.createTreeView('nginActiveProject', {
       treeDataProvider: this.activeProjectProvider,
@@ -572,20 +940,51 @@ export class NginSidebarController implements vscode.Disposable {
     });
     this.fileWatcher = vscode.workspace.createFileSystemWatcher('**/*');
     this.fileWatcherSubscriptions = [
-      this.fileWatcher.onDidCreate((uri) => this.projectsProvider.refreshFilePath(uri.fsPath)),
-      this.fileWatcher.onDidDelete((uri) => this.projectsProvider.refreshFilePath(uri.fsPath)),
-      this.fileWatcher.onDidChange((uri) => this.projectsProvider.refreshFilePath(uri.fsPath))
+      this.fileWatcher.onDidCreate((uri) => this.scheduleFileRefresh(uri.fsPath)),
+      this.fileWatcher.onDidDelete((uri) => this.scheduleFileRefresh(uri.fsPath)),
+      this.fileWatcher.onDidChange((uri) => this.scheduleFileRefresh(uri.fsPath))
     ];
+    this.subscriptions = [
+      vscode.window.registerFileDecorationProvider(new NginSolutionDecorationProvider()),
+      vscode.window.onDidChangeActiveTextEditor((editor) => {
+        if (this.followActiveEditor && editor?.document.uri.scheme === 'file') {
+          void this.revealUri(editor.document.uri, true);
+        }
+      }),
+      vscode.workspace.onDidChangeConfiguration((event) => {
+        if (event.affectsConfiguration('ngin.solutionExplorer.exclude') ||
+            event.affectsConfiguration('files.exclude')) {
+          this.projectsProvider.setSnapshot(this.snapshot);
+        }
+      })
+    ];
+    void vscode.commands.executeCommand('setContext', 'ngin.solutionExplorer.inputsOnly', this.inputsOnly);
+    void vscode.commands.executeCommand('setContext', 'ngin.solutionExplorer.followActiveEditor', this.followActiveEditor);
   }
 
   dispose(): void {
+    for (const timer of this.fileRefreshTimers.values()) clearTimeout(timer);
+    this.fileRefreshTimers.clear();
+    vscode.Disposable.from(...this.subscriptions).dispose();
     vscode.Disposable.from(...this.fileWatcherSubscriptions).dispose();
     this.fileWatcher.dispose();
     this.projectsTreeView.dispose();
     this.activeProjectTreeView.dispose();
   }
 
+  private scheduleFileRefresh(filePath: string): void {
+    const key = comparablePath(path.dirname(filePath));
+    const existing = this.fileRefreshTimers.get(key);
+    if (existing) clearTimeout(existing);
+    this.fileRefreshTimers.set(key, setTimeout(() => {
+      this.fileRefreshTimers.delete(key);
+      this.projectsProvider.refreshFilePath(filePath);
+    }, 75));
+  }
+
   refresh(snapshot: NginWorkspaceSnapshot): void {
+    this.snapshot = snapshot;
+    void vscode.commands.executeCommand('setContext', 'ngin.hasWorkspace', Boolean(snapshot.workspace));
     this.projectsProvider.setSnapshot(snapshot);
     this.activeProjectProvider.setSnapshot(snapshot);
 
@@ -597,5 +996,48 @@ export class NginSidebarController implements vscode.Disposable {
     this.activeProjectTreeView.message = snapshot.workspace && !snapshot.context
       ? 'Select an NGIN project and profile.'
       : undefined;
+  }
+
+  async toggleInputsOnly(): Promise<void> {
+    this.inputsOnly = !this.inputsOnly;
+    await this.context.workspaceState.update('ngin.solutionExplorer.inputsOnly', this.inputsOnly);
+    await vscode.commands.executeCommand('setContext', 'ngin.solutionExplorer.inputsOnly', this.inputsOnly);
+    this.projectsProvider.setSnapshot(this.snapshot);
+  }
+
+  async toggleFollowActiveEditor(): Promise<void> {
+    this.followActiveEditor = !this.followActiveEditor;
+    await this.context.workspaceState.update('ngin.solutionExplorer.followActiveEditor', this.followActiveEditor);
+    await vscode.commands.executeCommand('setContext', 'ngin.solutionExplorer.followActiveEditor', this.followActiveEditor);
+    if (this.followActiveEditor && vscode.window.activeTextEditor?.document.uri.scheme === 'file') {
+      await this.revealUri(vscode.window.activeTextEditor.document.uri, true);
+    }
+  }
+
+  async revealActiveFile(): Promise<void> {
+    const uri = vscode.window.activeTextEditor?.document.uri;
+    if (!uri || uri.scheme !== 'file') {
+      void vscode.window.showInformationMessage('The active editor is not a local project file.');
+      return;
+    }
+    await this.revealUri(uri, false);
+  }
+
+  private async revealUri(uri: vscode.Uri, allowActivation: boolean): Promise<void> {
+    const project = [...(this.snapshot.workspace?.projects ?? [])]
+      .filter((candidate) => isSameOrChildPath(uri.fsPath, candidate.directory))
+      .sort((left, right) => right.directory.length - left.directory.length)[0];
+    if (!project) {
+      return;
+    }
+    if (allowActivation &&
+        comparablePath(project.path) !== comparablePath(this.snapshot.context?.project.path ?? '') &&
+        this.activateProjectForFollow) {
+      await this.activateProjectForFollow(project, uri);
+    }
+    await this.projectsTreeView.reveal(
+      this.projectsProvider.fileItemForReveal(project, uri.fsPath),
+      { expand: 3, focus: false, select: true }
+    );
   }
 }

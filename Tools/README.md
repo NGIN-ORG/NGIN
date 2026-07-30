@@ -256,9 +256,14 @@ backend.
 It provides:
 
 - project and profile selection
-- a product-aware Solution tree with physical project-file navigation
+- a product-aware Solution tree with lazy physical project-file navigation,
+  nested-project boundaries, configurable exclusions, and safe file operations
+- Composition Graph-backed selected, unselected, external, generated, missing,
+  and unknown file-membership presentation
+- persisted inputs-only filtering, reveal/follow-active-editor behavior,
+  multi-selection, and guarded drag-and-drop copy/move flows
 - a separate active-project view for resolved tooling, launch, publish,
-  artifacts, and diagnostics
+  generated inputs, artifacts, and diagnostics
 - build, run, debug, validate, graph, clean, and rebuild commands
 - `.nginlaunch`-based run and debug resolution
 - C/C++ compile database discovery for `ms-vscode.cpptools`

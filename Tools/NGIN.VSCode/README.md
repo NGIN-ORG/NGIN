@@ -111,6 +111,26 @@ and the active row includes the selected profile. Every project exposes its
 manifest, lazily enumerated physical Project Files, and known dependencies.
 Useful dotfiles remain visible, generated output roots stay out of Project
 Files, and nested NGIN project roots become links to their own project rows.
+The default `All Project Files` mode works without the CLI. Use the filter
+button to switch to persisted `NGIN Inputs Only` mode for the active profile;
+inactive projects show an activation prompt instead of making unresolved
+membership claims.
+
+The active Composition Graph supplies file membership and ownership. Selected
+authored files use normal presentation, unselected files are muted, and
+membership stays `unknown` when inspect data is unavailable rather than being
+reported as excluded. Detailed tooltips show the active profile, input
+kind/role, owner, declaring manifest, and provenance. Selected paths outside
+the project root appear under External Inputs. Generator-declared files appear
+under Generated Inputs in Active Project, including missing outputs marked
+`not generated yet`; neither kind exposes destructive file actions.
+
+Use `Reveal Active File in NGIN Solution` for a one-shot reveal or enable the
+persisted `Follow Active Editor` mode. Project Files update from debounced
+filesystem events and cached directory reads, so expanding a folder never
+requires a recursive solution scan. Configure additional navigation exclusions
+with `ngin.solutionExplorer.exclude`; enabled `files.exclude` patterns are also
+honored.
 
 Dependencies distinguishes workspace project references, direct packages, and
 transitive packages. Package features are details of their owning dependency.
@@ -126,6 +146,17 @@ Right-click dependency, tooling, and launch items to run the matching
 `ngin explain` operation. Resolved inputs and excluded generators remain
 available through `NGIN: Show Resolved Inputs` and
 `NGIN: Show Inactive Tooling`.
+
+Authored project files support open, new file/folder, duplicate, rename,
+trash-delete, copy path, and reveal operations with project-containment,
+nested-project, and collision checks. Multi-selection is supported for path
+copying, delete, exact include/exclude, and drag moves. Internal drag moves stay
+inside one project and preview manifest impact; files dropped from the
+operating system are copied only after confirmation. Exact Config and Content
+entries are updated on create, include, rename, move, copy, exclude, and delete.
+Source and Header membership continues to use the V4 directory/glob contract:
+when an exact edit would require inventing or broadening a declaration, the
+extension offers the manifest and membership explanation instead.
 
 `NGIN: Analyze` keeps tool-run diagnostics separate from validation and inspect
 diagnostics. `NGIN: Show Tooling Plan` displays every effective run using the
@@ -210,9 +241,11 @@ Typical flow:
 2. Choose a project from the tree and a profile from the view toolbar.
 3. Expand Project Files or Dependencies for navigation, and use Active Project
    for Tooling, Launch, Publish, or Artifacts.
-4. Edit common `.nginproj` fields in the visual editor or reopen XML source for
+4. Toggle NGIN Inputs Only to inspect active-profile membership, or use Follow
+   Active Editor while navigating source.
+5. Edit common `.nginproj` fields in the visual editor or reopen XML source for
    unsupported sections.
-5. Run Validate, Build, Publish, Run, Debug, or Graph from the view toolbar,
+6. Run Validate, Build, Publish, Run, Debug, or Graph from the view toolbar,
    command palette, status bar where available, or project/profile context menu.
 
 The same flow is available from the command palette with commands such as:

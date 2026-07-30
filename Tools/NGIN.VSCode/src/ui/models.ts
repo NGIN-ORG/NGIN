@@ -8,6 +8,7 @@ export interface ProjectTreeProjectModel {
   description?: string;
   tooltip?: string;
   projectPath: string;
+  projectDirectory: string;
   selected: boolean;
 }
 
@@ -20,7 +21,16 @@ export interface ProjectTreeManifestModel {
   description?: string;
 }
 
-export type ProjectTreeGroupKind = 'files' | 'dependencies' | 'tooling' | 'launch' | 'publish' | 'artifacts' | 'problems';
+export type ProjectTreeGroupKind =
+  | 'files'
+  | 'externalInputs'
+  | 'dependencies'
+  | 'tooling'
+  | 'launch'
+  | 'publish'
+  | 'generatedInputs'
+  | 'artifacts'
+  | 'problems';
 
 export interface ProjectTreeGroupModel {
   kind: 'group';
@@ -801,9 +811,10 @@ export function buildProjectTreeModels(snapshot: NginWorkspaceSnapshot): Project
             problemCount > 0 ? `${problemCount} ${problemCount === 1 ? 'problem' : 'problems'}` : undefined
           ].filter(Boolean).join(' · ')
         : undefined,
-      tooltip: project.path,
-      projectPath: project.path,
-      selected: selectedProject
+        tooltip: project.path,
+        projectPath: project.path,
+        projectDirectory: project.directory,
+        selected: selectedProject
     });
 
     const children: ProjectTreeChildModel[] = [
@@ -833,6 +844,24 @@ export function buildProjectTreeModels(snapshot: NginWorkspaceSnapshot): Project
       inspectByProject.set(project.path, inspectModel);
     }
     const dependencyCount = dependencies.projects.length + dependencies.direct.length + dependencies.transitive.length;
+    const externalInputCount = selectedProject
+      ? (snapshot.inspectGraph?.plans?.editor?.files ?? []).filter((file) => {
+          const relative = path.relative(project.directory, file.absolutePath);
+          return !file.generated && (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative));
+        }).length
+      : 0;
+    if (externalInputCount > 0) {
+      children.push({
+        kind: 'group',
+        id: `${project.path}:external-inputs`,
+        label: 'External Inputs',
+        description: String(externalInputCount),
+        tooltip: 'Selected inputs outside this project root. These rows are read-only.',
+        icon: 'link-external',
+        projectPath: project.path,
+        group: 'externalInputs'
+      });
+    }
     if (dependencyCount > 0) {
       children.push({
         kind: 'group',
@@ -853,7 +882,7 @@ export function buildProjectTreeModels(snapshot: NginWorkspaceSnapshot): Project
     contextKind: snapshot.workspace.kind,
     workspaceLabel: snapshot.workspace.workspace.name,
     workspaceDescription: snapshot.workspace.kind === 'workspace'
-      ? snapshot.workspace.root
+      ? `${snapshot.workspace.projects.length} ${snapshot.workspace.projects.length === 1 ? 'project' : 'projects'}`
       : snapshot.workspace.manifestPath,
     projects,
     childrenByProject,
@@ -883,6 +912,20 @@ export function buildActiveProjectTreeModel(snapshot: NginWorkspaceSnapshot): Ac
       icon: group.icon,
       projectPath: project.path,
       group: group.kind as ProjectTreeGroupKind
+    });
+  }
+
+  const generatedInputs = snapshot.inspectGraph?.plans?.editor?.files.filter((file) => file.generated) ?? [];
+  if (generatedInputs.length > 0) {
+    groups.push({
+      kind: 'group',
+      id: `${project.path}:generated-inputs`,
+      label: 'Generated Inputs',
+      description: String(generatedInputs.length),
+      tooltip: 'Graph-declared generated inputs for the selected profile.',
+      icon: 'sparkle',
+      projectPath: project.path,
+      group: 'generatedInputs'
     });
   }
 

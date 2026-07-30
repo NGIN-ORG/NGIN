@@ -63,6 +63,12 @@ suite('NGIN Tools Extension', () => {
     assert.ok(commands.includes('ngin.explainSelection'));
     assert.ok(commands.includes('ngin.showResolvedInputs'));
     assert.ok(commands.includes('ngin.showInactiveTooling'));
+    assert.ok(commands.includes('ngin.toggleInputsOnly'));
+    assert.ok(commands.includes('ngin.toggleFollowActiveEditor'));
+    assert.ok(commands.includes('ngin.revealActiveFile'));
+    assert.ok(commands.includes('ngin.includeInProduct'));
+    assert.ok(commands.includes('ngin.excludeFromProduct'));
+    assert.ok(commands.includes('ngin.projectNewFile'));
   });
 
   test('validate command can execute in the sample workspace', async () => {

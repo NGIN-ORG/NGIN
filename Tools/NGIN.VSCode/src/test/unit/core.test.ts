@@ -42,7 +42,9 @@ import {
 import { parseLaunchManifest, parseLocalSettingsManifest, parsePackageManifest, parseProjectManifest, parseWorkspaceManifest } from '../../core/xml';
 import {
   addProfile,
+  addExactProjectInput,
   deleteProfile,
+  removeExactProjectInputs,
   removeToolRunOverride,
   setEnvironmentVariables,
   setInputEntries,
@@ -51,6 +53,7 @@ import {
   setToolConfigOverride,
   setToolReportOverride,
   setToolRunOverride,
+  renameExactProjectInputs,
   updateProfile,
   updateProjectAttributes
 } from '../../projectEditor/authoring';
@@ -795,6 +798,7 @@ test('extension manifest and snippets register local settings support', () => {
   assert.ok(commandIds.includes('ngin.explainSelection'));
   assert.ok(commandIds.includes('ngin.showResolvedInputs'));
   assert.ok(commandIds.includes('ngin.showInactiveTooling'));
+  assert.ok(commandIds.includes('ngin.configureSolutionExplorer'));
   assert.equal(commandIds.includes('ngin.metagen'), false);
   const runToolCommand = packageJson.contributes.commands.find((entry: { command: string }) => entry.command === 'ngin.runToolRun');
   assert.equal(runToolCommand.title, 'Run Tool');
@@ -803,7 +807,7 @@ test('extension manifest and snippets register local settings support', () => {
   const solutionTitleActions = packageJson.contributes.menus['view/title']
     .filter((entry: { group?: string; when?: string }) => entry.group?.startsWith('navigation') && entry.when === 'view == nginWorkspace')
     .map((entry: { command: string }) => entry.command);
-  assert.deepEqual(solutionTitleActions, ['ngin.selectManifest', 'ngin.refresh']);
+  assert.deepEqual(solutionTitleActions, ['ngin.selectManifest', 'ngin.refresh', 'ngin.toggleInputsOnly']);
   const activeProjectTitleActions = packageJson.contributes.menus['view/title']
     .filter((entry: { group?: string; when?: string }) => entry.group?.startsWith('navigation') && entry.when === 'view == nginActiveProject')
     .map((entry: { command: string }) => entry.command);
@@ -811,6 +815,7 @@ test('extension manifest and snippets register local settings support', () => {
 
   const activityViews = packageJson.contributes.views.ngin.map((entry: { id: string; name: string }) => `${entry.id}:${entry.name}`);
   assert.deepEqual(activityViews, ['nginWorkspace:Solution', 'nginActiveProject:Active Project']);
+  assert.match(packageJson.contributes.viewsWelcome[0].contents, /Select Manifest/);
   assert.equal(packageJson.contributes.customEditors[0].viewType, 'ngin.projectEditor');
   assert.equal(packageJson.contributes.customEditors[0].priority, 'default');
   const settings = packageJson.contributes.configuration.properties;
@@ -821,6 +826,7 @@ test('extension manifest and snippets register local settings support', () => {
   assert.equal(settings['ngin.tooling.defaultFormatRun'].default, '');
   assert.equal(settings['ngin.tooling.runActiveFileOnSave'], undefined);
   assert.deepEqual(settings['ngin.tooling.runOnSave'].additionalProperties.enum, ['activeFile', 'all']);
+  assert.deepEqual(settings['ngin.solutionExplorer.exclude'].default, {});
 
   const snippets = JSON.parse(readFileSync(path.join(process.cwd(), 'snippets/ngin.code-snippets'), 'utf8'));
   assert.ok(snippets['Local Settings File']);
@@ -1364,6 +1370,36 @@ test('native debug configuration maps to cppdbg on Linux', () => {
 
 test('basenameWithoutExtension strips a platform executable suffix', () => {
   assert.equal(basenameWithoutExtension('/repo/out/bin/Hello.Hosted.exe'), 'Hello.Hosted');
+});
+
+test('typed exact input authoring preserves unrelated XML and reports manifest impact', () => {
+  const original = [
+    '<Project SchemaVersion="4" Name="App">',
+    '  <!-- keep this comment -->',
+    '  <Application>',
+    '    <Stage>',
+    '      <Unknown Value="keep" />',
+    '    </Stage>',
+    '  </Application>',
+    '</Project>'
+  ].join('\n');
+  const added = addExactProjectInput(original, 'Config', 'config/app.json');
+  assert.equal(added.changed, true);
+  assert.deepEqual(added.affectedPaths, ['config/app.json']);
+  assert.match(added.xml, /<Config Source="config\/app\.json" \/>/);
+  assert.match(added.xml, /keep this comment/);
+  assert.match(added.xml, /<Unknown Value="keep" \/>/);
+  const withContent = addExactProjectInput(added.xml, 'Content', 'assets/logo.png');
+  assert.match(withContent.xml, /<Content Source="assets\/logo\.png" \/>/);
+
+  const renamed = renameExactProjectInputs(withContent.xml, 'Config', 'config/app.json', 'config/main.json');
+  assert.deepEqual(renamed.affectedPaths, ['config/app.json']);
+  assert.match(renamed.xml, /<Config Source="config\/main\.json" \/>/);
+
+  const removed = removeExactProjectInputs(renamed.xml, 'Config', 'config/main.json');
+  assert.deepEqual(removed.affectedPaths, ['config/main.json']);
+  assert.doesNotMatch(removed.xml, /<Config\b/);
+  assert.match(removed.xml, /<Unknown Value="keep" \/>/);
 });
 
 test('project file exclusions preserve useful dotfiles and reject generated roots', () => {

@@ -42,6 +42,17 @@ export interface ProjectInputEdit {
   condition?: string;
 }
 
+// The active V4 contract has exact file entries for staged Config and Content.
+// Build Sources/Headers are directory or glob declarations and are intentionally
+// not exposed through this exact-path API.
+export type ExactProjectInputKind = 'Config' | 'Content';
+
+export interface ExactProjectInputMutation {
+  xml: string;
+  changed: boolean;
+  affectedPaths: string[];
+}
+
 export interface ProjectEnvironmentVariableEdit {
   name: string;
   value?: string;
@@ -702,6 +713,130 @@ export function setInputEntries(xml: string, block: ProjectInputBlock, entries: 
   const indent = childIndent(refreshed.section.indent);
   const body = entries.map((entry) => formatInput(block, entry, indent)).join('\n');
   return replaceRange(refreshed.xml, refreshed.section.bodyEnd, refreshed.section.bodyEnd, `${body}\n`);
+}
+
+function exactInputShape(kind: ExactProjectInputKind): {
+  section: 'Stage';
+  tag: 'Config' | 'Content';
+  attribute: 'Source';
+} {
+  switch (kind) {
+    case 'Config': return { section: 'Stage', tag: 'Config', attribute: 'Source' };
+    case 'Content': return { section: 'Stage', tag: 'Content', attribute: 'Source' };
+  }
+}
+
+function exactInputMatches(
+  xml: string,
+  section: ReturnType<typeof findDirectSection>,
+  tag: string,
+  attribute: string,
+  predicate: (value: string) => boolean
+): Array<{ start: number; end: number; value: string; openTag: string }> {
+  if (!section) return [];
+  const source = xml.slice(section.bodyStart, section.bodyEnd);
+  const pattern = new RegExp(`<${tag}\\b[^>]*\\/>`, 'g');
+  const matches: Array<{ start: number; end: number; value: string; openTag: string }> = [];
+  for (const match of source.matchAll(pattern)) {
+    if (match.index === undefined || directChildDepth(source.slice(0, match.index)) !== 0) continue;
+    const value = readAttribute(match[0], attribute);
+    if (!value || !predicate(value)) continue;
+    matches.push({
+      start: section.bodyStart + match.index,
+      end: section.bodyStart + match.index + match[0].length,
+      value,
+      openTag: match[0]
+    });
+  }
+  return matches;
+}
+
+export function addExactProjectInput(
+  xml: string,
+  kind: ExactProjectInputKind,
+  inputPath: string,
+  profileName?: string
+): ExactProjectInputMutation {
+  const shape = exactInputShape(kind);
+  const normalized = inputPath.replace(/\\/g, '/');
+  const ensured = ensureProductSection(xml, shape.section, profileName);
+  if (exactInputMatches(
+    ensured.xml,
+    ensured.section,
+    shape.tag,
+    shape.attribute,
+    (value) => value.replace(/\\/g, '/') === normalized
+  ).length > 0) {
+    return { xml: ensured.xml, changed: ensured.xml !== xml, affectedPaths: [] };
+  }
+  const indent = childIndent(ensured.section.indent);
+  const tag = setAttribute(`<${shape.tag} />`, shape.attribute, normalized);
+  return {
+    xml: replaceRange(ensured.xml, ensured.section.bodyEnd, ensured.section.bodyEnd, `\n${indent}${tag}`),
+    changed: true,
+    affectedPaths: [normalized]
+  };
+}
+
+export function renameExactProjectInputs(
+  xml: string,
+  kind: ExactProjectInputKind,
+  fromPath: string,
+  toPath: string,
+  includeChildren = false,
+  profileName?: string
+): ExactProjectInputMutation {
+  const shape = exactInputShape(kind);
+  const scope = scopeRange(xml, profileName);
+  const product = findDirectSection(xml, scope.start, scope.end, rootProductKind(xml));
+  const section = product ? findDirectSection(xml, product.bodyStart, product.bodyEnd, shape.section) : undefined;
+  const normalizedFrom = fromPath.replace(/\\/g, '/').replace(/\/$/, '');
+  const normalizedTo = toPath.replace(/\\/g, '/').replace(/\/$/, '');
+  const matches = exactInputMatches(xml, section, shape.tag, shape.attribute, (value) => {
+    const normalized = value.replace(/\\/g, '/');
+    return normalized === normalizedFrom || (includeChildren && normalized.startsWith(`${normalizedFrom}/`));
+  });
+  let next = xml;
+  const affectedPaths: string[] = [];
+  for (const match of matches.reverse()) {
+    const normalized = match.value.replace(/\\/g, '/');
+    const replacementPath = normalized === normalizedFrom
+      ? normalizedTo
+      : `${normalizedTo}${normalized.slice(normalizedFrom.length)}`;
+    next = replaceRange(next, match.start, match.end, setAttribute(match.openTag, shape.attribute, replacementPath));
+    affectedPaths.push(normalized);
+  }
+  return { xml: next, changed: next !== xml, affectedPaths: affectedPaths.reverse() };
+}
+
+export function removeExactProjectInputs(
+  xml: string,
+  kind: ExactProjectInputKind,
+  inputPath: string,
+  includeChildren = false,
+  profileName?: string
+): ExactProjectInputMutation {
+  const shape = exactInputShape(kind);
+  const scope = scopeRange(xml, profileName);
+  const product = findDirectSection(xml, scope.start, scope.end, rootProductKind(xml));
+  const section = product ? findDirectSection(xml, product.bodyStart, product.bodyEnd, shape.section) : undefined;
+  const normalizedTarget = inputPath.replace(/\\/g, '/').replace(/\/$/, '');
+  const matches = exactInputMatches(xml, section, shape.tag, shape.attribute, (value) => {
+    const normalized = value.replace(/\\/g, '/');
+    return normalized === normalizedTarget || (includeChildren && normalized.startsWith(`${normalizedTarget}/`));
+  });
+  let next = xml;
+  const affectedPaths: string[] = [];
+  for (const match of matches.reverse()) {
+    let start = match.start;
+    let end = match.end;
+    if (next[end] === '\r' && next[end + 1] === '\n') end += 2;
+    else if (next[end] === '\n') end += 1;
+    else if (next[start - 1] === '\n') start -= 1;
+    next = replaceRange(next, start, end, '');
+    affectedPaths.push(match.value.replace(/\\/g, '/'));
+  }
+  return { xml: next, changed: next !== xml, affectedPaths: affectedPaths.reverse() };
 }
 
 export function setProfileFeatureState(xml: string, profileName: string, packageName: string, featureName: string, state: ProjectFeatureState): string {

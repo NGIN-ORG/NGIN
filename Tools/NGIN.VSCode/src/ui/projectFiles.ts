@@ -17,6 +17,7 @@ export interface ProjectFileEnumerationContext {
   workspaceRoot: string;
   outputDir?: string;
   configuredOutputRoot?: string;
+  excludePatterns?: string[];
 }
 
 const HARD_EXCLUDED_NAMES = new Set(['.git', '.ngin', 'node_modules']);
@@ -44,18 +45,60 @@ export function shouldExcludeProjectFile(
   if (comparableFilePath(entryPath) === comparableFilePath(context.project.path)) {
     return true;
   }
-  if (context.outputDir && isSameOrChildPath(entryPath, context.outputDir)) {
+  if (context.outputDir &&
+      isSameOrChildPath(context.outputDir, context.project.directory) &&
+      isSameOrChildPath(entryPath, context.outputDir)) {
     return true;
   }
   if (context.configuredOutputRoot) {
     const outputRoot = path.isAbsolute(context.configuredOutputRoot)
       ? context.configuredOutputRoot
       : path.resolve(context.workspaceRoot, context.configuredOutputRoot);
-    if (isSameOrChildPath(entryPath, outputRoot)) {
+    if (isSameOrChildPath(outputRoot, context.project.directory) &&
+        isSameOrChildPath(entryPath, outputRoot)) {
       return true;
     }
   }
+  const relativePath = path.relative(context.project.directory, entryPath).split(path.sep).join('/');
+  if ((context.excludePatterns ?? []).some((pattern) => matchesGlob(pattern, relativePath))) {
+    return true;
+  }
   return false;
+}
+
+function matchesGlob(pattern: string, value: string): boolean {
+  const normalized = pattern.replace(/\\/g, '/').replace(/^\.\//, '');
+  const flags = process.platform === 'win32' ? 'i' : '';
+  if (normalized.endsWith('/**')) {
+    const root = normalized.slice(0, -3);
+    if (new RegExp(`^${escapeRegularExpression(root)}(?:/.*)?$`, flags).test(value)) {
+      return true;
+    }
+  }
+  let expression = '^';
+  for (let index = 0; index < normalized.length; index += 1) {
+    const character = normalized[index];
+    if (character === '*' && normalized[index + 1] === '*') {
+      if (normalized[index + 2] === '/') {
+        expression += '(?:.*/)?';
+        index += 2;
+        continue;
+      }
+      expression += '.*';
+      index += 1;
+    } else if (character === '*') {
+      expression += '[^/]*';
+    } else if (character === '?') {
+      expression += '[^/]';
+    } else {
+      expression += escapeRegularExpression(character);
+    }
+  }
+  return new RegExp(`${expression}(?:/.*)?$`, flags).test(value);
+}
+
+function escapeRegularExpression(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function entryRank(kind: ProjectFileEntryKind): number {
@@ -106,6 +149,9 @@ export async function enumerateProjectDirectory(
       continue;
     }
 
+    if (!entry.isDirectory() && !entry.isFile() && !entry.isSymbolicLink()) {
+      continue;
+    }
     result.push({
       name: entry.name,
       path: entryPath,
@@ -118,4 +164,52 @@ export async function enumerateProjectDirectory(
   }
 
   return result.sort(compareProjectFileEntries);
+}
+
+export class ProjectFileTreeService {
+  private readonly directoryCache = new Map<string, { folderPath: string; value: Promise<ProjectFileEntry[]> }>();
+
+  constructor(private readonly maximumEntries = 256) {}
+
+  enumerate(
+    context: ProjectFileEnumerationContext,
+    folderPath: string,
+    role: 'source' | 'generated'
+  ): Promise<ProjectFileEntry[]> {
+    const key = `${role}:${comparableFilePath(context.project.path)}:${comparableFilePath(folderPath)}:${(context.excludePatterns ?? []).join(';')}`;
+    const existing = this.directoryCache.get(key);
+    if (existing) {
+      this.directoryCache.delete(key);
+      this.directoryCache.set(key, existing);
+      return existing.value;
+    }
+    const pending = enumerateProjectDirectory(context, folderPath, role);
+    const entry = { folderPath, value: pending };
+    this.directoryCache.set(key, entry);
+    while (this.directoryCache.size > this.maximumEntries) {
+      const oldest = this.directoryCache.keys().next().value as string | undefined;
+      if (!oldest) break;
+      this.directoryCache.delete(oldest);
+    }
+    pending.catch(() => {
+      if (this.directoryCache.get(key) === entry) {
+        this.directoryCache.delete(key);
+      }
+    });
+    return pending;
+  }
+
+  invalidatePath(filePath: string): void {
+    const normalized = comparableFilePath(filePath);
+    for (const [key, entry] of this.directoryCache) {
+      const folder = comparableFilePath(entry.folderPath);
+      if (isSameOrChildPath(normalized, folder) || isSameOrChildPath(folder, path.dirname(normalized))) {
+        this.directoryCache.delete(key);
+      }
+    }
+  }
+
+  clear(): void {
+    this.directoryCache.clear();
+  }
 }

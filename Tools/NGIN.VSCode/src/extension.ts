@@ -35,7 +35,7 @@ import {
   NginJsonlParseError,
   NginJsonlEventParser
 } from './core/events';
-import { addRootConfigInput, listConfigInputs, relativeManifestPath, removeConfigInputs, renameConfigInputs } from './core/projectAuthoring';
+import { relativeManifestPath } from './core/projectAuthoring';
 import { createNativeDebugConfiguration, quoteShellArgument } from './core/debug';
 import { LaunchManifest, CompositionGraphPayload, GraphToolRunPlan, ProjectManifest, StoredToolResultSummary } from './core/types';
 import { parseLaunchManifest, parseLocalSettingsManifest, parseProjectManifest } from './core/xml';
@@ -51,8 +51,12 @@ import { NginStatusBarController } from './ui/statusBar';
 import { NginCppToolsProviderService } from './cpptools/provider';
 import { NginProjectEditorProvider } from './projectEditor/provider';
 import {
+  ExactProjectInputKind,
   ProjectToolRunOverrideEdit,
+  addExactProjectInput,
+  removeExactProjectInputs,
   removeToolRunOverride,
+  renameExactProjectInputs,
   setToolConfigOverride,
   setToolReportOverride,
   setToolRunOverride
@@ -92,9 +96,12 @@ interface NginDebugConfiguration extends vscode.DebugConfiguration {
 
 interface ProjectExplorerTarget extends NginCommandTarget {
   fsPath?: string;
-  role?: 'manifest' | 'source' | 'config' | 'generated';
+  role?: 'manifest' | 'source' | 'config' | 'generated' | 'external';
   isDirectory?: boolean;
   explainIdentity?: string;
+  declaringManifestPath?: string;
+  membershipKind?: string;
+  membershipRole?: string;
 }
 
 interface ToolDiagnosticMetadata {
@@ -330,12 +337,16 @@ class NginController implements vscode.Disposable {
   private readonly statusBar: NginStatusBarController;
   private readonly cppToolsProvider: NginCppToolsProviderService;
   private readonly inspectCache = new Map<string, { payload?: CompositionGraphPayload; error?: string }>();
+  private uiRefreshGeneration = 0;
   private staleWarningShown = false;
   private readonly shownLocalSettingsWarnings = new Set<string>();
 
   constructor(private readonly context: vscode.ExtensionContext) {
     this.workspaceState = new WorkspaceStateService(context);
-    this.sidebar = new NginSidebarController();
+    this.sidebar = new NginSidebarController(context, async (project, uri) => {
+      if (await this.workspaceState.isProjectSelectionPinned(project.path, uri)) return;
+      await this.refreshUi(uri);
+    });
     this.statusBar = new NginStatusBarController();
     this.cppToolsProvider = new NginCppToolsProviderService(
       context.extension.id,
@@ -390,6 +401,16 @@ class NginController implements vscode.Disposable {
       vscode.commands.registerCommand('ngin.graph', (arg) => this.runHandled(() => this.graphCommand(this.asCommandTarget(arg)))),
       vscode.commands.registerCommand('ngin.variablesExplain', (arg) => this.runHandled(() => this.variablesExplainCommand(this.asCommandTarget(arg)))),
       vscode.commands.registerCommand('ngin.explainSelection', (arg) => this.runHandled(() => this.explainSelectionCommand(this.asExplorerTarget(arg)))),
+      vscode.commands.registerCommand('ngin.explainMembership', (arg) => this.runHandled(() => this.explainSelectionCommand(this.asExplorerTarget(arg)))),
+      vscode.commands.registerCommand('ngin.openDeclaringManifest', (arg) => this.runHandled(async () => {
+        const target = this.asExplorerTarget(arg);
+        if (!target?.declaringManifestPath) throw new Error('The selected file has no declaring manifest.');
+        await this.openPathCommand(target.declaringManifestPath);
+      })),
+      vscode.commands.registerCommand('ngin.includeInProduct', (arg, selected?: unknown[]) => this.runHandled(() =>
+        this.includeInProductCommands(this.asExplorerTargets(arg, selected)))),
+      vscode.commands.registerCommand('ngin.excludeFromProduct', (arg, selected?: unknown[]) => this.runHandled(() =>
+        this.excludeFromProductCommands(this.asExplorerTargets(arg, selected)))),
       vscode.commands.registerCommand('ngin.showResolvedInputs', (arg) => this.runHandled(() => this.showInspectDetailsCommand('inputs', this.asCommandTarget(arg)))),
       vscode.commands.registerCommand('ngin.showInactiveTooling', (arg) => this.runHandled(() => this.showInspectDetailsCommand('tooling', this.asCommandTarget(arg)))),
       vscode.commands.registerCommand('ngin.settingsInit', (arg) => this.runHandled(() => this.settingsInitCommand(this.asCommandTarget(arg)))),
@@ -397,18 +418,45 @@ class NginController implements vscode.Disposable {
       vscode.commands.registerCommand('ngin.workspaceDoctor', () => this.runHandled(() => this.workspaceCommand('doctor'))),
       vscode.commands.registerCommand('ngin.openLastLaunchManifest', () => this.runHandled(() => this.openLastLaunchManifest())),
       vscode.commands.registerCommand('ngin.openProjectManifest', (arg) => this.runHandled(() => this.openProjectManifestCommand(this.asExplorerTarget(arg)))),
-      vscode.commands.registerCommand('ngin.openProjectXmlSource', (uri?: vscode.Uri) => this.runHandled(() => this.openProjectXmlSourceCommand(uri))),
+      vscode.commands.registerCommand('ngin.openProjectXmlSource', (arg?: unknown) => this.runHandled(() => {
+        const target = this.asExplorerTarget(arg);
+        const uri = arg instanceof vscode.Uri
+          ? arg
+          : target?.projectPath
+            ? vscode.Uri.file(target.projectPath)
+            : target?.fsPath
+              ? vscode.Uri.file(target.fsPath)
+              : undefined;
+        return this.openProjectXmlSourceCommand(uri);
+      })),
       vscode.commands.registerCommand('ngin.openPath', (arg) => this.runHandled(() => this.openExplorerPathCommand(this.asExplorerTarget(arg)))),
       vscode.commands.registerCommand('ngin.revealPath', (arg) => this.runHandled(() => this.revealExplorerPathCommand(this.asExplorerTarget(arg)))),
-      vscode.commands.registerCommand('ngin.copyPath', (arg) => this.runHandled(() => this.copyExplorerPathCommand(this.asExplorerTarget(arg)))),
+      vscode.commands.registerCommand('ngin.copyPath', (arg, selected?: unknown[]) => this.runHandled(() =>
+        this.copyExplorerPathsCommand(this.asExplorerTargets(arg, selected), false))),
+      vscode.commands.registerCommand('ngin.copyRelativePath', (arg, selected?: unknown[]) => this.runHandled(() =>
+        this.copyExplorerPathsCommand(this.asExplorerTargets(arg, selected), true))),
+      vscode.commands.registerCommand('ngin.revealInVsCodeExplorer', (arg) => this.runHandled(() => this.revealInVsCodeExplorerCommand(this.asExplorerTarget(arg)))),
       vscode.commands.registerCommand('ngin.setActiveProject', (arg) => this.runHandled(() => this.selectProjectCommand(this.asCommandTarget(arg)))),
+      vscode.commands.registerCommand('ngin.toggleInputsOnly', () => this.runHandled(() => this.sidebar.toggleInputsOnly())),
+      vscode.commands.registerCommand('ngin.toggleFollowActiveEditor', () => this.runHandled(() => this.sidebar.toggleFollowActiveEditor())),
+      vscode.commands.registerCommand('ngin.revealActiveFile', () => this.runHandled(() => this.sidebar.revealActiveFile())),
+      vscode.commands.registerCommand('ngin.configureSolutionExplorer', () => this.runHandled(async () => {
+        await vscode.commands.executeCommand(
+          'workbench.action.openSettings',
+          '@ext:ngin.ngin-tools ngin.solutionExplorer'
+        );
+      })),
       vscode.commands.registerCommand('ngin.projectNewSourceFile', (arg) => this.runHandled(() => this.createProjectFileCommand(this.asExplorerTarget(arg), 'source'))),
       vscode.commands.registerCommand('ngin.projectNewConfigFile', (arg) => this.runHandled(() => this.createProjectFileCommand(this.asExplorerTarget(arg), 'config'))),
+      vscode.commands.registerCommand('ngin.projectNewFile', (arg) => this.runHandled(() => this.createProjectFileCommand(this.asExplorerTarget(arg), 'file'))),
       vscode.commands.registerCommand('ngin.projectNewFolder', (arg) => this.runHandled(() => this.createProjectFolderCommand(this.asExplorerTarget(arg)))),
       vscode.commands.registerCommand('ngin.projectCopy', (arg) => this.runHandled(() => this.copyProjectPathCommand(this.asExplorerTarget(arg)))),
       vscode.commands.registerCommand('ngin.projectDuplicate', (arg) => this.runHandled(() => this.duplicateProjectPathCommand(this.asExplorerTarget(arg)))),
       vscode.commands.registerCommand('ngin.projectRename', (arg) => this.runHandled(() => this.renameProjectPathCommand(this.asExplorerTarget(arg)))),
-      vscode.commands.registerCommand('ngin.projectDelete', (arg) => this.runHandled(() => this.deleteProjectPathCommand(this.asExplorerTarget(arg)))),
+      vscode.commands.registerCommand('ngin.projectDelete', (arg, selected?: unknown[]) => this.runHandled(() =>
+        this.deleteProjectPathsCommand(this.asExplorerTargets(arg, selected)))),
+      vscode.commands.registerCommand('ngin.moveProjectItems', (arg) => this.runHandled(() => this.moveProjectItemsCommand(arg))),
+      vscode.commands.registerCommand('ngin.copyExternalItems', (arg) => this.runHandled(() => this.copyExternalItemsCommand(arg))),
       vscode.commands.registerCommand('ngin.refresh', () => this.runHandled(() => this.refreshUi(undefined, true))),
       vscode.commands.registerCommand('ngin.internal.pickProject', (arg) => this.runHandled(() => this.pickProjectFromStatusBar(this.asCommandTarget(arg)))),
       vscode.commands.registerCommand('ngin.internal.pickProfile', (arg) => this.runHandled(() => this.pickProfileFromStatusBar(this.asCommandTarget(arg)))),
@@ -624,14 +672,35 @@ class NginController implements vscode.Disposable {
       fsPath,
       role: candidate.role,
       isDirectory: candidate.isDirectory,
-      explainIdentity: candidate.explainIdentity
+      explainIdentity: candidate.explainIdentity,
+      declaringManifestPath: candidate.declaringManifestPath,
+      membershipKind: candidate.membershipKind,
+      membershipRole: candidate.membershipRole
     };
   }
 
+  private asExplorerTargets(value: unknown, selected?: unknown[]): ProjectExplorerTarget[] {
+    const candidates = selected?.length ? selected : [value];
+    const targets = candidates
+      .map((candidate) => this.asExplorerTarget(candidate))
+      .filter((candidate): candidate is ProjectExplorerTarget => Boolean(candidate));
+    const seen = new Set<string>();
+    return targets.filter((target) => {
+      const key = `${comparablePath(target.projectPath ?? '')}|${comparablePath(target.fsPath ?? '')}|${target.role ?? ''}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
   private async refreshUi(preferredUri?: vscode.Uri, forceInspectRefresh = false): Promise<void> {
+    const generation = ++this.uiRefreshGeneration;
     const snapshot = await this.workspaceState.getSnapshot(preferredUri);
     await this.attachInspectSnapshot(snapshot, forceInspectRefresh);
     await this.attachToolResults(snapshot);
+    if (generation !== this.uiRefreshGeneration) {
+      return;
+    }
     this.sidebar.refresh(snapshot);
     this.statusBar.refresh(snapshot);
     await this.cppToolsProvider.refresh(snapshot);
@@ -2054,14 +2123,236 @@ class NginController implements vscode.Disposable {
     await this.revealPathCommand(this.resolveExplorerPath(target));
   }
 
-  private async copyExplorerPathCommand(target?: ProjectExplorerTarget): Promise<void> {
-    const filePath = this.resolveExplorerPath(target);
-    if (!filePath) {
+  private async copyExplorerPathsCommand(
+    targets: ProjectExplorerTarget[],
+    relative: boolean
+  ): Promise<void> {
+    const paths: string[] = [];
+    for (const target of targets) {
+      const filePath = this.resolveExplorerPath(target);
+      if (!filePath) continue;
+      if (!relative) {
+        paths.push(filePath);
+        continue;
+      }
+      const resolved = await this.resolveExplorerProject(target);
+      if (!resolved) continue;
+      paths.push(path.relative(resolved.project.directory, filePath).split(path.sep).join('/') || '.');
+    }
+    if (paths.length === 0) return;
+    await vscode.env.clipboard.writeText(paths.join('\n'));
+    void vscode.window.showInformationMessage(
+      paths.length === 1
+        ? `Copied ${relative ? 'relative ' : ''}path: ${paths[0]}`
+        : `Copied ${paths.length} ${relative ? 'relative ' : ''}paths.`
+    );
+  }
+
+  private async includeInProductCommands(targets: ProjectExplorerTarget[]): Promise<void> {
+    if (targets.length <= 1) {
+      await this.includeInProductCommand(targets[0]);
+      return;
+    }
+    if (targets.some((target) => !target.fsPath || target.role !== 'source' || target.isDirectory)) {
+      throw new Error('Batch include requires authored files from one NGIN project.');
+    }
+    const candidates = await Promise.all(targets.map((target) => this.resolveExplorerProject(target)));
+    const resolved = candidates
+      .filter((candidate): candidate is NonNullable<(typeof candidates)[number]> => Boolean(candidate));
+    if (resolved.length !== targets.length ||
+        resolved.some((candidate) =>
+          comparablePath(candidate.project.path) !== comparablePath(resolved[0].project.path))) {
+      throw new Error('Batch include is limited to one NGIN project at a time.');
+    }
+    if (targets.some((target) => !isPathWithinDirectory(target.fsPath!, resolved[0].project.directory))) {
+      throw new Error('Only authored files inside the owning project can be included.');
+    }
+    const picked = await vscode.window.showQuickPick([
+      { label: 'Source', inputKind: 'Source' as const },
+      { label: 'Header', inputKind: 'Header' as const },
+      { label: 'Config', inputKind: 'Config' as const },
+      { label: 'Content', inputKind: 'Content' as const }
+    ], { title: `Include ${targets.length} files in ${resolved[0].project.name}` });
+    if (!picked) return;
+    if (picked.inputKind === 'Source' || picked.inputKind === 'Header') {
+      const choice = await vscode.window.showWarningMessage(
+        'The current V4 build contract selects sources and headers through directory or glob declarations. ' +
+          'NGIN will not invent or broaden one for these files.',
+        'Open Manifest'
+      );
+      if (choice === 'Open Manifest') await this.openPathCommand(resolved[0].project.path);
       return;
     }
 
-    await vscode.env.clipboard.writeText(filePath);
-    void vscode.window.showInformationMessage(`Copied path: ${filePath}`);
+    const document = await vscode.workspace.openTextDocument(vscode.Uri.file(resolved[0].project.path));
+    let xml = document.getText();
+    let changed = false;
+    for (const target of targets) {
+      const relative = relativeManifestPath(resolved[0].project.directory, target.fsPath!);
+      const mutation = addExactProjectInput(xml, picked.inputKind, relative);
+      xml = mutation.xml;
+      changed ||= mutation.changed;
+    }
+    if (!changed) {
+      void vscode.window.showInformationMessage('All selected files already have exact membership declarations.');
+      return;
+    }
+    if (await vscode.window.showInformationMessage(
+      `Add ${targets.length} exact ${picked.inputKind} entries to ${resolved[0].project.name}?`,
+      { modal: true },
+      'Apply'
+    ) !== 'Apply') {
+      return;
+    }
+    await this.applyManifestXml(resolved[0].project.path, xml);
+    await this.validateCommand({ preferredUri: document.uri }, { silent: true });
+    await this.refreshUi(document.uri, true);
+  }
+
+  private async includeInProductCommand(target?: ProjectExplorerTarget): Promise<void> {
+    if (!target?.fsPath || target.role !== 'source') {
+      throw new Error('Select an authored file inside the project.');
+    }
+    const resolved = await this.resolveExplorerProject(target);
+    if (!resolved || !isPathWithinDirectory(target.fsPath, resolved.project.directory)) {
+      throw new Error('Only authored files inside the owning project can be included.');
+    }
+    const picked = await vscode.window.showQuickPick([
+      { label: 'Source', inputKind: 'Source' as const },
+      { label: 'Header', inputKind: 'Header' as const },
+      { label: 'Config', inputKind: 'Config' as const },
+      { label: 'Content', inputKind: 'Content' as const }
+    ], { title: `Include ${path.basename(target.fsPath)} in ${resolved.project.productKind ?? 'product'}` });
+    if (!picked) return;
+    if (picked.inputKind === 'Source' || picked.inputKind === 'Header') {
+      const choice = await vscode.window.showWarningMessage(
+        'The current V4 build contract selects sources and headers through directory or glob declarations; NGIN will not invent or broaden one for this file.',
+        'Open Manifest'
+      );
+      if (choice === 'Open Manifest') await this.openPathCommand(resolved.project.path);
+      return;
+    }
+    const relative = relativeManifestPath(resolved.project.directory, target.fsPath);
+    const preview = `<${picked.inputKind} Source="${relative}" />`;
+    if (await vscode.window.showInformationMessage(`Add to ${resolved.project.name}?\n${preview}`, { modal: true }, 'Apply') !== 'Apply') {
+      return;
+    }
+    const document = await vscode.workspace.openTextDocument(vscode.Uri.file(resolved.project.path));
+    const mutation = addExactProjectInput(document.getText(), picked.inputKind, relative);
+    if (mutation.changed) {
+      await this.applyManifestXml(resolved.project.path, mutation.xml);
+      await this.validateCommand({ preferredUri: document.uri }, { silent: true });
+      await this.refreshUi(document.uri, true);
+    }
+  }
+
+  private async excludeFromProductCommands(targets: ProjectExplorerTarget[]): Promise<void> {
+    if (targets.length <= 1) {
+      await this.excludeFromProductCommand(targets[0]);
+      return;
+    }
+    if (targets.some((target) =>
+      !target.fsPath ||
+      (target.membershipKind !== 'Config' && target.membershipKind !== 'Content'))) {
+      throw new Error(
+        'Batch exclude supports exact Config/Content declarations only. Use Explain Membership for broad source/header selections.'
+      );
+    }
+    const candidates = await Promise.all(targets.map((target) => this.resolveExplorerProject(target)));
+    const resolved = candidates
+      .filter((candidate): candidate is NonNullable<(typeof candidates)[number]> => Boolean(candidate));
+    if (resolved.length !== targets.length ||
+        resolved.some((candidate) =>
+          comparablePath(candidate.project.path) !== comparablePath(resolved[0].project.path))) {
+      throw new Error('Batch exclude is limited to one NGIN project at a time.');
+    }
+    if (targets.some((target) =>
+      target.declaringManifestPath &&
+      comparablePath(target.declaringManifestPath) !== comparablePath(resolved[0].project.path))) {
+      throw new Error('One or more selections are owned by another manifest. Use Open Declaring Manifest.');
+    }
+
+    const document = await vscode.workspace.openTextDocument(vscode.Uri.file(resolved[0].project.path));
+    let xml = document.getText();
+    let affected = 0;
+    for (const target of targets) {
+      const relative = relativeManifestPath(resolved[0].project.directory, target.fsPath!);
+      const mutation = removeExactProjectInputs(
+        xml,
+        target.membershipKind as 'Config' | 'Content',
+        relative
+      );
+      xml = mutation.xml;
+      affected += mutation.affectedPaths.length;
+    }
+    if (affected === 0) {
+      throw new Error('The selected memberships are not exact local declarations. Use Explain Membership.');
+    }
+    if (await vscode.window.showWarningMessage(
+      `Remove ${affected} exact membership ${affected === 1 ? 'entry' : 'entries'} from ${resolved[0].project.name}?`,
+      { modal: true },
+      'Remove'
+    ) !== 'Remove') {
+      return;
+    }
+    await this.applyManifestXml(resolved[0].project.path, xml);
+    await this.validateCommand({ preferredUri: document.uri }, { silent: true });
+    await this.refreshUi(document.uri, true);
+  }
+
+  private async excludeFromProductCommand(target?: ProjectExplorerTarget): Promise<void> {
+    if (!target?.fsPath || !target.membershipKind) {
+      throw new Error('The selected file has no resolved membership to exclude.');
+    }
+    const resolved = await this.resolveExplorerProject(target);
+    if (!resolved) return;
+    if (target.declaringManifestPath &&
+        comparablePath(target.declaringManifestPath) !== comparablePath(resolved.project.path)) {
+      const choice = await vscode.window.showInformationMessage(
+        'This membership is owned by another manifest and cannot be removed from the active project.',
+        'Open Declaring Manifest'
+      );
+      if (choice === 'Open Declaring Manifest') await this.openPathCommand(target.declaringManifestPath);
+      return;
+    }
+    const kind: ExactProjectInputKind | undefined =
+      target.membershipKind === 'Config' ? 'Config' :
+        target.membershipKind === 'Content' ? 'Content' :
+          undefined;
+    if (!kind) {
+      const choice = await vscode.window.showInformationMessage(
+        'This file is selected by a source/header directory or glob. NGIN will not rewrite a broad declaration automatically.',
+        'Explain Membership',
+        'Open Declaring Manifest'
+      );
+      if (choice === 'Explain Membership') await this.explainSelectionCommand(target);
+      if (choice === 'Open Declaring Manifest') await this.openPathCommand(target.declaringManifestPath ?? resolved.project.path);
+      return;
+    }
+    const relative = relativeManifestPath(resolved.project.directory, target.fsPath);
+    const document = await vscode.workspace.openTextDocument(vscode.Uri.file(resolved.project.path));
+    const mutation = removeExactProjectInputs(document.getText(), kind, relative);
+    if (!mutation.changed) {
+      await this.explainSelectionCommand(target);
+      return;
+    }
+    if (await vscode.window.showWarningMessage(
+      `Remove ${kind} membership for ${relative}?`,
+      { modal: true },
+      'Remove'
+    ) !== 'Remove') {
+      return;
+    }
+    await this.applyManifestXml(resolved.project.path, mutation.xml);
+    await this.validateCommand({ preferredUri: document.uri }, { silent: true });
+    await this.refreshUi(document.uri, true);
+  }
+
+  private async revealInVsCodeExplorerCommand(target?: ProjectExplorerTarget): Promise<void> {
+    const filePath = this.resolveExplorerPath(target);
+    if (filePath) {
+      await vscode.commands.executeCommand('revealInExplorer', vscode.Uri.file(filePath));
+    }
   }
 
   private async openVirtualVariablesDocument(title: string, content: string): Promise<void> {
@@ -2108,7 +2399,7 @@ class NginController implements vscode.Disposable {
   }
 
   private async openProjectManifestCommand(target?: ProjectExplorerTarget): Promise<void> {
-    const manifestPath = target?.fsPath ?? target?.projectPath ?? (await this.resolveExplorerProject(target))?.project.path;
+    const manifestPath = target?.projectPath ?? target?.fsPath ?? (await this.resolveExplorerProject(target))?.project.path;
     if (!manifestPath) {
       return;
     }
@@ -2149,7 +2440,7 @@ class NginController implements vscode.Disposable {
     await this.refreshUi(uri, true);
   }
 
-  private async createProjectFileCommand(target: ProjectExplorerTarget | undefined, kind: 'source' | 'config'): Promise<void> {
+  private async createProjectFileCommand(target: ProjectExplorerTarget | undefined, kind: 'source' | 'config' | 'file'): Promise<void> {
     const resolved = await this.resolveExplorerProject(target);
     if (!resolved) {
       return;
@@ -2161,7 +2452,7 @@ class NginController implements vscode.Disposable {
     }
 
     const relativePath = await vscode.window.showInputBox({
-      title: kind === 'source' ? 'New source file' : 'New config file',
+      title: kind === 'source' ? 'New source file' : kind === 'config' ? 'New config file' : 'New file',
       prompt: `Path relative to ${path.relative(resolved.project.directory, baseDir) || '.'}`,
       validateInput: (value) => {
         const trimmed = value.trim();
@@ -2192,9 +2483,24 @@ class NginController implements vscode.Disposable {
 
     if (kind === 'config') {
       await this.addConfigInputToProjectManifest(resolved.project.path, resolved.project.directory, filePath);
+      await this.validateCommand({ preferredUri: vscode.Uri.file(resolved.project.path) }, { silent: true });
     }
 
-    await this.refreshUi(resolved.workspace.folder?.uri);
+    await this.refreshUi(resolved.workspace.folder?.uri, kind !== 'file');
+    if (kind === 'source') {
+      const snapshot = await this.workspaceState.getSnapshot(vscode.Uri.file(resolved.project.path));
+      await this.attachInspectSnapshot(snapshot, true);
+      const selected = snapshot.inspectGraph?.plans?.editor?.files.some(
+        (file) => comparablePath(file.absolutePath) === comparablePath(filePath)
+      );
+      if (!selected) {
+        const choice = await vscode.window.showInformationMessage(
+          `${path.basename(filePath)} was created but is not selected by ${snapshot.context?.profile.name ?? 'the active profile'}.`,
+          'Open Manifest'
+        );
+        if (choice === 'Open Manifest') await this.openPathCommand(resolved.project.path);
+      }
+    }
     await this.openPathCommand(filePath);
   }
 
@@ -2301,11 +2607,87 @@ class NginController implements vscode.Disposable {
       return;
     }
 
+    const snapshot = await this.workspaceState.getSnapshot(vscode.Uri.file(resolved.project.path));
+    const impactedConfigs = (snapshot.inspectGraph?.plans?.editor?.files ?? []).filter(
+      (file) => ['Config', 'Content'].includes(file.kind) &&
+        isPathWithinDirectory(file.absolutePath, resolved.fsPath)
+    ).length;
+    if (impactedConfigs > 0 && await vscode.window.showInformationMessage(
+      `Rename ${path.basename(resolved.fsPath)} and update ${impactedConfigs} exact config/content ${impactedConfigs === 1 ? 'entry' : 'entries'}?`,
+      { modal: true },
+      'Rename'
+    ) !== 'Rename') {
+      return;
+    }
     await vscode.workspace.fs.rename(vscode.Uri.file(resolved.fsPath), vscode.Uri.file(destination), { overwrite: false });
-    if (resolved.role === 'config') {
+    if (resolved.role === 'config' || resolved.isDirectory) {
       await this.renameConfigInputPaths(resolved.project.path, resolved.project.directory, resolved.fsPath, destination, resolved.isDirectory);
     }
     await this.refreshUi(resolved.workspace.folder?.uri);
+  }
+
+  private async deleteProjectPathsCommand(targets: ProjectExplorerTarget[]): Promise<void> {
+    if (targets.length <= 1) {
+      await this.deleteProjectPathCommand(targets[0]);
+      return;
+    }
+    const candidates = await Promise.all(targets.map((target) => this.resolveMutableProjectPath(target)));
+    const resolvedPaths = candidates
+      .filter((candidate): candidate is NonNullable<(typeof candidates)[number]> => Boolean(candidate))
+      .sort((left, right) => left.fsPath.length - right.fsPath.length);
+    if (resolvedPaths.length !== targets.length) return;
+    if (resolvedPaths.some((candidate) =>
+      comparablePath(candidate.project.path) !== comparablePath(resolvedPaths[0].project.path))) {
+      throw new Error('Batch delete is limited to one NGIN project at a time.');
+    }
+    const roots = resolvedPaths.filter((candidate, index) =>
+      !resolvedPaths.slice(0, index).some((parent) =>
+        parent.isDirectory && isPathWithinDirectory(candidate.fsPath, parent.fsPath)));
+    const snapshot = await this.workspaceState.getSnapshot(vscode.Uri.file(roots[0].project.path));
+    const affectedInputs = (snapshot.inspectGraph?.plans?.editor?.files ?? []).filter((file) =>
+      ['Config', 'Content'].includes(file.kind) &&
+      roots.some((candidate) =>
+        comparablePath(file.absolutePath) === comparablePath(candidate.fsPath) ||
+        candidate.isDirectory && isPathWithinDirectory(file.absolutePath, candidate.fsPath))
+    ).length;
+    let physicalItems = 0;
+    for (const candidate of roots) {
+      physicalItems += candidate.isDirectory
+        ? 1 + await this.countPhysicalDescendants(candidate.fsPath)
+        : 1;
+    }
+    if (await vscode.window.showWarningMessage(
+      `Delete ${roots.length} selected ${roots.length === 1 ? 'path' : 'paths'}?\n` +
+        `${physicalItems} physical ${physicalItems === 1 ? 'item' : 'items'}; ` +
+        `${affectedInputs} selected exact ${affectedInputs === 1 ? 'input' : 'inputs'} affected.`,
+      { modal: true },
+      'Delete'
+    ) !== 'Delete') {
+      return;
+    }
+
+    for (const candidate of roots) {
+      await vscode.workspace.fs.delete(vscode.Uri.file(candidate.fsPath), {
+        recursive: candidate.isDirectory,
+        useTrash: true
+      });
+    }
+    const document = await vscode.workspace.openTextDocument(vscode.Uri.file(roots[0].project.path));
+    let xml = document.getText();
+    let changed = false;
+    for (const candidate of roots) {
+      const relative = relativeManifestPath(candidate.project.directory, candidate.fsPath);
+      for (const kind of ['Config', 'Content'] as const) {
+        const mutation = removeExactProjectInputs(xml, kind, relative, candidate.isDirectory);
+        xml = mutation.xml;
+        changed ||= mutation.changed;
+      }
+    }
+    if (changed) {
+      await this.applyManifestXml(roots[0].project.path, xml);
+      await this.validateCommand({ preferredUri: document.uri }, { silent: true });
+    }
+    await this.refreshUi(roots[0].workspace.folder?.uri, changed);
   }
 
   private async deleteProjectPathCommand(target?: ProjectExplorerTarget): Promise<void> {
@@ -2314,8 +2696,17 @@ class NginController implements vscode.Disposable {
       return;
     }
 
+    const snapshot = await this.workspaceState.getSnapshot(vscode.Uri.file(resolved.project.path));
+    const selectedExactInputs = (snapshot.inspectGraph?.plans?.editor?.files ?? []).filter(
+      (file) => ['Config', 'Content'].includes(file.kind) &&
+        (comparablePath(file.absolutePath) === comparablePath(resolved.fsPath) ||
+         resolved.isDirectory && isPathWithinDirectory(file.absolutePath, resolved.fsPath))
+    ).length;
+    const physicalDescendants = resolved.isDirectory
+      ? await this.countPhysicalDescendants(resolved.fsPath)
+      : 1;
     const choice = await vscode.window.showWarningMessage(
-      `Delete ${path.basename(resolved.fsPath)}?`,
+      `Delete ${path.basename(resolved.fsPath)}?\n${physicalDescendants} physical ${physicalDescendants === 1 ? 'item' : 'items'}; ${selectedExactInputs} selected exact ${selectedExactInputs === 1 ? 'input' : 'inputs'} affected.`,
       { modal: true },
       'Delete'
     );
@@ -2324,14 +2715,21 @@ class NginController implements vscode.Disposable {
     }
 
     await vscode.workspace.fs.delete(vscode.Uri.file(resolved.fsPath), { recursive: resolved.isDirectory, useTrash: true });
-    if (resolved.role === 'config') {
+    if (resolved.role === 'config' || resolved.isDirectory) {
       await this.removeConfigInputPaths(resolved.project.path, resolved.project.directory, resolved.fsPath, resolved.isDirectory);
     }
     await this.refreshUi(resolved.workspace.folder?.uri);
   }
 
   private async copyAuthoredPath(
-    resolved: { workspace: ResolvedWorkspaceInfo; project: ResolvedCommandContext['project']; fsPath: string; role: 'source' | 'config'; isDirectory: boolean },
+    resolved: {
+      workspace: ResolvedWorkspaceInfo;
+      project: ResolvedCommandContext['project'];
+      fsPath: string;
+      role: 'source' | 'config';
+      isDirectory: boolean;
+      membershipKind?: string;
+    },
     destination: string
   ): Promise<void> {
     if (await pathExists(destination)) {
@@ -2341,17 +2739,29 @@ class NginController implements vscode.Disposable {
 
     await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(destination)));
     await vscode.workspace.fs.copy(vscode.Uri.file(resolved.fsPath), vscode.Uri.file(destination), { overwrite: false });
-    if (resolved.role === 'config') {
-      if (resolved.isDirectory) {
-        await this.duplicateConfigInputFolderPaths(resolved.project.path, resolved.project.directory, resolved.fsPath, destination);
-      } else {
-        await this.addConfigInputToProjectManifest(resolved.project.path, resolved.project.directory, destination);
+    if (resolved.role === 'config' || resolved.isDirectory) {
+        if (resolved.isDirectory) {
+          await this.duplicateConfigInputFolderPaths(resolved.project.path, resolved.project.directory, resolved.fsPath, destination);
+        } else {
+          await this.addConfigInputToProjectManifest(
+            resolved.project.path,
+            resolved.project.directory,
+            destination,
+            resolved.membershipKind === 'Content' ? 'Content' : 'Config'
+          );
       }
     }
     await this.refreshUi(resolved.workspace.folder?.uri);
   }
 
-  private async resolveMutableProjectPath(target?: ProjectExplorerTarget): Promise<{ workspace: ResolvedWorkspaceInfo; project: ResolvedCommandContext['project']; fsPath: string; role: 'source' | 'config'; isDirectory: boolean } | undefined> {
+  private async resolveMutableProjectPath(target?: ProjectExplorerTarget): Promise<{
+    workspace: ResolvedWorkspaceInfo;
+    project: ResolvedCommandContext['project'];
+    fsPath: string;
+    role: 'source' | 'config';
+    isDirectory: boolean;
+    membershipKind?: string;
+  } | undefined> {
     if (!target?.fsPath || (target.role !== 'source' && target.role !== 'config')) {
       void vscode.window.showErrorMessage('Select a source or config file/folder.');
       return undefined;
@@ -2374,12 +2784,138 @@ class NginController implements vscode.Disposable {
     }
 
     const stat = await vscode.workspace.fs.stat(vscode.Uri.file(target.fsPath));
+    const isDirectory = Boolean(stat.type & vscode.FileType.Directory);
+    if (isDirectory) {
+      const nestedProject = resolved.workspace.projects.find(
+        (project) => comparablePath(project.path) !== comparablePath(resolved.project.path) &&
+          isPathWithinDirectory(project.directory, target.fsPath!)
+      );
+      if (nestedProject) {
+        void vscode.window.showErrorMessage(`The operation would cross nested project '${nestedProject.name}'.`);
+        return undefined;
+      }
+    }
     return {
       ...resolved,
       fsPath: target.fsPath,
       role: target.role,
-      isDirectory: Boolean(stat.type & vscode.FileType.Directory)
+      isDirectory,
+      membershipKind: target.membershipKind
     };
+  }
+
+  private async moveProjectItemsCommand(value: unknown): Promise<void> {
+    const payload = value as { sources?: unknown[]; destination?: string } | undefined;
+    if (!payload?.destination || !Array.isArray(payload.sources) || payload.sources.length === 0) {
+      return;
+    }
+    const resolvedSources = [];
+    for (const source of payload.sources) {
+      const resolved = await this.resolveMutableProjectPath(this.asExplorerTarget(source));
+      if (!resolved) return;
+      if (!isPathWithinDirectory(payload.destination, resolved.project.directory)) {
+        throw new Error('Files can only be moved within the same NGIN project.');
+      }
+      if (resolvedSources.length > 0 &&
+          comparablePath(resolved.project.path) !== comparablePath(resolvedSources[0].project.path)) {
+        throw new Error('A drag operation cannot cross NGIN project boundaries.');
+      }
+      resolvedSources.push(resolved);
+    }
+    const destinations = resolvedSources.map((source) => path.join(payload.destination!, path.basename(source.fsPath)));
+    for (const destination of destinations) {
+      if (await pathExists(destination)) {
+        throw new Error(`Path already exists: ${destination}`);
+      }
+    }
+    if (await vscode.window.showInformationMessage(
+      `Move ${resolvedSources.length} ${resolvedSources.length === 1 ? 'item' : 'items'} to ${payload.destination}? Exact config/content paths will be updated.`,
+      { modal: true },
+      'Move'
+    ) !== 'Move') {
+      return;
+    }
+    for (let index = 0; index < resolvedSources.length; index += 1) {
+      const source = resolvedSources[index];
+      const destination = destinations[index];
+      await vscode.workspace.fs.rename(vscode.Uri.file(source.fsPath), vscode.Uri.file(destination), { overwrite: false });
+      await this.renameConfigInputPaths(
+        source.project.path,
+        source.project.directory,
+        source.fsPath,
+        destination,
+        source.isDirectory
+      );
+    }
+    await this.refreshUi(vscode.Uri.file(resolvedSources[0].project.path), true);
+  }
+
+  private async copyExternalItemsCommand(value: unknown): Promise<void> {
+    const payload = value as {
+      sources?: unknown[];
+      destination?: string;
+      projectPath?: string;
+    } | undefined;
+    if (!payload?.projectPath || !payload.destination || !Array.isArray(payload.sources)) return;
+    const sources = payload.sources.filter((source): source is string =>
+      typeof source === 'string' && path.isAbsolute(source));
+    if (sources.length === 0) return;
+
+    const resolved = await this.resolveExplorerProject({ projectPath: payload.projectPath });
+    if (!resolved || !isPathWithinDirectory(payload.destination, resolved.project.directory)) {
+      throw new Error('External files can only be copied into the selected NGIN project.');
+    }
+    const nestedProject = resolved.workspace.projects.find((project) =>
+      comparablePath(project.path) !== comparablePath(resolved.project.path) &&
+      isPathWithinDirectory(payload.destination!, project.directory));
+    if (nestedProject) {
+      throw new Error(`The drop target belongs to nested project '${nestedProject.name}'.`);
+    }
+
+    const copies: Array<{ source: string; destination: string }> = [];
+    for (const source of sources) {
+      const stat = await vscode.workspace.fs.stat(vscode.Uri.file(source));
+      const isDirectory = Boolean(stat.type & vscode.FileType.Directory);
+      if (isDirectory && isPathWithinDirectory(payload.destination, source)) {
+        throw new Error(`Cannot copy '${path.basename(source)}' into itself.`);
+      }
+      const destination = path.join(payload.destination, path.basename(source));
+      if (comparablePath(source) === comparablePath(destination) || await pathExists(destination)) {
+        throw new Error(`Path already exists: ${destination}`);
+      }
+      copies.push({ source, destination });
+    }
+
+    if (await vscode.window.showInformationMessage(
+      `Copy ${copies.length} dropped ${copies.length === 1 ? 'item' : 'items'} into ${payload.destination}? ` +
+        'Dropped items are copied as physical files and are not automatically added to NGIN membership.',
+      { modal: true },
+      'Copy'
+    ) !== 'Copy') {
+      return;
+    }
+    for (const copy of copies) {
+      await vscode.workspace.fs.copy(
+        vscode.Uri.file(copy.source),
+        vscode.Uri.file(copy.destination),
+        { overwrite: false }
+      );
+    }
+    await this.refreshUi(vscode.Uri.file(resolved.project.path));
+  }
+
+  private async countPhysicalDescendants(directory: string): Promise<number> {
+    let count = 0;
+    const visit = async (current: string): Promise<void> => {
+      for (const entry of await fs.readdir(current, { withFileTypes: true })) {
+        count += 1;
+        if (entry.isDirectory() && !entry.isSymbolicLink()) {
+          await visit(path.join(current, entry.name));
+        }
+      }
+    };
+    await visit(directory);
+    return count;
   }
 
   private validateRelativeFileSystemPath(value: string): string | undefined {
@@ -2430,20 +2966,24 @@ class NginController implements vscode.Disposable {
   private async resolveCreationBaseDirectory(
     project: ResolvedCommandContext['project'],
     target: ProjectExplorerTarget | undefined,
-    kind: 'source' | 'config'
+    kind: 'source' | 'config' | 'file'
   ): Promise<string | undefined> {
-    if (target?.role === 'generated') {
+    if (target?.role === 'generated' || target?.role === 'external') {
       void vscode.window.showErrorMessage('Generated output is read-only from the NGIN Projects view.');
       return undefined;
     }
 
-    if (target?.fsPath && target.role === kind) {
+    if (target?.fsPath && (target.role === kind || kind === 'file')) {
       try {
         const stat = await vscode.workspace.fs.stat(vscode.Uri.file(target.fsPath));
         return stat.type & vscode.FileType.Directory ? target.fsPath : path.dirname(target.fsPath);
       } catch {
         return target.isDirectory ? target.fsPath : path.dirname(target.fsPath);
       }
+    }
+
+    if (kind === 'file') {
+      return project.directory;
     }
 
     if (kind === 'source') {
@@ -2484,57 +3024,100 @@ class NginController implements vscode.Disposable {
     return picked?.directory;
   }
 
-  private async addConfigInputToProjectManifest(projectPath: string, projectDirectory: string, filePath: string): Promise<void> {
-    const manifestXml = await readTextFile(projectPath);
-    const result = addRootConfigInput(manifestXml, relativeManifestPath(projectDirectory, filePath));
+  private async addConfigInputToProjectManifest(
+    projectPath: string,
+    projectDirectory: string,
+    filePath: string,
+    kind: 'Config' | 'Content' = 'Config'
+  ): Promise<void> {
+    const manifestXml = (await vscode.workspace.openTextDocument(vscode.Uri.file(projectPath))).getText();
+    const result = addExactProjectInput(manifestXml, kind, relativeManifestPath(projectDirectory, filePath));
     if (!result.changed) {
       return;
     }
-    await vscode.workspace.fs.writeFile(vscode.Uri.file(projectPath), Buffer.from(result.xml, 'utf8'));
+    await this.applyManifestXml(projectPath, result.xml);
   }
 
   private async renameConfigInputPaths(projectPath: string, projectDirectory: string, fromPath: string, toPath: string, includeChildren: boolean): Promise<void> {
-    const manifestXml = await readTextFile(projectPath);
-    const result = renameConfigInputs(
+    const manifestXml = (await vscode.workspace.openTextDocument(vscode.Uri.file(projectPath))).getText();
+    const configResult = renameExactProjectInputs(
       manifestXml,
+      'Config',
       relativeManifestPath(projectDirectory, fromPath),
       relativeManifestPath(projectDirectory, toPath),
       includeChildren
     );
-    if (!result.changed) {
+    const result = renameExactProjectInputs(
+      configResult.xml,
+      'Content',
+      relativeManifestPath(projectDirectory, fromPath),
+      relativeManifestPath(projectDirectory, toPath),
+      includeChildren
+    );
+    if (!configResult.changed && !result.changed) {
       return;
     }
-    await vscode.workspace.fs.writeFile(vscode.Uri.file(projectPath), Buffer.from(result.xml, 'utf8'));
+    await this.applyManifestXml(projectPath, result.xml);
   }
 
   private async removeConfigInputPaths(projectPath: string, projectDirectory: string, sourcePath: string, includeChildren: boolean): Promise<void> {
-    const manifestXml = await readTextFile(projectPath);
-    const result = removeConfigInputs(manifestXml, relativeManifestPath(projectDirectory, sourcePath), includeChildren);
-    if (!result.changed) {
+    const manifestXml = (await vscode.workspace.openTextDocument(vscode.Uri.file(projectPath))).getText();
+    const configResult = removeExactProjectInputs(
+      manifestXml,
+      'Config',
+      relativeManifestPath(projectDirectory, sourcePath),
+      includeChildren
+    );
+    const result = removeExactProjectInputs(
+      configResult.xml,
+      'Content',
+      relativeManifestPath(projectDirectory, sourcePath),
+      includeChildren
+    );
+    if (!configResult.changed && !result.changed) {
       return;
     }
-    await vscode.workspace.fs.writeFile(vscode.Uri.file(projectPath), Buffer.from(result.xml, 'utf8'));
+    await this.applyManifestXml(projectPath, result.xml);
   }
 
   private async duplicateConfigInputFolderPaths(projectPath: string, projectDirectory: string, fromPath: string, toPath: string): Promise<void> {
-    const manifestXml = await readTextFile(projectPath);
-    const renamed = renameConfigInputs(
-      manifestXml,
-      relativeManifestPath(projectDirectory, fromPath),
-      relativeManifestPath(projectDirectory, toPath),
-      true
-    );
-    if (!renamed.changed) {
-      return;
-    }
-
+    const manifestXml = (await vscode.workspace.openTextDocument(vscode.Uri.file(projectPath))).getText();
     let nextXml = manifestXml;
-    for (const source of listConfigInputs(renamed.xml)) {
-      if (source.startsWith(`${relativeManifestPath(projectDirectory, toPath)}/`)) {
-        nextXml = addRootConfigInput(nextXml, source).xml;
+    const fromRelative = relativeManifestPath(projectDirectory, fromPath);
+    const toRelative = relativeManifestPath(projectDirectory, toPath);
+    for (const kind of ['Config', 'Content'] as const) {
+      const renamed = renameExactProjectInputs(
+        manifestXml,
+        kind,
+        fromRelative,
+        toRelative,
+        true
+      );
+      for (const source of renamed.affectedPaths) {
+        const destination = source === fromRelative
+          ? toRelative
+          : `${toRelative}${source.slice(fromRelative.length)}`;
+        nextXml = addExactProjectInput(nextXml, kind, destination).xml;
       }
     }
-    await vscode.workspace.fs.writeFile(vscode.Uri.file(projectPath), Buffer.from(nextXml, 'utf8'));
+    if (nextXml === manifestXml) return;
+    await this.applyManifestXml(projectPath, nextXml);
+  }
+
+  private async applyManifestXml(projectPath: string, xml: string): Promise<void> {
+    const document = await vscode.workspace.openTextDocument(vscode.Uri.file(projectPath));
+    const edit = new vscode.WorkspaceEdit();
+    edit.replace(
+      document.uri,
+      new vscode.Range(document.positionAt(0), document.positionAt(document.getText().length)),
+      xml
+    );
+    if (!(await vscode.workspace.applyEdit(edit))) {
+      throw new Error(`VS Code refused the manifest edit for ${projectPath}.`);
+    }
+    if (!(await document.save())) {
+      throw new Error(`Unable to save ${projectPath} after the manifest edit.`);
+    }
   }
 
   private async openLastLaunchManifest(): Promise<void> {

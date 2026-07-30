@@ -1,6 +1,6 @@
 # NGIN VS Code Solution Explorer Plan
 
-Status: Proposed post-V4 editor workstream
+Status: Implemented
 
 ## Summary
 

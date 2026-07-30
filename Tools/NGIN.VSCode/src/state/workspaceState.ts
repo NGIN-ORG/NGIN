@@ -328,6 +328,11 @@ export class WorkspaceStateService implements vscode.Disposable {
     return this.getWorkspaceInfo(preferredUri);
   }
 
+  async isProjectSelectionPinned(projectPath: string, preferredUri?: vscode.Uri): Promise<boolean> {
+    const workspaceInfo = await this.getWorkspaceInfoForProject(projectPath, preferredUri);
+    return Boolean(workspaceInfo && this.storedSelection(workspaceInfo)?.projectPath);
+  }
+
   async resolveCommandContext(options?: {
     preferredUri?: vscode.Uri;
     explicitProjectPath?: string;
