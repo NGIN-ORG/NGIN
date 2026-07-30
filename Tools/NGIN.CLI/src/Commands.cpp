@@ -6428,16 +6428,11 @@ BuildCompositionGraph(const LoadedInvocation &invocation,
         });
       }
       for (const auto &file : input.editorFiles) {
-        const auto explainKind =
-            input.kind == "Source" || input.kind == "Header" ||
-                    input.kind == "Generated"
-                ? "source"
-                : std::string{};
         appendEditorFile(
             file.absolutePath, input.kind, input.role, input.ownerKind,
             input.ownerName,
             input.kind == "Generated" || input.ownerKind == "generator",
-            input.manifestPath, explainKind,
+            input.manifestPath, "source",
             contributionProvenance(input.provenance, "selected editor input"));
       }
       if (!input.stagedRelativePath.empty()) {
@@ -7949,6 +7944,24 @@ auto CmdGraph(const fs::path &root, const ParsedArgs &args) -> int {
       invocation, resolved,
       ResolveCommandOutputPath(invocation.project, invocation.profile, args),
       ResolveCommandOutputRoot(invocation.project, args));
+  if (args.graphPlan == "editor") {
+    std::cout << "Editor plan for profile: " << graph.identity.profile << "\n";
+    std::cout << "  project root: " << graph.editorProjectRoot.generic_string()
+              << "\n";
+    for (const auto &file : graph.editorFiles) {
+      std::cout << "  - " << file.path << " [" << file.kind;
+      if (!file.role.empty()) {
+        std::cout << ":" << file.role;
+      }
+      std::cout << "] owner=" << file.ownerKind << ":" << file.ownerName
+                << " generated=" << (file.generated ? "true" : "false")
+                << " exists=" << (file.exists ? "true" : "false") << "\n";
+    }
+    if (graph.editorFiles.empty()) {
+      std::cout << "  files: (none)\n";
+    }
+    return 0;
+  }
   if (args.graphPlan == "stage") {
     std::cout << "Stage plan for profile: " << graph.identity.profile << "\n";
     for (const auto &file : graph.stageFiles) {

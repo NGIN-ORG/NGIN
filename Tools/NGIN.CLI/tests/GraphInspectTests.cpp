@@ -131,6 +131,7 @@ TEST_CASE("inspect materializes editor file membership")
     REQUIRE_THAT(json, ContainsSubstring(R"("path":"src/skip.cpp")"));
     REQUIRE_THAT(json, ContainsSubstring(R"("path":"profile/profile.cpp")"));
     REQUIRE_THAT(json, ContainsSubstring(R"("path":"config/app.json")"));
+    REQUIRE_THAT(json, ContainsSubstring(R"("explainIdentity":"source:config/app.json")"));
     REQUIRE_THAT(json, ContainsSubstring(R"("path":"assets/readme.txt")"));
     REQUIRE_THAT(json, ContainsSubstring(R"("absolutePath":")" +
                                          externalHeader.generic_string() +
@@ -482,6 +483,8 @@ TEST_CASE("graph plan switches print focused resolved plans")
 
     REQUIRE_THAT(graph("build"), ContainsSubstring("Build plan for profile: dev"));
     REQUIRE_THAT(graph("build"), ContainsSubstring("PLAN_APP=1"));
+    REQUIRE_THAT(graph("editor"), ContainsSubstring("Editor plan for profile: dev"));
+    REQUIRE_THAT(graph("editor"), ContainsSubstring("src/main.cpp [Source:Source]"));
     REQUIRE_THAT(graph("stage"), ContainsSubstring("config/app.json <- config/app.json"));
     REQUIRE_THAT(graph("launch"), ContainsSubstring("launch app [selected]"));
     REQUIRE_THAT(graph("environment"), ContainsSubstring("env PLAN_ENV=dev"));
@@ -824,6 +827,12 @@ TEST_CASE("graph json contract carries selected item provenance")
     REQUIRE_THAT(buildPlan, ContainsSubstring(R"("value":"PACKAGE_FEATURE=1","provenance":{"sourceKind":"package-feature","sourceName":"Package.Contract::Diagnostics")"));
     REQUIRE_THAT(buildPlan, ContainsSubstring(R"("kind":"Source","role":"Source","source":"src/main.cpp")"));
 
+    const auto editorPlan = graphJson("editor");
+    REQUIRE_THAT(editorPlan, ContainsSubstring(R"("kind": "NGIN.CompositionGraphPlan")"));
+    REQUIRE_THAT(editorPlan, ContainsSubstring(R"("plan": "editor")"));
+    REQUIRE_THAT(editorPlan, ContainsSubstring(R"("data": {"projectRoot":)"));
+    REQUIRE_THAT(editorPlan, ContainsSubstring(R"("path":"src/main.cpp")"));
+
     const auto packagePlan = graphJson("package");
     REQUIRE_THAT(packagePlan, ContainsSubstring(R"("plan": "package")"));
     REQUIRE_THAT(packagePlan, ContainsSubstring(R"("name":"Package.Contract","version":"1.0.0")"));
@@ -938,6 +947,7 @@ TEST_CASE("frozen graph schema artifact documents the emitted contract")
     REQUIRE_THAT(schema, ContainsSubstring(R"("packages")"));
     REQUIRE_THAT(schema, ContainsSubstring(R"("packageFeatures")"));
     REQUIRE_THAT(schema, ContainsSubstring(R"("build")"));
+    REQUIRE_THAT(schema, ContainsSubstring(R"("editor")"));
     REQUIRE_THAT(schema, ContainsSubstring(R"("generators")"));
     REQUIRE_THAT(schema, ContainsSubstring(R"("stage")"));
     REQUIRE_THAT(schema, ContainsSubstring(R"("runtime")"));
