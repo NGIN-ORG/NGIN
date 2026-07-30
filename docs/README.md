@@ -88,6 +88,10 @@ If you are trying to understand NGIN as a user:
 
 ## Active Implementation Plans
 
+- [`plans/NGIN-VSCode-Solution-Explorer-Plan.md`](plans/NGIN-VSCode-Solution-Explorer-Plan.md)
+  Proposed post-V4 plan for a product-aware VS Code Solution Explorer with
+  physical project files, graph-owned membership, safe file authoring, and a
+  separate active-project details view.
 - [`plans/NGIN.UI-Implementation-Plan.md`](plans/NGIN.UI-Implementation-Plan.md)
   Milestone implementation plan for the backend-neutral NGIN.UI toolkit,
   deterministic headless harness, SDL3 backend, composition, layout, text,
