@@ -2362,6 +2362,17 @@ class NginController implements vscode.Disposable {
       return undefined;
     }
 
+    const relativePath = path.relative(resolved.project.directory, target.fsPath);
+    if (
+      relativePath === '' ||
+      relativePath === '..' ||
+      relativePath.startsWith(`..${path.sep}`) ||
+      path.isAbsolute(relativePath)
+    ) {
+      void vscode.window.showErrorMessage('The selected path is outside the owning NGIN project.');
+      return undefined;
+    }
+
     const stat = await vscode.workspace.fs.stat(vscode.Uri.file(target.fsPath));
     return {
       ...resolved,

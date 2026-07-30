@@ -6,11 +6,19 @@ async function main(): Promise<void> {
   const extensionTestsPath = path.resolve(__dirname, './suite/index');
   const workspacePath = path.resolve(extensionDevelopmentPath, '../..');
 
-  await runTests({
-    extensionDevelopmentPath,
-    extensionTestsPath,
-    launchArgs: [workspacePath, '--disable-extensions']
-  });
+  const electronRunAsNode = process.env.ELECTRON_RUN_AS_NODE;
+  delete process.env.ELECTRON_RUN_AS_NODE;
+  try {
+    await runTests({
+      extensionDevelopmentPath,
+      extensionTestsPath,
+      launchArgs: [workspacePath, '--disable-extensions']
+    });
+  } finally {
+    if (electronRunAsNode !== undefined) {
+      process.env.ELECTRON_RUN_AS_NODE = electronRunAsNode;
+    }
+  }
 }
 
 main().catch((error) => {

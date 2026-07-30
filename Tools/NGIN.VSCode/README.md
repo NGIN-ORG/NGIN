@@ -11,10 +11,10 @@ behavior as the terminal commands.
 
 ## What It Provides
 
-- a project-first NGIN Workspace view with prominent Build, Run, Publish, and
-  Profile actions
-- a compact active-project tree for the manifest, dependencies, tooling,
-  launch selection, publish targets, artifacts, and current problems
+- a project-first NGIN Solution view for workspace products, manifests,
+  physical project files, and dependencies
+- a compact Active Project view for profile-resolved tooling, launch selection,
+  publish targets, artifacts, and current problems
 - advanced graph-native input, inactive-tooling, graph, and explanation views
   backed by `ngin inspect --format json` and `ngin explain`
 - a default visual `.nginproj` editor for common product, profile,
@@ -106,21 +106,21 @@ without producing a `.nginlaunch` file. Run and debug use the staged
 `.nginlaunch` file produced by `ngin build`. When debugging, the extension can
 build first if the launch manifest is missing or stale.
 
-The Workspace tree is product-centered. Project rows select the active product,
-and the active row includes the selected profile. Build, Run, Publish, Profile, and
-Refresh are available from the view title. Less frequent actions such as
-Configure, Rebuild, Clean, Validate, Debug, Graph, resolved-input inspection,
-and inactive-tooling inspection live in the title overflow menu.
+The Solution tree is product-centered. Project rows select the active product,
+and the active row includes the selected profile. Every project exposes its
+manifest, lazily enumerated physical Project Files, and known dependencies.
+Useful dotfiles remain visible, generated output roots stay out of Project
+Files, and nested NGIN project roots become links to their own project rows.
 
-Only the active project expands into resolved profile-specific information.
 Dependencies distinguishes workspace project references, direct packages, and
 transitive packages. Package features are details of their owning dependency.
-Tooling summarizes active generators and package-provided tool runs. Launch
-shows the effective launch choice, Publish lists the effective archive and
-installer targets, Artifacts exposes the executable, staged application folder,
-launch manifest, and compile database, and Problems appears only when inspect
-reports a problem. Source membership and resolved inputs are intentionally not
-duplicated from VS Code Explorer in the default tree.
+The separate Active Project view holds resolved profile-specific information.
+Build, Run, and Profile are its prominent actions; less frequent lifecycle and
+inspection actions live in the title overflow menu. Tooling summarizes active
+generators and package-provided tool runs. Launch shows the effective launch
+choice, Publish lists the effective archive and installer targets, Artifacts
+exposes the executable, staged application folder, launch manifest, and compile
+database, and Problems appears only when inspect reports a problem.
 
 Right-click dependency, tooling, and launch items to run the matching
 `ngin explain` operation. Resolved inputs and excluded generators remain
@@ -206,9 +206,10 @@ Open the repository root in VS Code. The extension activates when it finds
 
 Typical flow:
 
-1. Open the NGIN activity-bar Workspace view.
+1. Open the NGIN activity-bar Solution view.
 2. Choose a project from the tree and a profile from the view toolbar.
-3. Expand Dependencies, Tooling, Launch, Publish, or Artifacts when details are needed.
+3. Expand Project Files or Dependencies for navigation, and use Active Project
+   for Tooling, Launch, Publish, or Artifacts.
 4. Edit common `.nginproj` fields in the visual editor or reopen XML source for
    unsupported sections.
 5. Run Validate, Build, Publish, Run, Debug, or Graph from the view toolbar,

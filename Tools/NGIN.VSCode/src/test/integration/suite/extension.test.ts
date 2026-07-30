@@ -215,10 +215,15 @@ suite('NGIN Tools Extension', () => {
 
       const settingsPath = path.join(tempRoot, '.ngin/local/user.nginsettings');
       assert.match(await fs.readFile(settingsPath, 'utf8'), /<LocalSettings SchemaVersion="1">/);
-      const document = await waitForActiveDocument((candidate) => candidate.uri.scheme === 'file' && candidate.uri.fsPath === settingsPath);
-      assert.equal(document.uri.fsPath, settingsPath);
+      const expectedSuffix = `/${path.basename(tempRoot)}/.ngin/local/user.nginsettings`.toLowerCase();
+      const document = await waitForActiveDocument((candidate) =>
+        candidate.uri.scheme === 'file' &&
+        candidate.uri.path.toLowerCase().endsWith(expectedSuffix)
+      );
+      assert.match(document.getText(), /<LocalSettings SchemaVersion="1">/);
     } finally {
-      await fs.rm(tempRoot, { recursive: true, force: true });
+      await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+      await fs.rm(tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   });
 });

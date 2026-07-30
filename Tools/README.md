@@ -256,6 +256,9 @@ backend.
 It provides:
 
 - project and profile selection
+- a product-aware Solution tree with physical project-file navigation
+- a separate active-project view for resolved tooling, launch, publish,
+  artifacts, and diagnostics
 - build, run, debug, validate, graph, clean, and rebuild commands
 - `.nginlaunch`-based run and debug resolution
 - C/C++ compile database discovery for `ms-vscode.cpptools`

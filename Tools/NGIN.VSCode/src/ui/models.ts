@@ -20,7 +20,7 @@ export interface ProjectTreeManifestModel {
   description?: string;
 }
 
-export type ProjectTreeGroupKind = 'dependencies' | 'tooling' | 'launch' | 'publish' | 'artifacts' | 'problems';
+export type ProjectTreeGroupKind = 'files' | 'dependencies' | 'tooling' | 'launch' | 'publish' | 'artifacts' | 'problems';
 
 export interface ProjectTreeGroupModel {
   kind: 'group';
@@ -103,6 +103,13 @@ export interface ProjectTreeModels {
   childrenByProject: Map<string, ProjectTreeChildModel[]>;
   dependenciesByProject: Map<string, ProjectTreeDependenciesModel>;
   inspectByProject: Map<string, ProjectTreeInspectModel>;
+}
+
+export interface ActiveProjectTreeModel {
+  projectPath?: string;
+  description?: string;
+  groups: ProjectTreeGroupModel[];
+  inspect?: ProjectTreeInspectModel;
 }
 
 export interface StatusBarEntryModel {
@@ -807,6 +814,15 @@ export function buildProjectTreeModels(snapshot: NginWorkspaceSnapshot): Project
         tooltip: project.path,
         projectPath: project.path,
         filePath: project.path
+      },
+      {
+        kind: 'group',
+        id: `${project.path}:files`,
+        label: 'Project Files',
+        tooltip: 'Authored files below the project directory.',
+        icon: 'files',
+        projectPath: project.path,
+        group: 'files'
       }
     ];
 
@@ -817,7 +833,7 @@ export function buildProjectTreeModels(snapshot: NginWorkspaceSnapshot): Project
       inspectByProject.set(project.path, inspectModel);
     }
     const dependencyCount = dependencies.projects.length + dependencies.direct.length + dependencies.transitive.length;
-    if (selectedProject && dependencyCount > 0) {
+    if (dependencyCount > 0) {
       children.push({
         kind: 'group',
         id: `${project.path}:dependencies`,
@@ -828,53 +844,6 @@ export function buildProjectTreeModels(snapshot: NginWorkspaceSnapshot): Project
         projectPath: project.path,
         group: 'dependencies'
       });
-    }
-
-    if (selectedProject) {
-      for (const group of (inspectModel?.groups ?? []).filter((candidate) => candidate.kind !== 'problems')) {
-        const entries = inspectModel?.entriesByGroup.get(group.kind) ?? [];
-        children.push({
-          kind: 'group',
-          id: `${project.path}:${group.kind}`,
-          label: group.label,
-          description: group.kind === 'problems' || group.kind === 'tooling' || group.kind === 'publish'
-            ? String(entries.length)
-            : undefined,
-          tooltip: group.tooltip,
-          icon: group.icon,
-          projectPath: project.path,
-          group: group.kind as ProjectTreeGroupKind
-        });
-      }
-    }
-
-    if (selectedProject && (snapshot.launchManifestExists || snapshot.stagedCompileCommandsAvailable)) {
-      children.push({
-        kind: 'group',
-        id: `${project.path}:artifacts`,
-        label: 'Artifacts',
-        tooltip: 'Executable, staged application, launch metadata, and compile database.',
-        icon: 'archive',
-        projectPath: project.path,
-        group: 'artifacts'
-      });
-    }
-
-    if (selectedProject) {
-      const problems = inspectModel?.groups.find((group) => group.kind === 'problems');
-      if (problems) {
-        const entries = inspectModel?.entriesByGroup.get('problems') ?? [];
-        children.push({
-          kind: 'group',
-          id: `${project.path}:problems`,
-          label: problems.label,
-          description: String(entries.length),
-          tooltip: problems.tooltip,
-          icon: problems.icon,
-          projectPath: project.path,
-          group: 'problems'
-        });
-      }
     }
 
     childrenByProject.set(project.path, children);
@@ -890,6 +859,65 @@ export function buildProjectTreeModels(snapshot: NginWorkspaceSnapshot): Project
     childrenByProject,
     dependenciesByProject,
     inspectByProject
+  };
+}
+
+export function buildActiveProjectTreeModel(snapshot: NginWorkspaceSnapshot): ActiveProjectTreeModel {
+  const project = snapshot.context?.project;
+  if (!project) {
+    return { groups: [] };
+  }
+
+  const inspect = buildInspectTreeModel(snapshot, project.path);
+  const groups: ProjectTreeGroupModel[] = [];
+  for (const group of (inspect?.groups ?? []).filter((candidate) => candidate.kind !== 'problems')) {
+    const entries = inspect?.entriesByGroup.get(group.kind) ?? [];
+    groups.push({
+      kind: 'group',
+      id: `${project.path}:${group.kind}`,
+      label: group.label,
+      description: group.kind === 'tooling' || group.kind === 'publish'
+        ? String(entries.length)
+        : undefined,
+      tooltip: group.tooltip,
+      icon: group.icon,
+      projectPath: project.path,
+      group: group.kind as ProjectTreeGroupKind
+    });
+  }
+
+  if (snapshot.launchManifestExists || snapshot.stagedCompileCommandsAvailable) {
+    groups.push({
+      kind: 'group',
+      id: `${project.path}:artifacts`,
+      label: 'Artifacts',
+      tooltip: 'Executable, staged application, launch metadata, and compile database.',
+      icon: 'archive',
+      projectPath: project.path,
+      group: 'artifacts'
+    });
+  }
+
+  const problems = inspect?.groups.find((group) => group.kind === 'problems');
+  if (problems) {
+    const entries = inspect?.entriesByGroup.get('problems') ?? [];
+    groups.push({
+      kind: 'group',
+      id: `${project.path}:problems`,
+      label: problems.label,
+      description: String(entries.length),
+      tooltip: problems.tooltip,
+      icon: problems.icon,
+      projectPath: project.path,
+      group: 'problems'
+    });
+  }
+
+  return {
+    projectPath: project.path,
+    description: `${project.name} · ${snapshot.context?.profile.name ?? project.defaultProfile ?? 'dev'}`,
+    groups,
+    inspect
   };
 }
 
