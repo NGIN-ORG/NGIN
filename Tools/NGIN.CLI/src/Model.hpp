@@ -850,6 +850,12 @@ namespace NGIN::CLI
         std::vector<Feature> features{};
     };
 
+    struct ResolvedInputFile
+    {
+        std::string path{};
+        fs::path absolutePath{};
+    };
+
     struct ResolvedInput
     {
         std::string ownerKind{};
@@ -875,6 +881,7 @@ namespace NGIN::CLI
         std::vector<std::string> includePatterns{};
         std::vector<std::string> excludePatterns{};
         std::vector<InputMetadataProperty> metadata{};
+        std::vector<ResolvedInputFile> editorFiles{};
         ContributionProvenance provenance{};
     };
 
@@ -1249,6 +1256,21 @@ namespace NGIN::CLI
             Provenance provenance{};
         };
 
+        struct EditorFile
+        {
+            std::string path{};
+            fs::path absolutePath{};
+            std::string kind{};
+            std::string role{};
+            std::string ownerKind{};
+            std::string ownerName{};
+            bool generated{false};
+            bool exists{false};
+            fs::path manifestPath{};
+            std::string explainIdentity{};
+            Provenance provenance{};
+        };
+
         struct Generator
         {
             std::string name{};
@@ -1480,6 +1502,8 @@ namespace NGIN::CLI
         std::vector<PackageFeature> packageFeatures{};
         std::vector<BuildDefine> buildDefines{};
         std::vector<BuildInput> buildInputs{};
+        fs::path editorProjectRoot{};
+        std::vector<EditorFile> editorFiles{};
         std::vector<Generator> generators{};
         std::vector<RuntimeModule> runtimeModules{};
         std::vector<RuntimePlugin> runtimePlugins{};

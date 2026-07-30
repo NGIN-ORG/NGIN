@@ -247,6 +247,48 @@
       },
       "additionalProperties": true
     },
+    "editorFile": {
+      "type": "object",
+      "required": [
+        "path",
+        "absolutePath",
+        "kind",
+        "role",
+        "ownerKind",
+        "ownerName",
+        "generated",
+        "exists",
+        "manifestPath",
+        "explainIdentity",
+        "provenance"
+      ],
+      "properties": {
+        "path": { "type": "string" },
+        "absolutePath": { "type": "string" },
+        "kind": { "type": "string" },
+        "role": { "type": "string" },
+        "ownerKind": { "type": "string" },
+        "ownerName": { "type": "string" },
+        "generated": { "type": "boolean" },
+        "exists": { "type": "boolean" },
+        "manifestPath": { "type": "string" },
+        "explainIdentity": { "type": "string" },
+        "provenance": { "$ref": "#/$defs/provenance" }
+      },
+      "additionalProperties": true
+    },
+    "editorPlan": {
+      "type": "object",
+      "required": ["projectRoot", "files"],
+      "properties": {
+        "projectRoot": { "type": "string" },
+        "files": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/editorFile" }
+        }
+      },
+      "additionalProperties": true
+    },
     "generator": {
       "type": "object",
       "required": ["name", "owner", "tool", "outputs"],
@@ -597,6 +639,7 @@
         "packages",
         "packageFeatures",
         "build",
+        "editor",
         "generators",
         "stage",
         "runtime",
@@ -618,6 +661,7 @@
           "items": { "$ref": "#/$defs/packageFeature" }
         },
         "build": { "$ref": "#/$defs/buildPlan" },
+        "editor": { "$ref": "#/$defs/editorPlan" },
         "generators": {
           "type": "array",
           "items": { "$ref": "#/$defs/generator" }
@@ -711,6 +755,7 @@
           "type": "string",
           "enum": [
             "build",
+            "editor",
             "stage",
             "package",
             "package-output",
@@ -727,6 +772,7 @@
           "anyOf": [
             { "type": "null" },
             { "$ref": "#/$defs/buildPlan" },
+            { "$ref": "#/$defs/editorPlan" },
             { "$ref": "#/$defs/stagePlan" },
             { "$ref": "#/$defs/runtimePlan" },
             { "$ref": "#/$defs/environmentPlan" },

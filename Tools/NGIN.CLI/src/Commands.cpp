@@ -4052,6 +4052,8 @@ auto ParseCommonArgs(int argc, char **argv, int startIndex) -> ParsedArgs {
       args.toolListAvailable = true;
     } else if (current == "--build-plan") {
       args.graphPlan = "build";
+    } else if (current == "--editor-plan") {
+      args.graphPlan = "editor";
     } else if (current == "--stage-plan") {
       args.graphPlan = "stage";
     } else if (current == "--package-plan") {
@@ -5575,29 +5577,28 @@ auto CmdExplainObject(const fs::path &root, const ParsedArgs &args) -> int {
   if (kind == "source") {
     std::cout << "Source: " << identity << "\n";
     const auto requested = fs::path(identity).lexically_normal();
-    const auto inputIt = std::find_if(
-        resolved.value->inputs.begin(), resolved.value->inputs.end(),
-        [&](const ResolvedInput &input) {
-          if (input.kind != "Source" && input.kind != "Generated") {
-            return false;
-          }
-          return fs::path(input.source).lexically_normal() == requested ||
-                 input.absoluteSourcePath.lexically_normal() == requested;
+    const auto fileIt = std::find_if(
+        graph.editorFiles.begin(), graph.editorFiles.end(),
+        [&](const CompositionGraph::EditorFile &file) {
+          return fs::path(file.path).lexically_normal() == requested ||
+                 file.absolutePath.lexically_normal() == requested ||
+                 file.explainIdentity == "source:" + identity;
         });
-    if (inputIt == resolved.value->inputs.end()) {
+    if (fileIt == graph.editorFiles.end()) {
       std::cout << "  result: not selected\n";
       return 0;
     }
     std::cout << "  result: selected\n";
-    std::cout << "  source: " << inputIt->source << "\n";
-    std::cout << "  absoluteSourcePath: " << inputIt->absoluteSourcePath
+    std::cout << "  source: " << fileIt->path << "\n";
+    std::cout << "  absoluteSourcePath: " << fileIt->absolutePath << "\n";
+    std::cout << "  kind: " << fileIt->kind << "\n";
+    std::cout << "  role: " << fileIt->role << "\n";
+    std::cout << "  generated: " << (fileIt->generated ? "true" : "false")
               << "\n";
-    std::cout << "  kind: " << inputIt->kind << "\n";
-    std::cout << "  role: " << inputIt->role << "\n";
-    std::cout << "  visibility: " << inputIt->visibility << "\n";
-    std::cout << "  owner: " << inputIt->ownerKind << " " << inputIt->ownerName
+    std::cout << "  exists: " << (fileIt->exists ? "true" : "false") << "\n";
+    std::cout << "  owner: " << fileIt->ownerKind << " " << fileIt->ownerName
               << "\n";
-    std::cout << "  manifest: " << inputIt->manifestPath << "\n";
+    std::cout << "  manifest: " << fileIt->manifestPath << "\n";
     return 0;
   }
 
@@ -6128,7 +6129,7 @@ BuildCompositionGraph(const LoadedInvocation &invocation,
                   "profile",   "platform",  "package", "build",
                   "generate",  "stage",     "runtime", "environment",
                   "launch",    "publish",   "tooling", "diagnostics",
-                  "provenance"};
+                  "provenance", "editor"};
   graph.identity = CompositionGraph::Identity{
       .project = invocation.project.name,
       .projectPath = invocation.project.path,
@@ -6145,6 +6146,8 @@ BuildCompositionGraph(const LoadedInvocation &invocation,
     }
     graph.outputRoot = ResolveOutputRoot(*resolved, outputRootOverride);
     graph.outputDir = ResolveOutputDir(*resolved, outputPath);
+    graph.editorProjectRoot =
+        fs::absolute(invocation.project.path.parent_path()).lexically_normal();
   }
   graph.product = CompositionGraph::Product{
       .kind = productKind,
@@ -6358,6 +6361,55 @@ BuildCompositionGraph(const LoadedInvocation &invocation,
       });
     }
 
+    std::set<std::tuple<std::string, std::string, std::string, std::string,
+                        std::string>>
+        seenEditorFiles{};
+    const auto appendEditorFile =
+        [&](const fs::path &sourcePath, const std::string &kind,
+            const std::string &role, const std::string &ownerKind,
+            const std::string &ownerName, bool generated,
+            const fs::path &manifestPath, const std::string &explainKind,
+            const CompositionGraph::Provenance &provenance) {
+          auto absolutePath = sourcePath;
+          if (!absolutePath.is_absolute()) {
+            absolutePath = fs::absolute(absolutePath);
+          }
+          absolutePath = absolutePath.lexically_normal();
+
+          const auto relative =
+              absolutePath.lexically_relative(graph.editorProjectRoot);
+          const auto outsideProject =
+              relative.empty() || relative.is_absolute() ||
+              (!relative.empty() && *relative.begin() == "..");
+          const auto displayPath =
+              outsideProject ? absolutePath.generic_string()
+                             : relative.generic_string();
+          const auto identity = std::make_tuple(
+              absolutePath.generic_string(), kind, role, ownerKind, ownerName);
+          if (!seenEditorFiles.insert(identity).second) {
+            return;
+          }
+
+          std::error_code existenceError{};
+          const auto exists =
+              fs::is_regular_file(absolutePath, existenceError);
+          graph.editorFiles.push_back(CompositionGraph::EditorFile{
+              .path = displayPath,
+              .absolutePath = absolutePath,
+              .kind = kind,
+              .role = role,
+              .ownerKind = ownerKind,
+              .ownerName = ownerName,
+              .generated = generated,
+              .exists = exists && !existenceError,
+              .manifestPath = manifestPath,
+              .explainIdentity =
+                  explainKind.empty() ? std::string{}
+                                      : explainKind + ":" + displayPath,
+              .provenance = provenance,
+          });
+        };
+
     for (const auto &input : resolved->inputs) {
       if (input.kind == "Source") {
         ++graph.summary.sources;
@@ -6375,6 +6427,19 @@ BuildCompositionGraph(const LoadedInvocation &invocation,
                                                  "selected build input"),
         });
       }
+      for (const auto &file : input.editorFiles) {
+        const auto explainKind =
+            input.kind == "Source" || input.kind == "Header" ||
+                    input.kind == "Generated"
+                ? "source"
+                : std::string{};
+        appendEditorFile(
+            file.absolutePath, input.kind, input.role, input.ownerKind,
+            input.ownerName,
+            input.kind == "Generated" || input.ownerKind == "generator",
+            input.manifestPath, explainKind,
+            contributionProvenance(input.provenance, "selected editor input"));
+      }
       if (!input.stagedRelativePath.empty()) {
         ++graph.summary.stagedFiles;
         graph.stageFiles.push_back(CompositionGraph::StageFile{
@@ -6387,6 +6452,30 @@ BuildCompositionGraph(const LoadedInvocation &invocation,
         });
       }
     }
+
+    for (const auto &generator : resolved->generators) {
+      for (const auto &output : ResolveSelectedGeneratorOutputs(
+               *resolved, generator, graph.outputDir)) {
+        appendEditorFile(
+            output.absolutePath, output.declaration.kind,
+            output.declaration.role, "generator",
+            generator.declaration.name, true, generator.manifestPath, "source",
+            ownerContributionProvenance(
+                generator.declaration.provenance, generator.ownerKind,
+                generator.ownerName, generator.manifestPath,
+                generator.declaration.selectors,
+                "selected generated editor input"));
+      }
+    }
+    std::sort(
+        graph.editorFiles.begin(), graph.editorFiles.end(),
+        [](const CompositionGraph::EditorFile &left,
+           const CompositionGraph::EditorFile &right) {
+          return std::tie(left.path, left.ownerKind, left.ownerName, left.kind,
+                          left.role) <
+                 std::tie(right.path, right.ownerKind, right.ownerName,
+                          right.kind, right.role);
+        });
 
     for (const auto &variable : resolved->environmentVariables) {
       graph.environment.push_back(CompositionGraph::EnvironmentEntry{
@@ -7057,6 +7146,33 @@ auto WriteGraphBuildPlan(std::ostream &out, const CompositionGraph &graph,
   out << "]}";
 }
 
+auto WriteGraphEditorPlan(std::ostream &out, const CompositionGraph &graph)
+    -> void {
+  out << "{\"projectRoot\":" << JsonPath(graph.editorProjectRoot)
+      << ",\"files\":[";
+  for (std::size_t index = 0; index < graph.editorFiles.size(); ++index) {
+    if (index > 0) {
+      out << ",";
+    }
+    const auto &file = graph.editorFiles[index];
+    out << "{"
+        << "\"path\":" << Json(file.path) << ","
+        << "\"absolutePath\":" << JsonPath(file.absolutePath) << ","
+        << "\"kind\":" << Json(file.kind) << ","
+        << "\"role\":" << Json(file.role) << ","
+        << "\"ownerKind\":" << Json(file.ownerKind) << ","
+        << "\"ownerName\":" << Json(file.ownerName) << ","
+        << "\"generated\":" << (file.generated ? "true" : "false") << ","
+        << "\"exists\":" << (file.exists ? "true" : "false") << ","
+        << "\"manifestPath\":" << JsonPath(file.manifestPath) << ","
+        << "\"explainIdentity\":" << Json(file.explainIdentity) << ","
+        << "\"provenance\":";
+    WriteGraphProvenance(out, file.provenance);
+    out << "}";
+  }
+  out << "]}";
+}
+
 auto WriteGraphGenerators(
     std::ostream &out,
     const std::vector<CompositionGraph::Generator> &generators,
@@ -7617,6 +7733,10 @@ auto WriteCompositionGraphJson(
   WriteGraphBuildPlan(std::cout, graph, false);
   std::cout << ",";
 
+  std::cout << "\"editor\":";
+  WriteGraphEditorPlan(std::cout, graph);
+  std::cout << ",";
+
   std::cout << "\"generators\":";
   WriteGraphGenerators(std::cout, graph.generators, false);
   std::cout << ",";
@@ -7704,7 +7824,9 @@ auto WriteCompositionGraphPlanJson(
     return;
   }
 
-  if (plan == "stage") {
+  if (plan == "editor") {
+    WriteGraphEditorPlan(std::cout, graph);
+  } else if (plan == "stage") {
     std::cout << "{\"files\":";
     WriteGraphStageFiles(std::cout, graph.stageFiles, true);
     std::cout << "}";
@@ -8486,7 +8608,7 @@ auto CmdSchema(const fs::path &root, const ParsedArgs &args) -> int {
                "\"product\", \"selection\", \"facetsSummary\", \"plans\"],\n";
   std::cout
       << "    \"planFields\": [\"packages\", \"packageFeatures\", \"build\", "
-         "\"generators\", \"stage\", \"runtime\", \"environment\", "
+         "\"editor\", \"generators\", \"stage\", \"runtime\", \"environment\", "
          "\"launch\", \"launches\", \"packageOutputs\", \"publish\", "
          "\"tooling\", \"diagnostics\"]\n";
   std::cout << "  },\n";
@@ -8495,7 +8617,7 @@ auto CmdSchema(const fs::path &root, const ParsedArgs &args) -> int {
                "\"generator\", \"launch\", \"publish\", \"package-output\", "
                "\"env\", \"tool\", \"driver\", \"action\", \"run\", "
                "\"input-set\", \"runtime-module\", \"toolchain\"],\n";
-  std::cout << "  \"graphPlans\": [\"build\", \"stage\", \"package\", "
+  std::cout << "  \"graphPlans\": [\"build\", \"editor\", \"stage\", \"package\", "
                "\"package-output\", \"launch\", \"runtime\", \"environment\", "
                "\"publish\", \"tooling\"]\n";
   std::cout << "}\n";

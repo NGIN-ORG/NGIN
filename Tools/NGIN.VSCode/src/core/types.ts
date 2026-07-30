@@ -334,6 +334,25 @@ export interface GraphBuildDefine {
   provenance?: GraphProvenance;
 }
 
+export interface GraphEditorFile {
+  path: string;
+  absolutePath: string;
+  kind: string;
+  role: string;
+  ownerKind: string;
+  ownerName: string;
+  generated: boolean;
+  exists: boolean;
+  manifestPath: string;
+  explainIdentity: string;
+  provenance: GraphProvenance;
+}
+
+export interface GraphEditorPlan {
+  projectRoot: string;
+  files: GraphEditorFile[];
+}
+
 export interface GraphLaunchPlan {
   name?: string;
   executable?: string;
@@ -584,6 +603,7 @@ export interface CompositionGraphPayload {
       inputs?: GraphBuildInput[];
       defines?: Array<string | GraphBuildDefine>;
     };
+    editor?: GraphEditorPlan;
     generators?: GraphGeneratorPlan[];
     stage?: {
       files?: GraphStagedFile[];

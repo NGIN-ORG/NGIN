@@ -2759,6 +2759,23 @@ auto PruneEmptyDirectories(fs::path path, const fs::path &stopAt) -> void {
 }
 } // namespace
 
+auto ResolveSelectedGeneratorOutputs(
+    const ResolvedLaunch &resolved,
+    const ResolvedGenerator &generator,
+    const fs::path &outputDir) -> std::vector<ResolvedGeneratorOutput> {
+  const auto generatedDir = ResolveGeneratedDir(resolved, outputDir);
+  std::vector<ResolvedGeneratorOutput> outputs{};
+  for (auto output : SelectedGeneratorOutputs(resolved, generator)) {
+    const auto absolutePath = ResolveGeneratorPath(
+        output.path, resolved, generator, outputDir, generatedDir);
+    outputs.push_back(ResolvedGeneratorOutput{
+        .declaration = std::move(output),
+        .absolutePath = absolutePath,
+    });
+  }
+  return outputs;
+}
+
 auto CompilationPlanSignature(const ResolvedLaunch &resolved) -> std::string {
   std::ostringstream material{};
   material << "project=" << resolved.project.path.generic_string() << '\n'

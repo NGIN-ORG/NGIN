@@ -43,6 +43,12 @@ namespace NGIN::CLI
         std::string digest{};
     };
 
+    struct ResolvedGeneratorOutput
+    {
+        InputDeclaration declaration{};
+        fs::path absolutePath{};
+    };
+
     [[nodiscard]] auto ResolveToolPath(
         const std::string &tool,
         const std::optional<fs::path> &searchRoot = std::nullopt) -> std::optional<ToolResolution>;
@@ -58,6 +64,11 @@ namespace NGIN::CLI
     [[nodiscard]] auto ResolveOutputDir(
         const ResolvedLaunch &resolved,
         const std::optional<fs::path> &outputPath = std::nullopt) -> fs::path;
+
+    [[nodiscard]] auto ResolveSelectedGeneratorOutputs(
+        const ResolvedLaunch &resolved,
+        const ResolvedGenerator &generator,
+        const fs::path &outputDir) -> std::vector<ResolvedGeneratorOutput>;
 
     [[nodiscard]] auto RunProcess(
         const fs::path &executable,

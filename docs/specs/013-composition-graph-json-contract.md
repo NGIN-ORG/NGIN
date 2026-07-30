@@ -75,6 +75,7 @@ The stable `plans` object contains:
 - `packages`
 - `packageFeatures`
 - `build`
+- `editor`
 - `generators`
 - `stage`
 - `runtime`
@@ -113,6 +114,7 @@ Focused graph plans use:
 Supported `plan` values are:
 
 - `build`
+- `editor`
 - `stage`
 - `package`
 - `package-output`
@@ -125,6 +127,44 @@ Supported `plan` values are:
 The `data` field uses the same object shapes as the matching full graph
 `plans` entry. Focused plan output includes provenance-bearing selected items
 where the authoring and resolution layer can identify the selected source.
+
+## Editor Plan
+
+`plans.editor` is the resolver-owned file-membership index for editor
+integrations:
+
+```json
+{
+  "projectRoot": "F:/repo/App",
+  "files": [
+    {
+      "path": "src/main.cpp",
+      "absolutePath": "F:/repo/App/src/main.cpp",
+      "kind": "Source",
+      "role": "Source",
+      "ownerKind": "project",
+      "ownerName": "App",
+      "generated": false,
+      "exists": true,
+      "manifestPath": "F:/repo/App/App.nginproj",
+      "explainIdentity": "source:src/main.cpp",
+      "provenance": {
+        "sourceKind": "project",
+        "sourceName": "App",
+        "manifestPath": "F:/repo/App/App.nginproj",
+        "reason": "selected editor input"
+      }
+    }
+  ]
+}
+```
+
+The slice contains selected files only. Directory and glob declarations are
+materialized by the resolver. Files outside `projectRoot` retain normalized
+absolute paths and owner identity. Declared generator outputs are included
+before generation with `generated: true` and their current `exists` state.
+Consumers discover ordinary physical files independently and must treat a
+missing or diagnostic editor plan as unknown membership, not exclusion.
 
 ## Provenance
 

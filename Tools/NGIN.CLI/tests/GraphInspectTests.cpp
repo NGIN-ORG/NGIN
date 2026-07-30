@@ -57,6 +57,94 @@ TEST_CASE("inspect emits product identity")
     REQUIRE_THAT(json, ContainsSubstring(R"("outputName":"Hello.Native")"));
 }
 
+TEST_CASE("inspect materializes editor file membership")
+{
+    TempDir temp{};
+    const auto projectDirectory = temp.path() / "project";
+    const auto projectPath = projectDirectory / "Editor.App.nginproj";
+    const auto externalDirectory = temp.path() / "editor-shared";
+    const auto externalHeader = externalDirectory / "editor-shared.hpp";
+    WriteFile(projectPath,
+              R"xml(<?xml version="1.0" encoding="utf-8"?>
+<Project SchemaVersion="4" Name="Editor.App" DefaultProfile="dev">
+  <Application>
+    <Build>
+      <Sources Path="src" />
+      <Headers Path="../)xml" +
+                  externalDirectory.filename().string() +
+                  R"xml(" />
+    </Build>
+    <Stage>
+      <Config Source="config/app.json" Target="config/app.json" />
+      <Content Source="assets/**" Target="assets" />
+    </Stage>
+    <Generate>
+      <Generator Name="EditorGen">
+        <Tool Executable="generator" />
+        <Outputs>
+          <Sources Path="$(GeneratedDir)/editor.generated.cpp" />
+        </Outputs>
+      </Generator>
+    </Generate>
+  </Application>
+  <Profile Name="dev">
+    <Defaults>
+      <Optimization Mode="Off" />
+      <DebugSymbols Enabled="true" />
+      <LinkTimeOptimization Enabled="false" />
+    </Defaults>
+    <Application>
+      <Build>
+        <Sources Path="profile" />
+      </Build>
+    </Application>
+  </Profile>
+</Project>
+)xml");
+    WriteFile(projectDirectory / "src/main.cpp", "int main() { return 0; }\n");
+    WriteFile(projectDirectory / "src/nested/feature.cpp", "int feature() { return 0; }\n");
+    WriteFile(projectDirectory / "src/skip.cpp", "int skipped() { return 0; }\n");
+    WriteFile(projectDirectory / "profile/profile.cpp", "int profile() { return 0; }\n");
+    WriteFile(projectDirectory / "config/app.json", "{}\n");
+    WriteFile(projectDirectory / "assets/readme.txt", "asset\n");
+    WriteFile(externalHeader, "#pragma once\n");
+
+    ParsedArgs args{};
+    args.projectPath = projectPath.string();
+    args.profileName = "dev";
+    args.format = "json";
+    const auto outputRoot = temp.path() / "out";
+    args.outputRootPath = outputRoot.string();
+
+    std::ostringstream captured{};
+    auto *previous = std::cout.rdbuf(captured.rdbuf());
+    const auto exitCode = CmdInspect(temp.path(), args);
+    std::cout.rdbuf(previous);
+
+    const auto json = captured.str();
+    REQUIRE(exitCode == 0);
+    REQUIRE_THAT(json, ContainsSubstring(R"("editor":{"projectRoot":")" +
+                                         projectDirectory.generic_string() + R"(","files":[)"));
+    REQUIRE_THAT(json, ContainsSubstring(R"("path":"src/main.cpp","absolutePath":")" +
+                                         (projectDirectory / "src/main.cpp").generic_string()));
+    REQUIRE_THAT(json, ContainsSubstring(R"("path":"src/nested/feature.cpp")"));
+    REQUIRE_THAT(json, ContainsSubstring(R"("path":"src/skip.cpp")"));
+    REQUIRE_THAT(json, ContainsSubstring(R"("path":"profile/profile.cpp")"));
+    REQUIRE_THAT(json, ContainsSubstring(R"("path":"config/app.json")"));
+    REQUIRE_THAT(json, ContainsSubstring(R"("path":"assets/readme.txt")"));
+    REQUIRE_THAT(json, ContainsSubstring(R"("absolutePath":")" +
+                                         externalHeader.generic_string() +
+                                         R"(","kind":"Source","role":"Header")"));
+    const auto generatedPath =
+        outputRoot / "Editor.App" / "dev" / ".ngin" / "generated" /
+        "Editor.App" / "dev" / "editor.generated.cpp";
+    REQUIRE_THAT(json, ContainsSubstring(R"("absolutePath":")" +
+                                         generatedPath.generic_string() +
+                                         R"(","kind":"Generated","role":"Source","ownerKind":"generator","ownerName":"EditorGen","generated":true,"exists":false)"));
+    REQUIRE_THAT(json, ContainsSubstring(R"("explainIdentity":"source:src/main.cpp")"));
+    REQUIRE_THAT(json, ContainsSubstring(R"("reason":"selected generated editor input")"));
+}
+
 TEST_CASE("diff compares resolved profile graph slices")
 {
     TempDir temp{};

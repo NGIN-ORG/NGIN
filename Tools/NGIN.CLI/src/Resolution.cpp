@@ -192,14 +192,16 @@ namespace NGIN::CLI
         auto ExpandInputSources(
             const InputDeclaration &input,
             const fs::path &ownerDirectory,
-            std::vector<std::pair<std::string, fs::path>> &out) -> void
+            std::vector<std::pair<std::string, fs::path>> &out,
+            std::vector<ResolvedInputFile> &editorFiles) -> void
         {
             if (input.mode == "File")
             {
                 const auto declared = fs::path(input.path);
-                out.emplace_back(input.path,
-                                 declared.is_absolute() ? declared.lexically_normal()
-                                                        : (ownerDirectory / declared).lexically_normal());
+                const auto absolute = declared.is_absolute() ? declared.lexically_normal()
+                                                             : (ownerDirectory / declared).lexically_normal();
+                out.emplace_back(input.path, absolute);
+                editorFiles.push_back(ResolvedInputFile{.path = input.path, .absolutePath = absolute});
                 return;
             }
 
@@ -208,35 +210,42 @@ namespace NGIN::CLI
                 const auto declared = fs::path(input.path);
                 const auto root = declared.is_absolute() ? declared.lexically_normal()
                                                          : (ownerDirectory / declared).lexically_normal();
+                std::vector<std::pair<std::string, fs::path>> entries{};
+                if (fs::exists(root) && fs::is_directory(root))
+                {
+                    for (const auto &entry : fs::recursive_directory_iterator(root))
+                    {
+                        if (!entry.is_regular_file())
+                        {
+                            continue;
+                        }
+                        const auto relative = entry.path().lexically_relative(root);
+                        if (!input.includePatterns.empty() && !AnyGlobMatches(input.includePatterns, relative))
+                        {
+                            continue;
+                        }
+                        if (!input.excludePatterns.empty() && AnyGlobMatches(input.excludePatterns, relative))
+                        {
+                            continue;
+                        }
+                        entries.emplace_back(
+                            (fs::path(input.path) / relative).generic_string(),
+                            entry.path().lexically_normal());
+                    }
+                }
+                std::sort(entries.begin(), entries.end(), [](const auto &left, const auto &right) { return left.first < right.first; });
+                for (const auto &[path, absolutePath] : entries)
+                {
+                    editorFiles.push_back(ResolvedInputFile{.path = path, .absolutePath = absolutePath});
+                }
                 if (!InputIsStaged(input) && input.kind != "ToolInput")
                 {
                     out.emplace_back(input.path, root);
-                    return;
                 }
-                if (!fs::exists(root) || !fs::is_directory(root))
+                else
                 {
-                    return;
+                    out.insert(out.end(), entries.begin(), entries.end());
                 }
-                std::vector<std::pair<std::string, fs::path>> entries{};
-                for (const auto &entry : fs::recursive_directory_iterator(root))
-                {
-                    if (!entry.is_regular_file())
-                    {
-                        continue;
-                    }
-                    const auto relative = entry.path().lexically_relative(root);
-                    if (!input.includePatterns.empty() && !AnyGlobMatches(input.includePatterns, relative))
-                    {
-                        continue;
-                    }
-                    if (!input.excludePatterns.empty() && AnyGlobMatches(input.excludePatterns, relative))
-                    {
-                        continue;
-                    }
-                    entries.emplace_back((fs::path(input.path) / relative).generic_string(), entry.path().lexically_normal());
-                }
-                std::sort(entries.begin(), entries.end(), [](const auto &left, const auto &right) { return left.first < right.first; });
-                out.insert(out.end(), entries.begin(), entries.end());
                 return;
             }
 
@@ -271,6 +280,10 @@ namespace NGIN::CLI
             }
             std::sort(entries.begin(), entries.end(), [](const auto &left, const auto &right) { return left.first < right.first; });
             out.insert(out.end(), entries.begin(), entries.end());
+            for (const auto &[path, absolutePath] : entries)
+            {
+                editorFiles.push_back(ResolvedInputFile{.path = path, .absolutePath = absolutePath});
+            }
         }
 
         struct LoadedSetting
@@ -1873,7 +1886,8 @@ namespace NGIN::CLI
                     continue;
                 }
                 std::vector<std::pair<std::string, fs::path>> expandedSources{};
-                ExpandInputSources(input, ownerDirectory, expandedSources);
+                std::vector<ResolvedInputFile> editorFiles{};
+                ExpandInputSources(input, ownerDirectory, expandedSources, editorFiles);
                 if (input.mode == "Glob" && expandedSources.empty() && input.required)
                 {
                     AddError(result.diagnostics, ownerKind + " '" + ownerName + "' input glob '" + input.pattern + "' matched no files");
@@ -1915,6 +1929,15 @@ namespace NGIN::CLI
                     resolvedInput.includePatterns = input.includePatterns;
                     resolvedInput.excludePatterns = input.excludePatterns;
                     resolvedInput.metadata = input.metadata;
+                    if (input.mode == "Directory" && !InputIsStaged(input) && input.kind != "ToolInput")
+                    {
+                        resolvedInput.editorFiles = editorFiles;
+                    }
+                    else
+                    {
+                        resolvedInput.editorFiles.push_back(
+                            ResolvedInputFile{.path = declaredSource, .absolutePath = absoluteSource});
+                    }
                     resolvedInput.provenance =
                         SelectionProvenance(input.provenance, ownerKind, ownerName, manifestPath, input.selectors,
                                             InputIsStaged(input) ? "staged file contribution" : "selected build input");
