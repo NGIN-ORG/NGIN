@@ -1,32 +1,131 @@
 #include <NGIN/ECS/ECS.hpp>
 
-struct Position
-{
-    float X {0.0f};
-};
+#include <iomanip>
+#include <iostream>
+#include <string_view>
 
-struct Velocity
+namespace
 {
-    float X {0.0f};
-};
+    constexpr int FinishLine = 20;
+
+    // Components are plain data. An entity becomes a racer by having these
+    // components attached to it.
+    struct Position
+    {
+        int X{0};
+    };
+
+    struct Velocity
+    {
+        int X{0};
+    };
+
+    struct Acceleration
+    {
+        int X{0};
+    };
+
+    struct Racer
+    {
+        std::string_view Name;
+        char Symbol{'?'};
+    };
+
+    std::string_view DrawRace(NGIN::ECS::World &world, int tick)
+    {
+        std::cout << "\nTick " << tick << '\n';
+
+        std::string_view winner;
+        NGIN::ECS::Query<
+            NGIN::ECS::Read<Position>,
+            NGIN::ECS::Read<Racer>>
+            racers{world};
+
+        racers.ForEach(
+            [&](auto row)
+            {
+                const auto &position = row.template Get<Position>();
+                const auto &racer = row.template Get<Racer>();
+                const int marker =
+                    position.X < FinishLine ? position.X : FinishLine;
+
+                if (winner.empty() && position.X >= FinishLine)
+                {
+                    winner = racer.Name;
+                }
+
+                std::cout << "  " << std::left << std::setw(18) << racer.Name
+                          << " |";
+                for (int cell = 0; cell <= FinishLine; ++cell)
+                {
+                    std::cout << (cell == marker ? racer.Symbol : '.');
+                }
+                std::cout << "|  x = " << position.X << '\n';
+            });
+
+        return winner;
+    }
+}
 
 int main()
 {
-    NGIN::ECS::World world;
-    const auto entity = world.Spawn(Position {}, Velocity {2.0f});
+    using namespace NGIN::ECS;
 
-    NGIN::ECS::Scheduler scheduler;
-    (void)scheduler.AddSystem(
-        "Move",
-        [](NGIN::ECS::Query<
-            NGIN::ECS::Write<Position>,
-            NGIN::ECS::Read<Velocity>>& query) {
-            query.ForEach([](auto row) {
-                row.template Get<Position>().X +=
-                    row.template Get<Velocity>().X;
-            });
+    World world;
+
+    // Each racer is an entity assembled from the same reusable components.
+    (void)world.Spawn(
+        Position{}, Velocity{0}, Acceleration{1}, Racer{"Turbo Tortoise", 'T'});
+    (void)world.Spawn(
+        Position{}, Velocity{3}, Acceleration{0}, Racer{"Hasty Hare", 'H'});
+    (void)world.Spawn(
+        Position{}, Velocity{2}, Acceleration{0}, Racer{"Clockwork Crab", 'C'});
+
+    Scheduler scheduler;
+
+    const auto accelerate = scheduler.AddSystem(
+        "Accelerate",
+        [](Query<Write<Velocity>, Read<Acceleration>> &racers)
+        {
+            racers.ForEach(
+                [](auto row)
+                {
+                    row.template Get<Velocity>().X +=
+                        row.template Get<Acceleration>().X;
+                });
         });
 
-    scheduler.Run(world);
-    return world.Get<Position>(entity).X == 2.0f ? 0 : 1;
+    const auto move = scheduler.AddSystem(
+        "Move",
+        [](Query<Write<Position>, Read<Velocity>> &racers)
+        {
+            racers.ForEach(
+                [](auto row)
+                {
+                    row.template Get<Position>().X +=
+                        row.template Get<Velocity>().X;
+                });
+        });
+
+    scheduler.After(move, accelerate);
+
+    std::cout << "=== NGIN.ECS GRAND PRIX ===\n"
+              << "Entities race using Position, Velocity, and Acceleration.\n"
+              << "The Accelerate and Move systems update every racer.\n";
+
+    (void)DrawRace(world, 0);
+
+    for (int tick = 1; tick <= 10; ++tick)
+    {
+        scheduler.Run(world);
+        const auto winner = DrawRace(world, tick);
+        if (!winner.empty())
+        {
+            std::cout << "\nWinner: " << winner << "!\n";
+            return 0;
+        }
+    }
+
+    std::cout << "\nThe race ended without a winner.\n";
+    return 1;
 }
