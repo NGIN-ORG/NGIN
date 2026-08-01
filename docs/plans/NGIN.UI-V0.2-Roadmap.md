@@ -1,6 +1,6 @@
 # NGIN.UI Version 0.2 Roadmap
 
-Status: In progress — Milestones 17–23 complete
+Status: In progress — Milestones 17–24 complete
 Theme: Production desktop foundation
 Baseline: [`NGIN.UI-Post-V0.1-Roadmap.md`](NGIN.UI-Post-V0.1-Roadmap.md)
 Execution map:

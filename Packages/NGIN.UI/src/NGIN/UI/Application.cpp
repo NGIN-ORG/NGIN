@@ -2,6 +2,9 @@
 
 #include "MotionInternal.hpp"
 
+#include <NGIN/Execution/WorkItem.hpp>
+#include <NGIN/Time/MonotonicClock.hpp>
+
 #include <algorithm>
 #include <deque>
 #include <iterator>
@@ -14,6 +17,116 @@
 namespace NGIN::UI {
 namespace {
 using DiagnosticsClock = std::chrono::steady_clock;
+
+class UIAsyncScheduler final {
+public:
+  struct DelayedEntry final {
+    MonotonicTime due{};
+    NGIN::Execution::WorkItem item{};
+  };
+
+  void Bind(IPlatformBackend &platform) noexcept { m_platform = &platform; }
+
+  void Execute(NGIN::Execution::WorkItem item) noexcept {
+    try {
+      {
+        std::scoped_lock lock{m_mutex};
+        m_ready.push_back(std::move(item));
+      }
+      Wake();
+    } catch (...) {
+      item.Invoke();
+    }
+  }
+
+  void ExecuteAt(NGIN::Execution::WorkItem item,
+                 const NGIN::Time::TimePoint resumeAt) {
+    const auto now = NGIN::Time::MonotonicClock::Now();
+    auto delay = MonotonicTime{0};
+    if (resumeAt > now) {
+      delay =
+          std::chrono::duration_cast<MonotonicTime>(std::chrono::nanoseconds{
+              resumeAt.ToNanoseconds() - now.ToNanoseconds()});
+    }
+    const auto platformNow =
+        m_platform != nullptr ? m_platform->MonotonicNow() : MonotonicTime{};
+    try {
+      {
+        std::scoped_lock lock{m_mutex};
+        m_delayed.push_back(DelayedEntry{
+            .due = platformNow + delay,
+            .item = std::move(item),
+        });
+      }
+      Wake();
+    } catch (...) {
+      item.Invoke();
+    }
+  }
+
+  [[nodiscard]] auto NextDeadline() const noexcept
+      -> std::optional<MonotonicTime> {
+    std::scoped_lock lock{m_mutex};
+    if (!m_ready.empty()) {
+      return MonotonicTime{0};
+    }
+    std::optional<MonotonicTime> result;
+    for (const auto &entry : m_delayed) {
+      if (!result || entry.due < *result) {
+        result = entry.due;
+      }
+    }
+    return result;
+  }
+
+  void RunReady(const MonotonicTime now) noexcept {
+    std::deque<NGIN::Execution::WorkItem> ready;
+    {
+      std::scoped_lock lock{m_mutex};
+      ready.swap(m_ready);
+      for (auto &entry : m_delayed) {
+        if (entry.due <= now) {
+          ready.push_back(std::move(entry.item));
+        }
+      }
+      std::erase_if(m_delayed, [now](const DelayedEntry &entry) {
+        return entry.due <= now;
+      });
+    }
+    for (auto &item : ready) {
+      item.Invoke();
+    }
+  }
+
+  void DrainReady(const MonotonicTime now) noexcept {
+    for (;;) {
+      const auto deadline = NextDeadline();
+      if (!deadline || (*deadline != MonotonicTime{0} && *deadline > now)) {
+        return;
+      }
+      RunReady(now);
+    }
+  }
+
+  void Shutdown() noexcept {
+    std::scoped_lock lock{m_mutex};
+    m_ready.clear();
+    m_delayed.clear();
+    m_platform = nullptr;
+  }
+
+private:
+  void Wake() noexcept {
+    if (m_platform != nullptr) {
+      m_platform->WakeEventLoop();
+    }
+  }
+
+  mutable std::mutex m_mutex{};
+  std::deque<NGIN::Execution::WorkItem> m_ready{};
+  std::vector<DelayedEntry> m_delayed{};
+  IPlatformBackend *m_platform{nullptr};
+};
 
 [[nodiscard]] auto
 ElapsedMilliseconds(const DiagnosticsClock::time_point start,
@@ -66,7 +179,15 @@ struct Window::Implementation final {
   Implementation(IPlatformBackend &platform,
                  const PlatformWindowHandle platformHandle)
       : platform(&platform), reconciler(tree), layoutEngine(tree),
-        inputRouter(tree, &platform, platformHandle) {}
+        inputRouter(tree, &platform, platformHandle),
+        motionHost(Detail::CreateMotionHost([this] {
+          dirty = true;
+          paintDirty = true;
+          semanticsDirty = true;
+          if (this->platform != nullptr) {
+            this->platform->WakeEventLoop();
+          }
+        })) {}
 
   struct ScheduledEntry final {
     ScheduledActionId id{0};
@@ -110,6 +231,7 @@ struct Window::Implementation final {
   std::optional<MonotonicTime> nextMotionDeadline{};
   std::optional<bool> lastReducedMotion{};
   bool motionEnabled{true};
+  std::shared_ptr<Detail::MotionHostState> motionHost{};
 };
 
 Window::Window(WindowCreateInfo info, const PlatformWindowHandle platformHandle,
@@ -346,8 +468,7 @@ void Window::Invalidate(const InvalidationKind kind) noexcept {
 }
 
 void Window::SetMotionEnabled(const bool enabled) noexcept {
-  if (m_implementation->motionEnabled == enabled ||
-      m_implementation->closed) {
+  if (m_implementation->motionEnabled == enabled || m_implementation->closed) {
     return;
   }
   m_implementation->motionEnabled = enabled;
@@ -415,6 +536,8 @@ struct Application::Implementation final : IAccessibilityActionSink {
   std::unique_ptr<IPlatformBackend> platform{};
   std::unique_ptr<IRenderBackend> renderer{};
   std::unique_ptr<IAccessibilityBackend> accessibility{};
+  UIAsyncScheduler asyncScheduler{};
+  NGIN::Async::CancellationSource lifetimeCancellation{};
   std::vector<std::unique_ptr<Window>> windows{};
   std::mutex accessibilityMutex{};
   std::deque<AccessibilityActionRequest> accessibilityActions{};
@@ -455,11 +578,20 @@ Application::Application(std::unique_ptr<IPlatformBackend> platform,
                          std::unique_ptr<IAccessibilityBackend> accessibility)
     : m_implementation(std::make_unique<Implementation>()) {
   m_implementation->platform = std::move(platform);
+  m_implementation->asyncScheduler.Bind(*m_implementation->platform);
   m_implementation->renderer = std::move(renderer);
   m_implementation->accessibility = std::move(accessibility);
 }
 
 Application::~Application() {
+  for (auto &window : m_implementation->windows) {
+    Detail::UnmountMotionTree(window->m_implementation->tree);
+    Detail::CloseMotionHost(window->m_implementation->motionHost);
+  }
+  m_implementation->lifetimeCancellation.Cancel();
+  m_implementation->asyncScheduler.DrainReady(
+      m_implementation->platform->MonotonicNow());
+  m_implementation->asyncScheduler.Shutdown();
   static_cast<void>(m_implementation->renderer->WaitIdle());
   for (auto window = m_implementation->windows.rbegin();
        window != m_implementation->windows.rend(); ++window) {
@@ -673,6 +805,8 @@ auto Application::CloseWindow(Window &window) noexcept -> UIResult<void> {
     return std::move(destroyedWindow).Error();
   }
 
+  Detail::UnmountMotionTree(window.m_implementation->tree);
+  Detail::CloseMotionHost(window.m_implementation->motionHost);
   window.m_implementation->closed = true;
   window.m_implementation->dirty = false;
   window.m_implementation->scheduledActions.clear();
@@ -692,6 +826,15 @@ auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
     -> UIResult<void> {
   auto effectiveWait = std::max(maximumWait, std::chrono::milliseconds{0});
   const auto beforeWait = m_implementation->platform->MonotonicNow();
+  if (const auto deadline = m_implementation->asyncScheduler.NextDeadline()) {
+    if (*deadline == MonotonicTime{0} || *deadline <= beforeWait) {
+      effectiveWait = std::chrono::milliseconds{0};
+    } else {
+      effectiveWait = std::min(
+          effectiveWait,
+          std::chrono::ceil<std::chrono::milliseconds>(*deadline - beforeWait));
+    }
+  }
   for (const auto &window : m_implementation->windows) {
     if (window->IsClosed()) {
       continue;
@@ -703,10 +846,9 @@ auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
       if (*deadline <= beforeWait) {
         effectiveWait = std::chrono::milliseconds{0};
       } else {
-        effectiveWait = std::min(
-            effectiveWait,
-            std::chrono::ceil<std::chrono::milliseconds>(*deadline -
-                                                          beforeWait));
+        effectiveWait = std::min(effectiveWait,
+                                 std::chrono::ceil<std::chrono::milliseconds>(
+                                     *deadline - beforeWait));
       }
     }
     for (const auto &entry : window->m_implementation->scheduledActions) {
@@ -750,6 +892,7 @@ auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
   }
 
   const auto afterWait = m_implementation->platform->MonotonicNow();
+  m_implementation->asyncScheduler.RunReady(afterWait);
   for (auto &window : m_implementation->windows) {
     if (window->IsClosed()) {
       continue;
@@ -779,16 +922,14 @@ auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
     }
     if (window->m_implementation->nextMotionDeadline &&
         *window->m_implementation->nextMotionDeadline <= afterWait) {
-      window->Invalidate(InvalidationKind::Paint |
-                         InvalidationKind::Semantics);
+      window->Invalidate(InvalidationKind::Paint | InvalidationKind::Semantics);
     }
     const auto reducedMotion =
         !window->m_implementation->motionEnabled ||
         window->m_implementation->platform->ReducedMotionEnabled();
     if (window->m_implementation->lastReducedMotion.has_value() &&
         *window->m_implementation->lastReducedMotion != reducedMotion) {
-      window->Invalidate(InvalidationKind::Paint |
-                         InvalidationKind::Semantics);
+      window->Invalidate(InvalidationKind::Paint | InvalidationKind::Semantics);
     }
     window->m_implementation->lastReducedMotion = reducedMotion;
   }
@@ -928,15 +1069,14 @@ auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
           !window->m_implementation->motionEnabled ||
           window->m_implementation->platform->ReducedMotionEnabled();
       motionFrame = Detail::AdvanceMotion(window->m_implementation->tree,
-                                          afterWait, reducedMotion);
-      window->m_implementation->nextMotionDeadline =
-          motionFrame.nextDeadline;
+                                          afterWait, reducedMotion,
+                                          window->m_implementation->motionHost);
+      window->m_implementation->nextMotionDeadline = motionFrame.nextDeadline;
       auto &motionDiagnostics = window->m_implementation->diagnostics;
-      motionDiagnostics.activeAnimationCount =
-          motionFrame.activeElementCount;
+      motionDiagnostics.activeAnimationCount = motionFrame.activeElementCount;
       motionDiagnostics.reducedMotion = reducedMotion;
-      Detail::CollectMotionDiagnostics(
-          window->m_implementation->tree, motionDiagnostics.motion);
+      Detail::CollectMotionDiagnostics(window->m_implementation->tree,
+                                       motionDiagnostics.motion);
       if (motionFrame.changed) {
         ++motionDiagnostics.motionFrameCount;
         window->m_implementation->paintDirty = true;
@@ -1095,6 +1235,16 @@ auto Application::Platform() noexcept -> IPlatformBackend & {
 
 auto Application::Renderer() noexcept -> IRenderBackend & {
   return *m_implementation->renderer;
+}
+
+auto Application::CreateTaskContext(
+    NGIN::Async::CancellationToken cancellation) noexcept
+    -> NGIN::Async::TaskContext {
+  auto context = NGIN::Async::TaskContext{
+      m_implementation->asyncScheduler,
+      m_implementation->lifetimeCancellation.GetToken()};
+  context.BindLinkedCancellationToken(std::move(cancellation));
+  return context;
 }
 
 auto Application::AccessibilityDiagnostics() const noexcept

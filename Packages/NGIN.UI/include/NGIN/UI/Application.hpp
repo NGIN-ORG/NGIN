@@ -1,5 +1,6 @@
 #pragma once
 
+#include <NGIN/Async/TaskContext.hpp>
 #include <NGIN/UI/Accessibility.hpp>
 #include <NGIN/UI/Composer.hpp>
 #include <NGIN/UI/Diagnostics.hpp>
@@ -26,7 +27,8 @@ class Application;
 /// @brief A child window that can optionally block interaction with its owner.
 class DialogWindow;
 
-/// @brief Hosts, composes, lays out, renders, and dispatches input to one UI tree.
+/// @brief Hosts, composes, lays out, renders, and dispatches input to one UI
+/// tree.
 class Window {
 public:
   using EventHandler = NGIN::Utilities::Callable<void(const PlatformEvent &)>;
@@ -118,7 +120,8 @@ struct ApplicationCreateInfo final {
   std::unique_ptr<IAccessibilityBackend> accessibility{};
 };
 
-/// @brief Coordinates backend lifetime, window creation, and the application loop.
+/// @brief Coordinates backend lifetime, window creation, and the application
+/// loop.
 class Application final {
 public:
   Application(const Application &) = delete;
@@ -145,6 +148,13 @@ public:
   [[nodiscard]] auto ActiveWindowCount() const noexcept -> UIntSize;
   [[nodiscard]] auto Platform() noexcept -> IPlatformBackend &;
   [[nodiscard]] auto Renderer() noexcept -> IRenderBackend &;
+  /// @brief Creates a UI-scheduled task context canceled with the application.
+  ///
+  /// The application drains active tasks during shutdown. Do not schedule new
+  /// work through this context after the application has been destroyed.
+  [[nodiscard]] auto
+  CreateTaskContext(NGIN::Async::CancellationToken cancellation = {}) noexcept
+      -> NGIN::Async::TaskContext;
   [[nodiscard]] auto AccessibilityDiagnostics() const noexcept
       -> NGIN::UI::AccessibilityDiagnostics;
 

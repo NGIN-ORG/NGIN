@@ -330,3 +330,52 @@ Verification:
 - standalone Gallery product-first build passed and its staged executable
   completed `--smoke` successfully;
 - public API documentation coverage passed with 322 documented types.
+
+## Milestone 24 — Awaitable Motion And Orchestration
+
+Status: Complete
+Completed: 2026-08-01
+
+Delivered:
+
+- added a retained, move-only `MotionController` that attaches during
+  composition and binds to stable element identity without exposing runtime
+  node pointers;
+- added generic `AnimateToAsync` plus fade, translation, scale, and color
+  conveniences returning normal `NGIN::Async::Task<MotionOutcome>` values;
+- added an application-owned UI executor and `Application::CreateTaskContext`
+  so continuations resume from the event loop rather than paint or a
+  cancellation thread;
+- defined `Completed`, `Canceled`, `Interrupted`, and `Unmounted` outcomes,
+  including deterministic interruption when a newer target replaces an older
+  operation;
+- linked task cancellation to track cancellation and released waiters during
+  element removal, window closure, controller destruction, and application
+  shutdown;
+- made declarative targets the explicit owner when declarative and controller
+  code name the same property, preventing two writers from silently fighting;
+- kept controller motion on the same generic tracks, timing types, platform
+  clock, deadlines, diagnostics, reduced-motion policy, and render path as
+  declarative motion;
+- corrected `NGIN::Async::WhenAll` to start all cold child tasks before waiting
+  for their results, enabling real parallel motion while retaining normal
+  completion and error propagation;
+- added deterministic coverage for built-in and custom properties, ordered
+  sequences, parallel composition, cancellation, interruption, unmounting,
+  reduced motion, window closure, and application shutdown;
+- expanded the Gallery Motion page with visible awaited steps, parallel
+  movement, slow cancellation, replacement, result text, and instructions for
+  trying reduced motion;
+- documented declarative and awaited authoring, controller lifetime, property
+  ownership, outcomes, cancellation, `WhenAll`, `WhenAny`, and reduced motion.
+
+Verification:
+
+- `NGINUITests`: 147/147 passed with 4,866 assertions;
+- standalone Gallery product-first build passed and its staged executable
+  completed `--smoke` successfully;
+- the Gallery headless product built from its manifest and all headless checks
+  passed;
+- public API documentation coverage passed with 329 documented types;
+- the awaited-motion test suite exercises sequential and parallel tasks on the
+  deterministic UI clock, including the corrected `WhenAll` start behavior.

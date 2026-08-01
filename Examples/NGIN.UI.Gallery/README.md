@@ -18,9 +18,9 @@ The sidebar has thirteen pages:
   progress bars, tooltips, and text fields.
 - **Collections** shows a 100,000-item list with live realization and range-load
   counts, plus ordinary lists, sorting, filtering, combo boxes, tabs, and menus.
-- **Motion** shows fades, movement, scaling, colors, easing, interruption,
-  three-trip repetition, cancellation, popup motion, progress motion, and a
-  less-motion preview.
+- **Motion** shows fades, movement, scaling, colors, easing, awaited steps,
+  parallel motion, interruption, three-trip repetition, cancellation, popup
+  motion, progress motion, and a less-motion preview.
 - **Overlays** shows a popup that closes with Escape or an outside click.
 - **Windows** opens another window and a dialog.
 - **Themes** switches between light and dark colors.

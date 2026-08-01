@@ -1,6 +1,8 @@
 #include <NGIN/UIGallery/CustomControls.hpp>
 #include <NGIN/UIGallery/Gallery.hpp>
 
+#include <NGIN/Async/WhenAll.hpp>
+
 #include <algorithm>
 #include <array>
 #include <charconv>
@@ -127,10 +129,135 @@ private:
   std::optional<UI::IncrementalRange> m_loadedRange{};
 };
 
+class GalleryMotionDemo final {
+public:
+  GalleryMotionDemo(UI::Application &application, UI::Window &window)
+      : context(std::make_unique<NGIN::Async::TaskContext>(
+            application.CreateTaskContext())),
+        application(&application), window(&window) {}
+
+  void SetStatus(const char *message) {
+    status = NGIN::Text::String{message};
+    if (window != nullptr && !window->IsClosed()) {
+      window->Invalidate(UI::InvalidationKind::Paint |
+                         UI::InvalidationKind::Semantics);
+    }
+  }
+
+  std::unique_ptr<NGIN::Async::TaskContext> context{};
+  UI::Application *application{nullptr};
+  UI::Window *window{nullptr};
+  UI::MotionController primary{};
+  UI::MotionController secondary{};
+  NGIN::Text::String status{"Choose a demo. The result appears here."};
+  bool parallelForward{true};
+  bool interruptForward{true};
+  std::shared_ptr<NGIN::Async::CancellationSource> cancellation{};
+};
+
 namespace {
 using NGIN::F32;
 using NGIN::Text::String;
 using namespace NGIN::UI;
+
+[[nodiscard]] auto OutcomeName(const MotionOutcome outcome) noexcept -> const
+    char * {
+  switch (outcome) {
+  case MotionOutcome::Completed:
+    return "Completed";
+  case MotionOutcome::Canceled:
+    return "Canceled";
+  case MotionOutcome::Interrupted:
+    return "Interrupted by a newer target";
+  case MotionOutcome::Unmounted:
+    return "Stopped because the element was removed";
+  }
+  return "Stopped";
+}
+
+[[nodiscard]] auto SequenceMotion(NGIN::Async::TaskContext &context,
+                                  std::shared_ptr<GalleryMotionDemo> demo)
+    -> NGIN::Async::Task<void> {
+  const auto spec =
+      AnimationSpec{.timing = TweenTiming{
+                        .duration = std::chrono::milliseconds{520},
+                        .curve = EasingCurve::EaseInOut(),
+                    }};
+  demo->SetStatus("Sequence: moving right");
+  auto outcome = co_await demo->primary.TranslateToAsync(
+      context, Point{430.0F, 0.0F}, spec);
+  if (outcome != MotionOutcome::Completed) {
+    demo->SetStatus(OutcomeName(outcome));
+    co_return;
+  }
+  demo->SetStatus("Sequence: fading");
+  outcome = co_await demo->primary.FadeToAsync(context, 0.25F, spec);
+  if (outcome != MotionOutcome::Completed) {
+    demo->SetStatus(OutcomeName(outcome));
+    co_return;
+  }
+  demo->SetStatus("Sequence: returning");
+  outcome = co_await demo->primary.TranslateToAsync(context, Point{}, spec);
+  if (outcome == MotionOutcome::Completed) {
+    outcome = co_await demo->primary.FadeToAsync(context, 1.0F, spec);
+  }
+  demo->SetStatus(OutcomeName(outcome));
+}
+
+[[nodiscard]] auto ParallelMotion(NGIN::Async::TaskContext &context,
+                                  std::shared_ptr<GalleryMotionDemo> demo)
+    -> NGIN::Async::Task<void> {
+  const auto target = demo->parallelForward ? 430.0F : 0.0F;
+  demo->parallelForward = !demo->parallelForward;
+  const auto spec = AnimationSpec{.timing = SpringTiming{
+                                      .stiffness = 150.0F,
+                                      .damping = 15.0F,
+                                  }};
+  demo->SetStatus("Parallel: both elements are moving together");
+  const auto outcomes = co_await NGIN::Async::WhenAll(
+      context,
+      demo->primary.TranslateToAsync(context, Point{target, 0.0F}, spec),
+      demo->secondary.TranslateToAsync(context, Point{target, 0.0F}, spec));
+  const auto completed = std::get<0>(outcomes) == MotionOutcome::Completed &&
+                         std::get<1>(outcomes) == MotionOutcome::Completed;
+  demo->SetStatus(completed ? "Parallel: both completed"
+                            : "Parallel: one operation stopped early");
+}
+
+struct GalleryCancelableRun final {
+  GalleryCancelableRun(Application &application,
+                       const NGIN::Async::CancellationToken token)
+      : context(application.CreateTaskContext(token)) {}
+
+  NGIN::Async::TaskContext context;
+};
+
+[[nodiscard]] auto CancelableMotion(std::shared_ptr<GalleryCancelableRun> run,
+                                    std::shared_ptr<GalleryMotionDemo> demo)
+    -> NGIN::Async::Task<void> {
+  demo->SetStatus("Cancelable: moving slowly — press Cancel");
+  const auto outcome = co_await demo->primary.TranslateToAsync(
+      run->context, Point{430.0F, 0.0F},
+      AnimationSpec{.timing = TweenTiming{
+                        .duration = std::chrono::milliseconds{2400},
+                        .curve = EasingCurve::Linear(),
+                    }});
+  demo->SetStatus(OutcomeName(outcome));
+}
+
+[[nodiscard]] auto InterruptMotion(NGIN::Async::TaskContext &context,
+                                   std::shared_ptr<GalleryMotionDemo> demo,
+                                   const F32 target)
+    -> NGIN::Async::Task<void> {
+  demo->SetStatus("Interruption: press again before it arrives");
+  const auto outcome = co_await demo->secondary.TranslateToAsync(
+      context, Point{target, 0.0F},
+      AnimationSpec{.timing = TweenTiming{
+                        .duration = std::chrono::milliseconds{1500},
+                        .curve = EasingCurve::EaseInOut(),
+                    }});
+  demo->SetStatus(OutcomeName(outcome));
+}
 
 class GalleryOvershootCurve final : public IEasingCurve {
 public:
@@ -153,10 +280,9 @@ public:
 }
 
 constexpr std::array<std::string_view, PageCount> PageNames{
-    "Overview", "Layout", "Typography",    "Text Area",
-    "Images",   "Inputs", "Collections",   "Motion",
-    "Overlays", "Windows", "Themes",        "Accessibility",
-    "Diagnostics",
+    "Overview", "Layout",        "Typography",  "Text Area", "Images",
+    "Inputs",   "Collections",   "Motion",      "Overlays",  "Windows",
+    "Themes",   "Accessibility", "Diagnostics",
 };
 
 [[nodiscard]] auto Number(const std::uint64_t value) -> String {
@@ -1774,10 +1900,11 @@ void ComposeMotionPage(Composer &composer, NativeTextSystem &text, Model &model,
                      "Change a value and NGIN.UI moves it smoothly.");
 
   const auto regular = AnimationSpec{
-      .timing = TweenTiming{
-          .duration = std::chrono::milliseconds{360},
-          .curve = EasingCurve::Standard(),
-      },
+      .timing =
+          TweenTiming{
+              .duration = std::chrono::milliseconds{360},
+              .curve = EasingCurve::Standard(),
+          },
   };
   ComposeCard(
       composer, theme,
@@ -1786,18 +1913,19 @@ void ComposeMotionPage(Composer &composer, NativeTextSystem &text, Model &model,
         column.layout.gap = theme.spacing.regular;
         composer.Column(
             [&] {
-              ComposeText(composer, text, String{"Fade, move, scale, and color"},
-                          18.0F, theme.colors.foreground, "title",
-                          SemanticRole::Heading);
+              ComposeText(
+                  composer, text, String{"Fade, move, scale, and color"}, 18.0F,
+                  theme.colors.foreground, "title", SemanticRole::Heading);
               ComposeText(composer, text,
                           String{"Press the button again before it finishes to "
                                  "change direction."},
                           theme.typography.body, theme.colors.mutedForeground,
                           "help");
-              ComposeButton(composer, text, theme,
-                            model.MotionForward() ? "Send it back" : "Move it",
-                            [&model] { model.ToggleMotionTarget(); },
-                            "toggle-motion", 180.0F);
+              ComposeButton(
+                  composer, text, theme,
+                  model.MotionForward() ? "Send it back" : "Move it",
+                  [&model] { model.ToggleMotionTarget(); }, "toggle-motion",
+                  180.0F);
 
               NodeProperties track{};
               track.layout.preferredSize = Size{680.0F, 92.0F};
@@ -1820,10 +1948,10 @@ void ComposeMotionPage(Composer &composer, NativeTextSystem &text, Model &model,
                     sample.motion.translation = Animate(
                         model.MotionForward() ? Point{485.0F, 0.0F} : Point{},
                         regular);
-                    sample.motion.scale = Animate(
-                        model.MotionForward() ? Point{1.0F, 1.0F}
-                                              : Point{0.88F, 0.88F},
-                        regular);
+                    sample.motion.scale =
+                        Animate(model.MotionForward() ? Point{1.0F, 1.0F}
+                                                      : Point{0.88F, 0.88F},
+                                regular);
                     sample.motion.background = Animate(
                         model.MotionForward() ? theme.colors.accentHovered
                                               : theme.colors.accentPressed,
@@ -1842,6 +1970,99 @@ void ComposeMotionPage(Composer &composer, NativeTextSystem &text, Model &model,
             "motion-basics");
       },
       "motion-basics-card");
+
+  ComposeCard(
+      composer, theme,
+      [&] {
+        NodeProperties column{};
+        column.layout.gap = theme.spacing.regular;
+        composer.Column(
+            [&] {
+              ComposeText(composer, text, String{"Wait for animations"}, 18.0F,
+                          theme.colors.foreground, "title",
+                          SemanticRole::Heading);
+              ComposeText(
+                  composer, text,
+                  String{"Run steps in order, move two items together, cancel "
+                         "a slow move, or replace a move while it is running."},
+                  theme.typography.body, theme.colors.mutedForeground, "help");
+
+              NodeProperties actions{};
+              actions.layout.preferredSize.width = 680.0F;
+              actions.wrapPanel.itemGap = theme.spacing.compact;
+              actions.wrapPanel.lineGap = theme.spacing.compact;
+              composer.WrapPanel(
+                  [&] {
+                    ComposeButton(
+                        composer, text, theme, "Run steps",
+                        [&model] { model.StartAsyncMotionSequence(); },
+                        "sequence", 128.0F);
+                    ComposeButton(
+                        composer, text, theme, "Move together",
+                        [&model] { model.StartParallelMotion(); }, "parallel",
+                        138.0F);
+                    ComposeButton(
+                        composer, text, theme, "Start slow move",
+                        [&model] { model.StartCancelableMotion(); }, "slow",
+                        150.0F);
+                    ComposeButton(
+                        composer, text, theme, "Cancel",
+                        [&model] { model.CancelAsyncMotion(); }, "cancel",
+                        104.0F);
+                    ComposeButton(
+                        composer, text, theme, "Replace move",
+                        [&model] { model.InterruptAsyncMotion(); }, "interrupt",
+                        138.0F);
+                  },
+                  actions, "async-actions");
+
+              ComposeText(composer, text, model.AsyncMotionStatus(),
+                          theme.typography.body, theme.colors.foreground,
+                          "async-status", SemanticRole::Text);
+
+              const auto composeLane = [&](MotionController &controller,
+                                           const Color color,
+                                           const std::string_view key) {
+                NodeProperties lane{};
+                lane.layout.preferredSize = Size{680.0F, 46.0F};
+                lane.layout.maximumSize = Size{680.0F, 46.0F};
+                lane.visual.base.background = theme.colors.sunkenSurface;
+                lane.canvas.clipToBounds = true;
+                composer.Canvas(
+                    [&] {
+                      NodeProperties sample{};
+                      sample.layout.preferredSize = Size{220.0F, 34.0F};
+                      sample.layout.padding =
+                          Thickness{12.0F, 7.0F, 12.0F, 7.0F};
+                      sample.canvasPlacement =
+                          CanvasPlacement{.offset = Point{4.0F, 6.0F}};
+                      sample.visual = MakePanelVisual(theme);
+                      sample.visual.base.background = color;
+                      controller.Attach(sample.motion);
+                      composer.Border(
+                          [&] {
+                            ComposeText(composer, text, String{"Awaited"},
+                                        12.0F, theme.colors.accentForeground,
+                                        "label");
+                          },
+                          sample, "sample");
+                    },
+                    lane, key);
+              };
+              composeLane(model.AsyncPrimaryMotion(), theme.colors.accent,
+                          "async-primary");
+              composeLane(model.AsyncSecondaryMotion(),
+                          theme.colors.accentHovered, "async-secondary");
+              ComposeText(
+                  composer, text,
+                  String{"Turn animations off below, then start a demo. It "
+                         "will finish immediately."},
+                  theme.typography.caption, theme.colors.mutedForeground,
+                  "reduced-help");
+            },
+            "async-motion-column");
+      },
+      "async-motion-card");
 
   ComposeCard(
       composer, theme,
@@ -1884,10 +2105,12 @@ void ComposeMotionPage(Composer &composer, NativeTextSystem &text, Model &model,
                       dot.motion.translation = Animate(
                           model.MotionForward() ? Point{532.0F, 0.0F} : Point{},
                           AnimationSpec{
-                              .timing = TweenTiming{
-                                  .duration = std::chrono::milliseconds{620},
-                                  .curve = curve,
-                              },
+                              .timing =
+                                  TweenTiming{
+                                      .duration =
+                                          std::chrono::milliseconds{620},
+                                      .curve = curve,
+                                  },
                           });
                       composer.Border(
                           [&] {
@@ -1917,8 +2140,7 @@ void ComposeMotionPage(Composer &composer, NativeTextSystem &text, Model &model,
                   composer, text,
                   String{"Adjust the curve, then press Move it above. The "
                          "spring and custom dial use the same motion system."},
-                  theme.typography.body, theme.colors.mutedForeground,
-                  "help");
+                  theme.typography.body, theme.colors.mutedForeground, "help");
 
               const auto sliderPresentation =
                   ControlPresentation{.theme = theme};
@@ -1927,9 +2149,8 @@ void ComposeMotionPage(Composer &composer, NativeTextSystem &text, Model &model,
                   [&](NodeProperties control) {
                     control.layout.preferredSize.width = 320.0F;
                     Slider(composer, model.BezierX1Binding(),
-                           SliderRange{.minimum = 0.0F,
-                                       .maximum = 1.0F,
-                                       .step = 0.05F},
+                           SliderRange{
+                               .minimum = 0.0F, .maximum = 1.0F, .step = 0.05F},
                            sliderPresentation, control, "control");
                   },
                   "bezier-x1");
@@ -1949,9 +2170,8 @@ void ComposeMotionPage(Composer &composer, NativeTextSystem &text, Model &model,
                   [&](NodeProperties control) {
                     control.layout.preferredSize.width = 320.0F;
                     Slider(composer, model.BezierX2Binding(),
-                           SliderRange{.minimum = 0.0F,
-                                       .maximum = 1.0F,
-                                       .step = 0.05F},
+                           SliderRange{
+                               .minimum = 0.0F, .maximum = 1.0F, .step = 0.05F},
                            sliderPresentation, control, "control");
                   },
                   "bezier-x2");
@@ -1983,15 +2203,13 @@ void ComposeMotionPage(Composer &composer, NativeTextSystem &text, Model &model,
                     marker.visual.base.background = theme.colors.accent;
                     marker.motion.translation = Animate(
                         model.MotionForward() ? Point{540.0F, 0.0F} : Point{},
-                        AnimationSpec{.timing = TweenTiming{
-                                          .duration =
-                                              std::chrono::milliseconds{720},
-                                          .curve = EasingCurve::CubicBezier(
-                                              model.BezierX1(),
-                                              model.BezierY1(),
-                                              model.BezierX2(),
-                                              model.BezierY2()),
-                                      }});
+                        AnimationSpec{
+                            .timing = TweenTiming{
+                                .duration = std::chrono::milliseconds{720},
+                                .curve = EasingCurve::CubicBezier(
+                                    model.BezierX1(), model.BezierY1(),
+                                    model.BezierX2(), model.BezierY2()),
+                            }});
                     composer.Border(
                         [&] {
                           ComposeText(composer, text, String{"Your curve"},
@@ -2028,9 +2246,8 @@ void ComposeMotionPage(Composer &composer, NativeTextSystem &text, Model &model,
                   },
                   springLane, "spring-lane");
 
-              ComposeText(composer, text,
-                          String{"Custom control property"}, 15.0F,
-                          theme.colors.foreground, "dial-title");
+              ComposeText(composer, text, String{"Custom control property"},
+                          15.0F, theme.colors.foreground, "dial-title");
               ComposeText(
                   composer, text,
                   String{"This custom-painted dial reads its own animated "
@@ -2044,15 +2261,15 @@ void ComposeMotionPage(Composer &composer, NativeTextSystem &text, Model &model,
               dial.motion.Set(
                   MotionDialSweep,
                   Animate(model.MotionForward() ? 1.0F : 0.0F,
-                          AnimationSpec{.timing = TweenTiming{
-                                            .duration =
-                                                std::chrono::milliseconds{720},
-                                            .curve = GalleryOvershoot(),
-                                        }}));
-              composer.Custom(std::make_shared<MotionDialElement>(
-                                  theme.colors.sunkenSurface,
-                                  theme.colors.accent),
-                              dial, "custom-motion-dial");
+                          AnimationSpec{
+                              .timing = TweenTiming{
+                                  .duration = std::chrono::milliseconds{720},
+                                  .curve = GalleryOvershoot(),
+                              }}));
+              composer.Custom(
+                  std::make_shared<MotionDialElement>(
+                      theme.colors.sunkenSurface, theme.colors.accent),
+                  dial, "custom-motion-dial");
             },
             "custom-motion-column");
       },
@@ -2077,13 +2294,14 @@ void ComposeMotionPage(Composer &composer, NativeTextSystem &text, Model &model,
               actions.layout.gap = theme.spacing.regular;
               composer.Row(
                   [&] {
-                    ComposeButton(composer, text, theme, "Run three trips",
-                                  [&model] { model.StartMotionRepeat(); },
-                                  "start-repeat", 180.0F);
-                    ComposeButton(composer, text, theme, "Stop",
-                                  [&model] { model.CancelMotionRepeat(); },
-                                  "stop-repeat", 120.0F,
-                                  model.MotionRepeatRunning());
+                    ComposeButton(
+                        composer, text, theme, "Run three trips",
+                        [&model] { model.StartMotionRepeat(); }, "start-repeat",
+                        180.0F);
+                    ComposeButton(
+                        composer, text, theme, "Stop",
+                        [&model] { model.CancelMotionRepeat(); }, "stop-repeat",
+                        120.0F, model.MotionRepeatRunning());
                   },
                   "repeat-actions");
               NodeProperties lane{};
@@ -2105,22 +2323,26 @@ void ComposeMotionPage(Composer &composer, NativeTextSystem &text, Model &model,
                       marker.motion.translation = AnimateFrom(
                           Point{}, Point{646.0F, 0.0F},
                           AnimationSpec{
-                              .timing = TweenTiming{
-                                  .duration = std::chrono::milliseconds{450},
-                                  .curve = EasingCurve::EaseInOut(),
-                              },
+                              .timing =
+                                  TweenTiming{
+                                      .duration =
+                                          std::chrono::milliseconds{450},
+                                      .curve = EasingCurve::EaseInOut(),
+                                  },
                               .repeatCount = 3,
                               .repeatMode = AnimationRepeatMode::Reverse,
                           },
                           *model.MotionRepeatHandle());
-                      marker.motion.onSettled =
-                          [&model] { model.FinishMotionRepeat(); };
+                      marker.motion.onSettled = [&model] {
+                        model.FinishMotionRepeat();
+                      };
                     } else {
                       marker.motion.translation = Animate(
-                          Point{}, AnimationSpec{.timing = TweenTiming{
-                                                     .duration =
-                                                         std::chrono::milliseconds{0},
-                                                 }});
+                          Point{},
+                          AnimationSpec{
+                              .timing = TweenTiming{
+                                  .duration = std::chrono::milliseconds{0},
+                              }});
                     }
                     marker.semantics.hidden = true;
                     composer.Border([] {}, marker, "repeat-marker");
@@ -2138,10 +2360,9 @@ void ComposeMotionPage(Composer &composer, NativeTextSystem &text, Model &model,
         column.layout.gap = theme.spacing.regular;
         composer.Column(
             [&] {
-              ComposeText(composer, text,
-                          String{"Controls and motion settings"},
-                          18.0F, theme.colors.foreground, "title",
-                          SemanticRole::Heading);
+              ComposeText(
+                  composer, text, String{"Controls and motion settings"}, 18.0F,
+                  theme.colors.foreground, "title", SemanticRole::Heading);
               ComposeText(
                   composer, text,
                   String{"Hover or press a button to see its colors change. "
@@ -2170,8 +2391,8 @@ void ComposeMotionPage(Composer &composer, NativeTextSystem &text, Model &model,
                   "reduced-status");
 
               ComposeText(composer, text,
-                          String{"Popup animation — easy-to-see demo"},
-                          15.0F, theme.colors.foreground, "popup-label");
+                          String{"Popup animation — easy-to-see demo"}, 15.0F,
+                          theme.colors.foreground, "popup-label");
               ComposeText(
                   composer, text,
                   String{"Click Open. Watch the panel rise while it fades in. "
@@ -2191,10 +2412,11 @@ void ComposeMotionPage(Composer &composer, NativeTextSystem &text, Model &model,
               NodeProperties popup{};
               popup.semantics.label = String{"Animated popup example"};
               const auto popupDemo = AnimationSpec{
-                  .timing = TweenTiming{
-                      .duration = std::chrono::milliseconds{520},
-                      .curve = EasingCurve::EaseOut(),
-                  },
+                  .timing =
+                      TweenTiming{
+                          .duration = std::chrono::milliseconds{520},
+                          .curve = EasingCurve::EaseOut(),
+                      },
               };
               popup.motion.opacity = model.MotionPopup().IsOpen()
                                          ? AnimateFrom(0.0F, 1.0F, popupDemo)
@@ -2222,10 +2444,9 @@ void ComposeMotionPage(Composer &composer, NativeTextSystem &text, Model &model,
                     composer.Element(
                         ElementType::Column, popupCard,
                         [&] {
-                          ComposeText(composer, text,
-                                      String{"Animated popup"}, 18.0F,
-                                      theme.colors.foreground, "popup-title",
-                                      SemanticRole::Heading);
+                          ComposeText(composer, text, String{"Animated popup"},
+                                      18.0F, theme.colors.foreground,
+                                      "popup-title", SemanticRole::Heading);
                           ComposeText(
                               composer, text,
                               String{"You saw this panel rise and fade in."},
@@ -2807,14 +3028,14 @@ Model::Model()
           [this](const InvalidationKind kind) { Invalidate(kind); }),
       m_motionForward(
           false, [this](const InvalidationKind kind) { Invalidate(kind); }),
-      m_bezierX1(
-          0.2F, [this](const InvalidationKind kind) { Invalidate(kind); }),
-      m_bezierY1(
-          0.0F, [this](const InvalidationKind kind) { Invalidate(kind); }),
-      m_bezierX2(
-          0.2F, [this](const InvalidationKind kind) { Invalidate(kind); }),
-      m_bezierY2(
-          1.0F, [this](const InvalidationKind kind) { Invalidate(kind); }),
+      m_bezierX1(0.2F,
+                 [this](const InvalidationKind kind) { Invalidate(kind); }),
+      m_bezierY1(0.0F,
+                 [this](const InvalidationKind kind) { Invalidate(kind); }),
+      m_bezierX2(0.2F,
+                 [this](const InvalidationKind kind) { Invalidate(kind); }),
+      m_bezierY2(1.0F,
+                 [this](const InvalidationKind kind) { Invalidate(kind); }),
       m_motionRepeatRunning(
           false, [this](const InvalidationKind kind) { Invalidate(kind); }),
       m_virtualizedSelection(
@@ -2829,8 +3050,7 @@ Model::Model()
               .initialViewportExtent = 280.0F,
           },
           [this](const InvalidationKind kind) { Invalidate(kind); })),
-      m_motionPopup(
-          [this](const InvalidationKind kind) { Invalidate(kind); }),
+      m_motionPopup([this](const InvalidationKind kind) { Invalidate(kind); }),
       m_comboPopup([this](const InvalidationKind kind) { Invalidate(kind); }),
       m_menuPopup([this](const InvalidationKind kind) { Invalidate(kind); }),
       m_contextPopup([this](const InvalidationKind kind) { Invalidate(kind); }),
@@ -2846,13 +3066,22 @@ Model::Model()
           String{"No announcement yet."},
           [this](const InvalidationKind kind) { Invalidate(kind); }) {}
 
-Model::~Model() = default;
+Model::~Model() {
+  if (m_asyncMotion) {
+    if (m_asyncMotion->cancellation) {
+      m_asyncMotion->cancellation->Cancel();
+    }
+    m_asyncMotion->primary.CancelAll();
+    m_asyncMotion->secondary.CancelAll();
+  }
+}
 
 void Model::AttachRuntime(Application &application, NativeTextSystem &text,
                           Window &window) noexcept {
   m_application = &application;
   m_text = &text;
   m_window = &window;
+  m_asyncMotion = std::make_shared<GalleryMotionDemo>(application, window);
   m_imageCache = std::make_unique<ImageTextureCache>(application.Renderer());
   std::error_code pathError;
   auto imagePath = std::filesystem::path{"images"} / "gallery-sample.png";
@@ -2875,6 +3104,7 @@ auto Model::CurrentPage() const noexcept -> Page { return m_page.Get(); }
 void Model::SelectPage(const Page page) {
   if (m_page.Get() == Page::Motion && page != Page::Motion) {
     CancelMotionRepeat();
+    CancelAsyncMotion();
     m_motionPopup.Close();
     if (m_window != nullptr) {
       m_window->SetMotionEnabled(true);
@@ -3096,6 +3326,70 @@ void Model::ToggleMotionPreviewReduced() {
 
 auto Model::MotionPopup() noexcept -> PopupController & {
   return m_motionPopup;
+}
+
+auto Model::AsyncPrimaryMotion() noexcept -> MotionController & {
+  return m_asyncMotion->primary;
+}
+
+auto Model::AsyncSecondaryMotion() noexcept -> MotionController & {
+  return m_asyncMotion->secondary;
+}
+
+auto Model::AsyncMotionStatus() const noexcept -> const String & {
+  return m_asyncMotion->status;
+}
+
+void Model::StartAsyncMotionSequence() {
+  if (!m_asyncMotion || !m_asyncMotion->context) {
+    return;
+  }
+  NGIN::Async::Detach(*m_asyncMotion->context,
+                      SequenceMotion(*m_asyncMotion->context, m_asyncMotion));
+}
+
+void Model::StartParallelMotion() {
+  if (!m_asyncMotion || !m_asyncMotion->context) {
+    return;
+  }
+  NGIN::Async::Detach(*m_asyncMotion->context,
+                      ParallelMotion(*m_asyncMotion->context, m_asyncMotion));
+}
+
+void Model::StartCancelableMotion() {
+  if (!m_asyncMotion || m_application == nullptr) {
+    return;
+  }
+  if (m_asyncMotion->cancellation) {
+    m_asyncMotion->cancellation->Cancel();
+  }
+  m_asyncMotion->cancellation =
+      std::make_shared<NGIN::Async::CancellationSource>();
+  auto run = std::make_shared<GalleryCancelableRun>(
+      *m_application, m_asyncMotion->cancellation->GetToken());
+  NGIN::Async::Detach(run->context, CancelableMotion(run, m_asyncMotion));
+}
+
+void Model::InterruptAsyncMotion() {
+  if (!m_asyncMotion || !m_asyncMotion->context) {
+    return;
+  }
+  const auto target = m_asyncMotion->interruptForward ? 430.0F : 0.0F;
+  m_asyncMotion->interruptForward = !m_asyncMotion->interruptForward;
+  NGIN::Async::Detach(
+      *m_asyncMotion->context,
+      InterruptMotion(*m_asyncMotion->context, m_asyncMotion, target));
+}
+
+void Model::CancelAsyncMotion() {
+  if (!m_asyncMotion) {
+    return;
+  }
+  if (m_asyncMotion->cancellation) {
+    m_asyncMotion->cancellation->Cancel();
+  }
+  m_asyncMotion->primary.CancelAll();
+  m_asyncMotion->secondary.CancelAll();
 }
 
 auto Model::ComboPopup() noexcept -> PopupController & { return m_comboPopup; }

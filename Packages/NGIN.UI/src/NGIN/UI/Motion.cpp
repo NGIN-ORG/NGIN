@@ -4,8 +4,11 @@
 
 #include <algorithm>
 #include <cmath>
+#include <coroutine>
 #include <limits>
+#include <mutex>
 #include <new>
+#include <optional>
 #include <stdexcept>
 #include <utility>
 
@@ -26,6 +29,118 @@ auto AnimationHandle::IsCancelled() const noexcept -> bool {
 } // namespace NGIN::UI
 
 namespace NGIN::UI::Detail {
+struct MotionHostState final {
+  explicit MotionHostState(NGIN::Utilities::Callable<void()> wakeCallback)
+      : wake(std::move(wakeCallback)) {}
+
+  void Wake() noexcept {
+    std::scoped_lock lock{mutex};
+    if (!closed && wake) {
+      wake();
+    }
+  }
+
+  void Close() noexcept {
+    std::scoped_lock lock{mutex};
+    closed = true;
+    wake = {};
+  }
+
+  std::mutex mutex{};
+  NGIN::Utilities::Callable<void()> wake{};
+  bool closed{false};
+};
+
+struct MotionOperationState final {
+  [[nodiscard]] auto IsComplete() const noexcept -> bool {
+    std::scoped_lock lock{mutex};
+    return outcome.has_value();
+  }
+
+  void Arm(const NGIN::Async::TaskContext &context,
+           const std::coroutine_handle<> continuationHandle) noexcept {
+    auto scheduleNow = false;
+    {
+      std::scoped_lock lock{mutex};
+      if (outcome) {
+        scheduleNow = true;
+      } else {
+        continuation = continuationHandle;
+        executor = context.GetExecutor();
+      }
+    }
+    if (scheduleNow) {
+      context.GetExecutor().Execute(continuationHandle);
+      return;
+    }
+    context.GetCancellationToken().Register(
+        cancellation, {}, {},
+        +[](void *raw) noexcept -> bool {
+          auto *operation = static_cast<MotionOperationState *>(raw);
+          if (auto controller = operation->controller.lock()) {
+            CancelControllerMotion(controller, operation->property);
+          } else {
+            operation->Complete(MotionOutcome::Canceled);
+          }
+          return false;
+        },
+        this);
+  }
+
+  void Complete(const MotionOutcome result) noexcept {
+    std::coroutine_handle<> resume{};
+    NGIN::Execution::ExecutorRef resumeExecutor{};
+    {
+      std::scoped_lock lock{mutex};
+      if (outcome) {
+        return;
+      }
+      outcome = result;
+      resume = std::exchange(continuation, {});
+      resumeExecutor = executor;
+    }
+    cancellation.Reset();
+    if (resume && resumeExecutor.IsValid()) {
+      resumeExecutor.Execute(resume);
+    }
+  }
+
+  [[nodiscard]] auto Result() const noexcept -> MotionOutcome {
+    std::scoped_lock lock{mutex};
+    return outcome.value_or(MotionOutcome::Unmounted);
+  }
+
+  mutable std::mutex mutex{};
+  std::optional<MotionOutcome> outcome{};
+  std::coroutine_handle<> continuation{};
+  NGIN::Execution::ExecutorRef executor{};
+  NGIN::Async::CancellationRegistration cancellation{};
+  std::weak_ptr<MotionControllerState> controller{};
+  AnimationPropertyId property{};
+};
+
+struct ControllerEntry final {
+  std::shared_ptr<const IAnimationBinding> binding{};
+  std::shared_ptr<MotionOperationState> operation{};
+  bool canceled{false};
+};
+
+struct MotionControllerState final {
+  std::mutex mutex{};
+  std::vector<ControllerEntry> entries{};
+  std::weak_ptr<MotionHostState> host{};
+  ElementId owner{};
+  bool mounted{false};
+};
+
+struct MotionAccess final {
+  [[nodiscard]] static auto
+  Controller(const MotionProperties &properties) noexcept
+      -> const std::shared_ptr<MotionControllerState> & {
+    return properties.m_controller;
+  }
+};
+
 namespace {
 constexpr UInt32 MaximumFiniteRepeatCount = 10'000;
 constexpr auto MaximumDuration = std::chrono::minutes{1};
@@ -103,36 +218,31 @@ struct SpringSample final {
 
 [[nodiscard]] auto NormalizeSpring(SpringTiming spring) noexcept
     -> SpringTiming {
-  spring.mass = std::isfinite(spring.mass) ? std::max(0.001F, spring.mass)
-                                           : 1.0F;
+  spring.mass =
+      std::isfinite(spring.mass) ? std::max(0.001F, spring.mass) : 1.0F;
   spring.stiffness = std::isfinite(spring.stiffness)
                          ? std::max(0.001F, spring.stiffness)
                          : 220.0F;
-  spring.damping = std::isfinite(spring.damping)
-                       ? std::max(0.0F, spring.damping)
-                       : 20.0F;
-  spring.initialVelocity = std::isfinite(spring.initialVelocity)
-                               ? spring.initialVelocity
-                               : 0.0F;
+  spring.damping =
+      std::isfinite(spring.damping) ? std::max(0.0F, spring.damping) : 20.0F;
+  spring.initialVelocity =
+      std::isfinite(spring.initialVelocity) ? spring.initialVelocity : 0.0F;
   spring.restDisplacement = std::isfinite(spring.restDisplacement)
-                                ? std::max(0.000001F,
-                                           spring.restDisplacement)
+                                ? std::max(0.000001F, spring.restDisplacement)
                                 : 0.001F;
   spring.restVelocity = std::isfinite(spring.restVelocity)
                             ? std::max(0.000001F, spring.restVelocity)
                             : 0.001F;
-  spring.maximumDuration =
-      std::clamp(spring.maximumDuration, std::chrono::milliseconds{0},
-                 std::chrono::duration_cast<std::chrono::milliseconds>(
-                     MaximumDuration));
+  spring.maximumDuration = std::clamp(
+      spring.maximumDuration, std::chrono::milliseconds{0},
+      std::chrono::duration_cast<std::chrono::milliseconds>(MaximumDuration));
   return spring;
 }
 
 [[nodiscard]] auto SampleSpring(const SpringTiming &spring,
                                 const F64 seconds) noexcept -> SpringSample {
   if (seconds <= 0.0) {
-    return SpringSample{.progress = 0.0F,
-                        .velocity = spring.initialVelocity};
+    return SpringSample{.progress = 0.0F, .velocity = spring.initialVelocity};
   }
   const auto mass = static_cast<F64>(spring.mass);
   const auto stiffness = static_cast<F64>(spring.stiffness);
@@ -152,9 +262,8 @@ struct SpringSample final {
     const auto cosine = std::cos(damped * seconds);
     const auto sine = std::sin(damped * seconds);
     displacement = decay * (a * cosine + b * sine);
-    velocity = decay *
-               ((-zeta * omega) * (a * cosine + b * sine) +
-                (-a * damped * sine + b * damped * cosine));
+    velocity = decay * ((-zeta * omega) * (a * cosine + b * sine) +
+                        (-a * damped * sine + b * damped * cosine));
   } else if (zeta <= 1.0 + 0.000001) {
     const auto a = initialDisplacement;
     const auto b = initialVelocity + omega * a;
@@ -171,8 +280,8 @@ struct SpringSample final {
     const auto firstDecay = std::exp(first * seconds);
     const auto secondDecay = std::exp(second * seconds);
     displacement = firstWeight * firstDecay + secondWeight * secondDecay;
-    velocity = first * firstWeight * firstDecay +
-               second * secondWeight * secondDecay;
+    velocity =
+        first * firstWeight * firstDecay + second * secondWeight * secondDecay;
   }
 
   const auto progress = 1.0 + displacement;
@@ -193,8 +302,8 @@ struct SpringSample final {
   const auto step = std::chrono::duration_cast<MonotonicTime>(SpringSampleStep);
   UInt32 atRest = 0;
   for (auto elapsed = step; elapsed <= maximum; elapsed += step) {
-    const auto sample = SampleSpring(
-        spring, std::chrono::duration<F64>(elapsed).count());
+    const auto sample =
+        SampleSpring(spring, std::chrono::duration<F64>(elapsed).count());
     if (sample.valid &&
         std::abs(1.0F - sample.progress) <= spring.restDisplacement &&
         std::abs(sample.velocity) <= spring.restVelocity) {
@@ -210,12 +319,12 @@ struct SpringSample final {
 }
 
 [[nodiscard]] auto Normalize(AnimationSpec spec) noexcept -> AnimationSpec {
-  spec.delay = std::clamp(spec.delay, std::chrono::milliseconds{0},
-                          std::chrono::duration_cast<std::chrono::milliseconds>(
-                              MaximumDuration));
+  spec.delay = std::clamp(
+      spec.delay, std::chrono::milliseconds{0},
+      std::chrono::duration_cast<std::chrono::milliseconds>(MaximumDuration));
   if (spec.repeatCount != 0) {
-    spec.repeatCount = std::clamp(spec.repeatCount, UInt32{1},
-                                  MaximumFiniteRepeatCount);
+    spec.repeatCount =
+        std::clamp(spec.repeatCount, UInt32{1}, MaximumFiniteRepeatCount);
   }
   std::visit(
       [](auto &timing) {
@@ -263,16 +372,15 @@ struct TimingSample final {
       [&](const auto &value) -> TimingSample {
         using T = std::decay_t<decltype(value)>;
         if constexpr (std::is_same_v<T, TweenTiming>) {
-          const auto linear = static_cast<F32>(
-              static_cast<F64>(elapsed.count()) /
-              static_cast<F64>(duration.count()));
+          const auto linear =
+              static_cast<F32>(static_cast<F64>(elapsed.count()) /
+                               static_cast<F64>(duration.count()));
           bool valid = true;
-          const auto progress =
-              EvaluateEasingCurve(value.curve, linear, valid);
+          const auto progress = EvaluateEasingCurve(value.curve, linear, valid);
           return TimingSample{.progress = progress, .valid = valid};
         } else {
-          const auto sample = SampleSpring(
-              value, std::chrono::duration<F64>(elapsed).count());
+          const auto sample =
+              SampleSpring(value, std::chrono::duration<F64>(elapsed).count());
           return TimingSample{.progress = sample.progress,
                               .valid = sample.valid};
         }
@@ -305,17 +413,17 @@ struct Track final {
         outputPolicy(declaration.outputPolicy),
         operations(declaration.operations), spec(Normalize(*declaration.spec)),
         duration(ResolveDuration(spec.timing)), started(now),
-        handleIdentity(declaration.handleIdentity), builtIn(declaration.builtIn),
-        value(*operations,
-              declaration.initial != nullptr ? declaration.initial
-                                             : declaration.target),
-        start(*operations,
-              declaration.initial != nullptr ? declaration.initial
-                                             : declaration.target),
+        handleIdentity(declaration.handleIdentity),
+        operation(declaration.operation), source(declaration.source),
+        builtIn(declaration.builtIn),
+        value(*operations, declaration.initial != nullptr ? declaration.initial
+                                                          : declaration.target),
+        start(*operations, declaration.initial != nullptr ? declaration.initial
+                                                          : declaration.target),
         target(*operations, declaration.target),
-        candidate(*operations,
-                  declaration.initial != nullptr ? declaration.initial
-                                                 : declaration.target) {
+        candidate(*operations, declaration.initial != nullptr
+                                   ? declaration.initial
+                                   : declaration.target) {
     value.Apply(outputPolicy);
     start.Apply(outputPolicy);
     const auto different = !start.Equals(target.Get());
@@ -324,6 +432,11 @@ struct Track final {
     if (!active && !declaration.cancelled) {
       static_cast<void>(value.Assign(target.Get()));
       value.Apply(outputPolicy);
+      if (operation) {
+        operation->Complete(MotionOutcome::Completed);
+      }
+    } else if (declaration.cancelled && operation) {
+      operation->Complete(MotionOutcome::Canceled);
     }
     explicitMotionStarted = explicitMotionStarted || different;
   }
@@ -333,18 +446,21 @@ struct Track final {
   auto operator=(const Track &) -> Track & = delete;
   auto operator=(Track &&) noexcept -> Track & = default;
 
-  [[nodiscard]] auto Matches(const AnimationDeclarationView &declaration) const
-      noexcept -> bool {
-    return property == declaration.property && operations == declaration.operations &&
+  [[nodiscard]] auto
+  Matches(const AnimationDeclarationView &declaration) const noexcept -> bool {
+    return property == declaration.property &&
+           operations == declaration.operations &&
            propertyName == declaration.propertyName;
   }
 
-  [[nodiscard]] auto DeclarationChanged(
-      const AnimationDeclarationView &declaration) const noexcept -> bool {
+  [[nodiscard]] auto
+  DeclarationChanged(const AnimationDeclarationView &declaration) const noexcept
+      -> bool {
     return !target.Equals(declaration.target) ||
            spec != Normalize(*declaration.spec) ||
            handleIdentity != declaration.handleIdentity ||
-           outputPolicy != declaration.outputPolicy;
+           outputPolicy != declaration.outputPolicy ||
+           operation != declaration.operation || source != declaration.source;
   }
 
   auto Synchronize(const AnimationDeclarationView &declaration,
@@ -359,6 +475,9 @@ struct Track final {
     if (!DeclarationChanged(declaration)) {
       if (declaration.cancelled) {
         active = false;
+        if (operation) {
+          operation->Complete(MotionOutcome::Canceled);
+        }
       } else if (restartRepeating && spec.repeatCount == 0 &&
                  declaration.initial != nullptr) {
         static_cast<void>(start.Assign(declaration.initial));
@@ -372,22 +491,33 @@ struct Track final {
     }
 
     const auto changedBefore = !value.Equals(declaration.target);
+    if (operation && operation != declaration.operation) {
+      operation->Complete(MotionOutcome::Interrupted);
+    }
     static_cast<void>(start.Assign(value.Get()));
     static_cast<void>(target.Assign(declaration.target));
     spec = Normalize(*declaration.spec);
     duration = ResolveDuration(spec.timing);
     started = now;
     handleIdentity = declaration.handleIdentity;
+    operation = declaration.operation;
+    source = declaration.source;
     outputPolicy = declaration.outputPolicy;
     if (declaration.cancelled) {
       active = false;
+      if (operation) {
+        operation->Complete(MotionOutcome::Canceled);
+      }
       return false;
     }
-    active = !reducedMotion && !start.Equals(target.Get()) &&
-             duration.count() > 0;
+    active =
+        !reducedMotion && !start.Equals(target.Get()) && duration.count() > 0;
     if (!active) {
       static_cast<void>(value.Assign(target.Get()));
       value.Apply(outputPolicy);
+      if (operation) {
+        operation->Complete(MotionOutcome::Completed);
+      }
     }
     explicitMotionStarted = explicitMotionStarted || changedBefore;
     return true;
@@ -397,8 +527,7 @@ struct Track final {
     if (!active) {
       return false;
     }
-    const auto delay =
-        std::chrono::duration_cast<MonotonicTime>(spec.delay);
+    const auto delay = std::chrono::duration_cast<MonotonicTime>(spec.delay);
     if (now <= started + delay) {
       static_cast<void>(candidate.Assign(start.Get()));
       candidate.Apply(outputPolicy);
@@ -426,8 +555,7 @@ struct Track final {
       ++evaluationFailureCount;
     }
     auto progress = sample.progress;
-    if (spec.repeatMode == AnimationRepeatMode::Reverse &&
-        (leg % 2U) != 0U) {
+    if (spec.repeatMode == AnimationRepeatMode::Reverse && (leg % 2U) != 0U) {
       progress = 1.0F - progress;
     }
     if (!candidate.Interpolate(start.Get(), target.Get(), progress)) {
@@ -442,7 +570,11 @@ struct Track final {
     active = false;
     static_cast<void>(candidate.Assign(target.Get()));
     candidate.Apply(outputPolicy);
-    return PresentCandidate();
+    const auto changed = PresentCandidate();
+    if (operation) {
+      operation->Complete(MotionOutcome::Completed);
+    }
+    return changed;
   }
 
   [[nodiscard]] auto NextDeadline(const MonotonicTime now) const noexcept
@@ -460,8 +592,8 @@ struct Track final {
       const auto legs = spec.repeatMode == AnimationRepeatMode::Reverse
                             ? static_cast<UInt64>(spec.repeatCount) * 2U - 1U
                             : static_cast<UInt64>(spec.repeatCount);
-      const auto end = delayEnd +
-                       duration * static_cast<MonotonicTime::rep>(legs);
+      const auto end =
+          delayEnd + duration * static_cast<MonotonicTime::rep>(legs);
       deadline = std::min(deadline, end);
     }
     return deadline;
@@ -471,7 +603,11 @@ struct Track final {
     active = false;
     static_cast<void>(candidate.Assign(target.Get()));
     candidate.Apply(outputPolicy);
-    return PresentCandidate();
+    const auto changed = PresentCandidate();
+    if (operation) {
+      operation->Complete(MotionOutcome::Completed);
+    }
+    return changed;
   }
 
   [[nodiscard]] auto PresentCandidate() noexcept -> bool {
@@ -491,6 +627,8 @@ struct Track final {
   MonotonicTime duration{};
   MonotonicTime started{};
   const void *handleIdentity{nullptr};
+  std::shared_ptr<MotionOperationState> operation{};
+  AnimationDeclarationSource source{AnimationDeclarationSource::Declarative};
   bool builtIn{false};
   bool active{false};
   bool seen{false};
@@ -538,6 +676,78 @@ struct MotionState final {
 };
 
 namespace {
+struct MotionOperationAwaiter final {
+  std::shared_ptr<MotionOperationState> operation{};
+  const NGIN::Async::TaskContext *context{nullptr};
+
+  [[nodiscard]] auto await_ready() const noexcept -> bool {
+    return !operation || operation->IsComplete();
+  }
+
+  void
+  await_suspend(const std::coroutine_handle<> continuation) const noexcept {
+    operation->Arm(*context, continuation);
+  }
+
+  [[nodiscard]] auto await_resume() const noexcept -> MotionOutcome {
+    return operation ? operation->Result() : MotionOutcome::Unmounted;
+  }
+};
+
+struct ControllerDeclarationSnapshot final {
+  std::shared_ptr<const IAnimationBinding> binding{};
+  AnimationDeclarationView view{};
+};
+
+void BindController(const std::shared_ptr<MotionControllerState> &controller,
+                    const ElementId owner,
+                    const std::shared_ptr<MotionHostState> &host) noexcept {
+  if (!controller) {
+    return;
+  }
+  std::vector<std::shared_ptr<MotionOperationState>> interrupted;
+  {
+    std::scoped_lock lock{controller->mutex};
+    if (controller->mounted && controller->owner != owner) {
+      for (const auto &entry : controller->entries) {
+        interrupted.push_back(entry.operation);
+      }
+      controller->entries.clear();
+    }
+    controller->owner = owner;
+    controller->host = host;
+    controller->mounted = true;
+  }
+  for (const auto &operation : interrupted) {
+    operation->Complete(MotionOutcome::Interrupted);
+  }
+}
+
+[[nodiscard]] auto
+ControllerDeclarations(const std::shared_ptr<MotionControllerState> &controller)
+    -> std::vector<ControllerDeclarationSnapshot> {
+  std::vector<ControllerDeclarationSnapshot> result;
+  if (!controller) {
+    return result;
+  }
+  std::scoped_lock lock{controller->mutex};
+  result.reserve(controller->entries.size());
+  for (const auto &entry : controller->entries) {
+    if (!entry.binding) {
+      continue;
+    }
+    auto view = entry.binding->View();
+    view.operation = entry.operation;
+    view.source = AnimationDeclarationSource::Controller;
+    view.cancelled = entry.canceled;
+    result.push_back(ControllerDeclarationSnapshot{
+        .binding = entry.binding,
+        .view = std::move(view),
+    });
+  }
+  return result;
+}
+
 [[nodiscard]] auto FindTrack(MotionState &state,
                              const AnimationPropertyId property) noexcept
     -> Track * {
@@ -574,9 +784,20 @@ auto Synchronize(MotionState &state,
     changed = true;
     return;
   }
+  if (static_cast<UInt8>(declaration.source) <
+      static_cast<UInt8>(track->source)) {
+    if (declaration.operation) {
+      declaration.operation->Complete(MotionOutcome::Interrupted);
+    }
+    track->seen = true;
+    return;
+  }
   if (!track->Matches(declaration) ||
       (track->builtIn && !declaration.builtIn)) {
     ++state.propertyConflictCount;
+    if (declaration.operation) {
+      declaration.operation->Complete(MotionOutcome::Interrupted);
+    }
     track->seen = true;
     return;
   }
@@ -586,7 +807,9 @@ auto Synchronize(MotionState &state,
 
 template <AnimatableValue T>
 auto ViewFor(const AnimationProperty<T> &property,
-             const AnimationTarget<T> &target) noexcept
+             const AnimationTarget<T> &target,
+             const AnimationDeclarationSource source =
+                 AnimationDeclarationSource::Declarative) noexcept
     -> AnimationDeclarationView {
   return AnimationDeclarationView{
       .property = property.Id(),
@@ -597,6 +820,7 @@ auto ViewFor(const AnimationProperty<T> &property,
       .initial = target.Initial() ? &*target.Initial() : nullptr,
       .spec = &target.Spec(),
       .handleIdentity = target.HandleIdentity(),
+      .source = source,
       .cancelled = target.IsCancelled(),
       .builtIn = property.IsBuiltIn(),
   };
@@ -604,10 +828,10 @@ auto ViewFor(const AnimationProperty<T> &property,
 
 template <AnimatableValue T>
 auto ImmediateTarget(const T &value) -> AnimationTarget<T> {
-  return Animate(value, AnimationSpec{.timing = TweenTiming{
-                                          .duration =
-                                              std::chrono::milliseconds{0},
-                                      }});
+  return Animate(value,
+                 AnimationSpec{.timing = TweenTiming{
+                                   .duration = std::chrono::milliseconds{0},
+                               }});
 }
 
 template <AnimatableValue T>
@@ -618,15 +842,19 @@ void SynchronizeOptional(MotionState &state,
                          const bool reducedMotion, const bool restartRepeating,
                          bool &explicitMotionStarted, bool &changed) {
   if (declaration) {
-    Synchronize(state, ViewFor(property, *declaration), now, reducedMotion,
-                restartRepeating, explicitMotionStarted, changed);
+    Synchronize(state,
+                ViewFor(property, *declaration,
+                        AnimationDeclarationSource::Declarative),
+                now, reducedMotion, restartRepeating, explicitMotionStarted,
+                changed);
     return;
   }
   if (FindTrack(state, property.Id()) != nullptr) {
     const auto target = ImmediateTarget(fallback);
     auto ignored = false;
-    Synchronize(state, ViewFor(property, target), now, reducedMotion, false,
-                ignored, changed);
+    Synchronize(
+        state, ViewFor(property, target, AnimationDeclarationSource::Automatic),
+        now, reducedMotion, false, ignored, changed);
   }
 }
 
@@ -640,31 +868,37 @@ void SynchronizeAutomatic(MotionState &state,
   if (value) {
     auto target = Animate(*value, transition);
     auto ignored = false;
-    Synchronize(state, ViewFor(property, target), now, reducedMotion, false,
-                ignored, changed);
+    Synchronize(
+        state, ViewFor(property, target, AnimationDeclarationSource::Automatic),
+        now, reducedMotion, false, ignored, changed);
     return;
   }
   if (FindTrack(state, property.Id()) != nullptr) {
     const auto target = ImmediateTarget(property.DefaultValue());
     auto ignored = false;
-    Synchronize(state, ViewFor(property, target), now, reducedMotion, false,
-                ignored, changed);
+    Synchronize(
+        state, ViewFor(property, target, AnimationDeclarationSource::Automatic),
+        now, reducedMotion, false, ignored, changed);
   }
 }
 
 auto AdvanceNode(RuntimeNode &node, const MonotonicTime now,
-                 const bool reducedMotion) -> MotionFrameResult {
+                 const bool reducedMotion,
+                 const std::shared_ptr<MotionHostState> &host)
+    -> MotionFrameResult {
   const auto &properties = node.properties.motion;
+  const auto &controller = MotionAccess::Controller(properties);
   const auto stateFlags = VisualStateFor(node);
   const auto style = ResolveVisualStyle(node.properties.visual, stateFlags);
-  const auto needsState = node.motion || properties.value || properties.opacity ||
-                          properties.translation || properties.scale ||
-                          properties.background || properties.foreground ||
-                          properties.borderColor || !properties.Bindings().empty() ||
-                          node.properties.visual.transition != AnimationSpec{
-                              .timing = TweenTiming{
-                                  .duration = std::chrono::milliseconds{0},
-                              }};
+  const auto needsState =
+      node.motion || properties.value || properties.opacity ||
+      properties.translation || properties.scale || properties.background ||
+      properties.foreground || properties.borderColor ||
+      !properties.Bindings().empty() || controller ||
+      node.properties.visual.transition !=
+          AnimationSpec{.timing = TweenTiming{
+                            .duration = std::chrono::milliseconds{0},
+                        }};
   if (!needsState) {
     return {};
   }
@@ -673,8 +907,8 @@ auto AdvanceNode(RuntimeNode &node, const MonotonicTime now,
   }
   auto &state = *node.motion;
   MotionFrameResult result{};
-  const auto motionRestored = state.reducedMotionInitialized &&
-                              state.reducedMotion && !reducedMotion;
+  const auto motionRestored =
+      state.reducedMotionInitialized && state.reducedMotion && !reducedMotion;
   state.reducedMotion = reducedMotion;
   state.reducedMotionInitialized = true;
   for (auto &track : state.tracks) {
@@ -690,8 +924,8 @@ auto AdvanceNode(RuntimeNode &node, const MonotonicTime now,
                       reducedMotion, motionRestored, explicitMotionStarted,
                       result.changed);
   SynchronizeOptional(state, MotionProperty::Opacity, properties.opacity, 1.0F,
-                      now, reducedMotion, motionRestored,
-                      explicitMotionStarted, result.changed);
+                      now, reducedMotion, motionRestored, explicitMotionStarted,
+                      result.changed);
   SynchronizeOptional(state, MotionProperty::Translation,
                       properties.translation, Point{}, now, reducedMotion,
                       motionRestored, explicitMotionStarted, result.changed);
@@ -704,29 +938,25 @@ auto AdvanceNode(RuntimeNode &node, const MonotonicTime now,
     resolvedStyle.background = node.properties.background;
   }
   if (properties.background) {
-    Synchronize(state, ViewFor(MotionProperty::Background,
-                               *properties.background),
-                now, reducedMotion, motionRestored, explicitMotionStarted,
-                result.changed);
+    Synchronize(
+        state, ViewFor(MotionProperty::Background, *properties.background), now,
+        reducedMotion, motionRestored, explicitMotionStarted, result.changed);
     state.hasBackground = true;
   } else {
-    SynchronizeAutomatic(state, MotionProperty::Background,
-                         resolvedStyle.background,
-                         node.properties.visual.transition, now, reducedMotion,
-                         result.changed);
+    SynchronizeAutomatic(
+        state, MotionProperty::Background, resolvedStyle.background,
+        node.properties.visual.transition, now, reducedMotion, result.changed);
     state.hasBackground = resolvedStyle.background.has_value();
   }
   if (properties.foreground) {
-    Synchronize(state,
-                ViewFor(MotionProperty::Foreground, *properties.foreground),
-                now, reducedMotion, motionRestored, explicitMotionStarted,
-                result.changed);
+    Synchronize(
+        state, ViewFor(MotionProperty::Foreground, *properties.foreground), now,
+        reducedMotion, motionRestored, explicitMotionStarted, result.changed);
     state.hasForeground = true;
   } else {
-    SynchronizeAutomatic(state, MotionProperty::Foreground,
-                         resolvedStyle.foreground,
-                         node.properties.visual.transition, now, reducedMotion,
-                         result.changed);
+    SynchronizeAutomatic(
+        state, MotionProperty::Foreground, resolvedStyle.foreground,
+        node.properties.visual.transition, now, reducedMotion, result.changed);
     state.hasForeground = resolvedStyle.foreground.has_value();
   }
   if (properties.borderColor) {
@@ -736,17 +966,15 @@ auto AdvanceNode(RuntimeNode &node, const MonotonicTime now,
                 result.changed);
     state.hasBorderColor = true;
   } else {
-    SynchronizeAutomatic(state, MotionProperty::BorderColor,
-                         resolvedStyle.borderColor,
-                         node.properties.visual.transition, now, reducedMotion,
-                         result.changed);
+    SynchronizeAutomatic(
+        state, MotionProperty::BorderColor, resolvedStyle.borderColor,
+        node.properties.visual.transition, now, reducedMotion, result.changed);
     state.hasBorderColor = resolvedStyle.borderColor.has_value();
   }
   SynchronizeAutomatic(
       state, MotionProperty::FocusOpacity,
-      std::optional<F32>{HasVisualState(stateFlags, VisualStateFlags::Focused)
-                             ? 1.0F
-                             : 0.0F},
+      std::optional<F32>{
+          HasVisualState(stateFlags, VisualStateFlags::Focused) ? 1.0F : 0.0F},
       node.properties.visual.transition, now, reducedMotion, result.changed);
 
   for (const auto &binding : properties.Bindings()) {
@@ -758,11 +986,25 @@ auto AdvanceNode(RuntimeNode &node, const MonotonicTime now,
                 explicitMotionStarted, result.changed);
   }
 
-  std::erase_if(state.tracks,
-                [](const Track &track) { return !track.seen; });
+  if (controller) {
+    BindController(controller, node.id, host);
+    for (const auto &declaration : ControllerDeclarations(controller)) {
+      Synchronize(state, declaration.view, now, reducedMotion, motionRestored,
+                  explicitMotionStarted, result.changed);
+    }
+  }
 
-  state.completionPending =
-      state.completionPending || explicitMotionStarted;
+  std::erase_if(state.tracks, [](Track &track) {
+    if (track.seen) {
+      return false;
+    }
+    if (track.operation) {
+      track.operation->Complete(MotionOutcome::Unmounted);
+    }
+    return true;
+  });
+
+  state.completionPending = state.completionPending || explicitMotionStarted;
   for (const auto &track : state.tracks) {
     if (!track.active) {
       continue;
@@ -788,12 +1030,13 @@ auto AdvanceNode(RuntimeNode &node, const MonotonicTime now,
 
 void AdvanceSubtree(RuntimeTree &tree, const ElementHandle handle,
                     const MonotonicTime now, const bool reducedMotion,
+                    const std::shared_ptr<MotionHostState> &host,
                     MotionFrameResult &result) {
   auto *node = tree.Get(handle);
   if (node == nullptr) {
     return;
   }
-  const auto nodeResult = AdvanceNode(*node, now, reducedMotion);
+  const auto nodeResult = AdvanceNode(*node, now, reducedMotion, host);
   result.changed = result.changed || nodeResult.changed;
   result.activeElementCount += nodeResult.activeElementCount;
   if (nodeResult.nextDeadline &&
@@ -803,7 +1046,7 @@ void AdvanceSubtree(RuntimeTree &tree, const ElementHandle handle,
   }
   const auto children = node->children;
   for (const auto child : children) {
-    AdvanceSubtree(tree, child, now, reducedMotion, result);
+    AdvanceSubtree(tree, child, now, reducedMotion, host, result);
   }
 }
 
@@ -815,8 +1058,7 @@ void CollectSubtreeDiagnostics(const RuntimeTree &tree,
     return;
   }
   if (node->motion) {
-    diagnostics.propertyConflictCount +=
-        node->motion->propertyConflictCount;
+    diagnostics.propertyConflictCount += node->motion->propertyConflictCount;
     for (const auto &track : node->motion->tracks) {
       diagnostics.tracks.push_back(MotionTrackDiagnostics{
           .owner = node->id,
@@ -850,11 +1092,170 @@ template <AnimatableValue T>
 }
 } // namespace
 
+auto CreateMotionHost(NGIN::Utilities::Callable<void()> wake)
+    -> std::shared_ptr<MotionHostState> {
+  return std::make_shared<MotionHostState>(std::move(wake));
+}
+
+void CloseMotionHost(const std::shared_ptr<MotionHostState> &host) noexcept {
+  if (host) {
+    host->Close();
+  }
+}
+
+void UnmountMotionNode(RuntimeNode &node) noexcept {
+  if (node.motion) {
+    for (auto &track : node.motion->tracks) {
+      if (track.operation) {
+        track.operation->Complete(MotionOutcome::Unmounted);
+      }
+    }
+  }
+  const auto controller = MotionAccess::Controller(node.properties.motion);
+  if (!controller) {
+    return;
+  }
+  std::vector<std::shared_ptr<MotionOperationState>> operations;
+  {
+    std::scoped_lock lock{controller->mutex};
+    if (controller->mounted && controller->owner == node.id) {
+      controller->mounted = false;
+      controller->owner = {};
+      controller->host.reset();
+      for (const auto &entry : controller->entries) {
+        operations.push_back(entry.operation);
+      }
+      controller->entries.clear();
+    }
+  }
+  for (const auto &operation : operations) {
+    operation->Complete(MotionOutcome::Unmounted);
+  }
+}
+
+namespace {
+void UnmountSubtree(RuntimeTree &tree, const ElementHandle handle) noexcept {
+  auto *node = tree.Get(handle);
+  if (node == nullptr) {
+    return;
+  }
+  const auto children = node->children;
+  for (const auto child : children) {
+    UnmountSubtree(tree, child);
+  }
+  UnmountMotionNode(*node);
+}
+} // namespace
+
+void UnmountMotionTree(RuntimeTree &tree) noexcept {
+  UnmountSubtree(tree, tree.Root());
+}
+
 auto AdvanceMotion(RuntimeTree &tree, const MonotonicTime now,
-                   const bool reducedMotion) -> MotionFrameResult {
+                   const bool reducedMotion,
+                   const std::shared_ptr<MotionHostState> &host)
+    -> MotionFrameResult {
   MotionFrameResult result{};
-  AdvanceSubtree(tree, tree.Root(), now, reducedMotion, result);
+  AdvanceSubtree(tree, tree.Root(), now, reducedMotion, host, result);
   return result;
+}
+
+auto BeginControllerMotion(
+    NGIN::Async::TaskContext &context,
+    const std::shared_ptr<MotionControllerState> &controller,
+    std::shared_ptr<const IAnimationBinding> binding)
+    -> NGIN::Async::Task<MotionOutcome> {
+  if (!controller || !binding) {
+    co_return MotionOutcome::Unmounted;
+  }
+
+  auto operation = std::make_shared<MotionOperationState>();
+  const auto property = binding->View().property;
+  operation->controller = controller;
+  operation->property = property;
+  std::shared_ptr<MotionOperationState> interrupted;
+  std::shared_ptr<MotionHostState> host;
+  {
+    std::scoped_lock lock{controller->mutex};
+    const auto found = std::find_if(
+        controller->entries.begin(), controller->entries.end(),
+        [property](const ControllerEntry &entry) {
+          return entry.binding && entry.binding->View().property == property;
+        });
+    if (found == controller->entries.end()) {
+      controller->entries.push_back(ControllerEntry{
+          .binding = std::move(binding),
+          .operation = operation,
+      });
+    } else {
+      interrupted = found->operation;
+      *found = ControllerEntry{
+          .binding = std::move(binding),
+          .operation = operation,
+      };
+    }
+    host = controller->host.lock();
+  }
+  if (interrupted) {
+    interrupted->Complete(MotionOutcome::Interrupted);
+  }
+  if (host) {
+    host->Wake();
+  }
+  co_return co_await MotionOperationAwaiter{
+      .operation = std::move(operation),
+      .context = &context,
+  };
+}
+
+void CancelControllerMotion(const std::shared_ptr<MotionControllerState> &state,
+                            const AnimationPropertyId property) noexcept {
+  if (!state) {
+    return;
+  }
+  std::shared_ptr<MotionOperationState> operation;
+  std::shared_ptr<MotionHostState> host;
+  {
+    std::scoped_lock lock{state->mutex};
+    const auto found = std::find_if(
+        state->entries.begin(), state->entries.end(),
+        [property](const ControllerEntry &entry) {
+          return entry.binding && entry.binding->View().property == property;
+        });
+    if (found == state->entries.end()) {
+      return;
+    }
+    found->canceled = true;
+    operation = found->operation;
+    host = state->host.lock();
+  }
+  operation->Complete(MotionOutcome::Canceled);
+  if (host) {
+    host->Wake();
+  }
+}
+
+void CancelAllControllerMotion(
+    const std::shared_ptr<MotionControllerState> &state) noexcept {
+  if (!state) {
+    return;
+  }
+  std::vector<std::shared_ptr<MotionOperationState>> operations;
+  std::shared_ptr<MotionHostState> host;
+  {
+    std::scoped_lock lock{state->mutex};
+    for (auto &entry : state->entries) {
+      entry.canceled = true;
+      operations.push_back(entry.operation);
+    }
+    host = state->host.lock();
+  }
+  for (const auto &operation : operations) {
+    operation->Complete(MotionOutcome::Canceled);
+  }
+  if (host) {
+    host->Wake();
+  }
 }
 
 void CollectMotionDiagnostics(const RuntimeTree &tree,
@@ -866,7 +1267,8 @@ void CollectMotionDiagnostics(const RuntimeTree &tree,
 
 auto CopyMotionValue(const MotionState *state,
                      const AnimationPropertyId property,
-                     const std::type_info &type, void *output) noexcept -> bool {
+                     const std::type_info &type, void *output) noexcept
+    -> bool {
   if (state == nullptr || output == nullptr) {
     return false;
   }
@@ -917,7 +1319,8 @@ auto SnapshotFor(const RuntimeNode &node) noexcept -> MotionSnapshot {
 auto TransformFor(const RuntimeNode &node) noexcept -> MotionTransform {
   auto transform = SnapshotFor(node).transform;
   const auto centerX = node.arrangedBounds.x + node.arrangedBounds.width * 0.5F;
-  const auto centerY = node.arrangedBounds.y + node.arrangedBounds.height * 0.5F;
+  const auto centerY =
+      node.arrangedBounds.y + node.arrangedBounds.height * 0.5F;
   transform.translation.x += centerX * (1.0F - transform.scale.x);
   transform.translation.y += centerY * (1.0F - transform.scale.y);
   return transform;
@@ -947,8 +1350,7 @@ auto TransformRect(const Rect rect, const MotionTransform transform) noexcept
   const auto second = TransformPoint(
       Point{rect.x + rect.width, rect.y + rect.height}, transform);
   return Rect{std::min(first.x, second.x), std::min(first.y, second.y),
-              std::abs(second.x - first.x),
-              std::abs(second.y - first.y)};
+              std::abs(second.x - first.x), std::abs(second.y - first.y)};
 }
 
 auto ComposedTransformFor(const RuntimeTree &tree,
@@ -972,8 +1374,8 @@ auto ComposedTransformFor(const RuntimeTree &tree,
         result.translation.x + local.translation.x * result.scale.x,
         result.translation.y + local.translation.y * result.scale.y,
     };
-    result.scale = Point{result.scale.x * local.scale.x,
-                         result.scale.y * local.scale.y};
+    result.scale =
+        Point{result.scale.x * local.scale.x, result.scale.y * local.scale.y};
   }
   return result;
 }
@@ -983,3 +1385,33 @@ auto TransformedBoundsFor(const RuntimeTree &tree, const ElementHandle handle,
   return TransformRect(bounds, ComposedTransformFor(tree, handle));
 }
 } // namespace NGIN::UI::Detail
+
+namespace NGIN::UI {
+MotionController::MotionController()
+    : m_state(std::make_shared<Detail::MotionControllerState>()) {}
+
+MotionController::MotionController(MotionController &&) noexcept = default;
+
+auto MotionController::operator=(MotionController &&other) noexcept
+    -> MotionController & {
+  if (this != &other) {
+    CancelAll();
+    m_state = std::move(other.m_state);
+  }
+  return *this;
+}
+
+MotionController::~MotionController() { CancelAll(); }
+
+void MotionController::Attach(MotionProperties &properties) const noexcept {
+  properties.m_controller = m_state;
+}
+
+void MotionController::Cancel(const AnimationPropertyId property) noexcept {
+  Detail::CancelControllerMotion(m_state, property);
+}
+
+void MotionController::CancelAll() noexcept {
+  Detail::CancelAllControllerMotion(m_state);
+}
+} // namespace NGIN::UI

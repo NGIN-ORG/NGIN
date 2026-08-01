@@ -6,6 +6,8 @@
 #include <optional>
 
 namespace NGIN::UI::Detail {
+struct MotionHostState;
+
 struct MotionSnapshot final {
   F32 value{0.0F};
   F32 opacity{1.0F};
@@ -26,8 +28,15 @@ struct MotionFrameResult final {
   bool changed{false};
 };
 
+[[nodiscard]] auto CreateMotionHost(NGIN::Utilities::Callable<void()> wake)
+    -> std::shared_ptr<MotionHostState>;
+void CloseMotionHost(const std::shared_ptr<MotionHostState> &host) noexcept;
+void UnmountMotionNode(RuntimeNode &node) noexcept;
+void UnmountMotionTree(RuntimeTree &tree) noexcept;
 [[nodiscard]] auto AdvanceMotion(RuntimeTree &tree, MonotonicTime now,
-                                 bool reducedMotion) -> MotionFrameResult;
+                                 bool reducedMotion,
+                                 const std::shared_ptr<MotionHostState> &host)
+    -> MotionFrameResult;
 void CollectMotionDiagnostics(const RuntimeTree &tree,
                               MotionDiagnostics &diagnostics);
 [[nodiscard]] auto SnapshotFor(const RuntimeNode &node) noexcept
@@ -39,8 +48,8 @@ void CollectMotionDiagnostics(const RuntimeTree &tree,
 [[nodiscard]] auto InverseTransformPoint(Point point,
                                          MotionTransform transform) noexcept
     -> Point;
-[[nodiscard]] auto TransformRect(Rect rect,
-                                 MotionTransform transform) noexcept -> Rect;
+[[nodiscard]] auto TransformRect(Rect rect, MotionTransform transform) noexcept
+    -> Rect;
 [[nodiscard]] auto ComposedTransformFor(const RuntimeTree &tree,
                                         ElementHandle handle) noexcept
     -> MotionTransform;

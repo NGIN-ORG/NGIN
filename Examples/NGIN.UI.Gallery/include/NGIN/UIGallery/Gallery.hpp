@@ -10,6 +10,7 @@
 
 namespace NGIN::UIGallery {
 class GalleryVirtualizedSource;
+class GalleryMotionDemo;
 
 enum class Page : NGIN::UInt8 {
   Overview,
@@ -118,6 +119,14 @@ public:
   [[nodiscard]] auto MotionPreviewReduced() const noexcept -> bool;
   void ToggleMotionPreviewReduced();
   [[nodiscard]] auto MotionPopup() noexcept -> UI::PopupController &;
+  [[nodiscard]] auto AsyncPrimaryMotion() noexcept -> UI::MotionController &;
+  [[nodiscard]] auto AsyncSecondaryMotion() noexcept -> UI::MotionController &;
+  [[nodiscard]] auto AsyncMotionStatus() const noexcept -> const Text::String &;
+  void StartAsyncMotionSequence();
+  void StartParallelMotion();
+  void StartCancelableMotion();
+  void InterruptAsyncMotion();
+  void CancelAsyncMotion();
   [[nodiscard]] auto ComboPopup() noexcept -> UI::PopupController &;
   [[nodiscard]] auto MenuPopup() noexcept -> UI::PopupController &;
   [[nodiscard]] auto ContextPopup() noexcept -> UI::PopupController &;
@@ -178,6 +187,7 @@ private:
   std::unique_ptr<GalleryVirtualizedSource> m_virtualizedSource;
   std::unique_ptr<UI::FixedVirtualizedListController> m_virtualizedController;
   std::unique_ptr<UI::AnimationHandle> m_motionRepeatHandle;
+  std::shared_ptr<GalleryMotionDemo> m_asyncMotion;
   UI::PopupController m_motionPopup;
   UI::PopupController m_comboPopup;
   UI::PopupController m_menuPopup;

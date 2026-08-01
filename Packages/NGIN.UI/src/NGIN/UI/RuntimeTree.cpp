@@ -1,5 +1,7 @@
 #include <NGIN/UI/RuntimeTree.hpp>
 
+#include "MotionInternal.hpp"
+
 #include <algorithm>
 #include <exception>
 #include <utility>
@@ -273,6 +275,7 @@ auto RuntimeTree::DestroySubtree(const ElementHandle handle) noexcept
   }
 
   UnmountCustom(slot.node);
+  Detail::UnmountMotionNode(slot.node);
   slot.node = RuntimeNode{};
   slot.occupied = false;
   ++slot.generation;

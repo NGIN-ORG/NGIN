@@ -43,6 +43,9 @@ The version 0.1 implementation provides:
 - retained target-value animation for scalar values, colors, opacity,
   translation, and scale with deterministic platform time, easing,
   interruption, cancellation, bounded repetition, and reduced motion;
+- retained motion controllers with generic awaitable properties, UI-scheduled
+  continuations, ordered `co_await` steps, and parallel `WhenAll`/`WhenAny`
+  composition;
 - theme-driven control-state transitions, animated popup entry/exit, and
   determinate or indeterminate progress motion without application frame
   loops;
@@ -166,8 +169,8 @@ See the
 [desktop layout guide](../../docs/guides/ngin-ui-desktop-layout.md) for Grid,
 WrapPanel, Canvas, responsive sizing, and layout diagnostics.
 See the [motion guide](../../docs/guides/ngin-ui-motion.md) for target changes,
-easing, interruption, cancellation, repetition, transforms, control
-transitions, reduced motion, and deterministic clocks.
+easing, awaited sequences, parallel motion, interruption, cancellation,
+repetition, transforms, reduced motion, and deterministic clocks.
 See the
 [richer-content guide](../../docs/guides/ngin-ui-richer-content.md) for
 multiline layout, font fallback, `TextArea`, logical images, asynchronous

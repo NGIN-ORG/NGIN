@@ -493,8 +493,13 @@ auto main() -> int {
                  motionPopupNode->properties.motion.translation.has_value() &&
                  motionPopupNode->properties.motion.translation->Initial() ==
                      std::optional<Point>{Point{0.0F, 36.0F}} &&
-                 motionPopupNode->properties.motion.translation->Spec().duration >=
-                     std::chrono::milliseconds{500},
+                 std::holds_alternative<TweenTiming>(
+                     motionPopupNode->properties.motion.translation->Spec()
+                         .timing) &&
+                 std::get<TweenTiming>(
+                     motionPopupNode->properties.motion.translation->Spec()
+                         .timing)
+                         .duration >= std::chrono::milliseconds{500},
              "popup demo uses an obvious rise and fade") ||
       !Check(popupCard.IsValid(), "popup presents a visible card") ||
       !Check(motionPopupNode->popup.contentBounds.width <= 320.0F &&

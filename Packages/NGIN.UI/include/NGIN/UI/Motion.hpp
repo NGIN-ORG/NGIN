@@ -1,5 +1,6 @@
 #pragma once
 
+#include <NGIN/Async/Task.hpp>
 #include <NGIN/UI/Animation.hpp>
 #include <NGIN/UI/Geometry.hpp>
 #include <NGIN/UI/Handles.hpp>
@@ -17,7 +18,16 @@
 #include <vector>
 
 namespace NGIN::UI {
-/// @brief Translation and scale applied after layout without changing layout size.
+/// @brief Final result reported by an awaited motion operation.
+enum class MotionOutcome : UInt8 {
+  Completed,
+  Canceled,
+  Interrupted,
+  Unmounted,
+};
+
+/// @brief Translation and scale applied after layout without changing layout
+/// size.
 struct MotionTransform final {
   Point translation{};
   Point scale{1.0F, 1.0F};
@@ -74,8 +84,7 @@ template <> struct AnimationInterpolator<Color> final {
         AnimationInterpolator<F32>::Interpolate(start.red, end.red, progress),
         AnimationInterpolator<F32>::Interpolate(start.green, end.green,
                                                 progress),
-        AnimationInterpolator<F32>::Interpolate(start.blue, end.blue,
-                                                progress),
+        AnimationInterpolator<F32>::Interpolate(start.blue, end.blue, progress),
         AnimationInterpolator<F32>::Interpolate(start.alpha, end.alpha,
                                                 progress),
     };
@@ -96,8 +105,23 @@ template <> struct AnimationValuePolicy<Color> final {
 };
 
 namespace Detail {
-[[nodiscard]] constexpr auto HashAnimationProperty(
-    const std::string_view name) noexcept -> AnimationPropertyId {
+/// @brief Internal retained controller state.
+struct MotionControllerState;
+/// @brief Internal completion state for one controller operation.
+struct MotionOperationState;
+/// @brief Internal access to controller data attached to motion properties.
+struct MotionAccess;
+
+/// @brief Internal precedence used while synchronizing motion declarations.
+enum class AnimationDeclarationSource : UInt8 {
+  Automatic,
+  Controller,
+  Declarative,
+};
+
+[[nodiscard]] constexpr auto
+HashAnimationProperty(const std::string_view name) noexcept
+    -> AnimationPropertyId {
   UInt64 hash = 14695981039346656037ULL;
   for (const auto character : name) {
     hash ^= static_cast<UInt8>(character);
@@ -112,12 +136,13 @@ struct AnimationValueOperations final {
   const char *typeName{nullptr};
   UIntSize size{0};
   UIntSize alignment{0};
-  bool (*constructCopy)(void *, const void *) noexcept{nullptr};
-  void (*destroy)(void *) noexcept{nullptr};
-  bool (*assignCopy)(void *, const void *) noexcept{nullptr};
-  bool (*equals)(const void *, const void *) noexcept{nullptr};
-  bool (*interpolate)(const void *, const void *, F32, void *) noexcept{nullptr};
-  void (*applyPolicy)(void *, AnimationOutputPolicy) noexcept{nullptr};
+  bool (*constructCopy)(void *, const void *) noexcept {nullptr};
+  void (*destroy)(void *) noexcept {nullptr};
+  bool (*assignCopy)(void *, const void *) noexcept {nullptr};
+  bool (*equals)(const void *, const void *) noexcept {nullptr};
+  bool (*interpolate)(const void *, const void *, F32,
+                      void *) noexcept {nullptr};
+  void (*applyPolicy)(void *, AnimationOutputPolicy) noexcept {nullptr};
 };
 
 template <AnimatableValue T>
@@ -128,46 +153,50 @@ template <AnimatableValue T>
       .typeName = typeid(T).name(),
       .size = sizeof(T),
       .alignment = alignof(T),
-      .constructCopy = [](void *destination, const void *source) noexcept {
-        try {
-          ::new (destination) T(*static_cast<const T *>(source));
-          return true;
-        } catch (...) {
-          return false;
-        }
-      },
+      .constructCopy =
+          [](void *destination, const void *source) noexcept {
+            try {
+              ::new (destination) T(*static_cast<const T *>(source));
+              return true;
+            } catch (...) {
+              return false;
+            }
+          },
       .destroy = [](void *value) noexcept { static_cast<T *>(value)->~T(); },
-      .assignCopy = [](void *destination, const void *source) noexcept {
-        try {
-          *static_cast<T *>(destination) = *static_cast<const T *>(source);
-          return true;
-        } catch (...) {
-          return false;
-        }
-      },
-      .equals = [](const void *left, const void *right) noexcept {
-        try {
-          return *static_cast<const T *>(left) ==
-                 *static_cast<const T *>(right);
-        } catch (...) {
-          return false;
-        }
-      },
-      .interpolate = [](const void *start, const void *end, const F32 progress,
-                        void *output) noexcept {
-        try {
-          *static_cast<T *>(output) = AnimationInterpolator<T>::Interpolate(
-              *static_cast<const T *>(start), *static_cast<const T *>(end),
-              progress);
-          return true;
-        } catch (...) {
-          return false;
-        }
-      },
-      .applyPolicy = [](void *value,
-                        const AnimationOutputPolicy policy) noexcept {
-        AnimationValuePolicy<T>::Apply(*static_cast<T *>(value), policy);
-      },
+      .assignCopy =
+          [](void *destination, const void *source) noexcept {
+            try {
+              *static_cast<T *>(destination) = *static_cast<const T *>(source);
+              return true;
+            } catch (...) {
+              return false;
+            }
+          },
+      .equals =
+          [](const void *left, const void *right) noexcept {
+            try {
+              return *static_cast<const T *>(left) ==
+                     *static_cast<const T *>(right);
+            } catch (...) {
+              return false;
+            }
+          },
+      .interpolate =
+          [](const void *start, const void *end, const F32 progress,
+             void *output) noexcept {
+            try {
+              *static_cast<T *>(output) = AnimationInterpolator<T>::Interpolate(
+                  *static_cast<const T *>(start), *static_cast<const T *>(end),
+                  progress);
+              return true;
+            } catch (...) {
+              return false;
+            }
+          },
+      .applyPolicy =
+          [](void *value, const AnimationOutputPolicy policy) noexcept {
+            AnimationValuePolicy<T>::Apply(*static_cast<T *>(value), policy);
+          },
   };
   return operations;
 }
@@ -182,6 +211,8 @@ struct AnimationDeclarationView final {
   const void *initial{nullptr};
   const AnimationSpec *spec{nullptr};
   const void *handleIdentity{nullptr};
+  std::shared_ptr<MotionOperationState> operation{};
+  AnimationDeclarationSource source{AnimationDeclarationSource::Declarative};
   bool cancelled{false};
   bool builtIn{false};
 };
@@ -193,6 +224,16 @@ public:
   [[nodiscard]] virtual auto View() const noexcept
       -> AnimationDeclarationView = 0;
 };
+
+[[nodiscard]] auto
+BeginControllerMotion(NGIN::Async::TaskContext &context,
+                      const std::shared_ptr<MotionControllerState> &controller,
+                      std::shared_ptr<const IAnimationBinding> binding)
+    -> NGIN::Async::Task<MotionOutcome>;
+void CancelControllerMotion(const std::shared_ptr<MotionControllerState> &state,
+                            AnimationPropertyId property) noexcept;
+void CancelAllControllerMotion(
+    const std::shared_ptr<MotionControllerState> &state) noexcept;
 } // namespace Detail
 
 /// @brief Typed stable key and default value for a generic animation track.
@@ -202,16 +243,15 @@ public:
 /// reuse of the same hashed identifier.
 template <AnimatableValue T> class AnimationProperty final {
 public:
-  AnimationProperty(std::string_view name, T defaultValue,
-                    AnimationOutputPolicy outputPolicy =
-                        AnimationOutputPolicy::Unbounded)
-      : m_id(Detail::HashAnimationProperty(name)), m_name(name),
-        m_defaultValue(std::move(defaultValue)),
-        m_outputPolicy(outputPolicy) {}
-
-  [[nodiscard]] static auto BuiltIn(
+  AnimationProperty(
       std::string_view name, T defaultValue,
       AnimationOutputPolicy outputPolicy = AnimationOutputPolicy::Unbounded)
+      : m_id(Detail::HashAnimationProperty(name)), m_name(name),
+        m_defaultValue(std::move(defaultValue)), m_outputPolicy(outputPolicy) {}
+
+  [[nodiscard]] static auto
+  BuiltIn(std::string_view name, T defaultValue,
+          AnimationOutputPolicy outputPolicy = AnimationOutputPolicy::Unbounded)
       -> AnimationProperty {
     AnimationProperty result{name, std::move(defaultValue), outputPolicy};
     result.m_builtIn = true;
@@ -219,7 +259,9 @@ public:
   }
 
   [[nodiscard]] auto Id() const noexcept -> AnimationPropertyId { return m_id; }
-  [[nodiscard]] auto Name() const noexcept -> std::string_view { return m_name; }
+  [[nodiscard]] auto Name() const noexcept -> std::string_view {
+    return m_name;
+  }
   [[nodiscard]] auto DefaultValue() const noexcept -> const T & {
     return m_defaultValue;
   }
@@ -237,8 +279,9 @@ private:
 };
 
 namespace Detail {
-template <AnimatableValue T> class AnimationBinding final
-    : public IAnimationBinding {
+/// @brief Internal owner for one typed animation declaration.
+template <AnimatableValue T>
+class AnimationBinding final : public IAnimationBinding {
 public:
   AnimationBinding(AnimationProperty<T> property, AnimationTarget<T> target)
       : m_property(std::move(property)), m_target(std::move(target)) {}
@@ -271,8 +314,8 @@ struct MotionState;
                                    const std::type_info &type,
                                    void *output) noexcept -> bool;
 [[nodiscard]] auto IsMotionPropertyActive(const MotionState *state,
-                                          AnimationPropertyId property)
-    noexcept -> bool;
+                                          AnimationPropertyId property) noexcept
+    -> bool;
 [[nodiscard]] auto IsAnyMotionPropertyActive(const MotionState *state) noexcept
     -> bool;
 } // namespace Detail
@@ -285,8 +328,8 @@ inline const AnimationProperty<F32> Opacity = AnimationProperty<F32>::BuiltIn(
     "NGIN.UI.Opacity", 1.0F, AnimationOutputPolicy::UnitInterval);
 inline const AnimationProperty<Point> Translation =
     AnimationProperty<Point>::BuiltIn("NGIN.UI.Translation", Point{});
-inline const AnimationProperty<Point> Scale = AnimationProperty<Point>::BuiltIn(
-    "NGIN.UI.Scale", Point{1.0F, 1.0F});
+inline const AnimationProperty<Point> Scale =
+    AnimationProperty<Point>::BuiltIn("NGIN.UI.Scale", Point{1.0F, 1.0F});
 inline const AnimationProperty<Color> Background =
     AnimationProperty<Color>::BuiltIn("NGIN.UI.Background", Color{},
                                       AnimationOutputPolicy::ColorChannels);
@@ -314,9 +357,8 @@ struct MotionProperties final {
 
   template <AnimatableValue T>
   void Set(AnimationProperty<T> property, AnimationTarget<T> target) {
-    auto replacement =
-        std::make_shared<const Detail::AnimationBinding<T>>(
-            std::move(property), std::move(target));
+    auto replacement = std::make_shared<const Detail::AnimationBinding<T>>(
+        std::move(property), std::move(target));
     const auto id = replacement->View().property;
     for (auto &binding : m_bindings) {
       if (binding->View().property == id) {
@@ -339,7 +381,86 @@ struct MotionProperties final {
   }
 
 private:
+  friend class MotionController;
+  friend struct Detail::MotionAccess;
+
   std::vector<std::shared_ptr<const Detail::IAnimationBinding>> m_bindings{};
+  std::shared_ptr<Detail::MotionControllerState> m_controller{};
+};
+
+/// @brief Retained handle for starting and awaiting motion on a composed
+/// element.
+///
+/// Attach the controller while composing the same keyed element on every pass.
+/// A newer target for the same property interrupts the previous waiter.
+class MotionController final {
+public:
+  MotionController();
+  MotionController(const MotionController &) = delete;
+  MotionController(MotionController &&) noexcept;
+  auto operator=(const MotionController &) -> MotionController & = delete;
+  auto operator=(MotionController &&) noexcept -> MotionController &;
+  ~MotionController();
+
+  /// @brief Binds this controller to the element owning these motion
+  /// properties.
+  void Attach(MotionProperties &properties) const noexcept;
+
+  /// @brief Animates any registered property using the shared motion engine.
+  template <AnimatableValue T>
+  [[nodiscard]] auto AnimateToAsync(NGIN::Async::TaskContext &context,
+                                    AnimationProperty<T> property, T target,
+                                    AnimationSpec spec = {})
+      -> NGIN::Async::Task<MotionOutcome> {
+    auto initial = property.DefaultValue();
+    auto binding = std::make_shared<const Detail::AnimationBinding<T>>(
+        std::move(property),
+        AnimateFrom(std::move(initial), std::move(target), std::move(spec)));
+    return Detail::BeginControllerMotion(context, m_state, std::move(binding));
+  }
+
+  /// @brief Animates the element opacity.
+  [[nodiscard]] auto FadeToAsync(NGIN::Async::TaskContext &context, F32 opacity,
+                                 AnimationSpec spec = {})
+      -> NGIN::Async::Task<MotionOutcome> {
+    return AnimateToAsync(context, MotionProperty::Opacity, opacity,
+                          std::move(spec));
+  }
+
+  /// @brief Animates the element translation.
+  [[nodiscard]] auto TranslateToAsync(NGIN::Async::TaskContext &context,
+                                      Point translation,
+                                      AnimationSpec spec = {})
+      -> NGIN::Async::Task<MotionOutcome> {
+    return AnimateToAsync(context, MotionProperty::Translation, translation,
+                          std::move(spec));
+  }
+
+  /// @brief Animates the element scale.
+  [[nodiscard]] auto ScaleToAsync(NGIN::Async::TaskContext &context,
+                                  Point scale, AnimationSpec spec = {})
+      -> NGIN::Async::Task<MotionOutcome> {
+    return AnimateToAsync(context, MotionProperty::Scale, scale,
+                          std::move(spec));
+  }
+
+  /// @brief Animates a color property, defaulting to the background.
+  [[nodiscard]] auto
+  ColorToAsync(NGIN::Async::TaskContext &context, Color color,
+               AnimationSpec spec = {},
+               AnimationProperty<Color> property = MotionProperty::Background)
+      -> NGIN::Async::Task<MotionOutcome> {
+    return AnimateToAsync(context, std::move(property), color, std::move(spec));
+  }
+
+  /// @brief Cancels the current operation for one property.
+  void Cancel(AnimationPropertyId property) noexcept;
+
+  /// @brief Cancels every operation started by this controller.
+  void CancelAll() noexcept;
+
+private:
+  std::shared_ptr<Detail::MotionControllerState> m_state{};
 };
 
 /// @brief Runtime description of one retained animation track.

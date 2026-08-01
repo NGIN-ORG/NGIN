@@ -173,6 +173,75 @@ the built-in scalar value.
 `AnimationValuePolicy<T>` is the optional customization point for a type that
 needs output constraints. Custom properties are unbounded by default.
 
+## Wait for motion
+
+Use a `MotionController` when the next action must wait for an animation. Keep
+the controller with your view model and attach it to the same keyed element on
+every composition:
+
+```cpp
+MotionController cardMotion;
+
+window.SetContent([&](Composer& composer) {
+  NodeProperties card{};
+  cardMotion.Attach(card.motion);
+  composer.Border([] {}, card, "account-card");
+});
+```
+
+Create a UI task context from the application. Start a task with the normal
+NGIN async API:
+
+```cpp
+auto uiContext = application.CreateTaskContext();
+auto fade = NGIN::Async::Spawn(
+    uiContext,
+    cardMotion.FadeToAsync(uiContext, 0.25F, transition));
+```
+
+`AnimateToAsync` works with every `AnimationProperty<T>` accepted by the
+declarative engine. `FadeToAsync`, `TranslateToAsync`, `ScaleToAsync`, and
+`ColorToAsync` are shorter names for common properties.
+
+Write steps in their reading order:
+
+```cpp
+auto ShowCard(NGIN::Async::TaskContext& context,
+              MotionController& motion) -> NGIN::Async::Task<void> {
+  co_await motion.FadeToAsync(context, 1.0F, transition);
+  co_await motion.TranslateToAsync(context, Point{}, transition);
+}
+```
+
+Start operations together with the normal async combinators:
+
+```cpp
+auto results = co_await NGIN::Async::WhenAll(
+    context,
+    motion.FadeToAsync(context, 1.0F, transition),
+    motion.ScaleToAsync(context, Point{1.0F, 1.0F}, transition));
+
+auto first = co_await NGIN::Async::WhenAny(
+    context,
+    left.TranslateToAsync(context, Point{240.0F, 0.0F}, transition),
+    right.TranslateToAsync(context, Point{240.0F, 0.0F}, transition));
+```
+
+An awaited operation returns `MotionOutcome::Completed`, `Canceled`,
+`Interrupted`, or `Unmounted`. A newer controller target for the same property
+interrupts the older waiter. A cancellation token passed to
+`Application::CreateTaskContext` stops its active motion. Removing the element,
+closing its window, or shutting down the application releases its waiter.
+Continuations always run through the UI scheduler, never inside painting.
+
+Declarative targets own a property when both APIs name it. The controller
+operation reports `Interrupted`; this prevents two writers from silently
+changing the same value. Use declarative targets for state-driven transitions.
+Use a controller when the order or result is part of application behavior.
+
+Reduced motion uses the same code. The final value is presented immediately
+and the waiter resumes on the next UI-scheduler turn.
+
 ## Diagnostics and deterministic tests
 
 `Window::Diagnostics().motion.tracks` reports the owner, property identity and
@@ -192,7 +261,8 @@ REQUIRE(application->PumpOnce().HasValue());
 Tests can also inspect `Window::HasActiveAnimations()` and
 `Window::NextAnimationDeadline()`. The Gallery **Motion** page demonstrates
 built-in and custom curves, an editable cubic Bézier, spring timing, a custom
-control property, interruption, cancellation, and reduced motion.
+control property, awaited sequences, parallel motion, interruption,
+cancellation, and reduced motion.
 
 ## Reduced motion and transforms
 
