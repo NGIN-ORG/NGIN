@@ -93,9 +93,11 @@ struct Theme final {
   result.states.disabled.background = theme.colors.disabledSurface;
   result.states.disabled.foreground = theme.colors.disabledForeground;
   result.transition = AnimationSpec{
-      .duration = std::chrono::milliseconds{
-          static_cast<Int64>(theme.motion.fastMilliseconds)},
-      .easing = Easing::Standard,
+      .timing = TweenTiming{
+          .duration = std::chrono::milliseconds{
+              static_cast<Int64>(theme.motion.fastMilliseconds)},
+          .curve = EasingCurve::Standard(),
+      },
   };
   result.focus = FocusVisual{
       .color = theme.colors.focus,
@@ -120,9 +122,11 @@ struct Theme final {
   result.states.disabled.background = theme.colors.disabledSurface;
   result.states.disabled.foreground = theme.colors.disabledForeground;
   result.transition = AnimationSpec{
-      .duration = std::chrono::milliseconds{
-          static_cast<Int64>(theme.motion.fastMilliseconds)},
-      .easing = Easing::Standard,
+      .timing = TweenTiming{
+          .duration = std::chrono::milliseconds{
+              static_cast<Int64>(theme.motion.fastMilliseconds)},
+          .curve = EasingCurve::Standard(),
+      },
   };
   result.focus = FocusVisual{
       .color = theme.colors.focus,

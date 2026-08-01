@@ -148,7 +148,6 @@ namespace {
 
 [[nodiscard]] auto CustomContextFor(const RuntimeNode &node)
     -> CustomElementContext {
-  const auto motion = Detail::SnapshotFor(node);
   return CustomElementContext{
       *node.custom.state,
       node.id,
@@ -162,8 +161,7 @@ namespace {
       },
       node.custom.scaleFactor,
       Detail::TransformFor(node),
-      motion.value,
-      motion.active,
+      node.motion.get(),
   };
 }
 

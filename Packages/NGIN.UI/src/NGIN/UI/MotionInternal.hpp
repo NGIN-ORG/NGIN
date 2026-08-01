@@ -28,6 +28,8 @@ struct MotionFrameResult final {
 
 [[nodiscard]] auto AdvanceMotion(RuntimeTree &tree, MonotonicTime now,
                                  bool reducedMotion) -> MotionFrameResult;
+void CollectMotionDiagnostics(const RuntimeTree &tree,
+                              MotionDiagnostics &diagnostics);
 [[nodiscard]] auto SnapshotFor(const RuntimeNode &node) noexcept
     -> MotionSnapshot;
 [[nodiscard]] auto TransformFor(const RuntimeNode &node) noexcept

@@ -1,22 +1,24 @@
 # NGIN.UI Motion
 
-NGIN.UI animates a value by remembering the value currently on screen and
-moving it toward the latest target. Applications change normal state and
-compose the new target; they do not run timers or write frame loops.
+NGIN.UI moves a property from the value currently on screen to a new target.
+Change normal application state and compose the new target; the window owns the
+clock and stops requesting frames when every track is idle.
 
 ## Fade, move, scale, and color
 
-Attach animation targets to a keyed element:
+Attach targets to a keyed element:
 
 ```cpp
 using namespace std::chrono_literals;
 
-NodeProperties card{};
 const AnimationSpec transition{
-    .duration = 180ms,
-    .easing = Easing::Standard,
+    .timing = TweenTiming{
+        .duration = 180ms,
+        .curve = EasingCurve::Standard(),
+    },
 };
 
+NodeProperties card{};
 card.motion.opacity = Animate(expanded ? 1.0F : 0.35F, transition);
 card.motion.translation =
     Animate(expanded ? Point{180.0F, 0.0F} : Point{}, transition);
@@ -32,31 +34,77 @@ composer.Border([] {}, card, "moving-card");
 ```
 
 The key is the animation identity. Reusing `"moving-card"` preserves the
-presented value. If `expanded` changes halfway through, the next animation
-starts at the value already on screen. Removing the element destroys its
-motion state safely.
+presented value, so a target changed halfway through starts from what the user
+can already see. Removing the element destroys its tracks and deadlines.
 
-`AnimateFrom(initial, target, spec)` supplies a first-mount value for entrance
-motion. Plain `Animate(target, spec)` presents the first target immediately and
-animates later target changes.
+`AnimateFrom(initial, target, spec)` supplies a first-mount entrance value.
+`Animate(target, spec)` presents the first target immediately and animates later
+changes.
 
-The supported target types are:
+## Curves
 
-- `F32` for `value` and `opacity`;
-- `Point` for translation and scale;
-- `Color` for background, foreground, and border color.
+Built-in curves are allocation-free values:
 
-`motion.value` is available to custom controls as
-`CustomElementContext::MotionValue()`. `ProgressBar` uses the same public path
-for determinate changes and its indeterminate loading motion.
+```cpp
+auto linear = EasingCurve::Linear();
+auto standard = EasingCurve::Standard();
+auto easeIn = EasingCurve::EaseIn();
+auto easeOut = EasingCurve::EaseOut();
+auto easeInOut = EasingCurve::EaseInOut();
+auto bezier = EasingCurve::CubicBezier(0.2F, 0.0F, 0.2F, 1.0F);
+auto stepped = EasingCurve::Steps(5, StepPosition::End);
+```
 
-## Curves and repetition
+A custom curve is an immutable shared object:
 
-The built-in curves are `Linear`, `Standard`, `EaseIn`, `EaseOut`, and
-`EaseInOut`. Durations and optional delays use `std::chrono::milliseconds`.
+```cpp
+class OvershootCurve final : public IEasingCurve {
+public:
+  auto Evaluate(F32 progress) const -> F32 override {
+    return progress * 1.15F;
+  }
 
-Set `repeatCount` to a finite number for repeated passes. `Reverse` inserts a
-return pass between forward trips and still finishes at the target:
+  auto Name() const noexcept -> std::string_view override {
+    return "App.Overshoot";
+  }
+};
+
+const auto overshoot = EasingCurve::MakeCustom<OvershootCurve>();
+```
+
+`Evaluate` receives a finite value clamped to `[0, 1]`. A finite result may be
+outside that range. This lets a transform or application value overshoot.
+Opacity and color properties apply their own safe output limits. A thrown
+exception or non-finite result is contained and falls back to linear progress;
+the failure is counted in motion diagnostics.
+
+The runtime owns custom curves through `shared_ptr<const IEasingCurve>`. Treat
+an implementation as immutable and safe for concurrent `const` reads. Curve
+identity is shared-object identity, so retain and reuse one `EasingCurve` value
+instead of constructing a new custom object during every composition.
+
+## Tween and spring timing
+
+A tween has a duration and curve. A spring has physical parameters and settles
+when both displacement and velocity reach their rest thresholds:
+
+```cpp
+marker.motion.translation = Animate(
+    moved ? Point{420.0F, 0.0F} : Point{},
+    AnimationSpec{
+        .timing = SpringTiming{
+            .mass = 1.0F,
+            .stiffness = 180.0F,
+            .damping = 10.0F,
+        },
+    });
+```
+
+`maximumDuration` bounds malformed or very soft springs. Springs may overshoot;
+they are not converted into normalized easing curves.
+
+Set `repeatCount` for repeated passes. `Reverse` inserts a return pass between
+forward trips:
 
 ```cpp
 AnimationHandle run;
@@ -64,79 +112,111 @@ AnimationHandle run;
 marker.motion.translation = AnimateFrom(
     Point{}, Point{420.0F, 0.0F},
     AnimationSpec{
-        .duration = 450ms,
-        .easing = Easing::EaseInOut,
+        .timing = TweenTiming{
+            .duration = 450ms,
+            .curve = EasingCurve::EaseInOut(),
+        },
         .repeatCount = 3,
         .repeatMode = AnimationRepeatMode::Reverse,
     },
     run);
 ```
 
-`AnimationHandle` is move-safe. Calling `run.Cancel()` stops the animation at
-its presented value. A new handle starts a later run cleanly. A `repeatCount`
-of zero repeats while the element remains mounted; use that only for bounded
-control states such as an indeterminate progress bar, or keep a handle so the
-application can cancel it.
+`run.Cancel()` stops at the presented value. A `repeatCount` of zero repeats
+while mounted; keep a handle for explicitly started indefinite motion.
+`MotionProperties::onSettled` runs once when explicit targets finish.
 
-`MotionProperties::onSettled` runs once after the element's explicit targets
-finish. Cancellation does not report successful completion.
+## Custom value types and properties
 
-## Controls and popups
+Specialize the public interpolator for an application value:
 
-Theme-created buttons and text fields use `Theme::motion` durations for hover,
-press, focus, and disabled color changes. Focus outlines fade instead of
-appearing abruptly. `ComboBox`, `MenuButton`, and `ContextMenu` keep their
-popup mounted for a short fade-and-slide exit, disable its input and semantics
-during that exit, and preserve the normal popup focus ownership rules.
+```cpp
+struct GaugeReading final {
+  F32 sweep{0.0F};
+  auto operator<=>(const GaugeReading &) const noexcept = default;
+};
 
-No control owns an application timer. The window scheduler requests one next
-frame deadline while motion is active and removes that deadline after the last
-target settles.
+template <>
+struct NGIN::UI::AnimationInterpolator<GaugeReading> final {
+  static auto Interpolate(GaugeReading start, GaugeReading end,
+                          F32 progress) noexcept -> GaugeReading {
+    return {.sweep = start.sweep + (end.sweep - start.sweep) * progress};
+  }
+};
+```
 
-## Reduced motion
+Give the property a globally qualified, static-lifetime name, declare its
+target, and read it from a custom control:
 
-`IPlatformBackend::ReducedMotionEnabled()` reports the operating-system
-preference. Active targets settle immediately when it is true. The SDL3
-backend reads the Windows client-animation preference; other platforms report
-the capability only when they can supply it.
+```cpp
+inline const AnimationProperty<GaugeReading> GaugeSweep{
+    "Acme.Gauge.Sweep", GaugeReading{}};
 
-`Window::SetMotionEnabled(false)` lets an application offer an additional
-less-motion setting. It can reduce motion further but cannot override a system
-request for reduced motion. Re-enable it with `SetMotionEnabled(true)`.
+NodeProperties gauge{};
+gauge.motion.Set(
+    GaugeSweep,
+    Animate(GaugeReading{.sweep = expanded ? 1.0F : 0.0F}, transition));
+composer.Custom(gaugeElement, gauge, "gauge");
 
-## Transform behavior
+// Inside ICustomElement::Paint:
+const auto reading = context.MotionValue(GaugeSweep);
+const auto moving = context.IsMotionActive(GaugeSweep);
+```
 
-Translation and scale are paint transforms. They do not cause measurement or
-arrangement and therefore do not move neighboring layout. Scale uses the
-element center as its origin.
+Property identity is the stable hash of its name. The runtime also checks the
+name and value type; conflicting declarations are rejected and counted in
+diagnostics. Built-in `motion.opacity`, `translation`, `scale`, `background`,
+`foreground`, `borderColor`, and scalar `value` are conveniences over this same
+track engine. `CustomElementContext::MotionValue()` remains the short form for
+the built-in scalar value.
 
-The transformed geometry is used consistently for:
+`AnimationValuePolicy<T>` is the optional customization point for a type that
+needs output constraints. Custom properties are unbounded by default.
 
-- painting the element and its descendants;
-- clips created inside that subtree;
-- pointer hit testing;
-- custom-control local pointer coordinates;
-- semantic and native accessibility bounds.
+## Diagnostics and deterministic tests
 
-Rotation, animated layout, keyframes, sequences, and shared-element
-transitions are not part of this API.
-
-## Deterministic tests
+`Window::Diagnostics().motion.tracks` reports the owner, property identity and
+name, interpolated value and interpolator type, timing type, curve name,
+custom-curve flag, active state, and evaluation-failure count. Property
+collisions are reported
+by `propertyConflictCount`.
 
 `Testing::TestPlatformBackend` owns the monotonic test clock:
 
 ```cpp
 auto *clock = platform.get();
-// Create the application and start a target change.
 clock->AdvanceTime(90ms);
 REQUIRE(application->PumpOnce().HasValue());
 ```
 
-Tests can inspect `Window::HasActiveAnimations()`,
-`Window::NextAnimationDeadline()`, and the motion fields in
-`WindowDiagnostics`. `TestPlatformBackend::SetReducedMotion(true)` exercises
-the immediate-settle path without relying on a machine setting.
+Tests can also inspect `Window::HasActiveAnimations()` and
+`Window::NextAnimationDeadline()`. The Gallery **Motion** page demonstrates
+built-in and custom curves, an editable cubic Bézier, spring timing, a custom
+control property, interruption, cancellation, and reduced motion.
 
-The Gallery's **Motion** page is the runnable reference for interruption,
-easing, finite repetition, cancellation, popup motion, progress motion, and
-the less-motion preview.
+## Reduced motion and transforms
+
+The operating-system preference and `Window::SetMotionEnabled(false)` settle
+active targets immediately. An application setting can reduce motion further
+but cannot override an operating-system request.
+
+Translation and scale happen after layout. The same transformed geometry is
+used for painting, clips, pointer hit testing, custom-control coordinates,
+semantics, and native accessibility bounds.
+
+## Migration from the closed motion API
+
+Milestone 23 intentionally replaces the old contract; there is no second
+legacy engine.
+
+- Replace `Easing::Standard` with `EasingCurve::Standard()` and the equivalent
+  factory for other built-ins.
+- Replace `AnimationSpec{.duration = ..., .easing = ...}` with
+  `AnimationSpec{.timing = TweenTiming{.duration = ..., .curve = ...}}`.
+- Use `SpringTiming` directly for physics motion.
+- Specialize `AnimationInterpolator<T>` and use `AnimationProperty<T>` for
+  application-owned values instead of adding runtime fields.
+- Read a custom property with `context.MotionValue(property)`.
+
+Retargeting, cancellation, reduced motion, element lifetime, and the window
+scheduler are unchanged because built-in and custom properties use one engine.

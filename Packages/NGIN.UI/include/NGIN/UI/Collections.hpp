@@ -454,8 +454,10 @@ private:
 inline void PreparePopupMotion(PopupController &controller,
                                NodeProperties &properties) {
   const auto spec = AnimationSpec{
-      .duration = std::chrono::milliseconds{140},
-      .easing = Easing::EaseOut,
+      .timing = TweenTiming{
+          .duration = std::chrono::milliseconds{140},
+          .curve = EasingCurve::EaseOut(),
+      },
   };
   if (!properties.motion.opacity) {
     properties.motion.opacity = controller.IsOpen()

@@ -787,8 +787,10 @@ void ProgressBar(Composer &composer, const ProgressValue value,
       control.motion.value = AnimateFrom(
           0.0F, 1.0F,
           AnimationSpec{
-              .duration = std::chrono::milliseconds{1200},
-              .easing = Easing::Linear,
+              .timing = TweenTiming{
+                  .duration = std::chrono::milliseconds{1200},
+                  .curve = EasingCurve::Linear(),
+              },
               .repeatCount = 0,
               .repeatMode = AnimationRepeatMode::Restart,
           });
@@ -801,9 +803,11 @@ void ProgressBar(Composer &composer, const ProgressValue value,
       control.motion.value = Animate(
           fraction,
           AnimationSpec{
-              .duration = std::chrono::milliseconds{static_cast<Int64>(
-                  presentation.theme.motion.regularMilliseconds)},
-              .easing = Easing::Standard,
+              .timing = TweenTiming{
+                  .duration = std::chrono::milliseconds{static_cast<Int64>(
+                      presentation.theme.motion.regularMilliseconds)},
+                  .curve = EasingCurve::Standard(),
+              },
           });
     }
   }

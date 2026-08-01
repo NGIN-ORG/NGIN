@@ -31,6 +31,7 @@ struct WindowDiagnostics final {
   UIntSize indexCount{0};
   UIntSize activeAnimationCount{0};
   UInt64 motionFrameCount{0};
+  MotionDiagnostics motion{};
   bool reducedMotion{false};
   InvalidationKind lastInvalidation{InvalidationKind::None};
   ElementHandle focusedElement{};

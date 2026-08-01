@@ -204,6 +204,59 @@ auto BarChartElement::PointerEvent(CustomElementContext &context,
   return InvalidationKind::Paint | InvalidationKind::Semantics;
 }
 
+MotionDialElement::MotionDialElement(const Color track, const Color value)
+    : m_track(track), m_value(value) {}
+
+auto MotionDialElement::Measure(CustomElementContext &,
+                                const SizeConstraints constraints)
+    -> UIResult<Size> {
+  return constraints.Constrain(Size{150.0F, 96.0F});
+}
+
+auto MotionDialElement::Paint(CustomElementContext &context,
+                              PaintContext &paint) -> UIResult<void> {
+  const auto bounds = paint.Bounds();
+  paint.FillRounded(bounds, CornerRadius::Uniform(Dp{10.0F}), m_track);
+  const auto sweep = context.MotionValue(MotionDialSweep);
+  constexpr auto Pi = 3.14159265358979323846F;
+  const auto angle = (-0.75F + sweep * 1.5F) * Pi;
+  const auto center = Point{bounds.width * 0.5F, bounds.height * 0.62F};
+  const auto radius = std::min(bounds.width, bounds.height) * 0.32F;
+  const auto endpoint = Point{center.x + std::cos(angle) * radius,
+                              center.y + std::sin(angle) * radius};
+  constexpr NGIN::UIntSize SegmentCount = 16;
+  for (NGIN::UIntSize index = 0; index <= SegmentCount; ++index) {
+    const auto progress = static_cast<F32>(index) / SegmentCount;
+    const auto tickAngle = (-0.75F + progress * 1.5F) * Pi;
+    paint.FillRounded(
+        Rect{center.x + std::cos(tickAngle) * radius - 2.0F,
+             center.y + std::sin(tickAngle) * radius - 2.0F, 4.0F, 4.0F},
+        CornerRadius::Uniform(Dp{2.0F}), m_value);
+  }
+  const auto delta = Point{endpoint.x - center.x, endpoint.y - center.y};
+  const auto steps = std::max(1, static_cast<int>(std::ceil(radius)));
+  for (int index = 0; index <= steps; ++index) {
+    const auto progress = static_cast<F32>(index) / static_cast<F32>(steps);
+    paint.FillRounded(
+        Rect{center.x + delta.x * progress - 2.5F,
+             center.y + delta.y * progress - 2.5F, 5.0F, 5.0F},
+        CornerRadius::Uniform(Dp{2.5F}), m_value);
+  }
+  paint.FillRounded(Rect{center.x - 6.0F, center.y - 6.0F, 12.0F, 12.0F},
+                    CornerRadius::Uniform(Dp{6.0F}), m_value);
+  return {};
+}
+
+auto MotionDialElement::Semantics(CustomElementContext &context)
+    -> UIResult<SemanticProperties> {
+  return SemanticProperties{
+      .role = SemanticRole::ProgressBar,
+      .label = String{"Animated custom dial"},
+      .value = Percentage(context.MotionValue(MotionDialSweep)),
+      .description = String{"The dial reads a custom animation property"},
+  };
+}
+
 void ComposeCustomControlExamples(Composer &composer, NativeTextSystem &text,
                                   const Theme &theme) {
   NodeProperties row{};

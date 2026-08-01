@@ -64,6 +64,28 @@ private:
   UI::Color m_selected;
 };
 
+/// @brief Custom motion property consumed only by MotionDialElement.
+inline const UI::AnimationProperty<NGIN::F32> MotionDialSweep{
+    "NGIN.UI.Gallery.MotionDial.Sweep", 0.0F};
+
+/// @brief Custom-painted control that reads a retained animation property.
+class MotionDialElement final : public UI::ICustomElement {
+public:
+  MotionDialElement(UI::Color track, UI::Color value);
+
+  auto Measure(UI::CustomElementContext &context,
+               UI::SizeConstraints constraints)
+      -> UI::UIResult<UI::Size> override;
+  auto Paint(UI::CustomElementContext &context, UI::PaintContext &paint)
+      -> UI::UIResult<void> override;
+  auto Semantics(UI::CustomElementContext &context)
+      -> UI::UIResult<UI::SemanticProperties> override;
+
+private:
+  UI::Color m_track;
+  UI::Color m_value;
+};
+
 void ComposeCustomControlExamples(UI::Composer &composer,
                                   UI::NativeTextSystem &text,
                                   const UI::Theme &theme);

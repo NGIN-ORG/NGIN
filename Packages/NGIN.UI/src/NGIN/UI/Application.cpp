@@ -935,6 +935,8 @@ auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
       motionDiagnostics.activeAnimationCount =
           motionFrame.activeElementCount;
       motionDiagnostics.reducedMotion = reducedMotion;
+      Detail::CollectMotionDiagnostics(
+          window->m_implementation->tree, motionDiagnostics.motion);
       if (motionFrame.changed) {
         ++motionDiagnostics.motionFrameCount;
         window->m_implementation->paintDirty = true;

@@ -101,6 +101,14 @@ public:
   void PrependVirtualizedItems();
   [[nodiscard]] auto MotionForward() const noexcept -> bool;
   void ToggleMotionTarget();
+  [[nodiscard]] auto BezierX1Binding() -> UI::Binding<F32>;
+  [[nodiscard]] auto BezierY1Binding() -> UI::Binding<F32>;
+  [[nodiscard]] auto BezierX2Binding() -> UI::Binding<F32>;
+  [[nodiscard]] auto BezierY2Binding() -> UI::Binding<F32>;
+  [[nodiscard]] auto BezierX1() const noexcept -> F32;
+  [[nodiscard]] auto BezierY1() const noexcept -> F32;
+  [[nodiscard]] auto BezierX2() const noexcept -> F32;
+  [[nodiscard]] auto BezierY2() const noexcept -> F32;
   [[nodiscard]] auto MotionRepeatRunning() const noexcept -> bool;
   void StartMotionRepeat();
   void CancelMotionRepeat();
@@ -161,6 +169,10 @@ private:
   UI::State<bool> m_collectionFiltered;
   UI::State<CollectionTab> m_collectionTab;
   UI::State<bool> m_motionForward;
+  UI::State<F32> m_bezierX1;
+  UI::State<F32> m_bezierY1;
+  UI::State<F32> m_bezierX2;
+  UI::State<F32> m_bezierY2;
   UI::State<bool> m_motionRepeatRunning;
   UI::State<Text::String> m_virtualizedSelection;
   std::unique_ptr<GalleryVirtualizedSource> m_virtualizedSource;

@@ -284,3 +284,49 @@ Verification:
 - standalone and hosted Gallery smoke builds and launches passed;
 - SDL3 backend contract build and test passed;
 - public API documentation coverage passed with 307 documented types.
+
+## Milestone 23 — Extensible Motion Engine
+
+Status: Complete
+Completed: 2026-08-01
+
+Delivered:
+
+- replaced the closed easing enum with a copyable `EasingCurve` value whose
+  built-ins remain allocation-free and whose immutable custom implementations
+  have defined ownership, identity, input, exception, finite-output, and
+  thread-safety rules;
+- added linear, standard, ease-in, ease-out, ease-in-out, cubic Bézier, and
+  stepped curves through one evaluator, including deliberate finite
+  overshoot;
+- separated fixed-duration `TweenTiming` from physical `SpringTiming`, with
+  bounded analytical spring sampling and deterministic rest thresholds;
+- added the public `AnimationInterpolator<T>` and `AnimationValuePolicy<T>`
+  customization points for application-owned values and output constraints;
+- replaced fixed runtime motion fields with type-erased, typed property tracks
+  keyed by stable `AnimationPropertyId` values while preserving convenient
+  built-in opacity, transform, color, and scalar declarations;
+- allowed custom controls to declare properties through `MotionProperties::Set`
+  and read their presented value and active state from
+  `CustomElementContext`;
+- kept built-in and custom tracks on the same retargeting, cancellation,
+  repetition, reduced-motion, lifetime, scheduler, and idle-deadline paths;
+- added per-track diagnostics for owner, property identity and name, value and
+  interpolator type, timing, curve, custom-curve use, activity, evaluation
+  failures, and property conflicts;
+- expanded the Gallery Motion page with an obvious custom overshoot, a
+  four-slider cubic Bézier editor, spring motion, and a custom-painted dial
+  driven by its own animation property;
+- rewrote the motion guide for curves, springs, typed values, custom
+  properties, diagnostics, error rules, and the intentional migration from the
+  closed Milestone 22 API without retaining a legacy engine.
+
+Verification:
+
+- `NGINUITests`: 140/140 passed with 4,762 assertions, including custom curve
+  containment, cubic Bézier inversion, steps, spring sampling, overshoot
+  policy, typed interpolation, property identity, diagnostics, retargeting,
+  cancellation, unmounting, reduced motion, and idle completion;
+- standalone Gallery product-first build passed and its staged executable
+  completed `--smoke` successfully;
+- public API documentation coverage passed with 322 documented types.

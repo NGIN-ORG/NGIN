@@ -47,7 +47,6 @@ namespace {
 [[nodiscard]] auto CustomContextFor(RuntimeTree &tree, RuntimeNode &node,
                                     const F32 scaleFactor)
     -> CustomElementContext {
-  const auto motion = Detail::SnapshotFor(node);
   return CustomElementContext{
       *node.custom.state,
       node.id,
@@ -61,8 +60,7 @@ namespace {
       },
       scaleFactor,
       Detail::ComposedTransformFor(tree, node.handle),
-      motion.value,
-      motion.active,
+      node.motion.get(),
   };
 }
 

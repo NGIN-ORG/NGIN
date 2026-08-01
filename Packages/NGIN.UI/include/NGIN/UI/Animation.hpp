@@ -4,23 +4,134 @@
 
 #include <atomic>
 #include <chrono>
-#include <compare>
+#include <concepts>
 #include <memory>
 #include <optional>
+#include <string_view>
+#include <type_traits>
 #include <utility>
+#include <variant>
 
 namespace NGIN::UI {
+namespace Detail {
+/// @brief Internal evaluator with access to compact curve storage.
+struct EasingCurveAccess;
+}
 /// @brief Monotonic duration used by platform clocks and animation deadlines.
 using MonotonicTime = std::chrono::nanoseconds;
 
-/// @brief Standard curves available to target-value animations.
-enum class Easing : UInt8 {
+/// @brief Allocation-free curves supplied by NGIN.UI.
+enum class BuiltInEasingCurve : UInt8 {
   Linear,
   Standard,
   EaseIn,
   EaseOut,
   EaseInOut,
+  CubicBezier,
+  Steps,
+  Custom,
 };
+
+/// @brief Determines whether a stepped curve advances at interval starts or ends.
+enum class StepPosition : UInt8 {
+  Start,
+  End,
+};
+
+/// @brief Immutable application extension point for a normalized easing curve.
+///
+/// Evaluate receives an input in [0, 1]. Implementations may return values
+/// outside that range to create deliberate overshoot. Implementations must be
+/// safe for concurrent reads. Exceptions and non-finite results are contained
+/// by EasingCurve and fall back to linear progress.
+class IEasingCurve {
+public:
+  virtual ~IEasingCurve() = default;
+
+  [[nodiscard]] virtual auto Evaluate(F32 progress) const -> F32 = 0;
+  [[nodiscard]] virtual auto Name() const noexcept -> std::string_view {
+    return "Custom";
+  }
+};
+
+/// @brief Copyable built-in or application-defined easing curve.
+class EasingCurve final {
+public:
+  EasingCurve() noexcept = default;
+
+  [[nodiscard]] static auto Linear() noexcept -> EasingCurve;
+  [[nodiscard]] static auto Standard() noexcept -> EasingCurve;
+  [[nodiscard]] static auto EaseIn() noexcept -> EasingCurve;
+  [[nodiscard]] static auto EaseOut() noexcept -> EasingCurve;
+  [[nodiscard]] static auto EaseInOut() noexcept -> EasingCurve;
+  [[nodiscard]] static auto CubicBezier(F32 x1, F32 y1, F32 x2,
+                                        F32 y2) noexcept -> EasingCurve;
+  [[nodiscard]] static auto Steps(UInt32 count,
+                                  StepPosition position = StepPosition::End)
+      noexcept -> EasingCurve;
+  [[nodiscard]] static auto Custom(std::shared_ptr<const IEasingCurve> curve)
+      noexcept -> EasingCurve;
+
+  template <typename T, typename... Args>
+    requires std::derived_from<T, IEasingCurve>
+  [[nodiscard]] static auto MakeCustom(Args &&...args) -> EasingCurve {
+    return Custom(std::make_shared<const T>(std::forward<Args>(args)...));
+  }
+
+  [[nodiscard]] auto Evaluate(F32 progress) const noexcept -> F32;
+  [[nodiscard]] auto Kind() const noexcept -> BuiltInEasingCurve;
+  [[nodiscard]] auto Name() const noexcept -> std::string_view;
+  [[nodiscard]] auto IsCustom() const noexcept -> bool;
+
+  friend auto operator==(const EasingCurve &left,
+                         const EasingCurve &right) noexcept -> bool;
+
+private:
+  friend struct Detail::EasingCurveAccess;
+
+  BuiltInEasingCurve m_kind{BuiltInEasingCurve::Standard};
+  F32 m_x1{0.0F};
+  F32 m_y1{0.0F};
+  F32 m_x2{1.0F};
+  F32 m_y2{1.0F};
+  UInt32 m_stepCount{1};
+  StepPosition m_stepPosition{StepPosition::End};
+  std::shared_ptr<const IEasingCurve> m_custom{};
+};
+
+namespace Detail {
+/// @brief Evaluates a curve while reporting contained custom-code failures.
+[[nodiscard]] auto EvaluateEasingCurve(const EasingCurve &curve, F32 progress,
+                                       bool &valid) noexcept -> F32;
+}
+
+/// @brief Fixed-duration timing using an easing curve.
+struct TweenTiming final {
+  std::chrono::milliseconds duration{180};
+  EasingCurve curve{EasingCurve::Standard()};
+
+  friend auto operator==(const TweenTiming &,
+                         const TweenTiming &) noexcept
+      -> bool = default;
+};
+
+/// @brief Physical spring timing that settles according to displacement and velocity.
+struct SpringTiming final {
+  F32 mass{1.0F};
+  F32 stiffness{220.0F};
+  F32 damping{20.0F};
+  F32 initialVelocity{0.0F};
+  F32 restDisplacement{0.001F};
+  F32 restVelocity{0.001F};
+  std::chrono::milliseconds maximumDuration{5000};
+
+  friend auto operator==(const SpringTiming &,
+                         const SpringTiming &) noexcept
+      -> bool = default;
+};
+
+/// @brief Timing model used by a target-value animation.
+using AnimationTiming = std::variant<TweenTiming, SpringTiming>;
 
 /// @brief Behavior used between repeated animation passes.
 enum class AnimationRepeatMode : UInt8 {
@@ -28,17 +139,45 @@ enum class AnimationRepeatMode : UInt8 {
   Reverse,
 };
 
-/// @brief Duration, curve, delay, and bounded repetition for an animation.
+/// @brief Timing, delay, and bounded repetition for an animation.
 struct AnimationSpec final {
-  std::chrono::milliseconds duration{180};
+  AnimationTiming timing{TweenTiming{}};
   std::chrono::milliseconds delay{0};
-  Easing easing{Easing::Standard};
   UInt32 repeatCount{1};
   AnimationRepeatMode repeatMode{AnimationRepeatMode::Restart};
 
-  [[nodiscard]] constexpr auto
-  operator<=>(const AnimationSpec &) const noexcept = default;
+  friend auto operator==(const AnimationSpec &,
+                         const AnimationSpec &) noexcept
+      -> bool = default;
 };
+
+/// @brief Customization point that interpolates an application value type.
+template <typename T> struct AnimationInterpolator;
+
+/// @brief Scalar animation interpolation supplied by NGIN.UI.
+template <> struct AnimationInterpolator<F32> final {
+  [[nodiscard]] static auto Interpolate(F32 start, F32 end,
+                                        F32 progress) noexcept -> F32 {
+    return start + (end - start) * progress;
+  }
+};
+
+template <typename T>
+concept AnimatableValue =
+    std::default_initializable<T> && std::copy_constructible<T> &&
+    std::is_copy_assignable_v<T> &&
+    std::equality_comparable<T> &&
+    requires(const T &start, const T &end, const F32 progress) {
+      { AnimationInterpolator<T>::Interpolate(start, end, progress) } ->
+          std::convertible_to<T>;
+    };
+
+/// @brief Interpolates a supported built-in or application-defined value.
+template <AnimatableValue T>
+[[nodiscard]] auto InterpolateAnimationValue(const T &start, const T &end,
+                                             const F32 progress) -> T {
+  return AnimationInterpolator<T>::Interpolate(start, end, progress);
+}
 
 namespace Detail {
 /// @brief Shared cancellation flag carried by animation declarations.
@@ -122,7 +261,7 @@ template <typename T>
     -> AnimationTarget<T> {
   AnimationTarget<T> result{};
   result.m_target = std::move(target);
-  result.m_spec = spec;
+  result.m_spec = std::move(spec);
   return result;
 }
 
@@ -131,7 +270,7 @@ template <typename T>
 [[nodiscard]] auto Animate(T target, AnimationSpec spec,
                            const AnimationHandle &handle)
     -> AnimationTarget<T> {
-  auto result = Animate(std::move(target), spec);
+  auto result = Animate(std::move(target), std::move(spec));
   result.m_cancellation = handle.m_cancellation;
   return result;
 }
@@ -140,7 +279,7 @@ template <typename T>
 template <typename T>
 [[nodiscard]] auto AnimateFrom(T initial, T target, AnimationSpec spec = {})
     -> AnimationTarget<T> {
-  auto result = Animate(std::move(target), spec);
+  auto result = Animate(std::move(target), std::move(spec));
   result.m_initial = std::move(initial);
   return result;
 }
@@ -150,11 +289,13 @@ template <typename T>
 [[nodiscard]] auto AnimateFrom(T initial, T target, AnimationSpec spec,
                                const AnimationHandle &handle)
     -> AnimationTarget<T> {
-  auto result = AnimateFrom(std::move(initial), std::move(target), spec);
+  auto result =
+      AnimateFrom(std::move(initial), std::move(target), std::move(spec));
   result.m_cancellation = handle.m_cancellation;
   return result;
 }
 
-/// @brief Evaluates a standard easing curve for a normalized progress value.
-[[nodiscard]] auto ApplyEasing(Easing easing, F32 progress) noexcept -> F32;
+/// @brief Evaluates an easing curve for normalized progress.
+[[nodiscard]] auto ApplyEasing(const EasingCurve &curve, F32 progress) noexcept
+    -> F32;
 } // namespace NGIN::UI

@@ -94,7 +94,9 @@ struct VisualProperties final {
   VisualStateStyles states{};
   FocusVisual focus{};
   VisualStateFlags state{VisualStateFlags::None};
-  AnimationSpec transition{.duration = std::chrono::milliseconds{0}};
+  AnimationSpec transition{.timing = TweenTiming{
+                               .duration = std::chrono::milliseconds{0},
+                           }};
 };
 
 inline void ApplyVisualStylePatch(VisualStyle &style,

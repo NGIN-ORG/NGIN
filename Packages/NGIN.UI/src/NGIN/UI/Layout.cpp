@@ -21,6 +21,8 @@ namespace {
           .enabled = node.properties.interaction.enabled,
       },
       scaleFactor,
+      {},
+      node.motion.get(),
   };
 }
 

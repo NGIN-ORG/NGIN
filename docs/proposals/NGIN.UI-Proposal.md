@@ -1562,8 +1562,10 @@ Animation should be based on invalidation deadlines.
 auto opacity = Animate(
     targetOpacity,
     AnimationSpec{
-        .duration = 180ms,
-        .curve = Easing::Standard
+        .timing = TweenTiming{
+            .duration = 180ms,
+            .curve = EasingCurve::Standard(),
+        },
     });
 ```
 

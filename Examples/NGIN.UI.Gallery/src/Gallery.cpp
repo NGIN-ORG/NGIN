@@ -132,6 +132,26 @@ using NGIN::F32;
 using NGIN::Text::String;
 using namespace NGIN::UI;
 
+class GalleryOvershootCurve final : public IEasingCurve {
+public:
+  [[nodiscard]] auto Evaluate(const F32 progress) const -> F32 override {
+    constexpr auto overshoot = 2.2F;
+    constexpr auto shiftedOvershoot = overshoot + 1.0F;
+    const auto shifted = progress - 1.0F;
+    return 1.0F + shiftedOvershoot * shifted * shifted * shifted +
+           overshoot * shifted * shifted;
+  }
+
+  [[nodiscard]] auto Name() const noexcept -> std::string_view override {
+    return "GalleryOvershoot";
+  }
+};
+
+[[nodiscard]] auto GalleryOvershoot() -> const EasingCurve & {
+  static const auto curve = EasingCurve::MakeCustom<GalleryOvershootCurve>();
+  return curve;
+}
+
 constexpr std::array<std::string_view, PageCount> PageNames{
     "Overview", "Layout", "Typography",    "Text Area",
     "Images",   "Inputs", "Collections",   "Motion",
@@ -1754,8 +1774,10 @@ void ComposeMotionPage(Composer &composer, NativeTextSystem &text, Model &model,
                      "Change a value and NGIN.UI moves it smoothly.");
 
   const auto regular = AnimationSpec{
-      .duration = std::chrono::milliseconds{360},
-      .easing = Easing::Standard,
+      .timing = TweenTiming{
+          .duration = std::chrono::milliseconds{360},
+          .curve = EasingCurve::Standard(),
+      },
   };
   ComposeCard(
       composer, theme,
@@ -1837,10 +1859,11 @@ void ComposeMotionPage(Composer &composer, NativeTextSystem &text, Model &model,
                           theme.typography.body, theme.colors.mutedForeground,
                           "help");
               const std::array curves{
-                  std::pair{Easing::Linear, "Linear"},
-                  std::pair{Easing::Standard, "Standard"},
-                  std::pair{Easing::EaseIn, "Ease in"},
-                  std::pair{Easing::EaseOut, "Ease out"},
+                  std::pair{EasingCurve::Linear(), "Linear"},
+                  std::pair{EasingCurve::Standard(), "Standard"},
+                  std::pair{EasingCurve::EaseIn(), "Ease in"},
+                  std::pair{EasingCurve::EaseOut(), "Ease out"},
+                  std::pair{GalleryOvershoot(), "Custom overshoot"},
               };
               for (NGIN::UIntSize index = 0; index < curves.size(); ++index) {
                 NodeProperties lane{};
@@ -1852,17 +1875,19 @@ void ComposeMotionPage(Composer &composer, NativeTextSystem &text, Model &model,
                 composer.Canvas(
                     [&] {
                       NodeProperties dot{};
-                      dot.layout.preferredSize = Size{104.0F, 26.0F};
+                      dot.layout.preferredSize = Size{140.0F, 26.0F};
                       dot.layout.padding = Thickness{9.0F, 4.0F, 9.0F, 4.0F};
                       dot.canvasPlacement =
                           CanvasPlacement{.offset = Point{4.0F, 4.0F}};
                       dot.visual = MakePanelVisual(theme);
                       dot.visual.base.background = theme.colors.accent;
                       dot.motion.translation = Animate(
-                          model.MotionForward() ? Point{568.0F, 0.0F} : Point{},
+                          model.MotionForward() ? Point{532.0F, 0.0F} : Point{},
                           AnimationSpec{
-                              .duration = std::chrono::milliseconds{620},
-                              .easing = curve,
+                              .timing = TweenTiming{
+                                  .duration = std::chrono::milliseconds{620},
+                                  .curve = curve,
+                              },
                           });
                       composer.Border(
                           [&] {
@@ -1877,6 +1902,161 @@ void ComposeMotionPage(Composer &composer, NativeTextSystem &text, Model &model,
             "easing-column");
       },
       "easing-card");
+
+  ComposeCard(
+      composer, theme,
+      [&] {
+        NodeProperties column{};
+        column.layout.gap = theme.spacing.regular;
+        composer.Column(
+            [&] {
+              ComposeText(composer, text, String{"Create your own motion"},
+                          18.0F, theme.colors.foreground, "title",
+                          SemanticRole::Heading);
+              ComposeText(
+                  composer, text,
+                  String{"Adjust the curve, then press Move it above. The "
+                         "spring and custom dial use the same motion system."},
+                  theme.typography.body, theme.colors.mutedForeground,
+                  "help");
+
+              const auto sliderPresentation =
+                  ControlPresentation{.theme = theme};
+              ComposeControlRow(
+                  composer, text, theme, "First handle — horizontal", "x1",
+                  [&](NodeProperties control) {
+                    control.layout.preferredSize.width = 320.0F;
+                    Slider(composer, model.BezierX1Binding(),
+                           SliderRange{.minimum = 0.0F,
+                                       .maximum = 1.0F,
+                                       .step = 0.05F},
+                           sliderPresentation, control, "control");
+                  },
+                  "bezier-x1");
+              ComposeControlRow(
+                  composer, text, theme, "First handle — vertical", "y1",
+                  [&](NodeProperties control) {
+                    control.layout.preferredSize.width = 320.0F;
+                    Slider(composer, model.BezierY1Binding(),
+                           SliderRange{.minimum = -0.5F,
+                                       .maximum = 1.5F,
+                                       .step = 0.05F},
+                           sliderPresentation, control, "control");
+                  },
+                  "bezier-y1");
+              ComposeControlRow(
+                  composer, text, theme, "Second handle — horizontal", "x2",
+                  [&](NodeProperties control) {
+                    control.layout.preferredSize.width = 320.0F;
+                    Slider(composer, model.BezierX2Binding(),
+                           SliderRange{.minimum = 0.0F,
+                                       .maximum = 1.0F,
+                                       .step = 0.05F},
+                           sliderPresentation, control, "control");
+                  },
+                  "bezier-x2");
+              ComposeControlRow(
+                  composer, text, theme, "Second handle — vertical", "y2",
+                  [&](NodeProperties control) {
+                    control.layout.preferredSize.width = 320.0F;
+                    Slider(composer, model.BezierY2Binding(),
+                           SliderRange{.minimum = -0.5F,
+                                       .maximum = 1.5F,
+                                       .step = 0.05F},
+                           sliderPresentation, control, "control");
+                  },
+                  "bezier-y2");
+
+              NodeProperties bezierLane{};
+              bezierLane.layout.preferredSize = Size{680.0F, 42.0F};
+              bezierLane.layout.maximumSize = Size{680.0F, 42.0F};
+              bezierLane.visual.base.background = theme.colors.sunkenSurface;
+              bezierLane.canvas.clipToBounds = true;
+              composer.Canvas(
+                  [&] {
+                    NodeProperties marker{};
+                    marker.layout.preferredSize = Size{132.0F, 34.0F};
+                    marker.layout.padding = Thickness{10.0F, 7.0F, 10.0F, 7.0F};
+                    marker.canvasPlacement =
+                        CanvasPlacement{.offset = Point{4.0F, 4.0F}};
+                    marker.visual = MakePanelVisual(theme);
+                    marker.visual.base.background = theme.colors.accent;
+                    marker.motion.translation = Animate(
+                        model.MotionForward() ? Point{540.0F, 0.0F} : Point{},
+                        AnimationSpec{.timing = TweenTiming{
+                                          .duration =
+                                              std::chrono::milliseconds{720},
+                                          .curve = EasingCurve::CubicBezier(
+                                              model.BezierX1(),
+                                              model.BezierY1(),
+                                              model.BezierX2(),
+                                              model.BezierY2()),
+                                      }});
+                    composer.Border(
+                        [&] {
+                          ComposeText(composer, text, String{"Your curve"},
+                                      12.0F, theme.colors.accentForeground,
+                                      "label");
+                        },
+                        marker, "marker");
+                  },
+                  bezierLane, "bezier-lane");
+
+              ComposeText(composer, text, String{"Spring timing"}, 15.0F,
+                          theme.colors.foreground, "spring-title");
+              NodeProperties springLane{};
+              springLane.layout.preferredSize = Size{680.0F, 42.0F};
+              springLane.layout.maximumSize = Size{680.0F, 42.0F};
+              springLane.visual.base.background = theme.colors.sunkenSurface;
+              springLane.canvas.clipToBounds = true;
+              composer.Canvas(
+                  [&] {
+                    NodeProperties marker{};
+                    marker.layout.preferredSize = Size{34.0F, 34.0F};
+                    marker.canvasPlacement =
+                        CanvasPlacement{.offset = Point{4.0F, 4.0F}};
+                    marker.visual.base.background = theme.colors.focus;
+                    marker.visual.base.cornerRadius =
+                        CornerRadius::Uniform(Dp{17.0F});
+                    marker.motion.translation = Animate(
+                        model.MotionForward() ? Point{638.0F, 0.0F} : Point{},
+                        AnimationSpec{.timing = SpringTiming{
+                                          .stiffness = 150.0F,
+                                          .damping = 9.0F,
+                                      }});
+                    composer.Border([] {}, marker, "marker");
+                  },
+                  springLane, "spring-lane");
+
+              ComposeText(composer, text,
+                          String{"Custom control property"}, 15.0F,
+                          theme.colors.foreground, "dial-title");
+              ComposeText(
+                  composer, text,
+                  String{"This custom-painted dial reads its own animated "
+                         "property. NGIN.UI does not know what the property "
+                         "means."},
+                  theme.typography.body, theme.colors.mutedForeground,
+                  "dial-help");
+              NodeProperties dial{};
+              dial.layout.preferredSize = Size{150.0F, 96.0F};
+              dial.layout.horizontalAlignment = HorizontalAlignment::Start;
+              dial.motion.Set(
+                  MotionDialSweep,
+                  Animate(model.MotionForward() ? 1.0F : 0.0F,
+                          AnimationSpec{.timing = TweenTiming{
+                                            .duration =
+                                                std::chrono::milliseconds{720},
+                                            .curve = GalleryOvershoot(),
+                                        }}));
+              composer.Custom(std::make_shared<MotionDialElement>(
+                                  theme.colors.sunkenSurface,
+                                  theme.colors.accent),
+                              dial, "custom-motion-dial");
+            },
+            "custom-motion-column");
+      },
+      "custom-motion-card");
 
   ComposeCard(
       composer, theme,
@@ -1925,8 +2105,10 @@ void ComposeMotionPage(Composer &composer, NativeTextSystem &text, Model &model,
                       marker.motion.translation = AnimateFrom(
                           Point{}, Point{646.0F, 0.0F},
                           AnimationSpec{
-                              .duration = std::chrono::milliseconds{450},
-                              .easing = Easing::EaseInOut,
+                              .timing = TweenTiming{
+                                  .duration = std::chrono::milliseconds{450},
+                                  .curve = EasingCurve::EaseInOut(),
+                              },
                               .repeatCount = 3,
                               .repeatMode = AnimationRepeatMode::Reverse,
                           },
@@ -1935,8 +2117,10 @@ void ComposeMotionPage(Composer &composer, NativeTextSystem &text, Model &model,
                           [&model] { model.FinishMotionRepeat(); };
                     } else {
                       marker.motion.translation = Animate(
-                          Point{}, AnimationSpec{.duration =
-                                                     std::chrono::milliseconds{0}});
+                          Point{}, AnimationSpec{.timing = TweenTiming{
+                                                     .duration =
+                                                         std::chrono::milliseconds{0},
+                                                 }});
                     }
                     marker.semantics.hidden = true;
                     composer.Border([] {}, marker, "repeat-marker");
@@ -2007,8 +2191,10 @@ void ComposeMotionPage(Composer &composer, NativeTextSystem &text, Model &model,
               NodeProperties popup{};
               popup.semantics.label = String{"Animated popup example"};
               const auto popupDemo = AnimationSpec{
-                  .duration = std::chrono::milliseconds{520},
-                  .easing = Easing::EaseOut,
+                  .timing = TweenTiming{
+                      .duration = std::chrono::milliseconds{520},
+                      .curve = EasingCurve::EaseOut(),
+                  },
               };
               popup.motion.opacity = model.MotionPopup().IsOpen()
                                          ? AnimateFrom(0.0F, 1.0F, popupDemo)
@@ -2621,6 +2807,14 @@ Model::Model()
           [this](const InvalidationKind kind) { Invalidate(kind); }),
       m_motionForward(
           false, [this](const InvalidationKind kind) { Invalidate(kind); }),
+      m_bezierX1(
+          0.2F, [this](const InvalidationKind kind) { Invalidate(kind); }),
+      m_bezierY1(
+          0.0F, [this](const InvalidationKind kind) { Invalidate(kind); }),
+      m_bezierX2(
+          0.2F, [this](const InvalidationKind kind) { Invalidate(kind); }),
+      m_bezierY2(
+          1.0F, [this](const InvalidationKind kind) { Invalidate(kind); }),
       m_motionRepeatRunning(
           false, [this](const InvalidationKind kind) { Invalidate(kind); }),
       m_virtualizedSelection(
@@ -2850,6 +3044,15 @@ auto Model::MotionForward() const noexcept -> bool {
 void Model::ToggleMotionTarget() {
   static_cast<void>(m_motionForward.Set(!m_motionForward.Get()));
 }
+
+auto Model::BezierX1Binding() -> Binding<F32> { return Bind(m_bezierX1); }
+auto Model::BezierY1Binding() -> Binding<F32> { return Bind(m_bezierY1); }
+auto Model::BezierX2Binding() -> Binding<F32> { return Bind(m_bezierX2); }
+auto Model::BezierY2Binding() -> Binding<F32> { return Bind(m_bezierY2); }
+auto Model::BezierX1() const noexcept -> F32 { return m_bezierX1.Get(); }
+auto Model::BezierY1() const noexcept -> F32 { return m_bezierY1.Get(); }
+auto Model::BezierX2() const noexcept -> F32 { return m_bezierX2.Get(); }
+auto Model::BezierY2() const noexcept -> F32 { return m_bezierY2.Get(); }
 
 auto Model::MotionRepeatRunning() const noexcept -> bool {
   return m_motionRepeatRunning.Get();

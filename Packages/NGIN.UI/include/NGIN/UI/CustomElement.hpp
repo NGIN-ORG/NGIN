@@ -129,8 +129,7 @@ public:
   CustomElementContext(CustomStateStore &state, ElementId identity,
                        Rect arrangedBounds, CustomInteractionState interaction,
                        F32 scaleFactor, MotionTransform windowTransform = {},
-                       F32 motionValue = 0.0F,
-                       bool motionActive = false) noexcept;
+                       const Detail::MotionState *motionState = nullptr) noexcept;
 
   template <typename T, typename... Args>
   [[nodiscard]] auto State(std::string_view key, Args &&...args) noexcept
@@ -148,7 +147,26 @@ public:
   [[nodiscard]] auto ToLocal(Point windowPoint) const noexcept -> Point;
   [[nodiscard]] auto Interaction() const noexcept -> CustomInteractionState;
   [[nodiscard]] auto ScaleFactor() const noexcept -> F32;
+  /// @brief Reads the current value of a built-in or custom motion property.
+  template <AnimatableValue T>
+  [[nodiscard]] auto MotionValue(
+      const AnimationProperty<T> &property) const noexcept -> T {
+    auto result = property.DefaultValue();
+    static_cast<void>(Detail::CopyMotionValue(
+        m_motionState, property.Id(), typeid(T), &result));
+    return result;
+  }
+
+  /// @brief Reports whether a built-in or custom property is still moving.
+  template <AnimatableValue T>
+  [[nodiscard]] auto IsMotionActive(
+      const AnimationProperty<T> &property) const noexcept -> bool {
+    return Detail::IsMotionPropertyActive(m_motionState, property.Id());
+  }
+
+  /// @brief Reads the legacy scalar convenience property.
   [[nodiscard]] auto MotionValue() const noexcept -> F32;
+  /// @brief Reports whether any property on this custom element is moving.
   [[nodiscard]] auto IsMotionActive() const noexcept -> bool;
 
 private:
@@ -158,8 +176,7 @@ private:
   CustomInteractionState m_interaction{};
   F32 m_scaleFactor{1.0F};
   MotionTransform m_windowTransform{};
-  F32 m_motionValue{0.0F};
-  bool m_motionActive{false};
+  const Detail::MotionState *m_motionState{nullptr};
 };
 
 /// @brief Drawing surface, bounds, scale, and interaction data for custom paint.

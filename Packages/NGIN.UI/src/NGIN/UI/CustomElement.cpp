@@ -9,12 +9,11 @@ CustomElementContext::CustomElementContext(
     CustomStateStore &state, const ElementId identity,
     const Rect arrangedBounds, const CustomInteractionState interaction,
     const F32 scaleFactor, const MotionTransform windowTransform,
-    const F32 motionValue, const bool motionActive) noexcept
+    const Detail::MotionState *motionState) noexcept
     : m_state(&state), m_identity(identity), m_arrangedBounds(arrangedBounds),
       m_interaction(interaction),
       m_scaleFactor(scaleFactor > 0.0F ? scaleFactor : 1.0F),
-      m_windowTransform(windowTransform), m_motionValue(motionValue),
-      m_motionActive(motionActive) {}
+      m_windowTransform(windowTransform), m_motionState(motionState) {}
 
 auto CustomElementContext::Identity() const noexcept -> ElementId {
   return m_identity;
@@ -50,11 +49,11 @@ auto CustomElementContext::ScaleFactor() const noexcept -> F32 {
 }
 
 auto CustomElementContext::MotionValue() const noexcept -> F32 {
-  return m_motionValue;
+  return MotionValue(MotionProperty::Value);
 }
 
 auto CustomElementContext::IsMotionActive() const noexcept -> bool {
-  return m_motionActive;
+  return Detail::IsAnyMotionPropertyActive(m_motionState);
 }
 
 PaintContext::PaintContext(DisplayListBuilder &builder,
