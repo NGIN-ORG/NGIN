@@ -1985,12 +1985,13 @@ void ComposeMotionPage(Composer &composer, NativeTextSystem &text, Model &model,
                   theme.typography.body, theme.colors.mutedForeground,
                   "reduced-status");
 
-              ComposeText(composer, text, String{"Popup animation"}, 15.0F,
-                          theme.colors.foreground, "popup-label");
+              ComposeText(composer, text,
+                          String{"Popup animation — easy-to-see demo"},
+                          15.0F, theme.colors.foreground, "popup-label");
               ComposeText(
                   composer, text,
-                  String{"Open a small panel to see it fade and slide into "
-                         "place."},
+                  String{"Click Open. Watch the panel rise while it fades in. "
+                         "This example is slower than a normal popup."},
                   theme.typography.body, theme.colors.mutedForeground,
                   "popup-help");
 
@@ -2002,13 +2003,24 @@ void ComposeMotionPage(Composer &composer, NativeTextSystem &text, Model &model,
                   HorizontalAlignment::Start;
               popupButton.interaction.focusable = true;
               popupButton.visual = MakeButtonVisual(theme);
-              popupButton.semantics.label = String{"Open animated popup"};
+              popupButton.semantics.label = String{"Open popup animation demo"};
               NodeProperties popup{};
               popup.semantics.label = String{"Animated popup example"};
+              const auto popupDemo = AnimationSpec{
+                  .duration = std::chrono::milliseconds{520},
+                  .easing = Easing::EaseOut,
+              };
+              popup.motion.opacity = model.MotionPopup().IsOpen()
+                                         ? AnimateFrom(0.0F, 1.0F, popupDemo)
+                                         : Animate(0.0F, popupDemo);
+              popup.motion.translation =
+                  model.MotionPopup().IsOpen()
+                      ? AnimateFrom(Point{0.0F, 36.0F}, Point{}, popupDemo)
+                      : Animate(Point{0.0F, 36.0F}, popupDemo);
               MenuButton(
                   composer, model.MotionPopup(), "motion-popup-anchor",
                   [&] {
-                    ComposeText(composer, text, String{"Open animated popup"},
+                    ComposeText(composer, text, String{"Open popup demo"},
                                 theme.typography.body,
                                 theme.colors.accentForeground, "label");
                   },
@@ -2030,7 +2042,7 @@ void ComposeMotionPage(Composer &composer, NativeTextSystem &text, Model &model,
                                       SemanticRole::Heading);
                           ComposeText(
                               composer, text,
-                              String{"It faded and slid into place."},
+                              String{"You saw this panel rise and fade in."},
                               theme.typography.body, theme.colors.foreground,
                               "message");
                           ComposeText(

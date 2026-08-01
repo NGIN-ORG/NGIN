@@ -6,6 +6,7 @@
 #include <chrono>
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -488,6 +489,13 @@ auto main() -> int {
              "motion example opens a retained popup") ||
       !Check(!motionPopupNode->properties.visual.base.background.has_value(),
              "popup viewport does not cover the Gallery") ||
+      !Check(motionPopupNode->properties.motion.opacity.has_value() &&
+                 motionPopupNode->properties.motion.translation.has_value() &&
+                 motionPopupNode->properties.motion.translation->Initial() ==
+                     std::optional<Point>{Point{0.0F, 36.0F}} &&
+                 motionPopupNode->properties.motion.translation->Spec().duration >=
+                     std::chrono::milliseconds{500},
+             "popup demo uses an obvious rise and fade") ||
       !Check(popupCard.IsValid(), "popup presents a visible card") ||
       !Check(motionPopupNode->popup.contentBounds.width <= 320.0F &&
                  motionPopupNode->popup.contentBounds.height <= 170.0F,
@@ -498,7 +506,7 @@ auto main() -> int {
   if (!application->PumpOnce()) {
     return 1;
   }
-  platformObserver->AdvanceTime(std::chrono::milliseconds{140});
+  platformObserver->AdvanceTime(std::chrono::milliseconds{520});
   if (!application->PumpOnce() || !application->PumpOnce()) {
     return 1;
   }
