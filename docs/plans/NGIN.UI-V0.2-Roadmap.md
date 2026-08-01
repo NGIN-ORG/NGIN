@@ -251,7 +251,94 @@ transition without writing a frame loop; animations stop requesting frames
 when idle, remain safe when elements disappear, and become immediate when
 reduced motion is enabled.
 
-## Milestone 23 — Version 0.2 Product Completion
+## Milestone 23 — Extensible Motion Engine
+
+Deliver:
+
+- replace the closed `Easing` enum with an extensible `EasingCurve` value that
+  keeps built-in curves allocation-free while allowing an immutable custom
+  curve implementation;
+- ship linear, standard, ease-in, ease-out, ease-in-out, cubic Bézier, and
+  stepped curves through the same public curve contract;
+- model fixed-duration tweens and physics-based springs as distinct timing
+  types instead of disguising springs as normalized easing functions;
+- define custom-curve input, overshoot, finite-output, exception, identity,
+  ownership, and thread-safety rules;
+- replace hardcoded scalar, point, and color interpolation branches with a
+  public typed interpolator customization point;
+- replace fixed runtime fields for opacity, translation, scale, and colors with
+  generic typed animation-property tracks identified by stable property keys;
+- retain convenient built-in properties for ordinary controls while allowing
+  custom controls to declare, animate, and read their own properties through
+  the same engine;
+- apply property-specific output policies so opacity and colors clamp safely
+  while transforms and custom values may intentionally overshoot;
+- keep common curves, built-in properties, and active-track advancement free
+  from per-frame heap allocation;
+- expose curve, timing, interpolator, property, and active-track information in
+  animation diagnostics;
+- add deterministic tests for custom curves, cubic Bézier inversion, steps,
+  springs, overshoot, custom value interpolation, property-key identity,
+  retargeting, cancellation, unmounting, and idle deadlines;
+- extend the Gallery Motion page with an intentionally obvious custom curve,
+  a cubic Bézier editor, a spring example, and one animated custom-control
+  property;
+- publish migration notes for the accepted breaking change from the closed
+  easing and fixed-track contracts, without retaining a second legacy motion
+  engine.
+
+Exit criterion:
+
+An application can define a custom easing curve, animate an application-owned
+value type, and expose a custom control property without changing NGIN.UI
+runtime source; built-in and custom tracks use the same scheduler, diagnostics,
+cancellation, reduced-motion, and lifetime rules.
+
+## Milestone 24 — Awaitable Motion And Orchestration
+
+Deliver:
+
+- add a retained `MotionController` that binds safely to keyed element identity
+  instead of exposing a transient runtime-node pointer;
+- build awaitable motion on `NGIN::Async::Task`, `TaskContext`, cancellation,
+  `WhenAll`, and `WhenAny` rather than introducing a UI-specific task system;
+- provide generic `AnimateToAsync` plus clear `FadeToAsync`,
+  `TranslateToAsync`, `ScaleToAsync`, and `ColorToAsync` conveniences;
+- define one ownership rule between declarative targets and controller-driven
+  targets so two writers cannot silently fight over the same property;
+- report `Completed`, `Canceled`, `Interrupted`, and `Unmounted` outcomes, with
+  a newer target deterministically interrupting the previous waiter;
+- propagate task cancellation into animation cancellation and release every
+  continuation when its element, controller, window, or application goes away;
+- present final values immediately under reduced motion and resume awaiters on
+  the UI scheduler without waiting for a frame or resuming from paint code;
+- make sequential motion ordinary `co_await` code and parallel motion ordinary
+  `WhenAll`/`WhenAny` code, with no application-owned frame loop;
+- keep async and declarative APIs on the same generic tracks, timing types,
+  clock, deadline scheduler, diagnostics, and backend contracts;
+- define error and reentrancy behavior for callbacks, custom curves,
+  interpolators, controller rebinding, and shutdown;
+- add deterministic tests for completion, cancellation, interruption,
+  unmounting, reduced motion, sequential and parallel composition, exception
+  containment, window closure, and application shutdown;
+- extend the Gallery Motion page with a visible multi-step async sequence,
+  parallel animation, cancellation, interruption, and reduced-motion examples
+  written only with public APIs;
+- document both declarative and async authoring paths and explain when each is
+  appropriate.
+
+This milestone adds awaitable composition, not a second animation engine or a
+general timeline editor. Arbitrary keyframes, shared-element transitions, and
+automatic layout transitions remain outside version 0.2.
+
+Exit criterion:
+
+A developer can await a fade, translation, scale, color, custom-property, or
+parallel motion operation using NGIN async tasks; completion is deterministic,
+cancellation and disappearance are safe, reduced motion completes immediately,
+and no continuation survives its owning UI lifetime.
+
+## Milestone 25 — Version 0.2 Product Completion
 
 Deliver:
 
@@ -285,8 +372,9 @@ Version 0.2 is complete only when:
 - Windows UI Automation exposes and operates the semantic control tree;
 - Grid and WrapPanel are public, tested, documented, and demonstrated;
 - virtualized lists scale to the published logical-item budget;
-- target-value animations and control transitions are public, deterministic,
-  cancellation-safe, and reduced-motion aware;
+- target-value animations, custom curves and properties, awaitable motion, and
+  control transitions are public, deterministic, cancellation-safe, and
+  reduced-motion aware;
 - standalone, hosted, and headless gallery paths pass;
 - dependency licenses and runtime notices are complete;
 - developer documentation and examples match the shipped behavior.
@@ -301,7 +389,8 @@ Version 0.2 is complete only when:
 - mobile backends;
 - remote rendering;
 - a stable binary plugin-widget ABI;
-- a general animation authoring framework, including arbitrary keyframes,
+- a general animation authoring framework beyond the version 0.2 curve,
+  spring, property, and async contracts, including arbitrary keyframes,
   shared-element transitions, and automatic layout transitions;
 - native-view embedding.
 

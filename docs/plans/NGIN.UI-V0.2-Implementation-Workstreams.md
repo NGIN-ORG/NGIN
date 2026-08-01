@@ -401,6 +401,92 @@ A public Gallery example can animate opacity, translation, and control-state
 colors with no application-owned frame callback, then becomes immediate when
 reduced motion is enabled.
 
+## Workstream J — Extensible Motion Engine
+
+### Goal
+
+Turn the Milestone 22 motion foundation into one open, typed engine that can
+animate application-defined curves, values, and custom-control properties.
+
+### Curve And Timing Slice
+
+- extensible `EasingCurve` with allocation-free built-ins and an immutable
+  custom implementation boundary;
+- cubic Bézier and stepped curves with deterministic evaluation;
+- tween and spring timing as separate public models;
+- explicit overshoot, finite-output, exception, identity, and ownership rules;
+- no per-frame allocation for built-in curves or active timing evaluation.
+
+### Property And Interpolation Slice
+
+- public typed interpolator customization;
+- stable typed animation-property keys;
+- generic retained track storage replacing fixed runtime track members;
+- built-in opacity, translation, scale, color, and scalar conveniences backed
+  by the generic store;
+- custom-control authoring and `CustomElementContext` access for custom animated
+  properties;
+- property-specific output constraints instead of globally clamping curve
+  progress.
+
+### Focused Tests
+
+- custom curve and interpolator lifetime and identity;
+- cubic Bézier, steps, spring settling, and deliberate overshoot;
+- generic retargeting, repetition, cancellation, and unmounting;
+- stable custom-property identity through recomposition;
+- no idle deadlines and no built-in per-frame allocations;
+- deterministic diagnostics for built-in and application-defined tracks.
+
+### First Acceptance Gate
+
+A Gallery custom control animates an application-defined property with an
+application-defined curve, using no runtime source changes or manual frame
+callback.
+
+## Workstream K — Awaitable Motion And Orchestration
+
+### Goal
+
+Add safe imperative orchestration for workflows that naturally need to await,
+sequence, combine, interrupt, or cancel motion while preserving retained UI
+identity and the single motion scheduler.
+
+### Controller And Async Slice
+
+- retained `MotionController` binding to keyed element identity;
+- `NGIN::Async::Task` and `TaskContext` integration;
+- generic `AnimateToAsync` and fade, translation, scale, and color helpers;
+- sequential `co_await` and parallel `WhenAll`/`WhenAny` composition;
+- one-writer rules between declarative state and controller targets;
+- completed, canceled, interrupted, and unmounted outcomes.
+
+### Lifetime And Scheduler Slice
+
+- task cancellation stops the corresponding track;
+- retargeting completes the previous waiter as interrupted;
+- unmount, window close, controller destruction, and application shutdown
+  release continuations safely;
+- reduced motion presents final values immediately and resumes through the UI
+  scheduler rather than paint;
+- async operations reuse the generic tracks, timing, platform clock, deadline,
+  diagnostics, and idle behavior from Workstreams I and J.
+
+### Focused Tests
+
+- successful await and ordered sequence completion;
+- parallel completion through `WhenAll` and first completion through `WhenAny`;
+- cancellation, interruption, unmounting, and shutdown;
+- immediate reduced-motion completion without a frame request;
+- continuation thread/lane, reentrancy, and exception containment;
+- no stale waiter or retained UI lifetime after completion.
+
+### First Acceptance Gate
+
+A public Gallery example awaits a fade and translation sequence, runs two
+properties in parallel, cancels an operation, and becomes immediate under
+reduced motion without owning a timer or frame loop.
+
 ## Sequence
 
 ### Wave 0 — Decisions And Baselines
@@ -441,12 +527,27 @@ Close and commit Milestones 19 and 20 independently.
 3. Add the public Gallery Motion page and deterministic coverage.
 4. Close and commit Milestone 22.
 
-### Wave 6 — Product Completion
+### Wave 6 — Extensible Motion
+
+1. Approve the curve, timing, interpolator, and typed-property contracts.
+2. Implement Workstream J on the existing deterministic scheduler.
+3. Add custom curve, spring, and custom-property Gallery examples.
+4. Close and commit Milestone 23.
+
+### Wave 7 — Awaitable Motion
+
+1. Approve controller ownership, completion, cancellation, and UI-resumption
+   rules.
+2. Implement Workstream K using `NGIN::Async`.
+3. Add sequential, parallel, interruption, and cancellation Gallery examples.
+4. Close and commit Milestone 24.
+
+### Wave 8 — Product Completion
 
 1. Complete Workstream G.
 2. Complete remaining packaging and release work in Workstream H.
 3. Run the release gates.
-4. Close and commit Milestone 23.
+4. Close and commit Milestone 25.
 
 ## Verification Matrix
 
@@ -459,7 +560,8 @@ Close and commit Milestones 19 and 20 independently.
 | Windows UI Automation | provider automation test and manual Narrator checklist |
 | Layout | focused layout tests and narrow-window gallery smoke |
 | Virtualization | focused identity/scroll tests and 100,000-item benchmark |
-| Motion | deterministic scheduler/interpolation tests, reduced-motion coverage, Gallery Motion smoke |
+| Extensible motion | curve/timing/interpolator/property tests, allocation checks, Gallery custom-motion smoke |
+| Async motion | task completion/cancellation/lifetime tests, reduced-motion coverage, Gallery orchestration smoke |
 | CLI staging diagnostic | `NGINCliTests` and hosted/standalone locked-artifact smoke |
 | Public API | docs/API comments, install/export consumer, compatibility review |
 
