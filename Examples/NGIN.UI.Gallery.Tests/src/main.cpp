@@ -101,6 +101,39 @@ auto main() -> int {
     return 1;
   }
 
+  platformObserver->InjectEvent(
+      WindowResized{window->PlatformHandle(), PixelSize{1180, 660}});
+  if (!application->PumpOnce()) {
+    return 1;
+  }
+  const auto sidebar = FindByTypeAndKey(window->Tree(), ElementType::ScrollView,
+                                        "sidebar");
+  const auto *sidebarNode = window->Tree().Get(sidebar);
+  if (!Check(sidebar.IsValid(), "navigation is a clipped scroll view") ||
+      !Check(sidebarNode != nullptr &&
+                 sidebarNode->scroll.contentSize.height >
+                     sidebarNode->scroll.viewportSize.height,
+             "short windows keep navigation inside a scrollable sidebar")) {
+    return 1;
+  }
+  platformObserver->InjectEvent(PointerWheelChanged{
+      .window = window->PlatformHandle(),
+      .pointerId = 1,
+      .delta = Point{0.0F, -1.0F},
+      .position = Center(sidebarNode->arrangedBounds),
+  });
+  if (!application->PumpOnce() ||
+      !Check(window->Tree().Get(sidebar)->scroll.offset.y > 0.0F,
+             "navigation scrolls when its buttons exceed the panel")) {
+    return 1;
+  }
+
+  platformObserver->InjectEvent(
+      WindowResized{window->PlatformHandle(), PixelSize{1180, 760}});
+  if (!application->PumpOnce()) {
+    return 1;
+  }
+
   for (NGIN::UIntSize index = 0; index < NGIN::UIGallery::PageCount; ++index) {
     const auto page = NGIN::UIGallery::PageAt(index);
     model.SelectPage(page);

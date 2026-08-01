@@ -2992,37 +2992,50 @@ void ComposeMainView(Composer &composer, NativeTextSystem &text, Model &model) {
         sidebar.layout.flexShrink = 0.0F;
         sidebar.gridPlacement = GridPlacement{.row = 0, .column = 0};
         sidebar.layout.padding = Thickness::Uniform(Dp{14.0F});
-        sidebar.layout.gap = theme.spacing.regular;
         sidebar.layout.verticalAlignment = VerticalAlignment::Stretch;
         sidebar.visual = MakePanelVisual(theme);
+        sidebar.scroll.vertical = true;
+        sidebar.scroll.horizontal = false;
         sidebar.semantics.role = SemanticRole::Group;
         sidebar.semantics.label = String{"Gallery navigation"};
-        composer.Element(
-            ElementType::Column, sidebar,
+        StyleScrollView(sidebar, theme);
+        composer.ScrollView(
             [&] {
-              ComposeText(composer, text, String{"NGIN.UI"}, 25.0F,
-                          theme.colors.focus, "brand", SemanticRole::Heading);
-              ComposeText(composer, text, String{"Control gallery"}, 13.0F,
-                          theme.colors.mutedForeground, "brand-subtitle");
-              NodeProperties separator{};
-              separator.visual = MakeSeparatorVisual(theme);
-              composer.Separator(SeparatorOrientation::Horizontal, separator,
-                                 "nav-separator");
-              for (NGIN::UIntSize index = 0; index < PageCount; ++index) {
-                const auto page = PageAt(index);
-                const auto name = PageName(page);
-                ComposeButton(
-                    composer, text, theme, name.data(),
-                    [&model, page] { model.SelectPage(page); },
-                    std::to_string(index), 180.0F, true,
-                    model.CurrentPage() == page);
-              }
-              ComposeButton(
-                  composer, text, theme,
-                  model.IsLightTheme() ? "Use dark theme" : "Use light theme",
-                  [&model] { model.ToggleTheme(); }, "theme", 180.0F);
+              NodeProperties navigation{};
+              navigation.layout.gap = theme.spacing.regular;
+              navigation.layout.horizontalAlignment =
+                  HorizontalAlignment::Stretch;
+              composer.Element(
+                  ElementType::Column, navigation,
+                  [&] {
+                    ComposeText(composer, text, String{"NGIN.UI"}, 25.0F,
+                                theme.colors.focus, "brand",
+                                SemanticRole::Heading);
+                    ComposeText(composer, text, String{"Control gallery"},
+                                13.0F, theme.colors.mutedForeground,
+                                "brand-subtitle");
+                    NodeProperties separator{};
+                    separator.visual = MakeSeparatorVisual(theme);
+                    composer.Separator(SeparatorOrientation::Horizontal,
+                                       separator, "nav-separator");
+                    for (NGIN::UIntSize index = 0; index < PageCount; ++index) {
+                      const auto page = PageAt(index);
+                      const auto name = PageName(page);
+                      ComposeButton(
+                          composer, text, theme, name.data(),
+                          [&model, page] { model.SelectPage(page); },
+                          std::to_string(index), 180.0F, true,
+                          model.CurrentPage() == page);
+                    }
+                    ComposeButton(
+                        composer, text, theme,
+                        model.IsLightTheme() ? "Use dark theme"
+                                             : "Use light theme",
+                        [&model] { model.ToggleTheme(); }, "theme", 180.0F);
+                  },
+                  "sidebar-content");
             },
-            "sidebar");
+            sidebar, "sidebar");
 
         NodeProperties viewport{};
         viewport.layout.preferredSize = Size{780.0F, 680.0F};
