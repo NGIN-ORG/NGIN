@@ -1954,14 +1954,17 @@ void ComposeMotionPage(Composer &composer, NativeTextSystem &text, Model &model,
         column.layout.gap = theme.spacing.regular;
         composer.Column(
             [&] {
-              ComposeText(composer, text, String{"Controls and less motion"},
+              ComposeText(composer, text,
+                          String{"Controls and motion settings"},
                           18.0F, theme.colors.foreground, "title",
                           SemanticRole::Heading);
-              ComposeText(composer, text,
-                          String{"Hover and press the buttons. The loading bar "
-                                 "moves without an app timer."},
-                          theme.typography.body, theme.colors.mutedForeground,
-                          "help");
+              ComposeText(
+                  composer, text,
+                  String{"Hover or press a button to see its colors change. "
+                         "The loading bar keeps moving on its own."},
+                  theme.typography.body, theme.colors.mutedForeground, "help");
+              ComposeText(composer, text, String{"Loading animation"}, 15.0F,
+                          theme.colors.foreground, "progress-label");
               NodeProperties progress{};
               progress.layout.preferredSize.width = 360.0F;
               ProgressBar(composer, ProgressValue{.indeterminate = true},
@@ -1969,43 +1972,78 @@ void ComposeMotionPage(Composer &composer, NativeTextSystem &text, Model &model,
                           "motion-progress");
               ComposeButton(
                   composer, text, theme,
-                  model.MotionPreviewReduced() ? "Use normal motion"
-                                               : "Preview less motion",
+                  model.MotionPreviewReduced() ? "Turn animations back on"
+                                               : "Turn animations off",
                   [&model] { model.ToggleMotionPreviewReduced(); },
-                  "reduced-motion", 210.0F);
+                  "reduced-motion", 220.0F);
               ComposeText(
                   composer, text,
                   String{model.MotionPreviewReduced()
-                             ? "Motion now finishes immediately."
-                             : "Your system's reduced-motion setting is also "
+                             ? "Animations are off. Changes happen instantly."
+                             : "Animations are on. Your system setting is also "
                                "respected."},
                   theme.typography.body, theme.colors.mutedForeground,
                   "reduced-status");
 
+              ComposeText(composer, text, String{"Popup animation"}, 15.0F,
+                          theme.colors.foreground, "popup-label");
+              ComposeText(
+                  composer, text,
+                  String{"Open a small panel to see it fade and slide into "
+                         "place."},
+                  theme.typography.body, theme.colors.mutedForeground,
+                  "popup-help");
+
               NodeProperties popupButton{};
               popupButton.layout.preferredSize =
-                  Size{190.0F, theme.controls.regularHeight};
+                  Size{220.0F, theme.controls.regularHeight};
               popupButton.layout.padding = Thickness{14.0F, 8.0F, 14.0F, 8.0F};
               popupButton.layout.horizontalAlignment =
                   HorizontalAlignment::Start;
               popupButton.interaction.focusable = true;
               popupButton.visual = MakeButtonVisual(theme);
+              popupButton.semantics.label = String{"Open animated popup"};
               NodeProperties popup{};
-              popup.layout.preferredSize = Size{260.0F, 70.0F};
-              popup.layout.padding = Thickness::Uniform(Dp{12.0F});
-              popup.visual = MakePanelVisual(theme);
+              popup.semantics.label = String{"Animated popup example"};
               MenuButton(
                   composer, model.MotionPopup(), "motion-popup-anchor",
                   [&] {
-                    ComposeText(composer, text, String{"Show popup"},
+                    ComposeText(composer, text, String{"Open animated popup"},
                                 theme.typography.body,
                                 theme.colors.accentForeground, "label");
                   },
                   [&] {
-                    ComposeText(composer, text, String{"The popup fades and "
-                                                        "slides."},
-                                theme.typography.body, theme.colors.foreground,
-                                "message");
+                    NodeProperties popupCard{};
+                    popupCard.layout.preferredSize = Size{300.0F, 148.0F};
+                    popupCard.layout.padding =
+                        Thickness::Uniform(Dp{theme.spacing.regular});
+                    popupCard.layout.gap = theme.spacing.compact;
+                    popupCard.visual = MakePanelVisual(theme);
+                    popupCard.visual.base.background =
+                        theme.colors.raisedSurface;
+                    composer.Element(
+                        ElementType::Column, popupCard,
+                        [&] {
+                          ComposeText(composer, text,
+                                      String{"Animated popup"}, 18.0F,
+                                      theme.colors.foreground, "popup-title",
+                                      SemanticRole::Heading);
+                          ComposeText(
+                              composer, text,
+                              String{"It faded and slid into place."},
+                              theme.typography.body, theme.colors.foreground,
+                              "message");
+                          ComposeText(
+                              composer, text,
+                              String{"Press Escape or click outside to close."},
+                              theme.typography.caption,
+                              theme.colors.mutedForeground, "close-help");
+                          ComposeButton(
+                              composer, text, theme, "Close",
+                              [&model] { model.MotionPopup().Close(); },
+                              "close", 100.0F);
+                        },
+                        "popup-card");
                   },
                   popupButton, popup, "motion-popup");
             },

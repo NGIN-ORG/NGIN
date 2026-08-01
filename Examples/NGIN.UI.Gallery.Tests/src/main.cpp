@@ -470,6 +470,38 @@ auto main() -> int {
     return 1;
   }
   model.ToggleMotionPreviewReduced();
+  if (!application->PumpOnce() ||
+      !Check(!model.MotionPreviewReduced(),
+             "Gallery restores normal motion after the preview")) {
+    return 1;
+  }
+  model.MotionPopup().Open();
+  if (!application->PumpOnce()) {
+    return 1;
+  }
+  const auto motionPopup =
+      FindByTypeAndKey(window->Tree(), ElementType::Popup, "popup");
+  const auto *motionPopupNode = window->Tree().Get(motionPopup);
+  const auto popupCard =
+      FindByTypeAndKey(window->Tree(), ElementType::Column, "popup-card");
+  if (!Check(motionPopupNode != nullptr,
+             "motion example opens a retained popup") ||
+      !Check(!motionPopupNode->properties.visual.base.background.has_value(),
+             "popup viewport does not cover the Gallery") ||
+      !Check(popupCard.IsValid(), "popup presents a visible card") ||
+      !Check(motionPopupNode->popup.contentBounds.width <= 320.0F &&
+                 motionPopupNode->popup.contentBounds.height <= 170.0F,
+             "popup content stays a small anchored panel")) {
+    return 1;
+  }
+  model.MotionPopup().Close();
+  if (!application->PumpOnce()) {
+    return 1;
+  }
+  platformObserver->AdvanceTime(std::chrono::milliseconds{140});
+  if (!application->PumpOnce() || !application->PumpOnce()) {
+    return 1;
+  }
   model.SelectPage(NGIN::UIGallery::Page::Inputs);
   if (!application->PumpOnce()) {
     return 1;
