@@ -19,7 +19,7 @@ struct BackendContractVersion final {
   operator<=>(const BackendContractVersion &) const noexcept = default;
 };
 
-inline constexpr BackendContractVersion CurrentBackendContractVersion{1, 1};
+inline constexpr BackendContractVersion CurrentBackendContractVersion{1, 2};
 
 /// @brief Optional facilities advertised by a platform backend.
 enum class PlatformCapabilityFlags : UInt32 {
@@ -32,6 +32,7 @@ enum class PlatformCapabilityFlags : UInt32 {
   TouchInput = 1U << 5U,
   NativeDialogs = 1U << 6U,
   NativeWindow = 1U << 7U,
+  ReducedMotionPreference = 1U << 8U,
 };
 
 /// @brief Optional facilities advertised by a render backend.

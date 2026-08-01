@@ -1,5 +1,7 @@
 #include <NGIN/UI/Application.hpp>
 
+#include "MotionInternal.hpp"
+
 #include <algorithm>
 #include <deque>
 #include <iterator>
@@ -68,7 +70,7 @@ struct Window::Implementation final {
 
   struct ScheduledEntry final {
     ScheduledActionId id{0};
-    DiagnosticsClock::time_point due{};
+    MonotonicTime due{};
     ScheduledAction action{};
   };
 
@@ -105,6 +107,9 @@ struct Window::Implementation final {
   ElementHandle ownerFocusToRestore{};
   ScheduledActionId nextScheduledActionId{1};
   std::vector<ScheduledEntry> scheduledActions{};
+  std::optional<MonotonicTime> nextMotionDeadline{};
+  std::optional<bool> lastReducedMotion{};
+  bool motionEnabled{true};
 };
 
 Window::Window(WindowCreateInfo info, const PlatformWindowHandle platformHandle,
@@ -191,6 +196,19 @@ auto Window::LastLayoutStats() const noexcept -> const LayoutPassStats & {
 
 auto Window::DisplayCommandCount() const noexcept -> UIntSize {
   return m_implementation->displayList.size();
+}
+
+auto Window::HasActiveAnimations() const noexcept -> bool {
+  return m_implementation->nextMotionDeadline.has_value();
+}
+
+auto Window::NextAnimationDeadline() const noexcept
+    -> std::optional<MonotonicTime> {
+  return m_implementation->nextMotionDeadline;
+}
+
+auto Window::MotionEnabled() const noexcept -> bool {
+  return m_implementation->motionEnabled;
 }
 
 auto Window::HitTest(const Point position) const noexcept -> ElementHandle {
@@ -327,6 +345,16 @@ void Window::Invalidate(const InvalidationKind kind) noexcept {
   }
 }
 
+void Window::SetMotionEnabled(const bool enabled) noexcept {
+  if (m_implementation->motionEnabled == enabled ||
+      m_implementation->closed) {
+    return;
+  }
+  m_implementation->motionEnabled = enabled;
+  Invalidate(InvalidationKind::Paint | InvalidationKind::Semantics);
+  m_implementation->platform->WakeEventLoop();
+}
+
 auto Window::Schedule(const std::chrono::milliseconds delay,
                       ScheduledAction action) noexcept
     -> UIResult<ScheduledActionId> {
@@ -345,7 +373,7 @@ auto Window::Schedule(const std::chrono::milliseconds delay,
     const auto id = m_implementation->nextScheduledActionId++;
     m_implementation->scheduledActions.push_back(Implementation::ScheduledEntry{
         .id = id,
-        .due = DiagnosticsClock::now() +
+        .due = m_implementation->platform->MonotonicNow() +
                std::max(delay, std::chrono::milliseconds{0}),
         .action = std::move(action),
     });
@@ -648,6 +676,7 @@ auto Application::CloseWindow(Window &window) noexcept -> UIResult<void> {
   window.m_implementation->closed = true;
   window.m_implementation->dirty = false;
   window.m_implementation->scheduledActions.clear();
+  window.m_implementation->nextMotionDeadline.reset();
   if (auto *owner = window.m_implementation->owner;
       owner != nullptr && !owner->IsClosed() &&
       owner->m_implementation->activeModalDialog == &window) {
@@ -662,13 +691,23 @@ auto Application::CloseWindow(Window &window) noexcept -> UIResult<void> {
 auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
     -> UIResult<void> {
   auto effectiveWait = std::max(maximumWait, std::chrono::milliseconds{0});
-  const auto beforeWait = DiagnosticsClock::now();
+  const auto beforeWait = m_implementation->platform->MonotonicNow();
   for (const auto &window : m_implementation->windows) {
     if (window->IsClosed()) {
       continue;
     }
     if (window->IsDirty()) {
       effectiveWait = std::chrono::milliseconds{0};
+    }
+    if (const auto deadline = window->m_implementation->nextMotionDeadline) {
+      if (*deadline <= beforeWait) {
+        effectiveWait = std::chrono::milliseconds{0};
+      } else {
+        effectiveWait = std::min(
+            effectiveWait,
+            std::chrono::ceil<std::chrono::milliseconds>(*deadline -
+                                                          beforeWait));
+      }
     }
     for (const auto &entry : window->m_implementation->scheduledActions) {
       if (entry.due <= beforeWait) {
@@ -710,7 +749,7 @@ auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
     }
   }
 
-  const auto afterWait = DiagnosticsClock::now();
+  const auto afterWait = m_implementation->platform->MonotonicNow();
   for (auto &window : m_implementation->windows) {
     if (window->IsClosed()) {
       continue;
@@ -738,6 +777,20 @@ auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
                            "Window::Schedule", window->Id().c_str());
       }
     }
+    if (window->m_implementation->nextMotionDeadline &&
+        *window->m_implementation->nextMotionDeadline <= afterWait) {
+      window->Invalidate(InvalidationKind::Paint |
+                         InvalidationKind::Semantics);
+    }
+    const auto reducedMotion =
+        !window->m_implementation->motionEnabled ||
+        window->m_implementation->platform->ReducedMotionEnabled();
+    if (window->m_implementation->lastReducedMotion.has_value() &&
+        *window->m_implementation->lastReducedMotion != reducedMotion) {
+      window->Invalidate(InvalidationKind::Paint |
+                         InvalidationKind::Semantics);
+    }
+    window->m_implementation->lastReducedMotion = reducedMotion;
   }
 
   for (const auto &event : collector.events) {
@@ -868,6 +921,33 @@ auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
       window->m_implementation->semanticsDirty = true;
       frameTimings.layoutMilliseconds =
           ElapsedMilliseconds(phaseStarted, DiagnosticsClock::now());
+    }
+    Detail::MotionFrameResult motionFrame{};
+    try {
+      const auto reducedMotion =
+          !window->m_implementation->motionEnabled ||
+          window->m_implementation->platform->ReducedMotionEnabled();
+      motionFrame = Detail::AdvanceMotion(window->m_implementation->tree,
+                                          afterWait, reducedMotion);
+      window->m_implementation->nextMotionDeadline =
+          motionFrame.nextDeadline;
+      auto &motionDiagnostics = window->m_implementation->diagnostics;
+      motionDiagnostics.activeAnimationCount =
+          motionFrame.activeElementCount;
+      motionDiagnostics.reducedMotion = reducedMotion;
+      if (motionFrame.changed) {
+        ++motionDiagnostics.motionFrameCount;
+        window->m_implementation->paintDirty = true;
+        window->m_implementation->semanticsDirty = true;
+      }
+    } catch (const std::bad_alloc &) {
+      return MakeUIError(UIErrorCode::OutOfMemory,
+                         "Animation state allocation failed", "NGIN.UI",
+                         "AdvanceMotion", window->Id().c_str());
+    } catch (...) {
+      return MakeUIError(UIErrorCode::InvalidState,
+                         "Animation advancement failed", "NGIN.UI",
+                         "AdvanceMotion", window->Id().c_str());
     }
     if (window->m_implementation->paintDirty) {
       window->m_implementation->paintDirty = false;

@@ -28,6 +28,7 @@ of the runnable paths, then use the topic guides as needed.
 
 - [Foundational controls](ngin-ui-foundational-controls.md)
 - [Collections and navigation](ngin-ui-collections-navigation.md)
+- [Motion](ngin-ui-motion.md)
 - [Multiline text, TextArea, font fallback, and images](ngin-ui-richer-content.md)
 - [Composite and custom-painted controls](ngin-ui-custom-controls.md)
 

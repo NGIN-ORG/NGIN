@@ -9,6 +9,10 @@
 #include <vector>
 
 namespace NGIN::UI {
+namespace Detail {
+/// @brief Opaque retained target-value state owned by a runtime node.
+struct MotionState;
+}
 /// @brief Mutable hover, press, focus, and pointer-capture state for a node.
 struct InteractionState final {
   bool hovered{false};
@@ -114,6 +118,7 @@ struct RuntimeNode final {
   TextRuntimeState text{};
   ImageRuntimeState image{};
   CustomElementRuntimeState custom{};
+  std::shared_ptr<Detail::MotionState> motion{};
   UInt64 compositionRevision{0};
   UInt64 layoutRevision{0};
 

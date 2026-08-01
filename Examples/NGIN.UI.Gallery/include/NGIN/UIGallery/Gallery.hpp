@@ -19,6 +19,7 @@ enum class Page : NGIN::UInt8 {
   Images,
   Inputs,
   Collections,
+  Motion,
   Overlays,
   Windows,
   Resources,
@@ -38,7 +39,7 @@ enum class CollectionTab : NGIN::UInt8 {
   DataSource,
 };
 
-inline constexpr NGIN::UIntSize PageCount = 12;
+inline constexpr NGIN::UIntSize PageCount = 13;
 
 [[nodiscard]] auto PageAt(NGIN::UIntSize index) noexcept -> Page;
 [[nodiscard]] auto PageName(Page page) noexcept -> std::string_view;
@@ -98,6 +99,17 @@ public:
   [[nodiscard]] auto SelectVirtualizedItem(UIntSize index)
       -> UI::UIResult<void>;
   void PrependVirtualizedItems();
+  [[nodiscard]] auto MotionForward() const noexcept -> bool;
+  void ToggleMotionTarget();
+  [[nodiscard]] auto MotionRepeatRunning() const noexcept -> bool;
+  void StartMotionRepeat();
+  void CancelMotionRepeat();
+  void FinishMotionRepeat();
+  [[nodiscard]] auto MotionRepeatHandle() const noexcept
+      -> const UI::AnimationHandle *;
+  [[nodiscard]] auto MotionPreviewReduced() const noexcept -> bool;
+  void ToggleMotionPreviewReduced();
+  [[nodiscard]] auto MotionPopup() noexcept -> UI::PopupController &;
   [[nodiscard]] auto ComboPopup() noexcept -> UI::PopupController &;
   [[nodiscard]] auto MenuPopup() noexcept -> UI::PopupController &;
   [[nodiscard]] auto ContextPopup() noexcept -> UI::PopupController &;
@@ -148,9 +160,13 @@ private:
   UI::State<bool> m_collectionDescending;
   UI::State<bool> m_collectionFiltered;
   UI::State<CollectionTab> m_collectionTab;
+  UI::State<bool> m_motionForward;
+  UI::State<bool> m_motionRepeatRunning;
   UI::State<Text::String> m_virtualizedSelection;
   std::unique_ptr<GalleryVirtualizedSource> m_virtualizedSource;
   std::unique_ptr<UI::FixedVirtualizedListController> m_virtualizedController;
+  std::unique_ptr<UI::AnimationHandle> m_motionRepeatHandle;
+  UI::PopupController m_motionPopup;
   UI::PopupController m_comboPopup;
   UI::PopupController m_menuPopup;
   UI::PopupController m_contextPopup;

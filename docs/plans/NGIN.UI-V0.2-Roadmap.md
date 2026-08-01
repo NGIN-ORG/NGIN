@@ -1,6 +1,6 @@
 # NGIN.UI Version 0.2 Roadmap
 
-Status: In progress — Milestones 17–18 complete
+Status: In progress — Milestones 17–22 complete
 Theme: Production desktop foundation
 Baseline: [`NGIN.UI-Post-V0.1-Roadmap.md`](NGIN.UI-Post-V0.1-Roadmap.md)
 Execution map:
@@ -129,6 +129,9 @@ shaping example.
 
 ## Milestone 19 — Windows Accessibility Bridge
 
+Completed 2026-07-30. Implementation and verification evidence is recorded in
+[`NGIN.UI-V0.2-Progress.md`](NGIN.UI-V0.2-Progress.md).
+
 Deliver:
 
 - define a platform accessibility-provider boundary that consumes the existing
@@ -157,6 +160,9 @@ than change control composition per platform.
 
 ## Milestone 20 — Desktop Layout Primitives
 
+Completed 2026-08-01. Implementation and verification evidence is recorded in
+[`NGIN.UI-V0.2-Progress.md`](NGIN.UI-V0.2-Progress.md).
+
 Deliver:
 
 - `Grid` with fixed, automatic, and weighted tracks;
@@ -176,6 +182,9 @@ A settings form, responsive toolbar, and dashboard tile layout can be composed
 with public layout primitives and no custom measure/arrange implementation.
 
 ## Milestone 21 — Virtualized Collections
+
+Completed 2026-08-01. Implementation and verification evidence is recorded in
+[`NGIN.UI-V0.2-Progress.md`](NGIN.UI-V0.2-Progress.md).
 
 Deliver:
 
@@ -204,6 +213,9 @@ list. `DataGrid` is planned after the virtualization and grid-layout contracts
 have proven stable.
 
 ## Milestone 22 — Motion Foundations
+
+Completed 2026-08-01. Implementation and verification evidence is recorded in
+[`NGIN.UI-V0.2-Progress.md`](NGIN.UI-V0.2-Progress.md).
 
 Deliver:
 

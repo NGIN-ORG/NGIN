@@ -6,6 +6,7 @@
 #include <NGIN/UI/Events.hpp>
 #include <NGIN/UI/Geometry.hpp>
 #include <NGIN/UI/Handles.hpp>
+#include <NGIN/UI/Animation.hpp>
 
 #include <chrono>
 #include <vector>
@@ -109,6 +110,9 @@ public:
                           std::chrono::milliseconds maximumWait) noexcept
       -> UIResult<void> = 0;
   virtual void WakeEventLoop() noexcept = 0;
+  [[nodiscard]] virtual auto MonotonicNow() const noexcept
+      -> MonotonicTime = 0;
+  [[nodiscard]] virtual auto ReducedMotionEnabled() const noexcept -> bool = 0;
   virtual auto SetCursor(PlatformWindowHandle window,
                          CursorShape cursor) noexcept -> UIResult<void> = 0;
   virtual auto SetClipboardText(const NGIN::Text::String &text) noexcept

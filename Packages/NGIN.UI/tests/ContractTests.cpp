@@ -222,8 +222,8 @@ TEST_CASE("application rejects incompatible or incomplete backend contracts") {
   using namespace NGIN::UI;
   using namespace NGIN::UI::Testing;
 
-  const BackendContractVersion newerMinor{1, 2};
-  const BackendContractVersion previousMinor{1, 0};
+  const BackendContractVersion newerMinor{1, 3};
+  const BackendContractVersion previousMinor{1, 1};
   const BackendContractVersion legacyVersion{0, 9};
   REQUIRE(newerMinor.Supports(CurrentBackendContractVersion));
   REQUIRE_FALSE(previousMinor.Supports(CurrentBackendContractVersion));

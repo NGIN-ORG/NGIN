@@ -350,6 +350,8 @@ and rebuilding after closing it succeeds without deleting the build tree.
 
 ## Workstream I — Motion Foundations
 
+Status: Completed in Milestone 22 on 2026-08-01.
+
 ### Goal
 
 Make common motion easy to author without adding application frame loops or a

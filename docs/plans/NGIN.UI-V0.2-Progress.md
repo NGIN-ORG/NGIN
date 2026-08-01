@@ -237,3 +237,50 @@ Verification:
   diagnostics;
 - standalone and hosted Gallery Collections-page smoke runs passed;
 - public API documentation coverage passed with 298 documented types.
+
+## Milestone 22 — Motion Foundations
+
+Status: Complete
+Completed: 2026-08-01
+
+Delivered:
+
+- added declarative target-value motion for scalar values, opacity,
+  translation, scale, backgrounds, foregrounds, and border colors with five
+  standard easing choices;
+- retained motion by stable element identity so recomposition retargets from
+  the presented value and unmounting safely discards active state;
+- added move-safe cancellation handles, bounded restart and reverse
+  repetition, first-mount values, delays, and completion callbacks;
+- scheduled one monotonic next-frame deadline per window only while motion is
+  active, with no application-owned frame loop and no idle redraw requests;
+- made translated and scaled visuals behave consistently across painting,
+  child clipping, pointer hit testing, custom-control coordinates, and semantic
+  bounds while leaving layout unchanged;
+- added theme-duration transitions for button and text-input hover, press,
+  focus, and disabled colors, plus popup entrance/exit and determinate and
+  indeterminate progress motion;
+- extended the platform contract with a monotonic clock and reduced-motion
+  preference, including Windows system preference support in the SDL3 backend
+  and deterministic time and preference controls in the test backend;
+- added per-window motion control and diagnostics for active animations,
+  motion frames, deadlines, and reduced-motion state;
+- added a public Motion Gallery page showing retargetable fade, translation,
+  scale, and color changes, easing comparisons, cancellable reverse
+  repetition, an animated progress indicator, reduced motion, and popup
+  entrance and exit;
+- documented the target-value API, custom-control motion values, repetition,
+  cancellation, transform behavior, reduced motion, deterministic testing, and
+  backend requirements.
+
+Verification:
+
+- `NGINUITests`: 137/137 passed with 4,714 assertions, including exact
+  interpolation, retargeting, cancellation, repetition, unmounting,
+  multi-window deadlines, reduced motion, transformed clipping, hit testing,
+  semantics, control-state motion, and popup exit lifetime;
+- Gallery headless checks passed for public motion composition, interruption,
+  cancellation, progress motion, and reduced-motion settling;
+- standalone and hosted Gallery smoke builds and launches passed;
+- SDL3 backend contract build and test passed;
+- public API documentation coverage passed with 307 documented types.

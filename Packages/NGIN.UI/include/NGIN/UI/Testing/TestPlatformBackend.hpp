@@ -45,6 +45,9 @@ public:
                   std::chrono::milliseconds maximumWait) noexcept
       -> UIResult<void> override;
   void WakeEventLoop() noexcept override;
+  [[nodiscard]] auto MonotonicNow() const noexcept
+      -> MonotonicTime override;
+  [[nodiscard]] auto ReducedMotionEnabled() const noexcept -> bool override;
   auto SetCursor(PlatformWindowHandle window, CursorShape cursor) noexcept
       -> UIResult<void> override;
   auto SetClipboardText(const NGIN::Text::String &text) noexcept
@@ -61,6 +64,7 @@ public:
 
   void InjectEvent(PlatformEvent event);
   void AdvanceTime(std::chrono::milliseconds duration) noexcept;
+  void SetReducedMotion(bool enabled) noexcept;
 
   [[nodiscard]] auto IsInitialized() const noexcept -> bool;
   [[nodiscard]] auto Now() const noexcept -> std::chrono::milliseconds;
@@ -79,6 +83,7 @@ private:
   UInt32 m_nextWindowIndex{0};
   UIntSize m_wakeCount{0};
   std::chrono::milliseconds m_now{0};
+  bool m_reducedMotion{false};
   NGIN::Text::String m_clipboard{};
   std::vector<TestWindowRecord> m_windows{};
   std::deque<PlatformEvent> m_events{};

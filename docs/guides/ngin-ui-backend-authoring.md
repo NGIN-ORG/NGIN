@@ -56,7 +56,8 @@ backend actually implements:
 - IME/text input;
 - cursors;
 - multiple windows;
-- dialogs/file drop as represented by the current flags.
+- dialogs/file drop as represented by the current flags;
+- reduced-motion preference when the provider can read it.
 
 If a feature is absent, leave its flag clear and return `Unsupported` from a
 direct request. Controls use capability negotiation and surface errors through
@@ -88,6 +89,13 @@ independently.
 
 Hosted backends must provide a wake mechanism so `IUIDispatcher::Post()` and
 Core stop requests interrupt the event wait.
+
+`MonotonicNow()` must use a clock that never moves backward and must share the
+same time domain as event waiting. NGIN.UI uses it for scheduled work and
+animation deadlines. `ReducedMotionEnabled()` returns the current platform
+preference; advertise `ReducedMotionPreference` only when that value comes
+from a real platform setting. A preference change must wake the event loop so
+active motion settles on the next pump.
 
 ### Clipboard and IME
 
@@ -205,6 +213,7 @@ At minimum, run equivalent tests for:
 - invalid/stale handles;
 - two simultaneous windows and resize;
 - focus, scale, pointer capture, keyboard, text, clipboard, and IME events;
+- monotonic deadline waits and reduced-motion preference changes;
 - texture create/update/destroy for every advertised format;
 - scissor, blend mode, batch ordering, and resize;
 - minimized/occluded presentation;

@@ -10,6 +10,7 @@ The backend provides:
 - normalized keyboard, text, IME, pointer, wheel, file-drop, display, and theme
   events;
 - event-loop polling, bounded waits, and cross-thread wake events;
+- a monotonic animation clock and the Windows client-animation preference;
 - clipboard, cursor, display, and text-input services;
 - SDL_GPU-backed surfaces, indexed geometry, scissor rectangles,
   premultiplied-alpha blending, and texture updates;

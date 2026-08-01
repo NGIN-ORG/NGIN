@@ -95,6 +95,8 @@ public:
   void PushClip(Rect rect);
   auto PopClip() noexcept -> UIResult<void>;
   void PushTranslation(F32 x, F32 y);
+  void PushTransform(F32 translateX, F32 translateY, F32 scaleX = 1.0F,
+                     F32 scaleY = 1.0F);
   auto PopTransform() noexcept -> UIResult<void>;
   void Fill(Rect rect, Color color);
   void FillRounded(Rect rect, CornerRadius radius, Color color);

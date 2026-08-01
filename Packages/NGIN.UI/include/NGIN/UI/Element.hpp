@@ -6,6 +6,7 @@
 #include <NGIN/UI/Geometry.hpp>
 #include <NGIN/UI/Image.hpp>
 #include <NGIN/UI/LayoutPrimitives.hpp>
+#include <NGIN/UI/Motion.hpp>
 #include <NGIN/UI/Resources.hpp>
 #include <NGIN/UI/RoutedEvent.hpp>
 #include <NGIN/UI/Semantics.hpp>
@@ -216,6 +217,7 @@ struct NodeProperties final {
   SemanticProperties semantics{};
   std::shared_ptr<const ResourceScope> resources{};
   VisualProperties visual{};
+  MotionProperties motion{};
   Color background{};
   bool paintsBackground{false};
 };

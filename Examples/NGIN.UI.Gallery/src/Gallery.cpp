@@ -134,8 +134,9 @@ using namespace NGIN::UI;
 
 constexpr std::array<std::string_view, PageCount> PageNames{
     "Overview", "Layout", "Typography",    "Text Area",
-    "Images",   "Inputs", "Collections",   "Overlays",
-    "Windows",  "Themes", "Accessibility", "Diagnostics",
+    "Images",   "Inputs", "Collections",   "Motion",
+    "Overlays", "Windows", "Themes",        "Accessibility",
+    "Diagnostics",
 };
 
 [[nodiscard]] auto Number(const std::uint64_t value) -> String {
@@ -1747,6 +1748,272 @@ void ComposeCollectionsPage(Composer &composer, NativeTextSystem &text,
       "navigation-card");
 }
 
+void ComposeMotionPage(Composer &composer, NativeTextSystem &text, Model &model,
+                       const Theme &theme) {
+  ComposePageHeading(composer, text, theme, "Motion",
+                     "Change a value and NGIN.UI moves it smoothly.");
+
+  const auto regular = AnimationSpec{
+      .duration = std::chrono::milliseconds{360},
+      .easing = Easing::Standard,
+  };
+  ComposeCard(
+      composer, theme,
+      [&] {
+        NodeProperties column{};
+        column.layout.gap = theme.spacing.regular;
+        composer.Column(
+            [&] {
+              ComposeText(composer, text, String{"Fade, move, scale, and color"},
+                          18.0F, theme.colors.foreground, "title",
+                          SemanticRole::Heading);
+              ComposeText(composer, text,
+                          String{"Press the button again before it finishes to "
+                                 "change direction."},
+                          theme.typography.body, theme.colors.mutedForeground,
+                          "help");
+              ComposeButton(composer, text, theme,
+                            model.MotionForward() ? "Send it back" : "Move it",
+                            [&model] { model.ToggleMotionTarget(); },
+                            "toggle-motion", 180.0F);
+
+              NodeProperties track{};
+              track.layout.preferredSize = Size{680.0F, 92.0F};
+              track.layout.maximumSize = Size{680.0F, 92.0F};
+              track.visual.base.background = theme.colors.sunkenSurface;
+              track.visual.base.cornerRadius =
+                  CornerRadius::Uniform(Dp{theme.radii.regular});
+              track.canvas.clipToBounds = true;
+              composer.Canvas(
+                  [&] {
+                    NodeProperties sample{};
+                    sample.layout.preferredSize = Size{150.0F, 58.0F};
+                    sample.layout.padding = Thickness::Uniform(Dp{12.0F});
+                    sample.canvasPlacement =
+                        CanvasPlacement{.offset = Point{14.0F, 17.0F}};
+                    sample.visual = MakePanelVisual(theme);
+                    sample.visual.base.background = theme.colors.accent;
+                    sample.motion.opacity =
+                        Animate(model.MotionForward() ? 1.0F : 0.42F, regular);
+                    sample.motion.translation = Animate(
+                        model.MotionForward() ? Point{485.0F, 0.0F} : Point{},
+                        regular);
+                    sample.motion.scale = Animate(
+                        model.MotionForward() ? Point{1.0F, 1.0F}
+                                              : Point{0.88F, 0.88F},
+                        regular);
+                    sample.motion.background = Animate(
+                        model.MotionForward() ? theme.colors.accentHovered
+                                              : theme.colors.accentPressed,
+                        regular);
+                    sample.semantics.role = SemanticRole::Group;
+                    sample.semantics.label = String{"Animated sample"};
+                    composer.Border(
+                        [&] {
+                          ComposeText(composer, text, String{"Hello"}, 18.0F,
+                                      theme.colors.accentForeground, "label");
+                        },
+                        sample, "moving-sample");
+                  },
+                  track, "motion-track");
+            },
+            "motion-basics");
+      },
+      "motion-basics-card");
+
+  ComposeCard(
+      composer, theme,
+      [&] {
+        NodeProperties column{};
+        column.layout.gap = theme.spacing.regular;
+        composer.Column(
+            [&] {
+              ComposeText(composer, text, String{"Easing"}, 18.0F,
+                          theme.colors.foreground, "title",
+                          SemanticRole::Heading);
+              ComposeText(composer, text,
+                          String{"Each curve reaches the same place in a "
+                                 "different way."},
+                          theme.typography.body, theme.colors.mutedForeground,
+                          "help");
+              const std::array curves{
+                  std::pair{Easing::Linear, "Linear"},
+                  std::pair{Easing::Standard, "Standard"},
+                  std::pair{Easing::EaseIn, "Ease in"},
+                  std::pair{Easing::EaseOut, "Ease out"},
+              };
+              for (NGIN::UIntSize index = 0; index < curves.size(); ++index) {
+                NodeProperties lane{};
+                lane.layout.preferredSize = Size{680.0F, 34.0F};
+                lane.layout.maximumSize = Size{680.0F, 34.0F};
+                lane.visual.base.background = theme.colors.sunkenSurface;
+                lane.canvas.clipToBounds = true;
+                const auto [curve, label] = curves[index];
+                composer.Canvas(
+                    [&] {
+                      NodeProperties dot{};
+                      dot.layout.preferredSize = Size{104.0F, 26.0F};
+                      dot.layout.padding = Thickness{9.0F, 4.0F, 9.0F, 4.0F};
+                      dot.canvasPlacement =
+                          CanvasPlacement{.offset = Point{4.0F, 4.0F}};
+                      dot.visual = MakePanelVisual(theme);
+                      dot.visual.base.background = theme.colors.accent;
+                      dot.motion.translation = Animate(
+                          model.MotionForward() ? Point{568.0F, 0.0F} : Point{},
+                          AnimationSpec{
+                              .duration = std::chrono::milliseconds{620},
+                              .easing = curve,
+                          });
+                      composer.Border(
+                          [&] {
+                            ComposeText(composer, text, String{label}, 12.0F,
+                                        theme.colors.accentForeground, "label");
+                          },
+                          dot, "dot");
+                    },
+                    lane, std::string{"easing-"} + std::to_string(index));
+              }
+            },
+            "easing-column");
+      },
+      "easing-card");
+
+  ComposeCard(
+      composer, theme,
+      [&] {
+        NodeProperties column{};
+        column.layout.gap = theme.spacing.regular;
+        composer.Column(
+            [&] {
+              ComposeText(composer, text, String{"Repeat and cancel"}, 18.0F,
+                          theme.colors.foreground, "title",
+                          SemanticRole::Heading);
+              ComposeText(composer, text,
+                          String{"This sample makes three trips. You can stop "
+                                 "it safely at any time."},
+                          theme.typography.body, theme.colors.mutedForeground,
+                          "help");
+              NodeProperties actions{};
+              actions.layout.gap = theme.spacing.regular;
+              composer.Row(
+                  [&] {
+                    ComposeButton(composer, text, theme, "Run three trips",
+                                  [&model] { model.StartMotionRepeat(); },
+                                  "start-repeat", 180.0F);
+                    ComposeButton(composer, text, theme, "Stop",
+                                  [&model] { model.CancelMotionRepeat(); },
+                                  "stop-repeat", 120.0F,
+                                  model.MotionRepeatRunning());
+                  },
+                  "repeat-actions");
+              NodeProperties lane{};
+              lane.layout.preferredSize = Size{680.0F, 34.0F};
+              lane.layout.maximumSize = Size{680.0F, 34.0F};
+              lane.visual.base.background = theme.colors.sunkenSurface;
+              lane.canvas.clipToBounds = true;
+              composer.Canvas(
+                  [&] {
+                    NodeProperties marker{};
+                    marker.layout.preferredSize = Size{28.0F, 28.0F};
+                    marker.canvasPlacement =
+                        CanvasPlacement{.offset = Point{3.0F, 3.0F}};
+                    marker.visual.base.background = theme.colors.focus;
+                    marker.visual.base.cornerRadius =
+                        CornerRadius::Uniform(Dp{14.0F});
+                    if (model.MotionRepeatRunning() &&
+                        model.MotionRepeatHandle() != nullptr) {
+                      marker.motion.translation = AnimateFrom(
+                          Point{}, Point{646.0F, 0.0F},
+                          AnimationSpec{
+                              .duration = std::chrono::milliseconds{450},
+                              .easing = Easing::EaseInOut,
+                              .repeatCount = 3,
+                              .repeatMode = AnimationRepeatMode::Reverse,
+                          },
+                          *model.MotionRepeatHandle());
+                      marker.motion.onSettled =
+                          [&model] { model.FinishMotionRepeat(); };
+                    } else {
+                      marker.motion.translation = Animate(
+                          Point{}, AnimationSpec{.duration =
+                                                     std::chrono::milliseconds{0}});
+                    }
+                    marker.semantics.hidden = true;
+                    composer.Border([] {}, marker, "repeat-marker");
+                  },
+                  lane, "repeat-lane");
+            },
+            "repeat-column");
+      },
+      "repeat-card");
+
+  ComposeCard(
+      composer, theme,
+      [&] {
+        NodeProperties column{};
+        column.layout.gap = theme.spacing.regular;
+        composer.Column(
+            [&] {
+              ComposeText(composer, text, String{"Controls and less motion"},
+                          18.0F, theme.colors.foreground, "title",
+                          SemanticRole::Heading);
+              ComposeText(composer, text,
+                          String{"Hover and press the buttons. The loading bar "
+                                 "moves without an app timer."},
+                          theme.typography.body, theme.colors.mutedForeground,
+                          "help");
+              NodeProperties progress{};
+              progress.layout.preferredSize.width = 360.0F;
+              ProgressBar(composer, ProgressValue{.indeterminate = true},
+                          ControlPresentation{.theme = theme}, progress,
+                          "motion-progress");
+              ComposeButton(
+                  composer, text, theme,
+                  model.MotionPreviewReduced() ? "Use normal motion"
+                                               : "Preview less motion",
+                  [&model] { model.ToggleMotionPreviewReduced(); },
+                  "reduced-motion", 210.0F);
+              ComposeText(
+                  composer, text,
+                  String{model.MotionPreviewReduced()
+                             ? "Motion now finishes immediately."
+                             : "Your system's reduced-motion setting is also "
+                               "respected."},
+                  theme.typography.body, theme.colors.mutedForeground,
+                  "reduced-status");
+
+              NodeProperties popupButton{};
+              popupButton.layout.preferredSize =
+                  Size{190.0F, theme.controls.regularHeight};
+              popupButton.layout.padding = Thickness{14.0F, 8.0F, 14.0F, 8.0F};
+              popupButton.layout.horizontalAlignment =
+                  HorizontalAlignment::Start;
+              popupButton.interaction.focusable = true;
+              popupButton.visual = MakeButtonVisual(theme);
+              NodeProperties popup{};
+              popup.layout.preferredSize = Size{260.0F, 70.0F};
+              popup.layout.padding = Thickness::Uniform(Dp{12.0F});
+              popup.visual = MakePanelVisual(theme);
+              MenuButton(
+                  composer, model.MotionPopup(), "motion-popup-anchor",
+                  [&] {
+                    ComposeText(composer, text, String{"Show popup"},
+                                theme.typography.body,
+                                theme.colors.accentForeground, "label");
+                  },
+                  [&] {
+                    ComposeText(composer, text, String{"The popup fades and "
+                                                        "slides."},
+                                theme.typography.body, theme.colors.foreground,
+                                "message");
+                  },
+                  popupButton, popup, "motion-popup");
+            },
+            "control-motion-column");
+      },
+      "control-motion-card");
+}
+
 void ComposeOverlaysPage(Composer &composer, NativeTextSystem &text,
                          Model &model, const Theme &theme) {
   ComposePageHeading(
@@ -2197,6 +2464,9 @@ void ComposePage(Composer &composer, NativeTextSystem &text, Model &model,
   case Page::Collections:
     ComposeCollectionsPage(composer, text, model, theme);
     break;
+  case Page::Motion:
+    ComposeMotionPage(composer, text, model, theme);
+    break;
   case Page::Overlays:
     ComposeOverlaysPage(composer, text, model, theme);
     break;
@@ -2299,6 +2569,10 @@ Model::Model()
       m_collectionTab(
           CollectionTab::Selection,
           [this](const InvalidationKind kind) { Invalidate(kind); }),
+      m_motionForward(
+          false, [this](const InvalidationKind kind) { Invalidate(kind); }),
+      m_motionRepeatRunning(
+          false, [this](const InvalidationKind kind) { Invalidate(kind); }),
       m_virtualizedSelection(
           String{"item-0"},
           [this](const InvalidationKind kind) { Invalidate(kind); }),
@@ -2311,6 +2585,8 @@ Model::Model()
               .initialViewportExtent = 280.0F,
           },
           [this](const InvalidationKind kind) { Invalidate(kind); })),
+      m_motionPopup(
+          [this](const InvalidationKind kind) { Invalidate(kind); }),
       m_comboPopup([this](const InvalidationKind kind) { Invalidate(kind); }),
       m_menuPopup([this](const InvalidationKind kind) { Invalidate(kind); }),
       m_contextPopup([this](const InvalidationKind kind) { Invalidate(kind); }),
@@ -2353,6 +2629,13 @@ void Model::AttachRuntime(Application &application, NativeTextSystem &text,
 auto Model::CurrentPage() const noexcept -> Page { return m_page.Get(); }
 
 void Model::SelectPage(const Page page) {
+  if (m_page.Get() == Page::Motion && page != Page::Motion) {
+    CancelMotionRepeat();
+    m_motionPopup.Close();
+    if (m_window != nullptr) {
+      m_window->SetMotionEnabled(true);
+    }
+  }
   SetPopupOpen(false);
   static_cast<void>(m_page.Set(page));
 }
@@ -2508,6 +2791,58 @@ void Model::PrependVirtualizedItems() {
   m_virtualizedSource->Prepend(250);
   Invalidate(InvalidationKind::All);
   Notify("Added 250 rows while keeping the visible item in place");
+}
+
+auto Model::MotionForward() const noexcept -> bool {
+  return m_motionForward.Get();
+}
+
+void Model::ToggleMotionTarget() {
+  static_cast<void>(m_motionForward.Set(!m_motionForward.Get()));
+}
+
+auto Model::MotionRepeatRunning() const noexcept -> bool {
+  return m_motionRepeatRunning.Get();
+}
+
+void Model::StartMotionRepeat() {
+  if (m_motionRepeatHandle) {
+    m_motionRepeatHandle->Cancel();
+  }
+  m_motionRepeatHandle = std::make_unique<AnimationHandle>();
+  static_cast<void>(m_motionRepeatRunning.Set(true));
+  Invalidate(InvalidationKind::All);
+}
+
+void Model::CancelMotionRepeat() {
+  if (m_motionRepeatHandle) {
+    m_motionRepeatHandle->Cancel();
+  }
+  static_cast<void>(m_motionRepeatRunning.Set(false));
+  Invalidate(InvalidationKind::All);
+}
+
+void Model::FinishMotionRepeat() {
+  static_cast<void>(m_motionRepeatRunning.Set(false));
+}
+
+auto Model::MotionRepeatHandle() const noexcept -> const AnimationHandle * {
+  return m_motionRepeatHandle.get();
+}
+
+auto Model::MotionPreviewReduced() const noexcept -> bool {
+  return m_window != nullptr && !m_window->MotionEnabled();
+}
+
+void Model::ToggleMotionPreviewReduced() {
+  if (m_window != nullptr) {
+    m_window->SetMotionEnabled(!m_window->MotionEnabled());
+  }
+  Invalidate(InvalidationKind::All);
+}
+
+auto Model::MotionPopup() noexcept -> PopupController & {
+  return m_motionPopup;
 }
 
 auto Model::ComboPopup() noexcept -> PopupController & { return m_comboPopup; }

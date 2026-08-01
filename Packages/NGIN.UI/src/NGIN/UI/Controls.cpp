@@ -673,12 +673,20 @@ public:
         interaction.enabled ? colors.accent : colors.disabledForeground;
     if (m_value.indeterminate) {
       const auto chunkWidth = bounds.width * 0.28F;
+      const auto phase = context.IsMotionActive()
+                             ? std::clamp(context.MotionValue(), 0.0F, 1.0F)
+                             : 0.5F;
       paint.FillRounded(
-          Rect{bounds.width * 0.36F, 0.0F, chunkWidth, bounds.height}, radius,
+          Rect{-chunkWidth + (bounds.width + chunkWidth) * phase, 0.0F,
+               chunkWidth, bounds.height},
+          radius,
           foreground);
     } else {
       paint.FillRounded(
-          Rect{0.0F, 0.0F, bounds.width * Fraction(), bounds.height}, radius,
+          Rect{0.0F, 0.0F,
+               bounds.width * std::clamp(context.MotionValue(), 0.0F, 1.0F),
+               bounds.height},
+          radius,
           foreground);
     }
     if (m_presentation.invalid) {
@@ -774,6 +782,31 @@ void ProgressBar(Composer &composer, const ProgressValue value,
                  const ControlPresentation &presentation,
                  const NodeProperties &properties, const std::string_view key) {
   auto control = PrepareProperties(properties, Size{220.0F, 12.0F}, false);
+  if (!control.motion.value) {
+    if (value.indeterminate) {
+      control.motion.value = AnimateFrom(
+          0.0F, 1.0F,
+          AnimationSpec{
+              .duration = std::chrono::milliseconds{1200},
+              .easing = Easing::Linear,
+              .repeatCount = 0,
+              .repeatMode = AnimationRepeatMode::Restart,
+          });
+    } else {
+      const auto extent = value.maximum - value.minimum;
+      const auto fraction =
+          extent > 0.0F
+              ? std::clamp((value.value - value.minimum) / extent, 0.0F, 1.0F)
+              : 0.0F;
+      control.motion.value = Animate(
+          fraction,
+          AnimationSpec{
+              .duration = std::chrono::milliseconds{static_cast<Int64>(
+                  presentation.theme.motion.regularMilliseconds)},
+              .easing = Easing::Standard,
+          });
+    }
+  }
   composer.Custom(std::make_shared<ProgressBarElement>(value, presentation,
                                                        control.semantics),
                   control, key);

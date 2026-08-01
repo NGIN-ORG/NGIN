@@ -3,6 +3,7 @@
 #include <NGIN/UIGallery/Gallery.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <iostream>
 #include <memory>
 #include <string_view>
@@ -208,6 +209,26 @@ auto main() -> int {
         return 1;
       }
     }
+    if (page == NGIN::UIGallery::Page::Motion) {
+      const auto sample = FindByTypeAndKey(
+          window->Tree(), ElementType::Border, "moving-sample");
+      const auto progress = FindByTypeAndKey(
+          window->Tree(), ElementType::CustomElement, "motion-progress");
+      const auto *sampleNode = window->Tree().Get(sample);
+      const auto *progressNode = window->Tree().Get(progress);
+      if (!Check(sampleNode != nullptr && sampleNode->properties.motion.opacity &&
+                     sampleNode->properties.motion.translation &&
+                     sampleNode->properties.motion.scale &&
+                     sampleNode->properties.motion.background,
+                 "motion page uses public fade move scale and color targets") ||
+          !Check(progressNode != nullptr &&
+                     progressNode->properties.motion.value.has_value(),
+                 "motion page uses the public animated progress control") ||
+          !Check(window->HasActiveAnimations(),
+                 "indeterminate progress requests motion frames")) {
+        return 1;
+      }
+    }
     if (page == NGIN::UIGallery::Page::TextArea &&
         !Check(HasRole(window->Semantics(), SemanticRole::TextBox),
                "text-area page exposes editable text semantics")) {
@@ -370,6 +391,54 @@ auto main() -> int {
   }
   if (!Check(model.CheckBinding().Get() != beforeKeyboard,
              "keyboard activation changes a gallery control")) {
+    return 1;
+  }
+
+  model.SelectPage(NGIN::UIGallery::Page::Motion);
+  if (!application->PumpOnce()) {
+    return 1;
+  }
+  model.ToggleMotionTarget();
+  if (!application->PumpOnce() ||
+      !Check(window->HasActiveAnimations(),
+             "motion target changes start an animation")) {
+    return 1;
+  }
+  platformObserver->AdvanceTime(std::chrono::milliseconds{120});
+  if (!application->PumpOnce()) {
+    return 1;
+  }
+  model.ToggleMotionTarget();
+  if (!application->PumpOnce() ||
+      !Check(window->HasActiveAnimations(),
+             "motion can reverse before it finishes")) {
+    return 1;
+  }
+  model.StartMotionRepeat();
+  if (!application->PumpOnce() ||
+      !Check(model.MotionRepeatRunning(),
+             "bounded repeating motion starts from the Gallery") ||
+      !Check(model.MotionRepeatHandle() != nullptr,
+             "repeating motion exposes a cancellation handle")) {
+    return 1;
+  }
+  model.CancelMotionRepeat();
+  if (!application->PumpOnce() ||
+      !Check(!model.MotionRepeatRunning(),
+             "repeating motion cancels safely")) {
+    return 1;
+  }
+  model.ToggleMotionPreviewReduced();
+  if (!application->PumpOnce() ||
+      !Check(model.MotionPreviewReduced(),
+             "Gallery can preview the reduced-motion behavior") ||
+      !Check(!window->HasActiveAnimations(),
+             "reduced motion settles every active target")) {
+    return 1;
+  }
+  model.ToggleMotionPreviewReduced();
+  model.SelectPage(NGIN::UIGallery::Page::Inputs);
+  if (!application->PumpOnce()) {
     return 1;
   }
 

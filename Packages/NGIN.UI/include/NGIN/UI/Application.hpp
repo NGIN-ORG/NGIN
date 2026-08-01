@@ -18,6 +18,7 @@
 
 #include <chrono>
 #include <memory>
+#include <optional>
 
 namespace NGIN::UI {
 /// @brief Owns the UI event loop, platform backend, renderer, and windows.
@@ -57,6 +58,10 @@ public:
   [[nodiscard]] auto LastLayoutStats() const noexcept
       -> const LayoutPassStats &;
   [[nodiscard]] auto DisplayCommandCount() const noexcept -> UIntSize;
+  [[nodiscard]] auto HasActiveAnimations() const noexcept -> bool;
+  [[nodiscard]] auto NextAnimationDeadline() const noexcept
+      -> std::optional<MonotonicTime>;
+  [[nodiscard]] auto MotionEnabled() const noexcept -> bool;
   [[nodiscard]] auto HitTest(Point position) const noexcept -> ElementHandle;
   [[nodiscard]] auto FocusedElement() const noexcept -> ElementHandle;
   [[nodiscard]] auto CapturedElement(UInt64 pointerId) const noexcept
@@ -75,6 +80,7 @@ public:
   void SetEventHandler(EventHandler handler);
   void SetContent(Content content);
   void Invalidate(InvalidationKind kind = InvalidationKind::All) noexcept;
+  void SetMotionEnabled(bool enabled) noexcept;
   [[nodiscard]] auto Schedule(std::chrono::milliseconds delay,
                               ScheduledAction action) noexcept
       -> UIResult<ScheduledActionId>;

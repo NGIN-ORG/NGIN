@@ -5,6 +5,7 @@
 #include <NGIN/UI/Geometry.hpp>
 #include <NGIN/UI/Handles.hpp>
 #include <NGIN/UI/Invalidation.hpp>
+#include <NGIN/UI/Motion.hpp>
 #include <NGIN/UI/RoutedEvent.hpp>
 #include <NGIN/UI/Semantics.hpp>
 #include <NGIN/UI/Style.hpp>
@@ -127,7 +128,9 @@ class CustomElementContext final {
 public:
   CustomElementContext(CustomStateStore &state, ElementId identity,
                        Rect arrangedBounds, CustomInteractionState interaction,
-                       F32 scaleFactor) noexcept;
+                       F32 scaleFactor, MotionTransform windowTransform = {},
+                       F32 motionValue = 0.0F,
+                       bool motionActive = false) noexcept;
 
   template <typename T, typename... Args>
   [[nodiscard]] auto State(std::string_view key, Args &&...args) noexcept
@@ -145,6 +148,8 @@ public:
   [[nodiscard]] auto ToLocal(Point windowPoint) const noexcept -> Point;
   [[nodiscard]] auto Interaction() const noexcept -> CustomInteractionState;
   [[nodiscard]] auto ScaleFactor() const noexcept -> F32;
+  [[nodiscard]] auto MotionValue() const noexcept -> F32;
+  [[nodiscard]] auto IsMotionActive() const noexcept -> bool;
 
 private:
   CustomStateStore *m_state{nullptr};
@@ -152,6 +157,9 @@ private:
   Rect m_arrangedBounds{};
   CustomInteractionState m_interaction{};
   F32 m_scaleFactor{1.0F};
+  MotionTransform m_windowTransform{};
+  F32 m_motionValue{0.0F};
+  bool m_motionActive{false};
 };
 
 /// @brief Drawing surface, bounds, scale, and interaction data for custom paint.

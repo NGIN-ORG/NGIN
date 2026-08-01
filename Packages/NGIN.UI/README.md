@@ -40,6 +40,12 @@ The version 0.1 implementation provides:
   strokes across every renderer backend;
 - nested transform, clip, and opacity stacks with texture-aware batch
   coalescing;
+- retained target-value animation for scalar values, colors, opacity,
+  translation, and scale with deterministic platform time, easing,
+  interruption, cancellation, bounded repetition, and reduced motion;
+- theme-driven control-state transitions, animated popup entry/exit, and
+  determinate or indeterminate progress motion without application frame
+  loops;
 - backend-neutral font-provider, shaping, paragraph-layout, and grapheme
   segmentation contracts;
 - a concrete `NativeTextSystem` combining Noto Sans, FreeType metrics and
@@ -159,6 +165,9 @@ combo boxes, retained tabs, and menus.
 See the
 [desktop layout guide](../../docs/guides/ngin-ui-desktop-layout.md) for Grid,
 WrapPanel, Canvas, responsive sizing, and layout diagnostics.
+See the [motion guide](../../docs/guides/ngin-ui-motion.md) for target changes,
+easing, interruption, cancellation, repetition, transforms, control
+transitions, reduced motion, and deterministic clocks.
 See the
 [richer-content guide](../../docs/guides/ngin-ui-richer-content.md) for
 multiline layout, font fallback, `TextArea`, logical images, asynchronous

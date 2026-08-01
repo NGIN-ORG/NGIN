@@ -19,7 +19,8 @@ auto TestPlatformBackend::Capabilities() const noexcept
          PlatformCapabilityFlags::MultipleWindows |
          PlatformCapabilityFlags::FileDrop | PlatformCapabilityFlags::PenInput |
          PlatformCapabilityFlags::TouchInput |
-         PlatformCapabilityFlags::NativeWindow;
+         PlatformCapabilityFlags::NativeWindow |
+         PlatformCapabilityFlags::ReducedMotionPreference;
 }
 
 auto TestPlatformBackend::Initialize(const PlatformInitInfo &) noexcept
@@ -126,6 +127,14 @@ auto TestPlatformBackend::WaitEvents(
 
 void TestPlatformBackend::WakeEventLoop() noexcept { ++m_wakeCount; }
 
+auto TestPlatformBackend::MonotonicNow() const noexcept -> MonotonicTime {
+  return std::chrono::duration_cast<MonotonicTime>(m_now);
+}
+
+auto TestPlatformBackend::ReducedMotionEnabled() const noexcept -> bool {
+  return m_reducedMotion;
+}
+
 auto TestPlatformBackend::SetCursor(const PlatformWindowHandle window,
                                     const CursorShape cursor) noexcept
     -> UIResult<void> {
@@ -207,6 +216,13 @@ void TestPlatformBackend::InjectEvent(PlatformEvent event) {
 void TestPlatformBackend::AdvanceTime(
     const std::chrono::milliseconds duration) noexcept {
   m_now += duration;
+}
+
+void TestPlatformBackend::SetReducedMotion(const bool enabled) noexcept {
+  if (m_reducedMotion != enabled) {
+    m_reducedMotion = enabled;
+    WakeEventLoop();
+  }
 }
 
 auto TestPlatformBackend::IsInitialized() const noexcept -> bool {

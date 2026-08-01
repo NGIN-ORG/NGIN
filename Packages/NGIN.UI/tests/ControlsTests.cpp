@@ -11,7 +11,6 @@
 #include <algorithm>
 #include <chrono>
 #include <memory>
-#include <thread>
 #include <variant>
 
 namespace {
@@ -405,7 +404,7 @@ TEST_CASE("tooltips open after a delay without taking keyboard focus") {
   });
   REQUIRE(application->PumpOnce().HasValue());
   REQUIRE_FALSE(tooltip.IsOpen());
-  std::this_thread::sleep_for(std::chrono::milliseconds{4});
+  platformObserver->AdvanceTime(std::chrono::milliseconds{4});
   REQUIRE(application->PumpOnce().HasValue());
   REQUIRE(tooltip.IsOpen());
   REQUIRE(window->FocusedElement() == target);

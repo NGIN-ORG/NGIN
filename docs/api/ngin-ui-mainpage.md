@@ -18,6 +18,8 @@ and use this reference for exact signatures, ownership, and result types.
   `NGIN::UI::IVirtualizedDataSource<T>`, and
   `NGIN::UI::VirtualizedListView()`
 - `NGIN::UI::NodeProperties`
+- `NGIN::UI::Animate()`, `NGIN::UI::AnimationSpec`, and
+  `NGIN::UI::AnimationHandle`
 - `NGIN::UI::State<T>` and `NGIN::UI::Binding<T>`
 - `NGIN::UI::NativeTextSystem`
 - `NGIN::UI::ImageResource`, `NGIN::UI::StandardImageDecoder`, and
@@ -42,6 +44,8 @@ and use this reference for exact signatures, ownership, and result types.
 - `LayoutPrimitives.hpp`: grid tracks and spans, wrapping rules, and absolute
   canvas placement
 - `CustomElement.hpp`: custom measurement, painting, input, semantics, state
+- `Animation.hpp` and `Motion.hpp`: target values, easing, cancellation,
+  repetition, transforms, and reduced-motion behavior
 
 ## Integration contracts
 

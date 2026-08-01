@@ -1,6 +1,7 @@
 #include <NGIN/UI/Input.hpp>
 
 #include "ScrollBarGeometry.hpp"
+#include "MotionInternal.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -43,8 +44,10 @@ namespace {
   return value >= 32U && value <= 126U;
 }
 
-[[nodiscard]] auto CustomContextFor(RuntimeNode &node, const F32 scaleFactor)
+[[nodiscard]] auto CustomContextFor(RuntimeTree &tree, RuntimeNode &node,
+                                    const F32 scaleFactor)
     -> CustomElementContext {
+  const auto motion = Detail::SnapshotFor(node);
   return CustomElementContext{
       *node.custom.state,
       node.id,
@@ -57,6 +60,9 @@ namespace {
           .enabled = node.properties.interaction.enabled,
       },
       scaleFactor,
+      Detail::ComposedTransformFor(tree, node.handle),
+      motion.value,
+      motion.active,
   };
 }
 
@@ -326,7 +332,7 @@ auto InputRouter::PerformSemanticAction(const ElementHandle target,
   if (node->type == ElementType::CustomElement && node->custom.state &&
       node->properties.custom.element) {
     try {
-      auto context = CustomContextFor(*node, m_scaleFactor);
+      auto context = CustomContextFor(m_tree, *node, m_scaleFactor);
       auto action =
           node->properties.custom.element->SemanticAction(context, request);
       if (!action) {
@@ -499,14 +505,18 @@ auto InputRouter::HitTestSubtree(const ElementHandle handle,
   const auto *node = m_tree.Get(handle);
   if (node == nullptr || !node->properties.interaction.hitTestVisible ||
       node->properties.visibility != ElementVisibility::Visible ||
-      (node->type == ElementType::Popup && handle != popupRoot) ||
-      !node->arrangedBounds.Contains(position)) {
+      (node->type == ElementType::Popup && handle != popupRoot)) {
+    return {};
+  }
+  const auto localPosition = Detail::InverseTransformPoint(
+      position, Detail::TransformFor(*node));
+  if (!node->arrangedBounds.Contains(localPosition)) {
     return {};
   }
 
   for (auto child = node->children.rbegin(); child != node->children.rend();
        ++child) {
-    if (const auto hit = HitTestSubtree(*child, position, popupRoot); hit) {
+    if (const auto hit = HitTestSubtree(*child, localPosition, popupRoot); hit) {
       return hit;
     }
   }
@@ -656,7 +666,7 @@ void InputRouter::InvokeHandler(const ElementHandle handle,
   if (node->type == ElementType::CustomElement && node->custom.state &&
       node->properties.custom.element) {
     try {
-      auto context = CustomContextFor(*node, m_scaleFactor);
+      auto context = CustomContextFor(m_tree, *node, m_scaleFactor);
       auto handled =
           node->properties.custom.element->PointerEvent(context, event);
       if (handled) {
@@ -723,7 +733,7 @@ auto InputRouter::Dispatch(RoutedKeyEvent &event, const ElementHandle target)
     if (node->type == ElementType::CustomElement && node->custom.state &&
         node->properties.custom.element) {
       try {
-        auto context = CustomContextFor(*node, m_scaleFactor);
+        auto context = CustomContextFor(m_tree, *node, m_scaleFactor);
         auto handled =
             node->properties.custom.element->KeyEvent(context, event);
         if (handled) {
@@ -790,7 +800,7 @@ auto InputRouter::Dispatch(RoutedTextEvent &event, const ElementHandle target)
     if (node->type == ElementType::CustomElement && node->custom.state &&
         node->properties.custom.element) {
       try {
-        auto context = CustomContextFor(*node, m_scaleFactor);
+        auto context = CustomContextFor(m_tree, *node, m_scaleFactor);
         auto handled =
             node->properties.custom.element->TextEvent(context, event);
         if (handled) {

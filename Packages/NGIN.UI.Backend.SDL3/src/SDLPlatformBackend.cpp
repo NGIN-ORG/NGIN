@@ -10,6 +10,12 @@
 #include <unordered_map>
 #include <utility>
 
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#include <Windows.h>
+#undef CreateWindow
+#endif
+
 namespace NGIN::UI::SDL3 {
 namespace {
 [[nodiscard]] auto SDLError(const UIErrorCode code, const char *operation,
@@ -153,7 +159,8 @@ public:
         PlatformCapabilityFlags::FileDrop;
 #if defined(_WIN32)
     capabilities =
-        capabilities | PlatformCapabilityFlags::NativeWindow;
+        capabilities | PlatformCapabilityFlags::NativeWindow |
+        PlatformCapabilityFlags::ReducedMotionPreference;
 #endif
     return capabilities;
   }
@@ -334,6 +341,23 @@ public:
       event.type = m_wakeEvent;
       static_cast<void>(SDL_PushEvent(&event));
     }
+  }
+
+  [[nodiscard]] auto MonotonicNow() const noexcept
+      -> MonotonicTime override {
+    return std::chrono::duration_cast<MonotonicTime>(
+        std::chrono::steady_clock::now().time_since_epoch());
+  }
+
+  [[nodiscard]] auto ReducedMotionEnabled() const noexcept -> bool override {
+#if defined(_WIN32)
+    BOOL animationsEnabled = TRUE;
+    return SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0,
+                                 &animationsEnabled, 0) != FALSE &&
+           animationsEnabled == FALSE;
+#else
+    return false;
+#endif
   }
 
   auto SetCursor(const PlatformWindowHandle handle,

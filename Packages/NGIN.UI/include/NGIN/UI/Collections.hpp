@@ -416,19 +416,71 @@ public:
   explicit PopupController(
       InvalidationScheduler scheduler = {},
       const InvalidationKind invalidation = InvalidationKind::All)
-      : m_open(false, std::move(scheduler), invalidation) {}
+      : m_animateClose(static_cast<bool>(scheduler)),
+        m_open(false, scheduler, invalidation),
+        m_presented(false, std::move(scheduler), invalidation) {}
 
   [[nodiscard]] auto IsOpen() const noexcept -> bool { return m_open.Get(); }
-  void Open() { static_cast<void>(m_open.Set(true)); }
-  void Close() { static_cast<void>(m_open.Set(false)); }
-  void Toggle() { static_cast<void>(m_open.Set(!m_open.Get())); }
+  [[nodiscard]] auto IsPresented() const noexcept -> bool {
+    return m_presented.Get();
+  }
+  void Open() {
+    static_cast<void>(m_presented.Set(true));
+    static_cast<void>(m_open.Set(true));
+  }
+  void Close() {
+    static_cast<void>(m_open.Set(false));
+    if (!m_animateClose) {
+      static_cast<void>(m_presented.Set(false));
+    }
+  }
+  void FinishClose() {
+    if (!IsOpen()) {
+      static_cast<void>(m_presented.Set(false));
+    }
+  }
+  void Toggle() { IsOpen() ? Close() : Open(); }
   void SetAnchor(const Rect anchor) noexcept { m_anchor = anchor; }
   [[nodiscard]] auto Anchor() const noexcept -> Rect { return m_anchor; }
 
 private:
+  bool m_animateClose{false};
   State<bool> m_open;
+  State<bool> m_presented;
   Rect m_anchor{};
 };
+
+/// @brief Applies the standard entrance or exit targets to a popup.
+inline void PreparePopupMotion(PopupController &controller,
+                               NodeProperties &properties) {
+  const auto spec = AnimationSpec{
+      .duration = std::chrono::milliseconds{140},
+      .easing = Easing::EaseOut,
+  };
+  if (!properties.motion.opacity) {
+    properties.motion.opacity = controller.IsOpen()
+                                    ? AnimateFrom(0.0F, 1.0F, spec)
+                                    : Animate(0.0F, spec);
+  }
+  if (!properties.motion.translation) {
+    properties.motion.translation =
+        controller.IsOpen()
+            ? AnimateFrom(Point{0.0F, -6.0F}, Point{}, spec)
+            : Animate(Point{0.0F, -6.0F}, spec);
+  }
+  if (!controller.IsOpen()) {
+    properties.interaction.hitTestVisible = false;
+    properties.semantics.hidden = true;
+    auto previous = std::move(properties.motion.onSettled);
+    properties.motion.onSettled =
+        [previous = std::move(previous), &controller]() mutable {
+          if (previous) {
+            previous();
+          }
+          controller.FinishClose();
+        };
+  }
+}
 
 template <typename ComposeSummary, typename ComposeOptions>
 void ComboBox(Composer &composer, PopupController &controller,
@@ -469,7 +521,7 @@ void ComboBox(Composer &composer, PopupController &controller,
         composer.Element(ElementType::Button, buttonProperties,
                          std::forward<ComposeSummary>(composeSummary),
                          "anchor");
-        if (controller.IsOpen()) {
+        if (controller.IsPresented()) {
           popupProperties.popup.anchorIdentifier =
               NGIN::Text::String{anchorIdentifier};
           popupProperties.popup.placement = PopupPlacement::BelowStart;
@@ -480,6 +532,7 @@ void ComboBox(Composer &composer, PopupController &controller,
             controller.Close();
           };
           popupProperties.semantics.role = SemanticRole::Group;
+          PreparePopupMotion(controller, popupProperties);
           composer.Popup(
               [&] {
                 NodeProperties optionList{};
@@ -615,7 +668,7 @@ void MenuButton(Composer &composer, PopupController &controller,
         composer.Element(ElementType::Button, buttonProperties,
                          std::forward<ComposeSummary>(composeSummary),
                          "anchor");
-        if (controller.IsOpen()) {
+        if (controller.IsPresented()) {
           popupProperties.popup.anchorIdentifier =
               NGIN::Text::String{anchorIdentifier};
           popupProperties.popup.placement = PopupPlacement::BelowStart;
@@ -626,6 +679,7 @@ void MenuButton(Composer &composer, PopupController &controller,
             controller.Close();
           };
           popupProperties.semantics.role = SemanticRole::Menu;
+          PreparePopupMotion(controller, popupProperties);
           composer.Popup(std::forward<ComposeMenu>(composeMenu),
                          popupProperties, "popup");
         }
@@ -656,7 +710,7 @@ template <typename ComposeMenu>
 void ContextMenu(Composer &composer, PopupController &controller,
                  ComposeMenu &&composeMenu, NodeProperties popupProperties = {},
                  std::string_view key = "context-menu") {
-  if (!controller.IsOpen()) {
+  if (!controller.IsPresented()) {
     return;
   }
   popupProperties.popup.anchor = controller.Anchor();
@@ -666,6 +720,7 @@ void ContextMenu(Composer &composer, PopupController &controller,
   popupProperties.popup.dismissOnEscape = true;
   popupProperties.popup.onDismiss = [&controller] { controller.Close(); };
   popupProperties.semantics.role = SemanticRole::Menu;
+  PreparePopupMotion(controller, popupProperties);
   composer.Popup(std::forward<ComposeMenu>(composeMenu), popupProperties, key);
 }
 

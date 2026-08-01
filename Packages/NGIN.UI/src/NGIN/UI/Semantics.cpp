@@ -2,6 +2,8 @@
 
 #include <NGIN/UI/RuntimeTree.hpp>
 
+#include "MotionInternal.hpp"
+
 #include <algorithm>
 #include <utility>
 
@@ -119,9 +121,11 @@ void SemanticTree::AppendRuntimeNode(const RuntimeTree &runtimeTree,
         .description = properties.description,
         .range = properties.range,
         .collectionItem = properties.collectionItem,
-        .bounds = runtimeNode->type == ElementType::Popup
-                      ? runtimeNode->popup.contentBounds
-                      : runtimeNode->arrangedBounds,
+        .bounds = Detail::TransformedBoundsFor(
+            runtimeTree, runtimeHandle,
+            runtimeNode->type == ElementType::Popup
+                ? runtimeNode->popup.contentBounds
+                : runtimeNode->arrangedBounds),
         .states = states,
         .actions = properties.actions == SemanticActionFlags::None
                        ? DefaultActions(role)

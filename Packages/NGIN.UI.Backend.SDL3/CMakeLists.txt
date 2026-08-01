@@ -39,6 +39,9 @@ target_link_libraries(NGIN.UI.Backend.SDL3
     PUBLIC NGIN::UI
     PRIVATE SDL3::SDL3-static
 )
+if(WIN32)
+    target_link_libraries(NGIN.UI.Backend.SDL3 PRIVATE user32)
+endif()
 
 if(NGIN_UI_SDL3_STRICT_WARNINGS)
     if(MSVC)

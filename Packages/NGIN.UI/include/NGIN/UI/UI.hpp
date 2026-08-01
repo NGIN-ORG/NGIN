@@ -1,6 +1,7 @@
 #pragma once
 
 #include <NGIN/UI/Accessibility.hpp>
+#include <NGIN/UI/Animation.hpp>
 #include <NGIN/UI/Application.hpp>
 #include <NGIN/UI/Backend.hpp>
 #include <NGIN/UI/Collections.hpp>
@@ -20,6 +21,7 @@
 #include <NGIN/UI/Invalidation.hpp>
 #include <NGIN/UI/Layout.hpp>
 #include <NGIN/UI/LayoutPrimitives.hpp>
+#include <NGIN/UI/Motion.hpp>
 #include <NGIN/UI/NativeText.hpp>
 #include <NGIN/UI/Platform.hpp>
 #include <NGIN/UI/Rendering.hpp>

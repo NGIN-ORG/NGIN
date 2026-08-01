@@ -4,7 +4,7 @@ This app lets you try the controls and features in `NGIN.UI`.
 
 ![NGIN.UI gallery Inputs page](docs/gallery-overview.png)
 
-The sidebar has twelve pages:
+The sidebar has thirteen pages:
 
 - **Overview** shows colors, buttons, and custom controls.
 - **Layout** shows a grid form, a toolbar that wraps, dashboard tiles, a
@@ -18,6 +18,9 @@ The sidebar has twelve pages:
   progress bars, tooltips, and text fields.
 - **Collections** shows a 100,000-item list with live realization and range-load
   counts, plus ordinary lists, sorting, filtering, combo boxes, tabs, and menus.
+- **Motion** shows fades, movement, scaling, colors, easing, interruption,
+  three-trip repetition, cancellation, popup motion, progress motion, and a
+  less-motion preview.
 - **Overlays** shows a popup that closes with Escape or an outside click.
 - **Windows** opens another window and a dialog.
 - **Themes** switches between light and dark colors.
@@ -47,6 +50,12 @@ Open a specific catalogue page directly:
 
 ```powershell
 build/manual/NGIN.UI.Gallery/bin/NGIN.UI.Gallery.exe --page Collections
+```
+
+Open the interactive animation examples directly:
+
+```powershell
+build/manual/NGIN.UI.Gallery/bin/NGIN.UI.Gallery.exe --page Motion
 ```
 
 On Windows, open the accessibility examples and start Narrator with

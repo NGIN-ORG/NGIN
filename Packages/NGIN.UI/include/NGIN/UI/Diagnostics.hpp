@@ -29,6 +29,9 @@ struct WindowDiagnostics final {
   UIntSize drawBatchCount{0};
   UIntSize vertexCount{0};
   UIntSize indexCount{0};
+  UIntSize activeAnimationCount{0};
+  UInt64 motionFrameCount{0};
+  bool reducedMotion{false};
   InvalidationKind lastInvalidation{InvalidationKind::None};
   ElementHandle focusedElement{};
   ElementHandle pointerCaptureOwner{};

@@ -2,14 +2,19 @@
 
 #include <NGIN/UI/DisplayList.hpp>
 
+#include <cmath>
+
 namespace NGIN::UI {
 CustomElementContext::CustomElementContext(
     CustomStateStore &state, const ElementId identity,
     const Rect arrangedBounds, const CustomInteractionState interaction,
-    const F32 scaleFactor) noexcept
+    const F32 scaleFactor, const MotionTransform windowTransform,
+    const F32 motionValue, const bool motionActive) noexcept
     : m_state(&state), m_identity(identity), m_arrangedBounds(arrangedBounds),
       m_interaction(interaction),
-      m_scaleFactor(scaleFactor > 0.0F ? scaleFactor : 1.0F) {}
+      m_scaleFactor(scaleFactor > 0.0F ? scaleFactor : 1.0F),
+      m_windowTransform(windowTransform), m_motionValue(motionValue),
+      m_motionActive(motionActive) {}
 
 auto CustomElementContext::Identity() const noexcept -> ElementId {
   return m_identity;
@@ -22,8 +27,16 @@ auto CustomElementContext::ArrangedSize() const noexcept -> Size {
 auto CustomElementContext::ToLocal(const Point windowPoint) const noexcept
     -> Point {
   return Point{
-      windowPoint.x - m_arrangedBounds.x,
-      windowPoint.y - m_arrangedBounds.y,
+      (windowPoint.x - m_windowTransform.translation.x) /
+              (std::abs(m_windowTransform.scale.x) > 0.0001F
+                   ? m_windowTransform.scale.x
+                   : 0.0001F) -
+          m_arrangedBounds.x,
+      (windowPoint.y - m_windowTransform.translation.y) /
+              (std::abs(m_windowTransform.scale.y) > 0.0001F
+                   ? m_windowTransform.scale.y
+                   : 0.0001F) -
+          m_arrangedBounds.y,
   };
 }
 
@@ -34,6 +47,14 @@ auto CustomElementContext::Interaction() const noexcept
 
 auto CustomElementContext::ScaleFactor() const noexcept -> F32 {
   return m_scaleFactor;
+}
+
+auto CustomElementContext::MotionValue() const noexcept -> F32 {
+  return m_motionValue;
+}
+
+auto CustomElementContext::IsMotionActive() const noexcept -> bool {
+  return m_motionActive;
 }
 
 PaintContext::PaintContext(DisplayListBuilder &builder,

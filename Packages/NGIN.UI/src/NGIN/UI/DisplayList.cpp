@@ -1,5 +1,7 @@
 #include <NGIN/UI/DisplayList.hpp>
 
+#include "MotionInternal.hpp"
+
 #include "ScrollBarGeometry.hpp"
 
 #include <algorithm>
@@ -24,9 +26,17 @@ auto DisplayListBuilder::PopClip() noexcept -> UIResult<void> {
 }
 
 void DisplayListBuilder::PushTranslation(const F32 x, const F32 y) {
-  m_commands.emplace_back(PushTransform{
-      .translateX = x,
-      .translateY = y,
+  PushTransform(x, y);
+}
+
+void DisplayListBuilder::PushTransform(const F32 translateX,
+                                       const F32 translateY,
+                                       const F32 scaleX, const F32 scaleY) {
+  m_commands.emplace_back(NGIN::UI::PushTransform{
+      .translateX = translateX,
+      .translateY = translateY,
+      .scaleX = scaleX,
+      .scaleY = scaleY,
   });
   ++m_transformDepth;
 }
@@ -138,6 +148,7 @@ namespace {
 
 [[nodiscard]] auto CustomContextFor(const RuntimeNode &node)
     -> CustomElementContext {
+  const auto motion = Detail::SnapshotFor(node);
   return CustomElementContext{
       *node.custom.state,
       node.id,
@@ -150,6 +161,9 @@ namespace {
           .enabled = node.properties.interaction.enabled,
       },
       node.custom.scaleFactor,
+      Detail::TransformFor(node),
+      motion.value,
+      motion.active,
   };
 }
 
@@ -249,6 +263,16 @@ void PaintBorder(DisplayListBuilder &builder, const Rect bounds,
   if (!style.background && node.properties.paintsBackground) {
     style.background = node.properties.background;
   }
+  const auto motion = Detail::SnapshotFor(node);
+  if (node.motion && motion.hasBackground) {
+    style.background = motion.background;
+  }
+  if (node.motion && motion.hasForeground) {
+    style.foreground = motion.foreground;
+  }
+  if (node.motion && motion.hasBorderColor) {
+    style.borderColor = motion.borderColor;
+  }
 
   const auto bounds = node.arrangedBounds;
   const auto hasBounds = bounds.width > 0.0F && bounds.height > 0.0F;
@@ -257,8 +281,16 @@ void PaintBorder(DisplayListBuilder &builder, const Rect bounds,
   }
 
   const auto &focus = node.properties.visual.focus;
-  if (HasVisualState(state, VisualStateFlags::Focused) && focus.enabled &&
-      focus.color && focus.thickness > 0.0F) {
+  const auto focusOpacity = node.motion
+                                ? motion.focusOpacity
+                                : (HasVisualState(state,
+                                                  VisualStateFlags::Focused)
+                                       ? 1.0F
+                                       : 0.0F);
+  if (focusOpacity > 0.0F && focus.enabled && focus.color &&
+      focus.thickness > 0.0F) {
+    auto focusColor = *focus.color;
+    focusColor.alpha *= focusOpacity;
     const auto offset = std::max(0.0F, focus.offset);
     const Rect focusBounds{
         bounds.x - offset,
@@ -268,9 +300,9 @@ void PaintBorder(DisplayListBuilder &builder, const Rect bounds,
     };
     if (HasRadius(focus.cornerRadius)) {
       builder.StrokeRounded(focusBounds, focus.cornerRadius, focus.thickness,
-                            *focus.color);
+                            focusColor);
     } else {
-      builder.Stroke(focusBounds, focus.thickness, *focus.color);
+      builder.Stroke(focusBounds, focus.thickness, focusColor);
     }
   }
 
@@ -293,6 +325,19 @@ void PaintNode(const RuntimeTree &tree, const ElementHandle handle,
       node->properties.visibility != ElementVisibility::Visible ||
       (node->type == ElementType::Popup && handle != popupRoot)) {
     return;
+  }
+  const auto motion = Detail::SnapshotFor(*node);
+  const auto transform = Detail::TransformFor(*node);
+  const auto hasTransform = node->motion &&
+                            (transform.translation != Point{} ||
+                             transform.scale != Point{1.0F, 1.0F});
+  const auto hasOpacity = node->motion && motion.opacity < 0.9999F;
+  if (hasTransform) {
+    builder.PushTransform(transform.translation.x, transform.translation.y,
+                          transform.scale.x, transform.scale.y);
+  }
+  if (hasOpacity) {
+    builder.BeginOpacity(motion.opacity);
   }
   const auto visual = PaintVisual(*node, builder);
   const auto paintsText = (node->type == ElementType::Text ||
@@ -401,6 +446,12 @@ void PaintNode(const RuntimeTree &tree, const ElementHandle handle,
           CornerRadius::Uniform(Dp{bars.verticalThumb.width * 0.5F}),
           thumbColor);
     }
+  }
+  if (hasOpacity) {
+    static_cast<void>(builder.EndOpacity());
+  }
+  if (hasTransform) {
+    static_cast<void>(builder.PopTransform());
   }
 }
 

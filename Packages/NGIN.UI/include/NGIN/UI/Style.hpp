@@ -1,6 +1,7 @@
 #pragma once
 
 #include <NGIN/Primitives.hpp>
+#include <NGIN/UI/Animation.hpp>
 #include <NGIN/UI/Geometry.hpp>
 
 #include <optional>
@@ -93,6 +94,7 @@ struct VisualProperties final {
   VisualStateStyles states{};
   FocusVisual focus{};
   VisualStateFlags state{VisualStateFlags::None};
+  AnimationSpec transition{.duration = std::chrono::milliseconds{0}};
 };
 
 inline void ApplyVisualStylePatch(VisualStyle &style,
