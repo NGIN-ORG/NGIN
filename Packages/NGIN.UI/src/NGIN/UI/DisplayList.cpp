@@ -361,7 +361,9 @@ void PaintNode(const RuntimeTree &tree, const ElementHandle handle,
   }
   PaintCustom(*node, builder);
   const auto clipsChildren = node->type == ElementType::ScrollView ||
-                             node->type == ElementType::ListView;
+                             node->type == ElementType::ListView ||
+                             (node->type == ElementType::Canvas &&
+                              node->properties.canvas.clipToBounds);
   if (clipsChildren) {
     builder.PushClip(node->arrangedBounds);
   }

@@ -34,6 +34,26 @@ struct PopupState final {
   Rect contentBounds{};
 };
 
+/// @brief Intrinsic and resolved tracks retained for one Grid node.
+struct GridLayoutState final {
+  std::vector<F32> columnIntrinsic{};
+  std::vector<F32> rowIntrinsic{};
+  std::vector<F32> resolvedColumns{};
+  std::vector<F32> resolvedRows{};
+};
+
+/// @brief One retained WrapPanel line and its measured extents.
+struct WrapLineLayoutState final {
+  std::vector<ElementHandle> children{};
+  F32 mainExtent{0.0F};
+  F32 crossExtent{0.0F};
+};
+
+/// @brief Lines retained for the latest WrapPanel layout.
+struct WrapPanelLayoutState final {
+  std::vector<WrapLineLayoutState> lines{};
+};
+
 /// @brief Editing buffer and caret state retained for a text field.
 struct TextFieldRuntimeState final {
   std::shared_ptr<TextEditingBuffer> editing{};
@@ -73,7 +93,8 @@ struct CustomElementRuntimeState final {
   F32 scaleFactor{1.0F};
 };
 
-/// @brief Reconciled element with identity, hierarchy, layout, and runtime state.
+/// @brief Reconciled element with identity, hierarchy, layout, and runtime
+/// state.
 struct RuntimeNode final {
   ElementHandle handle{};
   ElementId id{};
@@ -87,6 +108,8 @@ struct RuntimeNode final {
   InteractionState interaction{};
   ScrollState scroll{};
   PopupState popup{};
+  GridLayoutState grid{};
+  WrapPanelLayoutState wrapPanel{};
   TextFieldRuntimeState textField{};
   TextRuntimeState text{};
   ImageRuntimeState image{};

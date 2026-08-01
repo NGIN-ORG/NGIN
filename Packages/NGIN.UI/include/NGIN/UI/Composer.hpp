@@ -102,6 +102,29 @@ public:
   }
 
   template <typename ComposeChildren>
+  void Grid(ComposeChildren &&composeChildren,
+            const NodeProperties &properties = {}, std::string_view key = {}) {
+    Element(ElementType::Grid, properties,
+            std::forward<ComposeChildren>(composeChildren), key);
+  }
+
+  template <typename ComposeChildren>
+  void WrapPanel(ComposeChildren &&composeChildren,
+                 const NodeProperties &properties = {},
+                 std::string_view key = {}) {
+    Element(ElementType::WrapPanel, properties,
+            std::forward<ComposeChildren>(composeChildren), key);
+  }
+
+  template <typename ComposeChildren>
+  void Canvas(ComposeChildren &&composeChildren,
+              const NodeProperties &properties = {},
+              std::string_view key = {}) {
+    Element(ElementType::Canvas, properties,
+            std::forward<ComposeChildren>(composeChildren), key);
+  }
+
+  template <typename ComposeChildren>
   void Border(ComposeChildren &&composeChildren,
               const NodeProperties &properties = {},
               std::string_view key = {}) {

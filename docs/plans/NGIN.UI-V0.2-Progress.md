@@ -152,3 +152,37 @@ Verification:
 
 The manual Narrator checklist is ready for an interactive release pass. It was
 not executed by the automated, non-interactive verification environment.
+
+## Milestone 20 — Desktop Layout Primitives
+
+Status: Complete
+Completed: 2026-08-01
+
+Delivered:
+
+- added public `Grid` composition with fixed, automatic, and weighted tracks,
+  track bounds, row/column placement, and spans;
+- made Grid resolve intrinsic content consistently under finite and unbounded
+  constraints, including use inside scrolling content;
+- added public horizontal and vertical `WrapPanel` composition with item gaps,
+  line gaps, and start, center, end, or space-between line alignment;
+- added bounded `Canvas` composition with child offsets, optional desired-size
+  contribution, and default clipping;
+- retained resolved Grid tracks and WrapPanel lines in runtime layout state and
+  exposed them through per-frame layout diagnostics;
+- changed the Gallery shell to a two-column Grid and reduced its supported
+  minimum window size to 640 by 480;
+- expanded the Layout page with a settings form, responsive toolbar, dashboard
+  tile layout, Canvas diagram, and nested scrolling example;
+- added diagnostics and tests for spans, track bounds, finite/unbounded
+  measurement, nested scrolling, flex-sized tracks, collapsed content,
+  clipping, fractional DPI layouts, and keyed reconciliation.
+
+Verification:
+
+- `NGINUITests` layout primitive tests passed;
+- Gallery headless checks passed at both 1180 by 760 and 680 by 520, including
+  public primitive discovery, resolved diagnostics, and multi-line toolbar
+  wrapping;
+- standalone and hosted Gallery smoke checks passed;
+- public API documentation coverage passed.

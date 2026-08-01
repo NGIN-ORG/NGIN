@@ -148,13 +148,32 @@ auto main() -> int {
                "text-area page exposes editable text semantics")) {
       return 1;
     }
+    if (page == NGIN::UIGallery::Page::Layout &&
+        (!Check(FindByTypeAndKey(window->Tree(), ElementType::Grid,
+                                 "settings-grid")
+                    .IsValid(),
+                "layout page uses the public grid primitive") ||
+         !Check(FindByTypeAndKey(window->Tree(), ElementType::WrapPanel,
+                                 "responsive-toolbar")
+                    .IsValid(),
+                "layout page uses the public wrap-panel primitive") ||
+         !Check(FindByTypeAndKey(window->Tree(), ElementType::Canvas,
+                                 "diagram-canvas")
+                    .IsValid(),
+                "layout page uses the public canvas primitive") ||
+         !Check(window->LastLayoutStats().grids.size() >= 3,
+                "layout diagnostics expose resolved grid tracks") ||
+         !Check(!window->LastLayoutStats().wrapPanels.empty(),
+                "layout diagnostics expose wrapped lines"))) {
+      return 1;
+    }
     if (page == NGIN::UIGallery::Page::Typography) {
       const auto fontDiagnostics = model.FontDiagnostics();
-      const auto usedFallback = std::any_of(
-          fontDiagnostics.faces.begin(), fontDiagnostics.faces.end(),
-          [](const auto &face) {
-            return face.fallback && face.resolvedCodePointCount > 0;
-          });
+      const auto usedFallback =
+          std::any_of(fontDiagnostics.faces.begin(),
+                      fontDiagnostics.faces.end(), [](const auto &face) {
+                        return face.fallback && face.resolvedCodePointCount > 0;
+                      });
       if (!Check(fontDiagnostics.missingCodePointCount == 0,
                  "typography samples have complete packaged coverage") ||
           !Check(fontDiagnostics.fallbackCodePointCount > 0,
@@ -186,6 +205,32 @@ auto main() -> int {
     return 1;
   }
 
+  model.SelectPage(NGIN::UIGallery::Page::Layout);
+  platformObserver->InjectEvent(
+      WindowResized{window->PlatformHandle(), PixelSize{680, 520}});
+  if (!application->PumpOnce()) {
+    return 1;
+  }
+  const auto viewport = FindByTypeAndKey(
+      window->Tree(), ElementType::ScrollView, "catalogue-viewport");
+  const auto *viewportNode = window->Tree().Get(viewport);
+  const auto wrappedAtNarrowSize =
+      std::any_of(window->LastLayoutStats().wrapPanels.begin(),
+                  window->LastLayoutStats().wrapPanels.end(),
+                  [](const auto &panel) { return panel.lines.size() > 1; });
+  if (!Check(viewportNode != nullptr &&
+                 viewportNode->arrangedBounds.width >= 280.0F,
+             "gallery keeps a usable content area at its narrow size") ||
+      !Check(wrappedAtNarrowSize,
+             "toolbar wraps actions when the gallery becomes narrow")) {
+    return 1;
+  }
+  platformObserver->InjectEvent(
+      WindowResized{window->PlatformHandle(), PixelSize{1180, 760}});
+  if (!application->PumpOnce()) {
+    return 1;
+  }
+
   const auto wasLight = model.IsLightTheme();
   model.ToggleTheme();
   model.Activate();
@@ -202,9 +247,8 @@ auto main() -> int {
   if (!application->PumpOnce()) {
     return 1;
   }
-  const auto checkHandle =
-      window->Tree().FindBySemanticIdentifier(NGIN::Text::String{
-          "settings-check"});
+  const auto checkHandle = window->Tree().FindBySemanticIdentifier(
+      NGIN::Text::String{"settings-check"});
   const auto *checkNode = window->Tree().Get(checkHandle);
   if (!Check(checkNode != nullptr, "checkbox has a stable semantic identity")) {
     return 1;
@@ -239,9 +283,8 @@ auto main() -> int {
   }
 
   const auto beforeKeyboard = model.CheckBinding().Get();
-  const auto keyboardCheckHandle =
-      window->Tree().FindBySemanticIdentifier(NGIN::Text::String{
-          "settings-check"});
+  const auto keyboardCheckHandle = window->Tree().FindBySemanticIdentifier(
+      NGIN::Text::String{"settings-check"});
   if (!Check(window->FocusedElement() == keyboardCheckHandle ||
                  window->Focus(keyboardCheckHandle),
              "keyboard target accepts focus")) {
@@ -271,8 +314,7 @@ auto main() -> int {
              "editable field accepts focus")) {
     return 1;
   }
-  if (!platformObserver
-           ->SetClipboardText(NGIN::Text::String{" clipboard"})
+  if (!platformObserver->SetClipboardText(NGIN::Text::String{" clipboard"})
            .HasValue()) {
     return 1;
   }

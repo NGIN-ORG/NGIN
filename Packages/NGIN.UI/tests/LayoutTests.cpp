@@ -328,6 +328,205 @@ TEST_CASE(
   REQUIRE(packet.batches.front().scissor == PixelRect{0, 0, 100, 50});
 }
 
+TEST_CASE("grid resolves fixed automatic and weighted tracks with spans") {
+  using namespace NGIN::UI;
+
+  NodeProperties gridProperties{};
+  gridProperties.grid.columns = {GridTrack::Fixed(50.0F), GridTrack::Auto(),
+                                 GridTrack::Weighted(1.0F)};
+  gridProperties.grid.rows = {GridTrack::Auto(), GridTrack::Weighted(1.0F)};
+  gridProperties.grid.columnGap = 5.0F;
+  gridProperties.grid.rowGap = 5.0F;
+  ElementDeclaration grid{ElementType::Grid, "grid", gridProperties};
+
+  auto label = LeafProperties(30.0F, 20.0F);
+  label.gridPlacement = GridPlacement{.row = 0, .column = 1};
+  grid.children.emplace_back(ElementType::Rectangle, "label", label);
+  auto field = LeafProperties(10.0F, 10.0F, HorizontalAlignment::Stretch,
+                              VerticalAlignment::Stretch);
+  field.gridPlacement = GridPlacement{.row = 1, .column = 1, .columnSpan = 2};
+  grid.children.emplace_back(ElementType::Rectangle, "field", field);
+
+  RuntimeTree tree;
+  Reconciler reconciler{tree};
+  const std::array declarations{grid};
+  static_cast<void>(reconciler.Reconcile(declarations));
+  LayoutEngine layout{tree};
+  const auto stats =
+      layout.Perform(SizeConstraints{.minimum = Size{200.0F, 100.0F},
+                                     .maximum = Size{200.0F, 100.0F}},
+                     Rect{0.0F, 0.0F, 200.0F, 100.0F});
+
+  const auto *gridNode = Child(tree, tree.Root(), 0);
+  REQUIRE(stats.grids.size() == 1);
+  REQUIRE(stats.grids.front().columns ==
+          std::vector<NGIN::F32>{50.0F, 30.0F, 110.0F});
+  REQUIRE(stats.grids.front().rows == std::vector<NGIN::F32>{20.0F, 75.0F});
+  CHECK(Child(tree, gridNode->handle, 0)->arrangedBounds ==
+        Rect{55.0F, 0.0F, 30.0F, 20.0F});
+  CHECK(Child(tree, gridNode->handle, 1)->arrangedBounds ==
+        Rect{55.0F, 25.0F, 145.0F, 75.0F});
+}
+
+TEST_CASE("grid intrinsic sizing is deterministic inside scrolling content") {
+  using namespace NGIN::UI;
+
+  NodeProperties scrollProperties{};
+  scrollProperties.layout.preferredSize = Size{160.0F, 50.0F};
+  scrollProperties.layout.maximumSize = Size{160.0F, 50.0F};
+  ElementDeclaration scroll{ElementType::ScrollView, "scroll",
+                            scrollProperties};
+
+  NodeProperties gridProperties{};
+  gridProperties.grid.columns = {GridTrack::Auto(20.0F, 80.0F),
+                                 GridTrack::Weighted(1.0F, 25.0F)};
+  gridProperties.grid.rows = {GridTrack::Auto()};
+  gridProperties.grid.columnGap = 4.0F;
+  ElementDeclaration grid{ElementType::Grid, "grid", gridProperties};
+  auto first = LeafProperties(120.0F, 24.0F);
+  first.gridPlacement = GridPlacement{.column = 0};
+  grid.children.emplace_back(ElementType::Rectangle, "first", first);
+  auto second = LeafProperties(35.0F, 24.0F);
+  second.gridPlacement = GridPlacement{.column = 1};
+  grid.children.emplace_back(ElementType::Rectangle, "second", second);
+  scroll.children.push_back(grid);
+
+  RuntimeTree tree;
+  Reconciler reconciler{tree};
+  const std::array declarations{scroll};
+  static_cast<void>(reconciler.Reconcile(declarations));
+  LayoutEngine layout{tree};
+  const auto *initialScroll = Child(tree, tree.Root(), 0);
+  const auto *initialGrid = Child(tree, initialScroll->handle, 0);
+  const auto intrinsic = layout.Measure(
+      initialGrid->handle,
+      SizeConstraints{.maximum =
+                          Size{std::numeric_limits<NGIN::F32>::infinity(),
+                               std::numeric_limits<NGIN::F32>::infinity()}});
+  CHECK(intrinsic == Size{119.0F, 24.0F});
+  static_cast<void>(
+      layout.Perform(SizeConstraints{.minimum = Size{160.0F, 50.0F},
+                                     .maximum = Size{160.0F, 50.0F}},
+                     Rect{0.0F, 0.0F, 160.0F, 50.0F}));
+
+  const auto *scrollNode = Child(tree, tree.Root(), 0);
+  const auto *gridNode = Child(tree, scrollNode->handle, 0);
+  CHECK(gridNode->measuredSize == Size{160.0F, 24.0F});
+  CHECK(scrollNode->scroll.contentSize == Size{160.0F, 24.0F});
+  CHECK(gridNode->grid.resolvedColumns == std::vector<NGIN::F32>{80.0F, 76.0F});
+}
+
+TEST_CASE("wrap panel forms stable lines and skips collapsed items") {
+  using namespace NGIN::UI;
+
+  NodeProperties wrapProperties{};
+  wrapProperties.wrapPanel.itemGap = 4.0F;
+  wrapProperties.wrapPanel.lineGap = 6.0F;
+  wrapProperties.wrapPanel.lineAlignment = WrapLineAlignment::Center;
+  ElementDeclaration wrap{ElementType::WrapPanel, "wrap", wrapProperties};
+  wrap.children.emplace_back(ElementType::Rectangle, "one",
+                             LeafProperties(40.0F, 10.0F));
+  wrap.children.emplace_back(ElementType::Rectangle, "two",
+                             LeafProperties(40.0F, 12.0F));
+  auto collapsed = LeafProperties(90.0F, 90.0F);
+  collapsed.visibility = ElementVisibility::Collapsed;
+  wrap.children.emplace_back(ElementType::Rectangle, "collapsed", collapsed);
+  wrap.children.emplace_back(ElementType::Rectangle, "three",
+                             LeafProperties(40.0F, 8.0F));
+
+  RuntimeTree tree;
+  Reconciler reconciler{tree};
+  const std::array declarations{wrap};
+  static_cast<void>(reconciler.Reconcile(declarations));
+  LayoutEngine layout{tree};
+  const auto stats =
+      layout.Perform(SizeConstraints{.minimum = Size{100.0F, 40.0F},
+                                     .maximum = Size{100.0F, 40.0F}},
+                     Rect{0.0F, 0.0F, 100.0F, 40.0F}, 1.5F);
+
+  const auto *wrapNode = Child(tree, tree.Root(), 0);
+  REQUIRE(stats.wrapPanels.size() == 1);
+  REQUIRE(stats.wrapPanels.front().lines.size() == 2);
+  CHECK(stats.wrapPanels.front().lines[0].itemCount == 2);
+  CHECK(stats.wrapPanels.front().lines[1].itemCount == 1);
+  CHECK(Child(tree, wrapNode->handle, 0)->arrangedBounds ==
+        Rect{8.0F, 0.0F, 40.0F, 10.0F});
+  CHECK(Child(tree, wrapNode->handle, 1)->arrangedBounds ==
+        Rect{52.0F, 0.0F, 40.0F, 12.0F});
+  CHECK(Child(tree, wrapNode->handle, 2)->arrangedBounds == Rect{});
+  CHECK(Child(tree, wrapNode->handle, 3)->arrangedBounds ==
+        Rect{30.0F, 18.0F, 40.0F, 8.0F});
+}
+
+TEST_CASE("canvas positions bounded content and clips overflowing children") {
+  using namespace NGIN::UI;
+
+  NodeProperties canvasProperties{};
+  canvasProperties.layout.preferredSize = Size{80.5F, 40.5F};
+  canvasProperties.layout.horizontalAlignment = HorizontalAlignment::Start;
+  canvasProperties.layout.verticalAlignment = VerticalAlignment::Start;
+  canvasProperties.canvas.clipToBounds = true;
+  ElementDeclaration canvas{ElementType::Canvas, "canvas", canvasProperties};
+  auto box = LeafProperties(30.0F, 20.0F);
+  box.canvasPlacement.offset = Point{65.25F, 25.25F};
+  box.canvasPlacement.contributesToDesiredSize = false;
+  box.paintsBackground = true;
+  canvas.children.emplace_back(ElementType::Rectangle, "box", box);
+
+  RuntimeTree tree;
+  Reconciler reconciler{tree};
+  const std::array declarations{canvas};
+  static_cast<void>(reconciler.Reconcile(declarations));
+  LayoutEngine layout{tree};
+  static_cast<void>(
+      layout.Perform(SizeConstraints{.minimum = Size{120.0F, 80.0F},
+                                     .maximum = Size{120.0F, 80.0F}},
+                     Rect{0.0F, 0.0F, 120.0F, 80.0F}, 1.25F));
+
+  const auto *canvasNode = Child(tree, tree.Root(), 0);
+  CHECK(canvasNode->arrangedBounds == Rect{0.0F, 0.0F, 80.5F, 40.5F});
+  CHECK(Child(tree, canvasNode->handle, 0)->arrangedBounds ==
+        Rect{65.25F, 25.25F, 30.0F, 20.0F});
+  const auto displayList = BuildDisplayList(tree);
+  REQUIRE(displayList.size() >= 3);
+  CHECK(std::holds_alternative<PushClipRect>(displayList[0]));
+  CHECK(std::holds_alternative<FillRect>(displayList[1]));
+  CHECK(std::holds_alternative<PopClip>(displayList[2]));
+}
+
+TEST_CASE("grid keeps keyed children across track and order changes") {
+  using namespace NGIN::UI;
+
+  NodeProperties properties{};
+  properties.grid.columns = {GridTrack::Weighted(), GridTrack::Weighted()};
+  ElementDeclaration first{ElementType::Grid, "grid", properties};
+  auto left = LeafProperties(20.0F, 10.0F);
+  left.gridPlacement.column = 0;
+  auto right = LeafProperties(20.0F, 10.0F);
+  right.gridPlacement.column = 1;
+  first.children.emplace_back(ElementType::Rectangle, "left", left);
+  first.children.emplace_back(ElementType::Rectangle, "right", right);
+
+  RuntimeTree tree;
+  Reconciler reconciler{tree};
+  const std::array initial{first};
+  static_cast<void>(reconciler.Reconcile(initial));
+  const auto *firstGrid = Child(tree, tree.Root(), 0);
+  const auto leftHandle = firstGrid->children[0];
+  const auto rightHandle = firstGrid->children[1];
+
+  properties.grid.columns = {GridTrack::Fixed(30.0F), GridTrack::Weighted()};
+  ElementDeclaration changed{ElementType::Grid, "grid", properties};
+  changed.children.emplace_back(ElementType::Rectangle, "right", right);
+  changed.children.emplace_back(ElementType::Rectangle, "left", left);
+  const std::array updated{changed};
+  static_cast<void>(reconciler.Reconcile(updated));
+
+  const auto *changedGrid = Child(tree, tree.Root(), 0);
+  CHECK(changedGrid->children[0] == rightHandle);
+  CHECK(changedGrid->children[1] == leftHandle);
+}
+
 TEST_CASE(
     "popup placement flips within the viewport and paints above content") {
   using namespace NGIN::UI;

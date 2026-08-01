@@ -22,6 +22,7 @@ of the runnable paths, then use the topic guides as needed.
   inspector tooling, and UI-thread rules](ngin-ui-input-accessibility-tooling.md)
 - [Windows UI Automation and the Narrator checklist](ngin-ui-windows-accessibility.md)
 - [Styling and visual states](ngin-ui-styling.md)
+- [Desktop layout with Grid, WrapPanel, and Canvas](ngin-ui-desktop-layout.md)
 
 ## Controls and content
 

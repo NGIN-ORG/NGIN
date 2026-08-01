@@ -12,6 +12,8 @@ and use this reference for exact signatures, ownership, and result types.
 - `NGIN::UI::CreateApplication()` and `NGIN::UI::Application`
 - `NGIN::UI::Window`
 - `NGIN::UI::Composer`
+- `NGIN::UI::GridTrack`, `NGIN::UI::WrapPanelProperties`, and
+  `NGIN::UI::CanvasPlacement`
 - `NGIN::UI::NodeProperties`
 - `NGIN::UI::State<T>` and `NGIN::UI::Binding<T>`
 - `NGIN::UI::NativeTextSystem`
@@ -29,7 +31,10 @@ and use this reference for exact signatures, ownership, and result types.
 
 - `Controls.hpp`: checkbox, radio, switch, slider, progress, labels, tooltips
 - `Collections.hpp`: selection models, lists, combo boxes, tabs, menus
-- `Composer.hpp`: primitive, text, text-area, image, popup, and custom elements
+- `Composer.hpp`: primitive, Grid, WrapPanel, Canvas, text, text-area, image,
+  popup, and custom elements
+- `LayoutPrimitives.hpp`: grid tracks and spans, wrapping rules, and absolute
+  canvas placement
 - `CustomElement.hpp`: custom measurement, painting, input, semantics, state
 
 ## Integration contracts

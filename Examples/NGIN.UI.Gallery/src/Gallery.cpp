@@ -8,6 +8,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace NGIN::UIGallery {
 namespace {
@@ -16,9 +17,9 @@ using NGIN::Text::String;
 using namespace NGIN::UI;
 
 constexpr std::array<std::string_view, PageCount> PageNames{
-    "Overview", "Layout",    "Typography",  "Text Area",
-    "Images",   "Inputs",    "Collections", "Overlays",
-    "Windows",  "Themes",    "Accessibility", "Diagnostics",
+    "Overview", "Layout", "Typography",    "Text Area",
+    "Images",   "Inputs", "Collections",   "Overlays",
+    "Windows",  "Themes", "Accessibility", "Diagnostics",
 };
 
 [[nodiscard]] auto Number(const std::uint64_t value) -> String {
@@ -42,13 +43,27 @@ constexpr std::array<std::string_view, PageCount> PageNames{
   return result;
 }
 
-[[nodiscard]] auto GlyphSizeLine(
-    const GlyphAtlasSizeDiagnostics &diagnostics) -> String {
+[[nodiscard]] auto GlyphSizeLine(const GlyphAtlasSizeDiagnostics &diagnostics)
+    -> String {
   String result{"At "};
   result.Append(Number(diagnostics.pixelSize));
   result.Append(String{" px: "});
   result.Append(Number(diagnostics.entryCount));
   result.Append(String{" glyphs"});
+  return result;
+}
+
+[[nodiscard]] auto TrackLine(const char *label, const NGIN::UIntSize index,
+                             const std::vector<F32> &tracks) -> String {
+  String result{label};
+  result.Append(Number(index + 1));
+  result.Append(String{" tracks: "});
+  for (NGIN::UIntSize track = 0; track < tracks.size(); ++track) {
+    if (track != 0) {
+      result.Append(String{" / "});
+    }
+    result.Append(Number(static_cast<std::uint64_t>(tracks[track])));
+  }
   return result;
 }
 
@@ -221,11 +236,12 @@ void ComposeOverviewPage(Composer &composer, NativeTextSystem &text,
               ComposeText(composer, text, String{"Included features"}, 19.0F,
                           theme.colors.foreground, "features-title",
                           SemanticRole::Heading);
-              ComposeText(composer, text,
-                          String{"Desktop windows \xC2\xB7 Controls and layouts "
-                                 "\xC2\xB7 Unicode text"},
-                          theme.typography.body, theme.colors.mutedForeground,
-                          "features-value");
+              ComposeText(
+                  composer, text,
+                  String{"Desktop windows \xC2\xB7 Controls and layouts "
+                         "\xC2\xB7 Unicode text"},
+                  theme.typography.body, theme.colors.mutedForeground,
+                  "features-value");
               ComposeText(
                   composer, text,
                   String{"Keyboard, mouse, clipboard, themes, and custom "
@@ -254,12 +270,11 @@ void ComposeOverviewPage(Composer &composer, NativeTextSystem &text,
       "token-swatches");
 
   ComposeButton(
-      composer, text, theme, "Click me",
-      [&model] { model.Activate(); }, "overview-activate", 250.0F);
-  ComposeText(composer, text,
-              LabeledNumber("Clicks: ", model.ActivationCount()),
-              theme.typography.body, theme.colors.mutedForeground,
-              "activation-count");
+      composer, text, theme, "Click me", [&model] { model.Activate(); },
+      "overview-activate", 250.0F);
+  ComposeText(
+      composer, text, LabeledNumber("Clicks: ", model.ActivationCount()),
+      theme.typography.body, theme.colors.mutedForeground, "activation-count");
 
   ComposeCard(
       composer, theme,
@@ -287,8 +302,7 @@ void ComposeLayoutPage(Composer &composer, NativeTextSystem &text,
                        const Theme &theme) {
   ComposePageHeading(
       composer, text, theme, "Layout",
-      "Rows, columns, layers, spacing, borders, alignment, flexible sizing, "
-      "and scrolling.");
+      "Build forms, toolbars, dashboards, and free-positioned diagrams.");
 
   ComposeCard(
       composer, theme,
@@ -297,33 +311,206 @@ void ComposeLayoutPage(Composer &composer, NativeTextSystem &text,
         column.layout.gap = theme.spacing.regular;
         composer.Column(
             [&] {
-              ComposeText(composer, text, String{"Flexible row"}, 18.0F,
+              ComposeText(composer, text, String{"Settings form"}, 18.0F,
                           theme.colors.foreground, "row-title",
                           SemanticRole::Heading);
-              NodeProperties row{};
-              row.layout.gap = theme.spacing.regular;
-              row.layout.preferredSize.width = 680.0F;
-              composer.Element(
-                  ElementType::Row, row,
+              NodeProperties form{};
+              form.layout.preferredSize.width = 680.0F;
+              form.grid.columns = {GridTrack::Auto(120.0F, 180.0F),
+                                   GridTrack::Weighted(1.0F)};
+              form.grid.rows = {GridTrack::Auto(), GridTrack::Auto(),
+                                GridTrack::Auto()};
+              form.grid.columnGap = theme.spacing.spacious;
+              form.grid.rowGap = theme.spacing.regular;
+              composer.Grid(
                   [&] {
-                    ComposeSwatch(composer, theme, theme.colors.accent, "Fixed",
-                                  "fixed");
-                    NodeProperties flexible{};
-                    flexible.layout.preferredSize = Size{180.0F, 74.0F};
-                    flexible.layout.flexGrow = 1.0F;
-                    flexible.layout.flexShrink = 1.0F;
-                    flexible.visual = MakePanelVisual(theme);
-                    flexible.visual.base.background =
-                        theme.colors.raisedSurface;
-                    composer.Border([] {}, flexible, "flexible");
-                    ComposeSwatch(composer, theme, theme.colors.error, "Fixed",
-                                  "fixed-end");
+                    const auto composeRow = [&](const NGIN::UIntSize row,
+                                                const char *label,
+                                                const char *value,
+                                                const std::string_view key) {
+                      NodeProperties labelCell{};
+                      labelCell.gridPlacement =
+                          GridPlacement{.row = row, .column = 0};
+                      composer.Element(
+                          ElementType::Column, labelCell,
+                          [&] {
+                            ComposeText(composer, text, String{label},
+                                        theme.typography.body,
+                                        theme.colors.mutedForeground, "text");
+                          },
+                          std::string{key} + "-label");
+
+                      NodeProperties valueCell{};
+                      valueCell.gridPlacement =
+                          GridPlacement{.row = row, .column = 1};
+                      valueCell.layout.padding =
+                          Thickness{12.0F, 9.0F, 12.0F, 9.0F};
+                      valueCell.layout.horizontalAlignment =
+                          HorizontalAlignment::Stretch;
+                      valueCell.visual = MakePanelVisual(theme);
+                      valueCell.visual.base.background =
+                          theme.colors.sunkenSurface;
+                      composer.Border(
+                          [&] {
+                            ComposeText(composer, text, String{value},
+                                        theme.typography.body,
+                                        theme.colors.foreground, "text");
+                          },
+                          valueCell, std::string{key} + "-value");
+                    };
+                    composeRow(0, "Project", "Desktop app", "project");
+                    composeRow(1, "Theme", "System default", "theme");
+                    composeRow(2, "Updates", "Install automatically",
+                               "updates");
                   },
-                  "flex-row");
+                  form, "settings-grid");
             },
             "layout-column");
       },
-      "row-card");
+      "grid-card");
+
+  ComposeCard(
+      composer, theme,
+      [&] {
+        NodeProperties column{};
+        column.layout.gap = theme.spacing.regular;
+        composer.Column(
+            [&] {
+              ComposeText(composer, text, String{"Responsive toolbar"}, 18.0F,
+                          theme.colors.foreground, "toolbar-title",
+                          SemanticRole::Heading);
+              ComposeText(composer, text,
+                          String{"Resize the window and the actions wrap."},
+                          theme.typography.body, theme.colors.mutedForeground,
+                          "toolbar-help");
+              NodeProperties toolbar{};
+              toolbar.layout.preferredSize.width = 680.0F;
+              toolbar.wrapPanel.itemGap = theme.spacing.regular;
+              toolbar.wrapPanel.lineGap = theme.spacing.regular;
+              toolbar.wrapPanel.lineAlignment = WrapLineAlignment::Start;
+              composer.WrapPanel(
+                  [&] {
+                    ComposeButton(
+                        composer, text, theme, "New", [] {}, "new", 112.0F);
+                    ComposeButton(
+                        composer, text, theme, "Open", [] {}, "open", 112.0F);
+                    ComposeButton(
+                        composer, text, theme, "Save", [] {}, "save", 112.0F);
+                    ComposeButton(
+                        composer, text, theme, "Export", [] {}, "export",
+                        112.0F);
+                    ComposeButton(
+                        composer, text, theme, "Share", [] {}, "share", 112.0F);
+                  },
+                  toolbar, "responsive-toolbar");
+            },
+            "toolbar-column");
+      },
+      "wrap-card");
+
+  ComposeCard(
+      composer, theme,
+      [&] {
+        NodeProperties column{};
+        column.layout.gap = theme.spacing.regular;
+        composer.Column(
+            [&] {
+              ComposeText(composer, text, String{"Dashboard tiles"}, 18.0F,
+                          theme.colors.foreground, "dashboard-title",
+                          SemanticRole::Heading);
+              NodeProperties dashboard{};
+              dashboard.layout.preferredSize.width = 680.0F;
+              dashboard.grid.columns = {GridTrack::Weighted(),
+                                        GridTrack::Weighted(),
+                                        GridTrack::Weighted()};
+              dashboard.grid.rows = {GridTrack::Fixed(82.0F),
+                                     GridTrack::Fixed(82.0F)};
+              dashboard.grid.columnGap = theme.spacing.regular;
+              dashboard.grid.rowGap = theme.spacing.regular;
+              composer.Grid(
+                  [&] {
+                    const auto composeTile =
+                        [&](GridPlacement placement, const char *label,
+                            const Color color, const std::string_view key) {
+                          NodeProperties tile{};
+                          tile.gridPlacement = placement;
+                          tile.layout.padding =
+                              Thickness::Uniform(Dp{theme.spacing.regular});
+                          tile.layout.horizontalAlignment =
+                              HorizontalAlignment::Stretch;
+                          tile.layout.verticalAlignment =
+                              VerticalAlignment::Stretch;
+                          tile.visual = MakePanelVisual(theme);
+                          tile.visual.base.background = color;
+                          composer.Border(
+                              [&] {
+                                ComposeText(composer, text, String{label},
+                                            theme.typography.body,
+                                            theme.colors.foreground, "label");
+                              },
+                              tile, key);
+                        };
+                    composeTile(
+                        GridPlacement{.row = 0, .column = 0, .columnSpan = 2},
+                        "Activity", theme.colors.raisedSurface, "activity");
+                    composeTile(GridPlacement{.row = 0, .column = 2}, "Status",
+                                theme.colors.selection, "status");
+                    composeTile(GridPlacement{.row = 1, .column = 0}, "Files",
+                                theme.colors.sunkenSurface, "files");
+                    composeTile(
+                        GridPlacement{.row = 1, .column = 1, .columnSpan = 2},
+                        "Recent work", theme.colors.raisedSurface, "recent");
+                  },
+                  dashboard, "dashboard-grid");
+            },
+            "dashboard-column");
+      },
+      "dashboard-card");
+
+  ComposeCard(
+      composer, theme,
+      [&] {
+        NodeProperties column{};
+        column.layout.gap = theme.spacing.regular;
+        composer.Column(
+            [&] {
+              ComposeText(composer, text, String{"Canvas diagram"}, 18.0F,
+                          theme.colors.foreground, "canvas-title",
+                          SemanticRole::Heading);
+              NodeProperties canvas{};
+              canvas.layout.preferredSize = Size{680.0F, 160.0F};
+              canvas.visual = MakePanelVisual(theme);
+              canvas.visual.base.background = theme.colors.sunkenSurface;
+              composer.Canvas(
+                  [&] {
+                    const auto composeNode = [&](Point offset,
+                                                 const char *label,
+                                                 const std::string_view key) {
+                      NodeProperties node{};
+                      node.canvasPlacement.offset = offset;
+                      node.canvasPlacement.contributesToDesiredSize = false;
+                      node.layout.preferredSize = Size{150.0F, 48.0F};
+                      node.layout.padding =
+                          Thickness::Uniform(Dp{theme.spacing.regular});
+                      node.visual = MakePanelVisual(theme);
+                      node.visual.base.background = theme.colors.raisedSurface;
+                      composer.Border(
+                          [&] {
+                            ComposeText(composer, text, String{label},
+                                        theme.typography.body,
+                                        theme.colors.foreground, "label");
+                          },
+                          node, key);
+                    };
+                    composeNode(Point{24.0F, 24.0F}, "Load data", "load");
+                    composeNode(Point{260.0F, 82.0F}, "Process", "process");
+                    composeNode(Point{496.0F, 24.0F}, "Show result", "result");
+                  },
+                  canvas, "diagram-canvas");
+            },
+            "canvas-column");
+      },
+      "canvas-card");
 
   ComposeCard(
       composer, theme,
@@ -343,11 +530,11 @@ void ComposeLayoutPage(Composer &composer, NativeTextSystem &text,
               composer.Column(
                   [&] {
                     for (std::uint32_t index = 1; index <= 12; ++index) {
-                      ComposeText(
-                          composer, text,
-                          LabeledNumber("Scrollable item ", index),
-                          theme.typography.body, theme.colors.foreground,
-                          std::to_string(index));
+                      ComposeText(composer, text,
+                                  LabeledNumber("Scrollable item ", index),
+                                  theme.typography.body,
+                                  theme.colors.foreground,
+                                  std::to_string(index));
                     }
                   },
                   "scroll-content");
@@ -390,14 +577,12 @@ void ComposeTypographyPage(Composer &composer, NativeTextSystem &text,
               ComposeText(composer, text,
                           String{"Combined letters: e\xCC\x81  A\xCC\x88"},
                           16.0F, theme.colors.foreground, "graphemes");
-              ComposeText(
-                  composer, text,
-                  String{"Symbols: \xE2\x9C\x93  \xE2\x98\x85"},
-                  18.0F, theme.colors.foreground, "symbols");
+              ComposeText(composer, text,
+                          String{"Symbols: \xE2\x9C\x93  \xE2\x98\x85"}, 18.0F,
+                          theme.colors.foreground, "symbols");
               ComposeText(composer, text,
                           String{"Color emoji: not included in version 0.2"},
-                          14.0F, theme.colors.mutedForeground,
-                          "emoji-policy");
+                          14.0F, theme.colors.mutedForeground, "emoji-policy");
               NodeProperties paragraph =
                   TextProperties(text, 16.0F, theme.colors.foreground);
               paragraph.layout.preferredSize.width = 650.0F;
@@ -406,16 +591,16 @@ void ComposeTypographyPage(Composer &composer, NativeTextSystem &text,
               paragraph.text.lineHeight = 24.0F;
               paragraph.text.alignment = TextAlignment::Start;
               composer.Text(
-                  String{"Long text wraps automatically. It also keeps manual "
-                         "line breaks and works with text from many languages."},
+                  String{
+                      "Long text wraps automatically. It also keeps manual "
+                      "line breaks and works with text from many languages."},
                   text, text, paragraph, "wrapped-paragraph");
 
               auto centered = paragraph;
               centered.text.alignment = TextAlignment::Center;
               centered.text.color = theme.colors.mutedForeground;
-              composer.Text(
-                  String{"Centered text\nworks on every line."},
-                  text, text, centered, "centered-paragraph");
+              composer.Text(String{"Centered text\nworks on every line."}, text,
+                            text, centered, "centered-paragraph");
             },
             "typography-column");
       },
@@ -474,9 +659,8 @@ void ComposeTextAreaPage(Composer &composer, NativeTextSystem &text,
 
 void ComposeImagesPage(Composer &composer, NativeTextSystem &text, Model &model,
                        const Theme &theme) {
-  ComposePageHeading(
-      composer, text, theme, "Images",
-      "Load PNG and JPEG files, then choose how they fit.");
+  ComposePageHeading(composer, text, theme, "Images",
+                     "Load PNG and JPEG files, then choose how they fit.");
   ComposeCard(
       composer, theme,
       [&] {
@@ -484,8 +668,8 @@ void ComposeImagesPage(Composer &composer, NativeTextSystem &text, Model &model,
         column.layout.gap = theme.spacing.spacious;
         composer.Column(
             [&] {
-              ComposeText(composer, text, String{"PNG file"},
-                          20.0F, theme.colors.foreground, "image-title",
+              ComposeText(composer, text, String{"PNG file"}, 20.0F,
+                          theme.colors.foreground, "image-title",
                           SemanticRole::Heading);
               ComposeText(
                   composer, text,
@@ -642,8 +826,7 @@ void ComposeInputsPage(Composer &composer, NativeTextSystem &text, Model &model,
         column.layout.gap = theme.spacing.regular;
         composer.Column(
             [&] {
-              ComposeText(composer, text,
-                          String{"Choices and switches"}, 18.0F,
+              ComposeText(composer, text, String{"Choices and switches"}, 18.0F,
                           theme.colors.foreground, "selection-title",
                           SemanticRole::Heading);
               ComposeControlRow(
@@ -654,8 +837,7 @@ void ComposeInputsPage(Composer &composer, NativeTextSystem &text, Model &model,
                   },
                   "checked-row");
               ComposeControlRow(
-                  composer, text, theme, "Checkbox — mixed",
-                  "settings-mixed",
+                  composer, text, theme, "Checkbox — mixed", "settings-mixed",
                   [&](const NodeProperties &control) {
                     CheckBox(composer, model.MixedCheckBinding(), normalControl,
                              control, "control");
@@ -759,8 +941,7 @@ void ComposeInputsPage(Composer &composer, NativeTextSystem &text, Model &model,
                           theme.colors.foreground, "range-title",
                           SemanticRole::Heading);
               ComposeControlRow(
-                  composer, text, theme, "Slider",
-                  "volume-slider",
+                  composer, text, theme, "Slider", "volume-slider",
                   [&](NodeProperties control) {
                     control.layout.preferredSize.width = 320.0F;
                     Slider(composer, model.SliderBinding(),
@@ -770,8 +951,7 @@ void ComposeInputsPage(Composer &composer, NativeTextSystem &text, Model &model,
                   },
                   "slider-row");
               ComposeControlRow(
-                  composer, text, theme, "Slider — error",
-                  "invalid-slider",
+                  composer, text, theme, "Slider — error", "invalid-slider",
                   [&](NodeProperties control) {
                     control.layout.preferredSize.width = 320.0F;
                     Slider(composer, model.SliderBinding(), {}, invalidControl,
@@ -788,8 +968,7 @@ void ComposeInputsPage(Composer &composer, NativeTextSystem &text, Model &model,
                   },
                   "disabled-slider-row");
               ComposeControlRow(
-                  composer, text, theme, "Progress bar",
-                  "progress-determinate",
+                  composer, text, theme, "Progress bar", "progress-determinate",
                   [&](NodeProperties control) {
                     control.layout.preferredSize.width = 320.0F;
                     ProgressBar(composer,
@@ -837,11 +1016,10 @@ void ComposeInputsPage(Composer &composer, NativeTextSystem &text, Model &model,
                                 normalControl, control, "control");
                   },
                   "progress-disabled-row");
-              ComposeText(
-                  composer, text,
-                  String{"Try Tab, Space, Enter, and the arrow keys."},
-                  theme.typography.caption, theme.colors.mutedForeground,
-                  "keyboard-help");
+              ComposeText(composer, text,
+                          String{"Try Tab, Space, Enter, and the arrow keys."},
+                          theme.typography.caption,
+                          theme.colors.mutedForeground, "keyboard-help");
             },
             "range-controls");
       },
@@ -854,8 +1032,8 @@ void ComposeInputsPage(Composer &composer, NativeTextSystem &text, Model &model,
                     theme.colors.foreground, "tooltip-title",
                     SemanticRole::Heading);
         ComposeButton(
-            composer, text, theme, "Hover for help", [] {},
-            "tooltip-target", 250.0F, true, false, model.HelpToolTip());
+            composer, text, theme, "Hover for help", [] {}, "tooltip-target",
+            250.0F, true, false, model.HelpToolTip());
         if (auto *toolTip = model.HelpToolTip(); toolTip != nullptr) {
           toolTip->Compose(
               composer,
@@ -914,9 +1092,8 @@ void ComposeInputsPage(Composer &composer, NativeTextSystem &text, Model &model,
 
 void ComposeCollectionsPage(Composer &composer, NativeTextSystem &text,
                             Model &model, const Theme &theme) {
-  ComposePageHeading(
-      composer, text, theme, "Collections",
-      "Lists, combo boxes, tabs, menus, and right-click menus.");
+  ComposePageHeading(composer, text, theme, "Collections",
+                     "Lists, combo boxes, tabs, menus, and right-click menus.");
 
   NodeProperties actions{};
   actions.layout.gap = theme.spacing.regular;
@@ -1045,15 +1222,13 @@ void ComposeCollectionsPage(Composer &composer, NativeTextSystem &text,
         composer.Element(
             ElementType::Column, navigationColumn,
             [&] {
-              ComposeText(composer, text,
-                          String{"Combo box, tabs, and menus"}, 20.0F,
-                          theme.colors.foreground, "navigation-title",
+              ComposeText(composer, text, String{"Combo box, tabs, and menus"},
+                          20.0F, theme.colors.foreground, "navigation-title",
                           SemanticRole::Heading);
-              ComposeText(
-                  composer, text,
-                  String{"Open each control and try its options."},
-                  theme.typography.body, theme.colors.mutedForeground,
-                  "navigation-help");
+              ComposeText(composer, text,
+                          String{"Open each control and try its options."},
+                          theme.typography.body, theme.colors.mutedForeground,
+                          "navigation-help");
 
               NodeProperties navigationRow{};
               navigationRow.layout.gap = theme.spacing.spacious;
@@ -1320,9 +1495,8 @@ void ComposeCollectionsPage(Composer &composer, NativeTextSystem &text,
                       MenuItem(
                           composer,
                           [&] {
-                            ComposeText(composer, text,
-                                        String{"Inspect item"}, 14.0F,
-                                        theme.colors.foreground,
+                            ComposeText(composer, text, String{"Inspect item"},
+                                        14.0F, theme.colors.foreground,
                                         "context-item-label");
                           },
                           [&model] {
@@ -1392,8 +1566,8 @@ void ComposeOverlaysPage(Composer &composer, NativeTextSystem &text,
 
 void ComposeWindowsPage(Composer &composer, NativeTextSystem &text,
                         Model &model, const Theme &theme) {
-  ComposePageHeading(
-      composer, text, theme, "Windows", "Open another window or a dialog.");
+  ComposePageHeading(composer, text, theme, "Windows",
+                     "Open another window or a dialog.");
   ComposeCard(
       composer, theme,
       [&] {
@@ -1432,8 +1606,8 @@ void ComposeWindowsPage(Composer &composer, NativeTextSystem &text,
 
 void ComposeResourcesPage(Composer &composer, NativeTextSystem &text,
                           Model &model, const Theme &theme) {
-  ComposePageHeading(
-      composer, text, theme, "Themes", "Switch between light and dark colors.");
+  ComposePageHeading(composer, text, theme, "Themes",
+                     "Switch between light and dark colors.");
   ComposeButton(
       composer, text, theme,
       model.IsLightTheme() ? "Switch to dark theme" : "Switch to light theme",
@@ -1453,21 +1627,18 @@ void ComposeResourcesPage(Composer &composer, NativeTextSystem &text,
               column.layout.gap = theme.spacing.regular;
               composer.Column(
                   [&] {
+                    ComposeText(composer, text, String{"Current settings"},
+                                19.0F, theme.colors.foreground,
+                                "resources-title", SemanticRole::Heading);
                     ComposeText(composer, text,
-                                String{"Current settings"}, 19.0F,
-                                theme.colors.foreground, "resources-title",
-                                SemanticRole::Heading);
-                    ComposeText(composer, text,
-                                String{model.IsLightTheme()
-                                           ? "Theme: Light"
-                                           : "Theme: Dark"},
+                                String{model.IsLightTheme() ? "Theme: Light"
+                                                            : "Theme: Dark"},
                                 theme.typography.body,
                                 theme.colors.mutedForeground, "theme-resource");
-                    ComposeText(composer, text,
-                                String{"Language: English (US)"},
-                                theme.typography.body,
-                                theme.colors.mutedForeground,
-                                "locale-resource");
+                    ComposeText(
+                        composer, text, String{"Language: English (US)"},
+                        theme.typography.body, theme.colors.mutedForeground,
+                        "locale-resource");
                     ComposeText(composer, text, String{"Reduced motion: Off"},
                                 theme.typography.body,
                                 theme.colors.mutedForeground,
@@ -1506,9 +1677,10 @@ void ComposeAccessibilityPage(Composer &composer, NativeTextSystem &text,
                           "provider-status");
               ComposeText(
                   composer, text,
-                  String{diagnostics.available
-                             ? "Narrator can read and operate this window."
-                             : "A native provider is not enabled on this system."},
+                  String{
+                      diagnostics.available
+                          ? "Narrator can read and operate this window."
+                          : "A native provider is not enabled on this system."},
                   theme.typography.caption, theme.colors.mutedForeground,
                   "provider-help");
             },
@@ -1527,11 +1699,10 @@ void ComposeAccessibilityPage(Composer &composer, NativeTextSystem &text,
               ComposeText(composer, text, String{"Controls to try"}, 18.0F,
                           theme.colors.foreground, "controls-title",
                           SemanticRole::Heading);
-              ComposeButton(composer, text, theme, "Announce a message",
-                            [&model] {
-                              model.AnnounceAccessibilityDemo();
-                            },
-                            "announce-button", 250.0F);
+              ComposeButton(
+                  composer, text, theme, "Announce a message",
+                  [&model] { model.AnnounceAccessibilityDemo(); },
+                  "announce-button", 250.0F);
               ComposeControlRow(
                   composer, text, theme, "Enable notifications",
                   "accessibility-check",
@@ -1553,9 +1724,8 @@ void ComposeAccessibilityPage(Composer &composer, NativeTextSystem &text,
                   [&](NodeProperties control) {
                     control.layout.preferredSize.width = 300.0F;
                     Slider(composer, model.SliderBinding(),
-                           SliderRange{.minimum = 0.0F,
-                                       .maximum = 1.0F,
-                                       .step = 0.05F},
+                           SliderRange{
+                               .minimum = 0.0F, .maximum = 1.0F, .step = 0.05F},
                            controls, control, "control");
                   },
                   "accessibility-slider-row");
@@ -1568,8 +1738,8 @@ void ComposeAccessibilityPage(Composer &composer, NativeTextSystem &text,
               live.semantics.role = SemanticRole::Text;
               live.semantics.label = model.AccessibilityAnnouncement();
               live.semantics.live = SemanticLiveSetting::Polite;
-              composer.Text(model.AccessibilityAnnouncement(), text, text,
-                            live, "accessibility-live-region");
+              composer.Text(model.AccessibilityAnnouncement(), text, text, live,
+                            "accessibility-live-region");
             },
             "accessibility-controls");
       },
@@ -1595,12 +1765,11 @@ void ComposeDiagnosticsPage(Composer &composer, NativeTextSystem &text,
                           LabeledNumber("Frames: ", diagnostics.frameCount),
                           theme.typography.body, theme.colors.foreground,
                           "frames");
-              ComposeText(
-                  composer, text,
-                  LabeledNumber("Screen updates: ",
-                                diagnostics.compositionCount),
-                  theme.typography.body, theme.colors.foreground,
-                  "compositions");
+              ComposeText(composer, text,
+                          LabeledNumber("Screen updates: ",
+                                        diagnostics.compositionCount),
+                          theme.typography.body, theme.colors.foreground,
+                          "compositions");
               ComposeText(composer, text,
                           LabeledNumber("Accessible items: ",
                                         diagnostics.semanticNodeCount),
@@ -1616,6 +1785,35 @@ void ComposeDiagnosticsPage(Composer &composer, NativeTextSystem &text,
                   LabeledNumber("Draw groups: ", diagnostics.drawBatchCount),
                   theme.typography.body, theme.colors.foreground,
                   "batch-count");
+              ComposeText(composer, text,
+                          LabeledNumber("Grids laid out: ",
+                                        diagnostics.layout.grids.size()),
+                          theme.typography.body, theme.colors.foreground,
+                          "grid-count");
+              ComposeText(composer, text,
+                          LabeledNumber("Wrapped toolbars: ",
+                                        diagnostics.layout.wrapPanels.size()),
+                          theme.typography.body, theme.colors.foreground,
+                          "wrap-count");
+              for (NGIN::UIntSize index = 0;
+                   index < diagnostics.layout.grids.size(); ++index) {
+                ComposeText(composer, text,
+                            TrackLine("Grid ", index,
+                                      diagnostics.layout.grids[index].columns),
+                            theme.typography.body, theme.colors.mutedForeground,
+                            std::string{"grid-tracks-"} +
+                                std::to_string(index));
+              }
+              for (NGIN::UIntSize index = 0;
+                   index < diagnostics.layout.wrapPanels.size(); ++index) {
+                ComposeText(
+                    composer, text,
+                    LabeledNumber(
+                        "Wrapped lines: ",
+                        diagnostics.layout.wrapPanels[index].lines.size()),
+                    theme.typography.body, theme.colors.mutedForeground,
+                    std::string{"wrap-lines-"} + std::to_string(index));
+              }
             },
             "diagnostic-values");
       },
@@ -1627,18 +1825,16 @@ void ComposeDiagnosticsPage(Composer &composer, NativeTextSystem &text,
         column.layout.gap = theme.spacing.compact;
         composer.Column(
             [&] {
-              ComposeText(
-                  composer, text,
-                  LabeledNumber("Text pages in use: ",
-                                textDiagnostics.pageCount),
-                  theme.typography.body, theme.colors.foreground,
-                  "text-page-count");
-              ComposeText(
-                  composer, text,
-                  LabeledNumber("Text page limit: ",
-                                textDiagnostics.maximumPageCount),
-                  theme.typography.body, theme.colors.foreground,
-                  "text-page-limit");
+              ComposeText(composer, text,
+                          LabeledNumber("Text pages in use: ",
+                                        textDiagnostics.pageCount),
+                          theme.typography.body, theme.colors.foreground,
+                          "text-page-count");
+              ComposeText(composer, text,
+                          LabeledNumber("Text page limit: ",
+                                        textDiagnostics.maximumPageCount),
+                          theme.typography.body, theme.colors.foreground,
+                          "text-page-limit");
               const auto occupancy =
                   textDiagnostics.capacityPixelArea == 0
                       ? 0
@@ -1648,11 +1844,11 @@ void ComposeDiagnosticsPage(Composer &composer, NativeTextSystem &text,
                           LabeledNumber("Text storage used (%): ", occupancy),
                           theme.typography.body, theme.colors.foreground,
                           "text-occupancy");
-              ComposeText(composer, text,
-                          LabeledNumber("Stored glyphs: ",
-                                        textDiagnostics.entryCount),
-                          theme.typography.body, theme.colors.foreground,
-                          "text-entry-count");
+              ComposeText(
+                  composer, text,
+                  LabeledNumber("Stored glyphs: ", textDiagnostics.entryCount),
+                  theme.typography.body, theme.colors.foreground,
+                  "text-entry-count");
               ComposeText(composer, text,
                           LabeledNumber("Text sizes stored: ",
                                         textDiagnostics.pixelSizeCount),
@@ -1668,11 +1864,11 @@ void ComposeDiagnosticsPage(Composer &composer, NativeTextSystem &text,
                                         textDiagnostics.allocationFailureCount),
                           theme.typography.body, theme.colors.foreground,
                           "text-storage-waits");
-              ComposeText(composer, text,
-                          LabeledNumber("Glyphs reused: ",
-                                        textDiagnostics.hitCount),
-                          theme.typography.body, theme.colors.foreground,
-                          "text-cache-hits");
+              ComposeText(
+                  composer, text,
+                  LabeledNumber("Glyphs reused: ", textDiagnostics.hitCount),
+                  theme.typography.body, theme.colors.foreground,
+                  "text-cache-hits");
               ComposeText(composer, text,
                           LabeledNumber("Glyphs uploaded: ",
                                         textDiagnostics.uploadCount),
@@ -1690,31 +1886,27 @@ void ComposeDiagnosticsPage(Composer &composer, NativeTextSystem &text,
                           "text-restores");
               ComposeText(composer, text,
                           LabeledNumber("Fallback characters: ",
-                                        fontDiagnostics
-                                            .fallbackCodePointCount),
+                                        fontDiagnostics.fallbackCodePointCount),
                           theme.typography.body, theme.colors.foreground,
                           "fallback-glyphs");
               ComposeText(composer, text,
                           LabeledNumber("Missing characters: ",
-                                        fontDiagnostics
-                                            .missingCodePointCount),
+                                        fontDiagnostics.missingCodePointCount),
                           theme.typography.body, theme.colors.foreground,
                           "missing-glyphs");
               for (const auto &face : fontDiagnostics.faces) {
                 const auto key =
-                    std::string{"font-face-"} +
-                    std::to_string(face.face.index);
+                    std::string{"font-face-"} + std::to_string(face.face.index);
                 ComposeText(composer, text, FontFaceLine(face),
-                            theme.typography.body,
-                            theme.colors.mutedForeground, key);
+                            theme.typography.body, theme.colors.mutedForeground,
+                            key);
               }
               for (const auto &size : textDiagnostics.pixelSizes) {
-                const auto key =
-                    std::string{"text-pixel-size-"} +
-                    std::to_string(size.pixelSize);
+                const auto key = std::string{"text-pixel-size-"} +
+                                 std::to_string(size.pixelSize);
                 ComposeText(composer, text, GlyphSizeLine(size),
-                            theme.typography.body,
-                            theme.colors.mutedForeground, key);
+                            theme.typography.body, theme.colors.mutedForeground,
+                            key);
               }
             },
             "text-diagnostic-values");
@@ -1722,8 +1914,7 @@ void ComposeDiagnosticsPage(Composer &composer, NativeTextSystem &text,
       "text-diagnostics-card");
   ComposeButton(
       composer, text, theme,
-      model.IsInspectorEnabled() ? "Hide layout guides"
-                                 : "Show layout guides",
+      model.IsInspectorEnabled() ? "Hide layout guides" : "Show layout guides",
       [&model] { model.ToggleInspector(); }, "toggle-inspector", 260.0F);
 }
 
@@ -1782,9 +1973,9 @@ void ComposeAuxiliaryWindow(Composer &composer, NativeTextSystem &text,
   composer.Element(
       ElementType::Column, root,
       [&] {
-        ComposeText(composer, text,
-                    String{modal ? "Dialog" : "Second window"}, 26.0F,
-                    theme.colors.foreground, "title", SemanticRole::Heading);
+        ComposeText(composer, text, String{modal ? "Dialog" : "Second window"},
+                    26.0F, theme.colors.foreground, "title",
+                    SemanticRole::Heading);
         ComposeText(
             composer, text,
             String{modal ? "The main window is paused until this closes."
@@ -1819,12 +2010,11 @@ Model::Model()
              [this](const InvalidationKind kind) { Invalidate(kind); }),
       m_password(String{"retained"},
                  [this](const InvalidationKind kind) { Invalidate(kind); }),
-      m_notes(
-          String{"Write your project notes here.\n\n"
-                 "Long lines wrap automatically, and the editor scrolls as "
-                 "you add more text.\n"
-                 "Add a few lines and try moving with the arrow keys."},
-          [this](const InvalidationKind kind) { Invalidate(kind); }),
+      m_notes(String{"Write your project notes here.\n\n"
+                     "Long lines wrap automatically, and the editor scrolls as "
+                     "you add more text.\n"
+                     "Add a few lines and try moving with the arrow keys."},
+              [this](const InvalidationKind kind) { Invalidate(kind); }),
       m_check(CheckState::Checked,
               [this](const InvalidationKind kind) { Invalidate(kind); }),
       m_mixedCheck(CheckState::Indeterminate,
@@ -2118,9 +2308,8 @@ auto Model::FontDiagnostics() const noexcept -> FontCoverageDiagnostics {
 
 auto Model::AccessibilityDiagnostics() const noexcept
     -> NGIN::UI::AccessibilityDiagnostics {
-  return m_application != nullptr
-             ? m_application->AccessibilityDiagnostics()
-             : NGIN::UI::AccessibilityDiagnostics{};
+  return m_application != nullptr ? m_application->AccessibilityDiagnostics()
+                                  : NGIN::UI::AccessibilityDiagnostics{};
 }
 
 auto Model::AccessibilityAnnouncement() const noexcept -> const String & {
@@ -2150,19 +2339,23 @@ void ComposeMainView(Composer &composer, NativeTextSystem &text, Model &model) {
   const auto theme = model.CurrentTheme();
   NodeProperties root{};
   root.layout.padding = Thickness::Uniform(Dp{24.0F});
-  root.layout.gap = 22.0F;
+  root.grid.columns = {GridTrack::Fixed(210.0F),
+                       GridTrack::Weighted(1.0F, 280.0F)};
+  root.grid.rows = {GridTrack::Weighted()};
+  root.grid.columnGap = 22.0F;
   root.visual.base.background = theme.colors.background;
   root.semantics.role = SemanticRole::Group;
   root.semantics.label = String{"NGIN.UI control gallery"};
 
   composer.Element(
-      ElementType::Row, root,
+      ElementType::Grid, root,
       [&] {
         NodeProperties sidebar{};
         sidebar.layout.preferredSize.width = 210.0F;
         sidebar.layout.minimumSize.width = 210.0F;
         sidebar.layout.maximumSize.width = 210.0F;
         sidebar.layout.flexShrink = 0.0F;
+        sidebar.gridPlacement = GridPlacement{.row = 0, .column = 0};
         sidebar.layout.padding = Thickness::Uniform(Dp{14.0F});
         sidebar.layout.gap = theme.spacing.regular;
         sidebar.layout.verticalAlignment = VerticalAlignment::Stretch;
@@ -2198,11 +2391,12 @@ void ComposeMainView(Composer &composer, NativeTextSystem &text, Model &model) {
 
         NodeProperties viewport{};
         viewport.layout.preferredSize = Size{780.0F, 680.0F};
-        viewport.layout.minimumSize = Size{420.0F, 420.0F};
+        viewport.layout.minimumSize = Size{280.0F, 320.0F};
         viewport.layout.flexGrow = 1.0F;
         viewport.layout.flexShrink = 1.0F;
         viewport.layout.horizontalAlignment = HorizontalAlignment::Stretch;
         viewport.layout.verticalAlignment = VerticalAlignment::Stretch;
+        viewport.gridPlacement = GridPlacement{.row = 0, .column = 1};
         viewport.scroll.vertical = true;
         viewport.scroll.horizontal = false;
         StyleScrollView(viewport, theme);
@@ -2239,7 +2433,7 @@ auto CreateMainWindow(Application &application, NativeTextSystem &text,
       .id = String{"Gallery.Main"},
       .title = String{"NGIN.UI Control Gallery"},
       .initialSize = PixelSize{1180, 780},
-      .minimumSize = PixelSize{900, 600},
+      .minimumSize = PixelSize{640, 480},
   });
   if (!window) {
     return std::move(window).Error();

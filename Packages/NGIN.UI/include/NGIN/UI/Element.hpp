@@ -5,6 +5,7 @@
 #include <NGIN/UI/CustomElement.hpp>
 #include <NGIN/UI/Geometry.hpp>
 #include <NGIN/UI/Image.hpp>
+#include <NGIN/UI/LayoutPrimitives.hpp>
 #include <NGIN/UI/Resources.hpp>
 #include <NGIN/UI/RoutedEvent.hpp>
 #include <NGIN/UI/Semantics.hpp>
@@ -23,6 +24,9 @@ enum class ElementType : UInt16 {
   Root,
   Column,
   Row,
+  Grid,
+  WrapPanel,
+  Canvas,
   Overlay,
   Padding,
   Border,
@@ -193,6 +197,11 @@ struct CustomElementProperties final {
 struct NodeProperties final {
   ElementVisibility visibility{ElementVisibility::Visible};
   LayoutProperties layout{};
+  GridProperties grid{};
+  GridPlacement gridPlacement{};
+  WrapPanelProperties wrapPanel{};
+  CanvasProperties canvas{};
+  CanvasPlacement canvasPlacement{};
   InteractionProperties interaction{};
   ScrollProperties scroll{};
   PopupProperties popup{};

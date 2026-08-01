@@ -31,6 +31,8 @@ The version 0.1 implementation provides:
 - independent composition, layout, and paint invalidation;
 - constraint-based measure/arrange for rows, columns, overlays, padding,
   alignment, and opt-in main-axis flex growth/shrinkage;
+- desktop `Grid` tracks and spans, responsive `WrapPanel` lines, and bounded
+  absolute placement through `Canvas`, with resolved-layout diagnostics;
 - typed node layout and solid-background properties;
 - backend-neutral display-list construction;
 - DPI-aware rectangle, rounded-rectangle, stroke, and image tessellation;
@@ -152,6 +154,9 @@ See the
 [collections and navigation guide](../../docs/guides/ngin-ui-collections-navigation.md)
 for selection models, keyed lists, combo boxes, retained tabs, menus, and the
 incremental data-source boundary.
+See the
+[desktop layout guide](../../docs/guides/ngin-ui-desktop-layout.md) for Grid,
+WrapPanel, Canvas, responsive sizing, and layout diagnostics.
 See the
 [richer-content guide](../../docs/guides/ngin-ui-richer-content.md) for
 multiline layout, font fallback, `TextArea`, logical images, asynchronous

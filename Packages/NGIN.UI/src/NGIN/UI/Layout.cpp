@@ -63,6 +63,178 @@ void ReportCustomError(const RuntimeNode &node, const UIError &error) noexcept {
   }
 }
 
+[[nodiscard]] auto TrackMinimum(const GridTrack &track) noexcept -> F32 {
+  return std::max(0.0F, track.minimum);
+}
+
+[[nodiscard]] auto TrackMaximum(const GridTrack &track) noexcept -> F32 {
+  return std::max(TrackMinimum(track), track.maximum);
+}
+
+[[nodiscard]] auto ClampTrack(const GridTrack &track, const F32 value) noexcept
+    -> F32 {
+  return std::clamp(std::max(0.0F, value), TrackMinimum(track),
+                    TrackMaximum(track));
+}
+
+[[nodiscard]] auto TrackGapExtent(const UIntSize count, const F32 gap) noexcept
+    -> F32 {
+  return count > 1 ? std::max(0.0F, gap) * static_cast<F32>(count - 1) : 0.0F;
+}
+
+[[nodiscard]] auto TrackSum(const std::vector<F32> &tracks) noexcept -> F32 {
+  F32 result = 0.0F;
+  for (const auto track : tracks) {
+    result += track;
+  }
+  return result;
+}
+
+[[nodiscard]] auto ResolveTracks(const std::vector<GridTrack> &definitions,
+                                 const std::vector<F32> &intrinsic,
+                                 const F32 available, const F32 gap)
+    -> std::vector<F32> {
+  std::vector<F32> result(definitions.size(), 0.0F);
+  for (UIntSize index = 0; index < definitions.size(); ++index) {
+    const auto &track = definitions[index];
+    const auto desired = index < intrinsic.size() ? intrinsic[index] : 0.0F;
+    result[index] = track.sizing == GridTrackSizing::Fixed
+                        ? ClampTrack(track, track.value)
+                        : ClampTrack(track, desired);
+  }
+  if (!std::isfinite(available)) {
+    return result;
+  }
+
+  auto remaining = std::max(0.0F, available) -
+                   TrackGapExtent(result.size(), gap) - TrackSum(result);
+  while (remaining > 0.0001F) {
+    F32 totalWeight = 0.0F;
+    for (UIntSize index = 0; index < definitions.size(); ++index) {
+      if (definitions[index].sizing == GridTrackSizing::Weighted &&
+          result[index] < TrackMaximum(definitions[index])) {
+        totalWeight += std::max(0.0F, definitions[index].value);
+      }
+    }
+    if (totalWeight <= 0.0F) {
+      break;
+    }
+    auto distributed = 0.0F;
+    for (UIntSize index = 0; index < definitions.size(); ++index) {
+      const auto &track = definitions[index];
+      if (track.sizing != GridTrackSizing::Weighted ||
+          result[index] >= TrackMaximum(track)) {
+        continue;
+      }
+      const auto weight = std::max(0.0F, track.value);
+      const auto share = remaining * weight / totalWeight;
+      const auto grown = ClampTrack(track, result[index] + share);
+      distributed += grown - result[index];
+      result[index] = grown;
+    }
+    if (distributed <= 0.0001F) {
+      break;
+    }
+    remaining -= distributed;
+  }
+  return result;
+}
+
+[[nodiscard]] auto NormalizedStart(const UIntSize requested,
+                                   const UIntSize count) noexcept -> UIntSize {
+  return count == 0 ? 0 : std::min(requested, count - 1);
+}
+
+[[nodiscard]] auto NormalizedSpan(const UIntSize requested,
+                                  const UIntSize start,
+                                  const UIntSize count) noexcept -> UIntSize {
+  return count == 0 ? 0
+                    : std::min(std::max<UIntSize>(1, requested), count - start);
+}
+
+[[nodiscard]] auto SpanExtent(const std::vector<F32> &tracks,
+                              const UIntSize requestedStart,
+                              const UIntSize requestedSpan,
+                              const F32 gap) noexcept -> F32 {
+  if (tracks.empty()) {
+    return 0.0F;
+  }
+  const auto start = NormalizedStart(requestedStart, tracks.size());
+  const auto span = NormalizedSpan(requestedSpan, start, tracks.size());
+  F32 result = TrackGapExtent(span, gap);
+  for (UIntSize index = start; index < start + span; ++index) {
+    result += tracks[index];
+  }
+  return result;
+}
+
+void GrowIntrinsic(const std::vector<GridTrack> &definitions,
+                   std::vector<F32> &intrinsic, const UIntSize requestedStart,
+                   const UIntSize requestedSpan, const F32 desired,
+                   const F32 gap) {
+  if (definitions.empty()) {
+    return;
+  }
+  const auto start = NormalizedStart(requestedStart, definitions.size());
+  const auto span = NormalizedSpan(requestedSpan, start, definitions.size());
+  auto deficit = desired - SpanExtent(intrinsic, start, span, gap);
+  if (deficit <= 0.0F) {
+    return;
+  }
+
+  for (const auto sizing :
+       {GridTrackSizing::Automatic, GridTrackSizing::Weighted}) {
+    while (deficit > 0.0001F) {
+      UIntSize growable = 0;
+      for (UIntSize index = start; index < start + span; ++index) {
+        if (definitions[index].sizing == sizing &&
+            intrinsic[index] < TrackMaximum(definitions[index])) {
+          ++growable;
+        }
+      }
+      if (growable == 0) {
+        break;
+      }
+      const auto share = deficit / static_cast<F32>(growable);
+      auto grownTotal = 0.0F;
+      for (UIntSize index = start; index < start + span; ++index) {
+        if (definitions[index].sizing != sizing) {
+          continue;
+        }
+        const auto grown =
+            ClampTrack(definitions[index], intrinsic[index] + share);
+        grownTotal += grown - intrinsic[index];
+        intrinsic[index] = grown;
+      }
+      if (grownTotal <= 0.0001F) {
+        break;
+      }
+      deficit -= grownTotal;
+    }
+    if (deficit <= 0.0001F) {
+      break;
+    }
+  }
+}
+
+[[nodiscard]] auto InitialIntrinsic(const std::vector<GridTrack> &definitions)
+    -> std::vector<F32> {
+  std::vector<F32> result;
+  result.reserve(definitions.size());
+  for (const auto &track : definitions) {
+    result.push_back(track.sizing == GridTrackSizing::Fixed
+                         ? ClampTrack(track, track.value)
+                         : TrackMinimum(track));
+  }
+  return result;
+}
+
+[[nodiscard]] auto GridDefinitions(const std::vector<GridTrack> &authored)
+    -> std::vector<GridTrack> {
+  return authored.empty() ? std::vector<GridTrack>{GridTrack::Weighted()}
+                          : authored;
+}
+
 [[nodiscard]] auto AlignmentOffset(const F32 available, const F32 extent,
                                    const VerticalAlignment alignment) noexcept
     -> F32 {
@@ -189,12 +361,15 @@ auto LayoutEngine::Measure(const ElementHandle handle,
   constraints.maximum.height =
       std::max(constraints.maximum.height, constraints.minimum.height);
 
-  auto measured =
-      node->type == ElementType::CustomElement
-          ? MeasureCustom(*node, constraints)
-          : (node->children.empty() || node->type == ElementType::Spacer
-                 ? MeasureLeaf(*node, constraints)
-                 : MeasureContainer(*node, constraints));
+  const auto desktopContainer = node->type == ElementType::Grid ||
+                                node->type == ElementType::WrapPanel ||
+                                node->type == ElementType::Canvas;
+  auto measured = node->type == ElementType::CustomElement
+                      ? MeasureCustom(*node, constraints)
+                      : ((node->children.empty() && !desktopContainer) ||
+                                 node->type == ElementType::Spacer
+                             ? MeasureLeaf(*node, constraints)
+                             : MeasureContainer(*node, constraints));
   measured = constraints.Constrain(measured);
   if (node->type == ElementType::Popup) {
     measured = {};
@@ -475,6 +650,15 @@ auto LayoutEngine::MeasureImage(RuntimeNode &node,
 
 auto LayoutEngine::MeasureContainer(RuntimeNode &node,
                                     const SizeConstraints constraints) -> Size {
+  if (node.type == ElementType::Grid) {
+    return MeasureGrid(node, constraints);
+  }
+  if (node.type == ElementType::WrapPanel) {
+    return MeasureWrapPanel(node, constraints);
+  }
+  if (node.type == ElementType::Canvas) {
+    return MeasureCanvas(node, constraints);
+  }
   const auto padding = node.properties.layout.padding;
   const auto horizontalPadding = padding.left + padding.right;
   const auto verticalPadding = padding.top + padding.bottom;
@@ -544,6 +728,178 @@ auto LayoutEngine::MeasureContainer(RuntimeNode &node,
                contentWidth + horizontalPadding),
       std::max(node.properties.layout.preferredSize.height,
                contentHeight + verticalPadding),
+  });
+}
+
+auto LayoutEngine::MeasureGrid(RuntimeNode &node,
+                               const SizeConstraints constraints) -> Size {
+  const auto padding = node.properties.layout.padding;
+  const auto availableWidth =
+      std::isfinite(constraints.maximum.width)
+          ? InnerWidth(constraints.maximum.width, padding)
+          : constraints.maximum.width;
+  const auto availableHeight =
+      std::isfinite(constraints.maximum.height)
+          ? InnerHeight(constraints.maximum.height, padding)
+          : constraints.maximum.height;
+  const auto columns = GridDefinitions(node.properties.grid.columns);
+  const auto rows = GridDefinitions(node.properties.grid.rows);
+  auto columnIntrinsic = InitialIntrinsic(columns);
+  auto rowIntrinsic = InitialIntrinsic(rows);
+  const auto columnGap = std::max(0.0F, node.properties.grid.columnGap);
+  const auto rowGap = std::max(0.0F, node.properties.grid.rowGap);
+
+  for (const auto childHandle : node.children) {
+    const auto childSize = Measure(
+        childHandle,
+        SizeConstraints{.maximum = Size{availableWidth, availableHeight}});
+    const auto *child = m_tree.Get(childHandle);
+    if (child == nullptr || child->type == ElementType::Popup ||
+        child->properties.visibility == ElementVisibility::Collapsed) {
+      continue;
+    }
+    const auto &placement = child->properties.gridPlacement;
+    GrowIntrinsic(columns, columnIntrinsic, placement.column,
+                  placement.columnSpan, childSize.width, columnGap);
+  }
+
+  auto resolvedColumns =
+      ResolveTracks(columns, columnIntrinsic, availableWidth, columnGap);
+  for (const auto childHandle : node.children) {
+    const auto *before = m_tree.Get(childHandle);
+    if (before == nullptr || before->type == ElementType::Popup ||
+        before->properties.visibility == ElementVisibility::Collapsed) {
+      continue;
+    }
+    const auto placement = before->properties.gridPlacement;
+    const auto width = SpanExtent(resolvedColumns, placement.column,
+                                  placement.columnSpan, columnGap);
+    const auto childSize = Measure(
+        childHandle, SizeConstraints{.maximum = Size{width, availableHeight}});
+    GrowIntrinsic(rows, rowIntrinsic, placement.row, placement.rowSpan,
+                  childSize.height, rowGap);
+  }
+  auto resolvedRows =
+      ResolveTracks(rows, rowIntrinsic, availableHeight, rowGap);
+  node.grid.columnIntrinsic = std::move(columnIntrinsic);
+  node.grid.rowIntrinsic = std::move(rowIntrinsic);
+  node.grid.resolvedColumns = std::move(resolvedColumns);
+  node.grid.resolvedRows = std::move(resolvedRows);
+
+  const auto desired = Size{
+      TrackSum(node.grid.resolvedColumns) +
+          TrackGapExtent(node.grid.resolvedColumns.size(), columnGap) +
+          padding.left + padding.right,
+      TrackSum(node.grid.resolvedRows) +
+          TrackGapExtent(node.grid.resolvedRows.size(), rowGap) + padding.top +
+          padding.bottom,
+  };
+  return constraints.Constrain(Size{
+      std::max(node.properties.layout.preferredSize.width, desired.width),
+      std::max(node.properties.layout.preferredSize.height, desired.height),
+  });
+}
+
+auto LayoutEngine::MeasureWrapPanel(RuntimeNode &node,
+                                    const SizeConstraints constraints) -> Size {
+  const auto padding = node.properties.layout.padding;
+  const auto horizontal =
+      node.properties.wrapPanel.orientation == WrapOrientation::Horizontal;
+  const auto availableWidth =
+      std::isfinite(constraints.maximum.width)
+          ? InnerWidth(constraints.maximum.width, padding)
+          : constraints.maximum.width;
+  const auto availableHeight =
+      std::isfinite(constraints.maximum.height)
+          ? InnerHeight(constraints.maximum.height, padding)
+          : constraints.maximum.height;
+  const auto availableMain = horizontal ? availableWidth : availableHeight;
+  const auto itemGap = std::max(0.0F, node.properties.wrapPanel.itemGap);
+  const auto lineGap = std::max(0.0F, node.properties.wrapPanel.lineGap);
+  node.wrapPanel.lines.clear();
+
+  for (const auto childHandle : node.children) {
+    const auto childSize = Measure(
+        childHandle,
+        SizeConstraints{.maximum = Size{availableWidth, availableHeight}});
+    const auto *child = m_tree.Get(childHandle);
+    if (child == nullptr || child->type == ElementType::Popup ||
+        child->properties.visibility == ElementVisibility::Collapsed) {
+      continue;
+    }
+    const auto childMain = horizontal ? childSize.width : childSize.height;
+    const auto childCross = horizontal ? childSize.height : childSize.width;
+    const auto startsLine =
+        node.wrapPanel.lines.empty() ||
+        (!node.wrapPanel.lines.back().children.empty() &&
+         std::isfinite(availableMain) &&
+         node.wrapPanel.lines.back().mainExtent + itemGap + childMain >
+             availableMain);
+    if (startsLine) {
+      node.wrapPanel.lines.emplace_back();
+    }
+    auto &line = node.wrapPanel.lines.back();
+    if (!line.children.empty()) {
+      line.mainExtent += itemGap;
+    }
+    line.children.push_back(childHandle);
+    line.mainExtent += childMain;
+    line.crossExtent = std::max(line.crossExtent, childCross);
+  }
+
+  F32 contentMain = 0.0F;
+  F32 contentCross = 0.0F;
+  for (const auto &line : node.wrapPanel.lines) {
+    contentMain = std::max(contentMain, line.mainExtent);
+    contentCross += line.crossExtent;
+  }
+  contentCross += TrackGapExtent(node.wrapPanel.lines.size(), lineGap);
+  const Size content = horizontal ? Size{contentMain, contentCross}
+                                  : Size{contentCross, contentMain};
+  return constraints.Constrain(Size{
+      std::max(node.properties.layout.preferredSize.width,
+               content.width + padding.left + padding.right),
+      std::max(node.properties.layout.preferredSize.height,
+               content.height + padding.top + padding.bottom),
+  });
+}
+
+auto LayoutEngine::MeasureCanvas(RuntimeNode &node,
+                                 const SizeConstraints constraints) -> Size {
+  const auto padding = node.properties.layout.padding;
+  const auto availableWidth =
+      std::isfinite(constraints.maximum.width)
+          ? InnerWidth(constraints.maximum.width, padding)
+          : constraints.maximum.width;
+  const auto availableHeight =
+      std::isfinite(constraints.maximum.height)
+          ? InnerHeight(constraints.maximum.height, padding)
+          : constraints.maximum.height;
+  Size content{};
+  for (const auto childHandle : node.children) {
+    const auto childSize = Measure(
+        childHandle,
+        SizeConstraints{.maximum = Size{availableWidth, availableHeight}});
+    const auto *child = m_tree.Get(childHandle);
+    if (child == nullptr || child->type == ElementType::Popup ||
+        child->properties.visibility == ElementVisibility::Collapsed ||
+        !child->properties.canvasPlacement.contributesToDesiredSize) {
+      continue;
+    }
+    content.width =
+        std::max(content.width,
+                 std::max(0.0F, child->properties.canvasPlacement.offset.x) +
+                     childSize.width);
+    content.height =
+        std::max(content.height,
+                 std::max(0.0F, child->properties.canvasPlacement.offset.y) +
+                     childSize.height);
+  }
+  return constraints.Constrain(Size{
+      std::max(node.properties.layout.preferredSize.width,
+               content.width + padding.left + padding.right),
+      std::max(node.properties.layout.preferredSize.height,
+               content.height + padding.top + padding.bottom),
   });
 }
 
@@ -644,6 +1000,19 @@ void LayoutEngine::ArrangeChildren(RuntimeNode &node) {
   };
   F32 cursorX = content.x;
   F32 cursorY = content.y;
+
+  if (node.type == ElementType::Grid) {
+    ArrangeGrid(node, content);
+    return;
+  }
+  if (node.type == ElementType::WrapPanel) {
+    ArrangeWrapPanel(node, content);
+    return;
+  }
+  if (node.type == ElementType::Canvas) {
+    ArrangeCanvas(node, content);
+    return;
+  }
 
   if (node.type == ElementType::Popup) {
     const auto viewportRight = content.x + content.width;
@@ -880,6 +1249,203 @@ void LayoutEngine::ArrangeChildren(RuntimeNode &node) {
     }
 
     Arrange(childHandle, Rect{x, y, childWidth, childHeight});
+  }
+}
+
+void LayoutEngine::ArrangeGrid(RuntimeNode &node, const Rect content) {
+  const auto columns = GridDefinitions(node.properties.grid.columns);
+  const auto rows = GridDefinitions(node.properties.grid.rows);
+  const auto columnGap = std::max(0.0F, node.properties.grid.columnGap);
+  const auto rowGap = std::max(0.0F, node.properties.grid.rowGap);
+  node.grid.resolvedColumns = ResolveTracks(columns, node.grid.columnIntrinsic,
+                                            content.width, columnGap);
+  node.grid.resolvedRows =
+      ResolveTracks(rows, node.grid.rowIntrinsic, content.height, rowGap);
+
+  std::erase_if(m_stats.grids, [&node](const GridLayoutDiagnostics &item) {
+    return item.element == node.id;
+  });
+  m_stats.grids.push_back(GridLayoutDiagnostics{
+      .element = node.id,
+      .columns = node.grid.resolvedColumns,
+      .rows = node.grid.resolvedRows,
+  });
+
+  for (const auto childHandle : node.children) {
+    const auto *child = m_tree.Get(childHandle);
+    if (child == nullptr) {
+      continue;
+    }
+    if (child->properties.visibility == ElementVisibility::Collapsed) {
+      Arrange(childHandle, {});
+      continue;
+    }
+    if (child->type == ElementType::Popup) {
+      const auto *root = m_tree.Get(m_tree.Root());
+      Arrange(childHandle,
+              root != nullptr ? root->arrangedBounds : node.arrangedBounds);
+      continue;
+    }
+    const auto &placement = child->properties.gridPlacement;
+    const auto column =
+        NormalizedStart(placement.column, node.grid.resolvedColumns.size());
+    const auto row =
+        NormalizedStart(placement.row, node.grid.resolvedRows.size());
+    F32 cellX = content.x;
+    for (UIntSize index = 0; index < column; ++index) {
+      cellX += node.grid.resolvedColumns[index] + columnGap;
+    }
+    F32 cellY = content.y;
+    for (UIntSize index = 0; index < row; ++index) {
+      cellY += node.grid.resolvedRows[index] + rowGap;
+    }
+    const auto cellWidth = SpanExtent(node.grid.resolvedColumns, column,
+                                      placement.columnSpan, columnGap);
+    const auto cellHeight =
+        SpanExtent(node.grid.resolvedRows, row, placement.rowSpan, rowGap);
+    const auto width = ResolveChildWidth(*child, cellWidth);
+    const auto height = ResolveChildHeight(*child, cellHeight);
+    Arrange(childHandle,
+            Rect{cellX + AlignmentOffset(
+                             cellWidth, width,
+                             child->properties.layout.horizontalAlignment),
+                 cellY + AlignmentOffset(
+                             cellHeight, height,
+                             child->properties.layout.verticalAlignment),
+                 width, height});
+  }
+}
+
+void LayoutEngine::ArrangeWrapPanel(RuntimeNode &node, const Rect content) {
+  const auto horizontal =
+      node.properties.wrapPanel.orientation == WrapOrientation::Horizontal;
+  const auto availableMain = horizontal ? content.width : content.height;
+  const auto itemGap = std::max(0.0F, node.properties.wrapPanel.itemGap);
+  const auto lineGap = std::max(0.0F, node.properties.wrapPanel.lineGap);
+  node.wrapPanel.lines.clear();
+  for (const auto childHandle : node.children) {
+    const auto *child = m_tree.Get(childHandle);
+    if (child == nullptr || child->type == ElementType::Popup ||
+        child->properties.visibility == ElementVisibility::Collapsed) {
+      continue;
+    }
+    const auto childMain =
+        horizontal ? child->measuredSize.width : child->measuredSize.height;
+    const auto childCross =
+        horizontal ? child->measuredSize.height : child->measuredSize.width;
+    const auto startsLine =
+        node.wrapPanel.lines.empty() ||
+        (!node.wrapPanel.lines.back().children.empty() &&
+         node.wrapPanel.lines.back().mainExtent + itemGap + childMain >
+             availableMain);
+    if (startsLine) {
+      node.wrapPanel.lines.emplace_back();
+    }
+    auto &line = node.wrapPanel.lines.back();
+    if (!line.children.empty()) {
+      line.mainExtent += itemGap;
+    }
+    line.children.push_back(childHandle);
+    line.mainExtent += childMain;
+    line.crossExtent = std::max(line.crossExtent, childCross);
+  }
+
+  F32 crossCursor = horizontal ? content.y : content.x;
+  for (const auto &line : node.wrapPanel.lines) {
+    auto gap = itemGap;
+    F32 mainCursor = horizontal ? content.x : content.y;
+    const auto free = std::max(0.0F, availableMain - line.mainExtent);
+    switch (node.properties.wrapPanel.lineAlignment) {
+    case WrapLineAlignment::Center:
+      mainCursor += free * 0.5F;
+      break;
+    case WrapLineAlignment::End:
+      mainCursor += free;
+      break;
+    case WrapLineAlignment::SpaceBetween:
+      if (line.children.size() > 1) {
+        gap += free / static_cast<F32>(line.children.size() - 1);
+      }
+      break;
+    case WrapLineAlignment::Start:
+      break;
+    }
+    for (const auto childHandle : line.children) {
+      const auto *child = m_tree.Get(childHandle);
+      if (child == nullptr) {
+        continue;
+      }
+      const auto childMain =
+          horizontal ? child->measuredSize.width : child->measuredSize.height;
+      const auto childCross =
+          horizontal ? child->measuredSize.height : child->measuredSize.width;
+      const auto crossAlignment =
+          horizontal
+              ? AlignmentOffset(line.crossExtent, childCross,
+                                child->properties.layout.verticalAlignment)
+              : AlignmentOffset(line.crossExtent, childCross,
+                                child->properties.layout.horizontalAlignment);
+      Arrange(childHandle, horizontal
+                               ? Rect{mainCursor, crossCursor + crossAlignment,
+                                      childMain, childCross}
+                               : Rect{crossCursor + crossAlignment, mainCursor,
+                                      childCross, childMain});
+      mainCursor += childMain + gap;
+    }
+    crossCursor += line.crossExtent + lineGap;
+  }
+
+  std::erase_if(m_stats.wrapPanels,
+                [&node](const WrapPanelLayoutDiagnostics &item) {
+                  return item.element == node.id;
+                });
+  WrapPanelLayoutDiagnostics diagnostics{
+      .element = node.id,
+      .orientation = node.properties.wrapPanel.orientation,
+  };
+  diagnostics.lines.reserve(node.wrapPanel.lines.size());
+  for (const auto &line : node.wrapPanel.lines) {
+    diagnostics.lines.push_back(WrapLineDiagnostics{
+        .itemCount = line.children.size(),
+        .mainExtent = line.mainExtent,
+        .crossExtent = line.crossExtent,
+    });
+  }
+  m_stats.wrapPanels.push_back(std::move(diagnostics));
+
+  for (const auto childHandle : node.children) {
+    const auto *child = m_tree.Get(childHandle);
+    if (child != nullptr &&
+        child->properties.visibility == ElementVisibility::Collapsed) {
+      Arrange(childHandle, {});
+    } else if (child != nullptr && child->type == ElementType::Popup) {
+      const auto *root = m_tree.Get(m_tree.Root());
+      Arrange(childHandle,
+              root != nullptr ? root->arrangedBounds : node.arrangedBounds);
+    }
+  }
+}
+
+void LayoutEngine::ArrangeCanvas(RuntimeNode &node, const Rect content) {
+  for (const auto childHandle : node.children) {
+    const auto *child = m_tree.Get(childHandle);
+    if (child == nullptr) {
+      continue;
+    }
+    if (child->properties.visibility == ElementVisibility::Collapsed) {
+      Arrange(childHandle, {});
+      continue;
+    }
+    if (child->type == ElementType::Popup) {
+      const auto *root = m_tree.Get(m_tree.Root());
+      Arrange(childHandle,
+              root != nullptr ? root->arrangedBounds : node.arrangedBounds);
+      continue;
+    }
+    const auto offset = child->properties.canvasPlacement.offset;
+    Arrange(childHandle,
+            Rect{content.x + offset.x, content.y + offset.y,
+                 child->measuredSize.width, child->measuredSize.height});
   }
 }
 

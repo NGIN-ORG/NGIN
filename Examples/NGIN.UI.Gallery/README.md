@@ -7,7 +7,8 @@ This app lets you try the controls and features in `NGIN.UI`.
 The sidebar has twelve pages:
 
 - **Overview** shows colors, buttons, and custom controls.
-- **Layout** shows rows, columns, layers, flexible sizing, and scrolling.
+- **Layout** shows a grid form, a toolbar that wraps, dashboard tiles, a
+  free-positioned canvas, and scrolling. Resize the window to see it adapt.
 - **Typography** shows Latin, Greek, Cyrillic, Arabic, combined letters,
   symbols, wrapping, alignment, and the color-emoji policy.
 - **Text Area** lets you write, select, copy, paste, and scroll through text.
@@ -21,8 +22,8 @@ The sidebar has twelve pages:
 - **Themes** switches between light and dark colors.
 - **Accessibility** shows native provider status and controls to try with
   Windows Narrator.
-- **Diagnostics** shows drawing numbers, loaded fallback fonts, missing
-  characters, and optional layout guides.
+- **Diagnostics** shows drawing numbers, resolved grid tracks, wrapped lines,
+  loaded fallback fonts, missing characters, and optional layout guides.
 
 The [hosted gallery](../NGIN.UI.Gallery.Hosted/) shows the same screens inside
 an `NGIN.Core` application.

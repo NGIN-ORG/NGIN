@@ -3,8 +3,8 @@
 #include <NGIN/UI/Accessibility.hpp>
 #include <NGIN/UI/Application.hpp>
 #include <NGIN/UI/Backend.hpp>
-#include <NGIN/UI/Composer.hpp>
 #include <NGIN/UI/Collections.hpp>
+#include <NGIN/UI/Composer.hpp>
 #include <NGIN/UI/Controls.hpp>
 #include <NGIN/UI/CustomElement.hpp>
 #include <NGIN/UI/Diagnostics.hpp>
@@ -19,6 +19,7 @@
 #include <NGIN/UI/Inspector.hpp>
 #include <NGIN/UI/Invalidation.hpp>
 #include <NGIN/UI/Layout.hpp>
+#include <NGIN/UI/LayoutPrimitives.hpp>
 #include <NGIN/UI/NativeText.hpp>
 #include <NGIN/UI/Platform.hpp>
 #include <NGIN/UI/Rendering.hpp>
