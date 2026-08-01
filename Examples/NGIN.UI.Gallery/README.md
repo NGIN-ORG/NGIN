@@ -16,14 +16,16 @@ The sidebar has twelve pages:
   cropping, alignment, clipping, and tint.
 - **Inputs** shows buttons, checkboxes, radio buttons, switches, sliders,
   progress bars, tooltips, and text fields.
-- **Collections** shows lists, sorting, filtering, combo boxes, tabs, and menus.
+- **Collections** shows a 100,000-item list with live realization and range-load
+  counts, plus ordinary lists, sorting, filtering, combo boxes, tabs, and menus.
 - **Overlays** shows a popup that closes with Escape or an outside click.
 - **Windows** opens another window and a dialog.
 - **Themes** switches between light and dark colors.
 - **Accessibility** shows native provider status and controls to try with
   Windows Narrator.
 - **Diagnostics** shows drawing numbers, resolved grid tracks, wrapped lines,
-  loaded fallback fonts, missing characters, and optional layout guides.
+  virtualized lists, loaded fallback fonts, missing characters, and optional
+  layout guides.
 
 The [hosted gallery](../NGIN.UI.Gallery.Hosted/) shows the same screens inside
 an `NGIN.Core` application.

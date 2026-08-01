@@ -128,20 +128,85 @@ auto main() -> int {
                 "inputs page exposes progress semantics"))) {
       return 1;
     }
-    if (page == NGIN::UIGallery::Page::Collections &&
-        (!Check(HasRole(window->Semantics(), SemanticRole::List),
-                "collections page exposes list semantics") ||
-         !Check(HasRole(window->Semantics(), SemanticRole::ListItem),
-                "collections page exposes list-item semantics") ||
-         !Check(HasRole(window->Semantics(), SemanticRole::ComboBox),
-                "collections page exposes combo-box semantics") ||
-         !Check(HasRole(window->Semantics(), SemanticRole::TabList),
-                "collections page exposes tab-list semantics") ||
-         !Check(HasRole(window->Semantics(), SemanticRole::Tab),
-                "collections page exposes tab semantics") ||
-         !Check(HasRole(window->Semantics(), SemanticRole::TabPanel),
-                "collections page exposes active tab-panel semantics"))) {
-      return 1;
+    if (page == NGIN::UIGallery::Page::Collections) {
+      const auto virtualList = FindByTypeAndKey(
+          window->Tree(), ElementType::ListView, "virtual-list-100000");
+      const auto virtualDiagnostics = std::find_if(
+          window->LastLayoutStats().virtualizedLists.begin(),
+          window->LastLayoutStats().virtualizedLists.end(),
+          [&](const auto &diagnostics) {
+            const auto *node = window->Tree().Get(virtualList);
+            return node != nullptr && diagnostics.element == node->id;
+          });
+      if (!Check(HasRole(window->Semantics(), SemanticRole::List),
+                 "collections page exposes list semantics") ||
+          !Check(HasRole(window->Semantics(), SemanticRole::ListItem),
+                 "collections page exposes list-item semantics") ||
+          !Check(HasRole(window->Semantics(), SemanticRole::ComboBox),
+                 "collections page exposes combo-box semantics") ||
+          !Check(HasRole(window->Semantics(), SemanticRole::TabList),
+                 "collections page exposes tab-list semantics") ||
+          !Check(HasRole(window->Semantics(), SemanticRole::Tab),
+                 "collections page exposes tab semantics") ||
+          !Check(HasRole(window->Semantics(), SemanticRole::TabPanel),
+                 "collections page exposes active tab-panel semantics") ||
+          !Check(virtualList.IsValid(),
+                 "collections page contains the 100,000-item list") ||
+          !Check(virtualDiagnostics !=
+                     window->LastLayoutStats().virtualizedLists.end(),
+                 "large-list realization is observable") ||
+          !Check(virtualDiagnostics->logicalItemCount == 100'000,
+                 "large list keeps 100,000 logical rows") ||
+          !Check(virtualDiagnostics->realizedNodeCount <= 16,
+                 "large list realizes only viewport rows") ||
+          !Check(window->Focus(virtualList),
+                 "large list accepts keyboard focus")) {
+        return 1;
+      }
+
+      platformObserver->InjectEvent(KeyChanged{
+          .window = window->PlatformHandle(),
+          .logicalKey = static_cast<NGIN::UInt32>(LogicalKey::End),
+          .state = KeyState::Pressed,
+      });
+      if (!application->PumpOnce() ||
+          !Check(model.SelectedVirtualizedIndex() == 99'999,
+                 "End selects and reveals the last logical row") ||
+          !Check(window->FocusedElement() == virtualList,
+                 "large-list focus stays on its stable owner")) {
+        return 1;
+      }
+
+      const auto lastRange =
+          model.VirtualizedCollectionController().RealizedRange();
+      if (!Check(lastRange.End() == 100'000,
+                 "last logical row is realized after keyboard navigation")) {
+        return 1;
+      }
+      if (!application->PumpOnce() ||
+          !Check(FindByTypeAndKey(window->Tree(), ElementType::ListItem,
+                                  "item-99999")
+                     .IsValid(),
+                 "the last row replaces the previous realized range")) {
+        return 1;
+      }
+
+      model.PrependVirtualizedItems();
+      if (!application->PumpOnce() ||
+          !Check(model.VirtualizedCollectionSource().Count() == 100'250,
+                 "Gallery source adds a new incremental range") ||
+          !Check(model.SelectedVirtualizedIndex() == 100'249,
+                 "stable selection follows inserted rows") ||
+          !Check(
+              model.VirtualizedCollectionController().RealizedRange().End() ==
+                  100'250,
+              "scroll anchoring keeps the selected end row visible") ||
+          !Check(model.VirtualizedCollectionController()
+                         .Diagnostics()
+                         .rangeRequestCount >= 2,
+                 "Gallery reports incremental range loads")) {
+        return 1;
+      }
     }
     if (page == NGIN::UIGallery::Page::TextArea &&
         !Check(HasRole(window->Semantics(), SemanticRole::TextBox),

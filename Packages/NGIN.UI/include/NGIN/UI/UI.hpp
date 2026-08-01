@@ -35,3 +35,4 @@
 #include <NGIN/UI/Theme.hpp>
 #include <NGIN/UI/UIRenderer.hpp>
 #include <NGIN/UI/Version.hpp>
+#include <NGIN/UI/Virtualization.hpp>

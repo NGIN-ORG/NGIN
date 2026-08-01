@@ -6,6 +6,7 @@
 #include <NGIN/UI/Semantics.hpp>
 
 #include <array>
+#include <charconv>
 #include <chrono>
 #include <optional>
 #include <string>
@@ -86,6 +87,203 @@ auto ItemProperties(const char *label) -> NodeProperties {
   properties.semantics.label = NGIN::Text::String{label};
   return properties;
 }
+
+class GeneratedVirtualizedSource final
+    : public IVirtualizedDataSource<NGIN::UIntSize> {
+public:
+  explicit GeneratedVirtualizedSource(const NGIN::UIntSize count)
+      : m_count(count) {}
+
+  [[nodiscard]] auto Count() const noexcept -> NGIN::UIntSize override {
+    return m_count;
+  }
+  [[nodiscard]] auto Revision() const noexcept -> NGIN::UInt64 override {
+    return m_revision;
+  }
+  [[nodiscard]] auto ItemAt(const NGIN::UIntSize index) const
+      -> UIResult<NGIN::UIntSize> override {
+    if (index >= m_count || !m_requested || index < m_requested->first ||
+        index >= m_requested->End()) {
+      return MakeUIError(UIErrorCode::ResourceFailed,
+                         "Generated item has not been requested", "Tests",
+                         "GeneratedVirtualizedSource::ItemAt");
+    }
+    return LogicalValue(index);
+  }
+  auto RequestRange(const IncrementalRange range) -> UIResult<void> override {
+    if (range.first > m_count || range.count > m_count - range.first) {
+      return MakeUIError(UIErrorCode::InvalidArgument,
+                         "Generated range is out of bounds", "Tests",
+                         "GeneratedVirtualizedSource::RequestRange");
+    }
+    m_requested = range;
+    ++requestCount;
+    return {};
+  }
+  void CancelRange(const IncrementalRange) noexcept override {
+    ++cancellationCount;
+  }
+  [[nodiscard]] auto KeyAt(const NGIN::UIntSize index) const
+      -> UIResult<NGIN::Text::String> override {
+    if (index >= m_count) {
+      return MakeUIError(UIErrorCode::InvalidArgument,
+                         "Generated key is out of bounds", "Tests",
+                         "GeneratedVirtualizedSource::KeyAt");
+    }
+    const auto value = LogicalValue(index);
+    const auto text =
+        std::string{value >= NewItemBase ? "new-" : "item-"} +
+        std::to_string(value >= NewItemBase ? value - NewItemBase : value);
+    return NGIN::Text::String{text.c_str()};
+  }
+  [[nodiscard]] auto LabelAt(const NGIN::UIntSize index) const
+      -> UIResult<NGIN::Text::String> override {
+    if (index == zebraIndex) {
+      return NGIN::Text::String{"Zebra item"};
+    }
+    auto key = KeyAt(index);
+    if (!key) {
+      return std::move(key).Error();
+    }
+    NGIN::Text::String label{"Item "};
+    label.Append(key.Value());
+    return label;
+  }
+  [[nodiscard]] auto IndexOfKey(const NGIN::Text::String &key) const
+      -> std::optional<NGIN::UIntSize> override {
+    const auto view = key.View();
+    const auto prefix =
+        view.starts_with("item-")
+            ? std::string_view{"item-"}
+            : (view.starts_with("new-") ? std::string_view{"new-"}
+                                        : std::string_view{});
+    if (prefix.empty()) {
+      return std::nullopt;
+    }
+    NGIN::UIntSize value = 0;
+    const auto digits = view.substr(prefix.size());
+    const auto parsed =
+        std::from_chars(digits.data(), digits.data() + digits.size(), value);
+    if (parsed.ec != std::errc{} ||
+        parsed.ptr != digits.data() + digits.size()) {
+      return std::nullopt;
+    }
+    const auto index = prefix == "new-" ? value : value + m_insertedBefore;
+    return index < m_count ? std::optional<NGIN::UIntSize>{index}
+                           : std::nullopt;
+  }
+
+  void InsertBefore(const NGIN::UIntSize count) {
+    m_insertedBefore += count;
+    m_count += count;
+    ++m_revision;
+  }
+
+  NGIN::UIntSize zebraIndex{750};
+  NGIN::UInt64 requestCount{0};
+  NGIN::UInt64 cancellationCount{0};
+
+private:
+  [[nodiscard]] auto LogicalValue(const NGIN::UIntSize index) const noexcept
+      -> NGIN::UIntSize {
+    return index < m_insertedBefore ? NewItemBase + index
+                                    : index - m_insertedBefore;
+  }
+
+  static constexpr NGIN::UIntSize NewItemBase{1'000'000};
+  NGIN::UIntSize m_count{0};
+  NGIN::UIntSize m_insertedBefore{0};
+  NGIN::UInt64 m_revision{1};
+  std::optional<IncrementalRange> m_requested{};
+};
+
+class MutableVirtualizedSource final
+    : public IVirtualizedDataSource<NGIN::UIntSize> {
+public:
+  MutableVirtualizedSource() {
+    for (NGIN::UIntSize value = 0; value < 10; ++value) {
+      m_values.push_back(value);
+    }
+  }
+
+  [[nodiscard]] auto Count() const noexcept -> NGIN::UIntSize override {
+    return m_values.size();
+  }
+  [[nodiscard]] auto Revision() const noexcept -> NGIN::UInt64 override {
+    return m_revision;
+  }
+  [[nodiscard]] auto ItemAt(const NGIN::UIntSize index) const
+      -> UIResult<NGIN::UIntSize> override {
+    if (index >= m_values.size()) {
+      return MakeUIError(UIErrorCode::InvalidArgument,
+                         "Mutable item is out of bounds", "Tests",
+                         "MutableVirtualizedSource::ItemAt");
+    }
+    return m_values[index];
+  }
+  auto RequestRange(const IncrementalRange range) -> UIResult<void> override {
+    if (range.first > m_values.size() ||
+        range.count > m_values.size() - range.first) {
+      return MakeUIError(UIErrorCode::InvalidArgument,
+                         "Mutable range is out of bounds", "Tests",
+                         "MutableVirtualizedSource::RequestRange");
+    }
+    ++requestCount;
+    return {};
+  }
+  void CancelRange(const IncrementalRange) noexcept override {
+    ++cancellationCount;
+  }
+  [[nodiscard]] auto KeyAt(const NGIN::UIntSize index) const
+      -> UIResult<NGIN::Text::String> override {
+    if (index >= m_values.size()) {
+      return MakeUIError(UIErrorCode::InvalidArgument,
+                         "Mutable key is out of bounds", "Tests",
+                         "MutableVirtualizedSource::KeyAt");
+    }
+    const auto key = std::string{"item-"} + std::to_string(m_values[index]);
+    return NGIN::Text::String{key.c_str()};
+  }
+  [[nodiscard]] auto LabelAt(const NGIN::UIntSize index) const
+      -> UIResult<NGIN::Text::String> override {
+    return KeyAt(index);
+  }
+  [[nodiscard]] auto IndexOfKey(const NGIN::Text::String &key) const
+      -> std::optional<NGIN::UIntSize> override {
+    for (NGIN::UIntSize index = 0; index < m_values.size(); ++index) {
+      auto candidate = KeyAt(index);
+      if (candidate && candidate.Value() == key) {
+        return index;
+      }
+    }
+    return std::nullopt;
+  }
+
+  void InsertFront(const NGIN::UIntSize value) {
+    m_values.insert(m_values.begin(), value);
+    ++m_revision;
+  }
+  void RemoveFront() {
+    m_values.erase(m_values.begin());
+    ++m_revision;
+  }
+  void Reverse() {
+    std::ranges::reverse(m_values);
+    ++m_revision;
+  }
+  void KeepEven() {
+    std::erase_if(m_values, [](const auto value) { return value % 2 != 0; });
+    ++m_revision;
+  }
+  void CompleteAsyncRange() { ++m_revision; }
+
+  NGIN::UInt64 requestCount{0};
+  NGIN::UInt64 cancellationCount{0};
+
+private:
+  std::vector<NGIN::UIntSize> m_values{};
+  NGIN::UInt64 m_revision{1};
+};
 } // namespace
 
 TEST_CASE("typed selection models cover none single and multiple") {
@@ -480,6 +678,278 @@ TEST_CASE("incremental data source validates requested boundaries") {
   REQUIRE_FALSE(source.ItemAt(3));
   REQUIRE(source.RequestRange(IncrementalRange{.first = 1, .count = 2}));
   REQUIRE_FALSE(source.RequestRange(IncrementalRange{.first = 2, .count = 2}));
+}
+
+TEST_CASE("virtualized list keeps 100000 items proportional to the viewport") {
+  constexpr NGIN::UIntSize itemCount = 100'000;
+  GeneratedVirtualizedSource source{itemCount};
+  NGIN::Text::String selectedKey{"item-0"};
+  FixedVirtualizedListController controller{FixedVirtualizationOptions{
+      .itemExtent = 20.0F,
+      .itemGap = 0.0F,
+      .overscanItems = 2,
+      .initialViewportExtent = 120.0F,
+  }};
+  RuntimeTree tree;
+  Reconciler reconciler{tree};
+  LayoutEngine layout{tree};
+  InputRouter input{tree};
+
+  const auto compose = [&] {
+    Composer composer;
+    VirtualizedListPresentation presentation{};
+    presentation.list.layout.preferredSize = Size{320.0F, 120.0F};
+    presentation.list.layout.maximumSize = Size{320.0F, 120.0F};
+    presentation.item.semantics.actions =
+        SemanticActionFlags::Activate | SemanticActionFlags::Select |
+        SemanticActionFlags::ScrollIntoView | SemanticActionFlags::Realize;
+    presentation.selectedIndex = [&] { return source.IndexOfKey(selectedKey); };
+    presentation.isSelected = [&](const NGIN::UIntSize index) {
+      const auto selected = source.IndexOfKey(selectedKey);
+      return selected && *selected == index;
+    };
+    presentation.activate = [&](const NGIN::UIntSize index) -> UIResult<void> {
+      auto key = source.KeyAt(index);
+      if (!key) {
+        return std::move(key).Error();
+      }
+      selectedKey = std::move(key).Value();
+      return {};
+    };
+    VirtualizedListView<NGIN::UIntSize>(
+        composer, controller, source,
+        [](Composer &, const NGIN::UIntSize &, const NGIN::UIntSize) {},
+        presentation, "virtual-list");
+    const auto stats = reconciler.Reconcile(composer.Declarations());
+    input.Synchronize();
+    const auto layoutStats =
+        layout.Perform(SizeConstraints{.minimum = Size{320.0F, 120.0F},
+                                       .maximum = Size{320.0F, 120.0F}},
+                       Rect{0.0F, 0.0F, 320.0F, 120.0F});
+    return std::pair{stats, layoutStats};
+  };
+
+  auto [initialReconcile, initialLayout] = compose();
+  REQUIRE(initialLayout.virtualizedLists.size() == 1);
+  CHECK(initialLayout.virtualizedLists.front().logicalItemCount == itemCount);
+  CHECK(initialLayout.virtualizedLists.front().realized.count == 8);
+  CHECK(initialLayout.virtualizedLists.front().realizedNodeCount == 8);
+  CHECK(initialLayout.virtualizedLists.front().totalExtent == 2'000'000.0F);
+  CHECK(initialReconcile.created == 9);
+  CHECK(tree.LiveCount() == 10);
+  CHECK(source.requestCount == 1);
+
+  const auto retainedItem = FindByKey(tree, "item-2");
+  REQUIRE(retainedItem);
+  const auto retainedId = tree.Get(retainedItem)->id;
+  auto *listNode =
+      tree.Get(FindByTypeAndKey(tree, ElementType::ListView, "virtual-list"));
+  REQUIRE(listNode != nullptr);
+  listNode->scroll.offset.y = 20.0F;
+  static_cast<void>(
+      layout.Perform(SizeConstraints{.minimum = Size{320.0F, 120.0F},
+                                     .maximum = Size{320.0F, 120.0F}},
+                     Rect{0.0F, 0.0F, 320.0F, 120.0F}));
+  static_cast<void>(compose());
+  CHECK(tree.Get(FindByKey(tree, "item-2"))->id == retainedId);
+
+  const auto list =
+      FindByTypeAndKey(tree, ElementType::ListView, "virtual-list");
+  REQUIRE(list);
+  listNode = tree.Get(list);
+  listNode->scroll.offset.y = 1'000'000.0F;
+  static_cast<void>(
+      layout.Perform(SizeConstraints{.minimum = Size{320.0F, 120.0F},
+                                     .maximum = Size{320.0F, 120.0F}},
+                     Rect{0.0F, 0.0F, 320.0F, 120.0F}));
+  auto [middleReconcile, middleLayout] = compose();
+  CHECK(middleLayout.virtualizedLists.front().realized.first == 49'998);
+  CHECK(middleLayout.virtualizedLists.front().realized.count == 10);
+  CHECK(middleReconcile.created == 10);
+  CHECK(tree.LiveCount() == 12);
+  CHECK(source.cancellationCount >= 1);
+
+  const auto semanticMiddle = BuildSemanticTree(tree);
+  CHECK(semanticMiddle.Nodes().size() < 20);
+  const auto proxy = std::find_if(
+      semanticMiddle.Nodes().begin(), semanticMiddle.Nodes().end(),
+      [](const SemanticNode &node) {
+        return HasSemanticState(node.states, SemanticStateFlags::Virtualized);
+      });
+  REQUIRE(proxy != semanticMiddle.Nodes().end());
+  CHECK(proxy->collectionItem->position == 1);
+
+  REQUIRE(input.SetFocus(list));
+  const auto moved = input.Route(PlatformEvent{KeyChanged{
+      .logicalKey = static_cast<NGIN::UInt32>(LogicalKey::End),
+      .state = KeyState::Pressed,
+  }});
+  CHECK(moved.handled);
+  CHECK(moved.activated);
+  CHECK(selectedKey == NGIN::Text::String{"item-99999"});
+  CHECK(tree.Get(list)->scroll.offset.y > 1'900'000.0F);
+
+  const auto semanticBeforeRealize = BuildSemanticTree(tree);
+  const auto lastProxy = std::find_if(
+      semanticBeforeRealize.Nodes().begin(),
+      semanticBeforeRealize.Nodes().end(), [](const SemanticNode &node) {
+        return HasSemanticState(node.states, SemanticStateFlags::Virtualized);
+      });
+  REQUIRE(lastProxy != semanticBeforeRealize.Nodes().end());
+  const auto stableSemanticId = lastProxy->id;
+  auto realized = input.PerformSemanticAction(
+      list, SemanticActionRequest{
+                .node = stableSemanticId,
+                .action = SemanticActionKind::Realize,
+            });
+  REQUIRE(realized);
+  CHECK(realized.Value().handled);
+
+  static_cast<void>(
+      layout.Perform(SizeConstraints{.minimum = Size{320.0F, 120.0F},
+                                     .maximum = Size{320.0F, 120.0F}},
+                     Rect{0.0F, 0.0F, 320.0F, 120.0F}));
+  static_cast<void>(compose());
+  const auto semanticRealized = BuildSemanticTree(tree);
+  CHECK(semanticRealized.Find(stableSemanticId) != nullptr);
+  CHECK_FALSE(HasSemanticState(semanticRealized.Find(stableSemanticId)->states,
+                               SemanticStateFlags::Virtualized));
+}
+
+TEST_CASE("virtualization anchors stable keys across inserts and type ahead") {
+  GeneratedVirtualizedSource source{1'000};
+  NGIN::Text::String selectedKey{"item-100"};
+  FixedVirtualizedListController controller{FixedVirtualizationOptions{
+      .itemExtent = 20.0F,
+      .overscanItems = 1,
+      .initialViewportExtent = 100.0F,
+  }};
+  const auto sourceBinding = [&] {
+    return VirtualizedSourceBinding{
+        .logicalItemCount = source.Count(),
+        .revision = source.Revision(),
+        .keyAt =
+            [&source](const NGIN::UIntSize index) {
+              return source.KeyAt(index);
+            },
+        .labelAt =
+            [&source](const NGIN::UIntSize index) {
+              return source.LabelAt(index);
+            },
+        .indexOfKey =
+            [&source](const NGIN::Text::String &key) {
+              return source.IndexOfKey(key);
+            },
+        .selectedIndex = [&] { return source.IndexOfKey(selectedKey); },
+        .activate = [&](const NGIN::UIntSize index) -> UIResult<void> {
+          auto key = source.KeyAt(index);
+          if (!key) {
+            return std::move(key).Error();
+          }
+          selectedKey = std::move(key).Value();
+          return {};
+        },
+        .requestRange =
+            [&source](const VirtualizedRange range) {
+              return source.RequestRange(
+                  IncrementalRange{.first = range.first, .count = range.count});
+            },
+        .cancelRange =
+            [&source](const VirtualizedRange range) {
+              source.CancelRange(
+                  IncrementalRange{.first = range.first, .count = range.count});
+            },
+    };
+  };
+
+  controller.Synchronize(sourceBinding());
+  CHECK(controller.UpdateViewport(2'000.0F, 100.0F));
+  CHECK(controller.RealizedRange().first == 99);
+  source.InsertBefore(5);
+  controller.Synchronize(sourceBinding());
+  const auto anchored = controller.TakePendingScrollOffset();
+  REQUIRE(anchored);
+  CHECK(*anchored == 2'100.0F);
+  CHECK(controller.RealizedRange().first == 104);
+
+  auto typeAhead = controller.TypeAhead("zebra", *anchored, 100.0F);
+  REQUIRE(typeAhead);
+  CHECK(selectedKey == NGIN::Text::String{"item-745"});
+  CHECK(typeAhead.Value() > 14'000.0F);
+  CHECK(source.requestCount >= 2);
+  CHECK(source.cancellationCount >= 1);
+}
+
+TEST_CASE("virtualization anchors keys through every source mutation") {
+  MutableVirtualizedSource source;
+  NGIN::Text::String selectedKey{"item-4"};
+  FixedVirtualizedListController controller{FixedVirtualizationOptions{
+      .itemExtent = 20.0F,
+      .overscanItems = 1,
+      .initialViewportExtent = 40.0F,
+  }};
+  const auto binding = [&] {
+    return VirtualizedSourceBinding{
+        .logicalItemCount = source.Count(),
+        .revision = source.Revision(),
+        .keyAt = [&source](const auto index) { return source.KeyAt(index); },
+        .labelAt =
+            [&source](const auto index) { return source.LabelAt(index); },
+        .indexOfKey =
+            [&source](const auto &key) { return source.IndexOfKey(key); },
+        .selectedIndex = [&] { return source.IndexOfKey(selectedKey); },
+        .activate = [&](const auto index) -> UIResult<void> {
+          auto key = source.KeyAt(index);
+          if (!key) {
+            return std::move(key).Error();
+          }
+          selectedKey = std::move(key).Value();
+          return {};
+        },
+        .requestRange =
+            [&source](const auto range) {
+              return source.RequestRange({range.first, range.count});
+            },
+        .cancelRange =
+            [&source](const auto range) {
+              source.CancelRange({range.first, range.count});
+            },
+    };
+  };
+  const auto synchronizeAt = [&](const NGIN::F32 expectedOffset) {
+    controller.Synchronize(binding());
+    const auto pending = controller.TakePendingScrollOffset();
+    REQUIRE(pending);
+    CHECK(*pending == expectedOffset);
+    static_cast<void>(controller.UpdateViewport(*pending, 40.0F));
+  };
+
+  controller.Synchronize(binding());
+  static_cast<void>(controller.UpdateViewport(80.0F, 40.0F));
+
+  source.InsertFront(100);
+  synchronizeAt(100.0F);
+  CHECK(controller.SelectedIndex() == 5);
+
+  source.RemoveFront();
+  synchronizeAt(80.0F);
+  CHECK(controller.SelectedIndex() == 4);
+
+  source.Reverse();
+  synchronizeAt(100.0F);
+  CHECK(controller.SelectedIndex() == 5);
+
+  source.KeepEven();
+  synchronizeAt(40.0F);
+  CHECK(controller.SelectedIndex() == 2);
+
+  const auto requestsBeforeArrival = source.requestCount;
+  const auto cancellationsBeforeArrival = source.cancellationCount;
+  source.CompleteAsyncRange();
+  synchronizeAt(40.0F);
+  CHECK(selectedKey == NGIN::Text::String{"item-4"});
+  CHECK(source.requestCount == requestsBeforeArrival + 1);
+  CHECK(source.cancellationCount == cancellationsBeforeArrival + 1);
 }
 
 TEST_CASE("large non-virtualized list has an explicit performance guardrail") {

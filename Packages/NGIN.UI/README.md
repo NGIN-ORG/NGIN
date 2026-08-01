@@ -65,8 +65,10 @@ The version 0.1 implementation provides:
   keyed list items with pointer, arrow, Home/End, type-ahead, and
   ensure-visible behavior;
 - anchored combo boxes, retained-state tabs, menu buttons, and context menus;
-- an explicit incremental data-source boundary and large-list performance
-  guardrail ahead of virtualization;
+- fixed-row `VirtualizedListView` composition with viewport overscan,
+  stable-key scroll anchoring, incremental range request/cancellation,
+  unrealized-item keyboard and accessibility behavior, realization
+  diagnostics, and a 100,000-item time/allocation budget;
 - window-level `DialogWindow` ownership with modal input blocking, focus
   restoration, and cascading close;
 - in-window popup overlays with viewport-aware placement, top-layer painting,
@@ -152,8 +154,8 @@ for bindings, typed radio groups, labels, tooltips, sliders, progress, and
 scrollbars.
 See the
 [collections and navigation guide](../../docs/guides/ngin-ui-collections-navigation.md)
-for selection models, keyed lists, combo boxes, retained tabs, menus, and the
-incremental data-source boundary.
+for selection models, keyed and virtualized lists, incremental range loading,
+combo boxes, retained tabs, and menus.
 See the
 [desktop layout guide](../../docs/guides/ngin-ui-desktop-layout.md) for Grid,
 WrapPanel, Canvas, responsive sizing, and layout diagnostics.

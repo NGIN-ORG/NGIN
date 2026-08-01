@@ -14,6 +14,9 @@ and use this reference for exact signatures, ownership, and result types.
 - `NGIN::UI::Composer`
 - `NGIN::UI::GridTrack`, `NGIN::UI::WrapPanelProperties`, and
   `NGIN::UI::CanvasPlacement`
+- `NGIN::UI::FixedVirtualizedListController`,
+  `NGIN::UI::IVirtualizedDataSource<T>`, and
+  `NGIN::UI::VirtualizedListView()`
 - `NGIN::UI::NodeProperties`
 - `NGIN::UI::State<T>` and `NGIN::UI::Binding<T>`
 - `NGIN::UI::NativeTextSystem`
@@ -30,7 +33,10 @@ and use this reference for exact signatures, ownership, and result types.
 ## Control families
 
 - `Controls.hpp`: checkbox, radio, switch, slider, progress, labels, tooltips
-- `Collections.hpp`: selection models, lists, combo boxes, tabs, menus
+- `Collections.hpp`: selection models, ordinary and virtualized lists,
+  incremental sources, combo boxes, tabs, menus
+- `Virtualization.hpp`: fixed-row viewport ranges, overscan, stable-key
+  anchoring, logical navigation, and realization diagnostics
 - `Composer.hpp`: primitive, Grid, WrapPanel, Canvas, text, text-area, image,
   popup, and custom elements
 - `LayoutPrimitives.hpp`: grid tracks and spans, wrapping rules, and absolute

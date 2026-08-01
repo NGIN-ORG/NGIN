@@ -230,8 +230,8 @@ auto InputRouter::MoveFocus(const bool reverse) -> bool {
   return SetFocus(candidates[nextIndex]);
 }
 
-auto InputRouter::PerformSemanticAction(
-    const ElementHandle target, const SemanticActionRequest &request)
+auto InputRouter::PerformSemanticAction(const ElementHandle target,
+                                        const SemanticActionRequest &request)
     -> UIResult<InputDispatchResult> {
   auto *node = m_tree.Get(target);
   if (node == nullptr) {
@@ -246,6 +246,34 @@ auto InputRouter::PerformSemanticAction(
   }
 
   InputDispatchResult result{};
+  if (node->type == ElementType::ListView &&
+      node->properties.virtualizedList.controller != nullptr) {
+    auto &controller = *node->properties.virtualizedList.controller;
+    const auto proxyIndex =
+        controller.SemanticProxyIndex(node->id, request.node.value);
+    if (proxyIndex && (request.action == SemanticActionKind::Activate ||
+                       request.action == SemanticActionKind::Select ||
+                       request.action == SemanticActionKind::Realize ||
+                       request.action == SemanticActionKind::ScrollIntoView)) {
+      if (request.action == SemanticActionKind::Activate ||
+          request.action == SemanticActionKind::Select) {
+        auto activated = controller.Activate(*proxyIndex);
+        if (!activated) {
+          return std::move(activated).Error();
+        }
+        result.callbackInvoked = true;
+        result.activated = true;
+      }
+      const auto previous = node->scroll.offset.y;
+      node->scroll.offset.y = controller.EnsureVisible(
+          *proxyIndex, previous, node->scroll.viewportSize.height);
+      result.handled = true;
+      result.layoutStateChanged = node->scroll.offset.y != previous;
+      result.visualStateChanged = true;
+      result.invalidation = InvalidationKind::All;
+      return result;
+    }
+  }
   if (request.action == SemanticActionKind::Focus) {
     result.handled = SetFocus(target);
     result.visualStateChanged = result.handled;
@@ -266,9 +294,8 @@ auto InputRouter::PerformSemanticAction(
           } else if (left + node->arrangedBounds.width >
                      parent->scroll.offset.x +
                          parent->scroll.viewportSize.width) {
-            parent->scroll.offset.x =
-                left + node->arrangedBounds.width -
-                parent->scroll.viewportSize.width;
+            parent->scroll.offset.x = left + node->arrangedBounds.width -
+                                      parent->scroll.viewportSize.width;
           }
         }
         if (parent->properties.scroll.vertical) {
@@ -277,9 +304,8 @@ auto InputRouter::PerformSemanticAction(
           } else if (top + node->arrangedBounds.height >
                      parent->scroll.offset.y +
                          parent->scroll.viewportSize.height) {
-            parent->scroll.offset.y =
-                top + node->arrangedBounds.height -
-                parent->scroll.viewportSize.height;
+            parent->scroll.offset.y = top + node->arrangedBounds.height -
+                                      parent->scroll.viewportSize.height;
           }
         }
         result.handled = true;
@@ -326,8 +352,8 @@ auto InputRouter::PerformSemanticAction(
   if (request.action == SemanticActionKind::SetValue &&
       IsTextEditor(node->type) && node->textField.editing &&
       !node->properties.textField.readOnly) {
-    auto edited = CommitTextFieldEdit(
-        *node, [&request](TextEditingBuffer &buffer) {
+    auto edited =
+        CommitTextFieldEdit(*node, [&request](TextEditingBuffer &buffer) {
           return buffer.Reset(request.value);
         });
     if (!edited.handled) {
@@ -1257,6 +1283,75 @@ auto InputRouter::RouteListKey(const ElementHandle listHandle,
     m_typeAheadList = listHandle;
     m_typeAheadPrefix.clear();
     m_typeAheadTime = {};
+  }
+  auto *virtualList = m_tree.Get(listHandle);
+  if (virtualList != nullptr &&
+      virtualList->properties.virtualizedList.controller != nullptr) {
+    auto &controller = *virtualList->properties.virtualizedList.controller;
+    if (controller.LogicalItemCount() == 0) {
+      return {};
+    }
+    const auto key = event.Logical();
+    std::optional<VirtualizedNavigation> navigation;
+    if (key == LogicalKey::Up || key == LogicalKey::Left) {
+      navigation = VirtualizedNavigation::Previous;
+    } else if (key == LogicalKey::Down || key == LogicalKey::Right) {
+      navigation = VirtualizedNavigation::Next;
+    } else if (key == LogicalKey::Home) {
+      navigation = VirtualizedNavigation::First;
+    } else if (key == LogicalKey::End) {
+      navigation = VirtualizedNavigation::Last;
+    }
+    if (navigation) {
+      m_typeAheadPrefix.clear();
+      auto moved =
+          controller.Navigate(*navigation, virtualList->scroll.offset.y,
+                              virtualList->scroll.viewportSize.height);
+      if (!moved) {
+        return InputDispatchResult{.handled = true};
+      }
+      virtualList->scroll.offset.y = moved.Value();
+      return InputDispatchResult{
+          .handled = true,
+          .visualStateChanged = true,
+          .layoutStateChanged = true,
+          .callbackInvoked = true,
+          .activated = true,
+          .invalidation = InvalidationKind::All,
+      };
+    }
+
+    if (!IsPrintableKey(key) || HasCommandModifier(event.modifiers) ||
+        HasKeyModifier(event.modifiers, KeyModifierFlags::Alt)) {
+      return {};
+    }
+    const auto now = std::chrono::steady_clock::now();
+    constexpr auto timeout = std::chrono::milliseconds{750};
+    if (m_typeAheadTime.time_since_epoch().count() == 0 ||
+        now - m_typeAheadTime > timeout) {
+      m_typeAheadPrefix.clear();
+    }
+    m_typeAheadTime = now;
+    const auto character = static_cast<char>(
+        std::tolower(static_cast<unsigned char>(static_cast<UInt32>(key))));
+    if (!(m_typeAheadPrefix.size() == 1 &&
+          m_typeAheadPrefix.front() == character)) {
+      m_typeAheadPrefix.push_back(character);
+    }
+    auto moved =
+        controller.TypeAhead(m_typeAheadPrefix, virtualList->scroll.offset.y,
+                             virtualList->scroll.viewportSize.height);
+    if (moved) {
+      virtualList->scroll.offset.y = moved.Value();
+    }
+    return InputDispatchResult{
+        .handled = true,
+        .visualStateChanged = true,
+        .layoutStateChanged = true,
+        .callbackInvoked = static_cast<bool>(moved),
+        .activated = static_cast<bool>(moved),
+        .invalidation = InvalidationKind::All,
+    };
   }
   std::vector<ElementHandle> items;
   CollectListItems(listHandle, listHandle, items);

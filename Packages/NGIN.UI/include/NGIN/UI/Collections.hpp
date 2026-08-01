@@ -7,6 +7,7 @@
 #include <concepts>
 #include <optional>
 #include <span>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -193,9 +194,9 @@ void SelectableListItem(Composer &composer, ItemSelection selection,
     }
   };
   properties.semantics.role = SemanticRole::ListItem;
-  properties.semantics.actions =
-      SemanticActionFlags::Activate | SemanticActionFlags::Select |
-      SemanticActionFlags::ScrollIntoView;
+  properties.semantics.actions = SemanticActionFlags::Activate |
+                                 SemanticActionFlags::Select |
+                                 SemanticActionFlags::ScrollIntoView;
   if (selected) {
     properties.semantics.states |= SemanticStateFlags::Selected;
     properties.visual.state |= VisualStateFlags::Selected;
@@ -223,6 +224,21 @@ public:
   [[nodiscard]] virtual auto Revision() const noexcept -> UInt64 = 0;
   [[nodiscard]] virtual auto ItemAt(UIntSize index) const -> UIResult<T> = 0;
   virtual auto RequestRange(IncrementalRange range) -> UIResult<void> = 0;
+  virtual void CancelRange(IncrementalRange) noexcept {}
+};
+
+/// @brief Incremental source with stable keys and labels for virtualization.
+template <typename T>
+class IVirtualizedDataSource : public IIncrementalDataSource<T> {
+public:
+  ~IVirtualizedDataSource() override = default;
+
+  [[nodiscard]] virtual auto KeyAt(UIntSize index) const
+      -> UIResult<NGIN::Text::String> = 0;
+  [[nodiscard]] virtual auto LabelAt(UIntSize index) const
+      -> UIResult<NGIN::Text::String> = 0;
+  [[nodiscard]] virtual auto IndexOfKey(const NGIN::Text::String &key) const
+      -> std::optional<UIntSize> = 0;
 };
 
 /// @brief Non-owning incremental data source backed by a contiguous span.
@@ -262,6 +278,137 @@ private:
   std::span<const T> m_items;
   UInt64 m_revision{0};
 };
+
+/// @brief Authored list visuals, selection callbacks, and error reporting.
+struct VirtualizedListPresentation final {
+  NodeProperties list{};
+  NodeProperties item{};
+  NGIN::Utilities::Callable<std::optional<UIntSize>()> selectedIndex{};
+  NGIN::Utilities::Callable<bool(UIntSize)> isSelected{};
+  NGIN::Utilities::Callable<UIResult<void>(UIntSize)> activate{};
+  NGIN::Utilities::Callable<void(const UIError &)> onError{};
+};
+
+/// @brief Composes only the viewport and overscan rows of a stable-key source.
+template <typename T, typename ComposeItem>
+void VirtualizedListView(Composer &composer,
+                         FixedVirtualizedListController &controller,
+                         IVirtualizedDataSource<T> &source,
+                         ComposeItem &&composeItem,
+                         VirtualizedListPresentation presentation = {},
+                         std::string_view key = {}) {
+  controller.Synchronize(VirtualizedSourceBinding{
+      .logicalItemCount = source.Count(),
+      .revision = source.Revision(),
+      .keyAt = [&source](const UIntSize index) { return source.KeyAt(index); },
+      .labelAt =
+          [&source](const UIntSize index) { return source.LabelAt(index); },
+      .indexOfKey =
+          [&source](const NGIN::Text::String &itemKey) {
+            return source.IndexOfKey(itemKey);
+          },
+      .selectedIndex = presentation.selectedIndex,
+      .activate = presentation.activate,
+      .requestRange =
+          [&source](const VirtualizedRange range) {
+            return source.RequestRange(
+                IncrementalRange{.first = range.first, .count = range.count});
+          },
+      .cancelRange =
+          [&source](const VirtualizedRange range) {
+            source.CancelRange(
+                IncrementalRange{.first = range.first, .count = range.count});
+          },
+      .onError = presentation.onError,
+  });
+
+  auto listProperties = presentation.list;
+  listProperties.virtualizedList.controller = &controller;
+  listProperties.interaction.focusable = true;
+  listProperties.scroll.vertical = true;
+  listProperties.semantics.role = SemanticRole::List;
+  if (listProperties.semantics.description.Empty()) {
+    listProperties.semantics.description =
+        NGIN::Text::String{"Only visible items are loaded"};
+  }
+
+  const auto range = controller.RealizedRange();
+  std::vector<VirtualizedItemMapping> mappings;
+  mappings.reserve(range.count);
+  composer.ListView(
+      [&] {
+        for (auto index = range.first; index < range.End(); ++index) {
+          auto sourceKey = source.KeyAt(index);
+          if (!sourceKey) {
+            if (presentation.onError) {
+              presentation.onError(sourceKey.Error());
+            }
+            continue;
+          }
+          auto label = source.LabelAt(index);
+          if (!label && presentation.onError) {
+            presentation.onError(label.Error());
+          }
+          auto item = source.ItemAt(index);
+          if (!item && presentation.onError) {
+            presentation.onError(item.Error());
+          }
+
+          auto itemProperties = presentation.item;
+          itemProperties.layout.preferredSize.height = controller.ItemExtent();
+          itemProperties.layout.minimumSize.height = controller.ItemExtent();
+          itemProperties.layout.maximumSize.height = controller.ItemExtent();
+          itemProperties.layout.horizontalAlignment =
+              HorizontalAlignment::Stretch;
+          itemProperties.virtualizedItem = VirtualizedItemProperties{
+              .enabled = true,
+              .sourceIndex = index,
+              .key = sourceKey.Value(),
+          };
+          itemProperties.semantics.role = SemanticRole::ListItem;
+          itemProperties.semantics.label =
+              label ? std::move(label).Value()
+                    : NGIN::Text::String{"Loading item"};
+          itemProperties.semantics.collectionItem = SemanticCollectionItem{
+              .position = index + 1,
+              .count = source.Count(),
+              .level = 1,
+          };
+          itemProperties.semantics.actions =
+              SemanticActionFlags::Activate | SemanticActionFlags::Select |
+              SemanticActionFlags::ScrollIntoView |
+              SemanticActionFlags::Realize;
+          const auto selected =
+              presentation.isSelected && presentation.isSelected(index);
+          if (selected) {
+            itemProperties.semantics.states |= SemanticStateFlags::Selected;
+            itemProperties.visual.state |= VisualStateFlags::Selected;
+          }
+          itemProperties.interaction.onActivate =
+              [&controller, index, onError = presentation.onError] {
+                auto activated = controller.Activate(index);
+                if (!activated && onError) {
+                  onError(activated.Error());
+                }
+              };
+
+          const auto itemKey = sourceKey.Value();
+          mappings.push_back(VirtualizedItemMapping{
+              .sourceIndex = index,
+              .key = itemKey,
+          });
+          composer.ListItem(
+              [&] {
+                if (item) {
+                  composeItem(composer, item.Value(), index);
+                }
+              },
+              itemProperties, itemKey.View());
+        }
+      },
+      listProperties, key);
+  controller.RecordRealized(std::move(mappings));
+}
 
 /// @brief Observable open state and anchor shared by popup-based controls.
 class PopupController final {
@@ -395,8 +542,7 @@ void Tabs(Composer &composer, Binding<T> selection,
                 properties.semantics.role = SemanticRole::Tab;
                 properties.semantics.label = definition.label;
                 properties.semantics.actions =
-                    SemanticActionFlags::Activate |
-                    SemanticActionFlags::Focus |
+                    SemanticActionFlags::Activate | SemanticActionFlags::Focus |
                     SemanticActionFlags::Select |
                     SemanticActionFlags::ScrollIntoView;
                 if (selected) {

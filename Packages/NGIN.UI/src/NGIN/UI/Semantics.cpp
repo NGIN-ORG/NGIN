@@ -44,8 +44,7 @@ namespace {
   case SemanticRole::ListItem:
   case SemanticRole::Tab:
     return SemanticActionFlags::Activate | SemanticActionFlags::Focus |
-           SemanticActionFlags::Select |
-           SemanticActionFlags::ScrollIntoView;
+           SemanticActionFlags::Select | SemanticActionFlags::ScrollIntoView;
   case SemanticRole::ComboBox:
     return SemanticActionFlags::Activate | SemanticActionFlags::Focus |
            SemanticActionFlags::Expand | SemanticActionFlags::Collapse;
@@ -97,7 +96,17 @@ void SemanticTree::AppendRuntimeNode(const RuntimeTree &runtimeTree,
       semanticValue = runtimeNode->textField.editing->Value();
     }
 
-    const SemanticNodeId id{runtimeNode->id.value};
+    auto semanticValueId = runtimeNode->id.value;
+    if (runtimeNode->properties.virtualizedItem.enabled) {
+      const auto *list = runtimeTree.Get(runtimeNode->parent);
+      if (list != nullptr &&
+          list->properties.virtualizedList.controller != nullptr) {
+        semanticValueId =
+            list->properties.virtualizedList.controller->StableSemanticId(
+                list->id, runtimeNode->properties.virtualizedItem.sourceIndex);
+      }
+    }
+    const SemanticNodeId id{semanticValueId};
     m_nodes.push_back(SemanticNode{
         .id = id,
         .parent = semanticParent,
@@ -134,6 +143,45 @@ void SemanticTree::AppendRuntimeNode(const RuntimeTree &runtimeTree,
 
   for (const auto child : runtimeNode->children) {
     AppendRuntimeNode(runtimeTree, child, nextParent);
+  }
+
+  if (runtimeNode->type == ElementType::ListView &&
+      runtimeNode->properties.virtualizedList.controller != nullptr &&
+      nextParent) {
+    auto &controller = *runtimeNode->properties.virtualizedList.controller;
+    const auto selected = controller.SelectedIndex();
+    if (selected && !controller.RealizedRange().Contains(*selected)) {
+      auto label = controller.LabelAt(*selected);
+      const SemanticNodeId id{
+          controller.StableSemanticId(runtimeNode->id, *selected)};
+      m_nodes.push_back(SemanticNode{
+          .id = id,
+          .parent = nextParent,
+          .role = SemanticRole::ListItem,
+          .label = label ? std::move(label).Value()
+                         : NGIN::Text::String{"Virtualized item"},
+          .collectionItem =
+              SemanticCollectionItem{
+                  .position = *selected + 1,
+                  .count = controller.LogicalItemCount(),
+                  .level = 1,
+              },
+          .states =
+              SemanticStateFlags::Selected | SemanticStateFlags::Virtualized,
+          .actions = SemanticActionFlags::Activate |
+                     SemanticActionFlags::Select |
+                     SemanticActionFlags::ScrollIntoView |
+                     SemanticActionFlags::Realize,
+          .owner = runtimeNode->id,
+      });
+      const auto parent = std::find_if(m_nodes.begin(), m_nodes.end(),
+                                       [nextParent](const SemanticNode &node) {
+                                         return node.id == nextParent;
+                                       });
+      if (parent != m_nodes.end()) {
+        parent->children.push_back(id);
+      }
+    }
   }
 }
 

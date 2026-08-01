@@ -12,6 +12,7 @@
 #include <NGIN/UI/State.hpp>
 #include <NGIN/UI/Style.hpp>
 #include <NGIN/UI/TextEditing.hpp>
+#include <NGIN/UI/Virtualization.hpp>
 #include <NGIN/Utilities/Callable.hpp>
 
 #include <limits>
@@ -202,6 +203,8 @@ struct NodeProperties final {
   WrapPanelProperties wrapPanel{};
   CanvasProperties canvas{};
   CanvasPlacement canvasPlacement{};
+  VirtualizedListProperties virtualizedList{};
+  VirtualizedItemProperties virtualizedItem{};
   InteractionProperties interaction{};
   ScrollProperties scroll{};
   PopupProperties popup{};

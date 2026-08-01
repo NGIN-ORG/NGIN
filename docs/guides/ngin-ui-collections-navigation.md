@@ -165,21 +165,101 @@ ContextMenu(composer, contextMenu,
 The controller records the pointer position as the popup anchor. It must
 outlive the composed handlers.
 
-## Incremental Data Sources and Virtualization
+## Virtualized Lists
 
-`IIncrementalDataSource<T>` deliberately defines the boundary before
-virtualization:
+Use an ordinary `ListView` for small in-memory collections. Use
+`VirtualizedListView` when the logical collection is large or loaded in ranges.
+The two paths are separate, so adding virtualization does not change an
+existing list.
 
-- `Count()` reports the logical item count;
-- `Revision()` identifies a data revision;
-- `ItemAt(index)` returns checked item access;
-- `RequestRange({first, count})` asks the source to make a range available.
+Version 0.2 uses an explicit fixed-size contract. Every row in one virtualized
+list has the same `itemExtent` and `itemGap`. Variable-height rows are not
+supported yet.
 
-`VectorDataSource<T>` adapts an existing span for ordinary in-memory data.
-`ListView` does **not** virtualize yet. The test suite includes a 5,000-item
-non-virtualized performance guardrail so a later virtualization implementation
-has a measured baseline and cannot silently weaken keyed identity, keyboard
-navigation, or semantics.
+Keep the controller in the view model so it survives repeated composition:
+
+```cpp
+FixedVirtualizedListController filesController{
+    FixedVirtualizationOptions{
+        .itemExtent = 40.0F,
+        .itemGap = 2.0F,
+        .overscanItems = 3,
+        .initialViewportExtent = 320.0F,
+    },
+    scheduleInvalidation};
+```
+
+The source and controller must both outlive the composed list. If they are
+members of the same view model, declare the source before the controller so
+the controller is destroyed first and can cancel its last range safely.
+
+The source implements `IVirtualizedDataSource<T>`:
+
+- `Count()` reports the full logical item count;
+- `Revision()` changes after insert, remove, reorder, filter, or a requested
+  range becoming available;
+- `KeyAt()`, `LabelAt()`, and `IndexOfKey()` work for every logical item,
+  including items that are not loaded or on screen;
+- `RequestRange()` starts loading the requested viewport plus overscan;
+- `CancelRange()` stops obsolete work when the viewport moves;
+- `ItemAt()` returns the loaded value for a requested index.
+
+Stable keys are required. They preserve selection, the top visible item,
+retained row identity, and accessibility identity when source indices change.
+Do not use the current source index as the key if items can move.
+
+Compose only the range selected by the controller:
+
+```cpp
+VirtualizedListPresentation view{};
+view.list.layout.preferredSize = Size{640.0F, 320.0F};
+view.selectedIndex = [&] { return source.IndexOfKey(selectedKey); };
+view.isSelected = [&](UIntSize index) {
+  return source.IndexOfKey(selectedKey) == index;
+};
+view.activate = [&](UIntSize index) -> UIResult<void> {
+  auto key = source.KeyAt(index);
+  if (!key) {
+    return std::move(key).Error();
+  }
+  selectedKey = std::move(key).Value();
+  scheduleInvalidation(InvalidationKind::All);
+  return {};
+};
+view.onError = ReportUIError;
+
+VirtualizedListView<Item>(
+    composer, filesController, source,
+    [&](Composer &, const Item &item, UIntSize) {
+      ComposeFileRow(composer, item);
+    },
+    view, "files");
+```
+
+The controller requests the visible range plus `overscanItems`, gives the list
+its full logical scroll height, and composes, measures, paints, and exposes
+semantics only for realized rows. `Diagnostics()` reports the logical count,
+realized range and mappings, viewport, total extent, source revision, and
+request/cancellation counts. The same data is copied into
+`LayoutPassStats::virtualizedLists` after layout.
+
+A focused virtualized list supports arrows, Home, End, and the same 750 ms
+case-insensitive type-ahead behavior as an ordinary list. Navigation can select
+and reveal an item that is not currently realized. Selection remains stored as
+a stable source key, focus stays on the list owner, and the semantic tree
+publishes a stable virtual item until the selected row is realized. Native
+accessibility providers can then use Select, Scroll Into View, and Realize.
+
+For asynchronous loading, keep the requested range alive until it completes,
+increment `Revision()`, and request composition. When the new revision is
+observed, the controller anchors the current top key and its within-row offset.
+It also cancels and repeats the current range request against the new revision,
+so `RequestRange()` should be idempotent. The same anchoring path covers
+insertion, removal, reordering, and filtering.
+
+`VectorDataSource<T>` remains the small adapter for an existing span. It does
+not provide stable-key virtualization; implement `IVirtualizedDataSource<T>`
+when the virtual adapter is needed.
 
 See the buildable
 [`NGIN.UI.Gallery`](../../Examples/NGIN.UI.Gallery/) Collections page and

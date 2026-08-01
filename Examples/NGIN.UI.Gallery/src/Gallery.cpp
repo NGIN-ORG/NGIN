@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <array>
+#include <charconv>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -11,6 +12,121 @@
 #include <vector>
 
 namespace NGIN::UIGallery {
+class GalleryVirtualizedSource final
+    : public UI::IVirtualizedDataSource<NGIN::UIntSize> {
+public:
+  [[nodiscard]] auto Count() const noexcept -> NGIN::UIntSize override {
+    return BaseItemCount + m_insertedIds.size();
+  }
+  [[nodiscard]] auto Revision() const noexcept -> NGIN::UInt64 override {
+    return m_revision;
+  }
+  [[nodiscard]] auto ItemAt(const NGIN::UIntSize index) const
+      -> UI::UIResult<NGIN::UIntSize> override {
+    if (index >= Count() || !m_loadedRange || index < m_loadedRange->first ||
+        index >= m_loadedRange->End()) {
+      return UI::MakeUIError(UI::UIErrorCode::ResourceFailed,
+                             "The Gallery row has not been loaded",
+                             "NGIN.UI.Gallery",
+                             "GalleryVirtualizedSource::ItemAt");
+    }
+    return LogicalValue(index);
+  }
+  auto RequestRange(const UI::IncrementalRange range)
+      -> UI::UIResult<void> override {
+    if (range.first > Count() || range.count > Count() - range.first) {
+      return UI::MakeUIError(UI::UIErrorCode::InvalidArgument,
+                             "The requested Gallery range is out of bounds",
+                             "NGIN.UI.Gallery",
+                             "GalleryVirtualizedSource::RequestRange");
+    }
+    m_loadedRange = range;
+    return {};
+  }
+  void CancelRange(const UI::IncrementalRange) noexcept override {}
+  [[nodiscard]] auto KeyAt(const NGIN::UIntSize index) const
+      -> UI::UIResult<Text::String> override {
+    if (index >= Count()) {
+      return UI::MakeUIError(
+          UI::UIErrorCode::InvalidArgument, "The Gallery key is out of bounds",
+          "NGIN.UI.Gallery", "GalleryVirtualizedSource::KeyAt");
+    }
+    const auto value = LogicalValue(index);
+    const auto key =
+        std::string{value >= NewItemBase ? "new-" : "item-"} +
+        std::to_string(value >= NewItemBase ? value - NewItemBase : value);
+    return Text::String{key.c_str()};
+  }
+  [[nodiscard]] auto LabelAt(const NGIN::UIntSize index) const
+      -> UI::UIResult<Text::String> override {
+    if (index >= Count()) {
+      return UI::MakeUIError(UI::UIErrorCode::InvalidArgument,
+                             "The Gallery label is out of bounds",
+                             "NGIN.UI.Gallery",
+                             "GalleryVirtualizedSource::LabelAt");
+    }
+    const auto value = LogicalValue(index);
+    const auto label =
+        std::string{value >= NewItemBase ? "New item " : "Item "} +
+        std::to_string(value >= NewItemBase ? value - NewItemBase + 1
+                                            : value + 1);
+    return Text::String{label.c_str()};
+  }
+  [[nodiscard]] auto IndexOfKey(const Text::String &key) const
+      -> std::optional<NGIN::UIntSize> override {
+    const auto view = key.View();
+    const auto prefix = view.starts_with("item-")  ? std::string_view{"item-"}
+                        : view.starts_with("new-") ? std::string_view{"new-"}
+                                                   : std::string_view{};
+    if (prefix.empty()) {
+      return std::nullopt;
+    }
+    NGIN::UIntSize value = 0;
+    const auto digits = view.substr(prefix.size());
+    const auto parsed =
+        std::from_chars(digits.data(), digits.data() + digits.size(), value);
+    if (parsed.ec != std::errc{} ||
+        parsed.ptr != digits.data() + digits.size()) {
+      return std::nullopt;
+    }
+    if (prefix == "new-") {
+      const auto found = std::ranges::find(m_insertedIds, value);
+      return found == m_insertedIds.end()
+                 ? std::nullopt
+                 : std::optional<NGIN::UIntSize>{static_cast<NGIN::UIntSize>(
+                       std::distance(m_insertedIds.begin(), found))};
+    }
+    const auto index = value + m_insertedIds.size();
+    return value < BaseItemCount ? std::optional<NGIN::UIntSize>{index}
+                                 : std::nullopt;
+  }
+
+  void Prepend(const NGIN::UIntSize count) {
+    std::vector<NGIN::UIntSize> inserted;
+    inserted.reserve(count);
+    for (NGIN::UIntSize index = 0; index < count; ++index) {
+      inserted.push_back(m_nextInsertedId++);
+    }
+    m_insertedIds.insert(m_insertedIds.begin(), inserted.begin(),
+                         inserted.end());
+    ++m_revision;
+  }
+
+private:
+  [[nodiscard]] auto LogicalValue(const NGIN::UIntSize index) const noexcept
+      -> NGIN::UIntSize {
+    return index < m_insertedIds.size() ? NewItemBase + m_insertedIds[index]
+                                        : index - m_insertedIds.size();
+  }
+
+  static constexpr NGIN::UIntSize BaseItemCount{100'000};
+  static constexpr NGIN::UIntSize NewItemBase{1'000'000};
+  std::vector<NGIN::UIntSize> m_insertedIds{};
+  NGIN::UIntSize m_nextInsertedId{0};
+  NGIN::UInt64 m_revision{1};
+  std::optional<UI::IncrementalRange> m_loadedRange{};
+};
+
 namespace {
 using NGIN::F32;
 using NGIN::Text::String;
@@ -1093,7 +1209,125 @@ void ComposeInputsPage(Composer &composer, NativeTextSystem &text, Model &model,
 void ComposeCollectionsPage(Composer &composer, NativeTextSystem &text,
                             Model &model, const Theme &theme) {
   ComposePageHeading(composer, text, theme, "Collections",
-                     "Lists, combo boxes, tabs, menus, and right-click menus.");
+                     "Small lists, huge lists, tabs, menus, and combo boxes.");
+
+  ComposeCard(
+      composer, theme,
+      [&] {
+        NodeProperties content{};
+        content.layout.gap = theme.spacing.regular;
+        composer.Element(
+            ElementType::Column, content,
+            [&] {
+              ComposeText(composer, text, String{"100,000-item list"}, 20.0F,
+                          theme.colors.foreground, "virtual-list-title",
+                          SemanticRole::Heading);
+              ComposeText(
+                  composer, text,
+                  String{"Scroll or press End. Only the rows near the screen "
+                         "are created."},
+                  theme.typography.body, theme.colors.mutedForeground,
+                  "virtual-list-help");
+
+              NodeProperties actions{};
+              actions.layout.gap = theme.spacing.regular;
+              actions.layout.horizontalAlignment = HorizontalAlignment::Start;
+              composer.Element(
+                  ElementType::Row, actions,
+                  [&] {
+                    ComposeButton(
+                        composer, text, theme, "Add 250 rows above",
+                        [&model] { model.PrependVirtualizedItems(); },
+                        "prepend-virtual-items", 220.0F);
+                    const auto selected = model.SelectedVirtualizedIndex();
+                    ComposeText(composer, text,
+                                selected ? LabeledNumber("Selected row: ",
+                                                         *selected + 1)
+                                         : String{"No row selected"},
+                                theme.typography.body,
+                                theme.colors.mutedForeground,
+                                "virtual-selected-row");
+                  },
+                  "virtual-list-actions");
+
+              auto &source = model.VirtualizedCollectionSource();
+              auto &controller = model.VirtualizedCollectionController();
+              VirtualizedListPresentation presentation{};
+              presentation.list.layout.preferredSize = Size{680.0F, 280.0F};
+              presentation.list.layout.maximumSize = Size{680.0F, 280.0F};
+              presentation.list.layout.horizontalAlignment =
+                  HorizontalAlignment::Start;
+              presentation.list.layout.verticalAlignment =
+                  VerticalAlignment::Start;
+              presentation.list.layout.padding = Thickness::Uniform(Dp{6.0F});
+              presentation.list.visual = MakePanelVisual(theme);
+              presentation.list.visual.base.background =
+                  theme.colors.sunkenSurface;
+              presentation.list.semantics.label =
+                  String{"100,000-item virtual list"};
+              StyleScrollView(presentation.list, theme);
+              presentation.item.layout.padding =
+                  Thickness{12.0F, 8.0F, 12.0F, 8.0F};
+              presentation.item.visual = MakePanelVisual(theme);
+              presentation.item.visual.base.background =
+                  theme.colors.raisedSurface;
+              presentation.item.visual.states.hovered.borderColor =
+                  theme.colors.focus;
+              presentation.item.visual.states.pressed.background =
+                  theme.colors.accentPressed;
+              presentation.item.visual.states.selected.background =
+                  theme.colors.accent;
+              presentation.item.visual.states.selected.borderColor =
+                  theme.colors.focus;
+              presentation.selectedIndex = [&model] {
+                return model.SelectedVirtualizedIndex();
+              };
+              presentation.isSelected = [&model](const auto index) {
+                return model.SelectedVirtualizedIndex() == index;
+              };
+              presentation.activate = [&model](const auto index) {
+                return model.SelectVirtualizedItem(index);
+              };
+              presentation.onError = [&model](const UIError &error) {
+                model.Report(error);
+              };
+              VirtualizedListView<NGIN::UIntSize>(
+                  composer, controller, source,
+                  [&](Composer &, const NGIN::UIntSize &,
+                      const NGIN::UIntSize index) {
+                    auto label = source.LabelAt(index);
+                    ComposeText(composer, text,
+                                label ? std::move(label).Value()
+                                      : String{"Loading row"},
+                                theme.typography.body,
+                                model.SelectedVirtualizedIndex() == index
+                                    ? theme.colors.accentForeground
+                                    : theme.colors.foreground,
+                                "virtual-row-label");
+                  },
+                  presentation, "virtual-list-100000");
+
+              const auto diagnostics = controller.Diagnostics();
+              String rangeLine{"Rows on screen: "};
+              if (diagnostics.realized.count == 0) {
+                rangeLine.Append(String{"none"});
+              } else {
+                rangeLine.Append(Number(diagnostics.realized.first + 1));
+                rangeLine.Append(String{" to "});
+                rangeLine.Append(Number(diagnostics.realized.End()));
+              }
+              rangeLine.Append(String{" · created: "});
+              rangeLine.Append(Number(diagnostics.realizedNodeCount));
+              rangeLine.Append(String{" · range loads: "});
+              rangeLine.Append(Number(diagnostics.rangeRequestCount));
+              ComposeText(composer, text, std::move(rangeLine),
+                          theme.typography.caption,
+                          theme.colors.mutedForeground,
+                          "virtual-list-diagnostics");
+            },
+            "virtual-list-content");
+      },
+      "virtual-list-card");
 
   NodeProperties actions{};
   actions.layout.gap = theme.spacing.regular;
@@ -1795,6 +2029,12 @@ void ComposeDiagnosticsPage(Composer &composer, NativeTextSystem &text,
                                         diagnostics.layout.wrapPanels.size()),
                           theme.typography.body, theme.colors.foreground,
                           "wrap-count");
+              ComposeText(
+                  composer, text,
+                  LabeledNumber("Virtualized lists: ",
+                                diagnostics.layout.virtualizedLists.size()),
+                  theme.typography.body, theme.colors.foreground,
+                  "virtual-list-count");
               for (NGIN::UIntSize index = 0;
                    index < diagnostics.layout.grids.size(); ++index) {
                 ComposeText(composer, text,
@@ -1813,6 +2053,21 @@ void ComposeDiagnosticsPage(Composer &composer, NativeTextSystem &text,
                         diagnostics.layout.wrapPanels[index].lines.size()),
                     theme.typography.body, theme.colors.mutedForeground,
                     std::string{"wrap-lines-"} + std::to_string(index));
+              }
+              for (NGIN::UIntSize index = 0;
+                   index < diagnostics.layout.virtualizedLists.size();
+                   ++index) {
+                const auto &virtualList =
+                    diagnostics.layout.virtualizedLists[index];
+                String line{"Virtual list rows: "};
+                line.Append(Number(virtualList.logicalItemCount));
+                line.Append(String{" total · "});
+                line.Append(Number(virtualList.realizedNodeCount));
+                line.Append(String{" created"});
+                ComposeText(composer, text, std::move(line),
+                            theme.typography.body, theme.colors.mutedForeground,
+                            std::string{"virtual-list-rows-"} +
+                                std::to_string(index));
               }
             },
             "diagnostic-values");
@@ -2044,6 +2299,18 @@ Model::Model()
       m_collectionTab(
           CollectionTab::Selection,
           [this](const InvalidationKind kind) { Invalidate(kind); }),
+      m_virtualizedSelection(
+          String{"item-0"},
+          [this](const InvalidationKind kind) { Invalidate(kind); }),
+      m_virtualizedSource(std::make_unique<GalleryVirtualizedSource>()),
+      m_virtualizedController(std::make_unique<FixedVirtualizedListController>(
+          FixedVirtualizationOptions{
+              .itemExtent = 38.0F,
+              .itemGap = 2.0F,
+              .overscanItems = 3,
+              .initialViewportExtent = 280.0F,
+          },
+          [this](const InvalidationKind kind) { Invalidate(kind); })),
       m_comboPopup([this](const InvalidationKind kind) { Invalidate(kind); }),
       m_menuPopup([this](const InvalidationKind kind) { Invalidate(kind); }),
       m_contextPopup([this](const InvalidationKind kind) { Invalidate(kind); }),
@@ -2058,6 +2325,8 @@ Model::Model()
       m_accessibilityAnnouncement(
           String{"No announcement yet."},
           [this](const InvalidationKind kind) { Invalidate(kind); }) {}
+
+Model::~Model() = default;
 
 void Model::AttachRuntime(Application &application, NativeTextSystem &text,
                           Window &window) noexcept {
@@ -2208,6 +2477,37 @@ auto Model::IsCollectionFiltered() const noexcept -> bool {
 
 auto Model::CollectionTabBinding() -> Binding<CollectionTab> {
   return Bind(m_collectionTab);
+}
+
+auto Model::VirtualizedCollectionSource() noexcept
+    -> IVirtualizedDataSource<NGIN::UIntSize> & {
+  return *m_virtualizedSource;
+}
+
+auto Model::VirtualizedCollectionController() noexcept
+    -> FixedVirtualizedListController & {
+  return *m_virtualizedController;
+}
+
+auto Model::SelectedVirtualizedIndex() const noexcept
+    -> std::optional<NGIN::UIntSize> {
+  return m_virtualizedSource->IndexOfKey(m_virtualizedSelection.Get());
+}
+
+auto Model::SelectVirtualizedItem(const NGIN::UIntSize index)
+    -> UIResult<void> {
+  auto key = m_virtualizedSource->KeyAt(index);
+  if (!key) {
+    return std::move(key).Error();
+  }
+  static_cast<void>(m_virtualizedSelection.Set(std::move(key).Value()));
+  return {};
+}
+
+void Model::PrependVirtualizedItems() {
+  m_virtualizedSource->Prepend(250);
+  Invalidate(InvalidationKind::All);
+  Notify("Added 250 rows while keeping the visible item in place");
 }
 
 auto Model::ComboPopup() noexcept -> PopupController & { return m_comboPopup; }

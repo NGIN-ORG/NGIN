@@ -61,8 +61,10 @@ build/ngin-ui/benchmarks/NGINUIBenchmarks.exe
 ```
 
 The guarded paths are a 2,000-node composition frame, layout of that retained
-tree, a shaped paragraph, and construction/reconciliation/layout of a
-non-virtualized 10,000-item list. Budgets are in
+tree, a shaped paragraph, construction/reconciliation/layout of a
+non-virtualized 10,000-item list, and the complete virtualized path for a
+100,000-item logical list. The virtualized gate also aborts if more than 40
+runtime nodes are live in a 720-pixel viewport. Budgets are in
 `Packages/NGIN.UI/benchmarks/Budgets.hpp`. Change a budget only with a measured
 architectural reason and record both the old and new baseline in the review.
 

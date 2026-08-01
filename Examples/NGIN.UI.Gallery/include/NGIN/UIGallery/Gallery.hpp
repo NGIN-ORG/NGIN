@@ -3,11 +3,14 @@
 #include <NGIN/UI/UI.hpp>
 
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string_view>
 #include <vector>
 
 namespace NGIN::UIGallery {
+class GalleryVirtualizedSource;
+
 enum class Page : NGIN::UInt8 {
   Overview,
   Layout,
@@ -43,6 +46,7 @@ inline constexpr NGIN::UIntSize PageCount = 12;
 class Model final {
 public:
   Model();
+  ~Model();
 
   void AttachRuntime(UI::Application &application, UI::NativeTextSystem &text,
                      UI::Window &window) noexcept;
@@ -85,6 +89,15 @@ public:
   [[nodiscard]] auto IsCollectionDescending() const noexcept -> bool;
   [[nodiscard]] auto IsCollectionFiltered() const noexcept -> bool;
   [[nodiscard]] auto CollectionTabBinding() -> UI::Binding<CollectionTab>;
+  [[nodiscard]] auto VirtualizedCollectionSource() noexcept
+      -> UI::IVirtualizedDataSource<UIntSize> &;
+  [[nodiscard]] auto VirtualizedCollectionController() noexcept
+      -> UI::FixedVirtualizedListController &;
+  [[nodiscard]] auto SelectedVirtualizedIndex() const noexcept
+      -> std::optional<UIntSize>;
+  [[nodiscard]] auto SelectVirtualizedItem(UIntSize index)
+      -> UI::UIResult<void>;
+  void PrependVirtualizedItems();
   [[nodiscard]] auto ComboPopup() noexcept -> UI::PopupController &;
   [[nodiscard]] auto MenuPopup() noexcept -> UI::PopupController &;
   [[nodiscard]] auto ContextPopup() noexcept -> UI::PopupController &;
@@ -135,6 +148,9 @@ private:
   UI::State<bool> m_collectionDescending;
   UI::State<bool> m_collectionFiltered;
   UI::State<CollectionTab> m_collectionTab;
+  UI::State<Text::String> m_virtualizedSelection;
+  std::unique_ptr<GalleryVirtualizedSource> m_virtualizedSource;
+  std::unique_ptr<UI::FixedVirtualizedListController> m_virtualizedController;
   UI::PopupController m_comboPopup;
   UI::PopupController m_menuPopup;
   UI::PopupController m_contextPopup;

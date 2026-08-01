@@ -393,8 +393,8 @@ struct Application::Implementation final : IAccessibilityActionSink {
   std::optional<UIError> accessibilityError{};
   bool exitRequested{false};
 
-  auto PostAccessibilityAction(
-      AccessibilityActionRequest request) noexcept -> UIResult<void> override {
+  auto PostAccessibilityAction(AccessibilityActionRequest request) noexcept
+      -> UIResult<void> override {
     try {
       {
         std::scoped_lock lock{accessibilityMutex};
@@ -563,8 +563,8 @@ auto Application::CreateWindowInternal(WindowCreateInfo info,
       m_implementation->windows.pop_back();
       return std::move(nativeWindow).Error();
     }
-    auto attached = m_implementation->accessibility->AttachWindow(
-        AccessibilityWindowInfo{
+    auto attached =
+        m_implementation->accessibility->AttachWindow(AccessibilityWindowInfo{
             .window = platformWindow.Value(),
             .nativeWindow = nativeWindow.Value(),
             .title = info.title,
@@ -580,8 +580,8 @@ auto Application::CreateWindowInternal(WindowCreateInfo info,
     result->m_implementation->semanticTree =
         BuildSemanticTree(result->m_implementation->tree, info.title);
     ++result->m_implementation->semanticRevision;
-    auto published = m_implementation->accessibility->Publish(
-        AccessibilitySnapshot{
+    auto published =
+        m_implementation->accessibility->Publish(AccessibilitySnapshot{
             .window = platformWindow.Value(),
             .revision = result->m_implementation->semanticRevision,
             .root = result->m_implementation->semanticTree.Root(),
@@ -667,6 +667,9 @@ auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
     if (window->IsClosed()) {
       continue;
     }
+    if (window->IsDirty()) {
+      effectiveWait = std::chrono::milliseconds{0};
+    }
     for (const auto &entry : window->m_implementation->scheduledActions) {
       if (entry.due <= beforeWait) {
         effectiveWait = std::chrono::milliseconds{0};
@@ -695,10 +698,10 @@ auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
   for (const auto &request : accessibilityActions) {
     auto *window = m_implementation->FindWindow(request.window);
     if (window == nullptr || window->IsClosed()) {
-      m_implementation->accessibilityError = MakeUIError(
-          UIErrorCode::InvalidState,
-          "Accessibility action targeted a destroyed window", "NGIN.UI",
-          "DispatchAccessibilityAction");
+      m_implementation->accessibilityError =
+          MakeUIError(UIErrorCode::InvalidState,
+                      "Accessibility action targeted a destroyed window",
+                      "NGIN.UI", "DispatchAccessibilityAction");
       continue;
     }
     auto performed = window->PerformSemanticAction(request.semantic);
@@ -821,7 +824,9 @@ auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
 
     const auto frameStarted = DiagnosticsClock::now();
     FrameTimingDiagnostics frameTimings{};
+    window->m_implementation->dirty = false;
     if (window->m_implementation->compositionDirty) {
+      window->m_implementation->compositionDirty = false;
       const auto phaseStarted = DiagnosticsClock::now();
       Composer composer;
       if (window->m_implementation->content) {
@@ -837,7 +842,6 @@ auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
               composer.Declarations());
       window->m_implementation->inputRouter.Synchronize();
       ++window->m_implementation->diagnostics.compositionCount;
-      window->m_implementation->compositionDirty = false;
       window->m_implementation->layoutDirty = true;
       window->m_implementation->paintDirty = true;
       window->m_implementation->semanticsDirty = true;
@@ -851,6 +855,7 @@ auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
         static_cast<F32>(window->PixelExtent().height) / scaleFactor,
     };
     if (window->m_implementation->layoutDirty) {
+      window->m_implementation->layoutDirty = false;
       const auto phaseStarted = DiagnosticsClock::now();
       window->m_implementation->displayList.clear();
       window->m_implementation->preparedPacket = {};
@@ -859,13 +864,13 @@ auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
               SizeConstraints{.minimum = logicalSize, .maximum = logicalSize},
               Rect{0.0F, 0.0F, logicalSize.width, logicalSize.height},
               scaleFactor);
-      window->m_implementation->layoutDirty = false;
       window->m_implementation->paintDirty = true;
       window->m_implementation->semanticsDirty = true;
       frameTimings.layoutMilliseconds =
           ElapsedMilliseconds(phaseStarted, DiagnosticsClock::now());
     }
     if (window->m_implementation->paintDirty) {
+      window->m_implementation->paintDirty = false;
       const auto phaseStarted = DiagnosticsClock::now();
       window->m_implementation->displayList =
           BuildDisplayList(window->m_implementation->tree);
@@ -880,11 +885,11 @@ auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
           window->m_implementation->uiRenderer.Build(
               window->m_implementation->displayList, window->PixelExtent(),
               scaleFactor);
-      window->m_implementation->paintDirty = false;
       frameTimings.paintMilliseconds =
           ElapsedMilliseconds(phaseStarted, DiagnosticsClock::now());
     }
     if (window->m_implementation->semanticsDirty) {
+      window->m_implementation->semanticsDirty = false;
       const auto phaseStarted = DiagnosticsClock::now();
       window->m_implementation->semanticTree = BuildSemanticTree(
           window->m_implementation->tree, window->m_implementation->info.title);
@@ -892,9 +897,8 @@ auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
       if (m_implementation->accessibility) {
         try {
           SemanticNodeId focused{};
-          if (const auto *focusedRuntime =
-                  window->m_implementation->tree.Get(
-                      window->m_implementation->inputRouter.FocusedElement());
+          if (const auto *focusedRuntime = window->m_implementation->tree.Get(
+                  window->m_implementation->inputRouter.FocusedElement());
               focusedRuntime != nullptr) {
             if (const auto *focusedSemantic =
                     window->m_implementation->semanticTree.FindByOwner(
@@ -903,8 +907,8 @@ auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
               focused = focusedSemantic->id;
             }
           }
-          auto published = m_implementation->accessibility->Publish(
-              AccessibilitySnapshot{
+          auto published =
+              m_implementation->accessibility->Publish(AccessibilitySnapshot{
                   .window = window->PlatformHandle(),
                   .revision = window->m_implementation->semanticRevision,
                   .root = window->m_implementation->semanticTree.Root(),
@@ -915,13 +919,12 @@ auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
             m_implementation->accessibilityError = published.Error();
           }
         } catch (...) {
-          m_implementation->accessibilityError = MakeUIError(
-              UIErrorCode::OutOfMemory,
-              "Accessibility snapshot allocation failed", "NGIN.UI",
-              "PublishAccessibilitySnapshot", window->Id().c_str());
+          m_implementation->accessibilityError =
+              MakeUIError(UIErrorCode::OutOfMemory,
+                          "Accessibility snapshot allocation failed", "NGIN.UI",
+                          "PublishAccessibilitySnapshot", window->Id().c_str());
         }
       }
-      window->m_implementation->semanticsDirty = false;
       frameTimings.semanticsMilliseconds =
           ElapsedMilliseconds(phaseStarted, DiagnosticsClock::now());
     }
@@ -964,7 +967,6 @@ auto Application::PumpOnce(const std::chrono::milliseconds maximumWait) noexcept
     diagnostics.pointerCaptureOwner =
         window->m_implementation->inputRouter.FirstCapturedElement();
     diagnostics.frameTimings = frameTimings;
-    window->m_implementation->dirty = false;
   }
 
   return {};
@@ -1074,9 +1076,9 @@ auto CreateApplication(ApplicationCreateInfo info) noexcept
     return std::move(rendererInitialized).Error();
   }
 
-  auto application = std::unique_ptr<Application>(new Application{
-      std::move(info.platform), std::move(info.renderer),
-      std::move(info.accessibility)});
+  auto application = std::unique_ptr<Application>(
+      new Application{std::move(info.platform), std::move(info.renderer),
+                      std::move(info.accessibility)});
   if (application->m_implementation->accessibility) {
     auto accessibilityInitialized =
         application->m_implementation->accessibility->Initialize(

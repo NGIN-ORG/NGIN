@@ -671,6 +671,30 @@ auto LayoutEngine::MeasureContainer(RuntimeNode &node,
           ? InnerHeight(constraints.maximum.height, padding)
           : constraints.maximum.height;
 
+  if (node.type == ElementType::ListView &&
+      node.properties.virtualizedList.controller != nullptr) {
+    auto &controller = *node.properties.virtualizedList.controller;
+    F32 contentWidth = 0.0F;
+    for (const auto childHandle : node.children) {
+      const auto childSize =
+          Measure(childHandle,
+                  SizeConstraints{.maximum = Size{availableWidth,
+                                                  controller.ItemExtent()}});
+      contentWidth = std::max(contentWidth, childSize.width);
+    }
+    const auto viewportHeight =
+        std::isfinite(availableHeight)
+            ? availableHeight
+            : std::min(controller.TotalExtent(),
+                       controller.Diagnostics().viewportExtent);
+    return constraints.Constrain(Size{
+        std::max(node.properties.layout.preferredSize.width,
+                 contentWidth + padding.left + padding.right),
+        std::max(node.properties.layout.preferredSize.height,
+                 viewportHeight + padding.top + padding.bottom),
+    });
+  }
+
   F32 contentWidth = 0.0F;
   F32 contentHeight = 0.0F;
   UIntSize flowChildCount = 0;
@@ -1097,6 +1121,52 @@ void LayoutEngine::ArrangeChildren(RuntimeNode &node) {
 
   if (node.type == ElementType::ScrollView ||
       node.type == ElementType::ListView) {
+    if (node.type == ElementType::ListView &&
+        node.properties.virtualizedList.controller != nullptr) {
+      auto &controller = *node.properties.virtualizedList.controller;
+      node.scroll.viewportSize = Size{content.width, content.height};
+      node.scroll.contentSize = Size{content.width, controller.TotalExtent()};
+      if (const auto anchored = controller.TakePendingScrollOffset();
+          anchored) {
+        node.scroll.offset.y = *anchored;
+      }
+      node.scroll.offset.x = 0.0F;
+      node.scroll.offset.y =
+          std::clamp(node.scroll.offset.y, 0.0F,
+                     std::max(0.0F, node.scroll.contentSize.height -
+                                        node.scroll.viewportSize.height));
+      static_cast<void>(controller.UpdateViewport(
+          node.scroll.offset.y, node.scroll.viewportSize.height));
+
+      for (const auto childHandle : node.children) {
+        const auto *child = m_tree.Get(childHandle);
+        if (child == nullptr) {
+          continue;
+        }
+        if (child->properties.visibility == ElementVisibility::Collapsed) {
+          Arrange(childHandle, {});
+          continue;
+        }
+        if (!child->properties.virtualizedItem.enabled) {
+          Arrange(childHandle, {});
+          continue;
+        }
+        const auto itemY =
+            content.y +
+            static_cast<F32>(child->properties.virtualizedItem.sourceIndex) *
+                controller.ItemStride() -
+            node.scroll.offset.y;
+        Arrange(childHandle,
+                Rect{content.x, itemY, content.width, controller.ItemExtent()});
+      }
+
+      auto diagnostics = controller.Diagnostics();
+      diagnostics.element = node.id;
+      diagnostics.realizedNodeCount = node.children.size();
+      m_stats.virtualizedLists.push_back(std::move(diagnostics));
+      return;
+    }
+
     Size contentSize{};
     for (const auto childHandle : node.children) {
       if (const auto *child = m_tree.Get(childHandle); child != nullptr) {

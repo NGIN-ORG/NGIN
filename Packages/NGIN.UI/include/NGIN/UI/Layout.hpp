@@ -34,6 +34,7 @@ struct LayoutPassStats final {
   UIntSize arranged{0};
   std::vector<GridLayoutDiagnostics> grids{};
   std::vector<WrapPanelLayoutDiagnostics> wrapPanels{};
+  std::vector<VirtualizedListDiagnostics> virtualizedLists{};
 };
 
 /// @brief Measures and arranges a reconciled runtime tree in logical units.

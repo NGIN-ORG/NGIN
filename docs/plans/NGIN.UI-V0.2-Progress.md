@@ -186,3 +186,54 @@ Verification:
   wrapping;
 - standalone and hosted Gallery smoke checks passed;
 - public API documentation coverage passed.
+
+## Milestone 21 — Virtualized Collections
+
+Status: Complete
+Completed: 2026-08-01
+
+Delivered:
+
+- added a reusable fixed-row virtualization controller with viewport range
+  calculation, configurable overscan, logical extent, and bounded realized
+  mappings;
+- added `IVirtualizedDataSource<T>` stable keys and labels plus range
+  cancellation to the incremental-source contract;
+- added `VirtualizedListView` as an opt-in adapter while leaving ordinary
+  in-memory `ListView` composition unchanged;
+- limited virtualized composition, measurement, painting, and semantic nodes
+  to the viewport plus overscan instead of walking the logical source;
+- retained source index, stable key, realized node, selected item, list focus,
+  and semantic identity across viewport changes;
+- anchored the top visible key and within-row offset through insertion,
+  removal, reordering, filtering, and asynchronous source revisions;
+- retained invalidations raised inside a frame so layout-discovered viewport
+  changes compose their new realized range on the next immediate frame;
+- added logical arrow, Home, End, type-ahead, selection, ensure-visible, and
+  accessibility actions for items that are not currently realized;
+- exposed logical count, realized range and mappings, extents, source revision,
+  overscan, and range request/cancellation counts through controller and
+  per-frame layout diagnostics;
+- added a Collections Gallery card with a 100,000-item logical source, live
+  realization/range-load counts, keyboard navigation, and an insert-above
+  scroll-anchoring demonstration;
+- published a Release time/allocation budget for the complete 100,000-item
+  virtualized composition, reconciliation, and layout path;
+- documented the fixed-size version 0.2 contract, source lifetime and revision
+  rules, stable keys, asynchronous range loading, diagnostics, navigation, and
+  accessibility behavior.
+
+Verification:
+
+- `NGINUITests`: 131/131 passed with 4,631 assertions, including 100,000-item
+  realization bounds, retained keyed identity, source mutation anchoring,
+  asynchronous range arrival, type-ahead, selection, ensure-visible, and
+  virtual semantic identity;
+- Release `virtual-list-100000` benchmark passed at 0.2950 ms and 31 ordinary
+  heap allocations against budgets of 50 ms and 5,000 allocations; the gate
+  also requires no more than 40 live runtime nodes;
+- Gallery headless checks passed, including the 100,000-item bound, End-key
+  navigation, stable focus/selection, insert-above anchoring, and range-load
+  diagnostics;
+- standalone and hosted Gallery Collections-page smoke runs passed;
+- public API documentation coverage passed with 298 documented types.

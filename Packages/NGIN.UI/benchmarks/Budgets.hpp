@@ -16,4 +16,9 @@ inline constexpr Budget TextBudget{"text-paragraph", 500.0, 20000};
 // out every item. Keep enough headroom for allocator differences across the
 // supported standard libraries while still catching substantial regressions.
 inline constexpr Budget LargeListBudget{"large-list-10000", 2000.0, 450000};
+// The virtualized path must stay independent of the 100,000-item logical
+// count. This budget includes source synchronization, composition,
+// reconciliation, and layout of one 720-pixel viewport.
+inline constexpr Budget VirtualizedListBudget{"virtual-list-100000", 50.0,
+                                              5000};
 } // namespace NGIN::UI::Benchmarks

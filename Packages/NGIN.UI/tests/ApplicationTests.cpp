@@ -127,7 +127,8 @@ TEST_CASE(
   REQUIRE(duplicate.Error().code == UIErrorCode::InvalidArgument);
 }
 
-TEST_CASE("application invalidates every open window after shared resources reset") {
+TEST_CASE(
+    "application invalidates every open window after shared resources reset") {
   using namespace NGIN::UI;
   using namespace NGIN::UI::Testing;
 
@@ -161,6 +162,39 @@ TEST_CASE("application invalidates every open window after shared resources rese
   application->InvalidateAll(InvalidationKind::Paint);
   CHECK(first.Value()->IsClosed());
   CHECK(second.Value()->IsDirty());
+}
+
+TEST_CASE("invalidation raised during a frame is retained for the next frame") {
+  using namespace NGIN::UI;
+  using namespace NGIN::UI::Testing;
+
+  auto createdApplication = CreateApplication(ApplicationCreateInfo{
+      .platform = std::make_unique<TestPlatformBackend>(),
+      .renderer = std::make_unique<RecordingRenderBackend>(),
+  });
+  REQUIRE(createdApplication.HasValue());
+  auto application = std::move(createdApplication).Value();
+  auto createdWindow = application->CreateWindow(WindowCreateInfo{
+      .id = NGIN::Text::String{"FrameInvalidation"},
+      .title = NGIN::Text::String{"Frame invalidation"},
+  });
+  REQUIRE(createdWindow.HasValue());
+  auto *window = createdWindow.Value();
+  NGIN::UIntSize compositionCount = 0;
+  window->SetContent([&](Composer &composer) {
+    ++compositionCount;
+    composer.Border([] {}, {}, "content");
+    if (compositionCount == 1) {
+      window->Invalidate(InvalidationKind::All);
+    }
+  });
+
+  REQUIRE(application->PumpOnce().HasValue());
+  CHECK(compositionCount == 1);
+  CHECK(window->IsDirty());
+  REQUIRE(application->PumpOnce().HasValue());
+  CHECK(compositionCount == 2);
+  CHECK_FALSE(window->IsDirty());
 }
 
 TEST_CASE("window content composes on demand and retains runtime identity") {
