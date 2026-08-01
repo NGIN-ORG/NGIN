@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Package SchemaVersion="4"
          Name="NGIN.UI.Accessibility.Windows"
-         Version="0.1.0"
+         Version="0.2.0"
          CompatiblePlatformRange=">=0.1.0 &lt;0.2.0">
   <Metadata>
     <Description>Windows UI Automation provider for NGIN.UI.</Description>
@@ -14,7 +14,7 @@
   </Build>
   <Uses>
     <Package Name="NGIN.UI"
-             Version=">=0.1.0 &lt;0.2.0"
+             Version=">=0.2.0 &lt;0.3.0"
              Scope="Target" />
   </Uses>
   <Library Name="NGIN.UI.Accessibility.Windows">

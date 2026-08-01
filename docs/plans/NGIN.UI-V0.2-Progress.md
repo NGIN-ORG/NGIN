@@ -379,3 +379,67 @@ Verification:
 - public API documentation coverage passed with 329 documented types;
 - the awaited-motion test suite exercises sequential and parallel tasks on the
   deterministic UI clock, including the corrected `WhenAll` start behavior.
+
+## Milestone 25 — Version 0.2 Product Completion
+
+Status: Complete
+Completed: 2026-08-01
+
+Delivered:
+
+- versioned `NGIN.UI`, SDL3 backend, hosting, and Windows accessibility package
+  and CMake identities as 0.2.0, with matching header constants, workspace
+  policy, Gallery product versions, and 0.2 dependency ranges;
+- added searchable Gallery navigation by page name or feature, an explicit
+  no-results message, and one concise public API example with a working copy
+  action on every page;
+- kept the search, examples, feature pages, and model in the shared Gallery
+  source used by standalone, hosted, and headless products;
+- bounded `ImageTextureCache` to 128 textures and 256 MiB by default, with
+  expired-resource cleanup, least-recently-used eviction, configurable limits,
+  and current, peak, eviction, and capacity diagnostics;
+- added image-cache occupancy and pressure to the Gallery Diagnostics page;
+- published one 0.2 release guide containing package ranges, accepted motion
+  migration, exact performance/allocation/resource budgets, verification
+  commands, and archive instructions;
+- added Release profiles to all Gallery products and a versioned `demo`
+  publisher whose archive contains the executable, runtime libraries, image,
+  fonts, NGIN license, OFL licenses, SDL license, dependency notices, and a
+  source-independent run guide;
+- expanded the UI CI matrix to build and smoke standalone, hosted, and
+  headless Release Gallery products on Windows, Linux, and macOS, run the
+  Windows UI Automation provider check, and upload the versioned Windows demo;
+- updated the installed consumer to require NGIN.UI 0.2 and included Windows
+  accessibility headers in the public documentation gate.
+
+Published budgets:
+
+- composition-2000: 250 ms and 20,000 allocations;
+- layout-2000: 250 ms and 2,000 allocations;
+- text-paragraph: 500 ms and 20,000 allocations;
+- large-list-10000: 2,000 ms and 450,000 allocations;
+- virtual-list-100000: 50 ms, 5,000 allocations, and at most 40 live nodes;
+- glyph atlas: four 1024 by 1024 R8 pages, or 4 MiB;
+- image cache: 128 resident textures and 256 MiB RGBA8;
+- staged font files: 4,126,900 bytes.
+
+Verification:
+
+- `NGINUITests`: 148/148 passed with 4,891 assertions, including image-cache
+  entry, memory, LRU, expired-resource, and over-budget behavior;
+- Release budgets passed locally at 5.3703 ms/22 allocations for composition,
+  0.0572 ms/0 for layout, 1.3355 ms/7,830 for text, 72.534 ms/54 for the
+  ordinary list, and 0.2995 ms/31 for the 100,000-item virtualized list;
+- all three Release Gallery manifests validated and built from the authored V4
+  project files;
+- standalone and hosted native Release `--smoke` runs passed on Windows, and
+  the Release headless Gallery checks passed;
+- the Windows UI Automation provider test passed 1/1;
+- the public API documentation gate passed with 330 documented types;
+- NGIN.Base and NGIN.UI installed into a fresh prefix, and the independent
+  `find_package(NGINUI 0.2)` consumer passed 1/1;
+- `dist/NGIN.UI.Gallery-0.2.0-demo.zip` was produced with 20 staged entries,
+  its required assets and notices were checked, and a fresh isolated extraction
+  completed `--smoke` successfully;
+- the Linux and macOS native checks are represented in the committed CI matrix;
+  this Windows development session did not execute those operating systems.

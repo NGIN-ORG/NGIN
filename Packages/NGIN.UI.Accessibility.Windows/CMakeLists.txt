@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(NGIN.UI.Accessibility.Windows VERSION 0.1.0 LANGUAGES CXX)
+project(NGIN.UI.Accessibility.Windows VERSION 0.2.0 LANGUAGES CXX)
 
 option(NGIN_UI_ACCESSIBILITY_WINDOWS_STRICT_WARNINGS
        "Enable extra compiler warnings" ON)

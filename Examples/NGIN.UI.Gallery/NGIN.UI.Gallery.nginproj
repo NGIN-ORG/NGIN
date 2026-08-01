@@ -1,22 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project SchemaVersion="4"
          Name="NGIN.UI.Gallery"
+         Version="0.2.0"
          DefaultProfile="Debug">
 
   <Application>
     <Uses>
       <Package Name="NGIN.UI.Backend.SDL3"
-               Version=">=0.1.0 &lt;0.2.0"
+               Version=">=0.2.0 &lt;0.3.0"
                Scope="Target">
         <Feature Name="RuntimeNotices" />
       </Package>
       <Package Name="NGIN.UI"
-               Version=">=0.1.0 &lt;0.2.0"
+               Version=">=0.2.0 &lt;0.3.0"
                Scope="Target">
         <Feature Name="RuntimeAssets" />
       </Package>
       <Package Name="NGIN.UI.Accessibility.Windows"
-               Version=">=0.1.0 &lt;0.2.0"
+               Version=">=0.2.0 &lt;0.3.0"
                Scope="Target" />
     </Uses>
 
@@ -28,6 +29,10 @@
     <Stage>
       <Content Source="assets/images/gallery-sample.png"
                Target="images/gallery-sample.png" />
+      <Content Source="RELEASE.md"
+               Target="README.md" />
+      <Content Source="../../LICENSE"
+               Target="licenses/NGIN/LICENSE" />
     </Stage>
 
     <Launch Executable="NGIN.UI.Gallery"
@@ -42,5 +47,21 @@
       <TargetPlatform Name="host" />
       <Environment Name="local" />
     </Defaults>
+  </Profile>
+
+  <Profile Name="Release">
+    <Defaults>
+      <Optimization Mode="Speed" />
+      <DebugSymbols Enabled="false" />
+      <LinkTimeOptimization Enabled="false" />
+      <TargetPlatform Name="host" />
+      <Environment Name="shipping" />
+    </Defaults>
+    <Application>
+      <Publish Name="demo"
+               Kind="Archive"
+               Format="zip"
+               Output="../../dist/NGIN.UI.Gallery-$(ProjectVersion)-demo.zip" />
+    </Application>
   </Profile>
 </Project>

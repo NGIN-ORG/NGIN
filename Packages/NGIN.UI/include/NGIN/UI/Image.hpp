@@ -133,7 +133,19 @@ struct ImageCacheDiagnostics final {
   UInt64 missCount{0};
   UInt64 uploadCount{0};
   UInt64 evictionCount{0};
+  UInt64 capacityFailureCount{0};
   UIntSize entryCount{0};
+  UIntSize maximumEntryCount{0};
+  UIntSize peakEntryCount{0};
+  UInt64 residentBytes{0};
+  UInt64 maximumResidentBytes{0};
+  UInt64 peakResidentBytes{0};
+};
+
+/// @brief Fixed texture-entry and RGBA8 storage budgets for an image cache.
+struct ImageTextureCacheOptions final {
+  UIntSize maximumEntries{128};
+  UInt64 maximumResidentBytes{256ULL * 1024ULL * 1024ULL};
 };
 
 /// @brief Resolves logical image resources to renderer-owned textures.
@@ -149,7 +161,8 @@ public:
 /// @brief Lazily decodes, uploads, caches, and releases image textures.
 class ImageTextureCache final : public IImageResolver {
 public:
-  explicit ImageTextureCache(IRenderBackend &renderer);
+  explicit ImageTextureCache(IRenderBackend &renderer,
+                             ImageTextureCacheOptions options = {});
   ImageTextureCache(const ImageTextureCache &) = delete;
   ImageTextureCache(ImageTextureCache &&) = delete;
   auto operator=(const ImageTextureCache &) -> ImageTextureCache & = delete;

@@ -13,3 +13,7 @@ ngin build \
 ```
 
 Pass `--smoke` to open, draw a few frames, and exit automatically.
+
+The hosted and standalone products use the same searchable navigation, page
+examples, controls, and model. A `Release` profile is available for product
+verification; the standalone product owns the versioned demo archive.

@@ -71,9 +71,14 @@ architectural reason and record both the old and new baseline in the review.
 `NativeTextSystem::AtlasDiagnostics()` reports glyph hits, misses, uploads,
 page count and limit, peak pages, pixel-size buckets, used and available pixel
 area, evictions, page rebuilds, capacity failures, and device restorations.
-`ImageTextureCache::Diagnostics()` reports image hit, miss, upload, eviction,
-and occupancy counts. Activity counters are monotonic for the object's
-lifetime and are intended for tests and diagnostics, not application behavior.
+`ImageTextureCache` defaults to at most 128 resident textures and 256 MiB of
+RGBA8 texture data. It removes expired resources first, then the least recently
+used texture. `ImageTextureCache::Diagnostics()` reports the configured limits,
+current and peak entries and bytes, hits, misses, uploads, evictions, and
+capacity failures. Activity counters are monotonic for the object's lifetime
+and are intended for tests and diagnostics, not application behavior. The full
+release-budget table is in the
+[0.2 release notes](ngin-ui-v0.2-release.md).
 
 The native-text suite forces a small page budget through repeated sizes, holds
 live page leases to prove they cannot be recycled, alternates common DPI

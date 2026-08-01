@@ -1,6 +1,6 @@
 # NGIN.UI Version 0.2 Roadmap
 
-Status: In progress — Milestones 17–24 complete
+Status: Complete — Milestones 17–25 delivered
 Theme: Production desktop foundation
 Baseline: [`NGIN.UI-Post-V0.1-Roadmap.md`](NGIN.UI-Post-V0.1-Roadmap.md)
 Execution map:
@@ -342,6 +342,11 @@ cancellation and disappearance are safe, reduced motion completes immediately,
 and no continuation survives its owning UI lifetime.
 
 ## Milestone 25 — Version 0.2 Product Completion
+
+Completed 2026-08-01. Implementation and local verification evidence is
+recorded in
+[`NGIN.UI-V0.2-Progress.md`](NGIN.UI-V0.2-Progress.md). The Windows, Linux, and
+macOS release matrix is enforced by `.github/workflows/ui-ci.yml`.
 
 Deliver:
 

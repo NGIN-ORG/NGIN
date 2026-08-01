@@ -75,6 +75,19 @@ jobs:
           Packages/NGIN.UI/include/NGIN/UI
           Packages/NGIN.UI.Hosting/include/NGIN/UI
           Packages/NGIN.UI.Backend.SDL3/include/NGIN/UI
+          Packages/NGIN.UI.Accessibility.Windows/include/NGIN/UI
+
+      - name: Run Windows UI Automation provider test
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          cmake -S Packages/NGIN.UI.Accessibility.Windows \
+            -B build/ui-accessibility-windows \
+            -DNGIN_UI_ACCESSIBILITY_WINDOWS_BUILD_TESTS=ON
+          cmake --build build/ui-accessibility-windows --config Release \
+            --target NGINUIAccessibilityWindowsTests
+          ctest --test-dir build/ui-accessibility-windows -C Release \
+            --output-on-failure
 
       - name: Install NGIN.Base
         shell: bash
@@ -114,4 +127,86 @@ jobs:
           name: ui-ctest-${{ matrix.os }}
           path: build/ui-ci/Testing/Temporary/
           if-no-files-found: ignore
+          retention-days: 14
+
+  gallery:
+    name: Gallery products (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - windows-latest
+          - ubuntu-latest
+          - macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Install Linux native-smoke prerequisites
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ninja-build xvfb xauth mesa-vulkan-drivers
+
+      - name: Set up MSVC
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Build NGIN CLI
+        run: |
+          cmake --preset dev
+          cmake --build build/dev --target ngin_cli
+
+      - name: Build Release Gallery products
+        shell: bash
+        run: |
+          cli=./build/dev/Tools/NGIN.CLI/ngin
+          if [ "$RUNNER_OS" = "Windows" ]; then cli="${cli}.exe"; fi
+          "$cli" build --project Examples/NGIN.UI.Gallery/NGIN.UI.Gallery.nginproj --profile Release --output build/release/NGIN.UI.Gallery-0.2.0
+          "$cli" build --project Examples/NGIN.UI.Gallery.Hosted/NGIN.UI.Gallery.Hosted.nginproj --profile Release --output build/release/NGIN.UI.Gallery.Hosted-0.2.0
+          "$cli" build --project Examples/NGIN.UI.Gallery.Tests/NGIN.UI.Gallery.Tests.nginproj --profile Release --output build/release/NGIN.UI.Gallery.Tests-0.2.0
+
+      - name: Run headless Gallery checks
+        shell: bash
+        run: |
+          executable=./build/release/NGIN.UI.Gallery.Tests-0.2.0/bin/NGIN.UI.Gallery.Tests
+          if [ "$RUNNER_OS" = "Windows" ]; then executable="${executable}.exe"; fi
+          "$executable"
+
+      - name: Run native Gallery smoke checks
+        shell: bash
+        run: |
+          gallery=./build/release/NGIN.UI.Gallery-0.2.0/bin/NGIN.UI.Gallery
+          hosted=./build/release/NGIN.UI.Gallery.Hosted-0.2.0/bin/NGIN.UI.Gallery.Hosted
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            gallery="${gallery}.exe"
+            hosted="${hosted}.exe"
+          fi
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            xvfb-run --auto-servernum "$gallery" --smoke
+            xvfb-run --auto-servernum "$hosted" --smoke
+          else
+            "$gallery" --smoke
+            "$hosted" --smoke
+          fi
+
+      - name: Publish versioned demo
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          ./build/dev/Tools/NGIN.CLI/ngin.exe publish demo --project Examples/NGIN.UI.Gallery/NGIN.UI.Gallery.nginproj --profile Release --output build/release/NGIN.UI.Gallery-0.2.0
+
+      - name: Upload versioned demo
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v7
+        with:
+          name: NGIN.UI.Gallery-0.2.0-windows
+          path: dist/NGIN.UI.Gallery-0.2.0-demo.zip
+          if-no-files-found: error
           retention-days: 14

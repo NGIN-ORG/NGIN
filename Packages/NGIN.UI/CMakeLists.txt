@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(NGIN.UI VERSION 0.1.0 LANGUAGES CXX)
+project(NGIN.UI VERSION 0.2.0 LANGUAGES CXX)
 
 option(NGIN_UI_BUILD_TESTS "Build NGIN.UI tests" OFF)
 option(NGIN_UI_BUILD_EXAMPLES "Build NGIN.UI examples" OFF)

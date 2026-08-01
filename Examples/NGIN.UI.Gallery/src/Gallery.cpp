@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <charconv>
 #include <filesystem>
 #include <memory>
@@ -285,6 +286,53 @@ constexpr std::array<std::string_view, PageCount> PageNames{
     "Themes",   "Accessibility", "Diagnostics",
 };
 
+constexpr std::array<std::string_view, PageCount> PageSearchTerms{
+    "start colors buttons custom controls",
+    "grid wrap panel border canvas scroll responsive",
+    "fonts unicode arabic greek cyrillic wrapping alignment",
+    "editor multiline selection copy paste text",
+    "png jpeg picture fit crop clip tint cache",
+    "button checkbox radio switch slider progress tooltip field",
+    "list virtualized sorting filtering combo tabs menu collection",
+    "animation easing curve spring fade move scale async",
+    "popup menu tooltip overlay dismiss",
+    "window dialog modal desktop",
+    "theme resources colors light dark",
+    "accessibility narrator screen reader keyboard semantics",
+    "diagnostics performance memory atlas cache realization",
+};
+
+constexpr std::array<std::string_view, PageCount> PageExamples{
+    "composer.Button([] { Save(); }, button, \"save\");",
+    "composer.Grid([&] { ComposeForm(composer); }, grid, \"form\");",
+    "composer.Text(String{\"Hello\"}, text, text, label, \"title\");",
+    "composer.TextArea(notes, text, editor, \"notes\");",
+    "composer.Image(image, imageCache, String{\"Landscape\"}, {}, \"photo\");",
+    "CheckBox(composer, enabled, controls, {}, \"enabled\");",
+    "VirtualizedListView(composer, controller, source, ComposeRow, list, "
+    "\"items\");",
+    "co_await motion.FadeToAsync(context, 0.0F);",
+    "popup.SetAnchor(anchor); popup.Open();",
+    "auto window = application.CreateWindow(windowInfo);",
+    "composer.Scope(resources, [&] { ComposeContent(composer); });",
+    "button.semantics.label = String{\"Save changes\"};",
+    "const auto diagnostics = window.Diagnostics();",
+};
+
+[[nodiscard]] auto ContainsIgnoringCase(const std::string_view text,
+                                        const std::string_view query) -> bool {
+  if (query.empty()) {
+    return true;
+  }
+  return std::ranges::search(
+             text, query,
+             [](const char left, const char right) {
+               return std::tolower(static_cast<unsigned char>(left)) ==
+                      std::tolower(static_cast<unsigned char>(right));
+             })
+             .begin() != text.end();
+}
+
 [[nodiscard]] auto Number(const std::uint64_t value) -> String {
   const auto formatted = std::to_string(value);
   return String{formatted.c_str()};
@@ -431,10 +479,11 @@ void ComposeTextField(Composer &composer, NativeTextSystem &text, Model &model,
                       const Theme &theme, Binding<String> value,
                       const char *label, const std::string_view key,
                       const bool readOnly = false, const bool enabled = true,
-                      const bool invalid = false, const bool password = false) {
+                      const bool invalid = false, const bool password = false,
+                      const F32 width = 430.0F) {
   NodeProperties field{};
-  field.layout.preferredSize = Size{430.0F, theme.controls.spaciousHeight};
-  field.layout.maximumSize.width = 520.0F;
+  field.layout.preferredSize = Size{width, theme.controls.spaciousHeight};
+  field.layout.maximumSize.width = width;
   field.layout.padding = Thickness{12.0F, 10.0F, 12.0F, 10.0F};
   field.layout.horizontalAlignment = HorizontalAlignment::Start;
   field.layout.verticalAlignment = VerticalAlignment::Start;
@@ -2712,6 +2761,7 @@ void ComposeDiagnosticsPage(Composer &composer, NativeTextSystem &text,
   const auto diagnostics = model.Diagnostics();
   const auto textDiagnostics = model.TextDiagnostics();
   const auto fontDiagnostics = model.FontDiagnostics();
+  const auto imageDiagnostics = model.ImageDiagnostics();
   ComposeCard(
       composer, theme,
       [&] {
@@ -2891,10 +2941,103 @@ void ComposeDiagnosticsPage(Composer &composer, NativeTextSystem &text,
             "text-diagnostic-values");
       },
       "text-diagnostics-card");
+  ComposeCard(
+      composer, theme,
+      [&] {
+        NodeProperties column{};
+        column.layout.gap = theme.spacing.compact;
+        composer.Column(
+            [&] {
+              ComposeText(composer, text, String{"Image cache"}, 18.0F,
+                          theme.colors.foreground, "image-cache-title",
+                          SemanticRole::Heading);
+              ComposeText(
+                  composer, text,
+                  LabeledNumber("Images stored: ", imageDiagnostics.entryCount),
+                  theme.typography.body, theme.colors.foreground,
+                  "image-cache-entries");
+              ComposeText(composer, text,
+                          LabeledNumber("Image limit: ",
+                                        imageDiagnostics.maximumEntryCount),
+                          theme.typography.body, theme.colors.foreground,
+                          "image-cache-limit");
+              ComposeText(composer, text,
+                          LabeledNumber("Image memory (bytes): ",
+                                        imageDiagnostics.residentBytes),
+                          theme.typography.body, theme.colors.foreground,
+                          "image-cache-bytes");
+              ComposeText(
+                  composer, text,
+                  LabeledNumber("Images reused: ", imageDiagnostics.hitCount),
+                  theme.typography.body, theme.colors.foreground,
+                  "image-cache-hits");
+              ComposeText(composer, text,
+                          LabeledNumber("Images uploaded: ",
+                                        imageDiagnostics.uploadCount),
+                          theme.typography.body, theme.colors.foreground,
+                          "image-cache-uploads");
+              ComposeText(composer, text,
+                          LabeledNumber("Images removed: ",
+                                        imageDiagnostics.evictionCount),
+                          theme.typography.body, theme.colors.foreground,
+                          "image-cache-evictions");
+              ComposeText(composer, text,
+                          LabeledNumber("Images over the memory limit: ",
+                                        imageDiagnostics.capacityFailureCount),
+                          theme.typography.body, theme.colors.foreground,
+                          "image-cache-capacity-failures");
+            },
+            "image-cache-values");
+      },
+      "image-cache-card");
   ComposeButton(
       composer, text, theme,
       model.IsInspectorEnabled() ? "Hide layout guides" : "Show layout guides",
       [&model] { model.ToggleInspector(); }, "toggle-inspector", 260.0F);
+}
+
+void ComposePublicExample(Composer &composer, NativeTextSystem &text,
+                          Model &model, const Theme &theme) {
+  const auto page = model.CurrentPage();
+  ComposeCard(
+      composer, theme,
+      [&] {
+        NodeProperties column{};
+        column.layout.gap = theme.spacing.regular;
+        composer.Column(
+            [&] {
+              ComposeText(composer, text, String{"Use it in code"}, 18.0F,
+                          theme.colors.foreground, "example-title",
+                          SemanticRole::Heading);
+              ComposeText(composer, text,
+                          String{"A small public API example for this page."},
+                          theme.typography.caption,
+                          theme.colors.mutedForeground, "example-help");
+
+              NodeProperties code{};
+              code.layout.preferredSize.width = 680.0F;
+              code.layout.maximumSize.width = 680.0F;
+              code.layout.padding = Thickness::Uniform(Dp{12.0F});
+              code.visual = MakePanelVisual(theme);
+              code.visual.base.background = theme.colors.sunkenSurface;
+              code.semantics.role = SemanticRole::Group;
+              code.semantics.label = String{"Public API example"};
+              composer.Border(
+                  [&] {
+                    ComposeText(composer, text,
+                                String{PageExample(page).data()},
+                                theme.typography.body, theme.colors.foreground,
+                                "example-code");
+                  },
+                  code, "example-code-frame");
+              ComposeButton(
+                  composer, text, theme, "Copy example",
+                  [&model, page] { model.CopyExample(page); }, "copy-example",
+                  180.0F);
+            },
+            "example-content");
+      },
+      "public-example-card");
 }
 
 void ComposePage(Composer &composer, NativeTextSystem &text, Model &model,
@@ -2980,10 +3123,17 @@ auto PageName(const Page page) noexcept -> std::string_view {
   return PageNames[static_cast<NGIN::UIntSize>(page)];
 }
 
+auto PageExample(const Page page) noexcept -> std::string_view {
+  return PageExamples[static_cast<NGIN::UIntSize>(page)];
+}
+
 Model::Model()
     : m_page(
           Page::Overview,
           [this](const InvalidationKind kind) { Invalidate(kind); },
+          InvalidationKind::All),
+      m_navigationSearch(
+          String{}, [this](const InvalidationKind kind) { Invalidate(kind); },
           InvalidationKind::All),
       m_lightTheme(
           false, [this](const InvalidationKind kind) { Invalidate(kind); },
@@ -3112,6 +3262,34 @@ void Model::SelectPage(const Page page) {
   }
   SetPopupOpen(false);
   static_cast<void>(m_page.Set(page));
+}
+
+auto Model::NavigationSearchBinding() -> Binding<String> {
+  return Bind(m_navigationSearch);
+}
+
+auto Model::NavigationMatches(const Page page) const -> bool {
+  const auto query = m_navigationSearch.Get().View();
+  const auto index = static_cast<NGIN::UIntSize>(page);
+  return ContainsIgnoringCase(PageNames[index], query) ||
+         ContainsIgnoringCase(PageSearchTerms[index], query);
+}
+
+void Model::CopyExample(const Page page) {
+  if (m_application == nullptr) {
+    static_cast<void>(m_status.Set(String{"The Gallery is not attached."}));
+    return;
+  }
+  auto copied = m_application->Platform().SetClipboardText(
+      String{PageExample(page).data()});
+  if (!copied) {
+    Report(std::move(copied).Error());
+    return;
+  }
+  String status{"Copied the "};
+  status.Append(String{PageName(page).data()});
+  status.Append(String{" example."});
+  static_cast<void>(m_status.Set(std::move(status)));
 }
 
 auto Model::CurrentTheme() const -> Theme {
@@ -3488,6 +3666,11 @@ auto Model::FontDiagnostics() const noexcept -> FontCoverageDiagnostics {
                            : FontCoverageDiagnostics{};
 }
 
+auto Model::ImageDiagnostics() const noexcept -> ImageCacheDiagnostics {
+  return m_imageCache != nullptr ? m_imageCache->Diagnostics()
+                                 : ImageCacheDiagnostics{};
+}
+
 auto Model::AccessibilityDiagnostics() const noexcept
     -> NGIN::UI::AccessibilityDiagnostics {
   return m_application != nullptr ? m_application->AccessibilityDiagnostics()
@@ -3561,18 +3744,36 @@ void ComposeMainView(Composer &composer, NativeTextSystem &text, Model &model) {
                     ComposeText(composer, text, String{"Control gallery"},
                                 13.0F, theme.colors.mutedForeground,
                                 "brand-subtitle");
+                    ComposeText(composer, text, String{"Find a page"}, 13.0F,
+                                theme.colors.mutedForeground,
+                                "navigation-search-label");
+                    ComposeTextField(
+                        composer, text, model, theme,
+                        model.NavigationSearchBinding(), "Search gallery pages",
+                        "navigation-search", false, true, false, false, 180.0F);
                     NodeProperties separator{};
                     separator.visual = MakeSeparatorVisual(theme);
                     composer.Separator(SeparatorOrientation::Horizontal,
                                        separator, "nav-separator");
+                    NGIN::UIntSize visiblePages = 0;
                     for (NGIN::UIntSize index = 0; index < PageCount; ++index) {
                       const auto page = PageAt(index);
+                      if (!model.NavigationMatches(page)) {
+                        continue;
+                      }
+                      ++visiblePages;
                       const auto name = PageName(page);
                       ComposeButton(
                           composer, text, theme, name.data(),
                           [&model, page] { model.SelectPage(page); },
                           std::to_string(index), 180.0F, true,
                           model.CurrentPage() == page);
+                    }
+                    if (visiblePages == 0) {
+                      ComposeText(composer, text, String{"No pages found."},
+                                  theme.typography.caption,
+                                  theme.colors.mutedForeground,
+                                  "navigation-no-results");
                     }
                     ComposeButton(
                         composer, text, theme,
@@ -3609,6 +3810,7 @@ void ComposeMainView(Composer &composer, NativeTextSystem &text, Model &model) {
                   ElementType::Column, page,
                   [&] {
                     ComposePage(composer, text, model, theme);
+                    ComposePublicExample(composer, text, model, theme);
                     if (!model.Status().Empty()) {
                       ComposeText(composer, text, model.Status(), 13.0F,
                                   theme.colors.mutedForeground,

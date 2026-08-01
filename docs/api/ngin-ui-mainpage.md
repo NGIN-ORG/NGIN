@@ -2,6 +2,10 @@
 
 NGIN.UI is a retained, backend-neutral C++23 desktop UI toolkit.
 
+The current public header and package version is 0.2.0. See the
+[version 0.2 release notes](../guides/ngin-ui-v0.2-release.md) for package
+ranges, migration, resource budgets, and release verification.
+
 This reference is generated from the installed public headers in
 `Packages/NGIN.UI/include/NGIN/UI`. Start with the
 [developer guide index](../guides/ngin-ui.md) for task-oriented documentation

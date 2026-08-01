@@ -4,6 +4,9 @@ This app lets you try the controls and features in `NGIN.UI`.
 
 ![NGIN.UI gallery Inputs page](docs/gallery-overview.png)
 
+Search the sidebar by a page name or feature. Every page ends with a small
+public API example and a **Copy example** button.
+
 The sidebar has thirteen pages:
 
 - **Overview** shows colors, buttons, and custom controls.
@@ -73,3 +76,7 @@ The deterministic headless companion product is
 [`../NGIN.UI.Gallery.Tests`](../NGIN.UI.Gallery.Tests/). It renders every page
 through the recording backend and also checks theme, popup, inspector,
 auxiliary-window, and modal-dialog state.
+
+To create the versioned 0.2 demo archive, use the `Release` profile and the
+`demo` publisher. The exact commands and archive contents are in the
+[0.2 release notes](../../docs/guides/ngin-ui-v0.2-release.md).

@@ -548,11 +548,48 @@ struct ImageTextureCache::Impl final {
     TextureHandle texture{};
     PixelSize size{};
     UInt64 revision{0};
+    UInt64 residentBytes{0};
+    UInt64 lastUse{0};
   };
 
   IRenderBackend *renderer{nullptr};
   std::unordered_map<const ImageResource *, Entry> entries{};
   ImageCacheDiagnostics diagnostics{};
+  UInt64 useCounter{0};
+
+  void DestroyEntry(const std::unordered_map<const ImageResource *,
+                                             Entry>::iterator found) noexcept {
+    if (renderer != nullptr && found->second.texture) {
+      static_cast<void>(renderer->DestroyTexture(found->second.texture));
+    }
+    diagnostics.residentBytes -= found->second.residentBytes;
+    ++diagnostics.evictionCount;
+    entries.erase(found);
+    diagnostics.entryCount = entries.size();
+  }
+
+  void PruneExpired() noexcept {
+    for (auto found = entries.begin(); found != entries.end();) {
+      if (!found->second.resource.expired()) {
+        ++found;
+        continue;
+      }
+      const auto expired = found++;
+      DestroyEntry(expired);
+    }
+  }
+
+  void MakeRoom(const UInt64 requiredBytes) noexcept {
+    PruneExpired();
+    while (!entries.empty() &&
+           (entries.size() >= diagnostics.maximumEntryCount ||
+            diagnostics.residentBytes + requiredBytes >
+                diagnostics.maximumResidentBytes)) {
+      const auto oldest = std::ranges::min_element(
+          entries, {}, [](const auto &item) { return item.second.lastUse; });
+      DestroyEntry(oldest);
+    }
+  }
 
   void DestroyAll() noexcept {
     if (renderer != nullptr) {
@@ -565,12 +602,18 @@ struct ImageTextureCache::Impl final {
     diagnostics.evictionCount += static_cast<UInt64>(entries.size());
     entries.clear();
     diagnostics.entryCount = 0;
+    diagnostics.residentBytes = 0;
   }
 };
 
-ImageTextureCache::ImageTextureCache(IRenderBackend &renderer)
+ImageTextureCache::ImageTextureCache(IRenderBackend &renderer,
+                                     ImageTextureCacheOptions options)
     : m_impl(std::make_unique<Impl>()) {
   m_impl->renderer = &renderer;
+  m_impl->diagnostics.maximumEntryCount =
+      std::max<UIntSize>(1, options.maximumEntries);
+  m_impl->diagnostics.maximumResidentBytes =
+      std::max<UInt64>(4, options.maximumResidentBytes);
 }
 
 ImageTextureCache::~ImageTextureCache() { m_impl->DestroyAll(); }
@@ -597,19 +640,16 @@ auto ImageTextureCache::Resolve(
   }
 
   const auto revision = resource->Revision();
+  m_impl->PruneExpired();
   auto found = m_impl->entries.find(resource.get());
   if (found != m_impl->entries.end() &&
       found->second.resource.lock() != resource) {
-    if (found->second.texture) {
-      static_cast<void>(
-          m_impl->renderer->DestroyTexture(found->second.texture));
-    }
-    ++m_impl->diagnostics.evictionCount;
-    m_impl->entries.erase(found);
+    m_impl->DestroyEntry(found);
     found = m_impl->entries.end();
   }
   if (found != m_impl->entries.end() && found->second.revision == revision &&
       found->second.texture) {
+    found->second.lastUse = ++m_impl->useCounter;
     ++m_impl->diagnostics.hitCount;
     return ResolvedImage{
         .texture = found->second.texture,
@@ -618,9 +658,7 @@ auto ImageTextureCache::Resolve(
     };
   }
   if (found != m_impl->entries.end() && found->second.texture) {
-    static_cast<void>(m_impl->renderer->DestroyTexture(found->second.texture));
-    ++m_impl->diagnostics.evictionCount;
-    m_impl->entries.erase(found);
+    m_impl->DestroyEntry(found);
   }
 
   ++m_impl->diagnostics.missCount;
@@ -628,6 +666,16 @@ auto ImageTextureCache::Resolve(
   if (!pixels) {
     return std::move(pixels).Error();
   }
+  const auto residentBytes = static_cast<UInt64>(pixels.Value().size.width) *
+                             static_cast<UInt64>(pixels.Value().size.height) *
+                             4ULL;
+  if (residentBytes > m_impl->diagnostics.maximumResidentBytes) {
+    ++m_impl->diagnostics.capacityFailureCount;
+    return ImageError(UIErrorCode::ResourceFailed,
+                      "The decoded image exceeds the texture-cache budget",
+                      "ResolveImage");
+  }
+  m_impl->MakeRoom(residentBytes);
   auto texture = m_impl->renderer->CreateTexture(TextureCreateInfo{
       .size = pixels.Value().size,
       .format = TextureFormat::RGBA8,
@@ -654,9 +702,16 @@ auto ImageTextureCache::Resolve(
       .texture = texture.Value(),
       .size = size,
       .revision = revision,
+      .residentBytes = residentBytes,
+      .lastUse = ++m_impl->useCounter,
   };
+  m_impl->diagnostics.residentBytes += residentBytes;
   ++m_impl->diagnostics.uploadCount;
   m_impl->diagnostics.entryCount = m_impl->entries.size();
+  m_impl->diagnostics.peakEntryCount = std::max(
+      m_impl->diagnostics.peakEntryCount, m_impl->diagnostics.entryCount);
+  m_impl->diagnostics.peakResidentBytes = std::max(
+      m_impl->diagnostics.peakResidentBytes, m_impl->diagnostics.residentBytes);
   return ResolvedImage{
       .texture = texture.Value(),
       .size = size,
@@ -673,12 +728,7 @@ void ImageTextureCache::Invalidate(
   if (found == m_impl->entries.end()) {
     return;
   }
-  if (m_impl->renderer != nullptr && found->second.texture) {
-    static_cast<void>(m_impl->renderer->DestroyTexture(found->second.texture));
-  }
-  ++m_impl->diagnostics.evictionCount;
-  m_impl->entries.erase(found);
-  m_impl->diagnostics.entryCount = m_impl->entries.size();
+  m_impl->DestroyEntry(found);
 }
 
 void ImageTextureCache::OnDeviceLost() noexcept {

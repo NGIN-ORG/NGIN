@@ -185,7 +185,24 @@ invalidate its window on the UI thread.
 
 `ImageTextureCache` is the boundary between logical pixels and a render
 backend. `Resolve()` uploads a ready resource on first use and reuses the
-texture for later frames.
+texture for later frames. The default cache holds at most 128 textures and
+256 MiB of RGBA8 data. Expired resources are removed first, followed by the
+least recently used texture.
+
+Set a measured application budget at construction when needed:
+
+```cpp
+NGIN::UI::ImageTextureCache imageCache{
+    renderer,
+    NGIN::UI::ImageTextureCacheOptions{
+        .maximumEntries = 64,
+        .maximumResidentBytes = 128ULL * 1024ULL * 1024ULL,
+    }};
+```
+
+An image larger than the byte limit fails resolution without displacing the
+current cache. `Diagnostics()` reports configured, current, and peak entries
+and bytes, along with reuse, upload, eviction, and capacity-failure counts.
 
 The cache and renderer must live on the UI/render thread. Handle device
 transitions explicitly:

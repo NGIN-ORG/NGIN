@@ -1,5 +1,9 @@
 # NGIN.UI
 
+Current package version: `0.2.0`. See the
+[0.2 release notes](../../docs/guides/ngin-ui-v0.2-release.md) for migration,
+published resource budgets, and the versioned Gallery archive.
+
 `NGIN.UI` is the backend-neutral core of NGIN's C++23 application UI toolkit.
 Its public contracts depend only on `NGIN.Base`; its native text and standard
 image implementations privately compile pinned FreeType, HarfBuzz, and
@@ -11,11 +15,11 @@ Start with the
 [five-minute standalone window](../../docs/guides/ngin-ui-first-window.md).
 Public source compatibility and deprecation rules are defined in the
 [NGIN.UI compatibility policy](../../docs/policies/ngin-ui-source-compatibility.md).
-Future production-readiness work is defined by the
+Version 0.2 delivery evidence is recorded in the
 [version 0.2 roadmap](../../docs/plans/NGIN.UI-V0.2-Roadmap.md) and its
-[implementation workstreams](../../docs/plans/NGIN.UI-V0.2-Implementation-Workstreams.md).
+[progress log](../../docs/plans/NGIN.UI-V0.2-Progress.md).
 
-The version 0.1 implementation provides:
+Version 0.2 provides:
 
 - device-independent and pixel geometry;
 - generational platform/render handles;
@@ -97,6 +101,8 @@ The version 0.1 implementation provides:
 - logical RGBA image resources with memory, file, and generated-pixel sources,
   pluggable asynchronous decoding and cancellation, lazy texture upload, and
   explicit device-loss/recreation hooks;
+- a bounded least-recently-used image texture cache with entry, byte, peak,
+  eviction, and capacity diagnostics;
 - built-in bounded PNG, JPEG, and PPM decoding to RGBA8;
 - semantic `Image` composition with none/fill/contain/cover/scale-down fit,
   alignment, tint, and clipping;

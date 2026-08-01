@@ -34,6 +34,7 @@ of the runnable paths, then use the topic guides as needed.
 
 ## Integration and support
 
+- [Version 0.2 release notes, migration, budgets, and demo archive](ngin-ui-v0.2-release.md)
 - [Platform and renderer backend authoring](ngin-ui-backend-authoring.md)
 - [Testing, visual baselines, performance budgets, packaging, and release gates](ngin-ui-testing-and-release.md)
 - [Troubleshooting](ngin-ui-troubleshooting.md)

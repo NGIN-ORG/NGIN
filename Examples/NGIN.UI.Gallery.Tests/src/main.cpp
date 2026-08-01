@@ -146,6 +146,12 @@ auto main() -> int {
                "page selection is deterministic") ||
         !Check(!NGIN::UIGallery::PageName(page).empty(),
                "every page has a name") ||
+        !Check(!NGIN::UIGallery::PageExample(page).empty(),
+               "every page has a public API example") ||
+        !Check(FindByTypeAndKey(window->Tree(), ElementType::Button,
+                                "copy-example")
+                   .IsValid(),
+               "every page exposes a copy-example action") ||
         !Check(!window->Semantics().Nodes().empty(),
                "every page emits semantics")) {
       return 1;
@@ -314,9 +320,42 @@ auto main() -> int {
                     model.GalleryImage()->State() == ImageLoadState::Ready,
                 "images page decodes its staged PNG asset") ||
          !Check(model.GalleryImage()->Size() == PixelSize{1536, 1024},
-                "images page retains decoded PNG dimensions"))) {
+                "images page retains decoded PNG dimensions") ||
+         !Check(model.ImageDiagnostics().entryCount > 0,
+                "image cache activity is observable"))) {
       return 1;
     }
+  }
+
+  auto navigationSearch = model.NavigationSearchBinding();
+  if (!navigationSearch.Set(NGIN::Text::String{"narrator"}) ||
+      !application->PumpOnce() ||
+      !Check(
+          FindByTypeAndKey(window->Tree(), ElementType::Button, "11").IsValid(),
+          "navigation search finds pages by feature") ||
+      !Check(
+          !FindByTypeAndKey(window->Tree(), ElementType::Button, "0").IsValid(),
+          "navigation search hides unrelated pages")) {
+    return 1;
+  }
+  if (!navigationSearch.Set(NGIN::Text::String{"not-a-gallery-feature"}) ||
+      !application->PumpOnce() ||
+      !Check(FindByTypeAndKey(window->Tree(), ElementType::Text,
+                              "navigation-no-results")
+                 .IsValid(),
+             "navigation search explains an empty result")) {
+    return 1;
+  }
+  if (!navigationSearch.Set(NGIN::Text::String{}) || !application->PumpOnce()) {
+    return 1;
+  }
+
+  model.SelectPage(NGIN::UIGallery::Page::Motion);
+  model.CopyExample(model.CurrentPage());
+  if (!Check(platformObserver->ClipboardText().View() ==
+                 NGIN::UIGallery::PageExample(NGIN::UIGallery::Page::Motion),
+             "copy example writes the shown public API to the clipboard")) {
+    return 1;
   }
 
   if (!Check(rendererObserver->RenderPackets().size() >=

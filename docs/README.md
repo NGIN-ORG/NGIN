@@ -27,6 +27,9 @@ If you are trying to understand NGIN as a user:
 
 ## Guides
 
+- [`guides/ngin-ui-v0.2-release.md`](guides/ngin-ui-v0.2-release.md)
+  NGIN.UI 0.2 package versions, migration notes, budgets, release checks, and
+  versioned Gallery archive.
 - [`guides/nginproj-authoring.md`](guides/nginproj-authoring.md)
   Concise developer guide for authoring `.nginproj` files.
 - [`guides/tool-driver-authoring.md`](guides/tool-driver-authoring.md)

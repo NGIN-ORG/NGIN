@@ -256,6 +256,9 @@ TEST_CASE("image texture cache uploads lazily and recreates device resources") {
   CHECK(cache.Diagnostics().missCount == 1);
   CHECK(cache.Diagnostics().uploadCount == 1);
   CHECK(cache.Diagnostics().entryCount == 1);
+  CHECK(cache.Diagnostics().maximumEntryCount == 128);
+  CHECK(cache.Diagnostics().residentBytes == 48);
+  CHECK(cache.Diagnostics().maximumResidentBytes == 256ULL * 1024ULL * 1024ULL);
 
   auto cached = cache.Resolve(resource);
   REQUIRE(cached.HasValue());
@@ -280,6 +283,50 @@ TEST_CASE("image texture cache uploads lazily and recreates device resources") {
   CHECK(cache.Diagnostics().missCount == 2);
   CHECK(cache.Diagnostics().uploadCount == 2);
   CHECK(cache.Diagnostics().entryCount == 1);
+}
+
+TEST_CASE("image texture cache enforces entry and memory budgets") {
+  using namespace NGIN::UI;
+
+  Testing::RecordingRenderBackend renderer;
+  REQUIRE(renderer.Initialize({}).HasValue());
+  auto first = ImageResource::FromPixels(SolidPixels(PixelSize{2, 2})).Value();
+  auto second = ImageResource::FromPixels(SolidPixels(PixelSize{2, 2})).Value();
+  auto third = ImageResource::FromPixels(SolidPixels(PixelSize{2, 2})).Value();
+  ImageTextureCache cache{renderer, ImageTextureCacheOptions{
+                                        .maximumEntries = 2,
+                                        .maximumResidentBytes = 32,
+                                    }};
+
+  REQUIRE(cache.Resolve(first).HasValue());
+  REQUIRE(cache.Resolve(second).HasValue());
+  REQUIRE(cache.Resolve(first).HasValue());
+  REQUIRE(cache.Resolve(third).HasValue());
+  const auto bounded = cache.Diagnostics();
+  CHECK(bounded.entryCount == 2);
+  CHECK(bounded.peakEntryCount == 2);
+  CHECK(bounded.residentBytes == 32);
+  CHECK(bounded.peakResidentBytes == 32);
+  CHECK(bounded.evictionCount == 1);
+  CHECK(bounded.hitCount == 1);
+
+  REQUIRE(cache.Resolve(second).HasValue());
+  CHECK(cache.Diagnostics().entryCount == 2);
+  CHECK(cache.Diagnostics().evictionCount == 2);
+  CHECK(cache.Diagnostics().missCount == 4);
+
+  auto tooLarge =
+      ImageResource::FromPixels(SolidPixels(PixelSize{3, 3})).Value();
+  auto rejected = cache.Resolve(tooLarge);
+  REQUIRE_FALSE(rejected.HasValue());
+  CHECK(rejected.Error().code == UIErrorCode::ResourceFailed);
+  CHECK(cache.Diagnostics().capacityFailureCount == 1);
+  CHECK(cache.Diagnostics().entryCount == 2);
+
+  third.reset();
+  REQUIRE(cache.Resolve(second).HasValue());
+  CHECK(cache.Diagnostics().entryCount == 1);
+  CHECK(cache.Diagnostics().evictionCount == 3);
 }
 
 TEST_CASE("Image composes fit tint clipping and semantic description") {

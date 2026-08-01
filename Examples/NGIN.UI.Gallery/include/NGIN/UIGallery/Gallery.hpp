@@ -44,6 +44,7 @@ inline constexpr NGIN::UIntSize PageCount = 13;
 
 [[nodiscard]] auto PageAt(NGIN::UIntSize index) noexcept -> Page;
 [[nodiscard]] auto PageName(Page page) noexcept -> std::string_view;
+[[nodiscard]] auto PageExample(Page page) noexcept -> std::string_view;
 
 class Model final {
 public:
@@ -55,6 +56,9 @@ public:
 
   [[nodiscard]] auto CurrentPage() const noexcept -> Page;
   void SelectPage(Page page);
+  [[nodiscard]] auto NavigationSearchBinding() -> UI::Binding<Text::String>;
+  [[nodiscard]] auto NavigationMatches(Page page) const -> bool;
+  void CopyExample(Page page);
 
   [[nodiscard]] auto CurrentTheme() const -> UI::Theme;
   [[nodiscard]] auto IsLightTheme() const noexcept -> bool;
@@ -145,6 +149,8 @@ public:
       -> UI::GlyphAtlasDiagnostics;
   [[nodiscard]] auto FontDiagnostics() const noexcept
       -> UI::FontCoverageDiagnostics;
+  [[nodiscard]] auto ImageDiagnostics() const noexcept
+      -> UI::ImageCacheDiagnostics;
   [[nodiscard]] auto AccessibilityDiagnostics() const noexcept
       -> UI::AccessibilityDiagnostics;
   [[nodiscard]] auto AccessibilityAnnouncement() const noexcept
@@ -160,6 +166,7 @@ private:
   UI::NativeTextSystem *m_text{nullptr};
   UI::Window *m_window{nullptr};
   UI::State<Page> m_page;
+  UI::State<Text::String> m_navigationSearch;
   UI::State<bool> m_lightTheme;
   UI::State<Text::String> m_name;
   UI::State<Text::String> m_password;
