@@ -1,6 +1,8 @@
 # NGIN.ECS Simulation And Scheduling Redesign Plan
 
-Status: Proposed breaking contract
+Status: Implemented contract; release verification tracked separately
+
+Implementation status: [`NGIN-ECS-Simulation-And-Scheduling-Redesign-Progress.md`](NGIN-ECS-Simulation-And-Scheduling-Redesign-Progress.md)
 
 Target: `NGIN.ECS 0.3.0`
 

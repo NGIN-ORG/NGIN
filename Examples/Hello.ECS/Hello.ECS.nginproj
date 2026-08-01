@@ -6,7 +6,7 @@
   <Application>
     <Uses>
       <Package Name="NGIN.ECS"
-               Version=">=0.2.0 &lt;0.3.0"
+               Version=">=0.3.0 &lt;0.4.0"
                Scope="Target" />
     </Uses>
 

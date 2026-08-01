@@ -71,54 +71,45 @@ int main()
 {
     using namespace NGIN::ECS;
 
-    World world;
+    Simulation simulation {
+        SimulationConfig {.FixedDeltaTime = 0.0}};
 
     // Each racer is an entity assembled from the same reusable components.
-    (void)world.Spawn(
+    (void)simulation.Spawn(
         Position{}, Velocity{0}, Acceleration{1}, Racer{"Turbo Tortoise", 'T'});
-    (void)world.Spawn(
+    (void)simulation.Spawn(
         Position{}, Velocity{3}, Acceleration{0}, Racer{"Hasty Hare", 'H'});
-    (void)world.Spawn(
+    (void)simulation.Spawn(
         Position{}, Velocity{2}, Acceleration{0}, Racer{"Clockwork Crab", 'C'});
 
-    Scheduler scheduler;
+    auto &update = simulation.Schedule(Update);
 
-    const auto accelerate = scheduler.AddSystem(
+    const auto accelerate = update.Each(
         "Accelerate",
-        [](Query<Write<Velocity>, Read<Acceleration>> &racers)
+        [](Velocity &velocity, const Acceleration &acceleration)
         {
-            racers.ForEach(
-                [](auto row)
-                {
-                    row.template Get<Velocity>().X +=
-                        row.template Get<Acceleration>().X;
-                });
+            velocity.X += acceleration.X;
         });
 
-    const auto move = scheduler.AddSystem(
+    const auto move = update.Each(
         "Move",
-        [](Query<Write<Position>, Read<Velocity>> &racers)
+        [](Position &position, const Velocity &velocity)
         {
-            racers.ForEach(
-                [](auto row)
-                {
-                    row.template Get<Position>().X +=
-                        row.template Get<Velocity>().X;
-                });
+            position.X += velocity.X;
         });
 
-    scheduler.After(move, accelerate);
+    update.After(move, accelerate);
 
     std::cout << "=== NGIN.ECS GRAND PRIX ===\n"
               << "Entities race using Position, Velocity, and Acceleration.\n"
               << "The Accelerate and Move systems update every racer.\n";
 
-    (void)DrawRace(world, 0);
+    (void)DrawRace(simulation.GetWorld(), 0);
 
     for (int tick = 1; tick <= 10; ++tick)
     {
-        scheduler.Run(world);
-        const auto winner = DrawRace(world, tick);
+        (void)simulation.Step(FrameInfo {.DeltaTime = 1.0});
+        const auto winner = DrawRace(simulation.GetWorld(), tick);
         if (!winner.empty())
         {
             std::cout << "\nWinner: " << winner << "!\n";

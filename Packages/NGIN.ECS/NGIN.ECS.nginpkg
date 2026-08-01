@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Package SchemaVersion="4"
          Name="NGIN.ECS"
-         Version="0.2.0"
+         Version="0.3.0"
          CompatiblePlatformRange=">=0.1.0-alpha.1 &lt;0.2.0">
   <Build Backend="CMake" Mode="AddSubdirectory">
     <Options>
