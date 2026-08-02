@@ -70,6 +70,7 @@ set(NGIN_UI_SOURCES
     src/NGIN/UI/TextEditing.cpp
     src/NGIN/UI/UIRenderer.cpp
     src/NGIN/UI/Virtualization.cpp
+    src/NGIN/UI/ViewModel.cpp
     src/NGIN/UI/Testing/RecordingRenderBackend.cpp
     src/NGIN/UI/Testing/SoftwareRenderBackend.cpp
     src/NGIN/UI/Testing/TestPlatformBackend.cpp

@@ -95,6 +95,8 @@ Version 0.2 provides:
   nested state batching with coalesced notification;
 - immediate, deferred, submit-time, and stale-safe asynchronous field
   validation with ordered form summaries and command availability binding;
+- owning ViewModel task scopes, keyed plain-type lifecycle hosts, and
+  observable idle/loading/content/empty/error presentation state;
 - transactional UTF-8 editing with grapheme-indexed caret, selection,
   replacement, and deletion operations;
 - retained semantic `TextField` sessions with binding validation, routed
@@ -176,6 +178,10 @@ See the
 [derived-state and validation guide](../../docs/guides/ngin-ui-state-validation.md)
 for read-only bindings, computed values, batching, asynchronous validation,
 form summaries, and command availability.
+See the
+[ViewModel lifetime guide](../../docs/guides/ngin-ui-viewmodel-lifetime.md) for
+owned tasks, activation, keyed replacement, service factories, loading states,
+retry, cancellation, and shutdown rules.
 See the
 [foundational-controls guide](../../docs/guides/ngin-ui-foundational-controls.md)
 for bindings, typed radio groups, labels, tooltips, sliders, progress, and

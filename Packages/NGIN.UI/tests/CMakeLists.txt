@@ -57,6 +57,7 @@ add_executable(NGINUITests
     StyleTests.cpp
     TextTests.cpp
     ValidationTests.cpp
+    ViewModelTests.cpp
 )
 if(NGIN_UI_ENABLE_NATIVE_TEXT)
     target_sources(NGINUITests PRIVATE NativeTextTests.cpp)

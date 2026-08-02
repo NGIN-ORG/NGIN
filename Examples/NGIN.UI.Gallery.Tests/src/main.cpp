@@ -328,11 +328,14 @@ auto main() -> int {
   }
 
   auto navigationSearch = model.NavigationSearchBinding();
+  const auto accessibilityPageKey = std::to_string(
+      static_cast<NGIN::UIntSize>(NGIN::UIGallery::Page::Accessibility));
   if (!navigationSearch.Set(NGIN::Text::String{"narrator"}) ||
       !application->PumpOnce() ||
-      !Check(
-          FindByTypeAndKey(window->Tree(), ElementType::Button, "11").IsValid(),
-          "navigation search finds pages by feature") ||
+      !Check(FindByTypeAndKey(window->Tree(), ElementType::Button,
+                              accessibilityPageKey)
+                 .IsValid(),
+             "navigation search finds pages by feature") ||
       !Check(
           !FindByTypeAndKey(window->Tree(), ElementType::Button, "0").IsValid(),
           "navigation search hides unrelated pages")) {

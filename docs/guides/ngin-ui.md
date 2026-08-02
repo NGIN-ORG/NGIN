@@ -18,6 +18,7 @@ of the runnable paths, then use the topic guides as needed.
 
 - [MVVM commands, async actions, cancellation, errors, and command-bound buttons](ngin-ui-mvvm-commands.md)
 - [Read-only and computed state, batching, field validation, and form summaries](ngin-ui-state-validation.md)
+- [ViewModel task lifetime, keyed activation, and async screen states](ngin-ui-viewmodel-lifetime.md)
 - [Composition, keys, reconciliation, layout, DPI, scrolling, state, bindings,
   validation, invalidation, ownership, and testing](ngin-ui-application-model.md)
 - [Input, focus, commands, clipboard, IME, themes, resources, semantics,

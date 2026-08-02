@@ -69,3 +69,39 @@ Verification:
   cases;
 - the authored `NGIN.UI.Gallery.nginproj` Debug build passed through `ngin`;
 - the staged native Gallery `--smoke` run passed across every page.
+
+## Milestone 28 — ViewModel Lifetime And Async Presentation
+
+Status: Complete
+Completed: 2026-08-02
+
+Delivered:
+
+- added `ViewModelTaskScope` with linked UI scheduling, whole-scope and
+  per-operation cancellation, retained operation ownership, completion
+  observation, structured errors, and read-only diagnostics;
+- added `KeyedViewModelHost<T>` for factory creation, same-key reuse, keyed
+  replacement, activation, deactivation, non-blocking async cleanup, and plain
+  C++ ViewModels without mandatory inheritance;
+- added a narrow non-owning typed service resolver hook for factories without
+  introducing a container or router;
+- added `AsyncPresentation<T>` for idle, loading, content, empty, and error
+  state with retry and cancel command bindings;
+- documented explicit unmount, tab, popup, replacement, window, and
+  application lifetime rules while keeping composition synchronous;
+- added deterministic coverage for completion, failure, individual and scope
+  cancellation, destruction, late callbacks, keyed reuse, rapid replacement,
+  cleanup, service resolution, window closure, and application shutdown;
+- added an Async Data Gallery page showing delayed loading, successful
+  content, empty data, failure, retry, cancellation, and rapid screen changes.
+
+Verification:
+
+- `cmake --build build/ngin-ui --config Debug --target NGINUITests` passed,
+  and the full suite passed with 5,105 assertions in 178 test cases;
+- focused ViewModel and async-presentation tests passed with 72 assertions in
+  9 test cases;
+- the authored `NGIN.UI.Gallery.nginproj` Debug build passed through `ngin`;
+- the staged native Gallery `--smoke` run passed across all 14 pages;
+- the authored headless Gallery product built through `ngin` and all
+  application-level checks passed.

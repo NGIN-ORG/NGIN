@@ -3,6 +3,7 @@
 #include <NGIN/UI/Accessibility.hpp>
 #include <NGIN/UI/Animation.hpp>
 #include <NGIN/UI/Application.hpp>
+#include <NGIN/UI/AsyncPresentation.hpp>
 #include <NGIN/UI/Backend.hpp>
 #include <NGIN/UI/Collections.hpp>
 #include <NGIN/UI/Command.hpp>
@@ -39,4 +40,5 @@
 #include <NGIN/UI/UIRenderer.hpp>
 #include <NGIN/UI/Validation.hpp>
 #include <NGIN/UI/Version.hpp>
+#include <NGIN/UI/ViewModel.hpp>
 #include <NGIN/UI/Virtualization.hpp>

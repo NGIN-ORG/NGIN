@@ -157,6 +157,115 @@ public:
   std::shared_ptr<NGIN::Async::CancellationSource> cancellation{};
 };
 
+class GalleryAsyncViewModel final
+    : public std::enable_shared_from_this<GalleryAsyncViewModel> {
+public:
+  GalleryAsyncViewModel(Text::String key, UI::InvalidationScheduler scheduler)
+      : m_key(std::move(key)), m_presentation(scheduler),
+        m_retry([this] { BeginLoad(); }, false, scheduler),
+        m_cancel([this] { CancelLoad(); }, false, std::move(scheduler)) {
+    m_presentation.SetRetryCommand(m_retry.AsBinding());
+    m_presentation.SetCancelCommand(m_cancel.AsBinding());
+  }
+
+  void Activate(UI::ViewModelTaskScope &scope) noexcept {
+    m_scope = &scope;
+    BeginLoad();
+  }
+
+  void Deactivate() noexcept {
+    ++m_revision;
+    m_load.Cancel();
+    m_scope = nullptr;
+  }
+
+  [[nodiscard]] auto Key() const noexcept -> const Text::String & {
+    return m_key;
+  }
+  [[nodiscard]] auto Presentation() const noexcept
+      -> const UI::AsyncPresentation<std::vector<Text::String>> & {
+    return m_presentation;
+  }
+
+private:
+  void BeginLoad() {
+    if (m_scope == nullptr) {
+      return;
+    }
+    m_load.Cancel();
+    const auto revision = ++m_revision;
+    m_presentation.SetLoading();
+    m_retry.SetEnabled(false);
+    m_cancel.SetEnabled(true);
+    const auto retained = shared_from_this();
+    m_load = m_scope->Start(
+        [retained, revision](NGIN::Async::TaskContext &context) {
+          return retained->LoadAsync(context, revision);
+        },
+        [retained, revision](const UI::ViewModelTaskOutcome &outcome) {
+          retained->LoadFinished(revision, outcome);
+        });
+  }
+
+  void CancelLoad() {
+    ++m_revision;
+    m_load.Cancel();
+    m_cancel.SetEnabled(false);
+    m_retry.SetEnabled(true);
+    m_presentation.SetIdle();
+  }
+
+  [[nodiscard]] auto LoadAsync(NGIN::Async::TaskContext &context,
+                               const NGIN::UInt64 revision)
+      -> UI::ViewModelTaskScope::Task {
+    co_await UI::ViewModelTaskScope::Task::Delay(
+        context, NGIN::Units::Milliseconds{650.0});
+    if (revision != m_revision) {
+      co_return;
+    }
+    if (m_key.View() == "broken") {
+      co_await NGIN::Async::DomainFailure(UI::CommandError{
+          .kind = UI::CommandErrorKind::Domain,
+          .code = Text::String{"gallery-load-failed"},
+          .message = Text::String{"The sample could not be loaded"},
+      });
+    }
+    if (m_key.View() == "empty") {
+      m_presentation.SetEmpty();
+      co_return;
+    }
+    m_presentation.SetContent({Text::String{"Welcome back"},
+                               Text::String{"Review design"},
+                               Text::String{"Ship the update"}});
+  }
+
+  void LoadFinished(const NGIN::UInt64 revision,
+                    const UI::ViewModelTaskOutcome &outcome) {
+    if (revision != m_revision) {
+      return;
+    }
+    m_cancel.SetEnabled(false);
+    m_retry.SetEnabled(true);
+    if ((outcome.kind == UI::ViewModelTaskOutcomeKind::DomainError ||
+         outcome.kind == UI::ViewModelTaskOutcomeKind::Fault) &&
+        outcome.error) {
+      m_presentation.SetError(*outcome.error);
+    } else if (outcome.kind == UI::ViewModelTaskOutcomeKind::Canceled &&
+               m_presentation.Get().kind ==
+                   UI::AsyncPresentationKind::Loading) {
+      m_presentation.SetIdle();
+    }
+  }
+
+  Text::String m_key{};
+  UI::AsyncPresentation<std::vector<Text::String>> m_presentation;
+  UI::Command m_retry;
+  UI::Command m_cancel;
+  UI::ViewModelTaskScope *m_scope{nullptr};
+  UI::ViewModelTaskHandle m_load{};
+  NGIN::UInt64 m_revision{0};
+};
+
 namespace {
 using NGIN::F32;
 using NGIN::Text::String;
@@ -311,9 +420,9 @@ public:
 }
 
 constexpr std::array<std::string_view, PageCount> PageNames{
-    "Overview", "Layout",        "Typography",  "Text Area", "Images",
-    "Inputs",   "Collections",   "Motion",      "Overlays",  "Windows",
-    "Themes",   "Accessibility", "Diagnostics",
+    "Overview", "Layout",     "Typography",    "Text Area",   "Images",
+    "Inputs",   "Async Data", "Collections",   "Motion",      "Overlays",
+    "Windows",  "Themes",     "Accessibility", "Diagnostics",
 };
 
 constexpr std::array<std::string_view, PageCount> PageSearchTerms{
@@ -323,6 +432,7 @@ constexpr std::array<std::string_view, PageCount> PageSearchTerms{
     "editor multiline selection copy paste text",
     "png jpeg picture fit crop clip tint cache",
     "button checkbox radio switch slider progress tooltip field",
+    "async loading empty error retry cancel viewmodel lifecycle",
     "list virtualized sorting filtering combo tabs menu collection",
     "animation easing curve spring fade move scale async",
     "popup menu tooltip overlay dismiss",
@@ -339,6 +449,7 @@ constexpr std::array<std::string_view, PageCount> PageExamples{
     "composer.TextArea(notes, text, editor, \"notes\");",
     "composer.Image(image, imageCache, String{\"Landscape\"}, {}, \"photo\");",
     "CheckBox(composer, enabled, controls, {}, \"enabled\");",
+    "switch (viewModel.Presentation().Get().kind) { /* compose state */ }",
     "VirtualizedListView(composer, controller, source, ComposeRow, list, "
     "\"items\");",
     "co_await motion.FadeToAsync(context, 0.0F);",
@@ -1570,6 +1681,110 @@ void ComposeInputsPage(Composer &composer, NativeTextSystem &text, Model &model,
             "validation-column");
       },
       "validation-card");
+}
+
+void ComposeAsyncDataPage(Composer &composer, NativeTextSystem &text,
+                          Model &model, const Theme &theme) {
+  ComposePageHeading(composer, text, theme, "Async data",
+                     "See loading, content, empty, error, retry, and cancel.");
+
+  ComposeCard(
+      composer, theme,
+      [&] {
+        NodeProperties column{};
+        column.layout.gap = theme.spacing.regular;
+        composer.Column(
+            [&] {
+              ComposeText(composer, text, String{"Choose a result"}, 18.0F,
+                          theme.colors.foreground, "async-choices-title",
+                          SemanticRole::Heading);
+              NodeProperties choices{};
+              choices.layout.gap = theme.spacing.regular;
+              choices.layout.horizontalAlignment = HorizontalAlignment::Start;
+              composer.Row(
+                  [&] {
+                    const auto key = model.AsyncDemoKey();
+                    ComposeButton(
+                        composer, text, theme, "Items",
+                        [&model] { model.SelectAsyncDemo("inbox"); },
+                        "async-items", 145.0F, true, key == String{"inbox"});
+                    ComposeButton(
+                        composer, text, theme, "Empty",
+                        [&model] { model.SelectAsyncDemo("empty"); },
+                        "async-empty", 145.0F, true, key == String{"empty"});
+                    ComposeButton(
+                        composer, text, theme, "Error",
+                        [&model] { model.SelectAsyncDemo("broken"); },
+                        "async-error", 145.0F, true, key == String{"broken"});
+                    ComposeButton(
+                        composer, text, theme, "Switch quickly",
+                        [&model] { model.RunRapidAsyncDemo(); }, "async-rapid",
+                        170.0F);
+                  },
+                  "async-choices");
+              ComposeText(
+                  composer, text,
+                  String{"Switching cancels the old screen. Its result cannot "
+                         "replace the new one."},
+                  theme.typography.caption, theme.colors.mutedForeground,
+                  "async-lifetime-help");
+            },
+            "async-choice-column");
+      },
+      "async-choice-card");
+
+  ComposeCard(
+      composer, theme,
+      [&] {
+        NodeProperties column{};
+        column.layout.gap = theme.spacing.regular;
+        composer.Column(
+            [&] {
+              const auto state = model.AsyncDemoState();
+              const auto title =
+                  state == AsyncPresentationKind::Loading   ? "Loading"
+                  : state == AsyncPresentationKind::Content ? "Content"
+                  : state == AsyncPresentationKind::Empty   ? "Empty"
+                  : state == AsyncPresentationKind::Error   ? "Error"
+                                                            : "Idle";
+              ComposeText(composer, text, String{title}, 22.0F,
+                          theme.colors.foreground, "async-state-title",
+                          SemanticRole::Heading);
+              ComposeText(composer, text, model.AsyncDemoMessage(),
+                          theme.typography.body, theme.colors.foreground,
+                          "async-state-message");
+
+              if (state == AsyncPresentationKind::Loading) {
+                NodeProperties progress{};
+                progress.layout.preferredSize.width = 420.0F;
+                ProgressBar(composer, ProgressValue{.indeterminate = true},
+                            ControlPresentation{.theme = theme}, progress,
+                            "async-loading-progress");
+                ComposeCommandButton(composer, text, theme, "Cancel",
+                                     model.AsyncCancelBinding(), "async-cancel",
+                                     180.0F);
+              } else {
+                if (state == AsyncPresentationKind::Content) {
+                  const auto items = model.AsyncDemoItems();
+                  for (NGIN::UIntSize index = 0; index < items.size();
+                       ++index) {
+                    const auto itemKey =
+                        std::string{"async-item-"} + std::to_string(index);
+                    ComposeText(composer, text, items[index],
+                                theme.typography.body,
+                                theme.colors.mutedForeground, itemKey);
+                  }
+                }
+                ComposeCommandButton(
+                    composer, text, theme,
+                    state == AsyncPresentationKind::Content ? "Reload"
+                                                            : "Try again",
+                    model.AsyncRetryBinding(), "async-retry", 180.0F);
+              }
+            },
+            "async-state-column");
+      },
+      "async-state-card");
 }
 
 void ComposeCollectionsPage(Composer &composer, NativeTextSystem &text,
@@ -3231,6 +3446,9 @@ void ComposePage(Composer &composer, NativeTextSystem &text, Model &model,
   case Page::Inputs:
     ComposeInputsPage(composer, text, model, theme);
     break;
+  case Page::AsyncData:
+    ComposeAsyncDataPage(composer, text, model, theme);
+    break;
   case Page::Collections:
     ComposeCollectionsPage(composer, text, model, theme);
     break;
@@ -3462,6 +3680,15 @@ void Model::AttachRuntime(Application &application, NativeTextSystem &text,
       [this](const InvalidationKind kind) { Invalidate(kind); });
   m_nameValidation->SetAsyncValidator(application.CreateTaskContext(window),
                                       ValidateDisplayName);
+  const auto asyncScheduler = [this](const InvalidationKind kind) {
+    Invalidate(kind);
+  };
+  m_asyncHost = std::make_unique<KeyedViewModelHost<GalleryAsyncViewModel>>(
+      application.CreateTaskContext(window),
+      [asyncScheduler](const String &key, const ViewModelServiceResolver &) {
+        return std::make_shared<GalleryAsyncViewModel>(key, asyncScheduler);
+      },
+      ViewModelServiceResolver{}, asyncScheduler);
   m_imageCache = std::make_unique<ImageTextureCache>(application.Renderer());
   std::error_code pathError;
   auto imagePath = std::filesystem::path{"images"} / "gallery-sample.png";
@@ -3490,8 +3717,18 @@ void Model::SelectPage(const Page page) {
       m_window->SetMotionEnabled(true);
     }
   }
+  if (m_page.Get() == Page::AsyncData && page != Page::AsyncData &&
+      m_asyncHost) {
+    m_asyncHost->Hide();
+  }
   SetPopupOpen(false);
   static_cast<void>(m_page.Set(page));
+  if (page == Page::AsyncData && m_asyncHost && !m_asyncHost->IsMounted()) {
+    auto shown = m_asyncHost->Show(String{"inbox"});
+    if (!shown) {
+      Report(std::move(shown).Error());
+    }
+  }
 }
 
 auto Model::NavigationSearchBinding() -> Binding<String> {
@@ -3591,6 +3828,81 @@ void Model::ValidateForm() {
   if (m_validationForm) {
     m_validationForm->ValidateAll();
   }
+}
+
+void Model::SelectAsyncDemo(const char *key) {
+  if (!m_asyncHost) {
+    return;
+  }
+  auto shown = m_asyncHost->Show(String{key});
+  if (!shown) {
+    Report(std::move(shown).Error());
+  }
+}
+
+void Model::RunRapidAsyncDemo() {
+  SelectAsyncDemo("broken");
+  SelectAsyncDemo("empty");
+  SelectAsyncDemo("inbox");
+}
+
+auto Model::AsyncDemoKey() const -> String {
+  return m_asyncHost ? m_asyncHost->CurrentKey() : String{};
+}
+
+auto Model::AsyncDemoState() const noexcept -> AsyncPresentationKind {
+  const auto current = m_asyncHost ? m_asyncHost->Current()
+                                   : std::shared_ptr<GalleryAsyncViewModel>{};
+  return current ? current->Presentation().Get().kind
+                 : AsyncPresentationKind::Idle;
+}
+
+auto Model::AsyncDemoMessage() const -> String {
+  const auto current = m_asyncHost ? m_asyncHost->Current()
+                                   : std::shared_ptr<GalleryAsyncViewModel>{};
+  if (!current) {
+    return String{"No sample is selected"};
+  }
+  const auto &snapshot = current->Presentation().Get();
+  switch (snapshot.kind) {
+  case AsyncPresentationKind::Idle:
+    return String{"Loading was canceled"};
+  case AsyncPresentationKind::Loading: {
+    String message{"Loading "};
+    message.Append(current->Key());
+    message.Append(String{"..."});
+    return message;
+  }
+  case AsyncPresentationKind::Content:
+    return String{"3 items loaded"};
+  case AsyncPresentationKind::Empty:
+    return String{"There are no items here"};
+  case AsyncPresentationKind::Error:
+    return snapshot.error ? snapshot.error->message : String{"Loading failed"};
+  }
+  return String{};
+}
+
+auto Model::AsyncDemoItems() const -> std::vector<String> {
+  const auto current = m_asyncHost ? m_asyncHost->Current()
+                                   : std::shared_ptr<GalleryAsyncViewModel>{};
+  if (!current) {
+    return {};
+  }
+  const auto &snapshot = current->Presentation().Get();
+  return snapshot.content.value_or(std::vector<String>{});
+}
+
+auto Model::AsyncRetryBinding() const -> CommandBinding {
+  const auto current = m_asyncHost ? m_asyncHost->Current()
+                                   : std::shared_ptr<GalleryAsyncViewModel>{};
+  return current ? current->Presentation().RetryCommand() : CommandBinding{};
+}
+
+auto Model::AsyncCancelBinding() const -> CommandBinding {
+  const auto current = m_asyncHost ? m_asyncHost->Current()
+                                   : std::shared_ptr<GalleryAsyncViewModel>{};
+  return current ? current->Presentation().CancelCommand() : CommandBinding{};
 }
 
 auto Model::GalleryImage() const noexcept

@@ -1,6 +1,6 @@
 # NGIN.UI Version 0.3 Roadmap
 
-Status: Active — Milestones 26–27 delivered
+Status: Active — Milestones 26–28 delivered
 Theme: Type-safe MVVM and asynchronous applications
 Baseline: [`NGIN.UI-V0.2-Roadmap.md`](NGIN.UI-V0.2-Roadmap.md)
 Execution map:
@@ -130,6 +130,9 @@ validation messages without duplicating writable state or manually notifying
 every dependent control.
 
 ## Milestone 28 — ViewModel Lifetime And Async Presentation
+
+Completed 2026-08-02. Implementation and verification evidence is recorded in
+[`NGIN.UI-V0.3-Progress.md`](NGIN.UI-V0.3-Progress.md).
 
 Deliver:
 

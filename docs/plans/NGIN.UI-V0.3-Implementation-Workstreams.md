@@ -124,6 +124,8 @@ Provide typed field and form validation that commands and controls can observe.
 
 ## Workstream E — ViewModel Task Scope And Lifecycle
 
+Status: Completed in Milestone 28 on 2026-08-02.
+
 ### Goal
 
 Give every UI-bound coroutine an explicit owner and cancellation boundary.
@@ -145,6 +147,8 @@ Give every UI-bound coroutine an explicit owner and cancellation boundary.
 - failure observation and task-drain diagnostics.
 
 ## Workstream F — Async Presentation
+
+Status: Completed in Milestone 28 on 2026-08-02.
 
 ### Goal
 

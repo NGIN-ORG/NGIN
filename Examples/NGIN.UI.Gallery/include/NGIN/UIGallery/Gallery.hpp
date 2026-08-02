@@ -11,6 +11,7 @@
 namespace NGIN::UIGallery {
 class GalleryVirtualizedSource;
 class GalleryMotionDemo;
+class GalleryAsyncViewModel;
 
 enum class Page : NGIN::UInt8 {
   Overview,
@@ -19,6 +20,7 @@ enum class Page : NGIN::UInt8 {
   TextArea,
   Images,
   Inputs,
+  AsyncData,
   Collections,
   Motion,
   Overlays,
@@ -40,7 +42,7 @@ enum class CollectionTab : NGIN::UInt8 {
   DataSource,
 };
 
-inline constexpr NGIN::UIntSize PageCount = 13;
+inline constexpr NGIN::UIntSize PageCount = 14;
 
 [[nodiscard]] auto PageAt(NGIN::UIntSize index) noexcept -> Page;
 [[nodiscard]] auto PageName(Page page) noexcept -> std::string_view;
@@ -75,6 +77,15 @@ public:
   [[nodiscard]] auto IsFormValidating() const noexcept -> bool;
   [[nodiscard]] auto FormSaveBinding() const -> UI::CommandBinding;
   void ValidateForm();
+  void SelectAsyncDemo(const char *key);
+  void RunRapidAsyncDemo();
+  [[nodiscard]] auto AsyncDemoKey() const -> Text::String;
+  [[nodiscard]] auto AsyncDemoState() const noexcept
+      -> UI::AsyncPresentationKind;
+  [[nodiscard]] auto AsyncDemoMessage() const -> Text::String;
+  [[nodiscard]] auto AsyncDemoItems() const -> std::vector<Text::String>;
+  [[nodiscard]] auto AsyncRetryBinding() const -> UI::CommandBinding;
+  [[nodiscard]] auto AsyncCancelBinding() const -> UI::CommandBinding;
   [[nodiscard]] auto GalleryImage() const noexcept
       -> const std::shared_ptr<UI::ImageResource> &;
   [[nodiscard]] auto ImageCache() noexcept -> UI::ImageTextureCache *;
@@ -226,6 +237,7 @@ private:
   std::unique_ptr<UI::ToolTipController> m_helpToolTip;
   std::shared_ptr<UI::ImageResource> m_galleryImage;
   std::unique_ptr<UI::ImageTextureCache> m_imageCache;
+  std::unique_ptr<UI::KeyedViewModelHost<GalleryAsyncViewModel>> m_asyncHost;
   std::uint32_t m_nextCollectionItem{113};
   std::uint32_t m_auxiliaryWindowId{0};
   bool m_commandDemoShouldFail{false};

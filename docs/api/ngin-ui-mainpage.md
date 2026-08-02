@@ -29,6 +29,8 @@ and use this reference for exact signatures, ownership, and result types.
 - `NGIN::UI::Command`, `NGIN::UI::AsyncCommand`, and
   `NGIN::UI::CommandBinding`
 - `NGIN::UI::ValidationField<T>` and `NGIN::UI::ValidationForm`
+- `NGIN::UI::ViewModelTaskScope`, `NGIN::UI::KeyedViewModelHost<T>`, and
+  `NGIN::UI::AsyncPresentation<T>`
 - `NGIN::UI::NativeTextSystem`
 - `NGIN::UI::ImageResource`, `NGIN::UI::StandardImageDecoder`, and
   `NGIN::UI::ImageTextureCache`
