@@ -496,6 +496,134 @@ struct UIHostingRegistration final {
   std::shared_ptr<UIHostRunLoop> runLoop{};
 };
 
+/// @brief Page activation context bound to one hosted window and its task
+/// scheduler.
+class HostedNavigationContext final : public PageActivationContext {
+public:
+  HostedNavigationContext(NGIN::Memory::Shared<HostedUIRuntime> runtime,
+                          HostedWindow window) noexcept
+      : m_runtime(std::move(runtime)), m_window(std::move(window)) {}
+
+  [[nodiscard]] auto Runtime() const noexcept
+      -> const NGIN::Memory::Shared<HostedUIRuntime> & {
+    return m_runtime;
+  }
+  [[nodiscard]] auto WindowHandle() noexcept -> HostedWindow & {
+    return m_window;
+  }
+
+private:
+  NGIN::Memory::Shared<HostedUIRuntime> m_runtime{};
+  HostedWindow m_window{};
+};
+
+/// @brief Maps a structured Core failure into a structured UI failure.
+[[nodiscard]] auto MakeHostedUIError(const Core::KernelError &error,
+                                     const char *operation) noexcept -> UIError;
+
+/// @brief Application-builder extension for hosted services and typed pages.
+class HostedPageBuilder final {
+public:
+  HostedPageBuilder(Core::ApplicationBuilder &builder,
+                    PageRegistry &pages) noexcept
+      : m_builder(&builder), m_pages(&pages) {}
+
+  /// @brief Returns the Core service collection used by page dependencies.
+  [[nodiscard]] auto Services() noexcept -> Core::ServiceCollection & {
+    return m_builder->Services();
+  }
+
+  /// @brief Registers a transient DI-created ViewModel and its typed page.
+  template <typename TPage, typename TViewModel,
+            typename TParameter = NoNavigationParameter, typename Compose>
+  [[nodiscard]] auto AddPage(PageRegistrationOptions options, Compose compose,
+                             std::string serviceName = {}) -> UIResult<void> {
+    auto registered = UsePage<TPage, TViewModel, TParameter>(
+        std::move(options), std::move(compose), serviceName);
+    if (!registered) {
+      return registered;
+    }
+    m_builder->Services().template AddTransient<TViewModel>(
+        std::move(serviceName));
+    return {};
+  }
+
+  /// @brief Registers a page for an already configured ViewModel service.
+  template <typename TPage, typename TViewModel,
+            typename TParameter = NoNavigationParameter, typename Compose>
+  [[nodiscard]] auto UsePage(PageRegistrationOptions options, Compose compose,
+                             std::string serviceName = {}) -> UIResult<void> {
+    using ViewModel = std::remove_cvref_t<TViewModel>;
+    return m_pages->template Register<TPage, ViewModel, TParameter>(
+        std::move(options),
+        [serviceName = std::move(serviceName)](
+            PageActivationContext &activation, const TParameter &,
+            const std::string_view entryKey) -> UIResult<PageLease<ViewModel>> {
+          auto *hosted = dynamic_cast<HostedNavigationContext *>(&activation);
+          if (hosted == nullptr || !hosted->Runtime() ||
+              !hosted->WindowHandle().IsOpen()) {
+            return MakeUIError(UIErrorCode::InvalidState,
+                               "Hosted page needs an open hosted window",
+                               "NGIN.UI.Hosting", "HostedPageBuilder::UsePage");
+          }
+          auto scope =
+              hosted->WindowHandle().CreatePageScope(std::string{entryKey});
+          if (!scope) {
+            return MakeHostedUIError(scope.Error(),
+                                     "HostedPageBuilder::CreatePageScope");
+          }
+#if NGIN_ASYNC_HAS_EXCEPTIONS
+          try {
+#endif
+            auto host = std::make_shared<HostedViewModelHost<ViewModel>>(
+                hosted->Runtime()->UI().CreateTaskContext(
+                    *hosted->WindowHandle().UI()),
+                std::move(scope).Value());
+            auto mounted = host->Mount(serviceName);
+            if (!mounted) {
+              return MakeHostedUIError(mounted.Error(),
+                                       "HostedPageBuilder::Mount");
+            }
+            return PageLease<ViewModel>{
+                .viewModel = ToStdShared(std::move(mounted).Value()),
+                .close = [host] { host->Unmount(); },
+            };
+#if NGIN_ASYNC_HAS_EXCEPTIONS
+          } catch (...) {
+            return MakeUIError(UIErrorCode::OutOfMemory,
+                               "Hosted page activation allocation failed",
+                               "NGIN.UI.Hosting", "HostedPageBuilder::UsePage");
+          }
+#endif
+        },
+        std::move(compose));
+  }
+
+private:
+  Core::ApplicationBuilder *m_builder{nullptr};
+  PageRegistry *m_pages{nullptr};
+};
+
+/// @brief Creates the typed page extension for a Core application builder.
+[[nodiscard]] inline auto ConfigureUIPages(Core::ApplicationBuilder &builder,
+                                           PageRegistry &pages) noexcept
+    -> HostedPageBuilder {
+  return HostedPageBuilder{builder, pages};
+}
+
+/// @brief Binds one navigation activation context to a hosted window.
+[[nodiscard]] inline auto
+CreateHostedNavigationContext(const UIHostingRegistration &hosting,
+                              HostedWindow window) noexcept
+    -> UIResult<HostedNavigationContext> {
+  if (!hosting.runtime || !window.IsOpen()) {
+    return MakeUIError(UIErrorCode::InvalidState,
+                       "Hosted navigation needs a runtime and open window",
+                       "NGIN.UI.Hosting", "CreateHostedNavigationContext");
+  }
+  return HostedNavigationContext{hosting.runtime, std::move(window)};
+}
+
 [[nodiscard]] auto ConfigureUIHosting(Core::ApplicationBuilder &builder,
                                       UIHostingCreateInfo info) noexcept
     -> UIResult<UIHostingRegistration>;

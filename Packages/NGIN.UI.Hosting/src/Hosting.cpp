@@ -9,6 +9,24 @@
 #include <vector>
 
 namespace NGIN::UI::Hosting {
+auto MakeHostedUIError(const Core::KernelError &error,
+                       const char *operation) noexcept -> UIError {
+  auto code = UIErrorCode::ResourceFailed;
+  if (error.code == Core::KernelErrorCode::InvalidArgument) {
+    code = UIErrorCode::InvalidArgument;
+  } else if (error.code == Core::KernelErrorCode::InvalidState) {
+    code = UIErrorCode::InvalidState;
+  } else if (error.code == Core::KernelErrorCode::NotFound) {
+    code = UIErrorCode::ResourceFailed;
+  }
+  return UIError{.code = code,
+                 .backend = NGIN::Text::String{"NGIN.UI.Hosting"},
+                 .operation = NGIN::Text::String{operation},
+                 .logicalResource = NGIN::Text::String{error.module},
+                 .nativeCode = 0,
+                 .message = NGIN::Text::String{error.message}};
+}
+
 namespace {
 [[nodiscard]] auto HostingError(const char *operation, const char *message)
     -> Core::KernelError {

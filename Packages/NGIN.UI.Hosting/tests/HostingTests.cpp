@@ -71,6 +71,35 @@ struct HostedPageViewModel final {
 struct UnregisteredViewModel final {};
 struct FailingViewModel final {};
 
+struct HostedHomePage final {};
+struct HostedDetailPage final {};
+struct HostedMissingPage final {};
+struct HostedDetailParameter final {
+  int itemId{0};
+};
+
+struct NavigationMetrics final {
+  int servicesCreated{0};
+  int servicesDestroyed{0};
+};
+
+struct NavigationScopedService final {
+  explicit NavigationScopedService(NavigationMetrics &value) noexcept
+      : metrics(&value) {
+    ++metrics->servicesCreated;
+  }
+  ~NavigationScopedService() { ++metrics->servicesDestroyed; }
+  NavigationMetrics *metrics{nullptr};
+};
+
+struct NavigationViewModel final {
+  using Dependencies = NGIN::Core::ServiceDependencies<NavigationScopedService>;
+  explicit NavigationViewModel(
+      NGIN::Memory::Shared<NavigationScopedService> value) noexcept
+      : service(std::move(value)) {}
+  NGIN::Memory::Shared<NavigationScopedService> service{};
+};
+
 [[nodiscard]] auto PumpUntil(NGIN::UI::Application &application,
                              const NGIN::Utilities::Callable<bool()> &done)
     -> bool {
@@ -93,6 +122,8 @@ auto main() -> int {
   auto renderer = std::make_unique<Testing::RecordingRenderBackend>();
   auto *rendererObserver = renderer.get();
   LifecycleMetrics metrics;
+  NavigationMetrics navigationMetrics;
+  PageRegistry pages;
 
   auto builder = NGIN::Core::CreateApplicationBuilder(0, nullptr);
   builder->Services()
@@ -114,6 +145,33 @@ auto main() -> int {
                     "ViewModel constructor failed",
                     "FailingViewModel -> TestDependency"));
           });
+
+  auto pageBuilder = ConfigureUIPages(*builder, pages);
+  pageBuilder.Services().AddScoped<NavigationScopedService>(
+      [&navigationMetrics](NGIN::Core::ServiceResolutionContext &)
+          -> NGIN::Core::CoreResult<
+              NGIN::Memory::Shared<NavigationScopedService>> {
+        return NGIN::Memory::MakeShared<NavigationScopedService>(
+            navigationMetrics);
+      });
+  if (!pageBuilder.AddPage<HostedHomePage, NavigationViewModel>(
+          {.id = "hosted-home", .displayName = "Hosted home"},
+          [](Composer &composer, NavigationViewModel &,
+             const NoNavigationParameter &) {
+            composer.Leaf(ElementType::Border, "hosted-home-content");
+          }) ||
+      !pageBuilder.UsePage<HostedDetailPage, NavigationViewModel,
+                           HostedDetailParameter>(
+          {.id = "hosted-detail", .displayName = "Hosted detail"},
+          [](Composer &composer, NavigationViewModel &,
+             const HostedDetailParameter &) {
+            composer.Leaf(ElementType::Border, "hosted-detail-content");
+          }) ||
+      !pageBuilder.UsePage<HostedMissingPage, UnregisteredViewModel>(
+          {.id = "hosted-missing"}, [](Composer &, UnregisteredViewModel &,
+                                       const NoNavigationParameter &) {})) {
+    return Fail("Failed to register hosted pages");
+  }
 
   auto hosting = ConfigureUIHosting(
       *builder,
@@ -156,6 +214,49 @@ auto main() -> int {
   });
   if (!firstWindow || !secondWindow) {
     return Fail("Failed to create hosted windows");
+  }
+
+  const auto navigationScopeBaseline =
+      hosting.Value().services->ActiveScopeCount();
+  {
+    auto activationContext =
+        CreateHostedNavigationContext(hosting.Value(), secondWindow.Value());
+    if (!activationContext) {
+      return Fail("Failed to create hosted navigation context");
+    }
+    NavigationService navigation{
+        pages, activationContext.Value(), {.region = "Hosted.Content"}};
+    if (!navigation.Start<HostedHomePage>() ||
+        !navigation.Navigate<HostedDetailPage>(HostedDetailParameter{42}) ||
+        navigation.StackDepth() != 2 ||
+        hosting.Value().services->ActiveScopeCount() !=
+            navigationScopeBaseline + 2) {
+      return Fail("Hosted navigation did not create one scope per entry");
+    }
+    const auto failed = navigation.Navigate<HostedMissingPage>();
+    if (failed || navigation.StackDepth() != 2) {
+      return Fail("Hosted navigation activation failure did not roll back");
+    }
+    Composer composed;
+    navigation.Compose(composed);
+    if (composed.Declarations().size() != 2 ||
+        composed.Declarations().front().properties.visibility !=
+            ElementVisibility::Collapsed ||
+        composed.Declarations().back().properties.visibility !=
+            ElementVisibility::Visible) {
+      return Fail("Hosted navigation host did not retain its page stack");
+    }
+    if (!navigation.Back() || !navigation.Clear() ||
+        !PumpUntil(hosting.Value().runtime->UI(), [&] {
+          return hosting.Value().services->ActiveScopeCount() ==
+                 navigationScopeBaseline;
+        })) {
+      return Fail("Hosted navigation did not release removed page scopes");
+    }
+  }
+  if (navigationMetrics.servicesCreated != 2 ||
+      navigationMetrics.servicesDestroyed != 2) {
+    return Fail("Hosted navigation leaked page-scoped services");
   }
 
   auto firstPage = firstWindow.Value().CreatePageScope("First.Page");

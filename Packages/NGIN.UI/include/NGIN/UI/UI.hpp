@@ -24,6 +24,7 @@
 #include <NGIN/UI/Layout.hpp>
 #include <NGIN/UI/LayoutPrimitives.hpp>
 #include <NGIN/UI/Motion.hpp>
+#include <NGIN/UI/Navigation.hpp>
 #include <NGIN/UI/NativeText.hpp>
 #include <NGIN/UI/Platform.hpp>
 #include <NGIN/UI/Rendering.hpp>

@@ -103,7 +103,39 @@ Delivered:
 
 ## Milestone 33 — Typed Pages And Navigation
 
-Status: Planned
+Status: Complete (2026-08-03)
+
+Delivered:
+
+- added the backend-neutral `PageRegistry` with explicit stable identities,
+  optional display/route names, page-tag identity, ViewModel type, parameter
+  type, factory, and synchronous View composition;
+- made empty identities/factories, duplicate identities/tags/routes, and
+  registration after catalogue freeze structured registration failures, while
+  incompatible factory and composition signatures fail at compile time;
+- added typed startup, push, replace, back, clear, keyboard-back, snapshots,
+  observers, and failure observers through a window-local or named-region
+  `NavigationService`;
+- activated replacements before mutating the stack so missing services and
+  factory failures leave the mounted page unchanged;
+- retained every live stack entry under a stable composition key, including
+  collapsed entries, so keyed controls, focus, semantics, scrolling, and local
+  retained state survive back navigation;
+- added explicit cache keys and a bounded opt-in removed-page cache; the
+  default cache capacity is zero and eviction deterministically closes the
+  page;
+- enforced an optional UI-scheduler boundary and rejected reentrant/conflicting
+  synchronous mutations with observable structured errors;
+- added `NavigationHost` as the small window content/input adapter;
+- added `HostedPageBuilder`, `HostedNavigationContext`, and builder extensions
+  that map each entry to a Core page scope and `HostedViewModelHost<T>` without
+  adding Core or Reflection dependencies to NGIN.UI;
+- verified registration conflicts, typed parameters, stable retained
+  composition, startup/push/replace/back/clear, cache reuse/eviction, keyboard
+  back, scheduler enforcement, reentrancy, rollback, region isolation, hosted
+  resolution failures, per-entry Core scopes, and scoped-service teardown;
+- passed all 5 focused navigation cases (77 assertions) and the expanded hosted
+  lifecycle executable in a Visual Studio Release build.
 
 ## Milestone 34 — Application Composition Product Completion
 

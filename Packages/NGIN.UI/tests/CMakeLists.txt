@@ -52,6 +52,7 @@ add_executable(NGINUITests
     InputTests.cpp
     LayoutTests.cpp
     MotionTests.cpp
+    NavigationTests.cpp
     SoftwareRendererTests.cpp
     StateTests.cpp
     StyleTests.cpp

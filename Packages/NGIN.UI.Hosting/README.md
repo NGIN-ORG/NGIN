@@ -70,3 +70,59 @@ as the lifetime owner.
 Standalone and headless applications continue to use
 `KeyedViewModelHost<T>` and explicit `ViewModelFactory<T>` functions without
 linking NGIN.Core or this package.
+
+## Typed Pages And Navigation
+
+`ConfigureUIPages()` keeps service and page registration together while pages
+remain owned by NGIN.UI, not Core. A page tag selects a registration at compile
+time, and each registration fixes its ViewModel, parameter type, and
+synchronous compose function:
+
+```cpp
+struct HomePage {};
+struct CustomerPage {};
+struct CustomerParameter { CustomerId id; };
+
+NGIN::UI::PageRegistry pages;
+auto ui = NGIN::UI::Hosting::ConfigureUIPages(*builder, pages);
+ui.Services().AddScoped<CustomerRepository>();
+
+ui.AddPage<HomePage, HomeViewModel>(
+    {.id = "home", .displayName = "Home", .routeName = "home"},
+    [](Composer& composer, HomeViewModel& vm,
+       const NoNavigationParameter&) { ComposeHome(composer, vm); });
+ui.AddPage<CustomerPage, CustomerViewModel, CustomerParameter>(
+    {.id = "customer", .displayName = "Customer", .routeName = "customer"},
+    [](Composer& composer, CustomerViewModel& vm,
+       const CustomerParameter& parameter) {
+      ComposeCustomer(composer, vm, parameter);
+    });
+```
+
+After Core starts and creates a hosted window, bind one navigation context and
+stack to it:
+
+```cpp
+auto context = CreateHostedNavigationContext(hosting.Value(), window.Value());
+NavigationService navigation{pages, context.Value(), {
+    .region = "Main",
+    .cacheCapacity = 2,
+    .isOnScheduler = [&] { return dispatcher->IsCurrentThread(); },
+    .invalidate = [&](InvalidationKind kind) { window.Value().UI()->Invalidate(kind); },
+}};
+NavigationHost content{navigation};
+window.Value().UI()->SetContent(
+    [&](Composer& composer) { content.Compose(composer); });
+window.Value().UI()->SetEventHandler(
+    [&](const PlatformEvent& event) { static_cast<void>(content.HandleEvent(event)); });
+
+navigation.Start<HomePage>();
+navigation.Navigate<CustomerPage>(CustomerParameter{customerId});
+navigation.Back();
+```
+
+Every live stack entry owns a separate Core page scope. A failed ViewModel
+resolution does not change the stack. Pop, replace, clear, cache eviction,
+window close, and application shutdown use the same deterministic ViewModel
+task and scope teardown path described above. Removed-page caching is disabled
+unless both a bounded capacity and an explicit cache key are supplied.

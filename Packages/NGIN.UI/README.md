@@ -97,6 +97,11 @@ Version 0.3 provides:
   validation with ordered form summaries and command availability binding;
 - owning ViewModel task scopes, keyed plain-type lifecycle hosts, and
   observable idle/loading/content/empty/error presentation state;
+- an explicit typed page catalogue that associates a stable page tag and ID
+  with one ViewModel, typed navigation parameter, and synchronous View;
+- window-local or named-region navigation stacks with startup, push, replace,
+  back, clear, keyboard back, rollback-safe activation, stable retained page
+  keys, snapshots, and bounded opt-in page caching;
 - transactional UTF-8 editing with grapheme-indexed caret, selection,
   replacement, and deletion operations;
 - retained semantic `TextField` sessions with binding validation, routed
