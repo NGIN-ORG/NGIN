@@ -7,7 +7,7 @@ This app lets you try the controls and features in `NGIN.UI`.
 Search the sidebar by a page name or feature. Every page ends with a small
 public API example and a **Copy example** button.
 
-The sidebar has thirteen pages:
+The sidebar has fourteen pages:
 
 - **Overview** shows colors, buttons, and custom controls.
 - **Layout** shows a grid form, a toolbar that wraps, dashboard tiles, a
@@ -19,6 +19,8 @@ The sidebar has thirteen pages:
   cropping, alignment, clipping, and tint.
 - **Inputs** shows buttons, checkboxes, radio buttons, switches, sliders,
   progress bars, tooltips, and text fields.
+- **Async Data** shows loading, content, empty, failure, retry, cancellation,
+  and ViewModel task ownership.
 - **Collections** shows a 100,000-item list with live realization and range-load
   counts, plus ordinary lists, sorting, filtering, combo boxes, tabs, and menus.
 - **Motion** shows fades, movement, scaling, colors, easing, awaited steps,
@@ -29,9 +31,10 @@ The sidebar has thirteen pages:
 - **Themes** switches between light and dark colors.
 - **Accessibility** shows native provider status and controls to try with
   Windows Narrator.
-- **Diagnostics** shows drawing numbers, resolved grid tracks, wrapped lines,
-  virtualized lists, loaded fallback fonts, missing characters, and optional
-  layout guides.
+- **Diagnostics** shows the typed page stack, page leases, ViewModel tasks,
+  service activations, navigation failures, drawing numbers, resolved grid
+  tracks, wrapped lines, virtualized lists, loaded fallback fonts, missing
+  characters, and optional layout guides.
 
 The [hosted gallery](../NGIN.UI.Gallery.Hosted/) shows the same screens inside
 an `NGIN.Core` application.
@@ -77,6 +80,6 @@ The deterministic headless companion product is
 through the recording backend and also checks theme, popup, inspector,
 auxiliary-window, and modal-dialog state.
 
-To create the versioned 0.2 demo archive, use the `Release` profile and the
+To create the versioned 0.4 demo archive, use the `Release` profile and the
 `demo` publisher. The exact commands and archive contents are in the
-[0.2 release notes](../../docs/guides/ngin-ui-v0.2-release.md).
+[0.4 release notes](../../docs/guides/ngin-ui-v0.4-release.md).

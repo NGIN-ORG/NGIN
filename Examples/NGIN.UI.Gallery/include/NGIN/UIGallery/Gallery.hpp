@@ -12,6 +12,7 @@ namespace NGIN::UIGallery {
 class GalleryVirtualizedSource;
 class GalleryMotionDemo;
 class GalleryAsyncViewModel;
+class GalleryPageActivationContext;
 
 enum class Page : NGIN::UInt8 {
   Overview,
@@ -58,6 +59,14 @@ public:
 
   [[nodiscard]] auto CurrentPage() const noexcept -> Page;
   void SelectPage(Page page);
+  void ComposeCurrentPage(UI::Composer &composer);
+  [[nodiscard]] auto PageNavigationDiagnostics() const
+      -> UI::NavigationSnapshot;
+  [[nodiscard]] auto PageActivationCount() const noexcept -> NGIN::UInt64;
+  [[nodiscard]] auto PageReleaseCount() const noexcept -> NGIN::UInt64;
+  [[nodiscard]] auto NavigationFailureCount() const noexcept -> NGIN::UInt64;
+  [[nodiscard]] auto ActivePageTaskCount() const noexcept -> NGIN::UIntSize;
+  [[nodiscard]] auto CleanupPageTaskCount() const noexcept -> NGIN::UIntSize;
   [[nodiscard]] auto NavigationSearchBinding() -> UI::Binding<Text::String>;
   [[nodiscard]] auto NavigationMatches(Page page) const -> bool;
   void CopyExample(Page page);
@@ -191,11 +200,18 @@ private:
       -> NGIN::Async::Task<void, UI::CommandError>;
   void Invalidate(
       UI::InvalidationKind kind = UI::InvalidationKind::All) const noexcept;
+  [[nodiscard]] auto InitializePageNavigation() -> UI::UIResult<void>;
 
   UI::Application *m_application{nullptr};
   UI::NativeTextSystem *m_text{nullptr};
   UI::Window *m_window{nullptr};
   UI::State<Page> m_page;
+  UI::PageRegistry m_pages{};
+  std::unique_ptr<GalleryPageActivationContext> m_pageActivation{};
+  std::unique_ptr<UI::NavigationService> m_navigation{};
+  NGIN::UInt64 m_pageActivations{0};
+  NGIN::UInt64 m_pageReleases{0};
+  NGIN::UInt64 m_navigationFailures{0};
   UI::State<Text::String> m_navigationSearch;
   UI::State<bool> m_lightTheme;
   UI::State<Text::String> m_name;

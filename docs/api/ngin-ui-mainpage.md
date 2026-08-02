@@ -2,8 +2,8 @@
 
 NGIN.UI is a retained, backend-neutral C++23 desktop UI toolkit.
 
-The current public header and package version is 0.3.0. See the
-[version 0.3 release notes](../guides/ngin-ui-v0.3-release.md) for package
+The current public header and package version is 0.4.0. See the
+[version 0.4 release notes](../guides/ngin-ui-v0.4-release.md) for package
 ranges, migration, resource budgets, and release verification.
 
 This reference is generated from the installed public headers in
@@ -31,6 +31,8 @@ and use this reference for exact signatures, ownership, and result types.
 - `NGIN::UI::ValidationField<T>` and `NGIN::UI::ValidationForm`
 - `NGIN::UI::ViewModelTaskScope`, `NGIN::UI::KeyedViewModelHost<T>`, and
   `NGIN::UI::AsyncPresentation<T>`
+- `NGIN::UI::PageRegistry`, `NGIN::UI::NavigationService`, and
+  `NGIN::UI::NavigationHost`
 - `NGIN::UI::NativeTextSystem`
 - `NGIN::UI::ImageResource`, `NGIN::UI::StandardImageDecoder`, and
   `NGIN::UI::ImageTextureCache`

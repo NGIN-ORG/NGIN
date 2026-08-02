@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project SchemaVersion="4"
          Name="NGIN.UI.Gallery.Tests"
-         Version="0.3.0"
+         Version="0.4.0"
          DefaultProfile="Debug">
 
   <Test>
     <Uses>
       <Package Name="NGIN.UI"
-               Version=">=0.3.0 &lt;0.4.0"
+               Version=">=0.4.0 &lt;0.5.0"
                Scope="Target" />
     </Uses>
 

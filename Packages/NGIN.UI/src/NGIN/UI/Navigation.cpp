@@ -307,7 +307,7 @@ void NavigationService::Compose(Composer &composer) {
                                 : ElementVisibility::Collapsed;
     const auto key = "navigation.entry." + std::to_string(m_stack[index]->id);
     composer.Element(
-        ElementType::Custom, properties,
+        ElementType::Column, properties,
         [&] { m_stack[index]->instance->Compose(composer); }, key);
   }
   for (const auto &entry : m_cache) {
@@ -315,7 +315,7 @@ void NavigationService::Compose(Composer &composer) {
     properties.visibility = ElementVisibility::Collapsed;
     const auto key = "navigation.cache." + std::to_string(entry->id);
     composer.Element(
-        ElementType::Custom, properties,
+        ElementType::Column, properties,
         [&] { entry->instance->Compose(composer); }, key);
   }
 }

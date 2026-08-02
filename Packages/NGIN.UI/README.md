@@ -1,7 +1,7 @@
 # NGIN.UI
 
-Current package version: `0.3.0`. See the
-[0.3 release notes](../../docs/guides/ngin-ui-v0.3-release.md) for migration,
+Current package version: `0.4.0`. See the
+[0.4 release notes](../../docs/guides/ngin-ui-v0.4-release.md) for migration,
 published resource budgets, and the versioned Gallery archive.
 
 `NGIN.UI` is the backend-neutral core of NGIN's C++23 application UI toolkit.
@@ -13,13 +13,16 @@ hosting belong to separate packages.
 Start with the
 [NGIN.UI developer documentation](../../docs/guides/ngin-ui.md) or the
 [five-minute standalone window](../../docs/guides/ngin-ui-first-window.md).
+The [application composition guide](../../docs/guides/ngin-ui-application-composition.md)
+and `Examples/NGIN.UI.MultiPage` show services, ViewModels, pages, navigation,
+async loading, and safe shutdown together.
 Public source compatibility and deprecation rules are defined in the
 [NGIN.UI compatibility policy](../../docs/policies/ngin-ui-source-compatibility.md).
-Version 0.3 delivery evidence is recorded in the
-[version 0.3 roadmap](../../docs/plans/NGIN.UI-V0.3-Roadmap.md) and its
-[progress log](../../docs/plans/NGIN.UI-V0.3-Progress.md).
+Version 0.4 delivery evidence is recorded in the
+[version 0.4 roadmap](../../docs/plans/NGIN.UI-V0.4-Roadmap.md) and its
+[progress log](../../docs/plans/NGIN.UI-V0.4-Progress.md).
 
-Version 0.3 provides:
+Version 0.4 provides:
 
 - device-independent and pixel geometry;
 - generational platform/render handles;

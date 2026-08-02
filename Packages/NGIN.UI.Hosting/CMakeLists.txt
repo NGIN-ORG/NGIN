@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(NGIN.UI.Hosting VERSION 0.3.0 LANGUAGES CXX)
+project(NGIN.UI.Hosting VERSION 0.4.0 LANGUAGES CXX)
 
 option(NGIN_UI_HOSTING_BUILD_TESTS "Build NGIN.UI hosting tests" OFF)
 option(NGIN_UI_HOSTING_STRICT_WARNINGS "Enable extra compiler warnings" ON)
@@ -28,7 +28,7 @@ target_compile_features(NGIN.UI.Hosting PUBLIC cxx_std_23)
 set_target_properties(NGIN.UI.Hosting PROPERTIES
     CXX_EXTENSIONS OFF
     OUTPUT_NAME NGINUIHosting
-    EXPORT_NAME UI.Hosting
+    EXPORT_NAME UI::Hosting
 )
 target_include_directories(NGIN.UI.Hosting
     PUBLIC
@@ -49,6 +49,7 @@ if(NGIN_UI_HOSTING_STRICT_WARNINGS)
 endif()
 
 include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
 install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 install(
     TARGETS NGIN.UI.Hosting
@@ -57,6 +58,28 @@ install(
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
     INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+)
+install(
+    EXPORT NGINUIHostingTargets
+    FILE NGINUIHostingTargets.cmake
+    NAMESPACE NGIN::
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/NGINUIHosting
+)
+write_basic_package_version_file(
+    "${CMAKE_CURRENT_BINARY_DIR}/NGINUIHostingConfigVersion.cmake"
+    VERSION "${PROJECT_VERSION}"
+    COMPATIBILITY SameMajorVersion
+)
+configure_package_config_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/NGINUIHostingConfig.cmake.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/NGINUIHostingConfig.cmake"
+    INSTALL_DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/NGINUIHosting"
+)
+install(
+    FILES
+        "${CMAKE_CURRENT_BINARY_DIR}/NGINUIHostingConfig.cmake"
+        "${CMAKE_CURRENT_BINARY_DIR}/NGINUIHostingConfigVersion.cmake"
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/NGINUIHosting
 )
 
 if(NGIN_UI_HOSTING_BUILD_TESTS)

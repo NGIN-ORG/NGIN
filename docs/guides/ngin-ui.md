@@ -16,6 +16,8 @@ of the runnable paths, then use the topic guides as needed.
 
 ## Application model
 
+- [Complete application composition: DI, pages, navigation, lifetimes, and tests](ngin-ui-application-composition.md)
+- [Buildable multi-page hosted application](../../Examples/NGIN.UI.MultiPage/)
 - [MVVM architecture and complete app organization](ngin-ui-mvvm.md)
 - [MVVM commands, async actions, cancellation, errors, and command-bound buttons](ngin-ui-mvvm-commands.md)
 - [Read-only and computed state, batching, field validation, and form summaries](ngin-ui-state-validation.md)
@@ -38,6 +40,7 @@ of the runnable paths, then use the topic guides as needed.
 
 ## Integration and support
 
+- [Version 0.4 release and migration notes](ngin-ui-v0.4-release.md)
 - [Version 0.2 release notes, migration, budgets, and demo archive](ngin-ui-v0.2-release.md)
 - [Platform and renderer backend authoring](ngin-ui-backend-authoring.md)
 - [Testing, visual baselines, performance budgets, packaging, and release gates](ngin-ui-testing-and-release.md)

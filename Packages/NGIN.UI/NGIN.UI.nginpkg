@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Package SchemaVersion="4"
          Name="NGIN.UI"
-         Version="0.3.0"
+         Version="0.4.0"
          CompatiblePlatformRange=">=0.1.0-alpha.1 &lt;0.2.0">
   <Metadata>
     <Description>Backend-neutral retained desktop UI toolkit.</Description>

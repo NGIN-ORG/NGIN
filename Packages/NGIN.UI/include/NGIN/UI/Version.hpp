@@ -1,7 +1,7 @@
 #pragma once
 
 #define NGIN_UI_VERSION_MAJOR 0
-#define NGIN_UI_VERSION_MINOR 3
+#define NGIN_UI_VERSION_MINOR 4
 #define NGIN_UI_VERSION_PATCH 0
 
 #define NGIN_UI_DEPRECATED(message) [[deprecated(message)]]

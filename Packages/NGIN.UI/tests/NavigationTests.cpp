@@ -1,4 +1,5 @@
 #include <NGIN/UI/Navigation.hpp>
+#include <NGIN/UI/Testing/NavigationTesting.hpp>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -279,4 +280,41 @@ TEST_CASE("Navigation rejects reentrant mutations", "[navigation]") {
   REQUIRE_FALSE(nested);
   REQUIRE(nested.Error().code == UIErrorCode::InvalidState);
   REQUIRE(navigation.StackDepth() == 1);
+}
+
+TEST_CASE("Headless navigation helpers override services and detect leaks",
+          "[navigation][testing]") {
+  struct GreetingService final {
+    int value{0};
+  };
+  PageRegistry registry;
+  Testing::PageTestContext context;
+  context.Override(std::make_shared<GreetingService>(GreetingService{17}));
+  REQUIRE(registry.Register<HomePage, HomeViewModel>(
+      {.id = "home"},
+      [&context](PageActivationContext &activation,
+                 const NoNavigationParameter &,
+                 std::string_view) -> UIResult<PageLease<HomeViewModel>> {
+        REQUIRE(&activation == &context);
+        auto service = context.ResolveRequired<GreetingService>();
+        if (!service) {
+          return NGIN::Utilities::Unexpected<UIError>(service.Error());
+        }
+        return context.Lease(std::make_shared<HomeViewModel>(
+            HomeViewModel{.value = service.Value()->value}));
+      },
+      [](Composer &, HomeViewModel &, const NoNavigationParameter &) {}));
+
+  {
+    NavigationService navigation{registry, context};
+    Testing::NavigationTestDriver driver{navigation};
+    REQUIRE(driver.SelectInitial<HomePage>());
+    REQUIRE(driver.AssertStack({"home"}));
+    REQUIRE(context.ActiveLeaseCount() == 1);
+    REQUIRE_FALSE(context.AssertNoScopeLeaks());
+    REQUIRE(navigation.Clear());
+  }
+  REQUIRE(context.AssertNoScopeLeaks());
+  REQUIRE(context.CreatedLeaseCount() == 1);
+  REQUIRE(context.ReleasedLeaseCount() == 1);
 }

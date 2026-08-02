@@ -342,6 +342,24 @@ auto main() -> int {
                 "image cache activity is observable"))) {
       return 1;
     }
+    if (page == NGIN::UIGallery::Page::Diagnostics) {
+      const auto navigation = model.PageNavigationDiagnostics();
+      if (!Check(navigation.region == "Gallery.Content",
+                 "Gallery uses the public named navigation region") ||
+          !Check(navigation.stack.size() == 1 &&
+                     navigation.stack.back().pageId == "diagnostics",
+                 "Gallery diagnostics reports the current registered page") ||
+          !Check(model.PageActivationCount() >= NGIN::UIGallery::PageCount,
+                 "Gallery reports page activations") ||
+          !Check(model.PageReleaseCount() + 1 == model.PageActivationCount(),
+                 "Gallery releases every replaced page") ||
+          !Check(FindByTypeAndKey(window->Tree(), ElementType::Border,
+                                  "navigation-diagnostics-card")
+                     .IsValid(),
+                 "Gallery shows page and ViewModel navigation diagnostics")) {
+        return 1;
+      }
+    }
   }
 
   auto navigationSearch = model.NavigationSearchBinding();

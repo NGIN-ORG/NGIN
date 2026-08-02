@@ -38,6 +38,19 @@ Version 0.3 adds these contracts without an alias for the Gallery's old
 example-only `Model` name. The Gallery type was never an installed NGIN.UI API;
 application code should use its own descriptive ViewModel names.
 
+## Version 0.4 application-composition surface
+
+Version 0.4 adds `PageRegistry`, `NavigationService`, `NavigationHost`, typed
+navigation parameters, hosted page-builder/context adapters, and supported
+headless navigation helpers. These additions do not require existing 0.3 apps
+to adopt Core, Reflection, pages, or navigation.
+
+`ViewModelTaskScope::Close()` and `IsDrained()` are additive. The existing
+`CancelAll()`, `KeyedViewModelHost<T>`, `ViewModelFactory<T>`, and
+`ViewModelServiceResolver` surfaces remain available. Hosted apps may migrate
+from manual `HostedUIScope` ownership to typed pages without changing their
+synchronous View functions.
+
 ## Deprecation process
 
 An API selected for removal is annotated with

@@ -168,45 +168,50 @@ jobs:
         run: |
           cli=./build/dev/Tools/NGIN.CLI/ngin
           if [ "$RUNNER_OS" = "Windows" ]; then cli="${cli}.exe"; fi
-          "$cli" build --project Examples/NGIN.UI.Gallery/NGIN.UI.Gallery.nginproj --profile Release --output build/release/NGIN.UI.Gallery-0.3.0
-          "$cli" build --project Examples/NGIN.UI.Gallery.Hosted/NGIN.UI.Gallery.Hosted.nginproj --profile Release --output build/release/NGIN.UI.Gallery.Hosted-0.3.0
-          "$cli" build --project Examples/NGIN.UI.Gallery.Tests/NGIN.UI.Gallery.Tests.nginproj --profile Release --output build/release/NGIN.UI.Gallery.Tests-0.3.0
+          "$cli" build --project Examples/NGIN.UI.Gallery/NGIN.UI.Gallery.nginproj --profile Release --output build/release/NGIN.UI.Gallery-0.4.0
+          "$cli" build --project Examples/NGIN.UI.Gallery.Hosted/NGIN.UI.Gallery.Hosted.nginproj --profile Release --output build/release/NGIN.UI.Gallery.Hosted-0.4.0
+          "$cli" build --project Examples/NGIN.UI.Gallery.Tests/NGIN.UI.Gallery.Tests.nginproj --profile Release --output build/release/NGIN.UI.Gallery.Tests-0.4.0
+          "$cli" build --project Examples/NGIN.UI.MultiPage/NGIN.UI.MultiPage.nginproj --profile Release --output build/release/NGIN.UI.MultiPage-0.4.0
 
       - name: Run headless Gallery checks
         shell: bash
         run: |
-          executable=./build/release/NGIN.UI.Gallery.Tests-0.3.0/bin/NGIN.UI.Gallery.Tests
+          executable=./build/release/NGIN.UI.Gallery.Tests-0.4.0/bin/NGIN.UI.Gallery.Tests
           if [ "$RUNNER_OS" = "Windows" ]; then executable="${executable}.exe"; fi
           "$executable"
 
       - name: Run native Gallery smoke checks
         shell: bash
         run: |
-          gallery=./build/release/NGIN.UI.Gallery-0.3.0/bin/NGIN.UI.Gallery
-          hosted=./build/release/NGIN.UI.Gallery.Hosted-0.3.0/bin/NGIN.UI.Gallery.Hosted
+          gallery=./build/release/NGIN.UI.Gallery-0.4.0/bin/NGIN.UI.Gallery
+          hosted=./build/release/NGIN.UI.Gallery.Hosted-0.4.0/bin/NGIN.UI.Gallery.Hosted
+          multipage=./build/release/NGIN.UI.MultiPage-0.4.0/bin/NGIN.UI.MultiPage
           if [ "$RUNNER_OS" = "Windows" ]; then
             gallery="${gallery}.exe"
             hosted="${hosted}.exe"
+            multipage="${multipage}.exe"
           fi
           if [ "$RUNNER_OS" = "Linux" ]; then
             xvfb-run --auto-servernum "$gallery" --smoke
             xvfb-run --auto-servernum "$hosted" --smoke
+            xvfb-run --auto-servernum "$multipage" --smoke
           else
             "$gallery" --smoke
             "$hosted" --smoke
+            "$multipage" --smoke
           fi
 
       - name: Publish versioned demo
         if: runner.os == 'Windows'
         shell: bash
         run: |
-          ./build/dev/Tools/NGIN.CLI/ngin.exe publish demo --project Examples/NGIN.UI.Gallery/NGIN.UI.Gallery.nginproj --profile Release --output build/release/NGIN.UI.Gallery-0.3.0
+          ./build/dev/Tools/NGIN.CLI/ngin.exe publish demo --project Examples/NGIN.UI.Gallery/NGIN.UI.Gallery.nginproj --profile Release --output build/release/NGIN.UI.Gallery-0.4.0
 
       - name: Upload versioned demo
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v7
         with:
-          name: NGIN.UI.Gallery-0.3.0-windows
-          path: dist/NGIN.UI.Gallery-0.3.0-demo.zip
+          name: NGIN.UI.Gallery-0.4.0-windows
+          path: dist/NGIN.UI.Gallery-0.4.0-demo.zip
           if-no-files-found: error
           retention-days: 14

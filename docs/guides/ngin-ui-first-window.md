@@ -20,12 +20,12 @@ Create `Hello.UI.nginproj`:
   <Application>
     <Uses>
       <Package Name="NGIN.UI.Backend.SDL3"
-               Version=">=0.3.0 &lt;0.4.0"
+               Version=">=0.4.0 &lt;0.5.0"
                Scope="Target">
         <Feature Name="RuntimeNotices" />
       </Package>
       <Package Name="NGIN.UI"
-               Version=">=0.3.0 &lt;0.4.0"
+               Version=">=0.4.0 &lt;0.5.0"
                Scope="Target">
         <Feature Name="RuntimeAssets" />
       </Package>

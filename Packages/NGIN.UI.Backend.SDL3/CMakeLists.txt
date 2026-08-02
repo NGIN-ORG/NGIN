@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(NGIN.UI.Backend.SDL3 VERSION 0.3.0 LANGUAGES CXX)
+project(NGIN.UI.Backend.SDL3 VERSION 0.4.0 LANGUAGES CXX)
 
 option(NGIN_UI_SDL3_STRICT_WARNINGS "Enable extra compiler warnings" ON)
 option(NGIN_UI_SDL3_BUILD_TESTS "Build NGIN.UI SDL3 backend tests" OFF)

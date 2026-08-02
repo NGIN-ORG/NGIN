@@ -139,4 +139,55 @@ Delivered:
 
 ## Milestone 34 — Application Composition Product Completion
 
-Status: Planned
+Status: Complete (2026-08-03)
+
+Delivered:
+
+- published the concise application-composition guide covering Core DI,
+  optional reflected construction, hosted ownership, typed pages and
+  navigation, standalone factories, headless substitution, diagnostics, and
+  shutdown ordering;
+- added the buildable `NGIN.UI.MultiPage` application with a reflection-free
+  Home ViewModel, reflected Detail ViewModel, singleton and scoped services,
+  a typed parameter, Back, owned async loading, and presentation-module
+  teardown;
+- migrated all 14 Gallery pages from composition-switch ownership to the
+  public `PageRegistry`, `NavigationService`, and `NavigationHost` path while
+  retaining the page enum only as a CLI/menu compatibility adapter;
+- expanded Gallery diagnostics with the active region stack, page
+  scope/lease counts, active and cleanup task counts, activations, releases,
+  and navigation failures;
+- added `PageTestContext` and `NavigationTestDriver` for typed service
+  overrides, initial-page selection, ordered stack assertions, and scope-leak
+  checks without a native backend;
+- kept MetaGen optional and limited to readable injectable-constructor
+  metadata; page identity, composition, parameters, naming, and caching remain
+  explicit application code;
+- published 0.3-to-0.4 migration, source-compatibility, and versioned release
+  notes;
+- completed `NGIN.UI.Hosting` install/export metadata, preserved its installed
+  `NGIN::UI::Hosting` target name, and made the NGIN.UI install carry its
+  bundled FreeType and HarfBuzz static libraries;
+- verified fresh installed consumers with Core Reflection disabled and
+  enabled;
+- updated the existing Windows, Linux, and macOS CI matrix to build and smoke
+  the 0.4 standalone, hosted, headless, and multi-page products;
+- versioned NGIN.UI, Hosting, SDL3 backend, Windows accessibility, Gallery,
+  examples, documentation, package ranges, release outputs, and artifacts as
+  0.4 while retaining the independent Core and Reflection 0.1 versions.
+
+Verification evidence:
+
+- NGIN.UI navigation: 87 assertions in 6 focused cases;
+- NGIN.Core Reflection off/on: 589 assertions in 45 cases and 614 assertions
+  in 47 cases;
+- NGIN.UI.Hosting Reflection off/on lifecycle executables: passed;
+- installed Hosting consumer with Reflection off/on: configured, built, and
+  ran successfully;
+- `NGIN.UI.MultiPage --smoke`: passed through reflected page activation and
+  deterministic shutdown;
+- Gallery headless checks plus standalone and hosted native smoke runs:
+  passed on Windows;
+- public API documentation: 381 public types documented;
+- Linux and macOS release builds and native smoke runs remain enforced by the
+  repository's `ui-ci.yml` matrix.

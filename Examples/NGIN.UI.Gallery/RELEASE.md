@@ -1,4 +1,4 @@
-# NGIN.UI Gallery 0.3.0
+# NGIN.UI Gallery 0.4.0
 
 This folder is a runnable NGIN.UI demo. It does not need the NGIN source tree.
 
@@ -13,5 +13,5 @@ page directly. Use `--smoke` to draw every page and exit.
 
 The `licenses` folder contains the NGIN license, bundled-font licenses, image
 decoder notice, SDL license, and third-party runtime notices. Color emoji are
-not supported in version 0.3; the Typography page explains the monochrome
+not supported in version 0.4; the Typography page explains the monochrome
 symbol policy.

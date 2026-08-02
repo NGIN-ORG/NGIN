@@ -266,10 +266,74 @@ private:
   NGIN::UInt64 m_revision{0};
 };
 
+class GalleryPageActivationContext final : public UI::PageActivationContext {};
+
 namespace {
 using NGIN::F32;
 using NGIN::Text::String;
 using namespace NGIN::UI;
+
+struct OverviewPage final {};
+struct LayoutPage final {};
+struct TypographyPage final {};
+struct TextAreaPage final {};
+struct ImagesPage final {};
+struct InputsPage final {};
+struct AsyncDataPage final {};
+struct CollectionsPage final {};
+struct MotionPage final {};
+struct OverlaysPage final {};
+struct WindowsPage final {};
+struct ResourcesPage final {};
+struct AccessibilityPage final {};
+struct DiagnosticsPage final {};
+
+struct GalleryPageViewModel final {
+  GalleryViewModel *gallery{nullptr};
+  NativeTextSystem *text{nullptr};
+};
+
+using GalleryNavigate =
+    UIResult<NavigationChange> (*)(NavigationService &navigation);
+
+template <typename TPage>
+auto StartGalleryPage(NavigationService &navigation)
+    -> UIResult<NavigationChange> {
+  return navigation.Start<TPage>();
+}
+
+template <typename TPage>
+auto ReplaceGalleryPage(NavigationService &navigation)
+    -> UIResult<NavigationChange> {
+  return navigation.Replace<TPage>();
+}
+
+constexpr std::array<GalleryNavigate, PageCount> GalleryPageStarters{
+    &StartGalleryPage<OverviewPage>,      &StartGalleryPage<LayoutPage>,
+    &StartGalleryPage<TypographyPage>,    &StartGalleryPage<TextAreaPage>,
+    &StartGalleryPage<ImagesPage>,        &StartGalleryPage<InputsPage>,
+    &StartGalleryPage<AsyncDataPage>,     &StartGalleryPage<CollectionsPage>,
+    &StartGalleryPage<MotionPage>,        &StartGalleryPage<OverlaysPage>,
+    &StartGalleryPage<WindowsPage>,       &StartGalleryPage<ResourcesPage>,
+    &StartGalleryPage<AccessibilityPage>, &StartGalleryPage<DiagnosticsPage>,
+};
+
+constexpr std::array<GalleryNavigate, PageCount> GalleryPageReplacements{
+    &ReplaceGalleryPage<OverviewPage>,
+    &ReplaceGalleryPage<LayoutPage>,
+    &ReplaceGalleryPage<TypographyPage>,
+    &ReplaceGalleryPage<TextAreaPage>,
+    &ReplaceGalleryPage<ImagesPage>,
+    &ReplaceGalleryPage<InputsPage>,
+    &ReplaceGalleryPage<AsyncDataPage>,
+    &ReplaceGalleryPage<CollectionsPage>,
+    &ReplaceGalleryPage<MotionPage>,
+    &ReplaceGalleryPage<OverlaysPage>,
+    &ReplaceGalleryPage<WindowsPage>,
+    &ReplaceGalleryPage<ResourcesPage>,
+    &ReplaceGalleryPage<AccessibilityPage>,
+    &ReplaceGalleryPage<DiagnosticsPage>,
+};
 
 [[nodiscard]] auto OutcomeName(const MotionOutcome outcome) noexcept -> const
     char * {
@@ -423,6 +487,12 @@ constexpr std::array<std::string_view, PageCount> PageNames{
     "Overview", "Layout",     "Typography",    "Text Area",   "Images",
     "Inputs",   "Async Data", "Collections",   "Motion",      "Overlays",
     "Windows",  "Themes",     "Accessibility", "Diagnostics",
+};
+
+constexpr std::array<std::string_view, PageCount> PageIds{
+    "overview", "layout",     "typography",    "text-area",   "images",
+    "inputs",   "async-data", "collections",   "motion",      "overlays",
+    "windows",  "themes",     "accessibility", "diagnostics",
 };
 
 constexpr std::array<std::string_view, PageCount> PageSearchTerms{
@@ -3167,6 +3237,64 @@ void ComposeDiagnosticsPage(Composer &composer, NativeTextSystem &text,
   const auto textDiagnostics = model.TextDiagnostics();
   const auto fontDiagnostics = model.FontDiagnostics();
   const auto imageDiagnostics = model.ImageDiagnostics();
+  const auto navigation = model.PageNavigationDiagnostics();
+  ComposeCard(
+      composer, theme,
+      [&] {
+        composer.Column(
+            [&] {
+              ComposeText(composer, text, String{"Page navigation"}, 18.0F,
+                          theme.colors.foreground, "navigation-title",
+                          SemanticRole::Heading);
+              ComposeText(composer, text,
+                          LabeledNumber("Pages in this window: ",
+                                        navigation.stack.size()),
+                          theme.typography.body, theme.colors.foreground,
+                          "navigation-stack-depth");
+              ComposeText(composer, text,
+                          LabeledNumber("Active page scopes: ",
+                                        navigation.stack.size() +
+                                            navigation.cache.size()),
+                          theme.typography.body, theme.colors.foreground,
+                          "navigation-page-scopes");
+              ComposeText(composer, text,
+                          LabeledNumber("ViewModel tasks: ",
+                                        model.ActivePageTaskCount()),
+                          theme.typography.body, theme.colors.foreground,
+                          "navigation-active-tasks");
+              ComposeText(composer, text,
+                          LabeledNumber("Cleanup tasks: ",
+                                        model.CleanupPageTaskCount()),
+                          theme.typography.body, theme.colors.foreground,
+                          "navigation-cleanup-tasks");
+              ComposeText(composer, text,
+                          LabeledNumber("Page activations: ",
+                                        model.PageActivationCount()),
+                          theme.typography.body, theme.colors.foreground,
+                          "navigation-activations");
+              ComposeText(
+                  composer, text,
+                  LabeledNumber("Page releases: ", model.PageReleaseCount()),
+                  theme.typography.body, theme.colors.foreground,
+                  "navigation-releases");
+              ComposeText(composer, text,
+                          LabeledNumber("Navigation failures: ",
+                                        model.NavigationFailureCount()),
+                          theme.typography.body, theme.colors.foreground,
+                          "navigation-failures");
+              for (NGIN::UIntSize index = 0; index < navigation.stack.size();
+                   ++index) {
+                String entry{"Stack page: "};
+                entry.Append(String{navigation.stack[index].displayName});
+                ComposeText(composer, text, std::move(entry),
+                            theme.typography.body, theme.colors.mutedForeground,
+                            std::string{"navigation-entry-"} +
+                                std::to_string(index));
+              }
+            },
+            "navigation-diagnostic-values");
+      },
+      "navigation-diagnostics-card");
   ComposeCard(
       composer, theme,
       [&] {
@@ -3445,52 +3573,162 @@ void ComposePublicExample(Composer &composer, NativeTextSystem &text,
       "public-example-card");
 }
 
-void ComposePage(Composer &composer, NativeTextSystem &text,
-                 GalleryViewModel &model, const Theme &theme) {
-  switch (model.CurrentPage()) {
-  case Page::Overview:
-    ComposeOverviewPage(composer, text, model, theme);
-    break;
-  case Page::Layout:
-    ComposeLayoutPage(composer, text, theme);
-    break;
-  case Page::Typography:
-    ComposeTypographyPage(composer, text, theme);
-    break;
-  case Page::TextArea:
-    ComposeTextAreaPage(composer, text, model, theme);
-    break;
-  case Page::Images:
-    ComposeImagesPage(composer, text, model, theme);
-    break;
-  case Page::Inputs:
-    ComposeInputsPage(composer, text, model, theme);
-    break;
-  case Page::AsyncData:
-    ComposeAsyncDataPage(composer, text, model, theme);
-    break;
-  case Page::Collections:
-    ComposeCollectionsPage(composer, text, model, theme);
-    break;
-  case Page::Motion:
-    ComposeMotionPage(composer, text, model, theme);
-    break;
-  case Page::Overlays:
-    ComposeOverlaysPage(composer, text, model, theme);
-    break;
-  case Page::Windows:
-    ComposeWindowsPage(composer, text, model, theme);
-    break;
-  case Page::Resources:
-    ComposeResourcesPage(composer, text, model, theme);
-    break;
-  case Page::Accessibility:
-    ComposeAccessibilityPage(composer, text, model, theme);
-    break;
-  case Page::Diagnostics:
-    ComposeDiagnosticsPage(composer, text, model, theme);
-    break;
+template <typename TPage, typename Compose>
+auto RegisterGalleryPage(PageRegistry &registry, GalleryViewModel &model,
+                         NativeTextSystem &text, const Page page,
+                         Compose compose) -> UIResult<void> {
+  const auto index = static_cast<NGIN::UIntSize>(page);
+  return registry.Register<TPage, GalleryPageViewModel>(
+      {.id = std::string{PageIds[index]},
+       .displayName = std::string{PageNames[index]},
+       .routeName = std::string{PageIds[index]}},
+      [&model,
+       &text](PageActivationContext &, const NoNavigationParameter &,
+              std::string_view) -> UIResult<PageLease<GalleryPageViewModel>> {
+        return PageLease<GalleryPageViewModel>{
+            .viewModel = std::make_shared<GalleryPageViewModel>(
+                GalleryPageViewModel{.gallery = &model, .text = &text})};
+      },
+      [compose = std::move(compose)](Composer &composer,
+                                     GalleryPageViewModel &pageModel,
+                                     const NoNavigationParameter &) {
+        compose(composer, *pageModel.text, *pageModel.gallery);
+      });
+}
+
+auto RegisterGalleryPages(PageRegistry &registry, GalleryViewModel &model,
+                          NativeTextSystem &text) -> UIResult<void> {
+  auto result = RegisterGalleryPage<OverviewPage>(
+      registry, model, text, Page::Overview,
+      [](Composer &composer, NativeTextSystem &pageText,
+         GalleryViewModel &gallery) {
+        ComposeOverviewPage(composer, pageText, gallery,
+                            gallery.CurrentTheme());
+      });
+  if (!result) {
+    return result;
   }
+  result = RegisterGalleryPage<LayoutPage>(
+      registry, model, text, Page::Layout,
+      [](Composer &composer, NativeTextSystem &pageText,
+         GalleryViewModel &gallery) {
+        ComposeLayoutPage(composer, pageText, gallery.CurrentTheme());
+      });
+  if (!result) {
+    return result;
+  }
+  result = RegisterGalleryPage<TypographyPage>(
+      registry, model, text, Page::Typography,
+      [](Composer &composer, NativeTextSystem &pageText,
+         GalleryViewModel &gallery) {
+        ComposeTypographyPage(composer, pageText, gallery.CurrentTheme());
+      });
+  if (!result) {
+    return result;
+  }
+  result = RegisterGalleryPage<TextAreaPage>(
+      registry, model, text, Page::TextArea,
+      [](Composer &composer, NativeTextSystem &pageText,
+         GalleryViewModel &gallery) {
+        ComposeTextAreaPage(composer, pageText, gallery,
+                            gallery.CurrentTheme());
+      });
+  if (!result) {
+    return result;
+  }
+  result = RegisterGalleryPage<ImagesPage>(
+      registry, model, text, Page::Images,
+      [](Composer &composer, NativeTextSystem &pageText,
+         GalleryViewModel &gallery) {
+        ComposeImagesPage(composer, pageText, gallery, gallery.CurrentTheme());
+      });
+  if (!result) {
+    return result;
+  }
+  result = RegisterGalleryPage<InputsPage>(
+      registry, model, text, Page::Inputs,
+      [](Composer &composer, NativeTextSystem &pageText,
+         GalleryViewModel &gallery) {
+        ComposeInputsPage(composer, pageText, gallery, gallery.CurrentTheme());
+      });
+  if (!result) {
+    return result;
+  }
+  result = RegisterGalleryPage<AsyncDataPage>(
+      registry, model, text, Page::AsyncData,
+      [](Composer &composer, NativeTextSystem &pageText,
+         GalleryViewModel &gallery) {
+        ComposeAsyncDataPage(composer, pageText, gallery,
+                             gallery.CurrentTheme());
+      });
+  if (!result) {
+    return result;
+  }
+  result = RegisterGalleryPage<CollectionsPage>(
+      registry, model, text, Page::Collections,
+      [](Composer &composer, NativeTextSystem &pageText,
+         GalleryViewModel &gallery) {
+        ComposeCollectionsPage(composer, pageText, gallery,
+                               gallery.CurrentTheme());
+      });
+  if (!result) {
+    return result;
+  }
+  result = RegisterGalleryPage<MotionPage>(
+      registry, model, text, Page::Motion,
+      [](Composer &composer, NativeTextSystem &pageText,
+         GalleryViewModel &gallery) {
+        ComposeMotionPage(composer, pageText, gallery, gallery.CurrentTheme());
+      });
+  if (!result) {
+    return result;
+  }
+  result = RegisterGalleryPage<OverlaysPage>(
+      registry, model, text, Page::Overlays,
+      [](Composer &composer, NativeTextSystem &pageText,
+         GalleryViewModel &gallery) {
+        ComposeOverlaysPage(composer, pageText, gallery,
+                            gallery.CurrentTheme());
+      });
+  if (!result) {
+    return result;
+  }
+  result = RegisterGalleryPage<WindowsPage>(
+      registry, model, text, Page::Windows,
+      [](Composer &composer, NativeTextSystem &pageText,
+         GalleryViewModel &gallery) {
+        ComposeWindowsPage(composer, pageText, gallery, gallery.CurrentTheme());
+      });
+  if (!result) {
+    return result;
+  }
+  result = RegisterGalleryPage<ResourcesPage>(
+      registry, model, text, Page::Resources,
+      [](Composer &composer, NativeTextSystem &pageText,
+         GalleryViewModel &gallery) {
+        ComposeResourcesPage(composer, pageText, gallery,
+                             gallery.CurrentTheme());
+      });
+  if (!result) {
+    return result;
+  }
+  result = RegisterGalleryPage<AccessibilityPage>(
+      registry, model, text, Page::Accessibility,
+      [](Composer &composer, NativeTextSystem &pageText,
+         GalleryViewModel &gallery) {
+        ComposeAccessibilityPage(composer, pageText, gallery,
+                                 gallery.CurrentTheme());
+      });
+  if (!result) {
+    return result;
+  }
+  return RegisterGalleryPage<DiagnosticsPage>(
+      registry, model, text, Page::Diagnostics,
+      [](Composer &composer, NativeTextSystem &pageText,
+         GalleryViewModel &gallery) {
+        ComposeDiagnosticsPage(composer, pageText, gallery,
+                               gallery.CurrentTheme());
+      });
 }
 
 void ComposeAuxiliaryWindow(Composer &composer, NativeTextSystem &text,
@@ -3732,6 +3970,40 @@ void GalleryViewModel::AttachRuntime(Application &application,
   }
   m_helpToolTip = std::make_unique<ToolTipController>(
       window, String{"Appears after 500 ms without moving keyboard focus."});
+  auto navigation = InitializePageNavigation();
+  if (!navigation) {
+    Report(std::move(navigation).Error());
+  }
+}
+
+auto GalleryViewModel::InitializePageNavigation() -> UIResult<void> {
+  if (m_navigation) {
+    return {};
+  }
+  auto registered = RegisterGalleryPages(m_pages, *this, *m_text);
+  if (!registered) {
+    return registered;
+  }
+  m_pageActivation = std::make_unique<GalleryPageActivationContext>();
+  m_navigation = std::make_unique<NavigationService>(
+      m_pages, *m_pageActivation,
+      NavigationOptions{
+          .region = "Gallery.Content",
+          .cacheCapacity = 0,
+          .invalidate =
+              [this](const InvalidationKind kind) { Invalidate(kind); },
+      });
+  m_navigation->SetFailureObserver([this](const UIError &error) {
+    ++m_navigationFailures;
+    Report(error);
+  });
+  const auto pageIndex = static_cast<NGIN::UIntSize>(m_page.Get());
+  auto started = GalleryPageStarters[pageIndex](*m_navigation);
+  if (!started) {
+    return std::move(started).Error();
+  }
+  ++m_pageActivations;
+  return {};
 }
 
 auto GalleryViewModel::CurrentPage() const noexcept -> Page {
@@ -3752,6 +4024,15 @@ void GalleryViewModel::SelectPage(const Page page) {
     m_asyncHost->Hide();
   }
   SetPopupOpen(false);
+  if (m_navigation) {
+    const auto pageIndex = static_cast<NGIN::UIntSize>(page);
+    auto navigated = GalleryPageReplacements[pageIndex](*m_navigation);
+    if (!navigated) {
+      return;
+    }
+    ++m_pageActivations;
+    ++m_pageReleases;
+  }
   static_cast<void>(m_page.Set(page));
   if (page == Page::AsyncData && m_asyncHost && !m_asyncHost->IsMounted()) {
     auto shown = m_asyncHost->Show(String{"inbox"});
@@ -3759,6 +4040,36 @@ void GalleryViewModel::SelectPage(const Page page) {
       Report(std::move(shown).Error());
     }
   }
+}
+
+void GalleryViewModel::ComposeCurrentPage(Composer &composer) {
+  if (m_navigation) {
+    m_navigation->Compose(composer);
+  }
+}
+
+auto GalleryViewModel::PageNavigationDiagnostics() const -> NavigationSnapshot {
+  return m_navigation ? m_navigation->Snapshot() : NavigationSnapshot{};
+}
+
+auto GalleryViewModel::PageActivationCount() const noexcept -> NGIN::UInt64 {
+  return m_pageActivations;
+}
+
+auto GalleryViewModel::PageReleaseCount() const noexcept -> NGIN::UInt64 {
+  return m_pageReleases;
+}
+
+auto GalleryViewModel::NavigationFailureCount() const noexcept -> NGIN::UInt64 {
+  return m_navigationFailures;
+}
+
+auto GalleryViewModel::ActivePageTaskCount() const noexcept -> NGIN::UIntSize {
+  return m_asyncHost ? m_asyncHost->ActiveTaskStatus().activeCount : 0;
+}
+
+auto GalleryViewModel::CleanupPageTaskCount() const noexcept -> NGIN::UIntSize {
+  return m_asyncHost ? m_asyncHost->CleanupTaskStatus().activeCount : 0;
 }
 
 auto GalleryViewModel::NavigationSearchBinding() -> Binding<String> {
@@ -4610,7 +4921,7 @@ void ComposeMainView(Composer &composer, NativeTextSystem &text,
               composer.Element(
                   ElementType::Column, page,
                   [&] {
-                    ComposePage(composer, text, model, theme);
+                    model.ComposeCurrentPage(composer);
                     ComposePublicExample(composer, text, model, theme);
                     if (!model.Status().Empty()) {
                       ComposeText(composer, text, model.Status(), 13.0F,
