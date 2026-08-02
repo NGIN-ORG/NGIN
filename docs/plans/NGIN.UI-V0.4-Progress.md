@@ -6,7 +6,7 @@ Execution map:
 
 ## Baseline
 
-Status: Planned
+Status: In progress
 Established: 2026-08-02
 
 Existing foundations:
@@ -28,7 +28,23 @@ Existing foundations:
 
 ## Milestone 30 — Complete Typed Core DI
 
-Status: Planned
+Status: Complete (2026-08-02)
+
+Delivered:
+
+- added reflection-free `ServiceDependencies<T...>` constructor injection with
+  deterministic left-to-right dependency resolution;
+- added singleton, scoped, and transient service-to-implementation overloads
+  to the registry, application service collection, and module context;
+- preserved explicit instances and factories as the highest-precedence path;
+- added complete missing-dependency and cycle paths plus singleton-to-scoped
+  lifetime validation;
+- made concurrent singleton and scoped activation construct once per cache;
+- added read-only registration, dependency, scope, activation, failure, and
+  cache diagnostics;
+- documented the complete reflection-free path in
+  [`../guides/ngin-core-di.md`](../guides/ngin-core-di.md);
+- expanded the focused Core service coverage and passed all 45 NGIN.Core tests.
 
 ## Milestone 31 — Reflection-Backed Constructor Injection
 

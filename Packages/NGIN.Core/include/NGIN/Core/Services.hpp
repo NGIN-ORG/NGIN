@@ -9,6 +9,9 @@
 #include <NGIN/Meta/TypeId.hpp>
 #include <NGIN/Meta/TypeName.hpp>
 
+#include <atomic>
+#include <concepts>
+#include <condition_variable>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -16,7 +19,9 @@
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <tuple>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -68,6 +73,12 @@ namespace NGIN::Core
         std::vector<std::string> tags {};
     };
 
+    /// @brief Compile-time constructor dependency list for automatic services.
+    template<typename... TDependencies>
+    struct ServiceDependencies final
+    {
+    };
+
     /// @brief Stable service identity: C++ type plus optional named contract.
     struct ServiceKey
     {
@@ -104,6 +115,26 @@ namespace NGIN::Core
         ServiceMetadata metadata {};
     };
 
+    /// @brief Read-only activation and lifetime details for one registration.
+    struct ServiceRegistrationDiagnostics
+    {
+        ServiceKey              key {};
+        ServiceLifetime         lifetime {ServiceLifetime::Singleton};
+        ServiceScopeId          ownerScope {ServiceScopeId::Global()};
+        ServiceMetadata         metadata {};
+        std::vector<ServiceKey> dependencies {};
+        NGIN::UInt64            activationCount {0};
+        NGIN::UInt64            failureCount {0};
+        NGIN::UInt64            cachedInstanceCount {0};
+    };
+
+    /// @brief Snapshot of the registered service graph and active scopes.
+    struct ServiceRegistryDiagnostics
+    {
+        std::vector<ServiceRegistrationDiagnostics> registrations {};
+        std::vector<ServiceScopeInfo>                scopes {};
+    };
+
     /// @brief Context passed to service factories.
     struct ServiceResolutionContext
     {
@@ -131,8 +162,13 @@ namespace NGIN::Core
         class ServiceProviderBase
         {
         public:
-            ServiceProviderBase(ServiceKey key, ServiceRegistrationOptions options)
-                : m_key(std::move(key)), m_options(std::move(options))
+            ServiceProviderBase(
+                ServiceKey key,
+                ServiceRegistrationOptions options,
+                std::vector<ServiceKey> dependencies = {})
+                : m_key(std::move(key))
+                , m_options(std::move(options))
+                , m_dependencies(std::move(dependencies))
             {
             }
 
@@ -140,6 +176,7 @@ namespace NGIN::Core
 
             [[nodiscard]] auto Key() const noexcept -> const ServiceKey& { return m_key; }
             [[nodiscard]] auto Options() const noexcept -> const ServiceRegistrationOptions& { return m_options; }
+            [[nodiscard]] auto Dependencies() const noexcept -> const std::vector<ServiceKey>& { return m_dependencies; }
             [[nodiscard]] auto ContractName() const -> std::string { return m_key.ContractName(); }
             [[nodiscard]] auto MatchesContract(std::string_view contract) const -> bool
             {
@@ -147,12 +184,14 @@ namespace NGIN::Core
             }
 
             virtual void RemoveScope(ServiceScopeId scopeId) noexcept = 0;
+            [[nodiscard]] virtual auto Diagnostics() const -> ServiceRegistrationDiagnostics = 0;
             [[nodiscard]] virtual auto CloneWithOptions(ServiceRegistrationOptions options) const
                 -> std::shared_ptr<ServiceProviderBase> = 0;
 
         private:
             ServiceKey                 m_key {};
             ServiceRegistrationOptions m_options {};
+            std::vector<ServiceKey>     m_dependencies {};
         };
 
         template<typename T>
@@ -164,8 +203,9 @@ namespace NGIN::Core
             TypedServiceProvider(
                 ServiceKey key,
                 NGIN::Memory::Shared<ServiceType> instance,
-                ServiceRegistrationOptions options)
-                : ServiceProviderBase(std::move(key), std::move(options))
+                ServiceRegistrationOptions options,
+                std::vector<ServiceKey> dependencies = {})
+                : ServiceProviderBase(std::move(key), std::move(options), std::move(dependencies))
                 , m_instance(std::move(instance))
             {
             }
@@ -173,8 +213,9 @@ namespace NGIN::Core
             TypedServiceProvider(
                 ServiceKey key,
                 ServiceProviderFactory<ServiceType> factory,
-                ServiceRegistrationOptions options)
-                : ServiceProviderBase(std::move(key), std::move(options))
+                ServiceRegistrationOptions options,
+                std::vector<ServiceKey> dependencies = {})
+                : ServiceProviderBase(std::move(key), std::move(options), std::move(dependencies))
                 , m_factory(std::move(factory))
             {
             }
@@ -190,49 +231,69 @@ namespace NGIN::Core
 
                 if (lifetime == ServiceLifetime::Singleton)
                 {
-                    std::lock_guard<std::mutex> lock(m_mutex);
+                    std::unique_lock<std::mutex> lock(m_mutex);
+                    m_activationChanged.wait(lock, [this]
+                    {
+                        return !m_singletonActivating || static_cast<bool>(m_instance);
+                    });
                     if (m_instance)
                     {
                         return m_instance;
                     }
+                    m_singletonActivating = true;
+                    lock.unlock();
+                    auto created = Create(context);
+                    lock.lock();
+                    m_singletonActivating = false;
+                    if (!created)
+                    {
+                        lock.unlock();
+                        m_activationChanged.notify_all();
+                        return NGIN::Utilities::Unexpected<KernelError>(created.Error());
+                    }
+                    m_instance = created.Value();
+                    auto result = m_instance;
+                    lock.unlock();
+                    m_activationChanged.notify_all();
+                    return result;
                 }
 
                 if (lifetime == ServiceLifetime::Scoped)
                 {
                     const ServiceScopeId activeScope =
                         context.scope.IsGlobal() ? Options().ownerScope : context.scope;
-                    std::lock_guard<std::mutex> lock(m_mutex);
-                    const auto cacheIt = m_scopedCache.find(activeScope.value);
-                    if (cacheIt != m_scopedCache.end())
+                    std::unique_lock<std::mutex> lock(m_mutex);
+                    while (true)
                     {
-                        return cacheIt->second;
+                        const auto cacheIt = m_scopedCache.find(activeScope.value);
+                        if (cacheIt != m_scopedCache.end())
+                        {
+                            return cacheIt->second;
+                        }
+                        if (!m_activatingScopes.contains(activeScope.value))
+                        {
+                            m_activatingScopes.emplace(activeScope.value);
+                            break;
+                        }
+                        m_activationChanged.wait(lock);
                     }
-                }
-
-                auto created = Create(context);
-                if (!created)
-                {
-                    return NGIN::Utilities::Unexpected<KernelError>(created.Error());
-                }
-
-                std::lock_guard<std::mutex> lock(m_mutex);
-                if (lifetime == ServiceLifetime::Singleton)
-                {
-                    if (!m_instance)
+                    lock.unlock();
+                    auto created = Create(context);
+                    lock.lock();
+                    m_activatingScopes.erase(activeScope.value);
+                    if (!created)
                     {
-                        m_instance = created.Value();
+                        lock.unlock();
+                        m_activationChanged.notify_all();
+                        return NGIN::Utilities::Unexpected<KernelError>(created.Error());
                     }
-                    return m_instance;
+                    auto result = m_scopedCache.emplace(activeScope.value, created.Value()).first->second;
+                    lock.unlock();
+                    m_activationChanged.notify_all();
+                    return result;
                 }
 
-                const ServiceScopeId activeScope =
-                    context.scope.IsGlobal() ? Options().ownerScope : context.scope;
-                auto cacheIt = m_scopedCache.find(activeScope.value);
-                if (cacheIt == m_scopedCache.end())
-                {
-                    cacheIt = m_scopedCache.emplace(activeScope.value, created.Value()).first;
-                }
-                return cacheIt->second;
+                return Create(context);
             }
 
             void RemoveScope(ServiceScopeId scopeId) noexcept override
@@ -241,17 +302,33 @@ namespace NGIN::Core
                 m_scopedCache.erase(scopeId.value);
             }
 
+            [[nodiscard]] auto Diagnostics() const -> ServiceRegistrationDiagnostics override
+            {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                return ServiceRegistrationDiagnostics {
+                    .key = Key(),
+                    .lifetime = Options().lifetime,
+                    .ownerScope = Options().ownerScope,
+                    .metadata = Options().metadata,
+                    .dependencies = Dependencies(),
+                    .activationCount = m_activationCount.load(std::memory_order_relaxed),
+                    .failureCount = m_failureCount.load(std::memory_order_relaxed),
+                    .cachedInstanceCount = static_cast<NGIN::UInt64>((m_instance ? 1U : 0U) + m_scopedCache.size()),
+                };
+            }
+
             [[nodiscard]] auto CloneWithOptions(ServiceRegistrationOptions options) const
                 -> std::shared_ptr<ServiceProviderBase> override
             {
+                std::lock_guard<std::mutex> lock(m_mutex);
                 if (m_factory)
                 {
                     return std::make_shared<TypedServiceProvider<ServiceType>>(
-                        Key(), m_factory, std::move(options));
+                        Key(), m_factory, std::move(options), Dependencies());
                 }
 
                 return std::make_shared<TypedServiceProvider<ServiceType>>(
-                    Key(), m_instance, std::move(options));
+                    Key(), m_instance, std::move(options), Dependencies());
             }
 
         private:
@@ -265,6 +342,7 @@ namespace NGIN::Core
                         return m_instance;
                     }
 
+                    ++m_failureCount;
                     return NGIN::Utilities::Unexpected<KernelError>(
                         MakeKernelError(KernelErrorCode::InvalidState, "Services", Key().ContractName(), "service provider has no instance or factory"));
                 }
@@ -272,35 +350,164 @@ namespace NGIN::Core
                 auto created = m_factory(context);
                 if (!created)
                 {
+                    ++m_failureCount;
                     return NGIN::Utilities::Unexpected<KernelError>(created.Error());
                 }
                 if (!created.Value())
                 {
+                    ++m_failureCount;
                     return NGIN::Utilities::Unexpected<KernelError>(
                         MakeKernelError(KernelErrorCode::InvalidState, "Services", Key().ContractName(), "service factory returned null"));
                 }
+                ++m_activationCount;
                 return created.Value();
             }
 
             mutable std::mutex m_mutex {};
+            mutable std::condition_variable m_activationChanged {};
             NGIN::Memory::Shared<ServiceType> m_instance {};
             ServiceProviderFactory<ServiceType> m_factory {};
             std::unordered_map<NGIN::UInt64, NGIN::Memory::Shared<ServiceType>> m_scopedCache {};
+            std::unordered_set<NGIN::UInt64> m_activatingScopes {};
+            bool m_singletonActivating {false};
+            std::atomic<NGIN::UInt64> m_activationCount {0};
+            std::atomic<NGIN::UInt64> m_failureCount {0};
         };
 
         class ServiceProviderReference;
+
+        class ServiceResolutionGuard final
+        {
+        public:
+            [[nodiscard]] static auto Validate(const ServiceProviderBase& provider) noexcept -> CoreResult<void>
+            {
+                for (const auto& frame : s_stack)
+                {
+                    if (frame.provider == &provider)
+                    {
+                        return NGIN::Utilities::Unexpected<KernelError>(MakeKernelError(
+                            KernelErrorCode::DependencyCycle,
+                            "Services",
+                            provider.ContractName(),
+                            "service dependency cycle: " + BuildPath(provider),
+                            BuildPath(provider)));
+                    }
+                }
+
+                if (provider.Options().lifetime == ServiceLifetime::Scoped)
+                {
+                    for (const auto& frame : s_stack)
+                    {
+                        if (frame.lifetime == ServiceLifetime::Singleton)
+                        {
+                            return NGIN::Utilities::Unexpected<KernelError>(MakeKernelError(
+                                KernelErrorCode::InvalidArgument,
+                                "Services",
+                                provider.ContractName(),
+                                "singleton service cannot capture scoped dependency: " + BuildPath(provider),
+                                BuildPath(provider)));
+                        }
+                    }
+                }
+                return CoreResult<void> {};
+            }
+
+            explicit ServiceResolutionGuard(const ServiceProviderBase& provider)
+            {
+                s_stack.push_back(Frame {
+                    .provider = &provider,
+                    .key = provider.Key(),
+                    .lifetime = provider.Options().lifetime,
+                });
+            }
+
+            ~ServiceResolutionGuard()
+            {
+                s_stack.pop_back();
+            }
+
+            ServiceResolutionGuard(const ServiceResolutionGuard&) = delete;
+            auto operator=(const ServiceResolutionGuard&) -> ServiceResolutionGuard& = delete;
+
+            [[nodiscard]] static auto CurrentPath() -> std::string
+            {
+                std::string path;
+                for (const auto& frame : s_stack)
+                {
+                    if (!path.empty())
+                    {
+                        path += " -> ";
+                    }
+                    path += frame.key.ContractName();
+                }
+                return path;
+            }
+
+        private:
+            struct Frame
+            {
+                const ServiceProviderBase* provider {nullptr};
+                ServiceKey                 key {};
+                ServiceLifetime            lifetime {ServiceLifetime::Singleton};
+            };
+
+            [[nodiscard]] static auto BuildPath(const ServiceProviderBase& provider) -> std::string
+            {
+                auto path = CurrentPath();
+                if (!path.empty())
+                {
+                    path += " -> ";
+                }
+                path += provider.ContractName();
+                return path;
+            }
+
+            inline static thread_local std::vector<Frame> s_stack {};
+        };
+
+        template<typename T, typename = void>
+        struct DeclaredServiceDependencies
+        {
+            using ServiceType = std::remove_cvref_t<T>;
+            using Type = ServiceDependencies<>;
+            static constexpr bool declared = false;
+        };
+
+        template<typename T>
+        struct DeclaredServiceDependencies<T, std::void_t<typename std::remove_cvref_t<T>::Dependencies>>
+        {
+            using Type = typename std::remove_cvref_t<T>::Dependencies;
+            static constexpr bool declared = true;
+        };
+
+        template<typename T>
+        struct IsServiceDependencies : std::false_type
+        {
+        };
+
+        template<typename... TDependencies>
+        struct IsServiceDependencies<ServiceDependencies<TDependencies...>> : std::true_type
+        {
+        };
 
         template<typename T>
         struct CanAutoConstructService
         {
             using ServiceType = std::remove_cvref_t<T>;
             static constexpr bool value =
+                DeclaredServiceDependencies<ServiceType>::declared ||
                 std::is_constructible_v<ServiceType, NGIN::Memory::Shared<IServiceProvider>> ||
                 std::is_default_constructible_v<ServiceType>;
         };
 
         template<typename T>
         [[nodiscard]] auto MakeAutoFactory() -> ServiceProviderFactory<std::remove_cvref_t<T>>;
+
+        template<typename TService, typename TImplementation>
+        [[nodiscard]] auto MakeAutoFactoryAs() -> ServiceProviderFactory<std::remove_cvref_t<TService>>;
+
+        template<typename T>
+        [[nodiscard]] auto AutoDependencyKeys() -> std::vector<ServiceKey>;
 
         template<typename T>
         [[nodiscard]] auto MakeInstanceProvider(
@@ -320,13 +527,15 @@ namespace NGIN::Core
         [[nodiscard]] auto MakeFactoryProvider(
             std::string name,
             ServiceProviderFactory<std::remove_cvref_t<T>> factory,
-            ServiceRegistrationOptions options) -> std::shared_ptr<ServiceProviderBase>
+            ServiceRegistrationOptions options,
+            std::vector<ServiceKey> dependencies = {}) -> std::shared_ptr<ServiceProviderBase>
         {
             using ServiceType = std::remove_cvref_t<T>;
             return std::make_shared<TypedServiceProvider<ServiceType>>(
                 TypeServiceKey<ServiceType>(std::move(name)),
                 std::move(factory),
-                std::move(options));
+                std::move(options),
+                std::move(dependencies));
         }
     }
 
@@ -339,6 +548,7 @@ namespace NGIN::Core
         [[nodiscard]] virtual auto HasServiceContract(std::string_view contractName) const noexcept -> bool = 0;
         [[nodiscard]] virtual auto EnumerateKeys() const -> std::vector<std::string> = 0;
         [[nodiscard]] virtual auto GetScopeInfo(ServiceScopeId scopeId) const noexcept -> CoreResult<ServiceScopeInfo> = 0;
+        [[nodiscard]] virtual auto Diagnostics() const -> ServiceRegistryDiagnostics = 0;
 
         template<typename T>
         [[nodiscard]] auto ResolveOptional(
@@ -381,6 +591,13 @@ namespace NGIN::Core
                     MakeKernelError(KernelErrorCode::InvalidArgument, "Services", key.ContractName(), "resolved service type mismatch"));
             }
 
+            auto resolutionValid = detail::ServiceResolutionGuard::Validate(*provider);
+            if (!resolutionValid)
+            {
+                return NGIN::Utilities::Unexpected<KernelError>(resolutionValid.Error());
+            }
+            detail::ServiceResolutionGuard resolutionGuard(*provider);
+
             ServiceResolutionContext context {
                 .services = *this,
                 .scope = effectiveScope,
@@ -388,7 +605,12 @@ namespace NGIN::Core
             auto resolved = typed->Resolve(context);
             if (!resolved)
             {
-                return NGIN::Utilities::Unexpected<KernelError>(resolved.Error());
+                auto error = resolved.Error();
+                if (error.dependencyPath.empty())
+                {
+                    error.dependencyPath = detail::ServiceResolutionGuard::CurrentPath();
+                }
+                return NGIN::Utilities::Unexpected<KernelError>(std::move(error));
             }
             return std::optional<NGIN::Memory::Shared<ServiceType>> {resolved.Value()};
         }
@@ -415,8 +637,19 @@ namespace NGIN::Core
             if (!optionalValue.Value().has_value())
             {
                 const auto key = TypeServiceKey<std::remove_cvref_t<T>>(std::string(name));
+                auto dependencyPath = detail::ServiceResolutionGuard::CurrentPath();
+                if (!dependencyPath.empty())
+                {
+                    dependencyPath += " -> ";
+                }
+                dependencyPath += key.ContractName();
                 return NGIN::Utilities::Unexpected<KernelError>(
-                    MakeKernelError(KernelErrorCode::NotFound, "Services", key.ContractName(), "service not found: " + key.ContractName()));
+                    MakeKernelError(
+                        KernelErrorCode::NotFound,
+                        "Services",
+                        key.ContractName(),
+                        "service not found: " + key.ContractName(),
+                        std::move(dependencyPath)));
             }
             return *optionalValue.Value();
         }
@@ -460,6 +693,11 @@ namespace NGIN::Core
                 return m_provider->GetScopeInfo(scopeId);
             }
 
+            [[nodiscard]] auto Diagnostics() const -> ServiceRegistryDiagnostics override
+            {
+                return m_provider != nullptr ? m_provider->Diagnostics() : ServiceRegistryDiagnostics {};
+            }
+
             [[nodiscard]] auto FindProvider(const ServiceKey& key) noexcept -> std::shared_ptr<ServiceProviderBase> override
             {
                 return m_provider != nullptr ? m_provider->FindProvider(key) : nullptr;
@@ -498,28 +736,144 @@ namespace NGIN::Core
             ServiceScopeId m_defaultScope {ServiceScopeId::Global()};
         };
 
-        template<typename T>
-        [[nodiscard]] auto MakeAutoFactory() -> ServiceProviderFactory<std::remove_cvref_t<T>>
+        template<std::size_t TIndex = 0, typename... TDependencies>
+        [[nodiscard]] auto ResolveDeclaredDependencies(
+            ServiceResolutionContext& context,
+            std::tuple<NGIN::Memory::Shared<std::remove_cvref_t<TDependencies>>...>& values)
+            -> CoreResult<void>
         {
-            using ServiceType = std::remove_cvref_t<T>;
-            static_assert(
-                CanAutoConstructService<ServiceType>::value,
-                "service auto-registration requires T() or T(NGIN::Memory::Shared<IServiceProvider>)");
-
-            return []([[maybe_unused]] ServiceResolutionContext& context) -> CoreResult<NGIN::Memory::Shared<ServiceType>>
+            if constexpr (TIndex == sizeof...(TDependencies))
             {
-                if constexpr (std::is_constructible_v<ServiceType, NGIN::Memory::Shared<IServiceProvider>>)
+                return CoreResult<void> {};
+            }
+            else
+            {
+                using DependencyType = std::tuple_element_t<TIndex, std::tuple<TDependencies...>>;
+                auto dependency = context.services.ResolveRequired<std::remove_cvref_t<DependencyType>>(context.scope);
+                if (!dependency)
+                {
+                    return NGIN::Utilities::Unexpected<KernelError>(dependency.Error());
+                }
+                std::get<TIndex>(values) = dependency.Value();
+                return ResolveDeclaredDependencies<TIndex + 1, TDependencies...>(context, values);
+            }
+        }
+
+        template<typename TService, typename TImplementation, typename... TDependencies>
+        [[nodiscard]] auto MakeDeclaredDependencyFactory(ServiceDependencies<TDependencies...>)
+            -> ServiceProviderFactory<TService>
+        {
+            static_assert(
+                std::is_constructible_v<TImplementation, NGIN::Memory::Shared<std::remove_cvref_t<TDependencies>>...>,
+                "service Dependencies must match a constructible implementation constructor");
+
+            return [](ServiceResolutionContext& context) -> CoreResult<NGIN::Memory::Shared<TService>>
+            {
+                std::tuple<NGIN::Memory::Shared<std::remove_cvref_t<TDependencies>>...> dependencies {};
+                auto resolved = ResolveDeclaredDependencies<0, TDependencies...>(context, dependencies);
+                if (!resolved)
+                {
+                    return NGIN::Utilities::Unexpected<KernelError>(resolved.Error());
+                }
+
+                if constexpr (std::is_same_v<TService, TImplementation>)
+                {
+                    return std::apply(
+                        [](auto&&... arguments)
+                        {
+                            return NGIN::Memory::MakeShared<TImplementation>(std::move(arguments)...);
+                        },
+                        std::move(dependencies));
+                }
+                else
+                {
+                    static_assert(std::derived_from<TImplementation, TService>);
+                    static_assert(std::has_virtual_destructor_v<TService>);
+                    return std::apply(
+                        [](auto&&... arguments)
+                        {
+                            return NGIN::Memory::MakeSharedAs<TService, TImplementation>(std::move(arguments)...);
+                        },
+                        std::move(dependencies));
+                }
+            };
+        }
+
+        template<typename... TDependencies>
+        [[nodiscard]] auto DependencyKeys(ServiceDependencies<TDependencies...>) -> std::vector<ServiceKey>
+        {
+            return {TypeServiceKey<std::remove_cvref_t<TDependencies>>()...};
+        }
+
+        template<typename TService, typename TImplementation>
+        [[nodiscard]] auto MakeAutoFactoryAs() -> ServiceProviderFactory<std::remove_cvref_t<TService>>
+        {
+            using ServiceType = std::remove_cvref_t<TService>;
+            using ImplementationType = std::remove_cvref_t<TImplementation>;
+            using DependencyList = typename DeclaredServiceDependencies<ImplementationType>::Type;
+
+            static_assert(
+                std::is_same_v<ServiceType, ImplementationType> || std::derived_from<ImplementationType, ServiceType>,
+                "service implementation must derive from its service interface");
+            static_assert(
+                IsServiceDependencies<DependencyList>::value,
+                "T::Dependencies must be NGIN::Core::ServiceDependencies<...>");
+            static_assert(
+                CanAutoConstructService<ImplementationType>::value,
+                "service auto-registration requires Dependencies, T(), or T(NGIN::Memory::Shared<IServiceProvider>)");
+
+            if constexpr (DeclaredServiceDependencies<ImplementationType>::declared)
+            {
+                return MakeDeclaredDependencyFactory<ServiceType, ImplementationType>(DependencyList {});
+            }
+            else if constexpr (std::is_constructible_v<ImplementationType, NGIN::Memory::Shared<IServiceProvider>>)
+            {
+                return [](ServiceResolutionContext& context) -> CoreResult<NGIN::Memory::Shared<ServiceType>>
                 {
                     auto provider = NGIN::Memory::MakeSharedAs<IServiceProvider, ServiceProviderReference>(
                         &context.services,
                         context.scope);
-                    return NGIN::Memory::MakeShared<ServiceType>(std::move(provider));
-                }
-                else
+                    if constexpr (std::is_same_v<ServiceType, ImplementationType>)
+                    {
+                        return NGIN::Memory::MakeShared<ImplementationType>(std::move(provider));
+                    }
+                    else
+                    {
+                        static_assert(std::has_virtual_destructor_v<ServiceType>);
+                        return NGIN::Memory::MakeSharedAs<ServiceType, ImplementationType>(std::move(provider));
+                    }
+                };
+            }
+            else
+            {
+                return []([[maybe_unused]] ServiceResolutionContext& context) -> CoreResult<NGIN::Memory::Shared<ServiceType>>
                 {
-                    return NGIN::Memory::MakeShared<ServiceType>();
-                }
-            };
+                    if constexpr (std::is_same_v<ServiceType, ImplementationType>)
+                    {
+                        return NGIN::Memory::MakeShared<ImplementationType>();
+                    }
+                    else
+                    {
+                        static_assert(std::has_virtual_destructor_v<ServiceType>);
+                        return NGIN::Memory::MakeSharedAs<ServiceType, ImplementationType>();
+                    }
+                };
+            }
+        }
+
+        template<typename T>
+        [[nodiscard]] auto MakeAutoFactory() -> ServiceProviderFactory<std::remove_cvref_t<T>>
+        {
+            return MakeAutoFactoryAs<T, T>();
+        }
+
+        template<typename T>
+        [[nodiscard]] auto AutoDependencyKeys() -> std::vector<ServiceKey>
+        {
+            using ServiceType = std::remove_cvref_t<T>;
+            using DependencyList = typename DeclaredServiceDependencies<ServiceType>::Type;
+            static_assert(IsServiceDependencies<DependencyList>::value);
+            return DependencyKeys(DependencyList {});
         }
     }
 
@@ -536,14 +890,38 @@ namespace NGIN::Core
         auto RegisterSingleton(ServiceRegistrationOptions options = {}) noexcept -> CoreResult<void>
         {
             options.lifetime = ServiceLifetime::Singleton;
-            return RegisterFactory<T>({}, detail::MakeAutoFactory<T>(), std::move(options));
+            return RegisterProvider(detail::MakeFactoryProvider<T>(
+                {}, detail::MakeAutoFactory<T>(), std::move(options), detail::AutoDependencyKeys<T>()));
         }
 
         template<typename T>
         auto RegisterSingleton(std::string name, ServiceRegistrationOptions options = {}) noexcept -> CoreResult<void>
         {
             options.lifetime = ServiceLifetime::Singleton;
-            return RegisterFactory<T>(std::move(name), detail::MakeAutoFactory<T>(), std::move(options));
+            return RegisterProvider(detail::MakeFactoryProvider<T>(
+                std::move(name), detail::MakeAutoFactory<T>(), std::move(options), detail::AutoDependencyKeys<T>()));
+        }
+
+        template<typename TService, typename TImplementation>
+        auto RegisterSingleton(ServiceRegistrationOptions options = {}) noexcept -> CoreResult<void>
+        {
+            options.lifetime = ServiceLifetime::Singleton;
+            return RegisterProvider(detail::MakeFactoryProvider<TService>(
+                {},
+                detail::MakeAutoFactoryAs<TService, TImplementation>(),
+                std::move(options),
+                detail::AutoDependencyKeys<TImplementation>()));
+        }
+
+        template<typename TService, typename TImplementation>
+        auto RegisterSingleton(std::string name, ServiceRegistrationOptions options = {}) noexcept -> CoreResult<void>
+        {
+            options.lifetime = ServiceLifetime::Singleton;
+            return RegisterProvider(detail::MakeFactoryProvider<TService>(
+                std::move(name),
+                detail::MakeAutoFactoryAs<TService, TImplementation>(),
+                std::move(options),
+                detail::AutoDependencyKeys<TImplementation>()));
         }
 
         template<typename T>
@@ -614,7 +992,8 @@ namespace NGIN::Core
         auto RegisterScoped(ServiceRegistrationOptions options = {}) noexcept -> CoreResult<void>
         {
             options.lifetime = ServiceLifetime::Scoped;
-            return RegisterFactory<T>({}, detail::MakeAutoFactory<T>(), std::move(options));
+            return RegisterProvider(detail::MakeFactoryProvider<T>(
+                {}, detail::MakeAutoFactory<T>(), std::move(options), detail::AutoDependencyKeys<T>()));
         }
 
         template<typename T>
@@ -623,7 +1002,30 @@ namespace NGIN::Core
             ServiceRegistrationOptions options = {}) noexcept -> CoreResult<void>
         {
             options.lifetime = ServiceLifetime::Scoped;
-            return RegisterFactory<T>(std::move(name), detail::MakeAutoFactory<T>(), std::move(options));
+            return RegisterProvider(detail::MakeFactoryProvider<T>(
+                std::move(name), detail::MakeAutoFactory<T>(), std::move(options), detail::AutoDependencyKeys<T>()));
+        }
+
+        template<typename TService, typename TImplementation>
+        auto RegisterScoped(ServiceRegistrationOptions options = {}) noexcept -> CoreResult<void>
+        {
+            options.lifetime = ServiceLifetime::Scoped;
+            return RegisterProvider(detail::MakeFactoryProvider<TService>(
+                {},
+                detail::MakeAutoFactoryAs<TService, TImplementation>(),
+                std::move(options),
+                detail::AutoDependencyKeys<TImplementation>()));
+        }
+
+        template<typename TService, typename TImplementation>
+        auto RegisterScoped(std::string name, ServiceRegistrationOptions options = {}) noexcept -> CoreResult<void>
+        {
+            options.lifetime = ServiceLifetime::Scoped;
+            return RegisterProvider(detail::MakeFactoryProvider<TService>(
+                std::move(name),
+                detail::MakeAutoFactoryAs<TService, TImplementation>(),
+                std::move(options),
+                detail::AutoDependencyKeys<TImplementation>()));
         }
 
         template<typename T>
@@ -649,14 +1051,38 @@ namespace NGIN::Core
         auto RegisterTransient(ServiceRegistrationOptions options = {}) noexcept -> CoreResult<void>
         {
             options.lifetime = ServiceLifetime::Transient;
-            return RegisterFactory<T>({}, detail::MakeAutoFactory<T>(), std::move(options));
+            return RegisterProvider(detail::MakeFactoryProvider<T>(
+                {}, detail::MakeAutoFactory<T>(), std::move(options), detail::AutoDependencyKeys<T>()));
         }
 
         template<typename T>
         auto RegisterTransient(std::string name, ServiceRegistrationOptions options = {}) noexcept -> CoreResult<void>
         {
             options.lifetime = ServiceLifetime::Transient;
-            return RegisterFactory<T>(std::move(name), detail::MakeAutoFactory<T>(), std::move(options));
+            return RegisterProvider(detail::MakeFactoryProvider<T>(
+                std::move(name), detail::MakeAutoFactory<T>(), std::move(options), detail::AutoDependencyKeys<T>()));
+        }
+
+        template<typename TService, typename TImplementation>
+        auto RegisterTransient(ServiceRegistrationOptions options = {}) noexcept -> CoreResult<void>
+        {
+            options.lifetime = ServiceLifetime::Transient;
+            return RegisterProvider(detail::MakeFactoryProvider<TService>(
+                {},
+                detail::MakeAutoFactoryAs<TService, TImplementation>(),
+                std::move(options),
+                detail::AutoDependencyKeys<TImplementation>()));
+        }
+
+        template<typename TService, typename TImplementation>
+        auto RegisterTransient(std::string name, ServiceRegistrationOptions options = {}) noexcept -> CoreResult<void>
+        {
+            options.lifetime = ServiceLifetime::Transient;
+            return RegisterProvider(detail::MakeFactoryProvider<TService>(
+                std::move(name),
+                detail::MakeAutoFactoryAs<TService, TImplementation>(),
+                std::move(options),
+                detail::AutoDependencyKeys<TImplementation>()));
         }
 
         template<typename T>
@@ -693,6 +1119,7 @@ namespace NGIN::Core
         [[nodiscard]] auto HasServiceContract(std::string_view contractName) const noexcept -> bool override;
         [[nodiscard]] auto EnumerateKeys() const -> std::vector<std::string> override;
         [[nodiscard]] auto GetScopeInfo(ServiceScopeId scopeId) const noexcept -> CoreResult<ServiceScopeInfo> override;
+        [[nodiscard]] auto Diagnostics() const -> ServiceRegistryDiagnostics override;
 
         auto RegisterProvider(std::shared_ptr<detail::ServiceProviderBase> provider) noexcept -> CoreResult<void> override;
 

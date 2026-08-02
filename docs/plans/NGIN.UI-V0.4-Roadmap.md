@@ -1,6 +1,6 @@
 # NGIN.UI Version 0.4 Roadmap
 
-Status: Planned — awaiting Milestone 30 contract approval
+Status: In progress — Milestone 30 complete
 Theme: Application composition, dependency injection, pages, and navigation
 Baseline: [`NGIN.UI-V0.3-Roadmap.md`](NGIN.UI-V0.3-Roadmap.md)
 Execution map:

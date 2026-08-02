@@ -33,6 +33,9 @@ If you are trying to understand NGIN as a user:
 
 ## Guides
 
+- [`guides/ngin-core-di.md`](guides/ngin-core-di.md)
+  Typed Core services, constructor dependencies, lifetimes, scopes, errors,
+  and diagnostics without requiring Reflection.
 - [`guides/ngin-ui-v0.2-release.md`](guides/ngin-ui-v0.2-release.md)
 - [`guides/ngin-ui-v0.3-release.md`](guides/ngin-ui-v0.3-release.md)
   NGIN.UI 0.2 package versions, migration notes, budgets, release checks, and

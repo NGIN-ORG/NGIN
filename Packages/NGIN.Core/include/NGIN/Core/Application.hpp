@@ -395,15 +395,44 @@ public:
 
   template <typename T>
   auto AddSingleton(ServiceMetadata metadata = {}) -> ServiceCollection & {
-    return AddFactory<T>({}, detail::MakeAutoFactory<T>(),
-                         ServiceLifetime::Singleton, std::move(metadata));
+    ServiceRegistrationOptions options{};
+    options.lifetime = ServiceLifetime::Singleton;
+    options.metadata = std::move(metadata);
+    return AddProvider(detail::MakeFactoryProvider<T>(
+        {}, detail::MakeAutoFactory<T>(), std::move(options),
+        detail::AutoDependencyKeys<T>()));
   }
 
   template <typename T>
   auto AddSingleton(std::string name, ServiceMetadata metadata = {})
       -> ServiceCollection & {
-    return AddFactory<T>(std::move(name), detail::MakeAutoFactory<T>(),
-                         ServiceLifetime::Singleton, std::move(metadata));
+    ServiceRegistrationOptions options{};
+    options.lifetime = ServiceLifetime::Singleton;
+    options.metadata = std::move(metadata);
+    return AddProvider(detail::MakeFactoryProvider<T>(
+        std::move(name), detail::MakeAutoFactory<T>(), std::move(options),
+        detail::AutoDependencyKeys<T>()));
+  }
+
+  template <typename TService, typename TImplementation>
+  auto AddSingleton(ServiceMetadata metadata = {}) -> ServiceCollection & {
+    ServiceRegistrationOptions options{};
+    options.lifetime = ServiceLifetime::Singleton;
+    options.metadata = std::move(metadata);
+    return AddProvider(detail::MakeFactoryProvider<TService>(
+        {}, detail::MakeAutoFactoryAs<TService, TImplementation>(),
+        std::move(options), detail::AutoDependencyKeys<TImplementation>()));
+  }
+
+  template <typename TService, typename TImplementation>
+  auto AddSingleton(std::string name, ServiceMetadata metadata = {})
+      -> ServiceCollection & {
+    ServiceRegistrationOptions options{};
+    options.lifetime = ServiceLifetime::Singleton;
+    options.metadata = std::move(metadata);
+    return AddProvider(detail::MakeFactoryProvider<TService>(
+        std::move(name), detail::MakeAutoFactoryAs<TService, TImplementation>(),
+        std::move(options), detail::AutoDependencyKeys<TImplementation>()));
   }
 
   template <typename T>
@@ -462,15 +491,44 @@ public:
 
   template <typename T>
   auto AddScoped(ServiceMetadata metadata = {}) -> ServiceCollection & {
-    return AddFactory<T>({}, detail::MakeAutoFactory<T>(),
-                         ServiceLifetime::Scoped, std::move(metadata));
+    ServiceRegistrationOptions options{};
+    options.lifetime = ServiceLifetime::Scoped;
+    options.metadata = std::move(metadata);
+    return AddProvider(detail::MakeFactoryProvider<T>(
+        {}, detail::MakeAutoFactory<T>(), std::move(options),
+        detail::AutoDependencyKeys<T>()));
   }
 
   template <typename T>
   auto AddScoped(std::string name, ServiceMetadata metadata = {})
       -> ServiceCollection & {
-    return AddFactory<T>(std::move(name), detail::MakeAutoFactory<T>(),
-                         ServiceLifetime::Scoped, std::move(metadata));
+    ServiceRegistrationOptions options{};
+    options.lifetime = ServiceLifetime::Scoped;
+    options.metadata = std::move(metadata);
+    return AddProvider(detail::MakeFactoryProvider<T>(
+        std::move(name), detail::MakeAutoFactory<T>(), std::move(options),
+        detail::AutoDependencyKeys<T>()));
+  }
+
+  template <typename TService, typename TImplementation>
+  auto AddScoped(ServiceMetadata metadata = {}) -> ServiceCollection & {
+    ServiceRegistrationOptions options{};
+    options.lifetime = ServiceLifetime::Scoped;
+    options.metadata = std::move(metadata);
+    return AddProvider(detail::MakeFactoryProvider<TService>(
+        {}, detail::MakeAutoFactoryAs<TService, TImplementation>(),
+        std::move(options), detail::AutoDependencyKeys<TImplementation>()));
+  }
+
+  template <typename TService, typename TImplementation>
+  auto AddScoped(std::string name, ServiceMetadata metadata = {})
+      -> ServiceCollection & {
+    ServiceRegistrationOptions options{};
+    options.lifetime = ServiceLifetime::Scoped;
+    options.metadata = std::move(metadata);
+    return AddProvider(detail::MakeFactoryProvider<TService>(
+        std::move(name), detail::MakeAutoFactoryAs<TService, TImplementation>(),
+        std::move(options), detail::AutoDependencyKeys<TImplementation>()));
   }
 
   template <typename T>
@@ -490,15 +548,44 @@ public:
 
   template <typename T>
   auto AddTransient(ServiceMetadata metadata = {}) -> ServiceCollection & {
-    return AddFactory<T>({}, detail::MakeAutoFactory<T>(),
-                         ServiceLifetime::Transient, std::move(metadata));
+    ServiceRegistrationOptions options{};
+    options.lifetime = ServiceLifetime::Transient;
+    options.metadata = std::move(metadata);
+    return AddProvider(detail::MakeFactoryProvider<T>(
+        {}, detail::MakeAutoFactory<T>(), std::move(options),
+        detail::AutoDependencyKeys<T>()));
   }
 
   template <typename T>
   auto AddTransient(std::string name, ServiceMetadata metadata = {})
       -> ServiceCollection & {
-    return AddFactory<T>(std::move(name), detail::MakeAutoFactory<T>(),
-                         ServiceLifetime::Transient, std::move(metadata));
+    ServiceRegistrationOptions options{};
+    options.lifetime = ServiceLifetime::Transient;
+    options.metadata = std::move(metadata);
+    return AddProvider(detail::MakeFactoryProvider<T>(
+        std::move(name), detail::MakeAutoFactory<T>(), std::move(options),
+        detail::AutoDependencyKeys<T>()));
+  }
+
+  template <typename TService, typename TImplementation>
+  auto AddTransient(ServiceMetadata metadata = {}) -> ServiceCollection & {
+    ServiceRegistrationOptions options{};
+    options.lifetime = ServiceLifetime::Transient;
+    options.metadata = std::move(metadata);
+    return AddProvider(detail::MakeFactoryProvider<TService>(
+        {}, detail::MakeAutoFactoryAs<TService, TImplementation>(),
+        std::move(options), detail::AutoDependencyKeys<TImplementation>()));
+  }
+
+  template <typename TService, typename TImplementation>
+  auto AddTransient(std::string name, ServiceMetadata metadata = {})
+      -> ServiceCollection & {
+    ServiceRegistrationOptions options{};
+    options.lifetime = ServiceLifetime::Transient;
+    options.metadata = std::move(metadata);
+    return AddProvider(detail::MakeFactoryProvider<TService>(
+        std::move(name), detail::MakeAutoFactoryAs<TService, TImplementation>(),
+        std::move(options), detail::AutoDependencyKeys<TImplementation>()));
   }
 
   template <typename T>

@@ -208,6 +208,46 @@ namespace NGIN::Core
         return it->second;
     }
 
+    auto ServiceRegistry::Diagnostics() const -> ServiceRegistryDiagnostics
+    {
+        std::vector<std::shared_ptr<detail::ServiceProviderBase>> providers;
+        ServiceRegistryDiagnostics diagnostics {};
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            providers.reserve(m_entries.size());
+            diagnostics.scopes.reserve(m_scopes.size());
+            for (const auto& [_, provider] : m_entries)
+            {
+                providers.push_back(provider);
+            }
+            for (const auto& [_, scope] : m_scopes)
+            {
+                diagnostics.scopes.push_back(scope);
+            }
+        }
+
+        diagnostics.registrations.reserve(providers.size());
+        for (const auto& provider : providers)
+        {
+            diagnostics.registrations.push_back(provider->Diagnostics());
+        }
+        std::sort(
+            diagnostics.registrations.begin(),
+            diagnostics.registrations.end(),
+            [](const auto& lhs, const auto& rhs)
+            {
+                return lhs.key.ContractName() < rhs.key.ContractName();
+            });
+        std::sort(
+            diagnostics.scopes.begin(),
+            diagnostics.scopes.end(),
+            [](const auto& lhs, const auto& rhs)
+            {
+                return lhs.id.value < rhs.id.value;
+            });
+        return diagnostics;
+    }
+
     auto CreateServiceRegistry() noexcept -> NGIN::Memory::Shared<IServiceRegistry>
     {
         return NGIN::Memory::MakeSharedAs<IServiceRegistry, ServiceRegistry>();

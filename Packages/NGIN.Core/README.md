@@ -41,6 +41,10 @@ The smallest repository example is
 loads staged config, registers a static module implementation, and lets the V4
 project manifest select that module.
 
+For typed constructor injection, interface mappings, service scopes, and
+diagnostics, see the
+[Core dependency-injection guide](../../docs/guides/ngin-core-di.md).
+
 ## Runtime Model
 
 `NGIN.Core` provides:

@@ -66,6 +66,84 @@ struct ProviderConsumerService {
   NGIN::Memory::Shared<ProviderDependencyService> dependency{};
 };
 
+struct TypedServiceConfig {
+  std::string message{"typed dependency"};
+};
+
+class ITypedMessageService {
+public:
+  virtual ~ITypedMessageService() = default;
+  [[nodiscard]] virtual auto Message() const -> std::string = 0;
+};
+
+class TypedMessageService final : public ITypedMessageService {
+public:
+  using Dependencies = NGIN::Core::ServiceDependencies<TypedServiceConfig>;
+
+  explicit TypedMessageService(
+      NGIN::Memory::Shared<TypedServiceConfig> config)
+      : m_config(std::move(config)) {}
+
+  [[nodiscard]] auto Message() const -> std::string override {
+    return m_config->message;
+  }
+
+private:
+  NGIN::Memory::Shared<TypedServiceConfig> m_config{};
+};
+
+struct TypedServiceConsumer {
+  using Dependencies = NGIN::Core::ServiceDependencies<ITypedMessageService>;
+
+  explicit TypedServiceConsumer(
+      NGIN::Memory::Shared<ITypedMessageService> service)
+      : message(service->Message()) {}
+
+  std::string message{};
+};
+
+struct OrderedDependencyA {
+  inline static std::vector<std::string> order{};
+  OrderedDependencyA() { order.push_back("A"); }
+};
+
+struct OrderedDependencyB {
+  OrderedDependencyB() { OrderedDependencyA::order.push_back("B"); }
+};
+
+struct OrderedConsumer {
+  using Dependencies =
+      NGIN::Core::ServiceDependencies<OrderedDependencyA, OrderedDependencyB>;
+
+  OrderedConsumer(NGIN::Memory::Shared<OrderedDependencyA>,
+                  NGIN::Memory::Shared<OrderedDependencyB>) {
+    OrderedDependencyA::order.push_back("Consumer");
+  }
+};
+
+struct CycleServiceB;
+
+struct CycleServiceA {
+  using Dependencies = NGIN::Core::ServiceDependencies<CycleServiceB>;
+  explicit CycleServiceA(NGIN::Memory::Shared<CycleServiceB>);
+};
+
+struct CycleServiceB {
+  using Dependencies = NGIN::Core::ServiceDependencies<CycleServiceA>;
+  explicit CycleServiceB(NGIN::Memory::Shared<CycleServiceA>) {}
+};
+
+inline CycleServiceA::CycleServiceA(NGIN::Memory::Shared<CycleServiceB>) {}
+
+struct ScopedDependency {
+};
+
+struct SingletonCaptiveDependency {
+  using Dependencies = NGIN::Core::ServiceDependencies<ScopedDependency>;
+  explicit SingletonCaptiveDependency(
+      NGIN::Memory::Shared<ScopedDependency>) {}
+};
+
 [[nodiscard]] auto
 MakeMountedVirtualFileSystem(const NGIN::IO::Path &realRoot,
                              const NGIN::IO::Path &virtualPrefix)
@@ -1153,6 +1231,183 @@ TEST_CASE("ServiceRegistryReportsTypedResolutionErrors",
           NGIN::Core::KernelErrorCode::NotFound);
 }
 
+TEST_CASE("ServiceRegistryConstructsDeclaredTypedDependencies",
+          "[runtime][services][di]") {
+  auto registry = NGIN::Core::CreateServiceRegistry();
+
+  REQUIRE(registry->RegisterSingleton<TypedServiceConfig>().HasValue());
+  REQUIRE(
+      (registry
+           ->RegisterSingleton<ITypedMessageService, TypedMessageService>()
+           .HasValue()));
+  REQUIRE(registry->RegisterSingleton<TypedServiceConsumer>().HasValue());
+
+  auto consumer = registry->ResolveRequired<TypedServiceConsumer>();
+  REQUIRE(consumer.HasValue());
+  REQUIRE(consumer.Value()->message == "typed dependency");
+
+  OrderedDependencyA::order.clear();
+  REQUIRE(registry->RegisterSingleton<OrderedDependencyA>().HasValue());
+  REQUIRE(registry->RegisterSingleton<OrderedDependencyB>().HasValue());
+  REQUIRE(registry->RegisterSingleton<OrderedConsumer>().HasValue());
+  REQUIRE(registry->ResolveRequired<OrderedConsumer>().HasValue());
+  REQUIRE(OrderedDependencyA::order ==
+          std::vector<std::string>{"A", "B", "Consumer"});
+
+  const auto diagnostics = registry->Diagnostics();
+  const auto consumerEntry = std::find_if(
+      diagnostics.registrations.begin(), diagnostics.registrations.end(),
+      [](const NGIN::Core::ServiceRegistrationDiagnostics &entry) {
+        return entry.key.typeId ==
+               NGIN::Core::TypeServiceKey<TypedServiceConsumer>().typeId;
+      });
+  REQUIRE(consumerEntry != diagnostics.registrations.end());
+  REQUIRE(consumerEntry->lifetime == NGIN::Core::ServiceLifetime::Singleton);
+  REQUIRE(consumerEntry->dependencies.size() == 1);
+  REQUIRE(consumerEntry->activationCount == 1);
+  REQUIRE(consumerEntry->failureCount == 0);
+  REQUIRE(consumerEntry->cachedInstanceCount == 1);
+}
+
+TEST_CASE("ServiceRegistrySupportsNamedInterfaceMappingsAndRejectsDuplicates",
+          "[runtime][services][di]") {
+  auto registry = NGIN::Core::CreateServiceRegistry();
+  REQUIRE(registry->RegisterSingleton<TypedServiceConfig>().HasValue());
+  REQUIRE((registry
+               ->RegisterSingleton<ITypedMessageService, TypedMessageService>(
+                   "Message.Primary")
+               .HasValue()));
+
+  auto named = registry->ResolveRequired<ITypedMessageService>("Message.Primary");
+  REQUIRE(named.HasValue());
+  REQUIRE(named.Value()->Message() == "typed dependency");
+
+  auto duplicate =
+      registry->RegisterSingleton<ITypedMessageService, TypedMessageService>(
+          "Message.Primary");
+  REQUIRE_FALSE(duplicate.HasValue());
+  REQUIRE(duplicate.Error().code ==
+          NGIN::Core::KernelErrorCode::AlreadyExists);
+
+  auto ambiguousContract = registry->RegisterSingleton<std::string>(
+      "Message.Primary", NGIN::Core::ServiceRegistrationOptions{});
+  REQUIRE_FALSE(ambiguousContract.HasValue());
+  REQUIRE(ambiguousContract.Error().code ==
+          NGIN::Core::KernelErrorCode::AlreadyExists);
+}
+
+TEST_CASE("ServiceRegistryReportsDependencyCyclesAndInvalidLifetimeCapture",
+          "[runtime][services][di]") {
+  SECTION("Cycle includes the complete dependency path") {
+    auto registry = NGIN::Core::CreateServiceRegistry();
+    REQUIRE(registry->RegisterSingleton<CycleServiceA>().HasValue());
+    REQUIRE(registry->RegisterSingleton<CycleServiceB>().HasValue());
+
+    auto cycle = registry->ResolveRequired<CycleServiceA>();
+    REQUIRE_FALSE(cycle.HasValue());
+    REQUIRE(cycle.Error().code ==
+            NGIN::Core::KernelErrorCode::DependencyCycle);
+    REQUIRE(cycle.Error().dependencyPath.find("CycleServiceA") !=
+            std::string::npos);
+    REQUIRE(cycle.Error().dependencyPath.find("CycleServiceB") !=
+            std::string::npos);
+  }
+
+  SECTION("Missing dependency includes the requested chain") {
+    auto registry = NGIN::Core::CreateServiceRegistry();
+    REQUIRE(registry->RegisterSingleton<TypedServiceConsumer>().HasValue());
+
+    auto missing = registry->ResolveRequired<TypedServiceConsumer>();
+    REQUIRE_FALSE(missing.HasValue());
+    REQUIRE(missing.Error().code == NGIN::Core::KernelErrorCode::NotFound);
+    REQUIRE(missing.Error().dependencyPath.find("TypedServiceConsumer") !=
+            std::string::npos);
+    REQUIRE(missing.Error().dependencyPath.find("ITypedMessageService") !=
+            std::string::npos);
+  }
+
+  SECTION("Singleton cannot capture scoped dependency") {
+    auto registry = NGIN::Core::CreateServiceRegistry();
+    auto scope = registry->BeginScope(NGIN::Core::ServiceScopeKind::Operation,
+                                      "Lifetime.Test");
+    REQUIRE(scope.HasValue());
+    REQUIRE(registry
+                ->RegisterScoped<ScopedDependency>(
+                    NGIN::Core::ServiceRegistrationOptions{
+                        .lifetime = NGIN::Core::ServiceLifetime::Scoped,
+                        .ownerScope = scope.Value(),
+                    })
+                .HasValue());
+    REQUIRE(registry->RegisterSingleton<SingletonCaptiveDependency>()
+                .HasValue());
+
+    auto captive =
+        registry->ResolveRequired<SingletonCaptiveDependency>(scope.Value());
+    REQUIRE_FALSE(captive.HasValue());
+    REQUIRE(captive.Error().code ==
+            NGIN::Core::KernelErrorCode::InvalidArgument);
+    REQUIRE(captive.Error().dependencyPath.find("ScopedDependency") !=
+            std::string::npos);
+  }
+}
+
+TEST_CASE("ServiceRegistrySerializesSingletonActivationAndReportsFailures",
+          "[runtime][services][di]") {
+  auto registry = NGIN::Core::CreateServiceRegistry();
+  std::atomic<NGIN::UInt32> activations{0};
+  REQUIRE(registry
+              ->RegisterFactory<NGIN::UInt64>(
+                  "Concurrent.Singleton",
+                  [&](NGIN::Core::ServiceResolutionContext &)
+                      -> NGIN::Core::CoreResult<
+                          NGIN::Memory::Shared<NGIN::UInt64>> {
+                    ++activations;
+                    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                    return NGIN::Memory::MakeShared<NGIN::UInt64>(42);
+                  })
+              .HasValue());
+
+  std::vector<std::future<NGIN::Core::CoreResult<
+      NGIN::Memory::Shared<NGIN::UInt64>>>> resolutions;
+  for (NGIN::UInt32 index = 0; index < 12; ++index) {
+    resolutions.push_back(std::async(std::launch::async, [&registry] {
+      return registry->ResolveRequired<NGIN::UInt64>("Concurrent.Singleton");
+    }));
+  }
+  for (auto &resolution : resolutions) {
+    auto value = resolution.get();
+    REQUIRE(value.HasValue());
+    REQUIRE(*value.Value() == 42);
+  }
+  REQUIRE(activations == 1);
+
+  REQUIRE(registry
+              ->RegisterFactory<std::string>(
+                  "Failing.Factory",
+                  [](NGIN::Core::ServiceResolutionContext &)
+                      -> NGIN::Core::CoreResult<
+                          NGIN::Memory::Shared<std::string>> {
+                    return NGIN::Utilities::Unexpected<NGIN::Core::KernelError>(
+                        NGIN::Core::MakeKernelError(
+                            NGIN::Core::KernelErrorCode::InvalidState,
+                            "Test", "Failing.Factory", "expected failure"));
+                  })
+              .HasValue());
+  auto failure = registry->ResolveRequired<std::string>("Failing.Factory");
+  REQUIRE_FALSE(failure.HasValue());
+  REQUIRE(failure.Error().message == "expected failure");
+
+  const auto diagnostics = registry->Diagnostics();
+  const auto failedEntry = std::find_if(
+      diagnostics.registrations.begin(), diagnostics.registrations.end(),
+      [](const NGIN::Core::ServiceRegistrationDiagnostics &entry) {
+        return entry.key.ContractName() == "Failing.Factory";
+      });
+  REQUIRE(failedEntry != diagnostics.registrations.end());
+  REQUIRE(failedEntry->activationCount == 0);
+  REQUIRE(failedEntry->failureCount == 1);
+}
+
 TEST_CASE("ModuleRequiredServiceContractsAreEnforcedBeforeInit",
           "[runtime][services]") {
   auto catalog = NGIN::Core::CreateStaticModuleCatalog();
@@ -2032,8 +2287,13 @@ TEST_CASE("ApplicationBuilderBuildsHostFromCode", "[builder][host]") {
   auto builder = NGIN::Core::CreateApplicationBuilder(0, nullptr);
   builder->SetApplicationName("Builder.Tests");
   builder->SetProfile("Builder.Target");
-  builder->Services().AddDefaults().AddConfiguration().AddSingletonValue<std::string>(
-      "App.Message", "hello-builder");
+  builder->Services()
+      .AddDefaults()
+      .AddConfiguration()
+      .AddSingletonValue<std::string>("App.Message", "hello-builder")
+      .AddSingleton<TypedServiceConfig>()
+      .AddSingleton<ITypedMessageService, TypedMessageService>()
+      .AddSingleton<TypedServiceConsumer>();
   builder->Modules()
       .Register(MakeRegistration(
           MakeDescriptor("App.Builder", NGIN::Core::ModuleFamily::App,
@@ -2062,6 +2322,9 @@ TEST_CASE("ApplicationBuilderBuildsHostFromCode", "[builder][host]") {
   auto resolved = services->ResolveRequired<std::string>("App.Message");
   REQUIRE(resolved.HasValue());
   REQUIRE(*resolved.Value() == "hello-builder");
+  auto typedConsumer = services->ResolveRequired<TypedServiceConsumer>();
+  REQUIRE(typedConsumer.HasValue());
+  REQUIRE(typedConsumer.Value()->message == "typed dependency");
 
   auto config = app.Value()->GetConfig();
   REQUIRE(static_cast<bool>(config));

@@ -86,6 +86,27 @@ namespace NGIN::Core
                     .metadata = std::move(metadata)});
         }
 
+        template<typename TService, typename TImplementation>
+        auto RegisterSingleton(ServiceMetadata metadata = {}) noexcept -> CoreResult<void>
+        {
+            return m_services.RegisterSingleton<TService, TImplementation>(
+                ServiceRegistrationOptions {
+                    .lifetime = ServiceLifetime::Singleton,
+                    .ownerScope = m_moduleScopeId,
+                    .metadata = std::move(metadata)});
+        }
+
+        template<typename TService, typename TImplementation>
+        auto RegisterSingleton(std::string name, ServiceMetadata metadata = {}) noexcept -> CoreResult<void>
+        {
+            return m_services.RegisterSingleton<TService, TImplementation>(
+                std::move(name),
+                ServiceRegistrationOptions {
+                    .lifetime = ServiceLifetime::Singleton,
+                    .ownerScope = m_moduleScopeId,
+                    .metadata = std::move(metadata)});
+        }
+
         template<typename T>
         auto RegisterSingleton(
             std::string name,
@@ -153,6 +174,27 @@ namespace NGIN::Core
                     .metadata = std::move(metadata)});
         }
 
+        template<typename TService, typename TImplementation>
+        auto RegisterScoped(ServiceMetadata metadata = {}) noexcept -> CoreResult<void>
+        {
+            return m_services.RegisterScoped<TService, TImplementation>(
+                ServiceRegistrationOptions {
+                    .lifetime = ServiceLifetime::Scoped,
+                    .ownerScope = m_moduleScopeId,
+                    .metadata = std::move(metadata)});
+        }
+
+        template<typename TService, typename TImplementation>
+        auto RegisterScoped(std::string name, ServiceMetadata metadata = {}) noexcept -> CoreResult<void>
+        {
+            return m_services.RegisterScoped<TService, TImplementation>(
+                std::move(name),
+                ServiceRegistrationOptions {
+                    .lifetime = ServiceLifetime::Scoped,
+                    .ownerScope = m_moduleScopeId,
+                    .metadata = std::move(metadata)});
+        }
+
         template<typename T>
         auto RegisterTransient(ServiceMetadata metadata = {}) noexcept -> CoreResult<void>
         {
@@ -167,6 +209,27 @@ namespace NGIN::Core
         auto RegisterTransient(std::string name, ServiceMetadata metadata = {}) noexcept -> CoreResult<void>
         {
             return m_services.RegisterTransient<T>(
+                std::move(name),
+                ServiceRegistrationOptions {
+                    .lifetime = ServiceLifetime::Transient,
+                    .ownerScope = m_moduleScopeId,
+                    .metadata = std::move(metadata)});
+        }
+
+        template<typename TService, typename TImplementation>
+        auto RegisterTransient(ServiceMetadata metadata = {}) noexcept -> CoreResult<void>
+        {
+            return m_services.RegisterTransient<TService, TImplementation>(
+                ServiceRegistrationOptions {
+                    .lifetime = ServiceLifetime::Transient,
+                    .ownerScope = m_moduleScopeId,
+                    .metadata = std::move(metadata)});
+        }
+
+        template<typename TService, typename TImplementation>
+        auto RegisterTransient(std::string name, ServiceMetadata metadata = {}) noexcept -> CoreResult<void>
+        {
+            return m_services.RegisterTransient<TService, TImplementation>(
                 std::move(name),
                 ServiceRegistrationOptions {
                     .lifetime = ServiceLifetime::Transient,
