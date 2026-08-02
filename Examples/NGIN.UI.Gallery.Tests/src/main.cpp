@@ -80,7 +80,7 @@ auto main() -> int {
   }
   auto text = std::move(createdText).Value();
 
-  NGIN::UIGallery::Model model;
+  NGIN::UIGallery::GalleryViewModel model;
   auto createdWindow =
       NGIN::UIGallery::CreateMainWindow(*application, *text, model);
   if (!createdWindow) {
@@ -107,8 +107,8 @@ auto main() -> int {
   if (!application->PumpOnce()) {
     return 1;
   }
-  const auto sidebar = FindByTypeAndKey(window->Tree(), ElementType::ScrollView,
-                                        "sidebar");
+  const auto sidebar =
+      FindByTypeAndKey(window->Tree(), ElementType::ScrollView, "sidebar");
   const auto *sidebarNode = window->Tree().Get(sidebar);
   if (!Check(sidebar.IsValid(), "navigation is a clipped scroll view") ||
       !Check(sidebarNode != nullptr &&
@@ -166,7 +166,23 @@ auto main() -> int {
          !Check(HasRole(window->Semantics(), SemanticRole::Slider),
                 "inputs page exposes slider semantics") ||
          !Check(HasRole(window->Semantics(), SemanticRole::ProgressBar),
-                "inputs page exposes progress semantics"))) {
+                "inputs page exposes progress semantics") ||
+         !Check(FindByTypeAndKey(window->Tree(), ElementType::Button,
+                                 "validation-check")
+                    .IsValid(),
+                "MVVM workflow exposes form validation") ||
+         !Check(FindByTypeAndKey(window->Tree(), ElementType::Button,
+                                 "validation-save")
+                    .IsValid(),
+                "MVVM workflow exposes command-bound Save") ||
+         !Check(FindByTypeAndKey(window->Tree(), ElementType::Button,
+                                 "validation-fail")
+                    .IsValid(),
+                "MVVM workflow exposes the error path") ||
+         !Check(FindByTypeAndKey(window->Tree(), ElementType::Button,
+                                 "validation-cancel")
+                    .IsValid(),
+                "MVVM workflow exposes cancellation"))) {
       return 1;
     }
     if (page == NGIN::UIGallery::Page::Collections) {
@@ -250,13 +266,14 @@ auto main() -> int {
       }
     }
     if (page == NGIN::UIGallery::Page::Motion) {
-      const auto sample = FindByTypeAndKey(
-          window->Tree(), ElementType::Border, "moving-sample");
+      const auto sample = FindByTypeAndKey(window->Tree(), ElementType::Border,
+                                           "moving-sample");
       const auto progress = FindByTypeAndKey(
           window->Tree(), ElementType::CustomElement, "motion-progress");
       const auto *sampleNode = window->Tree().Get(sample);
       const auto *progressNode = window->Tree().Get(progress);
-      if (!Check(sampleNode != nullptr && sampleNode->properties.motion.opacity &&
+      if (!Check(sampleNode != nullptr &&
+                     sampleNode->properties.motion.opacity &&
                      sampleNode->properties.motion.translation &&
                      sampleNode->properties.motion.scale &&
                      sampleNode->properties.motion.background,
@@ -500,8 +517,7 @@ auto main() -> int {
   }
   model.CancelMotionRepeat();
   if (!application->PumpOnce() ||
-      !Check(!model.MotionRepeatRunning(),
-             "repeating motion cancels safely")) {
+      !Check(!model.MotionRepeatRunning(), "repeating motion cancels safely")) {
     return 1;
   }
   model.ToggleMotionPreviewReduced();
@@ -531,18 +547,18 @@ auto main() -> int {
              "motion example opens a retained popup") ||
       !Check(!motionPopupNode->properties.visual.base.background.has_value(),
              "popup viewport does not cover the Gallery") ||
-      !Check(motionPopupNode->properties.motion.opacity.has_value() &&
-                 motionPopupNode->properties.motion.translation.has_value() &&
-                 motionPopupNode->properties.motion.translation->Initial() ==
-                     std::optional<Point>{Point{0.0F, 36.0F}} &&
-                 std::holds_alternative<TweenTiming>(
-                     motionPopupNode->properties.motion.translation->Spec()
-                         .timing) &&
-                 std::get<TweenTiming>(
-                     motionPopupNode->properties.motion.translation->Spec()
-                         .timing)
-                         .duration >= std::chrono::milliseconds{500},
-             "popup demo uses an obvious rise and fade") ||
+      !Check(
+          motionPopupNode->properties.motion.opacity.has_value() &&
+              motionPopupNode->properties.motion.translation.has_value() &&
+              motionPopupNode->properties.motion.translation->Initial() ==
+                  std::optional<Point>{Point{0.0F, 36.0F}} &&
+              std::holds_alternative<TweenTiming>(
+                  motionPopupNode->properties.motion.translation->Spec()
+                      .timing) &&
+              std::get<TweenTiming>(
+                  motionPopupNode->properties.motion.translation->Spec().timing)
+                      .duration >= std::chrono::milliseconds{500},
+          "popup demo uses an obvious rise and fade") ||
       !Check(popupCard.IsValid(), "popup presents a visible card") ||
       !Check(motionPopupNode->popup.contentBounds.width <= 320.0F &&
                  motionPopupNode->popup.contentBounds.height <= 170.0F,

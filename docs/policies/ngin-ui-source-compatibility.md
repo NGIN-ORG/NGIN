@@ -24,6 +24,20 @@ The compile-time `NGIN_UI_VERSION_MAJOR`, `NGIN_UI_VERSION_MINOR`, and
 `NGIN_UI_VERSION_PATCH` macros and matching namespace constants identify the
 header version.
 
+## Version 0.3 MVVM surface
+
+The documented typed MVVM contracts are public source APIs: `State`,
+`ReadOnlyBinding`, `Binding`, `ComputedState`, `StateBatch`, `Command`,
+`AsyncCommand`, `ValidationField`, `ValidationForm`, `ViewModelTaskScope`,
+`ViewModelServiceResolver`, `KeyedViewModelHost`, and `AsyncPresentation`.
+They require no ViewModel base type and no generator. Applications may use
+composition, free View functions, or their own base classes without changing
+the compatibility contract.
+
+Version 0.3 adds these contracts without an alias for the Gallery's old
+example-only `Model` name. The Gallery type was never an installed NGIN.UI API;
+application code should use its own descriptive ViewModel names.
+
 ## Deprecation process
 
 An API selected for removal is annotated with

@@ -48,10 +48,10 @@ inline constexpr NGIN::UIntSize PageCount = 14;
 [[nodiscard]] auto PageName(Page page) noexcept -> std::string_view;
 [[nodiscard]] auto PageExample(Page page) noexcept -> std::string_view;
 
-class Model final {
+class GalleryViewModel final {
 public:
-  Model();
-  ~Model();
+  GalleryViewModel();
+  ~GalleryViewModel();
 
   void AttachRuntime(UI::Application &application, UI::NativeTextSystem &text,
                      UI::Window &window) noexcept;
@@ -75,8 +75,12 @@ public:
   [[nodiscard]] auto NotesValidationMessage() const -> Text::String;
   [[nodiscard]] auto ValidationSummary() const -> Text::String;
   [[nodiscard]] auto IsFormValidating() const noexcept -> bool;
+  [[nodiscard]] auto IsFormSaving() const noexcept -> bool;
   [[nodiscard]] auto FormSaveBinding() const -> UI::CommandBinding;
+  [[nodiscard]] auto FormSaveStatus() const -> Text::String;
   void ValidateForm();
+  void StartFailingFormSave();
+  void CancelFormSave() noexcept;
   void SelectAsyncDemo(const char *key);
   void RunRapidAsyncDemo();
   [[nodiscard]] auto AsyncDemoKey() const -> Text::String;
@@ -181,6 +185,8 @@ public:
   void Report(UI::UIError error);
 
 private:
+  [[nodiscard]] auto RunFormSave(NGIN::Async::TaskContext &context)
+      -> NGIN::Async::Task<void, UI::CommandError>;
   [[nodiscard]] auto RunCommandDemo(NGIN::Async::TaskContext &context)
       -> NGIN::Async::Task<void, UI::CommandError>;
   void Invalidate(
@@ -203,6 +209,7 @@ private:
   UI::State<bool> m_disabledToggle;
   UI::State<F32> m_slider;
   UI::State<std::uint32_t> m_activationCount;
+  UI::State<std::uint32_t> m_formSaveCount;
   UI::State<std::uint32_t> m_commandSuccessCount;
   UI::State<std::vector<std::uint32_t>> m_collectionItems;
   UI::SingleSelectionModel<std::uint32_t> m_collectionSelection;
@@ -225,7 +232,7 @@ private:
   std::unique_ptr<UI::ValidationField<Text::String>> m_passwordValidation;
   std::unique_ptr<UI::ValidationField<Text::String>> m_notesValidation;
   std::unique_ptr<UI::ValidationForm> m_validationForm;
-  std::unique_ptr<UI::Command> m_formSave;
+  std::unique_ptr<UI::AsyncCommand> m_formSave;
   UI::PopupController m_motionPopup;
   UI::PopupController m_comboPopup;
   UI::PopupController m_menuPopup;
@@ -241,12 +248,14 @@ private:
   std::uint32_t m_nextCollectionItem{113};
   std::uint32_t m_auxiliaryWindowId{0};
   bool m_commandDemoShouldFail{false};
+  bool m_formSaveShouldFail{false};
 };
 
 void ComposeMainView(UI::Composer &composer, UI::NativeTextSystem &text,
-                     Model &model);
+                     GalleryViewModel &model);
 
 [[nodiscard]] auto CreateMainWindow(UI::Application &application,
-                                    UI::NativeTextSystem &text, Model &model)
+                                    UI::NativeTextSystem &text,
+                                    GalleryViewModel &model)
     -> UI::UIResult<UI::Window *>;
 } // namespace NGIN::UIGallery

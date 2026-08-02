@@ -18,6 +18,10 @@ struct BatchContext final {
 
 thread_local BatchContext Batch{};
 std::atomic<UInt64> NextObservableId{1};
+std::atomic<UInt64> ActiveSubscriptions{0};
+std::atomic<UInt64> PeakSubscriptions{0};
+std::atomic<UInt64> CreatedSubscriptions{0};
+std::atomic<UInt64> CanceledSubscriptions{0};
 } // namespace
 
 auto CreateObservableNode() -> std::shared_ptr<ObservableNode> {
@@ -65,6 +69,22 @@ void DispatchObservable(const UInt64 identity,
 
 void BeginStateBatch() noexcept { ++Batch.depth; }
 
+void RegisterSubscription() noexcept {
+  CreatedSubscriptions.fetch_add(1, std::memory_order_relaxed);
+  const auto active =
+      ActiveSubscriptions.fetch_add(1, std::memory_order_relaxed) + 1;
+  auto peak = PeakSubscriptions.load(std::memory_order_relaxed);
+  while (active > peak && !PeakSubscriptions.compare_exchange_weak(
+                              peak, active, std::memory_order_relaxed,
+                              std::memory_order_relaxed)) {
+  }
+}
+
+void UnregisterSubscription() noexcept {
+  ActiveSubscriptions.fetch_sub(1, std::memory_order_relaxed);
+  CanceledSubscriptions.fetch_add(1, std::memory_order_relaxed);
+}
+
 void EndStateBatch() {
   if (Batch.depth == 0) {
     return;
@@ -102,4 +122,17 @@ void EndStateBatch() {
 namespace NGIN::UI {
 StateBatch::StateBatch() noexcept { Detail::BeginStateBatch(); }
 StateBatch::~StateBatch() noexcept(false) { Detail::EndStateBatch(); }
+
+auto CurrentSubscriptionDiagnostics() noexcept -> SubscriptionDiagnostics {
+  return SubscriptionDiagnostics{
+      .activeCount =
+          Detail::ActiveSubscriptions.load(std::memory_order_relaxed),
+      .peakActiveCount =
+          Detail::PeakSubscriptions.load(std::memory_order_relaxed),
+      .createdCount =
+          Detail::CreatedSubscriptions.load(std::memory_order_relaxed),
+      .canceledCount =
+          Detail::CanceledSubscriptions.load(std::memory_order_relaxed),
+  };
+}
 } // namespace NGIN::UI

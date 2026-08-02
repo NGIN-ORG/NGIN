@@ -15,6 +15,21 @@
 namespace NGIN::UI {
 template <typename T> class ReadOnlyBinding;
 
+/// @brief Process-wide counters for observable subscription lifetime checks.
+struct SubscriptionDiagnostics final {
+  UInt64 activeCount{0};
+  UInt64 peakActiveCount{0};
+  UInt64 createdCount{0};
+  UInt64 canceledCount{0};
+
+  [[nodiscard]] auto operator==(const SubscriptionDiagnostics &) const noexcept
+      -> bool = default;
+};
+
+/// @brief Returns a snapshot used to detect leaked subscriptions.
+[[nodiscard]] auto CurrentSubscriptionDiagnostics() noexcept
+    -> SubscriptionDiagnostics;
+
 namespace Detail {
 /// @brief Internal identity node used to validate explicit observable graphs.
 struct ObservableNode final {
@@ -30,6 +45,8 @@ void DispatchObservable(UInt64 identity,
                         NGIN::Utilities::Callable<void()> publish);
 void BeginStateBatch() noexcept;
 void EndStateBatch();
+void RegisterSubscription() noexcept;
+void UnregisterSubscription() noexcept;
 } // namespace Detail
 
 /// @brief Batches observable notifications until the outer scope exits.
@@ -49,17 +66,23 @@ public:
   Subscription() noexcept = default;
 
   explicit Subscription(NGIN::Utilities::Callable<void()> cancel)
-      : m_cancel(std::move(cancel)) {}
+      : m_cancel(std::move(cancel)), m_registered(static_cast<bool>(m_cancel)) {
+    if (m_registered) {
+      Detail::RegisterSubscription();
+    }
+  }
 
   Subscription(const Subscription &) = delete;
   Subscription(Subscription &&other) noexcept
-      : m_cancel(std::move(other.m_cancel)) {}
+      : m_cancel(std::move(other.m_cancel)),
+        m_registered(std::exchange(other.m_registered, false)) {}
 
   auto operator=(const Subscription &) -> Subscription & = delete;
   auto operator=(Subscription &&other) noexcept -> Subscription & {
     if (this != &other) {
       Cancel();
       m_cancel = std::move(other.m_cancel);
+      m_registered = std::exchange(other.m_registered, false);
     }
     return *this;
   }
@@ -71,6 +94,9 @@ public:
       auto cancel = std::move(m_cancel);
       cancel();
     }
+    if (std::exchange(m_registered, false)) {
+      Detail::UnregisterSubscription();
+    }
   }
 
   [[nodiscard]] explicit operator bool() const noexcept {
@@ -79,6 +105,7 @@ public:
 
 private:
   NGIN::Utilities::Callable<void()> m_cancel{};
+  bool m_registered{false};
 };
 
 /// @brief Callback invoked after an observable state value changes.

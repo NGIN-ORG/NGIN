@@ -1,5 +1,5 @@
-#include <NGIN/UI/Backend/SDL3/SDL3.hpp>
 #include <NGIN/UI/Accessibility/Windows/Windows.hpp>
+#include <NGIN/UI/Backend/SDL3/SDL3.hpp>
 #include <NGIN/UIGallery/Gallery.hpp>
 
 #include <iostream>
@@ -56,8 +56,7 @@ auto main(const int argc, char **argv) -> int {
       .renderer = SDL3::CreateRendererBackend(),
       .applicationName = NGIN::Text::String{"NGIN.UI Gallery"},
       .enableRendererValidation = true,
-      .accessibility =
-          Accessibility::Windows::CreateAccessibilityBackend(),
+      .accessibility = Accessibility::Windows::CreateAccessibilityBackend(),
   });
   if (!createdApplication) {
     return ReportError("Application creation failed",
@@ -75,7 +74,7 @@ auto main(const int argc, char **argv) -> int {
         applicationObserver->InvalidateAll(InvalidationKind::All);
       });
 
-  NGIN::UIGallery::Model model;
+  NGIN::UIGallery::GalleryViewModel model;
   if (initialPage) {
     model.SelectPage(*initialPage);
   }

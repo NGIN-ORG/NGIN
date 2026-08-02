@@ -1,7 +1,7 @@
 # NGIN.UI
 
-Current package version: `0.2.0`. See the
-[0.2 release notes](../../docs/guides/ngin-ui-v0.2-release.md) for migration,
+Current package version: `0.3.0`. See the
+[0.3 release notes](../../docs/guides/ngin-ui-v0.3-release.md) for migration,
 published resource budgets, and the versioned Gallery archive.
 
 `NGIN.UI` is the backend-neutral core of NGIN's C++23 application UI toolkit.
@@ -15,11 +15,11 @@ Start with the
 [five-minute standalone window](../../docs/guides/ngin-ui-first-window.md).
 Public source compatibility and deprecation rules are defined in the
 [NGIN.UI compatibility policy](../../docs/policies/ngin-ui-source-compatibility.md).
-Version 0.2 delivery evidence is recorded in the
-[version 0.2 roadmap](../../docs/plans/NGIN.UI-V0.2-Roadmap.md) and its
-[progress log](../../docs/plans/NGIN.UI-V0.2-Progress.md).
+Version 0.3 delivery evidence is recorded in the
+[version 0.3 roadmap](../../docs/plans/NGIN.UI-V0.3-Roadmap.md) and its
+[progress log](../../docs/plans/NGIN.UI-V0.3-Progress.md).
 
-Version 0.2 provides:
+Version 0.3 provides:
 
 - device-independent and pixel geometry;
 - generational platform/render handles;
@@ -174,6 +174,9 @@ See the
 [custom-control guide](../../docs/guides/ngin-ui-custom-controls.md) for
 composite controls, custom measurement/painting, retained local state, input,
 semantics, lifecycle, and error rules.
+See the
+[MVVM architecture guide](../../docs/guides/ngin-ui-mvvm.md) for Model, View,
+ViewModel, composition, state, commands, validation, and task ownership.
 See the
 [derived-state and validation guide](../../docs/guides/ngin-ui-state-validation.md)
 for read-only bindings, computed values, batching, asynchronous validation,

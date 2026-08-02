@@ -2,8 +2,8 @@
 
 NGIN.UI is a retained, backend-neutral C++23 desktop UI toolkit.
 
-The current public header and package version is 0.2.0. See the
-[version 0.2 release notes](../guides/ngin-ui-v0.2-release.md) for package
+The current public header and package version is 0.3.0. See the
+[version 0.3 release notes](../guides/ngin-ui-v0.3-release.md) for package
 ranges, migration, resource budgets, and release verification.
 
 This reference is generated from the installed public headers in
@@ -71,7 +71,7 @@ and use this reference for exact signatures, ownership, and result types.
 `NativeTextSystem::CoverageDiagnostics()` reports loaded font faces, fallback
 use, and missing characters. The packaged font order covers the Gallery's
 Latin, Greek, Cyrillic, Arabic, combining-mark, bidi, and symbol examples.
-Color emoji is explicitly unsupported in version 0.2.
+Color emoji is explicitly unsupported in version 0.3.
 
 The buildable
 [`NGIN.UI.Gallery`](../../Examples/NGIN.UI.Gallery/) is the canonical public-API

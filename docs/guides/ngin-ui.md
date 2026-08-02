@@ -16,6 +16,7 @@ of the runnable paths, then use the topic guides as needed.
 
 ## Application model
 
+- [MVVM architecture and complete app organization](ngin-ui-mvvm.md)
 - [MVVM commands, async actions, cancellation, errors, and command-bound buttons](ngin-ui-mvvm-commands.md)
 - [Read-only and computed state, batching, field validation, and form summaries](ngin-ui-state-validation.md)
 - [ViewModel task lifetime, keyed activation, and async screen states](ngin-ui-viewmodel-lifetime.md)

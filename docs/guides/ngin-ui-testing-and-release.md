@@ -86,6 +86,26 @@ scales, and renders real FreeType coverage through the software backend. The
 pixel checks cover grayscale antialiasing, centered lines, wrapping,
 descenders, and clip edges at 100%, 125%, 150%, and 200%.
 
+## MVVM lifetime budgets
+
+The version 0.3 MVVM contracts have backend-neutral lifetime budgets:
+
+- outstanding ViewModel tasks return to `0` after unmount, window close, or
+  application shutdown;
+- active subscriptions return to the snapshot baseline after their owner is
+  destroyed; `CurrentSubscriptionDiagnostics()` reports active, peak, created,
+  and canceled counts;
+- one `StateBatch` publishes each changed `State` at most once and recomputes
+  each affected `ComputedState` at most once when the outer batch closes;
+- the Gallery permits one active load per mounted async screen and one active
+  save; both return to zero when canceled or completed;
+- unobserved command failures, retained `Composer` instances, and native
+  backend dependencies in the install consumer have a budget of zero.
+
+Use delta checks: snapshot before mounting UI and require the active count to
+return to that baseline after teardown. Created, canceled, and peak counters
+are monotonic diagnostics, not application state.
+
 ## Device recreation
 
 Renderer handles are not logical resources. On device loss:
@@ -118,10 +138,24 @@ composition. The standalone CMake install gate deliberately uses
 `NGIN_UI_ENABLE_NATIVE_TEXT=OFF`; it validates the portable public contracts
 without exporting fetched third-party build targets.
 
+The consumer also compiles and runs `State`, `Command`, and ViewModel-lifetime
+headers while linking only `NGIN::UI`. This checks that MVVM does not pull SDL,
+SDL_GPU, FreeType, HarfBuzz, or another native backend into a backend-neutral
+application.
+
 ## CI and release assets
 
 `.github/workflows/ui-ci.yml` runs the tests, benchmarks, documentation
 coverage check, and install consumer on Windows, Linux, and macOS.
+
+| Gallery product | Windows | Linux | macOS |
+|---|---:|---:|---:|
+| Standalone native `--smoke` | CI | CI under Xvfb | CI |
+| Hosted native `--smoke` | CI | CI under Xvfb | CI |
+| Headless checks | CI | CI | CI |
+
+All three products compile the same `Gallery.cpp` and use the same
+`GalleryViewModel`; only startup and backend ownership differ.
 
 Applications opt into the `NGIN.UI` `RuntimeAssets` feature and SDL backend
 `RuntimeNotices` feature. The resolved stage then contains the bundled font,

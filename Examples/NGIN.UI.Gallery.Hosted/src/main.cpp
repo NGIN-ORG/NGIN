@@ -1,5 +1,5 @@
-#include <NGIN/UI/Backend/SDL3/SDL3.hpp>
 #include <NGIN/UI/Accessibility/Windows/Windows.hpp>
+#include <NGIN/UI/Backend/SDL3/SDL3.hpp>
 #include <NGIN/UI/Hosting/Hosting.hpp>
 #include <NGIN/UIGallery/Gallery.hpp>
 
@@ -81,7 +81,7 @@ private:
   bool m_smoke{false};
   std::optional<NGIN::UIGallery::Page> m_initialPage{};
   NGIN::UIntSize m_smokePage{0};
-  NGIN::UIGallery::Model m_model{};
+  NGIN::UIGallery::GalleryViewModel m_model{};
   NGIN::Memory::Shared<NGIN::UI::Hosting::HostedUIRuntime> m_runtime{};
   NGIN::Memory::Shared<NGIN::UI::Hosting::IUIDispatcher> m_dispatcher{};
 };
@@ -121,18 +121,19 @@ auto main(const int argc, char **argv) -> int {
 
   auto builder = CreateApplicationBuilder(argc, argv);
   auto hosting = ConfigureUIHosting(
-      *builder, UIHostingCreateInfo{
-                    .application =
-                        ApplicationCreateInfo{
-                            .platform = SDL3::CreatePlatformBackend(),
-                            .renderer = SDL3::CreateRendererBackend(),
-                            .applicationName =
-                                NGIN::Text::String{"NGIN.UI Gallery Hosted"},
-                            .enableRendererValidation = true,
-                            .accessibility = Accessibility::Windows::
-                                CreateAccessibilityBackend(),
-                        },
-                });
+      *builder,
+      UIHostingCreateInfo{
+          .application =
+              ApplicationCreateInfo{
+                  .platform = SDL3::CreatePlatformBackend(),
+                  .renderer = SDL3::CreateRendererBackend(),
+                  .applicationName =
+                      NGIN::Text::String{"NGIN.UI Gallery Hosted"},
+                  .enableRendererValidation = true,
+                  .accessibility =
+                      Accessibility::Windows::CreateAccessibilityBackend(),
+              },
+      });
   if (!hosting) {
     return ReportUIError("UI hosting configuration failed", hosting.Error());
   }

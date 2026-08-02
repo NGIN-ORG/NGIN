@@ -28,6 +28,7 @@ If you are trying to understand NGIN as a user:
 ## Guides
 
 - [`guides/ngin-ui-v0.2-release.md`](guides/ngin-ui-v0.2-release.md)
+- [`guides/ngin-ui-v0.3-release.md`](guides/ngin-ui-v0.3-release.md)
   NGIN.UI 0.2 package versions, migration notes, budgets, release checks, and
   versioned Gallery archive.
 - [`guides/nginproj-authoring.md`](guides/nginproj-authoring.md)
@@ -38,6 +39,7 @@ If you are trying to understand NGIN as a user:
   Typed NGIN.UI theme tokens, visual states, borders, focus treatment, and
   invalidation rules.
 - [`guides/ngin-ui-custom-controls.md`](guides/ngin-ui-custom-controls.md)
+- [`guides/ngin-ui-mvvm.md`](guides/ngin-ui-mvvm.md)
   Public custom measurement, bounded painting, retained state, input,
   semantics, lifecycle, and error rules.
 - [`guides/ngin-ui-foundational-controls.md`](guides/ngin-ui-foundational-controls.md)

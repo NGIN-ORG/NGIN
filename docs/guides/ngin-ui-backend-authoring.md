@@ -191,7 +191,7 @@ selected by the application product:
   <Build Backend="CMake" Mode="AddSubdirectory" />
   <Uses>
     <Package Name="NGIN.UI"
-             Version=">=0.1.0 &lt;0.2.0"
+             Version=">=0.3.0 &lt;0.4.0"
              Scope="Target" />
   </Uses>
   <Library Name="Vendor.UI.Backend">

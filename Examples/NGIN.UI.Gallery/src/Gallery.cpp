@@ -443,12 +443,12 @@ constexpr std::array<std::string_view, PageCount> PageSearchTerms{
 };
 
 constexpr std::array<std::string_view, PageCount> PageExamples{
-    "composer.Button([] { Save(); }, button, \"save\");",
+    "composer.Button(save.AsBinding(), button, \"save\");",
     "composer.Grid([&] { ComposeForm(composer); }, grid, \"form\");",
     "composer.Text(String{\"Hello\"}, text, text, label, \"title\");",
     "composer.TextArea(notes, text, editor, \"notes\");",
     "composer.Image(image, imageCache, String{\"Landscape\"}, {}, \"photo\");",
-    "CheckBox(composer, enabled, controls, {}, \"enabled\");",
+    "save.BindEnabled(form.IsValid());",
     "switch (viewModel.Presentation().Get().kind) { /* compose state */ }",
     "VirtualizedListView(composer, controller, source, ComposeRow, list, "
     "\"items\");",
@@ -639,12 +639,12 @@ void ComposePageHeading(Composer &composer, NativeTextSystem &text,
                      "page-separator");
 }
 
-void ComposeTextField(Composer &composer, NativeTextSystem &text, Model &model,
-                      const Theme &theme, Binding<String> value,
-                      const char *label, const std::string_view key,
-                      const bool readOnly = false, const bool enabled = true,
-                      const bool invalid = false, const bool password = false,
-                      const F32 width = 430.0F) {
+void ComposeTextField(Composer &composer, NativeTextSystem &text,
+                      GalleryViewModel &model, const Theme &theme,
+                      Binding<String> value, const char *label,
+                      const std::string_view key, const bool readOnly = false,
+                      const bool enabled = true, const bool invalid = false,
+                      const bool password = false, const F32 width = 430.0F) {
   NodeProperties field{};
   field.layout.preferredSize = Size{width, theme.controls.spaciousHeight};
   field.layout.maximumSize.width = width;
@@ -697,7 +697,7 @@ void StyleScrollView(NodeProperties &properties, const Theme &theme) {
 }
 
 void ComposeOverviewPage(Composer &composer, NativeTextSystem &text,
-                         Model &model, const Theme &theme) {
+                         GalleryViewModel &model, const Theme &theme) {
   ComposePageHeading(
       composer, text, theme, "Explore NGIN.UI",
       "Try controls, layouts, text, images, themes, popups, and windows.");
@@ -1127,7 +1127,7 @@ void ComposeTypographyPage(Composer &composer, NativeTextSystem &text,
 }
 
 void ComposeTextAreaPage(Composer &composer, NativeTextSystem &text,
-                         Model &model, const Theme &theme) {
+                         GalleryViewModel &model, const Theme &theme) {
   ComposePageHeading(
       composer, text, theme, "Text Area",
       "Write, select, copy, paste, and move through multiple lines.");
@@ -1176,8 +1176,8 @@ void ComposeTextAreaPage(Composer &composer, NativeTextSystem &text,
       "text-area-card");
 }
 
-void ComposeImagesPage(Composer &composer, NativeTextSystem &text, Model &model,
-                       const Theme &theme) {
+void ComposeImagesPage(Composer &composer, NativeTextSystem &text,
+                       GalleryViewModel &model, const Theme &theme) {
   ComposePageHeading(composer, text, theme, "Images",
                      "Load PNG and JPEG files, then choose how they fit.");
   ComposeCard(
@@ -1295,8 +1295,8 @@ void ComposeControlRow(Composer &composer, NativeTextSystem &text,
       key);
 }
 
-void ComposeInputsPage(Composer &composer, NativeTextSystem &text, Model &model,
-                       const Theme &theme) {
+void ComposeInputsPage(Composer &composer, NativeTextSystem &text,
+                       GalleryViewModel &model, const Theme &theme) {
   ComposePageHeading(
       composer, text, theme, "Inputs",
       "Buttons, checkboxes, radio buttons, switches, sliders, progress bars, "
@@ -1668,15 +1668,35 @@ void ComposeInputsPage(Composer &composer, NativeTextSystem &text, Model &model,
                     ComposeButton(
                         composer, text, theme, "Check form",
                         [&model] { model.ValidateForm(); }, "validation-check",
-                        180.0F, !model.IsFormValidating());
+                        145.0F,
+                        !model.IsFormValidating() && !model.IsFormSaving());
                     ComposeCommandButton(composer, text, theme, "Save",
                                          model.FormSaveBinding(),
-                                         "validation-save", 180.0F);
+                                         "validation-save", 135.0F);
+                    ComposeButton(
+                        composer, text, theme, "Test save error",
+                        [&model] { model.StartFailingFormSave(); },
+                        "validation-fail", 175.0F,
+                        model.FormSaveBinding().CanExecute());
+                    ComposeButton(
+                        composer, text, theme, "Cancel",
+                        [&model] { model.CancelFormSave(); },
+                        "validation-cancel", 125.0F, model.IsFormSaving());
                   },
                   "validation-actions");
               ComposeText(composer, text, model.ValidationSummary(),
                           theme.typography.body, theme.colors.foreground,
                           "validation-summary");
+              if (model.IsFormSaving()) {
+                NodeProperties progress{};
+                progress.layout.preferredSize.width = 420.0F;
+                ProgressBar(composer, ProgressValue{.indeterminate = true},
+                            ControlPresentation{.theme = theme}, progress,
+                            "validation-save-progress");
+              }
+              ComposeText(composer, text, model.FormSaveStatus(),
+                          theme.typography.body, theme.colors.mutedForeground,
+                          "validation-save-status");
             },
             "validation-column");
       },
@@ -1684,7 +1704,7 @@ void ComposeInputsPage(Composer &composer, NativeTextSystem &text, Model &model,
 }
 
 void ComposeAsyncDataPage(Composer &composer, NativeTextSystem &text,
-                          Model &model, const Theme &theme) {
+                          GalleryViewModel &model, const Theme &theme) {
   ComposePageHeading(composer, text, theme, "Async data",
                      "See loading, content, empty, error, retry, and cancel.");
 
@@ -1788,7 +1808,7 @@ void ComposeAsyncDataPage(Composer &composer, NativeTextSystem &text,
 }
 
 void ComposeCollectionsPage(Composer &composer, NativeTextSystem &text,
-                            Model &model, const Theme &theme) {
+                            GalleryViewModel &model, const Theme &theme) {
   ComposePageHeading(composer, text, theme, "Collections",
                      "Small lists, huge lists, tabs, menus, and combo boxes.");
 
@@ -2328,8 +2348,8 @@ void ComposeCollectionsPage(Composer &composer, NativeTextSystem &text,
       "navigation-card");
 }
 
-void ComposeMotionPage(Composer &composer, NativeTextSystem &text, Model &model,
-                       const Theme &theme) {
+void ComposeMotionPage(Composer &composer, NativeTextSystem &text,
+                       GalleryViewModel &model, const Theme &theme) {
   ComposePageHeading(composer, text, theme, "Motion",
                      "Change a value and NGIN.UI moves it smoothly.");
 
@@ -2906,7 +2926,7 @@ void ComposeMotionPage(Composer &composer, NativeTextSystem &text, Model &model,
 }
 
 void ComposeOverlaysPage(Composer &composer, NativeTextSystem &text,
-                         Model &model, const Theme &theme) {
+                         GalleryViewModel &model, const Theme &theme) {
   ComposePageHeading(
       composer, text, theme, "Overlays",
       "Open a popup, then close it with Escape or by clicking outside.");
@@ -2957,7 +2977,7 @@ void ComposeOverlaysPage(Composer &composer, NativeTextSystem &text,
 }
 
 void ComposeWindowsPage(Composer &composer, NativeTextSystem &text,
-                        Model &model, const Theme &theme) {
+                        GalleryViewModel &model, const Theme &theme) {
   ComposePageHeading(composer, text, theme, "Windows",
                      "Open another window or a dialog.");
   ComposeCard(
@@ -2997,7 +3017,7 @@ void ComposeWindowsPage(Composer &composer, NativeTextSystem &text,
 }
 
 void ComposeResourcesPage(Composer &composer, NativeTextSystem &text,
-                          Model &model, const Theme &theme) {
+                          GalleryViewModel &model, const Theme &theme) {
   ComposePageHeading(composer, text, theme, "Themes",
                      "Switch between light and dark colors.");
   ComposeButton(
@@ -3044,7 +3064,7 @@ void ComposeResourcesPage(Composer &composer, NativeTextSystem &text,
 }
 
 void ComposeAccessibilityPage(Composer &composer, NativeTextSystem &text,
-                              Model &model, const Theme &theme) {
+                              GalleryViewModel &model, const Theme &theme) {
   ComposePageHeading(
       composer, text, theme, "Accessibility",
       "Try common controls with Narrator, the keyboard, or the mouse.");
@@ -3139,7 +3159,7 @@ void ComposeAccessibilityPage(Composer &composer, NativeTextSystem &text,
 }
 
 void ComposeDiagnosticsPage(Composer &composer, NativeTextSystem &text,
-                            Model &model, const Theme &theme) {
+                            GalleryViewModel &model, const Theme &theme) {
   ComposePageHeading(
       composer, text, theme, "Diagnostics",
       "See drawing work, text storage, and visual layout guides.");
@@ -3382,7 +3402,7 @@ void ComposeDiagnosticsPage(Composer &composer, NativeTextSystem &text,
 }
 
 void ComposePublicExample(Composer &composer, NativeTextSystem &text,
-                          Model &model, const Theme &theme) {
+                          GalleryViewModel &model, const Theme &theme) {
   const auto page = model.CurrentPage();
   ComposeCard(
       composer, theme,
@@ -3425,8 +3445,8 @@ void ComposePublicExample(Composer &composer, NativeTextSystem &text,
       "public-example-card");
 }
 
-void ComposePage(Composer &composer, NativeTextSystem &text, Model &model,
-                 const Theme &theme) {
+void ComposePage(Composer &composer, NativeTextSystem &text,
+                 GalleryViewModel &model, const Theme &theme) {
   switch (model.CurrentPage()) {
   case Page::Overview:
     ComposeOverviewPage(composer, text, model, theme);
@@ -3474,7 +3494,7 @@ void ComposePage(Composer &composer, NativeTextSystem &text, Model &model,
 }
 
 void ComposeAuxiliaryWindow(Composer &composer, NativeTextSystem &text,
-                            Model &model, const bool modal) {
+                            GalleryViewModel &model, const bool modal) {
   const auto theme = model.CurrentTheme();
   NodeProperties root{};
   root.layout.padding = Thickness::Uniform(Dp{theme.spacing.spacious});
@@ -3515,7 +3535,7 @@ auto PageExample(const Page page) noexcept -> std::string_view {
   return PageExamples[static_cast<NGIN::UIntSize>(page)];
 }
 
-Model::Model()
+GalleryViewModel::GalleryViewModel()
     : m_page(
           Page::Overview,
           [this](const InvalidationKind kind) { Invalidate(kind); },
@@ -3549,6 +3569,8 @@ Model::Model()
       m_slider(0.62F,
                [this](const InvalidationKind kind) { Invalidate(kind); }),
       m_activationCount(
+          0, [this](const InvalidationKind kind) { Invalidate(kind); }),
+      m_formSaveCount(
           0, [this](const InvalidationKind kind) { Invalidate(kind); }),
       m_commandSuccessCount(
           0, [this](const InvalidationKind kind) { Invalidate(kind); }),
@@ -3650,12 +3672,9 @@ Model::Model()
   m_validationForm = std::make_unique<ValidationForm>(std::vector{
       m_nameValidation->AsBinding(), m_passwordValidation->AsBinding(),
       m_notesValidation->AsBinding()});
-  m_formSave = std::make_unique<Command>(
-      [this] { static_cast<void>(m_status.Set(String{"Form saved."})); });
-  m_formSave->BindEnabled(m_validationForm->IsValid());
 }
 
-Model::~Model() {
+GalleryViewModel::~GalleryViewModel() {
   if (m_asyncMotion) {
     if (m_asyncMotion->cancellation) {
       m_asyncMotion->cancellation->Cancel();
@@ -3665,8 +3684,9 @@ Model::~Model() {
   }
 }
 
-void Model::AttachRuntime(Application &application, NativeTextSystem &text,
-                          Window &window) noexcept {
+void GalleryViewModel::AttachRuntime(Application &application,
+                                     NativeTextSystem &text,
+                                     Window &window) noexcept {
   m_application = &application;
   m_text = &text;
   m_window = &window;
@@ -3678,6 +3698,14 @@ void Model::AttachRuntime(Application &application, NativeTextSystem &text,
       },
       true, CommandConcurrencyPolicy::Reject, 1,
       [this](const InvalidationKind kind) { Invalidate(kind); });
+  m_formSave = std::make_unique<AsyncCommand>(
+      application.CreateTaskContext(window),
+      [this](NGIN::Async::TaskContext &context) {
+        return RunFormSave(context);
+      },
+      true, CommandConcurrencyPolicy::Reject, 1,
+      [this](const InvalidationKind kind) { Invalidate(kind); });
+  m_formSave->BindEnabled(m_validationForm->IsValid());
   m_nameValidation->SetAsyncValidator(application.CreateTaskContext(window),
                                       ValidateDisplayName);
   const auto asyncScheduler = [this](const InvalidationKind kind) {
@@ -3706,9 +3734,11 @@ void Model::AttachRuntime(Application &application, NativeTextSystem &text,
       window, String{"Appears after 500 ms without moving keyboard focus."});
 }
 
-auto Model::CurrentPage() const noexcept -> Page { return m_page.Get(); }
+auto GalleryViewModel::CurrentPage() const noexcept -> Page {
+  return m_page.Get();
+}
 
-void Model::SelectPage(const Page page) {
+void GalleryViewModel::SelectPage(const Page page) {
   if (m_page.Get() == Page::Motion && page != Page::Motion) {
     CancelMotionRepeat();
     CancelAsyncMotion();
@@ -3731,18 +3761,18 @@ void Model::SelectPage(const Page page) {
   }
 }
 
-auto Model::NavigationSearchBinding() -> Binding<String> {
+auto GalleryViewModel::NavigationSearchBinding() -> Binding<String> {
   return Bind(m_navigationSearch);
 }
 
-auto Model::NavigationMatches(const Page page) const -> bool {
+auto GalleryViewModel::NavigationMatches(const Page page) const -> bool {
   const auto query = m_navigationSearch.Get().View();
   const auto index = static_cast<NGIN::UIntSize>(page);
   return ContainsIgnoringCase(PageNames[index], query) ||
          ContainsIgnoringCase(PageSearchTerms[index], query);
 }
 
-void Model::CopyExample(const Page page) {
+void GalleryViewModel::CopyExample(const Page page) {
   if (m_application == nullptr) {
     static_cast<void>(m_status.Set(String{"The Gallery is not attached."}));
     return;
@@ -3759,39 +3789,47 @@ void Model::CopyExample(const Page page) {
   static_cast<void>(m_status.Set(std::move(status)));
 }
 
-auto Model::CurrentTheme() const -> Theme {
+auto GalleryViewModel::CurrentTheme() const -> Theme {
   return IsLightTheme() ? MakeLightTheme() : Theme{};
 }
 
-auto Model::IsLightTheme() const noexcept -> bool { return m_lightTheme.Get(); }
+auto GalleryViewModel::IsLightTheme() const noexcept -> bool {
+  return m_lightTheme.Get();
+}
 
-void Model::ToggleTheme() {
+void GalleryViewModel::ToggleTheme() {
   static_cast<void>(m_lightTheme.Set(!m_lightTheme.Get()));
 }
 
-auto Model::Name() const noexcept -> const String & { return m_name.Get(); }
+auto GalleryViewModel::Name() const noexcept -> const String & {
+  return m_name.Get();
+}
 
-auto Model::NameBinding() -> Binding<String> { return Bind(m_name); }
+auto GalleryViewModel::NameBinding() -> Binding<String> { return Bind(m_name); }
 
-auto Model::PasswordBinding() -> Binding<String> { return Bind(m_password); }
+auto GalleryViewModel::PasswordBinding() -> Binding<String> {
+  return Bind(m_password);
+}
 
-auto Model::NotesBinding() -> Binding<String> { return Bind(m_notes); }
+auto GalleryViewModel::NotesBinding() -> Binding<String> {
+  return Bind(m_notes);
+}
 
-auto Model::NameValidationMessage() const -> String {
+auto GalleryViewModel::NameValidationMessage() const -> String {
   return FirstValidationMessage(m_nameValidation, "Looks good");
 }
 
-auto Model::PasswordValidationMessage() const -> String {
+auto GalleryViewModel::PasswordValidationMessage() const -> String {
   return FirstValidationMessage(m_passwordValidation,
                                 "Checked when you choose Check form");
 }
 
-auto Model::NotesValidationMessage() const -> String {
+auto GalleryViewModel::NotesValidationMessage() const -> String {
   return FirstValidationMessage(m_notesValidation,
                                 "Checked on the first form check");
 }
 
-auto Model::ValidationSummary() const -> String {
+auto GalleryViewModel::ValidationSummary() const -> String {
   if (!m_validationForm) {
     return String{"Validation is not ready"};
   }
@@ -3816,21 +3854,84 @@ auto Model::ValidationSummary() const -> String {
   return result;
 }
 
-auto Model::IsFormValidating() const noexcept -> bool {
+auto GalleryViewModel::IsFormValidating() const noexcept -> bool {
   return m_validationForm && m_validationForm->IsValidating().Get();
 }
 
-auto Model::FormSaveBinding() const -> CommandBinding {
+auto GalleryViewModel::IsFormSaving() const noexcept -> bool {
+  return m_formSave && m_formSave->Status().isRunning;
+}
+
+auto GalleryViewModel::FormSaveBinding() const -> CommandBinding {
   return m_formSave ? m_formSave->AsBinding() : CommandBinding{};
 }
 
-void Model::ValidateForm() {
+auto GalleryViewModel::FormSaveStatus() const -> String {
+  if (!m_formSave) {
+    return String{"Check the form to enable Save."};
+  }
+  const auto &status = m_formSave->Status();
+  if (status.isRunning) {
+    return String{"Saving... You can cancel while the save is running."};
+  }
+  switch (status.lastOutcome.kind) {
+  case CommandOutcomeKind::None:
+    return String{"Check the form to enable Save."};
+  case CommandOutcomeKind::Succeeded:
+    return LabeledNumber("Saved successfully. Total saves: ",
+                         m_formSaveCount.Get());
+  case CommandOutcomeKind::DomainError: {
+    String message{"Save failed: "};
+    message.Append(status.lastOutcome.error
+                       ? status.lastOutcome.error->message
+                       : String{"The request was rejected"});
+    message.Append(String{". Press Save to retry."});
+    return message;
+  }
+  case CommandOutcomeKind::Canceled:
+    return String{"Save canceled. Press Save when you are ready."};
+  case CommandOutcomeKind::Fault:
+    return String{"Save stopped unexpectedly. Press Save to retry."};
+  }
+  return String{};
+}
+
+void GalleryViewModel::ValidateForm() {
   if (m_validationForm) {
     m_validationForm->ValidateAll();
   }
 }
 
-void Model::SelectAsyncDemo(const char *key) {
+void GalleryViewModel::StartFailingFormSave() {
+  if (!m_formSave || !m_formSave->Status().canExecute) {
+    return;
+  }
+  m_formSaveShouldFail = true;
+  static_cast<void>(m_formSave->Execute());
+}
+
+void GalleryViewModel::CancelFormSave() noexcept {
+  m_formSaveShouldFail = false;
+  if (m_formSave) {
+    m_formSave->Cancel();
+  }
+}
+
+auto GalleryViewModel::RunFormSave(NGIN::Async::TaskContext &context)
+    -> NGIN::Async::Task<void, CommandError> {
+  const auto shouldFail = std::exchange(m_formSaveShouldFail, false);
+  co_await context.Delay(NGIN::Units::Seconds(1.0));
+  if (shouldFail) {
+    co_await NGIN::Async::DomainFailure(CommandError{
+        .kind = CommandErrorKind::Domain,
+        .code = String{"gallery-save"},
+        .message = String{"The demo server rejected the save"},
+    });
+  }
+  static_cast<void>(m_formSaveCount.Set(m_formSaveCount.Get() + 1));
+}
+
+void GalleryViewModel::SelectAsyncDemo(const char *key) {
   if (!m_asyncHost) {
     return;
   }
@@ -3840,24 +3941,25 @@ void Model::SelectAsyncDemo(const char *key) {
   }
 }
 
-void Model::RunRapidAsyncDemo() {
+void GalleryViewModel::RunRapidAsyncDemo() {
   SelectAsyncDemo("broken");
   SelectAsyncDemo("empty");
   SelectAsyncDemo("inbox");
 }
 
-auto Model::AsyncDemoKey() const -> String {
+auto GalleryViewModel::AsyncDemoKey() const -> String {
   return m_asyncHost ? m_asyncHost->CurrentKey() : String{};
 }
 
-auto Model::AsyncDemoState() const noexcept -> AsyncPresentationKind {
+auto GalleryViewModel::AsyncDemoState() const noexcept
+    -> AsyncPresentationKind {
   const auto current = m_asyncHost ? m_asyncHost->Current()
                                    : std::shared_ptr<GalleryAsyncViewModel>{};
   return current ? current->Presentation().Get().kind
                  : AsyncPresentationKind::Idle;
 }
 
-auto Model::AsyncDemoMessage() const -> String {
+auto GalleryViewModel::AsyncDemoMessage() const -> String {
   const auto current = m_asyncHost ? m_asyncHost->Current()
                                    : std::shared_ptr<GalleryAsyncViewModel>{};
   if (!current) {
@@ -3883,7 +3985,7 @@ auto Model::AsyncDemoMessage() const -> String {
   return String{};
 }
 
-auto Model::AsyncDemoItems() const -> std::vector<String> {
+auto GalleryViewModel::AsyncDemoItems() const -> std::vector<String> {
   const auto current = m_asyncHost ? m_asyncHost->Current()
                                    : std::shared_ptr<GalleryAsyncViewModel>{};
   if (!current) {
@@ -3893,66 +3995,76 @@ auto Model::AsyncDemoItems() const -> std::vector<String> {
   return snapshot.content.value_or(std::vector<String>{});
 }
 
-auto Model::AsyncRetryBinding() const -> CommandBinding {
+auto GalleryViewModel::AsyncRetryBinding() const -> CommandBinding {
   const auto current = m_asyncHost ? m_asyncHost->Current()
                                    : std::shared_ptr<GalleryAsyncViewModel>{};
   return current ? current->Presentation().RetryCommand() : CommandBinding{};
 }
 
-auto Model::AsyncCancelBinding() const -> CommandBinding {
+auto GalleryViewModel::AsyncCancelBinding() const -> CommandBinding {
   const auto current = m_asyncHost ? m_asyncHost->Current()
                                    : std::shared_ptr<GalleryAsyncViewModel>{};
   return current ? current->Presentation().CancelCommand() : CommandBinding{};
 }
 
-auto Model::GalleryImage() const noexcept
+auto GalleryViewModel::GalleryImage() const noexcept
     -> const std::shared_ptr<ImageResource> & {
   return m_galleryImage;
 }
 
-auto Model::ImageCache() noexcept -> ImageTextureCache * {
+auto GalleryViewModel::ImageCache() noexcept -> ImageTextureCache * {
   return m_imageCache.get();
 }
 
-auto Model::CheckBinding() -> Binding<CheckState> { return Bind(m_check); }
+auto GalleryViewModel::CheckBinding() -> Binding<CheckState> {
+  return Bind(m_check);
+}
 
-auto Model::MixedCheckBinding() -> Binding<CheckState> {
+auto GalleryViewModel::MixedCheckBinding() -> Binding<CheckState> {
   return Bind(m_mixedCheck);
 }
 
-auto Model::UncheckedBinding() -> Binding<CheckState> {
+auto GalleryViewModel::UncheckedBinding() -> Binding<CheckState> {
   return Bind(m_unchecked);
 }
 
-auto Model::DensityBinding() -> Binding<Density> { return Bind(m_density); }
+auto GalleryViewModel::DensityBinding() -> Binding<Density> {
+  return Bind(m_density);
+}
 
-auto Model::ToggleBinding() -> Binding<bool> { return Bind(m_toggle); }
+auto GalleryViewModel::ToggleBinding() -> Binding<bool> {
+  return Bind(m_toggle);
+}
 
-auto Model::DisabledToggleBinding() -> Binding<bool> {
+auto GalleryViewModel::DisabledToggleBinding() -> Binding<bool> {
   return Bind(m_disabledToggle);
 }
 
-auto Model::SliderBinding() -> Binding<F32> { return Bind(m_slider); }
+auto GalleryViewModel::SliderBinding() -> Binding<F32> {
+  return Bind(m_slider);
+}
 
-auto Model::SliderValue() const noexcept -> F32 { return m_slider.Get(); }
+auto GalleryViewModel::SliderValue() const noexcept -> F32 {
+  return m_slider.Get();
+}
 
-auto Model::HelpToolTip() noexcept -> ToolTipController * {
+auto GalleryViewModel::HelpToolTip() noexcept -> ToolTipController * {
   return m_helpToolTip.get();
 }
 
-auto Model::ActivationCount() const noexcept -> std::uint32_t {
+auto GalleryViewModel::ActivationCount() const noexcept -> std::uint32_t {
   return m_activationCount.Get();
 }
 
-void Model::Activate() {
+void GalleryViewModel::Activate() {
   static_cast<void>(m_activationCount.Set(m_activationCount.Get() + 1));
 }
 
-auto Model::CommandDemoBinding() const -> CommandBinding {
+auto GalleryViewModel::CommandDemoBinding() const -> CommandBinding {
   return m_commandDemo ? m_commandDemo->AsBinding() : CommandBinding{};
 }
 
-auto Model::CommandDemoStatus() const -> String {
+auto GalleryViewModel::CommandDemoStatus() const -> String {
   if (!m_commandDemo) {
     return String{"The command is not attached yet."};
   }
@@ -3981,7 +4093,7 @@ auto Model::CommandDemoStatus() const -> String {
   return String{"Ready."};
 }
 
-void Model::StartFailingCommandDemo() {
+void GalleryViewModel::StartFailingCommandDemo() {
   if (!m_commandDemo || !m_commandDemo->Status().canExecute) {
     return;
   }
@@ -3989,14 +4101,14 @@ void Model::StartFailingCommandDemo() {
   static_cast<void>(m_commandDemo->Execute());
 }
 
-void Model::CancelCommandDemo() noexcept {
+void GalleryViewModel::CancelCommandDemo() noexcept {
   m_commandDemoShouldFail = false;
   if (m_commandDemo) {
     m_commandDemo->Cancel();
   }
 }
 
-auto Model::RunCommandDemo(NGIN::Async::TaskContext &context)
+auto GalleryViewModel::RunCommandDemo(NGIN::Async::TaskContext &context)
     -> NGIN::Async::Task<void, CommandError> {
   const auto shouldFail = std::exchange(m_commandDemoShouldFail, false);
   co_await context.Delay(NGIN::Units::Seconds(1.2));
@@ -4010,7 +4122,7 @@ auto Model::RunCommandDemo(NGIN::Async::TaskContext &context)
   static_cast<void>(m_commandSuccessCount.Set(m_commandSuccessCount.Get() + 1));
 }
 
-auto Model::CollectionItems() const -> std::vector<std::uint32_t> {
+auto GalleryViewModel::CollectionItems() const -> std::vector<std::uint32_t> {
   auto items = m_collectionItems.Get();
   if (m_collectionFiltered.Get()) {
     std::erase_if(items, [](const auto item) { return item % 2 == 0; });
@@ -4022,16 +4134,17 @@ auto Model::CollectionItems() const -> std::vector<std::uint32_t> {
   return items;
 }
 
-auto Model::CollectionSelection(const std::uint32_t item) -> ItemSelection {
+auto GalleryViewModel::CollectionSelection(const std::uint32_t item)
+    -> ItemSelection {
   return BindListItem(m_collectionSelection, item);
 }
 
-auto Model::SelectedCollectionItem() const noexcept
+auto GalleryViewModel::SelectedCollectionItem() const noexcept
     -> std::optional<std::uint32_t> {
   return m_collectionSelection.Value();
 }
 
-void Model::AddCollectionItem() {
+void GalleryViewModel::AddCollectionItem() {
   const auto item = m_nextCollectionItem++;
   static_cast<void>(
       m_collectionItems.Update([item](auto &items) { items.push_back(item); }));
@@ -4039,7 +4152,7 @@ void Model::AddCollectionItem() {
   Notify("Added and selected an item");
 }
 
-void Model::RemoveSelectedCollectionItem() {
+void GalleryViewModel::RemoveSelectedCollectionItem() {
   const auto selected = m_collectionSelection.Value();
   if (!selected) {
     Notify("Select an item before removing it");
@@ -4051,42 +4164,42 @@ void Model::RemoveSelectedCollectionItem() {
   Notify("Removed the selected item");
 }
 
-void Model::ToggleCollectionSort() {
+void GalleryViewModel::ToggleCollectionSort() {
   static_cast<void>(m_collectionDescending.Set(!m_collectionDescending.Get()));
 }
 
-void Model::ToggleCollectionFilter() {
+void GalleryViewModel::ToggleCollectionFilter() {
   static_cast<void>(m_collectionFiltered.Set(!m_collectionFiltered.Get()));
 }
 
-auto Model::IsCollectionDescending() const noexcept -> bool {
+auto GalleryViewModel::IsCollectionDescending() const noexcept -> bool {
   return m_collectionDescending.Get();
 }
 
-auto Model::IsCollectionFiltered() const noexcept -> bool {
+auto GalleryViewModel::IsCollectionFiltered() const noexcept -> bool {
   return m_collectionFiltered.Get();
 }
 
-auto Model::CollectionTabBinding() -> Binding<CollectionTab> {
+auto GalleryViewModel::CollectionTabBinding() -> Binding<CollectionTab> {
   return Bind(m_collectionTab);
 }
 
-auto Model::VirtualizedCollectionSource() noexcept
+auto GalleryViewModel::VirtualizedCollectionSource() noexcept
     -> IVirtualizedDataSource<NGIN::UIntSize> & {
   return *m_virtualizedSource;
 }
 
-auto Model::VirtualizedCollectionController() noexcept
+auto GalleryViewModel::VirtualizedCollectionController() noexcept
     -> FixedVirtualizedListController & {
   return *m_virtualizedController;
 }
 
-auto Model::SelectedVirtualizedIndex() const noexcept
+auto GalleryViewModel::SelectedVirtualizedIndex() const noexcept
     -> std::optional<NGIN::UIntSize> {
   return m_virtualizedSource->IndexOfKey(m_virtualizedSelection.Get());
 }
 
-auto Model::SelectVirtualizedItem(const NGIN::UIntSize index)
+auto GalleryViewModel::SelectVirtualizedItem(const NGIN::UIntSize index)
     -> UIResult<void> {
   auto key = m_virtualizedSource->KeyAt(index);
   if (!key) {
@@ -4096,34 +4209,50 @@ auto Model::SelectVirtualizedItem(const NGIN::UIntSize index)
   return {};
 }
 
-void Model::PrependVirtualizedItems() {
+void GalleryViewModel::PrependVirtualizedItems() {
   m_virtualizedSource->Prepend(250);
   Invalidate(InvalidationKind::All);
   Notify("Added 250 rows while keeping the visible item in place");
 }
 
-auto Model::MotionForward() const noexcept -> bool {
+auto GalleryViewModel::MotionForward() const noexcept -> bool {
   return m_motionForward.Get();
 }
 
-void Model::ToggleMotionTarget() {
+void GalleryViewModel::ToggleMotionTarget() {
   static_cast<void>(m_motionForward.Set(!m_motionForward.Get()));
 }
 
-auto Model::BezierX1Binding() -> Binding<F32> { return Bind(m_bezierX1); }
-auto Model::BezierY1Binding() -> Binding<F32> { return Bind(m_bezierY1); }
-auto Model::BezierX2Binding() -> Binding<F32> { return Bind(m_bezierX2); }
-auto Model::BezierY2Binding() -> Binding<F32> { return Bind(m_bezierY2); }
-auto Model::BezierX1() const noexcept -> F32 { return m_bezierX1.Get(); }
-auto Model::BezierY1() const noexcept -> F32 { return m_bezierY1.Get(); }
-auto Model::BezierX2() const noexcept -> F32 { return m_bezierX2.Get(); }
-auto Model::BezierY2() const noexcept -> F32 { return m_bezierY2.Get(); }
+auto GalleryViewModel::BezierX1Binding() -> Binding<F32> {
+  return Bind(m_bezierX1);
+}
+auto GalleryViewModel::BezierY1Binding() -> Binding<F32> {
+  return Bind(m_bezierY1);
+}
+auto GalleryViewModel::BezierX2Binding() -> Binding<F32> {
+  return Bind(m_bezierX2);
+}
+auto GalleryViewModel::BezierY2Binding() -> Binding<F32> {
+  return Bind(m_bezierY2);
+}
+auto GalleryViewModel::BezierX1() const noexcept -> F32 {
+  return m_bezierX1.Get();
+}
+auto GalleryViewModel::BezierY1() const noexcept -> F32 {
+  return m_bezierY1.Get();
+}
+auto GalleryViewModel::BezierX2() const noexcept -> F32 {
+  return m_bezierX2.Get();
+}
+auto GalleryViewModel::BezierY2() const noexcept -> F32 {
+  return m_bezierY2.Get();
+}
 
-auto Model::MotionRepeatRunning() const noexcept -> bool {
+auto GalleryViewModel::MotionRepeatRunning() const noexcept -> bool {
   return m_motionRepeatRunning.Get();
 }
 
-void Model::StartMotionRepeat() {
+void GalleryViewModel::StartMotionRepeat() {
   if (m_motionRepeatHandle) {
     m_motionRepeatHandle->Cancel();
   }
@@ -4132,7 +4261,7 @@ void Model::StartMotionRepeat() {
   Invalidate(InvalidationKind::All);
 }
 
-void Model::CancelMotionRepeat() {
+void GalleryViewModel::CancelMotionRepeat() {
   if (m_motionRepeatHandle) {
     m_motionRepeatHandle->Cancel();
   }
@@ -4140,42 +4269,43 @@ void Model::CancelMotionRepeat() {
   Invalidate(InvalidationKind::All);
 }
 
-void Model::FinishMotionRepeat() {
+void GalleryViewModel::FinishMotionRepeat() {
   static_cast<void>(m_motionRepeatRunning.Set(false));
 }
 
-auto Model::MotionRepeatHandle() const noexcept -> const AnimationHandle * {
+auto GalleryViewModel::MotionRepeatHandle() const noexcept
+    -> const AnimationHandle * {
   return m_motionRepeatHandle.get();
 }
 
-auto Model::MotionPreviewReduced() const noexcept -> bool {
+auto GalleryViewModel::MotionPreviewReduced() const noexcept -> bool {
   return m_window != nullptr && !m_window->MotionEnabled();
 }
 
-void Model::ToggleMotionPreviewReduced() {
+void GalleryViewModel::ToggleMotionPreviewReduced() {
   if (m_window != nullptr) {
     m_window->SetMotionEnabled(!m_window->MotionEnabled());
   }
   Invalidate(InvalidationKind::All);
 }
 
-auto Model::MotionPopup() noexcept -> PopupController & {
+auto GalleryViewModel::MotionPopup() noexcept -> PopupController & {
   return m_motionPopup;
 }
 
-auto Model::AsyncPrimaryMotion() noexcept -> MotionController & {
+auto GalleryViewModel::AsyncPrimaryMotion() noexcept -> MotionController & {
   return m_asyncMotion->primary;
 }
 
-auto Model::AsyncSecondaryMotion() noexcept -> MotionController & {
+auto GalleryViewModel::AsyncSecondaryMotion() noexcept -> MotionController & {
   return m_asyncMotion->secondary;
 }
 
-auto Model::AsyncMotionStatus() const noexcept -> const String & {
+auto GalleryViewModel::AsyncMotionStatus() const noexcept -> const String & {
   return m_asyncMotion->status;
 }
 
-void Model::StartAsyncMotionSequence() {
+void GalleryViewModel::StartAsyncMotionSequence() {
   if (!m_asyncMotion || !m_asyncMotion->context) {
     return;
   }
@@ -4183,7 +4313,7 @@ void Model::StartAsyncMotionSequence() {
                       SequenceMotion(*m_asyncMotion->context, m_asyncMotion));
 }
 
-void Model::StartParallelMotion() {
+void GalleryViewModel::StartParallelMotion() {
   if (!m_asyncMotion || !m_asyncMotion->context) {
     return;
   }
@@ -4191,7 +4321,7 @@ void Model::StartParallelMotion() {
                       ParallelMotion(*m_asyncMotion->context, m_asyncMotion));
 }
 
-void Model::StartCancelableMotion() {
+void GalleryViewModel::StartCancelableMotion() {
   if (!m_asyncMotion || m_application == nullptr) {
     return;
   }
@@ -4205,7 +4335,7 @@ void Model::StartCancelableMotion() {
   NGIN::Async::Detach(run->context, CancelableMotion(run, m_asyncMotion));
 }
 
-void Model::InterruptAsyncMotion() {
+void GalleryViewModel::InterruptAsyncMotion() {
   if (!m_asyncMotion || !m_asyncMotion->context) {
     return;
   }
@@ -4216,7 +4346,7 @@ void Model::InterruptAsyncMotion() {
       InterruptMotion(*m_asyncMotion->context, m_asyncMotion, target));
 }
 
-void Model::CancelAsyncMotion() {
+void GalleryViewModel::CancelAsyncMotion() {
   if (!m_asyncMotion) {
     return;
   }
@@ -4227,29 +4357,35 @@ void Model::CancelAsyncMotion() {
   m_asyncMotion->secondary.CancelAll();
 }
 
-auto Model::ComboPopup() noexcept -> PopupController & { return m_comboPopup; }
+auto GalleryViewModel::ComboPopup() noexcept -> PopupController & {
+  return m_comboPopup;
+}
 
-auto Model::MenuPopup() noexcept -> PopupController & { return m_menuPopup; }
+auto GalleryViewModel::MenuPopup() noexcept -> PopupController & {
+  return m_menuPopup;
+}
 
-auto Model::ContextPopup() noexcept -> PopupController & {
+auto GalleryViewModel::ContextPopup() noexcept -> PopupController & {
   return m_contextPopup;
 }
 
-void Model::Notify(const char *message) {
+void GalleryViewModel::Notify(const char *message) {
   static_cast<void>(m_status.Set(String{message}));
 }
 
-auto Model::IsPopupOpen() const noexcept -> bool { return m_popupOpen.Get(); }
+auto GalleryViewModel::IsPopupOpen() const noexcept -> bool {
+  return m_popupOpen.Get();
+}
 
-void Model::SetPopupOpen(const bool open) {
+void GalleryViewModel::SetPopupOpen(const bool open) {
   static_cast<void>(m_popupOpen.Set(open));
 }
 
-auto Model::IsInspectorEnabled() const noexcept -> bool {
+auto GalleryViewModel::IsInspectorEnabled() const noexcept -> bool {
   return m_inspectorEnabled.Get();
 }
 
-void Model::ToggleInspector() {
+void GalleryViewModel::ToggleInspector() {
   const auto enabled = !m_inspectorEnabled.Get();
   static_cast<void>(m_inspectorEnabled.Set(enabled));
   if (m_window != nullptr) {
@@ -4262,7 +4398,8 @@ void Model::ToggleInspector() {
   }
 }
 
-auto Model::OpenAuxiliaryWindow(const bool modal) noexcept -> UIResult<void> {
+auto GalleryViewModel::OpenAuxiliaryWindow(const bool modal) noexcept
+    -> UIResult<void> {
   if (m_application == nullptr || m_text == nullptr || m_window == nullptr) {
     return MakeUIError(UIErrorCode::InvalidState,
                        "Gallery runtime is not attached", "NGIN.UI.Gallery",
@@ -4307,38 +4444,44 @@ auto Model::OpenAuxiliaryWindow(const bool modal) noexcept -> UIResult<void> {
   return {};
 }
 
-auto Model::Status() const noexcept -> const String & { return m_status.Get(); }
+auto GalleryViewModel::Status() const noexcept -> const String & {
+  return m_status.Get();
+}
 
-auto Model::Diagnostics() const noexcept -> WindowDiagnostics {
+auto GalleryViewModel::Diagnostics() const noexcept -> WindowDiagnostics {
   return m_window != nullptr ? m_window->Diagnostics() : WindowDiagnostics{};
 }
 
-auto Model::TextDiagnostics() const noexcept -> GlyphAtlasDiagnostics {
+auto GalleryViewModel::TextDiagnostics() const noexcept
+    -> GlyphAtlasDiagnostics {
   return m_text != nullptr ? m_text->AtlasDiagnostics()
                            : GlyphAtlasDiagnostics{};
 }
 
-auto Model::FontDiagnostics() const noexcept -> FontCoverageDiagnostics {
+auto GalleryViewModel::FontDiagnostics() const noexcept
+    -> FontCoverageDiagnostics {
   return m_text != nullptr ? m_text->CoverageDiagnostics()
                            : FontCoverageDiagnostics{};
 }
 
-auto Model::ImageDiagnostics() const noexcept -> ImageCacheDiagnostics {
+auto GalleryViewModel::ImageDiagnostics() const noexcept
+    -> ImageCacheDiagnostics {
   return m_imageCache != nullptr ? m_imageCache->Diagnostics()
                                  : ImageCacheDiagnostics{};
 }
 
-auto Model::AccessibilityDiagnostics() const noexcept
+auto GalleryViewModel::AccessibilityDiagnostics() const noexcept
     -> NGIN::UI::AccessibilityDiagnostics {
   return m_application != nullptr ? m_application->AccessibilityDiagnostics()
                                   : NGIN::UI::AccessibilityDiagnostics{};
 }
 
-auto Model::AccessibilityAnnouncement() const noexcept -> const String & {
+auto GalleryViewModel::AccessibilityAnnouncement() const noexcept
+    -> const String & {
   return m_accessibilityAnnouncement.Get();
 }
 
-void Model::AnnounceAccessibilityDemo() {
+void GalleryViewModel::AnnounceAccessibilityDemo() {
   const auto next = m_activationCount.Get() + 1;
   static_cast<void>(m_activationCount.Set(next));
   String message{"Accessibility message "};
@@ -4347,17 +4490,18 @@ void Model::AnnounceAccessibilityDemo() {
   static_cast<void>(m_accessibilityAnnouncement.Set(std::move(message)));
 }
 
-void Model::Report(UIError error) {
+void GalleryViewModel::Report(UIError error) {
   static_cast<void>(m_status.Set(std::move(error.message)));
 }
 
-void Model::Invalidate(const InvalidationKind kind) const noexcept {
+void GalleryViewModel::Invalidate(const InvalidationKind kind) const noexcept {
   if (m_window != nullptr) {
     m_window->Invalidate(kind);
   }
 }
 
-void ComposeMainView(Composer &composer, NativeTextSystem &text, Model &model) {
+void ComposeMainView(Composer &composer, NativeTextSystem &text,
+                     GalleryViewModel &model) {
   const auto theme = model.CurrentTheme();
   NodeProperties root{};
   root.layout.padding = Thickness::Uniform(Dp{24.0F});
@@ -4482,7 +4626,7 @@ void ComposeMainView(Composer &composer, NativeTextSystem &text, Model &model) {
 }
 
 auto CreateMainWindow(Application &application, NativeTextSystem &text,
-                      Model &model) -> UIResult<Window *> {
+                      GalleryViewModel &model) -> UIResult<Window *> {
   auto window = application.CreateWindow(WindowCreateInfo{
       .id = String{"Gallery.Main"},
       .title = String{"NGIN.UI Control Gallery"},

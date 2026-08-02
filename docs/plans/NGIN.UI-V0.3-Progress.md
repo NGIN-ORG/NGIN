@@ -105,3 +105,50 @@ Verification:
 - the staged native Gallery `--smoke` run passed across all 14 pages;
 - the authored headless Gallery product built through `ngin` and all
   application-level checks passed.
+
+## Milestone 29 — MVVM Product Completion
+
+Status: Complete
+Completed: 2026-08-02
+
+Delivered:
+
+- renamed the shared Gallery state owner from generic `Model` to
+  `GalleryViewModel` across standalone, hosted, and headless products;
+- turned the Inputs validation card into a complete asynchronous save workflow
+  with editing, immediate/deferred/submit validation, `CanExecute` gating,
+  visible progress, double-submit protection, cancellation, simulated domain
+  failure, retry, retained status, and successful completion;
+- published one concise MVVM architecture guide that says the View owns
+  controls and layout and defines Model, ViewModel, Composer, state, bindings,
+  commands, validation, task scopes, async presentation, and app organization;
+- linked copyable command, cancellation, validation, loading, retry, and error
+  examples to the complete public Gallery source;
+- recorded that 0.3 keeps boilerplate reduction optional: no generator is
+  shipped, and any future generator must emit the manual public typed APIs;
+- added process-wide subscription lifetime diagnostics with active, peak,
+  created, and canceled counters plus a teardown-baseline regression test;
+- published explicit outstanding-task, subscription, batched-composition, and
+  backend-neutral dependency budgets and the Windows/Linux/macOS Gallery smoke
+  matrix;
+- expanded the independent install consumer to compile and execute State,
+  Command, ViewModel, and diagnostic contracts while linking only `NGIN::UI`;
+- versioned the NGIN.UI package family, Gallery products, header constants,
+  CMake identities, dependency ranges, CI outputs, and release guide as 0.3.0;
+- documented the public MVVM source-compatibility surface and the example-only
+  Gallery rename.
+
+Verification:
+
+- `NGINUITests` passed with 5,111 assertions in 179 test cases; the focused
+  subscription diagnostic test passed with 6 assertions;
+- the API documentation gate passed with 358 documented public types;
+- standalone, hosted, and headless Gallery products built from their authored
+  0.3 V4 projects; native `--smoke` passed for standalone and hosted on
+  Windows, and the headless checks passed;
+- a fresh contracts-only NGIN.UI install with native text and standard image
+  decoding disabled built successfully, and the independent
+  `find_package(NGINUI 0.3)` consumer passed 1/1;
+- the committed CI matrix covers standalone, hosted, and headless Gallery
+  smoke on Windows, Linux under Xvfb, and macOS; this Windows session did not
+  execute the other operating systems.

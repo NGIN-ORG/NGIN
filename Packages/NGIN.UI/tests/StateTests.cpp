@@ -68,6 +68,27 @@ TEST_CASE("subscriptions are move-only cancellable and safe during dispatch") {
   REQUIRE(secondCalls == 2);
 }
 
+TEST_CASE("subscription diagnostics return to their lifetime baseline") {
+  using namespace NGIN::UI;
+
+  const auto before = CurrentSubscriptionDiagnostics();
+  {
+    State<int> state{0};
+    auto subscription = state.Subscribe([](const int &) {});
+    const auto active = CurrentSubscriptionDiagnostics();
+    REQUIRE(active.activeCount == before.activeCount + 1);
+    REQUIRE(active.createdCount == before.createdCount + 1);
+
+    auto moved = std::move(subscription);
+    REQUIRE(CurrentSubscriptionDiagnostics().activeCount ==
+            before.activeCount + 1);
+  }
+  const auto after = CurrentSubscriptionDiagnostics();
+  REQUIRE(after.activeCount == before.activeCount);
+  REQUIRE(after.canceledCount == before.canceledCount + 1);
+  REQUIRE(after.peakActiveCount >= before.activeCount + 1);
+}
+
 TEST_CASE("bindings provide typed state access subscription and validation") {
   using namespace NGIN::UI;
 
