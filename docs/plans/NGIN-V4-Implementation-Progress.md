@@ -318,6 +318,8 @@ Implemented package parsing:
 - `Features/Feature`
 - feature `Uses` dependencies
 - feature `Build/Define`
+- feature `Build/Options/Option`, applied to the owning source-built package
+  before its CMake project is added
 - feature `Provides/Capability`
 - feature dependency `Scope` metadata
 

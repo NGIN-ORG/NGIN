@@ -3,6 +3,9 @@
 include(CMakeFindDependencyMacro)
 find_dependency(NGINBase CONFIG)
 find_dependency(NGINLog CONFIG)
+if(@NGIN_CORE_FEATURE_REFLECTION@)
+  find_dependency(NGINReflection CONFIG)
+endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/NGINCoreTargets.cmake")
 

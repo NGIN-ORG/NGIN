@@ -1801,6 +1801,25 @@ auto EmitPackageBuildOptions(std::ostream &out,
   }
 }
 
+auto EmitSelectedFeatureBuildOptions(
+    std::ostream &out, const std::string_view packageName,
+    const std::vector<SelectedPackageFeature> &features) -> void {
+  for (const auto &feature : features) {
+    if (feature.packageName != packageName) {
+      continue;
+    }
+    for (const auto &option : feature.buildOptions) {
+      const auto lowerValue = Lower(option.value);
+      const auto cacheType = lowerValue == "on" || lowerValue == "off" ||
+                                     lowerValue == "true" || lowerValue == "false"
+                                 ? "BOOL"
+                                 : "STRING";
+      out << "set(" << option.name << " \"" << EscapeCMake(option.value)
+          << "\" CACHE " << cacheType << " \"\" FORCE)\n";
+    }
+  }
+}
+
 auto EmitProfileBuildTraits(std::ostream &out, const std::string &targetName,
                             const ProfileDefinition &profile) -> void {
   const auto msvcOptimization = profile.optimization == "Off" ? "/Od"
@@ -2049,6 +2068,8 @@ endif()
         }
       }
       EmitPackageBuildOptions(out, package.manifest.build);
+      EmitSelectedFeatureBuildOptions(out, package.manifest.name,
+                                      resolved.selectedPackageFeatures);
       const auto alreadyFound =
           !addedPackageKeys.insert("find:" + packageId).second;
       if (!alreadyFound) {
@@ -2094,6 +2115,8 @@ endif()
         continue;
       }
       EmitPackageBuildOptions(out, package.manifest.build);
+      EmitSelectedFeatureBuildOptions(out, package.manifest.name,
+                                      resolved.selectedPackageFeatures);
       out << "add_subdirectory(\"" << ToCMakePath(sourceDir)
           << "\" \"${CMAKE_BINARY_DIR}/pkg_"
           << SanitizeIdentifier(package.manifest.name)
@@ -2117,6 +2140,8 @@ endif()
         continue;
       }
       EmitPackageBuildOptions(out, package.manifest.build);
+      EmitSelectedFeatureBuildOptions(out, package.manifest.name,
+                                      resolved.selectedPackageFeatures);
       out << "add_subdirectory(\"" << ToCMakePath(packageDir)
           << "\" \"${CMAKE_BINARY_DIR}/pkg_"
           << SanitizeIdentifier(package.manifest.name)

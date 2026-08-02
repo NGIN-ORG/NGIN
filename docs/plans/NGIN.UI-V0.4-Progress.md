@@ -48,7 +48,31 @@ Delivered:
 
 ## Milestone 31 — Reflection-Backed Constructor Injection
 
-Status: Planned
+Status: Complete (2026-08-02)
+
+Delivered:
+
+- activated the existing optional Core `Reflection` feature in direct CMake
+  and installed/package-feature consumption without changing Reflection-off
+  builds;
+- added one explicit `InjectableConstructor<...>()` marker with typed required,
+  named, optional, and named-optional parameter bindings;
+- added MetaGen `NGIN_INJECT` and `NGIN_DEPENDENCY(...)` authoring that emits
+  the same public `TypeBuilder` metadata as handwritten reflection;
+- validated reflected plans as providers enter the registry, cached their
+  constructor/binding plans, and rebuilt them after Reflection generation
+  changes;
+- limited the first supported parameter contract to
+  `NGIN::Memory::Shared<T>` and preserved the active Core service scope;
+- added ABI-owned `Shared` aliases so reflected service destruction remains in
+  the module that created the object;
+- made Reflection reject module unload while live reflected instances remain;
+- verified named and optional dependencies, interface mappings, missing and
+  ambiguous metadata, stale-plan rebuilds, feature-off parity, and a real
+  imported DLL constructor invocation;
+- passed 7 focused Base smart-pointer tests, all 5 Reflection tests, all 47
+  Reflection-enabled Core tests, all 45 Reflection-disabled Core tests, and
+  focused CLI coverage for package-feature build-option parsing and ordering.
 
 ## Milestone 32 — Hosted UI Service And Scope Integration
 

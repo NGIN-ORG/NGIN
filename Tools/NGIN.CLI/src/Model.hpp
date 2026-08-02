@@ -841,6 +841,7 @@ namespace NGIN::CLI
             std::vector<CapabilityRequirement> requiredCapabilities{};
             std::vector<PackageReference> packageRefs{};
             std::vector<InputDeclaration> inputs{};
+            std::vector<BuildVariable> buildOptions{};
             ProjectBuildDescriptor build{};
             RuntimeDefinition runtime{};
             std::vector<EnvironmentVariable> variables{};
@@ -1051,6 +1052,7 @@ namespace NGIN::CLI
         std::vector<CapabilityRequirement> requiredCapabilities{};
         std::vector<PackageReference> packageRefs{};
         std::vector<InputDeclaration> inputs{};
+        std::vector<BuildVariable> buildOptions{};
         ProjectBuildDescriptor build{};
         RuntimeDefinition runtime{};
         std::vector<EnvironmentVariable> variables{};

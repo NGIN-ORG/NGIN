@@ -8,6 +8,9 @@
 #include <NGIN/Memory/SmartPointers.hpp>
 #include <NGIN/Meta/TypeId.hpp>
 #include <NGIN/Meta/TypeName.hpp>
+#if defined(NGIN_CORE_FEATURE_REFLECTION)
+#include <NGIN/Reflection/Reflection.hpp>
+#endif
 
 #include <atomic>
 #include <concepts>
@@ -162,13 +165,17 @@ namespace NGIN::Core
         class ServiceProviderBase
         {
         public:
+            using RegistrationValidator = std::function<CoreResult<void>()>;
+
             ServiceProviderBase(
                 ServiceKey key,
                 ServiceRegistrationOptions options,
-                std::vector<ServiceKey> dependencies = {})
+                std::vector<ServiceKey> dependencies = {},
+                RegistrationValidator registrationValidator = {})
                 : m_key(std::move(key))
                 , m_options(std::move(options))
                 , m_dependencies(std::move(dependencies))
+                , m_registrationValidator(std::move(registrationValidator))
             {
             }
 
@@ -177,6 +184,11 @@ namespace NGIN::Core
             [[nodiscard]] auto Key() const noexcept -> const ServiceKey& { return m_key; }
             [[nodiscard]] auto Options() const noexcept -> const ServiceRegistrationOptions& { return m_options; }
             [[nodiscard]] auto Dependencies() const noexcept -> const std::vector<ServiceKey>& { return m_dependencies; }
+            [[nodiscard]] auto RegistrationValidation() const -> CoreResult<void>
+            {
+                return m_registrationValidator ? m_registrationValidator() : CoreResult<void> {};
+            }
+            [[nodiscard]] auto Validator() const -> const RegistrationValidator& { return m_registrationValidator; }
             [[nodiscard]] auto ContractName() const -> std::string { return m_key.ContractName(); }
             [[nodiscard]] auto MatchesContract(std::string_view contract) const -> bool
             {
@@ -185,6 +197,11 @@ namespace NGIN::Core
 
             virtual void RemoveScope(ServiceScopeId scopeId) noexcept = 0;
             [[nodiscard]] virtual auto Diagnostics() const -> ServiceRegistrationDiagnostics = 0;
+#if defined(NGIN_CORE_FEATURE_REFLECTION)
+            [[nodiscard]] virtual auto ReflectionParameterTypeName() const noexcept -> std::string_view = 0;
+            [[nodiscard]] virtual auto ResolveReflectionArgument(ServiceResolutionContext& context)
+                -> CoreResult<NGIN::Reflection::Value> = 0;
+#endif
             [[nodiscard]] virtual auto CloneWithOptions(ServiceRegistrationOptions options) const
                 -> std::shared_ptr<ServiceProviderBase> = 0;
 
@@ -192,6 +209,7 @@ namespace NGIN::Core
             ServiceKey                 m_key {};
             ServiceRegistrationOptions m_options {};
             std::vector<ServiceKey>     m_dependencies {};
+            RegistrationValidator       m_registrationValidator {};
         };
 
         template<typename T>
@@ -204,8 +222,10 @@ namespace NGIN::Core
                 ServiceKey key,
                 NGIN::Memory::Shared<ServiceType> instance,
                 ServiceRegistrationOptions options,
-                std::vector<ServiceKey> dependencies = {})
-                : ServiceProviderBase(std::move(key), std::move(options), std::move(dependencies))
+                std::vector<ServiceKey> dependencies = {},
+                RegistrationValidator registrationValidator = {})
+                : ServiceProviderBase(
+                      std::move(key), std::move(options), std::move(dependencies), std::move(registrationValidator))
                 , m_instance(std::move(instance))
             {
             }
@@ -214,8 +234,10 @@ namespace NGIN::Core
                 ServiceKey key,
                 ServiceProviderFactory<ServiceType> factory,
                 ServiceRegistrationOptions options,
-                std::vector<ServiceKey> dependencies = {})
-                : ServiceProviderBase(std::move(key), std::move(options), std::move(dependencies))
+                std::vector<ServiceKey> dependencies = {},
+                RegistrationValidator registrationValidator = {})
+                : ServiceProviderBase(
+                      std::move(key), std::move(options), std::move(dependencies), std::move(registrationValidator))
                 , m_factory(std::move(factory))
             {
             }
@@ -317,6 +339,24 @@ namespace NGIN::Core
                 };
             }
 
+#if defined(NGIN_CORE_FEATURE_REFLECTION)
+            [[nodiscard]] auto ReflectionParameterTypeName() const noexcept -> std::string_view override
+            {
+                return NGIN::Meta::TypeName<NGIN::Memory::Shared<ServiceType>>::qualifiedName;
+            }
+
+            [[nodiscard]] auto ResolveReflectionArgument(ServiceResolutionContext& context)
+                -> CoreResult<NGIN::Reflection::Value> override
+            {
+                auto resolved = Resolve(context);
+                if (!resolved)
+                {
+                    return NGIN::Utilities::Unexpected<KernelError>(resolved.Error());
+                }
+                return NGIN::Reflection::MakeInstanceValue(resolved.Value());
+            }
+#endif
+
             [[nodiscard]] auto CloneWithOptions(ServiceRegistrationOptions options) const
                 -> std::shared_ptr<ServiceProviderBase> override
             {
@@ -324,11 +364,11 @@ namespace NGIN::Core
                 if (m_factory)
                 {
                     return std::make_shared<TypedServiceProvider<ServiceType>>(
-                        Key(), m_factory, std::move(options), Dependencies());
+                        Key(), m_factory, std::move(options), Dependencies(), Validator());
                 }
 
                 return std::make_shared<TypedServiceProvider<ServiceType>>(
-                    Key(), m_instance, std::move(options), Dependencies());
+                    Key(), m_instance, std::move(options), Dependencies(), Validator());
             }
 
         private:
@@ -528,14 +568,17 @@ namespace NGIN::Core
             std::string name,
             ServiceProviderFactory<std::remove_cvref_t<T>> factory,
             ServiceRegistrationOptions options,
-            std::vector<ServiceKey> dependencies = {}) -> std::shared_ptr<ServiceProviderBase>
+            std::vector<ServiceKey> dependencies = {},
+            ServiceProviderBase::RegistrationValidator registrationValidator = {})
+            -> std::shared_ptr<ServiceProviderBase>
         {
             using ServiceType = std::remove_cvref_t<T>;
             return std::make_shared<TypedServiceProvider<ServiceType>>(
                 TypeServiceKey<ServiceType>(std::move(name)),
                 std::move(factory),
                 std::move(options),
-                std::move(dependencies));
+                std::move(dependencies),
+                std::move(registrationValidator));
         }
     }
 
@@ -549,6 +592,11 @@ namespace NGIN::Core
         [[nodiscard]] virtual auto EnumerateKeys() const -> std::vector<std::string> = 0;
         [[nodiscard]] virtual auto GetScopeInfo(ServiceScopeId scopeId) const noexcept -> CoreResult<ServiceScopeInfo> = 0;
         [[nodiscard]] virtual auto Diagnostics() const -> ServiceRegistryDiagnostics = 0;
+#if defined(NGIN_CORE_FEATURE_REFLECTION)
+        [[nodiscard]] virtual auto FindReflectionProvider(
+            std::string_view parameterTypeName,
+            std::string_view name) noexcept -> std::shared_ptr<detail::ServiceProviderBase> = 0;
+#endif
 
         template<typename T>
         [[nodiscard]] auto ResolveOptional(
@@ -698,6 +746,15 @@ namespace NGIN::Core
                 return m_provider != nullptr ? m_provider->Diagnostics() : ServiceRegistryDiagnostics {};
             }
 
+#if defined(NGIN_CORE_FEATURE_REFLECTION)
+            [[nodiscard]] auto FindReflectionProvider(
+                std::string_view parameterTypeName,
+                std::string_view name) noexcept -> std::shared_ptr<ServiceProviderBase> override
+            {
+                return m_provider != nullptr ? m_provider->FindReflectionProvider(parameterTypeName, name) : nullptr;
+            }
+#endif
+
             [[nodiscard]] auto FindProvider(const ServiceKey& key) noexcept -> std::shared_ptr<ServiceProviderBase> override
             {
                 return m_provider != nullptr ? m_provider->FindProvider(key) : nullptr;
@@ -735,6 +792,330 @@ namespace NGIN::Core
             IServiceProvider* m_provider {nullptr};
             ServiceScopeId m_defaultScope {ServiceScopeId::Global()};
         };
+
+#if defined(NGIN_CORE_FEATURE_REFLECTION)
+        struct ReflectedParameterPlan
+        {
+            std::string parameterTypeName {};
+            std::string serviceName {};
+            bool optional {false};
+        };
+
+        [[nodiscard]] inline auto ReflectionError(
+            const std::string_view service,
+            const NGIN::Reflection::Error& error) -> KernelError
+        {
+            const auto code = error.code == NGIN::Reflection::ErrorCode::StaleHandle
+                                  ? KernelErrorCode::InvalidState
+                                  : KernelErrorCode::ServiceRegistrationFailure;
+            return MakeKernelError(code, "Services.Reflection", std::string(service), error.message);
+        }
+
+        template<typename TService, typename TImplementation>
+        class ReflectedActivationPlan final
+        {
+        public:
+            using ServiceType = std::remove_cvref_t<TService>;
+            using ImplementationType = std::remove_cvref_t<TImplementation>;
+
+            [[nodiscard]] auto Validate() -> CoreResult<void>
+            {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                return Rebuild();
+            }
+
+            [[nodiscard]] auto Activate(ServiceResolutionContext& context)
+                -> CoreResult<NGIN::Memory::Shared<ServiceType>>
+            {
+                NGIN::Reflection::Constructor constructor;
+                std::vector<ReflectedParameterPlan> parameters;
+                NGIN::UInt64 generation = 0;
+                {
+                    std::lock_guard<std::mutex> lock(m_mutex);
+                    const auto currentGeneration = NGIN::Reflection::GetRegistrySnapshot().generation;
+                    if (!m_initialized || currentGeneration != m_generation)
+                    {
+                        auto rebuilt = Rebuild();
+                        if (!rebuilt)
+                        {
+                            return NGIN::Utilities::Unexpected<KernelError>(rebuilt.Error());
+                        }
+                    }
+                    constructor = m_constructor;
+                    parameters = m_parameters;
+                    generation = m_generation;
+                }
+
+                std::vector<NGIN::Reflection::Value> arguments;
+                arguments.reserve(parameters.size());
+                for (const auto& parameter : parameters)
+                {
+                    auto provider = context.services.FindReflectionProvider(
+                        parameter.parameterTypeName, parameter.serviceName);
+                    if (!provider)
+                    {
+                        if (parameter.optional)
+                        {
+                            arguments.emplace_back();
+                            continue;
+                        }
+
+                        auto dependencyPath = ServiceResolutionGuard::CurrentPath();
+                        if (!dependencyPath.empty())
+                        {
+                            dependencyPath += " -> ";
+                        }
+                        dependencyPath += parameter.serviceName.empty()
+                                              ? parameter.parameterTypeName
+                                              : parameter.serviceName;
+                        return NGIN::Utilities::Unexpected<KernelError>(MakeKernelError(
+                            KernelErrorCode::NotFound,
+                            "Services.Reflection",
+                            TypeServiceKey<ServiceType>().ContractName(),
+                            "reflected constructor dependency not found",
+                            std::move(dependencyPath)));
+                    }
+
+                    const auto effectiveScope = context.services.EffectiveResolveScope(*provider, context.scope);
+                    auto valid = context.services.ValidateResolve(*provider, effectiveScope);
+                    if (!valid)
+                    {
+                        return NGIN::Utilities::Unexpected<KernelError>(valid.Error());
+                    }
+                    auto resolutionValid = ServiceResolutionGuard::Validate(*provider);
+                    if (!resolutionValid)
+                    {
+                        return NGIN::Utilities::Unexpected<KernelError>(resolutionValid.Error());
+                    }
+                    ServiceResolutionGuard guard(*provider);
+                    ServiceResolutionContext dependencyContext {
+                        .services = context.services,
+                        .scope = effectiveScope,
+                    };
+                    auto argument = provider->ResolveReflectionArgument(dependencyContext);
+                    if (!argument)
+                    {
+                        auto error = argument.Error();
+                        if (error.dependencyPath.empty())
+                        {
+                            error.dependencyPath = ServiceResolutionGuard::CurrentPath();
+                        }
+                        return NGIN::Utilities::Unexpected<KernelError>(std::move(error));
+                    }
+                    arguments.push_back(std::move(argument.Value()));
+                }
+
+                if (generation != NGIN::Reflection::GetRegistrySnapshot().generation)
+                {
+                    return NGIN::Utilities::Unexpected<KernelError>(MakeKernelError(
+                        KernelErrorCode::InvalidState,
+                        "Services.Reflection",
+                        TypeServiceKey<ServiceType>().ContractName(),
+                        "reflection metadata changed during service activation"));
+                }
+
+                auto reflected = constructor.Invoke(arguments);
+                if (!reflected)
+                {
+                    return NGIN::Utilities::Unexpected<KernelError>(
+                        ReflectionError(TypeServiceKey<ServiceType>().ContractName(), reflected.error()));
+                }
+                auto instance = std::move(reflected.value());
+                auto* implementation = instance.template TryAs<ImplementationType>();
+                if (implementation == nullptr)
+                {
+                    return NGIN::Utilities::Unexpected<KernelError>(MakeKernelError(
+                        KernelErrorCode::InvalidState,
+                        "Services.Reflection",
+                        TypeServiceKey<ServiceType>().ContractName(),
+                        "reflected constructor returned an incompatible instance"));
+                }
+                return NGIN::Memory::MakeSharedAlias<ServiceType>(
+                    static_cast<ServiceType*>(implementation), std::move(instance));
+            }
+
+        private:
+            [[nodiscard]] auto Rebuild() -> CoreResult<void>
+            {
+                const auto snapshot = NGIN::Reflection::GetRegistrySnapshot();
+                auto reflectedType = NGIN::Reflection::GetType<ImplementationType>();
+                if (!reflectedType)
+                {
+                    return NGIN::Utilities::Unexpected<KernelError>(
+                        ReflectionError(TypeServiceKey<ServiceType>().ContractName(), reflectedType.error()));
+                }
+
+                std::optional<NGIN::Reflection::Constructor> injectable;
+                for (std::size_t index = 0; index < reflectedType->ConstructorCount(); ++index)
+                {
+                    auto candidate = reflectedType->ConstructorAt(index);
+                    if (!candidate)
+                    {
+                        return NGIN::Utilities::Unexpected<KernelError>(
+                            ReflectionError(TypeServiceKey<ServiceType>().ContractName(), candidate.error()));
+                    }
+                    if (candidate->IsInjectable())
+                    {
+                        if (injectable.has_value())
+                        {
+                            return NGIN::Utilities::Unexpected<KernelError>(MakeKernelError(
+                                KernelErrorCode::ServiceRegistrationFailure,
+                                "Services.Reflection",
+                                TypeServiceKey<ServiceType>().ContractName(),
+                                "reflected service has more than one injectable constructor"));
+                        }
+                        injectable = *candidate;
+                    }
+                }
+                if (!injectable.has_value())
+                {
+                    return NGIN::Utilities::Unexpected<KernelError>(MakeKernelError(
+                        KernelErrorCode::ServiceRegistrationFailure,
+                        "Services.Reflection",
+                        TypeServiceKey<ServiceType>().ContractName(),
+                        "reflected service has no injectable constructor"));
+                }
+
+                std::vector<ReflectedParameterPlan> parameters;
+                parameters.reserve(injectable->ParameterCount());
+                for (std::size_t index = 0; index < injectable->ParameterCount(); ++index)
+                {
+                    auto binding = injectable->ParameterBindingAt(index);
+                    if (!binding)
+                    {
+                        return NGIN::Utilities::Unexpected<KernelError>(
+                            ReflectionError(TypeServiceKey<ServiceType>().ContractName(), binding.error()));
+                    }
+                    auto parameterTypeName = std::string(injectable->ParameterTypeName(index));
+                    if (parameterTypeName.find("NGIN::Memory::Shared") == std::string::npos)
+                    {
+                        return NGIN::Utilities::Unexpected<KernelError>(MakeKernelError(
+                            KernelErrorCode::ServiceRegistrationFailure,
+                            "Services.Reflection",
+                            TypeServiceKey<ServiceType>().ContractName(),
+                            "injectable constructor parameters must use NGIN::Memory::Shared<T>"));
+                    }
+                    parameters.push_back(ReflectedParameterPlan {
+                        .parameterTypeName = std::move(parameterTypeName),
+                        .serviceName = std::move(binding->name),
+                        .optional = binding->optional,
+                    });
+                }
+
+                m_constructor = *injectable;
+                m_parameters = std::move(parameters);
+                m_generation = snapshot.generation;
+                m_initialized = true;
+                return CoreResult<void> {};
+            }
+
+            std::mutex m_mutex {};
+            NGIN::Reflection::Constructor m_constructor {};
+            std::vector<ReflectedParameterPlan> m_parameters {};
+            NGIN::UInt64 m_generation {0};
+            bool m_initialized {false};
+        };
+
+        template<typename TService, typename TImplementation>
+        [[nodiscard]] auto TryMakeReflectedFactory()
+            -> std::optional<ServiceProviderFactory<std::remove_cvref_t<TService>>>
+        {
+            using ImplementationType = std::remove_cvref_t<TImplementation>;
+            auto reflectedType = NGIN::Reflection::FindType<ImplementationType>();
+            if (!reflectedType.has_value())
+            {
+                return std::nullopt;
+            }
+
+            bool hasInjectableConstructor = false;
+            for (std::size_t index = 0; index < reflectedType->ConstructorCount(); ++index)
+            {
+                auto constructor = reflectedType->ConstructorAt(index);
+                hasInjectableConstructor = hasInjectableConstructor ||
+                                           (constructor.has_value() && constructor->IsInjectable());
+            }
+            if (!hasInjectableConstructor)
+            {
+                return std::nullopt;
+            }
+
+            auto plan = std::make_shared<ReflectedActivationPlan<TService, TImplementation>>();
+            return ServiceProviderFactory<std::remove_cvref_t<TService>> {
+                [plan](ServiceResolutionContext& context)
+                {
+                    return plan->Activate(context);
+                }};
+        }
+
+        template<typename TService, typename TImplementation>
+        [[nodiscard]] auto MakeAutoRegistrationValidator()
+            -> ServiceProviderBase::RegistrationValidator
+        {
+            using ImplementationType = std::remove_cvref_t<TImplementation>;
+            auto reflectedType = NGIN::Reflection::FindType<ImplementationType>();
+            if (!reflectedType.has_value())
+            {
+                if constexpr (CanAutoConstructService<ImplementationType>::value)
+                {
+                    return {};
+                }
+                else
+                {
+                    return []() -> CoreResult<void>
+                    {
+                        return NGIN::Utilities::Unexpected<KernelError>(MakeKernelError(
+                            KernelErrorCode::ReflectionRequired,
+                            "Services.Reflection",
+                            TypeServiceKey<TService>().ContractName(),
+                            "service has no reflected metadata or reflection-free constructor"));
+                    };
+                }
+            }
+
+            bool hasInjectableConstructor = false;
+            for (std::size_t index = 0; index < reflectedType->ConstructorCount(); ++index)
+            {
+                auto constructor = reflectedType->ConstructorAt(index);
+                hasInjectableConstructor = hasInjectableConstructor ||
+                                           (constructor.has_value() && constructor->IsInjectable());
+            }
+            if (!hasInjectableConstructor)
+            {
+                if constexpr (CanAutoConstructService<ImplementationType>::value)
+                {
+                    return {};
+                }
+                else
+                {
+                    return []() -> CoreResult<void>
+                    {
+                        return NGIN::Utilities::Unexpected<KernelError>(MakeKernelError(
+                            KernelErrorCode::ServiceRegistrationFailure,
+                            "Services.Reflection",
+                            TypeServiceKey<TService>().ContractName(),
+                            "reflected service has no injectable constructor"));
+                    };
+                }
+            }
+
+            auto plan = std::make_shared<ReflectedActivationPlan<TService, TImplementation>>();
+            return [plan]
+            {
+                return plan->Validate();
+            };
+        }
+#endif
+
+        template<typename TService, typename TImplementation>
+        [[nodiscard]] auto MakeAutomaticRegistrationValidator()
+            -> ServiceProviderBase::RegistrationValidator
+        {
+#if defined(NGIN_CORE_FEATURE_REFLECTION)
+            return MakeAutoRegistrationValidator<TService, TImplementation>();
+#else
+            return {};
+#endif
+        }
 
         template<std::size_t TIndex = 0, typename... TDependencies>
         [[nodiscard]] auto ResolveDeclaredDependencies(
@@ -818,14 +1199,23 @@ namespace NGIN::Core
             static_assert(
                 IsServiceDependencies<DependencyList>::value,
                 "T::Dependencies must be NGIN::Core::ServiceDependencies<...>");
+#if !defined(NGIN_CORE_FEATURE_REFLECTION)
             static_assert(
                 CanAutoConstructService<ImplementationType>::value,
                 "service auto-registration requires Dependencies, T(), or T(NGIN::Memory::Shared<IServiceProvider>)");
+#endif
 
             if constexpr (DeclaredServiceDependencies<ImplementationType>::declared)
             {
                 return MakeDeclaredDependencyFactory<ServiceType, ImplementationType>(DependencyList {});
             }
+#if defined(NGIN_CORE_FEATURE_REFLECTION)
+            else if (auto reflectedFactory = TryMakeReflectedFactory<ServiceType, ImplementationType>();
+                     reflectedFactory.has_value())
+            {
+                return std::move(*reflectedFactory);
+            }
+#endif
             else if constexpr (std::is_constructible_v<ImplementationType, NGIN::Memory::Shared<IServiceProvider>>)
             {
                 return [](ServiceResolutionContext& context) -> CoreResult<NGIN::Memory::Shared<ServiceType>>
@@ -844,7 +1234,7 @@ namespace NGIN::Core
                     }
                 };
             }
-            else
+            else if constexpr (std::is_default_constructible_v<ImplementationType>)
             {
                 return []([[maybe_unused]] ServiceResolutionContext& context) -> CoreResult<NGIN::Memory::Shared<ServiceType>>
                 {
@@ -859,6 +1249,19 @@ namespace NGIN::Core
                     }
                 };
             }
+#if defined(NGIN_CORE_FEATURE_REFLECTION)
+            else
+            {
+                return [](ServiceResolutionContext&) -> CoreResult<NGIN::Memory::Shared<ServiceType>>
+                {
+                    return NGIN::Utilities::Unexpected<KernelError>(MakeKernelError(
+                        KernelErrorCode::ReflectionRequired,
+                        "Services.Reflection",
+                        TypeServiceKey<ServiceType>().ContractName(),
+                        "service has no injectable reflected constructor or reflection-free constructor"));
+                };
+            }
+#endif
         }
 
         template<typename T>
@@ -891,7 +1294,8 @@ namespace NGIN::Core
         {
             options.lifetime = ServiceLifetime::Singleton;
             return RegisterProvider(detail::MakeFactoryProvider<T>(
-                {}, detail::MakeAutoFactory<T>(), std::move(options), detail::AutoDependencyKeys<T>()));
+                {}, detail::MakeAutoFactory<T>(), std::move(options), detail::AutoDependencyKeys<T>(),
+                detail::MakeAutomaticRegistrationValidator<T, T>()));
         }
 
         template<typename T>
@@ -899,7 +1303,8 @@ namespace NGIN::Core
         {
             options.lifetime = ServiceLifetime::Singleton;
             return RegisterProvider(detail::MakeFactoryProvider<T>(
-                std::move(name), detail::MakeAutoFactory<T>(), std::move(options), detail::AutoDependencyKeys<T>()));
+                std::move(name), detail::MakeAutoFactory<T>(), std::move(options), detail::AutoDependencyKeys<T>(),
+                detail::MakeAutomaticRegistrationValidator<T, T>()));
         }
 
         template<typename TService, typename TImplementation>
@@ -910,7 +1315,8 @@ namespace NGIN::Core
                 {},
                 detail::MakeAutoFactoryAs<TService, TImplementation>(),
                 std::move(options),
-                detail::AutoDependencyKeys<TImplementation>()));
+                detail::AutoDependencyKeys<TImplementation>(),
+                detail::MakeAutomaticRegistrationValidator<TService, TImplementation>()));
         }
 
         template<typename TService, typename TImplementation>
@@ -921,7 +1327,8 @@ namespace NGIN::Core
                 std::move(name),
                 detail::MakeAutoFactoryAs<TService, TImplementation>(),
                 std::move(options),
-                detail::AutoDependencyKeys<TImplementation>()));
+                detail::AutoDependencyKeys<TImplementation>(),
+                detail::MakeAutomaticRegistrationValidator<TService, TImplementation>()));
         }
 
         template<typename T>
@@ -993,7 +1400,8 @@ namespace NGIN::Core
         {
             options.lifetime = ServiceLifetime::Scoped;
             return RegisterProvider(detail::MakeFactoryProvider<T>(
-                {}, detail::MakeAutoFactory<T>(), std::move(options), detail::AutoDependencyKeys<T>()));
+                {}, detail::MakeAutoFactory<T>(), std::move(options), detail::AutoDependencyKeys<T>(),
+                detail::MakeAutomaticRegistrationValidator<T, T>()));
         }
 
         template<typename T>
@@ -1003,7 +1411,8 @@ namespace NGIN::Core
         {
             options.lifetime = ServiceLifetime::Scoped;
             return RegisterProvider(detail::MakeFactoryProvider<T>(
-                std::move(name), detail::MakeAutoFactory<T>(), std::move(options), detail::AutoDependencyKeys<T>()));
+                std::move(name), detail::MakeAutoFactory<T>(), std::move(options), detail::AutoDependencyKeys<T>(),
+                detail::MakeAutomaticRegistrationValidator<T, T>()));
         }
 
         template<typename TService, typename TImplementation>
@@ -1014,7 +1423,8 @@ namespace NGIN::Core
                 {},
                 detail::MakeAutoFactoryAs<TService, TImplementation>(),
                 std::move(options),
-                detail::AutoDependencyKeys<TImplementation>()));
+                detail::AutoDependencyKeys<TImplementation>(),
+                detail::MakeAutomaticRegistrationValidator<TService, TImplementation>()));
         }
 
         template<typename TService, typename TImplementation>
@@ -1025,7 +1435,8 @@ namespace NGIN::Core
                 std::move(name),
                 detail::MakeAutoFactoryAs<TService, TImplementation>(),
                 std::move(options),
-                detail::AutoDependencyKeys<TImplementation>()));
+                detail::AutoDependencyKeys<TImplementation>(),
+                detail::MakeAutomaticRegistrationValidator<TService, TImplementation>()));
         }
 
         template<typename T>
@@ -1052,7 +1463,8 @@ namespace NGIN::Core
         {
             options.lifetime = ServiceLifetime::Transient;
             return RegisterProvider(detail::MakeFactoryProvider<T>(
-                {}, detail::MakeAutoFactory<T>(), std::move(options), detail::AutoDependencyKeys<T>()));
+                {}, detail::MakeAutoFactory<T>(), std::move(options), detail::AutoDependencyKeys<T>(),
+                detail::MakeAutomaticRegistrationValidator<T, T>()));
         }
 
         template<typename T>
@@ -1060,7 +1472,8 @@ namespace NGIN::Core
         {
             options.lifetime = ServiceLifetime::Transient;
             return RegisterProvider(detail::MakeFactoryProvider<T>(
-                std::move(name), detail::MakeAutoFactory<T>(), std::move(options), detail::AutoDependencyKeys<T>()));
+                std::move(name), detail::MakeAutoFactory<T>(), std::move(options), detail::AutoDependencyKeys<T>(),
+                detail::MakeAutomaticRegistrationValidator<T, T>()));
         }
 
         template<typename TService, typename TImplementation>
@@ -1071,7 +1484,8 @@ namespace NGIN::Core
                 {},
                 detail::MakeAutoFactoryAs<TService, TImplementation>(),
                 std::move(options),
-                detail::AutoDependencyKeys<TImplementation>()));
+                detail::AutoDependencyKeys<TImplementation>(),
+                detail::MakeAutomaticRegistrationValidator<TService, TImplementation>()));
         }
 
         template<typename TService, typename TImplementation>
@@ -1082,7 +1496,8 @@ namespace NGIN::Core
                 std::move(name),
                 detail::MakeAutoFactoryAs<TService, TImplementation>(),
                 std::move(options),
-                detail::AutoDependencyKeys<TImplementation>()));
+                detail::AutoDependencyKeys<TImplementation>(),
+                detail::MakeAutomaticRegistrationValidator<TService, TImplementation>()));
         }
 
         template<typename T>
@@ -1120,6 +1535,11 @@ namespace NGIN::Core
         [[nodiscard]] auto EnumerateKeys() const -> std::vector<std::string> override;
         [[nodiscard]] auto GetScopeInfo(ServiceScopeId scopeId) const noexcept -> CoreResult<ServiceScopeInfo> override;
         [[nodiscard]] auto Diagnostics() const -> ServiceRegistryDiagnostics override;
+#if defined(NGIN_CORE_FEATURE_REFLECTION)
+        [[nodiscard]] auto FindReflectionProvider(
+            std::string_view parameterTypeName,
+            std::string_view name) noexcept -> std::shared_ptr<detail::ServiceProviderBase> override;
+#endif
 
         auto RegisterProvider(std::shared_ptr<detail::ServiceProviderBase> provider) noexcept -> CoreResult<void> override;
 

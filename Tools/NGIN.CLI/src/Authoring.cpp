@@ -2121,7 +2121,21 @@ namespace NGIN::CLI
                     }
                 }
                 ApplyInputBlock(node, path, feature.inputs, "package-feature:" + package.name + ":" + feature.name);
-                LoadProjectBuildDescriptor(feature.build, FindChild(node, "Build"), path);
+                const auto featureBuild = FindChild(node, "Build");
+                LoadProjectBuildDescriptor(feature.build, featureBuild, path);
+                if (featureBuild)
+                {
+                    if (const auto options = FindChild(*featureBuild, "Options"))
+                    {
+                        for (const auto item : ChildElements(*options, "Option"))
+                        {
+                            BuildVariable variable{};
+                            variable.name = RequireAttribute(item, "Name", path);
+                            variable.value = RequireAttribute(item, "Value", path);
+                            feature.buildOptions.push_back(std::move(variable));
+                        }
+                    }
+                }
                 ParseGenerators(node, path, feature.generators, "package-feature:" + package.name + ":" + feature.name);
                 if (const auto tooling = FindChild(node, "Tooling"))
                 {

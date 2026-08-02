@@ -272,6 +272,9 @@ TEST_CASE("package manifest parses product exports and feature contributions") {
         <Tool Name="NGIN.Reflection.MetaGen" Version="[0.1.0,0.2.0)" Scope="Build" />
       </Uses>
       <Build>
+        <Options>
+          <Option Name="NGIN_CORE_FEATURE_REFLECTION" Value="ON" />
+        </Options>
         <Define Name="NGIN_CORE_REFLECTION" Value="1" Visibility="Public" />
       </Build>
       <Provides>
@@ -300,6 +303,10 @@ TEST_CASE("package manifest parses product exports and feature contributions") {
   REQUIRE(package.features[0].packageRefs.size() == 1);
   REQUIRE(package.features[0].packageRefs[0].name == "NGIN.Reflection.MetaGen");
   REQUIRE(package.features[0].packageRefs[0].scope == "Build");
+  REQUIRE(package.features[0].buildOptions.size() == 1);
+  REQUIRE(package.features[0].buildOptions[0].name ==
+          "NGIN_CORE_FEATURE_REFLECTION");
+  REQUIRE(package.features[0].buildOptions[0].value == "ON");
   REQUIRE(package.features[0].build.compileDefinitions.size() == 1);
   REQUIRE(package.features[0].build.compileDefinitions[0].value ==
           "NGIN_CORE_REFLECTION=1");

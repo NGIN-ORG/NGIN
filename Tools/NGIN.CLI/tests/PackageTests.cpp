@@ -416,9 +416,21 @@ TEST_CASE("source-built package targets inherit unusual profile traits") {
       <LibraryTarget Name="Package::Profile" />
     </Exports>
   </Library>
+  <Features>
+    <Feature Name="Diagnostics">
+      <Build>
+        <Options>
+          <Option Name="PACKAGE_PROFILE_FEATURE" Value="ON" />
+        </Options>
+      </Build>
+    </Feature>
+  </Features>
 </Package>
 )xml");
   WriteFile(temp.path() / "Packages/Profile/CMakeLists.txt",
+            "if(NOT PACKAGE_PROFILE_FEATURE)\n"
+            "  message(FATAL_ERROR \"selected package feature option was not applied\")\n"
+            "endif()\n"
             "add_library(PackageProfile STATIC src/package.cpp)\n"
             "add_library(Package::Profile ALIAS PackageProfile)\n");
   WriteFile(temp.path() / "Packages/Profile/src/package.cpp",
@@ -428,7 +440,9 @@ TEST_CASE("source-built package targets inherit unusual profile traits") {
 <Project SchemaVersion="4" Name="PackageProfile.App" DefaultProfile="Custom">
   <Application>
     <Uses>
-      <Package Name="Package.Profile" Version="[1.0.0,2.0.0)" Scope="Target" />
+      <Package Name="Package.Profile" Version="[1.0.0,2.0.0)" Scope="Target">
+        <Feature Name="Diagnostics" />
+      </Package>
     </Uses>
     <Build>
       <Sources Path="src/**.cpp" />
@@ -463,10 +477,14 @@ TEST_CASE("source-built package targets inherit unusual profile traits") {
       ReadFile(temp.path() / "out/.ngin/cmake-src/CMakeLists.txt");
   const auto inheritedTraits =
       generatedCMake.find("# Source-built packages inherit");
+  const auto featureOption = generatedCMake.find(
+      R"(set(PACKAGE_PROFILE_FEATURE "ON" CACHE BOOL "" FORCE))");
   const auto packageSubdirectory = generatedCMake.find("add_subdirectory(");
   REQUIRE(inheritedTraits != std::string::npos);
+  REQUIRE(featureOption != std::string::npos);
   REQUIRE(packageSubdirectory != std::string::npos);
   REQUIRE(inheritedTraits < packageSubdirectory);
+  REQUIRE(featureOption < packageSubdirectory);
   REQUIRE_THAT(generatedCMake,
                ContainsSubstring("set(CMAKE_INTERPROCEDURAL_OPTIMIZATION FALSE)"));
 
@@ -480,13 +498,12 @@ TEST_CASE("source-built package targets inherit unusual profile traits") {
   REQUIRE(entryEnd != std::string::npos);
   const auto packageCommand =
       compileCommands.substr(entryStart, entryEnd - entryStart);
-#if defined(_WIN32)
-  REQUIRE_THAT(packageCommand, ContainsSubstring("/O1"));
-  REQUIRE_THAT(packageCommand, ContainsSubstring("/Zi"));
-#else
-  REQUIRE_THAT(packageCommand, ContainsSubstring("-Os"));
-  REQUIRE_THAT(packageCommand, ContainsSubstring("-g"));
-#endif
+  const auto hasSizeOptimization = packageCommand.find("/O1") != std::string::npos ||
+                                   packageCommand.find("-Os") != std::string::npos;
+  const auto hasDebugSymbols = packageCommand.find("/Zi") != std::string::npos ||
+                               packageCommand.find("-g") != std::string::npos;
+  REQUIRE(hasSizeOptimization);
+  REQUIRE(hasDebugSymbols);
 }
 
 TEST_CASE("dependency overlays mutate scopes by dependency identity") {

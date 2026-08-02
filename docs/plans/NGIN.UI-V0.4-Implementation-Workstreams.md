@@ -1,6 +1,6 @@
 # NGIN.UI Version 0.4 Implementation Workstreams
 
-Status: In progress — Workstream A complete
+Status: In progress — Workstreams A–B complete
 Roadmap: [`NGIN.UI-V0.4-Roadmap.md`](NGIN.UI-V0.4-Roadmap.md)
 
 ## Purpose

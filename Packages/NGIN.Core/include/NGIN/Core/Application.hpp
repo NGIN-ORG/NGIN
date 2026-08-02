@@ -400,7 +400,8 @@ public:
     options.metadata = std::move(metadata);
     return AddProvider(detail::MakeFactoryProvider<T>(
         {}, detail::MakeAutoFactory<T>(), std::move(options),
-        detail::AutoDependencyKeys<T>()));
+        detail::AutoDependencyKeys<T>(),
+        detail::MakeAutomaticRegistrationValidator<T, T>()));
   }
 
   template <typename T>
@@ -411,7 +412,8 @@ public:
     options.metadata = std::move(metadata);
     return AddProvider(detail::MakeFactoryProvider<T>(
         std::move(name), detail::MakeAutoFactory<T>(), std::move(options),
-        detail::AutoDependencyKeys<T>()));
+        detail::AutoDependencyKeys<T>(),
+        detail::MakeAutomaticRegistrationValidator<T, T>()));
   }
 
   template <typename TService, typename TImplementation>
@@ -421,7 +423,8 @@ public:
     options.metadata = std::move(metadata);
     return AddProvider(detail::MakeFactoryProvider<TService>(
         {}, detail::MakeAutoFactoryAs<TService, TImplementation>(),
-        std::move(options), detail::AutoDependencyKeys<TImplementation>()));
+        std::move(options), detail::AutoDependencyKeys<TImplementation>(),
+        detail::MakeAutomaticRegistrationValidator<TService, TImplementation>()));
   }
 
   template <typename TService, typename TImplementation>
@@ -432,7 +435,8 @@ public:
     options.metadata = std::move(metadata);
     return AddProvider(detail::MakeFactoryProvider<TService>(
         std::move(name), detail::MakeAutoFactoryAs<TService, TImplementation>(),
-        std::move(options), detail::AutoDependencyKeys<TImplementation>()));
+        std::move(options), detail::AutoDependencyKeys<TImplementation>(),
+        detail::MakeAutomaticRegistrationValidator<TService, TImplementation>()));
   }
 
   template <typename T>
@@ -496,7 +500,8 @@ public:
     options.metadata = std::move(metadata);
     return AddProvider(detail::MakeFactoryProvider<T>(
         {}, detail::MakeAutoFactory<T>(), std::move(options),
-        detail::AutoDependencyKeys<T>()));
+        detail::AutoDependencyKeys<T>(),
+        detail::MakeAutomaticRegistrationValidator<T, T>()));
   }
 
   template <typename T>
@@ -507,7 +512,8 @@ public:
     options.metadata = std::move(metadata);
     return AddProvider(detail::MakeFactoryProvider<T>(
         std::move(name), detail::MakeAutoFactory<T>(), std::move(options),
-        detail::AutoDependencyKeys<T>()));
+        detail::AutoDependencyKeys<T>(),
+        detail::MakeAutomaticRegistrationValidator<T, T>()));
   }
 
   template <typename TService, typename TImplementation>
@@ -517,7 +523,8 @@ public:
     options.metadata = std::move(metadata);
     return AddProvider(detail::MakeFactoryProvider<TService>(
         {}, detail::MakeAutoFactoryAs<TService, TImplementation>(),
-        std::move(options), detail::AutoDependencyKeys<TImplementation>()));
+        std::move(options), detail::AutoDependencyKeys<TImplementation>(),
+        detail::MakeAutomaticRegistrationValidator<TService, TImplementation>()));
   }
 
   template <typename TService, typename TImplementation>
@@ -528,7 +535,8 @@ public:
     options.metadata = std::move(metadata);
     return AddProvider(detail::MakeFactoryProvider<TService>(
         std::move(name), detail::MakeAutoFactoryAs<TService, TImplementation>(),
-        std::move(options), detail::AutoDependencyKeys<TImplementation>()));
+        std::move(options), detail::AutoDependencyKeys<TImplementation>(),
+        detail::MakeAutomaticRegistrationValidator<TService, TImplementation>()));
   }
 
   template <typename T>
@@ -553,7 +561,8 @@ public:
     options.metadata = std::move(metadata);
     return AddProvider(detail::MakeFactoryProvider<T>(
         {}, detail::MakeAutoFactory<T>(), std::move(options),
-        detail::AutoDependencyKeys<T>()));
+        detail::AutoDependencyKeys<T>(),
+        detail::MakeAutomaticRegistrationValidator<T, T>()));
   }
 
   template <typename T>
@@ -564,7 +573,8 @@ public:
     options.metadata = std::move(metadata);
     return AddProvider(detail::MakeFactoryProvider<T>(
         std::move(name), detail::MakeAutoFactory<T>(), std::move(options),
-        detail::AutoDependencyKeys<T>()));
+        detail::AutoDependencyKeys<T>(),
+        detail::MakeAutomaticRegistrationValidator<T, T>()));
   }
 
   template <typename TService, typename TImplementation>
@@ -574,7 +584,8 @@ public:
     options.metadata = std::move(metadata);
     return AddProvider(detail::MakeFactoryProvider<TService>(
         {}, detail::MakeAutoFactoryAs<TService, TImplementation>(),
-        std::move(options), detail::AutoDependencyKeys<TImplementation>()));
+        std::move(options), detail::AutoDependencyKeys<TImplementation>(),
+        detail::MakeAutomaticRegistrationValidator<TService, TImplementation>()));
   }
 
   template <typename TService, typename TImplementation>
@@ -585,7 +596,8 @@ public:
     options.metadata = std::move(metadata);
     return AddProvider(detail::MakeFactoryProvider<TService>(
         std::move(name), detail::MakeAutoFactoryAs<TService, TImplementation>(),
-        std::move(options), detail::AutoDependencyKeys<TImplementation>()));
+        std::move(options), detail::AutoDependencyKeys<TImplementation>(),
+        detail::MakeAutomaticRegistrationValidator<TService, TImplementation>()));
   }
 
   template <typename T>

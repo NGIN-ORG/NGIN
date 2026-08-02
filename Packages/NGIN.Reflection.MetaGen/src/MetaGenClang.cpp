@@ -43,6 +43,9 @@ namespace NGIN::Reflection::MetaGen
             std::string reflectionName{};
             std::string kind{};
             std::vector<std::string> parameterTypes{};
+            std::vector<std::string> parameterNames{};
+            std::vector<bool> optionalParameters{};
+            bool injectable{false};
         };
 
         struct MetaGenProperty
@@ -253,6 +256,16 @@ namespace NGIN::Reflection::MetaGen
             return it == annotation->options.end() || it->second.empty() ? fallback : it->second;
         }
 
+        [[nodiscard]] auto OptionEnabled(const Annotation *annotation, std::string_view key) -> bool
+        {
+            if (annotation == nullptr)
+            {
+                return false;
+            }
+            const auto it = annotation->options.find(std::string(key));
+            return it != annotation->options.end() && Lower(it->second) != "false" && it->second != "0";
+        }
+
         [[nodiscard]] auto FindProperty(std::vector<MetaGenProperty> &properties, std::string_view name)
             -> MetaGenProperty *
         {
@@ -377,15 +390,25 @@ namespace NGIN::Reflection::MetaGen
                         return CXChildVisit_Continue;
                     }
 
-                    if (kind == CXCursor_Constructor && FindAnnotation(annotations, "ctor") != nullptr)
+                    if (kind == CXCursor_Constructor)
                     {
+                        const auto *constructor = FindAnnotation(annotations, "ctor");
+                        if (constructor == nullptr)
+                        {
+                            return CXChildVisit_Continue;
+                        }
                         MetaGenMember ctor{};
                         ctor.kind = "ctor";
+                        ctor.injectable = OptionEnabled(constructor, "injectable");
                         const int count = clang_Cursor_getNumArguments(child);
                         for (int index = 0; index < count; ++index)
                         {
                             CXCursor argument = clang_Cursor_getArgument(child, static_cast<unsigned>(index));
                             ctor.parameterTypes.push_back(TypeSpelling(clang_getCursorType(argument)));
+                            const auto argumentAnnotations = DirectAnnotations(argument);
+                            const auto *dependency = FindAnnotation(argumentAnnotations, "dependency");
+                            ctor.parameterNames.push_back(OptionOr(dependency, "name", {}));
+                            ctor.optionalParameters.push_back(OptionEnabled(dependency, "optional"));
                         }
                         type->constructors.push_back(std::move(ctor));
                         return CXChildVisit_Continue;
@@ -669,14 +692,36 @@ namespace NGIN::Reflection::MetaGen
                     }
                     for (const auto &constructor : type.constructors)
                     {
-                        out << "      type.Constructor<";
+                        out << "      type."
+                            << (constructor.injectable ? "InjectableConstructor<" : "Constructor<");
                         for (std::size_t index = 0; index < constructor.parameterTypes.size(); ++index)
                         {
                             if (index != 0)
                             {
                                 out << ", ";
                             }
-                            out << constructor.parameterTypes[index];
+                            const auto &parameterType = constructor.parameterTypes[index];
+                            const auto &parameterName = constructor.parameterNames[index];
+                            const auto optional = constructor.optionalParameters[index];
+                            if (!constructor.injectable || (parameterName.empty() && !optional))
+                            {
+                                out << parameterType;
+                            }
+                            else if (!parameterName.empty() && optional)
+                            {
+                                out << "NGIN::Reflection::NamedOptionalConstructorDependency<"
+                                    << parameterType << ", \"" << EscapeCppString(parameterName) << "\">";
+                            }
+                            else if (!parameterName.empty())
+                            {
+                                out << "NGIN::Reflection::NamedConstructorDependency<"
+                                    << parameterType << ", \"" << EscapeCppString(parameterName) << "\">";
+                            }
+                            else
+                            {
+                                out << "NGIN::Reflection::OptionalConstructorDependency<"
+                                    << parameterType << ">";
+                            }
                         }
                         out << ">();\n";
                     }

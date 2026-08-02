@@ -1063,6 +1063,7 @@ namespace NGIN::CLI
                     selected.requiredCapabilities = featureIt->requiredCapabilities;
                     selected.packageRefs = featureIt->packageRefs;
                     selected.inputs = featureIt->inputs;
+                    selected.buildOptions = featureIt->buildOptions;
                     selected.build = featureIt->build;
                     selected.runtime = featureIt->runtime;
                     selected.variables = featureIt->variables;

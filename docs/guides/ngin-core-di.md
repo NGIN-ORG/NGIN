@@ -115,6 +115,57 @@ builder->Services().AddFactory<ReportWriter>(
 Explicit factories and instances remain supported even when a type cannot be
 constructed automatically.
 
+## Optional Reflection Construction
+
+Enable the `NGIN.Core` package `Reflection` feature, or set
+`NGIN_CORE_FEATURE_REFLECTION=ON` when building Core directly. Register the
+reflection module before registering its service types.
+
+The package feature sets Core's CMake option before Core is compiled and adds
+the matching public definition to consumers. This keeps the Core library and
+application on the same service-provider ABI.
+
+Mark exactly one reflected constructor as injectable:
+
+```cpp
+class SearchViewModel {
+public:
+  SearchViewModel(NGIN::Memory::Shared<ISearch> search,
+                  NGIN::Memory::Shared<IHistory> history);
+};
+
+void NginReflect(NGIN::Reflection::Tag<SearchViewModel>,
+                 NGIN::Reflection::TypeBuilder<SearchViewModel>& type) {
+  type.InjectableConstructor<
+      NGIN::Memory::Shared<ISearch>,
+      NGIN::Reflection::OptionalConstructorDependency<
+          NGIN::Memory::Shared<IHistory>>>();
+}
+```
+
+Named dependencies use `NamedConstructorDependency<T, "name">`. A dependency
+that is both named and optional uses
+`NamedOptionalConstructorDependency<T, "name">`. Every reflected constructor
+parameter must be `NGIN::Memory::Shared<T>`.
+
+MetaGen uses the same metadata:
+
+```cpp
+NGIN_INJECT SearchViewModel(
+    NGIN_DEPENDENCY(name=primary) NGIN::Memory::Shared<ISearch> search,
+    NGIN_DEPENDENCY(optional) NGIN::Memory::Shared<IHistory> history);
+```
+
+Core validates the activation plan when the provider enters the registry,
+caches it, and rebuilds it when the Reflection registry generation changes.
+Live reflected services retain their ABI owner, so their destructor runs in
+the module that created them. Reflection rejects module unload while any such
+instance is alive.
+
+When the feature is disabled, the header and link dependency on
+NGIN.Reflection disappear and the reflection-free construction order is
+unchanged.
+
 ## Errors And Diagnostics
 
 Duplicate keys and duplicate named contracts fail during registration. Missing

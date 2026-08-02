@@ -144,6 +144,78 @@ struct SingletonCaptiveDependency {
       NGIN::Memory::Shared<ScopedDependency>) {}
 };
 
+#if defined(NGIN_CORE_FEATURE_REFLECTION)
+struct ReflectedDependency {
+  std::string value{"reflected dependency"};
+};
+
+struct MissingReflectedDependency {
+};
+
+class IReflectedService {
+public:
+  virtual ~IReflectedService() = default;
+  [[nodiscard]] virtual auto Value() const -> std::string = 0;
+};
+
+class ReflectedService final : public IReflectedService {
+public:
+  ReflectedService(NGIN::Memory::Shared<ReflectedDependency> dependency,
+                   NGIN::Memory::Shared<MissingReflectedDependency> optional)
+      : m_dependency(std::move(dependency)), m_optional(std::move(optional)) {}
+
+  [[nodiscard]] auto Value() const -> std::string override {
+    return m_dependency->value + (m_optional ? " present" : " optional missing");
+  }
+
+private:
+  NGIN::Memory::Shared<ReflectedDependency> m_dependency{};
+  NGIN::Memory::Shared<MissingReflectedDependency> m_optional{};
+};
+
+inline void NginReflect(NGIN::Reflection::Tag<ReflectedService>,
+                        NGIN::Reflection::TypeBuilder<ReflectedService> &builder) {
+  builder.InjectableConstructor<
+      NGIN::Reflection::NamedConstructorDependency<
+          NGIN::Memory::Shared<ReflectedDependency>, "primary">,
+      NGIN::Reflection::OptionalConstructorDependency<
+          NGIN::Memory::Shared<MissingReflectedDependency>>>();
+}
+
+struct MissingReflectedConsumer {
+  explicit MissingReflectedConsumer(
+      NGIN::Memory::Shared<MissingReflectedDependency>) {}
+};
+
+struct UnreflectedConsumer {
+  explicit UnreflectedConsumer(
+      NGIN::Memory::Shared<MissingReflectedDependency>) {}
+};
+
+inline void NginReflect(
+    NGIN::Reflection::Tag<MissingReflectedConsumer>,
+    NGIN::Reflection::TypeBuilder<MissingReflectedConsumer> &builder) {
+  builder.InjectableConstructor<
+      NGIN::Memory::Shared<MissingReflectedDependency>>();
+}
+
+struct AmbiguousReflectedConsumer {
+  explicit AmbiguousReflectedConsumer(
+      NGIN::Memory::Shared<ReflectedDependency>) {}
+  explicit AmbiguousReflectedConsumer(
+      NGIN::Memory::Shared<MissingReflectedDependency>) {}
+};
+
+inline void NginReflect(
+    NGIN::Reflection::Tag<AmbiguousReflectedConsumer>,
+    NGIN::Reflection::TypeBuilder<AmbiguousReflectedConsumer> &builder) {
+  builder
+      .InjectableConstructor<NGIN::Memory::Shared<ReflectedDependency>>()
+      .InjectableConstructor<
+          NGIN::Memory::Shared<MissingReflectedDependency>>();
+}
+#endif
+
 [[nodiscard]] auto
 MakeMountedVirtualFileSystem(const NGIN::IO::Path &realRoot,
                              const NGIN::IO::Path &virtualPrefix)
@@ -1407,6 +1479,104 @@ TEST_CASE("ServiceRegistrySerializesSingletonActivationAndReportsFailures",
   REQUIRE(failedEntry->activationCount == 0);
   REQUIRE(failedEntry->failureCount == 1);
 }
+
+#if defined(NGIN_CORE_FEATURE_REFLECTION)
+TEST_CASE("ServiceRegistryActivatesReflectedConstructorsWithTypedBindings",
+          "[runtime][services][reflection]") {
+  NGIN::Reflection::ModuleRegistration module{"Core.Tests.Reflection.DI"};
+  module.RegisterType<ReflectedService>();
+  REQUIRE(module.Commit());
+
+  auto registry = NGIN::Core::CreateServiceRegistry();
+  auto scope = registry->BeginScope(NGIN::Core::ServiceScopeKind::Operation,
+                                    "Reflection.DI");
+  REQUIRE(scope.HasValue());
+  REQUIRE(registry
+              ->RegisterSingleton<ReflectedDependency>(
+                  "primary", NGIN::Core::ServiceRegistrationOptions{})
+              .HasValue());
+  REQUIRE((registry->RegisterTransient<IReflectedService, ReflectedService>(
+                        NGIN::Core::ServiceRegistrationOptions{
+                            .lifetime = NGIN::Core::ServiceLifetime::Transient,
+                            .ownerScope = scope.Value(),
+                        })
+               .HasValue()));
+
+  {
+    auto service =
+        registry->ResolveRequired<IReflectedService>(scope.Value());
+    REQUIRE(service.HasValue());
+    CHECK(service.Value()->Value() ==
+          "reflected dependency optional missing");
+
+    NGIN::Reflection::Error unloadError{};
+    CHECK_FALSE(
+        NGIN::Reflection::UnloadModule(module.Identity(), &unloadError));
+    CHECK(unloadError.code == NGIN::Reflection::ErrorCode::Conflict);
+  }
+
+  NGIN::Reflection::ModuleRegistration generationChange{
+      "Core.Tests.Reflection.Generation"};
+  REQUIRE(generationChange.Commit());
+  {
+    auto rebuilt =
+        registry->ResolveRequired<IReflectedService>(scope.Value());
+    REQUIRE(rebuilt.HasValue());
+    CHECK(rebuilt.Value()->Value() ==
+          "reflected dependency optional missing");
+  }
+
+  NGIN::Reflection::Error unloadError{};
+  CHECK(NGIN::Reflection::UnloadModule(module.Identity(), &unloadError));
+  CHECK(NGIN::Reflection::UnloadModule(generationChange.Identity(),
+                                       &unloadError));
+}
+
+TEST_CASE("ServiceRegistryReportsInvalidReflectedActivationPlans",
+          "[runtime][services][reflection]") {
+  SECTION("Missing required reflected dependency") {
+    NGIN::Reflection::ModuleRegistration module{
+        "Core.Tests.Reflection.Missing"};
+    module.RegisterType<MissingReflectedConsumer>();
+    REQUIRE(module.Commit());
+
+    auto registry = NGIN::Core::CreateServiceRegistry();
+    REQUIRE(registry->RegisterSingleton<MissingReflectedConsumer>().HasValue());
+    auto missing = registry->ResolveRequired<MissingReflectedConsumer>();
+    REQUIRE_FALSE(missing.HasValue());
+    CHECK(missing.Error().code == NGIN::Core::KernelErrorCode::NotFound);
+    CHECK_FALSE(missing.Error().dependencyPath.empty());
+
+    NGIN::Reflection::Error error{};
+    CHECK(NGIN::Reflection::UnloadModule(module.Identity(), &error));
+  }
+
+  SECTION("Missing reflected metadata fails during registration") {
+    auto registry = NGIN::Core::CreateServiceRegistry();
+    auto missingMetadata = registry->RegisterSingleton<UnreflectedConsumer>();
+    REQUIRE_FALSE(missingMetadata.HasValue());
+    CHECK(missingMetadata.Error().code ==
+          NGIN::Core::KernelErrorCode::ReflectionRequired);
+  }
+
+  SECTION("Ambiguous injectable constructors") {
+    NGIN::Reflection::ModuleRegistration module{
+        "Core.Tests.Reflection.Ambiguous"};
+    module.RegisterType<AmbiguousReflectedConsumer>();
+    REQUIRE(module.Commit());
+
+    auto registry = NGIN::Core::CreateServiceRegistry();
+    auto ambiguous =
+        registry->RegisterSingleton<AmbiguousReflectedConsumer>();
+    REQUIRE_FALSE(ambiguous.HasValue());
+    CHECK(ambiguous.Error().code ==
+          NGIN::Core::KernelErrorCode::ServiceRegistrationFailure);
+
+    NGIN::Reflection::Error error{};
+    CHECK(NGIN::Reflection::UnloadModule(module.Identity(), &error));
+  }
+}
+#endif
 
 TEST_CASE("ModuleRequiredServiceContractsAreEnforcedBeforeInit",
           "[runtime][services]") {

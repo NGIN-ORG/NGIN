@@ -94,6 +94,11 @@ namespace NGIN::Core
                 MakeKernelError(KernelErrorCode::InvalidArgument, "Services", provider->Key().ContractName(), "service key cannot be empty"));
         }
 
+        if (auto registrationValid = provider->RegistrationValidation(); !registrationValid)
+        {
+            return NGIN::Utilities::Unexpected<KernelError>(registrationValid.Error());
+        }
+
         std::lock_guard<std::mutex> lock(m_mutex);
         if (auto valid = ValidateOptions(provider->Options()); !valid)
         {
@@ -247,6 +252,24 @@ namespace NGIN::Core
             });
         return diagnostics;
     }
+
+#if defined(NGIN_CORE_FEATURE_REFLECTION)
+    auto ServiceRegistry::FindReflectionProvider(
+        const std::string_view parameterTypeName,
+        const std::string_view name) noexcept -> std::shared_ptr<detail::ServiceProviderBase>
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        const auto provider = std::find_if(
+            m_entries.begin(),
+            m_entries.end(),
+            [parameterTypeName, name](const auto& entry)
+            {
+                return entry.second->ReflectionParameterTypeName() == parameterTypeName &&
+                       entry.second->Key().name == name;
+            });
+        return provider != m_entries.end() ? provider->second : nullptr;
+    }
+#endif
 
     auto CreateServiceRegistry() noexcept -> NGIN::Memory::Shared<IServiceRegistry>
     {
