@@ -81,7 +81,9 @@ public:
 /// @brief Logical, shareable image source with lazy loading and stable identity.
 class ImageResource final {
 public:
-  [[nodiscard]] static auto FromPixels(ImagePixels pixels) noexcept
+  [[nodiscard]] static auto
+  FromPixels(ImagePixels pixels,
+             TextureFilter filter = TextureFilter::Linear) noexcept
       -> UIResult<std::shared_ptr<ImageResource>>;
   [[nodiscard]] static auto
   DecodeMemoryAsync(ImageMemorySource source,
@@ -103,8 +105,14 @@ public:
   [[nodiscard]] auto State() const noexcept -> ImageLoadState;
   [[nodiscard]] auto Size() const noexcept -> PixelSize;
   [[nodiscard]] auto Revision() const noexcept -> UInt64;
+  [[nodiscard]] auto Filter() const noexcept -> TextureFilter;
   [[nodiscard]] auto Error() const noexcept -> UIError;
   [[nodiscard]] auto CopyPixels() const -> UIResult<ImagePixels>;
+  /// @brief Replaces decoded pixels and advances the logical image revision.
+  ///
+  /// Resolvers can upload same-sized revisions into the existing texture,
+  /// making this suitable for simulations, plots, and other dynamic surfaces.
+  auto UpdatePixels(ImagePixels pixels) noexcept -> UIResult<void>;
   void Cancel() noexcept;
   void Wait() noexcept;
 

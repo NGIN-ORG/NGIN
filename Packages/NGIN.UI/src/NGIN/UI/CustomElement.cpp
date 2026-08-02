@@ -90,6 +90,13 @@ void PaintContext::Image(const TextureHandle texture, const Rect destination,
   m_builder->Image(texture, destination, tint);
 }
 
+void PaintContext::ImageRegion(const TextureHandle texture,
+                               const Rect destination,
+                               const Rect textureCoordinates,
+                               const Color tint) {
+  m_builder->ImageRegion(texture, destination, textureCoordinates, tint);
+}
+
 auto ICustomElement::Arrange(CustomElementContext &, const Size)
     -> UIResult<void> {
   return {};

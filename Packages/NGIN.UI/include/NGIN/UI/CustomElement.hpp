@@ -193,6 +193,10 @@ public:
                      Color color);
   void Image(TextureHandle texture, Rect destination,
              Color tint = Color{1.0F, 1.0F, 1.0F, 1.0F});
+  /// @brief Draws a normalized source region of a renderer texture.
+  void ImageRegion(TextureHandle texture, Rect destination,
+                   Rect textureCoordinates,
+                   Color tint = Color{1.0F, 1.0F, 1.0F, 1.0F});
 
 private:
   DisplayListBuilder *m_builder{nullptr};

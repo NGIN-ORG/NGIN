@@ -77,6 +77,14 @@ void DisplayListBuilder::Image(const TextureHandle texture,
   m_commands.emplace_back(DrawImage{texture, destination, tint});
 }
 
+void DisplayListBuilder::ImageRegion(const TextureHandle texture,
+                                     const Rect destination,
+                                     const Rect textureCoordinates,
+                                     const Color tint) {
+  m_commands.emplace_back(
+      DrawImage{texture, destination, tint, textureCoordinates});
+}
+
 void DisplayListBuilder::Glyphs(const TextureHandle atlas,
                                 std::vector<GlyphQuad> glyphs,
                                 const Color color) {

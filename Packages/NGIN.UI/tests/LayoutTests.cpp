@@ -810,6 +810,7 @@ TEST_CASE("UI renderer emits rounded stroke and textured image geometry") {
           texture,
           Rect{20.0F, 0.0F, 10.0F, 10.0F},
           Color{1.0F, 1.0F, 1.0F, 1.0F},
+          Rect{0.25F, 0.125F, 0.5F, 0.75F},
       },
   };
   UIRenderer renderer;
@@ -818,12 +819,16 @@ TEST_CASE("UI renderer emits rounded stroke and textured image geometry") {
   REQUIRE(packet.vertices.size() == 61);
   REQUIRE(packet.indices.size() == 258);
   REQUIRE(packet.batches.size() == 2);
+  CHECK(packet.vertices[57].u == Catch::Approx(0.25F));
+  CHECK(packet.vertices[57].v == Catch::Approx(0.125F));
+  CHECK(packet.vertices[59].u == Catch::Approx(0.75F));
+  CHECK(packet.vertices[59].v == Catch::Approx(0.875F));
   REQUIRE_FALSE(packet.batches[0].texture);
   REQUIRE(packet.batches[0].indexCount == 252);
   REQUIRE(packet.batches[1].texture == texture);
   REQUIRE(packet.batches[1].indexCount == 6);
-  REQUIRE(packet.vertices.back().u == 0.0F);
-  REQUIRE(packet.vertices.back().v == 1.0F);
+  REQUIRE(packet.vertices.back().u == Catch::Approx(0.25F));
+  REQUIRE(packet.vertices.back().v == Catch::Approx(0.875F));
 }
 
 TEST_CASE("UI renderer lowers glyph runs with atlas coordinates") {

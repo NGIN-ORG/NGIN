@@ -105,6 +105,8 @@ Version 0.2 provides:
   eviction, and capacity diagnostics;
 - built-in bounded PNG, JPEG, and PPM decoding to RGBA8;
 - semantic `Image` composition with none/fill/contain/cover/scale-down fit,
+  revisioned dynamic RGBA surfaces, stable in-place texture uploads, and
+  normalized image-region drawing for zoomable custom views,
   alignment, tint, and clipping;
 - immutable/revisioned theme values and hierarchical typed resource scopes;
 - typed visual-state styles, theme-driven borders and rounded backgrounds,

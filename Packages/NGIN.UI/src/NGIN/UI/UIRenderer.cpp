@@ -518,7 +518,7 @@ auto UIRenderer::Build(const DisplayList &displayList,
                          effectiveScale,
                          PackColor(value.tint, opacities.back()),
                          ToScissor(clips.back(), effectiveScale, targetSize),
-                         value.texture);
+                         value.texture, value.textureCoordinates);
             }
           } else if constexpr (std::is_same_v<Command, DrawGlyphRun>) {
             if (value.atlas) {

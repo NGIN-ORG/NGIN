@@ -80,6 +80,36 @@ TEST_CASE("logical image resources validate and retain RGBA pixels") {
   REQUIRE(pixels.Value().rgba.size() == 24);
 }
 
+TEST_CASE("dynamic image revisions update a stable nearest-filter texture") {
+  using namespace NGIN::UI;
+
+  Testing::RecordingRenderBackend renderer;
+  REQUIRE(renderer.Initialize({}).HasValue());
+  auto resource = ImageResource::FromPixels(SolidPixels(PixelSize{4, 3}),
+                                            TextureFilter::Nearest)
+                      .Value();
+  ImageTextureCache cache{renderer};
+
+  const auto first = cache.Resolve(resource);
+  REQUIRE(first.HasValue());
+  REQUIRE(renderer.Textures().size() == 1);
+  CHECK(renderer.Textures().front().info.filter == TextureFilter::Nearest);
+  const auto revision = resource->Revision();
+
+  auto next = SolidPixels(PixelSize{4, 3});
+  next.rgba[0] = NGIN::Byte{17};
+  REQUIRE(resource->UpdatePixels(std::move(next)).HasValue());
+  CHECK(resource->Revision() == revision + 1);
+  const auto updated = cache.Resolve(resource);
+  REQUIRE(updated.HasValue());
+  CHECK(updated.Value().texture == first.Value().texture);
+  CHECK(renderer.Textures().size() == 1);
+  CHECK(renderer.TextureUpdates().size() == 2);
+  CHECK(std::to_integer<NGIN::UInt8>(
+            renderer.TextureUpdates().back().bytes.front()) == 17U);
+  CHECK(cache.Diagnostics().uploadCount == 2);
+}
+
 TEST_CASE("memory and file image sources decode asynchronously") {
   using namespace NGIN::UI;
 

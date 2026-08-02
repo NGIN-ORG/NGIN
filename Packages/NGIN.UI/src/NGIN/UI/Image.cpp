@@ -311,6 +311,7 @@ struct ImageResource::Impl final {
   std::atomic_bool cancellationRequested{false};
   ImageLoadState state{ImageLoadState::Loading};
   ImagePixels pixels{};
+  TextureFilter filter{TextureFilter::Linear};
   UIError error{};
   UInt64 revision{1};
   std::jthread worker{};
@@ -333,7 +334,8 @@ ImageResource::~ImageResource() {
   Wait();
 }
 
-auto ImageResource::FromPixels(ImagePixels pixels) noexcept
+auto ImageResource::FromPixels(ImagePixels pixels,
+                               const TextureFilter filter) noexcept
     -> UIResult<std::shared_ptr<ImageResource>> {
   try {
     if (!pixels.IsValid()) {
@@ -344,6 +346,7 @@ auto ImageResource::FromPixels(ImagePixels pixels) noexcept
     auto implementation = std::make_shared<Impl>();
     implementation->state = ImageLoadState::Ready;
     implementation->pixels = std::move(pixels);
+    implementation->filter = filter;
     return std::shared_ptr<ImageResource>{
         new ImageResource{std::move(implementation)}};
   } catch (...) {
@@ -515,6 +518,11 @@ auto ImageResource::Revision() const noexcept -> UInt64 {
   return m_impl->revision;
 }
 
+auto ImageResource::Filter() const noexcept -> TextureFilter {
+  std::scoped_lock lock{m_impl->mutex};
+  return m_impl->filter;
+}
+
 auto ImageResource::Error() const noexcept -> UIError {
   std::scoped_lock lock{m_impl->mutex};
   return m_impl->error;
@@ -529,6 +537,35 @@ auto ImageResource::CopyPixels() const -> UIResult<ImagePixels> {
                             "Image pixels are not ready", "ReadImagePixels");
   }
   return m_impl->pixels;
+}
+
+auto ImageResource::UpdatePixels(ImagePixels pixels) noexcept
+    -> UIResult<void> {
+  try {
+    if (!pixels.IsValid()) {
+      return ImageError(UIErrorCode::InvalidArgument,
+                        "RGBA image pixels do not match their dimensions",
+                        "UpdateImage");
+    }
+    std::scoped_lock lock{m_impl->mutex};
+    if (m_impl->worker.joinable()) {
+      return ImageError(
+          UIErrorCode::InvalidState,
+          "Asynchronous image work must finish before updating pixels",
+          "UpdateImage");
+    }
+    m_impl->pixels = std::move(pixels);
+    m_impl->error = {};
+    m_impl->state = ImageLoadState::Ready;
+    ++m_impl->revision;
+    return {};
+  } catch (const std::bad_alloc &) {
+    return ImageError(UIErrorCode::OutOfMemory,
+                      "Unable to replace image pixels", "UpdateImage");
+  } catch (...) {
+    return ImageError(UIErrorCode::ResourceFailed,
+                      "Unable to replace image pixels", "UpdateImage");
+  }
 }
 
 void ImageResource::Cancel() noexcept {
@@ -657,10 +694,6 @@ auto ImageTextureCache::Resolve(
         .state = ImageLoadState::Ready,
     };
   }
-  if (found != m_impl->entries.end() && found->second.texture) {
-    m_impl->DestroyEntry(found);
-  }
-
   ++m_impl->diagnostics.missCount;
   auto pixels = resource->CopyPixels();
   if (!pixels) {
@@ -675,11 +708,37 @@ auto ImageTextureCache::Resolve(
                       "The decoded image exceeds the texture-cache budget",
                       "ResolveImage");
   }
+  if (found != m_impl->entries.end() && found->second.texture &&
+      found->second.size == pixels.Value().size) {
+    auto updated = m_impl->renderer->UpdateTexture(
+        found->second.texture,
+        TextureUpdateInfo{
+            .region = PixelRect{0, 0, pixels.Value().size.width,
+                                pixels.Value().size.height},
+            .bytesPerRow =
+                static_cast<UIntSize>(pixels.Value().size.width) * 4U,
+            .bytes = pixels.Value().rgba,
+        });
+    if (!updated) {
+      return std::move(updated).Error();
+    }
+    found->second.revision = revision;
+    found->second.lastUse = ++m_impl->useCounter;
+    ++m_impl->diagnostics.uploadCount;
+    return ResolvedImage{
+        .texture = found->second.texture,
+        .size = found->second.size,
+        .state = ImageLoadState::Ready,
+    };
+  }
+  if (found != m_impl->entries.end() && found->second.texture) {
+    m_impl->DestroyEntry(found);
+  }
   m_impl->MakeRoom(residentBytes);
   auto texture = m_impl->renderer->CreateTexture(TextureCreateInfo{
       .size = pixels.Value().size,
       .format = TextureFormat::RGBA8,
-      .filter = TextureFilter::Linear,
+      .filter = resource->Filter(),
   });
   if (!texture) {
     return std::move(texture).Error();

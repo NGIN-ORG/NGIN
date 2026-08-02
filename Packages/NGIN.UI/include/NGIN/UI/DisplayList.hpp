@@ -63,6 +63,7 @@ struct DrawImage final {
   TextureHandle texture{};
   Rect destination{};
   Color tint{1.0F, 1.0F, 1.0F, 1.0F};
+  Rect textureCoordinates{0.0F, 0.0F, 1.0F, 1.0F};
 };
 
 /// @brief Display command that draws indexed glyph geometry.
@@ -105,6 +106,9 @@ public:
                      Color color);
   void Image(TextureHandle texture, Rect destination,
              Color tint = Color{1.0F, 1.0F, 1.0F, 1.0F});
+  void ImageRegion(TextureHandle texture, Rect destination,
+                   Rect textureCoordinates,
+                   Color tint = Color{1.0F, 1.0F, 1.0F, 1.0F});
   void Glyphs(TextureHandle atlas, std::vector<GlyphQuad> glyphs, Color color);
   void BeginOpacity(F32 opacity);
   auto EndOpacity() noexcept -> UIResult<void>;

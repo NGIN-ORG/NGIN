@@ -253,6 +253,7 @@ Start with the smallest example and add features as needed:
 * [`Hello.Reflection`](Examples/Hello.Reflection) — Clang-based reflection generation
 * [`Hello.Analyzer`](Examples/Hello.Analyzer) — Clang-Tidy integration
 * [`Hello.Formatter`](Examples/Hello.Formatter) — Clang-Format integration
+* [`Hello.GameOfLife`](Examples/Hello.GameOfLife) — interactive NGIN.UI and NGIN.ECS application
 
 See [`Examples/README.md`](Examples/README.md) for the complete learning path.
 

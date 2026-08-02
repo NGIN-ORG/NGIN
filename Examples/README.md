@@ -23,6 +23,10 @@ end-to-end behavior that can be validated, built, run, and inspected.
    Check, preview, apply, and editor document formatting through the
    `NGIN.Tooling.ClangFormat` package.
 
+6. [`Hello.GameOfLife`](Hello.GameOfLife/README.md)
+   Interactive Conway simulation combining NGIN.ECS scheduling, parallel
+   systems, and profiling with NGIN.UI composition, controls, and custom paint.
+
 ## Naming
 
 Examples use CMake-like profiles:
@@ -39,7 +43,9 @@ has a separate meaning in `NGIN.Core`.
 
 ## What Moved Out
 
-Older showcase, game, and basic examples were removed from the public learning
-path because they modeled too many future or overlapping ideas at once.
+Older broad showcase, game, and basic examples were removed from the public
+learning path because they modeled too many future or overlapping ideas at
+once. `Hello.GameOfLife` remains deliberately focused on one UI/ECS integration
+boundary.
 Project-reference collision manifests now live under CLI test fixtures instead
 of `Examples/`.

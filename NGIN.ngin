@@ -9,6 +9,7 @@
     <Project Path="Examples/Hello.Hosted/Hello.Hosted.nginproj" />
     <Project Path="Examples/Hello.Reflection/Hello.Reflection.nginproj" />
     <Project Path="Examples/Hello.ECS/Hello.ECS.nginproj" />
+    <Project Path="Examples/Hello.GameOfLife/Hello.GameOfLife.nginproj" />
     <Project Path="Examples/Hello.Analyzer/Hello.Analyzer.nginproj" />
     <Project Path="Examples/Hello.Formatter/Hello.Formatter.nginproj" />
     <Project Path="Examples/NGIN.UI.Gallery/NGIN.UI.Gallery.nginproj" />
@@ -50,7 +51,7 @@
     <Version Name="NGIN.Reflection.MetaGen"
              Range="[0.1.0,0.2.0)" />
     <Version Name="NGIN.ECS"
-             Range="[0.2.0,0.3.0)" />
+             Range="[0.4.0,0.5.0)" />
     <Version Name="NGIN.Tooling.ClangTidy"
              Range="[0.1.0,0.2.0)" />
     <Version Name="NGIN.Tooling.ClangFormat"
