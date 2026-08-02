@@ -1,5 +1,8 @@
 # NGIN.Core DI Implementation Plan
 
+Status: Background baseline. Active execution is planned by
+[`NGIN.UI-V0.4-Roadmap.md`](NGIN.UI-V0.4-Roadmap.md), Milestones 30–31.
+
 ## Summary
 
 NGIN.Core service registration should move in phases from explicit typed factories to service-owned dependency declarations and optional reflection-backed constructor injection. The base runtime must remain usable without `NGIN.Reflection`; reflection should improve authoring ergonomics, not become required for normal hosted applications.

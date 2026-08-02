@@ -171,6 +171,8 @@ Make asynchronous screen states clear without allowing composition to suspend.
 
 ## Workstream G — Gallery, Documentation, And Packaging
 
+Status: Completed in Milestone 29 on 2026-08-02.
+
 ### Goal
 
 Make the complete MVVM path discoverable, copyable, and consumable.

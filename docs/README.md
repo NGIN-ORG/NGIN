@@ -14,6 +14,12 @@ For the shortest path into the repo, start outside this directory:
 Application UI developers should start with the
 [NGIN.UI developer documentation](guides/ngin-ui.md).
 
+Active UI application-composition planning:
+
+- [`plans/NGIN.UI-V0.4-Roadmap.md`](plans/NGIN.UI-V0.4-Roadmap.md)
+- [`plans/NGIN.UI-V0.4-Implementation-Workstreams.md`](plans/NGIN.UI-V0.4-Implementation-Workstreams.md)
+- [`plans/NGIN.UI-V0.4-Progress.md`](plans/NGIN.UI-V0.4-Progress.md)
+
 ## Learning Path
 
 If you are trying to understand NGIN as a user:
