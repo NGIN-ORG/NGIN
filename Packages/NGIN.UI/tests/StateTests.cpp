@@ -5,6 +5,11 @@
 #include <utility>
 #include <vector>
 
+namespace {
+template <typename T>
+concept HasIntegerSetter = requires(T value) { value.Set(1); };
+} // namespace
+
 TEST_CASE("state notifies subscribers and schedules scoped invalidation") {
   using namespace NGIN::UI;
 
@@ -116,4 +121,111 @@ TEST_CASE("custom bindings can wrap model properties") {
   REQUIRE(binding.Set(7).HasValue());
   REQUIRE(model.value == 7);
   REQUIRE_FALSE(binding.Subscribe([](const int &) {}));
+}
+
+TEST_CASE("read only bindings observe state without exposing a setter") {
+  using namespace NGIN::UI;
+
+  State<int> state{7};
+  auto readOnly = Observe(state);
+  static_assert(!HasIntegerSetter<ReadOnlyBinding<int>>);
+  REQUIRE(readOnly.Get() == 7);
+
+  int observed = 0;
+  auto subscription =
+      readOnly.Subscribe([&](const int &value) { observed = value; });
+  REQUIRE(state.Set(9));
+  REQUIRE(readOnly.Get() == 9);
+  REQUIRE(observed == 9);
+
+  auto fromBinding = Bind(state).AsReadOnly();
+  REQUIRE(fromBinding.Get() == 9);
+}
+
+TEST_CASE("computed state follows explicit typed dependencies") {
+  using namespace NGIN::UI;
+
+  State<int> left{2};
+  State<int> right{3};
+  int computations = 0;
+  ComputedState<int> sum{
+      [&] {
+        ++computations;
+        return left.Get() + right.Get();
+      },
+      {DependOn(left), DependOn(right)},
+  };
+  REQUIRE(sum.Get() == 5);
+
+  std::vector<int> observed;
+  auto subscription =
+      sum.Subscribe([&](const int &value) { observed.push_back(value); });
+  REQUIRE(left.Set(4));
+  REQUIRE(sum.Get() == 7);
+  REQUIRE(observed == std::vector<int>{7});
+
+  const auto beforeBatch = computations;
+  {
+    StateBatch batch;
+    REQUIRE(left.Set(10));
+    REQUIRE(right.Set(20));
+    REQUIRE(sum.Get() == 7);
+  }
+  REQUIRE(sum.Get() == 30);
+  REQUIRE(computations == beforeBatch + 1);
+  REQUIRE(observed == std::vector<int>{7, 30});
+}
+
+TEST_CASE("nested state batches publish final values once") {
+  using namespace NGIN::UI;
+
+  State<int> value{0};
+  std::vector<int> observed;
+  auto subscription =
+      value.Subscribe([&](const int &next) { observed.push_back(next); });
+  {
+    StateBatch outer;
+    REQUIRE(value.Set(1));
+    {
+      StateBatch inner;
+      REQUIRE(value.Set(2));
+    }
+    REQUIRE(value.Set(3));
+    REQUIRE(observed.empty());
+  }
+  REQUIRE(observed == std::vector<int>{3});
+}
+
+TEST_CASE("computed dependency graphs reject cycles and retain old wiring") {
+  using namespace NGIN::UI;
+
+  State<int> source{1};
+  ComputedState<int> first{[&] { return source.Get() + 1; },
+                           {DependOn(source)}};
+  ComputedState<int> second{[&] { return first.Get() + 1; },
+                            {DependOn(first.AsReadOnly())}};
+  REQUIRE(first.Get() == 2);
+  REQUIRE(second.Get() == 3);
+
+  auto cycle = first.SetDependencies({DependOn(second.AsReadOnly())});
+  REQUIRE_FALSE(cycle.HasValue());
+  REQUIRE(cycle.Error().code == UIErrorCode::InvalidArgument);
+
+  REQUIRE(source.Set(4));
+  REQUIRE(first.Get() == 5);
+  REQUIRE(second.Get() == 6);
+}
+
+TEST_CASE("computed bindings safely retain their observable storage") {
+  using namespace NGIN::UI;
+
+  ReadOnlyBinding<int> retained;
+  {
+    State<int> source{4};
+    ComputedState<int> doubled{[&] { return source.Get() * 2; },
+                               {DependOn(source)}};
+    retained = doubled.AsReadOnly();
+    REQUIRE(retained.Get() == 8);
+  }
+  REQUIRE(retained.Get() == 8);
 }

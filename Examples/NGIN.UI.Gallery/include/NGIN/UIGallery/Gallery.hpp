@@ -68,6 +68,13 @@ public:
   [[nodiscard]] auto NameBinding() -> UI::Binding<Text::String>;
   [[nodiscard]] auto PasswordBinding() -> UI::Binding<Text::String>;
   [[nodiscard]] auto NotesBinding() -> UI::Binding<Text::String>;
+  [[nodiscard]] auto NameValidationMessage() const -> Text::String;
+  [[nodiscard]] auto PasswordValidationMessage() const -> Text::String;
+  [[nodiscard]] auto NotesValidationMessage() const -> Text::String;
+  [[nodiscard]] auto ValidationSummary() const -> Text::String;
+  [[nodiscard]] auto IsFormValidating() const noexcept -> bool;
+  [[nodiscard]] auto FormSaveBinding() const -> UI::CommandBinding;
+  void ValidateForm();
   [[nodiscard]] auto GalleryImage() const noexcept
       -> const std::shared_ptr<UI::ImageResource> &;
   [[nodiscard]] auto ImageCache() noexcept -> UI::ImageTextureCache *;
@@ -203,6 +210,11 @@ private:
   std::unique_ptr<UI::AnimationHandle> m_motionRepeatHandle;
   std::shared_ptr<GalleryMotionDemo> m_asyncMotion;
   std::unique_ptr<UI::AsyncCommand> m_commandDemo;
+  std::unique_ptr<UI::ValidationField<Text::String>> m_nameValidation;
+  std::unique_ptr<UI::ValidationField<Text::String>> m_passwordValidation;
+  std::unique_ptr<UI::ValidationField<Text::String>> m_notesValidation;
+  std::unique_ptr<UI::ValidationForm> m_validationForm;
+  std::unique_ptr<UI::Command> m_formSave;
   UI::PopupController m_motionPopup;
   UI::PopupController m_comboPopup;
   UI::PopupController m_menuPopup;

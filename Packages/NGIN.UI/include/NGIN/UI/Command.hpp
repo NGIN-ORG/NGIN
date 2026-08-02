@@ -128,6 +128,8 @@ public:
 
   [[nodiscard]] auto Execute() -> CommandInvocation;
   void SetEnabled(bool enabled);
+  /// @brief Keeps availability synchronized with read-only derived state.
+  void BindEnabled(ReadOnlyBinding<bool> enabled);
   [[nodiscard]] auto Status() const -> const CommandStatus &;
   [[nodiscard]] auto Subscribe(StateObserver<CommandStatus> observer)
       -> Subscription;
@@ -137,6 +139,8 @@ private:
   struct Storage;
   [[nodiscard]] static auto
   ExecuteStorage(const std::shared_ptr<Storage> &storage) -> CommandInvocation;
+  static void SetEnabledStorage(const std::shared_ptr<Storage> &storage,
+                                bool enabled);
   std::shared_ptr<Storage> m_storage{};
 };
 
@@ -160,6 +164,8 @@ public:
   [[nodiscard]] auto Execute() -> CommandInvocation;
   void Cancel() noexcept;
   void SetEnabled(bool enabled);
+  /// @brief Keeps availability synchronized with read-only derived state.
+  void BindEnabled(ReadOnlyBinding<bool> enabled);
   [[nodiscard]] auto Status() const -> const CommandStatus &;
   [[nodiscard]] auto Subscribe(StateObserver<CommandStatus> observer)
       -> Subscription;
@@ -171,6 +177,8 @@ private:
   [[nodiscard]] static auto
   ExecuteStorage(const std::shared_ptr<Storage> &storage) -> CommandInvocation;
   static void CancelStorage(const std::shared_ptr<Storage> &storage) noexcept;
+  static void SetEnabledStorage(const std::shared_ptr<Storage> &storage,
+                                bool enabled);
   static void StartRun(const std::shared_ptr<Storage> &storage);
   static void FinishRun(const std::shared_ptr<Storage> &storage,
                         const std::shared_ptr<Run> &run,

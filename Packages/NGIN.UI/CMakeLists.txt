@@ -66,6 +66,7 @@ set(NGIN_UI_SOURCES
     src/NGIN/UI/NativeText.cpp
     src/NGIN/UI/RuntimeTree.cpp
     src/NGIN/UI/Semantics.cpp
+    src/NGIN/UI/State.cpp
     src/NGIN/UI/TextEditing.cpp
     src/NGIN/UI/UIRenderer.cpp
     src/NGIN/UI/Virtualization.cpp

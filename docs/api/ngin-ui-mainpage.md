@@ -24,9 +24,11 @@ and use this reference for exact signatures, ownership, and result types.
 - `NGIN::UI::NodeProperties`
 - `NGIN::UI::Animate()`, `NGIN::UI::MotionController`, and
   `NGIN::UI::Application::CreateTaskContext()`
-- `NGIN::UI::State<T>` and `NGIN::UI::Binding<T>`
+- `NGIN::UI::State<T>`, `NGIN::UI::ReadOnlyBinding<T>`, and
+  `NGIN::UI::ComputedState<T>`
 - `NGIN::UI::Command`, `NGIN::UI::AsyncCommand`, and
   `NGIN::UI::CommandBinding`
+- `NGIN::UI::ValidationField<T>` and `NGIN::UI::ValidationForm`
 - `NGIN::UI::NativeTextSystem`
 - `NGIN::UI::ImageResource`, `NGIN::UI::StandardImageDecoder`, and
   `NGIN::UI::ImageTextureCache`

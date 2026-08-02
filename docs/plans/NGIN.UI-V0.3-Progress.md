@@ -34,3 +34,38 @@ Verification:
 - focused `*command*` tests passed with 77 assertions in 9 test cases;
 - the authored `NGIN.UI.Gallery.nginproj` Debug build passed through `ngin`;
 - the staged native Gallery `--smoke` run passed across every page.
+
+## Milestone 27 — Derived State And Validation
+
+Status: Complete
+Completed: 2026-08-02
+
+Delivered:
+
+- added lifetime-safe `ReadOnlyBinding<T>` views and conversion from ordinary
+  state and writable bindings;
+- added explicitly dependent `ComputedState<T>` with equality suppression,
+  deterministic propagation, retained binding lifetime, and cycle rejection;
+- added nested `StateBatch` updates that coalesce state notification,
+  recomputation, and invalidation by observable identity;
+- added stable validation issues with field, message, and severity plus
+  immediate, deferred, and submit-time field policies;
+- added cancellation-safe asynchronous validation with per-value revisions so
+  stale or late results cannot replace newer input;
+- added ordered `ValidationForm` summaries, aggregate validity and pending
+  state, and read-only validity binding for commands without ownership cycles;
+- added focused tests for dependencies, batching, cycles, retained teardown,
+  policy behavior, async races, destruction, summary ordering, and command
+  gating;
+- added an Inputs Gallery form showing live, requested, submit-time, async,
+  summary, and disabled-until-valid Save behavior;
+- published the derived-state and validation guide and API entry points.
+
+Verification:
+
+- `cmake --build build/ngin-ui --config Debug --target NGINUITests` passed,
+  and the full suite passed with 5,033 assertions in 169 test cases;
+- focused state and validation tests passed with 240 assertions in 26 test
+  cases;
+- the authored `NGIN.UI.Gallery.nginproj` Debug build passed through `ngin`;
+- the staged native Gallery `--smoke` run passed across every page.

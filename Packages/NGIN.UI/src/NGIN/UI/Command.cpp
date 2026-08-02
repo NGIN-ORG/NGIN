@@ -83,6 +83,7 @@ struct Command::Storage final {
   Action action{};
   State<CommandStatus> status;
   bool alive{true};
+  Subscription enabledSubscription{};
 };
 
 Command::Command(Action action, const bool enabled,
@@ -153,13 +154,31 @@ auto Command::Execute() -> CommandInvocation {
 }
 
 void Command::SetEnabled(const bool enabled) {
+  SetEnabledStorage(m_storage, enabled);
+}
+
+void Command::SetEnabledStorage(const std::shared_ptr<Storage> &storage,
+                                const bool enabled) {
+  if (!storage || !storage->alive) {
+    return;
+  }
+  auto status = storage->status.Get();
+  status.enabled = enabled;
+  status.canExecute = enabled && !status.isRunning;
+  static_cast<void>(storage->status.Set(std::move(status)));
+}
+
+void Command::BindEnabled(ReadOnlyBinding<bool> enabled) {
   if (!m_storage || !m_storage->alive) {
     return;
   }
-  auto status = m_storage->status.Get();
-  status.enabled = enabled;
-  status.canExecute = enabled && !status.isRunning;
-  static_cast<void>(m_storage->status.Set(std::move(status)));
+  SetEnabledStorage(m_storage, enabled.Get());
+  const auto weak = std::weak_ptr<Storage>{m_storage};
+  m_storage->enabledSubscription = enabled.Subscribe([weak](const bool value) {
+    if (const auto storage = weak.lock()) {
+      SetEnabledStorage(storage, value);
+    }
+  });
 }
 
 auto Command::Status() const -> const CommandStatus & {
@@ -256,6 +275,7 @@ struct AsyncCommand::Storage final {
   UIntSize pendingCount{0};
   UInt64 nextExecutionId{1};
   bool alive{true};
+  Subscription enabledSubscription{};
 };
 
 void AsyncCommand::FinishRun(const std::shared_ptr<Storage> &storage,
@@ -397,16 +417,34 @@ void AsyncCommand::CancelStorage(
 }
 
 void AsyncCommand::SetEnabled(const bool enabled) {
+  SetEnabledStorage(m_storage, enabled);
+}
+
+void AsyncCommand::SetEnabledStorage(const std::shared_ptr<Storage> &storage,
+                                     const bool enabled) {
+  if (!storage || !storage->alive) {
+    return;
+  }
+  auto status = storage->status.Get();
+  status.enabled = enabled;
+  static_cast<void>(storage->status.Set(std::move(status)));
+  if (!enabled) {
+    storage->pendingCount = 0;
+  }
+  storage->Publish();
+}
+
+void AsyncCommand::BindEnabled(ReadOnlyBinding<bool> enabled) {
   if (!m_storage || !m_storage->alive) {
     return;
   }
-  auto status = m_storage->status.Get();
-  status.enabled = enabled;
-  static_cast<void>(m_storage->status.Set(std::move(status)));
-  if (!enabled) {
-    m_storage->pendingCount = 0;
-  }
-  m_storage->Publish();
+  SetEnabledStorage(m_storage, enabled.Get());
+  const auto weak = std::weak_ptr<Storage>{m_storage};
+  m_storage->enabledSubscription = enabled.Subscribe([weak](const bool value) {
+    if (const auto storage = weak.lock()) {
+      SetEnabledStorage(storage, value);
+    }
+  });
 }
 
 auto AsyncCommand::Status() const -> const CommandStatus & {

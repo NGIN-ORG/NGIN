@@ -77,6 +77,8 @@ error observation.
 
 ## Workstream C — Derived State And Batching
 
+Status: Completed in Milestone 27 on 2026-08-02.
+
 ### Goal
 
 Represent read-only and computed ViewModel values without mirrored writable
@@ -98,6 +100,8 @@ state.
 - deterministic notification and composition counts.
 
 ## Workstream D — Validation
+
+Status: Completed in Milestone 27 on 2026-08-02.
 
 ### Goal
 

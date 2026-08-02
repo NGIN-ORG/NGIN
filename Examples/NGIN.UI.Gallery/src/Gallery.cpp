@@ -177,6 +177,35 @@ using namespace NGIN::UI;
   return "Stopped";
 }
 
+[[nodiscard]] auto ValidateDisplayName(NGIN::Async::TaskContext &context,
+                                       String value)
+    -> NGIN::Async::Task<std::vector<ValidationIssue>, ValidationIssue> {
+  co_await context.YieldNow();
+  co_await context.YieldNow();
+  if (value.View() == "admin" || value.View() == "root") {
+    co_return std::vector{ValidationIssue{
+        .id = String{"display-name-reserved"},
+        .field = String{"Display name"},
+        .message = String{"That name is reserved"},
+        .severity = ValidationSeverity::Error,
+    }};
+  }
+  co_return std::vector<ValidationIssue>{};
+}
+
+[[nodiscard]] auto
+FirstValidationMessage(const std::unique_ptr<ValidationField<String>> &field,
+                       const char *emptyMessage) -> String {
+  if (!field) {
+    return String{emptyMessage};
+  }
+  if (field->IsValidating().Get()) {
+    return String{"Checking..."};
+  }
+  const auto &issues = field->Issues().Get();
+  return issues.empty() ? String{emptyMessage} : issues.front().message;
+}
+
 [[nodiscard]] auto SequenceMotion(NGIN::Async::TaskContext &context,
                                   std::shared_ptr<GalleryMotionDemo> demo)
     -> NGIN::Async::Task<void> {
@@ -1467,6 +1496,80 @@ void ComposeInputsPage(Composer &composer, NativeTextSystem &text, Model &model,
             "fields-column");
       },
       "fields-card");
+
+  ComposeCard(
+      composer, theme,
+      [&] {
+        NodeProperties column{};
+        column.layout.gap = theme.spacing.regular;
+        composer.Column(
+            [&] {
+              ComposeText(composer, text, String{"Form validation"}, 20.0F,
+                          theme.colors.foreground, "validation-title",
+                          SemanticRole::Heading);
+              ComposeText(
+                  composer, text,
+                  String{"Each field shows when it is checked. Try admin as "
+                         "the display name."},
+                  theme.typography.body, theme.colors.mutedForeground,
+                  "validation-help");
+
+              ComposeText(
+                  composer, text, String{"Display name — checked as you type"},
+                  14.0F, theme.colors.mutedForeground, "validation-name-label");
+              ComposeTextField(composer, text, model, theme,
+                               model.NameBinding(), "Display name",
+                               "validation-name");
+              ComposeText(composer, text, model.NameValidationMessage(),
+                          theme.typography.caption,
+                          theme.colors.mutedForeground,
+                          "validation-name-message");
+
+              ComposeText(composer, text,
+                          String{"Password — checked when requested"}, 14.0F,
+                          theme.colors.mutedForeground,
+                          "validation-password-label");
+              ComposeTextField(composer, text, model, theme,
+                               model.PasswordBinding(), "Password",
+                               "validation-password", false, true, false, true);
+              ComposeText(composer, text, model.PasswordValidationMessage(),
+                          theme.typography.caption,
+                          theme.colors.mutedForeground,
+                          "validation-password-message");
+
+              ComposeText(composer, text,
+                          String{"Notes — checked on first form check"}, 14.0F,
+                          theme.colors.mutedForeground,
+                          "validation-notes-label");
+              ComposeTextField(composer, text, model, theme,
+                               model.NotesBinding(), "Notes",
+                               "validation-notes");
+              ComposeText(composer, text, model.NotesValidationMessage(),
+                          theme.typography.caption,
+                          theme.colors.mutedForeground,
+                          "validation-notes-message");
+
+              NodeProperties actions{};
+              actions.layout.gap = theme.spacing.regular;
+              actions.layout.horizontalAlignment = HorizontalAlignment::Start;
+              composer.Row(
+                  [&] {
+                    ComposeButton(
+                        composer, text, theme, "Check form",
+                        [&model] { model.ValidateForm(); }, "validation-check",
+                        180.0F, !model.IsFormValidating());
+                    ComposeCommandButton(composer, text, theme, "Save",
+                                         model.FormSaveBinding(),
+                                         "validation-save", 180.0F);
+                  },
+                  "validation-actions");
+              ComposeText(composer, text, model.ValidationSummary(),
+                          theme.typography.body, theme.colors.foreground,
+                          "validation-summary");
+            },
+            "validation-column");
+      },
+      "validation-card");
 }
 
 void ComposeCollectionsPage(Composer &composer, NativeTextSystem &text,
@@ -3283,7 +3386,56 @@ Model::Model()
                [this](const InvalidationKind kind) { Invalidate(kind); }),
       m_accessibilityAnnouncement(
           String{"No announcement yet."},
-          [this](const InvalidationKind kind) { Invalidate(kind); }) {}
+          [this](const InvalidationKind kind) { Invalidate(kind); }) {
+  const auto scheduler = [this](const InvalidationKind kind) {
+    Invalidate(kind);
+  };
+  m_nameValidation = std::make_unique<ValidationField<String>>(
+      m_name.AsReadOnly(), ValidationTrigger::Immediate, scheduler);
+  m_nameValidation->AddSyncValidator([](const String &value) {
+    if (value.Empty()) {
+      return std::vector{ValidationIssue{
+          .id = String{"display-name-required"},
+          .field = String{"Display name"},
+          .message = String{"Enter a display name"},
+      }};
+    }
+    return std::vector<ValidationIssue>{};
+  });
+
+  m_passwordValidation = std::make_unique<ValidationField<String>>(
+      m_password.AsReadOnly(), ValidationTrigger::Deferred, scheduler);
+  m_passwordValidation->AddSyncValidator([](const String &value) {
+    if (value.Size() < 8) {
+      return std::vector{ValidationIssue{
+          .id = String{"password-length"},
+          .field = String{"Password"},
+          .message = String{"Use at least 8 characters"},
+      }};
+    }
+    return std::vector<ValidationIssue>{};
+  });
+
+  m_notesValidation = std::make_unique<ValidationField<String>>(
+      m_notes.AsReadOnly(), ValidationTrigger::Submit, scheduler);
+  m_notesValidation->AddSyncValidator([](const String &value) {
+    if (value.Empty()) {
+      return std::vector{ValidationIssue{
+          .id = String{"notes-required"},
+          .field = String{"Notes"},
+          .message = String{"Add a short note"},
+      }};
+    }
+    return std::vector<ValidationIssue>{};
+  });
+
+  m_validationForm = std::make_unique<ValidationForm>(std::vector{
+      m_nameValidation->AsBinding(), m_passwordValidation->AsBinding(),
+      m_notesValidation->AsBinding()});
+  m_formSave = std::make_unique<Command>(
+      [this] { static_cast<void>(m_status.Set(String{"Form saved."})); });
+  m_formSave->BindEnabled(m_validationForm->IsValid());
+}
 
 Model::~Model() {
   if (m_asyncMotion) {
@@ -3308,6 +3460,8 @@ void Model::AttachRuntime(Application &application, NativeTextSystem &text,
       },
       true, CommandConcurrencyPolicy::Reject, 1,
       [this](const InvalidationKind kind) { Invalidate(kind); });
+  m_nameValidation->SetAsyncValidator(application.CreateTaskContext(window),
+                                      ValidateDisplayName);
   m_imageCache = std::make_unique<ImageTextureCache>(application.Renderer());
   std::error_code pathError;
   auto imagePath = std::filesystem::path{"images"} / "gallery-sample.png";
@@ -3385,6 +3539,59 @@ auto Model::NameBinding() -> Binding<String> { return Bind(m_name); }
 auto Model::PasswordBinding() -> Binding<String> { return Bind(m_password); }
 
 auto Model::NotesBinding() -> Binding<String> { return Bind(m_notes); }
+
+auto Model::NameValidationMessage() const -> String {
+  return FirstValidationMessage(m_nameValidation, "Looks good");
+}
+
+auto Model::PasswordValidationMessage() const -> String {
+  return FirstValidationMessage(m_passwordValidation,
+                                "Checked when you choose Check form");
+}
+
+auto Model::NotesValidationMessage() const -> String {
+  return FirstValidationMessage(m_notesValidation,
+                                "Checked on the first form check");
+}
+
+auto Model::ValidationSummary() const -> String {
+  if (!m_validationForm) {
+    return String{"Validation is not ready"};
+  }
+  if (m_validationForm->IsValidating().Get()) {
+    return String{"Checking name availability..."};
+  }
+  const auto &issues = m_validationForm->Summary().Get();
+  if (issues.empty()) {
+    return m_validationForm->IsValid().Get()
+               ? String{"No problems found. Save is ready."}
+               : String{"Choose Check form to validate every field."};
+  }
+  const auto count = std::to_string(issues.size());
+  String result{count.c_str()};
+  result.Append(String{issues.size() == 1 ? " problem: " : " problems: "});
+  for (NGIN::UIntSize index = 0; index < issues.size(); ++index) {
+    if (index != 0) {
+      result.Append(String{"; "});
+    }
+    result.Append(issues[index].field);
+  }
+  return result;
+}
+
+auto Model::IsFormValidating() const noexcept -> bool {
+  return m_validationForm && m_validationForm->IsValidating().Get();
+}
+
+auto Model::FormSaveBinding() const -> CommandBinding {
+  return m_formSave ? m_formSave->AsBinding() : CommandBinding{};
+}
+
+void Model::ValidateForm() {
+  if (m_validationForm) {
+    m_validationForm->ValidateAll();
+  }
+}
 
 auto Model::GalleryImage() const noexcept
     -> const std::shared_ptr<ImageResource> & {

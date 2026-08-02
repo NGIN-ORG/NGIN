@@ -91,6 +91,10 @@ Version 0.2 provides:
   modal focus scopes, and outside-pointer or Escape dismissal;
 - observable `State<T>` with scoped invalidation scheduling;
 - move-only RAII subscriptions and typed, validatable `Binding<T>` adapters;
+- lifetime-safe read-only bindings, explicitly dependent computed state, and
+  nested state batching with coalesced notification;
+- immediate, deferred, submit-time, and stale-safe asynchronous field
+  validation with ordered form summaries and command availability binding;
 - transactional UTF-8 editing with grapheme-indexed caret, selection,
   replacement, and deletion operations;
 - retained semantic `TextField` sessions with binding validation, routed
@@ -168,6 +172,10 @@ See the
 [custom-control guide](../../docs/guides/ngin-ui-custom-controls.md) for
 composite controls, custom measurement/painting, retained local state, input,
 semantics, lifecycle, and error rules.
+See the
+[derived-state and validation guide](../../docs/guides/ngin-ui-state-validation.md)
+for read-only bindings, computed values, batching, asynchronous validation,
+form summaries, and command availability.
 See the
 [foundational-controls guide](../../docs/guides/ngin-ui-foundational-controls.md)
 for bindings, typed radio groups, labels, tooltips, sliders, progress, and
