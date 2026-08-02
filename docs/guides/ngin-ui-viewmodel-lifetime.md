@@ -47,6 +47,11 @@ Canceling a `ViewModelTaskHandle` stops one operation. `CancelAll()` stops every
 operation and permanently closes the scope. Destroying the scope also cancels
 all work, clears completion observers, and never waits for cleanup.
 
+`Close(callback)` also stops new work and requests cancellation, but invokes
+the callback only after every retained task has completed or observed
+cancellation. Host integrations use this hook when a DI scope must outlive all
+work started by its ViewModel.
+
 The context passed to the scope should normally come from
 `Application::CreateTaskContext(window)`. Window closure and application
 shutdown then cancel the parent token even if application code forgets to
@@ -102,6 +107,13 @@ visible in application code instead of hiding them in the compositor.
 Factories receive the key and an optional `ViewModelServiceResolver`. The
 resolver is a non-owning function hook around `std::type_index`; it does not
 store services and does not require a dependency-injection container.
+
+That resolver remains the lightweight standalone factory path. Hosted Core
+applications use `NGIN.UI.Hosting::HostedViewModelHost<T>` instead. It resolves
+an owning `NGIN::Memory::Shared<T>` from the page scope and releases it only
+after activation work and optional async deactivation have been observed. See
+the [hosting package guide](../../Packages/NGIN.UI.Hosting/README.md) for the
+complete scoped example.
 
 ## Compose async states synchronously
 

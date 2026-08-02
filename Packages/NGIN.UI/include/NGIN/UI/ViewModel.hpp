@@ -85,6 +85,7 @@ public:
   using Work = NGIN::Utilities::Callable<Task(NGIN::Async::TaskContext &)>;
   using Observer =
       NGIN::Utilities::Callable<void(const ViewModelTaskOutcome &)>;
+  using DrainedObserver = NGIN::Utilities::Callable<void()>;
 
   explicit ViewModelTaskScope(NGIN::Async::TaskContext context,
                               InvalidationScheduler scheduler = {});
@@ -99,6 +100,10 @@ public:
       -> ViewModelTaskHandle;
   /// @brief Cancels all work and permanently closes this scope to new work.
   void CancelAll() noexcept;
+  /// @brief Closes the scope and invokes the observer after all work is
+  /// canceled and observed.
+  void Close(DrainedObserver observer = {}) noexcept;
+  [[nodiscard]] auto IsDrained() const noexcept -> bool;
   [[nodiscard]] auto Status() const -> const ViewModelTaskStatus &;
   [[nodiscard]] auto StatusBinding() const
       -> ReadOnlyBinding<ViewModelTaskStatus>;

@@ -7,7 +7,11 @@
 
 #include <chrono>
 #include <memory>
+#include <string>
+#include <string_view>
 #include <thread>
+#include <type_traits>
+#include <utility>
 
 namespace NGIN::UI::Hosting {
 inline constexpr auto UIApplicationServiceName = "NGIN.UI.IApplication";
@@ -15,7 +19,357 @@ inline constexpr auto UIWindowManagerServiceName = "NGIN.UI.IWindowManager";
 inline constexpr auto UIDispatcherServiceName = "NGIN.UI.IUIDispatcher";
 inline constexpr auto UIPlatformBackendServiceName = "NGIN.UI.IPlatformBackend";
 inline constexpr auto UIRenderBackendServiceName = "NGIN.UI.IRenderBackend";
+inline constexpr auto UIServiceProviderServiceName =
+    "NGIN.UI.Hosting.IServiceProvider";
 inline constexpr auto UIRuntimeModuleName = "NGIN.UI.Runtime";
+
+/// @brief Forward declaration for the hosted runtime owner.
+class HostedUIRuntime;
+/// @brief Forward declaration for the hosted Core service adapter.
+class HostedUIServiceProvider;
+/// @brief Forward declaration for the hosted ViewModel lifetime owner.
+template <typename T> class HostedViewModelHost;
+
+/// @brief Move-only Core service scope owned by one hosted UI lifetime.
+class HostedUIScope final {
+public:
+  HostedUIScope() noexcept = default;
+  HostedUIScope(const HostedUIScope &) = delete;
+  HostedUIScope(HostedUIScope &&other) noexcept;
+  auto operator=(const HostedUIScope &) -> HostedUIScope & = delete;
+  auto operator=(HostedUIScope &&other) noexcept -> HostedUIScope &;
+  ~HostedUIScope();
+
+  [[nodiscard]] auto Id() const noexcept -> Core::ServiceScopeId;
+  [[nodiscard]] auto Kind() const noexcept -> Core::ServiceScopeKind;
+  [[nodiscard]] auto IsActive() const noexcept -> bool;
+  auto End() noexcept -> Core::CoreResult<void>;
+
+  template <typename T>
+  [[nodiscard]] auto ResolveRequired(std::string_view name = {}) const noexcept
+      -> Core::CoreResult<NGIN::Memory::Shared<std::remove_cvref_t<T>>> {
+    auto *provider = Provider();
+    if (provider == nullptr || !IsActive()) {
+      return NGIN::Utilities::Unexpected<Core::KernelError>(
+          Core::MakeKernelError(Core::KernelErrorCode::InvalidState,
+                                "NGIN.UI.Hosting",
+                                "HostedUIScope::ResolveRequired",
+                                "hosted UI service scope is not active"));
+    }
+    return provider->ResolveRequired<T>(name, Id());
+  }
+
+private:
+  struct State;
+  HostedUIScope(std::shared_ptr<State> state, Core::ServiceScopeId id,
+                Core::ServiceScopeKind kind) noexcept;
+  [[nodiscard]] auto Provider() const noexcept -> Core::IServiceProvider *;
+  auto SetCloseHandler(NGIN::Utilities::Callable<void()> handler) noexcept
+      -> Core::CoreResult<void>;
+  void ClearCloseHandler() noexcept;
+
+  std::shared_ptr<State> m_state{};
+  Core::ServiceScopeId m_id{};
+  Core::ServiceScopeKind m_kind{Core::ServiceScopeKind::Activation};
+
+  friend class HostedUIServiceProvider;
+  friend class HostedWindow;
+  template <typename T> friend class HostedViewModelHost;
+};
+
+/// @brief Hosted window handle paired with its Core service scope.
+class HostedWindow final {
+public:
+  HostedWindow() noexcept = default;
+
+  [[nodiscard]] auto UI() const noexcept -> Window *;
+  [[nodiscard]] auto ScopeId() const noexcept -> Core::ServiceScopeId;
+  [[nodiscard]] auto IsOpen() const noexcept -> bool;
+  [[nodiscard]] auto CreatePageScope(std::string owner) const noexcept
+      -> Core::CoreResult<HostedUIScope>;
+  auto Close() noexcept -> Core::CoreResult<void>;
+
+  template <typename T>
+  [[nodiscard]] auto ResolveRequired(std::string_view name = {}) const noexcept
+      -> Core::CoreResult<NGIN::Memory::Shared<std::remove_cvref_t<T>>> {
+    auto *provider = Provider();
+    if (provider == nullptr || !IsOpen()) {
+      return NGIN::Utilities::Unexpected<Core::KernelError>(
+          Core::MakeKernelError(
+              Core::KernelErrorCode::InvalidState, "NGIN.UI.Hosting",
+              "HostedWindow::ResolveRequired", "hosted UI window is not open"));
+    }
+    return provider->ResolveRequired<T>(name, ScopeId());
+  }
+
+private:
+  HostedWindow(std::shared_ptr<HostedUIScope::State> state,
+               Window *window) noexcept;
+  [[nodiscard]] auto Provider() const noexcept -> Core::IServiceProvider *;
+
+  std::shared_ptr<HostedUIScope::State> m_state{};
+  Window *m_window{nullptr};
+
+  friend class HostedUIServiceProvider;
+};
+
+/// @brief Core provider adapter that owns application, window, page, and
+/// activation scopes for hosted UI work.
+class HostedUIServiceProvider final {
+public:
+  explicit HostedUIServiceProvider(
+      NGIN::Memory::Shared<HostedUIRuntime> runtime);
+  ~HostedUIServiceProvider();
+
+  [[nodiscard]] auto CreateWindow(const WindowCreateInfo &info) noexcept
+      -> Core::CoreResult<HostedWindow>;
+  [[nodiscard]] auto CreatePageScope(Window &window, std::string owner) noexcept
+      -> Core::CoreResult<HostedUIScope>;
+  [[nodiscard]] auto CreateActivationScope(const HostedUIScope &parent,
+                                           std::string owner) noexcept
+      -> Core::CoreResult<HostedUIScope>;
+  auto CloseWindow(Window &window) noexcept -> Core::CoreResult<void>;
+  auto ReconcileClosedWindows() noexcept -> Core::CoreResult<void>;
+  void BeginShutdown() noexcept;
+  auto DrainAndShutdown() noexcept -> Core::CoreResult<void>;
+
+  [[nodiscard]] auto ApplicationScopeId() const noexcept
+      -> Core::ServiceScopeId;
+  [[nodiscard]] auto ActiveScopeCount() const noexcept -> UIntSize;
+  [[nodiscard]] auto AcceptsWork() const noexcept -> bool;
+
+  template <typename T>
+  [[nodiscard]] auto ResolveRequired(std::string_view name = {}) const noexcept
+      -> Core::CoreResult<NGIN::Memory::Shared<std::remove_cvref_t<T>>> {
+    auto *provider = Provider();
+    const auto scope = ApplicationScopeId();
+    if (provider == nullptr || scope.IsGlobal()) {
+      return NGIN::Utilities::Unexpected<Core::KernelError>(
+          Core::MakeKernelError(Core::KernelErrorCode::InvalidState,
+                                "NGIN.UI.Hosting",
+                                "HostedUIServiceProvider::ResolveRequired",
+                                "hosted UI service provider is not active"));
+    }
+    return provider->ResolveRequired<T>(name, scope);
+  }
+
+private:
+  auto Bind(Core::IServiceRegistry &registry) noexcept
+      -> Core::CoreResult<void>;
+  [[nodiscard]] auto Provider() const noexcept -> Core::IServiceProvider *;
+
+  std::shared_ptr<HostedUIScope::State> m_state{};
+
+  friend class UIModule;
+};
+
+/// @brief Converts a Core-owned object to an aliasing standard shared owner.
+template <typename T>
+[[nodiscard]] auto ToStdShared(NGIN::Memory::Shared<T> value)
+    -> std::shared_ptr<T> {
+  if (!value) {
+    return {};
+  }
+  auto owner = std::make_shared<NGIN::Memory::Shared<T>>(std::move(value));
+  return std::shared_ptr<T>{owner, owner->Get()};
+}
+
+/// @brief Converts a standard shared owner to an aliasing Core shared owner.
+template <typename T>
+[[nodiscard]] auto ToCoreShared(std::shared_ptr<T> value)
+    -> NGIN::Memory::Shared<T> {
+  if (!value) {
+    return {};
+  }
+  auto *object = value.get();
+  return NGIN::Memory::MakeSharedAlias<T>(object, std::move(value));
+}
+
+/// @brief Resolves and owns one DI-created ViewModel for one mounted UI scope.
+template <typename T> class HostedViewModelHost final {
+public:
+  HostedViewModelHost(NGIN::Async::TaskContext context, HostedUIScope scope,
+                      InvalidationScheduler scheduler = {})
+      : m_state(std::make_shared<State>(std::move(context), std::move(scope),
+                                        std::move(scheduler))) {}
+
+  HostedViewModelHost(const HostedViewModelHost &) = delete;
+  HostedViewModelHost(HostedViewModelHost &&) = delete;
+  auto operator=(const HostedViewModelHost &) -> HostedViewModelHost & = delete;
+  auto operator=(HostedViewModelHost &&) -> HostedViewModelHost & = delete;
+  ~HostedViewModelHost() { Unmount(); }
+
+  [[nodiscard]] auto Mount(std::string_view serviceName = {}) noexcept
+      -> Core::CoreResult<NGIN::Memory::Shared<T>> {
+    if (!m_state || m_state->closing || !m_state->scope.IsActive()) {
+      return NGIN::Utilities::Unexpected<Core::KernelError>(
+          Core::MakeKernelError(Core::KernelErrorCode::InvalidState,
+                                "NGIN.UI.Hosting", "HostedViewModelHost::Mount",
+                                "ViewModel host is closing or inactive"));
+    }
+    if (m_state->viewModel) {
+      return m_state->viewModel;
+    }
+    auto resolved = m_state->scope.template ResolveRequired<T>(serviceName);
+    if (!resolved) {
+      return NGIN::Utilities::Unexpected<Core::KernelError>(resolved.Error());
+    }
+#if NGIN_ASYNC_HAS_EXCEPTIONS
+    try {
+#endif
+      m_state->viewModel = resolved.Value();
+      m_state->activeTasks = std::make_unique<ViewModelTaskScope>(
+          m_state->context, m_state->scheduler);
+      const auto weak = std::weak_ptr<State>{m_state};
+      auto closeHandler = m_state->scope.SetCloseHandler([weak] {
+        if (const auto state = weak.lock()) {
+          BeginClose(state);
+        }
+      });
+      if (!closeHandler) {
+        m_state->activeTasks.reset();
+        m_state->viewModel.Reset();
+        return NGIN::Utilities::Unexpected<Core::KernelError>(
+            closeHandler.Error());
+      }
+      if constexpr (requires(T &value, ViewModelTaskScope &scope) {
+                      { value.Activate(scope) } noexcept -> std::same_as<void>;
+                    }) {
+        m_state->viewModel->Activate(*m_state->activeTasks);
+      }
+      if constexpr (requires(T &value, NGIN::Async::TaskContext &context) {
+                      {
+                        value.ActivateAsync(context)
+                      } -> std::same_as<ViewModelTaskScope::Task>;
+                    }) {
+        const auto retained = m_state->viewModel;
+        static_cast<void>(m_state->activeTasks->Start(
+            [retained](NGIN::Async::TaskContext &context) {
+              return retained->ActivateAsync(context);
+            }));
+      }
+      return m_state->viewModel;
+#if NGIN_ASYNC_HAS_EXCEPTIONS
+    } catch (...) {
+      m_state->scope.ClearCloseHandler();
+      m_state->activeTasks.reset();
+      m_state->viewModel.Reset();
+      return NGIN::Utilities::Unexpected<Core::KernelError>(
+          Core::MakeKernelError(Core::KernelErrorCode::InternalError,
+                                "NGIN.UI.Hosting", "HostedViewModelHost::Mount",
+                                "ViewModel activation allocation failed"));
+    }
+#endif
+  }
+
+  void Unmount() noexcept {
+    if (m_state) {
+      BeginClose(m_state);
+    }
+  }
+
+  [[nodiscard]] auto Current() const noexcept
+      -> const NGIN::Memory::Shared<T> & {
+    return m_state->viewModel;
+  }
+  [[nodiscard]] auto IsMounted() const noexcept -> bool {
+    return m_state && static_cast<bool>(m_state->viewModel) &&
+           !m_state->closing;
+  }
+  [[nodiscard]] auto IsClosing() const noexcept -> bool {
+    return m_state && m_state->closing && !m_state->closed;
+  }
+  [[nodiscard]] auto ActiveTaskStatus() const -> const ViewModelTaskStatus & {
+    static const ViewModelTaskStatus inactive{.acceptsWork = false};
+    return m_state && m_state->activeTasks ? m_state->activeTasks->Status()
+                                           : inactive;
+  }
+  [[nodiscard]] auto CleanupTaskStatus() const -> const ViewModelTaskStatus & {
+    static const ViewModelTaskStatus inactive{.acceptsWork = false};
+    return m_state && m_state->cleanupTasks ? m_state->cleanupTasks->Status()
+                                            : inactive;
+  }
+
+private:
+  struct State final {
+    State(NGIN::Async::TaskContext taskContext, HostedUIScope serviceScope,
+          InvalidationScheduler invalidationScheduler)
+        : context(std::move(taskContext)), scope(std::move(serviceScope)),
+          scheduler(std::move(invalidationScheduler)) {}
+
+    NGIN::Async::TaskContext context;
+    HostedUIScope scope{};
+    InvalidationScheduler scheduler{};
+    std::unique_ptr<ViewModelTaskScope> activeTasks{};
+    std::unique_ptr<ViewModelTaskScope> cleanupTasks{};
+    NGIN::Memory::Shared<T> viewModel{};
+    bool closing{false};
+    bool closed{false};
+  };
+
+  static void Finalize(const std::shared_ptr<State> &state) noexcept {
+    state->viewModel.Reset();
+    state->scope.ClearCloseHandler();
+    static_cast<void>(state->scope.End());
+    state->closed = true;
+  }
+
+  static void
+  StartAsyncDeactivation(const std::shared_ptr<State> &state) noexcept {
+    if constexpr (requires(T &value, NGIN::Async::TaskContext &context) {
+                    {
+                      value.DeactivateAsync(context)
+                    } -> std::same_as<ViewModelTaskScope::Task>;
+                  }) {
+#if NGIN_ASYNC_HAS_EXCEPTIONS
+      try {
+#endif
+        state->cleanupTasks = std::make_unique<ViewModelTaskScope>(
+            state->context, state->scheduler);
+        const auto retained = state->viewModel;
+        const auto weak = std::weak_ptr<State>{state};
+        const auto task = state->cleanupTasks->Start(
+            [retained](NGIN::Async::TaskContext &context) {
+              return retained->DeactivateAsync(context);
+            },
+            [weak](const ViewModelTaskOutcome &) {
+              if (const auto current = weak.lock()) {
+                current->cleanupTasks->CancelAll();
+                Finalize(current);
+              }
+            });
+        if (task) {
+          return;
+        }
+#if NGIN_ASYNC_HAS_EXCEPTIONS
+      } catch (...) {
+      }
+#endif
+    }
+    Finalize(state);
+  }
+
+  static void BeginClose(const std::shared_ptr<State> &state) noexcept {
+    if (!state || state->closing || state->closed) {
+      return;
+    }
+    state->closing = true;
+    if (state->viewModel) {
+      if constexpr (requires(T &value) {
+                      { value.Deactivate() } noexcept -> std::same_as<void>;
+                    }) {
+        state->viewModel->Deactivate();
+      }
+    }
+    if (!state->activeTasks) {
+      StartAsyncDeactivation(state);
+      return;
+    }
+    state->activeTasks->Close([state] { StartAsyncDeactivation(state); });
+  }
+
+  std::shared_ptr<State> m_state{};
+};
 
 /// @brief UI application, text, and pump configuration for Core hosting.
 struct UIHostingCreateInfo final {
@@ -24,7 +378,8 @@ struct UIHostingCreateInfo final {
   std::chrono::milliseconds maximumWait{250};
 };
 
-/// @brief Owns the NGIN.UI application and native text services exposed to Core.
+/// @brief Owns the NGIN.UI application and native text services exposed to
+/// Core.
 class HostedUIRuntime final {
 public:
   [[nodiscard]] static auto Create(UIHostingCreateInfo info) noexcept
@@ -97,6 +452,7 @@ class UIHostRunLoop final : public Core::IHostRunLoop {
 public:
   UIHostRunLoop(NGIN::Memory::Shared<HostedUIRuntime> runtime,
                 NGIN::Memory::Shared<IUIDispatcher> dispatcher,
+                NGIN::Memory::Shared<HostedUIServiceProvider> services,
                 std::chrono::milliseconds maximumWait) noexcept;
 
   auto Run(Core::IApplicationHost &host) noexcept
@@ -106,6 +462,7 @@ public:
 private:
   NGIN::Memory::Shared<HostedUIRuntime> m_runtime{};
   NGIN::Memory::Shared<IUIDispatcher> m_dispatcher{};
+  NGIN::Memory::Shared<HostedUIServiceProvider> m_services{};
   std::chrono::milliseconds m_maximumWait{250};
 };
 
@@ -113,7 +470,8 @@ private:
 class UIModule final : public Core::IModule {
 public:
   UIModule(NGIN::Memory::Shared<HostedUIRuntime> runtime,
-           NGIN::Memory::Shared<IUIDispatcher> dispatcher) noexcept;
+           NGIN::Memory::Shared<IUIDispatcher> dispatcher,
+           NGIN::Memory::Shared<HostedUIServiceProvider> services) noexcept;
 
   auto OnRegister(Core::ModuleContext &context) noexcept
       -> Core::CoreResult<void> override;
@@ -127,12 +485,14 @@ public:
 private:
   NGIN::Memory::Shared<HostedUIRuntime> m_runtime{};
   NGIN::Memory::Shared<IUIDispatcher> m_dispatcher{};
+  NGIN::Memory::Shared<HostedUIServiceProvider> m_services{};
 };
 
 /// @brief Ownership bundle returned after UI services are registered with Core.
 struct UIHostingRegistration final {
   NGIN::Memory::Shared<HostedUIRuntime> runtime{};
   NGIN::Memory::Shared<IUIDispatcher> dispatcher{};
+  NGIN::Memory::Shared<HostedUIServiceProvider> services{};
   std::shared_ptr<UIHostRunLoop> runLoop{};
 };
 

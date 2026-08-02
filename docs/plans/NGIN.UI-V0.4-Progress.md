@@ -21,10 +21,9 @@ Existing foundations:
 - the `NGIN.Core` package already declares an optional `Reflection` feature;
 - NGIN.UI 0.3 provides typed MVVM state, commands, validation, task scopes,
   async presentation, `ViewModelFactory<T>`, and `KeyedViewModelHost<T>`;
-- NGIN.UI.Hosting publishes the hosted UI runtime, dispatcher, platform, and
-  renderer through Core services;
-- page registration, Core-backed ViewModel activation, and navigation are not
-  yet implemented.
+- NGIN.UI.Hosting publishes the hosted UI runtime, dispatcher, platform,
+  renderer, and Core-backed UI scope provider;
+- page registration and navigation are not yet implemented.
 
 ## Milestone 30 — Complete Typed Core DI
 
@@ -76,7 +75,31 @@ Delivered:
 
 ## Milestone 32 — Hosted UI Service And Scope Integration
 
-Status: Planned
+Status: Complete (2026-08-02)
+
+Delivered:
+
+- added `HostedUIServiceProvider` in `NGIN.UI.Hosting` while keeping NGIN.UI
+  independent of Core and Reflection;
+- defined Core application, window, page, and activation scope kinds and
+  created their hosted ownership hierarchy;
+- added hosted window creation, page/activation scope handles, native-close
+  reconciliation, and shutdown blocking for new work;
+- added `HostedViewModelHost<T>` as the owning Core DI path while preserving
+  `KeyedViewModelHost<T>` and explicit standalone factories;
+- resolved ViewModels as `NGIN::Memory::Shared<T>` and added safe aliasing
+  bridges to and from `std::shared_ptr<T>`;
+- added drain-aware ViewModel task-scope closure and guaranteed teardown order:
+  deactivate, cancel and observe active work, observe optional async
+  deactivation, release the ViewModel, then end its DI scope;
+- retained structured Core resolution and scope failures for startup and the
+  upcoming navigation layer;
+- verified page-scope reuse, multiple-window isolation, rapid replacement,
+  window closure, application shutdown, async cancellation, destruction order,
+  missing services, activation failures, scope diagnostics, and ownership
+  bridges;
+- passed all 9 focused ViewModel cases (67 assertions) and the hosted lifecycle
+  executable in a clean Visual Studio Release build.
 
 ## Milestone 33 — Typed Pages And Navigation
 

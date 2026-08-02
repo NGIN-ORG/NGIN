@@ -4,7 +4,7 @@
          Version="0.3.0"
          CompatiblePlatformRange=">=0.1.0 &lt;0.2.0">
   <Metadata>
-    <Description>NGIN.Core hosting bridge and UI-thread dispatcher.</Description>
+    <Description>NGIN.Core hosting, scoped ViewModel, and UI-thread bridge.</Description>
     <License>Apache-2.0</License>
   </Metadata>
   <Build Backend="CMake" Mode="AddSubdirectory">
@@ -33,6 +33,7 @@
       <Provides Service="NGIN.UI.IUIDispatcher" />
       <Provides Service="NGIN.UI.IPlatformBackend" />
       <Provides Service="NGIN.UI.IRenderBackend" />
+      <Provides Service="NGIN.UI.Hosting.IServiceProvider" />
       <Capability Name="UI.PlatformBackend" Exclusive="true" />
       <Capability Name="UI.RenderBackend" Exclusive="true" />
     </Module>

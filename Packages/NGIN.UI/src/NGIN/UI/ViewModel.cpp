@@ -64,6 +64,7 @@ struct ViewModelTaskScope::Storage final {
   NGIN::Async::CancellationSource cancellation{};
   State<ViewModelTaskStatus> status;
   std::vector<std::shared_ptr<Run>> runs{};
+  DrainedObserver drainedObserver{};
   UInt64 nextTaskId{1};
   bool alive{true};
   bool acceptsWork{true};
@@ -80,6 +81,7 @@ ViewModelTaskScope::~ViewModelTaskScope() {
   }
   m_storage->alive = false;
   CancelStorage(m_storage);
+  m_storage->drainedObserver = nullptr;
   for (const auto &run : m_storage->runs) {
     run->observer = nullptr;
   }
@@ -163,11 +165,21 @@ void ViewModelTaskScope::FinishRun(const std::shared_ptr<Storage> &storage,
   }
   run->running = false;
   std::erase(storage->runs, run);
+  const auto drained = storage->runs.empty() && !storage->acceptsWork;
+  auto drainedObserver =
+      drained ? std::move(storage->drainedObserver) : DrainedObserver{};
   if (!storage->alive) {
     run->work = nullptr;
     run->observer = nullptr;
+    if (drainedObserver) {
+      drainedObserver();
+    }
     return;
   }
+
+  auto observer = std::move(run->observer);
+  run->work = nullptr;
+  run->observer = nullptr;
 
   auto status = storage->status.Get();
   status.activeCount = storage->runs.size();
@@ -187,11 +199,11 @@ void ViewModelTaskScope::FinishRun(const std::shared_ptr<Storage> &storage,
     break;
   }
   static_cast<void>(storage->status.Set(std::move(status)));
-  if (run->observer) {
+  if (observer) {
 #if NGIN_ASYNC_HAS_EXCEPTIONS
     try {
 #endif
-      run->observer(outcome);
+      observer(outcome);
 #if NGIN_ASYNC_HAS_EXCEPTIONS
     } catch (...) {
       auto observerFailure = storage->status.Get();
@@ -205,11 +217,33 @@ void ViewModelTaskScope::FinishRun(const std::shared_ptr<Storage> &storage,
     }
 #endif
   }
-  run->work = nullptr;
-  run->observer = nullptr;
+  if (drainedObserver) {
+    drainedObserver();
+  }
 }
 
 void ViewModelTaskScope::CancelAll() noexcept { CancelStorage(m_storage); }
+
+void ViewModelTaskScope::Close(DrainedObserver observer) noexcept {
+  if (!m_storage) {
+    if (observer) {
+      observer();
+    }
+    return;
+  }
+  CancelStorage(m_storage);
+  if (m_storage->runs.empty()) {
+    if (observer) {
+      observer();
+    }
+    return;
+  }
+  m_storage->drainedObserver = std::move(observer);
+}
+
+auto ViewModelTaskScope::IsDrained() const noexcept -> bool {
+  return !m_storage || m_storage->runs.empty();
+}
 
 void ViewModelTaskScope::CancelStorage(
     const std::shared_ptr<Storage> &storage) noexcept {

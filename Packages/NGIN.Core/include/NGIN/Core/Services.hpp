@@ -48,7 +48,11 @@ namespace NGIN::Core
         Package,
         Module,
         Operation,
-        Plugin
+        Plugin,
+        Application,
+        Window,
+        Page,
+        Activation
     };
 
     /// @brief Opaque service scope identifier.

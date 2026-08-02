@@ -133,6 +133,30 @@ TEST_CASE(
   REQUIRE_FALSE(retained.Get().acceptsWork);
 }
 
+TEST_CASE("closing a ViewModel task scope reports when cancellation drains") {
+  using namespace NGIN::UI;
+
+  NGIN::Execution::CooperativeScheduler scheduler;
+  NGIN::Async::TaskContext context{scheduler};
+  ViewModelTaskScope scope{context};
+  bool drained = false;
+  int completions = 0;
+  static_cast<void>(scope.Start([&](NGIN::Async::TaskContext &runContext) {
+    return CompleteAfterYield(runContext, completions);
+  }));
+
+  scope.Close([&] { drained = true; });
+  REQUIRE_FALSE(drained);
+  REQUIRE_FALSE(scope.Status().acceptsWork);
+  scheduler.RunUntilIdle();
+
+  REQUIRE(drained);
+  REQUIRE(scope.IsDrained());
+  REQUIRE(completions == 0);
+  REQUIRE(scope.Status().lastOutcome.kind ==
+          ViewModelTaskOutcomeKind::Canceled);
+}
+
 #if NGIN_ASYNC_HAS_EXCEPTIONS
 TEST_CASE("ViewModel task scopes retain observer exceptions as faults") {
   using namespace NGIN::UI;

@@ -183,8 +183,9 @@ for read-only bindings, computed values, batching, asynchronous validation,
 form summaries, and command availability.
 See the
 [ViewModel lifetime guide](../../docs/guides/ngin-ui-viewmodel-lifetime.md) for
-owned tasks, activation, keyed replacement, service factories, loading states,
-retry, cancellation, and shutdown rules.
+owned tasks, drain-aware closure, activation, keyed replacement, standalone
+service factories, hosted DI ownership, loading states, retry, cancellation,
+and shutdown rules.
 See the
 [foundational-controls guide](../../docs/guides/ngin-ui-foundational-controls.md)
 for bindings, typed radio groups, labels, tooltips, sliders, progress, and
