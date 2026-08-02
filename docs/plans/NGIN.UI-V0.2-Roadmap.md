@@ -5,6 +5,7 @@ Theme: Production desktop foundation
 Baseline: [`NGIN.UI-Post-V0.1-Roadmap.md`](NGIN.UI-Post-V0.1-Roadmap.md)
 Execution map:
 [`NGIN.UI-V0.2-Implementation-Workstreams.md`](NGIN.UI-V0.2-Implementation-Workstreams.md)
+Successor: [`NGIN.UI-V0.3-Roadmap.md`](NGIN.UI-V0.3-Roadmap.md)
 
 ## Purpose
 
