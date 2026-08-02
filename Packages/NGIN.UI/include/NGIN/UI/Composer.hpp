@@ -1,5 +1,6 @@
 #pragma once
 
+#include <NGIN/UI/Command.hpp>
 #include <NGIN/UI/Element.hpp>
 
 #include <string_view>
@@ -44,8 +45,16 @@ public:
   void Leaf(ElementType type, std::string_view key = {});
   void Leaf(ElementType type, const NodeProperties &properties,
             std::string_view key = {});
+  [[nodiscard]] auto BeginButton(NGIN::Utilities::Callable<void()> onActivate,
+                                 const NodeProperties &properties = {},
+                                 std::string_view key = {}) -> ElementScope;
+  [[nodiscard]] auto BeginButton(CommandBinding command,
+                                 const NodeProperties &properties = {},
+                                 std::string_view key = {}) -> ElementScope;
   void Button(NGIN::Utilities::Callable<void()> onActivate,
               const NodeProperties &properties = {}, std::string_view key = {});
+  void Button(CommandBinding command, const NodeProperties &properties = {},
+              std::string_view key = {});
   void TextField(Binding<NGIN::Text::String> value,
                  IGraphemeSegmenter &graphemeSegmenter,
                  const NodeProperties &properties = {},

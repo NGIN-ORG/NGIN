@@ -50,6 +50,9 @@ Version 0.2 provides:
 - retained motion controllers with generic awaitable properties, UI-scheduled
   continuations, ordered `co_await` steps, and parallel `WhenAll`/`WhenAny`
   composition;
+- typed synchronous and asynchronous commands with observable availability,
+  execution, cancellation, bounded concurrency, errors, and window/application
+  lifetime safety;
 - theme-driven control-state transitions, animated popup entry/exit, and
   determinate or indeterminate progress motion without application frame
   loops;

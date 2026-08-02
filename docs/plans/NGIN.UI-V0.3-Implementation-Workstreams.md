@@ -28,6 +28,8 @@ implementation surface.
 
 ## Workstream A — Command Contracts
 
+Status: Completed in Milestone 26 on 2026-08-02.
+
 ### Goal
 
 Make user actions observable and safe without replacing simple callbacks.
@@ -49,6 +51,8 @@ Make user actions observable and safe without replacing simple callbacks.
 - no allocation or subscription leaks across repeated composition.
 
 ## Workstream B — AsyncCommand Execution
+
+Status: Completed in Milestone 26 on 2026-08-02.
 
 ### Goal
 

@@ -1,10 +1,11 @@
 # NGIN.UI Version 0.3 Roadmap
 
-Status: Planned
+Status: Active — Milestone 26 delivered
 Theme: Type-safe MVVM and asynchronous applications
 Baseline: [`NGIN.UI-V0.2-Roadmap.md`](NGIN.UI-V0.2-Roadmap.md)
 Execution map:
 [`NGIN.UI-V0.3-Implementation-Workstreams.md`](NGIN.UI-V0.3-Implementation-Workstreams.md)
+Progress: [`NGIN.UI-V0.3-Progress.md`](NGIN.UI-V0.3-Progress.md)
 
 ## Purpose
 
@@ -62,6 +63,9 @@ approved. Source compatibility remains governed by
 | MVVM guidance | Architecture is implicit in examples | Complete Gallery sample and developer guide |
 
 ## Milestone 26 — Commands And AsyncCommand
+
+Completed 2026-08-02. Implementation and verification evidence is recorded in
+[`NGIN.UI-V0.3-Progress.md`](NGIN.UI-V0.3-Progress.md).
 
 Deliver:
 

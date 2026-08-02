@@ -155,6 +155,14 @@ public:
   [[nodiscard]] auto
   CreateTaskContext(NGIN::Async::CancellationToken cancellation = {}) noexcept
       -> NGIN::Async::TaskContext;
+  /// @brief Creates a UI task context canceled with a specific window.
+  ///
+  /// The window must belong to this application. Closing the window cancels
+  /// the returned context in addition to the normal application lifetime.
+  [[nodiscard]] auto
+  CreateTaskContext(Window &window,
+                    NGIN::Async::CancellationToken cancellation = {}) noexcept
+      -> NGIN::Async::TaskContext;
   [[nodiscard]] auto AccessibilityDiagnostics() const noexcept
       -> NGIN::UI::AccessibilityDiagnostics;
 

@@ -53,9 +53,9 @@ void Composer::Leaf(const ElementType type, const NodeProperties &properties,
   CurrentChildren().emplace_back(type, key, properties);
 }
 
-void Composer::Button(NGIN::Utilities::Callable<void()> onActivate,
-                      const NodeProperties &properties,
-                      const std::string_view key) {
+auto Composer::BeginButton(NGIN::Utilities::Callable<void()> onActivate,
+                           const NodeProperties &properties,
+                           const std::string_view key) -> ElementScope {
   auto buttonProperties = properties;
   buttonProperties.interaction.focusable = true;
   buttonProperties.interaction.onActivate = std::move(onActivate);
@@ -65,7 +65,31 @@ void Composer::Button(NGIN::Utilities::Callable<void()> onActivate,
   buttonProperties.semantics.actions = buttonProperties.semantics.actions |
                                        SemanticActionFlags::Activate |
                                        SemanticActionFlags::Focus;
-  Leaf(ElementType::Button, buttonProperties, key);
+  return Begin(ElementType::Button, buttonProperties, key);
+}
+
+auto Composer::BeginButton(CommandBinding command,
+                           const NodeProperties &properties,
+                           const std::string_view key) -> ElementScope {
+  auto buttonProperties = properties;
+  buttonProperties.interaction.enabled =
+      buttonProperties.interaction.enabled && command.CanExecute();
+  return BeginButton(
+      [command = std::move(command)]() mutable {
+        static_cast<void>(command.Execute());
+      },
+      buttonProperties, key);
+}
+
+void Composer::Button(NGIN::Utilities::Callable<void()> onActivate,
+                      const NodeProperties &properties,
+                      const std::string_view key) {
+  auto scope = BeginButton(std::move(onActivate), properties, key);
+}
+
+void Composer::Button(CommandBinding command, const NodeProperties &properties,
+                      const std::string_view key) {
+  auto scope = BeginButton(std::move(command), properties, key);
 }
 
 void Composer::TextField(Binding<NGIN::Text::String> value,

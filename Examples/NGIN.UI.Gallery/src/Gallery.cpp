@@ -2,6 +2,7 @@
 #include <NGIN/UIGallery/Gallery.hpp>
 
 #include <NGIN/Async/WhenAll.hpp>
+#include <NGIN/Units.hpp>
 
 #include <algorithm>
 #include <array>
@@ -445,6 +446,29 @@ void ComposeButton(Composer &composer, NativeTextSystem &text,
       key);
 }
 
+void ComposeCommandButton(Composer &composer, NativeTextSystem &text,
+                          const Theme &theme, const char *label,
+                          CommandBinding command, const std::string_view key,
+                          const F32 width = 210.0F) {
+  const auto enabled = command.CanExecute();
+  NodeProperties button{};
+  button.layout.preferredSize = Size{width, theme.controls.regularHeight};
+  button.layout.padding = Thickness{14.0F, 8.0F, 14.0F, 8.0F};
+  button.layout.horizontalAlignment = HorizontalAlignment::Start;
+  button.layout.verticalAlignment = VerticalAlignment::Start;
+  button.semantics.label = String{label};
+  button.visual = MakeButtonVisual(theme);
+
+  auto scope = composer.BeginButton(std::move(command), button, key);
+  auto labelProperties =
+      TextProperties(text, theme.typography.body,
+                     enabled ? theme.colors.accentForeground
+                             : theme.colors.disabledForeground);
+  labelProperties.layout.horizontalAlignment = HorizontalAlignment::Center;
+  labelProperties.layout.verticalAlignment = VerticalAlignment::Center;
+  composer.Text(String{label}, text, text, labelProperties, "label");
+}
+
 template <typename ComposeContent>
 void ComposeCard(Composer &composer, const Theme &theme,
                  ComposeContent &&composeContent, const std::string_view key,
@@ -587,6 +611,49 @@ void ComposeOverviewPage(Composer &composer, NativeTextSystem &text,
   ComposeText(
       composer, text, LabeledNumber("Clicks: ", model.ActivationCount()),
       theme.typography.body, theme.colors.mutedForeground, "activation-count");
+
+  ComposeCard(
+      composer, theme,
+      [&] {
+        NodeProperties column{};
+        column.layout.gap = theme.spacing.regular;
+        composer.Column(
+            [&] {
+              ComposeText(composer, text, String{"Async command"}, 19.0F,
+                          theme.colors.foreground, "command-title",
+                          SemanticRole::Heading);
+              ComposeText(composer, text,
+                          String{"Run, cancel, fail, and retry one task."},
+                          theme.typography.body, theme.colors.mutedForeground,
+                          "command-description");
+              NodeProperties actions{};
+              actions.layout.gap = theme.spacing.regular;
+              actions.layout.horizontalAlignment = HorizontalAlignment::Start;
+              composer.Element(
+                  ElementType::Row, actions,
+                  [&] {
+                    ComposeCommandButton(composer, text, theme, "Run task",
+                                         model.CommandDemoBinding(),
+                                         "run-command", 150.0F);
+                    ComposeButton(
+                        composer, text, theme, "Fail next",
+                        [&model] { model.StartFailingCommandDemo(); },
+                        "fail-command", 150.0F,
+                        model.CommandDemoBinding().CanExecute());
+                    ComposeButton(
+                        composer, text, theme, "Cancel",
+                        [&model] { model.CancelCommandDemo(); },
+                        "cancel-command", 120.0F,
+                        model.CommandDemoBinding().IsRunning());
+                  },
+                  "command-actions");
+              ComposeText(composer, text, model.CommandDemoStatus(),
+                          theme.typography.body, theme.colors.mutedForeground,
+                          "command-status");
+            },
+            "command-column");
+      },
+      "command-card");
 
   ComposeCard(
       composer, theme,
@@ -3162,6 +3229,8 @@ Model::Model()
                [this](const InvalidationKind kind) { Invalidate(kind); }),
       m_activationCount(
           0, [this](const InvalidationKind kind) { Invalidate(kind); }),
+      m_commandSuccessCount(
+          0, [this](const InvalidationKind kind) { Invalidate(kind); }),
       m_collectionItems(
           std::vector<std::uint32_t>{101, 102, 103, 104, 105, 106, 107, 108,
                                      109, 110, 111, 112},
@@ -3232,6 +3301,13 @@ void Model::AttachRuntime(Application &application, NativeTextSystem &text,
   m_text = &text;
   m_window = &window;
   m_asyncMotion = std::make_shared<GalleryMotionDemo>(application, window);
+  m_commandDemo = std::make_unique<AsyncCommand>(
+      application.CreateTaskContext(window),
+      [this](NGIN::Async::TaskContext &context) {
+        return RunCommandDemo(context);
+      },
+      true, CommandConcurrencyPolicy::Reject, 1,
+      [this](const InvalidationKind kind) { Invalidate(kind); });
   m_imageCache = std::make_unique<ImageTextureCache>(application.Renderer());
   std::error_code pathError;
   auto imagePath = std::filesystem::path{"images"} / "gallery-sample.png";
@@ -3351,6 +3427,68 @@ auto Model::ActivationCount() const noexcept -> std::uint32_t {
 
 void Model::Activate() {
   static_cast<void>(m_activationCount.Set(m_activationCount.Get() + 1));
+}
+
+auto Model::CommandDemoBinding() const -> CommandBinding {
+  return m_commandDemo ? m_commandDemo->AsBinding() : CommandBinding{};
+}
+
+auto Model::CommandDemoStatus() const -> String {
+  if (!m_commandDemo) {
+    return String{"The command is not attached yet."};
+  }
+  const auto &status = m_commandDemo->Status();
+  if (status.isRunning) {
+    return String{"Working... Press Cancel to stop."};
+  }
+  switch (status.lastOutcome.kind) {
+  case CommandOutcomeKind::None:
+    return String{"Ready."};
+  case CommandOutcomeKind::Succeeded:
+    return LabeledNumber("Finished tasks: ", m_commandSuccessCount.Get());
+  case CommandOutcomeKind::DomainError: {
+    String message{"Failed: "};
+    if (status.lastOutcome.error) {
+      message.Append(status.lastOutcome.error->message);
+    }
+    message.Append(String{". Press Run task to retry."});
+    return message;
+  }
+  case CommandOutcomeKind::Canceled:
+    return String{"Canceled. You can run it again."};
+  case CommandOutcomeKind::Fault:
+    return String{"The task stopped unexpectedly. Try again."};
+  }
+  return String{"Ready."};
+}
+
+void Model::StartFailingCommandDemo() {
+  if (!m_commandDemo || !m_commandDemo->Status().canExecute) {
+    return;
+  }
+  m_commandDemoShouldFail = true;
+  static_cast<void>(m_commandDemo->Execute());
+}
+
+void Model::CancelCommandDemo() noexcept {
+  m_commandDemoShouldFail = false;
+  if (m_commandDemo) {
+    m_commandDemo->Cancel();
+  }
+}
+
+auto Model::RunCommandDemo(NGIN::Async::TaskContext &context)
+    -> NGIN::Async::Task<void, CommandError> {
+  const auto shouldFail = std::exchange(m_commandDemoShouldFail, false);
+  co_await context.Delay(NGIN::Units::Seconds(1.2));
+  if (shouldFail) {
+    co_await NGIN::Async::DomainFailure(CommandError{
+        .kind = CommandErrorKind::Domain,
+        .code = String{"gallery-demo"},
+        .message = String{"The demo service rejected the request"},
+    });
+  }
+  static_cast<void>(m_commandSuccessCount.Set(m_commandSuccessCount.Get() + 1));
 }
 
 auto Model::CollectionItems() const -> std::vector<std::uint32_t> {

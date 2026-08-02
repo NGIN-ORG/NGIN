@@ -232,6 +232,7 @@ struct Window::Implementation final {
   std::optional<bool> lastReducedMotion{};
   bool motionEnabled{true};
   std::shared_ptr<Detail::MotionHostState> motionHost{};
+  NGIN::Async::CancellationSource lifetimeCancellation{};
 };
 
 Window::Window(WindowCreateInfo info, const PlatformWindowHandle platformHandle,
@@ -585,6 +586,7 @@ Application::Application(std::unique_ptr<IPlatformBackend> platform,
 
 Application::~Application() {
   for (auto &window : m_implementation->windows) {
+    window->m_implementation->lifetimeCancellation.Cancel();
     Detail::UnmountMotionTree(window->m_implementation->tree);
     Detail::CloseMotionHost(window->m_implementation->motionHost);
   }
@@ -807,6 +809,7 @@ auto Application::CloseWindow(Window &window) noexcept -> UIResult<void> {
 
   Detail::UnmountMotionTree(window.m_implementation->tree);
   Detail::CloseMotionHost(window.m_implementation->motionHost);
+  window.m_implementation->lifetimeCancellation.Cancel();
   window.m_implementation->closed = true;
   window.m_implementation->dirty = false;
   window.m_implementation->scheduledActions.clear();
@@ -1244,6 +1247,26 @@ auto Application::CreateTaskContext(
       m_implementation->asyncScheduler,
       m_implementation->lifetimeCancellation.GetToken()};
   context.BindLinkedCancellationToken(std::move(cancellation));
+  return context;
+}
+
+auto Application::CreateTaskContext(
+    Window &window, NGIN::Async::CancellationToken cancellation) noexcept
+    -> NGIN::Async::TaskContext {
+  auto context = CreateTaskContext(std::move(cancellation));
+  const auto owned =
+      std::ranges::any_of(m_implementation->windows,
+                          [&window](const std::unique_ptr<Window> &candidate) {
+                            return candidate.get() == &window;
+                          });
+  if (!owned) {
+    NGIN::Async::CancellationSource invalidOwner;
+    invalidOwner.Cancel();
+    context.BindLinkedCancellationToken(invalidOwner.GetToken());
+    return context;
+  }
+  context.BindLinkedCancellationToken(
+      window.m_implementation->lifetimeCancellation.GetToken());
   return context;
 }
 

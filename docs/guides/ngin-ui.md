@@ -16,6 +16,7 @@ of the runnable paths, then use the topic guides as needed.
 
 ## Application model
 
+- [MVVM commands, async actions, cancellation, errors, and command-bound buttons](ngin-ui-mvvm-commands.md)
 - [Composition, keys, reconciliation, layout, DPI, scrolling, state, bindings,
   validation, invalidation, ownership, and testing](ngin-ui-application-model.md)
 - [Input, focus, commands, clipboard, IME, themes, resources, semantics,

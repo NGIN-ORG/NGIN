@@ -5,6 +5,7 @@
 #include <NGIN/UI/Application.hpp>
 #include <NGIN/UI/Backend.hpp>
 #include <NGIN/UI/Collections.hpp>
+#include <NGIN/UI/Command.hpp>
 #include <NGIN/UI/Composer.hpp>
 #include <NGIN/UI/Controls.hpp>
 #include <NGIN/UI/CustomElement.hpp>

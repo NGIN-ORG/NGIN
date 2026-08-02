@@ -82,6 +82,10 @@ public:
   [[nodiscard]] auto HelpToolTip() noexcept -> UI::ToolTipController *;
   [[nodiscard]] auto ActivationCount() const noexcept -> std::uint32_t;
   void Activate();
+  [[nodiscard]] auto CommandDemoBinding() const -> UI::CommandBinding;
+  [[nodiscard]] auto CommandDemoStatus() const -> Text::String;
+  void StartFailingCommandDemo();
+  void CancelCommandDemo() noexcept;
 
   [[nodiscard]] auto CollectionItems() const -> std::vector<std::uint32_t>;
   [[nodiscard]] auto CollectionSelection(std::uint32_t item)
@@ -159,6 +163,8 @@ public:
   void Report(UI::UIError error);
 
 private:
+  [[nodiscard]] auto RunCommandDemo(NGIN::Async::TaskContext &context)
+      -> NGIN::Async::Task<void, UI::CommandError>;
   void Invalidate(
       UI::InvalidationKind kind = UI::InvalidationKind::All) const noexcept;
 
@@ -179,6 +185,7 @@ private:
   UI::State<bool> m_disabledToggle;
   UI::State<F32> m_slider;
   UI::State<std::uint32_t> m_activationCount;
+  UI::State<std::uint32_t> m_commandSuccessCount;
   UI::State<std::vector<std::uint32_t>> m_collectionItems;
   UI::SingleSelectionModel<std::uint32_t> m_collectionSelection;
   UI::State<bool> m_collectionDescending;
@@ -195,6 +202,7 @@ private:
   std::unique_ptr<UI::FixedVirtualizedListController> m_virtualizedController;
   std::unique_ptr<UI::AnimationHandle> m_motionRepeatHandle;
   std::shared_ptr<GalleryMotionDemo> m_asyncMotion;
+  std::unique_ptr<UI::AsyncCommand> m_commandDemo;
   UI::PopupController m_motionPopup;
   UI::PopupController m_comboPopup;
   UI::PopupController m_menuPopup;
@@ -208,6 +216,7 @@ private:
   std::unique_ptr<UI::ImageTextureCache> m_imageCache;
   std::uint32_t m_nextCollectionItem{113};
   std::uint32_t m_auxiliaryWindowId{0};
+  bool m_commandDemoShouldFail{false};
 };
 
 void ComposeMainView(UI::Composer &composer, UI::NativeTextSystem &text,

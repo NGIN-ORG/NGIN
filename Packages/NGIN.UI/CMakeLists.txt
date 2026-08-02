@@ -53,6 +53,7 @@ set(NGIN_UI_SOURCES
     src/NGIN/UI/Accessibility.cpp
     src/NGIN/UI/Animation.cpp
     src/NGIN/UI/Application.cpp
+    src/NGIN/UI/Command.cpp
     src/NGIN/UI/Composer.cpp
     src/NGIN/UI/Controls.cpp
     src/NGIN/UI/CustomElement.cpp
