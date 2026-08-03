@@ -69,7 +69,7 @@ exception must be called out prominently in release notes.
 
 Renames should provide a deprecated forwarding wrapper where that does not
 preserve a flawed ownership, lifetime, or manifest contract. NGIN does not add
-silent legacy manifest fallbacks: authored V4 migrations remain explicit.
+silent legacy manifest fallbacks: authored manifest migrations remain explicit.
 
 ## Compatibility checks
 

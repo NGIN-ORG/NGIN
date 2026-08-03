@@ -1,273 +1,95 @@
-# Tools
+# NGIN tools
 
-`Tools/` contains the NGIN tooling layer used to work with authored projects:
-
-- the native `ngin` CLI
-- the in-repo VS Code extension
-- optional bundled CMake/Ninja payload metadata and fetch scripts
-
-Both the CLI and the VS Code extension use the same workspace, project, package,
-profile, staged-output, and `.nginlaunch` model. The CLI is the source of
-truth; the extension is an editor front end over that CLI behavior.
-
-For platform concepts and the first-run flow, start with the root
-[`README.md`](../README.md).
+`Tools/` contains the native CLI, the VS Code extension, and optional bundled
+CMake and Ninja payloads. The CLI is the source of truth; editor features call
+the same commands and consume the same Composition Graph.
 
 ## Build the CLI
-
-Prerequisites for building this repository:
-
-- CMake 3.20 or newer
-- Ninja
-- a C++23-capable compiler
-
-Configure the workspace and build the native CLI:
 
 ```bash
 cmake --preset dev
 cmake --build build/dev --target ngin_cli
 ```
 
-The built CLI is:
+The executable is written to `build/dev/Tools/NGIN.CLI/ngin` or
+`ngin.exe` on Windows.
 
-```text
-build/dev/Tools/NGIN.CLI/ngin
-```
-
-## Typical CLI Flow
-
-The normal project loop is:
-
-1. choose a `.nginproj`
-2. choose a profile
-3. validate the selected composition
-4. inspect the graph when needed
-5. configure generated build metadata when needed
-6. build a staged output directory
-7. run from the generated `.nginlaunch`
-
-Minimal example:
+## Daily workflow
 
 ```bash
-./build/dev/Tools/NGIN.CLI/ngin validate \
-  --project Examples/Hello.Native/Hello.Native.nginproj \
-  --profile Debug
-
-./build/dev/Tools/NGIN.CLI/ngin configure \
-  --project Examples/Hello.Native/Hello.Native.nginproj \
-  --profile Debug \
-  --output build/manual/Hello.Native
-
-./build/dev/Tools/NGIN.CLI/ngin build \
-  --project Examples/Hello.Native/Hello.Native.nginproj \
-  --profile Debug \
-  --output build/manual/Hello.Native
-
-./build/dev/Tools/NGIN.CLI/ngin run \
-  --project Examples/Hello.Native/Hello.Native.nginproj \
-  --profile Debug \
-  --output build/manual/Hello.Native
+ngin validate
+ngin build
+ngin run
 ```
 
-Use `--profile Debug`, `Release`, `RelWithDebInfo`, or `MinSizeRel` with projects
-created by `ngin new`. Profiles own their complete build behavior, so custom
-scenarios such as `asan`, `editor`, or `shipping` use the same option.
-
-Profiles author portable build traits with `Optimization`, `DebugSymbols`, and
-`LinkTimeOptimization`. Low-level compiler and linker options remain available
-as an escape hatch and can be selected by toolchain:
-
-```xml
-<Profile Name="clang-asan">
-  <Defaults>
-    <Toolchain Name="clang" />
-    <TargetPlatform Name="host" />
-  </Defaults>
-  <Application>
-    <Build>
-      <Optimization Mode="Off" />
-      <DebugSymbols Enabled="true" />
-      <LinkTimeOptimization Enabled="false" />
-      <CompileOption Value="-fsanitize=address" Toolchain="clang" />
-      <CompileOption Value="-fno-omit-frame-pointer" Toolchain="clang" />
-      <LinkOption Value="-fsanitize=address" Toolchain="clang" />
-    </Build>
-  </Application>
-</Profile>
-```
-
-The three portable traits are independent. NGIN accepts unusual but meaningful
-combinations such as `Optimization Mode="Size"` with debug symbols enabled, or
-optimization disabled without symbols. CMake's conventional configuration name
-is only a generated compatibility bucket; the authored traits are applied after
-that bucket's defaults.
-
-CMake packages built through `AddSubdirectory` or `Manual` do not select an
-NGIN profile of their own. Their source targets inherit the root project's exact
-optimization, symbol, and LTO traits. `FindPackage` dependencies are already
-built artifacts, so compatibility for those remains a package/provider and ABI
-selection concern. Requesting LTO is an error when the active toolchain reports
-that IPO is unsupported; other trait combinations are allowed.
-
-Use `clean` or `rebuild` when you need to reset generated artifacts for the
-selected project/profile/output scope.
-
-## CLI Commands
-
-Project commands:
-
-- `ngin validate`
-- `ngin graph`
-- `ngin configure`
-- `ngin build`
-- `ngin run`
-- `ngin clean`
-- `ngin rebuild`
-
-Workspace and package inspection:
-
-- `ngin workspace list`
-- `ngin workspace status`
-- `ngin workspace doctor`
-- `ngin package list`
-- `ngin package show <Package>`
-- `ngin settings init`
-- `ngin variables explain`
-
-For the complete active command contract, see
-[`../docs/specs/006-cli-contract.md`](../docs/specs/006-cli-contract.md).
-
-## Build Backend Tools
-
-NGIN currently generates backend input for CMake and prefers Ninja when Ninja is
-available.
-
-The CLI resolves backend tools in this order:
-
-1. explicit environment overrides: `NGIN_CMAKE`, `NGIN_NINJA`, or
-   `NGIN_THIRD_PARTY_TOOLS_ROOT`
-2. bundled tools under `Tools/ThirdParty/BuildTools`
-3. tools available on `PATH`
-
-The bundled tools are for CLI-driven generated builds. Building the NGIN CLI
-itself from this checkout still requires enough system tooling to run
-`cmake --preset dev`.
-
-## Bundled Build Tools
-
-Bundled CMake and Ninja payloads are optional generated files. They are kept out
-of normal git history, but can be fetched when a checkout or release package
-needs local backend tools for generated project builds.
-
-Fetch the current host payload:
+Use `ngin graph` when you need to understand the resolved project, or
+`ngin inspect --format json` for machine-readable output.
 
 ```bash
-Tools/scripts/fetch-bundled-tools.sh
+ngin configure   # generate backend metadata without building
+ngin clean       # remove NGIN-owned output for the selection
+ngin rebuild     # clean, then build
+ngin publish     # create a configured distribution
 ```
 
-On Windows without a POSIX shell:
+Run `ngin` without arguments for the complete command list, or see the
+[CLI reference](../docs/reference/cli.md).
 
-```powershell
-Tools\scripts\fetch-bundled-tools.ps1
-```
+## Build output
 
-Fetch all currently pinned host payloads:
-
-```bash
-Tools/scripts/fetch-bundled-tools.sh --all
-```
-
-Pinned versions and upstream URLs live in
-[`ThirdParty/BuildTools/toolchains.json`](ThirdParty/BuildTools/toolchains.json).
-License and notice requirements live in
-[`ThirdParty/BuildTools/notices/THIRD_PARTY_TOOLS.md`](ThirdParty/BuildTools/notices/THIRD_PARTY_TOOLS.md).
-
-Keep upstream license files inside each extracted payload when publishing
-bundled tool archives.
-
-Installed bundled distributions keep the same payload structure under
-`share/ngin/tools`. The CLI resolves that executable-relative location before
-workspace-local bundled tools and `PATH`; `NGIN_CMAKE`, `NGIN_CPACK`,
-`NGIN_NINJA`, and `NGIN_THIRD_PARTY_TOOLS_ROOT` remain explicit overrides.
-
-The CLI itself is also a V4 Tool product at `NGIN.CLI/NGIN.CLI.nginproj`.
-Release profiles can publish thin or bundled ZIP/MSI/TGZ/DEB artifacts through
-`ngin publish`. MSI architecture follows the selected target profile. WiX 7
-requires explicit OSMF EULA acceptance by the publishing user; the CLI reports
-the WiX diagnostic but does not accept license terms automatically.
-
-Each release profile exposes only its corresponding thin or bundled publish
-targets. Native Windows artifacts must be built on Windows and native Linux
-artifacts must be built on Linux; the generated backend rejects foreign
-operating-system or architecture targets before configuration.
-
-## Staged Output
-
-`ngin configure` prepares the generated CMake build tree and compile database
-without building or staging artifacts.
-
-`ngin build` produces a staged output directory containing:
-
-- built artifacts
-- resolved package contents
-- runtime files
-- a generated `.nginlaunch` file
-
-Default location:
+The default workspace output is:
 
 ```text
 build/ngin/<Project>/<Profile>/
 ```
 
-`ngin run` and the VS Code extension use `.nginlaunch` for local launch/debug
-resolution. It is generated tooling metadata, not an authored input file.
+`ngin build` places built products, runtime files, package contributions, and a
+generated `.nginlaunch` file in the staged output. `ngin run` and the editor
+use that launch information.
 
-Projects can be used without a workspace manifest. Pass `--project` to select
-a `.nginproj` directly. When more than one workspace could apply, pass
-`--workspace <file.ngin>` to select the exact workspace policy.
+Projects can run without a workspace. Use `--project` to select a project and
+`--workspace` when an exact workspace policy must be pinned.
 
-## Local Settings And Secrets
+## Backend tools
 
-Projects can declare environment variables that resolve from literal manifest
-values, operating system environment variables, or explicitly imported local
-settings. Local settings live in `.nginsettings` files and are intended for
-machine-specific paths and secrets that should not be committed.
+Generated builds currently use CMake and prefer Ninja. The CLI resolves backend
+tools from:
 
-Create the default ignored local settings file:
+1. explicit overrides such as `NGIN_CMAKE`, `NGIN_CPACK`, `NGIN_NINJA`, or
+   `NGIN_THIRD_PARTY_TOOLS_ROOT`;
+2. installed or repository-bundled payloads;
+3. `PATH`.
 
-```bash
-ngin settings init --project Examples/Hello.Hosted/Hello.Hosted.nginproj
-```
-
-Inspect resolved variables for a profile:
+Fetch the pinned payload for the current host with:
 
 ```bash
-ngin variables explain --project Examples/Hello.Hosted/Hello.Hosted.nginproj --profile Debug
+Tools/scripts/fetch-bundled-tools.sh
 ```
 
-Secret values are redacted in CLI output and are not written as raw values to
-generated launch manifests.
+PowerShell:
 
-## VS Code Extension
+```powershell
+Tools\scripts\fetch-bundled-tools.ps1
+```
 
-The extension in [`NGIN.VSCode`](NGIN.VSCode/) uses the native CLI as its
-backend.
+Versions, upstream URLs, and checksums live in
+[`ThirdParty/BuildTools/toolchains.json`](ThirdParty/BuildTools/toolchains.json).
+Keep the accompanying
+[third-party notices](ThirdParty/BuildTools/notices/THIRD_PARTY_TOOLS.md) with
+any redistributed payload.
 
-It provides:
+## Local settings and secrets
 
-- project and profile selection
-- a product-aware Solution tree with lazy physical project-file navigation,
-  nested-project boundaries, configurable exclusions, and safe file operations
-- Composition Graph-backed selected, unselected, external, generated, missing,
-  and unknown file-membership presentation
-- persisted inputs-only filtering, reveal/follow-active-editor behavior,
-  multi-selection, and guarded drag-and-drop copy/move flows
-- a separate active-project view for resolved tooling, launch, publish,
-  generated inputs, artifacts, and diagnostics
-- build, run, debug, validate, graph, clean, and rebuild commands
-- `.nginlaunch`-based run and debug resolution
-- C/C++ compile database discovery for `ms-vscode.cpptools`
+```bash
+ngin settings init
+ngin variables explain
+```
 
-The editor workflow mirrors the CLI workflow. See
-[`NGIN.VSCode/README.md`](NGIN.VSCode/README.md) for build, install, and
-extension-development details.
+Local settings are written under `.ngin/local/` and ignored by source control.
+Secret values are redacted from normal CLI, graph, and launch output.
+
+## VS Code
+
+[`NGIN.VSCode`](NGIN.VSCode) adds project and profile selection, build and run
+commands, graph-backed project views, manifest editing, native debugging, and
+package-provided tooling to VS Code.

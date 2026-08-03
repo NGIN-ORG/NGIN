@@ -10,8 +10,8 @@ repository combines a native CLI, package wrappers, a locally owned runtime
 package, and source-backed dependency trees that are composed through the
 workspace model.
 
-The active project model is the fully breaking, product-first V4 direction:
-one `.nginproj` describes one primary product identity, such as an
+The current project model is product-first: one `.nginproj` describes one
+primary product identity, such as an
 `Application`, `Library`, `Tool`, `Test`, `Benchmark`, `Plugin`, `Module`, or
 `External`. Project behavior belongs inside product sections such as
 `<Application><Build>...</Build></Application>`, not legacy root-level
@@ -29,24 +29,19 @@ Read these first when the task touches behavior or contracts:
 
 1. `README.md`
 2. `Tools/README.md`
-3. `docs/plans/NGIN-V4-North-Star-And-Subsystem-Plans.md` for the active V4
-   product-first contract
-4. `docs/plans/NGIN-V4-Implementation-Workstreams.md` for implementation
-   sequencing
-5. `docs/plans/NGIN-V4-Implementation-Progress.md` for what has already
-   changed in the repo
-6. `docs/specs/006-cli-contract.md` for CLI behavior that has not yet been
-   superseded by the V4 plans
-7. `docs/specs/010-workspace-and-project-model.md` and
-   `docs/specs/003-package-manifest-and-runtime-contributions.md` only as
-   legacy/background context when the V4 plans do not cover a detail
+3. `docs/guides/projects.md` and `docs/reference/project-manifest.md` for the
+   current project model
+4. `docs/reference/package-manifest.md` and
+   `docs/reference/workspace-manifest.md` for package and workspace contracts
+5. `docs/reference/cli.md` and `docs/reference/composition-graph.md` for CLI and
+   graph behavior
+6. current manifests, focused tests, and the CLI schema when exact behavior is
+   not covered by the documentation
 
-The V4 plan/progress files are currently authoritative for active manifest,
-workspace, package, graph, and package-restore behavior. Older `docs/specs/`
-files may still describe V3-era shapes. Do not preserve or reintroduce V1/V2/V3
-compatibility paths, including fallback code paths that silently keep legacy
-manifest behavior alive, unless the user explicitly asks for a legacy migration
-tool.
+The current code, CLI schema, tests, reference pages, and canonical examples
+are authoritative. Do not preserve or reintroduce older manifest compatibility
+paths, including fallbacks that silently accept superseded root-level behavior,
+unless the user explicitly asks for a migration tool.
 
 The canonical instruction filename is `AGENTS.md`. Before editing files in any
 subtree, search upward and within the target subtree for the nearest
@@ -69,8 +64,9 @@ Current known subtree instructions include:
 - `Packages/*`: workspace package wrappers and package metadata
 - `Dependencies/NGIN/*`: first-party source trees under full repo control
 - `Dependencies/ThirdParty/*`: third-party source trees
-- `docs/specs/*`: older and background contract docs; verify active behavior
-  against the V4 plan/progress files before following V3-era shapes
+- `docs/reference/*`: current manifest, CLI, graph, variable, and tool contracts
+- `docs/guides/*`: task-focused user and library guides
+- `docs/architecture/decisions/*`: durable architectural decisions
 - `build/`: generated CMake, test, manual, and staged build output
 
 ## Authored Vs Generated
@@ -113,8 +109,8 @@ Do not edit generated files to implement behavior changes.
 - Package exposure, provider wiring, and backend integration changes: `Packages/*.nginpkg`
 - First-party dependency implementation changes: `Dependencies/NGIN/*`
 
-Before changing manifests or CLI semantics, check the active V4 plan/progress
-files first. Use `docs/specs/` only for still-applicable background contracts.
+Before changing manifests or CLI semantics, check the matching reference page,
+current parser and command code, focused tests, and canonical examples.
 
 ## Dependency Editing Policy
 
@@ -139,10 +135,8 @@ files first. Use `docs/specs/` only for still-applicable background contracts.
 
 ## When Unsure
 
-- Prefer the active V4 plan/progress files and current code over older
-  `docs/specs/` material.
-- Treat `docs/specs/` as background unless the active V4 docs do not cover the
-  detail.
+- Prefer current code, focused tests, CLI schema output, reference pages, and
+  canonical examples over historical material in Git.
 - If docs conflict with code, report the conflict and the files involved before
   relying on a guess.
 - If the product direction is ambiguous, keep the change narrow and ask for
@@ -241,15 +235,15 @@ Smoke-test the hosted runtime example:
 - Use workspace `PackageProviders` together with package `<Build Mode="...">`
   metadata to integrate external or dependency-owned CMake projects.
 - Before editing any subtree, find and follow the nearest `AGENTS.md`.
-- Avoid preserving V3 compatibility accidentally through permissive parsing,
-  implicit fallbacks, or root-level manifest behavior.
+- Avoid preserving older compatibility accidentally through permissive
+  parsing, implicit fallbacks, or root-level manifest behavior.
 
 ## Do Not
 
 - Do not edit generated files such as `build/`, `.ngin/build/`, staged layouts,
   or `*.nginlaunch` to implement behavior.
-- Do not add new root-level manifest sections when product-first V4 sections
-  are the intended contract.
+- Do not add new root-level manifest sections when product sections are the
+  intended contract.
 - Do not create monolithic test files when a focused test file exists.
 - Do not modify `Dependencies/ThirdParty/*` opportunistically.
 - Do not run every canonical command unless the user explicitly asks for broad
@@ -273,8 +267,8 @@ Smoke-test the hosted runtime example:
 
 ## Typical Change Workflow
 
-1. Find the nearest applicable `AGENTS.md` and read the active V4 plan/progress
-   files before relying on `docs/specs/`.
+1. Find the nearest applicable `AGENTS.md`, then inspect the current reference
+   page, code, focused tests, and canonical example for the affected contract.
 2. Identify the ownership boundary for the change before editing code or manifests.
 3. Inspect existing tests in the affected area before adding or creating tests.
 4. Modify the implementation in the correct repo area with a narrow diff,

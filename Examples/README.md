@@ -1,51 +1,36 @@
 # Examples
 
-The public examples are intentionally small. Each one demonstrates one real
-end-to-end behavior that can be validated, built, run, and inspected.
+The examples are executable documentation. Each one demonstrates a small,
+current path through the project system or an NGIN library.
 
-## Learning Path
+## Learning path
 
-1. [`Hello.Native`](Hello.Native/README.md)
-   Plain C++ executable managed by the NGIN CLI. No `NGIN.Core`.
+| Step | Example | What it adds |
+| --- | --- | --- |
+| 1 | [Hello.Native](Hello.Native) | Plain C++ application and CLI workflow |
+| 2 | [Hello.Hosted](Hello.Hosted) | `NGIN.Core` host, module, and staged config |
+| 3 | [Hello.Reflection](Hello.Reflection) | Package-provided reflection generation |
+| 4 | [Hello.ECS](Hello.ECS) | Entity-component storage and scheduling |
+| 5 | [Hello.Analyzer](Hello.Analyzer) | Clang-Tidy package action |
+| 6 | [Hello.Formatter](Hello.Formatter) | Clang-Format checks and edits |
+| 7 | [NGIN.UI.Gallery](NGIN.UI.Gallery) | Standalone UI controls and features |
+| 8 | [NGIN.UI.Gallery.Hosted](NGIN.UI.Gallery.Hosted) | The same UI through `NGIN.Core` |
 
-2. [`Hello.Hosted`](Hello.Hosted/README.md)
-   Smallest `NGIN.Core` hosted application with a real static module and
-   manifest-selected runtime composition.
+[NGIN.UI.MultiPage](NGIN.UI.MultiPage) demonstrates a smaller hosted,
+service-driven UI application. [Hello.GameOfLife](Hello.GameOfLife) combines
+NGIN.UI and NGIN.ECS in a larger interactive example.
 
-3. [`Hello.Reflection`](Hello.Reflection/README.md)
-   Reflection code generation through the `NGIN.Reflection.MetaGen` package.
+## Common commands
 
-4. [`Hello.Analyzer`](Hello.Analyzer/README.md)
-   A package-provided Analyze action and driver through the
-   `NGIN.Tooling.ClangTidy` package.
+From the repository root:
 
-5. [`Hello.Formatter`](Hello.Formatter/README.md)
-   Check, preview, apply, and editor document formatting through the
-   `NGIN.Tooling.ClangFormat` package.
-
-6. [`Hello.GameOfLife`](Hello.GameOfLife/README.md)
-   Interactive Conway simulation combining NGIN.ECS scheduling, parallel
-   systems, and profiling with NGIN.UI composition, controls, and custom paint.
-
-## Naming
-
-Examples use CMake-like profiles:
-
-```text
-Debug
-Release
-Debug.Asan
-Debug.Reflection
+```bash
+ngin validate --project Examples/Hello.Native/Hello.Native.nginproj --profile Debug
+ngin build --project Examples/Hello.Native/Hello.Native.nginproj --profile Debug
+ngin run --project Examples/Hello.Native/Hello.Native.nginproj --profile Debug
 ```
 
-The examples avoid `Runtime` as a default profile name because runtime already
-has a separate meaning in `NGIN.Core`.
+Replace the project path with the example you want. Examples that require an
+external tool or platform dependency say so in their README.
 
-## What Moved Out
-
-Older broad showcase, game, and basic examples were removed from the public
-learning path because they modeled too many future or overlapping ideas at
-once. `Hello.GameOfLife` remains deliberately focused on one UI/ECS integration
-boundary.
-Project-reference collision manifests now live under CLI test fixtures instead
-of `Examples/`.
+Generated output belongs under `build/` and is not part of the example source.

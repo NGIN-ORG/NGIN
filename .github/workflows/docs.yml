@@ -1,0 +1,36 @@
+name: Documentation
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/docs.yml"
+      - "Tools/scripts/check-docs.ps1"
+      - "**/*.md"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/docs.yml"
+      - "Tools/scripts/check-docs.ps1"
+      - "**/*.md"
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Links and current terminology
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Check documentation
+        shell: pwsh
+        run: ./Tools/scripts/check-docs.ps1

@@ -1,138 +1,55 @@
-# Documentation
+# NGIN documentation
 
-This directory contains active specs, architecture notes, plans, reviews, API
-drafts, and older design drafts. Use the specs as the source of truth for active
-behavior. Treat architecture notes and drafts as background unless a current spec
-points to them.
+Start with the path that matches what you are trying to do.
 
-For the shortest path into the repo, start outside this directory:
+## Evaluate or learn NGIN
 
-- [`../README.md`](../README.md) for the first-run flow
-- [`../Examples/README.md`](../Examples/README.md) for runnable examples
-- [`../Tools/README.md`](../Tools/README.md) for CLI and editor tooling
+1. [Install and build the CLI](getting-started/installation.md).
+2. [Create your first project](getting-started/first-project.md).
+3. Run [Hello.Native](../Examples/Hello.Native) and then choose another
+   [example](../Examples/README.md).
 
-Application UI developers should start with the
-[NGIN.UI developer documentation](guides/ngin-ui.md).
+## Use the project system
 
-Active UI application-composition planning:
+- [Projects](guides/projects.md)
+- [Profiles](guides/profiles.md)
+- [Packages](guides/packages.md)
+- [Workspaces](guides/workspaces.md)
+- [Generators](guides/generators.md)
+- [Staging and launch](guides/staging-and-launch.md)
+- [Publishing](guides/publishing.md)
+- [Tooling and quality checks](guides/tooling.md)
 
-- [`plans/NGIN.UI-V0.4-Roadmap.md`](plans/NGIN.UI-V0.4-Roadmap.md)
-- [`plans/NGIN.UI-V0.4-Implementation-Workstreams.md`](plans/NGIN.UI-V0.4-Implementation-Workstreams.md)
-- [`plans/NGIN.UI-V0.4-Progress.md`](plans/NGIN.UI-V0.4-Progress.md)
+## Look up an exact contract
 
-## Learning Path
+- [Project manifest](reference/project-manifest.md)
+- [Package manifest](reference/package-manifest.md)
+- [Workspace manifest](reference/workspace-manifest.md)
+- [CLI](reference/cli.md)
+- [Variables](reference/variables.md)
+- [Composition Graph JSON](reference/composition-graph.md)
+- [Tool driver protocol](reference/tool-driver.md)
 
-If you are trying to understand NGIN as a user:
+The CLI is the executable source of truth for commands and manifest schema:
 
-1. Run `Examples/Hello.Native`.
-2. Compare it with `Examples/Hello.Hosted`.
-3. Run `Examples/Hello.Reflection` when you need generator-backed reflection.
-4. Run `Examples/Hello.Analyzer` when you need package-provided tool execution.
-5. Run `Examples/Hello.Formatter` when you need edit-producing format actions.
-6. Read the specs below when you need exact contracts.
+```bash
+ngin
+ngin schema --format json
+```
 
-## Guides
+## Use an NGIN library
 
-- [`guides/ngin-core-di.md`](guides/ngin-core-di.md)
-  Typed Core services, constructor dependencies, lifetimes, scopes, errors,
-  and diagnostics without requiring Reflection.
-- [`guides/ngin-ui-v0.2-release.md`](guides/ngin-ui-v0.2-release.md)
-- [`guides/ngin-ui-v0.3-release.md`](guides/ngin-ui-v0.3-release.md)
-  NGIN.UI 0.2 package versions, migration notes, budgets, release checks, and
-  versioned Gallery archive.
-- [`guides/nginproj-authoring.md`](guides/nginproj-authoring.md)
-  Concise developer guide for authoring `.nginproj` files.
-- [`guides/tool-driver-authoring.md`](guides/tool-driver-authoring.md)
-  Package author guide for general tools, drivers, actions, probes, and events.
-- [`guides/ngin-ui-styling.md`](guides/ngin-ui-styling.md)
-  Typed NGIN.UI theme tokens, visual states, borders, focus treatment, and
-  invalidation rules.
-- [`guides/ngin-ui-custom-controls.md`](guides/ngin-ui-custom-controls.md)
-- [`guides/ngin-ui-mvvm.md`](guides/ngin-ui-mvvm.md)
-  Public custom measurement, bounded painting, retained state, input,
-  semantics, lifecycle, and error rules.
-- [`guides/ngin-ui-foundational-controls.md`](guides/ngin-ui-foundational-controls.md)
-  Standard control bindings, typed radio groups, labels, tooltips, state
-  styling, semantics, and scrollbars.
+See the [libraries index](libraries/README.md) for `NGIN.Base`, `NGIN.Core`,
+`NGIN.Log`, `NGIN.Reflection`, `NGIN.ECS`, and `NGIN.UI`.
 
-## Active Specs
+## Work on NGIN itself
 
-- [`specs/014-tooling-and-quality-execution.md`](specs/014-tooling-and-quality-execution.md)
-  Active V4 tooling authoring, driver protocol, policy, CLI, and editor contract.
+- [Architecture overview](architecture/overview.md)
+- [Architecture decisions](architecture/decisions/README.md)
+- [Build the repository](contributing/building-ngin.md)
+- [Run tests](contributing/testing.md)
+- [Documentation style](contributing/documentation.md)
 
-- [`specs/001-core-concepts.md`](specs/001-core-concepts.md)  
-  Shared vocabulary: project, configuration, composition, package, workspace,
-  and launch manifest.
-- [`specs/002-project-and-target-manifest.md`](specs/002-project-and-target-manifest.md)  
-  `.nginproj` file contract.
-- [`specs/003-package-manifest-and-runtime-contributions.md`](specs/003-package-manifest-and-runtime-contributions.md)  
-  `.nginpkg` file contract and package contribution model.
-- [`specs/004-composition-and-validation.md`](specs/004-composition-and-validation.md)  
-  Composition resolution and validation expectations.
-- [`specs/005-staged-target-manifest.md`](specs/005-staged-target-manifest.md)  
-  Generated `.nginlaunch` role.
-- [`specs/006-cli-contract.md`](specs/006-cli-contract.md)  
-  Active `ngin` command surface.
-- [`specs/007-host-integration-contract.md`](specs/007-host-integration-contract.md)  
-  How `NGIN.Core` relates to the authored model.
-- [`specs/008-roadmap-and-non-goals.md`](specs/008-roadmap-and-non-goals.md)  
-  Current direction and explicit non-goals.
-- [`specs/009-package-distribution-and-installation.md`](specs/009-package-distribution-and-installation.md)  
-  Planned package distribution and installed-mode behavior.
-- [`specs/010-workspace-and-project-model.md`](specs/010-workspace-and-project-model.md)  
-  Workspace/project/package split.
-- [`specs/011-workspace-manifest.md`](specs/011-workspace-manifest.md)  
-  `.ngin` workspace file contract.
-- [`specs/012-tooling-and-runtime-boundary.md`](specs/012-tooling-and-runtime-boundary.md)  
-  Boundary between NGIN tooling and the optional hosted runtime.
-- [`specs/013-composition-graph-json-contract.md`](specs/013-composition-graph-json-contract.md)
-  Frozen V4 Composition Graph JSON contract for CLI and editor consumers.
-
-## Machine-Readable Schemas
-
-- [`schemas/ngin-composition-graph-v4.schema.json`](schemas/ngin-composition-graph-v4.schema.json)
-  JSON Schema for `NGIN.CompositionGraph` and `NGIN.CompositionGraphPlan`.
-- [`schemas/ngin-tool-driver-v1.schema.json`](schemas/ngin-tool-driver-v1.schema.json)
-  Request and JSONL event schema for `NGIN.ToolDriver/1`.
-- [`schemas/ngin-tool-result-v1.schema.json`](schemas/ngin-tool-result-v1.schema.json)
-  Normalized diagnostics, edits, artifacts, metrics, execution, and gate result
-  envelope for tool runs.
-- [`schemas/ngin-tool-baseline-v1.schema.json`](schemas/ngin-tool-baseline-v1.schema.json)
-  Fingerprint baseline schema for new-findings-only quality gates.
-
-## Active Implementation Plans
-
-- [`plans/NGIN-VSCode-Solution-Explorer-Plan.md`](plans/NGIN-VSCode-Solution-Explorer-Plan.md)
-  Proposed post-V4 plan for a product-aware VS Code Solution Explorer with
-  physical project files, graph-owned membership, safe file authoring, and a
-  separate active-project details view.
-- [`plans/NGIN.UI-Implementation-Plan.md`](plans/NGIN.UI-Implementation-Plan.md)
-  Milestone implementation plan for the backend-neutral NGIN.UI toolkit,
-  deterministic headless harness, SDL3 backend, composition, layout, text,
-  controls, and optional hosted integration.
-- [`plans/NGIN.UI-Post-V0.1-Roadmap.md`](plans/NGIN.UI-Post-V0.1-Roadmap.md)
-  Prioritized backlog for visual styling, the full control gallery, supported
-  custom controls, broader desktop controls, developer documentation, and
-  release quality.
-- [`plans/NGIN-Base-XML-Breaking-Performance-Refactor-Plan.md`](plans/NGIN-Base-XML-Breaking-Performance-Refactor-Plan.md)
-  Implemented breaking value-view, compact-storage, one-pass construction,
-  scanner, and explicit in-situ refactor for the strict `NGIN.Base` XML
-  frontend, including benchmark results and rejected prototypes.
-- [`plans/NGIN-General-Tooling-And-Quality-Execution-Plan.md`](plans/NGIN-General-Tooling-And-Quality-Execution-Plan.md)
-  Breaking post-phase-one plan for the general tool driver, execution,
-  diagnostics, quality policy, report, and editor framework that replaces the
-  current clang-tidy-specific analyzer runner.
-
-## Background Material
-
-- [`proposals/NGIN.UI-Proposal.md`](proposals/NGIN.UI-Proposal.md) contains the
-  complete NGIN.UI architecture and implementation proposal.
-- [`architecture/`](architecture/) contains design notes and historical
-  direction documents.
-- [`api-drafts/`](api-drafts/) contains draft API sketches.
-- [`plans/`](plans/) contains implementation plans.
-- [`reviews/`](reviews/) contains review notes.
-- [`examples/`](examples/) contains older or focused documentation examples that
-  are not part of the main runnable `../Examples/` tree.
-
-When background material conflicts with an active spec, follow the active spec.
+Roadmaps and implementation work belong in GitHub issues and projects. Git
+history preserves superseded designs. Release and migration material is kept
+only when it helps users move between published library versions.

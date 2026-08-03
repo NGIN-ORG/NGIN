@@ -1,9 +1,9 @@
 # Tool Driver Authoring
 
 Use this guide to publish a tool package that works with the NGIN CLI, graph,
-CI output, and editors without adding framework code. The normative contract is
-[`014-tooling-and-quality-execution.md`](../specs/014-tooling-and-quality-execution.md)
-and the transport schema is
+CI output, and editors without adding framework code. The protocol summary is
+the [tool driver reference](../reference/tool-driver.md), and the normative
+transport schema is
 [`ngin-tool-driver-v1.schema.json`](../schemas/ngin-tool-driver-v1.schema.json).
 
 ## Package Shape

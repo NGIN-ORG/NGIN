@@ -1,173 +1,84 @@
 # NGIN.Core
 
-`NGIN.Core` is the optional hosted runtime package for NGIN applications. Plain
-native projects do not need it. Use it when an application wants a host with
-modules, services, configuration, lifecycle events, task lanes, logging, and
-dynamic plugin loading.
+`NGIN.Core` is the optional application host for NGIN projects. Use it when an
+application needs services, modules, configuration, lifecycle events, task
+lanes, logging, or dynamic plugins. Plain native projects do not need it.
 
-## Hosted App Quickstart
+> [!WARNING]
+> NGIN.Core is experimental. Its public API and plugin ABI may change before a
+> stable release.
 
-The common path is `ApplicationBuilder`:
+## Quick start
 
 ```cpp
 #include <NGIN/Core/Core.hpp>
 
-class StartupModule final : public NGIN::Core::IModule {
+class Startup final : public NGIN::Core::IModule {
 public:
-  auto OnStart(NGIN::Core::ModuleContext& context) noexcept
-      -> NGIN::Core::CoreResult<void> override {
-    return context.RegisterSingletonValue<bool>("App.Ready", true);
-  }
+    auto OnStart(NGIN::Core::ModuleContext& context) noexcept
+        -> NGIN::Core::CoreResult<void> override {
+        return context.RegisterSingletonValue<bool>("App.Ready", true);
+    }
 };
 
 int main(int argc, char** argv) {
-  auto builder = NGIN::Core::CreateApplicationBuilder(argc, argv);
-  builder->UseProjectFile("App.nginproj")
-      .SetApplicationName("App")
-      .AddDefaultServices()
-      .AddConfiguration()
-      .AddModule<StartupModule>("App.Startup");
+    auto builder = NGIN::Core::CreateApplicationBuilder(argc, argv);
+    builder->SetApplicationName("App")
+        .AddDefaultServices()
+        .AddConfiguration()
+        .AddModule<Startup>("App.Startup");
 
-  auto app = builder->Build();
-  if (!app) {
-    return 1;
-  }
-  return app.Value()->Run().HasValue() ? 0 : 2;
+    auto app = builder->Build();
+    if (!app) {
+        return 1;
+    }
+    return app.Value()->Run().HasValue() ? 0 : 2;
 }
 ```
 
-The smallest repository example is
-[`../../Examples/Hello.Hosted`](../../Examples/Hello.Hosted/README.md). It
-loads staged config, registers a static module implementation, and lets the V4
-project manifest select that module.
+The runnable [Hello.Hosted](../../Examples/Hello.Hosted) example shows the
+package dependency, staged configuration, and static startup module together.
 
-For typed constructor injection, interface mappings, service scopes, and
-diagnostics, see the
-[Core dependency-injection guide](../../docs/guides/ngin-core-di.md).
+## Runtime model
 
-## Runtime Model
+NGIN.Core provides:
 
-`NGIN.Core` provides:
+- application startup, ticking, stop requests, and shutdown;
+- singleton, scoped, and transient services;
+- static and dynamic modules;
+- typed immediate and deferred events;
+- task-runtime lanes;
+- layered configuration;
+- `NGIN.Log` integration.
 
-- kernel lifecycle orchestration
-- static and dynamic module resolution
-- service registry with singleton, scoped, and transient lifetimes
-- immediate and deferred typed event bus
-- task runtime lanes
-- layered configuration store
-- `NGIN.Log` integration
+A module participates in application lifecycle and services. A plugin is a
+trusted native artifact that can register one or more modules and carry their
+resources.
 
-Static modules are registered directly from C++ with `AddModule<T>()` or
-`AddModule(name, options, factory)`. Dynamic modules are discovered from
-`.module.xml` / `.plugin-module.xml` descriptors and loaded from in-process
-plugin libraries that export a registrar function.
+## Dependency injection
 
-Modules and plugins are related but distinct. A module is a lifecycle and
-service participant. A plugin is a dynamically loaded artifact that can
-register one or more modules and carry files used by those modules.
+Services can be registered by value, factory, concrete type, or interface
+mapping. Typed constructor injection does not require reflection. Reflection is
+an optional feature for applications that need runtime metadata-driven
+construction.
 
-## Host Run Loops
+See [Dependency injection](../../docs/guides/ngin-core-di.md) for lifetimes,
+scopes, constructor binding, and diagnostics.
 
-`ApplicationBuilder::UseRunLoop()` accepts an optional generic
-`IHostRunLoop`. When none is supplied, `IApplicationHost::Run()` preserves the
-kernel's existing tick-and-sleep loop. A custom loop can start the host, wait on
-an application-specific event source, call `Tick()` to flush host work, and
-shut the host down.
+## Dynamic plugins
 
-Every `RequestStop()` wakes the injected loop, and
-`IApplicationHost::IsStopRequested()` lets it observe stop requests without
-polling private kernel state. This extension is framework-neutral; GUI,
-terminal, server, and test packages can provide loops without adding those
-dependencies to `NGIN.Core`.
-
-## Module Origin And Resources
-
-`ModuleContext` exposes the active module descriptor and its origin:
-
-- `Descriptor()` returns all resolved module metadata.
-- `ModuleRoot()` returns the module's resource root.
-- `DescriptorPath()` returns the dynamic descriptor path when one exists.
-- `LibraryPath()` returns the dynamic library path when one exists.
-- `PluginName()` identifies the containing plugin bundle.
-- `IsDynamicModule()` distinguishes dynamic and static loading.
-
-For dynamic modules, `ModuleRoot()` is the normalized directory containing the
-descriptor. Static modules can set it explicitly:
-
-```cpp
-NGIN::Core::ModuleOptions options{};
-options.moduleRoot = "modules/Reporting";
-builder->AddModule<ReportingModule>("App.Reporting", options);
-```
-
-NGIN.Core does not interpret or mount files under that root. Applications and
-frameworks use their own services to load assets, scripts, templates,
-localization, database migrations, schemas, or other module-owned resources.
-
-## Dynamic Plugins
-
-Dynamic plugin descriptors name the runtime module plus the binary that can
-register its factory:
-
-```xml
-<Module Name="App.Plugin"
-        Library="App.Plugin.dll"
-        Registrar="NGIN_RegisterPlugin"
-        Version="0.1.0"
-        CompatiblePlatformRange=">=0.1.0 &lt;1.0.0" />
-```
-
-`Registrar` is optional and defaults to `NGIN_RegisterPlugin`. The exported
-function has this shape:
+Dynamic modules use a descriptor plus a native library exporting a registrar:
 
 ```cpp
 extern "C" NGIN::Core::CoreResult<void>
 NGIN_RegisterPlugin(NGIN::Core::IPluginModuleRegistry& registry);
 ```
 
-The registrar calls `registry.Register(moduleName, factory)`. The host keeps
-loaded plugin libraries alive for the kernel lifetime. Hot reload, sandboxing,
-signature verification, and cross-compiler ABI stability are outside the
-current contract.
+Plugins are in-process native code and must be built for a compatible compiler
+and runtime ABI. Hot reload, sandboxing, signature verification, and stable
+cross-compiler ABI compatibility are not currently provided.
 
-A plugin bundle can use any internal layout. Keeping the descriptor at the
-bundle root gives its modules a predictable resource location:
-
-```text
-My.Plugin/
-|-- My.Plugin.module.xml
-|-- bin/
-|   `-- My.Plugin.dll
-|-- Assets/
-|-- Scripts/
-|-- Templates/
-`-- Migrations/
-```
-
-Dynamic plugins are fully trusted native code and must be built with a
-compatible compiler and runtime ABI.
-
-## Provider Selection
-
-Modules can advertise general capabilities. Mark a capability exclusive when
-the host may activate at most one provider for that role:
-
-```xml
-<Capabilities>
-  <Capability Name="Database.DefaultProvider" Exclusive="true" />
-</Capabilities>
-```
-
-The same metadata is available to static modules through `ModuleOptions` and
-`ModuleCapability`. If multiple active modules provide an exclusive capability,
-startup fails with `KernelErrorCode::CapabilityConflict` before any module is
-constructed. Non-exclusive providers can coexist.
-
-The project, profile, or builder must explicitly select the provider module.
-The resolver validates that choice; it does not silently choose one based on
-priority.
-
-## Build and Test
+## Build and test
 
 From the repository root:
 
@@ -175,7 +86,8 @@ From the repository root:
 cmake -S Packages/NGIN.Core -B build/ngin-core-ci \
   -DNGIN_CORE_BUILD_TESTS=ON \
   -DNGIN_CORE_BUILD_EXAMPLES=OFF
-
 cmake --build build/ngin-core-ci --config Release --target NGINCoreTests
 ctest --test-dir build/ngin-core-ci --output-on-failure -C Release
 ```
+
+More detail is available in the [architecture notes](docs/Architecture.md).

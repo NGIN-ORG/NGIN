@@ -1,161 +1,117 @@
 # NGIN
 
-**A modern project and build system for C++.**
+**A project system and modular application toolkit for modern C++.**
 
-NGIN gives C++ projects one place to describe how they are built, configured, staged, and run.
+NGIN gives native C++ projects one explicit model for building, composing,
+staging, and running applications.
 
 ```bash
 ngin build
 ngin run
 ```
 
-Instead of spreading project knowledge across CMake files, shell scripts, copied assets, launch commands, and README notes, NGIN keeps it in an explicit project model.
+NGIN currently generates CMake projects and uses the native compiler toolchain
+underneath. Use it as a project tool on its own, or add libraries such as
+`NGIN.Core`, `NGIN.Reflection`, `NGIN.ECS`, and `NGIN.UI` when they fit your
+application.
 
-> [!IMPORTANT]
-> NGIN is under active development and is not yet production-ready.
+> [!WARNING]
+> NGIN is experimental. Manifests, package contracts, and library APIs may
+> change before the first stable release. It is not yet recommended for
+> production projects.
 
 ## Why NGIN?
 
-Native projects often accumulate more than compiler settings:
+A C++ application usually needs more than a compiler command. Its project
+knowledge often ends up split across CMake files, dependency scripts, code
+generators, asset-copy commands, IDE settings, and launch notes.
 
-* multiple applications and libraries
-* build profiles and platform-specific configuration
-* package and project dependencies
-* generated source code
-* runtime assets and configuration
-* staging and launch scripts
-* developer tooling
-
-NGIN brings these pieces together without hiding the underlying native toolchain.
+NGIN puts that intent in a model that both people and tools can inspect:
 
 ```text
-.nginproj
-    ↓
-   NGIN
-    ↓
-generated CMake
-    ↓
-Ninja + compiler
-    ↓
-staged application
+.nginproj -> ngin -> generated CMake -> compiler -> staged application
 ```
 
-CMake remains the current native backend. NGIN provides the higher-level project model and developer workflow.
+NGIN does not replace the compiler or hide the generated build. CMake is the
+current backend, and its generated files remain available for inspection.
 
-## Features
+## Use only what you need
 
-* Simple `build`, `run`, `validate`, and `clean` commands
-* Declarative project manifests
-* Debug, Release, sanitizer, shipping, and custom profiles
-* Project and package dependency resolution
-* Predictable staged application folders
-* Runtime file and asset handling
-* Generated CMake builds
-* Multi-project workspaces
-* Optional application runtime with modules and services
-* Optional Clang-based reflection generation
-* VS Code integration
+The project tooling and application libraries are separate.
 
-## Requirements
+| Component | Purpose |
+| --- | --- |
+| `ngin` | Validate, build, stage, inspect, run, test, and publish projects |
+| `NGIN.Base` | Foundational types and low-level utilities |
+| `NGIN.Core` | Optional application host with services, modules, and lifecycle management |
+| `NGIN.Reflection` | Runtime reflection APIs |
+| `NGIN.Reflection.MetaGen` | Clang-based reflection metadata generation |
+| `NGIN.ECS` | Entity-component-system library |
+| `NGIN.UI` | Backend-neutral application UI toolkit |
+| `NGIN.UI.Backend.SDL3` | SDL3 windowing and rendering backend |
+| `NGIN.UI.Hosting` | Integration between `NGIN.UI` and `NGIN.Core` |
+| `NGIN.Tooling.*` | Package-provided tools such as Clang-Tidy and Clang-Format |
+| `NGIN.VSCode` | VS Code integration backed by the `ngin` CLI |
 
-To build NGIN:
+A normal C++ executable can use `ngin` without linking an NGIN runtime library.
 
-* CMake 3.20 or newer
-* Ninja
-* A C++23-capable compiler
+## Try NGIN
 
-Supported development toolchains currently include recent versions of:
-
-* Clang
-* GCC
-* MSVC
-
-### Reflection requires Clang
-
-The core NGIN build system does **not** require Clang.
-
-However, `NGIN.Reflection.MetaGen` currently uses **LLVM/libclang** to parse C++ source and generate reflection metadata.
-
-Without libclang:
-
-* the NGIN CLI and normal native projects can still be built
-* reflection generation is unavailable
-* MetaGen is built as an unavailable stub
-
-CMake attempts to discover Clang through `llvm-config`, `Clang_DIR`, or the following Windows overrides:
-
-```text
-LIBCLANG_INCLUDE_DIR
-LIBCLANG_LIBRARY
-```
-
-## Quick start
-
-Clone the repository:
+You need Git, CMake 3.20 or newer, Ninja, and a C++23-capable compiler. Clone
+the repository with its submodules, then build the CLI:
 
 ```bash
-git clone https://github.com/NGIN-ORG/NGIN.git
+git clone --recursive https://github.com/NGIN-ORG/NGIN.git
 cd NGIN
-```
-
-Configure and build the CLI:
-
-```bash
 cmake --preset dev
 cmake --build build/dev --target ngin_cli
 ```
 
-Build the smallest example:
+Build and run the smallest example:
 
 ```bash
 ./build/dev/Tools/NGIN.CLI/ngin build \
   --project Examples/Hello.Native/Hello.Native.nginproj \
   --profile Debug \
   --output build/hello
-```
 
-Run it:
-
-```bash
 ./build/dev/Tools/NGIN.CLI/ngin run \
   --project Examples/Hello.Native/Hello.Native.nginproj \
   --profile Debug \
   --output build/hello
 ```
 
-On Windows, use:
-
-```powershell
-.\build\dev\Tools\NGIN.CLI\ngin.exe
-```
-
-Once `ngin` is installed or added to `PATH`, the normal workflow is simply:
+On Windows, the executable is
+`build\dev\Tools\NGIN.CLI\ngin.exe`. Once it is on `PATH`, the normal loop is:
 
 ```bash
+ngin validate
 ngin build
 ngin run
 ```
+
+See [Installation](docs/getting-started/installation.md) for platform notes and
+[Your first project](docs/getting-started/first-project.md) for a complete
+walkthrough.
 
 ## A minimal project
 
 ```text
 MyApp/
-├── MyApp.nginproj
-└── src/
-    └── main.cpp
+|-- MyApp.nginproj
+`-- src/
+    `-- main.cpp
 ```
+
+`MyApp.nginproj`:
 
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
-<Project SchemaVersion="4"
-         Name="MyApp"
-         DefaultProfile="Debug">
-
+<Project SchemaVersion="4" Name="MyApp" DefaultProfile="Debug">
   <Application>
     <Build>
       <Sources Path="src/**.cpp" />
     </Build>
-
     <Launch Executable="$(OutputName)" />
   </Application>
 
@@ -167,127 +123,63 @@ MyApp/
       <TargetPlatform Name="host" />
     </Defaults>
   </Profile>
-
 </Project>
 ```
 
-Build it from the project directory:
-
-```bash
-ngin build
-```
-
-NGIN discovers the `.nginproj`, generates the backend build, compiles the project, and prepares a runnable staged folder.
-
-`ngin new` creates `Debug`, `Release`, `RelWithDebInfo`, and `MinSizeRel`
-profiles targeting the host platform. A profile describes behavior directly
-through optimization, debug-symbol, LTO, and product build settings; NGIN
-derives the backend configuration needed by CMake. These traits are independent,
-so custom combinations such as size optimization with debug symbols are valid.
-Source-built CMake packages inherit the selected root profile traits.
-
-## Commands
-
-```bash
-ngin build
-ngin run
-ngin rebuild
-ngin clean
-
-ngin validate
-ngin graph
-ngin configure
-```
-
-For larger repositories:
-
-```bash
-ngin workspace list
-ngin workspace status
-ngin workspace doctor
-```
-
-For packages:
-
-```bash
-ngin package list
-ngin package show <package>
-ngin package lock
-```
-
-## Project model
-
-NGIN uses four main file types:
-
-| File          | Purpose                                               |
-| ------------- | ----------------------------------------------------- |
-| `.nginproj`   | Describes an application, library, or tool            |
-| `.nginpkg`    | Describes a reusable package                          |
-| `.ngin`       | Describes an optional multi-project workspace         |
-| `.nginlaunch` | Generated launch information for a staged application |
-
-Most projects begin with a single `.nginproj`.
-
-## Optional runtime
-
-NGIN can be used purely as a build system.
-
-Projects may also use `NGIN.Core`, an optional application runtime providing:
-
-* application lifecycle management
-* service registration
-* modules and plugins
-* profile loading
-* diagnostics
-* structured startup and shutdown
-* reflection integration
-
-A normal C++ executable does not need `NGIN.Core`.
+One `.nginproj` describes one primary product: an application, library, tool,
+test, benchmark, plugin, module, or external product. Profiles select complete
+behavior, not just a compiler preset. A workspace is optional.
 
 ## Examples
 
-Start with the smallest example and add features as needed:
+Start with the example closest to what you want to build:
 
-* [`Hello.Native`](Examples/Hello.Native) — minimal CLI-managed executable
-* [`Hello.Hosted`](Examples/Hello.Hosted) — application using `NGIN.Core`
-* [`Hello.Reflection`](Examples/Hello.Reflection) — Clang-based reflection generation
-* [`Hello.Analyzer`](Examples/Hello.Analyzer) — Clang-Tidy integration
-* [`Hello.Formatter`](Examples/Hello.Formatter) — Clang-Format integration
-* [`Hello.GameOfLife`](Examples/Hello.GameOfLife) — interactive NGIN.UI and NGIN.ECS application
+| Example | Demonstrates |
+| --- | --- |
+| [Hello.Native](Examples/Hello.Native) | Plain C++ executable managed by the CLI |
+| [Hello.Hosted](Examples/Hello.Hosted) | Application hosted by `NGIN.Core` |
+| [Hello.Reflection](Examples/Hello.Reflection) | Reflection metadata generation |
+| [Hello.ECS](Examples/Hello.ECS) | Entity-component-system integration |
+| [Hello.Analyzer](Examples/Hello.Analyzer) | Package-provided Clang-Tidy execution |
+| [Hello.Formatter](Examples/Hello.Formatter) | Package-provided formatting |
+| [NGIN.UI.Gallery](Examples/NGIN.UI.Gallery) | Standalone UI gallery |
+| [NGIN.UI.Gallery.Hosted](Examples/NGIN.UI.Gallery.Hosted) | UI hosted through `NGIN.Core` |
 
-See [`Examples/README.md`](Examples/README.md) for the complete learning path.
-
-## Repository
-
-```text
-Tools/
-  NGIN.CLI/                 command-line build tool
-  NGIN.VSCode/              VS Code extension
-
-Packages/
-  NGIN.Base/                foundational C++ library
-  NGIN.Core/                optional application runtime
-  NGIN.Reflection.MetaGen/  reflection code generator
-
-Examples/                   runnable example projects
-docs/                       specifications and architecture
-```
+The [examples guide](Examples/README.md) gives the recommended learning path.
 
 ## Documentation
 
-* [Examples](Examples/README.md)
-* [Tools](Tools/README.md)
-* [Documentation index](docs/README.md)
-* [Core concepts](docs/specs/001-core-concepts.md)
-* [Project manifest specification](docs/specs/002-project-and-target-manifest.md)
-* [CLI contract](docs/specs/006-cli-contract.md)
+- [Getting started](docs/getting-started/installation.md)
+- [Project authoring](docs/guides/projects.md)
+- [Packages and workspaces](docs/guides/packages.md)
+- [CLI reference](docs/reference/cli.md)
+- [Application libraries](docs/libraries/README.md)
+- [Contributing](docs/contributing/building-ngin.md)
 
-## Status
+The [documentation index](docs/README.md) separates tutorials, guides,
+reference material, and repository architecture.
 
-NGIN is currently experimental.
+## Repository layout
 
-The project model, manifests, CLI behavior, and package interfaces may change as development continues. Feedback, experiments, and contributions are welcome.
+```text
+Tools/          CLI and editor tooling
+Packages/       package wrappers and locally owned runtime packages
+Dependencies/   first-party and third-party source trees
+Examples/       runnable projects
+docs/           user, reference, architecture, and contributor documentation
+```
+
+## Build and test the repository
+
+```bash
+cmake --preset dev
+cmake --build build/dev
+ctest --test-dir build/dev --output-on-failure
+```
+
+Individual libraries provide narrower build and test commands in their own
+READMEs.
 
 ## License
 
-See [`LICENSE`](LICENSE).
+NGIN is licensed under the [Apache License 2.0](LICENSE).

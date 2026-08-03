@@ -1,72 +1,48 @@
 # Packages
 
-`Packages/` is the package consumption layer for the umbrella workspace. Most
-files here are package manifests or wrappers: they describe reusable identity and
-what a package contributes to a resolved NGIN composition.
+`Packages/` contains package manifests and locally owned package projects. A
+wrapper tells the NGIN resolver what a dependency provides and how its source or
+installed artifacts join a build.
 
-The important distinction is ownership:
+## Main NGIN packages
 
-- `Packages/*.nginpkg` files expose packages to NGIN tooling.
-- Source code usually lives elsewhere.
-- [`NGIN.Core`](NGIN.Core/) is the locally owned hosted runtime package and does
-  contain source code.
-- [`NGIN.UI`](NGIN.UI/) is the locally owned, backend-neutral application UI
-  core. Native platform/rendering backends and optional `NGIN.Core` hosting are
-  separate package boundaries.
-- [`NGIN.UI.Backend.SDL3`](NGIN.UI.Backend.SDL3/) provides SDL3 native windows,
-  normalized platform events, and an SDL_GPU-backed renderer for `NGIN.UI`.
-- [`NGIN.UI.Hosting`](NGIN.UI.Hosting/) provides the optional event-driven
-  `NGIN.Core` run loop, UI dispatcher, runtime module, and hosted services.
-- [`SDL3`](SDL3/) is the pinned SDL 3.4.12 source wrapper used by the UI
-  backend. Its zlib license and exact source hash are retained with the package.
-- [`OpenSSL`](OpenSSL/) is a CMake `FindPackage` wrapper for the `OpenSSL::Crypto`
-  target used by optional crypto provider integration; it declares a
-  `CryptoProvider` feature for graph capability discovery and provider-package
-  metadata for restore-capable workspace overrides, linkage support, and runtime
-  artifact hints.
-- [`libsodium`](libsodium/) is a CMake `FindPackage`/pkg-config wrapper that
-  normalizes common libsodium installs to `libsodium::libsodium` for optional
-  NGIN.Base crypto provider integration; it remains provider-manager-neutral
-  until a workspace binds it to vcpkg, Conan, or another provider.
-- [`BoringSSL`](BoringSSL/) is a CMake `FindPackage` wrapper that normalizes
-  common BoringSSL libcrypto layouts to `BoringSSL::Crypto` for future optional
-  crypto provider integration and declares the common `boringssl` provider
-  package name plus libcrypto linkage/runtime metadata.
-- [`NGIN.Tooling.ClangTidy`](NGIN.Tooling.ClangTidy/) exposes clang-tidy as a
-  package-selected Analyze action.
-- [`NGIN.Tooling.ClangFormat`](NGIN.Tooling.ClangFormat/) exposes clang-format
-  as a package-selected Format action through the general stdout-transform
-  adapter.
-- First-party library source trees usually live under `../Dependencies/NGIN/`.
-- Third-party source trees usually live under `../Dependencies/ThirdParty/`.
+| Package | Purpose |
+| --- | --- |
+| `NGIN.Base` | Foundational first-party library wrapper |
+| `NGIN.Log` | Structured logging wrapper |
+| `NGIN.Core` | Optional hosted application runtime |
+| `NGIN.Reflection` | Reflection runtime wrapper |
+| `NGIN.Reflection.MetaGen` | Reflection generator tool |
+| `NGIN.ECS` | Entity-component-system wrapper |
+| `NGIN.UI` | Backend-neutral UI toolkit |
+| `NGIN.UI.Backend.SDL3` | SDL3 platform and renderer backend |
+| `NGIN.UI.Accessibility.Windows` | Windows UI Automation provider |
+| `NGIN.UI.Hosting` | `NGIN.Core` integration for UI applications |
+| `NGIN.Tooling.ClangTidy` | Clang-Tidy action and driver |
+| `NGIN.Tooling.ClangFormat` | Clang-Format action and driver |
 
-## What A Package Wrapper Describes
+Wrappers for third-party libraries describe integration; their upstream source
+remains under `Dependencies/ThirdParty/`.
 
-A package wrapper may declare:
+## What a wrapper owns
 
-- package name and version
-- package dependencies
-- build integration metadata
-- exported artifacts such as libraries or executables
-- runtime modules and plugins
-- staged config, content, or other files
-- optional backend build hints
-- optional linkage and runtime deployment hints
+A `.nginpkg` can declare:
 
-Package wrappers describe reusable behavior. Workspace-local source ownership is
-resolved through the workspace file and its `PackageSources` and
-`PackageProviders`.
+- identity, version, and compatibility;
+- CMake integration mode and options;
+- package dependencies;
+- exported library targets, binaries, headers, or tools;
+- optional features;
+- generators, runtime files, and tool actions.
 
-## CMake Integration Modes
+Source-backed CMake packages use `AddSubdirectory`. Installed packages use
+`FindPackage`. `Manual` is available for wrappers that own a different
+integration path.
 
-For CMake-backed packages, wrappers may use:
+Workspace `PackageProvider` entries map package names to source roots. This
+keeps exposure and build policy in `Packages/` while implementation stays in
+its owning source tree.
 
-- `Mode="AddSubdirectory"` for local or synced source trees
-- `Mode="FindPackage"` for installed/exported CMake packages
-- `Mode="Manual"` for handwritten compatibility wrappers
-- `Mode="Generated"` when NGIN owns generated backend input
-
-For the active package contract, see
-[`../docs/specs/003-package-manifest-and-runtime-contributions.md`](../docs/specs/003-package-manifest-and-runtime-contributions.md).
-For workspace package discovery and providers, see
-[`../docs/specs/011-workspace-manifest.md`](../docs/specs/011-workspace-manifest.md).
+See [Using packages](../docs/guides/packages.md), the
+[package manifest reference](../docs/reference/package-manifest.md), and the
+existing `.nginpkg` files in this directory.

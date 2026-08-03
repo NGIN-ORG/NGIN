@@ -30,7 +30,7 @@ build/dev/Tools/NGIN.CLI/ngin.exe graph `
 ```
 
 Confirm that the workspace `PackageProviders` includes this repository's
-`Packages/` wrappers and that the product uses product-first V4 `<Uses>` under
+`Packages/` wrappers and that the product uses `<Uses>` under
 `<Application>`. Do not add a handwritten project CMake fallback.
 
 Delete or repair only the exact generated output after confirming it is safe;

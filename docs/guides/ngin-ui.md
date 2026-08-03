@@ -47,7 +47,7 @@ of the runnable paths, then use the topic guides as needed.
 - [Troubleshooting](ngin-ui-troubleshooting.md)
 - [Generated API reference](../api/ngin-ui-mainpage.md)
 - [Source compatibility and deprecation policy](../policies/ngin-ui-source-compatibility.md)
-- [V4 product manifest authoring](nginproj-authoring.md)
+- [Project manifest authoring](nginproj-authoring.md)
 
 ## Fast verification
 

@@ -1,11 +1,12 @@
 # Dependencies
 
-`Dependencies/` contains source trees that are not actively owned by the umbrella repo.
+`Dependencies/NGIN/` contains first-party library source owned by the NGIN
+project. `Dependencies/ThirdParty/` contains upstream source used by package
+wrappers and library implementations.
 
-Layout:
+Public NGIN packages are described under [`Packages/`](../Packages). Change a
+package wrapper when the work concerns exposure or build integration; change a
+first-party source tree when the implementation belongs to that library.
 
-- `Dependencies/NGIN/`: first-party `NGIN.*` repos developed externally
-- `Dependencies/ThirdParty/`: third-party source dependencies when source checkout is needed
-
-The umbrella repo consumes these trees through package wrappers in `Packages/`.
-They are source availability, not the NGIN-facing package contract.
+Do not edit third-party source unless a task explicitly requires a vendored
+upstream change. Preserve its licenses and notices.

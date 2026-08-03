@@ -1,301 +1,105 @@
-# VS Code Extension
+# NGIN for VS Code
 
-`Tools/NGIN.VSCode` contains the in-repo VS Code extension for NGIN projects.
-It is an editor front end over the native `ngin` CLI, not a separate project
-model or build system.
+This extension is a VS Code front end for the native `ngin` CLI. It does not
+implement a second project model.
 
-Use it when you want to select projects and profiles, configure build
-metadata, build, publish, run, debug, validate, inspect resolved project state,
-inspect graphs, or generate metadata from VS Code while keeping the same
-behavior as the terminal commands.
+## Features
 
-## What It Provides
+- workspace, project, and profile selection;
+- a product-centered Solution view and resolved Active Project view;
+- configure, build, stage, clean, rebuild, publish, run, test, and debug;
+- manifest validation, graph inspection, and explanation commands;
+- a visual `.nginproj` editor with XML source always available;
+- native launch configuration from generated `.nginlaunch` files;
+- C/C++ compile-command integration;
+- package-provided diagnostics, formatting, edits, and run-on-save behavior;
+- standalone `.nginproj` folders without a workspace manifest.
 
-- a project-first NGIN Solution view for workspace products, manifests,
-  physical project files, and dependencies
-- a compact Active Project view for profile-resolved tooling, launch selection,
-  publish targets, artifacts, and current problems
-- advanced graph-native input, inactive-tooling, graph, and explanation views
-  backed by `ngin inspect --format json` and `ngin explain`
-- a default visual `.nginproj` editor for common product, profile,
-  dependency, source/config, feature, launch, and environment edits while
-  preserving XML source
-- status bar items for the selected workspace, project, and profile
-- standalone `.nginproj` folders without a `.ngin` workspace manifest
-- an explicit manifest picker for pinning a `.ngin` or `.nginproj`
-- commands for configure, build, publish, clean, rebuild, run, debug, validate, analyze,
-  graph and tooling-plan inspection, variable explanation, and local settings
-  initialization
-- generated VS Code tasks for known project/profile pairs
-- `.nginlaunch`-based run and debug resolution
-- a custom `ngin` debug type that launches native C/C++ debug sessions
-- C/C++ profile-provider support for `ms-vscode.cpptools`
-- standard VS Code Format Document and format-on-save support backed by ready,
-  capability-declaring NGIN `Format` runs
-- file registration and snippets for `.ngin`, `.nginproj`, `.nginpkg`,
-  `.nginlaunch`, and `.nginsettings`
-- a current product-first `.nginproj` schema artifact for editor tooling
-- graph inspection backed by the frozen V4 Composition Graph JSON contract in
-  `docs/specs/013-composition-graph-json-contract.md`
-- workspace/project parsing for product sections, direct project profiles,
-  workspace package sources, and authored dependency scopes
+The Composition Graph supplies resolved files, packages, generators, launches,
+publish targets, and tooling. When graph data is unavailable, the extension
+shows unknown state instead of guessing.
 
-The CLI remains the source of truth. If a command works in the terminal, the
-extension should call the same command with the selected project and
-profile.
+## Requirements
 
-## Standalone Projects And Manifest Selection
-
-A `.ngin` workspace is optional. Opening a folder whose NGIN authoring entry
-point is a single `.nginproj` loads that project directly, uses its directory
-as the context root, and exposes the normal validate, configure, build, run,
-debug, graph, and tooling actions. Minimal projects without an authored
-profile use the CLI's implicit `dev` profile.
-
-Use `NGIN: Select Manifest...` when the folder contains multiple `.ngin` or
-`.nginproj` files or automatic discovery selects the wrong one. The selection
-is pinned for that VS Code workspace folder and takes precedence over the
-active editor. Choose `Auto-detect` in the same picker to clear the pin.
-
-Selecting a `.ngin` loads its declared projects and passes the exact workspace
-manifest to project-scoped CLI commands. Selecting a `.nginproj` activates
-that project directly; normal CLI ancestor-workspace discovery can still apply
-when an ancestor workspace exists.
-
-## Command Mapping
-
-The extension mirrors the CLI directly:
-
-- selected project maps to `--project`
-- selected profile maps to `--profile`
-- Configure maps to `ngin configure`
-- Build maps to `ngin build`
-- Publish maps to `ngin publish <name>` using a target from the resolved
-  publish plan
-- Clean maps to `ngin clean`
-- Rebuild maps to `ngin rebuild`
-- Run maps to `ngin run`
-- Validate maps to `ngin validate`
-- Analyze maps to `ngin analyze`
-- Graph maps to `ngin graph`
-- The active Projects-tree inspector maps to `ngin inspect --format json`
-- Explain Variables maps to `ngin variables explain`
-- Initialize Local Settings maps to `ngin settings init`
-
-Build output defaults to `build/ngin/<Project>/<Profile>`. A workspace may set
-`<Defaults><OutputRoot Path="..." /></Defaults>` in its `.ngin` manifest. The
-`ngin.build.outputRoot` VS Code setting is a local override and is passed to the
-CLI as `--output-root`; resolved paths come back through Composition Graph
-inspection.
-
-`NGIN: Explain Variables` opens the redacted explanation in a readonly editor
-document. `NGIN: Initialize Local Settings` opens the initialized
-`.ngin/local/user.nginsettings` file. The editor also completes
-`FromLocalSetting` keys from loaded `.nginsettings` files and completes
-`FromEnvironment` names from the current process environment without storing
-values.
-
-`.nginproj` files open in the NGIN Project Editor by default. The editor writes
-targeted XML edits through VS Code document edits so undo, dirty state, comments,
-and unsupported sections remain under normal editor control. Use
-`NGIN: Open Project XML Source` or the editor action to reopen the same manifest
-as XML source.
-
-Configure generates backend build metadata such as `compile_commands.json`
-without producing a `.nginlaunch` file. Run and debug use the staged
-`.nginlaunch` file produced by `ngin build`. When debugging, the extension can
-build first if the launch manifest is missing or stale.
-
-The Solution tree is product-centered. Project rows select the active product,
-and the active row includes the selected profile. Every project exposes its
-manifest, lazily enumerated physical Project Files, and known dependencies.
-Useful dotfiles remain visible, generated output roots stay out of Project
-Files, and nested NGIN project roots become links to their own project rows.
-The default `All Project Files` mode works without the CLI. Use the filter
-button to switch to persisted `NGIN Inputs Only` mode for the active profile;
-inactive projects show an activation prompt instead of making unresolved
-membership claims.
-
-The active Composition Graph supplies file membership and ownership. Selected
-authored files use normal presentation, unselected files are muted, and
-membership stays `unknown` when inspect data is unavailable rather than being
-reported as excluded. Detailed tooltips show the active profile, input
-kind/role, owner, declaring manifest, and provenance. Selected paths outside
-the project root appear under External Inputs. Generator-declared files appear
-under Generated Inputs in Active Project, including missing outputs marked
-`not generated yet`; neither kind exposes destructive file actions.
-
-Use `Reveal Active File in NGIN Solution` for a one-shot reveal or enable the
-persisted `Follow Active Editor` mode. Project Files update from debounced
-filesystem events and cached directory reads, so expanding a folder never
-requires a recursive solution scan. Configure additional navigation exclusions
-with `ngin.solutionExplorer.exclude`; enabled `files.exclude` patterns are also
-honored.
-
-Dependencies distinguishes workspace project references, direct packages, and
-transitive packages. Package features are details of their owning dependency.
-The separate Active Project view holds resolved profile-specific information.
-Build, Run, and Profile are its prominent actions; less frequent lifecycle and
-inspection actions live in the title overflow menu. Tooling summarizes active
-generators and package-provided tool runs. Launch shows the effective launch
-choice, Publish lists the effective archive and installer targets, Artifacts
-exposes the executable, staged application folder, launch manifest, and compile
-database, and Problems appears only when inspect reports a problem.
-
-Right-click dependency, tooling, and launch items to run the matching
-`ngin explain` operation. Resolved inputs and excluded generators remain
-available through `NGIN: Show Resolved Inputs` and
-`NGIN: Show Inactive Tooling`.
-
-Authored project files support open, new file/folder, duplicate, rename,
-trash-delete, copy path, and reveal operations with project-containment,
-nested-project, and collision checks. Multi-selection is supported for path
-copying, delete, exact include/exclude, and drag moves. Internal drag moves stay
-inside one project and preview manifest impact; files dropped from the
-operating system are copied only after confirmation. Exact Config and Content
-entries are updated on create, include, rename, move, copy, exclude, and delete.
-Source and Header membership continues to use the V4 directory/glob contract:
-when an exact edit would require inventing or broadening a declaration, the
-extension offers the manifest and membership explanation instead.
-
-`NGIN: Analyze` keeps tool-run diagnostics separate from validation and inspect
-diagnostics. `NGIN: Show Tooling Plan` displays every effective run using the
-same package-neutral graph contract as the CLI. Tool-specific configuration and
-installation remain owned by the package and driver rather than the extension.
-Each run in the Tooling tree presents its inputs, policy, configuration, last
-result, and reports first. Use the inline play or preview button to execute the
-run. `NGIN: Configure Tool…` creates an explicit current-profile or product
-override for inputs, generated files, policy, and execution without editing the
-providing package. Named configuration files and report outputs use the same
-safe override flow. Run-on-save behavior is configured per stable run identity.
-Driver, protocol, cache, dependency, resolution, and provenance details remain
-available under its collapsed Advanced entry. Unavailable runs offer Diagnose
-instead of Run, and edit-producing runs keep Preview and Apply Changes separate.
-`NGIN: Add Tool Action` delegates package/action discovery and manifest
-authoring to the CLI and contains no package-specific TypeScript logic.
-`NGIN: Analyze Active File` and `NGIN: Analyze Changed Files…` use capability-
-checked CLI input scopes. Tool quick fixes read stored, digest-bound edit sets
-and apply them as native VS Code workspace edits after stale-document and
-workspace-trust validation.
-
-Format Document follows the same general graph contract. A ready `Format` run
-must advertise `document-formatting` and `active-file`, and its resolved inputs
-must include the current document. The extension sends the current editor
-buffer as a non-mutating content overlay and returns normalized NGIN edits to
-VS Code. If multiple runs accept the same document, set
-`ngin.tooling.defaultFormatRun` to the stable run name. Select `NGIN Tools` as
-the default formatter for the desired language to use VS Code format-on-save.
-
-Long-running configure, build, rebuild, stage, publish, and analyze commands
-use the CLI JSONL event stream in VS Code. The Output panel and progress
-notifications are rendered by the extension from `NGIN.CLI.Event` records rather
-than by parsing human terminal text. Tool diagnostics require structured
-`diagnostic` events; the legacy analyzer text fallback has been removed.
-Selection, phase, artifact, tool progress, cache, gate, metric, edit, summary,
-and completion events are shown in the Output panel. The default `normal`
-verbosity also streams line-buffered backend progress, including CMake and Ninja
-configure, compile, and link output. Use `compact` for lifecycle events only or
-`verbose` for full CLI and backend detail. Successful event completions can
-refresh the workspace tree, malformed JSONL is surfaced as a CLI compatibility
-error, and non-event JSON lines are ignored. Configure `ngin.output.color` for
-commands that still use human output.
-
-## Build And Install
-
-Prerequisites:
-
-- Node.js
-- npm
-- VS Code command-line launcher: `code`
-
-From this directory:
+Build the native CLI first:
 
 ```bash
-cd Tools/NGIN.VSCode
-npm ci
+cmake --preset dev
+cmake --build build/dev --target ngin_cli
+```
+
+The extension finds the repository build by default. You can also configure a
+different CLI path in VS Code settings.
+
+## Build the extension
+
+From `Tools/NGIN.VSCode`:
+
+```bash
+npm install
 npm run build
 ```
 
-Package and install the extension locally:
+Create an installable VSIX with:
 
 ```bash
-VERSION=$(node -p "require('./package.json').version")
-npx @vscode/vsce package --out "ngin-vscode-${VERSION}.vsix"
-code --install-extension "./ngin-vscode-${VERSION}.vsix" --force
+npm run package
 ```
 
-Reload VS Code after installing:
+## Use it
 
-```bash
-code --reuse-window /home/berggrenmille/NGIN
-```
+Open a folder containing a `.ngin` workspace or `.nginproj`. Use
+`NGIN: Select Manifest` if automatic discovery chooses the wrong entry point,
+then select the active project and profile from the status bar or NGIN views.
 
-## Daily Use
-
-Open the repository root in VS Code. The extension activates when it finds
-`.nginproj` files.
-
-Typical flow:
-
-1. Open the NGIN activity-bar Solution view.
-2. Choose a project from the tree and a profile from the view toolbar.
-3. Expand Project Files or Dependencies for navigation, and use Active Project
-   for Tooling, Launch, Publish, or Artifacts.
-4. Toggle NGIN Inputs Only to inspect active-profile membership, or use Follow
-   Active Editor while navigating source.
-5. Edit common `.nginproj` fields in the visual editor or reopen XML source for
-   unsupported sections.
-6. Run Validate, Build, Publish, Run, Debug, or Graph from the view toolbar,
-   command palette, status bar where available, or project/profile context menu.
-
-The same flow is available from the command palette with commands such as:
+Common commands include:
 
 ```text
-NGIN: Select Project
-NGIN: Select Profile
 NGIN: Build
-NGIN: Publish…
 NGIN: Run
 NGIN: Debug
-NGIN: Analyze
-NGIN: Analyze Active File
-NGIN: Analyze Changed Files…
-NGIN: Run Tool
-NGIN: Configure Tool…
-NGIN: Configure Run on Save…
-NGIN: Show Resolved Inputs
-NGIN: Show Inactive Tooling
+NGIN: Validate
+NGIN: Publish
+NGIN: Show Graph
+NGIN: Show Tooling Plan
 NGIN: Explain Selection
-NGIN: Add Tool Action
-NGIN: Explain Variables
-NGIN: Initialize Local Settings
 ```
 
-## Development
+Build output defaults to `build/ngin/<Project>/<Profile>`. Run and debug require
+the `.nginlaunch` generated by a successful build; the extension can build when
+that file is missing or stale.
 
-Run type checks and unit tests:
+`.nginproj` opens in the visual editor by default. Edits are applied through
+the VS Code document model, so undo, dirty state, comments, and unsupported XML
+remain under editor control. Use `NGIN: Open Project XML Source` at any time.
+
+## Project files
+
+The Solution view can show all physical files or only the selected inputs for
+the active profile. It distinguishes authored, unselected, external,
+generated, missing, and unknown files. File operations enforce project and
+nested-project boundaries before updating exact manifest entries.
+
+## Tooling
+
+Tool runs come from packages and the resolved project graph. The extension can
+display diagnostics, preview or apply digest-checked edits, run eligible tools
+on save, and expose compatible format actions through VS Code's Format Document
+API. It contains no Clang-Tidy- or Clang-Format-specific invocation logic.
+
+Tool execution and edit application are disabled in untrusted workspaces.
+
+## Develop and test
 
 ```bash
 npm run typecheck
 npm run test:unit
-```
-
-Run integration tests:
-
-```bash
 npm run test:integration
 ```
 
-For active extension development, open `Tools/NGIN.VSCode` in VS Code and launch
-the extension host target from the checked-in debugging profile. The
-extension host opens the repository root as the test workspace and builds the
-extension before launch.
+Open this directory in VS Code and launch the checked-in extension-host profile
+for interactive development.
 
-## Notes
-
-- The extension expects the native CLI to be available from the repository build
-  output or configured extension settings.
-- Build outputs, launch manifests, compile databases, and generator outputs are
-  generated artifacts.
-- The extension should not invent editor-only behavior that disagrees with the
-  CLI contract.
+See the [CLI reference](../../docs/reference/cli.md) and
+[Composition Graph reference](../../docs/reference/composition-graph.md) for
+the contracts the extension consumes.

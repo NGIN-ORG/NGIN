@@ -1,37 +1,25 @@
-# NGIN.UI SDL3 Backend
+# NGIN.UI SDL3 backend
 
-`NGIN.UI.Backend.SDL3` is the native platform and renderer provider for
-`NGIN.UI`. It implements `IPlatformBackend` with SDL3 windows and events, and
-implements `IRenderBackend` with SDL's GPU-backed renderer API.
+This package provides native windowing and rendering for `NGIN.UI` through
+SDL3. It depends on the backend-neutral UI core and the repository's SDL3
+source provider.
 
-The backend provides:
+Current package version: `0.4.0`.
 
-- high-DPI native windows and multiple-window lifecycle;
-- normalized keyboard, text, IME, pointer, wheel, file-drop, display, and theme
-  events;
-- event-loop polling, bounded waits, and cross-thread wake events;
-- a monotonic animation clock and the Windows client-animation preference;
-- clipboard, cursor, display, and text-input services;
-- SDL_GPU-backed surfaces, indexed geometry, scissor rectangles,
-  premultiplied-alpha blending, and texture updates;
-- renderer-wide logical textures mirrored lazily into each window surface,
-  preserving the backend-neutral multi-window texture contract.
+Use it for desktop applications that want the standard NGIN.UI backend. Use the
+headless platform and recording renderer from `NGIN.UI` for deterministic unit
+tests.
 
-The public factories are declared in
-`<NGIN/UI/Backend/SDL3/SDL3.hpp>`. Applications own the returned platform and
-renderer instances and pass them to `NGIN::UI::Application`.
-
-## Provider
-
-The sibling [`../SDL3`](../SDL3/) package is the selected source provider. It
-pins SDL 3.4.12 and exposes the static `SDL3::SDL3-static` target. No SDL2
-compatibility path is included.
-
-For a focused headless contract check:
-
-```sh
-cmake -S Packages/NGIN.UI.Backend.SDL3 -B build/ngin-ui-sdl3 \
-  -DNGIN_UI_SDL3_BUILD_TESTS=ON
-cmake --build build/ngin-ui-sdl3 --target NGINUISDL3Tests
-ctest --test-dir build/ngin-ui-sdl3 --output-on-failure
+```xml
+<Package Name="NGIN.UI.Backend.SDL3"
+         Version=">=0.4.0 &lt;0.5.0"
+         Scope="Target">
+  <Feature Name="RuntimeNotices" />
+</Package>
 ```
+
+Start with the [first-window guide](../../docs/guides/ngin-ui-first-window.md)
+or the runnable [Gallery](../../Examples/NGIN.UI.Gallery).
+
+SDL notices and licenses are staged through the `RuntimeNotices` feature. See
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).

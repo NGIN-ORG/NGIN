@@ -1,30 +1,17 @@
-# NGIN.UI Multi-Page Example
+# NGIN.UI multi-page application
 
-This is the smallest complete hosted NGIN.UI application in the repository.
-It demonstrates:
+A small hosted UI application demonstrating services, page-scoped ViewModels,
+typed navigation parameters, back navigation, async loading, and deterministic
+scope teardown.
 
-- Core singleton and page-scoped services;
-- a reflection-free Home ViewModel;
-- a reflected Detail ViewModel constructor;
-- typed page registration and navigation parameters;
-- back navigation;
-- an asynchronous page load;
-- deterministic ViewModel, task, and page-scope teardown.
-
-Build and run it with:
-
-```powershell
-build/dev/Tools/NGIN.CLI/ngin.exe build `
-  --project Examples/NGIN.UI.MultiPage/NGIN.UI.MultiPage.nginproj `
-  --profile Debug `
-  --output build/manual/NGIN.UI.MultiPage
-build/manual/NGIN.UI.MultiPage/bin/NGIN.UI.MultiPage.exe
+```bash
+ngin build --project Examples/NGIN.UI.MultiPage/NGIN.UI.MultiPage.nginproj --profile Debug --output build/manual/NGIN.UI.MultiPage
+ngin run --project Examples/NGIN.UI.MultiPage/NGIN.UI.MultiPage.nginproj --profile Debug --output build/manual/NGIN.UI.MultiPage
 ```
 
-Pass `--smoke` to create both pages, begin the async load, and exit through the
-normal cancellation and scope-teardown path.
+Pass `--smoke` after `--` to create both pages, begin async loading, and exit
+through the normal cancellation path.
 
-The Views are the `ComposeHome` and `ComposeDetail` functions in
-`src/main.cpp`. They own controls and layout. Their ViewModels own state and
-actions. Core owns service lifetimes, and `NavigationService` owns the page
-stack.
+The `ComposeHome` and `ComposeDetail` functions own views, ViewModels own state
+and actions, `NGIN.Core` owns service lifetimes, and the navigation service owns
+the page stack.

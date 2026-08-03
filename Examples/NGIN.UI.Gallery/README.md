@@ -1,85 +1,29 @@
 # NGIN.UI Gallery
 
-This app lets you try the controls and features in `NGIN.UI`.
+The Gallery is the main interactive catalogue for `NGIN.UI`.
 
-![NGIN.UI gallery Inputs page](docs/gallery-overview.png)
+![NGIN.UI Gallery](docs/gallery-overview.png)
 
-Search the sidebar by a page name or feature. Every page ends with a small
-public API example and a **Copy example** button.
+It covers layout, typography, text editing, images, inputs, async data,
+collections, virtualization, motion, overlays, windows, themes, accessibility,
+and diagnostics. Each page includes a small public API example.
 
-The sidebar has fourteen pages:
-
-- **Overview** shows colors, buttons, and custom controls.
-- **Layout** shows a grid form, a toolbar that wraps, dashboard tiles, a
-  free-positioned canvas, and scrolling. Resize the window to see it adapt.
-- **Typography** shows Latin, Greek, Cyrillic, Arabic, combined letters,
-  symbols, wrapping, alignment, and the color-emoji policy.
-- **Text Area** lets you write, select, copy, paste, and scroll through text.
-- **Images** loads a staged PNG through the public decoder and shows fitting,
-  cropping, alignment, clipping, and tint.
-- **Inputs** shows buttons, checkboxes, radio buttons, switches, sliders,
-  progress bars, tooltips, and text fields.
-- **Async Data** shows loading, content, empty, failure, retry, cancellation,
-  and ViewModel task ownership.
-- **Collections** shows a 100,000-item list with live realization and range-load
-  counts, plus ordinary lists, sorting, filtering, combo boxes, tabs, and menus.
-- **Motion** shows fades, movement, scaling, colors, easing, awaited steps,
-  parallel motion, interruption, three-trip repetition, cancellation, popup
-  motion, progress motion, and a less-motion preview.
-- **Overlays** shows a popup that closes with Escape or an outside click.
-- **Windows** opens another window and a dialog.
-- **Themes** switches between light and dark colors.
-- **Accessibility** shows native provider status and controls to try with
-  Windows Narrator.
-- **Diagnostics** shows the typed page stack, page leases, ViewModel tasks,
-  service activations, navigation failures, drawing numbers, resolved grid
-  tracks, wrapped lines, virtualized lists, loaded fallback fonts, missing
-  characters, and optional layout guides.
-
-The [hosted gallery](../NGIN.UI.Gallery.Hosted/) shows the same screens inside
-an `NGIN.Core` application.
-
-Build and launch it through the V4 product manifest:
-
-```sh
-ngin build --project Examples/NGIN.UI.Gallery/NGIN.UI.Gallery.nginproj \
-  --profile Debug --output build/manual/NGIN.UI.Gallery
+```bash
+ngin build --project Examples/NGIN.UI.Gallery/NGIN.UI.Gallery.nginproj --profile Debug --output build/manual/NGIN.UI.Gallery
+ngin run --project Examples/NGIN.UI.Gallery/NGIN.UI.Gallery.nginproj --profile Debug --output build/manual/NGIN.UI.Gallery
 ```
 
-Run the staged executable without arguments to use the gallery interactively:
+Useful application arguments:
 
-```powershell
-build/manual/NGIN.UI.Gallery/bin/NGIN.UI.Gallery.exe
+```text
+--page Collections       open one catalogue page
+--page Accessibility     open the accessibility page
+--smoke                  render every page, then exit
 ```
 
-Open a specific catalogue page directly:
+The [hosted Gallery](../NGIN.UI.Gallery.Hosted) uses the same screens through
+`NGIN.Core`. The [headless test product](../NGIN.UI.Gallery.Tests) renders the
+catalogue through deterministic test backends.
 
-```powershell
-build/manual/NGIN.UI.Gallery/bin/NGIN.UI.Gallery.exe --page Collections
-```
-
-Open the interactive animation examples directly:
-
-```powershell
-build/manual/NGIN.UI.Gallery/bin/NGIN.UI.Gallery.exe --page Motion
-```
-
-On Windows, open the accessibility examples and start Narrator with
-`Windows+Ctrl+Enter`:
-
-```powershell
-build/manual/NGIN.UI.Gallery/bin/NGIN.UI.Gallery.exe --page Accessibility
-```
-
-Pass `--smoke` to visit and render every catalogue page, then exit
-automatically. Without that flag, the gallery uses the event-driven application
-loop until its window is closed.
-
-The deterministic headless companion product is
-[`../NGIN.UI.Gallery.Tests`](../NGIN.UI.Gallery.Tests/). It renders every page
-through the recording backend and also checks theme, popup, inspector,
-auxiliary-window, and modal-dialog state.
-
-To create the versioned 0.4 demo archive, use the `Release` profile and the
-`demo` publisher. The exact commands and archive contents are in the
+The `Release` profile can publish the versioned demo archive described in the
 [0.4 release notes](../../docs/guides/ngin-ui-v0.4-release.md).
