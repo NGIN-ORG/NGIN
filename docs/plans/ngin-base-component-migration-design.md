@@ -1,6 +1,6 @@
 # NGIN.Base compiled-component migration review
 
-Status: awaiting the Milestone 6 approval gate.
+Status: approved on 2026-08-05; implementation in progress.
 
 ## Decision requested
 

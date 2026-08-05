@@ -295,6 +295,9 @@ TLS changes provider integration and may require an additional third-party
 library target such as `OpenSSL::SSL`. Review and approve the provider plan
 before implementation.
 
+Approved on 2026-08-05. The implementation follows
+`ngin-base-tls-provider-design.md`.
+
 ### Recommended initial provider
 
 Define a backend-neutral public contract and implement an OpenSSL-compatible
@@ -313,35 +316,35 @@ the initial change.
 
 ### Work
 
-- [ ] Define client and server context ownership.
-- [ ] Integrate TLS as an `IByteStream` filter.
-- [ ] Add client and server handshakes.
-- [ ] Add SNI.
-- [ ] Add ALPN configuration and negotiated-protocol reporting.
-- [ ] Add certificate-chain validation.
-- [ ] Add hostname verification.
-- [ ] Support custom trust stores.
-- [ ] Support client certificates and mutual TLS.
-- [ ] Consume existing `TlsCredentialMaterial` where appropriate.
-- [ ] Support handshake timeout and cancellation.
-- [ ] Support clean TLS shutdown.
-- [ ] Distinguish transport, protocol, certificate, hostname, and provider
+- [x] Define client and server context ownership.
+- [x] Integrate TLS as an `IByteStream` filter.
+- [x] Add client and server handshakes.
+- [x] Add SNI.
+- [x] Add ALPN configuration and negotiated-protocol reporting.
+- [x] Add certificate-chain validation.
+- [x] Add hostname verification.
+- [x] Support custom trust stores.
+- [x] Support client certificates and mutual TLS.
+- [x] Consume existing `TlsCredentialMaterial` where appropriate.
+- [x] Support handshake timeout and cancellation.
+- [x] Support clean TLS shutdown.
+- [x] Distinguish transport, protocol, certificate, hostname, and provider
   failures.
-- [ ] Update the OpenSSL package wrapper and provider diagnostics as approved.
+- [x] Update the OpenSSL package wrapper and provider diagnostics as approved.
 
 ### Testing
 
-- [ ] Use a local loopback client and server.
-- [ ] Commit only non-secret test certificate material.
-- [ ] Cover a trusted certificate.
-- [ ] Cover an untrusted issuer.
-- [ ] Cover an expired certificate.
-- [ ] Cover a hostname mismatch.
-- [ ] Cover required and missing client certificates.
-- [ ] Cover ALPN success and mismatch.
-- [ ] Cover fragmented reads and writes.
-- [ ] Cover cancellation and timeout during handshake.
-- [ ] Avoid internet-dependent tests.
+- [x] Use a local loopback client and server.
+- [x] Commit only non-secret test certificate material.
+- [x] Cover a trusted certificate.
+- [x] Cover an untrusted issuer.
+- [x] Cover an expired certificate.
+- [x] Cover a hostname mismatch.
+- [x] Cover required and missing client certificates.
+- [x] Cover ALPN success and mismatch.
+- [x] Cover fragmented reads and writes.
+- [x] Cover cancellation and timeout during handshake.
+- [x] Avoid internet-dependent tests.
 
 ### Completion criteria
 
@@ -395,6 +398,9 @@ to behavioral parity.
 
 This is a broad build, package, and ownership restructuring. Review the final
 component graph and consumer migration list before changing target semantics.
+
+Approved on 2026-08-05. The implementation follows
+`ngin-base-component-migration-design.md`.
 
 ### Objective
 
@@ -586,7 +592,7 @@ header into an accidental dependency on every subsystem.
 - [x] SIMD.
 - [x] Containers.
 - [x] IO, filesystem, and Process.
-- [ ] Network, addressing, DNS, and TLS.
+- [x] Network, addressing, DNS, and TLS.
 - [x] Serialization.
 - [x] Crypto.
 
@@ -629,7 +635,7 @@ installation modes.
 - [x] ARM/NEON through an available ARM runner.
 - [x] OpenSSL provider tests.
 - [x] libsodium provider tests.
-- [ ] TLS provider tests.
+- [x] TLS provider tests.
 - [x] Bounded parser fuzzing.
 - [ ] Static component build.
 - [ ] Shared component build.
@@ -663,8 +669,8 @@ Keep the work in reviewable changes, approximately as follows:
 6. [x] DNS resolution.
 7. [x] Filesystem atomic and Windows operations.
 8. [x] Cross-mount VFS operations.
-9. [ ] TLS public design and provider decision.
-10. [ ] TLS provider implementation.
+9. [x] TLS public design and provider decision.
+10. [x] TLS provider implementation.
 11. [ ] Real component targets and installation.
 12. [ ] Consumer target migration.
 13. [x] Concurrent-map reclamation.
@@ -717,7 +723,7 @@ The plan is complete when:
 - [ ] All milestone completion criteria are satisfied.
 - [ ] No known `NGIN.Base` not-implemented path covered by this plan remains.
 - [x] The CLI uses the shared Process API.
-- [ ] Addressing, DNS, and TLS are usable through explicit runtime contracts.
+- [x] Addressing, DNS, and TLS are usable through explicit runtime contracts.
 - [x] Filesystem behavior is documented and tested across supported platforms.
 - [ ] Component targets are independently buildable, installable, and
   consumable.

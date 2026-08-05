@@ -4,7 +4,7 @@
          Version="3.0.0"
          CompatiblePlatformRange=">=0.1.0-alpha.1 &lt;0.2.0">
   <Metadata>
-    <Description>OpenSSL libcrypto package-backed provider metadata for NGIN.Base crypto.</Description>
+    <Description>OpenSSL libssl/libcrypto package-backed provider metadata for NGIN.Base crypto and TLS.</Description>
     <License>Apache-2.0</License>
   </Metadata>
   <Build Backend="CMake"
@@ -14,13 +14,20 @@
          CMakePackage="OpenSSL"
          Linkage="Static;Shared"
          RuntimeDeployment="PackageRuntimeLibraries"
-         RuntimeArtifacts="libcrypto">
+         RuntimeArtifacts="libssl;libcrypto">
     <Options>
       <Option Name="NGIN_BASE_CRYPTO_WITH_OPENSSL" Value="ON" />
+      <Option Name="NGIN_BASE_TLS_WITH_OPENSSL" Value="ON" />
     </Options>
   </Build>
   <Library Name="OpenSSL.Crypto">
     <Exports>
+      <LibraryTarget Name="OpenSSL::Crypto" />
+    </Exports>
+  </Library>
+  <Library Name="OpenSSL.TLS">
+    <Exports>
+      <LibraryTarget Name="OpenSSL::SSL" />
       <LibraryTarget Name="OpenSSL::Crypto" />
     </Exports>
   </Library>
@@ -46,6 +53,12 @@
         <Capability Name="Crypto.Algorithm.RsaPssSha256" />
         <Capability Name="Crypto.Algorithm.RsaOaepSha256" />
         <Capability Name="Crypto.Algorithm.X25519" />
+      </Provides>
+    </Feature>
+    <Feature Name="TlsProvider"
+             Description="Expose OpenSSL libssl as the NGIN.Net TLS provider.">
+      <Provides>
+        <Capability Name="Net.TLS.Provider.openssl" />
       </Provides>
     </Feature>
   </Features>

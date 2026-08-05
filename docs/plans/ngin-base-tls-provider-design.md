@@ -1,6 +1,6 @@
 # NGIN.Base TLS provider design review
 
-Status: awaiting the Milestone 4 approval gate.
+Status: approved on 2026-08-05 and implemented.
 
 ## Decision requested
 

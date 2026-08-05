@@ -55,6 +55,8 @@ jobs:
           -DNGIN_BASE_BUILD_BENCHMARKS=OFF
           -DNGIN_BASE_CRYPTO_WITH_OPENSSL=ON
           -DNGIN_BASE_CRYPTO_REQUIRE_PROVIDER=openssl
+          -DNGIN_BASE_TLS_WITH_OPENSSL=ON
+          -DNGIN_BASE_TLS_REQUIRE_PROVIDER=openssl
           -DNGIN_BASE_CRYPTO_REQUIRE_ALGORITHMS="random;sha256;hmac-sha256;hkdf-sha256;pbkdf2-sha256;aes-256-gcm;chacha20-poly1305;ed25519;x25519"
           -DCMAKE_BUILD_TYPE=Release
 
@@ -68,13 +70,15 @@ jobs:
           Crypto_SignatureTests
           Crypto_ProviderConformanceTests
           Include_CryptoTests
+          Include_NetTests
+          Net_TLSTests
 
       - name: Run OpenSSL provider tests
         run: >
           ctest
           --test-dir build/ngin-base-openssl
           --output-on-failure
-          -R "^Base\.(Crypto\.(Backend|Aead|Asymmetric|Kdf|Signature|ProviderConformance)|Include\.Crypto)\."
+          -R "^Base\.(Crypto\.(Backend|Aead|Asymmetric|Kdf|Signature|ProviderConformance)|Include\.(Crypto|Net)|Net\.TLS)\."
 
   libsodium:
     name: libsodium provider vectors
