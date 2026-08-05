@@ -73,6 +73,13 @@ jobs:
           Crypto_PasetoFuzzer
           Crypto_PemFuzzer
           Crypto_X509Fuzzer
+          Serialization_JsonDomFuzzer
+          Serialization_JsonEventFuzzer
+          Serialization_JsonIncrementalFuzzer
+          Serialization_XmlSemanticFuzzer
+          Serialization_XmlSyntaxFuzzer
+          Serialization_XmlIncrementalFuzzer
+          Serialization_EscapeEntityFuzzer
 
       - name: Run fuzzer startup checks
         run: >
@@ -81,6 +88,14 @@ jobs:
           --output-on-failure
           -C RelWithDebInfo
           -L Crypto.Fuzz
+
+      - name: Run serialization fuzzer startup checks
+        run: >
+          ctest
+          --test-dir build/ngin-base-crypto-fuzz-ci
+          --output-on-failure
+          -C RelWithDebInfo
+          -L Serialization.Fuzz
 
       - name: Run bounded parser fuzz campaign
         run: |
@@ -101,12 +116,34 @@ jobs:
               -artifact_prefix="${GITHUB_WORKSPACE}/build/fuzz-artifacts/parser/"
           done
 
+      - name: Run bounded JSON and XML fuzz campaign
+        run: |
+          set -euo pipefail
+          mkdir -p build/fuzz-artifacts/serialization
+          for fuzzer in \
+            Serialization_JsonDomFuzzer \
+            Serialization_JsonEventFuzzer \
+            Serialization_JsonIncrementalFuzzer \
+            Serialization_XmlSemanticFuzzer \
+            Serialization_XmlSyntaxFuzzer \
+            Serialization_XmlIncrementalFuzzer \
+            Serialization_EscapeEntityFuzzer
+          do
+            "build/ngin-base-crypto-fuzz-ci/tests/${fuzzer}" \
+              -runs="${FUZZ_RUNS}" \
+              -max_len=4096 \
+              -print_final_stats=1 \
+              -artifact_prefix="${GITHUB_WORKSPACE}/build/fuzz-artifacts/serialization/"
+          done
+
       - name: Upload fuzzer artifacts
         if: failure()
         uses: actions/upload-artifact@v7
         with:
           name: crypto-parser-fuzzer-artifacts
-          path: build/fuzz-artifacts/parser/
+          path: |
+            build/fuzz-artifacts/parser/
+            build/fuzz-artifacts/serialization/
           if-no-files-found: ignore
           retention-days: 14
 

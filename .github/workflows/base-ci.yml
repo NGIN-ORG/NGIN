@@ -1,0 +1,284 @@
+name: NGIN.Base CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/base-ci.yml"
+      - ".github/workflows/crypto-fuzz-ci.yml"
+      - ".github/workflows/crypto-provider-ci.yml"
+      - "Dependencies/NGIN/NGIN.Base/**"
+      - "Packages/NGIN.Base/**"
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/base-ci.yml"
+      - ".github/workflows/crypto-fuzz-ci.yml"
+      - ".github/workflows/crypto-provider-ci.yml"
+      - "Dependencies/NGIN/NGIN.Base/**"
+      - "Packages/NGIN.Base/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: base-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  platform:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows MSVC
+            os: windows-latest
+            cc: cl
+            cxx: cl
+          - name: Linux GCC
+            os: ubuntu-latest
+            cc: gcc
+            cxx: g++
+          - name: Linux Clang
+            os: ubuntu-latest
+            cc: clang
+            cxx: clang++
+          - name: macOS AppleClang
+            os: macos-latest
+            cc: clang
+            cxx: clang++
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Set up MSVC
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install Ninja on Linux
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ninja-build
+
+      - name: Configure static tests
+        env:
+          CC: ${{ matrix.cc }}
+          CXX: ${{ matrix.cxx }}
+        run: >
+          cmake
+          -S Dependencies/NGIN/NGIN.Base
+          -B build/ngin-base-platform
+          -GNinja
+          -DNGIN_BASE_BUILD_STATIC=ON
+          -DNGIN_BASE_BUILD_SHARED=OFF
+          -DNGIN_BASE_BUILD_TESTS=ON
+          -DNGIN_BASE_BUILD_EXAMPLES=OFF
+          -DNGIN_BASE_BUILD_BENCHMARKS=OFF
+          -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build static tests and public headers
+        run: cmake --build build/ngin-base-platform --parallel 2
+
+      - name: Run tests
+        run: ctest --test-dir build/ngin-base-platform --output-on-failure -C Release
+
+      - name: Upload CTest logs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: base-platform-logs-${{ matrix.os }}-${{ matrix.cxx }}
+          path: build/ngin-base-platform/Testing/Temporary/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  sanitizers:
+    name: Linux ASan + UBSan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+      - name: Install prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes clang ninja-build
+      - name: Configure sanitizers
+        env:
+          CC: clang
+          CXX: clang++
+        run: >
+          cmake
+          -S Dependencies/NGIN/NGIN.Base
+          -B build/ngin-base-asan
+          -GNinja
+          -DNGIN_BASE_BUILD_TESTS=ON
+          -DNGIN_BASE_BUILD_EXAMPLES=OFF
+          -DNGIN_BASE_BUILD_BENCHMARKS=OFF
+          -DNGIN_BASE_ENABLE_ASAN=ON
+          -DCMAKE_BUILD_TYPE=Debug
+      - name: Build sanitizer tests
+        run: cmake --build build/ngin-base-asan --parallel 2
+      - name: Run sanitizer tests
+        env:
+          ASAN_OPTIONS: detect_leaks=1:strict_string_checks=1:check_initialization_order=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: ctest --test-dir build/ngin-base-asan --output-on-failure
+
+  thread-sanitizer:
+    name: Linux ThreadSanitizer
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+      - name: Install prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes clang ninja-build
+      - name: Configure ThreadSanitizer
+        env:
+          CC: clang
+          CXX: clang++
+        run: >
+          cmake
+          -S Dependencies/NGIN/NGIN.Base
+          -B build/ngin-base-tsan
+          -GNinja
+          -DNGIN_BASE_BUILD_TESTS=ON
+          -DNGIN_BASE_BUILD_EXAMPLES=OFF
+          -DNGIN_BASE_BUILD_BENCHMARKS=OFF
+          -DNGIN_BASE_ENABLE_TSAN=ON
+          -DCMAKE_BUILD_TYPE=Debug
+      - name: Build concurrency tests
+        run: >
+          cmake --build build/ngin-base-tsan --parallel 2 --target
+          Sync_AtomicConditionTests
+          Sync_PrimitivesTests
+          Containers_ConcurrentHashMapTests
+          Containers_ConcurrentHashMapCoverageTests
+          Containers_ConcurrentHashMapStressTests
+      - name: Run concurrency tests under ThreadSanitizer
+        env:
+          TSAN_OPTIONS: halt_on_error=1:second_deadlock_stack=1
+        run: >
+          ctest --test-dir build/ngin-base-tsan --output-on-failure
+          -R "^Base\.(Sync|Containers\.ConcurrentHashMap)\."
+
+  simd-x64:
+    name: SIMD ${{ matrix.isa }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - isa: SSE2
+            flags: -msse2
+          - isa: AVX2
+            flags: -mavx2
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+      - name: Install prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ninja-build
+      - name: Configure SIMD build
+        env:
+          CXXFLAGS: ${{ matrix.flags }}
+        run: >
+          cmake
+          -S Dependencies/NGIN/NGIN.Base
+          -B build/ngin-base-simd
+          -GNinja
+          -DNGIN_BASE_BUILD_TESTS=ON
+          -DNGIN_BASE_BUILD_EXAMPLES=OFF
+          -DNGIN_BASE_BUILD_BENCHMARKS=OFF
+          -DCMAKE_BUILD_TYPE=Release
+      - name: Build SIMD tests
+        run: cmake --build build/ngin-base-simd --target SIMD_VecScalarTestsTests --parallel 2
+      - name: Run SIMD tests
+        run: ctest --test-dir build/ngin-base-simd --output-on-failure -R "^Base\.SIMD\."
+
+  simd-arm64:
+    name: ARM64 NEON
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+      - name: Install prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ninja-build
+      - name: Configure native ARM SIMD build
+        env:
+          CXXFLAGS: -march=armv8-a+simd
+        run: >
+          cmake
+          -S Dependencies/NGIN/NGIN.Base
+          -B build/ngin-base-neon
+          -GNinja
+          -DNGIN_BASE_BUILD_TESTS=ON
+          -DNGIN_BASE_BUILD_EXAMPLES=OFF
+          -DNGIN_BASE_BUILD_BENCHMARKS=OFF
+          -DCMAKE_BUILD_TYPE=Release
+      - name: Build and run native ARM SIMD tests
+        run: |
+          cmake --build build/ngin-base-neon --target SIMD_VecScalarTestsTests --parallel 2
+          ctest --test-dir build/ngin-base-neon --output-on-failure -R "^Base\.SIMD\."
+
+  shared-and-install:
+    name: Shared library and installed consumer
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+      - name: Install prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ninja-build
+      - name: Configure shared library
+        run: >
+          cmake
+          -S Dependencies/NGIN/NGIN.Base
+          -B build/ngin-base-shared
+          -GNinja
+          -DNGIN_BASE_BUILD_STATIC=OFF
+          -DNGIN_BASE_BUILD_SHARED=ON
+          -DNGIN_BASE_BUILD_TESTS=OFF
+          -DNGIN_BASE_BUILD_EXAMPLES=OFF
+          -DNGIN_BASE_BUILD_BENCHMARKS=OFF
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/build/ngin-base-install
+      - name: Build and install shared library
+        run: |
+          cmake --build build/ngin-base-shared --parallel 2
+          cmake --install build/ngin-base-shared --config Release
+      - name: Configure installed consumer
+        run: >
+          cmake
+          -S Dependencies/NGIN/NGIN.Base/consumer-tests
+          -B build/ngin-base-consumer
+          -GNinja
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_PREFIX_PATH=${{ github.workspace }}/build/ngin-base-install
+      - name: Build and run installed consumer
+        run: |
+          cmake --build build/ngin-base-consumer --parallel 2
+          build/ngin-base-consumer/NGINBaseConsumer

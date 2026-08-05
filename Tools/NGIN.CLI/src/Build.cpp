@@ -7,14 +7,14 @@
 #include "Resolution.hpp"
 #include "Support.hpp"
 
+#include <NGIN/IO/Process.hpp>
+
 #if defined(_WIN32)
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
 #include <windows.h>
 #else
-#include <cerrno>
-#include <sys/wait.h>
 #include <unistd.h>
 #endif
 
@@ -371,45 +371,21 @@ FindBundledToolPath(const std::string &tool,
   return std::nullopt;
 }
 
-#if defined(_WIN32)
-[[nodiscard]] auto QuoteWindowsArgument(const std::wstring &value)
-    -> std::wstring {
-  if (value.empty()) {
-    return L"\"\"";
-  }
-
-  const auto needsQuotes =
-      value.find_first_of(L" \t\n\v\"") != std::wstring::npos;
-  if (!needsQuotes) {
-    return value;
-  }
-
-  std::wstring quoted{L"\""};
-  unsigned int backslashes = 0;
-  for (const wchar_t ch : value) {
-    if (ch == L'\\') {
-      ++backslashes;
-      continue;
-    }
-    if (ch == L'"') {
-      quoted.append(backslashes * 2 + 1, L'\\');
-      quoted.push_back(L'"');
-      backslashes = 0;
-      continue;
-    }
-    if (backslashes > 0) {
-      quoted.append(backslashes, L'\\');
-      backslashes = 0;
-    }
-    quoted.push_back(ch);
-  }
-  if (backslashes > 0) {
-    quoted.append(backslashes * 2, L'\\');
-  }
-  quoted.push_back(L'"');
-  return quoted;
+[[nodiscard]] auto ProcessPath(const fs::path &path) -> NGIN::IO::Path {
+  const auto utf8 = path.generic_u8string();
+  return NGIN::IO::Path{std::string{utf8.begin(), utf8.end()}};
 }
-#endif
+
+[[noreturn]] auto ThrowProcessFailure(const fs::path &executable,
+                                      const NGIN::IO::ProcessError &error)
+    -> void {
+  throw std::runtime_error(
+      "failed to run process '" + executable.string() +
+      "': " + std::string{error.message.View()} +
+      (error.systemCode != 0
+           ? " (system error " + std::to_string(error.systemCode) + ")"
+           : ""));
+  }
 
 [[nodiscard]] auto SanitizeIdentifier(std::string value) -> std::string {
   for (auto &ch : value) {
@@ -2876,94 +2852,17 @@ auto ToolExists(const std::string &tool,
 auto RunProcess(const fs::path &executable,
                 const std::vector<std::string> &arguments,
                 const std::optional<fs::path> &workingDirectory) -> int {
-#if defined(_WIN32)
-  std::wstring commandLine = QuoteWindowsArgument(executable.wstring());
-  for (const auto &argument : arguments) {
-    commandLine += L" ";
-    commandLine += QuoteWindowsArgument(fs::path(argument).wstring());
-  }
-
-  std::vector<wchar_t> commandBuffer(commandLine.begin(), commandLine.end());
-  commandBuffer.push_back(L'\0');
-
-  std::wstring workingDirectoryValue{};
-  const wchar_t *workingDirectoryPtr = nullptr;
+  NGIN::IO::ProcessOptions options{};
+  options.executable = ProcessPath(executable);
+  options.arguments = arguments;
   if (workingDirectory.has_value()) {
-    workingDirectoryValue = workingDirectory->wstring();
-    workingDirectoryPtr = workingDirectoryValue.c_str();
+    options.workingDirectory = ProcessPath(*workingDirectory);
   }
-
-  STARTUPINFOW startupInfo{};
-  startupInfo.cb = sizeof(startupInfo);
-  PROCESS_INFORMATION processInfo{};
-  if (!CreateProcessW(nullptr, commandBuffer.data(), nullptr, nullptr, FALSE, 0,
-                      nullptr, workingDirectoryPtr, &startupInfo,
-                      &processInfo)) {
-    const auto errorCode = GetLastError();
-    throw std::runtime_error("failed to start process '" + executable.string() +
-                             "' in '" +
-                             workingDirectory.value_or(fs::current_path()).string() +
-                             "' (Windows error " +
-                             std::to_string(errorCode) + ")");
+  const auto result = NGIN::IO::RunProcess(std::move(options));
+  if (!result.HasValue()) {
+    ThrowProcessFailure(executable, result.Error());
   }
-
-  WaitForSingleObject(processInfo.hProcess, INFINITE);
-  DWORD exitCode = 1;
-  if (!GetExitCodeProcess(processInfo.hProcess, &exitCode)) {
-    CloseHandle(processInfo.hThread);
-    CloseHandle(processInfo.hProcess);
-    throw std::runtime_error("failed to read exit code for process '" +
-                             executable.string() + "'");
-  }
-
-  CloseHandle(processInfo.hThread);
-  CloseHandle(processInfo.hProcess);
-  return static_cast<int>(exitCode);
-#else
-  std::vector<std::string> argvStorage{};
-  argvStorage.reserve(arguments.size() + 1);
-  argvStorage.push_back(executable.string());
-  argvStorage.insert(argvStorage.end(), arguments.begin(), arguments.end());
-
-  std::vector<char *> argv{};
-  argv.reserve(argvStorage.size() + 1);
-  for (auto &value : argvStorage) {
-    argv.push_back(value.data());
-  }
-  argv.push_back(nullptr);
-
-  const auto processId = ::fork();
-  if (processId < 0) {
-    throw std::runtime_error("failed to fork process '" + executable.string() +
-                             "'");
-  }
-
-  if (processId == 0) {
-    if (workingDirectory.has_value() &&
-        ::chdir(workingDirectory->c_str()) != 0) {
-      std::_Exit(127);
-    }
-    ::execvp(executable.c_str(), argv.data());
-    std::_Exit(errno == ENOENT ? 127 : 126);
-  }
-
-  int status = 0;
-  while (::waitpid(processId, &status, 0) < 0) {
-    if (errno == EINTR) {
-      continue;
-    }
-    throw std::runtime_error("failed to wait for process '" +
-                             executable.string() + "'");
-  }
-
-  if (WIFEXITED(status)) {
-    return WEXITSTATUS(status);
-  }
-  if (WIFSIGNALED(status)) {
-    return 128 + WTERMSIG(status);
-  }
-  return 1;
-#endif
+  return result.Value().exitCode;
 }
 
 auto RunProcessCapture(
@@ -2971,161 +2870,31 @@ auto RunProcessCapture(
     const std::optional<fs::path> &workingDirectory,
     const std::function<void(std::string_view)> &outputCallback)
     -> ProcessResult {
-#if defined(_WIN32)
-  SECURITY_ATTRIBUTES securityAttributes{};
-  securityAttributes.nLength = sizeof(securityAttributes);
-  securityAttributes.bInheritHandle = TRUE;
-
-  HANDLE readPipe = nullptr;
-  HANDLE writePipe = nullptr;
-  if (!CreatePipe(&readPipe, &writePipe, &securityAttributes, 0)) {
-    throw std::runtime_error("failed to create process output pipe");
-  }
-  SetHandleInformation(readPipe, HANDLE_FLAG_INHERIT, 0);
-
-  std::wstring commandLine = QuoteWindowsArgument(executable.wstring());
-  for (const auto &argument : arguments) {
-    commandLine += L" ";
-    commandLine += QuoteWindowsArgument(fs::path(argument).wstring());
-  }
-
-  std::vector<wchar_t> commandBuffer(commandLine.begin(), commandLine.end());
-  commandBuffer.push_back(L'\0');
-
-  std::wstring workingDirectoryValue{};
-  const wchar_t *workingDirectoryPtr = nullptr;
+  NGIN::IO::ProcessOptions options{};
+  options.executable = ProcessPath(executable);
+  options.arguments = arguments;
+  options.standardOutput.mode = NGIN::IO::ProcessStreamMode::Capture;
+  options.standardError.mode = NGIN::IO::ProcessStreamMode::Capture;
   if (workingDirectory.has_value()) {
-    workingDirectoryValue = workingDirectory->wstring();
-    workingDirectoryPtr = workingDirectoryValue.c_str();
+    options.workingDirectory = ProcessPath(*workingDirectory);
   }
 
-  STARTUPINFOW startupInfo{};
-  startupInfo.cb = sizeof(startupInfo);
-  startupInfo.dwFlags = STARTF_USESTDHANDLES;
-  startupInfo.hStdOutput = writePipe;
-  startupInfo.hStdError = writePipe;
-  startupInfo.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
-
-  PROCESS_INFORMATION processInfo{};
-  if (!CreateProcessW(nullptr, commandBuffer.data(), nullptr, nullptr, TRUE, 0,
-                      nullptr, workingDirectoryPtr, &startupInfo,
-                      &processInfo)) {
-    const auto errorCode = GetLastError();
-    CloseHandle(readPipe);
-    CloseHandle(writePipe);
-    throw std::runtime_error("failed to start process '" + executable.string() +
-                             "' in '" +
-                             workingDirectory.value_or(fs::current_path()).string() +
-                             "' (Windows error " +
-                             std::to_string(errorCode) + ")");
-  }
-
-  CloseHandle(writePipe);
   std::string output{};
-  std::array<char, 4096> buffer{};
-  DWORD bytesRead = 0;
-  while (ReadFile(readPipe, buffer.data(), static_cast<DWORD>(buffer.size()),
-                  &bytesRead, nullptr) &&
-         bytesRead > 0) {
-    output.append(buffer.data(), bytesRead);
+  const auto observe = [&](std::string_view chunk) {
+    output.append(chunk);
     if (outputCallback) {
-      outputCallback(
-          std::string_view{buffer.data(), static_cast<std::size_t>(bytesRead)});
+      outputCallback(chunk);
     }
-  }
-  CloseHandle(readPipe);
+  };
+  options.standardOutputObserver = observe;
+  options.standardErrorObserver = observe;
 
-  WaitForSingleObject(processInfo.hProcess, INFINITE);
-  DWORD exitCode = 1;
-  if (!GetExitCodeProcess(processInfo.hProcess, &exitCode)) {
-    CloseHandle(processInfo.hThread);
-    CloseHandle(processInfo.hProcess);
-    throw std::runtime_error("failed to read exit code for process '" +
-                             executable.string() + "'");
+  const auto result = NGIN::IO::RunProcess(std::move(options));
+  if (!result.HasValue()) {
+    ThrowProcessFailure(executable, result.Error());
   }
-
-  CloseHandle(processInfo.hThread);
-  CloseHandle(processInfo.hProcess);
-  return ProcessResult{.exitCode = static_cast<int>(exitCode),
+  return ProcessResult{.exitCode = result.Value().exitCode,
                        .output = std::move(output)};
-#else
-  int pipeFd[2]{};
-  if (::pipe(pipeFd) != 0) {
-    throw std::runtime_error("failed to create process output pipe");
-  }
-
-  std::vector<std::string> argvStorage{};
-  argvStorage.reserve(arguments.size() + 1);
-  argvStorage.push_back(executable.string());
-  argvStorage.insert(argvStorage.end(), arguments.begin(), arguments.end());
-
-  std::vector<char *> argv{};
-  argv.reserve(argvStorage.size() + 1);
-  for (auto &value : argvStorage) {
-    argv.push_back(value.data());
-  }
-  argv.push_back(nullptr);
-
-  const auto processId = ::fork();
-  if (processId < 0) {
-    ::close(pipeFd[0]);
-    ::close(pipeFd[1]);
-    throw std::runtime_error("failed to fork process '" + executable.string() +
-                             "'");
-  }
-
-  if (processId == 0) {
-    ::close(pipeFd[0]);
-    ::dup2(pipeFd[1], STDOUT_FILENO);
-    ::dup2(pipeFd[1], STDERR_FILENO);
-    ::close(pipeFd[1]);
-    if (workingDirectory.has_value() &&
-        ::chdir(workingDirectory->c_str()) != 0) {
-      std::_Exit(127);
-    }
-    ::execvp(executable.c_str(), argv.data());
-    std::_Exit(errno == ENOENT ? 127 : 126);
-  }
-
-  ::close(pipeFd[1]);
-  std::string output{};
-  std::array<char, 4096> buffer{};
-  while (true) {
-    const auto bytesRead = ::read(pipeFd[0], buffer.data(), buffer.size());
-    if (bytesRead > 0) {
-      output.append(buffer.data(), static_cast<std::size_t>(bytesRead));
-      if (outputCallback) {
-        outputCallback(std::string_view{buffer.data(),
-                                        static_cast<std::size_t>(bytesRead)});
-      }
-      continue;
-    }
-    if (bytesRead < 0 && errno == EINTR) {
-      continue;
-    }
-    break;
-  }
-  ::close(pipeFd[0]);
-
-  int status = 0;
-  while (::waitpid(processId, &status, 0) < 0) {
-    if (errno == EINTR) {
-      continue;
-    }
-    throw std::runtime_error("failed to wait for process '" +
-                             executable.string() + "'");
-  }
-
-  if (WIFEXITED(status)) {
-    return ProcessResult{.exitCode = WEXITSTATUS(status),
-                         .output = std::move(output)};
-  }
-  if (WIFSIGNALED(status)) {
-    return ProcessResult{.exitCode = 128 + WTERMSIG(status),
-                         .output = std::move(output)};
-  }
-  return ProcessResult{.exitCode = 1, .output = std::move(output)};
-#endif
 }
 
 auto WriteLaunchManifest(

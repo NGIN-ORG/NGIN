@@ -29,6 +29,53 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  openssl:
+    name: OpenSSL provider vectors
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Install prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libssl-dev ninja-build
+
+      - name: Configure NGIN.Base with OpenSSL
+        run: >
+          cmake
+          -S Dependencies/NGIN/NGIN.Base
+          -B build/ngin-base-openssl
+          -GNinja
+          -DNGIN_BASE_BUILD_TESTS=ON
+          -DNGIN_BASE_BUILD_EXAMPLES=OFF
+          -DNGIN_BASE_BUILD_BENCHMARKS=OFF
+          -DNGIN_BASE_CRYPTO_WITH_OPENSSL=ON
+          -DNGIN_BASE_CRYPTO_REQUIRE_PROVIDER=openssl
+          -DNGIN_BASE_CRYPTO_REQUIRE_ALGORITHMS="random;sha256;hmac-sha256;hkdf-sha256;pbkdf2-sha256;aes-256-gcm;chacha20-poly1305;ed25519;x25519"
+          -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build OpenSSL provider tests
+        run: >
+          cmake --build build/ngin-base-openssl --parallel 2 --target
+          Crypto_BackendTests
+          Crypto_AeadTests
+          Crypto_AsymmetricTests
+          Crypto_KdfTests
+          Crypto_SignatureTests
+          Crypto_ProviderConformanceTests
+          Include_CryptoTests
+
+      - name: Run OpenSSL provider tests
+        run: >
+          ctest
+          --test-dir build/ngin-base-openssl
+          --output-on-failure
+          -R "^Base\.(Crypto\.(Backend|Aead|Asymmetric|Kdf|Signature|ProviderConformance)|Include\.Crypto)\."
+
   libsodium:
     name: libsodium provider vectors
     runs-on: ubuntu-latest

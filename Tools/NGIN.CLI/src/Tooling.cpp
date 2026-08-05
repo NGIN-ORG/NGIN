@@ -1,23 +1,24 @@
 #include "Tooling.hpp"
 
+#include <NGIN/IO/Process.hpp>
 #include <NGIN/Serialization/JSON/JsonParser.hpp>
 #include <NGIN/Serialization/JSON/JsonStreamWriter.hpp>
 
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <cstdlib>
 #include <fstream>
 #include <future>
-#include <cctype>
 #include <iomanip>
 #include <iterator>
 #include <limits>
-#include <regex>
 #include <mutex>
+#include <regex>
 #include <sstream>
 #include <stdexcept>
-#include <unordered_set>
 #include <unordered_map>
+#include <unordered_set>
 
 #if defined(_WIN32)
 #ifndef NOMINMAX
@@ -596,10 +597,9 @@ namespace NGIN::CLI
         };
 
 #if defined(_WIN32)
-        std::array<std::atomic<std::uintptr_t>, 64> ActiveWindowsToolJobs{};
         std::atomic_bool WindowsToolCancellationRequested{false};
-        std::mutex WindowsToolJobMutex{};
-        std::size_t ActiveWindowsToolJobCount{};
+        std::mutex WindowsToolCancellationMutex{};
+        std::size_t ActiveWindowsToolProcessCount{};
 
         auto WINAPI ForwardWindowsToolTermination(DWORD controlType) -> BOOL
         {
@@ -607,67 +607,34 @@ namespace NGIN::CLI
                 controlType != CTRL_CLOSE_EVENT && controlType != CTRL_SHUTDOWN_EVENT)
                 return FALSE;
             WindowsToolCancellationRequested.store(true, std::memory_order_relaxed);
-            for (const auto &slot : ActiveWindowsToolJobs)
-            {
-                const auto value = slot.load(std::memory_order_relaxed);
-                if (value != 0) ::TerminateJobObject(reinterpret_cast<HANDLE>(value), 4);
-            }
-            return TRUE;
+  return TRUE;
         }
 
-        [[nodiscard]] auto RegisterWindowsToolJob(HANDLE job) -> std::size_t
-        {
-            std::scoped_lock lock{WindowsToolJobMutex};
-            if (ActiveWindowsToolJobCount == 0)
+auto RegisterToolCancellation() -> void {
+            std::scoped_lock lock{WindowsToolCancellationMutex};
+            if (ActiveWindowsToolProcessCount++ == 0)
             {
                 WindowsToolCancellationRequested.store(false, std::memory_order_relaxed);
                 ::SetConsoleCtrlHandler(ForwardWindowsToolTermination, TRUE);
             }
-            for (std::size_t index = 0; index < ActiveWindowsToolJobs.size(); ++index)
-            {
-                if (ActiveWindowsToolJobs[index].load(std::memory_order_relaxed) == 0)
-                {
-                    ActiveWindowsToolJobs[index].store(reinterpret_cast<std::uintptr_t>(job),
-                                                       std::memory_order_relaxed);
-                    ++ActiveWindowsToolJobCount;
-                    return index;
-                }
-            }
-            throw std::runtime_error("too many concurrent tool driver processes");
-        }
+}
 
-        auto UnregisterWindowsToolJob(std::size_t slot) -> void
+auto UnregisterToolCancellation() noexcept -> void
         {
-            std::scoped_lock lock{WindowsToolJobMutex};
-            ActiveWindowsToolJobs[slot].store(0, std::memory_order_relaxed);
-            if (ActiveWindowsToolJobCount > 0) --ActiveWindowsToolJobCount;
-            if (ActiveWindowsToolJobCount == 0)
+            std::scoped_lock lock{WindowsToolCancellationMutex};
+            if (ActiveWindowsToolProcessCount > 0) --ActiveWindowsToolProcessCount;
+            if (ActiveWindowsToolProcessCount == 0)
             {
                 ::SetConsoleCtrlHandler(ForwardWindowsToolTermination, FALSE);
                 WindowsToolCancellationRequested.store(false, std::memory_order_relaxed);
             }
         }
 
-        [[nodiscard]] auto QuoteWindowsArgument(std::wstring_view value) -> std::wstring
-        {
-            if (value.find_first_of(L" \t\"") == std::wstring_view::npos) return std::wstring(value);
-            std::wstring result{L"\""};
-            std::size_t slashes = 0;
-            for (const auto character : value)
-            {
-                if (character == L'\\') { ++slashes; continue; }
-                if (character == L'\"') result.append(slashes * 2 + 1, L'\\');
-                else result.append(slashes, L'\\');
-                slashes = 0;
-                result.push_back(character);
-            }
-            result.append(slashes * 2, L'\\');
-            result.push_back(L'\"');
-            return result;
+        [[nodiscard]] auto IsToolCancellationRequested() noexcept -> bool {
+  return WindowsToolCancellationRequested.load(std::memory_order_relaxed);
         }
 #else
-        static_assert(std::atomic<pid_t>::is_always_lock_free);
-        std::array<std::atomic<pid_t>, 64> ActiveToolProcessGroups{};
+        static_assert(std::atomic<int>::is_always_lock_free);
         std::atomic<int> ToolCancellationRequested{0};
         std::mutex ToolSignalMutex{};
         std::size_t ActiveToolProcessCount{};
@@ -677,17 +644,11 @@ namespace NGIN::CLI
         auto ForwardToolTermination(const int signal) -> void
         {
             ToolCancellationRequested.store(signal, std::memory_order_relaxed);
-            for (const auto &slot : ActiveToolProcessGroups)
-            {
-                const auto processGroup = slot.load(std::memory_order_relaxed);
-                if (processGroup > 0) ::kill(-processGroup, SIGTERM);
-            }
-        }
+}
 
-        [[nodiscard]] auto RegisterToolProcessGroup(pid_t processGroup) -> std::size_t
-        {
+auto RegisterToolCancellation() -> void {
             std::scoped_lock lock{ToolSignalMutex};
-            if (ActiveToolProcessCount == 0)
+            if (ActiveToolProcessCount++ == 0)
             {
                 ToolCancellationRequested.store(0, std::memory_order_relaxed);
                 struct sigaction action{};
@@ -697,22 +658,11 @@ namespace NGIN::CLI
                 ::sigaction(SIGTERM, &action, &PreviousToolTermination);
                 ::sigaction(SIGINT, &action, &PreviousToolInterrupt);
             }
-            for (std::size_t index = 0; index < ActiveToolProcessGroups.size(); ++index)
-            {
-                if (ActiveToolProcessGroups[index].load(std::memory_order_relaxed) == 0)
-                {
-                    ActiveToolProcessGroups[index].store(processGroup, std::memory_order_relaxed);
-                    ++ActiveToolProcessCount;
-                    return index;
-                }
-            }
-            throw std::runtime_error("too many concurrent tool driver processes");
-        }
+}
 
-        auto UnregisterToolProcessGroup(std::size_t slot) -> void
+auto UnregisterToolCancellation() noexcept -> void
         {
             std::scoped_lock lock{ToolSignalMutex};
-            ActiveToolProcessGroups[slot].store(0, std::memory_order_relaxed);
             if (ActiveToolProcessCount > 0) --ActiveToolProcessCount;
             if (ActiveToolProcessCount == 0)
             {
@@ -721,89 +671,69 @@ namespace NGIN::CLI
                 ToolCancellationRequested.store(0, std::memory_order_relaxed);
             }
         }
+
+[[nodiscard]] auto IsToolCancellationRequested() noexcept -> bool {
+  return ToolCancellationRequested.load(std::memory_order_relaxed) != 0;
+}
 #endif
 
-        [[nodiscard]] auto RunLimitedProcess(
+class ToolCancellationScope final {
+public:
+  ToolCancellationScope() { RegisterToolCancellation(); }
+  ~ToolCancellationScope() { UnregisterToolCancellation(); }
+
+  ToolCancellationScope(const ToolCancellationScope &) = delete;
+  auto operator=(const ToolCancellationScope &)
+      -> ToolCancellationScope & = delete;
+};
+
+[[nodiscard]] auto ToolProcessPath(const fs::path &path) -> NGIN::IO::Path {
+  const auto utf8 = path.generic_u8string();
+  return NGIN::IO::Path{std::string{utf8.begin(), utf8.end()}};
+}
+
+[[nodiscard]] auto RunLimitedProcess(
             const fs::path &executable, const std::vector<std::string> &arguments,
             const fs::path &workingDirectory, std::optional<std::uint64_t> timeoutMilliseconds,
             std::size_t maximumOutputBytes,
             const std::function<void(std::string_view)> &stdoutLineObserver = {}) -> LimitedProcessResult
         {
-#if defined(_WIN32)
-            SECURITY_ATTRIBUTES security{sizeof(SECURITY_ATTRIBUTES), nullptr, TRUE};
-            HANDLE stdoutRead{}, stdoutWrite{}, stderrRead{}, stderrWrite{};
-            if (!::CreatePipe(&stdoutRead, &stdoutWrite, &security, 0) ||
-                !::CreatePipe(&stderrRead, &stderrWrite, &security, 0))
-                throw std::runtime_error("failed to create tool process pipes");
-            ::SetHandleInformation(stdoutRead, HANDLE_FLAG_INHERIT, 0);
-            ::SetHandleInformation(stderrRead, HANDLE_FLAG_INHERIT, 0);
+  NGIN::IO::ProcessOptions options{};
+  options.executable = ToolProcessPath(executable);
+  options.arguments = arguments;
+  options.workingDirectory = ToolProcessPath(workingDirectory);
+  options.inheritEnvironment = false;
+  options.standardOutput.mode = NGIN::IO::ProcessStreamMode::Capture;
+  options.standardError.mode = NGIN::IO::ProcessStreamMode::Capture;
+  options.maximumOutputBytes = maximumOutputBytes;
+  options.cancellationProbe = IsToolCancellationRequested;
 
-            std::wstring command = QuoteWindowsArgument(executable.wstring());
-            for (const auto &argument : arguments)
-            {
-                command.push_back(L' ');
-                command += QuoteWindowsArgument(fs::path(argument).wstring());
+  const auto inherit = [&](const char *name) {
+    if (const auto *value = std::getenv(name);
+        value != nullptr && *value != '\0')
+      options.environment.push_back({name, std::string{value}});
+  };
+#if defined(_WIN32)
+  for (const auto *name : {"PATH", "SystemRoot", "TEMP", "TMP", "USERPROFILE"})
+    inherit(name);
+#else
+  for (const auto *name : {"PATH", "HOME", "TMPDIR", "LANG"})
+    inherit(name);
+#endif
+
+  if (timeoutMilliseconds.has_value()) {
+    using Milliseconds = std::chrono::milliseconds;
+    const auto maximum = static_cast<std::uint64_t>(
+        (std::numeric_limits<Milliseconds::rep>::max)());
+    options.timeout = Milliseconds{static_cast<Milliseconds::rep>(
+        std::min(*timeoutMilliseconds, maximum))};
             }
-            STARTUPINFOW startup{};
-            startup.cb = sizeof(startup);
-            startup.dwFlags = STARTF_USESTDHANDLES;
-            startup.hStdOutput = stdoutWrite;
-            startup.hStdError = stderrWrite;
-            startup.hStdInput = ::GetStdHandle(STD_INPUT_HANDLE);
-            PROCESS_INFORMATION process{};
-            auto mutableCommand = std::vector<wchar_t>(command.begin(), command.end());
-            mutableCommand.push_back(L'\0');
-            std::vector<wchar_t> environmentBlock{};
-            for (const auto *name : {L"PATH", L"SystemRoot", L"TEMP", L"TMP", L"USERPROFILE"})
-            {
-                const auto size = ::GetEnvironmentVariableW(name, nullptr, 0);
-                if (size == 0) continue;
-                std::wstring value(size, L'\0');
-                ::GetEnvironmentVariableW(name, value.data(), size);
-                value.resize(size - 1);
-                const std::wstring entry = std::wstring(name) + L"=" + value;
-                environmentBlock.insert(environmentBlock.end(), entry.begin(), entry.end());
-                environmentBlock.push_back(L'\0');
-            }
-            environmentBlock.push_back(L'\0');
-            const auto created = ::CreateProcessW(
-                executable.wstring().c_str(), mutableCommand.data(), nullptr, nullptr, TRUE,
-                CREATE_NO_WINDOW | CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT,
-                environmentBlock.data(), workingDirectory.wstring().c_str(),
-                &startup, &process);
-            ::CloseHandle(stdoutWrite);
-            ::CloseHandle(stderrWrite);
-            if (!created)
-            {
-                ::CloseHandle(stdoutRead); ::CloseHandle(stderrRead);
-                throw std::runtime_error("failed to create tool process");
-            }
-            const auto job = ::CreateJobObjectW(nullptr, nullptr);
-            JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
-            limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-            if (job == nullptr ||
-                !::SetInformationJobObject(job, JobObjectExtendedLimitInformation, &limits, sizeof(limits)) ||
-                !::AssignProcessToJobObject(job, process.hProcess))
-            {
-                ::TerminateProcess(process.hProcess, 3);
-                ::CloseHandle(process.hThread); ::CloseHandle(process.hProcess);
-                if (job != nullptr) ::CloseHandle(job);
-                ::CloseHandle(stdoutRead); ::CloseHandle(stderrRead);
-                throw std::runtime_error("failed to create isolated tool process job");
-            }
-            const auto jobSlot = RegisterWindowsToolJob(job);
-            ::ResumeThread(process.hThread);
-            LimitedProcessResult result{};
-            std::string pendingStdout{};
-            const auto append = [&](std::string &target, const char *bytes, std::size_t count,
-                                    bool stdoutStream) {
-                const auto consumed = result.output.size() + result.errorOutput.size();
-                const auto available = maximumOutputBytes > consumed ? maximumOutputBytes - consumed : 0;
-                const auto accepted = std::min(available, count);
-                target.append(bytes, accepted);
-                if (stdoutStream && stdoutLineObserver)
-                {
-                    pendingStdout.append(bytes, accepted);
+
+  std::string pendingStdout{};
+  options.standardOutputObserver = [&](std::string_view chunk) {
+    if (!stdoutLineObserver)
+      return;
+    pendingStdout.append(chunk);
                     while (true)
                     {
                         const auto newline = pendingStdout.find('\n');
@@ -813,196 +743,27 @@ namespace NGIN::CLI
                         stdoutLineObserver(line);
                         pendingStdout.erase(0, newline + 1);
                     }
-                }
-                if (accepted != count)
-                {
-                    result.outputLimitExceeded = true;
-                    ::TerminateJobObject(job, 3);
-                }
-            };
-            const auto drain = [&](HANDLE pipe, std::string &target, bool stdoutStream) {
-                std::array<char, 4096> buffer{};
-                DWORD available{};
-                while (::PeekNamedPipe(pipe, nullptr, 0, nullptr, &available, nullptr) && available > 0)
-                {
-                    DWORD read{};
-                    if (!::ReadFile(pipe, buffer.data(),
-                                    static_cast<DWORD>(std::min<std::size_t>(buffer.size(), available)),
-                                    &read, nullptr) || read == 0) break;
-                    append(target, buffer.data(), read, stdoutStream);
-                }
-            };
-            const auto started = std::chrono::steady_clock::now();
-            while (::WaitForSingleObject(process.hProcess, 10) == WAIT_TIMEOUT)
-            {
-                drain(stdoutRead, result.output, true);
-                drain(stderrRead, result.errorOutput, false);
-                if (WindowsToolCancellationRequested.load(std::memory_order_relaxed))
-                {
-                    result.cancelled = true;
-                    ::TerminateJobObject(job, 4);
-                }
-                if (timeoutMilliseconds.has_value() &&
-                    std::chrono::duration_cast<std::chrono::milliseconds>(
-                        std::chrono::steady_clock::now() - started).count() >=
-                        static_cast<std::int64_t>(*timeoutMilliseconds))
-                {
-                    result.timedOut = true;
-                    ::TerminateJobObject(job, 5);
-                }
-            }
-            drain(stdoutRead, result.output, true);
-            drain(stderrRead, result.errorOutput, false);
+                };
+            const ToolCancellationScope cancellationScope{};
+  auto process = NGIN::IO::RunProcess(std::move(options));
+                    if (!process.HasValue())
+    throw std::runtime_error(
+        "failed to run tool process '" + executable.string() +
+        "': " + std::string{process.Error().message.View()});
             if (stdoutLineObserver && !pendingStdout.empty()) stdoutLineObserver(pendingStdout);
-            DWORD exitCode{};
-            ::GetExitCodeProcess(process.hProcess, &exitCode);
-            result.exitCode = static_cast<int>(exitCode);
-            UnregisterWindowsToolJob(jobSlot);
-            ::CloseHandle(stdoutRead); ::CloseHandle(stderrRead);
-            ::CloseHandle(process.hThread); ::CloseHandle(process.hProcess); ::CloseHandle(job);
-            return result;
-#else
-            int stdoutPipe[2]{};
-            int stderrPipe[2]{};
-            if (::pipe(stdoutPipe) != 0 || ::pipe(stderrPipe) != 0)
-                throw std::runtime_error("failed to create tool process pipes");
-            std::vector<std::string> storage{executable.string()};
-            storage.insert(storage.end(), arguments.begin(), arguments.end());
-            std::vector<char *> argv{};
-            for (auto &entry : storage) argv.push_back(entry.data());
-            argv.push_back(nullptr);
-            const auto inheritedValue = [](const char *name) {
-                const auto *value = std::getenv(name);
-                return value == nullptr ? std::string{} : std::string(value);
-            };
-            const std::array<std::pair<const char *, std::string>, 4> safeEnvironment{{
-                {"PATH", inheritedValue("PATH")},
-                {"HOME", inheritedValue("HOME")},
-                {"TMPDIR", inheritedValue("TMPDIR")},
-                {"LANG", inheritedValue("LANG")},
-            }};
-            const auto processId = ::fork();
-            if (processId < 0)
-            {
-                ::close(stdoutPipe[0]); ::close(stdoutPipe[1]);
-                ::close(stderrPipe[0]); ::close(stderrPipe[1]);
-                throw std::runtime_error("failed to fork tool process");
-            }
-            if (processId == 0)
-            {
-                ::setpgid(0, 0);
-                ::close(stdoutPipe[0]);
-                ::close(stderrPipe[0]);
-                ::dup2(stdoutPipe[1], STDOUT_FILENO);
-                ::dup2(stderrPipe[1], STDERR_FILENO);
-                ::close(stdoutPipe[1]);
-                ::close(stderrPipe[1]);
-                if (::chdir(workingDirectory.c_str()) != 0) std::_Exit(127);
-                ::clearenv();
-                for (const auto &[name, value] : safeEnvironment)
-                    if (!value.empty()) ::setenv(name, value.c_str(), 1);
-                ::execvp(executable.c_str(), argv.data());
-                std::_Exit(errno == ENOENT ? 127 : 126);
-            }
-            const auto processSlot = RegisterToolProcessGroup(processId);
-            ::close(stdoutPipe[1]);
-            ::close(stderrPipe[1]);
-            ::fcntl(stdoutPipe[0], F_SETFL, ::fcntl(stdoutPipe[0], F_GETFL) | O_NONBLOCK);
-            ::fcntl(stderrPipe[0], F_SETFL, ::fcntl(stderrPipe[0], F_GETFL) | O_NONBLOCK);
-            LimitedProcessResult result{};
-            const auto started = std::chrono::steady_clock::now();
-            int status = 0;
-            bool completed = false;
-            std::optional<std::chrono::steady_clock::time_point> cancellationStarted{};
-            std::array<char, 4096> buffer{};
-            std::string pendingStdout{};
-            const auto drain = [&](const int descriptor, std::string &target) {
-                while (true)
-                {
-                    const auto count = ::read(descriptor, buffer.data(), buffer.size());
-                    if (count > 0)
-                    {
-                        const auto consumed = result.output.size() + result.errorOutput.size();
-                        const auto available = maximumOutputBytes > consumed
-                                                   ? maximumOutputBytes - consumed : 0;
-                        target.append(buffer.data(), std::min<std::size_t>(available, count));
-                        if (descriptor == stdoutPipe[0] && stdoutLineObserver)
-                        {
-                            pendingStdout.append(buffer.data(), std::min<std::size_t>(available, count));
-                            while (true)
-                            {
-                                const auto newline = pendingStdout.find('\n');
-                                if (newline == std::string::npos) break;
-                                auto line = pendingStdout.substr(0, newline);
-                                if (!line.empty() && line.back() == '\r') line.pop_back();
-                                stdoutLineObserver(line);
-                                pendingStdout.erase(0, newline + 1);
-                            }
-                        }
-                        if (static_cast<std::size_t>(count) > available)
-                        {
-                            result.outputLimitExceeded = true;
-                            ::kill(-processId, SIGKILL);
-                        }
-                        continue;
-                    }
-                    if (count < 0 && errno == EINTR) continue;
-                    break;
-                }
-            };
-            while (!completed)
-            {
-                drain(stdoutPipe[0], result.output);
-                drain(stderrPipe[0], result.errorOutput);
-                const auto waited = ::waitpid(processId, &status, WNOHANG);
-                completed = waited == processId;
-                if (!completed && ToolCancellationRequested.load(std::memory_order_relaxed) != 0)
-                {
-                    result.cancelled = true;
-                    if (!cancellationStarted.has_value())
-                    {
-                        cancellationStarted = std::chrono::steady_clock::now();
-                        ::kill(-processId, SIGTERM);
-                    }
-                    else if (std::chrono::duration_cast<std::chrono::milliseconds>(
-                                 std::chrono::steady_clock::now() - *cancellationStarted).count() >= 250)
-                    {
-                        ::kill(-processId, SIGKILL);
-                    }
-                }
-                if (!completed && timeoutMilliseconds.has_value() &&
-                    std::chrono::duration_cast<std::chrono::milliseconds>(
-                        std::chrono::steady_clock::now() - started).count() >=
-                        static_cast<std::int64_t>(*timeoutMilliseconds))
-                {
-                    result.timedOut = true;
-                    ::kill(-processId, SIGKILL);
-                }
-                if (!completed)
-                {
-                    pollfd descriptors[2]{
-                        {.fd = stdoutPipe[0], .events = POLLIN, .revents = 0},
-                        {.fd = stderrPipe[0], .events = POLLIN, .revents = 0},
-                    };
-                    (void)::poll(descriptors, 2, 10);
-                }
-            }
-            drain(stdoutPipe[0], result.output);
-            drain(stderrPipe[0], result.errorOutput);
-            if (ToolCancellationRequested.load(std::memory_order_relaxed) != 0)
-                result.cancelled = true;
-            if (stdoutLineObserver && !pendingStdout.empty()) stdoutLineObserver(pendingStdout);
-            ::close(stdoutPipe[0]);
-            ::close(stderrPipe[0]);
-            UnregisterToolProcessGroup(processSlot);
-            result.exitCode = WIFEXITED(status) ? WEXITSTATUS(status)
-                              : WIFSIGNALED(status) ? 128 + WTERMSIG(status) : 1;
-            return result;
-#endif
-        }
-    }
 
-    auto LoadToolTranslationUnits(const fs::path &compileCommandsPath,
+  return LimitedProcessResult{
+      .exitCode = process.Value().exitCode,
+      .output = std::move(process.Value().standardOutput),
+      .errorOutput = std::move(process.Value().standardError),
+      .cancelled = process.Value().canceled,
+      .timedOut = process.Value().timedOut,
+      .outputLimitExceeded = process.Value().outputLimitExceeded,
+            };
+                            }
+                        } // namespace
+
+auto LoadToolTranslationUnits(const fs::path &compileCommandsPath,
                                   const std::vector<fs::path> &selectedSources,
                                   std::string_view targetPlatform,
                                   std::string_view owner)
@@ -1087,7 +848,8 @@ namespace NGIN::CLI
             WriteString(out, value.lexically_relative(request.workspaceRoot).generic_string());
             out << "}";
         };
-        out << "{\"schemaVersion\":\"1.0\",\"kind\":\"NGIN.ToolDriver.Request\",\"runId\":";
+        out << "{\"schemaVersion\":\"1.0\",\"kind\":\"NGIN.ToolDriver.Request\","
+         "\"runId\":";
         WriteString(out, request.runId);
         out << ",\"workspace\":{\"root\":";
         WriteString(out, request.workspaceRoot.string());
@@ -1571,7 +1333,8 @@ namespace NGIN::CLI
         if (!out) throw std::runtime_error(path.string() + ": failed to write tool cache entry");
         std::int64_t sequence = 1;
         const auto prefix = [&](std::string_view type) {
-            out << "{\"schemaVersion\":\"1.0\",\"kind\":\"NGIN.ToolDriver.Event\",\"runId\":";
+            out << "{\"schemaVersion\":\"1.0\",\"kind\":\"NGIN.ToolDriver.Event\","
+           "\"runId\":";
             WriteString(out, runId);
             out << ",\"sequence\":" << sequence++ << ",\"type\":";
             WriteString(out, type);
@@ -2213,7 +1976,8 @@ namespace NGIN::CLI
             std::int64_t sequence = 1;
             for (const auto &diagnostic : result.diagnostics)
             {
-                out << "{\"schemaVersion\":\"1.0\",\"kind\":\"NGIN.ToolResult.Event\",\"runId\":";
+                out << "{\"schemaVersion\":\"1.0\",\"kind\":\"NGIN.ToolResult.Event\","
+             "\"runId\":";
                 WriteString(out, request.runId);
                 out << ",\"sequence\":" << sequence++ << ",\"type\":\"diagnostic\",\"data\":{\"severity\":";
                 WriteString(out, diagnostic.effectiveSeverity.empty() ? diagnostic.severity
@@ -2226,7 +1990,8 @@ namespace NGIN::CLI
                 out << ",\"fingerprint\":"; WriteString(out, diagnostic.fingerprint);
                 out << "}}\n";
             }
-            out << "{\"schemaVersion\":\"1.0\",\"kind\":\"NGIN.ToolResult.Event\",\"runId\":";
+            out << "{\"schemaVersion\":\"1.0\",\"kind\":\"NGIN.ToolResult.Event\","
+           "\"runId\":";
             WriteString(out, request.runId);
             out << ",\"sequence\":" << sequence
                 << ",\"type\":\"run.completed\",\"data\":{\"executionStatus\":";
@@ -2325,13 +2090,15 @@ namespace NGIN::CLI
                 }
                 if (diagnostic.suppressed)
                 {
-                    out << ",\"suppressions\":[{\"kind\":\"external\",\"status\":\"accepted\",\"justification\":";
+                    out << ",\"suppressions\":[{\"kind\":\"external\",\"status\":"
+               "\"accepted\",\"justification\":";
                     WriteString(out, diagnostic.suppressionReason);
                     out << "}]";
                 }
                 if (diagnostic.primaryLocation.has_value())
                 {
-                    out << ",\"locations\":[{\"physicalLocation\":{\"artifactLocation\":{\"uri\":";
+                    out << ",\"locations\":[{\"physicalLocation\":{\"artifactLocation\":{"
+               "\"uri\":";
                     WriteString(out, diagnostic.primaryLocation->file.generic_string());
                     out << "},\"region\":{\"startLine\":" << diagnostic.primaryLocation->start.line
                         << ",\"startColumn\":" << diagnostic.primaryLocation->start.column;
@@ -2402,4 +2169,4 @@ namespace NGIN::CLI
         }
         throw std::runtime_error("unsupported normalized tool report format '" + std::string(format) + "'");
     }
-}
+} // namespace NGIN::CLI
