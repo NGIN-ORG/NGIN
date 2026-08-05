@@ -92,7 +92,7 @@ target_include_directories(NGIN.UI
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>
 )
-target_link_libraries(NGIN.UI PUBLIC NGIN::Base)
+target_link_libraries(NGIN.UI PUBLIC NGIN::Base::Execution)
 
 if(NGIN_UI_ENABLE_NATIVE_TEXT OR NGIN_UI_ENABLE_STANDARD_IMAGE_FORMATS)
     include(cmake/NGINUIThirdParty.cmake)

@@ -19,26 +19,26 @@ add_library(ngin_cli_model STATIC
   src/Events.cpp
 )
 _ngin_cli_apply_defaults(ngin_cli_model)
-target_link_libraries(ngin_cli_model PUBLIC NGIN::Base)
+target_link_libraries(ngin_cli_model PUBLIC NGIN::Base::Serialization)
 
 add_library(ngin_cli_authoring STATIC
   src/Authoring.cpp
   src/Overlay.cpp
   src/Platform.cpp
 )
-target_link_libraries(ngin_cli_authoring PUBLIC ngin_cli_model PRIVATE NGIN::Base)
+target_link_libraries(ngin_cli_authoring PUBLIC ngin_cli_model)
 _ngin_cli_apply_defaults(ngin_cli_authoring)
 
 add_library(ngin_cli_resolution STATIC
   src/Resolution.cpp
 )
-target_link_libraries(ngin_cli_resolution PUBLIC ngin_cli_authoring ngin_cli_model PRIVATE NGIN::Base)
+target_link_libraries(ngin_cli_resolution PUBLIC ngin_cli_authoring ngin_cli_model)
 _ngin_cli_apply_defaults(ngin_cli_resolution)
 
 add_library(ngin_cli_build STATIC
   src/Build.cpp
 )
-target_link_libraries(ngin_cli_build PUBLIC ngin_cli_resolution ngin_cli_authoring ngin_cli_model PRIVATE NGIN::Base)
+target_link_libraries(ngin_cli_build PUBLIC ngin_cli_resolution ngin_cli_authoring ngin_cli_model PRIVATE NGIN::Base::IO)
 _ngin_cli_apply_defaults(ngin_cli_build)
 
 add_library(ngin_cli_commands STATIC
@@ -46,7 +46,7 @@ add_library(ngin_cli_commands STATIC
   src/Publishing.cpp
   src/Tooling.cpp
 )
-target_link_libraries(ngin_cli_commands PUBLIC ngin_cli_build ngin_cli_resolution ngin_cli_authoring ngin_cli_model PRIVATE NGIN::Base)
+target_link_libraries(ngin_cli_commands PUBLIC ngin_cli_build ngin_cli_resolution ngin_cli_authoring ngin_cli_model PRIVATE NGIN::Base::Crypto)
 _ngin_cli_apply_defaults(ngin_cli_commands)
 
 add_executable(ngin_cli

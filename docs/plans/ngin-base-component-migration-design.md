@@ -1,6 +1,6 @@
 # NGIN.Base compiled-component migration review
 
-Status: approved on 2026-08-05; implementation in progress.
+Status: approved and implemented on 2026-08-05.
 
 ## Decision requested
 
@@ -93,12 +93,13 @@ and tested before the next group.
 
 ## Static/shared and symbol rules
 
-- public non-template compiled APIs retain `NGIN_BASE_API`
+- public non-template compiled APIs use component-specific visibility macros;
+  `NGIN_BASE_API` remains available for source compatibility
 - each shared component compiles with the export definition and consumes its
   dependencies with import definitions
 - static components never expose shared import/export definitions
-- default ELF visibility is hidden for shared builds, with explicit public
-  exports
+- Windows shared builds use component visibility macros plus automatic symbol
+  export as a compatibility bridge for older declarations
 - platform and provider link dependencies are `PRIVATE` unless a public header
   exposes their types (the provider-neutral TLS API does not)
 - aggregate interface targets add no symbols

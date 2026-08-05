@@ -13,6 +13,12 @@
   <Library Name="NGIN.Base">
     <Exports>
       <LibraryTarget Name="NGIN::Base" Linkage="Static" />
+      <LibraryTarget Name="NGIN::Base::Foundation" Linkage="Static" />
+      <LibraryTarget Name="NGIN::Base::Execution" Linkage="Static" />
+      <LibraryTarget Name="NGIN::Base::IO" Linkage="Static" />
+      <LibraryTarget Name="NGIN::Base::Serialization" Linkage="Static" />
+      <LibraryTarget Name="NGIN::Base::Crypto" Linkage="Static" />
+      <LibraryTarget Name="NGIN::Base::Net" Linkage="Static" />
     </Exports>
   </Library>
   <Compatibility>

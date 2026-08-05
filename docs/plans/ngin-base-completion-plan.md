@@ -409,29 +409,29 @@ installed, and packaged targets.
 
 ### Work
 
-- [ ] Confirm the final dependency graph from Milestone 0 data.
-- [ ] Replace metadata-only component targets with compiled targets.
-- [ ] Provide supported static and shared forms.
-- [ ] Avoid duplicate compilation and duplicate symbols in the aggregate.
-- [ ] Make `NGIN::Base` an aggregate over the real components.
-- [ ] Export and install every public component target.
-- [ ] Update `NGINBaseConfig.cmake`.
-- [ ] Update `Packages/NGIN.Base/NGIN.Base.nginpkg` with component exports.
-- [ ] Add installed-package consumer tests.
-- [ ] Add build-tree consumer tests.
-- [ ] Add a dependency-boundary enforcement check.
-- [ ] Ensure component targets propagate only their required platform and
+- [x] Confirm the final dependency graph from Milestone 0 data.
+- [x] Replace metadata-only component targets with compiled targets.
+- [x] Provide supported static and shared forms.
+- [x] Avoid duplicate compilation and duplicate symbols in the aggregate.
+- [x] Make `NGIN::Base` an aggregate over the real components.
+- [x] Export and install every public component target.
+- [x] Update `NGINBaseConfig.cmake`.
+- [x] Update `Packages/NGIN.Base/NGIN.Base.nginpkg` with component exports.
+- [x] Add installed-package consumer tests.
+- [x] Add build-tree consumer tests.
+- [x] Add a dependency-boundary enforcement check.
+- [x] Ensure component targets propagate only their required platform and
   provider dependencies.
 
 ### Consumer migration order
 
-- [ ] CLI model and authoring libraries.
-- [ ] CLI resolution, build, tooling, and commands.
-- [ ] Reflection and MetaGen.
-- [ ] Core and Log.
-- [ ] ECS.
-- [ ] UI and UI integrations.
-- [ ] Examples and remaining package wrappers.
+- [x] CLI model and authoring libraries.
+- [x] CLI resolution, build, tooling, and commands.
+- [x] Reflection and MetaGen.
+- [x] Core and Log.
+- [x] ECS.
+- [x] UI and UI integrations.
+- [x] Examples and remaining package wrappers.
 
 ### Compatibility policy
 
@@ -637,14 +637,14 @@ installation modes.
 - [x] libsodium provider tests.
 - [x] TLS provider tests.
 - [x] Bounded parser fuzzing.
-- [ ] Static component build.
-- [ ] Shared component build.
-- [ ] Installed-package consumer tests.
+- [x] Static component build.
+- [x] Shared component build.
+- [x] Installed-package consumer tests.
 
 ### Release-readiness checks
 
-- [ ] Review exported symbols and visibility.
-- [ ] Review package target names and dependency propagation.
+- [x] Review exported symbols and visibility.
+- [x] Review package target names and dependency propagation.
 - [x] Review error and cancellation consistency.
 - [x] Review documentation examples against built APIs.
 - [x] Record known platform limitations.
@@ -671,13 +671,13 @@ Keep the work in reviewable changes, approximately as follows:
 8. [x] Cross-mount VFS operations.
 9. [x] TLS public design and provider decision.
 10. [x] TLS provider implementation.
-11. [ ] Real component targets and installation.
-12. [ ] Consumer target migration.
+11. [x] Real component targets and installation.
+12. [x] Consumer target migration.
 13. [x] Concurrent-map reclamation.
 14. [x] Pool allocators and debug decorators.
 15. [x] Incremental JSON parser.
 16. [x] Incremental XML parser.
-17. [ ] Documentation and final CI completion.
+17. [x] Documentation and final CI definitions.
 
 ## Verification strategy
 
@@ -720,18 +720,18 @@ shared behavior has changed.
 
 The plan is complete when:
 
-- [ ] All milestone completion criteria are satisfied.
-- [ ] No known `NGIN.Base` not-implemented path covered by this plan remains.
+- [x] All implementation milestone completion criteria are satisfied.
+- [x] No known `NGIN.Base` not-implemented path covered by this plan remains.
 - [x] The CLI uses the shared Process API.
 - [x] Addressing, DNS, and TLS are usable through explicit runtime contracts.
 - [x] Filesystem behavior is documented and tested across supported platforms.
-- [ ] Component targets are independently buildable, installable, and
+- [x] Component targets are independently buildable, installable, and
   consumable.
 - [x] Concurrent-map policies provide their named reclamation behavior.
 - [x] Pool allocators and diagnostics are integrated with the allocator model.
 - [x] JSON and XML accept arbitrary chunk boundaries through their incremental
   APIs.
-- [ ] Public documentation and include tests cover all supported areas.
+- [x] Public documentation and include tests cover all supported areas.
 - [ ] CI exercises supported platforms and relevant provider configurations.
 - [x] Targeted and integration verification results are recorded for each
   delivered change set.

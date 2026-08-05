@@ -76,7 +76,7 @@ add_executable(ngin_reflection_metagen
 set_target_properties(ngin_reflection_metagen PROPERTIES OUTPUT_NAME ngin-metagen)
 target_compile_features(ngin_reflection_metagen PRIVATE cxx_std_20)
 target_include_directories(ngin_reflection_metagen PRIVATE src)
-target_link_libraries(ngin_reflection_metagen PRIVATE NGIN::Base)
+target_link_libraries(ngin_reflection_metagen PRIVATE NGIN::Base::Serialization)
 if(_ngin_reflection_metagen_with_clang)
   target_link_libraries(ngin_reflection_metagen PRIVATE libclang)
   if(CLANG_INCLUDE_DIRS)

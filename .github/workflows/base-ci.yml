@@ -242,7 +242,7 @@ jobs:
           ctest --test-dir build/ngin-base-neon --output-on-failure -R "^Base\.SIMD\."
 
   shared-and-install:
-    name: Shared library and installed consumer
+    name: Shared components and consumer exports
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -270,6 +270,18 @@ jobs:
         run: |
           cmake --build build/ngin-base-shared --parallel 2
           cmake --install build/ngin-base-shared --config Release
+      - name: Configure build-tree consumers
+        run: >
+          cmake
+          -S Dependencies/NGIN/NGIN.Base/consumer-tests
+          -B build/ngin-base-buildtree-consumer
+          -GNinja
+          -DCMAKE_BUILD_TYPE=Release
+          -DNGINBase_DIR=${{ github.workspace }}/build/ngin-base-shared
+      - name: Build and run build-tree consumer matrix
+        run: |
+          cmake --build build/ngin-base-buildtree-consumer --parallel 2
+          ctest --test-dir build/ngin-base-buildtree-consumer --output-on-failure
       - name: Configure installed consumer
         run: >
           cmake
@@ -281,4 +293,4 @@ jobs:
       - name: Build and run installed consumer
         run: |
           cmake --build build/ngin-base-consumer --parallel 2
-          build/ngin-base-consumer/NGINBaseConsumer
+          ctest --test-dir build/ngin-base-consumer --output-on-failure
