@@ -19,6 +19,7 @@
       <LibraryTarget Name="NGIN::Base::Serialization" Linkage="Static" />
       <LibraryTarget Name="NGIN::Base::Crypto" Linkage="Static" />
       <LibraryTarget Name="NGIN::Base::Net" Linkage="Static" />
+      <LibraryTarget Name="NGIN::Base::NetTLS" Linkage="Static" />
     </Exports>
   </Library>
   <Compatibility>

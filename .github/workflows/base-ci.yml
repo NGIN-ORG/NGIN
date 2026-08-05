@@ -242,17 +242,31 @@ jobs:
           ctest --test-dir build/ngin-base-neon --output-on-failure -R "^Base\.SIMD\."
 
   shared-and-install:
-    name: Shared components and consumer exports
-    runs-on: ubuntu-latest
+    name: Shared consumers (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux
+            os: ubuntu-latest
+          - name: Windows
+            os: windows-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v7
         with:
           submodules: recursive
       - name: Install prerequisites
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install --yes ninja-build
+      - name: Set up MSVC
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
       - name: Configure shared library
         run: >
           cmake
@@ -294,3 +308,118 @@ jobs:
         run: |
           cmake --build build/ngin-base-consumer --parallel 2
           ctest --test-dir build/ngin-base-consumer --output-on-failure
+
+  selective-components:
+    name: Selective component package
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+      - name: Install prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ninja-build
+      - name: Configure Foundation-only package
+        run: >
+          cmake
+          -S Dependencies/NGIN/NGIN.Base
+          -B build/ngin-base-foundation
+          -GNinja
+          -DNGIN_BASE_BUILD_COMPONENTS=Foundation
+          -DNGIN_BASE_BUILD_TESTS=OFF
+          -DNGIN_BASE_BUILD_EXAMPLES=OFF
+          -DNGIN_BASE_BUILD_BENCHMARKS=OFF
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/build/ngin-base-foundation-install
+      - name: Build and install Foundation-only package
+        run: |
+          cmake --build build/ngin-base-foundation --parallel 2
+          cmake --install build/ngin-base-foundation
+      - name: Build and run Foundation-only consumers
+        run: |
+          cmake -S Dependencies/NGIN/NGIN.Base/consumer-tests -B build/ngin-base-foundation-consumer -GNinja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=${{ github.workspace }}/build/ngin-base-foundation-install -DNGIN_BASE_CONSUMER_COMPONENTS=Foundation
+          cmake --build build/ngin-base-foundation-consumer --parallel 2
+          ctest --test-dir build/ngin-base-foundation-consumer --output-on-failure
+      - name: Verify Net dependency closure
+        run: |
+          cmake -S Dependencies/NGIN/NGIN.Base -B build/ngin-base-net -GNinja -DNGIN_BASE_BUILD_COMPONENTS=Net -DNGIN_BASE_BUILD_TESTS=OFF -DNGIN_BASE_BUILD_EXAMPLES=OFF -DNGIN_BASE_BUILD_BENCHMARKS=OFF -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/ngin-base-net --parallel 2
+
+  static-analysis:
+    name: Clang-Tidy component sources
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+      - name: Install prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes clang clang-tidy ninja-build
+      - name: Configure clang-tidy build
+        env:
+          CC: clang
+          CXX: clang++
+        run: >
+          cmake
+          -S Dependencies/NGIN/NGIN.Base
+          -B build/ngin-base-tidy
+          -GNinja
+          -DNGIN_BASE_BUILD_COMPONENTS=Net
+          -DNGIN_BASE_BUILD_TESTS=OFF
+          -DNGIN_BASE_BUILD_EXAMPLES=OFF
+          -DNGIN_BASE_BUILD_BENCHMARKS=OFF
+          "-DCMAKE_CXX_CLANG_TIDY=clang-tidy;--checks=-*,clang-analyzer-*;--warnings-as-errors=*"
+          -DCMAKE_BUILD_TYPE=Debug
+      - name: Run clang-tidy while compiling
+        run: cmake --build build/ngin-base-tidy --parallel 2
+
+  coverage:
+    name: GCC coverage report
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+      - name: Install prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes gcovr ninja-build
+      - name: Configure coverage build
+        run: >
+          cmake
+          -S Dependencies/NGIN/NGIN.Base
+          -B build/ngin-base-coverage
+          -GNinja
+          -DNGIN_BASE_ENABLE_COVERAGE=ON
+          -DNGIN_BASE_BUILD_TESTS=ON
+          -DNGIN_BASE_BUILD_EXAMPLES=OFF
+          -DNGIN_BASE_BUILD_BENCHMARKS=OFF
+          -DCMAKE_BUILD_TYPE=Debug
+      - name: Build representative coverage suites
+        run: >
+          cmake --build build/ngin-base-coverage --parallel 2 --target
+          Time_PlatformTimeTests
+          Serialization_JsonParserTestsTests
+          Crypto_EncodingTests
+          Net_AddressTests
+      - name: Run representative coverage suites
+        run: >
+          ctest --test-dir build/ngin-base-coverage --output-on-failure
+          -R "^Base\.(Time\.PlatformTime|Serialization\.JsonParser|Crypto\.Encoding|Net\.Address)\."
+      - name: Generate coverage reports
+        run: |
+          gcovr --root Dependencies/NGIN/NGIN.Base --filter Dependencies/NGIN/NGIN.Base/src --exclude build --xml-pretty --output build/ngin-base-coverage/coverage.xml
+          gcovr --root Dependencies/NGIN/NGIN.Base --filter Dependencies/NGIN/NGIN.Base/src --exclude build --html-details --output build/ngin-base-coverage/coverage.html
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v7
+        with:
+          name: ngin-base-coverage
+          path: |
+            build/ngin-base-coverage/coverage.xml
+            build/ngin-base-coverage/coverage*.html
+          retention-days: 14
