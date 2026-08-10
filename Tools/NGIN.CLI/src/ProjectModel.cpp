@@ -890,7 +890,8 @@ namespace NGIN::CLI
                 else
                 {
                     const auto expanded = ExpandPortableGlob(projectDirectory, declaration.pattern,
-                                                             targetCaseInsensitive, declaration.source, allowSymlinks);
+                                                             targetCaseInsensitive, declaration.source, allowSymlinks,
+                                                             true);
                     result.diagnostics.insert(result.diagnostics.end(), expanded.diagnostics.begin(),
                                               expanded.diagnostics.end());
                     paths = expanded.matches;

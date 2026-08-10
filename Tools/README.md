@@ -56,5 +56,9 @@ available on `PATH`; publishing additionally requires CPack.
 
 ## VS Code
 
-[`NGIN.VSCode`](NGIN.VSCode) provides direct-manifest language registration,
-snippets, formatting, validation, and schema metadata for the same XML model.
+[`NGIN.VSCode`](NGIN.VSCode) provides graph-driven Solution and Active Project
+views, selection, lifecycle tasks and commands, staged native debugging,
+compile-database-backed C++ IntelliSense, a resolved project dashboard, safe
+project-file authoring, and direct XML completion, formatting, validation, and
+schema metadata. The CLI and Composition Graph remain the semantic authority;
+the extension does not contain a second resolver.

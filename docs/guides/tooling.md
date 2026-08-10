@@ -19,3 +19,14 @@ and determinism in the package manifest. NGIN resolves the Tool on a host
 PackageInstance and checks workspace trust before execution. Use `<Generate>`
 for generation and `<Analyze>`, `<Format>`, `<Validate>`, or `<Custom>` inside
 `<Tooling>` for the other Action kinds.
+
+When workspace Action policy requires locked PackageInstances, create and pass
+the dependency lock explicitly:
+
+```text
+ngin package lock --project Checked.App.nginproj --output build/Checked.App/ngin.lock
+ngin analyze --project Checked.App.nginproj --lock build/Checked.App/ngin.lock
+```
+
+The VS Code extension exposes **NGIN: Lock Dependencies**, stores the lock in
+the active output directory, and passes it automatically to Analyze and Format.

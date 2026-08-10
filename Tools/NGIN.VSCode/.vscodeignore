@@ -3,6 +3,10 @@ scripts/**
 tsconfig.json
 tsconfig.tests.json
 .gitignore
+.vscode/**
+.vscode-test/**
 node_modules/**
 dist-test/**
+package-lock.json
+*.vsix
 *.tsbuildinfo

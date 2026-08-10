@@ -193,7 +193,7 @@ TEST_CASE("every checked-in authored manifest uses the direct grammar")
     }
     std::ranges::sort(manifests);
     manifests.erase(std::unique(manifests.begin(), manifests.end()), manifests.end());
-    REQUIRE(manifests.size() == 49);
+    REQUIRE(manifests.size() == 50);
     for (const auto &path : manifests)
     {
         INFO(path.string());

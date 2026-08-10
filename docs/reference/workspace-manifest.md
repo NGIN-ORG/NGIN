@@ -31,8 +31,9 @@ Each `<Project>` uses exactly one discovery form:
 `Path` names one file. `Include` is a portable workspace-relative glob and may
 have one `Exclude` glob. Results are normalized, sorted, required to remain
 inside the workspace, and followed through symlinks only when they remain
-contained. A project matched by multiple declarations is an error rather than
-being silently deduplicated.
+contained. Generated `.ngin` and `build` directories and version-control
+metadata are pruned before traversal. A project matched by multiple declarations
+is an error rather than being silently deduplicated.
 
 ## Build selection
 

@@ -70,6 +70,9 @@ refinements.
 `CMakeLists.txt`. The adapter adds the source once per compatible
 PackageInstance/build tree using an isolated binary directory. Duplicate CMake
 target production and source reuse with incompatible cache inputs are errors.
+Package integrations are emitted in dependency-first topological order so a
+dependent package's standalone fallback cannot preempt an explicitly resolved
+dependency integration.
 
 ### Isolated
 

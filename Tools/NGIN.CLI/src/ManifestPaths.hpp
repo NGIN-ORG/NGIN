@@ -60,5 +60,6 @@ namespace NGIN::CLI
         -> std::vector<ManifestDiagnostic>;
     [[nodiscard]] auto ExpandPortableGlob(const std::filesystem::path &root, std::string_view pattern,
                                           bool targetCaseInsensitive, const ManifestSourceRange &source = {},
-                                          bool allowSymlinks = false) -> GlobResult;
+                                          bool allowSymlinks = false,
+                                          bool excludeGeneratedDirectories = false) -> GlobResult;
 } // namespace NGIN::CLI

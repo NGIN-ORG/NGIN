@@ -134,7 +134,8 @@ namespace NGIN::CLI
                     continue;
                 }
                 const auto matches =
-                    ExpandPortableGlob(model.root, include, false, declaration->source, model.pathPolicy.allowSymlinks);
+                    ExpandPortableGlob(model.root, include, false, declaration->source,
+                                       model.pathPolicy.allowSymlinks, true);
                 diagnostics.insert(diagnostics.end(), matches.diagnostics.begin(), matches.diagnostics.end());
                 for (const auto &match : matches.matches)
                 {

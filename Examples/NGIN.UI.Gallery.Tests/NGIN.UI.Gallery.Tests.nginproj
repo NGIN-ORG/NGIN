@@ -1,10 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project Name="NGIN.UI.Gallery.Tests" Type="Test" Version="0.4.0">
-  <Dependencies><Package Name="NGIN.UI" Compatible="0.4" /></Dependencies>
+  <Dependencies>
+    <Project Name="NGIN.UI.Gallery.Shared" Path="../NGIN.UI.Gallery/NGIN.UI.Gallery.Shared.nginproj" />
+    <Package Name="NGIN.UI" Compatible="0.4" />
+  </Dependencies>
   <Build>
     <Source Include="src/**/*.cpp" />
-    <Source Include="../NGIN.UI.Gallery/src/Gallery*.cpp" />
-    <IncludeDirectory Path="../NGIN.UI.Gallery/include" />
   </Build>
   <Testing><Timeout Seconds="60" /></Testing>
 </Project>

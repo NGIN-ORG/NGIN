@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project Name="NGIN.UI.Gallery.Shared" Type="Library" Linkage="Static" Version="0.4.0">
+  <Dependencies><Package Name="NGIN.UI" Compatible="0.4" /></Dependencies>
+  <Build Conventions="false">
+    <Source Include="src/Gallery*.cpp" />
+    <Header Include="include/**/*.hpp" Visibility="Public" />
+    <IncludeDirectory Path="include" Visibility="Public" />
+  </Build>
+</Project>

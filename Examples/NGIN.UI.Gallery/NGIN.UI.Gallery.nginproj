@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project Name="NGIN.UI.Gallery" Type="Application" Version="0.4.0">
   <Dependencies>
+    <Project Name="NGIN.UI.Gallery.Shared" Path="NGIN.UI.Gallery.Shared.nginproj" />
     <Package Name="NGIN.UI.Backend.SDL3" Compatible="0.4" />
     <Package Name="NGIN.UI" Compatible="0.4" />
   </Dependencies>
   <Build>
-    <Source Include="src/**/*.cpp" />
-    <IncludeDirectory Path="include" />
+    <Source Include="src/main.cpp" />
   </Build>
   <Stage>
     <File Include="assets/images/gallery-sample.png" Into="images/gallery-sample.png" />

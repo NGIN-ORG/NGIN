@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project Name="NGIN.UI.Gallery.Hosted" Type="Application" Version="0.4.0">
   <Dependencies>
+    <Project Name="NGIN.UI.Gallery.Shared" Path="../NGIN.UI.Gallery/NGIN.UI.Gallery.Shared.nginproj" />
     <Package Name="NGIN.Core" Compatible="0.1" />
     <Package Name="NGIN.UI.Hosting" Compatible="0.4" />
     <Package Name="NGIN.UI.Backend.SDL3" Compatible="0.4" />
@@ -8,8 +9,6 @@
   </Dependencies>
   <Build>
     <Source Include="src/**/*.cpp" />
-    <Source Include="../NGIN.UI.Gallery/src/Gallery*.cpp" />
-    <IncludeDirectory Path="../NGIN.UI.Gallery/include" />
   </Build>
   <Stage>
     <File Include="../NGIN.UI.Gallery/assets/images/gallery-sample.png" Into="images/gallery-sample.png" />

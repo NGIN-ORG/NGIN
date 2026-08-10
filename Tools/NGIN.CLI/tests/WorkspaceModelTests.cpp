@@ -65,6 +65,25 @@ namespace NGIN::CLI::Tests
         CHECK(result.value->compatibilityPolicy.targets.contains("desktop"));
     }
 
+    TEST_CASE("Workspace project discovery prunes generated and version-control directories", "[workspace-model]")
+    {
+        TempDir temp{};
+        WriteFile(temp.path() / "apps/Hello.nginproj", "<Project Name=\"Hello\" Type=\"Application\" />");
+        WriteFile(temp.path() / "apps/.ngin/build/Generated.nginproj", "not XML");
+        WriteFile(temp.path() / "apps/build/Generated.nginproj", "not XML");
+        WriteFile(temp.path() / "apps/.git/Generated.nginproj", "not XML");
+        const auto workspacePath = temp.path() / "NGIN.ngin";
+        WriteFile(workspacePath, R"xml(<Workspace Name="Example">
+  <Projects><Project Include="apps/**/*.nginproj" /></Projects>
+</Workspace>)xml");
+
+        const auto result = ParseWorkspaceFile(workspacePath);
+        INFO(DiagnosticsText(result.diagnostics));
+        REQUIRE(result.Succeeded());
+        REQUIRE(result.value->projects.size() == 1);
+        CHECK(result.value->projects.front().project.name == "Hello");
+    }
+
     TEST_CASE("Workspace model rejects overlapping discovery and policy conflicts", "[workspace-model]")
     {
         TempDir temp{};

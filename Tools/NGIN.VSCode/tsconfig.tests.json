@@ -1,0 +1,22 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "dist-test",
+    "rootDir": "src",
+    "sourceMap": true,
+    "noEmit": false
+  },
+  "include": [
+    "src/test/**/*.ts",
+    "src/core/compileCommands.ts",
+    "src/core/debugConfiguration.ts",
+    "src/core/diagnostics.ts",
+    "src/core/graph.ts",
+    "src/core/manifestEdits.ts",
+    "src/core/manifestText.ts",
+    "src/core/paths.ts",
+    "src/core/projectFiles.ts",
+    "src/model.ts"
+  ],
+  "exclude": []
+}

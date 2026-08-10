@@ -124,6 +124,20 @@ namespace NGIN::CLI
                                    [](const unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
             return value;
         }
+
+        [[nodiscard]] auto IsGeneratedDirectoryName(const std::string_view name) -> bool
+        {
+            return name == ".ngin" || name == "build" || name == ".git" || name == ".hg" || name == ".svn";
+        }
+
+        [[nodiscard]] auto ContainsGeneratedDirectory(const std::filesystem::path &root,
+                                                      const std::filesystem::path &candidate) -> bool
+        {
+            const auto relative = candidate.lexically_relative(root);
+            return std::ranges::any_of(relative, [](const auto &component) {
+                return IsGeneratedDirectoryName(Utf8Path(component));
+            });
+        }
     } // namespace
 
     auto PortablePathResult::Succeeded() const -> bool { return value.has_value() && diagnostics.empty(); }
@@ -286,7 +300,7 @@ namespace NGIN::CLI
 
     auto ExpandPortableGlob(const std::filesystem::path &root, const std::string_view pattern,
                             const bool targetCaseInsensitive, const ManifestSourceRange &source,
-                            const bool allowSymlinks) -> GlobResult
+                            const bool allowSymlinks, const bool excludeGeneratedDirectories) -> GlobResult
     {
         GlobResult result{};
         const auto normalizedPattern = NormalizePortablePath(pattern, PortablePathBase::Manifest, source);
@@ -347,6 +361,8 @@ namespace NGIN::CLI
             });
             for (const auto &entry : entries)
             {
+                if (excludeGeneratedDirectories && IsGeneratedDirectoryName(Utf8Path(entry.path().filename())))
+                    continue;
                 if (entry.is_symlink(localError) && !allowSymlinks)
                 {
                     AddPathError(result.diagnostics, "NGIN2008",
@@ -398,7 +414,9 @@ namespace NGIN::CLI
         const auto fixedPrefix = normalizedText.substr(0, wildcard);
         if (const auto slash = fixedPrefix.rfind('/'); slash != std::string::npos)
             visitRoot /= std::filesystem::path(fixedPrefix.substr(0, slash));
-        if (std::filesystem::is_directory(visitRoot, error)) visit(visitRoot);
+        if ((!excludeGeneratedDirectories || !ContainsGeneratedDirectory(root, visitRoot)) &&
+            std::filesystem::is_directory(visitRoot, error))
+            visit(visitRoot);
         for (auto &[_, match] : matches) result.matches.push_back(std::move(match));
         return result;
     }

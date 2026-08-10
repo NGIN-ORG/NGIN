@@ -66,7 +66,7 @@ export function registerManifestCompletion(context: vscode.ExtensionContext): vs
   );
   const prefixes = new Map(metadata.namespaces.map((entry) => [entry.uri, entry.prefix]));
 
-  return vscode.languages.registerCompletionItemProvider(
+  const completion = vscode.languages.registerCompletionItemProvider(
     { language: 'ngin', scheme: 'file' },
     {
       provideCompletionItems(document, position) {
@@ -85,7 +85,8 @@ export function registerManifestCompletion(context: vscode.ExtensionContext): vs
         const openTagStart = line.lastIndexOf('<');
         const openTagEnd = line.lastIndexOf('>');
         if (openTagStart > openTagEnd && !line.slice(openTagStart).startsWith('</')) {
-          return current.attributes.map((attribute) => {
+          const existing = new Set([...line.slice(openTagStart).matchAll(/([A-Za-z_][\w:.-]*)\s*=/g)].map(match => match[1]));
+          return current.attributes.filter(attribute => !existing.has(attribute.name)).map((attribute) => {
             const item = new vscode.CompletionItem(attribute.name, vscode.CompletionItemKind.Property);
             item.detail = `${attribute.required ? 'required' : 'optional'} ${attribute.type} attribute`;
             item.insertText = new vscode.SnippetString(`${attribute.name}="\${1}"`);
@@ -112,4 +113,39 @@ export function registerManifestCompletion(context: vscode.ExtensionContext): vs
     },
     '<', ' '
   );
+
+  const hover = vscode.languages.registerHoverProvider({ language: 'ngin', scheme: 'file' }, {
+    provideHover(document, position) {
+      const range = document.getWordRangeAtPosition(position, /[A-Za-z_][\w:.-]*/);
+      if (!range) return undefined;
+      const word = document.getText(range);
+      const offset = document.offsetAt(position);
+      const source = document.getText();
+      const tagStart = source.lastIndexOf('<', offset);
+      const tagEnd = source.indexOf('>', offset);
+      if (tagStart < 0 || tagEnd < offset) return undefined;
+      const tagName = /^<\/?([A-Za-z_][\w:.-]*)/.exec(source.slice(tagStart, tagEnd + 1))?.[1];
+      const localName = tagName?.includes(':') ? tagName.slice(tagName.indexOf(':') + 1) : tagName;
+      const candidates = metadata.elements.filter(element => element.name === localName);
+      if (!candidates.length) return undefined;
+      const attribute = candidates.flatMap(element => element.attributes).find(item => item.name === word);
+      const markdown = new vscode.MarkdownString();
+      if (attribute) {
+        markdown.appendMarkdown(`**${attribute.name}** · ${attribute.type}${attribute.required ? ' · required' : ''}`);
+      } else if (word === localName || word === tagName) {
+        const documented = candidates.find(element => element.documentation)?.documentation;
+        markdown.appendMarkdown(`**${tagName}**`);
+        if (documented) markdown.appendMarkdown(`\n\n${documented}`);
+        const attributes = candidates[0].attributes;
+        if (attributes.length) {
+          markdown.appendMarkdown(`\n\nAttributes: ${attributes.map(item => `\`${item.name}\``).join(', ')}`);
+        }
+      } else {
+        return undefined;
+      }
+      return new vscode.Hover(markdown, range);
+    }
+  });
+
+  return vscode.Disposable.from(completion, hover);
 }

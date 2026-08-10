@@ -54,6 +54,49 @@ namespace NGIN::CLI
             std::ranges::sort(values, {}, &T::identity);
         }
 
+        [[nodiscard]] auto SortPackagesDependencyFirst(
+            std::vector<CMakePackagePlan> &packages, const std::vector<GraphEdge> &edges,
+            const std::map<std::string, std::string, std::less<>> &representatives) -> bool
+        {
+            std::map<std::string, std::size_t, std::less<>> indices{};
+            std::map<std::string, std::size_t, std::less<>> incoming{};
+            std::map<std::string, std::set<std::string, std::less<>>, std::less<>> dependents{};
+            for (std::size_t index = 0; index < packages.size(); ++index)
+            {
+                indices.emplace(packages[index].packageInstance, index);
+                incoming.emplace(packages[index].packageInstance, 0);
+            }
+            for (const auto &edge : edges)
+            {
+                if (edge.kind != "PackageRequirement") continue;
+                const auto dependent = representatives.find(edge.from);
+                const auto dependency = representatives.find(edge.to);
+                if (dependent == representatives.end() || dependency == representatives.end() ||
+                    dependent->second == dependency->second || !indices.contains(dependent->second) ||
+                    !indices.contains(dependency->second))
+                    continue;
+                if (dependents[dependency->second].insert(dependent->second).second)
+                    ++incoming[dependent->second];
+            }
+
+            std::set<std::string, std::less<>> ready{};
+            for (const auto &[package, count] : incoming)
+                if (count == 0) ready.insert(package);
+            std::vector<CMakePackagePlan> ordered{};
+            ordered.reserve(packages.size());
+            while (!ready.empty())
+            {
+                const auto package = *ready.begin();
+                ready.erase(ready.begin());
+                ordered.push_back(std::move(packages[indices.at(package)]));
+                for (const auto &dependent : dependents[package])
+                    if (--incoming[dependent] == 0) ready.insert(dependent);
+            }
+            if (ordered.size() != packages.size()) return false;
+            packages = std::move(ordered);
+            return true;
+        }
+
         [[nodiscard]] auto CacheSignature(const CMakeIntegrationBindings &binding) -> std::string
         {
             CanonicalValue::Array values{};
@@ -154,6 +197,8 @@ namespace NGIN::CLI
         std::map<std::string, const CMakeTargetBinding *, std::less<>> byExport{};
         std::map<std::string, std::string, std::less<>> targetOwners{};
         std::map<std::string, std::string, std::less<>> sourceInputs{};
+        std::map<std::string, std::string, std::less<>> sourceRepresentatives{};
+        std::map<std::string, std::string, std::less<>> packageRepresentatives{};
         std::map<std::string, PackageCoordinate, std::less<>> coordinates{};
         for (const auto &package : data.packages) coordinates.emplace(package.identity, package.coordinate);
         const auto equivalentExport = [&](const std::string &left, const std::string &right) {
@@ -187,6 +232,7 @@ namespace NGIN::CLI
                     targetOwners[target.targetName] = target.exportIdentity;
             }
             bool addPackagePlan = true;
+            auto representative = binding.packageInstance;
             if (!binding.source.empty())
             {
                 const auto source = binding.source.generic_string();
@@ -196,10 +242,17 @@ namespace NGIN::CLI
                     AddError(result.diagnostics, "NGIN7103",
                              "CMake source is reused with incompatible cache inputs: " + source);
                 else if (prior != sourceInputs.end())
+                {
                     addPackagePlan = false;
+                    representative = sourceRepresentatives.at(source);
+                }
                 else
+                {
                     sourceInputs[source] = signature;
+                    sourceRepresentatives[source] = binding.packageInstance;
+                }
             }
+            packageRepresentatives[binding.packageInstance] = representative;
             if (addPackagePlan)
                 build.packages.push_back(CMakePackagePlan{
                     .identity = "CMakePackage:" + binding.packageInstance,
@@ -312,10 +365,11 @@ namespace NGIN::CLI
                                                    .provenance = action.provenance});
             build.actionDependencies.push_back(action.identity);
         }
+        if (!SortPackagesDependencyFirst(build.packages, data.edges, packageRepresentatives))
+            AddError(result.diagnostics, "NGIN7107", "CMake package integrations contain a dependency cycle");
         if (!result.diagnostics.empty()) return result;
         SortByIdentity(build.items);
         SortByIdentity(build.links);
-        SortByIdentity(build.packages);
         SortByIdentity(actions.steps);
         std::ranges::sort(build.actionDependencies);
         build.plan.identity = FingerprintBuildPlan(build);

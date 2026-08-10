@@ -268,6 +268,33 @@ TEST_CASE("CMake adapter rejects unsupported semantic capabilities explicitly")
     }));
 }
 
+TEST_CASE("CMake package integrations are generated dependency first")
+{
+    CompositionGraphData data{};
+    data.product = GraphProduct{.identity = "App", .name = "App", .type = ProductType::Application};
+    data.packages = {
+        GraphPackageInstance{.identity = "a-dependent", .coordinate = {.name = "Dependent", .exactVersion = "1.0.0"}},
+        GraphPackageInstance{.identity = "z-dependency", .coordinate = {.name = "Dependency", .exactVersion = "1.0.0"}},
+    };
+    data.edges.push_back(GraphEdge{.identity = "requires",
+                                   .from = "a-dependent",
+                                   .to = "z-dependency",
+                                   .kind = "PackageRequirement"});
+    const ResolvedCompositionGraph graph{std::move(data)};
+    const ResolvedCMakeIntegrationBindings bindings{{
+        CMakeIntegrationBindings{.packageInstance = "a-dependent", .source = "/packages/dependent"},
+        CMakeIntegrationBindings{.packageInstance = "z-dependency", .source = "/packages/dependency"},
+    }};
+
+    const auto plans = DeriveCMakePlans(graph, bindings);
+    REQUIRE(plans.Succeeded());
+    REQUIRE(plans.build->packages.size() == 2);
+    CHECK(plans.build->packages[0].packageInstance == "z-dependency");
+    CHECK(plans.build->packages[1].packageInstance == "a-dependent");
+    const auto generated = GenerateCMakeProject(*plans.build, *plans.actions);
+    CHECK(generated.find("/packages/dependency") < generated.find("/packages/dependent"));
+}
+
 TEST_CASE("CMake adapter maps every generated product artifact explicitly")
 {
     const std::vector<std::tuple<ProductType, LibraryLinkage, std::string>> cases{
