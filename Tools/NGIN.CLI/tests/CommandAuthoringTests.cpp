@@ -1,4 +1,17 @@
 #include "TestSupport.hpp"
+#include "AuthoredManifest.hpp"
+
+TEST_CASE("direct project authoring rejects legacy product wrappers")
+{
+    const auto wrapped = ParseAuthoredManifestText(
+        R"xml(<Project Name="Legacy"><Application><Build /></Application></Project>)xml",
+        "Legacy.nginproj");
+
+    REQUIRE_FALSE(wrapped.Succeeded());
+    REQUIRE(std::ranges::any_of(wrapped.diagnostics, [](const ManifestDiagnostic &diagnostic) {
+        return diagnostic.code == "NGIN1003" && diagnostic.message.find("Application") != std::string::npos;
+    }));
+}
 
 TEST_CASE("new command creates product-first project skeletons")
 {

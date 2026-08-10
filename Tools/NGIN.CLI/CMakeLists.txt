@@ -42,6 +42,7 @@ add_library(ngin_cli_semantics STATIC
   src/Canonical.cpp
   src/ManifestPaths.cpp
   src/Placeholders.cpp
+  src/ProjectModel.cpp
   src/Selection.cpp
   src/SelectionAuthoring.cpp
   src/SemanticMerge.cpp

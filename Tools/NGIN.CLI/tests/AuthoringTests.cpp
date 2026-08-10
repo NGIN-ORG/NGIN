@@ -4,6 +4,7 @@
 #include "ManifestPaths.hpp"
 #include "Overlay.hpp"
 #include "Placeholders.hpp"
+#include "ProjectModel.hpp"
 #include "TestSupport.hpp"
 
 namespace
@@ -346,6 +347,178 @@ TEST_CASE("typed placeholders enforce registry phases and canonical identity") {
   REQUIRE_FALSE(ExpandPlaceholders("${project.name}", PlaceholderPhase::Output,
                                    recursiveValues)
                     .Succeeded());
+}
+
+TEST_CASE("project conventions discover deterministic C++ build inputs") {
+  TempDir temp{};
+  const auto projectPath = temp.path() / "Convention.nginproj";
+  WriteFile(projectPath,
+            R"(<Project Name="Convention" Type="Application" />)");
+  WriteFile(temp.path() / "src/main.cpp", "int main() { return 0; }");
+  WriteFile(temp.path() / "src/api.ixx", "export module api;");
+  WriteFile(temp.path() / "include/api.hpp", "#pragma once");
+  WriteFile(temp.path() / "assets/ui/icon.txt", "icon");
+  WriteFile(temp.path() / "build/generated.cpp", "");
+
+  const auto authored = ParseAuthoredManifest(projectPath);
+  REQUIRE(authored.Succeeded());
+  const auto project = ParseSemanticProject(
+      std::get<AuthoredProjectManifest>(*authored.value));
+  REQUIRE(project.Succeeded());
+  const auto build = ResolveProjectBuild(*project.value, temp.path());
+  REQUIRE(build.Succeeded());
+  REQUIRE(build.language.standard == "C++23");
+  REQUIRE(build.items.size() == 4);
+  REQUIRE(std::ranges::is_sorted(build.items, {}, &ResolvedBuildItem::identity));
+  REQUIRE(std::ranges::none_of(build.items, [](const ResolvedBuildItem &item) {
+    return item.path.value.starts_with("build/");
+  }));
+  const auto resource = std::ranges::find_if(build.items, [](const ResolvedBuildItem &item) {
+    return item.kind == BuildItemKind::Resource;
+  });
+  REQUIRE(resource != build.items.end());
+  REQUIRE(resource->path.value == "assets/ui/icon.txt");
+  REQUIRE(resource->destination->value == "assets/ui/icon.txt");
+}
+
+TEST_CASE("build Include Remove and Update laws do not depend on XML order") {
+  TempDir temp{};
+  WriteFile(temp.path() / "src/keep.cpp", "");
+  WriteFile(temp.path() / "src/remove.cpp", "");
+  WriteFile(temp.path() / "src/generated.cpp", "");
+  WriteFile(temp.path() / "src/excluded.cpp", "");
+
+  const auto resolve = [&](const std::string &name,
+                           const std::string &items) {
+    const auto path = temp.path() / (name + ".nginproj");
+    WriteFile(path, "<Project Name=\"" + name +
+                        "\" Type=\"Application\"><Build Conventions=\"false\">" +
+                        items + "</Build></Project>");
+    const auto authored = ParseAuthoredManifest(path);
+    REQUIRE(authored.Succeeded());
+    const auto project = ParseSemanticProject(
+        std::get<AuthoredProjectManifest>(*authored.value));
+    REQUIRE(project.Succeeded());
+    return ResolveProjectBuild(*project.value, temp.path());
+  };
+  const std::string include =
+      R"(<Source Include="src/**/*.cpp" Exclude="src/excluded.cpp" />)";
+  const std::string remove = R"(<Source Remove="src/remove.cpp" />)";
+  const std::string update =
+      R"(<Source Update="src/generated.cpp" Generated="true" />)";
+  const auto first = resolve("First", remove + update + include);
+  const auto second = resolve("Second", include + update + remove);
+  REQUIRE(first.Succeeded());
+  REQUIRE(second.Succeeded());
+  REQUIRE(first.items.size() == 2);
+  REQUIRE(first.items.size() == second.items.size());
+  for (std::size_t index = 0; index < first.items.size(); ++index) {
+    REQUIRE(first.items[index].identity == second.items[index].identity);
+    REQUIRE(first.items[index].generated == second.items[index].generated);
+  }
+  const auto generated = std::ranges::find_if(first.items, [](const auto &item) {
+    return item.path.value == "src/generated.cpp";
+  });
+  REQUIRE(generated != first.items.end());
+  REQUIRE(generated->generated);
+  REQUIRE(generated->origin == BuildItemOriginKind::Updated);
+}
+
+TEST_CASE("ineffective build operations fail unless AllowEmpty is explicit") {
+  TempDir temp{};
+  const auto resolve = [&](const bool allowEmpty) {
+    const auto path = temp.path() /
+                      (allowEmpty ? "Allowed.nginproj" : "Rejected.nginproj");
+    WriteFile(path,
+              "<Project Name=\"Operations\" Type=\"Application\"><Build "
+              "Conventions=\"false\"><Source Remove=\"src/missing.cpp\" "
+              "AllowEmpty=\"" +
+                  std::string(allowEmpty ? "true" : "false") +
+                  "\" /></Build></Project>");
+    const auto authored = ParseAuthoredManifest(path);
+    REQUIRE(authored.Succeeded());
+    const auto project = ParseSemanticProject(
+        std::get<AuthoredProjectManifest>(*authored.value));
+    REQUIRE(project.Succeeded());
+    return ResolveProjectBuild(*project.value, temp.path());
+  };
+  REQUIRE_FALSE(resolve(false).Succeeded());
+  REQUIRE(resolve(true).Succeeded());
+}
+
+TEST_CASE("build item identities reject incompatible duplicate contributions") {
+  TempDir temp{};
+  WriteFile(temp.path() / "src/main.cpp", "");
+  const auto projectPath = temp.path() / "Duplicates.nginproj";
+  WriteFile(projectPath, R"xml(<Project Name="Duplicates" Type="Application">
+  <Build Conventions="false">
+    <Source Include="src/main.cpp" />
+    <Source Include="src/main.cpp" Generated="true" />
+  </Build>
+</Project>)xml");
+
+  const auto authored = ParseAuthoredManifest(projectPath);
+  REQUIRE(authored.Succeeded());
+  const auto project = ParseSemanticProject(
+      std::get<AuthoredProjectManifest>(*authored.value));
+  REQUIRE(project.Succeeded());
+  const auto build = ResolveProjectBuild(*project.value, temp.path());
+  REQUIRE_FALSE(build.Succeeded());
+  REQUIRE(std::ranges::any_of(build.diagnostics, [](const ManifestDiagnostic &diagnostic) {
+    return diagnostic.code == "NGIN3004";
+  }));
+}
+
+TEST_CASE("typed build settings remain backend-neutral and graph-ready") {
+  TempDir temp{};
+  const auto projectPath = temp.path() / "Library.nginproj";
+  WriteFile(projectPath, R"xml(<Project Name="Example.Library" Type="Library" Linkage="Shared">
+  <Build Conventions="false">
+    <Language Standard="C++23" Extensions="false" Required="true" />
+    <Header Include="generated/api.hpp" Visibility="Public" Generated="true" />
+    <IncludeDirectory Path="include" Visibility="Public" System="false" />
+    <Define Name="EXAMPLE_EXPORT" Value="1" Visibility="Public" />
+    <CompileOption Value="-Wall" Visibility="Private" />
+    <LinkOption Value="-Wl,--as-needed" Visibility="Private" />
+    <PrecompiledHeader Path="include/pch.hpp" Visibility="Private" />
+    <UnityBuild Enabled="true" BatchSize="8" />
+  </Build>
+</Project>)xml");
+  fs::create_directories(temp.path() / "include");
+
+  const auto authored = ParseAuthoredManifest(projectPath);
+  REQUIRE(authored.Succeeded());
+  const auto project = ParseSemanticProject(
+      std::get<AuthoredProjectManifest>(*authored.value));
+  REQUIRE(project.Succeeded());
+  const auto build = ResolveProjectBuild(*project.value, temp.path());
+  REQUIRE(build.Succeeded());
+  REQUIRE(project.value->linkage == LibraryLinkage::Shared);
+  REQUIRE(build.unityBuild->enabled);
+  REQUIRE(build.unityBuild->batchSize == 8);
+  REQUIRE(build.items.size() == 6);
+  REQUIRE(std::ranges::any_of(build.items, [](const ResolvedBuildItem &item) {
+    return item.kind == BuildItemKind::Define && item.detail == "EXAMPLE_EXPORT" &&
+           item.value == "1" && item.visibility == BuildVisibility::Public;
+  }));
+}
+
+TEST_CASE("Interface Library rejects compiled sources but accepts generated headers") {
+  TempDir temp{};
+  const auto projectPath = temp.path() / "Interface.nginproj";
+  WriteFile(projectPath, R"xml(<Project Name="Example.Interface" Type="Library" Linkage="Interface">
+  <Build Conventions="false">
+    <Source Include="src/compiled.cpp" />
+    <Header Include="generated/api.hpp" Generated="true" Visibility="Interface" />
+  </Build>
+</Project>)xml");
+  WriteFile(temp.path() / "src/compiled.cpp", "");
+  const auto authored = ParseAuthoredManifest(projectPath);
+  REQUIRE(authored.Succeeded());
+  const auto project = ParseSemanticProject(
+      std::get<AuthoredProjectManifest>(*authored.value));
+  REQUIRE(project.Succeeded());
+  REQUIRE_FALSE(ResolveProjectBuild(*project.value, temp.path()).Succeeded());
 }
 
 TEST_CASE("host target platforms resolve to the detected host identity") {

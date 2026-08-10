@@ -251,9 +251,15 @@ namespace NGIN::CLI
             Add(spec, "project.testing.argument", "Argument", {}, {}, true);
             Add(spec, "project.testing.timeout", "Timeout", {Required("Seconds", ManifestValueKind::Integer)});
 
+            const auto publishPackage = AddPackageReference(spec, "project.publish.dependencies");
+            Add(spec, "project.publish.dependencies", "Dependencies", {},
+                {C(publishPackage), C("project.publish.dependencies.project")});
+            Add(spec, "project.publish.dependencies.project", "Project",
+                {Required("Name", ManifestValueKind::Identifier), A("Path", ManifestValueKind::Path)});
             Add(spec, "project.publish", "Publish", {Required("Name", ManifestValueKind::Identifier)},
                 {C("project.publish.folder", 0, 1), C("project.publish.archive", 0, 1),
-                 C("project.publish.installer", 0, 1)}, false, {}, "validate-one-publish-output", "publish");
+                 C("project.publish.installer", 0, 1), C("project.publish.dependencies", 0, 1)}, false, {},
+                "validate-one-publish-output", "publish");
             Add(spec, "project.publish.folder", "Folder", {Required("Output", ManifestValueKind::Path)});
             Add(spec, "project.publish.archive", "Archive",
                 {Required("Format", ManifestValueKind::Enumeration, {"zip", "tgz"}),
@@ -292,7 +298,8 @@ namespace NGIN::CLI
                 {Required("Name", ManifestValueKind::Identifier),
                  Required("Type", ManifestValueKind::Enumeration,
                           {"Application", "Library", "Tool", "Test", "Benchmark", "Plugin", "External"}),
-                 A("Version", ManifestValueKind::SemanticVersion)},
+                 A("Version", ManifestValueKind::SemanticVersion),
+                 A("Linkage", ManifestValueKind::Enumeration, false, {"Static", "Shared", "Interface"})},
                 {C(metadata, 0, 1), C(options, 0, 1), C("project.dependencies", 0, 1), C(build, 0, 1),
                  C("project.generate"), C("project.tooling", 0, 1), C("project.stage", 0, 1),
                  C("project.launch"), C("project.testing", 0, 1), C("project.publish"),

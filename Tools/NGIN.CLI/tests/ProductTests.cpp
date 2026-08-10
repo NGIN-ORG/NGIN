@@ -1,4 +1,96 @@
 #include "TestSupport.hpp"
+#include "AuthoredManifest.hpp"
+#include "ProjectModel.hpp"
+
+namespace
+{
+    [[nodiscard]] auto ParseNewProject(const fs::path &path) -> SemanticProjectResult
+    {
+        const auto authored = ParseAuthoredManifest(path);
+        REQUIRE(authored.Succeeded());
+        return ParseSemanticProject(std::get<AuthoredProjectManifest>(*authored.value));
+    }
+}
+
+TEST_CASE("direct Project grammar represents every primary product type")
+{
+    TempDir temp{};
+    const std::vector<std::pair<std::string, ProductType>> products{
+        {"Application", ProductType::Application}, {"Library", ProductType::Library},
+        {"Tool", ProductType::Tool},               {"Test", ProductType::Test},
+        {"Benchmark", ProductType::Benchmark},     {"Plugin", ProductType::Plugin},
+        {"External", ProductType::External},
+    };
+    for (const auto &[name, expected] : products)
+    {
+        CAPTURE(name);
+        const auto path = temp.path() / (name + ".nginproj");
+        const auto linkage = name == "Library" ? R"( Linkage="Shared")" : std::string{};
+        WriteFile(path, "<Project Name=\"Example." + name + "\" Type=\"" + name + "\"" + linkage + " />");
+        const auto project = ParseNewProject(path);
+        REQUIRE(project.Succeeded());
+        REQUIRE(project.value->type == expected);
+        REQUIRE(project.value->linkage ==
+                (name == "Library" ? LibraryLinkage::Shared : LibraryLinkage::None));
+    }
+}
+
+TEST_CASE("product semantic validation rejects invalid section and visibility combinations")
+{
+    TempDir temp{};
+    const auto invalid = [&](const std::string &name, const std::string &xml) {
+        const auto path = temp.path() / (name + ".nginproj");
+        WriteFile(path, xml);
+        return ParseNewProject(path);
+    };
+    REQUIRE_FALSE(invalid("ApplicationLinkage",
+                          R"(<Project Name="App" Type="Application" Linkage="Shared" />)")
+                      .Succeeded());
+    REQUIRE_FALSE(invalid("LibraryLaunch",
+                          R"(<Project Name="Lib" Type="Library"><Launch Name="run"><Executable Product="Lib" /></Launch></Project>)")
+                      .Succeeded());
+    REQUIRE_FALSE(invalid("TestTesting",
+                          R"(<Project Name="Tests" Type="Test"><Testing /></Project>)")
+                      .Succeeded());
+    REQUIRE_FALSE(invalid("ExternalBuild",
+                          R"(<Project Name="External" Type="External"><Build><Source Include="src/a.cpp" /></Build></Project>)")
+                      .Succeeded());
+    REQUIRE_FALSE(invalid("ApplicationPublic",
+                          R"(<Project Name="App" Type="Application"><Build><Header Include="include/a.hpp" Visibility="Public" /></Build></Project>)")
+                      .Succeeded());
+}
+
+TEST_CASE("project dependency containers preserve target test benchmark and publish context")
+{
+    TempDir temp{};
+    const auto projectPath = temp.path() / "Contexts.nginproj";
+    WriteFile(projectPath, R"xml(<Project Name="Contexts" Type="Application">
+  <Dependencies>
+    <Package Name="Core" Compatible="1.2"><Use Library="Core" /></Package>
+    <Project Name="Local" Path="../Local/Local.nginproj" />
+  </Dependencies>
+  <Testing><Dependencies><Package Name="Catch2" Compatible="3" /></Dependencies></Testing>
+  <Publish Name="portable">
+    <Archive Format="zip" Output="dist/contexts.zip" />
+    <Dependencies><Package Name="Packager" Exact="2.0.0" /></Dependencies>
+  </Publish>
+</Project>)xml");
+
+    const auto project = ParseNewProject(projectPath);
+    REQUIRE(project.Succeeded());
+    REQUIRE(project.value->dependencies.size() == 4);
+    REQUIRE(std::get<PackageDependencyRequest>(project.value->dependencies[0]).context ==
+            DependencyContext::Target);
+    REQUIRE(std::get<ProjectDependencyRequest>(project.value->dependencies[1]).path->value ==
+            "../Local/Local.nginproj");
+    REQUIRE(std::get<PackageDependencyRequest>(project.value->dependencies[2]).context ==
+            DependencyContext::Test);
+    const auto &publish =
+        std::get<PackageDependencyRequest>(project.value->dependencies[3]);
+    REQUIRE(publish.context == DependencyContext::Publish);
+    REQUIRE(publish.owner == "portable");
+    REQUIRE(publish.constraint->lower->version == SemanticVersion{.major = 2});
+}
 
 TEST_CASE("minimal application project normalizes to generated executable")
 {

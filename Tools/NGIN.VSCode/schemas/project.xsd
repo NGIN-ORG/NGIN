@@ -401,16 +401,56 @@
   <xs:complexType name="t_project_testing_timeout">
     <xs:attribute name="Seconds" type="xs:long" use="required" />
   </xs:complexType>
+  <xs:complexType name="t_project_publish_dependencies_version_range">
+    <xs:attribute name="AtLeast" type="semanticVersion" />
+    <xs:attribute name="After" type="semanticVersion" />
+    <xs:attribute name="AtMost" type="semanticVersion" />
+    <xs:attribute name="Before" type="semanticVersion" />
+  </xs:complexType>
+  <xs:complexType name="t_project_publish_dependencies_use">
+    <xs:attribute name="Library" type="identifier" />
+    <xs:attribute name="Tool" type="identifier" />
+    <xs:attribute name="Plugin" type="identifier" />
+    <xs:attribute name="Action" type="identifier" />
+    <xs:attribute name="Asset" type="identifier" />
+  </xs:complexType>
+  <xs:complexType name="t_project_publish_dependencies_package">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="Version" type="t_project_publish_dependencies_version_range" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Use" type="t_project_publish_dependencies_use" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Option" type="t_project_publish_dependencies_option" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+    <xs:attribute name="Name" type="identifier" use="required" />
+    <xs:attribute name="Exact" type="semanticVersion" />
+    <xs:attribute name="Compatible" type="versionCompatibility" />
+    <xs:assert test="count(Version) le 1" />
+  </xs:complexType>
+  <xs:complexType name="t_project_publish_dependencies_option">
+    <xs:attribute name="Name" type="identifier" use="required" />
+    <xs:attribute name="Value" type="nonEmptyString" use="required" />
+  </xs:complexType>
+  <xs:complexType name="t_project_publish_dependencies">
+    <xs:choice minOccurs="0" maxOccurs="unbounded">
+      <xs:element name="Package" type="t_project_publish_dependencies_package" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Project" type="t_project_publish_dependencies_project" minOccurs="0" maxOccurs="unbounded" />
+    </xs:choice>
+  </xs:complexType>
+  <xs:complexType name="t_project_publish_dependencies_project">
+    <xs:attribute name="Name" type="identifier" use="required" />
+    <xs:attribute name="Path" type="nonEmptyString" />
+  </xs:complexType>
   <xs:complexType name="t_project_publish">
     <xs:choice minOccurs="0" maxOccurs="unbounded">
       <xs:element name="Folder" type="t_project_publish_folder" minOccurs="0" maxOccurs="unbounded" />
       <xs:element name="Archive" type="t_project_publish_archive" minOccurs="0" maxOccurs="unbounded" />
       <xs:element name="Installer" type="t_project_publish_installer" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Dependencies" type="t_project_publish_dependencies" minOccurs="0" maxOccurs="unbounded" />
     </xs:choice>
     <xs:attribute name="Name" type="identifier" use="required" />
     <xs:assert test="count(Folder) le 1" />
     <xs:assert test="count(Archive) le 1" />
     <xs:assert test="count(Installer) le 1" />
+    <xs:assert test="count(Dependencies) le 1" />
   </xs:complexType>
   <xs:complexType name="t_project_publish_folder">
     <xs:attribute name="Output" type="nonEmptyString" use="required" />
@@ -689,6 +729,13 @@
       </xs:restriction></xs:simpleType>
     </xs:attribute>
     <xs:attribute name="Version" type="semanticVersion" />
+    <xs:attribute name="Linkage">
+      <xs:simpleType><xs:restriction base="xs:string">
+        <xs:enumeration value="Static" />
+        <xs:enumeration value="Shared" />
+        <xs:enumeration value="Interface" />
+      </xs:restriction></xs:simpleType>
+    </xs:attribute>
     <xs:assert test="count(Metadata) le 1" />
     <xs:assert test="count(Options) le 1" />
     <xs:assert test="count(Dependencies) le 1" />

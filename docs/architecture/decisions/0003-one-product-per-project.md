@@ -15,9 +15,14 @@ One `.nginproj` describes one primary product: an application, library, tool,
 test, benchmark, plugin, or external product. A workspace groups related
 projects.
 
-There is no generic Module product. Statically linked reusable code is a
+There is no generic Module product. Linked reusable code is a
 Library, dynamically loaded code is a Plugin, and C++ language modules are
 typed build items within a product.
+
+Library products may select backend-neutral `Linkage="Static"`, `Shared`, or
+`Interface`; omission means `Static`. The attribute is invalid for every other
+product Type. This closes artifact intent without adding a product wrapper or a
+backend target name.
 
 ## Consequences
 

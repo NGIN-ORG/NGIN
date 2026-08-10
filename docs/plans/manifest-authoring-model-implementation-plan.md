@@ -14,7 +14,7 @@ PackageProvider boundaries; editor support; canonical examples; documentation
 | 0 — Ratify the complete contract | Complete | `docs(manifest): ratify authoring model contract` |
 | 1 — ManifestSpec, authored AST, diagnostics | Complete | `refactor(manifest): add structural authoring foundation` |
 | 2 — Selection, merge laws, paths, placeholders | Complete | `feat(manifest): add semantic selection foundations` |
-| 3 — Direct project grammar and build items | Pending | — |
+| 3 — Direct project grammar and build items | Complete | `feat(manifest): implement direct project semantics` |
 | 4 — Package instances, exports, Options, capabilities | Pending | — |
 | 5 — Actions, Tools, execution trust | Pending | — |
 | 6 — Complete resolver and immutable graph | Pending | — |
@@ -272,7 +272,7 @@ not incidentally during parser or resolver implementation.
 3. A project declares one primary product with `Type="Application"`,
     `Type="Library"`, `Type="Tool"`, `Type="Test"`, `Type="Benchmark"`,
     `Type="Plugin"`, or `Type="External"`. There is no generic Module product:
-    statically linked reusable code is a Library, dynamically loaded code is a
+    linked reusable code is a Library, dynamically loaded code is a
     Plugin, and C++ language modules are build items within a product.
 4. Project behavior appears directly under `<Project>` in semantically named
    sections.
@@ -369,7 +369,7 @@ examples define the intended center of gravity.
   </Dependencies>
 
   <Build>
-    <Source Include="src/**.cpp" />
+    <Source Include="src/**/*.cpp" />
   </Build>
 </Project>
 ```
@@ -441,7 +441,7 @@ Packages export one Action abstraction:
           Kind="Generate"
           Tool="MetaGen">
     <Inputs>
-      <Header Include="include/**.hpp" />
+      <Header Include="include/**/*.hpp" />
     </Inputs>
     <Outputs>
       <Source Path="generated/reflection.cpp" />

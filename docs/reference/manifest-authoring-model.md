@@ -66,6 +66,7 @@ namespaces. XML declarations are optional; when present, UTF-8 is required.
 | `Name` | yes | Product identity within the workspace |
 | `Type` | yes | `Application`, `Library`, `Tool`, `Test`, `Benchmark`, `Plugin`, or `External` |
 | `Version` | no | Product release version; required by publishing formats that need one |
+| `Linkage` | no | Library-only `Static`, `Shared`, or `Interface`; defaults to `Static` |
 
 `SchemaVersion`, `DefaultProfile`, and backend attributes are invalid.
 
@@ -96,7 +97,7 @@ Product validity:
 | Type | Build | Launch | Testing | Publish | Special rule |
 | --- | --- | --- | --- | --- | --- |
 | Application | yes | yes | yes | yes | Produces one executable |
-| Library | yes | no | yes | yes | Produces a static, shared, or interface library |
+| Library | yes | no | yes | yes | Produces the library linkage selected by `Linkage` |
 | Tool | yes | yes | yes | yes | Produces a host/developer executable |
 | Test | yes | yes | no | optional | Its root dependencies are test-context dependencies |
 | Benchmark | yes | yes | no | optional | Its root dependencies are benchmark-context dependencies |
@@ -224,9 +225,9 @@ There is no `Scope`, generic `Optional`, generic `Link`, or nested `Feature`.
 ```xml
 <Build>
   <Language Standard="C++23" Extensions="false" Required="true" />
-  <Source Include="src/**.cpp" />
-  <Header Include="include/**.hpp" Visibility="Public" />
-  <CxxModule Include="src/**.ixx" Kind="Interface" Visibility="Public" />
+  <Source Include="src/**/*.cpp" />
+  <Header Include="include/**/*.hpp" Visibility="Public" />
+  <CxxModule Include="src/**/*.ixx" Kind="Interface" Visibility="Public" />
   <Resource Include="assets/**" Into="assets" />
   <IncludeDirectory Path="include" Visibility="Public" />
   <Define Name="GALLERY_BUILDING" Value="1" Visibility="Private" />
@@ -257,8 +258,8 @@ rejects meaningless public/interface use.
 Collection operations use one of:
 
 ```xml
-<Source Include="src/**.cpp" Exclude="src/legacy/**" />
-<Source Remove="src/platform/**.cpp" />
+<Source Include="src/**/*.cpp" Exclude="src/legacy/**" />
+<Source Remove="src/platform/**/*.cpp" />
 <Source Update="src/generated.cpp" Generated="true" />
 ```
 
@@ -270,10 +271,12 @@ authority contributions; an ineffective operation is an error unless it says
 Conventions have stable identities and behave like the lowest-authority
 Includes. The initial conventions are:
 
-- `NGIN.Cxx.Sources`: `src/**.c`, `src/**.cc`, `src/**.cpp`, `src/**.cxx`;
-- `NGIN.Cxx.Headers`: `include/**.h`, `include/**.hh`, `include/**.hpp`,
-  `include/**.hxx`;
-- `NGIN.Cxx.Modules`: `src/**.ixx`, `src/**.cppm`;
+- `NGIN.Cxx.Sources`: `src/**/*.c`, `src/**/*.cc`, `src/**/*.cpp`, `src/**/*.cxx`;
+- `NGIN.Cxx.Headers`: `include/**/*.h`, `include/**/*.hh`, `include/**/*.hpp`,
+  `include/**/*.hxx`;
+- `NGIN.Cxx.Modules`: `src/**/*.ixx`, `src/**/*.cppm`;
+- `NGIN.Resources.Assets`: `assets/**`, staged below `assets/`;
+- `NGIN.Resources.Resources`: `resources/**`, staged below `resources/`;
 - generated/build directories and version-control metadata are excluded.
 
 `<Build Conventions="false">` disables all project file conventions. A named
@@ -284,7 +287,7 @@ Enabled="false" />` inside Build.
 
 ```xml
 <Generate Action="NGIN.Reflection.MetaGen::ReflectionCodegen">
-  <Input Include="include/**.hpp" />
+  <Input Include="include/**/*.hpp" />
   <Option Name="Namespace" Value="Gallery" />
 </Generate>
 
@@ -358,12 +361,16 @@ in root `Dependencies` instead.
 ```xml
 <Publish Name="portable">
   <Archive Format="zip" Output="dist/${project.name}-${project.version}.zip" />
+  <Dependencies>
+    <Package Name="Example.Packaging" Compatible="1" />
+  </Dependencies>
 </Publish>
 ```
 
 Core output kinds are `Folder`, `Archive`, and `Installer`. Initially supported
 formats remain `zip`, `tgz`, `msi`, and `deb`. The graph records semantic output
 intent; publisher-specific commands exist only in PublishPlan and its adapter.
+Dependencies nested in a Publish apply only to that named PublishPlan.
 
 ### Refinements
 
@@ -505,7 +512,7 @@ service registration, modules, and lifecycle are runtime-framework concerns.
 ```xml
 <Action Name="ReflectionCodegen" Kind="Generate" Tool="MetaGen">
   <Inputs>
-    <Header Include="include/**.hpp" />
+    <Header Include="include/**/*.hpp" />
   </Inputs>
   <Outputs>
     <Source Path="generated/reflection.cpp" />
@@ -589,7 +596,7 @@ There are no Workspace Profiles or product-kind overlays.
 ```xml
 <Projects>
   <Project Path="Examples/Hello/Hello.nginproj" />
-  <Project Include="Tools/**.nginproj" Exclude="Tools/Legacy/**" />
+  <Project Include="Tools/**/*.nginproj" Exclude="Tools/Legacy/**" />
 </Projects>
 ```
 
