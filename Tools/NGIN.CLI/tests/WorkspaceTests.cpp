@@ -1,6 +1,65 @@
 #include "TestSupport.hpp"
 #include "AuthoredManifest.hpp"
 #include "SelectionAuthoring.hpp"
+#include "PackageModel.hpp"
+
+TEST_CASE("Directory PackageProvider selects the highest compatible exact release")
+{
+    TempDir temp{};
+    const auto release = [&](const std::string &version) {
+        const auto manifest = temp.path() / version / "Example.nginpkg";
+        WriteFile(manifest, "<Package Name=\"Example\" Version=\"" + version +
+                                "\"><Exports><Library Name=\"Core\" Default=\"true\" /></Exports></Package>");
+        return DirectoryPackageRelease{.name = "Example",
+                                       .manifest = manifest,
+                                       .root = manifest.parent_path(),
+                                       .nativeIdentity = "Example/" + version,
+                                       .integrity = "sha256:" + version};
+    };
+    DirectoryPackageProvider provider{"local", {release("1.2.0"), release("1.8.0"), release("2.0.0")}};
+    const SourcedVersionConstraint compatibleOne{
+        .lower = VersionBoundary{SemanticVersion{.major = 1}, true},
+        .upper = VersionBoundary{SemanticVersion{.major = 2}, false},
+        .description = "Compatible=1"};
+    const auto resolved = provider.Resolve(PackageProviderRequest{.name = "Example",
+                                                                   .constraint = compatibleOne,
+                                                                   .sourceBinding = "local"});
+    REQUIRE(resolved.Succeeded());
+    REQUIRE(resolved.value->coordinate.exactVersion == "1.8.0");
+    REQUIRE(resolved.value->providerKind == "Directory");
+    REQUIRE(resolved.value->nativeIdentity == "Example/1.8.0");
+    REQUIRE(resolved.value->context == PackageInstanceContext::Target);
+    const auto host = provider.Resolve(PackageProviderRequest{.name = "Example",
+                                                               .constraint = compatibleOne,
+                                                               .sourceBinding = "local",
+                                                               .context = PackageInstanceContext::Host});
+    REQUIRE(host.Succeeded());
+    REQUIRE(host.value->context == PackageInstanceContext::Host);
+}
+
+TEST_CASE("PackageInstance identity separates host target and artifact Options")
+{
+    const PackageProviderResult provider{
+        .coordinate = {.name = "Example", .exactVersion = "1.0.0", .sourceBinding = "local"},
+        .providerKind = "Directory",
+        .nativeIdentity = "Example/1.0.0",
+    };
+    const BinaryCompatibility compatibility{.operatingSystem = "linux", .architecture = "x64",
+                                            .compiler = "clang", .configuration = "Release"};
+    const auto target = ConstructPackageInstance(provider, compatibility, {{"Shared", "false"}});
+    const auto same = ConstructPackageInstance(provider, compatibility, {{"Shared", "false"}});
+    auto hostProvider = provider;
+    hostProvider.context = PackageInstanceContext::Host;
+    const auto host = ConstructPackageInstance(hostProvider, compatibility, {{"Shared", "false"}});
+    const auto variant = ConstructPackageInstance(provider, compatibility, {{"Shared", "true"}});
+    auto revisedProvider = provider;
+    revisedProvider.revision = "revision-2";
+    const auto revised = ConstructPackageInstance(revisedProvider, compatibility, {{"Shared", "false"}});
+    REQUIRE(target.identity == same.identity);
+    REQUIRE(target.identity != host.identity);
+    REQUIRE(target.identity != variant.identity);
+    REQUIRE(target.identity != revised.identity);
+}
 
 TEST_CASE("workspace selection model parses aliases defaults and presets")
 {

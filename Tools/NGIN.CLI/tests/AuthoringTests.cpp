@@ -41,20 +41,20 @@ TEST_CASE("ManifestSpec describes the only pre-release document grammar") {
 TEST_CASE("semantic package identity and backend bindings are separate types") {
   PackageCoordinate coordinate{
       .name = "Example",
-      .versionConstraint = "Compatible:1",
+      .exactVersion = "1.2.0",
       .sourceBinding = "local",
   };
   PackageProviderResult provider{
       .coordinate = coordinate,
-      .provider = "Directory",
-      .providerIdentity = "Packages/Example",
-      .exactVersion = "1.2.0",
+      .providerKind = "Directory",
+      .nativeIdentity = "Packages/Example",
       .integrity = "sha256:example",
       .root = "Packages/Example",
       .hermetic = true,
   };
   PackageInstance instance{
       .providerResult = provider,
+      .context = PackageInstanceContext::Target,
       .compatibility = BinaryCompatibility{.operatingSystem = "windows",
                                             .architecture = "x64"},
       .identity = "Example@1.2.0/windows-x64",

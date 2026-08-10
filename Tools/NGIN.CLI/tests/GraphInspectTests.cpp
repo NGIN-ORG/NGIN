@@ -1,6 +1,79 @@
 #include "TestSupport.hpp"
 #include "Canonical.hpp"
 #include "Selection.hpp"
+#include "PackageModel.hpp"
+
+TEST_CASE("versioned CapabilityBindings require one compatible implementation")
+{
+    const SemanticCapabilityRequirement requirement{
+        .name = "Example.TLS",
+        .domain = CapabilityDomain::Link,
+        .constraint = SourcedVersionConstraint{
+            .lower = VersionBoundary{SemanticVersion{.major = 1}, true},
+            .upper = VersionBoundary{SemanticVersion{.major = 2}, false}},
+        .requester = "App"};
+    const CapabilityImplementation compatible{
+        .name = "Example.TLS", .domain = CapabilityDomain::Link,
+        .version = SemanticVersion{.major = 1, .minor = 2},
+        .packageInstance = "tls@1/target", .exportName = "TLS"};
+    const CapabilityImplementation incompatible{
+        .name = "Example.TLS", .domain = CapabilityDomain::Link,
+        .version = SemanticVersion{.major = 2},
+        .packageInstance = "tls@2/target", .exportName = "TLS"};
+
+    const auto bound = ResolveCapabilityBindings({requirement}, {compatible, incompatible});
+    REQUIRE(bound.Succeeded());
+    REQUIRE(bound.bindings.size() == 1);
+    REQUIRE(bound.bindings[0].version == "1.2.0");
+    REQUIRE(bound.bindings[0].domain == "Link");
+    REQUIRE(bound.activatedExports == std::vector<std::string>{"tls@1/target::TLS"});
+    REQUIRE(ResolveCapabilityBindings({requirement}, {compatible, compatible}).Succeeded());
+
+    auto ambiguous = compatible;
+    ambiguous.packageInstance = "other@1/target";
+    REQUIRE_FALSE(ResolveCapabilityBindings({requirement}, {compatible, ambiguous}).Succeeded());
+    REQUIRE_FALSE(ResolveCapabilityBindings({requirement}, {incompatible}).Succeeded());
+}
+
+TEST_CASE("PackageInstance coexistence is checked per context and linkage closure")
+{
+    const PackageProviderResult provider{
+        .coordinate = {.name = "Crypto", .exactVersion = "1.0.0"},
+        .providerKind = "Directory", .nativeIdentity = "Crypto/1"};
+    const auto first = ConstructPackageInstance(
+        provider,
+        BinaryCompatibility{.operatingSystem = "windows", .architecture = "x64", .linkage = "Static"}, {});
+    const auto second = ConstructPackageInstance(
+        provider,
+        BinaryCompatibility{.operatingSystem = "windows", .architecture = "x64", .linkage = "Shared"}, {});
+    auto hostProvider = provider;
+    hostProvider.context = PackageInstanceContext::Host;
+    const auto host = ConstructPackageInstance(
+        hostProvider,
+        BinaryCompatibility{.operatingSystem = "windows", .architecture = "x64", .linkage = "Shared"}, {});
+    const std::vector<PackageInstanceUse> conflict{{.instance = first, .linkageClosure = "App"},
+                                                   {.instance = second, .linkageClosure = "App"}};
+    REQUIRE_FALSE(ValidatePackageInstanceCoexistence(conflict, PackageCoexistence::Context, false).empty());
+    REQUIRE_FALSE(ValidatePackageInstanceCoexistence(conflict, PackageCoexistence::SideBySide, false).empty());
+    REQUIRE(ValidatePackageInstanceCoexistence(conflict, PackageCoexistence::SideBySide, true).empty());
+    REQUIRE(ValidatePackageInstanceCoexistence(
+                {{.instance = first, .linkageClosure = "App"}, {.instance = host, .linkageClosure = "App"}},
+                PackageCoexistence::Context, false)
+                .empty());
+}
+
+TEST_CASE("runtime-oriented Capability domains are structurally rejected")
+{
+    const auto parsed = ParseAuthoredManifestText(
+        R"xml(<Package Name="Bad" Version="1.0.0"><Exports><Library Name="Core" Default="true">
+  <Provides><Capability Name="Runtime.Service" Domain="RuntimeService" Version="1.0.0" /></Provides>
+</Library></Exports></Package>)xml",
+        "Bad.nginpkg");
+    REQUIRE_FALSE(parsed.Succeeded());
+    REQUIRE(std::ranges::any_of(parsed.diagnostics, [](const ManifestDiagnostic &diagnostic) {
+        return diagnostic.code == "NGIN1007";
+    }));
+}
 
 TEST_CASE("canonical serialization sorts keys and escapes without host paths")
 {

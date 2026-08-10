@@ -115,6 +115,12 @@
     <xs:attribute name="Name" type="identifier" use="required" />
     <xs:attribute name="Exact" type="semanticVersion" />
     <xs:attribute name="Compatible" type="versionCompatibility" />
+    <xs:attribute name="Visibility">
+      <xs:simpleType><xs:restriction base="xs:string">
+        <xs:enumeration value="Private" />
+        <xs:enumeration value="Public" />
+      </xs:restriction></xs:simpleType>
+    </xs:attribute>
     <xs:assert test="count(Version) le 1" />
   </xs:complexType>
   <xs:complexType name="t_package_requires_option">
@@ -142,6 +148,16 @@
     <xs:attribute name="Name" type="identifier" use="required" />
     <xs:attribute name="Exact" type="semanticVersion" />
     <xs:attribute name="Compatible" type="versionCompatibility" />
+    <xs:attribute name="Domain" use="required">
+      <xs:simpleType><xs:restriction base="xs:string">
+        <xs:enumeration value="Acquisition" />
+        <xs:enumeration value="Build" />
+        <xs:enumeration value="Link" />
+        <xs:enumeration value="Generation" />
+        <xs:enumeration value="Artifact" />
+        <xs:enumeration value="Deployment" />
+      </xs:restriction></xs:simpleType>
+    </xs:attribute>
     <xs:assert test="count(Version) le 1" />
   </xs:complexType>
   <xs:complexType name="t_package_requires_capability_version">
@@ -160,12 +176,19 @@
     <xs:attribute name="Plugin" type="identifier" />
     <xs:attribute name="Action" type="identifier" />
     <xs:attribute name="Asset" type="identifier" />
+    <xs:attribute name="Visibility">
+      <xs:simpleType><xs:restriction base="xs:string">
+        <xs:enumeration value="Private" />
+        <xs:enumeration value="Public" />
+      </xs:restriction></xs:simpleType>
+    </xs:attribute>
   </xs:complexType>
   <xs:complexType name="t_package_requires_when">
     <xs:choice minOccurs="0" maxOccurs="unbounded">
       <xs:element name="Package" type="t_package_requires_package" minOccurs="0" maxOccurs="unbounded" />
       <xs:element name="Project" type="t_package_requires_project" minOccurs="0" maxOccurs="unbounded" />
       <xs:element name="Capability" type="t_package_requires_capability" minOccurs="0" maxOccurs="unbounded" />
+      <xs:element name="Export" type="t_package_requires_export" minOccurs="0" maxOccurs="unbounded" />
     </xs:choice>
     <xs:attribute name="Option" type="identifier" />
     <xs:attribute name="Equals" type="nonEmptyString" />
@@ -263,6 +286,16 @@
   <xs:complexType name="t_package_provides_capability">
     <xs:attribute name="Name" type="identifier" use="required" />
     <xs:attribute name="Version" type="semanticVersion" use="required" />
+    <xs:attribute name="Domain" use="required">
+      <xs:simpleType><xs:restriction base="xs:string">
+        <xs:enumeration value="Acquisition" />
+        <xs:enumeration value="Build" />
+        <xs:enumeration value="Link" />
+        <xs:enumeration value="Generation" />
+        <xs:enumeration value="Artifact" />
+        <xs:enumeration value="Deployment" />
+      </xs:restriction></xs:simpleType>
+    </xs:attribute>
   </xs:complexType>
   <xs:complexType name="t_package_export_runtime_files">
     <xs:choice minOccurs="0" maxOccurs="unbounded">
@@ -394,6 +427,12 @@
       <xs:element name="Target" type="t_package_compatibility_target" minOccurs="0" maxOccurs="unbounded" />
       <xs:element name="Toolchain" type="t_package_compatibility_toolchain" minOccurs="0" maxOccurs="unbounded" />
     </xs:choice>
+    <xs:attribute name="Coexistence">
+      <xs:simpleType><xs:restriction base="xs:string">
+        <xs:enumeration value="Context" />
+        <xs:enumeration value="SideBySide" />
+      </xs:restriction></xs:simpleType>
+    </xs:attribute>
   </xs:complexType>
   <xs:complexType name="t_package_compatibility_target">
     <xs:attribute name="OS" type="nonEmptyString" />

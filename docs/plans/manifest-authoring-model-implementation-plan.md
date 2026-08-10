@@ -15,7 +15,7 @@ PackageProvider boundaries; editor support; canonical examples; documentation
 | 1 — ManifestSpec, authored AST, diagnostics | Complete | `refactor(manifest): add structural authoring foundation` |
 | 2 — Selection, merge laws, paths, placeholders | Complete | `feat(manifest): add semantic selection foundations` |
 | 3 — Direct project grammar and build items | Complete | `feat(manifest): implement direct project semantics` |
-| 4 — Package instances, exports, Options, capabilities | Pending | — |
+| 4 — Package instances, exports, Options, capabilities | Complete | `feat(manifest): implement package activation semantics` |
 | 5 — Actions, Tools, execution trust | Pending | — |
 | 6 — Complete resolver and immutable graph | Pending | — |
 | 7 — Derived plans and CMake integration | Pending | — |
@@ -586,7 +586,7 @@ package version:
 ```xml
 <Library Name="TLS">
   <Provides>
-    <Capability Name="NGIN.Net.TLS" Version="1.0.0" />
+    <Capability Name="NGIN.Net.TLS" Domain="Link" Version="1.0.0" />
   </Provides>
 </Library>
 ```
@@ -595,7 +595,7 @@ Requirements use the same clear version forms as packages:
 
 ```xml
 <Requires>
-  <Capability Name="NGIN.Net.TLS" Compatible="1" />
+  <Capability Name="NGIN.Net.TLS" Domain="Link" Compatible="1" />
 </Requires>
 ```
 

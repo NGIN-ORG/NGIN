@@ -12,19 +12,32 @@ namespace NGIN::CLI
     struct PackageCoordinate
     {
         std::string name{};
-        std::string versionConstraint{};
+        std::string exactVersion{};
         std::optional<std::string> sourceBinding{};
+
+        [[nodiscard]] friend auto operator==(const PackageCoordinate &, const PackageCoordinate &) -> bool = default;
+    };
+
+    enum class PackageInstanceContext
+    {
+        Host,
+        Target,
     };
 
     struct PackageProviderResult
     {
         PackageCoordinate coordinate{};
-        std::string provider{};
-        std::string providerIdentity{};
-        std::string exactVersion{};
+        std::string providerKind{};
+        std::string nativeIdentity{};
+        std::string revision{};
         std::string integrity{};
         std::filesystem::path root{};
+        std::filesystem::path manifest{};
+        std::optional<std::filesystem::path> installedPrefix{};
+        PackageInstanceContext context{PackageInstanceContext::Target};
         bool hermetic{false};
+        std::string provenance{};
+        std::string trust{};
     };
 
     struct BinaryCompatibility
@@ -42,7 +55,9 @@ namespace NGIN::CLI
     struct PackageInstance
     {
         PackageProviderResult providerResult{};
+        PackageInstanceContext context{PackageInstanceContext::Target};
         BinaryCompatibility compatibility{};
+        std::map<std::string, std::string, std::less<>> artifactOptions{};
         std::string identity{};
     };
 
@@ -50,6 +65,7 @@ namespace NGIN::CLI
     {
         std::string requirement{};
         std::string capability{};
+        std::string domain{};
         std::string version{};
         std::string packageInstance{};
         std::string exportName{};

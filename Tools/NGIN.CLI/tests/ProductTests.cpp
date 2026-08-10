@@ -79,8 +79,8 @@ TEST_CASE("project dependency containers preserve target test benchmark and publ
     const auto project = ParseNewProject(projectPath);
     REQUIRE(project.Succeeded());
     REQUIRE(project.value->dependencies.size() == 4);
-    REQUIRE(std::get<PackageDependencyRequest>(project.value->dependencies[0]).context ==
-            DependencyContext::Target);
+    REQUIRE(std::get<PackageDependencyRequest>(project.value->dependencies[0]).name == "Core");
+    REQUIRE(std::get<PackageDependencyRequest>(project.value->dependencies[0]).context == DependencyContext::Target);
     REQUIRE(std::get<ProjectDependencyRequest>(project.value->dependencies[1]).path->value ==
             "../Local/Local.nginproj");
     REQUIRE(std::get<PackageDependencyRequest>(project.value->dependencies[2]).context ==

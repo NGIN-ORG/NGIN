@@ -58,7 +58,8 @@ namespace NGIN::CLI
 
     struct PackageDependencyRequest
     {
-        PackageCoordinate coordinate{};
+        std::string name{};
+        std::optional<std::string> sourceBinding{};
         std::optional<SourcedVersionConstraint> constraint{};
         std::vector<ExportUse> exports{};
         std::map<std::string, std::string, std::less<>> optionAssignments{};

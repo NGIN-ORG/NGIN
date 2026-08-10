@@ -129,14 +129,19 @@ namespace NGIN::CLI
             return {version, use};
         }
 
-        auto AddPackageReference(ManifestSpec &spec, std::string_view prefix) -> std::string
+        auto AddPackageReference(ManifestSpec &spec, std::string_view prefix,
+                                 const bool requirementVisibility = false) -> std::string
         {
             const auto base = std::string(prefix);
             const auto package = base + ".package";
             const auto [version, use] = AddVersionAndUse(spec, base);
-            Add(spec, package, "Package",
-                {Required("Name", ManifestValueKind::Identifier), A("Exact", ManifestValueKind::SemanticVersion),
-                 A("Compatible", ManifestValueKind::VersionCompatibility)},
+            auto attributes = std::vector<Attribute>{
+                Required("Name", ManifestValueKind::Identifier), A("Exact", ManifestValueKind::SemanticVersion),
+                A("Compatible", ManifestValueKind::VersionCompatibility)};
+            if (requirementVisibility)
+                attributes.push_back(
+                    A("Visibility", ManifestValueKind::Enumeration, false, {"Private", "Public"}));
+            Add(spec, package, "Package", std::move(attributes),
                 {C(version, 0, 1), C(use), C(base + ".option")}, false, "Package coordinate and export activation.",
                 "validate-package-coordinate", "dependency");
             Add(spec, base + ".option", "Option",
@@ -311,7 +316,7 @@ namespace NGIN::CLI
         {
             const auto metadata = AddMetadata(spec, "package", true);
             const auto options = AddOptions(spec, "package");
-            const auto requirementPackage = AddPackageReference(spec, "package.requires");
+            const auto requirementPackage = AddPackageReference(spec, "package.requires", true);
 
             Add(spec, "package.requires", "Requires", {},
                 {C(requirementPackage), C("package.requires.project"), C("package.requires.capability"),
@@ -321,7 +326,9 @@ namespace NGIN::CLI
                 {Required("Name", ManifestValueKind::Identifier), A("Path", ManifestValueKind::Path)});
             Add(spec, "package.requires.capability", "Capability",
                 {Required("Name", ManifestValueKind::Identifier), A("Exact", ManifestValueKind::SemanticVersion),
-                 A("Compatible", ManifestValueKind::VersionCompatibility)},
+                 A("Compatible", ManifestValueKind::VersionCompatibility),
+                 Required("Domain", ManifestValueKind::Enumeration,
+                          {"Acquisition", "Build", "Link", "Generation", "Artifact", "Deployment"})},
                 {C("package.requires.capability.version", 0, 1)}, false, {}, "validate-capability-requirement");
             Add(spec, "package.requires.capability.version", "Version",
                 {A("AtLeast", ManifestValueKind::SemanticVersion), A("After", ManifestValueKind::SemanticVersion),
@@ -331,12 +338,14 @@ namespace NGIN::CLI
             Add(spec, "package.requires.export", "Export",
                 {A("Library", ManifestValueKind::Identifier), A("Tool", ManifestValueKind::Identifier),
                  A("Plugin", ManifestValueKind::Identifier), A("Action", ManifestValueKind::Identifier),
-                 A("Asset", ManifestValueKind::Identifier)}, {}, false, {}, "validate-one-export-kind");
+                 A("Asset", ManifestValueKind::Identifier),
+                 A("Visibility", ManifestValueKind::Enumeration, false, {"Private", "Public"})}, {}, false, {},
+                "validate-one-export-kind");
             Add(spec, "package.requires.when", "When",
                 {A("Option", ManifestValueKind::Identifier), A("Equals"), A("TargetOS"), A("Architecture"),
                  A("Compiler")},
-                {C(requirementPackage), C("package.requires.project"), C("package.requires.capability")}, false, {},
-                "validate-requirement-condition");
+                {C(requirementPackage), C("package.requires.project"), C("package.requires.capability"),
+                 C("package.requires.export")}, false, {}, "validate-requirement-condition");
 
             Add(spec, "package.contributions", "Contributions", {},
                 {C("package.contributions.notices", 0, 1), C("package.contributions.runtime-files", 0, 1)});
@@ -367,7 +376,9 @@ namespace NGIN::CLI
             Add(spec, "package.provides", "Provides", {}, {C("package.provides.capability")});
             Add(spec, "package.provides.capability", "Capability",
                 {Required("Name", ManifestValueKind::Identifier),
-                 Required("Version", ManifestValueKind::SemanticVersion)});
+                 Required("Version", ManifestValueKind::SemanticVersion),
+                 Required("Domain", ManifestValueKind::Enumeration,
+                          {"Acquisition", "Build", "Link", "Generation", "Artifact", "Deployment"})});
             Add(spec, "package.export.runtime-files", "RuntimeFiles", {},
                 {C("package.runtime-file"), C("package.runtime-directory")});
             Add(spec, "package.export.notices", "Notices", {}, {C("package.notice")});
@@ -411,7 +422,8 @@ namespace NGIN::CLI
             Add(spec, "package.integrations", "Integrations", {},
                 {C("cmake.add-subdirectory"), C("cmake.isolated"), C("cmake.find-package"), C("cmake.manual")},
                 false, "Registered backend integration metadata.", "validate-integration-selection");
-            Add(spec, "package.compatibility", "Compatibility", {},
+            Add(spec, "package.compatibility", "Compatibility",
+                {A("Coexistence", ManifestValueKind::Enumeration, false, {"Context", "SideBySide"})},
                 {C("package.compatibility.target"), C("package.compatibility.toolchain")}, false, {},
                 "validate-compatibility", "compatibility");
             Add(spec, "package.compatibility.target", "Target", {A("OS"), A("Architecture")});

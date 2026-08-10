@@ -209,9 +209,11 @@ Ordinary product code should activate Tool/Action exports through `Generate` or
 `Tooling`, not a direct `Use`, unless it intentionally consumes the Tool as a
 product artifact.
 
-When `Use` is absent, the package's default export set activates. Zero default
-exports, multiple conflicting defaults, or an unknown export are errors. All
-export names are unique within one package regardless of export kind.
+When `Use` is absent, every export marked `Default="true"` activates. A package
+with no default exports therefore requires explicit `Use`. Multiple defaults
+are legal unless their requirement closures conflict. Unknown exports and
+conflicting defaults are errors. All export names are unique within one package
+regardless of export kind.
 
 Projects declare libraries whose APIs their source uses directly even when a
 transitive requirement also exposes them. Transitive public requirements still
@@ -427,6 +429,11 @@ version and `Use` syntax as project dependencies.
 
 Package-level requirements apply when any export is active. Export-local
 requirements appear under that export and apply only when it is active.
+Requirements on a Library export default to `Visibility="Public"`; requirements
+on other export kinds and package-level requirements default to `Private`.
+Either visibility may be written explicitly on `Package` and local `Export`
+requirements. Public requirements propagate usage requirements to consumers;
+private requirements remain inside the owning export's closure.
 
 An option predicate is structured:
 
@@ -471,7 +478,7 @@ legal obligations normally belong here.
     <Export Library="Crypto" />
   </Requires>
   <Provides>
-    <Capability Name="NGIN.Net.TLS" Version="1.0.0" />
+        <Capability Name="NGIN.Net.TLS" Domain="Link" Version="1.0.0" />
   </Provides>
   <RuntimeFiles>
     <File Include="bin/**" Into="bin" />
@@ -542,11 +549,14 @@ Every capability implementation has an exact semantic Version:
 
 ```xml
 <Provides>
-  <Capability Name="NGIN.Net.TLS" Version="1.0.0" />
+  <Capability Name="NGIN.Net.TLS" Domain="Link" Version="1.0.0" />
 </Provides>
 ```
 
-Requirements use `Exact`, `Compatible`, or structured `Version` constraints.
+Requirements use `Exact`, `Compatible`, or structured `Version` constraints and
+the same required `Domain`. Domains are `Acquisition`, `Build`, `Link`,
+`Generation`, `Artifact`, and `Deployment`; there is deliberately no runtime
+service, module, dependency-injection, or lifecycle domain.
 All active constraints intersect. Resolution creates a CapabilityBinding from
 the requirement to one compatible active implementation export. Ambiguity and
 exclusive conflicts are errors.
@@ -558,7 +568,7 @@ application modules, and lifecycle capabilities are invalid.
 ### Compatibility
 
 ```xml
-<Compatibility>
+<Compatibility Coexistence="Context">
   <Target OS="windows" Architecture="x64" />
   <Target OS="linux" />
   <Toolchain Compiler="msvc" />
@@ -568,6 +578,9 @@ application modules, and lifecycle capabilities are invalid.
 Entries are allowed sets; absent categories are unconstrained. Binary package
 compatibility is derived from selected Target, Toolchain, Configuration,
 linkage, and artifact-affecting Options. ABI is not authored on Target.
+`Coexistence="Context"` permits distinct host and target instances but rejects
+different instances in one linkage closure. `SideBySide` additionally requires
+the selected platform policy to confirm side-by-side linkage support.
 
 ## Workspace manifest
 

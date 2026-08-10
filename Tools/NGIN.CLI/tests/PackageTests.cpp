@@ -1,4 +1,239 @@
 #include "TestSupport.hpp"
+#include "AuthoredManifest.hpp"
+#include "PackageModel.hpp"
+
+namespace
+{
+  [[nodiscard]] auto ParseNewPackage(const fs::path &path) -> SemanticPackageResult {
+    const auto authored = ParseAuthoredManifest(path);
+    REQUIRE(authored.Succeeded());
+    return ParseSemanticPackage(std::get<AuthoredPackageManifest>(*authored.value));
+  }
+
+  [[nodiscard]] auto TestPackageInstance(const SemanticPackage &package) -> PackageInstance {
+    const PackageProviderResult provider{
+        .coordinate = package.coordinate,
+        .providerKind = "Directory",
+        .nativeIdentity = package.manifest.canonicalPath,
+        .root = package.manifest.path.parent_path(),
+        .manifest = package.manifest.path,
+        .hermetic = true,
+    };
+    return ConstructPackageInstance(provider, BinaryCompatibility{.operatingSystem = "windows",
+                                                        .architecture = "x64",
+                                                        .compiler = "msvc",
+                                                        .configuration = "Debug"}, {});
+  }
+}
+
+TEST_CASE("package exports activate defaults and explicit transitive closures") {
+  TempDir temp{};
+  const auto path = temp.path() / "Security.nginpkg";
+  WriteFile(path, R"xml(<Package Name="Example.Security" Version="3.2.1">
+  <Contributions><Notices><Notice Include="LICENSES/**" Into="notices/Example.Security" /></Notices></Contributions>
+  <Exports>
+    <Library Name="Crypto" Default="true">
+      <Provides><Capability Name="Example.Crypto" Domain="Link" Version="1.0.0" /></Provides>
+    </Library>
+    <Library Name="TLS">
+      <Requires><Export Library="Crypto" Visibility="Public" /></Requires>
+      <RuntimeFiles><File Include="bin/tls.*" Into="bin" /></RuntimeFiles>
+    </Library>
+    <Plugin Name="Telemetry"><RuntimeFiles><File Include="bin/telemetry.plugin" Into="plugins" /></RuntimeFiles></Plugin>
+    <Asset Name="Fonts"><File Include="assets/fonts/**" Into="fonts" /></Asset>
+  </Exports>
+</Package>)xml");
+  const auto package = ParseNewPackage(path);
+  REQUIRE(package.Succeeded());
+  const auto options = ResolvePackageOptions(*package.value, {});
+  const auto instance = TestPackageInstance(*package.value);
+
+  const auto defaults = ActivatePackageExports(*package.value, instance,
+                                               PackageActivationRequest{.options = options});
+  REQUIRE(defaults.Succeeded());
+  REQUIRE(defaults.exports == std::vector<std::string>{"Crypto"});
+  REQUIRE(defaults.contributions.size() == 1);
+  REQUIRE(defaults.capabilities.size() == 1);
+
+  const auto tls = ActivatePackageExports(
+      *package.value, instance,
+      PackageActivationRequest{.exports = {{.kind = ExportUseKind::Library, .name = "TLS"}},
+                               .options = options});
+  REQUIRE(tls.Succeeded());
+  REQUIRE(tls.exports == std::vector<std::string>{"Crypto", "TLS"});
+  REQUIRE(tls.contributions.size() == 2);
+  REQUIRE(std::ranges::none_of(tls.exports, [](const std::string &name) { return name == "Fonts"; }));
+
+  const auto plugin = ActivatePackageExports(
+      *package.value, instance,
+      PackageActivationRequest{.exports = {{.kind = ExportUseKind::Plugin, .name = "Telemetry"}},
+                               .options = options});
+  REQUIRE(plugin.Succeeded());
+  REQUIRE(plugin.exports == std::vector<std::string>{"Telemetry"});
+  REQUIRE(plugin.contributions.size() == 2);
+  REQUIRE(std::ranges::any_of(plugin.contributions, [](const PackageContribution &item) {
+    return item.kind == ContributionKind::RuntimeFile && item.owner == "Telemetry";
+  }));
+  const auto assets = ActivatePackageExports(
+      *package.value, instance,
+      PackageActivationRequest{.exports = {{.kind = ExportUseKind::Asset, .name = "Fonts"}},
+                               .options = options});
+  REQUIRE(assets.Succeeded());
+  REQUIRE(assets.exports == std::vector<std::string>{"Fonts"});
+  REQUIRE(std::ranges::any_of(assets.contributions, [](const PackageContribution &item) {
+    return item.kind == ContributionKind::AssetFile && item.owner == "Fonts";
+  }));
+}
+
+TEST_CASE("package activation requires an explicit Use when no default exists") {
+  TempDir temp{};
+  const auto path = temp.path() / "Explicit.nginpkg";
+  WriteFile(path, R"(<Package Name="Explicit" Version="1.0.0"><Exports><Library Name="Core" /></Exports></Package>)");
+  const auto package = ParseNewPackage(path);
+  REQUIRE(package.Succeeded());
+  const auto instance = TestPackageInstance(*package.value);
+  const auto options = ResolvePackageOptions(*package.value, {});
+  REQUIRE_FALSE(ActivatePackageExports(*package.value, instance,
+                                       PackageActivationRequest{.options = options}).Succeeded());
+  REQUIRE(ActivatePackageExports(
+              *package.value, instance,
+              PackageActivationRequest{.exports = {{.kind = ExportUseKind::Library, .name = "Core"}},
+                                       .options = options})
+              .Succeeded());
+  REQUIRE_FALSE(ActivatePackageExports(
+                    *package.value, instance,
+                    PackageActivationRequest{.exports = {{.kind = ExportUseKind::Library, .name = "Missing"}},
+                                             .options = options})
+                    .Succeeded());
+}
+
+TEST_CASE("typed package Options control restricted requirement predicates") {
+  TempDir temp{};
+  const auto path = temp.path() / "Options.nginpkg";
+  WriteFile(path, R"xml(<Package Name="Options" Version="1.0.0">
+  <Options><Boolean Name="Reflection" Default="false" Artifact="true" /></Options>
+  <Exports><Library Name="Core" Default="true"><Requires>
+    <When Option="Reflection" Equals="true">
+      <Package Name="Reflection.Api" Compatible="1" />
+      <Export Library="Reflection" />
+    </When>
+  </Requires></Library><Library Name="Reflection" /></Exports>
+</Package>)xml");
+  const auto package = ParseNewPackage(path);
+  REQUIRE(package.Succeeded());
+  const auto instance = TestPackageInstance(*package.value);
+  const auto disabled = ResolvePackageOptions(*package.value, {});
+  REQUIRE(disabled.Succeeded());
+  REQUIRE(disabled.artifactValues.at("Reflection") == R"({"type":"Boolean","value":false})");
+  const auto inactive = ActivatePackageExports(*package.value, instance,
+                                               PackageActivationRequest{.options = disabled});
+  REQUIRE(inactive.requirements.empty());
+  REQUIRE(inactive.exports == std::vector<std::string>{"Core"});
+
+  const auto enabled = ResolvePackageOptions(
+      *package.value, {{.name = "Reflection", .value = "true", .authority = AssignmentAuthority::Project}});
+  REQUIRE(enabled.Succeeded());
+  const auto active = ActivatePackageExports(*package.value, instance,
+                                             PackageActivationRequest{.options = enabled});
+  REQUIRE(active.Succeeded());
+  REQUIRE(active.requirements.size() == 1);
+  REQUIRE(active.exports == std::vector<std::string>{"Core", "Reflection"});
+  REQUIRE(std::get<SemanticPackageRequirement>(active.requirements[0]).visibility == RequirementVisibility::Public);
+
+  const auto conflict = ResolvePackageOptions(
+      *package.value,
+      {{.name = "Reflection", .value = "true", .authority = AssignmentAuthority::Project},
+       {.name = "Reflection", .value = "false", .authority = AssignmentAuthority::Project}});
+  REQUIRE_FALSE(conflict.Succeeded());
+}
+
+TEST_CASE("multiple package defaults form a set and export cycles report errors") {
+  TempDir temp{};
+  const auto defaultsPath = temp.path() / "Defaults.nginpkg";
+  WriteFile(defaultsPath, R"(<Package Name="Defaults" Version="1.0.0"><Exports>
+    <Library Name="A" Default="true" /><Library Name="B" Default="true" />
+  </Exports></Package>)");
+  const auto defaults = ParseNewPackage(defaultsPath);
+  REQUIRE(defaults.Succeeded());
+  const auto defaultActivation = ActivatePackageExports(
+      *defaults.value, TestPackageInstance(*defaults.value),
+      PackageActivationRequest{.options = ResolvePackageOptions(*defaults.value, {})});
+  REQUIRE(defaultActivation.Succeeded());
+  REQUIRE(defaultActivation.exports == std::vector<std::string>{"A", "B"});
+
+  const auto cyclePath = temp.path() / "Cycle.nginpkg";
+  WriteFile(cyclePath, R"(<Package Name="Cycle" Version="1.0.0"><Exports>
+    <Library Name="A" Default="true"><Requires><Export Library="B" /></Requires></Library>
+    <Library Name="B"><Requires><Export Library="A" /></Requires></Library>
+  </Exports></Package>)");
+  const auto cycle = ParseNewPackage(cyclePath);
+  REQUIRE(cycle.Succeeded());
+  const auto activation = ActivatePackageExports(
+      *cycle.value, TestPackageInstance(*cycle.value),
+      PackageActivationRequest{.options = ResolvePackageOptions(*cycle.value, {})});
+  REQUIRE_FALSE(activation.Succeeded());
+  REQUIRE(std::ranges::any_of(activation.diagnostics, [](const ManifestDiagnostic &diagnostic) {
+    return diagnostic.code == "NGIN4008" && diagnostic.message.find("A -> B -> A") != std::string::npos;
+  }));
+}
+
+TEST_CASE("package export names are unique across kinds and Compatibility gates activation") {
+  TempDir temp{};
+  const auto duplicatePath = temp.path() / "Duplicate.nginpkg";
+  WriteFile(duplicatePath, R"(<Package Name="Duplicate" Version="1.0.0"><Exports>
+    <Library Name="Core" /><Plugin Name="Core" />
+  </Exports></Package>)");
+  REQUIRE_FALSE(ParseNewPackage(duplicatePath).Succeeded());
+
+  const auto gatedPath = temp.path() / "Gated.nginpkg";
+  WriteFile(gatedPath, R"(<Package Name="Gated" Version="1.0.0">
+    <Exports><Library Name="Core" Default="true" /></Exports>
+    <Compatibility><Target OS="linux" Architecture="x64" /><Toolchain Compiler="clang" /></Compatibility>
+  </Package>)");
+  const auto gated = ParseNewPackage(gatedPath);
+  REQUIRE(gated.Succeeded());
+  const auto options = ResolvePackageOptions(*gated.value, {});
+  const auto instance = TestPackageInstance(*gated.value);
+  REQUIRE(ActivatePackageExports(
+              *gated.value, instance,
+              PackageActivationRequest{.selection = SelectionFacts{
+                                           .target = Target{.operatingSystem = "linux", .architecture = "x64"},
+                                           .toolchain = Toolchain{.compiler = "clang"}},
+                                       .options = options})
+              .Succeeded());
+  REQUIRE_FALSE(ActivatePackageExports(
+                    *gated.value, instance,
+                    PackageActivationRequest{.selection = SelectionFacts{
+                                                 .target = Target{.operatingSystem = "windows", .architecture = "x64"},
+                                                 .toolchain = Toolchain{.compiler = "msvc"}},
+                                             .options = options})
+                    .Succeeded());
+}
+
+TEST_CASE("package and Capability requirements use one unambiguous Version form") {
+  TempDir temp{};
+  const auto packagePath = temp.path() / "VersionForms.nginpkg";
+  WriteFile(packagePath, R"(<Package Name="VersionForms" Version="1.0.0">
+    <Requires><Package Name="Dependency" Exact="1.0.0" Compatible="1" /></Requires>
+    <Exports><Library Name="Core" Default="true" /></Exports>
+  </Package>)");
+  const auto package = ParseNewPackage(packagePath);
+  REQUIRE_FALSE(package.Succeeded());
+  REQUIRE(std::ranges::any_of(package.diagnostics, [](const ManifestDiagnostic &diagnostic) {
+    return diagnostic.code == "NGIN2004";
+  }));
+
+  const auto capabilityPath = temp.path() / "CapabilityVersion.nginpkg";
+  WriteFile(capabilityPath, R"(<Package Name="CapabilityVersion" Version="1.0.0">
+    <Requires><Capability Name="Example.Link" Domain="Link" /></Requires>
+    <Exports><Library Name="Core" Default="true" /></Exports>
+  </Package>)");
+  const auto capability = ParseNewPackage(capabilityPath);
+  REQUIRE_FALSE(capability.Succeeded());
+  REQUIRE(std::ranges::any_of(capability.diagnostics, [](const ManifestDiagnostic &diagnostic) {
+    return diagnostic.code == "NGIN4003";
+  }));
+}
 
 #ifndef _WIN32
 #include <arpa/inet.h>

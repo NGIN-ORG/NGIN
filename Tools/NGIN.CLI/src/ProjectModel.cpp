@@ -1,4 +1,5 @@
 #include "ProjectModel.hpp"
+#include "SemanticAuthoring.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -93,137 +94,7 @@ namespace NGIN::CLI
         auto ParseOptions(const AuthoredElement &options, SemanticProject &project,
                           std::vector<ManifestDiagnostic> &diagnostics) -> void
         {
-            for (const auto &node : options.children)
-            {
-                OptionDefinition definition{.name = AttributeValue(node, "Name"), .source = node.source};
-                const auto defaultValue = AttributeValue(node, "Default");
-                if (node.name == "Boolean") definition.type = OptionType::Boolean;
-                else if (node.name == "Enum")
-                {
-                    definition.type = OptionType::Enumeration;
-                    for (const auto &value : node.children) definition.allowedValues.insert(AttributeValue(value, "Name"));
-                }
-                else if (node.name == "String")
-                {
-                    definition.type = OptionType::String;
-                    for (const auto &value : node.children) definition.allowedValues.insert(AttributeValue(value, "Name"));
-                }
-                else if (node.name == "Integer")
-                {
-                    definition.type = OptionType::Integer;
-                    definition.minimum = ParseInteger(AttributeValue(node, "Min"));
-                    definition.maximum = ParseInteger(AttributeValue(node, "Max"));
-                    if (definition.minimum.has_value() && definition.maximum.has_value() &&
-                        *definition.minimum > *definition.maximum)
-                        AddError(diagnostics, "NGIN3001", "Option '" + definition.name + "' has Min greater than Max",
-                                 node.source);
-                }
-                else definition.type = OptionType::Path;
-                definition.artifact = BoolAttributeValue(node, "Artifact");
-                const auto parsedDefault = ParseOptionValue(definition, defaultValue, node.source);
-                if (!parsedDefault.Succeeded())
-                    diagnostics.insert(diagnostics.end(), parsedDefault.diagnostics.begin(), parsedDefault.diagnostics.end());
-                else
-                    definition.defaultValue = *parsedDefault.value;
-                if (const auto [existing, inserted] = project.options.emplace(definition.name, definition); !inserted)
-                    AddError(diagnostics, "NGIN3001", "duplicate Option declaration '" + definition.name + "'",
-                             node.source, {existing->second.source});
-            }
-        }
-
-        [[nodiscard]] auto CompatibleConstraint(const std::string_view value, const ManifestSourceRange &source)
-            -> std::optional<SourcedVersionConstraint>
-        {
-            std::vector<std::uint64_t> parts{};
-            std::size_t start = 0;
-            while (start <= value.size())
-            {
-                const auto dot = value.find('.', start);
-                const auto text = value.substr(start, dot == std::string_view::npos ? value.size() - start : dot - start);
-                std::uint64_t part{};
-                const auto parsed = std::from_chars(text.data(), text.data() + text.size(), part);
-                if (text.empty() || parsed.ec != std::errc{} || parsed.ptr != text.data() + text.size()) return std::nullopt;
-                parts.push_back(part);
-                if (dot == std::string_view::npos) break;
-                start = dot + 1;
-            }
-            if (parts.empty() || parts.size() > 3) return std::nullopt;
-            SemanticVersion lower{.major = parts[0], .minor = parts.size() > 1 ? parts[1] : 0,
-                                  .patch = parts.size() > 2 ? parts[2] : 0};
-            SemanticVersion upper{};
-            if (lower.major > 0)
-                upper.major = lower.major + 1;
-            else if (parts.size() > 1 && lower.minor > 0)
-                upper = SemanticVersion{.major = 0, .minor = lower.minor + 1};
-            else if (parts.size() > 2)
-                upper = SemanticVersion{.major = 0, .minor = 0, .patch = lower.patch + 1};
-            else
-                upper = SemanticVersion{.major = 1};
-            return SourcedVersionConstraint{.lower = VersionBoundary{lower, true},
-                                            .upper = VersionBoundary{upper, false},
-                                            .source = source,
-                                            .description = "Compatible=" + std::string(value)};
-        }
-
-        [[nodiscard]] auto ParseVersionConstraint(const AuthoredElement &node,
-                                                  std::vector<ManifestDiagnostic> &diagnostics)
-            -> std::optional<SourcedVersionConstraint>
-        {
-            if (const auto exact = AttributeValue(node, "Exact"); !exact.empty())
-            {
-                const auto version = ParseSemanticVersion(exact);
-                if (!version.has_value()) return std::nullopt;
-                return SourcedVersionConstraint{.lower = VersionBoundary{*version, true},
-                                                .upper = VersionBoundary{*version, true},
-                                                .source = node.source,
-                                                .description = "Exact=" + exact};
-            }
-            if (const auto compatible = AttributeValue(node, "Compatible"); !compatible.empty())
-                return CompatibleConstraint(compatible, node.source);
-            const auto versionNode = std::ranges::find_if(node.children, [](const AuthoredElement &child) {
-                return child.name == "Version";
-            });
-            if (versionNode == node.children.end()) return std::nullopt;
-            SourcedVersionConstraint constraint{.source = versionNode->source, .description = "structured Version"};
-            const auto lower = [&](const std::string_view name, const bool inclusive) {
-                if (const auto text = AttributeValue(*versionNode, name); !text.empty())
-                {
-                    const auto parsed = ParseSemanticVersion(text);
-                    if (parsed.has_value())
-                    {
-                        const VersionBoundary candidate{*parsed, inclusive};
-                        if (!constraint.lower.has_value() || constraint.lower->version < candidate.version)
-                            constraint.lower = candidate;
-                        else if (constraint.lower->version == candidate.version)
-                            constraint.lower->inclusive = constraint.lower->inclusive && candidate.inclusive;
-                    }
-                }
-            };
-            lower("AtLeast", true);
-            lower("After", false);
-            const auto upper = [&](const std::string_view name, const bool inclusive) {
-                if (const auto text = AttributeValue(*versionNode, name); !text.empty())
-                {
-                    const auto parsed = ParseSemanticVersion(text);
-                    if (parsed.has_value())
-                    {
-                        const VersionBoundary candidate{*parsed, inclusive};
-                        if (!constraint.upper.has_value() || candidate.version < constraint.upper->version)
-                            constraint.upper = candidate;
-                        else if (constraint.upper->version == candidate.version)
-                            constraint.upper->inclusive = constraint.upper->inclusive && candidate.inclusive;
-                    }
-                }
-            };
-            upper("AtMost", true);
-            upper("Before", false);
-            const auto intersection = IntersectVersionConstraints("authored Version", {constraint});
-            if (!intersection.Succeeded())
-            {
-                diagnostics.insert(diagnostics.end(), intersection.diagnostics.begin(), intersection.diagnostics.end());
-                return std::nullopt;
-            }
-            return constraint;
+            project.options = ParseOptionDefinitions(options, diagnostics);
         }
 
         [[nodiscard]] auto UseKind(const AuthoredElement &use) -> std::optional<ExportUseKind>
@@ -245,15 +116,12 @@ namespace NGIN::CLI
                 if (node.name == "Package")
                 {
                     PackageDependencyRequest request{
-                        .coordinate = PackageCoordinate{.name = AttributeValue(node, "Name")},
-                        .constraint = ParseVersionConstraint(node, diagnostics),
+                        .name = AttributeValue(node, "Name"),
+                        .constraint = ParseAuthoredVersionConstraint(node, AttributeValue(node, "Name"), diagnostics),
                         .context = context,
                         .owner = owner,
                         .source = node.source,
                     };
-                    request.coordinate.versionConstraint = request.constraint.has_value()
-                                                               ? request.constraint->description
-                                                               : std::string{};
                     for (const auto &child : node.children)
                     {
                         if (child.name == "Use")
